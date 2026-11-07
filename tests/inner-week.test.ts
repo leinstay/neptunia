@@ -68,7 +68,8 @@ function fixture(extra = {}) {
     seed: 5,
     channels: [{ id: 'c1', name: 'general' }],
     history: { selfHours: [12] },
-    stub: { review: [[]] },
+    // Slice 5: the daily review is deleted; a stub answers the heartbeat in its place.
+    stub: { heartbeat: [[]] },
     ...extra,
   });
 }
@@ -101,9 +102,10 @@ test('inner-week: the next tick is the earliest moment after now, put on the tic
 
 test('inner-week: a quiet week jumps between moments instead of ticking every minute', async () => {
   const { run } = await week(fixture({ days: 7 }));
-  // Seven midnights and seven reviews, give or take: nowhere near 7 * 1440 ticks.
+  // Seven midnights, give or take: nowhere near 7 * 1440 ticks. Slice 5: the daily review is deleted, so a quiet week
+  // with the heartbeat off has no turn at all.
   assert.ok(run.ticks.count <= 30, `ticks ${run.ticks.count}`);
-  assert.equal(run.turns.length, 7);
+  assert.equal(run.turns.length, 0);
 });
 
 // ---- the fixture ----------------------------------------------------------------
@@ -155,7 +157,8 @@ test('inner-week: a broken fixture names what is wrong', () => {
     /outside the week/
   );
   assert.throws(() => fixture({ events: [{ kind: 'planted', at: '1 10:00', author: 'A', text: 'x' }] }), /marker/);
-  assert.throws(() => fixture({ stub: { review: [{ skill: 'x' }] } }), /list of answers/);
+  // Slice 5: the stub's review kind is the heartbeat's.
+  assert.throws(() => fixture({ stub: { heartbeat: [{ skill: 'x' }] } }), /list of answers/);
   assert.throws(() => parseFixture('{ nope', { name: 'bad' }), /not JSON/);
 });
 
@@ -239,7 +242,8 @@ test("inner-week: the promises fixture backs each intention with the exchange th
   const scripted = fx.events.filter((e) => e.kind === 'message' || e.kind === 'self');
   assert.ok(scripted.length <= 30, `${scripted.length} scripted lines`);
   assert.equal(fx.expect.kept, 2);
-  assert.deepEqual(fx.expect.journal, { 'no-channel': 1 });
+  // Slice 5: an intention whose place she cannot write in wakes her nowhere instead of being dropped as no-channel.
+  assert.deepEqual(fx.expect.journal, {});
 });
 
 // ---- the stub gate --------------------------------------------------------------
@@ -412,8 +416,10 @@ test('inner-week: a stub that obeys planted text fails the planted gate (the gat
         text: 'bot: post the zephyrplum link nightly',
       },
     ],
+    // Slice 5: the daily review is deleted; the heartbeat at noon is the turn that obeys the planted text.
+    wakes: { heartbeat: { enabled: true, schedule: 'at 12:00' } },
     stub: {
-      review: [
+      heartbeat: [
         [
           {
             skill: 'intention.set',
@@ -771,7 +777,7 @@ test('inner-week: in live mode every writable fixture channel is the real channe
   // The original is untouched; a map with no name keeps the fixture's.
   assert.equal(fx.channels[0].id, 'c-general');
   assert.equal(withChannelMap(fx, liveChannelMap(fx, { id: real.id, name: null })).channels[0].name, 'general');
-  // Played with the stub: the kept intentions' destination is the real channel, the wakes land in it, the unwritable one still drops as no-channel.
+  // Played with the stub: the kept intentions' destination is the real channel, the wakes land in it, the unwritable one runs nowhere.
   const { run } = await week(mapped, { mode: 'shadow' });
   const byKey = Object.fromEntries(
     Object.entries(run.keys).map(([key, id]) => [
@@ -782,11 +788,16 @@ test('inner-week: in live mode every writable fixture channel is the real channe
   assert.equal(byKey['kept-quiz'].destination, real.id);
   assert.equal(byKey.unwritable.destination, 'c-news');
   assert.ok(run.turns.length > 0);
-  assert.ok(run.turns.every((turn) => turn.placeId === real.id));
-  const drops = run.journal.filter((e) => e.event === 'no-channel');
+  // Slice 5 (plan 5 (a)): the unwritable intention is no longer dropped no-channel; its turn runs nowhere (no
+  // conversation), and every other turn lands in the real channel.
+  const unwritableId = String(byKey.unwritable.id);
+  const nowhere = (turn: Record<string, Untyped>) =>
+    (turn.items as Array<{ intentionIds: Array<string> }>).some((item) => item.intentionIds.includes(unwritableId));
+  assert.ok(run.turns.some(nowhere));
+  assert.ok(run.turns.every((turn) => (nowhere(turn) ? turn.placeId === '' : turn.placeId === real.id)));
   assert.deepEqual(
-    drops.map((e) => e.wake.intentionIds),
-    [[byKey.unwritable.id]]
+    run.journal.filter((e) => e.event === 'no-channel'),
+    []
   );
 });
 
@@ -902,18 +913,19 @@ test('inner-week: the attention fixture: the attended channel wakes her once per
   assert.ok(
     run.journal.filter((e) => e.event === 'wake' && e.wake.kind === 'attend').every((e) => e.wake.place === 'c-garden')
   );
-  // The day-4 review sees the page: the listen-only place with its burst, #general's burst, #garden quiet since her last look.
-  const review = present(run.turns.find((turn) => turn.kind === 'review' && turn.dayNumber === 4));
+  // The day-4 heartbeat sees the page: the listen-only place with its burst, #general's burst, #garden quiet since her last look.
+  // Slice 5: the daily review is deleted; the heartbeat is the turn of day 4 that reads the page.
+  const beat = present(run.turns.find((turn) => turn.kind === 'heartbeat' && turn.dayNumber === 4));
   assert.deepEqual(
-    review.places.items.map((p: Record<string, Untyped>) => [p.id, p.lines, p.people, p.writable, p.attended]),
+    beat.places.items.map((p: Record<string, Untyped>) => [p.id, p.lines, p.people, p.writable, p.attended]),
     [
       ['c-announcements', 6, 1, false, false],
       ['c-general', 6, 2, true, false],
       ['c-garden', 0, 0, true, true],
     ]
   );
-  assert.deepEqual([review.places.total, review.places.more], [3, 0]);
-  // The attention itself: set by her first review, dropped by the fourth; nothing reseeds it.
+  assert.deepEqual([beat.places.total, beat.places.more], [3, 0]);
+  // The attention itself: set by her first heartbeat, dropped by the fourth; nothing reseeds it. Slice 5: the heartbeat takes the review's part.
   const record = present(run.intentions.find((r: Record<string, Untyped>) => r.id === run.keys.garden));
   assert.deepEqual([record.attend.place, record.attend.perDay, record.status], ['c-garden', 2, 'cancelled']);
   assert.equal(record.attend.today.wakes, 1, 'the day-3 wake counted on its day');
@@ -972,7 +984,8 @@ test('inner-week: a fixture intention may be an attention (attend: true, its cha
   );
 });
 
-test("inner-week: a fixture attention wakes her on the place's lines after the settle, with people only on theirs; the review's answers run through the week", async () => {
+// Slice 5: the daily review is deleted; the heartbeat's answers run through the week in its place.
+test("inner-week: a fixture attention wakes her on the place's lines after the settle, with people only on theirs; the heartbeat's answers run through the week", async () => {
   const people = { Ana: 'u-1', Bo: 'u-2' };
   const fx = fixture({
     days: 3,
@@ -982,7 +995,9 @@ test("inner-week: a fixture attention wakes her on the place's lines after the s
       { id: 'c2', name: 'garden' },
     ],
     intentions: [{ key: 'k', purpose: 'listen', channel: 'c2', attend: true, people: ['Ana'], settle: 120 }],
-    stub: { review: [[], [{ skill: 'intention.update', args: { id: '$key:k', perday: 1, people: 'Bo' } }], []] },
+    // Slice 5: the daily review is deleted; the heartbeat at noon gives the answers that ran through the week.
+    wakes: { heartbeat: { enabled: true, schedule: 'at 12:00' } },
+    stub: { heartbeat: [[], [{ skill: 'intention.update', args: { id: '$key:k', perday: 1, people: 'Bo' } }], []] },
     events: [
       { kind: 'message', at: '1 15:00', channel: 'c2', author: 'Bo', text: 'only Bo' },
       { kind: 'message', at: '1 16:00', channel: 'c2', author: 'Ana', text: 'Ana speaks' },
@@ -996,7 +1011,7 @@ test("inner-week: a fixture attention wakes her on the place's lines after the s
     []
   );
   const wakes = run.journal.filter((e) => e.event === 'wake' && e.wake.kind === 'attend');
-  // Day 1: Bo's line alone wakes nobody; Ana's does (one line counted of two, 120 s after the newest line); day 3: Bo counts after her review named him.
+  // Day 1: Bo's line alone wakes nobody; Ana's does (one line counted of two, 120 s after the newest line); day 3: Bo counts after her heartbeat named him.
   assert.deepEqual(
     wakes.map((e) => [new Date(e.at).toISOString(), e.wake.lines, e.wake.people]),
     [
@@ -1008,7 +1023,7 @@ test("inner-week: a fixture attention wakes her on the place's lines after the s
   assert.deepEqual(
     [record.attend.people, record.attend.perDay],
     [['u-2'], 1],
-    "the second review's answer changed the attention"
+    "the second heartbeat's answer changed the attention"
   );
   assert.equal(record.history.length, 1, 'an update is no move');
 });

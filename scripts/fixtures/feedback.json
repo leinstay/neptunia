@@ -5,13 +5,14 @@
   "days": 2,
   "timezone": "UTC",
   "seed": 11,
+  "wakes": { "heartbeat": { "enabled": true, "schedule": "at 21:00" } },
   "channels": [
     { "id": "c-general", "name": "general" }
   ],
   "people": { "Ivo": "u-201" },
   "history": { "selfHours": [9, 21], "channel": "c-general" },
   "stub": {
-    "review": [[]],
+    "heartbeat": [[]],
     "feedback": [[{ "skill": "message.create", "args": { "channel": "$channel", "text": "here is the cat meme, for real this time" } }]]
   },
   "intentions": [

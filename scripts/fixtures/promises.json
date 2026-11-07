@@ -1,6 +1,6 @@
 {
   "name": "promises",
-  "description": "Four promises, each made in a scripted exchange on day 1: two kept at their due time, one forgotten (silence, then it expires), one meant for a channel she cannot write in (dropped as no-channel, journalled).",
+  "description": "Four promises, each made in a scripted exchange on day 1: two kept at their due time, one forgotten (silence, then it expires), one meant for a channel she cannot write in (it wakes her nowhere with the failure named, and she lets it be).",
   "start": "2026-11-02",
   "days": 7,
   "timezone": "UTC",
@@ -102,7 +102,12 @@
       "channel": "c-news",
       "at": "1 18:02",
       "span": "will do, I will announce the game night in announcements on Friday evening",
-      "due": "5 18:00"
+      "due": "5 18:00",
+      "stub": {
+        "intention_due": [
+          []
+        ]
+      }
     }
   ],
   "events": [
@@ -191,9 +196,6 @@
     }
   ],
   "expect": {
-    "kept": 2,
-    "journal": {
-      "no-channel": 1
-    }
+    "kept": 2
   }
 }

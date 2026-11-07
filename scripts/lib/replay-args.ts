@@ -18,11 +18,11 @@ export const USAGE =
   '       node scripts/replay.ts --pair-transport (--triggers <file> | <placeId> <triggerMessageId>) [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --loop-triggers (--triggers <file> | <placeId> <triggerMessageId>) [--transport native|text] [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --selfreflection-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
-  '       node scripts/replay.ts --inner <intention_due|errand_deadline|review|heartbeat> [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...\n' +
+  '       node scripts/replay.ts --inner <intention_due|errand_deadline|heartbeat> [--intention <id>] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...\n' +
   '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-first-only] [--answers-all] [--answers-timeout-min 20]])';
 
 /** The wake kinds `--inner` runs (src/behavior/inner.ts#WAKE_KINDS). */
-export const INNER_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'review', 'heartbeat']);
+export const INNER_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'heartbeat']);
 
 /** An intention id (src/intentions/model.ts#newIntentionId). */
 export const INTENTION_ID = /^[A-Za-z0-9_-]{1,20}$/;
@@ -113,7 +113,6 @@ export type ReplayArgs = {
   noCache: boolean;
   inner: string | null;
   intention: string | null;
-  review: boolean;
   hideChannels: Array<string>;
   hideMessages: Array<string>;
   answersDir: string | null;
@@ -190,7 +189,6 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     noCache: false,
     inner: null,
     intention: null,
-    review: false,
     hideChannels: [],
     hideMessages: [],
     answersDir: null,
@@ -245,8 +243,7 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
       const id = argv[(i += 1)];
       if (!INTENTION_ID.test(id ?? '')) throw new CliError(USAGE);
       out.intention = id;
-    } else if (arg === '--review') out.review = true;
-    else if (arg === '--seed') {
+    } else if (arg === '--seed') {
       const seed = pathValue(argv[(i += 1)]);
       if (seed.length > MAX_SEED_CHARS) throw new CliError(USAGE);
       out.seed = seed;
@@ -288,14 +285,11 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
   // --no-cache: the trigger runs send her requests with the prompt-cache marker a live turn has; this one sends none.
   if (out.noCache && !(out.pairTransport || out.loopTriggers)) throw new CliError(USAGE);
   if (out.inner !== null) {
-    // --intention for an intention's wake, --review only with the review (the heartbeat takes neither); --snapshot, --show-request,
-    // --samples, --prompts, --out and --spend; no positionals.
-    const review = out.inner === 'review';
-    const bare = review || out.inner === 'heartbeat';
+    // --intention for an intention's wake (the heartbeat takes none); --snapshot, --show-request, --samples, --prompts,
+    // --out and --spend; no positionals.
     if (
       positional.length > 0 ||
-      (bare ? out.intention !== null : out.intention === null || out.review) ||
-      (out.review && !review) ||
+      (out.inner === 'heartbeat' ? out.intention !== null : out.intention === null) ||
       out.selfreflectionDay ||
       out.selfreflection !== null ||
       out.skills !== null ||
@@ -325,10 +319,9 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     ) {
       throw new CliError(USAGE);
     }
-    return { ...out, review, samples: out.samples ?? 1, placeId: null, triggerId: null };
+    return { ...out, samples: out.samples ?? 1, placeId: null, triggerId: null };
   }
-  if (out.intention !== null || out.review || out.hideChannels.length > 0 || out.hideMessages.length > 0)
-    throw new CliError(USAGE);
+  if (out.intention !== null || out.hideChannels.length > 0 || out.hideMessages.length > 0) throw new CliError(USAGE);
   if (out.selfreflectionDay) {
     // The day flags, --out and --spend only; no positionals; --max-pictures with --draw live only.
     if (

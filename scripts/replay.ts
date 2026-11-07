@@ -55,14 +55,12 @@
 //        [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts --selfreflection-day [--seed <text>] [--date YYYY-MM-DD]
 //        [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]
-//   cd /opt/neptunia/app && node scripts/replay.ts --inner <intention_due|errand_deadline|review|heartbeat>
-//        [--intention <id> | --review] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--answers-dir <dir>]
+//   cd /opt/neptunia/app && node scripts/replay.ts --inner <intention_due|errand_deadline|heartbeat>
+//        [--intention <id>] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--answers-dir <dir>]
 //
 // `--inner <kind>`: the inner turn the scheduler would run for one wake, against the live data
 // (or `--snapshot`) read only: `--intention <id>` names the intention of an `intention_due` or
-// `errand_deadline` wake (required for those), `--review` (or the kind `review`) the day's
-// review, in the channel she was last active in (the review's stored channels, else her own
-// lines of the last `wakes.review.historyDays` in the record). Its `<wake>` carries what is
+// `errand_deadline` wake (required for those), in the intention's destination. Its `<wake>` carries what is
 // left of her caps as data/guilds/<id>/inner.json has them now. The real turn runner over
 // Discord REST (GET only, every write refused), an in-memory port and an unflushed copy of the
 // memory store; `wakes.mode` forced to `shadow`, so her reads run (on the simulator key)
@@ -73,8 +71,8 @@
 // `--inner heartbeat`: the heartbeat's turn. The wake is built by the scheduler itself (a real
 // src/behavior/inner.ts life over a throwaway copy of inner.json, with a turn runner that only
 // records the wake and the conversation it was handed), so its `<wake>` is the one the live
-// heartbeat would carry now: the heartbeat view over the stores, read only. Takes neither
-// `--intention` nor `--review`. Every `--inner` kind takes `--samples n` (n independent runs of
+// heartbeat would carry now, and like the live one it runs nowhere (no conversation). Takes no
+// `--intention`. Every `--inner` kind takes `--samples n` (n independent runs of
 // the same request, one after another, default 1), `--prompts <dir>` (a prompt layer laid over
 // the live prompts.local/ as `--selfreflection --prompts` does: a directory holding only heartbeat.md
 // replaces only that file, so a variant of the task text is tried without a deploy) and
@@ -2240,21 +2238,17 @@ export function innerReplayHot(hot: Untyped): Rec {
 /**
  * The wake an `--inner` turn runs for, as the scheduler's drain builds it
  * (src/behavior/inner.ts#createInnerLife): the intention's wake (`intention`, for
- * `intention_due` / `errand_deadline`) or the day's review, the review's channel names. `inner` is
- * src/behavior/inner.ts's module. Pure.
+ * `intention_due` or `errand_deadline`). `inner` is src/behavior/inner.ts's module. Pure.
  */
-export function innerReplayWake({ inner, kind, intention = null, now, timezone, day, channelNames = [] }: Rec): {
+export function innerReplayWake({ inner, kind, intention = null, now, timezone }: Rec): {
   wake: Untyped;
   info: WakeInfo;
 } {
-  const wake =
-    kind === 'review'
-      ? inner.reviewWake(day, now)
-      : inner.wakeOfDue({
-          intention,
-          reason: kind === 'errand_deadline' ? 'wait-deadline' : 'due',
-          at: Number.isFinite(intention?.dueAt) ? intention.dueAt : now,
-        });
+  const wake = inner.wakeOfDue({
+    intention,
+    reason: kind === 'errand_deadline' ? 'wait-deadline' : 'due',
+    at: Number.isFinite(intention?.dueAt) ? intention.dueAt : now,
+  });
   return {
     wake,
     info: {
@@ -2265,7 +2259,7 @@ export function innerReplayWake({ inner, kind, intention = null, now, timezone, 
       intentions: intention ? [intention] : [],
       now,
       timezone,
-      channels: kind === 'review' ? channelNames : [],
+      channels: [],
       chainId: wake.chainId,
     },
   };
@@ -2402,14 +2396,6 @@ function replayInnerSources({
   });
 }
 
-/** Her own `said` lines since `from`, newest first, from a record read by a query alone. */
-async function ownSaidLines(record: Rec, from: string): Promise<Array<Untyped>> {
-  const own: Array<Untyped> = [];
-  for await (const line of record.iterate({ from }))
-    if (line?.kind === 'said' && typeof line.scope?.channel === 'string') own.push(line);
-  return own.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
-}
-
 /** The places list without the hidden channels (the channel directory is another list and stays whole). */
 export function hiddenPlaces(places: unknown, hide: Rec): (...args: Array<Untyped>) => Array<Rec> {
   const listed = places as (...args: Array<Untyped>) => Array<Rec>;
@@ -2422,12 +2408,12 @@ export function hiddenPlaces(places: unknown, hide: Rec): (...args: Array<Untype
  * over a throwaway data directory holding a copy of the guild's inner.json (`dataDir` is only read), the
  * stores and sources it was given, the heartbeat wake queued for `now` and one drain; its turn runner only
  * records what it was handed (the `<wake>` facts, the conversation, the current channel) and ends the turn
- * as a skip. So the facts are the ones the live heartbeat would carry now (heartbeat-view.ts over the
- * stores). Nothing is written under `dataDir`; the throwaway directory is removed. A CliError when the drain
- * ran no turn (stopped, paused, no conversation).
+ * as a skip. So the facts are the ones the live heartbeat would carry now, with no conversation, since a heartbeat
+ * runs nowhere. Nothing is written under `dataDir`; the throwaway directory is removed. A CliError when the drain
+ * ran no turn (stopped, paused).
  * @param input.inner src/behavior/inner.ts's module.
  * @param input.deps The createInnerLife options besides hot, dataDir and turns:
- *   intentions, record, journal (reads only), places, nameOf, reads, iface, store, heartbeat.
+ *   intentions, record, journal (reads only), places, nameOf, reads, iface, store.
  * @param input.tmpRoot Where the throwaway directory is made (default the OS temp directory).
  */
 export async function heartbeatReplayWake({
@@ -2450,7 +2436,7 @@ export async function heartbeatReplayWake({
   log?: Rec;
 }): Promise<{
   info: WakeInfo;
-  conversation: { iface: string; conversationId: string };
+  conversation: { iface: string; conversationId: string } | null;
   currentChannel: string | null;
 }> {
   const scratch = fs.mkdtempSync(path.join(tmpRoot, 'replay-heartbeat-'));
@@ -2496,10 +2482,7 @@ export async function heartbeatReplayWake({
       throw new CliError(`replay-cli: the heartbeat wake was not queued (${queued?.status ?? 'unknown'})`);
     const drained = await life.drain();
     if (!seen) {
-      const why =
-        drained?.deferred ??
-        drained?.refused ??
-        (drained?.dropped ? 'no conversation (no channel she spoke in lately that she can write in)' : 'nothing ran');
+      const why = drained?.deferred ?? drained?.refused ?? (drained?.dropped ? 'dropped' : 'nothing ran');
       throw new CliError(`replay-cli: the scheduler would not run the heartbeat now: ${why}`);
     }
     return seen;
@@ -2676,8 +2659,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
   };
   await load('tools/impl/index.ts');
   const { createJournal } = await load('memory/journal.ts');
-  const { grantedSkillNames } = await load('tools/discovery.ts');
-  const { PROFILES: AGENT_PROFILES } = await load('agent-runner/profiles.ts');
   const { deepMerge } = await load('config.ts');
   const {
     createStore,
@@ -2768,16 +2749,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       hot,
       tasks: { store: () => taskStore },
     });
-    let innerState = mods.emptyState();
-    try {
-      innerState = mods.normalizeState(
-        JSON.parse(fs.readFileSync(path.join(dataDir, 'guilds', placeId, 'inner.json'), 'utf8'))
-      );
-    } catch (err: Untyped) {
-      if (err?.code !== 'ENOENT')
-        log.warn('replay-cli: inner.json unreadable, budgets from an empty state', { code: err?.code ?? 'parse' });
-    }
-
     const sources = replayInnerSources({ mods: { ...mods, createJournal }, dataDir, log, store, placeId, hide });
     const now = Date.now();
     let intention = null;
@@ -2785,7 +2756,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     let info = null;
     let currentChannel;
     if (args.inner === 'heartbeat') {
-      // The scheduler builds it: the heartbeat view over the stores as they are, in the conversation it picks.
+      // The scheduler builds it over the stores as they are; it runs nowhere.
       if (!settings.heartbeat.enabled)
         log.warn('replay-cli: heartbeat.enabled is off; the live scheduler would not wake her', {});
       // A pause of hers would hold the live drain; a preview is wanted anyway (the copy of the store is not written).
@@ -2827,60 +2798,27 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
           reads,
           iface: () => discordPort.iface,
           store: schedulerStore,
-          heartbeat: {
-            tasks: () => taskStore.recent(100),
-            skills: () => grantedSkillNames({ config: hot.config, selfId: self.id, registry: skillRegistry() }),
-            agents: () => Object.keys(AGENT_PROFILES),
-            selfId: () => self.id,
-          },
         },
       });
       ({ info, conversation, currentChannel } = caught);
     } else {
-      let conversationIds = [];
-      if (args.inner !== 'review') {
-        intention = intentions.store()?.get(args.intention) ?? null;
-        if (!intention) throw new CliError(`replay-cli: no intention ${args.intention}`);
-        if (!['pending', 'waiting'].includes(intention.status))
-          log.warn('replay-cli: the intention is not open; the scheduler would not wake her for it', {
-            status: intention.status,
-          });
-        const privateChat = intention.provenance?.scope === 'dm';
-        const target = privateChat
-          ? intention.provenance?.placeId
-          : (intention.destination ?? intention.provenance?.placeId);
-        if (target) conversationIds = [String(target)];
-      } else {
-        conversationIds = innerState.review?.channels ?? [];
-        if (conversationIds.length === 0) {
-          const from = new Date(now - settings.review.historyDays * 86_400_000).toISOString();
-          const own = await ownSaidLines(sources.record, from);
-          conversationIds = [...new Set(own.map((line) => line.scope.channel))].slice(0, 3);
-        }
-      }
-      for (const id of conversationIds) {
-        const found = await client.channels.fetch(id).catch(() => null);
-        if (found) {
-          conversation = conversationRef(found);
-          break;
-        }
-      }
+      intention = intentions.store()?.get(args.intention) ?? null;
+      if (!intention) throw new CliError(`replay-cli: no intention ${args.intention}`);
+      if (!['pending', 'waiting'].includes(intention.status))
+        log.warn('replay-cli: the intention is not open; the scheduler would not wake her for it', {
+          status: intention.status,
+        });
+      const privateChat = intention.provenance?.scope === 'dm';
+      const target = privateChat
+        ? intention.provenance?.placeId
+        : (intention.destination ?? intention.provenance?.placeId);
+      const found = target ? await client.channels.fetch(String(target)).catch(() => null) : null;
+      if (found) conversation = conversationRef(found);
       if (!conversation)
         throw new CliError(
-          'replay-cli: no conversation for this wake (its channel is gone, or she has no recent line)'
+          'replay-cli: no conversation for this wake (the intention names no channel, or its channel is gone)'
         );
-      const channelNames = conversationIds.map((id: string) => cachedChannel(client, id)?.name ?? null).filter(Boolean);
-      info = innerReplayWake({
-        inner: mods,
-        kind: args.inner,
-        intention,
-        state: innerState,
-        settings,
-        now,
-        timezone,
-        day: mods.zonedDay(now, timezone),
-        channelNames,
-      }).info;
+      info = innerReplayWake({ inner: mods, kind: args.inner, intention, now, timezone }).info;
     }
 
     // The engine, wired as src/index.js wires it: her skills through a real admin over the copies.
@@ -2923,7 +2861,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     });
     log.info('replay-cli: inner ready', {
       placeId,
-      conversationId: conversation.conversationId,
+      conversationId: conversation?.conversationId ?? null,
       kind: args.inner,
       intention: intention?.id ?? null,
       samples: args.samples,
@@ -3009,7 +2947,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     const report = {
       kind: args.inner,
       intention: intention?.id ?? null,
-      placeId: conversation.conversationId,
+      placeId: conversation?.conversationId ?? null,
       hidden: hide.any ? { channels: [...hide.channels], messages: [...hide.messages] } : null,
       wake: blocks.wake ?? null,
       request: {

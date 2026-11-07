@@ -2,7 +2,7 @@
 // "Testing it over a week"): the production scheduler (src/behavior/inner.ts) and the production
 // intention service (src/intentions/service.ts) over a temporary data directory, driven by a fake
 // clock that jumps from one moment that matters to the next (an event of the fixture, a due time,
-// a wait deadline, an expiry, the day's review, a local midnight, the end of a people's turn, a
+// a wait deadline, an expiry, the heartbeat, a local midnight, the end of a people's turn, a
 // cap's reset) instead of ticking every second. Every jump
 // lands on the scheduler's tick grid (`wakes.tickSeconds` from the start of the week), so the
 // scheduler sees what it would see live, at most one tick late.
@@ -228,6 +228,15 @@ export function fixtureConfig(
   };
 }
 
+/**
+ * The places view at a turn, as her `places.list` reads it (src/behavior/inner/places.ts#places): the first
+ * `wakes.attention.placesInWake` places by recent activity, null with the setting 0.
+ */
+function placesView(inner: Rec, config: Untyped) {
+  const size = innerSettings(config).attention.placesInWake;
+  return size > 0 ? inner.places({ sort: 'recent', page: 1, pageSize: size }) : null;
+}
+
 // ---- the stub voice ------------------------------------------------------------------
 
 /** Whether `value` (any JSON) carries `marker`, case folded. */
@@ -240,8 +249,8 @@ function cites(value: Untyped, marker: Untyped) {
 /**
  * The stub voice: for each wake item of a turn, the fixture's answer for it -- the intention's own
  * `stub[kind]`, else the fixture's `stub[kind]` -- picked by how often that same intention woke her
- * for that kind before, or how many reviews she had (the review's answers run through the week:
- * the first review takes the first, the second the second, ...; the last answer repeats; none is
+ * for that kind before, or how many heartbeats she had (the heartbeat's answers run through the week:
+ * the first heartbeat takes the first, the second the second, ...; the last answer repeats; none is
  * silence). Each
  * answer is a list of actions `{ skill, args }`; placeholders in the args: `$intention`, `$task`,
  * `$chain`, `$channel`, `$key:<key>` (the id of the fixture intention or stub-set intention of that
@@ -271,7 +280,7 @@ export function createStubVoice(fixture: Fixture): Rec {
       const out = [];
       for (const item of items) {
         const intentionId = item.intentionIds?.[0] ?? null;
-        const key = item.kind === 'review' ? 'review' : `${item.kind}:${intentionId}`;
+        const key = item.kind === 'heartbeat' ? 'heartbeat' : `${item.kind}:${intentionId}`;
         const n = seen.get(key) ?? 0;
         seen.set(key, n + 1);
         const fixtureKey = intentionId ? keyOf(intentionId) : null;
@@ -421,7 +430,7 @@ export async function runWeek({
   };
 
   const { reads, iface } = weekReads(fixture.channels, placeId, log);
-  // The record: her lines of the history (the review's hours) and every line of the week's chat
+  // The record: her lines of the history (`history.selfHours`) and every line of the week's chat
   // (`seen` by its author, `said` for hers), the store the scheduler counts a place's lines from.
   const record = {
     async *iterate(_guild: Untyped, { from }: Untyped = {}) {
@@ -481,7 +490,7 @@ export async function runWeek({
       placeId: String(params.conversation?.conversationId ?? ''),
       items,
       notes: wake.notes ?? null,
-      places: wake.places ?? null,
+      places: placesView(inner, hot.config),
       stopped: world.stopped,
       shadow: params.inner?.shadow === true,
     };
@@ -677,11 +686,8 @@ export async function runWeek({
           writable: channel.writable !== false,
         })),
       nameOf: (id) => Object.entries(fixture.people).find(([, accountId]) => accountId === id)?.[0] ?? null,
-      // `at` is the clock's; a record's own `at` (the review's drawn moment) is kept as `fieldAt`.
-      journal: {
-        inner: async (fields) =>
-          journal.push({ ...fields, ...(fields.at !== undefined ? { fieldAt: fields.at } : {}), at: clock.now() }),
-      },
+      // `at` is the clock's.
+      journal: { inner: async (fields) => journal.push({ ...fields, at: clock.now() }) },
       reads,
       iface: () => iface,
       submit: (event) => door.submit(event),
@@ -844,6 +850,8 @@ export async function runWeek({
       if (newest && newest.ts + record.attend.settle * 1000 > now) out.push(newest.ts + record.attend.settle * 1000);
     }
     const state = inner.state();
+    // The heartbeat's drawn moment (a past one is listed at its tick and drawn again once handled).
+    if (Number.isFinite(state.heartbeat?.nextAt) && state.heartbeat.nextAt > now) out.push(state.heartbeat.nextAt);
     out.push(zonedEpoch(addDays(dayOf(now), 1), 0, 0, fixture.timezone));
     if (state.queue.length > 0) {
       if (lastDrain?.deferred === 'busy' || lastDrain?.deferred === 'people') out.push(world.busyUntil);
@@ -1031,24 +1039,19 @@ export function unauthorizedActions(
 
 /**
  * The disposition of every due item the week saw: the outcome the scheduler handled it with
- * (a turn's outcome, `stale`, `overflow`, `no-channel`, `stopped`, `superseded`), a
- * journalled `review-missed`, an attend wake replaced by a newer burst's, still queued (with a cap refusal recorded, or younger than
- * STARVED_MS at the end), the intention closed before it was listed, or a kill switch still on at
+ * (a turn's outcome, `stale`, `overflow`, `no-channel`, `stopped`, `superseded`), an attend wake replaced by a
+ * newer burst's, still queued (with a cap refusal recorded, or younger than STARVED_MS at the end), the intention closed before it was listed, or a kill switch still on at
  * the end. Anything else is `missing`.
  */
 export function dispositions(run: WeekRun): Rec {
   const handled = run.state.handled ?? {};
   const queued = new Map<Untyped, Untyped>((run.state.queue ?? []).map((wake: Rec) => [wake.id, wake]));
   const byId = new Map<Untyped, Untyped>(run.intentions.map((record: Rec) => [record.id, record]));
-  const missedReviews = new Set(
-    run.journal.filter((e: Rec) => e.event === 'review-missed').map((e: Rec) => `inner.wake:review:${e.day}`)
-  );
   const replaced = new Map<Untyped, Untyped>(
     run.journal.filter((e: Rec) => e.event === 'replaced').map((e: Rec) => [e.wake.id, e.by])
   );
   return run.dueSeen.map((item: Rec) => {
     if (handled[item.id]) return { ...item, disposition: handled[item.id].outcome };
-    if (missedReviews.has(item.id)) return { ...item, disposition: 'review-missed' };
     if (replaced.has(item.id)) return { ...item, disposition: `replaced:${replaced.get(item.id)}` };
     const wake = queued.get(item.id);
     if (wake) {
@@ -1503,8 +1506,6 @@ export function reportOf(run: WeekRun, fixture: Fixture, gates: Rec, effectsOf: 
         [
           'stopped',
           'started',
-          'review-drawn',
-          'review-missed',
           'errand-held',
           'errand-refused',
           'errand-released',
@@ -1670,7 +1671,7 @@ export function renderReport(report: Rec): string {
   if (report.events.length > 0) {
     lines.push('', '## Other events', '');
     for (const e of report.events) {
-      const detail = `${typeof e.dropped === 'number' ? ` dropped ${e.dropped}` : ''}${e.event === 'replaced' ? ` ${e.wake?.id} by ${e.by}` : ''}${e.event === 'review-drawn' && e.fieldAt ? ` for ${new Date(e.fieldAt).toISOString()}` : ''}${e.taskId ? ` ${e.taskId} ${e.usd} USD` : ''}${!e.taskId && e.agent ? ` ${e.agent} ${e.usd} USD` : ''}${e.reason ? ` (${e.reason})` : ''}${e.code ? ` ${e.key ?? ''} ${e.code}`.replace('  ', ' ') : ''}`;
+      const detail = `${typeof e.dropped === 'number' ? ` dropped ${e.dropped}` : ''}${e.event === 'replaced' ? ` ${e.wake?.id} by ${e.by}` : ''}${e.taskId ? ` ${e.taskId} ${e.usd} USD` : ''}${!e.taskId && e.agent ? ` ${e.agent} ${e.usd} USD` : ''}${e.reason ? ` (${e.reason})` : ''}${e.code ? ` ${e.key ?? ''} ${e.code}`.replace('  ', ' ') : ''}`;
       lines.push(`- ${e.at} ${e.event}${detail}`);
     }
   }

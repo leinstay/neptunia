@@ -5,9 +5,10 @@
   "days": 2,
   "timezone": "UTC",
   "seed": 17,
+  "wakes": { "heartbeat": { "enabled": true, "schedule": "at 16:00" } },
   "channels": [{ "id": "c-general", "name": "general" }],
   "history": { "selfHours": [10, 16], "channel": "c-general" },
-  "stub": { "review": [[]] },
+  "stub": { "heartbeat": [[]] },
   "intentions": [
     {
       "key": "release-date",

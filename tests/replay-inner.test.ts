@@ -36,20 +36,16 @@ useIface('fake');
 
 const NOW = Date.parse('2026-10-19T12:00:00Z');
 
-test("replay --inner: an intention's wake needs --intention, the review takes none; other modes' flags are refused", () => {
+// Slice 5: the review wake is gone, so `--inner review` and `--review` are usage errors like any unknown choice.
+test("replay --inner: an intention's wake needs --intention; other modes' flags and the gone review are refused", () => {
   const due = parseArgs(['--inner', 'intention_due', '--intention', 'i-abc', '--spend', '1']);
   assert.equal(due.inner, 'intention_due');
   assert.equal(due.intention, 'i-abc');
-  assert.equal(due.review, false);
-  assert.equal(parseArgs(['--inner', 'review']).review, true);
-  assert.equal(parseArgs(['--inner', 'review', '--review', '--show-request']).showRequest, true);
   for (const argv of [
     ['--inner', 'intention_due'],
-    ['--inner', 'review', '--intention', 'i1'],
+    ['--inner', 'review'],
     ['--inner', 'errand_deadline', '--intention', 'i1', '--review'],
     ['--inner', 'nap'],
-    ['--inner', 'review', '--selfreflection', 'picture'],
-    ['--inner', 'review', 'c1', 'm1'],
     ['--review'],
     ['--intention', 'i1'],
   ]) {
@@ -114,9 +110,8 @@ test('replay --inner heartbeat: no intention or review flag; samples, prompts, o
   assert.equal(args.prompts, 'variant');
   assert.equal(args.outDir, 'report.md');
   assert.equal(args.showRequest, true);
-  assert.equal(args.review, false);
   assert.equal(parseArgs(['--inner', 'heartbeat']).samples, 1);
-  assert.equal(parseArgs(['--inner', 'review', '--samples', '2']).samples, 2);
+  assert.equal(parseArgs(['--inner', 'intention_due', '--intention', 'i1', '--samples', '2']).samples, 2);
   for (const argv of [
     ['--inner', 'heartbeat', '--intention', 'i1'],
     ['--inner', 'heartbeat', '--review'],

@@ -13,7 +13,7 @@
   "people": { "Noor": "u-401", "Pavel": "u-402", "Elif": "u-403" },
   "history": { "selfHours": [8, 13, 19], "channel": "c-general" },
   "stub": {
-    "review": [[]],
+    "heartbeat": [[]],
     "intention_due": [[{ "skill": "intention.update", "args": { "id": "$intention", "state": "done" } }]]
   },
   "intentions": [

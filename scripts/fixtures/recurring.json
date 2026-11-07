@@ -5,6 +5,7 @@
   "days": 7,
   "timezone": "UTC",
   "seed": 41,
+  "wakes": { "heartbeat": { "enabled": true, "schedule": "at 13:00" } },
   "channels": [
     {
       "id": "c-general",
@@ -27,7 +28,7 @@
     "channel": "c-memes"
   },
   "stub": {
-    "review": [
+    "heartbeat": [
       []
     ]
   },
