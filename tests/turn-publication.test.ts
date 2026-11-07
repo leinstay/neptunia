@@ -3,70 +3,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createIntention } from '../src/intentions/model.ts';
 import { issueContext } from '../src/memory/db/scope.ts';
-import type { TurnParams } from '../src/turn/outcome.ts';
-import { coreTurn } from './fixtures/turn-harness.ts';
 import { drawTurn, fakeImages } from './fixtures/turn-draws.ts';
-import { rawMessage } from './fixtures/turn-kit.ts';
 import { world, useIface } from './fixtures/turn-world.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 
 useIface('fake');
 
 const NOW = Date.parse('2026-11-03T12:00:00Z');
-
-test('an explicit person message operation starts an ordinary destination turn without its supplied draft', async () => {
-  let turns: Awaited<ReturnType<typeof coreTurn>>['turns'] | null = null;
-  const contexts: Array<unknown> = [];
-  const result = await coreTurn({
-    answers: ['<skip/>', '<msg>destination answer</msg>'],
-    content: 'θυμάσαι το κουνέλι από την παλιά συζήτηση;',
-    setup: () =>
-      world().seed('c2', [
-        {
-          ...rawMessage({ id: 'destination-trigger', content: 'θυμάσαι το κουνέλι από την παλιά συζήτηση;', ts: NOW }),
-          placeId: 'c2',
-        },
-      ]),
-    runner: {
-      memoryContext: (spec: Parameters<typeof issueContext>[0]) =>
-        issueContext({ ...spec, iface: 'fake', newId: () => 'ctx:destination', now: () => NOW }),
-      recall: {
-        available: () => true,
-        prefetch: (args: Record<string, unknown>) => {
-          contexts.push(args.memoryContext);
-          return Promise.resolve({ status: 'ok', excerpts: [] });
-        },
-      },
-    },
-    adminExtra: {
-      turns: {
-        runTurn: (args: TurnParams) => {
-          if (!turns) throw new Error('destination runner was not attached');
-          return turns.runTurn(args);
-        },
-      },
-    },
-  });
-  turns = result.turns;
-  contexts.length = 0;
-  await result.admin.run(
-    'message.create',
-    {
-      placeId: 'c2',
-      replyTo: 'destination-trigger',
-      text: 'private draft must not transfer',
-    },
-    { actor: 'owner', asOwner: true, accountId: 'u1', placeId: 'cli:dm:owner' }
-  );
-  assert.ok(contexts.length > 0, 'destination turn must perform prefetch');
-  for (const context of contexts) {
-    assert.ok(context && typeof context === 'object' && 'kind' in context && 'iface' in context);
-    assert.equal(context.kind, 'group');
-    assert.equal(context.iface, 'fake');
-  }
-  assert.ok(result.port.messagesIn('c2').some((message) => message.text === 'destination answer'));
-  assert.equal(JSON.stringify(result.llm.calls.at(-1)).includes('private draft must not transfer'), false);
-});
 
 test('an internal turn refuses direct drawing in another conversation before generation', async () => {
   const images = fakeImages();

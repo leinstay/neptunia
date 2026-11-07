@@ -569,7 +569,7 @@ export const labels = {
     earlier: '(an earlier turn here, {ago} ago)',
   },
   wake: {
-    kinds: { intention_due: 'due: {id} {purpose} ({due})', errand_deadline: 'deadline passed: {id} {purpose} errand {errand}', attend: 'talk in #{place} ({id} {purpose}): {lines} lines since {since} by {people}', feedback: 'feedback on your previous turn:', heartbeat: 'heartbeat' },
+    kinds: { intention_due: 'due: {id} {purpose} ({due})', errand_deadline: 'deadline passed: {id} {purpose} errand {errand}', attend: 'talk in #{place} ({id} {purpose}): {lines} lines since {since} by {people}', feedback: 'feedback on your previous turn:', heartbeat: 'heartbeat', selfimprovement: 'selfimprovement' },
     delayed: 'delayed {minutes} {code}',
     feedbackInTurn: 'kept for you:',
     feedbackItem: '* {fact}',
