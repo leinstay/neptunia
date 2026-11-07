@@ -15,6 +15,7 @@ import {
   usesFollowUpTask,
 } from '../src/behavior/prompt.ts';
 import { buildRequest, type Built, type Part } from './fixtures/built-request.ts';
+import { allPeopleOf, blockTags, bodyOf, tempoOf, userText } from './fixtures/prompt-text.ts';
 import { profileStateFields, renderProfile } from './fixtures/profile-render.ts';
 import { estimateTokens } from '../src/llm/tokens.ts';
 import { SAFETY_MARGIN } from '../src/llm/budget.ts';
@@ -376,13 +377,6 @@ test('buildRequest: forced=false never appends prompts.forced even when it is se
   assert.ok(!user.includes('FORCED_TASK'));
 });
 
-/** The tempo lines at the foot of `<chat>` (src/format.ts#renderTempo), from its counts line on; null without them. */
-function tempoOf(text: string) {
-  const chat = /<chat>\n([\s\S]*?)\n<\/chat>/.exec(text)?.[1] ?? '';
-  const at = chat.lastIndexOf(labels.tempo.counts.split('{')[0]);
-  return at === -1 ? null : chat.slice(at);
-}
-
 test('buildRequest: blocks appear in the documented order', () => {
   const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
   const request = buildRequest(
@@ -531,11 +525,6 @@ function segmentScene({
   });
 }
 
-/** The opening tags of the top-level blocks of `text`, in order. */
-function blockTags(text: string) {
-  return [...text.matchAll(/^<([a-z_]+)>$/gm)].map((match) => match[1]);
-}
-
 test('buildRequest: the user content is the stable part, the profiles and the tail; a picture in the chat never becomes an image part', () => {
   const request = buildRequest(
     segmentScene({ triggerFields: { attachments: [{ id: 'i1', kind: 'image', url: 'img1' }] } })
@@ -576,13 +565,12 @@ test('buildRequest: the tail ends with <now>, <senses> and <task>, after the cha
       drawOn: true,
     })
   );
-  const tags = blockTags(contentText(request.messages[1].content));
+  const user = contentText(request.messages[1].content);
+  const tags = blockTags(user);
   // Slice 2 (g): `<tempo>` is the foot of `<chat>`, not a block of its own.
   assert.deepEqual(tags.slice(-6), ['lookup', 'people_now', 'chat', 'now', 'senses', 'task']);
-  // Slice 2 (g): `<tempo>` is the foot of `<chat>`, not a block of its own.
   assert.equal(tags.at(-3), 'now');
-  // Slice 2 (g): `<tempo>` is the foot of `<chat>`, not a block of its own.
-  assert.ok(tempoOf(contentText(request.messages[1].content)), 'the tempo at the foot of <chat>');
+  assert.ok(tempoOf(user), 'the tempo at the foot of <chat>');
   assert.equal(tags.at(-1), 'task');
   const tail = blockTags(request.messages[1].content[2].text);
   // B7: `<gifs_recent>` left the turn, so the neighbours follow the server map.
@@ -3833,23 +3821,6 @@ function pulledChannel(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** The whole text of a request's user message. */
-function userText(request: Built) {
-  return contentText(request.messages[1].content);
-}
-
-/** The body of `<tag>` in `text`, or null when the block is absent. */
-function bodyOf(text: string, tag: string) {
-  const match = new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`).exec(text);
-  return match ? match[1] : null;
-}
-
-/** Every `<people>` body of `text` (the interlocutor's cached one, then the tail's) joined as one block was; null when none. */
-function allPeopleOf(text: string) {
-  const bodies = [...text.matchAll(/^<people>\n([\s\S]*?)\n<\/people>$/gm)].map((match) => match[1]);
-  return bodies.length > 0 ? bodies.join('\n\n') : null;
-}
-
 /** `{from}` / `{to}` of a pulled header: the date and the clock of `ts`. */
 function moment(ts: number) {
   return `${formatDate(ts, TZ, labels.locale)}, ${formatClock(ts, TZ, labels.locale)}`;
@@ -3907,7 +3878,6 @@ test('buildRequest: a pulled channel renders as channel_view after other_channel
     }),
     // Slice 2 (b): two hours old, and still one clock per line with no age.
     `#3 [${formatClock(NOW - 130 * MIN, TZ)}] Zoé: πρώτη σελίδα`,
-    // Slice 2 (b): two hours old, and still one clock per line with no age.
     `#4 [${formatClock(NOW - 120 * MIN, TZ)}] Zoé: δεύτερη σελίδα`,
   ]);
 });

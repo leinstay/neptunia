@@ -60,6 +60,9 @@ import { tempDir } from './fixtures/tmp.ts';
 import { buildRequest } from './fixtures/built-request.ts';
 import { loose } from './fixtures/as-options.ts';
 
+/** The fixed words of a label before its first placeholder. */
+const labelHead = (label: string) => label.split('{')[0];
+
 // The conversations of the turns, the pipeline and the classifiers are held by a fake interface named `fake`, the
 // persona being `SELF_ID`; the recall runner keeps reading the platform's own objects through the recall bridge.
 useIface('fake');
@@ -283,7 +286,7 @@ function assertFilled(
     if (tag === 'tempo') {
       // Slice 2 (g): `<tempo>` is the foot of `<chat>`, not a block, so its verdict line ends the chat's body.
       const chat = /<chat>\n([\s\S]*?)\n<\/chat>/.exec(text)?.[1] ?? '';
-      const verdict = LABELS.tempo.verdict.split('{')[0];
+      const verdict = labelHead(LABELS.tempo.verdict);
       assert.ok(chat.split('\n').at(-1)?.startsWith(verdict), `${where}: no tempo at the foot of <chat>`);
       continue;
     }
@@ -1310,7 +1313,7 @@ test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in pla
     // Slice 2 (g): no `<tempo>` block exists any more, so the check looks for the tempo's verdict line anywhere.
     !userText(beatRequest.messages[1].content)
       .split('\n')
-      .some((line) => line.startsWith(LABELS.tempo.verdict.split('{')[0])),
+      .some((line) => line.startsWith(labelHead(LABELS.tempo.verdict))),
     'silence in an anchor channel is not heartbeat tempo'
   );
   assert.ok(!carries(beatText, 'inner'), 'inner.md is not sent as well');
