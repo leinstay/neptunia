@@ -31,15 +31,15 @@ export type ReplayTurn = {
 /**
  * The frame and the whereabouts of a replayed reply on the `new` arm, both null on the `old` one. The place is the
  * channel's place in the view's tree (the channel alone, by its name, when the tree does not hold it), on the
- * interface the channel names (`discord` when it names none, the one interface a replay reads), and the author's
+ * interface the channel names (no frame when it names none), and the author's
  * account and person as the memory spells them.
  */
 export function replayFrame(
   arm: FrameArm | null | undefined,
   turn: ReplayTurn
 ): { frame: Frame | null; whereabouts: Whereabouts | null } {
-  if (arm !== 'new') return { frame: null, whereabouts: null };
-  const iface = turn.channel.iface ?? 'discord';
+  const iface = turn.channel.iface;
+  if (arm !== 'new' || !iface) return { frame: null, whereabouts: null };
   const memory = turn.memory;
   const placeId = memory.placeOfConversation?.({ id: turn.channel.id }, iface) || turn.channel.id;
   const stored = memory.placeChainOf?.(placeId) ?? [];

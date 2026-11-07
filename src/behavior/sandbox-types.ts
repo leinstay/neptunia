@@ -146,7 +146,7 @@ export type AnswerReplyInput = {
   situation: { history: Array<Untyped>; triggerId?: string | null; kind?: string | null; mode?: string | null };
   selfId: string;
   selfName: string;
-  channel: { id: string; name?: string; topic?: string | null };
+  channel: { id: string; name?: string; topic?: string | null; iface?: string | null };
   llm: { complete: (...args: Array<Untyped>) => Untyped };
   samples: number;
   at: number;

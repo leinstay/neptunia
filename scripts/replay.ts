@@ -7029,6 +7029,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
       id: channel.id,
       name: channel.name ?? null,
       topic: channel.topic ?? null,
+      iface: 'discord',
     });
 
     if (args.pairTransport || args.loopTriggers) {
