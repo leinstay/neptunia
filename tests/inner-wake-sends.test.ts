@@ -608,7 +608,7 @@ test('the stop switch turned on after the completion keeps the deliveries queued
 test('a heartbeat in shadow mode holds nothing and sends nothing: her post is refused', async () => {
   const run = await core(
     {
-      answers: [toolAnswer('', [call('message.create', { channel: '#chan-c1', text: 'καλημέρα' })]), '<skip/>'],
+      answers: [toolAnswer('', [call('message.create', { place: '#chan-c1', text: 'καλημέρα' })]), '<skip/>'],
     },
     { mode: 'shadow', heartbeat: true }
   );

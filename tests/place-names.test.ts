@@ -148,9 +148,9 @@ test('the token written for a choice resolves back to its own place', () => {
   const view = { skills: skillRegistry(), places: PLACES, conversations: [] };
   for (const place of PLACES) {
     const ref = place.handle ? `#${place.handle}` : place.id;
-    const resolved = resolveCall({ skill: 'conversation.read', args: { channel: ref } }, view);
+    const resolved = resolveCall({ skill: 'conversation.read', args: { place: ref } }, view);
     assert.equal(resolved.ok, true, ref);
-    assert.equal('args' in resolved ? resolved.args.channel : null, place.id);
+    assert.equal('args' in resolved ? resolved.args.place : null, place.id);
   }
 });
 
@@ -163,27 +163,27 @@ const READ_SKILLS = [
 
 for (const [skill, extra] of READ_SKILLS) {
   const resolve = (channel: string, view: object) =>
-    resolveCall({ skill, args: { ...extra, channel } }, { skills: skillRegistry(), ...view });
+    resolveCall({ skill, args: { ...extra, place: channel } }, { skills: skillRegistry(), ...view });
   const choiceIds = (refusal: object): Array<string> =>
     'choices' in refusal ? (refusal.choices as ReadonlyArray<{ id: string }>).map((choice) => choice.id).sort() : [];
 
   test(`${skill}: resolves a channel written by its folded name from the places she may read`, () => {
     const resolved = resolve('#garden notes', { places: PLACES, conversations: [] });
     assert.equal(resolved.ok, true);
-    assert.equal('args' in resolved ? resolved.args.channel : null, '1001');
+    assert.equal('args' in resolved ? resolved.args.place : null, '1001');
   });
 
   test(`${skill}: resolves an inflected name with the stemmer of the view`, () => {
     const view = { places: [{ id: '2001', name: '🍲 recipes', handle: null }], conversations: [], stem };
     const resolved = resolve('recipe', view);
     assert.equal(resolved.ok, true);
-    assert.equal('args' in resolved ? resolved.args.channel : null, '2001');
+    assert.equal('args' in resolved ? resolved.args.place : null, '2001');
   });
 
   test(`${skill}: refuses an unknown name with the places she may read as choices`, () => {
     const refusal = resolve('#memes', { places: PLACES, conversations: [] });
     assert.equal(refusal.ok, false);
-    assert.equal('reason' in refusal ? refusal.reason : null, 'args.channel:unknown-channel');
+    assert.equal('reason' in refusal ? refusal.reason : null, 'args.place:unknown-channel');
     assert.deepEqual(choiceIds(refusal), ['1001', '1002', '1003']);
   });
 
@@ -216,7 +216,7 @@ for (const [skill, extra] of READ_SKILLS) {
 // Green before the change: the write path keeps naming channels by `conversations`, whatever she may read.
 test('message.create still resolves a destination from the conversations of the view, not the places to read', () => {
   const view = { skills: skillRegistry(), places: [], conversations: [{ id: '9999', name: 'staff room' }] };
-  const resolved = resolveCall({ skill: 'message.create', args: { text: 'hello', channel: 'staff room' } }, view);
+  const resolved = resolveCall({ skill: 'message.create', args: { text: 'hello', place: 'staff room' } }, view);
   assert.equal(resolved.ok, true);
-  assert.equal('args' in resolved ? resolved.args.channel : null, '9999');
+  assert.equal('args' in resolved ? resolved.args.place : null, '9999');
 });

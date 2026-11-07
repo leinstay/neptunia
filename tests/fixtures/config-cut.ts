@@ -5,7 +5,8 @@
 // daily cap of plan section 4.5, gone with its counter. `discord`: a key of the Discord package's own settings,
 // interfaces/discord/config.json. `rename`: a privacy switch kept under the name `to`. `wildcard`: a per-wake budget
 // kept as one entry `to` for every wake kind. `PRODUCTION_LAYER` is a local layer shaped like production's: the same
-// keys set, with synthetic ids, paths and word lists. Nothing here is read from a real local layer.
+// keys set, with synthetic ids, paths and word lists. Nothing here is read from a real local layer. The three keys
+// spelled with the diary leave the cut by the owner's answer 13 of 2026-11-07, so the layer below sets none of them.
 
 export const CUT_GROUPS = [
   'features',
@@ -76,7 +77,6 @@ export const CUT: ReadonlyArray<CutRow> = [
   { key: 'features.messageLinks', group: 'features', becomes: 'code', production: true },
   { key: 'features.mentionHandles', group: 'features', becomes: 'code', production: true },
   { key: 'features.elsewhere', group: 'features', becomes: 'code', production: true },
-  { key: 'features.diary', group: 'features', becomes: 'code', production: true },
   { key: 'features.typingSimulation', group: 'features', becomes: 'code', production: true },
   { key: 'features.pauseNotice', group: 'features', becomes: 'code', production: true },
   { key: 'features.memberCommands', group: 'features', becomes: 'code', production: true },
@@ -100,8 +100,6 @@ export const CUT: ReadonlyArray<CutRow> = [
   { key: 'llm.cache.promptIncludesCached', group: 'llm and models', becomes: 'constant', production: true },
   { key: 'memoryDb.turnReads', group: 'memory', becomes: 'code', production: true },
   { key: 'memoryDb.audienceColumn', group: 'memory', becomes: 'code', production: false },
-  { key: 'memoryDb.diaryMedia', group: 'memory', becomes: 'code', production: true },
-  { key: 'memoryDb.diaryAudioMaxBytes', group: 'memory', becomes: 'constant', production: 8388608 },
   { key: 'memoryDb.focus.enabled', group: 'memory', becomes: 'code', production: false },
   { key: 'memoryDb.wakeRuns', group: 'memory', becomes: 'code', production: false },
   { key: 'memoryDb.session.settleMinutes', group: 'memory', becomes: 'constant', production: 10 },
@@ -771,7 +769,6 @@ export const PRODUCTION_LAYER = {
     wakes: true,
   },
   memoryDb: {
-    diaryMedia: true,
     session: { mode: 'apply' },
     backup: { enabled: true, dir: '/srv/backups/memory' },
   },

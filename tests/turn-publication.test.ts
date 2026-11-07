@@ -19,7 +19,7 @@ test('an internal turn refuses direct drawing in another conversation before gen
     setup: () => {
       world().channel({ id: '555', name: 'destination' });
     },
-    answers: [toolAnswer('', [call('draw.create', { channel: '555', text: 'private scene' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('draw.create', { place: '555', text: 'private scene' })]), '<skip/>'],
     runner: { memoryContext: () => context },
   });
   assert.deepEqual(images.calls, []);
@@ -39,7 +39,7 @@ test('an unissued internal flag does not create a trusted publication restrictio
     setup: () => {
       world().channel({ id: '555', name: 'destination' });
     },
-    answers: [toolAnswer('', [call('draw.create', { channel: '555', text: 'ordinary scene' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('draw.create', { place: '555', text: 'ordinary scene' })]), '<skip/>'],
     runner: { memoryContext: () => internalContext() },
   });
   assert.equal(images.calls.length, 1);
@@ -54,7 +54,7 @@ test('a turn that inherited a restriction refuses a group destination while its 
     setup: () => {
       world().channel({ id: '555', name: 'destination' });
     },
-    answers: [toolAnswer('', [call('draw.create', { channel: '555', text: 'private scene' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('draw.create', { place: '555', text: 'private scene' })]), '<skip/>'],
     params: {
       publicationBoundary: { kind: 'internal-turn', origin: { iface: 'fake', conversationId: 'cli-origin' } },
     },

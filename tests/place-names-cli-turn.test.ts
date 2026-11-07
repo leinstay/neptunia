@@ -89,7 +89,7 @@ async function readFromCli(channel: string): Promise<string> {
     reads: world().adopt(port),
     port,
   });
-  const llm = sequenceLlm([toolAnswer('', [call('conversation.read', { channel })]), '<skip/>']);
+  const llm = sequenceLlm([toolAnswer('', [call('conversation.read', { place: channel })]), '<skip/>']);
   const turns = createTurnRunner({
     discord: DISCORD,
     hot,

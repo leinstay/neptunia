@@ -28,10 +28,10 @@ test('innerOutputCalls: reactions and messages, in that order, and no picture, e
   ]);
 });
 
-test("innerOutputCalls: a current channel other than the turn's is named by the channel argument", () => {
+test("innerOutputCalls: a current channel other than the turn's is named by the place argument", () => {
   const calls = innerOutputCalls({ messages: [{ text: 'x', replyTo: null }] }, { current: 'c9', turnChannel: 'c1' });
   assert.deepEqual(
-    calls.map((call) => call.args.channel),
+    calls.map((call) => call.args.place),
     ['c9']
   );
 });

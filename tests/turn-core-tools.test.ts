@@ -925,7 +925,7 @@ test('draw.create: reply quotes that message here; a channel she names is where 
     ['c1', 'c1', 'm1']
   );
   const there = await drawTurn({
-    answers: [toolAnswer('', [call('draw.create', { channel: '#jardin', text: 'ένας φάρος' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('draw.create', { place: '#jardin', text: 'ένας φάρος' })]), '<skip/>'],
     neighbours: [jardin],
   });
   assert.deepEqual(

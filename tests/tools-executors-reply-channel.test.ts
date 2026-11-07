@@ -43,7 +43,7 @@ for (const [form, reply] of [
   ['a message link in angle brackets', `<${LINK_TO_B}>`],
 ] as const) {
   test(`refuses a reply given as ${form} when the destination named by handle is another channel`, () => {
-    const refusal = resolveCreate({ channel: '#ca1', reply });
+    const refusal = resolveCreate({ place: '#ca1', reply });
     assert.equal(refusal.ok, false);
     assert.equal('code' in refusal ? refusal.code : null, 'unknown-message');
     assert.equal('reason' in refusal ? refusal.reason : null, 'conversation');
@@ -51,9 +51,9 @@ for (const [form, reply] of [
 
   // Green before the fix. Catches a fix that refuses every reply beside a channel.
   test(`accepts a reply given as ${form} when the destination named is the reply's own channel`, () => {
-    const resolved = resolveCreate({ channel: '#βήτα', reply });
+    const resolved = resolveCreate({ place: '#βήτα', reply });
     assert.equal(resolved.ok, true);
-    assert.equal('args' in resolved ? resolved.args.channel : null, CHANNEL_B);
+    assert.equal('args' in resolved ? resolved.args.place : null, CHANNEL_B);
     assert.equal('args' in resolved ? resolved.args.reply : null, MESSAGE_IN_B);
     assert.equal('channelFixed' in resolved, false);
   });
@@ -62,13 +62,13 @@ for (const [form, reply] of [
   test(`takes the destination from a reply given as ${form} when the call names no channel`, () => {
     const resolved = resolveCreate({ reply });
     assert.equal(resolved.ok, true);
-    assert.equal('args' in resolved ? resolved.args.channel : null, CHANNEL_B);
+    assert.equal('args' in resolved ? resolved.args.place : null, CHANNEL_B);
     assert.equal('channelFixed' in resolved, false);
   });
 }
 
 test('the refusal of a mismatch is an invalid call she reads as a message in another channel', () => {
-  const refusal = resolveCreate({ channel: '#ca1', reply: '#5' });
+  const refusal = resolveCreate({ place: '#ca1', reply: '#5' });
   const code = 'code' in refusal ? refusal.code : '';
   const reason = 'reason' in refusal ? refusal.reason : '';
   assert.equal(refusalStatus(code), 'invalid');
@@ -112,28 +112,28 @@ function sendsOf(run: Awaited<ReturnType<typeof turnWith>>): Array<Array<unknown
 }
 
 test('sends nothing when an inner turn names #jardin and replies by number to a line of #general', async () => {
-  const run = await turnWith({ channel: '#jardin', reply: LINE_IN_GENERAL });
+  const run = await turnWith({ place: '#jardin', reply: LINE_IN_GENERAL });
   assert.deepEqual(sendsOf(run), []);
 });
 
 test('sends nothing when an inner turn names #general and replies by link to a message of #jardin', async () => {
-  const run = await turnWith({ channel: '#general', reply: LINK_TO_JARDIN });
+  const run = await turnWith({ place: '#general', reply: LINK_TO_JARDIN });
   assert.deepEqual(sendsOf(run), []);
 });
 
 test('sends nothing when a turn somebody asked names #jardin and replies to a line of #general', async () => {
-  const run = await turnWith({ channel: '#jardin', reply: LINE_IN_GENERAL }, { innerTurn: false });
+  const run = await turnWith({ place: '#jardin', reply: LINE_IN_GENERAL }, { innerTurn: false });
   assert.deepEqual(sendsOf(run), []);
 });
 
 test('she reads in the same turn that the replied message is in another channel', async () => {
-  const run = await turnWith({ channel: '#jardin', reply: LINE_IN_GENERAL });
+  const run = await turnWith({ place: '#jardin', reply: LINE_IN_GENERAL });
   const told = toolResults(run.llm, 1).join('\n');
   assert.ok(told.includes(labels.transcript.callReasons['message-elsewhere']), told);
 });
 
 test('the refused call leaves the code in the log and no line about a channel taken over', async () => {
-  const run = await turnWith({ channel: '#jardin', reply: LINE_IN_GENERAL });
+  const run = await turnWith({ place: '#jardin', reply: LINE_IN_GENERAL });
   assert.ok(
     run.logs.some((entry) => entry.msg === 'skill: refused' && entry.code === 'unknown-message'),
     JSON.stringify(run.logs.map((entry) => String(entry.msg)))
@@ -146,12 +146,12 @@ test('the refused call leaves the code in the log and no line about a channel ta
 
 // The rest is green before the fix. Each one catches a fix that stops a post that must go out.
 test('sends once to #general when the destination and the numbered reply both name it', async () => {
-  const run = await turnWith({ channel: '#general', reply: LINE_IN_GENERAL });
+  const run = await turnWith({ place: '#general', reply: LINE_IN_GENERAL });
   assert.deepEqual(sendsOf(run), [['c1', 'απάντηση', 'm1']]);
 });
 
 test('sends once to #jardin when the destination and the linked reply both name it', async () => {
-  const run = await turnWith({ channel: '#jardin', reply: LINK_TO_JARDIN });
+  const run = await turnWith({ place: '#jardin', reply: LINK_TO_JARDIN });
   assert.deepEqual(sendsOf(run), [['c2', 'απάντηση', 'q2']]);
 });
 
@@ -166,6 +166,6 @@ test('sends once to #jardin when a linked reply is the only destination', async 
 });
 
 test('sends once to #jardin when a post names it and replies to nothing', async () => {
-  const run = await turnWith({ channel: '#jardin' });
+  const run = await turnWith({ place: '#jardin' });
   assert.deepEqual(sendsOf(run), [['c2', 'απάντηση', undefined]]);
 });

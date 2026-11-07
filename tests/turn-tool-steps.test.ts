@@ -151,7 +151,7 @@ test('dependent diary announcement: a failed picture and a post to the diary cha
     answers: [
       toolAnswer('<think>x</think><msg>έγινε</msg>', [
         call('draw.create', { text: 'ένας φάρος' }, { id: 'p1' }),
-        call('message.create', { channel: '#jardin', text: 'νέα ζωγραφιά!' }, { id: 'p2' }),
+        call('message.create', { place: '#jardin', text: 'νέα ζωγραφιά!' }, { id: 'p2' }),
       ]),
       '<msg>δεν βγήκε, το είπα νωρίς</msg>',
     ],
@@ -433,7 +433,7 @@ test('carried over: draw.create in the current conversation runs on a spontaneou
     images,
     neighbours: [jardin],
     answers: [
-      toolAnswer('<think>x</think>', [call('draw.create', { text: 'ένας φάρος', channel: '#jardin' })]),
+      toolAnswer('<think>x</think>', [call('draw.create', { text: 'ένας φάρος', place: '#jardin' })]),
       '<think>y</think><msg>τίποτα</msg>',
     ],
   });

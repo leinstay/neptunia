@@ -1031,7 +1031,7 @@ test("pairAnswerOf: the sheet shows every posted message of a side's turn, its d
     [
       toolAnswer(`${THINK}<msg>ορίστε</msg>`, [
         call('draw.create', { text: 'a cat', self: false }),
-        call('message.create', { channel: '#γενικά', text: 'και ένα κείμενο' }),
+        call('message.create', { place: '#γενικά', text: 'και ένα κείμενο' }),
       ]),
     ],
     { tool: () => okTool('x'), config: toolConfig() }

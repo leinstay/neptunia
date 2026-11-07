@@ -1824,7 +1824,7 @@ test('answerSkillScenario: a message.create text is resolved like a <msg> (callM
   const zoe = `@${handleOf(ZOE_ID)}`;
   const llm = fakeToolLlm([
     toolAnswer(`<think>a</think><msg>${zoe}</msg>`, [
-      call('message.create', { channel: '#general', text: `${zoe} @Zo` }),
+      call('message.create', { place: '#general', text: `${zoe} @Zo` }),
     ]),
     toolAnswer('<think>b</think><msg>ok</msg>', []),
   ]);

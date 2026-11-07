@@ -17,6 +17,11 @@ import {
   validateDefinitions,
 } from '../src/tools/definitions.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import fs from 'node:fs';
+import path from 'node:path';
+import { buildTools } from '../src/tools/tools-json.ts';
+import { buildSkills } from '../src/tools/registry.ts';
+import { ROOT } from './fixtures/source-tree.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -111,7 +116,8 @@ test('the expected differences: draw.create takes reply, message.create requires
     'text',
     'self',
     'reply',
-    'channel',
+    // Slice 7 of the turn frame: the place argument is `place` on every tool, no platform noun.
+    'place',
   ]);
   assert.deepStrictEqual(BY_NAME.get('draw.create')?.toArgs({ text: 't', reply: 'm' }), {
     text: 't',
@@ -160,14 +166,14 @@ test('the quirks of the mapping are kept', () => {
     placeId: undefined,
   });
   assert.deepStrictEqual(BY_NAME.get('web.read')?.toArgs({ message: 'm' }), { url: undefined, message: 'm' });
-  assert.deepStrictEqual(BY_NAME.get('draw.create')?.toArgs({ text: 't', channel: 5 }), {
+  assert.deepStrictEqual(BY_NAME.get('draw.create')?.toArgs({ text: 't', place: 5 }), {
     text: 't',
     self: false,
     placeId: '5',
   });
   assert.deepStrictEqual(BY_NAME.get('errand.read')?.toArgs({ id: 'i' }), { id: 'i', action: 'read', from: undefined });
   assert.deepStrictEqual(BY_NAME.get('media.status')?.toArgs({ kind: 'gifs' }), { kind: 'gifs', action: 'status' });
-  assert.deepStrictEqual(intentArgs('add')({ text: 't', settle: 0, channel: 7 }), {
+  assert.deepStrictEqual(intentArgs('add')({ text: 't', settle: 0, place: 7 }), {
     action: 'add',
     text: 't',
     settle: 0,
@@ -249,3 +255,80 @@ test('voice.say: a paid skill of hers, text required, no owner command', () => {
   assert.deepEqual(Object.keys(definition?.params.properties ?? {}), ['text', 'channel', 'reply']);
   assert.deepStrictEqual(definition?.toArgs({ text: 't', reply: 'm' }), { text: 't', replyTo: 'm' });
 });
+
+// ---- slice 7 of the turn frame: the tools speak of a place, never of a platform -----------------------------------
+
+/** The tools that name where they act, each by its argument `place` (plan 2026-11-06-turn-frame, slice 7 (b)). */
+const PLACE_TOOLS: ReadonlyArray<string> = [
+  'draw.create',
+  'voice.say',
+  'memory.channel.read',
+  'message.create',
+  'message.edit',
+  'message.delete',
+  'message.react.add',
+  'message.react.remove',
+  'intention.set',
+  'intention.update',
+  'memory.search',
+  'conversation.read',
+];
+
+/** A platform's noun as a word of its own, in either number. A tool's own name is taken out before the match. */
+const PLATFORM_WORD = /\b(?:channel|server|guild|discord)s?\b/i;
+
+/** A non-platform word spelled the same, where a tool means it: the errand agent named `server` and the machine she runs on. */
+const MACHINE_SERVER: ReadonlySet<string> = new Set(['errand_run', 'watcher_read']);
+const NOT_A_MACHINE = /\b(?:channel|guild|discord)s?\b/i;
+
+/** `text` without the names of the tools it refers to (`memory.server.read`, `memory_server_read`) and its `{{fill}}`s. */
+function withoutToolNames(text: string): string {
+  let rest = text.replace(/\{\{[^{}]*\}\}/g, '');
+  for (const definition of SKILL_DEFINITIONS) {
+    rest = rest.replaceAll(definition.name, '');
+    rest = rest.replaceAll(definition.api, '');
+  }
+  return rest;
+}
+
+test('no tool description, argument name or argument text names a platform', () => {
+  // Bug: the tools array, the first part of the cached prefix and the same for every interface, tells a Telegram turn
+  // about "this server's channels", and she names a place by a word that exists on one platform only.
+  const texts: unknown = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'tools.json'), 'utf8'));
+  const tools = buildTools(
+    SKILL_DEFINITIONS.map((definition) => definition.name),
+    { registry: buildSkills({ table: SKILL_DEFINITIONS }), texts }
+  );
+  const found: Array<string> = [];
+  for (const tool of tools) {
+    const { name, description, parameters } = tool.function;
+    const word = MACHINE_SERVER.has(name) ? NOT_A_MACHINE : PLATFORM_WORD;
+    if (word.test(withoutToolNames(description))) found.push(`${name}: description`);
+    const properties = (parameters as { properties?: Record<string, { description?: string }> }).properties ?? {};
+    for (const [arg, schema] of Object.entries(properties)) {
+      if (PLATFORM_WORD.test(arg)) found.push(`${name}: argument ${arg}`);
+      if (word.test(withoutToolNames(schema.description ?? ''))) found.push(`${name}: text of ${arg}`);
+    }
+  }
+  assert.deepEqual(found, []);
+});
+
+for (const name of PLACE_TOOLS) {
+  test(`${name} names where it acts by place, and the place reaches its operation as placeId`, () => {
+    // Bug: a tool keeps \`channel\` beside \`place\`, or the renamed argument is dropped on its way to the operation.
+    const definition = BY_NAME.get(name);
+    assert.ok(definition, name);
+    const schemas = definition.params.properties ?? {};
+    const properties = Object.keys(schemas);
+    assert.deepEqual(
+      [properties.includes('place'), properties.includes('channel')],
+      [true, false],
+      properties.join(',')
+    );
+    const required = Object.fromEntries(
+      (definition.params.required ?? []).map((arg) => [arg, valueFor(arg, schemas[arg], null)])
+    );
+    const args = definition.toArgs({ ...required, place: 'fake:channel:c9' });
+    assert.equal(args?.placeId, 'fake:channel:c9', show(args));
+  });
+}

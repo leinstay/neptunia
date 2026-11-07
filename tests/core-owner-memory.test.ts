@@ -418,7 +418,7 @@ test('an internal CLI turn retains its private answer and refuses a generated gr
     const llm = script([
       toolAnswer('', [call('memory.search', { question: 'κουνέλι', people: 'Benoit' })]),
       toolAnswer(`<msg>${ANSWER} ${PRIVATE}</msg>`, [
-        call('message.create', { channel: '555', text: `outward ${PRIVATE}` }),
+        call('message.create', { place: '555', text: `outward ${PRIVATE}` }),
       ]),
       toolAnswer(`<msg>${ANSWER} ${PRIVATE}</msg>`),
     ]);

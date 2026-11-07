@@ -376,7 +376,7 @@ test('heartbeat caps: one recurring at most, for a new one and for a one-off mad
 test('an intention_due turn is not limited to intention changes', async () => {
   const run = await liveTurn({
     wake: { ...DUE_WAKE, intentions: [{ id: 'i1', purpose: 'say hello', dueAt: NOW }] },
-    answers: [toolAnswer(`${THINK}`, [call('message.create', { channel: `#general`, text: `γεια` })]), '<skip/>'],
+    answers: [toolAnswer(`${THINK}`, [call('message.create', { place: `#general`, text: `γεια` })]), '<skip/>'],
   });
   assert.equal(run.sends.length, 1);
 });
@@ -434,7 +434,7 @@ test('heartbeat: a failed memory read is returned to the model and can end in a 
 test('heartbeat: conversation inspection returns real lines before creating a targeted intention', async () => {
   const run = await liveTurn({
     answers: [
-      toolAnswer(THINK, [call('conversation.read', { channel: '#general', last: 1 })]),
+      toolAnswer(THINK, [call('conversation.read', { place: '#general', last: 1 })]),
       SET('reply to the remembered message in general'),
     ],
   });

@@ -153,10 +153,12 @@ export type ServiceTurnSpec = {
   world?: World;
   /** Laid over `context.memory` of SERVICE_CONTEXT. */
   settings?: { serviceMessages?: number };
+  /** More interfaces the turn reaches, each answering the calls that name its `iface`. */
+  adapters?: ReadonlyArray<Fake>;
 };
 
-/** The adapter that answers a call naming `other`'s interface by `other`, and every other call by `main`. */
-function routed(main: Fake, other: Fake): Fake {
+/** The adapter that answers a call naming one of `others`' interfaces by that one, and every other call by `main`. */
+function routed(main: Fake, others: ReadonlyArray<Fake>): Fake {
   return new Proxy(main, {
     get(target, key) {
       const value: unknown = Reflect.get(target, key);
@@ -164,7 +166,7 @@ function routed(main: Fake, other: Fake): Fake {
       return (...args: Array<unknown>): unknown => {
         const first = args[0];
         const named: unknown = typeof first === 'object' && first !== null ? Reflect.get(first, 'iface') : undefined;
-        const to = named === other.iface ? other : target;
+        const to = others.find((other) => other.iface === named) ?? target;
         const method: unknown = Reflect.get(to, key);
         return typeof method === 'function' ? Reflect.apply(method, to, args) : undefined;
       };
@@ -257,7 +259,7 @@ export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
   world().channel({ id: 'c3', name: 'ανακοινώσεις', placeId: 'g1', permissions: { send: false } });
   const fake = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => TURN_NOW });
   const cli = cliAdapter();
-  const port = routed(fake, cli);
+  const port = routed(fake, [cli, ...(spec.adapters ?? [])]);
   const reads = world().adopt(port);
   const store = {
     getPlace: () => ({}),

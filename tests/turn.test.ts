@@ -6966,7 +6966,7 @@ test('skill call: message.create to another channel where the bot may send runs 
   const run = await callTurn({
     answers: [
       toolAnswer('<msg reply="#2">εντάξει</msg>\n', [
-        call('message.create', { channel: '#🍡νέα', text: 'καλημέρα :wave:' }),
+        call('message.create', { place: '#🍡νέα', text: 'καλημέρα :wave:' }),
       ]),
       '<skip/>',
     ],
@@ -7006,7 +7006,7 @@ test('skill call: her message.create and message.edit text goes out like a <msg>
   const written = `${alice} @Alice ${unknown} @everyone :dance: #2 #αλλού`;
   const rendered = `<@u1> @Alice ${unknown} @everyone <a:dance:222222222222222222> https://discord.com/channels/g1/c1/m1 <#c8>`;
   const created = await callTurn({
-    answers: [toolAnswer(``, [call('message.create', { channel: `#νέα`, text: `${written}` })])],
+    answers: [toolAnswer(``, [call('message.create', { place: `#νέα`, text: `${written}` })])],
     allowed: ['message.create'],
     emoji: fakeEmojiIndex(),
   });
@@ -7039,7 +7039,7 @@ test('skill call: her message.create and message.edit text goes out like a <msg>
   );
   // Pings off: the mention stays in the text and notifies nobody.
   const quiet = await callTurn({
-    answers: [toolAnswer(``, [call('message.create', { channel: `#νέα`, text: `${alice}` })])],
+    answers: [toolAnswer(``, [call('message.create', { place: `#νέα`, text: `${alice}` })])],
     allowed: ['message.create'],
     store: storeWithPingsOff(['u1']),
   });
@@ -7080,7 +7080,7 @@ test('skill call: a quiet success in an addressed turn ends the turn: no step, n
   };
   const spontaneous = await callTurn({
     answers: [
-      toolAnswer('<msg>κι αυτό</msg>', [call('message.create', { channel: '#🍡νέα', text: 'να το' })]),
+      toolAnswer('<msg>κι αυτό</msg>', [call('message.create', { place: '#🍡νέα', text: 'να το' })]),
       '<msg>δεν θα ειπωθεί</msg>',
     ],
     allowed: ['message.create'],
@@ -7104,7 +7104,7 @@ test('skill call: a call alone is no skip; here it needs no grant and replies to
   // A reply target outside the channel she named. Contract change: message.create no longer takes the reply's channel over a destination she named. That substitution posted a reply in another channel than the one she chose. A mismatch is refused unknown-message (conversation), nothing sent; react, edit and delete keep the rule because their channel only locates the message they act on.
   const across = await callTurn({
     answers: [
-      toolAnswer('', [call('message.create', { channel: '#νέα', reply: '#2', text: 'ναι' })]),
+      toolAnswer('', [call('message.create', { place: '#νέα', reply: '#2', text: 'ναι' })]),
       '<msg>όχι τελικά</msg>',
     ],
     allowed: ['message.create'],
@@ -7119,7 +7119,7 @@ test('skill call: not granted, or a channel where the bot may not send -- refuse
   const { journal, lines } = journalOverMemory();
   const run = await callTurn({
     answers: [
-      toolAnswer('<msg>μισό</msg>', [call('message.create', { channel: '#νέα', text: 'γεια' })]),
+      toolAnswer('<msg>μισό</msg>', [call('message.create', { place: '#νέα', text: 'γεια' })]),
       toolAnswer('<msg>δεν μπορώ εκεί</msg>', [call('message.create', { text: 'ξανά' })]),
     ],
     journal,
@@ -7146,7 +7146,7 @@ test('skill call: not granted, or a channel where the bot may not send -- refuse
 
   // Granted, but the bot may not send in that channel: the operation's own rule, its own words.
   const closed = await callTurn({
-    answers: [toolAnswer('', [call('message.create', { channel: '#αλλού', text: 'γεια' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('message.create', { place: '#αλλού', text: 'γεια' })]), '<skip/>'],
     allowed: ['message.create'],
   });
   assert.deepEqual(closed.sends, []);
@@ -7209,7 +7209,7 @@ test('skill call: the result turn of her own errand (requester kind persona, nob
     origin: { placeId: 'c1', messageId: null },
     result: { text: 'found', files: [] },
   };
-  const answer = toolAnswer('', [call('message.create', { channel: '#🍡νέα', text: 'να το' })]);
+  const answer = toolAnswer('', [call('message.create', { place: '#🍡νέα', text: 'να το' })]);
   // Without an origin message the turn is an interjection with a task result: her call runs.
   const own = await callTurn({
     answers: [answer, '<skip/>'],
@@ -7267,7 +7267,7 @@ test("skill call: a read brings the operation's answer back in one more request;
 
 test('skill call: a turn answering several people runs no write', async () => {
   const run = await callTurn({
-    answers: [toolAnswer('', [call('message.create', { channel: '#νέα', text: 'γεια' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('message.create', { place: '#νέα', text: 'γεια' })]), '<skip/>'],
     allowed: ['message.create'],
     turnExtra: {
       missed: [
@@ -7283,7 +7283,7 @@ test('skill call: a turn answering several people runs no write', async () => {
 test('skill call: safe mode lets only the carried-over reply through', async () => {
   const safe = await callTurn({
     answers: [
-      toolAnswer('<msg>γεια</msg>', [call('message.create', { channel: '#νέα', text: 'γεια' })]),
+      toolAnswer('<msg>γεια</msg>', [call('message.create', { place: '#νέα', text: 'γεια' })]),
       '<msg>μόνο εδώ</msg>',
     ],
     allowed: ['message.create'],
@@ -7309,7 +7309,7 @@ test('skill call: draw.create elsewhere generates once and the operation posts i
   const { journal, lines } = journalOverMemory();
   const run = await callTurn({
     answers: [
-      toolAnswer('', [call('draw.create', { channel: '#νέα', text: 'a lighthouse at dusk' })]),
+      toolAnswer('', [call('draw.create', { place: '#νέα', text: 'a lighthouse at dusk' })]),
       '<msg>δεν ξέρω αν βγήκε</msg>',
     ],
     allowed: ['draw.create'],
@@ -7323,7 +7323,7 @@ test('skill call: draw.create elsewhere generates once and the operation posts i
   assert.ok(followUpTool(run.llm, 1).startsWith(labels.tools.result.unknown.split(':')[0]), followUpTool(run.llm, 1));
 
   const delivered = await callTurn({
-    answers: [toolAnswer('', [call('draw.create', { channel: '#νέα', text: 'a lighthouse' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('draw.create', { place: '#νέα', text: 'a lighthouse' })]), '<skip/>'],
     allowed: ['draw.create'],
     images: withFamily(fakeImages()),
   });
@@ -7490,7 +7490,7 @@ function lastChat(llm: Untyped) {
 test('call marks: a later turn shows the call as a line of its own after her line of the turn that made it; the post there names where it came from', async () => {
   const scene = callMarkScene({
     answers: [
-      toolAnswer('<msg reply="#2">εντάξει</msg>\n', [call('message.create', { channel: '#🍡νέα', text: 'καλημέρα' })]),
+      toolAnswer('<msg reply="#2">εντάξει</msg>\n', [call('message.create', { place: '#🍡νέα', text: 'καλημέρα' })]),
       '<skip/>',
     ],
   });
@@ -7525,7 +7525,7 @@ test('call marks: a later turn shows the call as a line of its own after her lin
 
 test('call marks: a turn that only called shows the call as a line of hers at its time, after the last line before it', async () => {
   const scene = callMarkScene({
-    answers: [toolAnswer('', [call('message.create', { channel: '#🍡νέα', text: 'γεια' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('message.create', { place: '#🍡νέα', text: 'γεια' })]), '<skip/>'],
   });
   await scene.run(scene.channel, scene.history[1]);
   // Slice 2 (c): the mark carries no posted link, so her post in #νέα is checked here instead of read for its id.
@@ -7547,7 +7547,7 @@ test('call marks: a turn that only called shows the call as a line of hers at it
 test('call marks: a refused call shows its status and why on its own line after the line its turn posted', async () => {
   const scene = callMarkScene({
     answers: [
-      toolAnswer('<msg>μια στιγμή</msg>', [call('message.create', { channel: '#🍡νέα', text: 'γεια' })]),
+      toolAnswer('<msg>μια στιγμή</msg>', [call('message.create', { place: '#🍡νέα', text: 'γεια' })]),
       '<msg>μια στιγμή</msg>',
     ],
     allowed: [],
@@ -7598,7 +7598,7 @@ test('call marks: seeded from the journal after a restart, the calls show as the
   const { journal, lines } = journalOverMemory();
   const scene = callMarkScene({
     answers: [
-      toolAnswer('<msg reply="#2">εντάξει</msg>\n', [call('message.create', { channel: '#🍡νέα', text: 'καλημέρα' })]),
+      toolAnswer('<msg reply="#2">εντάξει</msg>\n', [call('message.create', { place: '#🍡νέα', text: 'καλημέρα' })]),
       '<skip/>',
     ],
     journal,

@@ -445,7 +445,7 @@ test("replay --skills taskResult: the turn an errand's end opens; her message.cr
       calls.push({ messages, options });
       return {
         ...toolAnswer('<think>t</think><msg>έτοιμο</msg>', [
-          call('message.create', { channel: 'γενικά', text: 'Voilà le programme', file: handle }),
+          call('message.create', { place: 'γενικά', text: 'Voilà le programme', file: handle }),
         ]),
         usage: { prompt_tokens: 100, completion_tokens: 10 },
       };
@@ -485,7 +485,7 @@ test("replay --skills taskResult: the turn an errand's end opens; her message.cr
   assert.deepEqual(run.outcome.verdict, { stage: 'gateway', ok: true });
   assert.deepEqual(run.outcome.executed, {
     skill: 'message.create',
-    args: { channel: HERE, text: 'Voilà le programme', file: handle },
+    args: { place: HERE, text: 'Voilà le programme', file: handle },
   });
 
   // Reported like any other scenario: runs.jsonl's line, the counts, the report with the errand's end.
@@ -495,7 +495,7 @@ test("replay --skills taskResult: the turn an errand's end opens; her message.cr
       asRecord(record).decision,
       asRecord(record).skill,
       asRecord(record).executed.args.file,
-      asRecord(record).executed.args.channel,
+      asRecord(record).executed.args.place,
     ],
     ['call', 'message.create', handle, HERE]
   );

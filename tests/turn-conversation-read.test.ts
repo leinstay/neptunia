@@ -332,7 +332,7 @@ const handleOf = (text: string, needle: string) => Number(new RegExp(`^#(\\d+) .
 
 test('conversation.read in a turn: the channel comes from the record with the edit and deletion marks, nothing is fetched from the history', async () => {
   const run = await turn({
-    answers: [toolAnswer('', [call('conversation.read', { channel: 'jardin', last: 6 })]), '<skip/>'],
+    answers: [toolAnswer('', [call('conversation.read', { place: 'jardin', last: 6 })]), '<skip/>'],
   });
   const text = requestText(run.llm, 1);
   assert.ok(text.startsWith(labels.tools.result.ok), text);
@@ -350,7 +350,7 @@ test('conversation.read in a turn: the channel comes from the record with the ed
 
 test('handles: a line she read is a message she can edit or page from in the next steps, in its own channel', async () => {
   const probe = await turn({
-    answers: [toolAnswer('', [call('conversation.read', { channel: 'jardin', last: 6 })]), '<skip/>'],
+    answers: [toolAnswer('', [call('conversation.read', { place: 'jardin', last: 6 })]), '<skip/>'],
   });
   const probeText = requestText(probe.llm, 1);
   const mine = handleOf(probeText, 'παλιό κείμενο');
@@ -359,7 +359,7 @@ test('handles: a line she read is a message she can edit or page from in the nex
   assert.ok(mine > 3 && theirs === mine - 1, `numbered past the chat: ${mine} ${theirs}`);
   const run = await turn({
     answers: [
-      toolAnswer('', [call('conversation.read', { channel: 'jardin', last: 6 })]),
+      toolAnswer('', [call('conversation.read', { place: 'jardin', last: 6 })]),
       toolAnswer(``, [
         call('message.edit', { message: `#${mine}`, text: `νέο κείμενο` }),
         call('conversation.read', { before: `#${first}`, last: 2 }),
@@ -412,7 +412,7 @@ test('the record lacks the span: the history of the channel is asked and its lin
     }),
   ];
   const run = await turn({
-    answers: [toolAnswer('', [call('conversation.read', { channel: 'jardin', last: 3 })]), '<skip/>'],
+    answers: [toolAnswer('', [call('conversation.read', { place: 'jardin', last: 3 })]), '<skip/>'],
     record: fakeRecord([]),
     jardinLive,
   });
@@ -427,7 +427,7 @@ test("the owner's internal turn reads a channel the pull rail hides from an ordi
   // Named by its id: a name the bot cannot read is not among the places she may name (tests/place-names.test.ts), so
   // only an id reaches the operation, whose rail this test is about.
   const run = await turn({
-    answers: [toolAnswer('', [call('conversation.read', { channel: 'c3', last: 3 })]), '<skip/>'],
+    answers: [toolAnswer('', [call('conversation.read', { place: 'c3', last: 3 })]), '<skip/>'],
     record: fakeRecord([]),
     memoryContext,
   });
@@ -441,7 +441,7 @@ test("the owner's internal turn reads a channel the pull rail hides from an ordi
 test('a channel the pull rail hides is refused channel-not-visible and nothing of it is read', async () => {
   // Named by its id, for the same reason as above: the operation's rail judges an id, resolution judges a name.
   const run = await turn({
-    answers: [toolAnswer('', [call('conversation.read', { channel: 'c3', last: 3 })]), '<skip/>'],
+    answers: [toolAnswer('', [call('conversation.read', { place: 'c3', last: 3 })]), '<skip/>'],
   });
   const text = requestText(run.llm, 1);
   assert.ok(
@@ -461,7 +461,7 @@ test('a channel the pull rail hides is refused channel-not-visible and nothing o
 
 test('not granted: the call is refused before anything is read', async () => {
   const run = await turn({
-    answers: [toolAnswer('', [call('conversation.read', { channel: 'jardin' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('conversation.read', { place: 'jardin' })]), '<skip/>'],
     allowed: ['lore.list'],
   });
   assert.ok(

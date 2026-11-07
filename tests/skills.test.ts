@@ -484,7 +484,7 @@ test('skills access: her reply tags are carried over in the current conversation
   );
   // a call of hers in the current conversation is carried over too
   assert.deepEqual(check({ skill: 'message.create', args: { text: 'γεια' } }), { ok: true });
-  assert.deepEqual(check({ skill: 'message.create', args: { text: 'γεια', channel: 'c-other' } }), {
+  assert.deepEqual(check({ skill: 'message.create', args: { text: 'γεια', place: 'c-other' } }), {
     ok: false,
     code: 'not-allowed',
     reason: 'message.create',

@@ -125,24 +125,25 @@ test('resolveCall: a #handle in a channel argument resolves exactly; the name st
     channelHandles: new Map([['c1a2b', KITCHEN]]),
   };
   // @ts-expect-error: resolveCall reads no `body`, so the key is ignored
-  const read = (channel: Untyped) => resolveCall({ skill: 'memory.channel.read', args: { channel }, body: '' }, view);
-  assert.equal(loose(read('#c1a2b')).args.channel, KITCHEN);
-  assert.equal(loose(read('c1a2b')).args.channel, KITCHEN, 'without its #');
-  assert.equal(loose(read('#γενικά')).args.channel, GENERAL, 'a name resolves as before');
+  const read = (channel: Untyped) =>
+    resolveCall({ skill: 'memory.channel.read', args: { place: channel }, body: '' }, view);
+  assert.equal(loose(read('#c1a2b')).args.place, KITCHEN);
+  assert.equal(loose(read('c1a2b')).args.place, KITCHEN, 'without its #');
+  assert.equal(loose(read('#γενικά')).args.place, GENERAL, 'a name resolves as before');
   assert.equal(
     loose(read('#c9999')).reason,
-    'args.channel:unknown-channel',
+    'args.place:unknown-channel',
     'a handle the request does not hold is never guessed'
   );
   assert.equal(
     loose(
       resolveCall(
         // @ts-expect-error: resolveCall reads no `body`, so the key is ignored
-        { skill: 'memory.channel.read', args: { channel: '#c1a2b' }, body: '' },
+        { skill: 'memory.channel.read', args: { place: '#c1a2b' }, body: '' },
         { ...view, channelHandles: null }
       )
     ).reason,
-    'args.channel:unknown-channel'
+    'args.place:unknown-channel'
   );
 });
 

@@ -220,7 +220,7 @@ test('a handle recalled from a real received event reads and replies with its na
         if (!handle) return Promise.resolve(toolAnswer('<skip/>'));
         return Promise.resolve(
           toolAnswer('', [
-            call('conversation.read', { channel: '#room-room-b', around: `#${handle}`, last: 1 }),
+            call('conversation.read', { place: '#room-room-b', around: `#${handle}`, last: 1 }),
             call('message.create', { reply: `#${handle}`, text: 'native reply 842' }),
           ])
         );
