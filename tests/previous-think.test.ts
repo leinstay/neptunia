@@ -252,3 +252,35 @@ test('withCalls: a call mark carries its arguments into the line through labels.
       lineOf('ok', undefined).endsWith('[called web.search: done]')
   );
 });
+
+test('seed: a think the journal holds from 20 minutes before midnight is carried 10 minutes after midnight and not 40', () => {
+  // Bug: a restart forgets every think, so the first turn after it starts blind; or the seeded entry takes the
+  // record's start, a later recording time or the restart's clock as its time and outlives its 30 minutes.
+  const midnight = Date.UTC(2026, 10, 5, 0, 0, 0);
+  const iso = (at: number) => new Date(at).toISOString();
+  const store = createThinkStore();
+  store.seed(
+    [
+      {
+        v: 1,
+        id: 'j-turn-eve',
+        kind: 'turn',
+        occurredAt: iso(midnight - 20 * MIN),
+        recordedAt: iso(midnight - 20 * MIN),
+        placeId: 'c1',
+        scope: { channel: 'c1' },
+        turnId: 't-eve',
+        attemptId: 1,
+        startedAt: iso(midnight - 21 * MIN),
+        mode: 'reply',
+        outcome: 'spoke',
+        reason: null,
+        think: 'before midnight',
+        posted: [{ messageId: 'p-eve' }],
+      },
+    ],
+    { isPrivate: false }
+  );
+  assert.equal(store.select(GROUP, { now: midnight + 10 * MIN, minutes: 30 }).think, 'before midnight');
+  assert.equal(whyOf(store.select(GROUP, { now: midnight + 40 * MIN, minutes: 30 })), 'none-in-window');
+});
