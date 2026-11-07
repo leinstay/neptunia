@@ -621,7 +621,7 @@ function seedMessageTies(
   }
 }
 
-/** The helpers' finds: a line goes to the excerpts, any other node is raised with its sources. */
+/** The finds a prefetch or a query handed over: a line goes to the excerpts, any other node is raised with its sources. */
 function seedCandidates(walker: Walker, candidates: Seeds['candidates'], found: Map<string, ExcerptSeed>): void {
   const quiet = { hop: 0, candidate: false, named: false };
   for (const candidate of candidates) {

@@ -56,9 +56,10 @@ const TRIGRAM_CANDIDATES = 50;
 
 /** The schema of the index: the table, its indexes, the trigram table and the triggers that keep it. */
 export const NAMES_SCHEMA = `CREATE TABLE names (
+  rowid INTEGER PRIMARY KEY,
   label TEXT NOT NULL, normalized TEXT NOT NULL, stem TEXT NOT NULL, kind TEXT NOT NULL, node_id TEXT NOT NULL,
   audience_id TEXT NOT NULL, source_table TEXT NOT NULL, source_id TEXT NOT NULL,
-  PRIMARY KEY (normalized, kind, node_id, source_table, source_id)
+  UNIQUE (normalized, kind, node_id, source_table, source_id)
 );
 CREATE INDEX names_stem ON names(stem);
 CREATE INDEX names_source ON names(source_table, source_id);
