@@ -357,7 +357,11 @@ test('the budget cuts the lowest evidence first and leftOut counts it', () => {
   const trigger = strangerSays(w, 'src:m2', 'τι λες εσύ;', { trigger: true, mentions: ['discord:p1'] });
   const tight: MindSettings = { ...SETTINGS, budgetTokens: 1, counterpartTokens: 0 };
   const mind = mindOf(w.db, GROUP, seedsOf([passing, trigger], { place: w.room }), tight, NOW);
-  assert.ok(personIn(mind, 'person:discord:p1') !== undefined, 'the person the trigger mentions');
+  assert.equal(
+    personIn(mind, 'person:discord:p1')?.nodeId,
+    personNode('person:discord:p1'),
+    'the person the trigger mentions'
+  );
   assert.equal(personIn(mind, passer), undefined, 'the person a passing word raised');
   assert.equal(mind.leftOut.people, 1);
 });
@@ -377,7 +381,7 @@ test('the person she answers is present with an empty budget', () => {
     empty,
     NOW
   );
-  assert.ok(personIn(mind, friend) !== undefined);
+  assert.equal(personIn(mind, friend)?.nodeId, personNode(friend));
 });
 
 test('the Telegram case: a friend asks about a server of another interface and gets the server, its busiest rooms, its closest people and the place he shares with her', () => {
