@@ -437,7 +437,8 @@ test('the Telegram case: a friend asks about a server of another interface and g
     settings,
     NOW
   );
-  assert.equal(mind.people[0]?.nodeId, personNode(friend), 'the friend comes first');
+  const [first] = mind.people;
+  assert.equal(first?.nodeId, personNode(friend), 'the friend comes first');
   const places = placeIds(mind);
   assert.deepEqual(
     [AGORA, lounge, drawing, PORTICO].filter((id) => !places.includes(placeNode(id))),

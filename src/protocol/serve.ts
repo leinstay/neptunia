@@ -34,6 +34,9 @@ export type AckStatus = 'ok' | 'duplicate' | 'invalid' | 'unhandled' | 'failed';
 /** Who an interface says it is: an id and the name people see. */
 export type Named = { id: string; name: string };
 
+/** An interface's own names: `interface` its name, `nouns` its word per kind of place, `dm` its word for a direct chat. */
+export type InterfaceNames = { interface: string; nouns: Readonly<Record<string, string>>; dm: string };
+
 /** `self` is the persona's account on the interface, `community` the community it serves (null when it serves none). */
 export type Hello = {
   iface: string;
@@ -41,6 +44,8 @@ export type Hello = {
   community: Named | null;
   /** Every community an interface serving several serves, `community` among them. */
   communities?: ReadonlyArray<Named>;
+  /** What the interface calls itself, its noun for each kind of place and its word for a direct chat. */
+  names?: InterfaceNames;
   capabilities: Capabilities;
   resume: string | null;
 };
@@ -350,6 +355,7 @@ export function serveAdapter(options: {
         self: hello.self,
         community: hello.community,
         ...(hello.communities === undefined ? {} : { communities: hello.communities }),
+        ...(hello.names === undefined ? {} : { names: hello.names }),
         capabilities: hello.capabilities,
         resume: hello.resume,
         token,

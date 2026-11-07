@@ -11,6 +11,7 @@
 // src/interface/commands/console.ts.
 
 import { currentIface } from './current-iface.ts';
+import { projectRow } from './graph.ts';
 import { SELF_PERSON, newPersonId, survivorOf } from './ids.ts';
 import type { AccountAddress } from '../../protocol/identity.ts';
 import type { StorageKey } from './storage-keys.ts';
@@ -116,33 +117,42 @@ export function applyPersonLinkWrite(handle: MemoryHandle, update: Row): { ok: t
     const db = dbOf(handle);
     const account = accountById(db, update.accountId);
     if (account === undefined) throw coded('UNKNOWN_ACCOUNT');
-    if (update.op === 'unbind') {
-      closeLinks(db, account.id, at);
-      const own = newPersonId();
-      db.prepare('INSERT OR IGNORE INTO people (id, first_seen_at) VALUES (?, ?)').run(own, at);
-      link(db, account.id, own, at);
-      return { ok: true as const, person: own };
-    }
-    const target = update.target as { self?: boolean; owner?: boolean; accountId?: unknown; personId?: unknown };
-    if (target.owner === true) {
-      // The owner names his own account: it keeps its person and its memory, and the link becomes his own word.
-      const own = personOf(db, account, at);
-      if (account.person_id) link(db, account.id, own, at);
-      return { ok: true as const, person: own };
-    }
-    let person: string = SELF_PERSON;
-    if (typeof target.personId === 'string') {
-      const known = db.prepare('SELECT 1 AS ok FROM people WHERE id = ?').get(target.personId);
-      if (!known) throw coded('UNKNOWN_PERSON');
-      person = target.personId;
-    } else if (target.self !== true) {
-      const other = accountById(db, target.accountId);
-      if (other === undefined) throw coded('UNKNOWN_ACCOUNT');
-      person = personOf(db, other, at);
-    }
-    link(db, account.id, person, at);
-    return { ok: true as const, person };
+    const done = bindingOf(db, account, update, at);
+    // The account's links are its graph edges and the person its names point at (names.ts): both follow the binding.
+    if (done.person !== null) projectRow(db, 'people', { id: done.person }, { at });
+    projectRow(db, 'accounts', { id: account.id }, { at });
+    return done;
   });
+}
+
+/** The binding itself: the account's links rewritten, and the person it ends with. */
+function bindingOf(db: Db, account: AccountRow, update: Row, at: string): { ok: true; person: string | null } {
+  if (update.op === 'unbind') {
+    closeLinks(db, account.id, at);
+    const own = newPersonId();
+    db.prepare('INSERT OR IGNORE INTO people (id, first_seen_at) VALUES (?, ?)').run(own, at);
+    link(db, account.id, own, at);
+    return { ok: true as const, person: own };
+  }
+  const target = update.target as { self?: boolean; owner?: boolean; accountId?: unknown; personId?: unknown };
+  if (target.owner === true) {
+    // The owner names his own account: it keeps its person and its memory, and the link becomes his own word.
+    const own = personOf(db, account, at);
+    if (account.person_id) link(db, account.id, own, at);
+    return { ok: true as const, person: own };
+  }
+  let person: string = SELF_PERSON;
+  if (typeof target.personId === 'string') {
+    const known = db.prepare('SELECT 1 AS ok FROM people WHERE id = ?').get(target.personId);
+    if (!known) throw coded('UNKNOWN_PERSON');
+    person = target.personId;
+  } else if (target.self !== true) {
+    const other = accountById(db, target.accountId);
+    if (other === undefined) throw coded('UNKNOWN_ACCOUNT');
+    person = personOf(db, other, at);
+  }
+  link(db, account.id, person, at);
+  return { ok: true as const, person };
 }
 
 /** Every account that shares the person of `iface`/`native`, itself included, in a stable order. */

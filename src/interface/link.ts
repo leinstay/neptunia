@@ -41,7 +41,7 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { ackOf, declaredHooks, envelope, portAction, validateEnvelope } from '../protocol/index.ts';
 import type { Adapter, Capabilities, Delivery, SendOptions } from '../protocol/adapter.ts';
-import type { AckStatus, Hello, Logger, Named } from '../protocol/serve.ts';
+import type { AckStatus, Hello, InterfaceNames, Logger, Named } from '../protocol/serve.ts';
 import type { Envelope, Transport } from '../protocol/wire.ts';
 import type { From } from './door.ts';
 import type { Principal } from './principals.ts';
@@ -280,6 +280,7 @@ export function openAdapterLink(options: {
       self: body.self as Named,
       community: (body.community ?? null) as Named | null,
       ...(Array.isArray(body.communities) ? { communities: body.communities as Array<Named> } : {}),
+      ...(body.names === undefined ? {} : { names: body.names as InterfaceNames }),
       capabilities: (body.capabilities ?? NO_CAPABILITIES) as Capabilities,
       resume: typeof body.resume === 'string' ? body.resume : null,
     };

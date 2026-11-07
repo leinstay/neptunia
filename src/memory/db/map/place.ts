@@ -1,7 +1,8 @@
 // Mapper: the notes of a place <-> rows.
 //
 //   places        the place, only when no row holds it yet: what the interface reported stays as stored
-//   descriptions  patterns, starters (subject: the place), one legacy version each
+//   descriptions  purpose, tone, topics, patterns, starters (subject: the place), one legacy version each; a root and a
+//                 direct chat carry the three fields of every place with lines, beside a root's patterns and starters
 //   claims        injokes (kind injoke, subject the place), self (kind self_fact, subject her),
 //                 learned (kind lesson, how taught, `from_person` the teacher)
 //   A DM place's descriptions, in-jokes, self facts and lessons are scoped to that DM; every other place's to the groups.
@@ -19,7 +20,7 @@ import { ifaceOf, parseExtra, put, rowsOf } from './common.ts';
 import type { Row, Rows } from '../types.ts';
 import type { MapContext, Spec } from './common.ts';
 
-const FIELDS = ['patterns', 'starters'];
+const FIELDS = ['purpose', 'tone', 'topics', 'patterns', 'starters'];
 
 const LEARNED_SPEC: Array<Spec> = [
   { col: 'text', key: 'text', type: 'text' },

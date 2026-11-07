@@ -413,7 +413,8 @@ test('a root unit keeps purpose, tone and topics as descriptions of the root bes
     rows.descriptions.map((d) => [d.field, d.subject_id]),
     ['purpose', 'tone', 'topics', 'patterns', 'starters'].map((field) => [field, PLACE])
   );
-  assert.ok(!('purpose' in JSON.parse(String(rows.operational[0].value))));
+  const [operational] = rows.operational;
+  assert.ok(!('purpose' in JSON.parse(String(operational.value))));
 });
 
 test('a direct chat unit keeps purpose, tone and topics as descriptions of the chat, scoped to it', () => {

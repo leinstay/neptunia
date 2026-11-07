@@ -19,4 +19,12 @@ export const MEMORY: ReadonlyArray<SchemaEntry> = [
     'text':
       "Minutes between two probes of the memory writer's path, one minimal request on the memory key or one one-word reply through the subharness. The probe also runs at core start and right after a refused writer run. A failed probe pauses her with the reason `memory-down`, and the next passing one resumes her. A value that is no positive number counts as 30",
   },
+  {
+    'key': 'memory.describeAfterLines',
+    'types': ['number'],
+    'reader': 'src/memory/db/audit.ts',
+    'default': 20,
+    'text':
+      'The live lines after which the memory audit expects a place to carry `purpose`, `tone` and `topics` (`placeUndescribed`). A value that is no positive whole number counts as 20',
+  },
 ];

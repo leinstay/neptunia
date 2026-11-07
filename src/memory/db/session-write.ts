@@ -28,7 +28,7 @@
 //   { kind: 'context', context }
 //       One `execution_contexts` row (scope.ts#contextRow of a context the core issued); a context already recorded is
 //       left as it is. Not a memory write: no mode.
-//   { kind: 'communities', iface, communities: [{ id, name }], at }
+//   { kind: 'communities', iface, communities: [{ id, name }], at, names? }
 //       The places of the communities a `hello` named (communities.ts#noteCommunities). Not a memory write: no mode.
 //   { kind: 'wake', op, ... } | { kind: 'skills', op, ... } | { kind: 'index-policy' | 'touch' | 'reembed', ... }
 //       Schema v11: handed to wakes.ts#applyWakeWrite, skills.ts#applySkillsWrite and index-policy.ts#applyIndexWrite.
@@ -134,7 +134,7 @@ import { applyMirrorWrite } from './mirror-config.ts';
 import { applyEntryMedia } from './selfreflection-media.ts';
 import { applyMediaBackfill } from './media-backfill.ts';
 import { applyMediaEnglish } from './media-english.ts';
-import { noteCommunities } from './communities.ts';
+import { isInterfaceNames, noteCommunities } from './communities.ts';
 import { applyMediaEmbed } from './media-store.ts';
 import { writeBackup } from './backup.ts';
 import { applyIngestWrite } from './ingest.ts';
@@ -984,6 +984,7 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
           ? (update.communities as Array<{ id: string; name: string }>)
           : [],
         at: typeof update.at === 'string' ? update.at : new Date().toISOString(),
+        ...(isInterfaceNames(update.names) ? { names: update.names } : {}),
       }),
   ],
 ]);

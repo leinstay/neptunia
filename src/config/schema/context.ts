@@ -25,6 +25,24 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
     'text': 'How many of her actions of today `<my_day>` lists, the newest kept. `0` leaves the block out',
   },
   {
+    'key': 'context.memory',
+    'types': ['map'],
+    'reader': 'src/memory/db/mind-read.ts',
+    'default': {
+      'windowMessages': 100,
+      'maxHops': 2,
+      'maxNodesRead': 2000,
+      'budgetTokens': 10000,
+      'shares': { 'people': 0.5, 'places': 0.15, 'lore': 0.15, 'recent': 0.1, 'found': 0.1 },
+      'counterpartTokens': 1500,
+      'candidatesMax': 3,
+      'commonWordEntries': 3,
+      'fanOut': { 'accounts': 10, 'memberships': 20, 'rooms': 10, 'members': 8, 'replies': 5, 'about': 30 },
+    },
+    'text':
+      'The graph reader (`mindOf`): the lines of the window that seed it, the counted hops, the rows read, the token budget and its shares per kind of entry, the part kept for the person she answers, the candidates of an ambiguous word, the word that names too many entries, and the rows read per path. Each key is described in `docs/memory.md`, "How a turn remembers". A missing or broken key counts as its default',
+  },
+  {
     'key': 'context.turnLeaseMs',
     'types': ['number'],
     'reader': 'src/behavior/attention.ts',
