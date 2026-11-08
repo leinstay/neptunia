@@ -102,7 +102,12 @@ function runner(env: ReturnType<typeof fixture>) {
   const recaller = createRecall({
     reads: rig().reads,
     hot,
-    store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [] },
+    // The DM partner `owner-42` has a stored person, which the store answers; no person is spelled from a member id.
+    store: {
+      state: { data: {}, markDirty() {} },
+      listUserProfiles: () => [],
+      personOfAccount: (account: string) => (account === 'owner-42' ? personId('discord', 'owner-42') : null),
+    },
     llm: { capLeft: () => 100, complete: () => Promise.reject(new Error('quoted SQLite reads need no model')) },
     now: () => NOW,
     embed: null,

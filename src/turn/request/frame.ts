@@ -40,8 +40,11 @@ export type FramePlace = {
   readonly path: ReadonlyArray<string>;
 };
 
-/** Somebody she talks to. A name is null until the interface has given one. */
-export type FrameParty = { readonly personId: string; readonly accountId: string; readonly name: string | null };
+/**
+ * Somebody she talks to. The person is null when no stored row links one to the account, and a name is null until the
+ * interface has given one.
+ */
+export type FrameParty = { readonly personId: string | null; readonly accountId: string; readonly name: string | null };
 
 export type FrameAnswers = { readonly messageId: string; readonly authorId: string };
 

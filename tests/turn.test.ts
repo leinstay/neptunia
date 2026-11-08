@@ -6455,7 +6455,11 @@ test('a cancelled internal turn cannot leave its read context on a subsequent or
       discord: DISCORD,
       createPort: createDiscordAdapter,
       hot,
-      store: fakeStore(),
+      // The DM partner `other` has a stored person, which the store answers; no person is spelled from a member id.
+      store: {
+        ...fakeStore(),
+        personOfAccount: (account: string) => (account === 'other' ? 'person:cli:other' : null),
+      },
       llm,
       calibrator: identityCalibrator(),
       client: fakeClient(),

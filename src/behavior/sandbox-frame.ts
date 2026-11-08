@@ -14,7 +14,7 @@ export type ReplayTurn = {
     placeOfChat?: (chat: { id: string }, iface?: string) => string | null;
     placeChainOf?: (placeId: string) => ReadonlyArray<PlaceChainLink>;
     accountOf?: (nativeId: string, iface?: string) => string;
-    personOfAccount?: (accountId: string) => string;
+    personOfAccount?: (accountId: string) => string | null;
   };
   channel: { id: string; name?: string | null; iface?: string | null };
   trigger: { id?: string; authorId?: string | null; authorName?: string | null } | null;
@@ -50,7 +50,7 @@ export function replayFrame(turn: ReplayTurn): { frame: Frame; whereabouts: Wher
     dm: null,
     trigger: trigger?.id && authorId ? { messageId: trigger.id, authorId } : null,
     author: accountId
-      ? { personId: memory.personOfAccount?.(accountId) ?? accountId, accountId, name: trigger?.authorName ?? null }
+      ? { personId: memory.personOfAccount?.(accountId) ?? null, accountId, name: trigger?.authorName ?? null }
       : null,
     now: turn.now,
     timezone: turn.timezone,

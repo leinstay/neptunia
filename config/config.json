@@ -100,7 +100,9 @@
       "evidence": 24,
       "tokens": 1500,
       "deadlineMs": 1000,
-      "embedDocuments": true
+      "embedDocuments": true,
+      "embedObjects": true,
+      "embedBatch": 50
     },
     "inspection": {
       "pageRows": 100,

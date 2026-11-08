@@ -97,6 +97,22 @@ export const MEMORY_DB: ReadonlyArray<SchemaEntry> = [
       'Whether new semantic search documents are embedded, one bounded batch a minute. Off, a search of them stays lexical',
   },
   {
+    'key': 'memoryDb.retrieval.embedObjects',
+    'types': ['boolean'],
+    'reader': 'src/memory/db/service.ts',
+    'default': true,
+    'text':
+      'Whether claims, descriptions, episodes and name sets are embedded, one bounded batch a minute. Off, their searches stay lexical',
+  },
+  {
+    'key': 'memoryDb.retrieval.embedBatch',
+    'types': ['number'],
+    'reader': 'src/memory/db/object-vectors.ts',
+    'default': 50,
+    'text':
+      'The most texts one embedding request of the object job carries, cut further to stay under `llm.maxRequestTokens`',
+  },
+  {
     'key': 'memoryDb.inspection.pageRows',
     'types': ['number'],
     'reader': 'src/interface/commands/memory.ts',

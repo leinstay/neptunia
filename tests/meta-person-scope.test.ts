@@ -145,6 +145,19 @@ test("a read's direct chat context names the person its resolver gives, never a 
   assert.deepEqual(spec, { iface: 'cli', kind: 'dm', person: 'person:00000000-0000-4000-8000-000000000001' });
 });
 
+test("a read's direct chat context of a partner no row names reads as the interface's group", () => {
+  // Bug: the resolver finds no person, and the spec names none, so issuing the context throws and the turn reads nothing.
+  const spec = readContextSpec(
+    'discord',
+    'discord',
+    'c1',
+    '700',
+    () => null,
+    () => null
+  );
+  assert.deepEqual(spec, { iface: 'discord', kind: 'group', destination: null });
+});
+
 /** A service over a database seeded by `seed`, closed after `body`. */
 async function withService(
   seed: (handle: MemoryHandle) => void,

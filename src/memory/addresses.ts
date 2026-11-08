@@ -17,7 +17,7 @@ type Addressing = {
   sharedPlaceOf?: (chat: Chatish, iface?: string) => string;
   placeOfRoot?: (nativeId: string, iface?: string) => string;
   accountOf?: (nativeId: string, iface?: string) => string;
-  personOfAccount?: (accountId: string) => string;
+  personOfAccount?: (accountId: string) => string | null;
   storedPersonOfAccount?: (accountId: string) => string | null;
   dmHomeOf?: (accountId: string) => string | null;
   rootPlaceOf?: (placeId: string) => string | null;
@@ -53,11 +53,10 @@ export function accountOf(store: unknown, nativeId: string, iface?: string): str
   return addressing?.accountOf ? addressing.accountOf(nativeId, iface) : nativeId;
 }
 
-/** The person of a member an interface names by a native id. */
-export function personOfMember(store: unknown, nativeId: string, iface?: string): string {
+/** The person of a member an interface names by a native id, null when the store links none or holds no persons. */
+export function personOfMember(store: unknown, nativeId: string, iface?: string): string | null {
   const addressing = store as Addressing | null | undefined;
-  const account = accountOf(store, nativeId, iface);
-  return addressing?.personOfAccount ? addressing.personOfAccount(account) : `person:${iface ?? ''}:${nativeId}`;
+  return addressing?.personOfAccount?.(accountOf(store, nativeId, iface)) ?? null;
 }
 
 /** The stored person of a member an interface names by a native id, null when no stored row links one. */

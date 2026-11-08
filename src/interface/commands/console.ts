@@ -199,7 +199,7 @@ function ownCommand(
   }
   if (name.startsWith('search.')) return Promise.resolve(searchCommand(dataDir, name, args, ENGINE_ROOT));
   if (name === 'memory.bind') return personLinkCommand({ memoryDb, runOp, hot }, args, dialog);
-  if ((name === 'memory.users.names.add' || name === 'memory.users.names.remove') && personWord(args.user))
+  if ((name === 'memory.users.names.add' || name === 'memory.users.names.remove') && personWord(memoryDb, args.user))
     return ownerNameCommand(memoryDb, name, args);
   const paired = pairCommand(pairing, name, args);
   if (paired !== null) return paired;
@@ -216,8 +216,16 @@ function ownCommand(
   );
 }
 
-/** A person's id (`person:self`, `person:<id>`) where a name command takes an account: the name goes on the person. */
-const personWord = (value: unknown): boolean => typeof value === 'string' && value.startsWith('person:');
+/**
+ * Whether a name command names a stored person (`person:self`, `person:<id>`, a `people` row) where it takes an account:
+ * the name goes on the person. Nothing is a person while the database is closed.
+ */
+function personWord(memoryDb: unknown, value: unknown): boolean {
+  const db = callMethod(memoryDb, 'database') as Db | null | undefined;
+  return (
+    typeof value === 'string' && db != null && db.prepare('SELECT 1 FROM people WHERE id = ?').get(value) !== undefined
+  );
+}
 
 /**
  * `/memory users names add|remove <person> <name>` on a person: the name is written through the one writer as the owner's

@@ -68,6 +68,19 @@ test('the owner removes a name, and adding the same name twice keeps one', async
   }
 });
 
+test('a name for a person no row holds is not written as an owner name', async () => {
+  // Bug: any word that starts with `person:` passes as a person, and the name lands on a subject nobody has.
+  const { memoryDb, close } = await openTestMemory();
+  try {
+    const run = consoleOver(memoryDb);
+    // The word is no stored person, so the command goes on to the account operation, which this console refuses.
+    await run('/memory users names add person:nobody Zefira').catch(() => null);
+    assert.deepEqual(ownerNamesOf(dbOf(memoryDb), 'person:nobody'), []);
+  } finally {
+    await close();
+  }
+});
+
 test('a name her memory session wrote about her is not one of the owner names', async () => {
   // Bug: whatever someone called her in chat becomes a gate that sends lines to the classifier.
   const { memoryDb, dataDir, close } = await openTestMemory();
