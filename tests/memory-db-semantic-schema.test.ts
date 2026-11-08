@@ -142,12 +142,14 @@ test('an integrated database opens at the new version with every old row byte fo
     assert.ok(MIGRATIONS.length > INTEGRATED.length);
     // Stage M rewrites `media` and takes `media` off `sources`, on purpose; every other shipped table stays byte for byte.
     // A category is no place, the owner's word of 2026-11-06: `places.category` is dropped and `model_requests.blocks` added on purpose as well.
+    // Schema v40 adds `people.meta` and `sources.author_person` for the meta-person (plan 2026-11-08), on purpose too.
     const asOfOld = (text: Record<string, string>) => {
       const rest = { ...text };
       delete rest.media;
       const lines = (JSON.parse(text.sources) as Array<Row>).map((row) => {
         const line = { ...row };
         delete line.media;
+        delete line.author_person;
         return line;
       });
       const places = (JSON.parse(text.places) as Array<Row>).map((row) => {
@@ -155,7 +157,17 @@ test('an integrated database opens at the new version with every old row byte fo
         delete place.category;
         return place;
       });
-      return { ...rest, sources: JSON.stringify(lines), places: JSON.stringify(places) };
+      const people = (JSON.parse(text.people) as Array<Row>).map((row) => {
+        const person = { ...row };
+        delete person.meta;
+        return person;
+      });
+      return {
+        ...rest,
+        sources: JSON.stringify(lines),
+        places: JSON.stringify(places),
+        people: JSON.stringify(people),
+      };
     };
     assert.deepEqual(asOfOld(contentOf(db, tables)), asOfOld(before));
     const after = definitions(db);
@@ -164,6 +176,7 @@ test('an integrated database opens at the new version with every old row byte fo
         name === 'media' ||
         name === 'sources' ||
         name === 'places' ||
+        name === 'people' ||
         name === 'model_requests' ||
         name.startsWith('diary')
       )
