@@ -11,8 +11,9 @@
 //   touchVectors(db, table, id)                 graph.ts#projectRow, in the writer's transaction: the rows of a claim, a
 //       description or an episode whose text changed or which retired are deleted
 //   touchNameVectors(db, nodeIds)               the same for the name sets of the nodes names.ts#touchNames rewrote
-//   objectMeaning(db, ctx, { vector, model, kinds, minMeaning })   the objects of the asked kinds a query vector meets,
-//       best cosine first, one hit per object at its best row, each read under its object's own audience
+//   objectMeaning(db, ctx, { vector, model, kinds, minMeaning, about })   the objects of the asked kinds a query vector meets,
+//       best cosine first, one hit per object at its best row with the graph nodes it is about, each read under its
+//       object's own audience
 //   embedObjects({ db, write, embed, config, model, now })   service.ts's minute job: at most
 //       `memoryDb.retrieval.embedBatch` pending texts, oldest first, cut where the next text would pass
 //       `llm.maxRequestTokens`, in one `embed` request of purpose `memory-object`, written through one `object-embedding`
@@ -269,8 +270,11 @@ export function touchNameVectors(db: Db, nodeIds: ReadonlySet<string>): number {
   return count;
 }
 
-/** One object a query vector meets: its kind, its id (the node for a name set) and its best cosine. */
-export type ObjectHit = { kind: ObjectKind; itemId: string; similarity: number };
+/**
+ * One object a query vector meets: its kind, its id (the node for a name set), its best cosine and the graph nodes it is
+ * about (a claim's or a description's subject, an episode's place and person, a name set's node).
+ */
+export type ObjectHit = { kind: ObjectKind; itemId: string; similarity: number; nodes: Array<string> };
 
 /**
  * The vectors of one kind a context reads, with the id of their object. A claim, a description and an episode are read
@@ -282,18 +286,28 @@ export type ObjectHit = { kind: ObjectKind; itemId: string; similarity: number }
 function meaningSql(kind: ObjectKind, visible: string): string {
   const range = `x.chunk_key >= '${kind}:' AND x.chunk_key < '${kind};' AND +x.model = :model AND +x.dims = :dims
     AND x.bytes IS NOT NULL AND x.retired_at IS NULL`;
-  const live = (table: string, extra = ''): string =>
-    `SELECT o.id AS item_id, x.scale, x.norm, x.bytes FROM vectors x CROSS JOIN ${table} o ON o.id = x.item_id
+  const subject = `o.subject_kind || ':' || o.subject_id`;
+  const ofSubject = '(:about IS NULL OR o.subject_kind = :about)';
+  const live = (table: string, extra = '', node = subject, other = 'NULL'): string =>
+    `SELECT o.id AS item_id, ${node} AS node, ${other} AS other, x.scale, x.norm, x.bytes
+       FROM vectors x CROSS JOIN ${table} o ON o.id = x.item_id
       WHERE ${range} AND o.retired_at IS NULL ${extra} AND ${visible}`;
   switch (kind) {
     case 'claim':
-      return live('claims', 'AND o.superseded_by IS NULL');
+      return live('claims', `AND o.superseded_by IS NULL AND ${ofSubject}`);
     case 'desc':
-      return live('descriptions');
+      return live('descriptions', `AND ${ofSubject}`);
     case 'episode':
-      return live('episodes');
+      return live(
+        'episodes',
+        `AND (:about IS NULL OR (:about = 'place' AND o.place_id IS NOT NULL)
+          OR (:about = 'person' AND o.subject_id IS NOT NULL))`,
+        `'place:' || o.place_id`,
+        `'person:' || o.subject_id`
+      );
     case 'names':
-      return `SELECT x.item_id, x.scale, x.norm, x.bytes FROM vectors x WHERE ${range} AND ${visible}
+      return `SELECT x.item_id, x.item_id AS node, NULL AS other, x.scale, x.norm, x.bytes FROM vectors x
+         WHERE ${range} AND ${visible} AND (:about IS NULL OR substr(x.item_id, 1, length(:about) + 1) = :about || ':')
            AND EXISTS (SELECT 1 FROM names n WHERE n.node_id = x.item_id AND n.audience_id = x.audience_id)`;
   }
 }
@@ -331,7 +345,15 @@ export function objectMeaning(
     model,
     kinds,
     minMeaning,
-  }: { vector: ArrayLike<number> | null; model: string | null; kinds: ReadonlyArray<ObjectKind>; minMeaning: number }
+    about = null,
+  }: {
+    vector: ArrayLike<number> | null;
+    model: string | null;
+    kinds: ReadonlyArray<ObjectKind>;
+    minMeaning: number;
+    /** Only the objects about a place or about a person: their subject, an episode's place or person, a node's kind. */
+    about?: 'place' | 'person' | null;
+  }
 ): Array<ObjectHit> {
   if (vector === null || vector.length === 0 || !filled(model)) return [];
   const query = Float64Array.from(vector);
@@ -340,7 +362,10 @@ export function objectMeaning(
   const best = new Map<string, ObjectHit>();
   for (const kind of new Set(kinds)) {
     const visible = audienceWhere(ctx, kind === 'names' ? 'x' : 'o');
-    const rows = prepared(db, meaningSql(kind, visible.sql)).iterate({ model, dims: vector.length }, ...visible.params);
+    const rows = prepared(db, meaningSql(kind, visible.sql)).iterate(
+      { model, dims: vector.length, about },
+      ...visible.params
+    );
     for (const row of rows) {
       const bytes = row.bytes as Uint8Array; // the int8 row quantize() packed
       const data = new Int8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -348,8 +373,9 @@ export function objectMeaning(
       const similarity = norm > 0 ? (dotOf(data, query) * Number(row.scale)) / (queryNorm * norm) : 0;
       if (similarity < minMeaning) continue;
       const key = `${kind}:${String(row.item_id)}`;
-      if ((best.get(key)?.similarity ?? -Infinity) < similarity)
-        best.set(key, { kind, itemId: String(row.item_id), similarity });
+      if ((best.get(key)?.similarity ?? -Infinity) >= similarity) continue;
+      const nodes = [row.node, row.other].filter(filled);
+      best.set(key, { kind, itemId: String(row.item_id), similarity, nodes });
     }
   }
   return [...best.values()].sort(
