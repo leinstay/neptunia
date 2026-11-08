@@ -20,6 +20,9 @@ export type SourceLine = {
   nativeId?: string;
   media?: ReadonlyArray<MediaRow>;
   number?: number;
+  /** The message id of the line it replies to, and that line's number when known. */
+  replyToId?: string;
+  replyNumber?: number;
 };
 
 /** When a branch was the selected session: lines written from `from` until `to` are its own. */

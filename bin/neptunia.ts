@@ -744,9 +744,13 @@ async function runInkChat(
           text: string;
           number?: number;
           files?: Array<string>;
+          replyNumber?: number;
         }>;
       };
-      return lines;
+      // The number of the line a stored line replies to is drawn after its own.
+      return lines.map(({ replyNumber, ...line }) =>
+        replyNumber === undefined ? line : { ...line, replyTo: replyNumber }
+      );
     },
     // The files of a numbered line, from the stored chat: the number counts every stored line, whatever is on screen.
     async lineFiles(number) {

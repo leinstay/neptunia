@@ -93,6 +93,11 @@ export function numberLead(number: number, digits = 1): string {
   return `[#${String(number).padStart(digits, '0')}] `;
 }
 
+/** The muted mark of a line that replies to line `number`, padded as the leads are, as `↳ #3 `. */
+export function replyLead(number: number, digits = 1): string {
+  return `↳ #${String(number).padStart(digits, '0')} `;
+}
+
 /** The digits of the largest number, the chat's history count or the window's command count, that every number is padded to. */
 export const leadDigits = (largest: number): number => String(Math.max(0, largest)).length;
 

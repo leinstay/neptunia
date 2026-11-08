@@ -23,9 +23,20 @@ export type ChatLine = {
   media?: Array<MediaRow>;
   /** The line's place among all the stored lines of its place, in the order of this read, the oldest being 1. */
   number: number;
+  /** The message id of the line it replies to, when it replies to one. */
+  replyToId?: string;
+  /** The number of the line it replies to, when this read holds that line. */
+  replyNumber?: number;
 };
 
 const HOLDS_SOMETHING = `(length(COALESCE(s.text, '')) > 0 OR ${LINE_HOLDS_MEDIA})`;
+
+/** The reply fields of a line whose `reply_to` is `parent`: its message id, and its number when the read holds it. */
+function replyOf(parent: unknown, numberOf: ReadonlyMap<unknown, number>): Pick<ChatLine, 'replyToId' | 'replyNumber'> {
+  if (typeof parent !== 'string' || parent === '') return {};
+  const number = numberOf.get(parent);
+  return number === undefined ? { replyToId: parent } : { replyToId: parent, replyNumber: number };
+}
 
 export function chatLines(db: Db, placeId: string): Array<ChatLine> {
   const counted = db
@@ -33,7 +44,7 @@ export function chatLines(db: Db, placeId: string): Array<ChatLine> {
     .get(placeId);
   const rows = db
     .prepare(
-      `SELECT s.id, s.kind, s.text, s.occurred_at, s.native_id FROM sources s
+      `SELECT s.id, s.kind, s.text, s.occurred_at, s.native_id, s.reply_to FROM sources s
        WHERE s.place_id = ? AND ${CURRENT_SOURCE} AND ${HOLDS_SOMETHING}
        ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`
     )
@@ -45,7 +56,9 @@ export function chatLines(db: Db, placeId: string): Array<ChatLine> {
   );
   // A read past LINES_MAX starts after the lines it leaves out, so the numbers stay those of the whole place.
   const skipped = Number(counted?.n ?? rows.length) - rows.length;
-  return rows.toReversed().map((row, index) => ({
+  const ordered = rows.toReversed();
+  const numberOf = new Map(ordered.map((row, index) => [row.native_id, skipped + index + 1]));
+  return ordered.map((row, index) => ({
     id: asText(row.id),
     placeId,
     at: Date.parse(asText(row.occurred_at)),
@@ -54,6 +67,7 @@ export function chatLines(db: Db, placeId: string): Array<ChatLine> {
     ...(typeof row.native_id === 'string' ? { nativeId: row.native_id } : {}),
     ...(media.has(asText(row.id)) ? { media: media.get(asText(row.id)) } : {}),
     number: skipped + index + 1,
+    ...replyOf(row.reply_to, numberOf),
   }));
 }
 
