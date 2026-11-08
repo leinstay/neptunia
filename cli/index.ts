@@ -6,10 +6,14 @@ import { render } from 'ink';
 import { ChatApp } from './app.ts';
 import type { ChatEnv } from './app.ts';
 import { mouseFilter } from './mouse.ts';
+import { DEFAULT_CELL } from './terminal-graphics.ts';
+import { graphicsOverlay, graphicsProbe, replyFilter } from './terminal-replies.ts';
+import type { GraphicsSupport, Placement } from './terminal-replies.ts';
 
 export { reducedMotion } from './galaxy.ts';
 export { mouseAvailable } from './mouse.ts';
-export type { ChatEntry, ChatEnv, ChatImages, Panel, Question, StageResult } from './app.ts';
+export type { ChatEntry, ChatEnv, ChatImages, LineFile, LineFiles, Panel, Question, StageResult } from './app.ts';
+export type { KeptRead } from './attachment-actions.ts';
 export type { ChatAttachment, Draft, DraftPart, PasteLimits } from './composer.ts';
 export type { KeyBinding } from './keymap.ts';
 export type { StatusBrief } from './state.ts';
@@ -28,18 +32,25 @@ export async function runInteractive(
   env: ChatEnv,
   streams: { stdin?: NodeJS.ReadStream; stdout?: NodeJS.WriteStream } = {}
 ): Promise<void> {
-  const mouse = env.mouse === true ? mouseFilter(streams.stdin ?? process.stdin) : null;
+  // The terminal's answers about its graphics come on stdin and are taken out before the mouse filter and Ink.
+  const replies = replyFilter(streams.stdin ?? process.stdin);
+  const mouse = env.mouse === true ? mouseFilter(replies.input) : null;
   const stdout = streams.stdout ?? process.stdout;
-  const input = mouse === null ? {} : { stdin: mouse.input };
-  // The linear mode stays inline: a screen reader reads the column in the terminal's own history.
+  const overlay = graphicsOverlay(stdout);
+  // The linear mode stays inline: a screen reader reads the column in the terminal's own history, and gets no picture.
   const alternateScreen = env.linear !== true;
+  const probe = alternateScreen
+    ? graphicsProbe({ write: (text) => void stdout.write(text), replies: replies.answers, env: process.env })
+    : (): Promise<GraphicsSupport> => Promise.resolve({ protocol: 'none', cell: DEFAULT_CELL });
+  const graphics = { probe, place: (placement: Placement | null) => overlay.place(placement) };
   // Only a terminal reaches this chat, and Ink otherwise stops drawing under a `CI` variable.
-  const app = render(createElement(ChatApp, { env, mouse: mouse?.reports ?? null }), {
+  const app = render(createElement(ChatApp, { env, mouse: mouse?.reports ?? null, graphics }), {
     exitOnCtrlC: false,
     interactive: true,
     alternateScreen,
     ...streams,
-    ...input,
+    stdout: overlay.stdout,
+    stdin: mouse?.input ?? replies.input,
   });
   if (mouse !== null) stdout.write(MOUSE_ON);
   let restored = false;
@@ -47,6 +58,8 @@ export async function runInteractive(
   const restore = (): void => {
     if (restored) return;
     restored = true;
+    overlay.place(null);
+    replies.close();
     if (mouse === null) return;
     stdout.write(MOUSE_OFF);
     mouse.close();

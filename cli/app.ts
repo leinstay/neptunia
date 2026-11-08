@@ -12,9 +12,10 @@ import { ChatController } from './chat-controller.ts';
 import { osc52 } from './clipboard.ts';
 import { CommandWindow } from './command-window.ts';
 import type { ChatEnv, ChatFrame } from './chat-controller.ts';
-export type { ChatEntry, ChatEnv, ChatImages, Question, StageResult } from './chat-controller.ts';
+export type { ChatEntry, ChatEnv, ChatImages, LineFile, LineFiles, Question, StageResult } from './chat-controller.ts';
 import { ModelPicker } from './model-picker.ts';
 import type { MouseSource } from './mouse.ts';
+import type { GraphicsSupport, Placement } from './terminal-replies.ts';
 import { PanelView } from './panel-view.ts';
 export type { Panel } from './panel.ts';
 import { ChoiceSelector } from './selector.ts';
@@ -69,7 +70,16 @@ function Bottom({ chat, frame }: { chat: ChatController; frame: ChatFrame }) {
   );
 }
 
-export function ChatApp({ env, mouse = null }: { env: ChatEnv; mouse?: MouseSource | null }): ReactElement {
+export function ChatApp({
+  env,
+  mouse = null,
+  graphics,
+}: {
+  env: ChatEnv;
+  mouse?: MouseSource | null;
+  /** What the terminal draws pictures with, and the overlay that draws the placed one over each frame. */
+  graphics?: { probe: () => Promise<GraphicsSupport>; place: (placement: Placement | null) => void };
+}): ReactElement {
   const { exit, suspendTerminal } = useApp();
   const { stdout } = useStdout();
   const sizeOf = (): { rows: number; columns: number } => {
@@ -87,7 +97,16 @@ export function ChatApp({ env, mouse = null }: { env: ChatEnv; mouse?: MouseSour
   const [, paint] = useReducer((tick: number) => tick + 1, 0);
   // A copy goes straight to the terminal: the sequence draws nothing, so Ink's frame stays as it is.
   const copy = (text: string): void => void stdout.write(osc52(text));
-  const [chat] = useState(() => new ChatController(env, { exit, suspendTerminal, paint, copy }));
+  const [chat] = useState(
+    () =>
+      new ChatController(env, {
+        exit,
+        suspendTerminal,
+        paint,
+        copy,
+        ...(graphics === undefined ? {} : { graphics: graphics.probe }),
+      })
+  );
   const subscribed = useRef(false);
   useEffect(() => {
     if (subscribed.current) return;
@@ -102,6 +121,8 @@ export function ChatApp({ env, mouse = null }: { env: ChatEnv; mouse?: MouseSour
   useEffect(() => mouse?.onReport((report) => chat.onMouse(report)), [chat, mouse]);
 
   const frame = chat.frame(rows, columns);
+  // The picture goes over the frame Ink is about to write: the overlay draws it after that write.
+  graphics?.place(frame.graphic);
   useInput((text, key) => chat.onKey(text, key, frame.owner));
   // Only while the input holds the keys: otherwise Ink hands a paste to the owner's key handler, as text.
   usePaste((payload) => chat.onPaste(payload), { isActive: frame.owner === 'input' });
@@ -110,7 +131,8 @@ export function ChatApp({ env, mouse = null }: { env: ChatEnv; mouse?: MouseSour
     Box,
     // The whole window and never a row more: a taller frame would scroll the screen and break the next redraw.
     { flexDirection: 'column', ...(frame.isLinear ? {} : { height: rows, overflow: 'hidden' }) },
-    h(Header, { mode: frame.mode, title: env.title, still: env.still, status: frame.status }),
+    // The galaxy holds still under a picture, so the terminal is not sent the picture again on every tick.
+    h(Header, { mode: frame.mode, title: env.title, still: env.still || frame.graphic !== null, status: frame.status }),
     h(
       Box,
       { flexDirection: 'column', flexGrow: 1, flexShrink: 1, overflow: 'hidden' },

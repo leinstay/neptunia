@@ -7,11 +7,15 @@
 // knows no command's meaning but `/clear` and `/attach`. cli/app.ts draws it.
 import type { Key } from 'ink';
 import { alternativeText } from './attachment-actions.ts';
-import type { AttachmentActions } from './attachment-actions.ts';
+import type { AttachmentActions, KeptRead } from './attachment-actions.ts';
+import { graphicBox, placementOf, viewFile } from './file-view.ts';
+import type { ResultGraphic, ViewedFile } from './file-view.ts';
+import { DEFAULT_CELL } from './terminal-graphics.ts';
+import type { GraphicsSupport, Placement } from './terminal-replies.ts';
 import { composerLayout, composerMaxRows, headerMode, headerRows, menuRows } from './chat-view.ts';
 import type { ComposerLayout, HeaderMode } from './chat-view.ts';
 import type { ClipboardResult } from './clipboard.ts';
-import { resultEntries, windowBody, windowChrome, windowHeight } from './command-window.ts';
+import { GRAPHIC_SUFFIX, resultEntries, windowBody, windowChrome, windowHeight } from './command-window.ts';
 import type { CommandResult } from './command-window.ts';
 import {
   DEFAULT_PASTE_LIMITS,
@@ -47,7 +51,7 @@ import {
 import type { EditorState } from './editor-actions.ts';
 import { buildKeymap, keyNameOf } from './keymap.ts';
 import type { FocusContext, KeyAction, KeyBinding, Keymap } from './keymap.ts';
-import { caretCell, graphemes, sliceCells, transcriptBudget, wrapCells, wrapWords } from './layout.ts';
+import { caretCell, cellWidth, graphemes, sliceCells, transcriptBudget, wrapCells, wrapWords } from './layout.ts';
 import { caretFromCell } from './mouse.ts';
 import type { MouseReport } from './mouse.ts';
 import type { Panel } from './panel.ts';
@@ -72,7 +76,18 @@ export type ChatEntry = {
   attachments?: ReadonlyArray<ChatAttachment>;
   /** When the line was sent, in ms since the epoch: a stored line keeps its own, a new one takes the chat's clock. */
   at?: number;
+  /** The line's place in the chat's whole stored history, the oldest being 1, as the core numbers it. */
+  number?: number;
+  /** The kinds of the files memory stores with the line, drawn as `[voice]` and the like after its text. */
+  files?: ReadonlyArray<string>;
 };
+/**
+ * A file of a numbered line: its absolute path on this machine, null when the core did not keep it, and the description
+ * memory stores for it.
+ */
+export type LineFile = { name: string; kind: string; path: string | null; description: string | null };
+/** The files of a numbered line, or why there are none to name. */
+export type LineFiles = { ok: true; files: ReadonlyArray<LineFile> } | { ok: false; reason: string };
 /** Why an image was not staged, for the line the owner reads. */
 export type StageResult = { ok: true; staged: ChatAttachment } | { ok: false; code: string };
 /** Acquiring and staging an image on this machine. Nothing reaches the core until the draft is sent. */
@@ -148,6 +163,8 @@ export type ChatEnv = {
    * ends just before the stored line `before`. Absent: the chat shows the lines of this process only.
    */
   storedPage?: (before: string | null) => Promise<ReadonlyArray<ChatEntry & { id: string }>>;
+  /** The files of the stored line with that number, for `/attach open #N` and `/attach save #N`. */
+  lineFiles?: (number: number) => Promise<LineFiles>;
 };
 
 /** The rows a question's selector draws at most; the input it replaces stays out of the way of the panel above it. */
@@ -173,6 +190,10 @@ type ShownEntry = {
   attachments: ReadonlyArray<ChatAttachment>;
   /** when the line was sent, for the owner's lines and hers */
   at?: number;
+  /** the stored number of the line, absent on a line the chat has not matched to its stored line yet */
+  number?: number;
+  /** the id of the stored line it is */
+  storedId?: string;
 };
 
 /** The id of the blank row between her line and the owner's line after it. */
@@ -256,10 +277,14 @@ export function focusOwner({ question, panel }: Pick<Model, 'question' | 'panel'
   return panel === null ? 'input' : 'panel';
 }
 
-/** An entry's text and a row for each of its images, so a terminal that cannot draw one still says what it was. */
+/**
+ * An entry's text with a marker for each stored file after it, in the kind names memory stores, and a row for each of its
+ * images, so a terminal that cannot draw one still says what it was.
+ */
 function entryText(entry: ChatEntry): string {
   const images = (entry.attachments ?? []).map((one) => `[image] ${alternativeText(one)}`);
-  return (entry.text === '' ? images : [entry.text, ...images]).join('\n');
+  const first = [entry.text, ...(entry.files ?? []).map((kind) => `[${kind}]`)].filter((part) => part !== '').join(' ');
+  return (first === '' ? images : [first, ...images]).join('\n');
 }
 
 /**
@@ -325,7 +350,14 @@ export type ChatFrame = {
   marks: Array<RowMark | null>;
   /** the command window's rows and the selected cells of each, or null while it is closed */
   window: { height: number; rows: Array<TranscriptRow>; marks: Array<RowMark | null>; body: number } | null;
+  /** the picture placed in the command window, drawn over the frame, or null with none */
+  graphic: Placement | null;
 };
+
+/** The rows of the window a picture leaves to its command line, its name and its description. */
+const PICTURE_CHROME_ROWS = 3;
+/** A terminal that was never asked draws no picture. */
+const noGraphics = (): Promise<GraphicsSupport> => Promise.resolve({ protocol: 'none', cell: DEFAULT_CELL });
 
 /** The command window never folds an answer: it scrolls instead. */
 const NO_FOLD: Pick<TranscriptDims, 'expanded' | 'foldLines'> = { expanded: new Set(), foldLines: Infinity };
@@ -337,6 +369,8 @@ export class ChatController {
   readonly paint: () => void;
   /** Puts text on the clipboard of the owner's terminal. */
   readonly copy: (text: string) => void;
+  /** What the terminal draws pictures with, asked once a session (cli/terminal-replies.ts). */
+  readonly deps: { graphics?: () => Promise<GraphicsSupport> };
   readonly keymap: Keymap;
   model: Model;
   serial = 0;
@@ -374,9 +408,12 @@ export class ChatController {
       suspendTerminal,
       paint,
       copy = () => {},
-    }: Pick<ChatController, 'exit' | 'suspendTerminal' | 'paint'> & Partial<Pick<ChatController, 'copy'>>
+      graphics,
+    }: Pick<ChatController, 'exit' | 'suspendTerminal' | 'paint'> &
+      Partial<Pick<ChatController, 'copy'>> & { graphics?: () => Promise<GraphicsSupport> }
   ) {
     this.env = env;
+    this.deps = graphics === undefined ? {} : { graphics };
     this.exit = exit;
     this.copy = copy;
     this.suspendTerminal = suspendTerminal;
@@ -443,8 +480,9 @@ export class ChatController {
   gaps = new WeakMap<ShownEntry, TranscriptEntry>();
 
   /**
-   * The transcript as it is drawn: each line of the owner or of hers under `[time] [#N] `, N counting the lines of the
-   * chat from the oldest shown, and one blank row after her line when the owner's line follows it, nowhere else.
+   * The transcript as it is drawn: each line of the owner or of hers under `[time] [#N] `, and one blank row after her
+   * line when the owner's line follows it, nowhere else. N is the line's stored number. A line without one takes the
+   * number after the line before it, and a file of hers that follows her words takes theirs, since both are one line.
    */
   shownEntries(): Array<TranscriptEntry> {
     const { entries } = this.model;
@@ -452,12 +490,15 @@ export class ChatController {
     const list: Array<TranscriptEntry> = [];
     let number = 0;
     let before: ShownEntry | undefined;
+    let lastLine: ShownEntry | undefined;
     for (const entry of entries) {
       if (entry.who === 'owner' && before?.who === 'her') list.push(this.gapOf(entry));
       if (entry.who === 'system') list.push(entry);
       else {
-        number += 1;
+        const isHerFile = entry.who === 'her' && lastLine?.who === 'her' && entry.original === '';
+        number = entry.number ?? (isHerFile ? number : number + 1);
         list.push(this.ledOf(entry, number));
+        lastLine = entry;
       }
       before = entry;
     }
@@ -490,6 +531,7 @@ export class ChatController {
       original: entry.text,
       attachments: entry.attachments ?? [],
       ...this.timeOf(entry),
+      ...(entry.number === undefined ? {} : { number: entry.number }),
     };
     this.update({ entries: [...this.model.entries, shown] });
   }
@@ -544,6 +586,8 @@ export class ChatController {
           original: entry.text,
           attachments: entry.attachments ?? [],
           ...this.timeOf(entry),
+          ...(entry.number === undefined ? {} : { number: entry.number }),
+          storedId: entry.id,
         }));
         this.update({ entries: [...shown, ...this.model.entries] });
       })
@@ -551,6 +595,38 @@ export class ChatController {
         stored.loading = false;
         this.say('The stored lines of this chat could not be read.');
       });
+  }
+
+  /**
+   * Gives the lines said since the newest stored line on the screen the numbers of their stored lines: the newest stored
+   * page, read again, matched in order by who said each line and its text. A stored line the screen lacks, such as one
+   * from another client, is passed over, and a line not yet stored keeps the number after the line before it.
+   */
+  renumberLive(): void {
+    const { storedPage } = this.env;
+    if (storedPage === undefined) return;
+    storedPage(null)
+      .then((page) => {
+        const { entries } = this.model;
+        const known = new Set(entries.map((one) => one.storedId));
+        const lastStored = entries.findLastIndex((one) => one.storedId !== undefined);
+        const live = entries.slice(lastStored + 1).filter((one) => one.who !== 'system' && one.number === undefined);
+        const matched = new Map<string, { number: number; storedId: string }>();
+        let from = 0;
+        for (const line of page) {
+          if (known.has(line.id) || line.number === undefined) continue;
+          const at = live.findIndex(
+            (one, index) => index >= from && one.who === line.who && one.original === line.text
+          );
+          if (at < 0) continue;
+          matched.set(live[at].id, { number: line.number, storedId: line.id });
+          from = at + 1;
+        }
+        if (matched.size === 0) return;
+        const now = this.model.entries;
+        this.update({ entries: now.map((one) => ({ ...one, ...matched.get(one.id) })) });
+      })
+      .catch(() => {});
   }
 
   /** Registers with the core's link, once, and draws the newest stored lines. */
@@ -576,6 +652,8 @@ export class ChatController {
 
   /** The core's word about a turn. A failure or a cancel leaves a line, and a streamed text shows until the end of its turn. */
   onTurnEvent(event: ClientTurnEvent): void {
+    // Her turn is over: its lines are on their way to the store, and the lines before it are there.
+    if (event.type === 'committed' || event.type === 'failed' || event.type === 'cancelled') this.renumberLive();
     const before = turnOf(this.model.turns, event.turnId);
     const turns = reduceTurns(this.model.turns, event);
     const turn = turnOf(turns, event.turnId);
@@ -799,6 +877,7 @@ export class ChatController {
       turnRow,
       marks: this.marksOf('chat', transcript.rows.length),
       window: shownWindow,
+      graphic: this.placement,
     };
   }
 
@@ -814,13 +893,57 @@ export class ChatController {
     const body = windowBody(height, now.panel !== null);
     // A live panel draws in place of the rows, so no row of the window is drawn or scrolled meanwhile.
     const dims: TranscriptDims = { columns, budget: now.panel === null ? body : 0, ...NO_FOLD };
-    const shown = transcriptWindow(resultEntries(now.results, this.env.timeZone), now.windowView, dims);
+    const picture = this.pictureSlot(columns, dims.budget);
+    const slots = new Map(picture === null ? [] : [[picture.id, picture.box.rows]]);
+    const shown = transcriptWindow(resultEntries(now.results, this.env.timeZone, slots), now.windowView, dims);
     // The rows stand at the bottom of the window, under its rule.
     const ruleRows = windowChrome(height, now.panel !== null).rule ? 1 : 0;
     const top = first + ruleRows + Math.max(0, dims.budget - shown.rows.length);
     this.drawnWindow = { first, last: first + height - 1, top, rows: shown.rows, dims };
+    this.placement = now.isWindowOpen && picture !== null ? this.placed(picture, shown.rows, top) : null;
     if (!now.isWindowOpen) return null;
     return { height, rows: shown.rows, marks: this.marksOf('window', shown.rows.length), body };
+  }
+
+  /** The picture placed over the frame, as the last frame measured it. */
+  placement: Placement | null = null;
+  /** The drawing of the newest picture at the box it was drawn for, so a Sixel picture is encoded once a size. */
+  drawing: { key: string; placement: Placement } | null = null;
+
+  /**
+   * The newest result's picture and the box it takes: the window's width past the lead, and its rows but the three the
+   * command line, the name and the description take. Only the newest picture is drawn; an older one keeps its text.
+   */
+  pictureSlot(
+    columns: number,
+    body: number
+  ): { id: string; graphic: ResultGraphic; box: ReturnType<typeof graphicBox>; indent: number } | null {
+    const { results } = this.model;
+    const at = results.findLastIndex((one) => one.graphic !== undefined);
+    const result = results[at];
+    if (result?.graphic === undefined || body <= PICTURE_CHROME_ROWS) return null;
+    const indent = cellWidth(lineLead(result.at, at + 1, this.env.timeZone));
+    const box = graphicBox(result.graphic, columns - indent, body - PICTURE_CHROME_ROWS);
+    return { id: result.id, graphic: result.graphic, box, indent };
+  }
+
+  /** Where the picture is drawn: only while every one of its rows is in the window, else nowhere. */
+  placed(
+    picture: NonNullable<ReturnType<ChatController['pictureSlot']>>,
+    rows: ReadonlyArray<TranscriptRow>,
+    top: number
+  ): Placement | null {
+    const id = `${picture.id}${GRAPHIC_SUFFIX}`;
+    const first = rows.findIndex((row) => row.entryId === id);
+    if (first < 0 || rows.filter((row) => row.entryId === id).length !== picture.box.rows) return null;
+    const { box } = picture;
+    const key = `${picture.id}|${box.columns}x${box.rows}|${top + first}`;
+    if (this.drawing?.key !== key)
+      this.drawing = {
+        key,
+        placement: placementOf(picture.graphic, box, { row: top + first, column: 1 + picture.indent, key: picture.id }),
+      };
+    return this.drawing.placement;
   }
 
   /** The slash commands the menu offers. */
@@ -962,8 +1085,21 @@ export class ChatController {
     this.update({ draft: attachToDraft(this.model.draft, result.staged), notice: null });
   }
 
-  /** `/attach <file>`, `/attach open`, `/attach save <file>`: handled here, so a path never reaches the core as text. */
+  /**
+   * `/attach <file>`, `/attach open`, `/attach save <file>`, `/attach open #N [k]` and `/attach save #N [k] [dir]`:
+   * handled here, so a path never reaches the core as text.
+   */
   runAttach(argument: string): void {
+    const numbered = /^(open|save)\s+#(\d+)(?:\s+(\d+))?(?:\s+(.+))?$/.exec(argument);
+    if (numbered !== null && (numbered[1] === 'save' || numbered[4] === undefined)) {
+      const [, verb = 'open', line = '0', index, directory] = numbered;
+      this.runLineFile(verb === 'save', Number(line), index === undefined ? null : Number(index), directory ?? '.');
+      return;
+    }
+    if (/^(open|save)\s+#/.test(argument)) {
+      this.update({ notice: 'Usage: /attach open #N [file number] or /attach save #N [file number] [dir]' });
+      return;
+    }
     if (argument === 'open' || argument === 'save' || argument.startsWith('save ')) {
       this.runReceived(argument);
       return;
@@ -983,7 +1119,7 @@ export class ChatController {
       .catch(() => this.update({ notice: `${file} was not attached.` }));
   }
 
-  /** Open or save the newest image she sent. A failed save says so, and the same command tries again. */
+  /** Shows or saves the newest image she sent. A failed save says so, and the same command tries again. */
   runReceived(argument: string): void {
     const image = this.entries()
       .flatMap((one) => (one.who === 'her' ? one.attachments : []))
@@ -993,19 +1129,101 @@ export class ChatController {
       this.update({ notice: 'No received image to act on.' });
       return;
     }
+    if (argument === 'open') {
+      const id = this.openResult('/attach open');
+      const read = (maxBytes: number): Promise<KeptRead | null> =>
+        received
+          .bytesOf(image)
+          .then((bytes) =>
+            bytes === null ? null : { size: bytes.length, bytes: bytes.length <= maxBytes ? bytes : null }
+          );
+      this.showFile(id, { name: image.name, kind: 'image', description: image.alt ?? null }, read, null);
+      return;
+    }
     const destination = argument.slice('save'.length).trim();
-    if (argument.startsWith('save') && destination === '') {
+    if (destination === '') {
       this.update({ notice: 'Usage: /attach save <file>' });
       return;
     }
-    const outcome = argument === 'open' ? received.open(image) : received.save(image, destination);
-    void outcome.then((done) => {
+    void received.save(image, destination).then((done) => {
       if (done.status === 'failed') this.update({ notice: `${image.name}: ${done.reason}.` });
-      else
-        this.update({
-          notice: done.status === 'saved' ? `Saved ${image.name} to ${done.file}.` : `Opened ${image.name}.`,
-        });
+      else this.update({ notice: `Saved ${image.name} to ${done.file}.` });
     });
+  }
+
+  /** A result of `line` in the command window, opened at its tail, its answer to come. */
+  openResult(line: string): string {
+    const result: CommandResult = { id: this.nextId('c'), line, at: this.env.now(), answer: null };
+    this.update({
+      results: [...this.model.results, result],
+      isWindowOpen: true,
+      windowView: TAIL,
+      panel: null,
+      selection: null,
+    });
+    return result.id;
+  }
+
+  /** The number the next kitty image takes, apart from the 31 of the terminal query. */
+  kittyIds = 100;
+
+  /** Shows `file` in the result `id`: a picture through the terminal, a text file's content, or why it cannot. */
+  showFile(
+    id: string,
+    file: ViewedFile,
+    read: (maxBytes: number) => Promise<KeptRead | null>,
+    path: string | null
+  ): void {
+    const { graphics = noGraphics } = this.deps;
+    this.kittyIds += 1;
+    viewFile(file, { read, path, graphics, kittyId: this.kittyIds })
+      .then(({ answer, graphic }) => {
+        const { results } = this.model;
+        this.update({
+          results: results.map((one) =>
+            one.id === id ? { ...one, answer, ...(graphic === null ? {} : { graphic }) } : one
+          ),
+        });
+      })
+      .catch(() => this.answerResult(id, `${file.name} could not be shown.`));
+  }
+
+  /**
+   * Shows or saves a file of the stored line with that number. A line with several files and no `index` lists them
+   * numbered from 1 instead.
+   */
+  runLineFile(save: boolean, number: number, index: number | null, directory: string): void {
+    const { lineFiles, received } = this.env;
+    if (lineFiles === undefined || received === undefined) {
+      this.update({ notice: 'The files of a line are not available in this chat.' });
+      return;
+    }
+    const command = `/attach ${save ? 'save' : 'open'} #${number}`;
+    const id = save ? null : this.openResult(index === null ? command : `${command} ${index}`);
+    const say = (text: string): void => {
+      if (id === null) this.update({ notice: text });
+      else this.answerResult(id, text);
+    };
+    lineFiles(number)
+      .then((answer) => {
+        if (!answer.ok) return say(answer.reason);
+        const { files } = answer;
+        if (files.length === 0) return say(`Line #${number} holds no file.`);
+        if (index === null && files.length > 1) {
+          const rows = files.map((file, at) => `${at + 1}. ${file.name} (${file.kind})`);
+          return say([`Line #${number} holds ${files.length} files:`, ...rows, `${command} <n> takes one.`].join('\n'));
+        }
+        const file = files[(index ?? 1) - 1];
+        if (file === undefined) return say(`Line #${number} holds no file ${index}.`);
+        const { path } = file;
+        if (path === null) return say(`${file.name} was not kept, so it cannot be shown or saved.`);
+        if (id !== null) return this.showFile(id, file, (maxBytes) => received.readKept(path, maxBytes), path);
+        return received.saveFile(path, directory, file.name).then((done) => {
+          if (done.status === 'saved') say(`Saved ${file.name} to ${done.file}.`);
+          else say(`${file.name} was not saved: ${done.reason}.`);
+        });
+      })
+      .catch(() => say(`The files of line #${number} could not be read.`));
   }
 
   /** Ctrl+V: a picture from this machine's clipboard. A read that ends after the draft changed hands attaches nothing. */

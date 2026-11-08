@@ -11,9 +11,13 @@ import { THEME } from './theme.ts';
 import { cellWidth } from './layout.ts';
 import { displaySafe, lineLead } from './transcript.ts';
 import type { TranscriptEntry, TranscriptRow } from './transcript.ts';
+import type { ResultGraphic } from './file-view.ts';
 
-/** One command the owner ran: the line as typed, when, and its answer, null while it is on its way. */
-export type CommandResult = { id: string; line: string; at: number; answer: string | null };
+/**
+ * One command the owner ran: the line as typed, when, and its answer, null while it is on its way. `graphic` is a picture
+ * `/attach open` shows under the answer (cli/file-view.ts).
+ */
+export type CommandResult = { id: string; line: string; at: number; answer: string | null; graphic?: ResultGraphic };
 
 /** The rule above the window's rows. */
 const RULE_ROWS = 1;
@@ -45,14 +49,22 @@ export function windowBody(height: number, hasPanel: boolean): number {
 const LINE_SUFFIX = ':line';
 const kept = new WeakMap<CommandResult, { key: string; entries: Array<TranscriptEntry> }>();
 
+export const GRAPHIC_SUFFIX = ':graphic';
+
 /**
  * The window's entries: the command line under the lead of its time and its number among the session's commands, as the
- * chat leads its lines, then its answer as it arrived in the same column, with every control character made visible. Kept
- * per result, so the wrapped rows of an unchanged result are reused.
+ * chat leads its lines, then its answer as it arrived in the same column, with every control character made visible. A
+ * result named in `slots` gets that many blank rows after its answer, where its picture is drawn. Kept per result, so the
+ * wrapped rows of an unchanged result are reused.
  */
-export function resultEntries(results: ReadonlyArray<CommandResult>, timeZone?: string): Array<TranscriptEntry> {
+export function resultEntries(
+  results: ReadonlyArray<CommandResult>,
+  timeZone?: string,
+  slots: ReadonlyMap<string, number> = new Map()
+): Array<TranscriptEntry> {
   return results.flatMap((result, index) => {
-    const key = `${index}|${timeZone ?? ''}`;
+    const slot = slots.get(result.id) ?? 0;
+    const key = `${index}|${timeZone ?? ''}|${slot}`;
     const found = kept.get(result);
     if (found?.key === key && found !== undefined) return found.entries;
     const answer = result.answer ?? WAITING;
@@ -62,6 +74,9 @@ export function resultEntries(results: ReadonlyArray<CommandResult>, timeZone?: 
       ...(answer === ''
         ? []
         : [{ id: `${result.id}:answer`, text: displaySafe(answer.replaceAll('\r\n', '\n')), indent: cellWidth(lead) }]),
+      ...(slot === 0
+        ? []
+        : [{ id: `${result.id}${GRAPHIC_SUFFIX}`, text: Array(slot).fill(' ').join('\n'), indent: cellWidth(lead) }]),
     ];
     kept.set(result, { key, entries });
     return entries;

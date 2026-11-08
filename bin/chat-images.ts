@@ -1,6 +1,7 @@
 // The chat's images at the process edge: the clipboard's and the viewer's processes, staging in the data root, and what
 // happens to a file the persona sends. bin/neptunia.ts hands these to the chat (cli/) and to `-p --attach`.
 import { spawn } from 'node:child_process';
+import { constants } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,9 +11,9 @@ import { createClipboard } from '../cli/clipboard.ts';
 import { assembleDraft, draftFromText } from '../cli/composer.ts';
 import { editExternally } from '../cli/editor-actions.ts';
 import type { ProcessRun } from '../cli/clipboard.ts';
-import type { ChatAttachment, ChatImages } from '../cli/index.ts';
-import { openableLine } from '../src/media/kept-files.ts';
-import { openImageStaging, stagedIdOf, stagingDir } from '../src/media/staging.ts';
+import type { ChatAttachment, ChatImages, LineFiles } from '../cli/index.ts';
+import { keptLocation, keptReference, openableLine } from '../src/media/kept-files.ts';
+import { openImageStaging, stagedIdOf } from '../src/media/staging.ts';
 import type { StagedImage, StageRefusal } from '../src/media/staging.ts';
 import type { Attachment } from '../src/protocol/actions.ts';
 
@@ -96,7 +97,10 @@ export function chatImages(dataDir: string): ChatImages {
   };
 }
 
-/** Open, save and the text alternative of a received image. A viewer's file lives in the staging folder, and goes with its sweep. */
+/**
+ * Save, bytes and the text alternative of a received image, and read and save of a kept file of a numbered line. A saved
+ * kept file never replaces a file already there.
+ */
 export function receivedActions(dataDir: string): AttachmentActions {
   const staging = openImageStaging(dataDir, RECEIVED_FILE_BYTES);
   return createAttachmentActions({
@@ -105,10 +109,36 @@ export function receivedActions(dataDir: string): AttachmentActions {
       return id === null ? Promise.resolve(null) : staging.read(id);
     },
     writeFile: (file, bytes) => fs.writeFile(homePath(file), bytes, { mode: 0o600 }),
-    run: runTool,
-    platform: process.platform,
-    tempDir: stagingDir(dataDir),
+    copyFile: (from, to) => fs.copyFile(from, homePath(to), constants.COPYFILE_EXCL),
   });
+}
+
+/** The files of a numbered line as the core's `session.line` answers them, each kept path made absolute in `dataDir`. */
+export function lineFilesOf(
+  dataDir: string,
+  answer: { text: string; status: string; code?: string },
+  number: number
+): LineFiles {
+  if (answer.status !== 'ok')
+    return {
+      ok: false,
+      reason:
+        answer.code === 'unknown-line'
+          ? `No line #${number} in this chat.`
+          : `The files of line #${number} could not be read (${answer.status}).`,
+    };
+  const { files } = JSON.parse(answer.text) as {
+    files: Array<{ name: string; kind: string; path: string | null; description?: string | null }>;
+  };
+  return {
+    ok: true,
+    files: files.map((file) => ({
+      name: file.name,
+      kind: file.kind,
+      path: file.path === null ? null : keptLocation(dataDir, keptReference(file.path)),
+      description: file.description ?? null,
+    })),
+  };
 }
 
 /** The chat's external editor: `$VISUAL` or `$EDITOR` split on spaces with no shell, and the draft in a private temporary file. */

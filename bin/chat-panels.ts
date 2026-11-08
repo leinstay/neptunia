@@ -237,7 +237,9 @@ async function queuePanel(run: Run): Promise<Panel> {
 }
 
 /** What a session command changes in the chat: the transcript it shows and the lines the core's history reads get. */
-export type ChatView = { showLines: (lines: ReadonlyArray<SessionLineView & { nativeId?: string }>) => void };
+export type ChatView = {
+  showLines: (lines: ReadonlyArray<SessionLineView & { nativeId?: string; number?: number }>) => void;
+};
 
 /** The sessions over the core's `session.*` commands. A resume or a branch shows its lines at once. */
 function sessionClient(run: Run, view: ChatView): SessionClient {
@@ -245,7 +247,7 @@ function sessionClient(run: Run, view: ChatView): SessionClient {
     if (answer.status !== 'ok') return answer;
     const { session, lines } = JSON.parse(answer.text) as {
       session: { name: string };
-      lines: Array<SessionLineView & { nativeId?: string }>;
+      lines: Array<SessionLineView & { nativeId?: string; number?: number }>;
     };
     view.showLines(lines);
     return Promise.resolve({ status: 'ok', text: say(session.name, lines.length) });

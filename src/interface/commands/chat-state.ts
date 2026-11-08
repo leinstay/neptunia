@@ -3,7 +3,8 @@
 // and each answer is JSON for a panel to read. Only the `cli` principal reaches this (src/interface/neptunia-cli.ts), so the
 // session authority stays here: the owner's command line holds the right to every session, and nothing else can ask.
 
-import type { ChatSessions, OpenSession } from '../../chat/sessions.ts';
+import type { ChatSessions, OpenSession, SourceLine } from '../../chat/sessions.ts';
+import type { MediaRow } from '../../memory/db/media-store.ts';
 import type { ApprovalAnswer, ApprovalGate, ApprovalResult } from '../../board/approval-view.ts';
 import type { CheckpointDesk } from '../../development/checkpoint-desk.ts';
 import { createApprovalRelay } from '../../tools/approvals.ts';
@@ -27,6 +28,27 @@ const PAGE_LINES = 100;
 function pageOf<T extends { id: string }>(lines: ReadonlyArray<T>, before: string | null, count: number): Array<T> {
   const end = before === null ? lines.length : lines.findIndex((line) => line.id === before);
   return end < 0 ? [] : lines.slice(Math.max(0, end - count), end);
+}
+
+/** The kinds of a line's items that are no file to open: an address and an emoji. */
+const NOT_FILES = new Set(['link', 'emoji']);
+
+/** The items of a stored line that are files, in their order. */
+const fileRows = (line: SourceLine): Array<MediaRow> => (line.media ?? []).filter((row) => !NOT_FILES.has(row.kind));
+
+/**
+ * The files of a stored line for `/attach open #N` and `/attach save #N` (cli/chat-controller.ts), in their order: each
+ * with its name, its kind, its kept path under the data folder, null for a file the core did not keep, and the
+ * description memory stores for it.
+ */
+function filesOf(
+  line: SourceLine
+): Array<{ name: string; kind: string; path: string | null; description: string | null }> {
+  return fileRows(line).map((row) => {
+    const named = row.extra.fileName ?? row.extra.name;
+    const name = typeof named === 'string' && named !== '' ? named : (row.path?.split('/').at(-1) ?? row.kind);
+    return { name, kind: row.kind, path: row.path, description: row.description };
+  });
 }
 
 /** A session and what it shows, for the chat to put on the screen and answer the core's history reads with. */
@@ -80,6 +102,32 @@ export function createChatState({
     return { text: `The board moved the task to ${answer.result.taskStatus}.`, status: 'ok' };
   }
 
+  /** The chat's stored lines as the current session shows them, one page at a time (cli/chat-controller.ts). */
+  function pageAnswer(args: Readonly<Record<string, unknown>>): ChatStateAnswer {
+    const current = sessions.current(CLI_PLACE);
+    const shown = current === null ? null : sessions.resume(current.id);
+    const count = Number.isInteger(args.count) && Number(args.count) > 0 ? Number(args.count) : PAGE_LINES;
+    const lines = shown?.ok ? pageOf(shown.lines, textOf(args.before) || null, count) : [];
+    return json({
+      lines: lines.map((line) => ({
+        id: line.id,
+        at: line.at,
+        who: line.who,
+        text: line.text,
+        ...(line.number === undefined ? {} : { number: line.number }),
+        // The kinds of its files, in the names memory stores, which the chat draws as `[voice]` and the like.
+        ...(fileRows(line).length === 0 ? {} : { files: fileRows(line).map((row) => row.kind) }),
+      })),
+    });
+  }
+
+  /** A line by the number the chat draws: over the whole stored chat, whatever the current session shows. */
+  function lineAnswer(args: Readonly<Record<string, unknown>>): ChatStateAnswer {
+    const number = Number(args.number);
+    const line = Number.isInteger(number) ? sessions.line(CLI_PLACE, number) : null;
+    return line === null ? refused('unknown-line') : json({ number, files: filesOf(line) });
+  }
+
   function sessionCommand(name: string, args: Readonly<Record<string, unknown>>): ChatStateAnswer | null {
     switch (name) {
       case 'session.open': {
@@ -87,14 +135,10 @@ export function createChatState({
         sessions.select(root.session.id);
         return json({ session: root.session });
       }
-      case 'session.page': {
-        // The chat's stored lines as the current session shows them, one page at a time (cli/chat-controller.ts).
-        const current = sessions.current(CLI_PLACE);
-        const shown = current === null ? null : sessions.resume(current.id);
-        const count = Number.isInteger(args.count) && Number(args.count) > 0 ? Number(args.count) : PAGE_LINES;
-        const lines = shown?.ok ? pageOf(shown.lines, textOf(args.before) || null, count) : [];
-        return json({ lines: lines.map((line) => ({ id: line.id, at: line.at, who: line.who, text: line.text })) });
-      }
+      case 'session.page':
+        return pageAnswer(args);
+      case 'session.line':
+        return lineAnswer(args);
       case 'session.list':
         return json(sessions.list());
       case 'session.current':

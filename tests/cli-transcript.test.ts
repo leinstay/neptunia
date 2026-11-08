@@ -162,3 +162,125 @@ test("a line's later rows start in the column of its text, under the lead", asyn
     assert.equal(second.indexOf('second-row'), first.indexOf('first-row'));
   });
 });
+
+// A line's number, from the specifier's shape: `ChatEntry.number`, the line's place in the chat's whole stored history as
+// the core numbers it (`session.page`). A new line takes the number after the line before it until her turn is committed,
+// and then the number of its stored line, which the chat reads again with `storedPage(null)`.
+const NUMBERED: Record<string, ReadonlyArray<Stored>> = {
+  newest: [
+    { id: 's3', who: 'owner', text: 'ΓΡΑΜΜΗ-ΤΡΙΤΗ', at: SENT, number: 1334 },
+    { id: 's4', who: 'her', text: 'ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ', at: SENT, number: 1335 },
+  ],
+  s3: [
+    { id: 's1', who: 'owner', text: 'ΓΡΑΜΜΗ-ΠΡΩΤΗ', at: SENT, number: 1332 },
+    { id: 's2', who: 'her', text: 'ΓΡΑΜΜΗ-ΔΕΥΤΕΡΗ', at: SENT, number: 1333 },
+  ],
+};
+
+const numberedPage = (before: string | null): Promise<ReadonlyArray<Stored>> =>
+  Promise.resolve(NUMBERED[before ?? 'newest'] ?? []);
+
+test('a stored line draws the number of its place in the whole chat, and keeps it after older lines load above', async () => {
+  // Bug: the number counts from the oldest line on the screen, so Page Up renumbers every line already shown.
+  const { env } = chatEnv({ storedPage: numberedPage, timeZone: 'UTC' });
+  await withChat(env, async (rig) => {
+    await until(shows(rig, 'ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'));
+    assert.ok(chatRows(rig).includes('[2026-11-08 13:04] [#1335] ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'), chatRows(rig).join('\n'));
+    rig.type(KEY.pageUp);
+    await until(shows(rig, 'ΓΡΑΜΜΗ-ΠΡΩΤΗ'));
+    const screen = rig.screen().join('\n');
+    assert.ok(screen.includes('[#1332] ΓΡΑΜΜΗ-ΠΡΩΤΗ'), screen);
+    assert.ok(screen.includes('[#1335] ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'), screen);
+  });
+});
+
+test('a fresh chat over the same stored lines draws the same numbers', async () => {
+  // Bug: a restarted chat numbers its first page from one again.
+  for (let start = 0; start < 2; start += 1) {
+    const { env } = chatEnv({ storedPage: numberedPage, timeZone: 'UTC' });
+    await withChat(env, async (rig) => {
+      await until(shows(rig, 'ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'));
+      assert.ok(chatRows(rig).includes('[2026-11-08 13:04] [#1334] ΓΡΑΜΜΗ-ΤΡΙΤΗ'), chatRows(rig).join('\n'));
+    });
+  }
+});
+
+test('a new line takes the number after the newest stored line, and the line sent to her carries no number', async () => {
+  // Bug: a new line restarts at one under stored lines, or the drawn `#N` goes into the line her turn reads.
+  const { env, sent } = chatEnv({ storedPage: numberedPage, now: () => SENT, timeZone: 'UTC' });
+  await withChat(env, async (rig) => {
+    await until(shows(rig, 'ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'));
+    await press(rig, 'ΓΡΑΜΜΗ-ΝΕΑ', shows(rig, '> ΓΡΑΜΜΗ-ΝΕΑ'));
+    await press(rig, KEY.enter, () => chatRows(rig).some((line) => line.includes('ΓΡΑΜΜΗ-ΝΕΑ')));
+    assert.ok(chatRows(rig).includes('[2026-11-08 13:04] [#1336] ΓΡΑΜΜΗ-ΝΕΑ'), chatRows(rig).join('\n'));
+  });
+  assert.deepEqual(sent, ['ΓΡΑΜΜΗ-ΝΕΑ']);
+});
+
+test('once her turn is committed, a new line takes the number its stored line holds', async () => {
+  // Bug: a line sent while another client added lines keeps a counted number that names another stored line.
+  let stored: ReadonlyArray<Stored> = NUMBERED.newest ?? [];
+  const { env, listeners } = chatEnv({
+    storedPage: (before) => Promise.resolve(before === null ? stored : []),
+    now: () => SENT,
+    timeZone: 'UTC',
+  });
+  await withChat(env, async (rig) => {
+    await until(shows(rig, 'ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'));
+    await press(rig, 'ΓΡΑΜΜΗ-ΝΕΑ', shows(rig, '> ΓΡΑΜΜΗ-ΝΕΑ'));
+    await press(rig, KEY.enter, shows(rig, '[#1336] ΓΡΑΜΜΗ-ΝΕΑ'));
+    stored = [
+      ...stored,
+      { id: 's8', who: 'owner', text: 'from another client', at: SENT, number: 1339 },
+      { id: 's9', who: 'owner', text: 'ΓΡΑΜΜΗ-ΝΕΑ', at: SENT, number: 1340 },
+    ];
+    listeners.turn?.({ type: 'accepted', turnId: 't1', seq: 1, at: SENT });
+    listeners.turn?.({ type: 'committed', turnId: 't1', seq: 2, at: SENT });
+    await until(shows(rig, '[#1340] ΓΡΑΜΜΗ-ΝΕΑ'));
+    assert.ok(shows(rig, '[#1340] ΓΡΑΜΜΗ-ΝΕΑ')(), rig.screen().join('\n'));
+    assert.equal(rig.screen().join('\n').includes('[#1336]'), false);
+  });
+});
+
+test('a file of hers that comes right after her words shares their number, and the next line takes the one after', async () => {
+  // Bug: her picture counts as a line of its own, so every later number is one past its stored line.
+  const { env, entry } = chatEnv({ now: () => SENT, timeZone: 'UTC' });
+  await withChat(env, async (rig) => {
+    entry({ who: 'her', text: 'look' });
+    entry({
+      who: 'her',
+      text: '',
+      attachments: [{ id: 'o1', name: 'out.png', contentType: 'image/png', reference: 'ref', alt: 'A grey square' }],
+    });
+    entry({ who: 'owner', text: 'nice' });
+    await until(shows(rig, 'nice'));
+    const rows = chatRows(rig);
+    assert.ok(rows.includes('[2026-11-08 13:04] [#1] look'), rows.join('\n'));
+    assert.ok(rows.includes('[2026-11-08 13:04] [#1] [image] out.png: A grey square'), rows.join('\n'));
+    assert.ok(rows.includes('[2026-11-08 13:04] [#2] nice'), rows.join('\n'));
+  });
+});
+
+// A line's files, from the specifier's shape: `ChatEntry.files`, the kinds of the files memory stores with the line
+// (`session.page`), drawn as `[image]`, `[voice]` and so on after its text, in the store's own kind names.
+test('a stored line draws a marker for each of its files after its text, in the kind names memory stores', async () => {
+  // Bug: a line that carried a voice note or a picture reads as text alone, or as an empty row.
+  const { env } = chatEnv({
+    storedPage: (before) =>
+      Promise.resolve(
+        before === null
+          ? [
+              { id: 's1', who: 'owner', text: 'listen to this', at: SENT, number: 5, files: ['voice'] },
+              { id: 's2', who: 'her', text: '', at: SENT, number: 6, files: ['image', 'file'] },
+            ]
+          : []
+      ),
+    timeZone: 'UTC',
+  });
+  await withChat(env, async (rig) => {
+    await until(shows(rig, '[#6]'));
+    const rows = chatRows(rig);
+    assert.ok(rows.includes('[2026-11-08 13:04] [#5] listen to this [voice]'), rows.join('\n'));
+    assert.ok(rows.includes('[2026-11-08 13:04] [#6] [image] [file]'), rows.join('\n'));
+  });
+});

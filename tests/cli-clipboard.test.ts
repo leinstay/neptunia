@@ -104,9 +104,6 @@ test('a failed save says so and can be retried, and the retry writes the exact b
       written.push([file, bytes]);
       return Promise.resolve();
     },
-    run: () => Promise.resolve({ code: 0, stdout: new Uint8Array() }),
-    platform: 'linux',
-    tempDir: '/nonexistent',
   });
   const failed = await actions.save(ATTACHMENT, 'unwritable-test-destination');
   assert.equal(failed.status, 'failed');
@@ -124,32 +121,9 @@ test('an expired reference fails the save with nothing written', async () => {
       written.push(file);
       return Promise.resolve();
     },
-    run: () => Promise.resolve({ code: 0, stdout: new Uint8Array() }),
-    platform: 'linux',
-    tempDir: '/nonexistent',
   });
   assert.equal((await actions.save(ATTACHMENT, 'x.png')).status, 'failed');
   assert.deepEqual(written, []);
-});
-
-test('open passes the file as one literal argument, and an opener failure is visible', async () => {
-  // Bug: a received name with `$(x)` reaches a shell, or a missing xdg-open reads as opened.
-  const calls: Array<ReadonlyArray<string>> = [];
-  const actions = createAttachmentActions({
-    read: () => Promise.resolve(png),
-    writeFile: () => Promise.resolve(),
-    run: (argv) => {
-      calls.push(argv);
-      return Promise.resolve({ code: 3, stdout: new Uint8Array() });
-    },
-    platform: 'linux',
-    tempDir: '/nonexistent',
-  });
-  assert.equal((await actions.open(ATTACHMENT)).status, 'failed');
-  assert.equal(calls[0]?.length, 2);
-  assert.equal(calls[0]?.[0], 'xdg-open');
-  assert.equal(calls[0]?.[1]?.startsWith('/nonexistent'), true);
-  assert.equal(calls[0]?.[1]?.includes('$('), false, 'the temporary file name carries no received text');
 });
 
 test('the text alternative is the stored description, and says so when there is none', () => {
@@ -157,9 +131,6 @@ test('the text alternative is the stored description, and says so when there is 
   const actions = createAttachmentActions({
     read: () => Promise.resolve(png),
     writeFile: () => Promise.resolve(),
-    run: () => Promise.resolve({ code: 0, stdout: new Uint8Array() }),
-    platform: 'linux',
-    tempDir: '/nonexistent',
   });
   assert.ok(actions.alternative(ATTACHMENT).includes('A grey square'));
   const bare = actions.alternative({ ...ATTACHMENT, alt: null });

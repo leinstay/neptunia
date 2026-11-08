@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { chatPanel } from '../bin/chat-panels.ts';
 import { createChatSessions } from '../src/chat/sessions.ts';
 import type { ChatStore, SessionRow, SourceLine } from '../src/chat/sessions.ts';
+import type { MediaKind, MediaRow } from '../src/memory/db/media-store.ts';
 import type { CheckpointDesk } from '../src/development/checkpoint-desk.ts';
 import { createChatState } from '../src/interface/commands/chat-state.ts';
 
@@ -20,10 +21,10 @@ const noCheckpoints: CheckpointDesk = {
   restore: () => Promise.resolve({ status: 'refused', code: 'no-worktree' }),
 };
 
-function rig() {
+function rig(lines: ReadonlyArray<SourceLine> = LINES) {
   const rows: Array<SessionRow> = [];
   const store: ChatStore = {
-    lines: (placeId) => LINES.filter((line) => line.placeId === placeId),
+    lines: (placeId) => lines.filter((line) => line.placeId === placeId),
     sessions: () => rows,
     saveSession(row) {
       const at = rows.findIndex((one) => one.id === row.id);
@@ -140,6 +141,116 @@ test('a stored page gives each line the time it was sent', async () => {
       ['s1', 10],
       ['s2', 20],
       ['s3', 30],
+    ]
+  );
+});
+
+/** A media row of a stored line, as src/memory/db/media-store.ts reads it: a kept file has a path under `media/cli/`. */
+const item = (kind: MediaKind, position: number, path: string | null, fileName: string): MediaRow => ({
+  mediaId: `m-${position}`,
+  position,
+  kind,
+  nativeRef: `ref-${position}`,
+  path,
+  description: null,
+  describedAt: null,
+  availability: 'present',
+  sha1: null,
+  extra: { fileName },
+});
+
+/** A chat of 1335 lines seen through its newest three, each numbered over the whole history as memory numbers them. */
+const NUMBERED: ReadonlyArray<SourceLine> = [
+  { id: 'n1', placeId: 'cli:dm:owner', at: 10, who: 'owner', text: 'Older', number: 1333 },
+  {
+    id: 'n2',
+    placeId: 'cli:dm:owner',
+    at: 20,
+    who: 'her',
+    text: 'Here they are',
+    number: 1334,
+    media: [
+      item('video', 0, 'media/cli/v1.mp4', 'clip.mp4'),
+      item('voice', 1, 'media/cli/v2.ogg', 'note.ogg'),
+      item('file', 2, null, 'lost.pdf'),
+      item('link', 3, null, 'a page'),
+    ],
+  },
+  { id: 'n3', placeId: 'cli:dm:owner', at: 30, who: 'owner', text: 'Thanks', number: 1335 },
+];
+
+type LineAnswer = {
+  number: number;
+  files: Array<{ name: string; kind: string; path: string | null; description: string | null }>;
+};
+
+test('a stored page gives each line its number over the whole chat, whatever page it is on', async () => {
+  // Bug: the page leaves the number out, so the chat counts from the oldest line on the screen again.
+  const { run } = rig(NUMBERED);
+  await run({ name: 'session.open', args: {} });
+  const answer = await run({ name: 'session.page', args: { before: 'n3', count: 1 } });
+  const { lines } = JSON.parse(answer.text) as { lines: Array<{ id: string; number: number }> };
+  assert.deepEqual(
+    lines.map((line) => [line.id, line.number]),
+    [['n2', 1334]]
+  );
+});
+
+test('session.line answers the files of the line with that number, of any kind, in their order', async () => {
+  // Bug: `/attach open #N` reaches only images, the files of a neighbouring line, or lists a link as a file.
+  const { run } = rig(NUMBERED);
+  await run({ name: 'session.open', args: {} });
+  const answer = await run({ name: 'session.line', args: { number: 1334 } });
+  assert.equal(answer.status, 'ok');
+  const line = JSON.parse(answer.text) as LineAnswer;
+  assert.equal(line.number, 1334);
+  // Each file also carries the description memory stores for it, which the window shows beside a picture.
+  assert.deepEqual(line.files, [
+    { name: 'clip.mp4', kind: 'video', path: 'media/cli/v1.mp4', description: null },
+    { name: 'note.ogg', kind: 'voice', path: 'media/cli/v2.ogg', description: null },
+    { name: 'lost.pdf', kind: 'file', path: null, description: null },
+  ]);
+});
+
+test('session.line answers a line with no file with an empty list', async () => {
+  // Bug: a line of text alone answers a refusal that reads as an unknown line.
+  const { run } = rig(NUMBERED);
+  await run({ name: 'session.open', args: {} });
+  const line = JSON.parse((await run({ name: 'session.line', args: { number: 1333 } })).text) as LineAnswer;
+  assert.deepEqual(line.files, []);
+});
+
+test('session.line refuses a number no stored line holds', async () => {
+  // Bug: an unknown number opens the newest file, or the line at that place of the screen.
+  const { run } = rig(NUMBERED);
+  await run({ name: 'session.open', args: {} });
+  const answer = await run({ name: 'session.line', args: { number: 9999 } });
+  assert.equal(answer.status, 'invalid');
+  assert.equal(answer.code, 'unknown-line');
+  assert.equal((await run({ name: 'session.line', args: { number: 'x' } })).code, 'unknown-line');
+});
+
+test('session.line finds a line by its number while a branch hides it from the screen', async () => {
+  // Bug: the number resolves only inside the current view, so a number seen before a branch answers nothing.
+  const { run, rows } = rig(NUMBERED);
+  await run({ name: 'session.open', args: {} });
+  await run({ name: 'session.branch', args: { from: rows[0]?.id, boundary: 'n1' } });
+  const line = JSON.parse((await run({ name: 'session.line', args: { number: 1334 } })).text) as LineAnswer;
+  assert.equal(line.files.length, 3);
+});
+
+test('a stored page gives each line the kinds of its files, and no link', async () => {
+  // Bug: the chat draws a line that carried a video and a voice note as text alone.
+  const { run } = rig(NUMBERED);
+  await run({ name: 'session.open', args: {} });
+  const answer = await run({ name: 'session.page', args: { before: null, count: 3 } });
+  const { lines } = JSON.parse(answer.text) as { lines: Array<{ id: string; files?: Array<string> }> };
+  assert.deepEqual(
+    lines.map((line) => [line.id, line.files ?? []]),
+    [
+      ['n1', []],
+      ['n2', ['video', 'voice', 'file']],
+      ['n3', []],
     ]
   );
 });
