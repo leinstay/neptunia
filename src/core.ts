@@ -166,9 +166,10 @@ import { clearSubscriptionPath, harnessBackend } from './subharness/subscription
 import { coreSubscription } from './subharness/subscription-client.ts';
 import { createLoginState } from './subharness/login-state.ts';
 import { memoryWriterClient } from './subharness/memory-writer.ts';
-import { createMemoryWatch, memoryProbe } from './subharness/memory-probe.ts';
+import { memoryProbe } from './subharness/memory-probe.ts';
+import { createRouteWatches, probeWord } from './subharness/route-watch.ts';
+import type { RouteWatches } from './subharness/route-watch.ts';
 import { recordCoreCheck } from './setup/model-check.ts';
-import type { MemoryWatch, ProbeResult } from './subharness/memory-probe.ts';
 import type { EffortLevel } from './llm/roles.ts';
 import type { SessionContext } from './memory/db/session.ts';
 import { objOf } from './tools/types.ts';
@@ -364,7 +365,7 @@ async function buildCore(
   // through the subharness config.json names; set once the chat client exists. A refused run wakes the memory probe.
   let sessionClient: SessionContext['llm'] | null = null;
   // The probe of the writer's path (src/subharness/memory-probe.ts), created with the pause below.
-  let memoryWatch: MemoryWatch | null = null;
+  let watches: RouteWatches | null = null;
   // Whether the last run of the core or the memory writer through its harness lost its login, for the chat's header.
   const logins = createLoginState();
   const quarantine = quarantineNotices(clock, log);
@@ -522,7 +523,7 @@ async function buildCore(
       },
       direct: directLlm,
       record: (entry) => usage.record(entry),
-      onRefused: () => void memoryWatch?.refused(),
+      onRefused: () => void watches?.refused('memory'),
       ran: (backend, outcome) => logins.ran('memory', backend, outcome),
     }),
     requestArchive
@@ -1353,12 +1354,10 @@ async function buildCore(
     if (result.status !== 'ok') throw new Error(result.summary || result.code);
     return result.summary;
   };
-  // Her pause with a reason, which the key commands and the memory probe set: `no-core-key` after the last core key's
-  // removal, `memory-down` after a failed memory probe. Each lifts only its own pause, and an owner's pause given over
+  // Her pause with a reason, which the key commands and the probes set: `no-core-key` after the last core key's
+  // removal, `core-down`, `analyzer-down` or `memory-down` after a failed probe. Each lifts only its own pause, and an owner's pause given over
   // one of them becomes his.
   const pauseControl = reasonedPause({ run: ownerOp, store });
-  // The memory role uses the persona's live key ring.
-  const memoryRoute = (): { name: string; value: string } | null => keyRing.route('memory');
   // One run of the installed codex or claude for a check: the subharness's `/subharness` checks and the memory probe.
   const runSubharnessBackend = (backend: 'codex' | 'claude', brief: string, model?: string, effort?: EffortLevel) =>
     createInstalledBackend(backend, paths.privateDir).run(brief, {
@@ -1417,14 +1416,13 @@ async function buildCore(
     memoryPath: () => memoryCheckPath(paths.privateDir),
     probeMemory: () => probeMemoryRaw(clock()),
   });
-  // The memory probe (src/subharness/memory-probe.ts): its sleep `memory-down` goes through the same pause. While the
-  // session is off there is no writer to probe, and the probe passes.
-  let lastMemoryProbe: ProbeResult | null = null;
+  // The memory probe as `keys check memory` asks it, and the watches of the core, the analyzer and the memory writer
+  // (src/subharness/route-watch.ts), whose sleeps `core-down`, `analyzer-down` and `memory-down` go through the pause.
   const probeMemoryRaw = (now: number) =>
     memoryProbe(
       {
         privateDir: paths.privateDir,
-        route: memoryRoute,
+        route: () => keyRing.route('memory'),
         fetch: (input, init) => globalThis.fetch(input, init),
         baseUrl: String(objOf(objOf(hot.config).llm).baseUrl),
         model: () => roleModel(hot.config, 'memory') ?? '',
@@ -1432,12 +1430,13 @@ async function buildCore(
       },
       now
     );
-  const probeMemoryWriter = (now: number) =>
-    objOf(objOf(objOf(hot.config).memoryDb).session).mode === 'apply'
-      ? probeMemoryRaw(now)
-      : Promise.resolve<ProbeResult>({ ok: true, at: now });
-  memoryWatch = createMemoryWatch({
-    probe: async (now) => (lastMemoryProbe = await probeMemoryWriter(now)),
+  watches = createRouteWatches({
+    privateDir: paths.privateDir,
+    fetch: options.llm === undefined ? (input, init) => globalThis.fetch(input, init) : null,
+    baseUrl: () => String(objOf(objOf(hot.config).llm).baseUrl),
+    route: (role) => keyRing.route(role),
+    model: (role) => roleModel(hot.config, role) ?? null,
+    runBackend: runSubharnessBackend,
     pause: pauseControl,
     now: clock,
     config: (): unknown => hot.config,
@@ -1485,12 +1484,12 @@ async function buildCore(
           pauseReason: () => pauseControl.reason(),
           path: (role) => rolePath(paths.privateDir, role),
           hasKey: (role) => keyRing.route(role) !== null,
-          probe: () => lastMemoryProbe,
+          probe: () => watches?.last('memory') ?? null,
           runFailed: (role, via) =>
             via === 'api' ? roleHealth.down(hot.config, role) !== null : logins.lost(role, via),
           interfaces: () => interfaceLinks.list(),
         }),
-      memoryWriter: () => (lastMemoryProbe === null ? 'unknown' : lastMemoryProbe.ok ? 'ok' : 'down'),
+      memoryWriter: () => probeWord(watches?.last('memory') ?? null),
       runOp: (op, args, context) => admin.runSkillOp(op, args, context),
       ownerReads: admin.ownerReads,
       places: () => [...new Set([...servedPlaces(), ...store.topPlaces()])],
@@ -1917,8 +1916,8 @@ async function buildCore(
   every(60_000, () => metrics.save(), 'metrics.save');
   // Today's per-role usage written to data/usage.json (at most once a minute; nothing new, no write).
   every(60_000, () => usage.save(), 'usage.save');
-  // The memory probe's interval, `memory.probeMinutes` of the live config, looked at once a minute.
-  every(60_000, () => memoryWatch?.tick(), 'memory probe');
+  // The probes' interval, `memory.probeMinutes` of the live config, looked at once a minute.
+  every(60_000, () => watches?.tick(), 'route probes');
   scheduleArchiveDrain();
 
   log.info('index: ready', { tag: identity.selfName });
@@ -1934,8 +1933,8 @@ async function buildCore(
   // anything below reads it.
   await startupStep('memoryDb.open', () => memoryDb.tick(), { wait: true });
 
-  // The memory probe at start, with the link up: a dead writer path puts her to sleep before her first turn.
-  await startupStep('memory.probe', () => memoryWatch?.start());
+  // The probes at start, with the link up: a dead core, analyzer or writer path puts her to sleep before her first turn.
+  await startupStep('route.probes', () => watches?.start());
 
   // The journal's start: an unclean stop, the start record. Awaited, before the reconciliation below.
   await startupStep('journal.start', () => startJournal(), { wait: true });
