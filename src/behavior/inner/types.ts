@@ -10,13 +10,12 @@ import type { Due, Intention } from '../../intentions/types.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { Adapter, ChatRef } from '../../protocol/adapter.ts';
 import type { SendHold } from '../../tools/send-hold.ts';
-import type { WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
+import type { Handle, WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
 import type { Landed } from '../../selfimprovement/landed.ts';
 import type { WatcherNews } from '../../watcher/news.ts';
 import type { OutboxRow, ProposalEntry, SelfimprovementFacts, SkillUseRow } from '../selfimprovement-view.ts';
 import type { WakeBlockInput } from '../wake.ts';
 import type { WAKE_KINDS } from './settings.ts';
-import type { WakeBackend } from './wake-store.ts';
 
 /** A wake kind. */
 export type WakeKind = (typeof WAKE_KINDS)[number];
@@ -152,7 +151,10 @@ export type Inflight = {
   iface?: string;
 };
 
-/** The state of one place's inner life (`data/places/<id>/inner.json`). */
+/**
+ * The persona's inner life state: what `inner.json` keeps, and the wake queue's view (`queue`, `handled`, `inflight`),
+ * which only src/behavior/inner/wake-queue.ts writes.
+ */
 export type InnerState = {
   v: number;
   stopped: boolean;
@@ -398,6 +400,31 @@ export type Logger = { info(message: string, fields?: Obj): void; warn(message: 
 /** The places the interface publishes for a place. */
 export type PlaceEntry = { id: string; name: string; writable: boolean | null };
 
+/** The database the queue is kept in: its read connection (null while it is not open) and its writer. */
+export type WakeBackend = { read(): Handle | null; write(update: WakeQueueUpdate): Promise<unknown> };
+
+/** The queue's state in process (`life.wakes`). */
+export type WakeQueueState = {
+  /** The database the queue is kept in, opened on first use. */
+  backend: WakeBackend | null;
+  /** Whether the view was read back from the table. */
+  loaded: boolean;
+  /** The wakes the view held before this life admitted any: the start handles them interrupted. */
+  oldIds: Set<string>;
+  /** The lease tokens of the wakes this life's turns hold, by wake id. */
+  claims: Map<string, number>;
+  /** The ids of the wakes an inner turn of this life runs for now (a stop leaves them to that turn). */
+  running: Set<string>;
+  /** The start's recovery, run once. */
+  started: Promise<void> | null;
+  /** The holder name of this life's leases (one per process start). */
+  holder: string;
+  /** Set once the core stops: `core:alive` is let go and never renewed again. */
+  released: boolean;
+  /** What she slept through: the downtime and pause intervals, the pause under way, how many wakes slept. */
+  sleep: { windows: Array<readonly [number, number]>; pausedFrom: number | null; slept: number };
+};
+
 /** The context every module of the inner life works over: its sources, its clock and its state in process. */
 export type InnerContext = {
   hot: { readonly config: unknown };
@@ -429,30 +456,12 @@ export type InnerContext = {
   states: Map<string, InnerState>;
   /** Per place: the place index (the record's lines per place over the lookback window). */
   placeIndexes: Map<string, PlaceIndex>;
-  /** The ids of the wakes an inner turn is running for now (a stop leaves them to that turn). */
-  running: Set<string>;
   ticking: boolean;
   factSeq: number;
-  /** The holder name of this life's leases (one per process start). */
-  holder: string;
-  /** Set once the core stops: `core:alive` is let go and never renewed again. */
-  released: boolean;
-  /** The database the queue is kept in (src/behavior/inner/wake-store.ts), opened on first use. */
-  wakeDb: WakeBackend | null;
-  /** The chain the queue's writes go through, in order. */
+  /** The chain the persona state's and the queue's writes go through, in order. */
   writes: Promise<unknown>;
-  /** Per place: whether the queue view was read back from the table. */
-  viewLoaded: Set<string>;
-  /** Persisted queue IDs read before this life admits fresh events. */
-  oldWakes: Set<string>;
-  /** Per place: each queued wake as it was last written, by id. */
-  synced: Map<string, Map<string, string>>;
-  /** The lease tokens of the wakes this life's turns hold, by wake id. */
-  claims: Map<string, number>;
-  /** Per place: the start's recovery, run once. */
-  started: Map<string, Promise<void>>;
-  /** What she slept through: the downtime and pause intervals, the pause under way, the count per place. */
-  sleep: { windows: Array<readonly [number, number]>; pausedFrom: number | null; slept: Map<string, number> };
+  /** The wake queue's state in process (src/behavior/inner/wake-queue.ts). */
+  wakes: WakeQueueState;
 };
 
 /** The memory database as the inner life uses it (src/memory/db/service.ts): wake runs, the writer, the reads. */

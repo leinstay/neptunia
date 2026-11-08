@@ -12,7 +12,7 @@
 //
 // Times are epoch milliseconds. The functions run synchronously over an open handle: the service's writer applies the
 // writes (`applyWakeQueueWrite`, reached through session-write.ts#applyMemoryWrite), and the reads take the read
-// connection (`{ db }`). The inner life (src/behavior/inner/wake-store.ts) is the one caller of the writes. The wakes
+// connection (`{ db }`). The inner life's wake queue (src/behavior/inner/wake-queue.ts) is the one caller of the writes. The wakes
 // belong to the one persona: nothing here names a place, and a wake's own payload says where it goes.
 
 import { kindOfFile } from './media-store.ts';
@@ -636,21 +636,13 @@ function pruneIn(db: Db, before: number, dataDir: string | null): number {
   return Number(changed);
 }
 
-/** Running wake `id` back to `queued`, its turn id and attempt kept (a rerun keeps its effect keys). */
-function requeueIn(db: Db, id: string): void {
-  db.prepare(
-    "UPDATE wakes SET state = 'queued', lease_holder = NULL, lease_expires_at = NULL WHERE id = ? AND state = 'running'"
-  ).run(id);
-}
-
-/** One write of the inner life (src/behavior/inner/wake-store.ts) through the service's writer. */
+/** One write of the inner life's wake queue (src/behavior/inner/wake-queue.ts) through the service's writer. */
 export type WakeQueueUpdate =
   | { kind: 'wake-queue'; op: 'queue'; wake: WakeInput; now: number }
   | { kind: 'wake-queue'; op: 'payload'; id: string; wake: WakeInput }
   | { kind: 'wake-queue'; op: 'handle'; id: string; outcome: string; now: number }
   | { kind: 'wake-queue'; op: 'remove'; id: string }
   | { kind: 'wake-queue'; op: 'sleep'; wake: WakeInput; now: number }
-  | { kind: 'wake-queue'; op: 'requeue'; ids: ReadonlyArray<string>; now: number }
   | {
       kind: 'wake-queue';
       op: 'claim-group';
@@ -683,7 +675,6 @@ export type WakeQueueUpdate =
   | { kind: 'wake-queue'; op: 'lease-acquire'; name: string; holder: string; now: number; ttlMs: number }
   | { kind: 'wake-queue'; op: 'lease-renew'; name: string; token: number; now: number; ttlMs: number }
   | { kind: 'wake-queue'; op: 'lease-release'; name: string; token: number; now: number }
-  | { kind: 'wake-queue'; op: 'delivered'; key: string; now: number }
   | ({ kind: 'wake-queue'; op: 'delivery' } & DeliveryMove);
 
 /** What a group claim answers: every wake's token and the turn they run under, or the first refusal. */
@@ -758,7 +749,6 @@ const WAKE_QUEUE_OPS: ReadonlySet<unknown> = new Set([
   'handle',
   'remove',
   'sleep',
-  'requeue',
   'claim-group',
   'finish-group',
   'renew',
@@ -768,7 +758,6 @@ const WAKE_QUEUE_OPS: ReadonlySet<unknown> = new Set([
   'lease-acquire',
   'lease-renew',
   'lease-release',
-  'delivered',
   'delivery',
 ]);
 
@@ -780,8 +769,8 @@ const isWakeQueueUpdate = (value: unknown): value is WakeQueueUpdate =>
 
 /**
  * One write of the inner life, applied on the writer connection (session-write.ts#applyMemoryWrite routes it here, and
- * the in-memory queue of wake-store.ts calls it directly). Refuses a closed handle and an op outside the union; the
- * fields of a known op are the ones src/behavior/inner/wake-store.ts wrote.
+ * the in-memory queue of src/behavior/inner/wake-queue.ts calls it directly). Refuses a closed handle and an op outside the union; the
+ * fields of a known op are the ones src/behavior/inner/wake-queue.ts wrote.
  */
 export function applyWakeQueueWrite(handle: unknown, update: unknown): unknown {
   const db: unknown = handle !== null && typeof handle === 'object' ? Reflect.get(handle, 'db') : null;
@@ -816,14 +805,6 @@ function applyTyped(handle: Handle, update: WakeQueueUpdate): unknown {
         handle,
         (db) => insertWake(db, update.wake, 'slept', update.now) || sleepIn(db, update.wake.id, update.now)
       );
-    case 'requeue':
-      // The start takes over the wakes a dead process left running: their leases end now.
-      return inWrite(handle, (db) =>
-        update.ids.forEach((id) => {
-          requeueIn(db, id);
-          db.prepare('UPDATE leases SET expires_at = MIN(expires_at, ?) WHERE name = ?').run(update.now, `wake:${id}`);
-        })
-      );
     case 'claim-group':
       return claimGroup(handle, update);
     case 'finish-group':
@@ -842,8 +823,6 @@ function applyTyped(handle: Handle, update: WakeQueueUpdate): unknown {
       return renewLease(handle, update);
     case 'lease-release':
       return inWrite(handle, (db) => releaseLease(db, update.name, update.token, update.now));
-    case 'delivered':
-      return markDelivered(handle, update);
     case 'delivery':
       return moveDelivery(handle, update);
   }
