@@ -41,12 +41,11 @@ export type ObserveContext = {
 };
 
 /**
- * Where the owner's person comes from: `current` reads `bot.ownerPerson` (null while unset), `listed` the accounts
- * `bot.owners` names on the home interface, and `adopt` writes a person minted for a raw install into the setting.
+ * Where the owner's person comes from: `current` reads `bot.ownerPerson` (null while unset), and `adopt` writes a
+ * person minted for a raw install into the setting.
  */
 export type OwnerPerson = {
   current(): string | null;
-  listed(): ReadonlyArray<{ iface: string; native: string }>;
   adopt(person: string): void;
 };
 
@@ -121,7 +120,7 @@ export function createObserve({ hot, memoryDb, selfIdOf, timers, ownerPerson = n
     const current = ownerPerson.current();
     if (current !== null) minted = null;
     const person = current ?? (minted ??= newPersonId());
-    return { ...envelope, consoleOwner: { person, listed: current === null ? ownerPerson.listed() : [] } };
+    return { ...envelope, consoleOwner: { person } };
   }
 
   /** Once a line that minted the owner's person is stored, the setting names that person. */

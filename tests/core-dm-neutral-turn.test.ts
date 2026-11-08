@@ -144,7 +144,7 @@ test('a group turn stores its public collections under the place of its root, a 
 
 test('a DM turn issues its context for the person stored on the account, not one spelled from the native id', async () => {
   // Bug: src/turn/inputs.ts manufactures `person:<iface>:<native>`, so an opaque person gets a context of nobody.
-  await withFakes({ owners: ['u1'], names: ['one'] }, async (rig) => {
+  await withFakes({ ownerPerson: OPAQUE, names: ['one'] }, async (rig) => {
     const one = await rig.connect('one', []);
     seedOver(rig, (db) => {
       addAccount(db, { id: 'account:u1', iface: 'one', authority: 'one/global', native: 'u1', person: OPAQUE });
@@ -158,7 +158,7 @@ test('a DM turn issues its context for the person stored on the account, not one
 
 test('what the person said in a linked DM on another interface reaches the request, and a stranger DM does not', async () => {
   // Bug: the request reads one root's unit of one account, so a private-only person arrives with empty memory.
-  await withFakes({ owners: ['u1'], names: ['one'] }, async (rig) => {
+  await withFakes({ ownerPerson: OPAQUE, names: ['one'] }, async (rig) => {
     const one = await rig.connect('one', []);
     seedOver(rig, (db) => {
       addAccount(db, { id: 'account:u1', iface: 'one', authority: 'one/global', native: 'u1', person: OPAQUE });

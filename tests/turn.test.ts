@@ -65,6 +65,7 @@ import {
   withoutTools,
 } from './fixtures/turn-kit.ts';
 import type { FakeHot, RawMessage } from './fixtures/turn-kit.ts';
+import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 /** What she did through a port: its calls but the reads a turn makes of it. */
 function effectsOf(port: Untyped) {
@@ -5185,7 +5186,10 @@ async function callTurn({
   if (failNext) port.failNext(...(failNext as Parameters<typeof port.failNext>));
   const hot = fakeHot(
     { typingSimulation: false, journal: Boolean(journal), ...features },
-    { owners, access: personaGrants(allowed) },
+    // The owner is `bot.ownerPerson` with these accounts bound to it; no owners, no owner person.
+    (owners as Array<string>).length === 0
+      ? { access: personaGrants(allowed) }
+      : { ownerPerson: OWNER_PERSON, access: personaGrants(allowed) },
     { tools: { safeMode: false, resultMaxChars: 2000, ...tools }, ...configExtra }
   );
   hot.prompts.draw = 'Drawing for {{name}}.\n\n{{request}}';
@@ -5798,7 +5802,7 @@ function callMarkScene({
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   const hot = fakeHot(
     { typingSimulation: false, journal: Boolean(journal), ...features },
-    { owners: ['u1'], access: personaGrants(allowed) },
+    { ownerPerson: OWNER_PERSON, access: personaGrants(allowed) },
     { tools: { safeMode: false, resultMaxChars: 2000 } }
   );
   const store = fakeStore();
@@ -6421,7 +6425,7 @@ test('a cancelled internal turn cannot leave its read context on a subsequent or
     freshWorld();
     world().member('g1', { id: 'owner', name: 'Owner' });
     world().member('g1', { id: 'other', name: 'Other' });
-    hot.config.bot = { timezone: 'UTC', placeId: 'g1', owners: [] };
+    hot.config.bot = { timezone: 'UTC', placeId: 'g1' };
     hot.config.private = { enabled: true, likeServer: true, minAffinity: 0 };
     const ownerRaw = rawMessage({
       id: 'owner-cancel',
@@ -6502,3 +6506,6 @@ test('a cancelled internal turn cannot leave its read context on a subsequent or
     useIface('discord');
   }
 });
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy(['u1']);

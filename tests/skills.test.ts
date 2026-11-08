@@ -39,6 +39,7 @@ import { checkReplyEffect, checkSkill, listSkills } from '../src/tools/gateway.t
 import { tempDir } from './fixtures/tmp.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { asRecord } from './fixtures/records.ts';
+import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -58,7 +59,7 @@ type Grant = { everyone?: boolean; roles?: Array<string>; users?: Array<string> 
 function config({ tools = {}, access = {} }: { tools?: Record<string, unknown>; access?: Record<string, Grant> } = {}) {
   return {
     tools: { safeMode: false, ...tools },
-    bot: { owners: [OWNER], access },
+    bot: { ownerPerson: OWNER_PERSON, access },
   };
 }
 
@@ -619,7 +620,7 @@ test('skills gateway: closed until the owner grants it to her; an owner-only ope
     }),
     { ok: false, code: 'requester-denied', reason: 'owner-only' }
   );
-  // a forged flag opens nothing: the right comes from bot.owners, read now
+  // a forged flag opens nothing: the right comes from the owner's bound accounts, read now
   assert.equal(
     asRecord(
       check({
@@ -737,7 +738,7 @@ test('skills gateway: safe mode lets only the carried-over calls pass', () => {
   });
   assert.deepEqual(check({ skill: 'message.create', args: { text: 'γεια' }, cfg: safe }), { ok: true });
   // a config without tools settings is not in safe mode
-  assert.deepEqual(check({ granted: ['lore.list'], cfg: { bot: { owners: [OWNER] } } }), { ok: true });
+  assert.deepEqual(check({ granted: ['lore.list'], cfg: { bot: { ownerPerson: OWNER_PERSON } } }), { ok: true });
 });
 
 // ---- wake envelopes (wakes.kinds.<kind>, heartbeat.*) ---------------------------------
@@ -1178,8 +1179,8 @@ test('persona grants: she never changes her effective authority -- not herself, 
       assert.deepEqual([result.status, result.code], ['denied', 'self-grant'], `${name} ${JSON.stringify(args)}`);
     }
     assert.deepEqual(t.stored(), {}, 'nothing was written');
-    // the governed keys, one list: owners, rights, safe mode and her tools' settings
-    for (const key of ['bot.owners', 'bot.access', 'tools.safeMode', 'tools.callTimeoutMs', 'bot'])
+    // the governed keys, one list: the owner, rights, safe mode and her tools' settings
+    for (const key of ['bot.ownerPerson', 'bot.access', 'tools.safeMode', 'tools.callTimeoutMs', 'bot'])
       assert.ok(governsPersona(key), key);
     for (const key of ['llm.maxRequestsPerDay', 'bot.timezone']) assert.equal(governsPersona(key), false, key);
     assert.ok(PERSONA_GOVERNED_CONFIG.includes('tools'));
@@ -1215,3 +1216,6 @@ test('persona grants: an old grant on talk.interject or talk.initiate holds on m
   assert.equal(renameGrants(after), null, 'nothing left to rename');
   assert.equal(before['talk.interject'].users[0], SELF, 'the input is not changed');
 });
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy([OWNER]);

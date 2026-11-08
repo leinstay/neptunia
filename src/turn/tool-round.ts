@@ -14,6 +14,7 @@ import { innerSettings } from '../behavior/inner.ts';
 import { diagnosticText } from '../behavior/wake.ts';
 import { WAKE_PURPOSE_CHARS } from '../behavior/wake.ts';
 import { callReason, fill, formatTranscript } from '../format.ts';
+import { hasCodeLine } from '../interface/owner-pairing.ts';
 import type { Reads } from '../interface/reads.ts';
 import { requestTokenLimit } from '../llm/budget.ts';
 import { REPLY_REQUEST } from '../llm/openrouter.ts';
@@ -306,10 +307,11 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           log,
         }
       : null;
+    // Her line that carries a one-time code is no speech of hers, and a code never reaches a request.
     return historyLines(ifaceReads, chatOf(channel), {
       limit: inner ? innerSettings(config).chatMessages : config.context.channelMessages,
       names,
-    });
+    }).then((lines) => lines.filter((line) => !(line.self && hasCodeLine(hot.prompts, line.content))));
   }
 
   /**

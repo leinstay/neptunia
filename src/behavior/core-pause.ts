@@ -10,7 +10,7 @@
 // queued direct pings. A pause that comes back during the replay stops it, and what is left waits for the next resume.
 //
 // It also holds the rule of the owner's command line for the direct chats: a direct chat of `iface: 'cli'` is the
-// owner's own, so it passes whatever dm.enabled and bot.owners say (`dmChatsOff`, `CLI_GATE`). The private gate, the
+// owner's own, so it passes whatever dm.enabled and the owner check say (`dmChatsOff`, `CLI_GATE`). The private gate, the
 // missed-answer recovery, the wake drain and the posting checks all ask `dmChatsOff`.
 
 import type { AcceptedMessageEvent } from '../pipeline/types.ts';

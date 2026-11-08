@@ -70,6 +70,8 @@ export type CreateTurnRunnerInput = {
   selfreflectionFacts?: Untyped;
   /** The memory's read handle while it is open (null while closed), for `<my_day>` (src/turn/request/my-day.ts). */
   journalDb?: (() => unknown) | null;
+  /** The owner's account on the interface of a place; the memory's own reader (frame-reads.ts) when absent. */
+  ownerAccount?: ((placeId: string) => string | null) | null;
   memoryContext?: Untyped;
   attention?: Set<string>;
   roleHealth?: Untyped;

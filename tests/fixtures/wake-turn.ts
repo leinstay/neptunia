@@ -17,6 +17,7 @@ import { wrongly } from './loose-types.ts';
 import { tempDir } from './tmp.ts';
 import { completionOf } from './tool-answers.ts';
 import { onWorld, useIface, world } from './turn-world.ts';
+import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 
 useIface('fake');
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
@@ -114,7 +115,7 @@ export async function wakeTurn({
     config: {
       bot: {
         timezone: 'UTC',
-        owners: ['u1'],
+        ownerPerson: OWNER_PERSON,
         access: Object.fromEntries(GRANTED.map((name) => [name, { everyone: false, roles: [], users: ['self-id'] }])),
       },
       context: {
@@ -243,3 +244,6 @@ export async function wakeTurn({
     intentions: intentions.list({ all: true, closed: true }),
   };
 }
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy(['u1']);

@@ -12,6 +12,7 @@ import { createErrandStore } from '../src/errands/store.ts';
 import { usageTap, createUsage } from '../src/tools/operations/usage.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 const DISCORD = createDiscordInterface().capabilities;
 const NOW = Date.parse('2026-10-18T12:00:00Z');
@@ -36,7 +37,7 @@ const COSTS = {
 // PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
 function setup() {
   const config = {
-    bot: { owners: ['42'] },
+    bot: { ownerPerson: OWNER_PERSON },
     llm: {
       maxRequestsPerDay: 10,
       probeTimeoutMs: 50,
@@ -109,3 +110,6 @@ test("status: keys.base leaves the agents' key out when the drawing role is on i
   assert.deepEqual(result, ['main 0.00/30.00', 'sim: not set']);
   assert.deepEqual(reads, ['main'], 'the agents key (scout and drawing) is not read');
 });
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy(['42']);

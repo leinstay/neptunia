@@ -65,15 +65,17 @@ test('moves a false safe mode and keeps it false', () => {
 test('moves the grant on skills.describe, whose name holds a dot, and leaves the other grants alone', () => {
   const other = { everyone: true, roles: [], users: [] };
   const { config, moved } = moveConfigKeys({
-    bot: { owners: ['o1'], access: { 'skills.describe': GRANT, 'message.edit': other } },
+    bot: { timezone: 'Europe/Athens', access: { 'skills.describe': GRANT, 'message.edit': other } },
   });
-  assert.deepEqual(config, { bot: { owners: ['o1'], access: { 'tools.describe': GRANT, 'message.edit': other } } });
+  assert.deepEqual(config, {
+    bot: { timezone: 'Europe/Athens', access: { 'tools.describe': GRANT, 'message.edit': other } },
+  });
   assert.deepEqual(moved, [{ from: 'bot.access.skills.describe', to: 'bot.access.tools.describe' }]);
 });
 
 test('leaves every key it does not move exactly where it was', () => {
   const given = {
-    bot: { owners: ['o1'] },
+    bot: { timezone: 'Europe/Athens' },
     features: { diary: true },
     selfreflection: { placeId: 'c9' },
     recall: { maxPerDay: 3 },
@@ -148,7 +150,7 @@ function deployment(local: Settings | null) {
     JSON.stringify({
       features: { tools: true, toolsDiscovery: true, diary: true },
       tools: { safeMode: false, transport: 'native', loop: { maxSteps: 3, maxCallsPerStep: 4 } },
-      bot: { owners: [], access: {} },
+      bot: { timezone: 'UTC', access: {} },
     })
   );
   // Runtime key migration reads prepared persona config; explicit offline input fixtures stay legacy.
@@ -208,7 +210,11 @@ function localCopy(local: Settings): string {
 }
 
 test('shows each move as `from -> to` on a dry run and changes no byte of the file', () => {
-  const file = localCopy({ skills: { safeMode: true }, features: { skillsDiscovery: false }, bot: { owners: ['o1'] } });
+  const file = localCopy({
+    skills: { safeMode: true },
+    features: { skillsDiscovery: false },
+    bot: { timezone: 'Europe/Athens' },
+  });
   const before = fs.readFileSync(file, 'utf8');
   const run = migrate(['--dry-run'], file);
   assert.equal(run.code, 0);
@@ -218,12 +224,16 @@ test('shows each move as `from -> to` on a dry run and changes no byte of the fi
 });
 
 test('writes the moved keys into the file on --apply and leaves everything else as it was', () => {
-  const file = localCopy({ skills: { safeMode: true }, bot: { owners: ['o1'] }, selfreflection: { placeId: 'c9' } });
+  const file = localCopy({
+    skills: { safeMode: true },
+    bot: { timezone: 'Europe/Athens' },
+    selfreflection: { placeId: 'c9' },
+  });
   const run = migrate(['--apply'], file);
   assert.equal(run.code, 0);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {
     tools: { safeMode: true },
-    bot: { owners: ['o1'] },
+    bot: { timezone: 'Europe/Athens' },
     selfreflection: { placeId: 'c9' },
   });
 });
@@ -367,8 +377,11 @@ test('drops agents.ledger.socket with its emptied section and keeps the agents b
 });
 
 test('drops a null agents.ledger.socket too, and an agents section left empty with it', () => {
-  const { config, dropped } = moveConfigKeys({ bot: { owners: ['o1'] }, agents: { ledger: { socket: null } } });
-  assert.deepEqual(config, { bot: { owners: ['o1'] } });
+  const { config, dropped } = moveConfigKeys({
+    bot: { timezone: 'Europe/Athens' },
+    agents: { ledger: { socket: null } },
+  });
+  assert.deepEqual(config, { bot: { timezone: 'Europe/Athens' } });
   assert.deepEqual(dropped, ['agents.ledger.socket']);
 });
 
@@ -386,7 +399,7 @@ test('a production-shaped file moves every key once and a second pass finds noth
   const given = {
     skills: { transport: 'text' },
     bot: {
-      owners: ['o1'],
+      timezone: 'Europe/Athens',
       access: { 'skills.describe': GRANT, 'task.run': GRANT, 'intent.set': GRANT, 'memory.refresh.user': GRANT },
     },
     agents: {
@@ -399,7 +412,10 @@ test('a production-shaped file moves every key once and a second pass finds noth
   const first = moveConfigKeys(given);
   assert.deepEqual(first.config, {
     tools: { transport: 'text' },
-    bot: { owners: ['o1'], access: { 'tools.describe': GRANT, 'errand.run': GRANT, 'intention.set': GRANT } },
+    bot: {
+      timezone: 'Europe/Athens',
+      access: { 'tools.describe': GRANT, 'errand.run': GRANT, 'intention.set': GRANT },
+    },
     errands: { resultRetrySeconds: 45 },
     // PR 6e: `agents.ledger.socket` has no reader after the cutover, so the production file loses it on the first pass.
     agents: { scout: { enabled: true, searchProvider: 'exa' }, server: { enabled: false } },
@@ -432,26 +448,26 @@ test('reads the grants and settings of an old local file under their new names a
 });
 
 test('prints each dropped key as `<path> dropped (no reader)` on a dry run and removes it on --apply', () => {
-  const file = localCopy({ agents: { maxDownloadBytes: 1 }, bot: { owners: ['o1'] } });
+  const file = localCopy({ agents: { maxDownloadBytes: 1 }, bot: { timezone: 'Europe/Athens' } });
   const dry = migrate(['--dry-run'], file);
   assert.equal(dry.code, 0);
   assert.equal(dry.out.includes('agents.maxDownloadBytes dropped (no reader)'), true);
   const applied = migrate(['--apply'], file);
   assert.equal(applied.code, 0);
-  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { bot: { owners: ['o1'] } });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { bot: { timezone: 'Europe/Athens' } });
 });
 
 test('config-migrate --apply removes agents.ledger.socket from a live-shaped file and keeps every other setting', () => {
   const scout = { enabled: true, socket: '/run/neptunia-agent-scout/sock', daily: { tasks: 40 } };
   const file = localCopy({
-    bot: { owners: ['o1'] },
+    bot: { timezone: 'Europe/Athens' },
     agents: { ledger: { socket: '/run/neptunia-ledger/core.sock' }, scout },
     board: { leaseTtlMinutes: 45 },
   });
   const applied = migrate(['--apply'], file);
   assert.equal(applied.code, 0, applied.err);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {
-    bot: { owners: ['o1'] },
+    bot: { timezone: 'Europe/Athens' },
     agents: { scout },
     board: { leaseTtlMinutes: 45 },
   });
@@ -483,10 +499,10 @@ test('reads an old llm.helperTimeoutMs of the local file as the analyzer timeout
 
 test('drops selfreflection.placeId and reports it moved to the database once the database has a diary mirror', () => {
   const { config, toDatabase } = moveConfigKeys(
-    { selfreflection: { placeId: 'c9', maxPerDay: 3 }, bot: { owners: ['o1'] } },
+    { selfreflection: { placeId: 'c9', maxPerDay: 3 }, bot: { timezone: 'Europe/Athens' } },
     { selfreflectionMirror: true }
   );
-  assert.deepEqual(config, { selfreflection: { maxPerDay: 3 }, bot: { owners: ['o1'] } });
+  assert.deepEqual(config, { selfreflection: { maxPerDay: 3 }, bot: { timezone: 'Europe/Athens' } });
   assert.deepEqual(toDatabase, ['selfreflection.placeId']);
 });
 
@@ -556,10 +572,10 @@ test('config-migrate keeps selfreflection.placeId and says so in one line when t
 
 test('drops bot.commandName and features.adminCommands, lists both and keeps what sits beside them', () => {
   const { config, moved, dropped } = moveConfigKeys({
-    bot: { owners: ['o1'], commandName: 'luna' },
+    bot: { timezone: 'Europe/Athens', commandName: 'luna' },
     features: { adminCommands: false, diary: true },
   });
-  assert.deepEqual(config, { bot: { owners: ['o1'] }, features: { diary: true } });
+  assert.deepEqual(config, { bot: { timezone: 'Europe/Athens' }, features: { diary: true } });
   assert.deepEqual([moved, [...dropped].sort()], [[], ['bot.commandName', 'features.adminCommands']]);
 });
 
@@ -567,14 +583,14 @@ test('drops bot.commandName and features.adminCommands, lists both and keeps wha
 test('config-migrate --apply drops bot.commandName and features.adminCommands and changes nothing else', () => {
   const access = { 'lore.list': { everyone: true, roles: [], users: [] } };
   const file = localCopy({
-    bot: { owners: ['o1'], commandName: 'nep', access },
+    bot: { timezone: 'Europe/Athens', commandName: 'nep', access },
     features: { adminCommands: true },
     board: { leaseTtlMinutes: 45 },
   });
   const applied = migrate(['--apply'], file);
   assert.equal(applied.code, 0, applied.err);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {
-    bot: { owners: ['o1'], access },
+    bot: { timezone: 'Europe/Athens', access },
     board: { leaseTtlMinutes: 45 },
   });
 });
@@ -651,7 +667,11 @@ test('config-migrate --apply writes the cut layer and the Discord file, the file
 });
 
 test('config-migrate finds nothing to cut in a layer it already cut', () => {
-  const layer = cutLayer({ capture: { before: 5 }, discord: { intents: { members: true } }, bot: { owners: ['o1'] } });
+  const layer = cutLayer({
+    capture: { before: 5 },
+    discord: { intents: { members: true } },
+    bot: { timezone: 'Europe/Athens' },
+  });
   migrate(['--apply'], layer.file);
   const settled = [fs.readFileSync(layer.file, 'utf8'), fs.readFileSync(layer.discord, 'utf8')];
   const again = migrate(['--apply'], layer.file);
@@ -797,4 +817,11 @@ test('reads private.enabled of the local file as dm.enabled at load', async () =
   );
   assert.deepEqual(result.dm, { enabled: false });
   assert.equal(Object.hasOwn((result.private ?? {}) as Settings, 'enabled'), false);
+});
+
+test('drops bot.owners, whose native ids the owner meta-person replaced, and keeps bot.ownerPerson', () => {
+  // Bug: the retired list stays in the merged config, and a reader that still looks at it finds a second owner.
+  const { config, dropped } = moveConfigKeys({ bot: { owners: ['o1'], ownerPerson: 'person:0a1b' } });
+  assert.deepEqual(config, { bot: { ownerPerson: 'person:0a1b' } });
+  assert.deepEqual(dropped, ['bot.owners']);
 });

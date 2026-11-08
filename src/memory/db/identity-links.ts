@@ -3,8 +3,8 @@
 // she and never by a name. The command line (`iface: 'cli'`) is spoken only by the `cli` principal, the owner, so its
 // account is linked to the owner's person (`bot.ownerPerson`, handed in by the core with the line) from its first line;
 // a tentative person she proposed for it merges into his, unless that person also holds a verified account of someone
-// else. On a raw install the core mints the owner's person with the first line, and the accounts listed in `bot.owners`
-// are linked to it in the same transaction, so nobody loses owner rights when the setting appears. An install that
+// else. On a raw install the core mints the owner's person with the first line; his accounts elsewhere join it by
+// pairing (src/interface/owner-pairing.ts) or `/memory bind`. An install that
 // stored the command line under `cli/global` has those rows moved to its native authority (`cli/local`,
 // src/protocol/identity.ts#nativeAuthorityOf) when the next line arrives, so the line finds its account and its place.
 // Used by observe.ts and scripts/memory-repair-identity.ts. Counts and codes only.
@@ -89,18 +89,6 @@ export function linkOwnerAccount(db: Db, accountId: string, owner: string, at: s
   for (const person of merging)
     mergePersonInto(db, { from: person, into: owner, by: 'owner', reason: 'the owner command line', at });
   return { linked, merged: merging };
-}
-
-/**
- * The person another account of the owner holds before a raw install's link (a unit write's copy, a link of an older
- * owner command): it merges into the owner's new person, so his memory stays one.
- */
-export function earlierPersonOf(db: Db, accountId: string): string | null {
-  const person =
-    verifiedPerson(db, accountId) ??
-    db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(accountId)?.person_id;
-  if (typeof person !== 'string' || person === '' || person === SELF_PERSON) return null;
-  return db.prepare('SELECT 1 AS ok FROM people WHERE id = ?').get(person) ? person : null;
 }
 
 /** The tables whose rows carry the authority that issued their native key. */

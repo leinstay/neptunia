@@ -1,5 +1,5 @@
 // The owner's rights come from the person: src/tools/operations/grants.ts#isOwnerId asks the accounts the owner bound
-// (src/memory/db/person-links.ts#createOwnerAccounts), and `bot.owners` holds only until the owner person is bound.
+// (src/memory/db/person-links.ts#createOwnerAccounts); the retired `bot.owners` decides nothing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -102,13 +102,15 @@ test('an account on the owner person gets no rights from a link the owner did no
   });
 });
 
-test('before the owner person is bound, bot.owners holds on the home interface alone', () => {
-  // Bug: the fallback would let an equal id on a second interface pass while the migration has not happened.
+test('bot.owners decides nothing while no owner person is bound', () => {
+  // Bug: the retired list of native ids stays a way in beside the meta-person and its accounts.
+  // The expectation changed with plan 2026-11-08-meta-person slice 8: `bot.owners` is replaced by the owner's
+  // meta-person and the accounts paired or bound to it, so the list no longer passes anyone on any interface.
   withAccounts(() => {
     const config = { bot: { owners: ['111'] } };
-    assert.equal(ownerOn('discord', '111', config), true);
+    assert.equal(ownerOn('discord', '111', config), false);
     assert.equal(ownerOn('telegram', '111', config), false);
-    assert.equal(isOwnerId(config, '111'), true);
+    assert.equal(isOwnerId(config, '111'), false);
   });
 });
 

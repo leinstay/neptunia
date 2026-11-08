@@ -48,7 +48,7 @@ function refusal(status: string, code: string, summary: string): OpResult {
 
 /**
  * Null when the caller (`ctx.accountId`, `ctx.roleIds`) may run `op`, else the `denied` result with
- * its code: src/tools/operations/rights.ts#rightsRefusal over `bot.owners`, `bot.access` and `features`, all
+ * its code: src/tools/operations/rights.ts#rightsRefusal over `bot.ownerPerson`, `bot.access` and `features`, all
  * read now. `owner-only` for an owner-only operation, `not-grantable` for one no grant opens (a
  * member operation while `features.memberCommands` is off included), else `not-granted`.
  */

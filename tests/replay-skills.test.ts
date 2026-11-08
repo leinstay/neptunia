@@ -53,6 +53,7 @@ import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { Scenario } from '../scripts/lib/replay-types.ts';
 import { wrongly } from './fixtures/loose-types.ts';
+import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -167,7 +168,7 @@ test("personaGrantsConfig: her grants are exactly the given ones; people's grant
   const live = {
     tools: { safeMode: false },
     bot: {
-      owners: [OWNER],
+      ownerPerson: OWNER_PERSON,
       access: {
         'rule.list': { everyone: false, roles: [], users: [SELF, MEMBER] },
         'lore.add': { everyone: false, roles: [], users: [SELF] },
@@ -181,7 +182,7 @@ test("personaGrantsConfig: her grants are exactly the given ones; people's grant
   assert.equal(copy.bot.access['lore.add'], undefined, 'an entry left empty is gone');
   assert.deepEqual(copy.bot.access['rule.add'].users, [SELF]);
   assert.deepEqual(copy.bot.access['memory.restore'].users, [SELF]);
-  assert.deepEqual(copy.bot.owners, [OWNER]);
+  assert.equal(copy.bot.ownerPerson, OWNER_PERSON);
   assert.deepEqual(personaGrantsConfig({}, SELF, []).bot.access, {});
 });
 
@@ -207,7 +208,7 @@ function fakeChannel({ memberRoles = [] }: Record<string, Untyped> = {}) {
 
 /** The live-like config: safe mode off, the owner, people's `access`; her grants laid over it. */
 function scenarioConfig(grants: Untyped, { access = {} } = {}) {
-  return personaGrantsConfig({ tools: { safeMode: false }, bot: { owners: [OWNER], access } }, SELF, grants);
+  return personaGrantsConfig({ tools: { safeMode: false }, bot: { ownerPerson: OWNER_PERSON, access } }, SELF, grants);
 }
 
 /** simulateCall as the replay makes it: the call view of the turn, the requester of `author`. */
@@ -460,7 +461,7 @@ const NAMES: Record<string, string> = { [OWNER]: 'Élodie', [MEMBER]: 'Zoë', [O
 function sequenceConfig(grants: Untyped) {
   return personaGrantsConfig(
     {
-      bot: { owners: [OWNER], timezone: 'UTC', access: {} },
+      bot: { ownerPerson: OWNER_PERSON, timezone: 'UTC', access: {} },
       context: {
         channelMessages: 100,
         maxMessageChars: 800,
@@ -1617,3 +1618,6 @@ test("renderPairReport: per scenario the decisions of A and B side by side, the 
   assert.ok(cellA.endsWith('...') && cellA.length <= 303, 'the first 300 characters of her think');
   assert.ok(report.includes('> Γεια | σου'), 'the single message quoted');
 });
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy([OWNER]);

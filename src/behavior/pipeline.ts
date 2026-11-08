@@ -25,6 +25,7 @@ import { createAddressAttention } from '../pipeline/address-attention.ts';
 import { createFollowUp } from '../pipeline/follow-up.ts';
 import { createFollowing } from '../pipeline/following.ts';
 import { createHandleMessage } from '../pipeline/handle-message.ts';
+import type { DoorScreen } from '../pipeline/handle-message.ts';
 import { createMediaPrefill } from '../pipeline/media-prefill.ts';
 import { createMerge } from '../pipeline/merge.ts';
 import { createObserve } from '../pipeline/observe.ts';
@@ -148,6 +149,7 @@ export function createMessageHandler({
   stemmer = null,
   selfNames = null,
   ownerPerson = null,
+  screen = null,
   port,
 }: {
   // The live config and prompts. A test hands in a stand-in whose config holds only what it reads, so the modules
@@ -182,6 +184,8 @@ export function createMessageHandler({
   stemmer?: (() => { stem: (word: string) => string } | null) | null;
   /** Her aliases, the names the owner gave her own person record (`person:self`); absent: none. */
   selfNames?: (() => ReadonlyArray<string>) | null;
+  /** The door's screen before any turn (src/pipeline/handle-message.ts#DoorScreen); absent, every line passes. */
+  screen?: DoorScreen | null;
   port: Adapter;
 }): MessageHandler {
   const turns = turnRunner;
@@ -361,6 +365,7 @@ export function createMessageHandler({
     noteFollowingLine,
     maybeFollowUp,
     answerFlagged,
+    screen,
   });
 
   // An edit and a deletion of a message (src/pipeline/edits.ts).

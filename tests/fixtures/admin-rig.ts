@@ -11,6 +11,7 @@ import { tempDir } from './tmp.ts';
 import { world } from './turn-world.ts';
 import { makeStore } from './admin-store.ts';
 import type { StoreFake } from './admin-store.ts';
+import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 
 const DISCORD = createDiscordInterface().capabilities;
 
@@ -38,7 +39,7 @@ export type Hot = {
 export function makeHot(rootDir: string): Hot {
   return {
     config: {
-      bot: { owners: ['42'] },
+      bot: { ownerPerson: OWNER_PERSON },
       models: { base: { core: 'anthropic/claude-opus-4.6' } },
       llm: { maxRequestsPerDay: 300 },
     },
@@ -132,3 +133,6 @@ export function makeHotWithMedia(rootDir: string): Hot {
   hot.config.models = { ...models, base: { ...models.base, vision: 'anthropic/claude-haiku-4.5' } };
   return hot;
 }
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy(['42']);

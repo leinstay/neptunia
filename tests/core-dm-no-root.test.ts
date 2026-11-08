@@ -49,7 +49,7 @@ test('a stranger on an interface with no root is not answered, while the owner i
 test('a DM on an interface with no root asks nothing of the interface that has one', async () => {
   // Bug: the DM borrows the first interface's home root for its gate and its reads.
   await withFakes({ owners: ['u1'], names: ['first', 'second'] }, async ({ connect, rows }) => {
-    // The DM's interface says hello first: it is the home interface, where `bot.owners` names the owner.
+    // The DM's interface says hello first: it is the home interface, where the owner's account is bound.
     const second = await connect('second', []);
     const first = await connect('first', [{ id: 'g1', name: 'Alpha' }]);
     seedPerson(first, 'g1', 'u1', 'Eleni');

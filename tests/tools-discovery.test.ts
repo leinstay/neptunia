@@ -24,6 +24,7 @@ import { listSkills } from '../src/tools/gateway.ts';
 import type { Rights } from '../src/tools/types.ts';
 import { parseQueryPlan } from '../src/behavior/query-builder.ts';
 import { queryAnswer } from './fixtures/query-answer.ts';
+import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 const NAMES = ['message.create', 'message.edit', 'draw.create', 'memory.profile.read', 'status.show'];
 const NOW = Date.UTC(2026, 9, 14, 12, 0, 0);
@@ -211,7 +212,7 @@ test('listSkills: an owner-only skill has its row, open only for an owner who as
   const registry = new Map([...standInRegistry(), ['x.owner', owner]]);
   const config = granting(['message.edit', 'x.owner'], {
     tools: { safeMode: false },
-    bot: { owners: ['42'] },
+    bot: { ownerPerson: OWNER_PERSON },
   });
   const rows = listSkills({
     config,
@@ -540,3 +541,6 @@ test('exposedSkillNames: a config with every optional role on, or with no models
     exposedSkillNames({ config: bare, selfId: OFF_SELF, registry })
   );
 });
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy(['42']);

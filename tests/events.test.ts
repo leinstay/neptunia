@@ -58,6 +58,7 @@ import type { Untyped } from '../src/tools/types.ts';
 import { table, wrongly, present } from './fixtures/loose-types.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
 import { topPlaceSpelled } from '../src/memory/db/ids.ts';
+import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 // Plan 2026-11-04-cli-and-memory B1: `address.attentionMinutes` of the config these tests run under, and a run of `no`
 // verdicts for the tests that show it no longer closes anything.
@@ -1988,7 +1989,7 @@ function privateConfig(overrides: Record<string, Untyped> = {}) {
   return baseConfig(
     deepMerge(
       // PR 7d: features.privateMessages is the key dm.enabled, and the daily reply caps are gone.
-      { bot: { owners: ['owner1'] }, dm: { enabled: true } },
+      { bot: { ownerPerson: OWNER_PERSON }, dm: { enabled: true } },
       overrides
     )
   );
@@ -2089,7 +2090,7 @@ function makeDmHandler({
 
 test('private: every gate reason drops the DM without a turn or an observe', async () => {
   const cases = [
-    { reason: 'off', config: baseConfig({ bot: { owners: ['owner1'] } }) },
+    { reason: 'off', config: baseConfig({ bot: { ownerPerson: OWNER_PERSON } }) },
     { reason: 'not-member', client: fakeDmClient({ members: [] }) },
     { reason: 'unknown', store: fakePrivateStore({ profiles: {} }) },
     { reason: 'affinity', store: fakePrivateStore({ profiles: { u1: { affinity: { score: 4 } } } }) },
@@ -5585,3 +5586,6 @@ test('events: a deleted message writes a deleted line and an edit writes revisio
   await handler.onMessageDelete(elsewhere);
   assert.equal(appended.length, 3);
 });
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy(['owner1']);

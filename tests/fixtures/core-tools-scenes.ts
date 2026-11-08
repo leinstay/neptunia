@@ -10,6 +10,7 @@ import { createFakeAdapter } from '../../src/interface/fake.ts';
 import { createReads } from '../../src/interface/reads.ts';
 import { labels } from './labels.ts';
 import { completionOf } from './tool-answers.ts';
+import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 
@@ -92,7 +93,7 @@ function sceneHot({ coreTools, access = {} }: { coreTools?: boolean; access?: ob
   if (coreTools !== undefined) features.coreTools = coreTools;
   return {
     config: {
-      bot: { timezone: 'UTC', dryRunChannelId: '', owners: ['u1'], access },
+      bot: { timezone: 'UTC', dryRunChannelId: '', ownerPerson: OWNER_PERSON, access },
       context: {
         channelMessages: 100, neighborMessages: 5, neighborMaxAgeMinutes: 60, neighborMaxChannels: 8, maxMessageChars: 800,
         gapMarkerMinutes: 20, otherProfiles: 6, caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
@@ -194,3 +195,6 @@ export async function singleScene(
     .then((result: unknown) => ({ result }));
   return { requests: JSON.parse(JSON.stringify(llm.requests)) as Array<Array<{ content: string }>>, result };
 }
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy(['u1']);

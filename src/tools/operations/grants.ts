@@ -14,18 +14,10 @@
 import { idText, isObj, listOf, objOf } from '../types.ts';
 import type { Access, GrantEntry, GrantTarget, Obj, OpInfo } from '../types.ts';
 
-/** True when `owners` (ids, numbers or strings) lists `accountId`; ids compared as strings. */
-function listsOwner(owners: unknown, accountId: unknown): boolean {
-  if (accountId === undefined || accountId === null) return false;
-  return listOf(owners).map(idText).includes(idText(accountId));
-}
-
 /** What the owner check reads about the caller's account, on the interface of the current event or turn. */
 export type OwnerAccounts = {
   /** True when the owner bound the account `native` to `person`. */
   isBoundTo(person: string, native: string): boolean;
-  /** True when the caller is on the home interface, the only one `bot.owners` speaks for. */
-  onHomeInterface(): boolean;
 };
 
 let ownerAccounts: OwnerAccounts | null = null;
@@ -47,25 +39,16 @@ export function ownerPersonOf(config: unknown): string | null {
   return person === '' ? null : person;
 }
 
-/** The native ids `bot.owners` lists, the home interface's owners until `bot.ownerPerson` is set. */
-export function ownerNativesOf(config: unknown): Array<string> {
-  return listOf(objOf(objOf(config).bot).owners)
-    .map(idText)
-    .filter((native) => native !== '');
-}
-
 /**
- * The one owner check of the owner commands and the private-chat gate. With `bot.ownerPerson` set the caller is the
- * owner when the owner bound the caller's account to that person, and nobody is while the accounts cannot be read.
- * Before that, `bot.owners` lists native ids of the home interface. No user, no owner. `config` is the live merged
- * config (hot.config).
+ * The one owner check of the owner commands and the private-chat gate: the caller is the owner when the owner bound
+ * the caller's account, by `/memory bind` or by pairing, to the meta-person `bot.ownerPerson` names. Nobody is while
+ * that setting is unset or the accounts cannot be read, and no user is the owner. `config` is the live merged config
+ * (hot.config).
  */
 export function isOwnerId(config: unknown, accountId: unknown): boolean {
-  if (idText(accountId) === '') return false;
-  const bot = objOf(objOf(config).bot);
-  const person = idText(bot.ownerPerson);
-  if (person !== '') return ownerAccounts?.isBoundTo(person, idText(accountId)) === true;
-  return listsOwner(bot.owners, accountId) && (ownerAccounts?.onHomeInterface() ?? true);
+  const person = ownerPersonOf(config);
+  if (idText(accountId) === '' || person === null) return false;
+  return ownerAccounts?.isBoundTo(person, idText(accountId)) === true;
 }
 
 /**
@@ -90,7 +73,8 @@ export function isGrantableOp(op: Partial<OpInfo> | null | undefined): boolean {
 }
 
 /**
- * True when the caller may run `op`. Order: an owner passes; an `ownerOnly` or `grantable: false`
+ * True when the caller may run `op`. Order: an account `owners` lists passes (src/tools/operations/rights.ts asks the
+ * owner check first and lists none); an `ownerOnly` or `grantable: false`
  * operation refuses everyone else, `*` included; a `member` operation passes anyone; anything else passes on a grant stored on the exact operation name (everyone, one of the
  * caller's roles, or the caller). No descriptor or an access that is not an object: refused.
  */
@@ -106,8 +90,7 @@ export function isAllowed({
   owners?: unknown;
 }): boolean {
   const accountId = member?.accountId;
-  if (listsOwner(owners, accountId)) return true;
-
+  if (accountId != null && listOf(owners).map(idText).includes(idText(accountId))) return true;
   const rights = op?.rights;
   if (rights === undefined || typeof op?.name !== 'string') return false;
   if (rights.ownerOnly === true) return false;

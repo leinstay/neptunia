@@ -124,11 +124,14 @@ test('readConfig: persona config/config.json is deep-merged over config.json', (
     fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
     fs.writeFileSync(
       path.join(dir, 'config', 'config.json'),
-      JSON.stringify({ bot: { timezone: 'UTC', owners: [] }, llm: { model: 'a' } })
+      JSON.stringify({ bot: { timezone: 'UTC', ownerPerson: '' }, llm: { model: 'a' } })
     );
-    fs.writeFileSync(path.join(dir, 'data', 'config', 'config.json'), JSON.stringify({ bot: { owners: ['1'] } }));
+    fs.writeFileSync(
+      path.join(dir, 'data', 'config', 'config.json'),
+      JSON.stringify({ bot: { ownerPerson: 'person:1' } })
+    );
     const cfg = readConfig(dir);
-    assert.deepEqual(cfg, { bot: { timezone: 'UTC', owners: ['1'] }, llm: { model: 'a' } });
+    assert.deepEqual(cfg, { bot: { timezone: 'UTC', ownerPerson: 'person:1' }, llm: { model: 'a' } });
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

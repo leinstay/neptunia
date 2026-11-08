@@ -6,9 +6,6 @@
 // interface does, and hands back the running interface (src/protocol/host.ts). The entry (src/index.ts) reads the
 // paths and the environment, loads the interface packages and handles the process signals; a test calls `startCore`
 // with a scripted model and the fake interface.
-//
-// This file stays JavaScript: it is the body of the old entry moved into a function, and stage 8 of the core
-// extraction converts it to TypeScript.
 
 import { createMessageProducers } from './behavior/core-message-producers.ts';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -94,6 +91,7 @@ import { createMemberDirectory } from './interface/members.ts';
 import { createErrandTurns, errandDoneEvent } from './errands/turns.ts';
 import { createEventDoor } from './interface/door.ts';
 import { createChatDirectory } from './interface/directory.ts';
+import { createOwnerPairing } from './interface/owner-pairing.ts';
 import { isReadable, takeSnapshot } from './behavior/snapshot.ts';
 import {
   CLI_IFACE,
@@ -127,7 +125,7 @@ import { isPausedIn, resumeHeld } from './behavior/core-pause.ts';
 import { configuredInterfaces, drainMs, interfaceEnabled } from './interface/mode.ts';
 import { loadPrincipals, principalOfToken } from './interface/principals.ts';
 import { claimCore } from './memory/db/open.ts';
-import { ownerNativesOf, ownerPersonOf, useOwnerAccounts } from './tools/operations/grants.ts';
+import { ownerPersonOf, useOwnerAccounts } from './tools/operations/grants.ts';
 import { readLocalConfig, setPath, writeLocalConfig } from './tools/operations/shared.ts';
 import { moveConfigKeys } from './config-moves.ts';
 import { createIngestRecord } from './memory/db/ingest.ts';
@@ -321,8 +319,7 @@ async function buildCore(
     if (missing.length > 0) log.error('skills: definitions without a registered operation', { missing });
   }
 
-  // The old per-feature model keys are never read (classifier.* replaced them);
-  // say so once, key names only, never a value.
+  // The old per-feature model keys (classifier.* replaced them) are named once at start, never their values.
   for (const { key, use } of deprecatedModelKeys(hot.config))
     log.warn('index: deprecated model key ignored', { key, use });
 
@@ -569,8 +566,7 @@ async function buildCore(
   };
   const speech = speechReady ? createSpeech(speechOptions) : null;
 
-  // Shared so a picture attached on consecutive turns, or described more than
-  // once, is only ever downloaded once within the fetcher's LRU window.
+  // Shared, so a picture attached on several turns is downloaded once within the fetcher's LRU window.
   // An image from the owner's terminal waits in the staging folder, and these readers open its reference like any address.
   const imageStaging = openImageStaging(paths.dataDir);
   void imageStaging.sweep();
@@ -1224,7 +1220,10 @@ async function buildCore(
     log,
   });
 
+  // The owner's pairing of his accounts (src/interface/owner-pairing.ts): the door's screen and `/interfaces pair`.
+  const ownerPairing = createOwnerPairing({ hot, memoryDb, port: iface, selfId: () => identity.selfId, now: clock });
   const onMessage = createMessageHandler({
+    screen: ownerPairing,
     gifKeeper,
     isServedRoot,
     rootsOf: (name: string) => rootRoutes.rootsOf(name),
@@ -1260,8 +1259,6 @@ async function buildCore(
     // The owner's command line belongs to `bot.ownerPerson`, minted with its first line on a raw install.
     ownerPerson: {
       current: () => ownerPersonOf(settings.config),
-      listed: () =>
-        identity.iface ? ownerNativesOf(settings.config).map((native) => ({ iface: identity.iface, native })) : [],
       adopt: (person: string) => writeLocalSetting(['bot', 'ownerPerson'], person),
     },
     // The limit and pause notices go out through the interface like any other effect.
@@ -1498,6 +1495,7 @@ async function buildCore(
       privateDir: paths.privateDir,
       dataDir,
       memoryDb,
+      pairing: ownerPairing,
       usage,
       metrics,
       wakeClock: (name) => wakeClockOf(name, { now: clock(), inner, selfreflection }),
