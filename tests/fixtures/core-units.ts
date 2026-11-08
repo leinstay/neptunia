@@ -8,7 +8,8 @@
 //   and stdout piped.
 // Both read `NEPTUNIA_PRIVATE_DIR` and `NEPTUNIA_DATA_DIR`, set to the rig's folders, so nothing reads a real local
 // layer. The memory database is read through a second, read-only connection, because the core holds the lock. No
-// provider and no platform is reached.
+// provider and no platform is reached. Every child process and worker thread a rig starts shares one Node compile cache
+// under the temporary folder, so each loads the engine's modules without stripping their types again.
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
@@ -36,6 +37,10 @@ type Db = { prepare(sql: string): { all(...args: Array<unknown>): Array<Row> } }
 export const REPO = fileURLToPath(new URL('../..', import.meta.url));
 export const BIN = join(REPO, 'bin', 'neptunia.ts');
 const INTERFACES_DIR = join(REPO, 'tests', 'fixtures', 'interfaces');
+
+// A rig starts a few `neptunia` children and the core's worker threads, and each one compiles the engine's modules
+// afresh without a cache: about 400 ms of a 600 ms `neptunia -p`. Children and workers inherit this variable.
+process.env.NODE_COMPILE_CACHE ??= join(tmpdir(), 'neptunia-compile-cache');
 
 /** The private layer of every rig: units mode, the settle wait and typing off. PR 7d: the `features` switches are code
  * or gone with the cut, so the rig no longer turns optional behaviour off. */
