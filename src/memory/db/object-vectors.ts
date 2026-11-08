@@ -275,14 +275,16 @@ export type ObjectHit = { kind: ObjectKind; itemId: string; similarity: number }
 /**
  * The vectors of one kind a context reads, with the id of their object. A claim, a description and an episode are read
  * under the object's own audience, so a rescope moves the vector with it; a name set under its own, kept only while a
- * name of that node and audience still stands.
+ * name of that node and audience still stands. The rows are walked by the range of their chunk keys: the unary plus keeps
+ * SQLite off the index of model and dimensions, which would walk every record vector (28 ms against 3 on the production
+ * copy of 2026-11-08).
  */
 function meaningSql(kind: ObjectKind, visible: string): string {
+  const range = `x.chunk_key >= '${kind}:' AND x.chunk_key < '${kind};' AND +x.model = :model AND +x.dims = :dims
+    AND x.bytes IS NOT NULL AND x.retired_at IS NULL`;
   const live = (table: string, extra = ''): string =>
-    `SELECT o.id AS item_id, x.scale, x.norm, x.bytes FROM ${table} o
-       JOIN vectors x ON x.chunk_key = '${kind}:' || o.id || ':' || :model
-      WHERE o.retired_at IS NULL ${extra} AND x.dims = :dims AND x.bytes IS NOT NULL AND x.retired_at IS NULL
-        AND ${visible}`;
+    `SELECT o.id AS item_id, x.scale, x.norm, x.bytes FROM vectors x CROSS JOIN ${table} o ON o.id = x.item_id
+      WHERE ${range} AND o.retired_at IS NULL ${extra} AND ${visible}`;
   switch (kind) {
     case 'claim':
       return live('claims', 'AND o.superseded_by IS NULL');
@@ -291,9 +293,7 @@ function meaningSql(kind: ObjectKind, visible: string): string {
     case 'episode':
       return live('episodes');
     case 'names':
-      return `SELECT x.item_id, x.scale, x.norm, x.bytes FROM vectors x
-         WHERE x.chunk_key >= 'names:' AND x.chunk_key < 'names;' AND x.model = :model AND x.dims = :dims
-           AND x.bytes IS NOT NULL AND x.retired_at IS NULL AND ${visible}
+      return `SELECT x.item_id, x.scale, x.norm, x.bytes FROM vectors x WHERE ${range} AND ${visible}
            AND EXISTS (SELECT 1 FROM names n WHERE n.node_id = x.item_id AND n.audience_id = x.audience_id)`;
   }
 }
