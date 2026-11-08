@@ -1,8 +1,9 @@
 // Her memory writer through a subharness: the memory session's one request (src/memory/db/session.ts) as one run of
 // `claude -p` or `codex exec` installed in the private layer (src/subharness/place.ts), with no tools, the session's
 // system text in place of the backend's own and the answer read by the same `parseSessionAnswer`. Nothing else of the
-// writer changes. `memoryWriterClient` is the session's model client: at every call it reads the path in config.json
-// (src/subharness/memory-path.ts) and sends the request either to the direct client or through the backend. A run that
+// writer changes. `memoryWriterClient` is the model client of every memory-role request, the session's, the description
+// review's and the bind merge's: at every call it reads the path in config.json (src/subharness/memory-path.ts) and
+// sends the request either to the direct client or through the backend. A run that
 // fails rejects with an Error whose `code` says why, `not-logged-in` when claude asks for a login, which the sweep records
 // as it records a failed request. The child gets the backend's home and the plain variables of `childEnvOf`, never a key
 // of the core. Log lines carry the backend, the exit code and the tokens, never the text. `memoryCapabilities` says where a path differs from the direct
@@ -14,7 +15,6 @@ import fs from 'node:fs';
 import nodePath from 'node:path';
 import { childEnvOf, outputLimitEnv, tokensOf } from '../agent-runner/backend.ts';
 import { log } from '../log.ts';
-import { SESSION_PURPOSE } from '../memory/db/session.ts';
 import type { Completion, SessionContext } from '../memory/db/session.ts';
 import type { MemoryBackend } from './routing.ts';
 import type { UsageEntry } from '../tools/operations/usage.ts';
@@ -25,7 +25,7 @@ import { memoryPath } from './memory-path.ts';
 import type { SubharnessMemoryPath } from './memory-path.ts';
 import { isInstalled, subharnessPlace } from './place.ts';
 
-/** The shape of codex's final message (`--output-schema`): the whole answer the memory-session prompt asks for, thinking and `<memory>` block included, as one string. */
+/** The shape of codex's final message (`--output-schema`): the whole answer the request's prompt asks for, thinking and tags included, as one string. */
 export const MEMORY_ANSWER_SCHEMA = {
   type: 'object',
   properties: { answer: { type: 'string' } },
@@ -248,8 +248,9 @@ function splitMessages(messages: ReadonlyArray<Record<string, unknown>>): { syst
 }
 
 /**
- * The session's model client: the direct client or the subharness, by the path in config.json at each call. Only the
- * sweep's request (purpose `memory-session`) can take the subharness path; the description review stays direct.
+ * The memory role's model client: the direct client or the subharness, by the path in config.json at each call. Every
+ * request of the role takes the path: the sweep's (purpose `memory-session`), the description review's draft and check
+ * (src/memory/db/describe.ts) and the bind merge's description join (src/memory/db/person-bind.ts).
  */
 export function memoryWriterClient(deps: {
   writer: MemoryWriterDeps;
@@ -272,7 +273,6 @@ export function memoryWriterClient(deps: {
   }
   return {
     complete(messages, options) {
-      if (options.purpose !== SESSION_PURPOSE) return direct.complete(messages, options);
       return told(async () => {
         const path = memoryPath(writer.privateDir);
         if (path.kind === 'direct') return direct.complete(messages, options);
