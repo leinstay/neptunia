@@ -121,7 +121,7 @@ import { ownerMemoryRuns } from './memory/db/media-english.ts';
 import { mediaText } from './memory/db/media-store.ts';
 import { OWNER_CLIENT } from './setup/clients.ts';
 import { createConsole } from './interface/commands/console.ts';
-import { statusBrief } from './interface/commands/status-brief.ts';
+import { rolePath, statusBrief } from './interface/commands/status-brief.ts';
 import { wakeClockOf } from './service/commands.ts';
 import { isPausedIn, resumeHeld } from './behavior/core-pause.ts';
 import { configuredInterfaces, drainMs, interfaceEnabled } from './interface/mode.ts';
@@ -162,8 +162,9 @@ import { backendUsageReader, execUsage, spawnUsageChild } from './subharness/usa
 import { deferModeToUnit } from './setup/install.ts';
 import { REPLY_CHECK_MS } from './subharness/control.ts';
 import { clearMemoryPath, memoryCheckPath, memoryPath } from './subharness/memory-path.ts';
-import { clearSubscriptionPath, harnessBackend, subscriptionPath } from './subharness/subscription-path.ts';
+import { clearSubscriptionPath, harnessBackend } from './subharness/subscription-path.ts';
 import { coreSubscription } from './subharness/subscription-client.ts';
+import { createLoginState } from './subharness/login-state.ts';
 import { memoryWriterClient } from './subharness/memory-writer.ts';
 import { createMemoryWatch, memoryProbe } from './subharness/memory-probe.ts';
 import { recordCoreCheck } from './setup/model-check.ts';
@@ -364,6 +365,8 @@ async function buildCore(
   let sessionClient: SessionContext['llm'] | null = null;
   // The probe of the writer's path (src/subharness/memory-probe.ts), created with the pause below.
   let memoryWatch: MemoryWatch | null = null;
+  // Whether the last run of the core or the memory writer through its harness lost its login, for the chat's header.
+  const logins = createLoginState();
   const quarantine = quarantineNotices(clock, log);
   const memoryDbOptions = {
     hot,
@@ -507,7 +510,7 @@ async function buildCore(
       }),
       roleHealth
     )) as ChatClient;
-  const subscription = coreSubscription({ direct: directLlm, paths, hot, state: processState, usage });
+  const subscription = coreSubscription({ direct: directLlm, paths, hot, state: processState, usage, logins });
   const llm = archivedLlm(subscription.llm, requestArchive);
   // Her memory session through a subharness never reaches the chat client, so it has its own archive wrap.
   sessionClient = archivedLlm(
@@ -520,6 +523,7 @@ async function buildCore(
       direct: directLlm,
       record: (entry) => usage.record(entry),
       onRefused: () => void memoryWatch?.refused(),
+      ran: (backend, outcome) => logins.ran('memory', backend, outcome),
     }),
     requestArchive
   );
@@ -1433,10 +1437,7 @@ async function buildCore(
       ? probeMemoryRaw(now)
       : Promise.resolve<ProbeResult>({ ok: true, at: now });
   memoryWatch = createMemoryWatch({
-    probe: async (now) => {
-      lastMemoryProbe = await probeMemoryWriter(now);
-      return lastMemoryProbe;
-    },
+    probe: async (now) => (lastMemoryProbe = await probeMemoryWriter(now)),
     pause: pauseControl,
     now: clock,
     config: (): unknown => hot.config,
@@ -1482,12 +1483,11 @@ async function buildCore(
           config: () => objOf(hot.config),
           paused: () => Boolean(processState.data.paused),
           pauseReason: () => pauseControl.reason(),
-          path: (role) => {
-            const held = role === 'core' ? subscriptionPath(paths.privateDir, 'core') : memoryPath(paths.privateDir);
-            return held.kind === 'subharness' ? held : { kind: 'direct' };
-          },
+          path: (role) => rolePath(paths.privateDir, role),
           hasKey: (role) => keyRing.route(role) !== null,
           probe: () => lastMemoryProbe,
+          runFailed: (role, via) =>
+            via === 'api' ? roleHealth.down(hot.config, role) !== null : logins.lost(role, via),
           interfaces: () => interfaceLinks.list(),
         }),
       memoryWriter: () => (lastMemoryProbe === null ? 'unknown' : lastMemoryProbe.ok ? 'ok' : 'down'),

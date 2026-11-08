@@ -173,6 +173,7 @@ function rig(
   };
   const timers: Array<Timer> = [];
   const records: Array<UsageEntry> = [];
+  const outcomes: Array<string> = [];
   const state = { data: {}, markDirty: () => {} };
   const llm = {
     baseUrl: 'https://openrouter.invalid/api/v1',
@@ -206,8 +207,11 @@ function rig(
     record: (entry) => {
       records.push(entry);
     },
+    ran: (backend, outcome) => {
+      outcomes.push(`${backend}:${outcome}`);
+    },
   });
-  return { dir, workDir, client, bridge, runs, directCalls, timers, records, state };
+  return { dir, workDir, client, bridge, runs, directCalls, timers, records, state, outcomes };
 }
 
 /** Waits until `check` holds, a turn of the event loop at a time. */
@@ -799,4 +803,44 @@ test('with fallback on, an exhausted step goes to the direct client with the sam
   assert.equal(answer.text, '<msg>from the api</msg>');
   assert.equal(directCalls.length, 1);
   assert.deepEqual(directCalls[0]?.messages, FIRST);
+});
+
+// ---- the login state the header reads ----------------------------------------------------------------------------
+
+test(
+  'a Claude run that is not logged in reports a lost login, and the next answered turn reports ok',
+  STEP_TIMEOUT,
+  async () => {
+    // Catches: the header's Core line left active while every turn fails on a dropped login (owner, 2026-11-08).
+    const { client, runs, outcomes } = rig();
+    const asked = client.complete(FIRST, REPLY);
+    await until(() => runs.length === 1, 'the run started');
+    runs[0].push({ type: 'result', subtype: 'success', is_error: true, result: 'Invalid API key · Please run /login' });
+    runs[0].end(1);
+    await assert.rejects(asked, { code: 'subscription-login' });
+    const again = client.complete(FIRST, { ...REPLY, tools: [] });
+    await until(() => runs.length === 2, 'the second run started');
+    finishClaude(runs[1]);
+    await again;
+    assert.deepEqual(outcomes, ['claude:login', 'claude:ok']);
+  }
+);
+
+test('with fallback on, a lost login is reported though the API answers the step', STEP_TIMEOUT, async () => {
+  // Catches: a fallback that hides the dropped login, so the header stays active while the harness never answers.
+  const { client, runs, outcomes } = rig({ subscription: { fallback: true } });
+  const asked = client.complete(FIRST, REPLY);
+  await until(() => runs.length === 1, 'the run started');
+  runs[0].push({ type: 'result', subtype: 'success', is_error: true, result: 'Not logged in · Please run /login' });
+  runs[0].end(1);
+  assert.equal((await asked).text, '<msg>from the api</msg>');
+  assert.deepEqual(outcomes, ['claude:login']);
+});
+
+test('a request of another role or on the API route reports nothing', STEP_TIMEOUT, async () => {
+  // Catches: an answer of the analyzer or of the API counted as proof that the harness is logged in again.
+  const { client, outcomes } = rig({ core: null });
+  await client.complete(FIRST, REPLY);
+  await client.complete(FIRST, { role: 'analyzer' });
+  assert.deepEqual(outcomes, []);
 });

@@ -88,7 +88,12 @@ const after = (args: ReadonlyArray<string>, flag: string): string | undefined =>
 /** A session client over the rig, with the sweep's fake llm as the direct path. */
 function clientOf(
   deps: MemoryWriterDeps,
-  extra: { record?: (entry: UsageEntry) => void; onRefused?: () => void; direct?: ReturnType<typeof fakeLlm> } = {}
+  extra: {
+    record?: (entry: UsageEntry) => void;
+    onRefused?: () => void;
+    ran?: (backend: string, outcome: string) => void;
+    direct?: ReturnType<typeof fakeLlm>;
+  } = {}
 ) {
   const direct = extra.direct ?? fakeLlm(ANSWER);
   const client = memoryWriterClient({
@@ -96,6 +101,7 @@ function clientOf(
     direct,
     ...(extra.record === undefined ? {} : { record: extra.record }),
     ...(extra.onRefused === undefined ? {} : { onRefused: extra.onRefused }),
+    ...(extra.ran === undefined ? {} : { ran: extra.ran }),
   });
   // The sweep's rig types its llm with the calls it recorded; this one records none of its own.
   const llm = {
@@ -237,6 +243,15 @@ test('a run that exits non-zero is refused with its exit code', async () => {
   // Catches: the stdout of a crashed run (a login prompt, a usage text) taken as her answer.
   const { deps } = rig(() => ({ exitCode: 1, stdout: 'Please log in', stderr: '' }));
   await assert.rejects(runMemoryWriter(CLAUDE, INPUT, deps), { code: 'exit-1' });
+});
+
+test('a claude run that asks for a login is refused not-logged-in, whatever its exit code', async () => {
+  // Catches: a dropped login filed as exit-1 or backend-error, so the header cannot tell it from a crash (owner, 2026-11-08).
+  const envelope = JSON.stringify({ type: 'result', is_error: true, result: 'Invalid API key · Please run /login' });
+  const exited = rig(() => ({ exitCode: 1, stdout: envelope, stderr: '' }));
+  await assert.rejects(runMemoryWriter(CLAUDE, INPUT, exited.deps), { code: 'not-logged-in' });
+  const answered = rig(() => ({ exitCode: 0, stdout: envelope, stderr: '' }));
+  await assert.rejects(runMemoryWriter(CLAUDE, INPUT, answered.deps), { code: 'not-logged-in' });
 });
 
 test('a run stopped by its timeout is refused timeout', async () => {
@@ -435,4 +450,35 @@ test('a refused direct request is told too', async () => {
     )
   );
   assert.equal(refused, 1);
+});
+
+const SESSION_MESSAGES = [
+  { role: 'system', content: 'S' },
+  { role: 'user', content: [{ type: 'text', text: 'U' }] },
+];
+const SESSION_OPTIONS = { role: 'memory', purpose: 'memory-session', model: 'x/memory' };
+
+test('the client reports a lost login and an answered run of the subharness path with the backend', async () => {
+  // Catches: the header's Memory line left active while every sweep fails on a dropped login, or never cleared after.
+  const memory = { backend: 'claude' as const, model: 'claude-opus-4-6', effort: null };
+  let login = true;
+  const envelope = JSON.stringify({ type: 'result', is_error: true, result: 'Not logged in · Please run /login' });
+  const { deps } = rig(() => (login ? { exitCode: 1, stdout: envelope, stderr: '' } : claudeAnswers(ANSWER)()), {
+    subharness: { memory },
+  });
+  const outcomes: Array<string> = [];
+  const { llm } = clientOf(deps, { ran: (backend, outcome) => outcomes.push(`${backend}:${outcome}`) });
+  await assert.rejects(llm.complete(SESSION_MESSAGES, SESSION_OPTIONS));
+  login = false;
+  await llm.complete(SESSION_MESSAGES, SESSION_OPTIONS);
+  assert.deepEqual(outcomes, ['claude:login', 'claude:ok']);
+});
+
+test('a request on the direct path reports nothing about a harness', async () => {
+  // Catches: an answer of the direct memory key counted as proof that the harness is logged in again.
+  const { deps } = rig(claudeAnswers(ANSWER));
+  const outcomes: Array<string> = [];
+  const { llm } = clientOf(deps, { ran: (backend, outcome) => outcomes.push(`${backend}:${outcome}`) });
+  await llm.complete(SESSION_MESSAGES, SESSION_OPTIONS);
+  assert.deepEqual(outcomes, []);
 });

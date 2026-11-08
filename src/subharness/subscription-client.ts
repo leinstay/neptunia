@@ -28,6 +28,8 @@ import type { Transport } from '../protocol/wire.ts';
 import { bareToolName } from '../tools/gateway.ts';
 import type { UsageEntry } from '../tools/operations/usage.ts';
 import { markedRun } from './activity.ts';
+import { LOGIN_FAILURE, runOutcomeOf } from './login-state.ts';
+import type { LoginState, RunOutcome } from './login-state.ts';
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX } from './mcp-server.ts';
 import type { BridgeAnswer, BridgeCall } from './mcp-server.ts';
 import { isInstalled, subharnessPlace } from './place.ts';
@@ -69,6 +71,8 @@ export type SubscriptionClientDeps = {
   /** The environment the child's plain variables come from; the process's own by default. */
   hostEnv?: Readonly<Record<string, string | undefined>>;
   record?(entry: UsageEntry): void;
+  /** Told what each step through the harness came to, for the header's login state (src/subharness/login-state.ts). */
+  ran?(backend: Route['backend'], outcome: RunOutcome): void;
 };
 
 type Rec = Record<string, unknown>;
@@ -474,7 +478,7 @@ function claudeStream(session: Session, event: Rec): void {
 /** The code of a failed Claude run: a spent window, a lost login, or anything else. */
 function claudeFailure(session: Session, event: Rec): string {
   if (session.isExhausted || event.api_error_status === 429) return 'subscription-exhausted';
-  if (/not logged in|\/login|authenticat/i.test(str(event.result))) return 'subscription-login';
+  if (LOGIN_FAILURE.test(str(event.result))) return 'subscription-login';
   return 'subscription-failed';
 }
 
@@ -759,8 +763,10 @@ export function createSubscriptionClient(deps: SubscriptionClientDeps): {
       if (session !== null && results !== null) answer = await resume(session, results, options);
       else if (results !== null) throw coded('subscription-lost', 'no open run holds the calls of this step');
       else answer = await start(route, messages, options);
+      deps.ran?.(route.backend, 'ok');
       return resultOf(route, answer, estimated, options);
     } catch (error) {
+      if (isSubscriptionFailure(error)) deps.ran?.(route.backend, runOutcomeOf(error));
       if (!isSubscriptionFailure(error) || !settingsOf(llmOf(deps)).fallback || !apiKeyExists()) throw error;
       log.warn('subscription: step goes to the api', { code: str(rec(error).code) });
       return deps.direct.complete(messages, { ...options, countAgainstDailyCap: false });
@@ -788,6 +794,8 @@ export function coreSubscription<TDirect extends SubscriptionClientDeps['direct'
   hot: { config: unknown };
   state: SubscriptionClientDeps['state'];
   usage: { record(entry: UsageEntry): void };
+  /** Where each step's outcome is kept for the header, under the role `core`. */
+  logins?: Pick<LoginState, 'ran'>;
 }): { llm: TDirect; serve(transport: Transport, other: (transport: Transport) => void): void } {
   const bridge = createToolBridge({ token: () => randomBytes(32).toString('hex') });
   const { paths, hot, usage } = deps;
@@ -810,6 +818,7 @@ export function coreSubscription<TDirect extends SubscriptionClientDeps['direct'
     // The handles are the ones setTimer above made.
     clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
     record: (entry) => usage.record(entry),
+    ran: (backend, outcome) => deps.logins?.ran('core', backend, outcome),
   });
   return {
     llm: { ...deps.direct, complete: (messages, options) => client.complete(messages, options) },
