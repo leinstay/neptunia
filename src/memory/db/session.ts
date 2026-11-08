@@ -213,16 +213,16 @@ export function sessionSettings(configGiven: unknown): SessionSettings {
 }
 
 /**
- * Whether the memory role has a key. With a key ring (`keys.json` exists) it is the key the ring routes `memory` to:
- * the extra key the role is bound to, else the core key in use; `llm.keyByRole` and `env` are not read. Without a ring,
- * `llm.keyByRole.memory` names a variable (OPENROUTER_*) that is set in `env`, and no other key stands in. `name` is the
- * key's or the variable's name, never its value.
+ * Whether the memory writer has what it needs: on a harness `path` nothing; with a key ring the key it routes `memory`
+ * to (the bound extra key, else the core key in use); without a ring `llm.keyByRole.memory`, a variable set in `env`.
  */
 export function memoryKeyState(
   config: Config | null | undefined,
   env: Row | null | undefined,
-  ring?: KeyRing | null
+  ring?: KeyRing | null,
+  path?: MemoryPath | null
 ): { ok: boolean; name: string | null } {
+  if (path?.kind === 'subharness') return { ok: true, name: null }; // a harness writer sends no API key
   if (ring) {
     const route = ring.route(MEMORY_ROLE);
     return route === null ? { ok: false, name: null } : { ok: true, name: route.name };
@@ -234,18 +234,17 @@ export function memoryKeyState(
   return { ok: typeof value === 'string' && value.trim() !== '', name: valid ? name : null };
 }
 
-/**
- * Why the session cannot run now, or null: `off` (mode), `not_configured` (no key of its own), `no_prompt`.
- */
+/** Why the session cannot run now, or null: `off` (mode), `not_configured` (no key it needs), `no_prompt`. */
 export function refusalOf(
   config: Config | null | undefined,
   env: Row | null | undefined,
   prompts: Row | null | undefined,
-  ring?: KeyRing | null
+  ring?: KeyRing | null,
+  path?: MemoryPath | null
 ): string | null {
   const { mode } = sessionSettings(config);
   if (mode === 'off') return CODES.OFF;
-  if (!memoryKeyState(config, env, ring).ok) return CODES.NOT_CONFIGURED;
+  if (!memoryKeyState(config, env, ring, path).ok) return CODES.NOT_CONFIGURED;
   const prompt = prompts?.['memory-session'];
   if (typeof prompt !== 'string' || !prompt.trim()) return CODES.NO_PROMPT;
   return null;
@@ -1265,6 +1264,7 @@ export type SessionContext = {
   env?: Row | null;
   /** The core's key ring while `keys.json` exists (see `memoryKeyState`), else null or absent. */
   ring?: KeyRing | null;
+  path?: () => MemoryPath; // the writer's path now (memory-path.ts#memoryPath); absent is the direct path
   now?: () => number;
   log?: Partial<Log>;
   selfName?: string;
@@ -1354,7 +1354,7 @@ export function sessionStatus({
   path?: MemoryPath;
 }): SessionStatus {
   const { mode, sweepsPerScopePerDay, retryLimit } = sessionSettings(config);
-  const code = refusalOf(config, env, prompts);
+  const code = refusalOf(config, env, prompts, null, path);
   let state = 'ready';
   if (code === CODES.OFF) state = 'off';
   else if (code === CODES.NOT_CONFIGURED) state = 'not_configured';
@@ -1405,7 +1405,7 @@ export async function sweep(
   const { db, hot, env } = ctx;
   const now = ctx.now ?? Date.now;
   const config = hot.config;
-  const refused = refusalOf(config, env, hot.prompts, ctx.ring);
+  const refused = refusalOf(config, env, hot.prompts, ctx.ring, ctx.path?.());
   if (refused) return { status: refused === CODES.OFF ? 'off' : 'refused', code: refused, runs: [] };
   const settings = sessionSettings(config);
   const started = now();

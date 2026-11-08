@@ -31,6 +31,7 @@ import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.ts';
 import { shortHash } from './ids.ts';
 import { ifaceOrLegacy } from './legacy-namespace.ts';
 import { audienceOf, dmScope, groupContext, groupScope, scopeWhere } from './scope.ts';
+import type { MemoryPath } from '../../subharness/memory-path.ts';
 import { CODES, DESCRIPTION_FIELDS, memoryKeyState, sessionSettings, stamp, systemTextOf } from './session.ts';
 import { block } from '../../behavior/prompt.ts';
 import { asText } from './types.ts';
@@ -328,10 +329,11 @@ export function reviewRefusal(
   config: Config | null | undefined,
   env: Row | null | undefined,
   prompts: Row | null | undefined,
-  ring?: KeyRing | null
+  ring?: KeyRing | null,
+  path?: MemoryPath | null
 ): string | null {
   if (sessionSettings(config).mode === 'off') return CODES.OFF;
-  if (!memoryKeyState(config, env, ring).ok) return CODES.NOT_CONFIGURED;
+  if (!memoryKeyState(config, env, ring, path).ok) return CODES.NOT_CONFIGURED;
   if (!present(prompts?.[DRAFT_PURPOSE]) || !present(prompts?.[CHECK_PURPOSE])) return CODES.NO_PROMPT;
   return null;
 }
@@ -368,7 +370,7 @@ export async function reviewDescription(
   const prompts = ctx.hot.prompts;
   const log = ctx.log ?? {};
   const now = ctx.now ?? Date.now;
-  const refused = reviewRefusal(config, ctx.env, prompts, ctx.ring);
+  const refused = reviewRefusal(config, ctx.env, prompts, ctx.ring, ctx.path?.());
   if (refused) return { status: refused === CODES.OFF ? 'off' : 'refused', code: refused };
   if (
     !DESCRIPTION_FIELDS.includes(field) ||
