@@ -65,6 +65,9 @@ const CLI_CAPABILITIES: Capabilities = {
   reads: ['chat.info', 'messages.history', 'messages.fetch'],
 };
 
+/** Takes her words for the screen, with the message id of the line they reply to, when they reply to one. */
+export type Print = (text: string, replyTo?: string | null) => void;
+
 /** How many lines of this session the chat keeps to answer the core's history reads. */
 const TRANSCRIPT_LINES = 200;
 
@@ -93,7 +96,7 @@ const unsupported = (): Promise<{
  * lines of this session. Everything else is unsupported.
  */
 function cliAdapter(
-  print: ((text: string) => void) | null,
+  print: Print | null,
   deliver: ((file: Attachment) => Promise<void>) | null,
   transcript: Array<MessageEvent>
 ): Adapter {
@@ -110,11 +113,13 @@ function cliAdapter(
         return { status: 'unsupported', ref: null, parts: [], at: null, idempotencyKey, error };
       }
       const text: unknown = isObject(content) ? content.text : null;
+      const replyTo =
+        isObject(content) && typeof content.replyTo?.messageId === 'string' ? content.replyTo.messageId : null;
       const ref = { iface: CLI_IFACE, chatId: CHAT_ID, messageId: randomUUID() };
       const at = Date.now();
       if (typeof text === 'string' && text !== '') {
-        print(text);
-        keep(transcript, lineEvent(text, at, { id: ref.messageId, self: true }));
+        print(text, replyTo);
+        keep(transcript, lineEvent(text, at, { id: ref.messageId, self: true, replyTo }));
       }
       for (const file of files) await deliver?.(file);
       return { status: 'ok', ref, parts: [ref], at, idempotencyKey, error: null };
@@ -169,7 +174,7 @@ function historyOf(transcript: ReadonlyArray<MessageEvent>, query: HistoryQuery)
 function lineEvent(
   text: string,
   at: number,
-  options: { id?: string; self?: boolean; images?: ReadonlyArray<LineImage> } = {}
+  options: { id?: string; self?: boolean; images?: ReadonlyArray<LineImage>; replyTo?: string | null } = {}
 ): MessageEvent {
   const id = options.id ?? randomUUID();
   const self = options.self === true;
@@ -188,7 +193,7 @@ function lineEvent(
       sourceText: text,
       system: false,
       at,
-      replyToId: null,
+      replyToId: options.replyTo ?? null,
       replyPingAccountId: null,
       forwardedFrom: null,
       // The fields the media collectors read (src/media/classify.ts), as an interface normalizes a platform's file.
@@ -242,7 +247,9 @@ export type CliLink = {
   /** Sends a line and waits for the end of the turn over it. */
   turn(text: string, images?: ReadonlyArray<LineImage>): Promise<Answer>;
   /** Replaces the lines the core's history reads answer from, with those of a resumed or branched chat. */
-  showLines(lines: ReadonlyArray<{ id: string; at: number; who: string; text: string; nativeId?: string }>): void;
+  showLines(
+    lines: ReadonlyArray<{ id: string; at: number; who: string; text: string; nativeId?: string; replyToId?: string }>
+  ): void;
   /** Sends a command; a question it asks goes to `answers`, and without them the command is refused. */
   ask(command: Command, answers?: LinkAnswers): Promise<Answer>;
   closed: Promise<void>;
@@ -272,7 +279,7 @@ export function openLinkOver(
     transcript = [],
   }: {
     token: string;
-    print: ((text: string) => void) | null;
+    print: Print | null;
     deliver?: ((file: Attachment) => Promise<void>) | null;
     /** What the core says of the turns, once this client subscribed with `turn.replay`. */
     onTurnEvent?: ((event: TurnEvent) => void) | null;
@@ -336,7 +343,13 @@ export function openLinkOver(
     showLines(lines) {
       transcript.length = 0;
       for (const line of lines.slice(-TRANSCRIPT_LINES))
-        transcript.push(lineEvent(line.text, line.at, { id: line.nativeId ?? line.id, self: line.who === 'her' }));
+        transcript.push(
+          lineEvent(line.text, line.at, {
+            id: line.nativeId ?? line.id,
+            self: line.who === 'her',
+            replyTo: line.replyToId ?? null,
+          })
+        );
     },
     async ask(command, answers) {
       /** One request and the reply to it: a result, or a question. */

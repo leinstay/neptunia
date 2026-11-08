@@ -103,6 +103,25 @@ test('a chat longer than one read keeps the numbers of its whole history on the 
   assert.equal(oldest?.number, Number(oldest?.id.slice(1)));
 });
 
+test('a line that replies to another carries the message id and the number of the line it answers', (t) => {
+  // Bug: the owner's chat lost which line her reply answered, and her `<chat>` lost it after a restart.
+  const { db, add } = rig(t);
+  add('s1', 'seen', 'n1', '2026-11-05T00:00:01.000Z', 'question');
+  add('s2', 'seen', 'n2', '2026-11-05T00:00:02.000Z', 'another');
+  add('s3', 'said', 'n3', '2026-11-05T00:00:03.000Z', 'answer');
+  db.prepare("UPDATE sources SET reply_to = 'n1' WHERE id = 's3'").run();
+  db.prepare("UPDATE sources SET reply_to = 'gone' WHERE id = 's2'").run();
+  const lines = chatLines(db, 'cli:dm:owner');
+  assert.deepEqual(
+    lines.map((line) => [line.nativeId, line.replyToId ?? null, line.replyNumber ?? null]),
+    [
+      ['n1', null, null],
+      ['n2', 'gone', null],
+      ['n3', 'n1', 1],
+    ]
+  );
+});
+
 test("a line's number by its message id is the number the session reads for it", (t) => {
   // Bug: her `#N` in the owner's chat named another line than the one the chat draws with that number.
   const { db, add } = rig(t);

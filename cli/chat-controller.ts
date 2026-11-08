@@ -64,6 +64,7 @@ import {
   lineLead,
   lineTime,
   numberLead,
+  replyLead,
   scrollView,
   transcriptWindow,
 } from './transcript.ts';
@@ -87,6 +88,8 @@ export type ChatEntry = {
   at?: number;
   /** The line's place in the chat's whole stored history, the oldest being 1, as the core numbers it. */
   number?: number;
+  /** The number of the line it replies to, drawn as `↳ #N` after its own. */
+  replyTo?: number;
   /** The kinds of the files memory stores with the line, drawn as `[voice]` and the like after its text. */
   files?: ReadonlyArray<string>;
 };
@@ -201,6 +204,8 @@ type ShownEntry = {
   at?: number;
   /** the stored number of the line, absent on a line the chat has not matched to its stored line yet */
   number?: number;
+  /** the number of the line it replies to */
+  replyTo?: number;
   /** the id of the stored line it is */
   storedId?: string;
 };
@@ -522,7 +527,8 @@ export class ChatController {
       if (entry.who === 'system') list.push(entry);
       else {
         if (entry.who === 'owner' && (isAfterHer || lines === 0)) list.push(this.timeOfLine(entry));
-        list.push(this.ledOf(entry, numberLead(numbers[lines] ?? 0, digits)));
+        const reply = entry.replyTo === undefined ? '' : replyLead(entry.replyTo, digits);
+        list.push(this.ledOf(entry, numberLead(numbers[lines] ?? 0, digits) + reply));
         lines += 1;
       }
       before = entry;
@@ -623,6 +629,7 @@ export class ChatController {
           attachments: entry.attachments ?? [],
           ...this.timeOf(entry),
           ...(entry.number === undefined ? {} : { number: entry.number }),
+          ...(entry.replyTo === undefined ? {} : { replyTo: entry.replyTo }),
           storedId: entry.id,
         }));
         this.update({ entries: [...shown, ...this.model.entries] });
@@ -647,7 +654,7 @@ export class ChatController {
         const known = new Set(entries.map((one) => one.storedId));
         const lastStored = entries.findLastIndex((one) => one.storedId !== undefined);
         const live = entries.slice(lastStored + 1).filter((one) => one.who !== 'system' && one.number === undefined);
-        const matched = new Map<string, { number: number; storedId: string }>();
+        const matched = new Map<string, { number: number; storedId: string; replyTo?: number }>();
         let from = 0;
         for (const line of page) {
           if (known.has(line.id) || line.number === undefined) continue;
@@ -655,7 +662,8 @@ export class ChatController {
             (one, index) => index >= from && one.who === line.who && one.original === line.text
           );
           if (at < 0) continue;
-          matched.set(live[at].id, { number: line.number, storedId: line.id });
+          const reply = line.replyTo === undefined ? {} : { replyTo: line.replyTo };
+          matched.set(live[at].id, { number: line.number, storedId: line.id, ...reply });
           from = at + 1;
         }
         if (matched.size === 0) return;

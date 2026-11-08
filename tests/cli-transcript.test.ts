@@ -408,3 +408,25 @@ test('a stored line draws a marker for each of its files after its text, in the 
     assert.ok(rows.includes('[#6] [image] [file]'), rows.join('\n'));
   });
 });
+
+// A line that replies to another carries the number of the line it answers (`ChatEntry.replyTo`, from `session.page`),
+// and the chat draws it after the line's own number as `↳ #N`.
+test('a stored reply draws the number of the line it answers after its own', async () => {
+  // Bug: her reply to an earlier line reads as an answer to the line just above it.
+  const replies: Record<string, ReadonlyArray<Stored>> = {
+    newest: [
+      { id: 's3', who: 'owner', text: 'ΓΡΑΜΜΗ-ΤΡΙΤΗ', at: SENT, number: 1334 },
+      { id: 's4', who: 'her', text: 'ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ', at: SENT, number: 1335, replyTo: 1332 },
+    ],
+  };
+  const { env } = chatEnv({
+    storedPage: (before) => Promise.resolve(replies[before ?? 'newest'] ?? []),
+    timeZone: 'UTC',
+  });
+  await withChat(env, async (rig) => {
+    await until(shows(rig, 'ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'));
+    const rows = chatRows(rig);
+    assert.ok(rows.includes('[#1335] ↳ #1332 ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'), rows.join('\n'));
+    assert.ok(rows.includes('[#1334] ΓΡΑΜΜΗ-ΤΡΙΤΗ'), rows.join('\n'));
+  });
+});

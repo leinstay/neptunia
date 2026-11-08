@@ -53,7 +53,7 @@ function eventOf(line: SourceLine, iface: string, partner: string): MessageEvent
       sourceText: line.text,
       system: false,
       at: line.at,
-      replyToId: null,
+      replyToId: line.replyToId ?? null,
       replyPingAccountId: null,
       forwardedFrom: null,
       attachments: media.attachments,
