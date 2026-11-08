@@ -58,15 +58,16 @@ test('the window opens at half the free rows, the chat keeps the other half, and
   await withChat(env, async (rig) => {
     entry({ who: 'her', text: long });
     await until(shows(rig, 'line-14'));
-    // 80 by 24: a header of 6 rows and an input of 3 leave 15, all of them the chat's, its fold row included.
-    assert.equal(chatRows(rig), 14);
+    // 80 by 24: a header of 6 rows, an input of 3 and the status row of 2026-11-08 under it leave 14, all of them the
+    // chat's, its fold row included. The status row took one row from the chat, so each count is one less than before.
+    assert.equal(chatRows(rig), 13);
     await press(rig, '/status', shows(rig, '> /status'));
     await press(rig, KEY.enter, () => ruleRow(rig) >= 0 && text(rig).includes('answer'));
-    assert.equal(ruleRow(rig), 6 + 8, 'the chat keeps 8 rows under the header');
+    assert.equal(ruleRow(rig), 6 + 7, 'the chat keeps 7 rows under the header');
     assert.equal(inputTop(rig) - ruleRow(rig), 7, 'the window takes the other 7');
-    assert.equal(chatRows(rig), 7);
+    assert.equal(chatRows(rig), 6);
     await press(rig, KEY.escape, () => ruleRow(rig) === -1);
-    assert.equal(chatRows(rig), 14);
+    assert.equal(chatRows(rig), 13);
   });
 });
 

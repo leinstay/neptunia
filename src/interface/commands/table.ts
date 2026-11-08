@@ -240,7 +240,6 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
   sub('users.relationship', 'Show the affinity of a person with its history', [arg('person')]),
   sub('users.private', 'Show the private memory of a person across their DMs', [arg('person')]),
   sub('users.link', 'Link an account to a person', [arg('person'), arg('account')]),
-  sub('users.unlink', 'Unlink an account from a person', [arg('person'), arg('account')]),
   sub('users.merge', 'Merge a person into another, moving everything stored about them', [
     arg('from'),
     arg('into'),
@@ -393,7 +392,6 @@ const RETIRED_COMMANDS: Readonly<Record<string, (rest: ReadonlyArray<string>) =>
 const RETIRED_MEMORY: Readonly<Record<string, string>> = {
   profile: '/memory users show <person>',
   accounts: '/memory users accounts <person>',
-  unbind: '/memory users unlink <person> <account>',
   aliases: '/memory users names <person>',
   affinity: '/memory users relationship <person>',
   private: '/memory users private <person>',
@@ -611,11 +609,10 @@ export const COMMANDS: ReadonlyArray<Command> = [
       runs(sub('archive', 'List archived memory items', [arg('kind', false)]), 'memory.archive.read', (args) =>
         args.kind === undefined ? {} : { kind: args.kind }
       ),
-      sub('bind', 'Link accounts to one person, to the persona with self, or to the owner with owner', [
+      sub('bind', 'Bind an account to a meta-person, owner or self, asking Y/n before a merge', [
         arg('iface'),
         arg('account'),
-        arg('target'),
-        arg('targetAccount', false),
+        arg('person'),
       ]),
       ...MEMORY_BROWSER,
       runs(sub('lessons.add', 'Add a lesson', [arg('text')]), 'learning.add', (args) => ({ text: args.text })),

@@ -121,11 +121,13 @@ export function createChatState({
     });
   }
 
-  /** A line by the number the chat draws: over the whole stored chat, whatever the current session shows. */
+  /** A line by the number the chat draws, with its files and message id: over the whole stored chat, whatever the session shows. */
   function lineAnswer(args: Readonly<Record<string, unknown>>): ChatStateAnswer {
     const number = Number(args.number);
     const line = Number.isInteger(number) ? sessions.line(CLI_PLACE, number) : null;
-    return line === null ? refused('unknown-line') : json({ number, files: filesOf(line) });
+    if (line === null) return refused('unknown-line');
+    // The message id a reply to the line names as its parent, as the core's history reads give it.
+    return json({ number, messageId: line.nativeId ?? line.id, files: filesOf(line) });
   }
 
   function sessionCommand(name: string, args: Readonly<Record<string, unknown>>): ChatStateAnswer | null {

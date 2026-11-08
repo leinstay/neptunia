@@ -1,4 +1,4 @@
-// The draft of the chat's input as ordered parts: text, pastes and attachments, each with its own id. A paste over the
+// The draft of the chat's input as ordered parts: text, pastes, attachments and a reply marker, each with its own id. A paste over the
 // limits draws as a chip and keeps its whole payload, so two identical pastes stay two parts and the submitted turn gets
 // the exact text. The caret is an offset into what is drawn and never stands inside a chip. A removed part keeps its place
 // until it is restored. Pure functions over plain values: cli/app.ts holds the draft and cli/editor-actions.ts its undo.
@@ -24,7 +24,9 @@ export type DraftPart =
   | { kind: 'text'; id: string; text: string }
   /** `payload` null is a paste whose text is gone: the draft refuses to assemble until it is removed or restored. */
   | { kind: 'paste'; id: string; payload: string | null; lines: number }
-  | { kind: 'attachment'; id: string; attachment: ChatAttachment };
+  | { kind: 'attachment'; id: string; attachment: ChatAttachment }
+  /** The `[#N] ` a message starts with: it replies to line N, and the marker itself is never sent. */
+  | { kind: 'reply'; id: string; number: number; label: string };
 
 export type Draft = {
   id: string;
@@ -36,7 +38,7 @@ export type Draft = {
 };
 
 export type Assembled =
-  | { ok: true; text: string; attachments: ReadonlyArray<ChatAttachment> }
+  | { ok: true; text: string; attachments: ReadonlyArray<ChatAttachment>; replyTo: number | null }
   | { ok: false; partIds: ReadonlyArray<string>; actions: ReadonlyArray<'restore' | 'remove'> };
 
 type Span = { part: DraftPart; index: number; start: number; end: number };
@@ -49,6 +51,8 @@ function labelOf(part: DraftPart): string {
       return part.text;
     case 'attachment':
       return `[image ${part.attachment.name}]`;
+    case 'reply':
+      return part.label;
     case 'paste':
       if (part.payload === null) return `[paste lost, ${part.lines} lines]`;
       return part.lines > 1 ? `[pasted ${part.lines} lines]` : `[pasted ${part.payload.length} characters]`;
@@ -89,7 +93,7 @@ export function assembleDraft(draft: Draft): Assembled {
     .map((part) => (part.kind === 'text' ? part.text : part.kind === 'paste' ? (part.payload ?? '') : ''))
     .join('');
   const attachments = draft.parts.flatMap((part) => (part.kind === 'attachment' ? [part.attachment] : []));
-  return { ok: true, text, attachments };
+  return { ok: true, text, attachments, replyTo: replyOf(draft) };
 }
 
 const withParts = (draft: Draft, parts: ReadonlyArray<DraftPart>, cursor: number, serial = draft.serial): Draft => ({
@@ -260,4 +264,47 @@ export function placeCaret(draft: Draft, offset: number): Draft {
   const clamped = Math.max(0, Math.min(offset, displayDraft(draft).length));
   const chip = spansOf(draft).find((one) => isChip(one.part) && one.start < clamped && clamped < one.end);
   return { ...draft, cursor: chip?.end ?? clamped };
+}
+
+/** A reply marker at the start of a text part, with the blank after it that tells it from text still being typed. */
+const TYPED_MARKER = /^\[#(\d+)\][ \t]+/;
+
+/** The line the draft replies to, null when it starts with no reply marker. */
+export function replyOf(draft: Pick<Draft, 'parts'>): number | null {
+  const first = draft.parts[0];
+  return first?.kind === 'reply' ? first.number : null;
+}
+
+/**
+ * A marker typed or pasted at the start, as `[#34] ` or `[#00034] `, becomes one reply chip that keeps what was typed, so
+ * Backspace takes it whole. The leading zeros are ignored, and the draft is the same with no marker at its start.
+ */
+export function markReply(draft: Draft): Draft {
+  const first = draft.parts[0];
+  if (first?.kind !== 'text') return draft;
+  const found = TYPED_MARKER.exec(first.text);
+  if (found === null) return draft;
+  const chip: DraftPart = {
+    kind: 'reply',
+    id: `${draft.id}-r${draft.serial}`,
+    number: Number(found[1]),
+    label: found[0],
+  };
+  const rest = first.text.slice(found[0].length);
+  const tail: Array<DraftPart> = rest === '' ? [] : [{ ...first, text: rest }];
+  return withParts(draft, [chip, ...tail, ...draft.parts.slice(1)], draft.cursor, draft.serial + 1);
+}
+
+/** The draft replying to line `number`: a chip `[#N] ` at its start, in place of the marker it had. */
+export function setReply(draft: Draft, number: number): Draft {
+  const plain = dropReply(draft);
+  const chip: DraftPart = { kind: 'reply', id: `${draft.id}-r${plain.serial}`, number, label: `[#${number}] ` };
+  return withParts(plain, [chip, ...plain.parts], plain.cursor + chip.label.length, plain.serial + 1);
+}
+
+/** The draft without its reply marker, the caret where it stood in the rest. */
+export function dropReply(draft: Draft): Draft {
+  const first = draft.parts[0];
+  if (first?.kind !== 'reply') return draft;
+  return withParts(draft, draft.parts.slice(1), Math.max(0, draft.cursor - first.label.length));
 }

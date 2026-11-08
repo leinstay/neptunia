@@ -243,7 +243,8 @@ const quiet: Logger = { info() {}, warn() {}, error() {} };
 
 /** The command line's link to the core: its events, and the answers of its commands by their `replyRef`. */
 export type CliLink = {
-  say(text: string, images?: ReadonlyArray<LineImage>): Promise<string>;
+  /** Sends a line; `replyTo` is the message id of the line it replies to. */
+  say(text: string, images?: ReadonlyArray<LineImage>, replyTo?: string): Promise<string>;
   /** Sends a line and waits for the end of the turn over it. */
   turn(text: string, images?: ReadonlyArray<LineImage>): Promise<Answer>;
   /** Replaces the lines the core's history reads answer from, with those of a resumed or branched chat. */
@@ -325,8 +326,8 @@ export function openLinkOver(
     },
   });
   return {
-    say(text, images = []) {
-      const event = lineEvent(text, Date.now(), { images });
+    say(text, images = [], replyTo) {
+      const event = lineEvent(text, Date.now(), { images, replyTo: replyTo ?? null });
       keep(transcript, event);
       return served.emit(event);
     },
