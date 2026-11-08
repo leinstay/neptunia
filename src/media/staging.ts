@@ -128,9 +128,11 @@ export function createImageStaging({
       return { ok: false, code: 'vanished' };
     }
     const name = path.basename(file);
-    if (imageTypeOf(bytes) !== null) return stageBytes(bytes, { name });
+    const declared = contentTypeOfName(name);
+    // A name that claims a picture must carry one: a text file named .png would reach the describer as an empty picture.
+    if (imageTypeOf(bytes) !== null || declared.startsWith('image/')) return stageBytes(bytes, { name });
     if (bytes.length > FILE_MAX_BYTES) return { ok: false, code: 'too-large' };
-    return write(bytes, name, contentTypeOfName(name));
+    return write(bytes, name, declared);
   }
 
   async function read(id: string): Promise<Uint8Array<ArrayBuffer> | null> {

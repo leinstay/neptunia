@@ -168,3 +168,16 @@ test('a picture staged as an attachment keeps the type its bytes declare', async
     fs.rmSync(file, { force: true });
   }
 });
+
+test('a file whose name claims a picture its bytes are not is refused as an attachment', async () => {
+  // Bug: a text file named .png reaches the core as a picture, and the describer reads nothing.
+  const { dir, staging } = rig();
+  const file = path.join(dir, '..', `fake-${process.pid}.png`);
+  fs.writeFileSync(file, 'not-an-image');
+  try {
+    const answer = await staging.stageAttachment(file);
+    assert.equal(answer.ok ? 'staged' : answer.code, 'invalid-image');
+  } finally {
+    fs.rmSync(file, { force: true });
+  }
+});
