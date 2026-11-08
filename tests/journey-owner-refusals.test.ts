@@ -263,10 +263,20 @@ test('a model check that finished after the owner chose again is refused as stal
   const held = new Promise<BackendResult>((resolve) => {
     release = resolve;
   });
-  const one = await rig((model) => (model === 'slow' ? held : { ok: true, text: 'ok', exitCode: 0 }));
+  // The second choice waits for the first check to have reached the backend, not for a fixed time: a wait of 20 ms
+  // failed on a loaded CI runner (run 42483439891) when the first check had not started yet.
+  let started: () => void = () => undefined;
+  const slowStarted = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const one = await rig((model) => {
+    if (model !== 'slow') return { ok: true, text: 'ok', exitCode: 0 };
+    started();
+    return held;
+  });
   const before = digestOf(one);
   const slow = one.say('model', 'set', 'thinker', 'slow', '--via', 'claude-harness');
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await slowStarted;
   const quick = await one.say('model', 'set', 'thinker', 'quick', '--via', 'codex-harness');
   assert.equal(quick.status, 'ok', quick.text);
   release({ ok: true, text: 'ok', exitCode: 0 });
