@@ -93,7 +93,7 @@ test("a read's author comes into the next step's memory with what she knows of t
   // Bug: the lines she reads name their authors and nothing more, so she reads a room full of people she knows and
   // remembers none of them until a later turn.
   const run = await readNowhere('μόλος');
-  assert.equal(run.requests[0]?.includes(RELATION), false, 'the first request did not know of him');
+  assert.equal((run.requests[0] ?? '').includes(RELATION), false, 'the first request did not know of him');
   const result = afterTheRead(run);
   assert.match(result, /<memory>[\s\S]*Νίκος[\s\S]*<\/memory>/);
   assert.ok(result.includes(RELATION), result);
