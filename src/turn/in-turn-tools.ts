@@ -15,7 +15,7 @@ import type { ChatInfo, ChatRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import { isIssuedInternalContext } from '../memory/db/scope.ts';
 import type { Context } from '../memory/db/scope.ts';
-import type { FrameReads } from '../memory/db/frame-reads.ts';
+import type { FrameLine, FrameReads } from '../memory/db/frame-reads.ts';
 import { placeIdParts } from '../memory/db/ids.ts';
 import { fetchSpan, recordMessages, runConversationRead } from '../tools/conversation-read.ts';
 import type { ReadMessage } from '../tools/conversation-read.ts';
@@ -290,6 +290,9 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     const config = hot.config;
     const labels = hot.prompts?.labels ?? {};
     const ref: ChatRef = { iface: parts.iface, chatId: parts.native };
+    // The stored name of the author, else the name of a member the core has been told of.
+    const authorNameOf = (line: FrameLine): string =>
+      line.authorName ?? (line.authorId === null ? null : memberOf(placeId, line.authorId)?.name) ?? '-';
     return runConversationRead({
       args: { ...args, placeId },
       labels,
@@ -306,7 +309,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
                     id: line.id.split(':').pop() ?? line.id,
                     placeId,
                     authorId: line.authorId,
-                    authorName: line.self ? selfName : '-',
+                    authorName: line.self ? selfName : authorNameOf(line),
                     self: line.self,
                     bot: false,
                     content: line.text,
