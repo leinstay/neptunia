@@ -10,13 +10,12 @@
 // use, and a skill without texts is shown by its name alone.
 
 import { getOp as registryGetOp } from './operations/registry.ts';
-import { EFFECT_CLASSES } from './operations/effects.ts';
-import { SKILL_DEFINITIONS, validateDefinitions, optionsOfDefinition } from './definitions.ts';
+import { EFFECT_CLASSES, SKILL_DEFINITIONS, validateDefinitions, optionsOfDefinition } from './definitions.ts';
 import type { Definition, Given } from './definitions.ts';
 import { isObj, objOf } from './types.ts';
 import type { DescribedSkill, Obj, Rights, Skill, SkillMap } from './types.ts';
 
-/** What a skill does to the world, one value per skill: its operation's effect class (src/tools/operations/effects.ts). */
+/** What a skill does to the world, one value per skill: its definition's `effects` (src/tools/definitions.ts). */
 export const EFFECTS = EFFECT_CLASSES;
 
 /** `free`, or `paid`: spends balance and needs a budget (src/tools/gateway.ts). */

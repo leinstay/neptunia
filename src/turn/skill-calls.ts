@@ -9,7 +9,6 @@ import type { ChatRef } from '../protocol/adapter.ts';
 import { placeOfChat } from '../memory/addresses.ts';
 import type { Context } from '../memory/db/scope.ts';
 import { DESTINATION_REQUIRED } from '../behavior/inner-output.ts';
-import { POSTING_SKILLS } from '../behavior/inner.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { TurnRoutes } from '../behavior/turn-ability-route.ts';
 import { segments } from '../behavior/tool-step.ts';
@@ -17,6 +16,7 @@ import { isIntentionId } from '../intentions/model.ts';
 import { log } from '../log.ts';
 import { callArgsText } from '../tools/call-args.ts';
 import { CODE } from '../tools/codes.ts';
+import { hasTrait } from '../tools/definitions.ts';
 import { executeCall, outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
 import type { CallResult, CallView, ExecuteDeps, Resolved, RunOperation } from '../tools/executors.ts';
 import { checkSkill } from '../tools/gateway.ts';
@@ -152,19 +152,6 @@ export type InnerAction = {
 };
 
 /** What an attempt's draft holds that the calls read and write. */
-/** The calls that act in the turn's own chat when their `channel` is left out. */
-const HERE_SKILLS: ReadonlySet<string> = new Set([
-  'conversation.read',
-  'memory.channel.read',
-  'message.create',
-  'message.edit',
-  'message.delete',
-  'message.react.add',
-  'message.react.remove',
-  'draw.create',
-  'voice.say',
-]);
-
 export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
   NotesDraft & {
     memoryContext?: Context;
@@ -388,7 +375,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
 
   /** Whether a resolved call acts in the turn's own place when it names none, and named none. */
   const placeUnnamed = (resolved: Resolved): boolean =>
-    HERE_SKILLS.has(resolved.skill) && resolved.args.place === undefined;
+    hasTrait(resolved.skill, 'here') && resolved.args.place === undefined;
 
   // `${skill}:${originChannelId}` -> when a destructive skill call of hers was last dispatched
   // from that channel (tools.destructiveCooldownMinutes, src/tools/gateway.ts); in process.
@@ -559,11 +546,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     if (draft?.offeredSkills?.has(call.skill) === true)
       call = { ...call, skill: READ_SKILL, args: { name: call.skill } };
     // An inner turn's picture lands in its current channel, as its speech does; with none, there is nowhere to post it.
-    if (
-      draft?.inner &&
-      (call.skill === 'draw.create' || call.skill === 'voice.say') &&
-      typeof call.args?.place !== 'string'
-    ) {
+    if (draft?.inner && hasTrait(call.skill, 'attaches') && typeof call.args?.place !== 'string') {
       const current = draft.inner.currentChannel === undefined ? String(channel.id) : draft.inner.currentChannel;
       if (!current) {
         log.info('skill: refused', {
@@ -698,7 +681,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       return { refusal: { code: CODE.HELD_MESSAGE, reason: 'held' } };
     if (typeof inner.mayAct === 'function' && !inner.mayAct())
       return { refusal: { code: CODE.INNER_STOPPED, reason: 'wakes' } };
-    const isPublic = POSTING_SKILLS.includes(String(skill)) && (inRoot(channel) || typeof args?.place === 'string');
+    const isPublic = hasTrait(String(skill), 'posts') && (inRoot(channel) || typeof args?.place === 'string');
     return { public: isPublic };
   }
 
@@ -886,7 +869,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     // A text that went out with its GIF failing (`partial`) was said all the same.
     const posted =
       (result.status === 'ok' || (result.status === 'partial' && result.code === CODE.GIF_FAILED)) &&
-      (skill === 'message.create' || skill === 'draw.create' || skill === 'voice.say') &&
+      hasTrait(skill, 'posts') &&
       result.ref
         ? postedOf(result)
         : null;

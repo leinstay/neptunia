@@ -94,6 +94,23 @@ A tool names where it acts by its argument `place`, the same word on every inter
 
 A handle to read a place and a way to write there are two facts. `conversation.read` of a place outside the turn's snapshot reads the stored lines the turn's context may read and the interface's own history through the router, so a room that is gone keeps its read. A write asks the place's interface. `postingRef` in `src/tools/operations/shared.ts` refuses a room whose `chatInfo` grants no `send` with `channel-no-permission`, and a post to a direct chat while `dm.enabled` is false with `dm-disabled`.
 
+## Tool definitions
+
+`src/tools/definitions.ts` holds one row per tool, in the order of the operations registry. A row declares the tool's arguments, the mapping of a call to its operation's arguments in `toArgs`, its effect class in `effects` and its traits in `traits`. The API name of a tool is its name with `_` for each `.`, and `apiNameOf` and `skillNameOfApi` translate between the two. Other modules never list tools by hand. They read a trait through `toolsWith(trait)` or `hasTrait(name, trait)`, and `validateDefinitions` refuses an unknown or repeated trait at start.
+
+| Trait | A tool carries it when | Read by |
+|---|---|---|
+| `self` | it is her own message, drawing, voice message, intention or skill, run on her grant alone whoever asked | `src/tools/gateway.ts`, `src/tools/executors.ts`, `src/admin.ts` |
+| `carried` | it stands behind one of her reply tags and runs in the current chat without a grant | `CARRIED_OVER` in `src/tools/access.ts` |
+| `ungrantable` | it is irreversible or administrative, so no grant opens it for her | `NOT_GRANTABLE_TO_PERSONA` in `src/tools/access.ts` |
+| `posts` | it leaves a line of hers where people read | `src/turn/skill-calls.ts`, `src/behavior/sandbox.ts`, `POSTING_SKILLS` |
+| `attaches` | it posts a file, so a wake's envelope checks it as `message.create` too | `NESTED_CAPABILITIES` in `src/tools/access.ts`, `src/turn/skill-calls.ts` |
+| `here` | it acts in the turn's own chat when its `place` is left out | `src/turn/skill-calls.ts` |
+| `written` | its `text` is her writing, rendered as a `<msg>` of hers | `src/tools/executors.ts`, `WRITTEN_SKILLS` |
+| `publishes` | the turn's publication boundary may refuse it | `src/tools/executors.ts` |
+
+`OP_EFFECTS` and `SELF_OWNED_OPS` in `src/tools/operations/effects.ts` and `API_NAMES` are maps derived from the same rows. A change to a tool's traits changes who may run it, so `src/development/risk.ts` counts `src/tools/definitions.ts` among the `permissions` paths.
+
 ## Boundaries
 
 The core writes memory through one writer. Interfaces neither open the database nor decide what the persona remembers. Stored recall and fetching live platform history are separate operations with separate access checks.

@@ -1,5 +1,5 @@
 // The operation `inner.status` of the persona's inner life (src/behavior/inner.ts, docs/inner-life.md): it shows the
-// mode, the stop, the queue, the day's review and what is left of each cap. Owner-only. Answers are operator lines
+// mode, the stop, the queue and the day's turns. Owner-only. Answers are operator lines
 // (ids, codes, times, numbers).
 
 import type { Untyped } from '../types.ts';

@@ -17,6 +17,10 @@
 // word past its arguments is refused and not echoed. A leaf with any `secret` takes `--secret-stdin` in the command
 // line. A word the table no longer has is refused with the command that replaced it, and nothing runs. A command with
 // both `args` and subcommands reads a line that names none of them as its own arguments. The parse is pure and never throws.
+//
+// A leaf that maps onto one operation declares it in its `op`: the operation's name and how the parsed arguments become
+// the operation's. The core's console runs it as the owner (`operationOf`); a leaf without `op` is answered by a module
+// of its own there.
 
 import { BASE_ROLES, MEMORY_ROLE, SEARCH_ROLE } from '../../llm/roles.ts';
 import { BACKEND_NAMES } from '../../agent-runner/profiles.ts';
@@ -41,7 +45,12 @@ export type Subcommand = {
   args: ReadonlyArray<CommandArg>;
   /** The leaf asks for a secret: `only` when the secret is its whole point, `offered` when a setting may turn out to be one. */
   secret?: 'only' | 'offered';
+  /** The operation the leaf runs as the owner, absent where a module of its own answers it. */
+  op?: LeafOp;
 };
+
+/** The operation a leaf runs as the owner, and how the parsed arguments become the operation's: none when absent. */
+export type LeafOp = { name: string; args?: (args: Readonly<Record<string, unknown>>) => Record<string, unknown> };
 
 /** One command of the table. */
 export type Command = {
@@ -57,6 +66,8 @@ export type Command = {
   otherwise?: Subcommand;
   /** Why the parsed arguments are refused, or null when they stand. */
   check?: (name: string, args: Readonly<Record<string, string>>) => string | null;
+  /** The operation a command without subcommands runs as the owner. */
+  op?: LeafOp;
 };
 
 /** What a line parses into: the command's dotted name and its arguments by name, or why the line is refused. */
@@ -87,6 +98,15 @@ const flagArg = (name: string, required: boolean): CommandArg => ({ name, requir
 const bareFlagArg = (name: string): CommandArg => ({ name, required: false, flag: `--${name}`, bare: true });
 
 const sub = (name: string, help: string, args: ReadonlyArray<CommandArg> = []): Subcommand => ({ name, help, args });
+
+/** A leaf that runs the operation `name`, its arguments made from the parsed ones by `args`. */
+const runs = (one: Subcommand, name: string, args?: LeafOp['args']): Subcommand => ({
+  ...one,
+  op: args === undefined ? { name } : { name, args },
+});
+
+/** A route's role as the owner typed it: `any`, or none, is a route of every role. */
+const anyRole = (role: unknown): unknown => (role === 'any' ? undefined : role);
 
 /** A leaf whose one purpose is a secret, or one that may ask for a secret. */
 const secretSub = (one: Subcommand, secret: 'only' | 'offered'): Subcommand => ({ ...one, secret });
@@ -209,8 +229,14 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
   sub('users.show', 'Show a person: names, accounts, links, merges, relationship and exact records', [arg('person')]),
   sub('users.accounts', 'Show the accounts of a person and every link with its window', [arg('person')]),
   sub('users.names', 'Show the names on record for a person', [arg('person')]),
-  sub('users.names.add', "Confirm a member's alias", [arg('user'), arg('name')]),
-  sub('users.names.remove', "Remove a member's alias", [arg('user'), arg('name')]),
+  runs(sub('users.names.add', "Confirm a member's alias", [arg('user'), arg('name')]), 'alias.add', (args) => ({
+    accountId: args.user,
+    name: args.name,
+  })),
+  runs(sub('users.names.remove', "Remove a member's alias", [arg('user'), arg('name')]), 'alias.remove', (args) => ({
+    accountId: args.user,
+    name: args.name,
+  })),
   sub('users.relationship', 'Show the affinity of a person with its history', [arg('person')]),
   sub('users.private', 'Show the private memory of a person across their DMs', [arg('person')]),
   sub('users.link', 'Link an account to a person', [arg('person'), arg('account')]),
@@ -240,10 +266,24 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
     bareFlagArg('include-children'),
   ]),
   sub('places.lore', 'Show the lore records of a place by id', [arg('place')]),
-  sub('places.lore.add', 'Add a lore entry to a place', [arg('place'), arg('title'), arg('keys'), arg('text')]),
-  sub('places.lore.list', 'Show the lore entries of a place', [arg('place'), arg('query', false)]),
-  sub('places.lore.show', 'Show one lore entry of a place', [arg('place'), arg('id')]),
-  sub('places.lore.remove', 'Remove a lore entry from a place', [arg('place'), arg('id')]),
+  runs(
+    sub('places.lore.add', 'Add a lore entry to a place', [arg('place'), arg('title'), arg('keys'), arg('text')]),
+    'lore.add',
+    (args) => ({ title: args.title, keys: args.keys, text: args.text })
+  ),
+  runs(
+    sub('places.lore.list', 'Show the lore entries of a place', [arg('place'), arg('query', false)]),
+    'lore.list',
+    (args) => ({ query: args.query })
+  ),
+  runs(sub('places.lore.show', 'Show one lore entry of a place', [arg('place'), arg('id')]), 'lore.show', (args) => ({
+    id: args.id,
+  })),
+  runs(
+    sub('places.lore.remove', 'Remove a lore entry from a place', [arg('place'), arg('id')]),
+    'lore.remove',
+    (args) => ({ id: args.id })
+  ),
   sub('entities.list', 'List the semantic entities, each with its kind and names', [
     flagArg('kind', false),
     flagArg('name', false),
@@ -434,9 +474,9 @@ export const COMMANDS: ReadonlyArray<Command> = [
     args: [],
     defaultSubcommand: 'list',
     subcommands: [
-      sub('list', 'Show latest errands'),
-      sub('show', 'Show one errand', [arg('id')]),
-      sub('cancel', 'Cancel an open errand', [arg('id')]),
+      runs(sub('list', 'Show latest errands'), 'errand.list'),
+      runs(sub('show', 'Show one errand', [arg('id')]), 'errand.status', (args) => ({ id: args.id })),
+      runs(sub('cancel', 'Cancel an open errand', [arg('id')]), 'errand.cancel', (args) => ({ id: args.id })),
     ],
   },
   {
@@ -445,9 +485,9 @@ export const COMMANDS: ReadonlyArray<Command> = [
     args: [],
     defaultSubcommand: 'list',
     subcommands: [
-      sub('list', 'Show open intentions'),
+      runs(sub('list', 'Show open intentions'), 'intention.list'),
       sub('show', 'Show one open intention', [arg('id')]),
-      sub('cancel', 'Cancel an intention', [arg('id')]),
+      runs(sub('cancel', 'Cancel an intention', [arg('id')]), 'intention.cancel', (args) => ({ id: args.id })),
     ],
   },
   {
@@ -455,12 +495,14 @@ export const COMMANDS: ReadonlyArray<Command> = [
     help: 'Pause new turns while active turns finish and incoming messages wait',
     args: [],
     subcommands: [],
+    op: { name: 'bot.pause' },
   },
   {
     name: 'resume',
     help: 'Resume turns and process messages held during the pause',
     args: [],
     subcommands: [],
+    op: { name: 'bot.resume' },
   },
   {
     name: 'config',
@@ -469,8 +511,13 @@ export const COMMANDS: ReadonlyArray<Command> = [
     defaultSubcommand: 'show',
     subcommands: [
       sub('get', 'Show live value of one setting', [arg('path')]),
-      sub('set', 'Save a personal setting', [arg('path'), arg('value')]),
-      sub('unset', 'Restore a setting to its default', [arg('path')]),
+      runs(sub('set', 'Save a personal setting', [arg('path'), arg('value')]), 'config.set', (args) => ({
+        path: args.path,
+        value: args.value,
+      })),
+      runs(sub('unset', 'Restore a setting to its default', [arg('path')]), 'config.unset', (args) => ({
+        path: args.path,
+      })),
       sub('show', 'Show saved personal settings as JSON'),
       sub('check', 'Find unknown settings and values with the wrong type'),
     ],
@@ -481,19 +528,23 @@ export const COMMANDS: ReadonlyArray<Command> = [
     args: [],
     defaultSubcommand: 'show',
     subcommands: [
-      sub('show', 'Show model of every model role'),
+      runs(sub('show', 'Show model of every model role'), 'model.show'),
       sub(
         'sources',
         'Show what can serve a role, with its evidence and setup commands, as JSON, with no model request',
         [arg('role', true, MODEL_SET_CHOICES)]
       ),
-      sub('set', 'Choose a role’s model and source, test it with one reply and optionally set provider or effort', [
-        arg('role', true, MODEL_SET_TARGETS),
-        arg('model', false),
-        flagArg('provider', false),
-        flagArg('effort', false),
-        flagArg('via', false),
-      ]),
+      runs(
+        sub('set', 'Choose a role’s model and source, test it with one reply and optionally set provider or effort', [
+          arg('role', true, MODEL_SET_TARGETS),
+          arg('model', false),
+          flagArg('provider', false),
+          flagArg('effort', false),
+          flagArg('via', false),
+        ]),
+        'model.set',
+        (args) => ({ role: args.role, id: args.model })
+      ),
     ],
   },
   {
@@ -502,18 +553,32 @@ export const COMMANDS: ReadonlyArray<Command> = [
     args: [],
     defaultSubcommand: 'list',
     subcommands: [
-      sub('list', 'Every route, then the model and route of each role'),
-      sub('set', 'Route a model prefix to these comma-separated providers only, for one role or any', [
-        arg('model'),
-        arg('providers'),
-        arg('role', false, ROUTE_CHOICES),
-        arg('fallbacks', false, FLAGS),
-        arg('byok', false, FLAGS),
-      ]),
-      sub('remove', "Remove a model prefix's route, for one role or any", [
-        arg('model'),
-        arg('role', false, ROUTE_CHOICES),
-      ]),
+      runs(sub('list', 'Every route, then the model and route of each role'), 'route.list'),
+      runs(
+        sub('set', 'Route a model prefix to these comma-separated providers only, for one role or any', [
+          arg('model'),
+          arg('providers'),
+          arg('role', false, ROUTE_CHOICES),
+          arg('fallbacks', false, FLAGS),
+          arg('byok', false, FLAGS),
+        ]),
+        'route.set',
+        (args) => ({
+          model: args.model,
+          providers: args.providers,
+          role: anyRole(args.role),
+          fallbacks: args.fallbacks === undefined ? undefined : args.fallbacks === 'true',
+          byok: args.byok,
+        })
+      ),
+      runs(
+        sub('remove', "Remove a model prefix's route, for one role or any", [
+          arg('model'),
+          arg('role', false, ROUTE_CHOICES),
+        ]),
+        'route.remove',
+        (args) => ({ model: args.model, role: anyRole(args.role) })
+      ),
     ],
   },
   {
@@ -523,8 +588,8 @@ export const COMMANDS: ReadonlyArray<Command> = [
     needsSubcommand: true,
     subcommands: [
       sub('conversation', "A conversation's newest stored lines", [arg('conversation')]),
-      sub('recent', 'Show live recent lines'),
-      sub('search', 'Search her memory', [arg('query')]),
+      runs(sub('recent', 'Show live recent lines'), 'memory.recent.read'),
+      runs(sub('search', 'Search her memory', [arg('query')]), 'memory.search', (args) => ({ question: args.query })),
       sub('backup', 'Make a backup of the memory database and list the kept ones'),
       sub('backfill-media', 'Bring old media lines to the one format: backfill-media [--dry-run|status]', [
         arg('mode', false),
@@ -535,9 +600,17 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('backfill-plans', 'Reconstruct the plans of old selfreflection entries: backfill-plans [--dry-run|status]', [
         arg('mode', false),
       ]),
-      sub('restore', 'Bring an archived item back', [arg('id')]),
-      sub('journal', 'Show journal of a day: journal [<YYYY-MM-DD>]', [arg('day', false)]),
-      sub('archive', 'List archived memory items', [arg('kind', false)]),
+      runs(sub('restore', 'Bring an archived item back', [arg('id')]), 'memory.restore', (args) => ({
+        itemId: args.id,
+      })),
+      runs(
+        sub('journal', 'Show journal of a day: journal [<YYYY-MM-DD>]', [arg('day', false)]),
+        'memory.journal.read',
+        (args) => (args.day === undefined ? {} : { day: args.day })
+      ),
+      runs(sub('archive', 'List archived memory items', [arg('kind', false)]), 'memory.archive.read', (args) =>
+        args.kind === undefined ? {} : { kind: args.kind }
+      ),
       sub('bind', 'Link accounts to one person, to the persona with self, or to the owner with owner', [
         arg('iface'),
         arg('account'),
@@ -545,9 +618,11 @@ export const COMMANDS: ReadonlyArray<Command> = [
         arg('targetAccount', false),
       ]),
       ...MEMORY_BROWSER,
-      sub('lessons.add', 'Add a lesson', [arg('text')]),
+      runs(sub('lessons.add', 'Add a lesson', [arg('text')]), 'learning.add', (args) => ({ text: args.text })),
       sub('lessons.list', 'Show lessons'),
-      sub('lessons.remove', 'Remove a lesson by its number', [arg('id')]),
+      runs(sub('lessons.remove', 'Remove a lesson by its number', [arg('id')]), 'learning.remove', (args) => ({
+        id: Number(args.id),
+      })),
     ],
   },
   {
@@ -556,9 +631,11 @@ export const COMMANDS: ReadonlyArray<Command> = [
     args: [],
     defaultSubcommand: 'list',
     subcommands: [
-      sub('add', 'Add a rule', [arg('text')]),
-      sub('list', 'Show rules'),
-      sub('remove', 'Remove a rule by its number', [arg('number')]),
+      runs(sub('add', 'Add a rule', [arg('text')]), 'rule.add', (args) => ({ text: args.text })),
+      runs(sub('list', 'Show rules'), 'rule.list'),
+      runs(sub('remove', 'Remove a rule by its number', [arg('number')]), 'rule.remove', (args) => ({
+        number: Number(args.number),
+      })),
     ],
   },
   {
@@ -569,7 +646,9 @@ export const COMMANDS: ReadonlyArray<Command> = [
     check: checkTarget,
     subcommands: [
       sub('list', 'Every tool and whether she has it'),
-      sub('describe', 'Show one tool or one family in full', [arg('tool')]),
+      runs(sub('describe', 'Show one tool or one family in full', [arg('tool')]), 'tools.describe', (args) => ({
+        name: args.tool,
+      })),
       sub('grant', 'Grant tool access to the persona, everyone, a role or a person', [
         arg('tool'),
         arg('target', false),
@@ -859,6 +938,20 @@ function leafOf(name: string): Subcommand | null {
   const command = COMMANDS.find((one) => one.name === first);
   const dotted = rest.join('.');
   return command?.subcommands.find((one) => one.name === dotted) ?? null;
+}
+
+/**
+ * The operation the leaf of a parsed name runs as the owner, with its arguments made from the parsed ones; null for a
+ * leaf answered by a module of its own and for a name no leaf has. A command without subcommands is its own leaf.
+ */
+export function operationOf(
+  name: string,
+  args: Readonly<Record<string, unknown>>
+): { op: string; args: Record<string, unknown> } | null {
+  const [first, ...rest] = name.split('.');
+  const command = COMMANDS.find((one) => one.name === first);
+  const op = rest.length === 0 ? command?.op : leafOf(name)?.op;
+  return op === undefined ? null : { op: op.name, args: op.args?.(args) ?? {} };
 }
 
 /** Whether the leaf of a parsed name takes `--secret-stdin` in the command line. */

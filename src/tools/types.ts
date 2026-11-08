@@ -4,7 +4,7 @@
 
 import type { PublicationBoundary } from './publication.ts';
 import type { Env } from './operations/env.ts';
-import type { EffectClass } from './operations/effects.ts';
+import type { EffectClass } from './definitions.ts';
 import type { Given, Schema } from './definitions.ts';
 
 /**

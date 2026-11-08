@@ -14,7 +14,7 @@ export const DANGER_PATHS = [
   {
     category: 'permissions',
     paths: [
-      /^src\/tools\/(?:access|gateway)\.ts$/,
+      /^src\/tools\/(?:access|gateway|definitions)\.ts$/,
       /^src\/tools\/operations\/(?:access|grants|rights|effects)\.ts$/,
       /^src\/interface\/principals\.ts$/,
       /^src\/setup\/clients\.ts$/,
