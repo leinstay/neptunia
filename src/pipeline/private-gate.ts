@@ -131,7 +131,7 @@ export function createPrivateGate({
   // A recovery turn of the missed-answer registry in a DM passes the same gate.
   missed?.setPrivateRecovery?.({
     allow: async (channel: ChatInfo, trigger: PrivateLine) => {
-      if (hot.config.dm?.enabled !== true) return false;
+      if (dmChatsOff(hot.config, channel)) return false;
       return (await checkPrivateGate(hot.config, trigger.authorId, channel.iface)).gate.ok === true;
     },
     after: (channel: ChatInfo, trigger: PrivateLine, result: TurnResultOf) =>

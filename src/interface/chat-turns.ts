@@ -6,7 +6,8 @@
 // an aborted turn before any request. No other interface's line comes here, so a turn over one has no signal and runs as it
 // always did. A line the turn over an earlier line read during its settle wait (the end's `folded`) ends with that turn and
 // never runs. The pipeline may answer a line inside another line's turn or drop one it saw answered, so a line can have no turn
-// of its own: a later line's turn starting, or a stretch with no turn running anywhere, ends its wait. The states live in this
+// of its own: a line the answering turn had in view (`seenByTurn`, the runner's spokeAfterSeeing) ends with that turn, and
+// for any other a later line's turn starting, or a stretch with no turn running anywhere, ends its wait. The states live in this
 // process, and `turn.replay` names the core's instance so a client learns of a restart. A client that asked with `turn.replay`
 // is an open chat (`chats`), where her posts go when the client that sent the last line is gone. src/interface/neptunia-cli.ts
 // holds one.
@@ -53,6 +54,8 @@ type TrackedLine = {
 /** The turn's end as src/core.ts hears it. */
 type TurnEnd = {
   trigger: { id: string | null } | null;
+  /** The chat the turn ran in. */
+  chatId?: string | null;
   outcome: string;
   reason: string | null;
   turnId?: unknown;
@@ -106,6 +109,7 @@ export function createChatTurns({
   newId = randomUUID,
   watchMs = WATCH_MS,
   noTurnWaitMs = NO_TURN_WAIT_MS,
+  seenByTurn = () => false,
 }: {
   door: LinkDoor;
   linesHeld: () => boolean;
@@ -115,6 +119,8 @@ export function createChatTurns({
   newId?: () => string;
   watchMs?: number;
   noTurnWaitMs?: number;
+  /** Whether the last turn that spoke in `chatId` had the line in view, so the pipeline counts it answered; absent, none. */
+  seenByTurn?: (chatId: string, lineId: string) => boolean;
 }): ChatTurns {
   const instance = newId();
   // Insertion order is the arrival order.
@@ -256,6 +262,9 @@ export function createChatTurns({
           responseId: typeof end.turnId === 'string' ? end.turnId : (line.turnId ?? line.id),
         };
         for (const id of end.folded ?? []) answeredWith(lines.get(id), outcome);
+        const chatId = end.chatId;
+        if (typeof chatId === 'string')
+          for (const other of lines.values()) if (seenByTurn(chatId, other.id)) answeredWith(other, outcome);
         settle(line, outcome);
       } else if (end.outcome === 'cancelled') settle(line, { status: 'cancelled' });
       else settle(line, { status: 'failed', code: end.reason ?? end.outcome });

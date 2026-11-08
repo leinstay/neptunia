@@ -35,6 +35,16 @@ export function portCustomEmoji(port: unknown): boolean {
   return capabilitiesOf(port).customEmoji !== false;
 }
 
+/** False when the port declares a mention has no form of its own (`mentions: false`), true otherwise. */
+export function portMentions(port: unknown): boolean {
+  return capabilitiesOf(port).mentions !== false;
+}
+
+/** False when the port declares a channel link has no form of its own (`channelLinks: false`), true otherwise. */
+export function portChannelLinks(port: unknown): boolean {
+  return capabilitiesOf(port).channelLinks !== false;
+}
+
 /** The capability names of the operations the port declares (`operations`), empty when it declares none. */
 export function portOperations(port: unknown): Array<string> {
   const declared = capabilitiesOf(port).operations;

@@ -116,6 +116,7 @@ import { createCheckpointDesk } from './development/checkpoint-desk.ts';
 import { WORKTREE_FOLDER } from './development/edges.ts';
 import { selfimprovementSettings } from './selfimprovement/settings.ts';
 import { chatLines, recentGroupLines } from './memory/db/chat-lines.ts';
+import { ownerConsoleName } from './memory/db/identity-links.ts';
 import { ownerMemoryRuns } from './memory/db/media-english.ts';
 import { mediaText } from './memory/db/media-store.ts';
 import { OWNER_CLIENT } from './setup/clients.ts';
@@ -720,15 +721,17 @@ async function buildCore(
   let chatState: ChatState | null = null;
   const numberOrNull = (value: unknown): number | null => (typeof value === 'number' ? value : null);
   const stringOrNull = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
+  const ownerName = (): string | null => ownerConsoleName(memoryDb.database());
   // A chat line keeps its staged files and gains its links. Her `cli:dm:owner` replies go to the last line's link.
   const intake = createCommandIntake({
     door: keepLineFiles(linkDoor, { dataDir, readStaged: (id) => imageStaging.read(id) }),
     ready: () => doorReady.promise,
     desk: () => commandDesk,
     linesHeld: () => isPausedIn(store),
-    isAnyTurnRunning: () => turns.isAnyBusy(),
+    runner: () => turns,
     chatCommands: (name: string, args: Record<string, unknown>) => chatState?.command(name, args) ?? null,
     lineLinks: lineLinksOf({ hot, parseLinks: (texts) => reads.parseLinks(texts) }),
+    ownerName,
     log,
   });
   const linkServer = await listenSocket({
@@ -830,10 +833,7 @@ async function buildCore(
   const chatSessions = createChatSessions({
     store: createChatStore({
       file: path.join(paths.privateDir, 'cli', 'sessions.json'),
-      readLines: (placeId) => {
-        const db = memoryDb.database();
-        return db === null ? [] : chatLines(db, placeId);
-      },
+      readLines: (placeId) => chatLines(memoryDb.database(), placeId),
     }),
     now: clock,
     newId: randomUUID,
@@ -843,7 +843,7 @@ async function buildCore(
   const cliChat = createCliChat({ live: () => intake.chat(), now: clock, newId: randomUUID });
   const cliAdapter = () =>
     withKeptSends(
-      withStoredHistory(cliChat, (placeId) => chatSessions.shown(placeId)),
+      withStoredHistory(cliChat, (placeId) => chatSessions.shown(placeId), ownerName),
       { dataDir, newId: randomUUID, echo: echoThrough(linkDoor) }
     );
   // The persona's interface (src/interface/port.js): every effect of her replies goes through it,

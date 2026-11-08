@@ -53,6 +53,7 @@ import {
 } from './wake-queue.ts';
 import type { TurnClaim } from './wake-queue.ts';
 import { ifaceOfChat } from '../../interface/cli-chat.ts';
+import { dmChatsOff } from '../core-pause.ts';
 import type {
   ChainBudget,
   CostMeter,
@@ -276,8 +277,8 @@ export async function chatFor(life: InnerContext, group: ReadonlyArray<Wake>): P
   const found = reads ? await reads.chatInfo({ iface: ifaceOfChat(placeId, iface()), chatId: placeId }) : null;
   const channel = found?.chat ?? null;
   if (!channel) return failed(CODE.UNAVAILABLE);
-  // A private chat only while private chats are on (dm.enabled, read now).
-  if (channel.rootId === null && objOf(objOf(hot.config).dm).enabled !== true) return failed(CODE.DM_OFF);
+  // A private chat only while private chats are on (dm.enabled, read now), the owner's command line always.
+  if (channel.rootId === null && dmChatsOff(hot.config, channel)) return failed(CODE.DM_OFF);
   if (channel.rootId !== null && !readOnlyOk && !channel.permissions.send) return failed(CODE.NOT_WRITABLE);
   return { channel, why: null, drop: false, placeFailure: null };
 }

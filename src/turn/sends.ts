@@ -1,12 +1,20 @@
 // How the persona's words are rendered and timed before they go out: a post's mentions, custom emoji, jump links and
-// channel links, the wait for the trigger's author to fall quiet and the name of her selfreflection's place for `<senses>`.
+// channel links in the forms the place's interface declares (plain names and the owner's line numbers where it declares
+// none), the wait for the trigger's author to fall quiet and the name of her selfreflection's place for `<senses>`.
 // createTurnRunner (src/behavior/turn.ts) builds it once per runner with createSends; the act, her calls and the
 // attempt call its functions.
 
 import type { Chat } from '../protocol/events.ts';
 import { settleWait } from '../behavior/activity.ts';
 import { messageLinkOf } from '../behavior/elsewhere.ts';
-import { portAt, portCustomEmoji, portIface } from '../interface/capabilities.ts';
+import {
+  portAt,
+  portChannelLinks,
+  portCustomEmoji,
+  portIface,
+  portMentions,
+  portMessageUrl,
+} from '../interface/capabilities.ts';
 import type { IndexedEmoji } from '../behavior/emoji-index.ts';
 import { renderCustomEmoji } from '../behavior/emoji.ts';
 import { CHANNEL_HANDLE_PREFIX, idText, resolveHandles, widenHandles } from '../behavior/handles.ts';
@@ -93,6 +101,27 @@ export type Sends = {
   ) => string | null;
 };
 
+/** The token a member's mention or a channel's link takes once rendered (src/behavior/handles.ts#resolveHandles). */
+const MENTION_TOKEN_RE = /<@!?([^>\s]+)>/g;
+const CHANNEL_TOKEN_RE = /<#([^>\s]+)>/g;
+
+/** The handle of `id` in a request's handle map, as she wrote it with `sigil`, or null when the map holds none. */
+function writtenHandle(handles: unknown, id: string, sigil: string): string | null {
+  if (!(handles instanceof Map)) return null;
+  for (const [handle, mapped] of handles as Map<string, unknown>) if (String(mapped) === id) return `${sigil}${handle}`;
+  return null;
+}
+
+/** `text` with each mention token read as the member's name, else the handle she wrote, else as it stands. */
+function namedMembers(text: string, handles: unknown, nameOf: (id: string) => string | null): string {
+  return text.replace(MENTION_TOKEN_RE, (token, id: string) => nameOf(id) ?? writtenHandle(handles, id, '@') ?? token);
+}
+
+/** `text` with each channel link token read as the channel's name, else the handle she wrote, else as it stands. */
+function namedChannels(text: string, handles: unknown, nameOf: (id: string) => string | null): string {
+  return text.replace(CHANNEL_TOKEN_RE, (token, id: string) => nameOf(id) ?? writtenHandle(handles, id, '#') ?? token);
+}
+
 export function createSends(ctx: SendsContext): Sends {
   const { hot, store, emoji, chatName, clock, schedule, activity, iface } = ctx;
 
@@ -113,17 +142,34 @@ export function createSends(ctx: SendsContext): Sends {
       pulledIds?: ReadonlyMap<string, string> | null;
       // The chat reference whose interface addresses the links.
       at: { iface: string };
+      // The stored place the post goes to, whose lines the owner's chat numbers.
+      placeId: string | null;
     }
   ): string {
     const { chat, dmChat, idByIndex, pulledIds } = slots;
     if (!idByIndex) return text;
     const root = dmChat || !slots.root ? null : slots.root;
     const placePort = portAt(iface, slots.at);
+    const numberOf = portMessageUrl(placePort) === null ? ownerNumberOf(slots.placeId) : null;
     return linkMessageNumbers(text, (n) => {
       const messageId = idByIndex.get(n);
       if (!messageId) return null;
+      if (numberOf) return pulledIds?.has(messageId) ? null : numberOf(messageId);
       return messageLinkOf(placePort, root, pulledIds?.get(messageId) ?? chat, messageId);
     });
+  }
+
+  /**
+   * On a place whose interface gives a message no address: the `#N` the owner's chat draws on a stored line of the place
+   * (`store.lineNumberOf`), null for a line it does not hold or a store that numbers none.
+   */
+  function ownerNumberOf(placeId: string | null): ((messageId: string) => string | null) | null {
+    const known = store as { lineNumberOf?(place: string, messageId: string): number | null } | null;
+    if (placeId === null || typeof known?.lineNumberOf !== 'function') return null;
+    return (messageId) => {
+      const number = known.lineNumberOf?.(placeId, messageId) ?? null;
+      return number === null ? null : `#${number}`;
+    };
   }
 
   /**
@@ -214,6 +260,7 @@ export function createSends(ctx: SendsContext): Sends {
     {
       channel,
       snapshot = null,
+      placeId,
       dmChat,
       idByIndex,
       pulledIds,
@@ -248,25 +295,41 @@ export function createSends(ctx: SendsContext): Sends {
       const fallback = typeof directory === 'function' && String(written ?? '').includes('@') ? directory() : [];
       mentioned = resolveMentions(written, lines ?? [], knownNames ?? [], fallback);
     }
+    const placePort = portAt(iface, refOf(channel));
+    if (!portMentions(placePort))
+      mentioned = { text: namedMembers(mentioned.text, handles, nameOfMember), accountIds: [] };
     const spoken = renderCustomEmoji(mentioned.text, emojiLookup(refOf(channel)));
-    const text = withLink(
-      withChannelLinks(
-        channel,
-        withMessageLinks(spoken, {
-          root: channel.rootId ?? null,
-          chat: channel.id,
-          dmChat,
-          idByIndex,
-          pulledIds,
-          at: refOf(channel),
-        }),
-        channelHandles,
-        snapshot
-      ),
-      link,
-      hot.prompts?.labels
+    const linked = withChannelLinks(
+      channel,
+      withMessageLinks(spoken, {
+        root: channel.rootId ?? null,
+        chat: channel.id,
+        dmChat,
+        idByIndex,
+        pulledIds,
+        at: refOf(channel),
+        placeId: placeId ?? null,
+      }),
+      channelHandles,
+      snapshot
     );
+    const shown = portChannelLinks(placePort) ? linked : namedChannels(linked, channelHandles, channelNameOf);
+    const text = withLink(shown, link, hot.prompts?.labels);
     return { text, spoken, accountIds: mentioned.accountIds, replyTo: referred.replyTo };
+
+    /** A member's name from the request: a line's author, a profile shown, then the directory. */
+    function nameOfMember(id: string): string | null {
+      const authored = [...(lines ?? [])].find((line) => idText(line.authorId)[0] === id)?.authorName;
+      if (typeof authored === 'string' && authored) return authored;
+      const named = [...(knownNames ?? []), ...(directory?.() ?? [])].find((one) => idText(one?.id)[0] === id);
+      return typeof named?.name === 'string' && named.name ? named.name : null;
+    }
+
+    /** A channel's name: the turn's snapshot, then the name the interface gave the chat. */
+    function channelNameOf(id: string): string | null {
+      const listed = snapshot?.chats.find((chat) => String(chat.id) === id)?.name;
+      return typeof listed === 'string' && listed ? listed : (chatName(id) ?? null);
+    }
   }
 
   /**

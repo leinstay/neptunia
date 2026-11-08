@@ -79,3 +79,36 @@ test('a chat that connects again after a lost link takes posts before the owner 
   assert.equal(sent?.status, 'ok');
   assert.deepEqual(shown, ['welcome back']);
 });
+
+test("the owner's line reaches the door under his person's name", async () => {
+  // Bug: the line she answered was written by `owner`, and memory kept `owner` as his name.
+  const names: Array<unknown> = [];
+  const door = createEventDoor({
+    handlers: {
+      'message.received': (event: unknown) => {
+        const { message, chat } = event as { message?: { author?: { name?: unknown } }; chat?: { name?: unknown } };
+        names.push([message?.author?.name, chat?.name]);
+      },
+    },
+    log: quiet,
+  });
+  const intake = createCommandIntake({
+    door,
+    ready: () => Promise.resolve(),
+    desk: () => ({ run: () => Promise.resolve({ text: '', status: 'ok' }) }),
+    ownerName: () => 'Robin',
+    log: quiet,
+  });
+  const { core, client } = createLoopback();
+  const link: AdapterLink = openAdapterLink({
+    transport: core,
+    door: intake.doorOf(() => link),
+    principalOf,
+    log: quiet,
+  });
+  const cli = openLinkOver(client, { token: 'owner-token', print: () => {} });
+  await link.hello;
+  assert.equal(await cli.say('hello there'), 'ok');
+  await until(() => names.length > 0);
+  assert.deepEqual(names, [['Robin', 'Robin']]);
+});

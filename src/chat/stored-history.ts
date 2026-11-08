@@ -6,7 +6,8 @@
 // brings its media as a platform's message does: each item with its text form (media-store.ts#mediaMessageParts) and a
 // file the core kept under `media/cli/` by its reference (src/media/kept-files.ts), so a picture, a voice note or any
 // file of the chat comes back with its line after a restart. The client keeps only her words, so its copy of her line
-// takes the stored files it lacks. Every other call goes to the client's adapter unchanged.
+// takes the stored files it lacks. The owner's lines and the chat's description carry the name of his person when one is
+// known (`ownerName`), never the command line's own `owner`. Every other call goes to the client's adapter unchanged.
 
 import { mediaMessageParts } from '../memory/db/media-store.ts';
 import { contentTypeOfName, keptReference } from '../media/kept-files.ts';
@@ -91,8 +92,27 @@ function pageOf(
   return end < 0 ? [] : all.slice(Math.max(0, end - Math.max(0, query.limit)), end);
 }
 
-/** `live`, the chat client's adapter, with the history of a direct chat answered from `shown(chatId)` as well. */
-export function withStoredHistory(live: Adapter, shown: (placeId: string) => ReadonlyArray<SourceLine>): Adapter {
+/** `event` with the owner's name on its author and its chat when it is his line and `name` is one. */
+function namedOwner(event: MessageEvent, name: string | null): MessageEvent {
+  const { message } = event;
+  const { author } = message;
+  if (name === null || author === undefined || author.self === true || author.id === undefined) return event;
+  return {
+    ...event,
+    chat: { ...event.chat, name },
+    message: { ...message, author: { ...author, id: author.id, name } },
+  };
+}
+
+/**
+ * `live`, the chat client's adapter, with the history of a direct chat answered from `shown(chatId)` as well, and the
+ * owner named `ownerName()` in it and in the chat's description when that answers a name.
+ */
+export function withStoredHistory(
+  live: Adapter,
+  shown: (placeId: string) => ReadonlyArray<SourceLine>,
+  ownerName: () => string | null = () => null
+): Adapter {
   return {
     ...live,
     iface: live.iface,
@@ -107,7 +127,19 @@ export function withStoredHistory(live: Adapter, shown: (placeId: string) => Rea
       if (partner === null) return answer;
       const held = answer.status === 'ok' ? answer.events : [];
       const stored = shown(chat.chatId).map((line) => eventOf(line, chat.iface, partner));
-      return { status: 'ok', events: pageOf(stored, held, query), complete: true };
+      const name = ownerName();
+      return {
+        status: 'ok',
+        events: pageOf(stored, held, query).map((event) => namedOwner(event, name)),
+        complete: true,
+      };
+    },
+    async chatInfo(chat: ChatRef) {
+      const answer = await live.chatInfo(chat);
+      const name = ownerName();
+      return answer.status === 'ok' && name !== null && partnerOf(chat.chatId) !== null
+        ? { ...answer, chat: { ...answer.chat, name } }
+        : answer;
     },
   };
 }

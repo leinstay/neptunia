@@ -39,6 +39,7 @@ const TABLES_BY_CLASS: Readonly<Record<Exclude<StorageClass, 'unclassified'>, Re
     'participants',
     'people',
     'people_merges',
+    'person_accounts',
     'places',
     'semantic_arguments',
     'semantic_assertion_versions',

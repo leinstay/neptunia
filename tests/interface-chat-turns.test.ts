@@ -21,7 +21,15 @@ const envelopeOf = (id: string, content: string): Envelope =>
     body: { kind: 'message.received', message: { id, content, sourceText: content, attachments: [] } },
   }) as unknown as Envelope;
 
-function rig(over: { held?: boolean; status?: string; isBusy?: () => boolean; wait?: number } = {}) {
+function rig(
+  over: {
+    held?: boolean;
+    status?: string;
+    isBusy?: () => boolean;
+    wait?: number;
+    seen?: (chatId: string, lineId: string) => boolean;
+  } = {}
+) {
   const received: Array<string> = [];
   const door: LinkDoor = {
     receive(value) {
@@ -39,6 +47,7 @@ function rig(over: { held?: boolean; status?: string; isBusy?: () => boolean; wa
     now: () => 1000,
     newId: () => `id${(serial += 1)}`,
     ...(over.wait === undefined ? {} : { watchMs: 2, noTurnWaitMs: over.wait }),
+    ...(over.seen === undefined ? {} : { seenByTurn: over.seen }),
   });
   const events: Array<TurnEvent> = [];
   const link = {
@@ -292,6 +301,45 @@ test('a turn that failed leaves the lines it read waiting for their own turn', a
   await take('m2', 'two');
   const [second] = queue();
   turns.turnEnded({ trigger: { id: 'm1' }, outcome: 'error', reason: 'llm-error', turnId: null, folded: ['m2'] });
+  await tick();
+  assert.equal(typesOf(second?.turnId ?? '').at(-1), 'running');
+});
+
+// The pipeline answers a line inside another line's turn when that turn had it in view (turns.spokeAfterSeeing), and
+// drops the line's own call. Such a line ends with the turn that answered it.
+test('a line the answering turn had in view ends committed with that turn, not after the no-turn wait', async () => {
+  // Bug: her turn running stayed on the row for up to 35 seconds after her answer, until the wait ran out.
+  const seen = (chatId: string, lineId: string): boolean => chatId === 'cli:dm:owner' && lineId === 'm2';
+  const { take, turns, queue, typesOf, events, noTurn } = rig({ wait: 60_000, seen });
+  await take('m1', 'one');
+  await take('m2', 'two');
+  const [second] = queue();
+  turns.turnEnded({ trigger: { id: 'm1' }, chatId: 'cli:dm:owner', outcome: 'spoke', reason: null, turnId: 't-one' });
+  await tick();
+  await tick();
+  assert.deepEqual(typesOf(second?.turnId ?? ''), ['accepted', 'queued', 'committed']);
+  assert.equal(events.findLast((event) => event.turnId === second?.turnId)?.responseId, 't-one');
+  assert.deepEqual(noTurn, []);
+});
+
+test('a line the answering turn did not have in view goes on to its own turn', async () => {
+  // Bug: a line sent after her request went out is marked answered and never gets a turn.
+  const { take, turns, queue, typesOf } = rig({ seen: () => false });
+  await take('m1', 'one');
+  await take('m2', 'two');
+  const [second] = queue();
+  turns.turnEnded({ trigger: { id: 'm1' }, chatId: 'cli:dm:owner', outcome: 'spoke', reason: null, turnId: 't-one' });
+  await tick();
+  assert.equal(typesOf(second?.turnId ?? '').at(-1), 'running');
+});
+
+test('a failed turn ends no line it had in view', async () => {
+  // Bug: a turn that failed takes a line it saw down with it, and nothing answers that line.
+  const { take, turns, queue, typesOf } = rig({ seen: () => true });
+  await take('m1', 'one');
+  await take('m2', 'two');
+  const [second] = queue();
+  turns.turnEnded({ trigger: { id: 'm1' }, chatId: 'cli:dm:owner', outcome: 'error', reason: 'llm-error' });
   await tick();
   assert.equal(typesOf(second?.turnId ?? '').at(-1), 'running');
 });

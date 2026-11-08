@@ -65,6 +65,10 @@ export type Capabilities = {
   threads?: boolean;
   reactions?: boolean;
   customEmoji?: boolean;
+  /** False when a mention has no form of its own: a member her words name reads as their name. Absent: it has one. */
+  mentions?: boolean;
+  /** False when a channel link has no form of its own: a channel her words name reads as its name. Absent: it has one. */
+  channelLinks?: boolean;
   presence?: boolean;
   voiceFormats?: ReadonlyArray<string>;
   publish?: ReadonlyArray<string>;
