@@ -945,7 +945,7 @@ async function readFarRoom(context: object, chat: string | null): Promise<string
     answers: [toolAnswer('', [call('conversation.read', { place: `#${handle}`, last: 5 })]), '<msg>εντάξει</msg>'],
     allowed: ['conversation.read'],
     runner: { journalDb: () => mind.db, memoryContext: () => context },
-  } as unknown as Parameters<typeof coreTurn>[0]);
+  });
   mind.close();
   return String(toolContent(run.llm, 1));
 }
