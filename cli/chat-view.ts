@@ -147,15 +147,20 @@ export function Menu({
   items,
   selected,
   height,
+  columns,
 }: {
   items: ReadonlyArray<MenuCommand>;
   selected: number;
   height: number;
+  columns: number;
 }): ReactElement {
   const first = Math.max(0, selected - height + 1);
   return h(
     Box,
     { flexDirection: 'column', flexShrink: 0 },
+    // A blank row and a white rule part the menu from the last line above it.
+    h(Text, { key: 'blank' }, ' '),
+    h(Text, { key: 'rule', ...THEME.rule, wrap: 'truncate' }, '─'.repeat(Math.max(1, columns))),
     ...items.slice(first, first + height).map((item, index) => {
       const isSelected = first + index === selected;
       return h(

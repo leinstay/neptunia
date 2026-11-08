@@ -29,7 +29,7 @@ The command line's account goes by `owner`, and the owner reaches her under the 
 | Left, Right, Home and End | Move the caret, by whole characters and across a chip in one step |
 | Backspace and Delete | Delete a whole character or a whole chip |
 | Tab | Complete the selected command |
-| Esc | Cancel a question, leave a search, or close the command window with its panel, cancelling a panel still loading. With the window closed it clears the input, and on an empty input it asks the core to cancel her running turn |
+| Esc | Cancel a question, leave a search, or close the command window with its panel, cancelling a panel still loading. With the window closed it removes a reply marker, else it clears the input, and on an empty input it asks the core to cancel her running turn |
 | Ctrl+R | Search the history, and again for the next older match |
 | Ctrl+F | Search the transcript, and again for the next older match |
 | Alt+Up and Alt+Down | Jump to your line above or below |
@@ -43,16 +43,16 @@ The command line's account goes by `owner`, and the owner reaches her under the 
 | Ctrl+C | Copy the mouse selection when there is one, otherwise exit the CLI |
 | Ctrl+D on an empty input | Exit the CLI |
 
-The chat has no row of key hints. `/help` lists the commands. The Project Neptunia header has one line for each of the core, memory and the analyzer, in the form `Core: active · anthropic/claude-opus-4.6 · via claude-harness`, and a line for the enabled interfaces, such as `Interfaces: Discord (active)`. The model is the one the route runs: a role on a harness names the harness's model, and a role on the API names its configured model with the route `direct-api`. The analyzer runs on the API alone. `statusBrief` in `src/interface/commands/status-brief.ts` reads these facts from the pause, `memoryDb.session.mode`, the last memory probe, the key ring and the `subharness` records of `keys.json`, with no request. Each line is cut to the width.
+The chat has no row of key hints. `/help` lists the commands. The Project Neptunia header has one line for each of the core, memory and the analyzer, in the form `Core: active · anthropic/claude-opus-4.6 · via claude-harness`, and a line that names the interfaces that work, with no state word, such as `Interfaces: CLI, Discord`. The command line is always on it, so a fresh install reads `Interfaces: CLI`, and an interface that is disabled or disconnected is left out. The model is the one the route runs: a role on a harness names the harness's model, and a role on the API names its configured model with the route `direct-api`. The analyzer runs on the API alone. `statusBrief` in `src/interface/commands/status-brief.ts` reads these facts from the pause, `memoryDb.session.mode`, the last memory probe, the key ring and the `subharness` records of `keys.json`, with no request. Each line is cut to the width.
 
-Every line uses the same four state words (`statusLine` in `cli/state.ts`):
+The role lines use the same four state words (`statusLine` in `cli/state.ts`):
 
-| Word | Core | Memory | Analyzer | Interface |
-|---|---|---|---|---|
-| `active` | running, with a key or a harness | session in `apply` or `shadow`, probe passed or not yet run | a model and a key | connected |
-| `paused` | paused, with the reason beside it | | | |
-| `disabled` | | `memoryDb.session.mode` is `off` | no model | no interface enabled |
-| `error` | no key on `direct-api` | no key on `direct-api`, or the probe failed | no key | disconnected |
+| Word | Core | Memory | Analyzer |
+|---|---|---|---|
+| `active` | running, with a key or a harness | session in `apply` or `shadow`, probe passed or not yet run | a model and a key |
+| `paused` | paused, with the reason beside it | | |
+| `disabled` | | `memoryDb.session.mode` is `off` | no model |
+| `error` | no key on `direct-api` | no key on `direct-api`, or the probe failed | no key |
 
 A lost core connection marks every line `error (connection lost)`, the lines read `…` until the first report, and a report older than a minute is marked outdated. The input stays at the bottom as the terminal resizes. `/status` opens the detailed view. `NEPTUNIA_REDUCED_MOTION=1` stops the galaxy animation, and `NEPTUNIA_LINEAR=1` draws the plain column described under [Rendering](#rendering).
 
@@ -84,6 +84,12 @@ Every file of the chat stays with its line in the persona's data folder, as a pl
 
 `createKeptFetch` answers a `neptunia-media:` reference, and a staged reference whose file was kept, from the copy with a type taken from its name, for the core's image, video and audio readers and the text previews of a turn. The describer describes these items as it does any interface's: a picture gets its caption, a voice note its transcript, a video its summary, a text file its opening words, and the description is stored once on the item's row.
 
+## Replies
+
+A message that starts with a marker `[#N]` replies to line N of the chat, the number the transcript draws before each line. `[#34] text` and `[#00034] text` name the same line, because the leading zeros are ignored, and a marker anywhere but the start is the message's own text. A click on the grey `[#N]` of a line of the owner or of hers puts the marker `[#N] ` at the start of the draft, in place of the one it had. `markReply` in `cli/composer.ts` turns a typed or pasted marker into one chip once the blank after it is typed, as a collapsed paste is one chip: Backspace right after it removes the whole marker and the reply with it. Esc removes the marker and leaves the rest of the draft. While the draft starts with one, the status row reads `replying to #N`.
+
+Enter asks the core's `session.line` for line N, which answers its message id beside its files (`src/interface/commands/chat-state.ts`), so the number reaches any stored line, also one the screen does not show. A number no stored line holds sends nothing: the status row says `No line #N in this chat.` and the draft stays. A found line sends the text without the marker, with that message id as the line's reply parent (`say` in `bin/cli-link.ts`). The stored line, her `<chat>` and memory hold the text alone, memory keeps the parent as the line's `reply_to`, and the transcript draws `↳ #N` after the line's number. The input history keeps the marker, so Up brings the reply back whole.
+
 ## Links
 
 The chat sends the owner's line as he typed it, and the core reads its URLs before the line reaches the door (`src/interface/cli-line-links.ts`, called by `createCommandIntake` in `src/interface/neptunia-cli.ts`). The served interface's `links.parse` read decides which URL names a message: such a URL becomes a message reference, which the transcript shows as that line's `#n` when the message is in the window, and which the message tools resolve as they do a link pasted in Discord. Every other URL becomes a link item, up to 10 per line, in the shape the Discord interface gives a URL typed in a message. A URL on one of `media.video.sites` is watched like a video posted in Discord, and the first other URL of the line is read ahead of time by the web lookup (`src/pipeline/media-prefill.ts`). With no interface connected, or one that reads no message link, a message link stays a link item. The lines' links are read one after another, so a line never overtakes an earlier one, and a failed read lets the line go on as it was typed.
@@ -94,7 +100,11 @@ The chat sends the owner's line as he typed it, and the core reads its URLs befo
 
 The galaxy is drawn in a box of 13 by 5 cells that never shrinks, and a status line wider than the terminal is cut beside it. Every frame of the animation has the same size, so the title stays in its column. The title and the galaxy are drawn in the owner's red (`THEME.title` and `THEME.mark`), and the role lines beside them keep the terminal's own colour.
 
-`cli/chat-controller.ts` gives the transcript what the other parts leave: the transcript budget is `max(0, R - F - C - O)` (`transcriptBudget` in `cli/layout.ts`), with `R` the terminal's rows, `F` the header, notice and question rows, `C` the input with its borders, and `O` the slash menu and the open command window. Everything is counted in cells by `cli/layout.ts`: Backspace and the caret cross a whole grapheme, wrapping never splits a wide glyph, and the caret stands on the next row when its row is full. The input grows to at most 8 rows, then scrolls inside its box with the caret's row in view and a row counting what is hidden. Deleting rows gives them back to the transcript.
+`cli/chat-controller.ts` gives the transcript what the other parts leave: the transcript budget is `max(0, R - F - C - O)` (`transcriptBudget` in `cli/layout.ts`), with `R` the terminal's rows, `F` the header, the question rows and the status row, `C` the input with its borders, and `O` the slash menu with its blank row and rule, and the open command window. Everything is counted in cells by `cli/layout.ts`: Backspace and the caret cross a whole grapheme, wrapping never splits a wide glyph, and the caret stands on the next row when its row is full. The input grows to at most 8 rows, then scrolls inside its box with the caret's row in view and a row counting what is hidden. Deleting rows gives them back to the transcript.
+
+The status row is the one row under the input box, and it is drawn on every frame, blank when it has nothing to say, so no notice moves the input or the transcript (`statusRow` in `cli/chat-controller.ts`, drawn by `cli/app.ts`). It holds every short notice of the moment on one row, cut to the width and joined by ` · `: the notice of the last key, such as `copied 10 chars to clipboard`, a refused reply or an image that was not attached, in the warning style, then `replying to #N` while the draft starts with a reply marker, her running turn and the queue, and `↓ N rows below · Page Down` while the transcript is read further up. A notice goes with the next key.
+
+The slash menu opens under one blank row and a white rule the width of the terminal (`Menu` in `cli/chat-view.ts`, `THEME.rule`), so its first command never touches the last line of the chat or of the command window above it.
 
 `cli/transcript.ts` wraps each entry to the width and draws only the rows that fit, however long the session. Following the tail and reading further up are separate views. Page Up anchors the view to an entry and a row inside it, so a new answer or a resize leaves the reader in place, and reaching the end follows the tail again. An answer folds to at most 20 lines, fewer when the terminal has less room, so it starts on the screen. Ctrl+O changes one entry. An expanded last entry taller than the budget shows its newest rows, and Page Up reaches the rest. The full text stays in the entry.
 
@@ -108,15 +118,16 @@ A stored control character is drawn as one visible character (`displaySafe`), so
 
 ### Measured geometry
 
-These rows were read from frames the chat wrote into the fake terminal of `tests/fixtures/chat-rig.ts`, with one owner line, one reply and one command result. They count cells and rows, say nothing about pixels, and were taken without an emulator, a font or a theme. No comparison with another program's layout was made.
+These rows were read from frames the chat wrote into the fake terminal of `tests/fixtures/chat-rig.ts`, with one long reply and one command result, and are counted from row 0 at the top. They count cells and rows, say nothing about pixels, and were taken without an emulator, a font or a theme. No comparison with another program's layout was made.
 
 | Element | 80 by 24 | 40 by 18 | 20 by 6 | Linear, 80 by 24 |
 |---|---|---|---|---|
 | Header | 5 rows and 1 blank | 5 rows and 1 blank | None | 1 row |
-| Transcript budget | 15 rows | 9 rows | 3 rows | 22 rows |
-| Input with one row of text | 3 rows, on rows 21 to 23 | 3 rows, on rows 15 to 17 | 3 rows, on rows 3 to 5 | 1 row |
+| Transcript budget | 14 rows | 8 rows | 2 rows | 21 rows |
+| Input with one row of text | 3 rows, on rows 20 to 22 | 3 rows, on rows 14 to 16 | 3 rows, on rows 2 to 4 | 1 row, on row 22 |
+| Status row | row 23 | row 17 | row 5 | row 23 |
 | Text column of the input | 4 | 4 | 4 | 2 |
-| Command window, open | 7 rows, 5 of them its rows | 4 rows, 2 of them its rows | 1 row, its rows alone | 11 rows, 9 of them its rows |
+| Command window, open | 7 rows, 5 of them its rows | 4 rows, 2 of them its rows | 1 row, its rows alone | 10 rows, 8 of them its rows |
 
 The galaxy needs at least 16 rows and 40 columns. Below that the header is one line, and under 8 rows it goes.
 
@@ -138,9 +149,9 @@ Ctrl+G hands the terminal to the editor with the draft in a private temporary fi
 
 Raw mode clears `IXON` and `ISIG` (checked with `stty -a` under a pseudo-terminal), so Ctrl+S and Ctrl+Z reach the chat instead of the terminal's flow control and job control.
 
-`cli.mouse` (default `true`) takes the terminal's SGR mouse reports for buttons, the wheel and motion while a button is held (modes `1000`, `1002` and `1006`). `parseMouse` and `mouseFilter` in `cli/mouse.ts` take the reports out of the input before Ink sees them, and `ChatController.onMouse` in `cli/chat-controller.ts` acts on them. The wheel scrolls the chat or the command window under the pointer three rows a notch, or moves the slash menu while it is open. A click in the input places the caret on a whole character. `mouseAvailable` refuses tracking for `TERM=dumb` and the linear mode, and with it off Ink drops a stray report before it can reach the draft.
+`cli.mouse` (default `true`) takes the terminal's SGR mouse reports for buttons, the wheel and motion while a button is held (modes `1000`, `1002` and `1006`). `parseMouse` and `mouseFilter` in `cli/mouse.ts` take the reports out of the input before Ink sees them, and `ChatController.onMouse` in `cli/chat-controller.ts` acts on them. The wheel scrolls the chat or the command window under the pointer three rows a notch, or moves the slash menu while it is open. A click in the input places the caret on a whole character, and a click on a line's grey number makes the next message a reply to that line ([replies](#replies)). `mouseAvailable` refuses tracking for `TERM=dumb` and the linear mode, and with it off Ink drops a stray report before it can reach the draft.
 
-Tracking takes the terminal's own selection away, so the chat selects text itself. A drag over the transcript or the command window marks the cells it covers in inverse video, and releasing the button copies the text with an OSC 52 sequence (`osc52` in `cli/clipboard.ts`) and says `copied N chars to clipboard` on the notice row. The terminal does the copy, so it reaches the owner's own machine over SSH. A selection over several rows joins them with newlines, a click without a drag copies nothing, and Ctrl+C copies the selection again instead of leaving. The next key, click or wheel notch drops it. A terminal that ignores OSC 52 copies nothing, and tmux passes it on only with `set-clipboard on`. Shift with the mouse reaches the terminal's own selection in xterm, GNOME Terminal, Konsole, kitty, WezTerm and Windows Terminal, and Option does the same in iTerm2. Text is pasted with the terminal's own paste key, which arrives as a bracketed paste. Windows Terminal binds Ctrl+V to that paste, so Ctrl+V reaches the chat as an image attachment only in a terminal that leaves it unbound.
+Tracking takes the terminal's own selection away, so the chat selects text itself. A drag over the transcript or the command window marks the cells it covers in inverse video, and releasing the button copies the text with an OSC 52 sequence (`osc52` in `cli/clipboard.ts`) and says `copied N chars to clipboard` on the status row. The terminal does the copy, so it reaches the owner's own machine over SSH. A selection over several rows joins them with newlines, a click without a drag copies nothing, and Ctrl+C copies the selection again instead of leaving. The next key, click or wheel notch drops it. A terminal that ignores OSC 52 copies nothing, and tmux passes it on only with `set-clipboard on`. Shift with the mouse reaches the terminal's own selection in xterm, GNOME Terminal, Konsole, kitty, WezTerm and Windows Terminal, and Option does the same in iTerm2. Text is pasted with the terminal's own paste key, which arrives as a bracketed paste. Windows Terminal binds Ctrl+V to that paste, so Ctrl+V reaches the chat as an image attachment only in a terminal that leaves it unbound.
 
 ## Overlays and questions
 
@@ -154,7 +165,7 @@ Each slash command replaces the panel request before it. An answer of a request 
 
 `createTurnControl` in `src/turn/control.ts` owns the state of every line the chat or `neptunia -p` sends: accepted, queued, running, and committed, cancelled or failed. Each event names its turn and carries a rising `seq`. The core sends them to a client that asked with `turn.replay`, as a `command.result` of status `turn` (`src/protocol/turn-control.ts`), and `cli/turn-state.ts` builds the chat's picture from them and from nothing else. Her replies still arrive as messages, so the events carry the turn's state and the reply its words.
 
-A line goes through the event door when it arrives, like a message of any other interface (`src/interface/chat-turns.ts`). Memory observes it at once, and the pipeline's own queue decides when its turn runs: one turn at a time, with at most `mention.maxPending` calls waiting for `mention.pendingMinutes`. The control adds no helper model and holds no line back: it tracks the order and states the client shows, one turn running at a time. The row above the input shows what her running turn does now and how many lines wait: the names of the calls that began and have not returned, such as `using conversation.read`, or that her turn runs when no call does. A call's result never shows there, and the row goes when the core reports the turn's end. The same request id sent twice is one line. A failed turn leaves a line in the transcript, and the next line goes on.
+A line goes through the event door when it arrives, like a message of any other interface (`src/interface/chat-turns.ts`). Memory observes it at once, and the pipeline's own queue decides when its turn runs: one turn at a time, with at most `mention.maxPending` calls waiting for `mention.pendingMinutes`. The control adds no helper model and holds no line back: it tracks the order and states the client shows, one turn running at a time. The status row under the input shows what her running turn does now and how many lines wait: the names of the calls that began and have not returned, such as `using conversation.read`, or that her turn runs when no call does. A call's result never shows there, and the turn leaves the row when the core reports its end. The same request id sent twice is one line. A failed turn leaves a line in the transcript, and the next line goes on.
 
 A line that waits is already said, so its text cannot be edited, and `/queue` offers no edit. Enter on a row of `/queue` cancels the turn over that line, and the line stays in memory, where she can read it. A cancel of a waiting line acknowledges at once, and when the pipeline reaches it the runner ends its turn before any request.
 
