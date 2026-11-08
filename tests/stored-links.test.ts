@@ -17,6 +17,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
+import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 // The Discord interface's capabilities object, as src/index.ts injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -332,7 +333,7 @@ function opsEnv(store: ReturnType<typeof tmpStore>) {
   const rootDir = tempDir('nep-links-ops-');
   const hot = {
     config: {
-      bot: { owners: ['42'] },
+      bot: { ownerPerson: OWNER_PERSON },
       llm: { model: 'x/y', maxRequestsPerDay: 10 },
       memory: { confirmAfter: 2 },
       lore: {},
@@ -385,3 +386,6 @@ test('ops lore.add: a text that is only a link is refused and stores nothing', a
   assert.notEqual(asRecord(result).ok, true);
   assert.deepEqual(store.getLore(placeOfRoot(store, 'g1')), []);
 });
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy(['42']);

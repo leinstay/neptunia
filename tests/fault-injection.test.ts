@@ -37,6 +37,7 @@ import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { wakeOf } from '../src/memory/db/wake-queue.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
+import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 /** The memory database of each data directory used here (a restart opens the same one); closed when the file is done. */
 const MEMORY = new Map<string, ReturnType<typeof openTestMemorySync>>();
@@ -324,7 +325,7 @@ function hotWith({
 } = {}) {
   return {
     config: {
-      bot: { timezone, dryRunChannelId: '', owners: ['u1'], access: personaGrants(grants) },
+      bot: { timezone, dryRunChannelId: '', ownerPerson: OWNER_PERSON, access: personaGrants(grants) },
       context: {
         channelMessages: 100,
         neighborMessages: 5,
@@ -1440,3 +1441,6 @@ test('row 15: a send times out and the message is in the chat -- nothing is told
   );
   assertNoSilentFailure(missing.run);
 });
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy(['u1']);

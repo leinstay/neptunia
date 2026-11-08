@@ -19,6 +19,7 @@ import { drawPicture, drawPromptOf } from '../src/media/draw.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
 import { planAnswerText } from './fixtures/plan-answer.ts';
+import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 
@@ -48,7 +49,7 @@ function hot() {
     // PR 7d: the switches are code, the daily caps are gone and the diary's kinds and sets are constants of
     // src/behavior/selfreflection.ts (`photoset` is a set of 4 to 6 pictures), so only the settings stay.
     config: {
-      bot: { timezone: TZ, owners: ['42'] },
+      bot: { timezone: TZ, ownerPerson: OWNER_PERSON },
       context: {
         channelMessages: 50,
         caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
@@ -477,3 +478,6 @@ test("drawPicture: a failure is the image client's own error, unwrapped", async 
     );
   }
 });
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy(['42']);

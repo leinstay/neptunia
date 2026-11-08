@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -158,7 +159,7 @@ export async function toolDecisions(): Promise<DecisionTable> {
     features: { ...featuresState },
     skills: { safeMode, destructiveCooldownMinutes: 10 },
     tools: { safeMode, destructiveCooldownMinutes: 10 },
-    bot: { owners: [OWNER], access: granted ? grants(everyone) : {} },
+    bot: { ownerPerson: OWNER_PERSON, access: granted ? grants(everyone) : {} },
     // The heartbeat's envelope is keys of its own section; every other kind's sits under `wakes.kinds`.
     wakes: {
       kinds: Object.fromEntries(
@@ -234,7 +235,7 @@ export async function toolDecisions(): Promise<DecisionTable> {
     {
       name: 'shipped-owner-here',
       about: 'The shipped config.json, the owner listed and asking',
-      config: { ...clone(shipped), bot: { ...clone(shipped.bot), owners: [OWNER] } },
+      config: { ...clone(shipped), bot: { ...clone(shipped.bot), ownerPerson: OWNER_PERSON } },
       requester: { id: OWNER },
       context: budgets.open,
     },
@@ -412,3 +413,6 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
     process.stdout.write(`${JSON.stringify(table, null, 1)}\n`);
   }
 }
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy([OWNER]);

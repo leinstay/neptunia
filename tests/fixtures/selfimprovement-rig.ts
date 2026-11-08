@@ -16,6 +16,7 @@ import type { BoardCaller } from '../../src/tools/operations/board.ts';
 import { createDiscordInterface } from '../../interfaces/discord/index.ts';
 import { withCapturedLogs } from './capture-logs.ts';
 import { tempDir } from './tmp.ts';
+import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 
 export const SELFIMPROVEMENT_T0 = Date.parse('2026-11-02T10:00:00Z');
 export const PR_URL = 'https://github.com/example/engine/pull/12';
@@ -148,7 +149,7 @@ type Result = { status: string; summary?: string; data?: unknown };
 /** Her tool calls as the operations' environment runs them, with the board the core gives it. */
 export function herCalls(caller: BoardCaller) {
   const hot = {
-    config: { bot: { owners: ['42'], access: {} }, features: {} },
+    config: { bot: { ownerPerson: OWNER_PERSON, access: {} }, features: {} },
     prompts: { labels: {} },
     rootDir: tempDir('nep-selfimprovement-root-'),
     reloadConfig: () => true,
@@ -231,3 +232,6 @@ export function landTaskDirectly(
   caller.call('selfimprovement', 'task.review', { id: task.id, decision: 'accept' });
   return task.id;
 }
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy(['42']);

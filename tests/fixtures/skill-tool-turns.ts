@@ -19,6 +19,7 @@ import { wrongly } from './loose-types.ts';
 import { tempDir } from './tmp.ts';
 import { completionOf } from './tool-answers.ts';
 import { freshWorld, onWorld, useIface, world } from './turn-world.ts';
+import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 
@@ -122,7 +123,7 @@ export async function skillTurn({
     config: {
       bot: {
         timezone: 'UTC',
-        owners: ['u1'],
+        ownerPerson: OWNER_PERSON,
         access: Object.fromEntries(grants.map((name) => [name, { everyone: false, roles: [], users: ['self-id'] }])),
       },
       context: {
@@ -271,3 +272,6 @@ export async function skillTurn({
     logs,
   };
 }
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy(['u1']);
