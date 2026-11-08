@@ -525,6 +525,13 @@ test('apply: a mode the writer does not know is refused; a version moved meanwhi
   }
 });
 
+/** The user message of the first call a fake llm saw: the draft request. */
+function draftUserOf(calls: ReadonlyArray<unknown>): string {
+  const [first] = wrongly<Array<{ messages: Array<{ content: string }> }>>(calls);
+  const [, user] = first?.messages ?? [];
+  return user?.content ?? '';
+}
+
 /** A direct chat with no claims about it: its lines, one line of another direct chat and one of a group channel. */
 function chatFixture() {
   const handle = openMemoryDb(':memory:');
@@ -580,9 +587,7 @@ test('a direct chat with no claims about it is reviewed from its own lines', asy
     await reviewDescription(wrongly(chat.db), { kind: 'place', id: 'discord:dm:n1' }, 'purpose', {
       ctx: wrongly({ ...ctxOf(env, wrongly({ llm })), readCtx: chat.readCtx }),
     });
-    const [draft] = llm.calls;
-    const [, user] = draft.messages;
-    const draftUser = user.content;
+    const draftUser = draftUserOf(llm.calls);
     assert.match(draftUser, /2026-10-20 08:00: shall we test the drawing again/);
     assert.match(draftUser, /2026-10-20 08:01: Nep: send me the photo first/);
   } finally {
@@ -599,9 +604,7 @@ test('a direct chat review reads no line of another chat', async () => {
     await reviewDescription(wrongly(chat.db), { kind: 'place', id: 'discord:dm:n1' }, 'purpose', {
       ctx: wrongly({ ...ctxOf(env, wrongly({ llm })), readCtx: chat.readCtx }),
     });
-    const [draft] = llm.calls;
-    const [, user] = draft.messages;
-    const draftUser = user.content;
+    const draftUser = draftUserOf(llm.calls);
     assert.doesNotMatch(draftUser, /secret of the other chat|public room/);
   } finally {
     chat.done();
