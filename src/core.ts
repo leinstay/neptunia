@@ -105,6 +105,7 @@ import {
 } from './interface/link.ts';
 import { createCommandDesk, createCommandIntake, coreStatusFacts } from './interface/neptunia-cli.ts';
 import { createChatState } from './interface/commands/chat-state.ts';
+import { videoSitesOf, withLineLinks } from './interface/cli-line-links.ts';
 import type { ChatState } from './interface/commands/chat-state.ts';
 import { createChatSessions } from './chat/sessions.ts';
 import { createChatStore } from './chat/store.ts';
@@ -179,6 +180,7 @@ import type {
   ReactionChanged,
   SchedulerTick,
   VoiceChanged,
+  Message,
 } from './protocol/events.ts';
 import type { resolvePaths } from './paths.ts';
 import type { InterfaceHost, RunningInterface } from './protocol/host.ts';
@@ -724,6 +726,13 @@ async function buildCore(
     linesHeld: () => isPausedIn(store),
     isAnyTurnRunning: () => turns.isAnyBusy(),
     chatCommands: (name: string, args: Record<string, unknown>) => chatState?.command(name, args) ?? null,
+    // The served interface reads which URL names a message (`parseLinks`), read once a line arrives: `reads` is made
+    // below, before the door the line waits for.
+    lineLinks: (message) =>
+      withLineLinks(message as unknown as Message, {
+        videoSites: videoSitesOf(hot.config),
+        parseLinks: (texts) => reads.parseLinks(texts),
+      }),
     log,
   });
   const linkServer = await listenSocket({

@@ -391,6 +391,8 @@ export function createCommandIntake(deps: {
   isAnyTurnRunning?(): boolean;
   /** The chat's other reads (src/interface/commands/chat-state.ts): an answer, or null for a name it does not own. */
   chatCommands?(name: string, args: Record<string, unknown>): Promise<Answer> | null;
+  /** The owner's line with the link items of its URLs (src/interface/cli-line-links.ts); absent, it goes on as sent. */
+  lineLinks?: (message: Loose) => Promise<Loose>;
   log: Logger;
 }): {
   doorOf(link: () => AdapterLink): LinkDoor;
@@ -413,6 +415,27 @@ export function createCommandIntake(deps: {
   });
   let chatLink: AdapterLink | null = null;
   const lines = new Map<string, AdapterLink>();
+  // The lines' link reads one after another, so a line without links never overtakes an earlier one.
+  let linkTail: Promise<unknown> = Promise.resolve();
+
+  /** The envelope of a line with its link items, or as it came when the reading fails. */
+  function withLinks(value: unknown, body: Loose, message: Loose): Promise<unknown> {
+    const read = deps.lineLinks;
+    if (read === undefined) return Promise.resolve(value);
+    const next = linkTail.then(async () => {
+      try {
+        // What the reading needs exists once the core is ready.
+        await deps.ready();
+        const envelope = looseOf(value);
+        return { ...envelope, body: { ...body, message: await read(message) } };
+      } catch (err) {
+        deps.log.warn('commands: links of a line not read', { error: err });
+        return value;
+      }
+    });
+    linkTail = next;
+    return next;
+  }
 
   /** Answers the line `id` once, on the link that sent it. */
   function answerLine(id: string, status: string, text: string): void {
@@ -435,9 +458,10 @@ export function createCommandIntake(deps: {
     const message = looseOf(body.message);
     // A malformed line goes to the door alone, which refuses it: it has no turn to track.
     if (!validateEvent(body).ok) return deps.door.receive(value, from);
+    const linked = await withLinks(value, body, message);
     return turns.take({
       id,
-      value: value as Envelope,
+      value: linked as Envelope,
       message,
       ...(from === undefined ? {} : { from }),
       onHeld: () => answerLine(id, 'paused', 'the core is paused: the line waits for /resume'),

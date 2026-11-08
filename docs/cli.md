@@ -66,6 +66,10 @@ An image is staged before it joins the draft, as a chip such as `[image chart.pn
 
 An image the persona sends is kept the same way, up to 10 MiB, and the transcript shows its name and text alternative. `/attach open` opens the newest one with `xdg-open` or `open`, and `/attach save <file>` writes it to a file. A failure says why, and the same command tries again. The plain chat and `-p` print `[image <name>]` and the path of the kept file.
 
+## Links
+
+The chat sends the owner's line as he typed it, and the core reads its URLs before the line reaches the door (`src/interface/cli-line-links.ts`, called by `createCommandIntake` in `src/interface/neptunia-cli.ts`). The served interface's `links.parse` read decides which URL names a message: such a URL becomes a message reference, which the transcript shows as that line's `#n` when the message is in the window, and which the message tools resolve as they do a link pasted in Discord. Every other URL becomes a link item, up to 10 per line, in the shape the Discord interface gives a URL typed in a message. A URL on one of `media.video.sites` is watched like a video posted in Discord, and the first other URL of the line is read ahead of time by the web lookup (`src/pipeline/media-prefill.ts`). With no interface connected, or one that reads no message link, a message link stays a link item. The lines' links are read one after another, so a line never overtakes an earlier one, and a failed read lets the line go on as it was typed.
+
 ## Rendering
 
 `runInteractive` in `cli/index.ts` draws the chat on the terminal's alternate screen, with Ink's `alternateScreen` option, so no frame reaches the terminal's scrollback and the shell's screen comes back as it was. The root box is exactly the terminal's height with its overflow hidden, so a frame never scrolls the screen. Ctrl+C, Ctrl+D, a SIGINT and a SIGTERM unmount the app, which leaves the alternate screen and turns mouse tracking off. A crash ends the process before the app unmounts, and a handler on the process's `exit` event writes the same sequences then. The linear mode stays inline, so a screen reader finds the column in the terminal's history.
