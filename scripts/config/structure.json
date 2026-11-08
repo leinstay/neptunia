@@ -439,6 +439,7 @@
         "src/interface/members.ts",
         "src/interface/neptunia-cli.ts",
         "src/interface/owner-pairing.ts",
+        "src/interface/person-link.ts",
         "src/interface/commands/chat-state.ts",
         "src/interface/commands/console.ts",
         "src/interface/commands/status-brief.ts",

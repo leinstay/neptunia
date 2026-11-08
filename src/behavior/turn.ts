@@ -313,6 +313,7 @@ export function createTurnRunner({
   // The memory's read handle while it is open, for `<my_day>` (src/turn/request/my-day.ts); null: no block.
   journalDb = null,
   ownerAccount = null,
+  personLinks = null,
   memoryContext = null,
   // Her attention, one turn at a time (src/behavior/attention.ts mirrors it as leases; a plain set without them), the model roles that are down (src/llm/role-health.ts, her tool roles route on it); null: none.
   attention = new Set(),
@@ -572,6 +573,8 @@ export function createTurnRunner({
     lookupRing,
   });
   const { readHistory, noteThink, stepTranscript, runSteps } = createToolRound({
+    isWithheld:
+      personLinks === null ? null : (iface, chatId, messageId) => personLinks.isWithheld(iface, chatId, messageId),
     hot,
     llm,
     calibrator,
@@ -590,6 +593,7 @@ export function createTurnRunner({
     act,
   });
   const { inTurnTools } = createInTurnTools({
+    personLinks,
     hot,
     store,
     lookup,

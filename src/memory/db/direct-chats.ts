@@ -28,7 +28,7 @@ export type DirectChats =
 const PERSON_NODE = 'person:';
 
 /** The people whose account has the member handle `handle` (its prefix and base-36 digits). */
-function peopleOfHandle(db: Db, handle: string): Set<string> {
+export function peopleOfHandle(db: Db, handle: string): Set<string> {
   const people = new Set<string>();
   if (!new RegExp(`^${HANDLE_PREFIX}[0-9a-z]+$`).test(handle)) return people;
   const digits = handle.length - HANDLE_PREFIX.length;

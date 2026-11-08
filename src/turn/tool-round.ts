@@ -93,6 +93,8 @@ type Calibrator = { apply: (estimate: number) => number; ratio: number };
 
 /** What createToolRound reads: the dependencies and the functions of the other topic modules it calls. */
 export type ToolRoundContext = {
+  /** A message that carried a link code (src/interface/person-link.ts#isWithheld); absent, none is. */
+  isWithheld?: ((iface: string, chatId: string, messageId: string) => boolean) | null;
   hot: { readonly config: ToolRoundConfig; readonly prompts: { labels?: RoundLabels } | null | undefined };
   llm: RoundLlm;
   calibrator: Calibrator;
@@ -307,11 +309,16 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           log,
         }
       : null;
-    // Her line that carries a one-time code is no speech of hers, and a code never reaches a request.
-    return historyLines(ifaceReads, chatOf(channel), {
+    // Her line that carries a one-time code is no speech of hers, a message that answered a link code is withheld, and
+    // a code never reaches a request.
+    const ref = chatOf(channel);
+    const isHidden = (line: Line): boolean =>
+      (line.self && hasCodeLine(hot.prompts, line.content)) ||
+      ctx.isWithheld?.(ref.iface, ref.chatId, line.id) === true;
+    return historyLines(ifaceReads, ref, {
       limit: inner ? innerSettings(config).chatMessages : config.context.channelMessages,
       names,
-    }).then((lines) => lines.filter((line) => !(line.self && hasCodeLine(hot.prompts, line.content))));
+    }).then((lines) => lines.filter((line) => !isHidden(line)));
   }
 
   /**

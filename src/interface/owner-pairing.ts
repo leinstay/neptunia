@@ -83,9 +83,12 @@ export function isCodeText(template: string, content: unknown): boolean {
   return new RegExp(`^${pattern}$`, 'su').test(content.trim());
 }
 
-/** True when `content` carries a one-time code as one of the code labels words it (`labels.pairing.code`). */
+/** True when `content` carries a one-time code as a code label words it: `labels.pairing.code` or `labels.link.code`. */
 export function hasCodeLine(prompts: unknown, content: unknown): boolean {
-  return isCodeText(labelOf(prompts, 'code'), content);
+  const labels = isRecord(prompts) ? prompts.labels : null;
+  const link = isRecord(labels) ? labels.link : null;
+  const linkCode = isRecord(link) && typeof link.code === 'string' ? link.code : '';
+  return isCodeText(labelOf(prompts, 'code'), content) || isCodeText(linkCode, content);
 }
 
 /** A direct chat of one person, the only place an account asks for a code. */

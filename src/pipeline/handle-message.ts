@@ -25,12 +25,13 @@ import type { Line, MessageReadOptions, PipelineHot, PipelineMissed, PipelineSta
 const CATCH_UP_IDS_KEPT = 1000;
 
 /**
- * What the door asks of a new line before anything else reads it: the owner's pairing (src/interface/owner-pairing.ts)
- * answers a direct message with a one-time code and has the line only observed, and her own line that carries a code
- * reaches neither memory nor a turn.
+ * What the door asks of a new line before anything else reads it: her link tool (src/interface/person-link.ts) drops
+ * the right code of the account that asked, the owner's pairing (src/interface/owner-pairing.ts) answers a direct
+ * message with a one-time code and has the line only observed, and her own line that carries a code reaches neither
+ * memory nor a turn.
  */
 export type DoorScreen = {
-  screen(event: MessageEvent): Promise<'pass' | 'observe'>;
+  screen(event: MessageEvent): Promise<'pass' | 'observe' | 'drop'>;
   isCodeLine(content: unknown): boolean;
 };
 
@@ -167,8 +168,10 @@ export function createHandleMessage({
         }
       }
 
-      // 1c. A line the screen answered itself (a pairing request) is observed and goes no further.
-      if (!catchUp && door !== null && (await door.screen(event)) === 'observe') {
+      // 1c. A line the screen took goes no further: a link code is dropped whole, a pairing request only observed.
+      const screened = catchUp || door === null ? 'pass' : await door.screen(event);
+      if (screened === 'drop') return 'ignored';
+      if (screened === 'observe') {
         const chat = { ...event.chat, partnerId: event.chat.partnerId ?? String(writer?.id ?? '') };
         const observing = observeLine(
           event,

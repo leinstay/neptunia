@@ -1,5 +1,5 @@
 // Her in-turn tools for one turn: `web.search`, `web.read`, `media.look`, `media.find`, `memory.search`,
-// `conversation.read`, `draw.create` and a selfreflection post's `voice.say`, each run over the turn's own context in place of
+// `conversation.read`, `draw.create`, `person.link` and a selfreflection post's `voice.say`, each run over the turn's own context in place of
 // the operation's command (src/tools/executors.ts#executeCall). createTurnRunner (src/behavior/turn.ts) builds it once
 // per runner with createInTurnTools; the attempt hands the tools to its calls.
 
@@ -39,6 +39,7 @@ import { fill } from '../format.ts';
 import { searchHandles } from './calls.ts';
 import type { SearchRefs } from './calls.ts';
 import type { DrawGif } from './draw-gif.ts';
+import type { PersonLinks } from '../interface/person-link.ts';
 import type { JournalNotes } from './journal-notes.ts';
 import { inRoot } from './routing.ts';
 import type { TriggerKind } from './triggers.ts';
@@ -82,6 +83,8 @@ export type InTurnToolsContext = {
   placeReads?: Pick<FrameReads, 'placeReadable' | 'around' | 'directChats' | 'mind' | 'account'> | null;
   linkCalls: JournalNotes['linkCalls'];
   drawTool: DrawGif['drawTool'];
+  /** Her link tool over the account she talks with (src/interface/person-link.ts); absent, `person.link` is not offered. */
+  personLinks?: Pick<PersonLinks, 'start'> | null;
 };
 
 /** What an attempt's draft holds that the in-turn tools read. */
@@ -176,6 +179,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     placeReads = null,
     linkCalls,
     drawTool,
+    personLinks = null,
   } = ctx;
 
   /**
@@ -210,6 +214,19 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       cachedMessage(call?.messageRef, messageId, draft?.searchRefs, history ?? [], chatOf(channel));
     return {
       'draw.create': (args) => routes.tool('drawing', (model) => drawTool(args, where, model)),
+      // The account she links is the one she answers, in the conversation she stands in.
+      'person.link': (args) => {
+        const native = trigger?.authorId ?? null;
+        if (personLinks === null) return { status: 'not_configured', code: CODE.UNSUPPORTED };
+        if (native === null) return { status: 'invalid', code: CODE.TARGET_REQUIRED };
+        const iface = chatOf(channel).iface;
+        return personLinks.start({
+          iface,
+          native,
+          chatId: channel.id,
+          person: typeof args.person === 'string' ? args.person : '',
+        });
+      },
       // The attempt always hands its draft to a selfreflection post's tools.
       ...(mode === 'selfreflection' ? selfreflectionVoiceTool({ speech, held: draft as InTurnDraft }) : {}),
       'web.search': (args) =>

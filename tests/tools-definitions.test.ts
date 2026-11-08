@@ -74,7 +74,8 @@ test('the table holds every operation, in the operations registry order', () => 
   // Two more since the board tools task.propose and task.status (PR 6c).
   // And skill.run of the executable skills, and task.cancel, task.comment and task.answer of her wake.
   // Changed: task.unblock is the 77th tool.
-  assert.equal(SKILL_DEFINITIONS.length, 75);
+  // 76 since `person.link` (plan 2026-11-08-meta-person slice 8): one operation, one row.
+  assert.equal(SKILL_DEFINITIONS.length, 76);
   assert.deepEqual(
     SKILL_DEFINITIONS.map((definition) => definition.name),
     listOps().map((op) => op.name)
@@ -196,12 +197,12 @@ test('the result of a skill: job for the two background ones, data for a read, e
   }
 });
 
-test('the API names: 75, well-formed, unique, a round trip, no longer than 64', () => {
+test('the API names: 76, well-formed, unique, a round trip, no longer than 64', () => {
   // Two more since the board tools task.propose and task.status (PR 6c).
   const apis = SKILL_DEFINITIONS.map((definition) => definition.api);
   // Changed: task.unblock is the 77th tool.
-  assert.equal(apis.length, 75);
-  assert.equal(new Set(apis).size, 75);
+  assert.equal(apis.length, 76);
+  assert.equal(new Set(apis).size, 76);
   for (const definition of SKILL_DEFINITIONS) {
     assert.match(definition.api, /^[a-zA-Z0-9_-]{1,64}$/);
     assert.equal(apiNameOf(definition.name), definition.api);
