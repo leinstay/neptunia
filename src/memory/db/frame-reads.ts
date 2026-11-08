@@ -1,8 +1,8 @@
 // The reads of a request built on the turn frame beside the graph reader (src/memory/db/mind-read.ts): her own last
 // lines in other places and the lines around one line for `<meanwhile>`, one stored line by its identity for a
-// reference in a stored text or by its source row for a lookup's source, the stored fields of a place for `<surroundings>`, an interface's name and nouns and her
-// past selfreflection entries for a selfreflection request's `<selfreflection>`. Each
-// read applies the turn's context (`whereFor`), so nothing a scope may not read leaves here. Read only.
+// reference in a stored text, whether a lookup's source is retired, the stored fields of a place for `<surroundings>`,
+// an interface's name and nouns and her past selfreflection entries for a selfreflection request's `<selfreflection>`.
+// Each read applies the turn's context (`whereFor`), so nothing a scope may not read leaves here. Read only.
 
 import { nativeOfAny } from './ids.ts';
 import { directChatsOf } from './direct-chats.ts';
@@ -157,22 +157,8 @@ export type IdentityLine = FrameLine & {
  */
 export function lineOfIdentity(db: Db, ctx: Context, key: string): IdentityLine | null {
   const match = /^src:([^:]+):(.+)$/.exec(key);
-  return match ? lineOfMessage(db, ctx, match[1], match[2]) : null;
-}
-
-/**
- * The line of the message a source row holds, found by the row's `iface` and `native_id`, as lineOfIdentity reads it.
- * Null for a source id no row holds and for a line the context cannot read.
- */
-export function lineOfSource(db: Db, ctx: Context, sourceId: string): IdentityLine | null {
-  const row = db.prepare('SELECT iface, native_id FROM sources WHERE id = ?').get(sourceId);
-  const iface = text(row?.iface);
-  const native = text(row?.native_id);
-  return iface === null || native === null ? null : lineOfMessage(db, ctx, iface, native);
-}
-
-/** The line of an interface's message id at its newest revision the context reads, `deleted` when it was deleted. */
-function lineOfMessage(db: Db, ctx: Context, iface: string, native: string): IdentityLine | null {
+  if (!match) return null;
+  const [, iface, native] = match;
   const where = whereFor(ctx, 's');
   const rows = db
     .prepare(
@@ -193,6 +179,23 @@ function lineOfMessage(db: Db, ctx: Context, iface: string, native: string): Ide
     revision: Number(line.revision ?? 1) || 1,
     deleted: rows.some((row) => row.kind === 'deleted'),
   };
+}
+
+/**
+ * Whether the line of the message a source row holds is gone, found by the row's `iface` and `native_id` in one query:
+ * true when the context reads no live revision of it or reads its deletion, and for a source id no row holds. The same
+ * verdict as a null or deleted lineOfIdentity, without reading the line itself.
+ */
+export function sourceRetiredOf(db: Db, ctx: Context, sourceId: string): boolean {
+  const where = whereFor(ctx, 's');
+  const row = db
+    .prepare(
+      `SELECT MAX(s.kind = 'deleted') AS gone, MAX(s.kind <> 'deleted') AS live
+       FROM sources r JOIN sources s ON s.iface = r.iface AND s.native_id = r.native_id
+       WHERE r.id = ? AND s.kind IN ('seen', 'said', 'deleted') AND s.retired_at IS NULL AND ${where.sql}`
+    )
+    .get(sourceId, ...where.params);
+  return row?.live !== 1 || row.gone === 1;
 }
 
 /** The current stored fields of a place the context reads, by field name, a one-to-one chat's before a group's. */
@@ -296,8 +299,8 @@ export type FrameReads = {
   ownLines(ctx: Context, exceptPlace: string | null, limit: number): Array<FrameLine & PlacePath>;
   around(ctx: Context, placeId: string, at: number, count: number): Array<FrameLine>;
   line(ctx: Context, key: string): IdentityLine | null;
-  /** The line of the message a source row holds (lineOfSource). */
-  sourceLine?(ctx: Context, sourceId: string): IdentityLine | null;
+  /** Whether the line of the message a source row holds is gone (sourceRetiredOf). */
+  sourceRetired?(ctx: Context, sourceId: string): boolean;
   placeFields(ctx: Context, placeId: string): Record<string, string>;
   /** The description versions `placeFields` renders (placeVersionsOf). */
   placeVersions?(ctx: Context, placeId: string): Array<string>;
@@ -350,7 +353,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     ownLines: (ctx, exceptPlace, limit) => over([], (db) => ownLinesOf(db, ctx, exceptPlace, limit)),
     around: (ctx, placeId, at, count) => over([], (db) => linesAroundOf(db, ctx, placeId, at, count)),
     line: (ctx, key) => over(null, (db) => lineOfIdentity(db, ctx, key)),
-    sourceLine: (ctx, sourceId) => over(null, (db) => lineOfSource(db, ctx, sourceId)),
+    sourceRetired: (ctx, sourceId) => over(true, (db) => sourceRetiredOf(db, ctx, sourceId)),
     placeFields: (ctx, placeId) => over({}, (db) => placeFieldsOf(db, ctx, placeId)),
     placeVersions: (ctx, placeId) => over([], (db) => placeVersionsOf(db, ctx, placeId)),
     interfaceNames: (iface) => over({ name: null, nouns: {} }, (db) => interfaceNamesOf(db, iface)),

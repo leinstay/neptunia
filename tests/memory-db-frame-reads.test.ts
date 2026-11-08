@@ -1,10 +1,10 @@
-// Tests for src/memory/db/frame-reads.ts: a stored line read by its source row, which gives the line's interface and
-// message id from the row's `iface` and `native_id` columns, and the source row id each line around a moment carries.
-// No reader cuts these out of the text of a source id. Synthetic SQLite rows over the mind-world fixture.
+// Tests for src/memory/db/frame-reads.ts: whether a source's line is retired, found through the source row's `iface`
+// and `native_id` columns, and the source row id each line around a moment carries. No reader cuts these out of the
+// text of a source id. Synthetic SQLite rows over the mind-world fixture.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { insertRows } from '../src/memory/db/rows.ts';
-import { linesAroundOf, lineOfSource } from '../src/memory/db/frame-reads.ts';
+import { linesAroundOf, sourceRetiredOf } from '../src/memory/db/frame-reads.ts';
 import { internalContext } from '../src/memory/db/scope.ts';
 import { addRoom, noteInterface, openWorld, rootId } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
@@ -38,21 +38,18 @@ function roomWithLine(world: World, { id, native, revision = 1 }: { id: string; 
   return room;
 }
 
-test('a line read by its source row takes the message id and revision from the row, whatever the id spells', () => {
+test('the line of a source stored under an opaque id is live while its message stands', () => {
   // Bug: the reader cut the message id out of the source id's text, so a line stored under an opaque id read as gone.
   const world = openWorld();
   try {
     roomWithLine(world, { id: 'source:opaque-1', native: 'm-42', revision: 2 });
-    const line = lineOfSource(world.db, internalContext(), 'source:opaque-1');
-    assert.equal(line?.id, 'm-42');
-    assert.equal(line?.revision, 2);
-    assert.equal(line?.deleted, false);
+    assert.equal(sourceRetiredOf(world.db, internalContext(), 'source:opaque-1'), false);
   } finally {
     world.close();
   }
 });
 
-test('a line read by its source row is marked deleted when its message was deleted', () => {
+test('the line of a source is retired when its message was deleted', () => {
   // Bug: a deleted message read by its source keeps its lookup in <recall> as if the line were there.
   const world = openWorld();
   try {
@@ -76,18 +73,18 @@ test('a line read by its source row is marked deleted when its message was delet
         },
       ],
     });
-    assert.equal(lineOfSource(world.db, internalContext(), 'source:opaque-2')?.deleted, true);
+    assert.equal(sourceRetiredOf(world.db, internalContext(), 'source:opaque-2'), true);
   } finally {
     world.close();
   }
 });
 
-test('a source id no row holds reads as no line', () => {
+test('a source id no row holds is retired', () => {
   // Bug: a source id of the `src:` shape is respelled into a message id and finds a line of another source.
   const world = openWorld();
   try {
     roomWithLine(world, { id: 'source:opaque-3', native: 'm-44' });
-    assert.equal(lineOfSource(world.db, internalContext(), 'src:fake:m-44:1:seen'), null);
+    assert.equal(sourceRetiredOf(world.db, internalContext(), 'src:fake:m-44:1:seen'), true);
   } finally {
     world.close();
   }

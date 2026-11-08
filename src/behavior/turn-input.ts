@@ -70,7 +70,7 @@ export const TURN_INPUT_KEYS: ReadonlyArray<string> = Object.freeze([
   'meanwhileReads',
   'surroundings',
   'refLineOf',
-  'refSourceLineOf',
+  'isSourceRetired',
 ]);
 
 const KNOWN = new Set(TURN_INPUT_KEYS);

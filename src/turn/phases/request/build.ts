@@ -42,7 +42,8 @@ import type { Lookup } from '../../calls.ts';
 import { meanwhileSettingsOf, meanwhileWindows } from '../../request/meanwhile.ts';
 import type { MeanwhileReads, MeanwhileWindow } from '../../request/meanwhile.ts';
 import type { SurroundingsInput } from '../../request/reader.ts';
-import type { LineOf, SourceLineOf } from '../../request/refs.ts';
+import type { LineOf } from '../../request/refs.ts';
+import type { SourceRetired } from '../../request/reader.ts';
 import type { Message } from '../../request/types.ts';
 
 /** The request as buildRequest builds it. */
@@ -206,7 +207,7 @@ type FramedInputs = {
   meanwhileReads: MeanwhileReads | null;
   surroundings: SurroundingsInput | null;
   refLineOf: LineOf | null;
-  refSourceLineOf: SourceLineOf | null;
+  isSourceRetired: SourceRetired | null;
 };
 
 const NO_FRAMED: FramedInputs = {
@@ -215,7 +216,7 @@ const NO_FRAMED: FramedInputs = {
   meanwhileReads: null,
   surroundings: null,
   refLineOf: null,
-  refSourceLineOf: null,
+  isSourceRetired: null,
 };
 
 /**
@@ -335,11 +336,8 @@ function framedInputsOf(
     const line = reads.line(memoryContext, key);
     return line ? { ...line, messageId: line.id } : null;
   };
-  const refSourceLineOf: SourceLineOf | null = reads.sourceLine
-    ? (sourceId) => {
-        const line = reads.sourceLine?.(memoryContext, sourceId) ?? null;
-        return line ? { ...line, messageId: line.id } : null;
-      }
+  const isSourceRetired: SourceRetired | null = reads.sourceRetired
+    ? (sourceId) => reads.sourceRetired?.(memoryContext, sourceId) ?? true
     : null;
   // Her posted words read a line's identity back under the same context (src/turn/sends.ts#renderPost).
   draft.frameRefs = { lineOf: refLineOf, placeId: place.id, timezone: frame.timezone };
@@ -360,7 +358,7 @@ function framedInputsOf(
       ],
     },
     refLineOf,
-    refSourceLineOf,
+    isSourceRetired,
   };
 }
 
@@ -461,7 +459,7 @@ function serviceInputsOf(
     const line = reads.line(memoryContext, key);
     return line ? { ...line, messageId: line.id } : null;
   };
-  return { mind, lookups: [], meanwhileReads, surroundings: null, refLineOf, refSourceLineOf: null };
+  return { mind, lookups: [], meanwhileReads, surroundings: null, refLineOf, isSourceRetired: null };
 }
 
 /**

@@ -231,7 +231,7 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   meanwhileReads: 'no memory reads in a replay: no <meanwhile> block (a live turn reads her lines elsewhere)',
   surroundings: 'no stored fields in a replay: <surroundings> names the place by its path alone',
   refLineOf: 'no memory reads in a replay: an identity outside the chat renders as unavailable',
-  refSourceLineOf: 'no memory reads in a replay: no <recall> block, so no source of a lookup is read',
+  isSourceRetired: 'no memory reads in a replay: no <recall> block, so no source of a lookup is read',
 });
 
 /** The inputs a skill scenario hands in: the skills inventory and the names of her granted skills. */
@@ -829,7 +829,7 @@ export function sandboxRequestInput({
     meanwhileReads: null,
     surroundings: null,
     refLineOf: null,
-    refSourceLineOf: null,
+    isSourceRetired: null,
   };
 }
 

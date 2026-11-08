@@ -188,7 +188,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     meanwhileReads: input.meanwhileReads,
     surroundings: input.surroundings,
     refLineOf: input.refLineOf,
-    refSourceLineOf: input.refSourceLineOf,
+    isSourceRetired: input.isSourceRetired,
   };
   // Each builder reads the input and what the builders before it gave, under the names they give it.
   const frame = input.frame;
