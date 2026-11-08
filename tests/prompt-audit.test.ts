@@ -1,6 +1,6 @@
 // B9 of the master plan, the parts that are structure and not wording: a paragraph says its thing in one prompt file,
 // no tracked prompt names a folder the local layer no longer has, and the prompts the turn reads on any interface name
-// no platform or server. The audit is .agents/docs/reports/2026-11-04-cli-memory/prompts-and-tools-audit.md. What each
+// no platform or server. What each
 // file says instead is the lead's review, not a test.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

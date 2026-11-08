@@ -126,12 +126,7 @@ const FIXED_GLOBS = Object.freeze([
   '**/.env.*',
 ]);
 /** The glob patterns after the deployment's directories. */
-const TRAILING_GLOBS = Object.freeze([
-  '**/data/places',
-  '**/data/places/**',
-  '**/.agents/scratch',
-  '**/.agents/scratch/**',
-]);
+const TRAILING_GLOBS = Object.freeze(['**/data/places', '**/data/places/**']);
 
 /**
  * The glob patterns a config denies for a path tool in a filtered scope (OpenCode's

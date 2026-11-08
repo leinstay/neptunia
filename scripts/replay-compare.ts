@@ -7,7 +7,7 @@
 //
 //   node scripts/replay-compare.ts <oldOut> <newOut> --out <dir> [--labels <labels.json>]
 //
-// `<oldOut>`: one folder per scenario (S01..S30 of .agents/docs/sims/2026-10-20-native-tools-baseline/old/), each
+// `<oldOut>`: one folder per scenario (S01..S30), each
 // with `ans-001.txt` (her raw answer), `replay.out` (the single-mode JSON: trigger, answers, usage) and,
 // when kept, `req-001.json` (the request: its `<chat>` block is the sheet's context) and `ans-001.meta.json`
 // (the provider's usage, cost and latency). `<newOut>`: the output folder of `--loop-triggers` -- a

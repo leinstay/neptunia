@@ -1,5 +1,5 @@
-// The MCP server her tools reach the CLI through, and the bridge that carries its calls to the core (spec
-// .agents/docs/specs/2026-11-06-core-on-subscription.md, "The MCP server and the bridge"). The server is pure over a
+// The MCP server her tools reach the CLI through, and the bridge that carries its calls to the core
+// (docs/keys.md). The server is pure over a
 // peer: a fake peer stands for the core here. The bridge is tested through its tokens, and the wire pair
 // (`bridgePeer`, `serveBridge`) over the protocol's loopback, which encodes every envelope as the socket would.
 import { test } from 'node:test';

@@ -1,5 +1,5 @@
-// The subscription route of her core and of the simulation (spec .agents/docs/specs/2026-11-06-core-on-subscription.md,
-// "The route and where it is chosen"): `model set core|simulation <model> --via claude|codex [--effort <level>]` stores
+// The subscription route of her core and of the simulation
+// (docs/keys.md): `model set core|simulation <model> --via claude|codex [--effort <level>]` stores
 // the record `subharness.core` or `subharness.simulation` of keys.json after one reply, `model set core <model>` and
 // `model set simulation api` go back to the API, and `subharness status` names both routes. keys.json lives in a temp
 // dir; the backend runner, its `--help` and fetch are fakes, so no model is asked and no request leaves the process.
