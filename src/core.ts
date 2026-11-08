@@ -117,6 +117,7 @@ import { ownerMemoryRuns } from './memory/db/media-english.ts';
 import { mediaText } from './memory/db/media-store.ts';
 import { OWNER_CLIENT } from './setup/clients.ts';
 import { createConsole } from './interface/commands/console.ts';
+import { statusBrief } from './interface/commands/status-brief.ts';
 import { wakeClockOf } from './service/commands.ts';
 import { isPausedIn, resumeHeld } from './behavior/core-pause.ts';
 import { configuredInterfaces, drainMs, interfaceEnabled } from './interface/mode.ts';
@@ -156,8 +157,8 @@ import { DEFAULT_BASE_URL } from './subharness/models.ts';
 import { backendUsageReader, execUsage, spawnUsageChild } from './subharness/usage.ts';
 import { deferModeToUnit } from './setup/install.ts';
 import { REPLY_CHECK_MS } from './subharness/control.ts';
-import { clearMemoryPath, memoryCheckPath, memoryPath, memoryPathText } from './subharness/memory-path.ts';
-import { clearSubscriptionPath, harnessBackend } from './subharness/subscription-path.ts';
+import { clearMemoryPath, memoryCheckPath, memoryPath } from './subharness/memory-path.ts';
+import { clearSubscriptionPath, harnessBackend, subscriptionPath } from './subharness/subscription-path.ts';
 import { coreSubscription } from './subharness/subscription-client.ts';
 import { memoryWriterClient } from './subharness/memory-writer.ts';
 import { createMemoryWatch, memoryProbe } from './subharness/memory-probe.ts';
@@ -1460,19 +1461,19 @@ async function buildCore(
     console: createConsole({
       track: loopWatch.track,
       ...ownerMemoryRuns({ memoryDb, reads, iface: () => identity.iface, describer, describerDeps, now: clock, log }),
-      statusBrief: () => ({
-        core: {
-          state: processState.data.paused ? 'paused' : 'running',
-          reason: processState.data.paused ? pauseControl.reason() : null,
-        },
-        memory: {
-          path: memoryPathText(memoryPath(paths.privateDir)),
-          model: roleModel(hot.config, 'memory') ?? null,
-          probe: lastMemoryProbe === null ? 'unknown' : lastMemoryProbe.ok ? 'ok' : 'failed',
-          checkedAt: lastMemoryProbe?.at ?? null,
-        },
-        interfaces: interfaceLinks.list(),
-      }),
+      statusBrief: () =>
+        statusBrief({
+          config: () => objOf(hot.config),
+          paused: () => Boolean(processState.data.paused),
+          pauseReason: () => pauseControl.reason(),
+          path: (role) => {
+            const held = role === 'core' ? subscriptionPath(paths.privateDir, 'core') : memoryPath(paths.privateDir);
+            return held.kind === 'subharness' ? held : { kind: 'direct' };
+          },
+          hasKey: (role) => keyRing.route(role) !== null,
+          probe: () => lastMemoryProbe,
+          interfaces: () => interfaceLinks.list(),
+        }),
       memoryWriter: () => (lastMemoryProbe === null ? 'unknown' : lastMemoryProbe.ok ? 'ok' : 'down'),
       runOp: (op, args, context) => admin.runSkillOp(op, args, context),
       ownerReads: admin.ownerReads,

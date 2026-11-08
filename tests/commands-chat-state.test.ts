@@ -127,3 +127,19 @@ test('/checkpoints shows the reason of a backend that cannot restore, and offers
   assert.deepEqual(panel?.rows ?? [], []);
   assert.match(panel?.lines.join('\n') ?? '', /zeta73 reason/);
 });
+
+test('a stored page gives each line the time it was sent', async () => {
+  // Bug: the chat draws a line from memory with the time it was loaded, because the page carries no time.
+  const { run } = rig();
+  await run({ name: 'session.open', args: {} });
+  const answer = await run({ name: 'session.page', args: { before: null, count: 10 } });
+  const { lines } = JSON.parse(answer.text) as { lines: Array<{ id: string; at: number }> };
+  assert.deepEqual(
+    lines.map((line) => [line.id, line.at]),
+    [
+      ['s1', 10],
+      ['s2', 20],
+      ['s3', 30],
+    ]
+  );
+});

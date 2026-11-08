@@ -90,7 +90,7 @@ const BLOCK_STYLE: Readonly<Record<RowBlock, object>> = {
 type Who = 'owner' | 'her' | 'system';
 
 function rowStyle(row: TranscriptRow, who: Who | undefined): object {
-  if (row.kind === 'fold' || who === 'system') return THEME.muted;
+  if (row.kind === 'fold' || row.kind === 'stamp' || who === 'system') return THEME.muted;
   return who === 'owner' ? THEME.userMarker : BLOCK_STYLE[row.block];
 }
 

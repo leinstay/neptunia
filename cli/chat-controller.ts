@@ -51,15 +51,25 @@ import type { MouseReport } from './mouse.ts';
 import type { Panel } from './panel.ts';
 import { FOLD_LINES, backspace, browse, emptyInput, insert, menuOf, moveCursor, statusLine, submit } from './state.ts';
 import type { InputState, MenuCommand, StatusBrief } from './state.ts';
-import { TAIL, displaySafe, scrollView, transcriptWindow } from './transcript.ts';
+import { TAIL, displaySafe, lineTime, scrollView, transcriptWindow } from './transcript.ts';
 import type { TranscriptDims, TranscriptRow, TranscriptView, TranscriptWindow } from './transcript.ts';
-import { activeTurn, emptyTurns, queuedTurns, reduceTurns, requestCancel, turnOf } from './turn-state.ts';
+import {
+  activeTurn,
+  callsInProgress,
+  emptyTurns,
+  queuedTurns,
+  reduceTurns,
+  requestCancel,
+  turnOf,
+} from './turn-state.ts';
 import type { ClientTurnEvent, TurnsState } from './turn-state.ts';
 
 export type ChatEntry = {
   who: 'owner' | 'her' | 'system';
   text: string;
   attachments?: ReadonlyArray<ChatAttachment>;
+  /** When the line was sent, in ms since the epoch: a stored line keeps its own, a new one takes the chat's clock. */
+  at?: number;
 };
 /** Why an image was not staged, for the line the owner reads. */
 export type StageResult = { ok: true; staged: ChatAttachment } | { ok: false; code: string };
@@ -107,6 +117,8 @@ export type ChatEnv = {
     added?: { text: string; attachments: ReadonlyArray<ChatAttachment> }
   ) => void;
   now: () => number;
+  /** The zone of the times on the transcript's lines (`bot.timezone`); absent, the machine's own. */
+  timeZone?: string;
   initialInput?: string;
   /** A restored draft, in place of `initialInput`. */
   initialParts?: ReadonlyArray<DraftPart>;
@@ -154,6 +166,8 @@ type ShownEntry = {
   text: string;
   original: string;
   attachments: ReadonlyArray<ChatAttachment>;
+  /** the muted time above the line, for the owner's lines and hers */
+  stamp?: string;
 };
 
 /** A search of the history or the transcript. The draft waits untouched, and the query goes nowhere else. */
@@ -377,6 +391,14 @@ export class ChatController {
     this.paint();
   }
 
+  /** The time above a line of the owner or of hers, in `bot.timezone`; a command's answer carries none. */
+  stampOf(entry: ChatEntry): { stamp?: string } {
+    if (entry.who === 'system') return {};
+    // Above the line's text column, past the owner's `> `, as Hermes draws it (ui-tui/src/components/messageLine.tsx).
+    const indent = entry.who === 'owner' ? '  ' : '';
+    return { stamp: indent + lineTime(entry.at ?? this.env.now(), this.env.timeZone) };
+  }
+
   addEntry(entry: ChatEntry): void {
     const shown: ShownEntry = {
       id: this.nextId('e'),
@@ -384,6 +406,7 @@ export class ChatController {
       text: drawnText(entry),
       original: entry.text,
       attachments: entry.attachments ?? [],
+      ...this.stampOf(entry),
     };
     this.update({ entries: [...this.model.entries, shown] });
   }
@@ -437,6 +460,7 @@ export class ChatController {
           text: drawnText(entry),
           original: entry.text,
           attachments: entry.attachments ?? [],
+          ...this.stampOf(entry),
         }));
         this.update({ entries: [...shown, ...this.model.entries] });
       })
@@ -509,14 +533,14 @@ export class ChatController {
     for (const entry of entries) this.addEntry(entry);
   }
 
-  /** The row above the input: what runs, whether a cancel is on its way and how many lines wait. */
+  /** The row above the input: the calls she is making, whether a cancel is on its way and how many lines wait. */
   turnRow(): string | null {
     const active = activeTurn(this.model.turns);
     const queued = queuedTurns(this.model.turns).length;
-    const step = active?.progress.at(-1);
+    const calls = active === null ? [] : callsInProgress(active);
+    const doing = calls.length === 0 ? 'Her turn is running' : `using ${calls.join(', ')}`;
     const parts = [
-      ...(active === null ? [] : [active.cancelRequested ? 'Cancelling her turn…' : 'Her turn is running']),
-      ...(step === undefined ? [] : [`${step.name} ${step.detail}`]),
+      ...(active === null ? [] : [active.cancelRequested ? 'Cancelling her turn…' : doing]),
       ...(queued === 0 ? [] : [`${queued} queued`]),
     ];
     return parts.length === 0 ? null : parts.join(' · ');

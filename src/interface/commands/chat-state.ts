@@ -93,7 +93,7 @@ export function createChatState({
         const shown = current === null ? null : sessions.resume(current.id);
         const count = Number.isInteger(args.count) && Number(args.count) > 0 ? Number(args.count) : PAGE_LINES;
         const lines = shown?.ok ? pageOf(shown.lines, textOf(args.before) || null, count) : [];
-        return json({ lines: lines.map((line) => ({ id: line.id, who: line.who, text: line.text })) });
+        return json({ lines: lines.map((line) => ({ id: line.id, at: line.at, who: line.who, text: line.text })) });
       }
       case 'session.list':
         return json(sessions.list());
