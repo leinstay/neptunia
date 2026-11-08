@@ -19,6 +19,7 @@ function deps(over: Partial<StatusBriefDeps> = {}): StatusBriefDeps {
     path: () => ({ kind: 'direct' }),
     hasKey: () => true,
     probe: () => ({ ok: true, at: 500 }),
+    loginLost: () => false,
     interfaces: () => [{ name: 'discord', enabled: true, connected: true }],
     ...over,
   };
@@ -79,4 +80,33 @@ test('the pause with its reason, the memory session mode and the last probe come
   );
   const fresh = statusBrief(deps({ probe: () => null }));
   assert.deepEqual([fresh.core.state, fresh.core.reason, fresh.memory.probe], ['running', null, 'unknown']);
+});
+
+test('a harness role whose last run lost its login reads as unbound, so the header says error', () => {
+  // Catches: a core on a harness whose login dropped still shown active, the owner's case of 2026-11-08.
+  const brief = statusBrief(
+    deps({
+      path: () => ({ kind: 'subharness', backend: 'claude', model: 'claude-opus-4-6' }),
+      loginLost: (role) => role === 'core',
+    })
+  );
+  assert.equal(brief.core.bound, false);
+  assert.equal(brief.memory.bound, true);
+});
+
+test('a lost login is read for the harness the role runs through now', () => {
+  // Catches: a core moved from codex to claude after codex lost its login still shown as error.
+  const asked: Array<string> = [];
+  const brief = statusBrief(
+    deps({
+      path: (role) =>
+        role === 'core' ? { kind: 'subharness', backend: 'claude', model: 'claude-opus-4-6' } : { kind: 'direct' },
+      loginLost: (role, backend) => {
+        asked.push(`${role}:${backend}`);
+        return backend === 'codex';
+      },
+    })
+  );
+  assert.equal(brief.core.bound, true);
+  assert.deepEqual(asked, ['core:claude']);
 });
