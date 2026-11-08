@@ -1577,8 +1577,8 @@
     },
     "src/behavior/inner/drain.ts": {
       "drain": {
-        "complexity": 80,
-        "function-length": 351
+        "complexity": 79,
+        "function-length": 347
       }
     },
     "src/behavior/inner/facts.ts": {

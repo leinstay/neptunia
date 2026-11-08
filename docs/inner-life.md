@@ -10,6 +10,8 @@ A wake with a place runs as the ordinary turn in that place, its chat and its co
 
 State belongs to one persona, with no home root: `createInnerLife` takes none, the wakes and the kill switch run on a core that has only DMs, and the stored state is a persona collection. Individual records carry an optional destination place and an audience, so a thought about one server does not create another independent persona for that server. `src/behavior/inner/persona-sources.ts` reads the record and the journal over every served place. The scheduler and its queues are in [src/behavior/inner/](../src/behavior/inner/).
 
+The wake queue in `src/behavior/inner/wake-queue.ts` is the only writer of the queued and handled wakes. Each wake is a row of the memory database's `wakes`, and each change of it is written when it happens. A wake the door admits is queued, and one the engine drops or a turn handles is handled with its outcome. A wake that fell due while the core was down or paused is slept and never runs. The drain asks the queue to claim a group before the turn asks the model, with a fenced lease per wake that lasts `context.turnLeaseMs` (default `300000`). After the turn it reports what became of each wake, and one write completes the handled wakes and puts the retried ones back. At start the queue handles the wakes of a turn a restart cut off as `interrupted` and runs none of them again. A fact tells her what the journal says that turn did.
+
 The core clears a `stopped` flag left in the stored state before each tick (`releaseStoredStop` in `src/behavior/inner/status.ts`), because no command releases one.
 
 ## Intentions
@@ -28,7 +30,7 @@ Use the `intentions`, `wakes` and `heartbeat` sections of [configuration](config
 
 Heartbeat and selfimprovement are separate wakes with separate prompts, schedules and switches. Each one wakes the persona nowhere, with her character, her memory and her lines elsewhere, as the previous section says. [src/tools/wake-tools.ts](../src/tools/wake-tools.ts) holds what each accepts. The model is offered the one tools array of every turn, and a call outside the wake's set is refused with the wake's code (`heartbeat-only` or `selfimprovement-only`) when it is made.
 
-An inner turn that posted nothing, reacted to nothing and answered `<skip/>` last ends `skip`, the reason `nothing-to-do`, when each of its calls was refused, failed or ran a skill whose row in `OP_EFFECTS` is `read` (`outcomePhase` in `src/turn/phases/outcome.ts`). A proposal in shadow mode or any other call that ran keeps it `spoke`.
+An inner turn that posted nothing, reacted to nothing and answered `<skip/>` last ends `skip`, the reason `nothing-to-do`, when each of its calls was refused, failed or ran a skill whose definition declares `effects` `read` (`src/tools/definitions.ts`) (`outcomePhase` in `src/turn/phases/outcome.ts`). A proposal in shadow mode or any other call that ran keeps it `spoke`.
 
 A heartbeat runs on `heartbeat.schedule` with `prompts/heartbeat.md`. Its `<inner>` holds what she did today in `<my_day>`, every open intention, her errands and what she has not been told. It may read memory and chats, and it ends when one intention change goes through or she answers `<skip/>`. A call outside that set is refused with `heartbeat-only`. Filing a task, skills and selfreflection writing have no route here, and a heartbeat neither shows nor marks a merged change.
 

@@ -3,16 +3,53 @@
 // the family listing and the expansion of `*` in a grant). An entry holds what she sees (`name`,
 // `params`, the JSON Schema of her arguments), how a call reaches the operation (`op`, `body`,
 // `toArgs`), and what the operation costs and changes (`effects`, `costClass`, `result`). Nothing here reads the owner's slash commands; `toArgs` maps her arguments to the
-// operation's arguments by hand. Pure: no state, and it imports only types.
+// operation's arguments by hand. A row also declares the tool's traits once (`traits`), and every list
+// of tools a module reads is derived from them (`toolsWith`, `hasTrait`); its API name is its name with `_` for `.`.
+// Pure: no state.
 
 import { idText, isObj, objOf } from './types.ts';
 import type { Obj } from './types.ts';
-import type { EffectClass } from './operations/effects.ts';
 
 const STRING_MAX = 6000;
 const API_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 
-const EFFECT_NAMES: ReadonlyArray<string> = Object.freeze(['read', 'write', 'destructive', 'administrative', 'paid']);
+/**
+ * What a tool does to the world, from the mildest: `read` (changes nothing), `write` (adds or changes something that
+ * can be changed back), `destructive` (deletes or overwrites what cannot simply be put back), `administrative` (changes
+ * how the bot is run or who may do what), `paid` (spends balance). A paid tool needs its budget, a destructive one has
+ * a cooldown per channel (src/tools/gateway.ts).
+ */
+export const EFFECT_CLASSES = Object.freeze(['read', 'write', 'destructive', 'administrative', 'paid'] as const);
+
+/** One of the effect classes. */
+export type EffectClass = (typeof EFFECT_CLASSES)[number];
+
+/**
+ * What a tool is besides its effect, each trait read by the modules named:
+ * `self`, one of her own expressive operations or her own state, run on her grant alone whoever asked
+ * (src/tools/gateway.ts, src/tools/executors.ts, src/admin.ts);
+ * `carried`, behind one of her reply tags, allowed in the current chat without a grant (src/tools/access.ts);
+ * `ungrantable`, irreversible or administrative, opened to her by no grant (src/tools/access.ts);
+ * `posts`, leaves a line of hers where people read (src/turn/skill-calls.ts, src/behavior/sandbox.ts);
+ * `attaches`, posts a file, so it reaches `message.create` inside its operation (src/tools/access.ts);
+ * `here`, acts in the turn's own chat when its `place` is left out (src/turn/skill-calls.ts);
+ * `written`, its `text` is her own writing, rendered as a `<msg>` of hers is (src/tools/executors.ts);
+ * `publishes`, refused where the turn's publication boundary forbids posting (src/tools/executors.ts).
+ */
+export const TRAITS = Object.freeze([
+  'self',
+  'carried',
+  'ungrantable',
+  'posts',
+  'attaches',
+  'here',
+  'written',
+  'publishes',
+] as const);
+
+/** One of the traits. */
+export type Trait = (typeof TRAITS)[number];
+
 const COST_NAMES: ReadonlyArray<string> = Object.freeze(['free', 'paid']);
 const RESULT_NAMES: ReadonlyArray<string> = Object.freeze(['effect', 'job', 'data']);
 const REF_KINDS: ReadonlyArray<string> = Object.freeze(['place', 'user', 'role']);
@@ -55,6 +92,7 @@ export type Definition = {
   effects: EffectClass;
   costClass: 'free' | 'paid';
   result: 'effect' | 'job' | 'data';
+  traits: ReadonlyArray<Trait>;
   toArgs: ToArgs;
 };
 
@@ -184,85 +222,6 @@ export function intentArgs(action: string): ToArgs {
   };
 }
 
-/** The name each skill has in a tool-calling API (letters, digits, `_`, `-`; up to 64), one per skill. */
-export const API_NAMES: Readonly<Record<string, string>> = Object.freeze({
-  'status.show': 'status_show',
-  'config.set': 'config_set',
-  'config.unset': 'config_unset',
-  'bot.pause': 'bot_pause',
-  'bot.resume': 'bot_resume',
-  'draw.create': 'draw_create',
-  'voice.say': 'voice_say',
-  'pings.get': 'pings_get',
-  'pings.set': 'pings_set',
-  'media.status': 'media_status',
-  'media.rescan': 'media_rescan',
-  'media.recache': 'media_recache',
-  'model.show': 'model_show',
-  'model.set': 'model_set',
-  'route.list': 'route_list',
-  'route.set': 'route_set',
-  'route.remove': 'route_remove',
-  'rule.add': 'rule_add',
-  'rule.list': 'rule_list',
-  'rule.remove': 'rule_remove',
-  'access.grant': 'access_grant',
-  'access.revoke': 'access_revoke',
-  'access.list': 'access_list',
-  'alias.add': 'alias_add',
-  'alias.remove': 'alias_remove',
-  'learning.add': 'learning_add',
-  'learning.remove': 'learning_remove',
-  'lore.add': 'lore_add',
-  'lore.list': 'lore_list',
-  'lore.show': 'lore_show',
-  'lore.remove': 'lore_remove',
-  'memory.profile.read': 'memory_profile_read',
-  'memory.channel.read': 'memory_channel_read',
-  'memory.server.read': 'memory_server_read',
-  'memory.recent.read': 'memory_recent_read',
-  'memory.affinity.read': 'memory_affinity_read',
-  'memory.journal.read': 'memory_journal_read',
-  'memory.archive.read': 'memory_archive_read',
-  'memory.restore': 'memory_restore',
-  'memory.snapshot': 'memory_snapshot',
-  'memory.private.read': 'memory_private_read',
-  'message.create': 'message_create',
-  'message.edit': 'message_edit',
-  'message.delete': 'message_delete',
-  'message.react.add': 'message_react_add',
-  'message.react.remove': 'message_react_remove',
-  'errand.run': 'errand_run',
-  'errand.status': 'errand_status',
-  'errand.cancel': 'errand_cancel',
-  'errand.list': 'errand_list',
-  'errand.read': 'errand_read',
-  'errand.resolve': 'errand_resolve',
-  'task.propose': 'task_propose',
-  'task.status': 'task_status',
-  'task.cancel': 'task_cancel',
-  'task.comment': 'task_comment',
-  'task.answer': 'task_answer',
-  'task.unblock': 'task_unblock',
-  'skill.read': 'skill_read',
-  'skill.disable': 'skill_disable',
-  'skill.run': 'skill_run',
-  'watcher.read': 'watcher_read',
-  'intention.set': 'intention_set',
-  'intention.update': 'intention_update',
-  'intention.cancel': 'intention_cancel',
-  'intention.list': 'intention_list',
-  'places.list': 'places_list',
-  'tools.describe': 'tools_describe',
-  'inner.status': 'inner_status',
-  'web.search': 'web_search',
-  'web.read': 'web_read',
-  'media.look': 'media_look',
-  'media.find': 'media_find',
-  'memory.search': 'memory_search',
-  'conversation.read': 'conversation_read',
-});
-
 const NO_REFS: Readonly<Record<string, RefKind>> = Object.freeze({});
 const JOBS: ReadonlyArray<string> = Object.freeze(['errand.run', 'media.recache']);
 const ROUTE_ROLES = ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing'];
@@ -278,14 +237,15 @@ type Row = {
   refs?: Readonly<Record<string, RefKind>>;
   body?: string | null;
   effects: EffectClass;
+  traits?: ReadonlyArray<Trait>;
   toArgs: ToArgs;
 };
 
 /** One entry: the table row with the fields every row shares worked out from `effects` and the name. */
-function def(name: string, { params, refs = NO_REFS, body = null, effects, toArgs }: Row): Definition {
+function def(name: string, { params, refs = NO_REFS, body = null, effects, traits = [], toArgs }: Row): Definition {
   return {
     name,
-    api: API_NAMES[name] ?? '',
+    api: name.replaceAll('.', '_'),
     op: name,
     params,
     refs,
@@ -293,6 +253,7 @@ function def(name: string, { params, refs = NO_REFS, body = null, effects, toArg
     effects,
     costClass: effects === 'paid' ? 'paid' : 'free',
     result: JOBS.includes(name) ? 'job' : effects === 'read' ? 'data' : 'effect',
+    traits,
     toArgs,
   };
 }
@@ -349,18 +310,21 @@ const ENTRIES: Array<Definition> = [
     toArgs: (a) => ({ field: val(a, 'field') ?? null, ...(val(a, 'part') ? { part: val(a, 'part') } : {}) }),
   }),
   def('config.set', {
+    traits: ['ungrantable'],
     params: obj({ path: str(), value: str() }, ['path', 'value']),
     effects: 'administrative',
     toArgs: (a) => ({ path: val(a, 'path'), value: val(a, 'value') }),
   }),
   def('config.unset', {
+    traits: ['ungrantable'],
     params: obj({ path: str() }, ['path']),
     effects: 'administrative',
     toArgs: (a) => ({ path: val(a, 'path') }),
   }),
-  def('bot.pause', { params: EMPTY(), effects: 'administrative', toArgs: none }),
-  def('bot.resume', { params: EMPTY(), effects: 'administrative', toArgs: none }),
+  def('bot.pause', { traits: ['ungrantable'], params: EMPTY(), effects: 'administrative', toArgs: none }),
+  def('bot.resume', { traits: ['ungrantable'], params: EMPTY(), effects: 'administrative', toArgs: none }),
   def('draw.create', {
+    traits: ['self', 'carried', 'posts', 'attaches', 'here', 'publishes'],
     params: obj({ text: str(), self: bool(), reply: ref(), place: ref() }, ['text']),
     refs: { place: 'place' },
     body: 'text',
@@ -377,6 +341,7 @@ const ENTRIES: Array<Definition> = [
     },
   }),
   def('voice.say', {
+    traits: ['self', 'carried', 'posts', 'attaches', 'here', 'publishes'],
     params: obj({ text: str(1500), place: ref(), reply: str() }, ['text']),
     refs: { place: 'place' },
     body: 'text',
@@ -406,6 +371,7 @@ const ENTRIES: Array<Definition> = [
   }),
   def('model.show', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('model.set', {
+    traits: ['ungrantable'],
     params: obj(
       {
         role: oneOf([
@@ -430,6 +396,7 @@ const ENTRIES: Array<Definition> = [
   }),
   def('route.list', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('route.set', {
+    traits: ['ungrantable'],
     params: obj({ model: str(), providers: str(), role: oneOf(ROUTE_ROLES), fallbacks: bool(), byok: bool() }, [
       'model',
       'providers',
@@ -444,6 +411,7 @@ const ENTRIES: Array<Definition> = [
     }),
   }),
   def('route.remove', {
+    traits: ['ungrantable'],
     params: obj({ model: str(), role: oneOf(ROUTE_ROLES) }, ['model']),
     effects: 'administrative',
     toArgs: (a) => ({ model: val(a, 'model'), role: opt(a, 'role') }),
@@ -456,17 +424,20 @@ const ENTRIES: Array<Definition> = [
   }),
   def('rule.list', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('rule.remove', {
+    traits: ['ungrantable'],
     params: obj({ number: int(1) }, ['number']),
     effects: 'destructive',
     toArgs: (a) => ({ number: val(a, 'number') }),
   }),
   def('access.grant', {
+    traits: ['ungrantable'],
     params: ACCESS_PARAMS(),
     refs: { 'role': 'role', user: 'user' },
     effects: 'administrative',
     toArgs: accessArgs,
   }),
   def('access.revoke', {
+    traits: ['ungrantable'],
     params: ACCESS_PARAMS(),
     refs: { 'role': 'role', user: 'user' },
     effects: 'administrative',
@@ -553,6 +524,7 @@ const ENTRIES: Array<Definition> = [
     })),
   }),
   def('memory.channel.read', {
+    traits: ['here'],
     params: obj({ place: ref() }),
     refs: { place: 'place' },
     effects: 'read',
@@ -583,6 +555,7 @@ const ENTRIES: Array<Definition> = [
     toArgs: (a) => ({ accountId: idOf(a, 'user'), kind: opt(a, 'kind'), n: opt(a, 'n') }),
   }),
   def('memory.restore', {
+    traits: ['ungrantable'],
     params: obj({ id: str() }, ['id']),
     effects: 'destructive',
     toArgs: (a) => ({ itemId: val(a, 'id') }),
@@ -595,6 +568,7 @@ const ENTRIES: Array<Definition> = [
     toArgs: forMember((accountId) => ({ accountId })),
   }),
   def('message.create', {
+    traits: ['self', 'carried', 'posts', 'here', 'written', 'publishes'],
     params: obj(
       {
         place: ref(),
@@ -621,6 +595,7 @@ const ENTRIES: Array<Definition> = [
     }),
   }),
   def('message.edit', {
+    traits: ['self', 'here', 'written', 'publishes'],
     params: obj({ message: str(), text: str(2000), place: ref() }, ['message', 'text']),
     refs: { place: 'place' },
     body: 'text',
@@ -628,18 +603,21 @@ const ENTRIES: Array<Definition> = [
     toArgs: (a) => ({ messageId: val(a, 'message'), text: val(a, 'text'), placeId: idOf(a, 'place') }),
   }),
   def('message.delete', {
+    traits: ['self', 'here'],
     params: obj({ message: str(), place: ref() }, ['message']),
     refs: { place: 'place' },
     effects: 'destructive',
     toArgs: (a) => ({ messageId: val(a, 'message'), placeId: idOf(a, 'place') }),
   }),
   def('message.react.add', {
+    traits: ['self', 'carried', 'here', 'publishes'],
     params: REACT_PARAMS(),
     refs: { place: 'place' },
     effects: 'write',
     toArgs: reactArgs('add'),
   }),
   def('message.react.remove', {
+    traits: ['self', 'here'],
     params: REACT_PARAMS(),
     refs: { place: 'place' },
     effects: 'write',
@@ -717,17 +695,20 @@ const ENTRIES: Array<Definition> = [
     toArgs: (a) => ({ id: val(a, 'id'), note: val(a, 'note') }),
   }),
   def('skill.read', {
+    traits: ['self'],
     params: obj({ name: str(60) }, ['name']),
     body: 'name',
     effects: 'read',
     toArgs: (a) => ({ name: val(a, 'name') }),
   }),
   def('skill.run', {
+    traits: ['self'],
     params: obj({ name: str(60), script: str(60), args: str(8000) }, ['name', 'script']),
     effects: 'write',
     toArgs: (a) => ({ name: val(a, 'name'), script: val(a, 'script'), args: opt(a, 'args') }),
   }),
   def('skill.disable', {
+    traits: ['self'],
     params: obj({ name: str(60) }, ['name']),
     body: 'name',
     effects: 'write',
@@ -739,6 +720,7 @@ const ENTRIES: Array<Definition> = [
     toArgs: (a) => ({ day: opt(a, 'day'), run: opt(a, 'run') }),
   }),
   def('intention.set', {
+    traits: ['self'],
     params: INTENT_PARAMS.set,
     refs: { place: 'place', attend: 'place' },
     body: 'text',
@@ -746,6 +728,7 @@ const ENTRIES: Array<Definition> = [
     toArgs: intentArgs('add'),
   }),
   def('intention.update', {
+    traits: ['self'],
     params: INTENT_PARAMS.update,
     refs: { place: 'place' },
     body: 'text',
@@ -753,12 +736,14 @@ const ENTRIES: Array<Definition> = [
     toArgs: intentArgs('update'),
   }),
   def('intention.cancel', {
+    traits: ['self'],
     params: INTENT_PARAMS.cancel,
     body: 'id',
     effects: 'write',
     toArgs: intentArgs('cancel'),
   }),
   def('intention.list', {
+    traits: ['self'],
     params: INTENT_PARAMS.list,
     effects: 'read',
     toArgs: intentArgs('list'),
@@ -848,6 +833,7 @@ const ENTRIES: Array<Definition> = [
     }),
   }),
   def('conversation.read', {
+    traits: ['here'],
     params: obj({
       place: ref(),
       around: str(200),
@@ -899,12 +885,19 @@ function checkSchema(name: string, definition: Obj): { properties: Obj; required
 }
 
 function checkKinds(name: string, definition: Obj): void {
-  if (typeof definition.effects !== 'string' || !EFFECT_NAMES.includes(definition.effects))
-    throw new Error(`skill ${name}: effects must be one of ${EFFECT_NAMES.join(', ')}`);
+  if (!(EFFECT_CLASSES as ReadonlyArray<unknown>).includes(definition.effects))
+    throw new Error(`skill ${name}: effects must be one of ${EFFECT_CLASSES.join(', ')}`);
   if (typeof definition.costClass !== 'string' || !COST_NAMES.includes(definition.costClass))
     throw new Error(`skill ${name}: costClass must be free or paid`);
   if (typeof definition.result !== 'string' || !RESULT_NAMES.includes(definition.result))
     throw new Error(`skill ${name}: result must be one of ${RESULT_NAMES.join(', ')}`);
+  const traits: unknown = definition.traits;
+  if (!Array.isArray(traits)) throw new Error(`skill ${name}: traits must be a list`);
+  for (const [i, trait] of (traits as Array<unknown>).entries()) {
+    if (!(TRAITS as ReadonlyArray<unknown>).includes(trait))
+      throw new Error(`skill ${name}: unknown trait ${String(trait)}`);
+    if ((traits as Array<unknown>).indexOf(trait) !== i) throw new Error(`skill ${name}: trait ${String(trait)} twice`);
+  }
 }
 
 function checkArguments(name: string, definition: Obj, properties: Obj, required: ReadonlyArray<unknown>): void {
@@ -926,7 +919,7 @@ function checkArguments(name: string, definition: Obj, properties: Obj, required
 /**
  * Checks a list of definitions; throws on the first problem (a programming error, found at
  * start): a missing or repeated name, a missing or repeated or ill-formed API name, an unknown
- * effect, cost class or result, a body that is not a string argument, a reference that is not
+ * effect, cost class or result, a trait list that is not one or holds an unknown or repeated trait, a body that is not a string argument, a reference that is not
  * an argument or has an unknown kind, a missing `params` or `toArgs`.
  */
 export function validateDefinitions(
@@ -958,9 +951,33 @@ function deepFreeze<T>(value: T): T {
 /** Every skill, one per operation, in the operations registry's order. */
 export const SKILL_DEFINITIONS: ReadonlyArray<Definition> = deepFreeze(validateDefinitions(ENTRIES));
 
+const BY_NAME: ReadonlyMap<string, Definition> = new Map(
+  SKILL_DEFINITIONS.map((definition) => [definition.name, definition])
+);
+const BY_API: ReadonlyMap<string, string> = new Map(
+  SKILL_DEFINITIONS.map((definition) => [definition.api, definition.name])
+);
+
+/** The API name of every skill, by its name, worked out from the definitions. */
+export const API_NAMES: Readonly<Record<string, string>> = Object.freeze(
+  Object.fromEntries(SKILL_DEFINITIONS.map((definition) => [definition.name, definition.api]))
+);
+
 /** The API name of skill `name`, or null. */
 export function apiNameOf(name: string): string | null {
-  return Object.hasOwn(API_NAMES, name) ? (API_NAMES[name] ?? null) : null;
+  return BY_NAME.get(name)?.api ?? null;
+}
+
+/** The names of the tools with `trait`, in the table's order. */
+export function toolsWith(trait: Trait): ReadonlyArray<string> {
+  return Object.freeze(
+    SKILL_DEFINITIONS.filter((definition) => definition.traits.includes(trait)).map((definition) => definition.name)
+  );
+}
+
+/** Whether tool `name` has `trait`; false for a name no tool has. */
+export function hasTrait(name: string, trait: Trait): boolean {
+  return BY_NAME.get(name)?.traits.includes(trait) ?? false;
 }
 
 /** The tools whose names changed, old to new: a journal written before the rename names them by the old one. The call path never reads it: a tool written under an old name is `unknown-skill`. */
@@ -985,8 +1002,7 @@ export function currentToolName<T>(name: T): T | string {
 
 /** The skill whose API name is `api`, or null. */
 export function skillNameOfApi(api: unknown): string | null {
-  for (const [name, candidate] of Object.entries(API_NAMES)) if (candidate === api) return name;
-  return null;
+  return typeof api === 'string' ? (BY_API.get(api) ?? null) : null;
 }
 
 /** The arguments of a definition as `{ name, kind }` in order: `string`, `integer`, `boolean`, or the kind of reference. */

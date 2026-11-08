@@ -64,20 +64,20 @@
 // external action of a running inner turn (`mayAct`). No command throws it, and the core clears a stored one before
 // each tick (status.ts#releaseStoredStop). Off (`features.wakes` not exactly true, read at every tick) nothing is listed and
 // nothing is written. The queue, the handled ids and the turn in flight are rows of the memory
-// database's `wakes` (src/behavior/inner/wake-store.ts: a turn claims its wakes with fenced leases
-// before it asks the model and completes them after); the rest of the state per place (the counters, the facts,
-// the stop) is `data/places/<id>/inner.json`, written after every
-// change. A restart resumes: the start's recovery (src/behavior/inner/recovery.ts) runs a cut-off
-// turn's wakes again, and a wake that fell due while the core was down or paused sleeps and never
-// runs. Logs carry ids, codes and counts, never text.
+// database's `wakes`, written by the wake queue (src/behavior/inner/wake-queue.ts) at each transition: a turn claims
+// its wakes with fenced leases before it asks the model and completes them after. The rest of the persona state (the
+// counters, the facts, the stop) is `inner.json`, written after every change. A restart resumes: the queue's start
+// handles a cut-off turn's wakes interrupted without running them again, and a wake that fell due while the core was
+// down or paused sleeps and never runs. Logs carry ids, codes and counts, never text.
 //
 // Each inner turn is also a wake run in the memory database
 // (src/memory/db/wakes.ts, through the service's writer): started before the turn runs (its id the in-flight turn id,
 // its inputs the ids and versions its view showed, the envelope's policy version), each action recorded once by its
 // number, ended `succeeded` or `failed` with the outcome. The journal and the state file are unchanged by it.
 //
-// The parts live in src/behavior/inner/: the settings (settings.ts), the queue and its state file (queue.ts), her
-// attention and the places view (places.ts), the heartbeat's schedule (heartbeat.ts),
+// The parts live in src/behavior/inner/: the settings (settings.ts), the state file and the wakes an intention gives
+// (queue.ts), the wake queue and its recovery (wake-queue.ts), her attention and the places view (places.ts), the
+// heartbeat's schedule (heartbeat.ts),
 // the drain and the turn it opens (drain.ts), the facts (facts.ts) and the owner's status and switch (status.ts).
 // Each of them works over the `life` context createInnerLife builds; this module keeps the tick and the exports.
 
@@ -90,22 +90,29 @@ import { markFactsTold, pendingFactsOf } from './inner/facts.ts';
 import { heartbeatDue } from './inner/heartbeat.ts';
 import { selfimprovementDue } from './inner/selfimprovement.ts';
 import { attendWakes, places, refreshPlaces } from './inner/places.ts';
-import { admitListed, beforeTick, releaseAlive } from './inner/recovery.ts';
 import type { PlacesQuery } from './inner/places.ts';
 import {
   contextOf,
-  inScope,
   addFact,
   deadlineWakes,
   mayAct,
   note,
-  onWake,
   save,
   stateOf,
   wakeFields,
   wakeOfDue,
 } from './inner/queue.ts';
-import type { WakeAnswer } from './inner/queue.ts';
+import {
+  admitListed,
+  admitWake,
+  beforeTick,
+  createWakeQueueState,
+  idleWakes,
+  knownWake,
+  releaseAlive,
+  withdrawWakes,
+} from './inner/wake-queue.ts';
+import type { WakeAnswer } from './inner/wake-queue.ts';
 import { innerSettings } from './inner/settings.ts';
 import { releaseStoredStop, start, status, stop } from './inner/status.ts';
 import type { InnerStatus, SwitchAnswer, SwitchOptions } from './inner/status.ts';
@@ -277,19 +284,10 @@ export function createInnerLife({
     log,
     states: new Map(),
     placeIndexes: new Map(),
-    running: new Set(),
     ticking: false,
     factSeq: 0,
-    holder: `core:${randomUUID()}`,
-    released: false,
-    wakeDb: null,
     writes: Promise.resolve(),
-    viewLoaded: new Set(),
-    oldWakes: new Set(),
-    synced: new Map(),
-    claims: new Map(),
-    started: new Map(),
-    sleep: { windows: [], pausedFrom: null, slept: new Map() },
+    wakes: createWakeQueueState(`core:${randomUUID()}`),
   };
 
   /**
@@ -330,21 +328,16 @@ export function createInnerLife({
         await refreshPlaces(life, at, settings);
         listed.push(...attendWakes(life, at));
       }
-      const state = stateOf(life);
       let submitted = 0;
       for (const wake of listed) {
-        if (state.handled[wake.id] || state.queue.some((queued) => queued.id === wake.id)) continue;
+        if (knownWake(life, wake.id)) continue;
         // One queued wake per attention: a newer burst replaces the queued one (its history covers the gap).
         if (wake.kind === 'attend') {
-          const older = state.queue.filter(
-            (queued) =>
-              inScope(life, queued) &&
-              queued.kind === 'attend' &&
-              queued.intentionIds?.[0] === wake.intentionIds[0] &&
-              !life.running.has(queued.id)
+          const older = idleWakes(life).filter(
+            (queued) => queued.kind === 'attend' && queued.intentionIds?.[0] === wake.intentionIds[0]
           );
           if (older.length > 0) {
-            state.queue = state.queue.filter((queued) => !older.includes(queued));
+            withdrawWakes(life, older);
             save(life);
             for (const previous of older) note(life, { event: 'replaced', wake: wakeFields(previous), by: wake.id });
           }
@@ -357,7 +350,7 @@ export function createInnerLife({
       log.warn('inner: tick failed', { error: err });
       return { ran: false, reason: 'error' };
     } finally {
-      // The queue's writes of this tick are in the database before it answers (wake-store.ts).
+      // The queue's writes of this tick are in the database before it answers (wake-queue.ts).
       await life.writes;
       life.ticking = false;
     }
@@ -388,7 +381,7 @@ export function createInnerLife({
   return {
     tick,
     drain: () => drain(life),
-    onWake: (event) => onWake(life, event),
+    onWake: (event) => admitWake(life, event),
     onTaskFinished: (task) => onTaskFinished(life, task),
     mayAct: () => mayAct(life),
     stop: (options) => stop(life, options),

@@ -31,13 +31,7 @@ import type { Frame, FrameParty } from '../../request/frame.ts';
 import { whereaboutsOfFrame } from '../../request/spatial.ts';
 import type { PlaceLink } from '../../request/spatial.ts';
 import type { PhaseContext, PhaseParams } from '../context.ts';
-import type { Opened } from '../preflight.ts';
-import type { Gathered } from './gather.ts';
-import type { Planned } from './searches.ts';
-import type { Pulled } from './pulls.ts';
-import type { Setup } from './setup.ts';
-import type { Told } from './facts.ts';
-import type { Waited } from './wait.ts';
+import type { Prepared } from '../request.ts';
 import type { Handles } from '../../handles.ts';
 import { accountId, messageSourceId, placeIdParts } from '../../../memory/db/ids.ts';
 import type { Mind, Seeds } from '../../../memory/db/mind-read.ts';
@@ -88,7 +82,7 @@ const DM_WORD = 'private';
  */
 function chainOfTurn(
   store: PhaseContext['store'],
-  channel: Opened['channel'],
+  channel: Prepared['channel'],
   wake: { kind: string | null } | null
 ): ReadonlyArray<PlaceLink> {
   if (wake && (OWN_SERVER_WAKES.has(wake.kind ?? '') || channel.rootId === PERSONA_ID)) return [];
@@ -109,7 +103,7 @@ function partyOf(store: PhaseContext['store'], nativeId: string, name: string | 
 function frameOfTurn(
   store: PhaseContext['store'],
   turn: {
-    channel: Opened['channel'];
+    channel: Prepared['channel'];
     isDm: boolean;
     mode: string;
     triggerKind: string | null;
@@ -150,7 +144,13 @@ function frameOfTurn(
  */
 function myDayLines(
   ctx: Pick<PhaseContext, 'myDay' | 'turnContextOf'>,
-  turn: { draft: Draft; channel: Opened['channel']; config: Setup['config']; prompts: Gathered['prompts']; now: number }
+  turn: {
+    draft: Draft;
+    channel: Prepared['channel'];
+    config: Prepared['config'];
+    prompts: Prepared['prompts'];
+    now: number;
+  }
 ): Array<string> | null {
   const { draft, channel, config, prompts, now } = turn;
   const settings = config.context;
@@ -300,7 +300,7 @@ function framedInputsOf(
   ctx: Pick<PhaseContext, 'frameReads' | 'lookupRing' | 'turnContextOf' | 'hot' | 'intentionRefsFor'>,
   frame: Frame,
   draft: Draft,
-  channel: Opened['channel'],
+  channel: Prepared['channel'],
   turn: {
     history: ReadonlyArray<Message>;
     trigger: { id: string } | null;
@@ -425,7 +425,7 @@ function serviceInputsOf(
   ctx: Pick<PhaseContext, 'frameReads' | 'turnContextOf' | 'hot' | 'intentionRefsFor'>,
   frame: Frame,
   draft: Draft,
-  channel: Opened['channel'],
+  channel: Prepared['channel'],
   now: number
 ): FramedInputs {
   const reads = ctx.frameReads;
@@ -510,8 +510,8 @@ function serviceInnerOf(
 function pastEntriesOf(
   ctx: Pick<PhaseContext, 'frameReads' | 'turnContextOf'>,
   draft: Draft,
-  channel: Opened['channel'],
-  config: Setup['config']
+  channel: Prepared['channel'],
+  config: Prepared['config']
 ): Array<PastEntry> {
   const memoryContext = ctx.turnContextOf(draft, channel) as Context | null | undefined;
   if (!memoryContext) return [];
@@ -526,12 +526,10 @@ function pastEntriesOf(
 export function plannerRequest(
   ctx: PhaseContext,
   draft: Draft,
-  opened: Opened,
-  turn: { config: Setup['config']; selfName: string; selfId: string; now: number },
+  turn: Pick<Prepared, 'channel' | 'isDm' | 'config' | 'selfName' | 'selfId' | 'now'>,
   parts: PlanParts
 ): BuiltRequest {
-  const { channel, isDm } = opened;
-  const { config, selfName, selfId, now } = turn;
+  const { channel, isDm, config, selfName, selfId, now } = turn;
   const prompts = ctx.hot.prompts;
   const timezone = String(config.bot?.timezone ?? 'UTC');
   const frame = frameOfTurn(ctx.store, {
@@ -620,49 +618,68 @@ function requestOf(input: Record<string, unknown>): BuiltRequest {
   return buildRequest(input as Parameters<typeof buildRequest>[0]);
 }
 
+/** What the build step reads of the attempt. */
+type BuildNeeds = Pick<
+  Prepared,
+  | 'channel'
+  | 'placeId'
+  | 'libraryPlace'
+  | 'isDm'
+  | 'config'
+  | 'transport'
+  | 'memoryOn'
+  | 'selfId'
+  | 'selfName'
+  | 'now'
+  | 'snapshot'
+  | 'serverOn'
+  | 'finalMode'
+  | 'history'
+  | 'descriptions'
+  | 'videos'
+  | 'imageAnswers'
+  | 'reads'
+  | 'prefetchResult'
+  | 'drawOn'
+  | 'selfreflectionPrep'
+  | 'prompts'
+  | 'factsText'
+  | 'tasks'
+  | 'placeMemory'
+  | 'taggedCall'
+  | 'offPeriods'
+  | 'activeSkills'
+>;
+
 // health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.ts in stage 5c, a pure split
-export function buildTurnRequest(
-  ctx: PhaseContext,
-  params: PhaseParams,
-  draft: Draft,
-  opened: Opened,
-  setup: Setup,
-  planned: Planned,
-  pulled: Pulled,
-  waited: Waited,
-  gathered: Gathered,
-  told: Told
-): BuiltRequest {
+export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: Draft, turn: BuildNeeds): BuiltRequest {
   const { store, calibrator, skills, lookup, emoji, memoryReads, turnContextOf } = ctx;
   const { aroundInputFor, errandsInputFor, intentionsInputFor, earlierThinkFor } = ctx;
   const { selfreflectionChannelName, stableFreezeOf } = ctx;
   const { callMarksOf } = ctx;
   const { trigger = null, triggerKind = null } = params;
   const { taskResult = null } = params;
-  const { channel, placeId, libraryPlace, isDm } = opened;
-  const { config, transport, memoryOn, selfId, selfName, now, snapshot } = setup;
-  const { serverOn } = planned;
-  const { finalMode } = pulled;
-  const { history, descriptions, videos, imageAnswers, reads } = gathered;
-  const { prefetchResult, drawOn, selfreflectionPrep, prompts } = gathered;
-  const { factsText, tasks, placeMemory, taggedCall, offPeriods, activeSkills } = told;
+  const { channel, placeId, libraryPlace, isDm, config, transport, memoryOn, selfId, selfName, now, snapshot } = turn;
+  const { serverOn, finalMode, history, descriptions, videos, imageAnswers, reads } = turn;
+  const { prefetchResult, drawOn, selfreflectionPrep, prompts } = turn;
+  const { factsText, tasks, placeMemory, taggedCall, offPeriods, activeSkills } = turn;
   // Her tools, pinned for this turn (a grant removed meanwhile is still caught at each call): the skills granted to her
   // and the carried-over ones, as native tool definitions (or `<tools>` text), then one entry per active skill she can
   // use. The array is the same for every turn kind, so every turn shares one cached prefix: a wake refuses a call outside
   // its own set when the call is made (src/tools/wake-tools.ts#wakeRefusalCode). A selfreflection post has the same
   // tools; only `draw.create` runs there (runSteps).
   const registry = skills ?? defaultSkills();
-  draft.toolNames = exposedSkillNames({ config, selfId, registry });
+  const toolNames = exposedSkillNames({ config, selfId, registry });
   const wake = draft.inner?.wake;
   const wakeKind = wake?.kind ?? null;
   // The wake as its words read it (src/behavior/wake.ts): the drain's WakeInfo.
   const wakeWords = (wake ?? null) as WakeBlockInput | null;
   // A skill entry is read through `skill.read`, so her grant of it decides whether her skills are offered at all.
-  const offered = draft.toolNames.includes(READ_TOOL) ? activeSkills.filter((skill) => skill.missing.length === 0) : [];
+  const offered = toolNames.includes(READ_TOOL) ? activeSkills.filter((skill) => skill.missing.length === 0) : [];
   draft.offeredSkills = new Map(offered.map((skill) => [skill.name, skill.versionId]));
   draft.skillsIndexed = offered.map(({ name, versionId, tools }) => ({ name, versionId, tools }));
   draft.tools = buildTools(
-    draft.toolNames.filter((name) => name !== READ_TOOL),
+    toolNames.filter((name) => name !== READ_TOOL),
     {
       registry,
       texts: prompts?.tools,
@@ -750,7 +767,7 @@ export function buildTurnRequest(
     skillsInventory: null,
     // Her tools this turn: the in-turn ones for `<senses>`, the text transport's `<tools>` body, and what the native
     // transport's `tools` field costs the request (the room the sections share).
-    toolsGranted: draft.toolNames,
+    toolsGranted: toolNames,
     toolsBlock,
     toolsTokens,
     // `<people_now>`'s live part: the voice and status snapshot (null: none).

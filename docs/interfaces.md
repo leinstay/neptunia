@@ -75,6 +75,12 @@ node scripts/client-token.ts add NAME --kind interface --iface NAME
 
 See [setup](setup.md) for where the selected data root is stored. Tokens must be readable by the user running that client.
 
+## Delivery of events
+
+An interface with a data folder keeps each event in its outbox (`src/protocol/outbox.ts`) under the next `seq` until the core acknowledges it, and the Discord session's outbox holds 1000. [The link](../src/interface/link.ts) answers each event with an `ack` whose `ackedSeq` is the highest `seq` up to which the core took every event, and the outbox drops everything at or below it. An event the core answers `failed` holds that watermark back, as a line does whose memory write outlasts `memoryDb.observeTimeoutMs` (default `5000`). `serveAdapter` in `src/protocol/serve.ts` sends such an event again after 5 seconds, and each further `failed` doubles the wait up to 5 minutes, until the core takes it or the link closes. A retry whose first write has landed meanwhile is answered `duplicate`, and the watermark moves past it.
+
+The core's answer to `hello` carries its watermark, and the interface sends every event after it before any new one. A retry and an event left by an earlier connection go marked `replayed`, which the core keeps as history without starting a turn. A full outbox refuses a new event and keeps nothing of it, logs `link: event lost while the outbox is full` and reports `outbox-full` on `status()`.
+
 ## Interfaces as units
 
 With `interfaces.mode` set to `units`, run a package through `neptunia interface run <name>` or its `neptunia-interface@<name>.service` unit. The core and the interface must select the same persona root and matching socket credentials.

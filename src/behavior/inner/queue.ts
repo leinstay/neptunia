@@ -1,7 +1,8 @@
-// One persona state holds shared clocks and scoped chat evidence. The wake tables supply its queue,
-// handled outcomes and in-flight view. Persona state writes and wake transitions share the memory writer chain.
-// Root arguments select chat context, not separate state objects. Standalone file-backed fixtures
-// retain the explicit legacy file adapter.
+// The persona's inner life state and the wakes it is given. One persona state holds the shared clocks and the scoped
+// chat evidence; the wake queue (wake-queue.ts) keeps its view in it (`queue`, `handled`, `inflight`), read from the
+// memory database's `wakes`. Persona state writes and wake transitions share the memory writer chain. Standalone
+// file-backed fixtures keep the explicit legacy file adapter. Here too: the wakes an intention gives, how queued wakes
+// coalesce, the facts and the journal notes of the inner life.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,7 +16,7 @@ import type { Obj } from '../../tools/types.ts';
 import { storedWakes } from '../wake.ts';
 import { addFactTo, asText, idOrNull } from './facts.ts';
 import { INNER_DEFAULTS, WAKE_KINDS, innerSettings } from './settings.ts';
-import { backendOf, loadView, syncQueue } from './wake-store.ts';
+import { backendOf, loadQueue } from './wake-queue.ts';
 import type {
   Fact,
   FactInput,
@@ -23,7 +24,6 @@ import type {
   Inflight,
   InnerContext,
   InnerState,
-  InnerWakeEvent,
   TurnRecord,
   Wake,
   WakeUpdate,
@@ -36,17 +36,6 @@ export const timezoneOf = (life: InnerContext): string => {
   const zone = objOf(objOf(life.hot.config).bot).timezone;
   return typeof zone === 'string' ? zone : 'UTC';
 };
-
-/** The outcomes of a wake that never ran a turn for it: each is a `wakeDropped` fact at the moment it happens. */
-const DROP_OUTCOMES: ReadonlySet<string> = new Set([
-  'stopped',
-  'overflow',
-  'stale',
-  'superseded',
-  'error',
-  'provider',
-  'no-channel',
-]);
 
 /** The state file's schema version. */
 const VERSION = 1;
@@ -308,10 +297,10 @@ export function stateOf(life: InnerContext): InnerState {
   const known = states.get('persona');
   const keepSince = life.now() - CHAIN_KEEP_MS;
   if (known) {
-    loadView(life, known, keepSince);
+    loadQueue(life, known, keepSince);
     return known;
   }
-  // Opened before the file is read: an in-memory queue's first open imports the file's queue fields (wake-store.ts).
+  // Opened before the file is read: an in-memory queue's first open imports the file's queue fields (wake-queue.ts).
   backendOf(life);
   let raw: unknown = null;
   let lost: string | null = null;
@@ -328,7 +317,7 @@ export function stateOf(life: InnerContext): InnerState {
   const state = normalizeState(raw);
   states.set('persona', state);
   if (lost !== null) loseState(life, key, state, lost);
-  loadView(life, state, keepSince);
+  loadQueue(life, state, keepSince);
   return state;
 }
 
@@ -360,7 +349,7 @@ export function loseState(life: InnerContext, key: string, state: InnerState, co
   }
 }
 
-/** Prune the shared state in place and persist it before the current chat queue changes. */
+/** Prune the persona state in place and persist it. */
 export function save(life: InnerContext): InnerState {
   const { hot, now } = life;
   const key = 'persona';
@@ -370,7 +359,6 @@ export function save(life: InnerContext): InnerState {
     pruneState(stateOf(life), now(), { factsKeepMs: innerSettings(hot.config).factsKeepDays * DAY_MS })
   );
   persistState(life, key, next);
-  syncQueue(life, next);
   return next;
 }
 
@@ -484,92 +472,6 @@ export function wakeFact(life: InnerContext, wake: Wake, kind: string, code: str
   };
 }
 
-/** Why a dropped wake was dropped: a sub-code, or one worked out per wake. */
-export type DropWhy = string | null | ((wake: Wake) => string);
-
-/**
- * `wakes` marked handled with `outcome` and taken off the queue; every recurring intention they
- * name advances to its next occurrence (the service's `advance`: `recurred` for one in `named`,
- * the ids her turn's calls named, else `missed`). A one-off, a waiting one and an occurrence she
- * already closed or moved are left as they are by the service. An outcome other than a run turn
- * (DROP_OUTCOMES) is a `wakeDropped` fact at once; `why` (a string, or a function of the wake) is its sub-code.
- */
-export function markHandled(
-  life: InnerContext,
-  state: InnerState,
-  wakes: ReadonlyArray<Wake>,
-  outcome: string,
-  at: number,
-  { named = null, why = null }: { named?: Set<string> | ReadonlyArray<unknown> | null; why?: DropWhy } = {}
-): void {
-  const { intentions } = life;
-  for (const wake of wakes) {
-    state.handled[wake.id] = { at, outcome, ...(wake.kind === 'attend' ? { place: wake.placeId ?? null } : {}) };
-    if (DROP_OUTCOMES.has(outcome)) {
-      const reason = typeof why === 'function' ? why(wake) : why;
-      addFact(life, state, {
-        at,
-        ...wakeFact(life, wake, 'wakeDropped', outcome, typeof reason === 'string' && reason ? { why: reason } : {}),
-      });
-    }
-  }
-  const ids = new Set(wakes.map((wake) => wake.id));
-  state.queue = state.queue.filter((wake) => !ids.has(wake.id));
-  if (typeof intentions?.advance !== 'function') return;
-  const touched: ReadonlySet<string> =
-    named instanceof Set ? named : new Set(Array.isArray(named) ? named.map(String) : []);
-  for (const id of new Set(wakes.flatMap((wake) => (Array.isArray(wake.intentionIds) ? wake.intentionIds : [])))) {
-    const result = objOf(intentions.advance(id, { named: touched.has(String(id)) }));
-    if (result.changed) {
-      const intention = objOf(result.intention);
-      note(life, {
-        event: 'recurred',
-        intentionId: String(id),
-        code: objOf(listOf(intention.history).at(-1)).code ?? null,
-        dueAt: intention.dueAt ?? null,
-        outcome,
-      });
-    }
-  }
-}
-
-/** What the door's handler answers about a wake. */
-export type WakeAnswer = { status: 'invalid' | 'stopped' | 'duplicate' | 'overflow' | 'queued' };
-
-/** Whether `value` names a wake kind. */
-const isWakeKind = (value: unknown): boolean => WAKE_KINDS.some((kind) => kind === value);
-
-/**
- * The door's handler of `inner.wake`: the wake queued (persisted), unless it was handled
- * already, is queued, the inner life is stopped, or the queue is full (`overflow`, journalled
- * and handled so it is never dropped unseen). Answers what happened.
- */
-export function onWake(life: InnerContext, event: unknown): WakeAnswer {
-  const { hot, now, log } = life;
-  const given = objOf(event);
-  const wake = objOf(given.wake);
-  if (!given.wake || !isWakeKind(wake.kind)) return { status: 'invalid' };
-  const state = stateOf(life);
-  const id = String(given.id ?? wake.id);
-  if (state.stopped) return { status: 'stopped' };
-  if (state.handled[id] || state.queue.some((queued) => queued.id === id)) return { status: 'duplicate' };
-  const at = now();
-  // The wake is the scheduler's own record (enqueue), handed back by the door.
-  const queued = { ...contextOf(life, wake.placeId), ...wake, id, queuedAt: at } as Wake;
-  if (state.queue.length >= innerSettings(hot.config).queueMax) {
-    markHandled(life, state, [queued], 'overflow', at, {});
-    save(life);
-    log.warn('inner: queue overflow', { id, kind: queued.kind, queued: state.queue.length });
-    note(life, { event: 'overflow', wake: wakeFields(queued), queued: state.queue.length });
-    return { status: 'overflow' };
-  }
-  state.queue.push(queued);
-  save(life);
-  log.info('inner: wake', { id, kind: queued.kind, dueAt: wake.dueAt ?? null });
-  note(life, { event: 'wake', wake: wakeFields(queued), placeId: wake.dmChat ? null : wake.placeId });
-  return { status: 'queued' };
-}
-
 /** What the journal keeps of a wake: ids, codes and times. */
 export function wakeFields(wake: Wake): Obj {
   const { attend } = wake;
@@ -587,14 +489,6 @@ export function wakeFields(wake: Wake): Obj {
     ...(attend ? { place: attend.place, lines: attend.lines, people: attend.people.length } : {}),
     ...(wake.kind === 'feedback' ? { turnId: wake.turnId ?? null, facts: listOf(wake.facts) } : {}),
   };
-}
-
-/** `wake` handed to the door (or straight to onWake without one). */
-export async function enqueue(life: InnerContext, wake: Wake): Promise<unknown> {
-  const { submit, now } = life;
-  const event: InnerWakeEvent = { kind: 'inner.wake', at: now(), id: wake.id, wake };
-  if (typeof submit === 'function') return submit(event);
-  return { status: 'ok', result: onWake(life, event) };
 }
 
 /** Whether her actions may leave an inner turn now: the switch on, not stopped, not paused. */

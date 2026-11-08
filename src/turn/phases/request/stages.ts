@@ -16,8 +16,7 @@ import { describableCandidates } from '../../media.ts';
 import { trackStage } from '../../timers.ts';
 import type { Stage } from '../../timers.ts';
 import type { HistoryLine, PhaseContext, PhaseParams } from '../context.ts';
-import type { Opened } from '../preflight.ts';
-import type { Setup } from './setup.ts';
+import type { Prepared } from '../request.ts';
 
 /** One stage of the preparation, with the value its work resolved once it is done (trackStage). */
 export type Tracked<TValue> = Omit<Stage, 'value' | 'settled'> & { value: TValue | undefined; settled: Promise<void> };
@@ -51,11 +50,27 @@ export type Staged = {
   videoCandidates: Array<MediaItem>;
 };
 
-export function startStages(ctx: PhaseContext, params: PhaseParams, opened: Opened, setup: Setup): Staged {
+/** What the stages step reads of the attempt. */
+type StagesNeeds = Pick<
+  Prepared,
+  | 'channel'
+  | 'libraryPlace'
+  | 'prepStep'
+  | 'life'
+  | 'config'
+  | 'startedAt'
+  | 'waitsForAll'
+  | 'pace'
+  | 'prefetching'
+  | 'rawHistory'
+  | 'selfName'
+>;
+
+export function startStages(ctx: PhaseContext, params: PhaseParams, turn: StagesNeeds): Staged {
   const { hot, clock, schedule, describer, fetchImpl, maybeSplit } = ctx;
   const { trigger = null, triggerKind = null, maySplit = false } = params;
-  const { channel, libraryPlace: placeId, prepStep, life } = opened;
-  const { config, startedAt, waitsForAll, pace, prefetching, rawHistory, selfName } = setup;
+  const { channel, libraryPlace: placeId, prepStep, life } = turn;
+  const { config, startedAt, waitsForAll, pace, prefetching, rawHistory, selfName } = turn;
   // Everything below starts as soon as its inputs exist and runs alongside the rest; the turn
   // waits for all of it together, at most until the deadline (paceSettings, counted from the
   // turn's start; longer once the search classifier asked for a search -- held for its verdict

@@ -1,6 +1,6 @@
 // The third phase of a turn attempt: the reply request asked under the bar, her answer read (split into speech and
 // calls, parsed, shaped by the feature switches), the answer logged, the pulled channels' seen marks moved, and the
-// cut-off and silence that end the turn here. runTurnOnce (src/behavior/turn.js) calls it after the request phase;
+// cut-off and silence that end the turn here. runAttempt (src/turn/phases/attempt.ts) calls it after the request phase;
 // the tool round reads its first answer and its reader of every later one.
 
 import { SELFREFLECTION_MAX_MESSAGES, stripUrls } from '../../behavior/selfreflection.ts';
@@ -43,8 +43,8 @@ export type Parsed = Shaped;
 /** One answer of hers read, with the completion it came in. */
 type ReadAnswer = StepAnswer & { completion: StepCompletion; parsed: Parsed };
 
-/** What the response phase made: the request as sent, her first answer and the reader of every later one. */
-export type Answered = Omit<Prepared, 'ended'> & {
+/** What the response phase adds: the request as sent, her first answer and the reader of every later one. */
+type AnswerMade = {
   ended: null;
   sentMessages: Array<object>;
   readAnswer: (completion: StepCompletion, number: number) => ReadAnswer;
@@ -52,22 +52,41 @@ export type Answered = Omit<Prepared, 'ended'> & {
   parsed: Parsed;
 };
 
+/** The attempt once the response phase made its part. */
+export type Answered = Omit<Prepared, 'ended'> & AnswerMade;
+
+/** What the response phase reads of the attempt. */
+type ResponseNeeds = Pick<
+  Prepared,
+  | 'channel'
+  | 'settledMs'
+  | 'life'
+  | 'transport'
+  | 'startedAt'
+  | 'bar'
+  | 'beforeBar'
+  | 'replyOptions'
+  | 'cancel'
+  | 'finalMode'
+  | 'prepareMs'
+  | 'late'
+  | 'timings'
+  | 'selfreflectionPrep'
+  | 'request'
+>;
+
 // health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.js in stage 5c, a pure split
-export async function responsePhase(
+export async function responsePhase<TTurn extends ResponseNeeds>(
   ctx: PhaseContext,
   params: PhaseParams,
   draft: Draft,
-  prepared: Prepared
-): Promise<Ended | Answered> {
+  turn: TTurn
+): Promise<Ended | (Omit<TTurn, 'ended'> & AnswerMade)> {
   const { hot, store, llm, calibrator, clock, skills } = ctx;
   const { emojiLookup, noteThink, journalOn } = ctx;
   const { triggerKind = null } = params;
-  const { opened, setup, pulled: pulledStep, waited, gathered, request } = prepared;
-  const { channel, settledMs, life } = opened;
-  const { transport, startedAt, bar, beforeBar, replyOptions, cancel } = setup;
-  const { finalMode } = pulledStep;
-  const { prepareMs, late, timings } = waited;
-  const { selfreflectionPrep } = gathered;
+  const { channel, settledMs, life, transport, startedAt, bar, beforeBar, replyOptions, cancel } = turn;
+  const { finalMode, prepareMs, late, timings, selfreflectionPrep, request } = turn;
   // The request is text only (buildRequest never attaches a picture: the persona sees them
   // through the describer's captions), so nothing is downloaded or resent here.
   const messages = request.messages;
@@ -270,7 +289,7 @@ export async function responsePhase(
   }
 
   return {
-    ...prepared,
+    ...turn,
     ended: null,
     sentMessages,
     readAnswer,

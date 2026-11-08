@@ -11,13 +11,8 @@ import { log } from '../../../log.ts';
 import type { Selfreflection } from '../../selfreflection.ts';
 import type { Draft } from '../../draft.ts';
 import type { VideoState } from '../../rewatch.ts';
-import type { HistoryLine, PhaseContext, PhaseParams, PhasePrompts } from '../context.ts';
-import type { Opened } from '../preflight.ts';
-import type { Looked } from './lookup.ts';
-import type { SecondLook } from './second-look.ts';
-import type { Setup } from './setup.ts';
-import type { Staged } from './stages.ts';
-import type { Waited } from './wait.ts';
+import type { HistoryLine, PhaseContext, PhasePrompts } from '../context.ts';
+import type { Prepared } from '../request.ts';
 import { VIDEOS_PER_TURN } from './stages.ts';
 
 /** What the gather step took for the request: the history as shown, and every input from the preparation. */
@@ -34,28 +29,38 @@ export type Gathered = {
   prompts: PhasePrompts;
 };
 
+/** What the gather step reads of the attempt. */
+type GatherNeeds = Pick<
+  Prepared,
+  | 'channel'
+  | 'placeId'
+  | 'isDm'
+  | 'prep'
+  | 'memoryOn'
+  | 'selfId'
+  | 'selfName'
+  | 'prefetching'
+  | 'selfreflectionPending'
+  | 'beforeBar'
+  | 'previewed'
+  | 'captions'
+  | 'captionCandidates'
+  | 'videoStage'
+  | 'videoCandidates'
+  | 'prefetchStage'
+  | 'slot'
+  | 'videosSoFar'
+  | 'linksStage'
+  | 'timings'
+>;
+
 // health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.ts in stage 5c, a pure split
-export async function gatherRequest(
-  ctx: PhaseContext,
-  params: PhaseParams,
-  draft: Draft,
-  opened: Opened,
-  setup: Setup,
-  staged: Staged,
-  second: SecondLook,
-  looked: Looked,
-  waited: Waited
-): Promise<Gathered> {
+export async function gatherRequest(ctx: PhaseContext, draft: Draft, turn: GatherNeeds): Promise<Gathered> {
   const { hot, store, clock, record, images } = ctx;
-  const { channel, placeId, isDm, prep } = opened;
-  const { memoryOn, selfId, selfName, prefetching, selfreflectionPending } = setup;
-  const { beforeBar } = setup;
-  const { previewed, captions, captionCandidates, videoStage, videoCandidates } = staged;
-  const { slot: second2, videosSoFar } = second;
-  const { linksStage } = looked;
-  const { timings } = waited;
-  const { prefetchStage } = staged;
-  const rewatchStage = second2.rewatch;
+  const { channel, placeId, isDm, prep, memoryOn, selfId, selfName, prefetching, selfreflectionPending } = turn;
+  const { beforeBar, previewed, captions, captionCandidates, videoStage, videoCandidates, prefetchStage } = turn;
+  const { slot, videosSoFar, linksStage, timings } = turn;
+  const rewatchStage = slot.rewatch;
   // The history the request is built from: with its file previews once they are ready.
   let history = previewed();
   // Messages deleted inside the window: the record's `deleted` lines over its span in this one

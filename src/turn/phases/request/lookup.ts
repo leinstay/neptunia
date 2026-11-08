@@ -6,10 +6,8 @@ import { log } from '../../../log.ts';
 import { linkHosts, journalled } from '../../journal.ts';
 import { readableLinkCandidates } from '../../media.ts';
 import type { PhaseContext } from '../context.ts';
-import type { Opened } from '../preflight.ts';
-import type { Planned } from './searches.ts';
-import type { Setup } from './setup.ts';
-import type { Staged, Tracked } from './stages.ts';
+import type { Prepared } from '../request.ts';
+import type { Tracked } from './stages.ts';
 
 /** What the lookup step made: the link reads' stage and the cache-only read of the same links. */
 export type Looked = {
@@ -26,12 +24,26 @@ function readsOf(value: unknown): Map<string, unknown> {
   return reads instanceof Map ? (reads as Map<string, unknown>) : new Map<string, unknown>();
 }
 
-export function startLookup(ctx: PhaseContext, opened: Opened, setup: Setup, planned: Planned, staged: Staged): Looked {
+/** What the lookup step reads of the attempt. */
+type LookupNeeds = Pick<
+  Prepared,
+  | 'channel'
+  | 'placeId'
+  | 'prepStep'
+  | 'config'
+  | 'asked'
+  | 'answersTask'
+  | 'rawHistory'
+  | 'webLookupOn'
+  | 'webSearchOn'
+  | 'serverOn'
+  | 'track'
+>;
+
+export function startLookup(ctx: PhaseContext, turn: LookupNeeds): Looked {
   const { lookup } = ctx;
-  const { channel, placeId, prepStep } = opened;
-  const { config, asked, answersTask, rawHistory } = setup;
-  const { webLookupOn, webSearchOn, serverOn } = planned;
-  const { track } = staged;
+  const { channel, placeId, prepStep, config, asked, answersTask, rawHistory } = turn;
+  const { webLookupOn, webSearchOn, serverOn, track } = turn;
   // The links: the newest readable links of the history, at most LINKS_PER_TURN NEW reads (cached excerpts are free).
   let linksStage: Looked['linksStage'] = null;
   const videoConfig = config.media?.video;

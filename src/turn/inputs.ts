@@ -77,7 +77,6 @@ type InputsDraft = {
   nowhere?: boolean;
   mode?: string | null;
   privateAccountId?: string | null;
-  requesterGroups?: Array<string>;
 };
 
 /** The gateway's verdict on one effect of her reply. */

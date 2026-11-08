@@ -8,8 +8,8 @@ import { errorCode, isFiniteNumber, listOf, objOf } from '../../tools/types.ts';
 import { dayBounds, turnsToday } from './drain.ts';
 import { asText } from './facts.ts';
 import { ATTEND_PREFIX } from './places.ts';
-import { markHandled, note, save, stateOf, timezoneOf, wakeOfDue } from './queue.ts';
-import { sleptCount } from './recovery.ts';
+import { note, save, stateOf, timezoneOf, wakeOfDue } from './queue.ts';
+import { disposeWakes, sleptCount } from './wake-queue.ts';
 import { innerSettings } from './settings.ts';
 import type { InnerContext, InnerSettings, InnerState, TurnRecord } from './types.ts';
 
@@ -29,12 +29,12 @@ export type SwitchOptions = { by?: unknown };
 
 /** The kill switch: stopped (persisted), the queue dropped (journalled). */
 export function stop(life: InnerContext, { by = null }: SwitchOptions = {}): SwitchAnswer {
-  const { now, log, running } = life;
+  const { now, log, wakes } = life;
   const state = stateOf(life);
   const at = now();
-  const queued = state.queue.filter((wake) => !running.has(wake.id));
+  const queued = state.queue.filter((wake) => !wakes.running.has(wake.id));
   const dropped = queued.length;
-  markHandled(life, state, queued, 'stopped', at, {});
+  disposeWakes(life, queued, 'stopped', at);
   const already = state.stopped;
   state.stopped = true;
   state.stoppedAt = already ? state.stoppedAt : at;

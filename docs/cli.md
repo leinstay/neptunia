@@ -331,4 +331,6 @@ Each of these exits `2`, names its replacement and runs nothing, in the chat and
 
 `/status` needs a core connection. For service logs, use the systemd scope selected during [setup](setup.md#services).
 
+Every command is declared once, in the command table `src/interface/commands/table.ts`, with its subcommands, its arguments and its help line. A leaf that maps onto one operation names it in its `op`, together with how the parsed arguments become the operation's, and the core's console in `src/interface/commands/console.ts` runs it through `operationOf` with the owner's rights. A leaf without `op` is answered by a module of its own, such as `src/interface/commands/memory.ts` for the memory browser.
+
 Read the implementation in [command table](../src/interface/commands/table.ts), [CLI entry point](../bin/neptunia.ts), [request parsing](../bin/neptunia-request.ts) and [interactive renderer](../cli/app.ts).

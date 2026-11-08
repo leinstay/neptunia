@@ -6,9 +6,8 @@ import type { VideoState } from '../../rewatch.ts';
 import { triggerBringsMedia } from '../../media.ts';
 import { DIRECT_CALLS } from '../../triggers.ts';
 import type { PhaseContext, PhaseParams } from '../context.ts';
-import type { Opened } from '../preflight.ts';
-import type { Setup } from './setup.ts';
-import type { Staged, Tracked } from './stages.ts';
+import type { Prepared } from '../request.ts';
+import type { Tracked } from './stages.ts';
 
 /** The second look's stage: the video states it re-watched (null: none offered) and its answers on pictures. */
 export type RewatchStage = Tracked<{ videos: Map<string, VideoState> | null; imageAnswers: Map<string, unknown> }>;
@@ -21,18 +20,25 @@ export type SecondLook = {
   videosSoFar: () => Promise<Map<string, VideoState> | undefined>;
 };
 
-export function startSecondLook(
-  ctx: PhaseContext,
-  params: PhaseParams,
-  opened: Opened,
-  setup: Setup,
-  staged: Staged
-): SecondLook {
+/** What the second-look step reads of the attempt. */
+type SecondLookNeeds = Pick<
+  Prepared,
+  | 'channel'
+  | 'placeId'
+  | 'asked'
+  | 'pace'
+  | 'candidate'
+  | 'deadline'
+  | 'captionCandidates'
+  | 'videoStage'
+  | 'videoCandidates'
+>;
+
+export function startSecondLook(ctx: PhaseContext, params: PhaseParams, turn: SecondLookNeeds): SecondLook {
   const { describer } = ctx;
   const { trigger = null, triggerKind = null } = params;
-  const { channel, placeId } = opened;
-  const { asked, pace, candidate } = setup;
-  const { deadline, captionCandidates, videoStage, videoCandidates } = staged;
+  const { channel, placeId, asked, pace, candidate } = turn;
+  const { deadline, captionCandidates, videoStage, videoCandidates } = turn;
   // A second look at a watched video, a watched GIF or a posted picture is hers to ask for: she calls media.look in
   // her reply, and no classifier picks one before it. The log says why none ran here.
   const lookable =

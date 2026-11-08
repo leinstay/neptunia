@@ -1,7 +1,8 @@
 // What the phases of a turn attempt share: the runner's dependencies and the functions of its topic modules
 // (PhaseContext), what the attempt was asked to do (PhaseParams), how a phase ends the attempt early (Ended), the
 // attempt's clocks and indicator that its end closes (Life), and the cancellation point at its bar (BeforeBar).
-// createTurnRunner (src/behavior/turn.ts) builds the context once; runTurnOnce hands it to every phase.
+// createTurnRunner (src/behavior/turn.ts) builds the context once; runAttempt (src/turn/phases/attempt.ts) hands it
+// to every phase.
 
 import type { Track } from '../../loop-watch.ts';
 import type { SkillUse } from '../../memory/db/skills.ts';
@@ -199,7 +200,7 @@ export type TurnTrigger = {
   [key: string]: unknown;
 };
 
-/** What a turn attempt was asked to do (runTurn's arguments, as runTurnOnce passes them on). */
+/** What a turn attempt was asked to do (runTurn's arguments, as runAttempt passes them on). */
 export type PhaseParams = {
   /** Null for a turn that runs nowhere: a service or an intention without a place. */
   chat: ChatRef | null;

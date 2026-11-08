@@ -1,7 +1,7 @@
 // The third step of a turn's request: the mode the turn is answered in, noted on its life. The request phase
 // (src/turn/phases/request.ts) runs it after the searches step.
 
-import type { PhaseContext, PhaseParams } from '../context.ts';
+import type { PhaseParams } from '../context.ts';
 import type { Opened } from '../preflight.ts';
 
 /** What the mode step made: the turn's mode. */
@@ -10,8 +10,8 @@ export type Pulled = {
   finalMode: string;
 };
 
-export function pullRequest(_ctx: PhaseContext, params: PhaseParams, opened: Opened): Pulled {
+export function pullRequest(params: PhaseParams, turn: Pick<Opened, 'life'>): Pulled {
   const finalMode = params.mode;
-  opened.life.turnMode = finalMode;
+  turn.life.turnMode = finalMode;
   return { ended: null, finalMode };
 }

@@ -1,6 +1,6 @@
 // The first phase of a turn attempt: the pause and the attention taken, the chat as the interface describes
-// it now, the journal's start and the wait for the trigger's author to finish writing. runTurnOnce
-// (src/behavior/turn.ts) calls it before every other phase; what it opens, the later phases use and the attempt's
+// it now, the journal's start and the wait for the trigger's author to finish writing. runAttempt
+// (src/turn/phases/attempt.ts) calls it before every other phase; what it opens, the later phases use and the attempt's
 // end closes.
 
 import { currentIface } from '../../memory/db/current-iface.ts';

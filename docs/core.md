@@ -21,6 +21,8 @@ The interface supplies a message and its chat, author and audience. The event do
 
 The request builder combines that context with the persona's prompts. The model can call tools before answering. Tool results return to the same turn; final output tags describe messages, reactions or silence. The interface executes supported actions and reports what happened.
 
+Each attempt of a turn runs in `runAttempt` in `src/turn/phases/attempt.ts`. It creates the attempt's draft, runs the phases of `src/turn/phases/` in order (the preflight, the request, the response, the act, the tool round and the outcome) and closes the attempt whatever it returned. Every phase, and every step of the request phase, adds its own fields to one flat record of what the attempt has made and names the fields it reads as a `Pick` of that record. The draft in `src/turn/draft.ts` holds what the attempt notes for its journal record and its turn's end, and each topic module of `src/turn/` declares the draft fields it reads in its own draft type.
+
 A line of the owner's CLI reaches the door when it arrives, as on any interface, and `src/turn/control.ts` tracks only what its client shows. The runner reads a cancel signal only for such a line (`cancelOf`, `src/behavior/turn.ts`), and it ends `cancelled` with nothing out. [CLI](cli.md#turns-the-queue-and-cancelling) explains the queue.
 
 An answer whose `<think>` is broken is never sent: the same request runs once more, and a second such answer ends the turn with the outcome `skip` and the reason `think-leaked`. [The prompt contract](prompt-contract.md#standards-of-output-and-stored-text) holds the standards of her output and of stored text.
@@ -91,6 +93,23 @@ The missed-answer registry in `src/behavior/missed.ts` covers every group place 
 A tool names where it acts by its argument `place`, the same word on every interface and for a service with none. She writes a handle of `<memory>` or `<meanwhile>`, a place id of any interface, or a name. `resolveCall` in `src/tools/executors.ts` matches a name among the places of the turn's snapshot first and then in the name index of the memory, read by `placesNamed` in `src/memory/db/names.ts` under the turn's context. A stored name or alias of a place on another interface therefore resolves to its place id.
 
 A handle to read a place and a way to write there are two facts. `conversation.read` of a place outside the turn's snapshot reads the stored lines the turn's context may read and the interface's own history through the router, so a room that is gone keeps its read. A write asks the place's interface. `postingRef` in `src/tools/operations/shared.ts` refuses a room whose `chatInfo` grants no `send` with `channel-no-permission`, and a post to a direct chat while `dm.enabled` is false with `dm-disabled`.
+
+## Tool definitions
+
+`src/tools/definitions.ts` holds one row per tool, in the order of the operations registry. A row declares the tool's arguments, the mapping of a call to its operation's arguments in `toArgs`, its effect class in `effects` and its traits in `traits`. The API name of a tool is its name with `_` for each `.`, and `apiNameOf` and `skillNameOfApi` translate between the two. Other modules never list tools by hand. They read a trait through `toolsWith(trait)` or `hasTrait(name, trait)`, and `validateDefinitions` refuses an unknown or repeated trait at start.
+
+| Trait | A tool carries it when | Read by |
+|---|---|---|
+| `self` | it is her own message, drawing, voice message, intention or skill, run on her grant alone whoever asked | `src/tools/gateway.ts`, `src/tools/executors.ts`, `src/admin.ts` |
+| `carried` | it stands behind one of her reply tags and runs in the current chat without a grant | `CARRIED_OVER` in `src/tools/access.ts` |
+| `ungrantable` | it is irreversible or administrative, so no grant opens it for her | `NOT_GRANTABLE_TO_PERSONA` in `src/tools/access.ts` |
+| `posts` | it leaves a line of hers where people read | `src/turn/skill-calls.ts`, `src/behavior/sandbox.ts`, `POSTING_SKILLS` |
+| `attaches` | it posts a file, so a wake's envelope checks it as `message.create` too | `NESTED_CAPABILITIES` in `src/tools/access.ts`, `src/turn/skill-calls.ts` |
+| `here` | it acts in the turn's own chat when its `place` is left out | `src/turn/skill-calls.ts` |
+| `written` | its `text` is her writing, rendered as a `<msg>` of hers | `src/tools/executors.ts`, `WRITTEN_SKILLS` |
+| `publishes` | the turn's publication boundary may refuse it | `src/tools/executors.ts` |
+
+`OP_EFFECTS` and `SELF_OWNED_OPS` in `src/tools/operations/effects.ts` and `API_NAMES` are maps derived from the same rows. A change to a tool's traits changes who may run it, so `src/development/risk.ts` counts `src/tools/definitions.ts` among the `permissions` paths.
 
 ## Boundaries
 
