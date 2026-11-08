@@ -328,6 +328,10 @@ export function observeDmLine(env: Env, kind: Kind, presence: Presence = 'full',
     chat: { id: 'dm-bob', kind: 'dm', chatType: 'dm', partnerId: BOB },
   });
   env.db.prepare('UPDATE sources SET scope_dm = ?, audience_id = NULL WHERE id = ?').run(BOB_PERSON, source);
+  // Bob's account gets a meta-person with its first line, and the DM names it; this world reads Bob by his old id.
+  env.db
+    .prepare('UPDATE places SET partner_person = ? WHERE id = (SELECT place_id FROM sources WHERE id = ?)')
+    .run(BOB_PERSON, source);
   fillEnvAudiences(env);
   return source;
 }

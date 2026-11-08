@@ -45,6 +45,26 @@ function say(handle: MemoryHandle, n: number, text = 'a synthetic line'): void {
   );
   assert.ok(envelope);
   assert.equal(observe(handle, envelope, { now: () => at }).ok, true);
+  asBeforeMetaPersons(dbOf(handle));
+}
+
+/**
+ * Plan 2026-11-08-meta-person: a new account gets a meta-person with its first line, so a DM nobody linked arises only
+ * from rows written before that release. The core's link of the partner is taken back here, with what it wrote, to
+ * keep the DM in that older state. A link written by anyone else stays.
+ */
+function asBeforeMetaPersons(db: Db): void {
+  const core = db
+    .prepare("SELECT person_id FROM account_person_links WHERE account_id = ? AND by = 'core' AND valid_to_at IS NULL")
+    .get(ACCOUNT);
+  if (typeof core?.person_id !== 'string') return;
+  db.prepare("DELETE FROM account_person_links WHERE account_id = ? AND by = 'core'").run(ACCOUNT);
+  db.prepare('DELETE FROM person_accounts WHERE id = ?').run(ACCOUNT);
+  db.prepare('UPDATE accounts SET person_id = NULL, link = NULL, linked_by = NULL, linked_at = NULL WHERE id = ?').run(
+    ACCOUNT
+  );
+  db.prepare('UPDATE places SET partner_person = NULL WHERE id = ?').run(PLACE);
+  db.prepare('UPDATE sources SET scope_dm = NULL, author_person = NULL WHERE place_id = ?').run(PLACE);
 }
 
 const dmScopes = (db: Db): Array<SweepScope> =>

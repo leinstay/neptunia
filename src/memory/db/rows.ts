@@ -46,6 +46,7 @@ import {
 import { AUD_INTERNAL, SCOPE_INTERNAL, audienceOf, audienceParts } from './scope.ts';
 import { SELF_SOURCE_KINDS } from './source-kinds.ts';
 import { projectRow } from './graph.ts';
+import { authorPersonOf, syncPersonAccount } from './meta-person-write.ts';
 import { deriveMirrorPublication, projectPublicationsNaming } from './publish.ts';
 import { asText, isWholeNumber } from './types.ts';
 import type { Db, Log, Row, Rows } from './types.ts';
@@ -298,8 +299,15 @@ export function deriveRow(
       out.native_kind = out.native_id === null || out.native_id === undefined ? null : legacyNativeKind(out.iface);
     }
     if (have.has('author_participant')) checkAuthor(out);
+    deriveAuthorPerson(db, have, row, out);
   }
   return out;
+}
+
+/** The meta-person of a line's author account (schema v40), none for a line with no account; a given one stays. */
+function deriveAuthorPerson(db: Db, have: Set<unknown>, row: Row, out: Row): void {
+  if (have.has('author_person') && Object.hasOwn(out, 'author_account') && !Object.hasOwn(row, 'author_person'))
+    out.author_person = authorPersonOf(db, out.author_account);
 }
 
 /**
@@ -559,6 +567,17 @@ export function insertRows(
     }
   }
   ensureLinks(db, mapping.accounts, { at });
+  syncPersonAccounts(db, mapping.accounts, at);
+}
+
+/** The `person_accounts` rows of the accounts a mapping wrote follow their names, avatar and link (meta-person-write.ts). */
+export function syncPersonAccounts(
+  db: Db,
+  accounts: ReadonlyArray<Row> | null | undefined,
+  at: string | undefined
+): void {
+  if (!columnsOf(db, 'person_accounts').size) return;
+  for (const row of accounts ?? []) if (typeof row?.id === 'string') syncPersonAccount(db, row.id, stampOf(at));
 }
 
 /** Every row of each named table as a plain object, in rowid order. */

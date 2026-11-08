@@ -30,6 +30,7 @@ import { itemTold, mediaItemsOf, sourceLine, unlinkedLineItems, writeLineMedia }
 import { messageLocator } from './message-locator.ts';
 import { observationOf } from './observe-event.ts';
 import { rootPlaceInDb } from './place-tree.ts';
+import { authorPersonOf } from './meta-person-write.ts';
 import { addRelation } from './rows.ts';
 import { asText, dbOf } from './types.ts';
 import type { Connection, Db, Row } from './types.ts';
@@ -54,6 +55,7 @@ export const BACKFILL_FIELDS: Readonly<Record<string, FieldPlan>> = {
   'sources.revision': kept('every line has one'),
   'sources.place_id': kept('every old row names its place'),
   'sources.author_account': kept('the author, on every old row'),
+  'sources.author_person': derived("from the author account's person, as a new line takes it"),
   'sources.author_participant': none('a thread-local poster is known only to its own interface'),
   'sources.author_kind': kept('the family catalog filled it'),
   'sources.reply_to': readIt('from the message read'),
@@ -290,6 +292,13 @@ function fillLine(db: Db, line: Row, update: Row): void {
   if (Array.isArray(update.mentions) && update.mentions.length > 0) {
     db.prepare('UPDATE sources SET mentions = ? WHERE id = ?').run(JSON.stringify(update.mentions), line.id);
   }
+  // The meta-person of the line's author, as a new line names it (meta-person-write.ts#authorPersonOf).
+  const author = authorPersonOf(
+    db,
+    db.prepare('SELECT author_account FROM sources WHERE id = ?').get(line.id)?.author_account
+  );
+  if (author !== null)
+    db.prepare('UPDATE sources SET author_person = COALESCE(author_person, ?) WHERE id = ?').run(author, line.id);
   for (const relation of Array.isArray(update.relations) ? (update.relations as Array<Row>) : []) {
     const target = { authority: update.authority, ...(relation.target as Row) };
     addRelation(db, asText(line.id), asText(relation.predicate), target, {

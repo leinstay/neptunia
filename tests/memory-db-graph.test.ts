@@ -250,6 +250,14 @@ function traversalFixture() {
   const accountOf = (done: Record<string, Untyped>) =>
     db.prepare('SELECT author_account FROM sources WHERE id = ?').get(done.sourceId).author_account;
   const accounts = { main: accountOf(early), alt: accountOf(alt), tg: accountOf(telegram) };
+  // Plan 2026-11-08-meta-person: each account got a meta-person of its own with its first line. The links written below
+  // stand for the world this fixture describes, where Alice's three accounts were linked to her alone, so the core's
+  // links of these accounts and their edges are taken out first.
+  const alice: Array<string> = [accounts.main, accounts.alt, accounts.tg].map(String);
+  db.prepare("DELETE FROM account_person_links WHERE by = 'core' AND account_id IN (?, ?, ?)").run(...alice);
+  db.prepare("DELETE FROM graph_edges WHERE predicate = 'account_of' AND src IN (?, ?, ?)").run(
+    ...alice.map((account) => graphNodeId('account', account))
+  );
   insertRows(
     db,
     {

@@ -6,7 +6,14 @@
 
 import { hasStorageUnits, ensureUnit, unitById } from './storage-units.ts';
 import { legacyStorageKey } from '../migration/paths.ts';
-import { deriveRow, ensureLinks, ensureNodeKeys, ensureRelations, restrictSelfreflectionMedia } from './rows.ts';
+import {
+  deriveRow,
+  ensureLinks,
+  ensureNodeKeys,
+  ensureRelations,
+  restrictSelfreflectionMedia,
+  syncPersonAccounts,
+} from './rows.ts';
 import { projectRow } from './graph.ts';
 import { deriveMirrorPublication } from './publish.ts';
 import { resolveParticipationSources } from './participation-sources.ts';
@@ -361,6 +368,7 @@ export function writeMapping(
   }
   // An account with a person gets its link row once; an existing link is the database's and is never rewritten.
   ensureLinks(db, mapping.accounts, { at });
+  syncPersonAccounts(db, mapping.accounts, at);
   const touched: Array<[string, Row]> = [];
   count += writeChildren(db, mapping, owner, skippedParents, touched);
   // Schema v10: a mirror's publication follows the mirror (publish.ts#deriveMirrorPublication), on this one path.
