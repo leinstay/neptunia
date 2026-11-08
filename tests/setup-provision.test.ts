@@ -199,15 +199,3 @@ test('a no starts nothing', async () => {
   assert.deepEqual(outcome.running, []);
   assert.deepEqual(calls, []);
 });
-
-test('setup provisions the service client beside the owner chat, a cli principal with its own token', async () => {
-  // Catches: the lead and the agents have no token of their own, so every check runs as the owner and reaches her memory.
-  const options = setupOptions();
-  await runSetupFully(options);
-  const service = (loadPrincipals(options.privateDir) ?? []).find((one) => one.name === 'service');
-  assert.equal(service?.kind, 'cli');
-  const own = fs.readFileSync(path.join(options.privateDir, 'clients', 'service.token'), 'utf8').trim();
-  const owner = fs.readFileSync(path.join(options.privateDir, 'clients', 'cli.token'), 'utf8').trim();
-  assert.notEqual(own, '');
-  assert.notEqual(own, owner);
-});

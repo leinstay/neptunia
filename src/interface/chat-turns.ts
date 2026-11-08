@@ -84,8 +84,6 @@ export type ChatTurns = {
     value: Envelope;
     message: Loose;
     from?: From;
-    /** A line of the `service` client: tracked for its sender, and never shown to the open chats. */
-    unrecorded?: boolean;
     onHeld: () => void;
     onNoTurn: () => void;
   }): Promise<Envelope>;
@@ -213,7 +211,7 @@ export function createChatTurns({
       for (const link of subscribers) if (link.isClosed()) subscribers.delete(link);
       return [...subscribers];
     },
-    async take({ id, value, message, from, unrecorded = false, onHeld, onNoTurn }) {
+    async take({ id, value, message, from, onHeld, onNoTurn }) {
       if (lines.has(id)) return ackOf(value, 'duplicate');
       const line: TrackedLine = {
         id,
@@ -229,12 +227,13 @@ export function createChatTurns({
         if (lines.size <= KEPT_LINES) break;
         lines.delete(oldest);
       }
-      // A service line stays out of the control, so no open chat shows it; past what the row shows a line is not
-      // tracked either. Both still go to her.
-      const answer = unrecorded
-        ? null
-        : control.submit({ requestId: id, text: textOf(message.content), attachments: attachmentsOf(message) });
-      if (answer?.status === 'accepted') line.turnId = answer.turnId;
+      const answer = control.submit({
+        requestId: id,
+        text: textOf(message.content),
+        attachments: attachmentsOf(message),
+      });
+      // Past what the row shows the line simply is not tracked: it still goes to her.
+      if (answer.status === 'accepted') line.turnId = answer.turnId;
       const ack = await door.receive(value, from);
       const status = looseOf(ack.body).status;
       if (status !== 'ok') settle(line, { status: 'failed', code: `door-${String(status)}` });

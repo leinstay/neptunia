@@ -64,7 +64,7 @@ import { createImageGen } from './llm/images.ts';
 import { createSpeech } from './speech/index.ts';
 import { ffmpegAvailable } from './speech/convert.ts';
 import { gifVectorModel } from './behavior/media-pick.ts';
-import { createTurnRunner, isUnrecorded } from './behavior/turn.ts';
+import { createTurnRunner } from './behavior/turn.ts';
 import { createActivity } from './behavior/activity.ts';
 import { ownerNamesOf } from './memory/db/people-read.ts';
 import { loadStemmer } from './memory/db/stems.ts';
@@ -1190,7 +1190,7 @@ async function buildCore(
     memoryDb,
   });
   turns.setOnTurnEnd((end) => {
-    if (!isUnrecorded()) missed.onTurnEnd(end); // an unrecorded turn owes no later answer
+    missed.onTurnEnd(end);
     // `neptunia -p` with text ends when the turn over its line ends.
     intake.turnEnded(end);
   });
