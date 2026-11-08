@@ -634,9 +634,26 @@ async function runInkChat(
       if (read.ok) onTurnEvent(read.event);
     }
   }
-  /** When `current` closes: the chat says so, tries again until a core answers, and then takes the turns back up. */
+  /**
+   * Her lines stored between `from` and `to` (ms), while this chat had no link: the core kept her posts for the closed
+   * chat (src/interface/cli-chat.ts), and the chat shows them once it is back.
+   */
+  async function showSaidWhileAway(from: number, to: number): Promise<void> {
+    const count = settings.context?.channelMessages ?? 100;
+    const answer = await link.ask({ name: 'session.page', args: { count } });
+    if (answer.status !== 'ok') return;
+    const { lines } = JSON.parse(answer.text) as { lines: Array<{ at?: number; who: string; text: string }> };
+    for (const line of lines)
+      if (line.who === 'her' && typeof line.at === 'number' && line.at >= from && line.at < to)
+        entry({ who: 'her', text: line.text, at: line.at });
+  }
+  /**
+   * When `current` closes: the chat says so, tries again until a core answers, takes the turns back up, which makes it
+   * the open chat her posts go to, and shows what she said while it was away.
+   */
   function watchLink(current: CliLink): void {
     void current.closed.then(async () => {
+      const droppedAt = Date.now();
       linked(false);
       for (;;) {
         await new Promise((resolve) => setTimeout(resolve, RECONNECT_MS));
@@ -649,7 +666,9 @@ async function runInkChat(
       }
       linked(true);
       watchLink(link);
+      const followedAt = Date.now();
       await followTurns();
+      await showSaidWhileAway(droppedAt, followedAt);
     });
   }
   watchLink(link);
@@ -864,6 +883,8 @@ async function runChat(firstLine?: string): Promise<void> {
   if (fs.existsSync(picture)) printBlock(fs.readFileSync(picture, 'utf8'));
   const header = await link.ask({ name: 'header', args: {} });
   if (header.status === 'ok') printBlock(header.text);
+  // Asking for the turn events makes this chat an open chat, where her posts go while it runs; it shows no events.
+  void link.ask({ name: 'turn.replay', args: { after: 0 } });
 
   const historyFile = path.join(where.privateDir, 'cli', 'history');
   // In a terminal the interface draws into a writable that a secret answer mutes (bin/secret-prompt.ts).

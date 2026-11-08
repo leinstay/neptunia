@@ -52,6 +52,7 @@ import {
   startUp,
 } from './wake-queue.ts';
 import type { TurnClaim } from './wake-queue.ts';
+import { ifaceOfChat } from '../../interface/cli-chat.ts';
 import type {
   ChainBudget,
   CostMeter,
@@ -271,8 +272,8 @@ export async function chatFor(life: InnerContext, group: ReadonlyArray<Wake>): P
   const readOnlyOk = anchor.kind === 'attend';
   const failed = (code: string): ChatFound =>
     readOnlyOk ? { channel: null, why: code, drop: true, placeFailure: null } : nowhere(code);
-  // The chat as the interface describes it now: unknown to it, it is unavailable.
-  const found = reads ? await reads.chatInfo({ iface: iface(), chatId: placeId }) : null;
+  // The chat as its own interface describes it now (the command line for its chat): unknown to it, it is unavailable.
+  const found = reads ? await reads.chatInfo({ iface: ifaceOfChat(placeId, iface()), chatId: placeId }) : null;
   const channel = found?.chat ?? null;
   if (!channel) return failed(CODE.UNAVAILABLE);
   // A private chat only while private chats are on (dm.enabled, read now).

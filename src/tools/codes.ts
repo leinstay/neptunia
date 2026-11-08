@@ -168,6 +168,8 @@ export const CATALOGUE = Object.freeze({
   // A send to a selfreflection mirror's place, refused by the guarded port (src/behavior/mirror.ts#guardMirrorPort).
   'selfreflection-mirror': skill('failed'),
   'link-closed': skill('unknown'),
+  // A post with files to the owner's command line chat while no chat is open (src/interface/cli-chat.ts).
+  'chat-closed': skill('failed'),
   'link-busy': skill('failed'),
   'adapter-threw': skill('unknown'),
   refused: skill('failed'),

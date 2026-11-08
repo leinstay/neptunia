@@ -115,7 +115,11 @@ async function move(
 /** What a send answered, kept on its row: the messages it became, or its error code. */
 function receiptOf(answer: Sent): unknown {
   return answer.status === 'ok'
-    ? { messageIds: answer.parts.map((part) => part.messageId ?? null) }
+    ? {
+        messageIds: answer.parts.map((part) => part.messageId ?? null),
+        // Kept for a chat that is not open (src/interface/cli-chat.ts): stored as sent, shown when the chat opens.
+        ...(answer.deferred === true ? { deferred: true } : {}),
+      }
     : { code: answer.error?.code ?? answer.status };
 }
 

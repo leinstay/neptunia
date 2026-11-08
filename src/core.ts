@@ -97,13 +97,13 @@ import { createChatDirectory } from './interface/directory.ts';
 import { isReadable, takeSnapshot } from './behavior/snapshot.ts';
 import {
   CLI_IFACE,
-  closedAdapter,
   createIfaceRouter,
   createInterfaceLinks,
   createLinkSwitch,
   openAdapterLink,
 } from './interface/link.ts';
 import { createCommandDesk, createCommandIntake, coreStatusFacts } from './interface/neptunia-cli.ts';
+import { createCliChat } from './interface/cli-chat.ts';
 import { createChatState } from './interface/commands/chat-state.ts';
 import type { ChatState } from './interface/commands/chat-state.ts';
 import { createChatSessions } from './chat/sessions.ts';
@@ -833,20 +833,21 @@ async function buildCore(
     now: clock,
     newId: randomUUID,
   });
-  // The chat's history reads those stored lines too, since the chat client holds only the lines said since it started.
-  const cliAdapter = () =>
-    withStoredHistory(intake.chat() ?? closedAdapter(), (placeId) => chatSessions.shown(placeId));
+  // The owner's chat exists while no chat client is open (src/interface/cli-chat.ts): its info is answered and a text
+  // post is kept as her line, which the chat shows when it opens. Its history reads those stored lines too, since the
+  // chat client holds only the lines said since it started.
+  const cliChat = createCliChat({ live: () => intake.chat(), now: clock, newId: randomUUID });
+  const cliAdapter = () => withStoredHistory(cliChat, (placeId) => chatSessions.shown(placeId));
   // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
   // after the skill gateway (src/tools/gateway.ts) let the call pass. It is the guarded port: a send to a selfreflection
   // mirror's place goes nowhere (`selfreflection-mirror`); only the mirrors' publisher below holds the link's own adapter.
-  // Her replies in the owner's chat (`iface: 'cli'`) go to the chat's link, every other effect to the served
-  // interface; with no chat connected a reply there ends as a dropped link's does, and a history read there answers the
-  // stored lines alone.
+  // Her replies in the owner's chat (`iface: 'cli'`) go to the open chat, every other effect to the served
+  // interface; with no chat open a text reply there is kept for the chat, and a history read there answers the stored
+  // lines alone.
   const routed = createIfaceRouter(
     coreLink.adapter,
     (name) => (name === CLI_IFACE ? cliAdapter() : (linksByName.get(name)?.adapter ?? null)),
-    () =>
-      [intake.chat(), ...[...linksByName.values()].map((link) => link.adapter)].filter((adapter) => adapter !== null),
+    () => [cliAdapter(), ...[...linksByName.values()].map((link) => link.adapter)],
     (nativeId) => {
       const name = rootRoutes.ifaceOf(nativeId, (one) => linksByName.get(one)?.current().isClosed() === false);
       return name === null ? null : (linksByName.get(name)?.adapter ?? null);

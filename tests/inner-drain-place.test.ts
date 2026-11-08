@@ -8,8 +8,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { heartbeatWake } from '../src/behavior/inner.ts';
 import { CODE } from '../src/tools/codes.ts';
-import { NOW, clock, intention, setup } from './fixtures/inner-rig.ts';
-import type { FakeIntention } from './fixtures/inner-rig.ts';
+import { NOW, clock, hotWith, intention, setup } from './fixtures/inner-rig.ts';
+import type { FakeIntention, SetupOptions } from './fixtures/inner-rig.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 import { useIface } from './fixtures/turn-world.ts';
 
@@ -71,4 +71,31 @@ test('a due intention whose place is gone runs nowhere with the failure in its w
   assert.equal(chatOf(params), null);
   assert.ok(JSON.stringify(params?.inner.wake ?? {}).includes(CODE.UNAVAILABLE), 'the code of the gone place');
   assert.equal(records[0]?.status, 'pending');
+});
+
+test("an intention whose place is the command line's chat runs there, found through the command line", async () => {
+  // Bug: the drain asks the served interface for `cli:dm:owner`, which knows no such chat, so the turn runs nowhere.
+  clock.t = NOW;
+  const cliChat = {
+    id: 'cli:dm:owner',
+    kind: 'dm',
+    rootId: null,
+    name: 'owner',
+    partnerId: 'owner',
+    iface: 'cli',
+    permissions: { read: true, send: true, attach: true, react: false },
+  };
+  const client = wrongly<SetupOptions['client']>({
+    reads: {
+      chatInfo: (chat: { iface: string; chatId: string }) =>
+        Promise.resolve(chat.iface === 'cli' && chat.chatId === 'cli:dm:owner' ? { chat: cliChat } : null),
+    },
+  });
+  const hot = wrongly<SetupOptions['hot']>({ config: { ...hotWith().config, dm: { enabled: true } } });
+  const run = setup({ records: [placed('i1', 'cli:dm:owner')], client, hot });
+  await run.inner.tick();
+  await settle();
+  const { calls } = run.turns;
+  assert.equal(calls.length, 1);
+  assert.deepEqual(chatOf(calls[0]), { iface: 'cli', chatId: 'cli:dm:owner' });
 });

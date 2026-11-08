@@ -355,6 +355,7 @@ When a result's `values.reason` has wording in `tools.result.params.reason`, `re
 | `send-failed` | failed | - | `tools.result.reasons.send-failed` |
 | `selfreflection-mirror` | failed | - | `tools.result.reasons.selfreflection-mirror` |
 | `link-closed` | unknown | - | `tools.result.reasons.link-closed` |
+| `chat-closed` | failed | - | `tools.result.reasons.chat-closed` |
 | `link-busy` | failed | - | `tools.result.reasons.link-busy` |
 | `adapter-threw` | unknown | - | `tools.result.reasons.adapter-threw` |
 | `refused` | failed | - | `tools.result.reasons.refused` |

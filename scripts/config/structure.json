@@ -423,6 +423,7 @@
         "src/web/**",
         "src/interface/directory.ts",
         "src/interface/door.ts",
+        "src/interface/cli-chat.ts",
         "src/interface/link.ts",
         "src/interface/members.ts",
         "src/interface/neptunia-cli.ts",
