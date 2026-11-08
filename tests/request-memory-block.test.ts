@@ -94,3 +94,48 @@ test('an empty mind on a turn with nobody to answer renders no text', () => {
   // Bug: empty subtags reach the request and cost tokens for nothing.
   assert.equal(render(mindOfEntries(), null).trim(), '');
 });
+
+test("a person with two accounts lists each account's interface, platform id and name in their entry", () => {
+  // Bug: she reads one person writing from two accounts but cannot tell which accounts are theirs.
+  const accounts = [
+    {
+      id: 'fake:111',
+      iface: 'fake',
+      platformId: '111',
+      handle: null,
+      displayName: 'Ελένη',
+      avatar: null,
+      profileText: null,
+    },
+    {
+      id: 'other:555',
+      iface: 'other',
+      platformId: '555',
+      handle: null,
+      displayName: 'Λένα',
+      avatar: null,
+      profileText: null,
+    },
+  ];
+  const eleni = { ...ELENI, accounts: ['fake:111', 'other:555'], profileAccounts: accounts };
+  const people = section(render(mindOfEntries({ people: [eleni] }), AS_ELENI), 'people');
+  for (const value of ['other', '555', 'Λένα', '111']) assert.ok(people.includes(value), `${value} in <people>`);
+});
+
+test('a person with one account lists no accounts', () => {
+  // Bug: every entry grows an accounts line that tells her nothing the heading does not.
+  const accounts = [
+    {
+      id: 'fake:222',
+      iface: 'fake',
+      platformId: '222',
+      handle: null,
+      displayName: 'Νίκος',
+      avatar: null,
+      profileText: null,
+    },
+  ];
+  const people = section(render(mindOfEntries({ people: [{ ...NIKOS, profileAccounts: accounts }] }), null), 'people');
+  assert.ok(people.includes('Νίκος'));
+  assert.ok(!people.includes('222'));
+});
