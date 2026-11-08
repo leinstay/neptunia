@@ -93,7 +93,7 @@ export function numberLead(number: number, digits = 1): string {
   return `[#${String(number).padStart(digits, '0')}] `;
 }
 
-/** The digits of the largest number a view shows, the width every number of that view is padded to. */
+/** The digits of the largest number, the chat's history count or the window's command count, that every number is padded to. */
 export const leadDigits = (largest: number): number => String(Math.max(0, largest)).length;
 
 function expandTabs(line: string): string {

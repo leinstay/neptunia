@@ -500,7 +500,8 @@ export class ChatController {
   shownEntries(): Array<TranscriptEntry> {
     const { entries } = this.model;
     if (this.shownCache?.from === entries) return this.shownCache.list;
-    // The numbers first, so every lead of the view is padded to the digits of the largest.
+    // The numbers first: the newest line's number is the count of the whole stored history, and its digits pad every lead,
+    // so a page of older lines loads under the same width.
     const numbers: Array<number> = [];
     let number = 0;
     let lastLine: ShownEntry | undefined;

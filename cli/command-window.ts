@@ -53,7 +53,7 @@ export const GRAPHIC_SUFFIX = ':graphic';
 
 /**
  * The window's entries: the command line under the lead of its time and its number among the session's commands, padded to
- * the digits of the newest as the chat pads its lines, then its answer as it arrived in the same column, with every control character made visible. A
+ * the digits of the session's command count, a width of its own, then its answer as it arrived in the same column, with every control character made visible. A
  * result named in `slots` gets that many blank rows after its answer, where its picture is drawn. Kept per result, so the
  * wrapped rows of an unchanged result are reused.
  */
