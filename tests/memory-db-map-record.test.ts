@@ -202,3 +202,18 @@ test('the record mapper derives its locator from the line and keeps internal met
   });
   assert.deepEqual(back, line);
 });
+
+test("her said line in a direct chat whose id spells another person carries the place's stored partner", () => {
+  // Bug: the mapper spelled the partner from the place id, so her lines in a chat whose stored partner is another person
+  // named a person with no row.
+  const ctx = {
+    iface: 'fake',
+    privateAccountId: 'owner',
+    dmPlace: { id: 'fake:dm:owner', partnerPerson: 'person:0wner-synthetic' },
+  };
+  const line = { ...seen(), kind: 'said', by: 'self', scope: {} };
+  const { rows } = roundTrip(mapper, 'private/owner/record/2026-10/2026-10-20.jsonl', line, ctx);
+  const [row] = rows.sources;
+  assert.equal(row.scope_dm, 'person:0wner-synthetic');
+  assert.equal(row.audience_id, 'aud:dm:fake:dm:owner');
+});
