@@ -3,7 +3,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CODES, memoryKeyState, refusalOf } from '../src/memory/db/session.ts';
+import { CODES, memoryKeyState, refusalOf, sweep } from '../src/memory/db/session.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { dbOf } from '../src/memory/db/types.ts';
 import { CHECK_PURPOSE, DRAFT_PURPOSE, reviewRefusal } from '../src/memory/db/describe.ts';
 import { createKeyRing } from '../src/keys/ring.ts';
 import type { KeyRing } from '../src/keys/ring.ts';
@@ -78,4 +80,40 @@ test('the memory-session tool with a blank simulation key still refuses not_conf
   const { sessionKeyWiring } = await import('../scripts/memory-session.ts');
   const { config, env } = sessionKeyWiring(baseConfig(), '');
   assert.equal(refusalOf(config, env, prompts), CODES.NOT_CONFIGURED);
+});
+
+// The owner's word of 2026-11-06 and 2026-11-08: a role that runs through a harness needs no API key, and no check at
+// the moment of use asks for one. The memory writer on `claude` or `codex` sends no key, so neither its sweep nor its
+// review may refuse for want of one.
+const onHarness = { kind: 'subharness' as const, backend: 'claude' as const, model: 'claude-opus-4-6', effort: null };
+
+test('a memory writer on a harness needs no key: the sweep and the review are not refused with an empty store', () => {
+  // Catches: memory sessions stopped for two days with not_configured while the writer ran on the Claude harness.
+  const empty = ringWith(() => undefined);
+  assert.equal(refusalOf(baseConfig(), {}, prompts, empty, onHarness), null);
+  assert.equal(reviewRefusal(baseConfig(), {}, reviewPrompts, empty, onHarness), null);
+  assert.equal(memoryKeyState(baseConfig(), {}, empty, onHarness).ok, true);
+});
+
+test('a memory writer on the direct path with no key is still refused', () => {
+  // Catches: the harness exception swallowing the direct path's real need for a key.
+  const empty = ringWith(() => undefined);
+  assert.equal(refusalOf(baseConfig(), {}, prompts, empty, { kind: 'direct' }), CODES.NOT_CONFIGURED);
+  assert.equal(reviewRefusal(baseConfig(), {}, reviewPrompts, empty, { kind: 'direct' }), CODES.NOT_CONFIGURED);
+});
+
+test('a sweep whose writer runs on a harness goes on with an empty key store', async () => {
+  // Catches: the sweep reading only the key ring and refusing before the harness client is ever asked.
+  const empty = ringWith(() => undefined);
+  const result = await sweep({
+    db: dbOf(openMemoryDb(':memory:')),
+    write: () => Promise.resolve(),
+    llm: { complete: () => Promise.reject(new Error('no request expected')) },
+    hot: { config: baseConfig(), prompts },
+    env: {},
+    ring: empty,
+    path: () => onHarness,
+    now: () => NOW,
+  });
+  assert.notEqual(result.code, CODES.NOT_CONFIGURED);
 });

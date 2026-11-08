@@ -373,6 +373,7 @@ async function buildCore(
     track: loopWatch.track,
     sessionEnv: () => env,
     sessionKeys: ringNow,
+    sessionPath: () => memoryPath(paths.privateDir),
     onSessionFailure: (failure: Untyped) => tellSessionFailure(failure),
     onPendingQuarantined: quarantine.hold,
   };

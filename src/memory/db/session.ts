@@ -221,8 +221,11 @@ export function sessionSettings(configGiven: unknown): SessionSettings {
 export function memoryKeyState(
   config: Config | null | undefined,
   env: Row | null | undefined,
-  ring?: KeyRing | null
+  ring?: KeyRing | null,
+  path?: MemoryPath | null
 ): { ok: boolean; name: string | null } {
+  // A writer on a harness sends no API key (src/subharness/memory-writer.ts), so it needs none.
+  if (path?.kind === 'subharness') return { ok: true, name: null };
   if (ring) {
     const route = ring.route(MEMORY_ROLE);
     return route === null ? { ok: false, name: null } : { ok: true, name: route.name };
@@ -241,11 +244,12 @@ export function refusalOf(
   config: Config | null | undefined,
   env: Row | null | undefined,
   prompts: Row | null | undefined,
-  ring?: KeyRing | null
+  ring?: KeyRing | null,
+  path?: MemoryPath | null
 ): string | null {
   const { mode } = sessionSettings(config);
   if (mode === 'off') return CODES.OFF;
-  if (!memoryKeyState(config, env, ring).ok) return CODES.NOT_CONFIGURED;
+  if (!memoryKeyState(config, env, ring, path).ok) return CODES.NOT_CONFIGURED;
   const prompt = prompts?.['memory-session'];
   if (typeof prompt !== 'string' || !prompt.trim()) return CODES.NO_PROMPT;
   return null;
@@ -1265,6 +1269,8 @@ export type SessionContext = {
   env?: Row | null;
   /** The core's key ring while `keys.json` exists (see `memoryKeyState`), else null or absent. */
   ring?: KeyRing | null;
+  /** The writer's path now (src/subharness/memory-path.ts#memoryPath); absent is the direct path. */
+  path?: () => MemoryPath;
   now?: () => number;
   log?: Partial<Log>;
   selfName?: string;
@@ -1354,7 +1360,7 @@ export function sessionStatus({
   path?: MemoryPath;
 }): SessionStatus {
   const { mode, sweepsPerScopePerDay, retryLimit } = sessionSettings(config);
-  const code = refusalOf(config, env, prompts);
+  const code = refusalOf(config, env, prompts, null, path);
   let state = 'ready';
   if (code === CODES.OFF) state = 'off';
   else if (code === CODES.NOT_CONFIGURED) state = 'not_configured';
@@ -1405,7 +1411,7 @@ export async function sweep(
   const { db, hot, env } = ctx;
   const now = ctx.now ?? Date.now;
   const config = hot.config;
-  const refused = refusalOf(config, env, hot.prompts, ctx.ring);
+  const refused = refusalOf(config, env, hot.prompts, ctx.ring, ctx.path?.());
   if (refused) return { status: refused === CODES.OFF ? 'off' : 'refused', code: refused, runs: [] };
   const settings = sessionSettings(config);
   const started = now();
