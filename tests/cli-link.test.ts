@@ -94,3 +94,26 @@ test('a question with nobody to answer it is refused at once', async () => {
   assert.equal(commands.length, 1);
   link.close();
 });
+
+test('a line said as a reply carries the message id of its parent to the core', async () => {
+  // Catches: the reply parent dropped on the way, so memory stores the owner's reply as a line that answers nothing.
+  const { core, client } = createLoopback();
+  const received: Array<Body> = [];
+  core.onEnvelope((value) => {
+    if (value.type !== 'event') return;
+    received.push(value.body as Body);
+    core.send(envelope('ack', { status: 'ok' }, { id: `ack:${value.id}`, replyTo: value.id }));
+  });
+  const link = openLinkOver(client, { token: 't', print: null });
+  assert.equal(await link.say('hi', [], 'msg-34'), 'ok');
+  assert.equal(await link.say('plain'), 'ok');
+  const messages = received.map((body) => body.message as Body);
+  assert.deepEqual(
+    messages.map((message) => [message.content, message.replyToId]),
+    [
+      ['hi', 'msg-34'],
+      ['plain', null],
+    ]
+  );
+  link.close();
+});

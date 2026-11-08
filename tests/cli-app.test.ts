@@ -113,20 +113,21 @@ test('the input stays at the terminal bottom when the chat is empty and the term
   const { env } = envOf();
   await withChat(env, async (rig) => {
     // The input row stood three rows from the bottom over a strip of key hints. The strip is gone (the chat follows
-    // Claude Code, which has none), so the input row is the second from the bottom, above the box's lower border.
+    // Claude Code, which has none), so the input row stood second from the bottom. The owner's status row of 2026-11-08
+    // stands under the box's lower border, so the input row is the third from the bottom.
     const inputRow = (): number => rig.screen().findIndex((line) => line.includes('> bottom-input'));
     rig.type('bottom-input');
-    await until(() => inputRow() === rig.stdout.rows - 2);
+    await until(() => inputRow() === rig.stdout.rows - 3);
     assert.equal(
       rig.screen().findIndex((line) => line.includes('> bottom-input')),
-      rig.stdout.rows - 2
+      rig.stdout.rows - 3
     );
     rig.stdout.rows = 32;
     rig.stdout.emit('resize');
-    await until(() => inputRow() === rig.stdout.rows - 2);
+    await until(() => inputRow() === rig.stdout.rows - 3);
     assert.equal(
       rig.screen().findIndex((line) => line.includes('> bottom-input')),
-      rig.stdout.rows - 2
+      rig.stdout.rows - 3
     );
   });
 });

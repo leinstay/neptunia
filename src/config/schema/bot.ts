@@ -24,7 +24,7 @@ export const BOT: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/tools/operations/grants.ts',
     'default': '',
     'text':
-      'The person whose bound accounts are the owner, written by the first line of the command line on a raw install and by `/memory bind <iface> <account> owner`. See [Owner identity](memory.md#owner-identity)',
+      "The owner's meta-person, whose bound accounts are the owner. The first line of the command line on a raw install writes it, and so does `/memory bind <iface> <account> owner` while it is empty. See [Owner identity](memory.md#owner-identity)",
   },
   {
     'key': 'bot.access',

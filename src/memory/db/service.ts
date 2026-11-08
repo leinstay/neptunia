@@ -167,6 +167,7 @@ import { noteSkipped } from '../../board/errands.ts';
 import { CODE } from '../../tools/codes.ts';
 import type { Config, Db, Log, MemoryHandle, Row } from './types.ts';
 import type { SessionContext } from './session.ts';
+import { bindAccount, type BindConfirm, type BindInput, type BindResult } from './person-bind.ts';
 import type { Track } from '../../loop-watch.ts';
 import { untracked } from '../../loop-watch.ts';
 import type { KeyRing } from '../../keys/ring.ts';
@@ -613,6 +614,8 @@ export type MemoryDbService = FillMethods & {
   personLink(update: Row): Promise<Row>;
   /** The owner's merge of one person into another (person-merge.ts): `{ from, into, by, reason?, now? }`. */
   personMerge(update: Row): Promise<Row>;
+  /** The owner's `/memory bind` of an account to a meta-person, a merge asked first (person-bind.ts). */
+  personBind(input: BindInput, confirm: BindConfirm | null): Promise<BindResult>;
   /** The owner's snapshots of the whole database (inspection-snapshots.ts), null while it is closed. */
   inspection(): InspectionPort | null;
   /** The private view of a person or a DM place (private-read.ts). Throws `DB_CLOSED` while memory is closed. */
@@ -912,16 +915,15 @@ export function createMemoryDb({
 
   /**
    * Keeps a unit write that could not be made (unit-outbox.ts#keep, at shutdown) in `memory-pending/`, replayed at the
-   * next open. A value replaces the one kept for its owner; lines are appended to the kept ones. Throws on an
-   * I/O failure (the caller logs it). Returns the file's path.
+   * next open. A value replaces the one kept for its owner; lines are appended to the kept ones. Throws on an I/O
+   * failure (the caller logs it). Returns the file's path.
    */
   const keepPending = (given: unknown): string => keepUnitPending(given, pendingDir, now);
 
   /**
-   * Replays the pending writes through the writer (at the open), each file deleted once its write resolved.
-   * Without a worker it runs synchronously and returns nothing; with one it returns the promise. A write that fails
-   * moves to the quarantine (pending-quarantine.ts) and the open goes on; one that cannot be moved keeps its file
-   * and the open throws (rejects) with `PENDING_REPLAY`.
+   * Replays the pending writes through the writer at the open, each file deleted once its write resolved: in line
+   * without a worker, returning nothing, and as the promise it returns with one. A write that fails moves to the
+   * quarantine (pending-quarantine.ts) and the open goes on; one that cannot move keeps its file and the open rejects.
    */
   function replayPending() {
     const writes = pendingWrites(pendingDir, log);
@@ -1038,10 +1040,7 @@ export function createMemoryDb({
       .catch((error: unknown) => log.warn('memory db: wake interrupt failed', { code: codeOf(error) }));
   }
 
-  /**
-   * One write of the inner life's wake runs (wakes.ts#applyWakeWrite) through the writer while the database is open;
-   * else null (nothing is written).
-   */
+  /** One write of the inner life's wake runs (wakes.ts#applyWakeWrite) through the writer while open, else null. */
   function recordWake(given: unknown): Promise<unknown> | null {
     const update = given as Row;
     if (!handle || closing || update?.kind !== 'wake') return null;
@@ -1051,10 +1050,10 @@ export function createMemoryDb({
   /**
    * One observation of the live message path (observe.ts#observe) through the writer: resolves the observe result
    * (`{ ok, ... }` or `{ ok: false, code }`) while the database is open, else null (the observation waits in the queue
-   * below). A failed write is logged with a code and resolves null: never a turn's failure. `where`
-   * (`{ placeId }`) names the record the line belongs to: the observation is the record of the line (its
-   * record unit is passed to observe.ts), and a write that failed (not a refusal) stays in the queue below and is tried
-   * again at the next tick, up to OBSERVE_ATTEMPTS times (then dropped, a warning).
+   * below). A failed write is logged with a code and resolves null: never a turn's failure. `where` (`{ placeId }`)
+   * names the record the line belongs to: the observation is the record of the line (its record unit is passed to
+   * observe.ts), and a write that failed (not a refusal) stays in the queue below and is tried again at the next tick,
+   * up to OBSERVE_ATTEMPTS times (then dropped, a warning).
    */
   // Observations that came while the database was not open yet (the start's catch-up runs before it opens) wait here
   // and are written right after it opens; a shutdown writes the waiting ones and those under way before it closes.
@@ -1716,8 +1715,8 @@ export function createMemoryDb({
     rows = rows.map((row) => ({ ...row, context_id: context, reader_kind: reader }));
     // The lines a request carried were shown to her: touched while eviction is on (their vectors come back).
     touchSources(rows.filter((row) => row.row_kind === 'sources').map((row) => row.row_id));
-    // The write waits for a quiet loop, but a shutdown never drops it: `close` runs every write still queued, then waits
-    // for the ones under way, before the database closes.
+    // The write waits for a quiet loop, but a shutdown never drops it: `close` runs every queued write, then those under
+    // way, before the database closes.
     // `run` is set just below: the function needs `job` itself.
     const job: ReadJob = { run: () => Promise.resolve(), done: null };
     job.run = () => {
@@ -1980,6 +1979,12 @@ export function createMemoryDb({
     retrieve,
     personLink: (update: Row) => write({ ...update, kind: 'person-link' }),
     personMerge: (update: Row) => write({ ...update, kind: 'person-merge' }),
+    personBind: async (input: BindInput, confirm: BindConfirm | null) => {
+      const { memoryKeyState } = await import('./session.ts');
+      const llm = memoryKeyState(hot.config, sessionEnv(), sessionKeys(), sessionPath()).ok ? sessionLlm() : null;
+      const deps = { db: dbOf(opened()), write: memoryWrite, llm, hot, now, selfName: selfName() ?? '' };
+      return bindAccount(deps, input, confirm);
+    },
     ...fillMethods(log, memoryWrite, write),
     inspection,
     ...privateReads(() => dbOf(opened())),

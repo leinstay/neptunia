@@ -26,6 +26,8 @@ import {
   deleteInDraft,
   displayDraft,
   draftFromHistory,
+  dropReply,
+  markReply,
   draftFromParts,
   draftFromText,
   moveInDraft,
@@ -33,6 +35,8 @@ import {
   placeCaret,
   removePart,
   replaceDraftText,
+  replyOf,
+  setReply,
   typeIntoDraft,
 } from './composer.ts';
 import type { ChatAttachment, Draft, DraftPart, PasteLimits } from './composer.ts';
@@ -55,7 +59,18 @@ import { caretCell, cellWidth, graphemes, sliceCells, transcriptBudget, wrapCell
 import { caretFromCell } from './mouse.ts';
 import type { MouseReport } from './mouse.ts';
 import type { Panel } from './panel.ts';
-import { FOLD_LINES, backspace, browse, emptyInput, insert, menuOf, moveCursor, statusLine, submit } from './state.ts';
+import {
+  FOLD_LINES,
+  backspace,
+  browse,
+  emptyInput,
+  insert,
+  menuOf,
+  moveCursor,
+  replyMarker,
+  statusLine,
+  submit,
+} from './state.ts';
 import type { InputState, MenuCommand, StatusBrief } from './state.ts';
 import {
   TAIL,
@@ -123,9 +138,12 @@ export type ChatEnv = {
   still: boolean;
   /**
    * One line typed: a command or a chat line, with its staged images. A slash command gives back the promise of its
-   * answer's text, which the command window shows; her answer to a chat line comes through `entry`.
+   * answer's text, which the command window shows; her answer to a chat line comes through `entry`. `replyTo` is the
+   * message id of the line a chat line replies to.
    */
-  send: (line: string, attachments?: ReadonlyArray<ChatAttachment>) => Promise<string> | undefined;
+  send: (line: string, attachments?: ReadonlyArray<ChatAttachment>, replyTo?: string) => Promise<string> | undefined;
+  /** The message id of the stored line with that number, which a reply names as its parent; null when there is none. */
+  replyParent?: (number: number) => Promise<string | null>;
   /** Asks the core to cancel a turn. Clearing a draft or leaving the chat never reaches this. */
   cancelTurn?: (turnId: string) => void;
   /** The text of a panel a command opens, or null when this line opens none. */
@@ -243,7 +261,7 @@ export type Model = EditorState & {
   connected: boolean;
   brief: StatusBrief | null;
   polledAt: number | null;
-  /** one row of feedback, gone with the next key */
+  /** one row of feedback on the status row, gone with the next key */
   notice: string | null;
   /** the transcript text the mouse selected, gone with the next key, click or scroll */
   selection: Selection | null;
@@ -313,6 +331,9 @@ function drawnText(entry: ChatEntry): string {
   return lines.map((line, index) => `${index === 0 ? '· ' : '  '}${line}`).join('\n');
 }
 
+/** The reply chip a draft starts with, as a list of parts the input history writes before the line. */
+const leadingPart = ({ parts }: Draft): ReadonlyArray<DraftPart> => parts.slice(0, 1);
+
 /** The fields of an edit alone: an editor function hands back whatever else the state held when it was called. */
 const edits = ({
   draft,
@@ -345,7 +366,10 @@ const WHEEL_ROWS = 3;
 /** Where the draft's text starts inside the box: border, padding and the `> ` prompt, one-based for a mouse report. */
 const DRAFT_FIRST_COLUMN = 5;
 const FILTER_ROWS = 1;
-const OFF_TAIL_ROWS = 1;
+/** The status row under the input, always drawn. */
+const STATUS_ROWS = 1;
+/** The blank row and the rule above the slash menu. */
+const MENU_CHROME_ROWS = 2;
 
 /** What the next render draws, measured. */
 export type ChatFrame = {
@@ -360,8 +384,10 @@ export type ChatFrame = {
   isOffTail: boolean;
   transcript: TranscriptWindow;
   status: string;
-  /** the running turn and the queue on one row, or null with neither */
-  turnRow: string | null;
+  /** the status row under the input: the notice, the reply target, her running turn and the queue, a hidden tail; '' with none */
+  statusRow: string;
+  /** whether the status row opens with a notice, drawn in the warning style */
+  hasNotice: boolean;
   /** the selected cells of each transcript row, in the order of `transcript.rows` */
   marks: Array<RowMark | null>;
   /** the command window's rows and the selected cells of each, or null while it is closed */
@@ -574,6 +600,7 @@ export class ChatController {
       attachments: entry.attachments ?? [],
       ...this.timeOf(entry),
       ...(entry.number === undefined ? {} : { number: entry.number }),
+      ...(entry.replyTo === undefined ? {} : { replyTo: entry.replyTo }),
     };
     this.update({ entries: [...this.model.entries, shown] });
   }
@@ -739,7 +766,24 @@ export class ChatController {
     for (const entry of entries) this.addEntry(entry);
   }
 
-  /** The row above the input: the calls she is making, whether a cancel is on its way and how many lines wait. */
+  /**
+   * The status row under the input, every short notice of the moment on one row: the notice of the last key, the line the
+   * next message replies to, her running turn and the queue, and the rows below a transcript read further up.
+   */
+  statusRow(hiddenBelow: number): string {
+    const { notice, draft } = this.model;
+    const reply = replyOf(draft) ?? replyMarker(displayDraft(draft))?.number ?? null;
+    return [
+      notice,
+      reply === null ? null : `replying to #${reply}`,
+      this.turnRow(),
+      hiddenBelow > 0 ? `↓ ${hiddenBelow} rows below · Page Down` : null,
+    ]
+      .filter((one) => one !== null)
+      .join(' · ');
+  }
+
+  /** Her running turn on the status row: the calls she is making, whether a cancel is on its way and how many lines wait. */
   turnRow(): string | null {
     const active = activeTurn(this.model.turns);
     const queued = queuedTurns(this.model.turns).length;
@@ -865,8 +909,8 @@ export class ChatController {
     const items = this.itemsOf(now);
     const mode = headerMode(rows, columns, isLinear);
     const questionRows = asked === null ? 0 : wrapWords(asked.question, columns).length;
-    const turnRow = this.turnRow();
-    const fixed = headerRows(mode) + (notice === null ? 0 : 1) + (turnRow === null ? 0 : 1) + questionRows;
+    // The status row stands under the input whether or not it holds anything, so no notice moves the layout.
+    const fixed = headerRows(mode) + STATUS_ROWS + questionRows;
     const { shown, caretAt } = this.inputText();
     const layout = composerLayout(shown, caretAt, {
       columns,
@@ -875,14 +919,17 @@ export class ChatController {
     });
     const choiceRows = Math.min(QUESTION_ROWS, Math.max(1, rows - fixed - FILTER_ROWS));
     const inputRows = hasChoices ? choiceRows + FILTER_ROWS : layout.height;
-    const menuHeight = panel === null && items.length > 0 ? menuRows(items.length, rows - fixed - inputRows - 1) : 0;
+    const isMenuOpen = panel === null && items.length > 0;
+    const menuHeight = isMenuOpen ? menuRows(items.length, rows - fixed - inputRows - MENU_CHROME_ROWS - 1) : 0;
+    // The menu stands under a blank row and a rule, so it never touches the last line above it.
+    const menuBlock = isMenuOpen ? menuHeight + MENU_CHROME_ROWS : 0;
     // The open command window takes half of what the header and the input leave, and the chat keeps the rest.
-    const height = windowHeight(rows - fixed - inputRows - menuHeight, now.isWindowOpen);
-    const budget = transcriptBudget({ rows, fixed, composer: inputRows, overlay: menuHeight + height });
-    const isOffTail = view.kind === 'anchor' && budget > OFF_TAIL_ROWS;
+    const height = windowHeight(rows - fixed - inputRows - menuBlock, now.isWindowOpen);
+    const budget = transcriptBudget({ rows, fixed, composer: inputRows, overlay: menuBlock + height });
+    const isOffTail = view.kind === 'anchor';
     this.drawn = {
       columns,
-      budget: isOffTail ? budget - OFF_TAIL_ROWS : budget,
+      budget,
       expanded,
       // A folded answer starts on the screen: the fold's own row and its lines fit what the terminal has left.
       foldLines: Math.max(1, Math.min(FOLD_LINES, budget - 1)),
@@ -891,8 +938,8 @@ export class ChatController {
       safe: layout.safe,
       width: layout.width,
       first: layout.first,
-      // One-based, as a mouse report counts: above the box's lower border.
-      firstRow: rows - (isLinear ? 0 : 1) - layout.rows.length + 1,
+      // One-based, as a mouse report counts: above the box's lower border and the status row.
+      firstRow: rows - STATUS_ROWS - (isLinear ? 0 : 1) - layout.rows.length + 1,
       rowCount: layout.rows.length,
     };
     const window = transcriptWindow(this.shownEntries(), view, this.drawn);
@@ -918,7 +965,8 @@ export class ChatController {
       isOffTail,
       transcript,
       status: statusLine(now.brief, { connected: now.connected, polledAt: now.polledAt, now: this.env.now() }),
-      turnRow,
+      statusRow: this.statusRow(isOffTail ? transcript.hiddenBelow : 0),
+      hasNotice: notice !== null,
       marks: this.marksOf('chat', transcript.rows.length),
       window: shownWindow,
       graphic: this.placement,
@@ -1039,11 +1087,66 @@ export class ChatController {
     const line = assembled.text;
     const { attachments } = assembled;
     const isCommand = line.trim().startsWith('/');
+    // A marker typed with no blank after it, as `[#34]hi`, is still read when the line goes.
+    const marker = isCommand || assembled.replyTo !== null ? null : replyMarker(line);
+    const replyNumber = isCommand ? null : (assembled.replyTo ?? marker?.number ?? null);
+    const text = marker?.text ?? line;
+    if (replyNumber !== null && text.trim() === '' && attachments.length === 0) {
+      this.update({ notice: `Write the reply to line #${replyNumber} after its marker.` });
+      return;
+    }
+    if (replyNumber !== null) {
+      const typed = assembled.replyTo === null ? line : `${displayDraft({ parts: leadingPart(now.draft) })}${line}`;
+      this.sendReply(replyNumber, typed, text, attachments);
+      return;
+    }
+    this.sendLine(line, attachments);
+  }
+
+  /** Enter sends a reply only once line `number` is found: the draft stays until then, and stays when it is not found. */
+  replyPending = false;
+
+  sendReply(number: number, typed: string, text: string, attachments: ReadonlyArray<ChatAttachment>): void {
+    const { replyParent } = this.env;
+    const refuse = (): void => this.update({ notice: `No line #${number} in this chat.` });
+    if (replyParent === undefined) {
+      refuse();
+      return;
+    }
+    if (this.replyPending) return;
+    this.replyPending = true;
+    const draft = this.model.draft;
+    const found = (parent: string | null): void => {
+      this.replyPending = false;
+      if (parent === null) refuse();
+      else if (this.model.draft !== draft)
+        this.update({ notice: `The draft changed before line #${number} was found.` });
+      else this.sendLine(typed, attachments, { number, parent, text });
+    };
+    replyParent(number).then(found, () => found(null));
+  }
+
+  /** The draft goes: a command to the window, a chat line to her, a reply with its parent and without its marker. */
+  sendLine(
+    line: string,
+    attachments: ReadonlyArray<ChatAttachment>,
+    reply: { number: number; parent: string; text: string } | null = null
+  ): void {
+    const now = this.model;
+    const isCommand = line.trim().startsWith('/');
     // A slash line goes alone: the images stay in the input for the message that follows it.
     const kept = isCommand
       ? attachments.reduce(attachToDraft, draftFromText(this.nextId('d'), '', 0))
       : draftFromText(this.nextId('d'), '', 0);
-    this.update({ draft: kept, past: [], future: [], selected: 0, browsing: null, held: null, notice: null });
+    this.update({
+      draft: kept,
+      past: [],
+      future: [],
+      selected: 0,
+      browsing: null,
+      held: null,
+      notice: null,
+    });
     if (line.trim() === '' && attachments.length === 0) return;
     if (/^\/attach(\s|$)/.test(line.trim())) {
       this.runAttach(line.trim().slice('/attach'.length).trim());
@@ -1066,8 +1169,13 @@ export class ChatController {
     }
     // A chat line goes to her alone: it asks for no panel and replaces no command's request.
     this.update({ view: TAIL });
-    this.addEntry({ who: 'owner', text: line, attachments: sent });
-    void this.env.send(line, sent);
+    if (reply === null) {
+      this.addEntry({ who: 'owner', text: line, attachments: sent });
+      void this.env.send(line, sent);
+      return;
+    }
+    this.addEntry({ who: 'owner', text: reply.text, attachments: sent, replyTo: reply.number });
+    void this.env.send(reply.text, sent, reply.parent);
   }
 
   /**
@@ -1336,7 +1444,9 @@ export class ChatController {
     if (row !== undefined) this.placeDraftCaret(edge === 'start' ? row.start : row.end);
   }
 
-  editDraft(draft: Draft): void {
+  editDraft(edited: Draft): void {
+    // A reply marker typed or pasted at the start becomes one chip as soon as the blank after it is typed.
+    const draft = markReply(edited);
     this.update({
       ...edits(applyEdit(this.model, draft)),
       isTypingWord: false,
@@ -1498,6 +1608,7 @@ export class ChatController {
     const focus = this.cellIn(selection.area, report, true) ?? selection.focus;
     const isClick = focus.row === selection.anchor.row && focus.col === selection.anchor.col;
     const ended = { ...selection, focus, dragging: false };
+    if (isClick && selection.area === 'chat') this.clickNumber(focus);
     const text = isClick ? '' : selectedText(ended, this.drawnIn(selection.area).rows);
     if (text === '') {
       this.update({ selection: null });
@@ -1506,6 +1617,17 @@ export class ChatController {
     this.copySelection(text);
     // The selection stays lit until the next key, click or scroll, and Ctrl+C copies it again.
     this.update({ selection: { ...ended, text } });
+  }
+
+  /** A click on the grey `[#N]` of a line of the owner or of hers: the next message replies to line N. */
+  clickNumber(cell: TranscriptCell): void {
+    const { rows } = this.drawnRows;
+    const row = rows[cell.row];
+    if (row?.lead === undefined) return;
+    const who = this.whoOf(row.entryId);
+    const found = /^\[#(\d+)\]/.exec(row.text);
+    if ((who !== 'owner' && who !== 'her') || found === null || cell.col >= found[0].length) return;
+    if (focusOwner(this.model) === 'input') this.editDraft(setReply(this.model.draft, Number(found[1])));
   }
 
   /** A wheel notch: the command window under the pointer scrolls alone, else the slash menu moves or the chat scrolls. */
@@ -1562,6 +1684,11 @@ export class ChatController {
         // The open command window goes first, and the draft waits for the next Esc.
         if (now.isWindowOpen) {
           this.closeWindow();
+          return;
+        }
+        // A reply target goes next, and the draft stays for the message without it.
+        if (replyOf(now.draft) !== null) {
+          this.editDraft(dropReply(now.draft));
           return;
         }
         if (displayDraft(now.draft) === '' && !this.panelLoading) this.cancelRunningTurn();

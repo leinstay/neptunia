@@ -34,6 +34,8 @@ export type MapContext = {
   subjectId?: string;
   subjectNativeId?: string;
   subjectPersonId?: string;
+  /** The person a member's description versions belong to: the one whose `people` row the member's profile unit owns. */
+  profilePersonId?: string;
   /** The link columns an account row keeps: the database's once the account has a person. */
   accountLink?: Row;
   /** A linked account whose person's profile is another unit's: its unit holds only what is the account's own. */

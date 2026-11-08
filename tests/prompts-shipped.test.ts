@@ -118,6 +118,8 @@ const NOT_BUILT = {
   'memory-session': 'built over the memory database (src/memory/db/session.ts)',
   'description-draft': 'built over the memory database (src/memory/db/describe.ts)',
   'description-check': 'built over the memory database (src/memory/db/describe.ts)',
+  // The owner's `/memory bind` builds it over the memory database when two people merge: tests/memory-db-person-bind.test.ts.
+  'description-merge': 'built over the memory database by a bind (src/memory/db/person-bind.ts)',
   // PR 7d: her own tools are code, so these load only behind a call of hers (web.search, web.read, memory.search,
   // media.look), which no request built here makes; the tests of those tools check what they send.
   'rewatch-answer': 'loaded behind her media.look call (src/memory/describe.ts), which no turn here makes',
