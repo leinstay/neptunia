@@ -11,7 +11,7 @@ import { storageMapper } from '../src/memory/db/map/index.ts';
 import { accountsOfPerson, personOfAccount } from '../src/memory/db/meta-person.ts';
 import { migrateMetaPersons } from '../src/memory/db/meta-person-migrate.ts';
 import type { MetaPersonReport } from '../src/memory/db/meta-person-migrate.ts';
-import { openMemoryDb } from '../src/memory/db/open.ts';
+import { inTransaction, openMemoryDb } from '../src/memory/db/open.ts';
 import { mergePersonInto } from '../src/memory/db/person-merge.ts';
 import { accountCollection, storageId } from '../src/memory/db/storage-keys.ts';
 import type { StorageKey } from '../src/memory/db/storage-keys.ts';
@@ -123,7 +123,7 @@ function seedOthers(db: Db): void {
   addGroupPlace(db, GROUP, 'chat', 'chat/global');
   db.prepare(
     `INSERT INTO participants (id, authority_id, scope_place_id, token_kind, native_token, generation, continuity, recorded_at)
-     VALUES ('participant:t1', 'chat/global', ?, 'thread_token', 'tok1', 1, 'thread', ?)`
+     VALUES ('participant:t1', 'chat/global', ?, 'thread_token', 'tok1', 1, 'unknown', ?)`
   ).run(GROUP, AT);
   const line = db.prepare(
     `INSERT INTO sources (id, kind, iface, place_id, author_account, author_participant, author_kind, occurred_at,
@@ -149,7 +149,7 @@ function withWorld(body: (db: Db) => void): void {
 }
 
 const migrate = (db: Db, newId: () => string = uuids()): MetaPersonReport =>
-  migrateMetaPersons(db, { ownerPerson: OWNER, at: RUN_AT, newId });
+  inTransaction(db, () => migrateMetaPersons(db, { ownerPerson: OWNER, at: RUN_AT, newId }));
 
 const one = (db: Db, sql: string, ...args: Array<string>): Row | undefined => db.prepare(sql).get(...args);
 
@@ -159,7 +159,7 @@ const metaOf = (report: MetaPersonReport, old: string): string => {
   return meta;
 };
 
-/** Every table and text column where an old person id still stands, outside the history that keeps it on purpose. */
+/** Every table and id column where an old person id still stands, outside the history and the words that keep it. */
 function leftovers(db: Db, ids: ReadonlyArray<string>): Array<string> {
   const kept = new Set([
     'people.id',
@@ -181,7 +181,7 @@ function leftovers(db: Db, ids: ReadonlyArray<string>): Array<string> {
   for (const table of tables)
     for (const column of db.prepare(`PRAGMA table_info("${table}")`).all()) {
       const name = `${table}.${String(column.name)}`;
-      if (kept.has(name)) continue;
+      if (kept.has(name) || ['text', 'what'].includes(String(column.name))) continue;
       for (const id of ids) {
         const hit = db
           .prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE CAST("${String(column.name)}" AS TEXT) GLOB ?`)
@@ -229,7 +229,7 @@ test('two people already merged end under one meta-person with both accounts', (
       accountsOfPerson(db, eve).map((account) => account.id),
       ['chat:e1', 'chat:e2']
     );
-    assert.equal(one(db, 'SELECT subject_id FROM claims WHERE id = ?', `alias:${EVE_ALT}:zz`)?.subject_id, eve);
+    assert.equal(one(db, 'SELECT subject_id FROM claims WHERE id = ?', `alias:${eve}:zz`)?.subject_id, eve);
   });
 });
 
@@ -347,6 +347,61 @@ test('a line names the meta-person of its author and an anonymous line names non
   });
 });
 
+/** A claim of Dora's whose version the semantic layer sealed: the version and its claim's id are immutable. */
+function sealDoraClaim(db: Db): void {
+  const claim = `detail:${DORA}:sealed`;
+  addClaim(db, claim, DORA, 'aud:group:chat');
+  db.prepare('INSERT INTO claim_versions (id, claim_id, text, recorded_at) VALUES (?, ?, ?, ?)').run(
+    `cv:${claim}`,
+    claim,
+    'a sealed synthetic detail',
+    AT
+  );
+  const roles = JSON.stringify({ roles: [{ role: 'left', min: 1, max: 1, refs: ['entity'], literals: [] }] });
+  db.prepare(
+    "INSERT INTO semantic_entity_kinds (id, version, definition_json, created_at) VALUES ('fixture.kind', 1, '{\"fields\":[]}', ?)"
+  ).run(AT);
+  db.prepare(
+    "INSERT INTO semantic_predicate_versions (id, version, definition_json, created_at) VALUES ('fixture.relation', 1, ?, ?)"
+  ).run(roles, AT);
+  db.prepare(
+    "INSERT INTO semantic_entities (id, kind, kind_version, created_at) VALUES ('ent:1', 'fixture.kind', 1, ?)"
+  ).run(AT);
+  db.prepare(
+    "INSERT INTO semantic_arguments (version_id, role, position, ref_kind, ref_id, literal_json) VALUES (?, 'left', 0, 'entity', 'ent:1', NULL)"
+  ).run(`cv:${claim}`);
+  db.prepare(
+    `INSERT INTO semantic_assertion_versions (version_id, format_version, assertion_kind, predicate_id, predicate_version,
+       truth_state, how, polarity, valid_from_at, valid_to_at, recorded_at, audience_id, historical_metadata_complete)
+     VALUES (?, 1, 'relation', 'fixture.relation', 1, 'current', 'said', 'positive', NULL, NULL, ?, 'aud:group:chat', 1)`
+  ).run(`cv:${claim}`, AT);
+}
+
+test('a sealed claim version keeps its id and its claim moves to the meta-person under its own id', () => {
+  // Bug: the rewrite of a sealed version aborts the whole migration, or renames a claim its immutable version names.
+  withWorld((db) => {
+    inTransaction(db, () => sealDoraClaim(db));
+    const dora = metaOf(migrate(db), DORA);
+    const claim = `detail:${DORA}:sealed`;
+    assert.equal(one(db, 'SELECT claim_id FROM claim_versions WHERE id = ?', `cv:${claim}`)?.claim_id, claim);
+    assert.equal(one(db, 'SELECT subject_id FROM claims WHERE id = ?', claim)?.subject_id, dora);
+    assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+  });
+});
+
+test('an append-only row keeps the old id it was written with and the run goes on', () => {
+  // Bug: the rewrite of an append-only log aborts the whole migration.
+  withWorld((db) => {
+    db.prepare(
+      `INSERT INTO focus_events (id, person_id, at, new_bucket, reason, policy_version)
+       VALUES (?, ?, ?, 'close', 'synthetic', 1)`
+    ).run(`focus:${AT}:${DORA}`, DORA, AT);
+    const report = migrate(db);
+    assert.equal(one(db, 'SELECT person_id FROM focus_events WHERE id = ?', `focus:${AT}:${DORA}`)?.person_id, DORA);
+    assert.equal(report.kept['focus_events.person_id'], 1);
+  });
+});
+
 test('the session cursors keep the key their place spells', () => {
   // Bug: the cursor key is renamed while the sweep still spells it from the place, so a direct chat is read from the start.
   withWorld((db) => {
@@ -385,8 +440,9 @@ test('the counts before and after cover every table', () => {
   // Bug: the report leaves a table out, so a lost row goes unseen in the rehearsal.
   withWorld((db) => {
     const report = migrate(db);
-    assert.equal(report.counts.before.claims, report.counts.after.claims);
-    assert.equal(report.counts.after.person_accounts - report.counts.before.person_accounts, report.accounts);
+    const { before, after } = report.counts;
+    assert.equal(before.claims, after.claims);
+    assert.equal(Number(after.person_accounts) - Number(before.person_accounts), report.accounts);
   });
 });
 
@@ -399,13 +455,16 @@ test('the unit mappers write a migrated profile under the meta-person', () => {
       { character: 'a synthetic character' },
       {}
     );
-    assert.equal(user.people?.[0]?.id, dora);
-    assert.equal(user.descriptions?.[0]?.id, `desc:${dora}:character`);
+    const [person] = user.people ?? [];
+    const [description] = user.descriptions ?? [];
+    assert.equal(person?.id, dora);
+    assert.equal(description?.id, `desc:${dora}:character`);
     const versions = storageMapper(db, DORA_VERSIONS, storageId(DORA_VERSIONS)).mapper.toRows(
       storageId(DORA_VERSIONS),
       { character: [{ at: AT, text: 'a synthetic character' }] },
       {}
     );
-    assert.equal(versions.description_versions?.[0]?.description_id, `desc:${dora}:character`);
+    const [version] = versions.description_versions ?? [];
+    assert.equal(version?.description_id, `desc:${dora}:character`);
   });
 });
