@@ -29,13 +29,6 @@
       "test": "none"
     },
     {
-      "path": ".agents/",
-      "purpose": "The working folder of the agents of one deployment.",
-      "layer": "local",
-      "imports": [],
-      "test": "none"
-    },
-    {
       "path": "prompts.local/",
       "purpose": "A deployment prompt layer that shadows the tracked prompts.",
       "layer": "local",

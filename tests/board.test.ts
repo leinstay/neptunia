@@ -348,7 +348,7 @@ test('a board write projects nothing into her memory graph and records no unit f
 
 // The ledger's suite, moved
 //
-// .agents/ledger/tests/ledger.test.js and claim.test.js of the private ledger service, on the board. The ledger's
+// The tests of the former ledger service, on the board. The ledger's
 // principals are clients of a test clients.json with the board roles of the brief of PR 6a: `owner` and `lead` hold
 // `owner` (the lead's principal holds the owner's role, as it does on the ledger today), `dispatcher` holds
 // `scheduler`, `core` holds `errand-runner` and `persona`, and `thinker`, in the tests whose ledger had it as a

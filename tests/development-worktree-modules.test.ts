@@ -1,8 +1,8 @@
 // The worktree of a development task (src/development/worker.ts, `placeTree`) gets the checkout's dependencies before any
 // agent runs in it. The pre-commit hook runs `node_modules/.bin/prettier` relative to the worktree, and a worktree under
 // `<checkout>/.worktrees/` has no `node_modules` of its own (observed 2026-11-06: `commit-failed: xargs:
-// node_modules/.bin/prettier: No such file or directory`). The design assumed here is the one of
-// `.agents/tools/worktree-node-modules.sh`: `<tree>/node_modules` is a real folder holding one symlink per package of
+// node_modules/.bin/prettier: No such file or directory`). The design assumed here:
+// `<tree>/node_modules` is a real folder holding one symlink per package of
 // `<repoDir>/node_modules` (`.bin` included), except `@neptunia/*`, whose links are relative (`../../interfaces/<name>`)
 // so they resolve to the worktree's own workspace folders. The worker links with node:fs itself, so the rig needs no new
 // dependency: the tree the fake `git worktree add` makes is a real temp folder. Nothing bypasses a hook.

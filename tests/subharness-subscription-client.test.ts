@@ -1,4 +1,4 @@
-// Her core requests through a subscription CLI (spec .agents/docs/specs/2026-11-06-core-on-subscription.md): the
+// Her core requests through a subscription CLI (docs/keys.md): the
 // client in front of the direct OpenRouter client starts one `claude -p` or `codex exec` per turn, answers each step
 // of the unchanged step loop from the CLI's stream, and carries her tool calls through the bridge. The spawn is a fake
 // whose stdout the test writes event by event; the test also plays the MCP server, calling the bridge with the turn's

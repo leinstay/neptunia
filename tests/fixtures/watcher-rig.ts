@@ -39,10 +39,10 @@ export const PLANTED_KEY = ['sk', 'or', 'v1', 'a1b2c3d4e5f60718293a4b5c6d7e8f901
 
 export type WatcherDirs = { root: string; watcherDir: string; reportsDir: string };
 
-/** `.agents/watcher/` in a temp folder, with `prompt.md` written and an empty `reports/`. */
+/** `agents/watcher/` (DEFAULT_WATCHER_DIR) in a temp folder, with `prompt.md` written and an empty `reports/`. */
 export function watcherDirs(prompt = 'PROMPT-SENTINEL: the three questions.'): WatcherDirs {
   const root = tempDir('nep-watcher-');
-  const watcherDir = path.join(root, '.agents', 'watcher');
+  const watcherDir = path.join(root, 'agents', 'watcher');
   const reportsDir = path.join(watcherDir, 'reports');
   fs.mkdirSync(reportsDir, { recursive: true });
   fs.writeFileSync(path.join(watcherDir, 'prompt.md'), prompt);

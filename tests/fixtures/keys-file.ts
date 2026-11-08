@@ -1,5 +1,5 @@
 // The key store's file as the subharness, simulation and setup tests see it: `<privateDir>/keys.json`, written and
-// read here as plain JSON in the shape of the spec (.agents/docs/specs/2026-11-02-keys-and-subharness.md), so a test
+// read here as plain JSON in the shape `src/keys/` writes, so a test
 // of those modules does not depend on the store's own code. Mode 600 like the real file.
 import fs from 'node:fs';
 import path from 'node:path';

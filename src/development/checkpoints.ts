@@ -36,7 +36,6 @@ const EXCLUDED: ReadonlySet<string> = new Set([
   '.local.git',
   '.env',
   '.secrets',
-  '.agents',
   '.claude',
   '.worktrees',
   'data',

@@ -211,7 +211,7 @@ test('a blocked task of hers shows why it waits and what would unblock it', asyn
 });
 
 test('a skill action journaled in a place reaches the selfimprovement wake chains', async (t) => {
-  // Bug (.agents report of 2026-11-07, the work reconciliation): personaJournal.read reads only her own journal while
+  // Bug: personaJournal.read reads only her own journal while
   // every skill action of a turn is journaled in the journal of the turn's place, so the wake saw no chain at all.
   const now = Date.parse('2026-11-07T12:00:00.000Z');
   const place = 'fake:channel:c1';
