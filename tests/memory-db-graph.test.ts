@@ -1043,3 +1043,59 @@ test('rebuild drops the stale history the typed tables do not hold, and nothing 
     env.handle.close();
   }
 });
+
+// ---------- an edge whose id no longer matches its tuple ----------
+
+/**
+ * The traversal world with one live edge of the line `main` given an id that is not the hash of its tuple, the way a
+ * text rewrite of its ends leaves it, its witnesses following that id. Returns the edge's projection key and true id.
+ */
+function staleEdgeFixture(retired: boolean) {
+  const env = traversalFixture();
+  const { db, ids } = env;
+  const edge = db
+    .prepare(
+      "SELECT id, projection_key FROM graph_edges WHERE owner_key = ? AND predicate = 'authored_by' AND retired_at IS NULL"
+    )
+    .get(`sources:${ids.main}`);
+  const id = String(edge.id);
+  db.prepare('UPDATE graph_edges SET id = ?, retired_at = ? WHERE id = ?').run(
+    'edge:stale',
+    retired ? at(40) : null,
+    id
+  );
+  db.prepare("UPDATE node_access SET evidence_id = 'edge:stale' WHERE evidence_id = ?").run(id);
+  return { env, key: String(edge.projection_key), id };
+}
+
+function assertProjectsAndHeals(retired: boolean) {
+  const { env, key, id } = staleEdgeFixture(retired);
+  const { db, ids } = env;
+  try {
+    const codes: Array<unknown> = [];
+    const log = { warn: (_message: string, fields: Record<string, unknown>) => codes.push(fields.code) };
+    const projected = projectRow(env.handle, 'sources', { id: ids.main }, { at: at(60), log });
+    assert.deepEqual(codes, []);
+    assert.equal(projected, 1);
+    assert.equal(graphPending(env.handle), false);
+    const held = db.prepare('SELECT id, retired_at FROM graph_edges WHERE projection_key = ?').all(key);
+    assert.deepEqual(
+      held.map((row) => ({ id: String(row.id), retired: row.retired_at === null ? null : String(row.retired_at) })),
+      [{ id, retired: null }]
+    );
+    assert.equal(count(db, "SELECT COUNT(*) AS n FROM node_access WHERE evidence_id = 'edge:stale'"), 0);
+    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM node_access WHERE evidence_id = ?', id), 2);
+  } finally {
+    env.handle.close();
+  }
+}
+
+test('a unit whose live edge holds its key under a stale id projects and replaces that edge', () => {
+  // Bug: the upsert misses the stale id and hits the unique projection key, so the unit rolls back and stays pending.
+  assertProjectsAndHeals(false);
+});
+
+test('a unit whose retired edge holds its key under a stale id projects and replaces that edge', () => {
+  // Bug: only live edges are looked up for the key, so a retired stale edge still blocks the projection.
+  assertProjectsAndHeals(true);
+});
