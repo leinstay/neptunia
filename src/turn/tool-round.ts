@@ -446,6 +446,8 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     // Someone waits for this turn (askedFor), and it is no inner, selfreflection or errand result turn (that one quotes
     // the message that asked for the errand, and nobody waits for it): the owner's rule of 2026-10-20.
     const answersSomeone = askedFor(trigger, triggerKind) && triggerKind !== 'errand' && !inner && !selfreflection;
+    // Once a turn, as the rule gave: a quiet call she makes in the shown step ends the turn with it.
+    let quietShown = false;
     const quietSkill = (skill: string): boolean => ['effect', 'job'].includes(definitionOf(skill)?.result ?? '');
     const settings = loopSettings(hot.config, { inner, selfreflection });
     // The pictures staged so far as the set the post carries (a single picture is a set of one), or null.
@@ -697,7 +699,9 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       // A note on a post that went out (a tag that named nobody) is something to read too: she may edit the post.
       // A turn that answers someone shows her a quiet call that worked (a post, an edit, a reaction, a picture, a job) in
       // one step, where she answers or stays silent; a turn nobody asked for, an inner one included, ends with it.
-      const seen = answersSomeone && results.some((result) => result.status === 'ok' && quietSkill(result.skill));
+      const seen =
+        answersSomeone && !quietShown && results.some((result) => result.status === 'ok' && quietSkill(result.skill));
+      if (seen) quietShown = true;
       const fresh =
         records.length > 0 &&
         (verdict.fresh || seen || results.some((result) => typeof result.note === 'string' && result.note !== ''));

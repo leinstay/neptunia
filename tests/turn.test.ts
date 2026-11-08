@@ -5394,6 +5394,17 @@ test('skill call: a quiet success in an addressed turn is shown to her in one st
   const { calls: silentCalls } = silent.llm;
   assert.equal(silentCalls.length, 2);
   assert.deepEqual(silent.sends, [], 'she may stay silent after seeing it');
+  // One step, as the rule of 2026-10-20 gave: a quiet call she makes in the shown step ends the turn with it.
+  const twice = await callTurn({
+    answers: [
+      toolAnswer('', [call('message.edit', { message: '#1', text: 'διορθωμένη' })]),
+      toolAnswer('', [call('message.edit', { message: '#1', text: 'ξανά διορθωμένη' })]),
+      '<msg>δεν θα ζητηθεί</msg>',
+    ],
+    allowed: ['message.edit'],
+  });
+  const { calls: twiceCalls } = twice.llm;
+  assert.equal(twiceCalls.length, 2, 'the quiet call of the shown step is not shown again');
   const task = {
     id: 'tabc',
     agent: 'scout',
