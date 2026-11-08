@@ -224,6 +224,10 @@ A transcript and what she voiced are quoted speech as a whole. The transcript la
 
 A label speaks of a place, a chat or a person, never of one platform, since the same file serves every interface and a service with none. Where a label must name what a platform calls a place, it takes a placeholder the code fills with the interface's noun, such as `spatial.kind` with `{noun}`. A few older labels carry a placeholder named `{channel}` that the code fills with a place's name, and `tests/labels-neutral.test.ts` keeps their list from growing.
 
+The owner's pairing reads two labels of the `owner` section, read by `src/interface/owner-pairing.ts` and `src/interface/commands/interfaces-pair.ts`. `pairing.code` is the answer to a direct message while pairing is open, with `{code}`, the one-time code, in any number of places; her line that matches it with a code in each `{code}` is kept out of memory and out of every request, so the label holds `{code}` at least once. `pairing.ask` is the chat's question at the end of `/interfaces setup <name>`, with `{iface}`, the interface's name.
+
+Her link tool `person.link` (definition in `src/tools/definitions.ts`, text in `config/tools.json`, run by `src/interface/person-link.ts`) takes one argument, `person`, a person id or a member handle. `owner.link.code` is the direct message to the other account, with `{code}` held at least once under the same rule as `pairing.code`. Her answer is `tools.tools.link.sent` when the code went out and `tools.tools.link.already` when the two accounts are one person already, with no placeholder; a refusal is a reason code of the catalogue (`forbidden`, `cooldown`, `chat-closed`, `PERSON_NOT_FOUND`, `unknown-member`, `target-required`).
+
 ### Reason codes
 
 The following table is generated from the code catalogue. Regenerate it with `node scripts/labels-catalogue.ts --write` and check it with `npm run check:codes`.

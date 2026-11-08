@@ -12,6 +12,7 @@ import type { FoundPerson, FoundPlace } from './graph-find.ts';
 import { mindOf, mindSettingsOf } from './mind-read.ts';
 import type { Mind, Seeds } from './mind-read.ts';
 import { interfaceNouns, placesNamed } from './names.ts';
+import { ownerAccountOfPlace } from './person-links.ts';
 import { placeChainInDb } from './place-tree.ts';
 import { allowedAudience, whereFor } from './scope.ts';
 import { placeAudience } from './graph.ts';
@@ -305,6 +306,8 @@ export type FrameReads = {
   placeReadable?(ctx: Context, placeId: string): boolean;
   /** The id of every stored channel and thread (chatPlaceIdsOf). */
   chatPlaceIds?(): Array<string>;
+  /** The owner's account on the interface of a stored place, by `bot.ownerPerson` (person-links.ts#ownerAccountOf). */
+  ownerAccount?(placeId: string): string | null;
 };
 
 const NO_MIND: Mind = {
@@ -345,5 +348,6 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
       over<DirectChats>({ kind: 'none' }, (db) => directChatsOf(db, ctx, reference, findSettingsOf(configOf()))),
     placeReadable: (ctx, placeId) => over(false, (db) => placeReadableOf(db, ctx, placeId)),
     chatPlaceIds: () => over([], (db) => chatPlaceIdsOf(db)),
+    ownerAccount: (placeId) => over(null, (db) => ownerAccountOfPlace(db, configOf(), placeId)),
   };
 }

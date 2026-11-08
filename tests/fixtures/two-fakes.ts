@@ -15,6 +15,9 @@ import { openMemoryDb } from '../../src/memory/db/open.ts';
 import type { ChatInfo, MemberInfo, MessageEvent } from '../../src/protocol/adapter.ts';
 import { connectSocket } from '../../src/protocol/wire.ts';
 import { withCapturedLogs } from './capture-logs.ts';
+import { addAccount, addPerson } from './memory-db/opaque-people.ts';
+import type { Db } from '../../src/memory/db/types.ts';
+import { OWNER_PERSON } from './owner-accounts.ts';
 import { channelInfo, lineEvent } from './core-over-fake.ts';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
@@ -33,21 +36,44 @@ export type Rig = {
   rows: (sql: string) => Array<Record<string, unknown>>;
 };
 
+/**
+ * The owner's meta-person with each of `owners` bound to it on every interface of `names`, written before the core
+ * opens the database, as pairing or `/memory bind` would have left it.
+ */
+function seedOwner(file: string, names: ReadonlyArray<string>, owners: ReadonlyArray<string>): void {
+  const handle = openMemoryDb(file);
+  try {
+    const db = handle.db as Db;
+    addPerson(db, OWNER_PERSON);
+    db.prepare('UPDATE people SET meta = 1 WHERE id = ?').run(OWNER_PERSON);
+    for (const iface of names)
+      for (const native of owners) {
+        const id = `account:${iface}:${native}`;
+        addAccount(db, { id, iface, authority: `${iface}/global`, native, person: OWNER_PERSON });
+        db.prepare(
+          'INSERT INTO person_accounts (id, person_id, iface, platform_id, recorded_at) VALUES (?, ?, ?, ?, ?)'
+        ).run(id, OWNER_PERSON, iface, native, '2026-01-01T00:00:00.000Z');
+      }
+  } finally {
+    handle.close();
+  }
+}
+
 export async function withFakes(
-  settings: { owners?: ReadonlyArray<string>; names: ReadonlyArray<string> },
+  settings: { owners?: ReadonlyArray<string>; ownerPerson?: string; names: ReadonlyArray<string> },
   body: (rig: Rig) => Promise<void>
 ): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), 'tf-'));
   const dataDir = join(root, 'd');
   mkdirSync(join(dataDir, 'config'), { recursive: true });
+  // The owner: `ownerPerson` names one a test seeds itself, else `owners` are bound to the rig's own owner person.
+  const owners = settings.owners ?? [];
+  if (owners.length > 0) seedOwner(join(dataDir, 'memory.db'), settings.names, owners);
+  const ownerPerson = settings.ownerPerson ?? (owners.length > 0 ? OWNER_PERSON : null);
   writeFileSync(
     join(dataDir, 'config', 'config.json'),
     JSON.stringify({
-      bot: {
-        timezone: 'UTC',
-        owners: settings.owners ?? [],
-
-      },
+      bot: { timezone: 'UTC', ...(ownerPerson === null ? {} : { ownerPerson }) },
       dm: { enabled: true }, private: { minAffinity: 0 },
       models: { base: { video: false } },
       interfaces: { mode: 'units', drainMs: 2000 },

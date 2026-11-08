@@ -25,6 +25,7 @@ import type { Channel, Fake, World } from './turn-world.ts';
 import type { CreateTurnRunnerInput } from '../../src/behavior/turn-types.ts';
 import type { RunOutcome, RunRequest } from '../../src/errands/types.ts';
 import type { Untyped } from '../../src/tools/types.ts';
+import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 
 // The turn's chats are held by a fake interface of the world of the test, named `fake`.
 useIface('fake');
@@ -160,7 +161,7 @@ export function hotWith({
 }: { tools?: Record<string, unknown>; access?: Record<string, unknown>; config?: Record<string, unknown> } = {}): HotStandIn {
   return {
     config: {
-      bot: { timezone: 'UTC', owners: ['u1'], access },
+      bot: { timezone: 'UTC', ownerPerson: OWNER_PERSON, access },
       context: {
         channelMessages: 100, caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
         vision: { fetchTimeoutMs: 10_000 },
@@ -406,3 +407,6 @@ export const AGENTS = { errands: { maxOpen: 3, resultMaxChars: 400 }, agents: { 
 
 // PR 7d: the web cap is gone and the links, search counts and recall forms are constants.
 export const WEB_CONFIG = { web: { quickSearch: { enabled: true } } };
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy(['u1']);

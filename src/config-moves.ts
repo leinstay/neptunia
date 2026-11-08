@@ -16,8 +16,8 @@
 // The moves are one ordered list. A move whose old key is absent does nothing, so applying the list twice gives the
 // same config. Where the old and the new key are both set, the new one wins and the old one is dropped and reported as
 // shadowed. Keys nothing reads any more (three grants of `bot.access`, `agents.maxDownloadBytes`, the two context
-// keys of `agents.thinker`, `agents.ledger.socket`, and `bot.commandName` and `features.adminCommands` of the slash
-// command that is gone) are removed, with a section they leave empty, and reported as dropped. `selfreflection.placeId` is the seed of the selfreflection's mirror
+// keys of `agents.thinker`, `agents.ledger.socket`, `bot.commandName` and `features.adminCommands` of the slash
+// command that is gone, and `bot.owners`, whose native ids the owner's meta-person and its accounts replace) are removed, with a section they leave empty, and reported as dropped. `selfreflection.placeId` is the seed of the selfreflection's mirror
 // (schema v15): once the memory database has that mirror (`selfreflectionMirror`, told by the caller) the key is removed and
 // reported as moved to the database (`toDatabase`). Nothing here reads a file.
 //
@@ -162,6 +162,7 @@ export const DROPPED_KEYS: ReadonlyArray<ReadonlyArray<string>> = [
   ['agents', 'thinker', 'contextHard'],
   ['agents', 'ledger', 'socket'],
   ['bot', 'commandName'],
+  ['bot', 'owners'],
   ['memory', 'mainChannelIds'],
   ['features', 'adminCommands'],
 ];

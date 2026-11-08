@@ -3,7 +3,7 @@
 // the gateway delivered and one the start's catch-up delivered are handled once, whichever path reaches it first.
 // createMessageHandler (src/behavior/pipeline.ts) builds it once with createHandleMessage and returns its onMessage.
 
-import { sharedPlaceOf } from '../memory/addresses.ts';
+import { placeOfChat, sharedPlaceOf } from '../memory/addresses.ts';
 import { observeWhilePaused } from '../behavior/core-pause.ts';
 import type { PausedDeps } from '../behavior/core-pause.ts';
 import { isLimitNotice } from '../behavior/limits.ts';
@@ -23,6 +23,17 @@ import type { Line, MessageReadOptions, PipelineHot, PipelineMissed, PipelineSta
 
 /** How many message ids each path of handleMessage remembers (the live one, the start's catch-up). */
 const CATCH_UP_IDS_KEPT = 1000;
+
+/**
+ * What the door asks of a new line before anything else reads it: her link tool (src/interface/person-link.ts) drops
+ * the right code of the account that asked, the owner's pairing (src/interface/owner-pairing.ts) answers a direct
+ * message with a one-time code and has the line only observed, and her own line that carries a code reaches neither
+ * memory nor a turn.
+ */
+export type DoorScreen = {
+  screen(event: MessageEvent): Promise<'pass' | 'observe' | 'drop'>;
+  isCodeLine(content: unknown): boolean;
+};
 
 /** What became of one message. */
 type Handled = 'duplicate' | 'ignored' | 'observed' | 'triggered' | undefined;
@@ -51,6 +62,7 @@ export type HandleMessageContext = {
   noteFollowingLine: NoteFollowingLine;
   maybeFollowUp: MaybeFollowUp;
   answerFlagged: AnswerFlagged;
+  screen: DoorScreen | null;
 };
 
 export type HandleMessage = {
@@ -80,6 +92,7 @@ export function createHandleMessage({
   noteFollowingLine,
   maybeFollowUp,
   answerFlagged,
+  screen: door,
 }: HandleMessageContext): HandleMessage {
   // The ids of the messages the gateway delivered and of those the start's catch-up delivered
   // (catchUpMessage), each the newest CATCH_UP_IDS_KEPT: a message the gateway also delivers is
@@ -128,6 +141,9 @@ export function createHandleMessage({
     try {
       // 1. System / webhook messages are not chat.
       if (event.message.system === true) return 'ignored';
+      // 1. Her own line that carries a one-time code is no speech of hers: never observed, never read back.
+      const { author: writer, content } = event.message;
+      if (writer?.id === selfIdOf() && door?.isCodeLine(content) === true) return 'ignored';
 
       // 1a. Paused (/nep pause): no trigger, no turn, nothing marks the store dirty. A live line is observed
       // into the memory database and the core holds it for the resume, which hands it back through the catch-up path
@@ -150,6 +166,21 @@ export function createHandleMessage({
         } else {
           keepId(liveIds, messageId);
         }
+      }
+
+      // 1c. A line the screen took goes no further: a link code is dropped whole, a pairing request only observed.
+      const screened = catchUp || door === null ? 'pass' : await door.screen(event);
+      if (screened === 'drop') return 'ignored';
+      if (screened === 'observe') {
+        const chat = { ...event.chat, partnerId: event.chat.partnerId ?? String(writer?.id ?? '') };
+        const observing = observeLine(
+          event,
+          true,
+          { placeId: placeOfChat(store, chat, event.iface) },
+          options?.acceptedEvent
+        );
+        if (observing) await observing;
+        return 'observed';
       }
 
       const config = hot.config;

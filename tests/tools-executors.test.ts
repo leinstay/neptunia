@@ -37,6 +37,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import { freshWorld, seedExisting, syncStub, useIface, useSelf, world } from './fixtures/turn-world.ts';
 import type { Obj, Untyped } from '../src/tools/types.ts';
 import { asRecord } from './fixtures/records.ts';
+import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 // The chats are held by a fake interface named `fake`, where the persona is `self-1`.
 useIface('fake');
@@ -104,7 +105,7 @@ function config({
   return {
     features: { tools: true, selfreflection: true, ...features },
     tools: { safeMode: false, ...tools },
-    bot: { owners: [OWNER], access },
+    bot: { ownerPerson: OWNER_PERSON, access },
     selfreflection: { placeId: '', kinds: { photos: 1, thought: 1 }, ...selfreflection },
   };
 }
@@ -1902,3 +1903,6 @@ test('message.create from the command line to a room where the interface grants 
   assert.deepEqual([result.status, result.code], ['denied', 'channel-no-permission']);
   assert.equal(sentIn('k9').length, 0);
 });
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy([OWNER]);

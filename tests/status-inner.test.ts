@@ -10,6 +10,7 @@ import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { innerLines } from '../src/tools/operations/status.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 const DISCORD = createDiscordInterface().capabilities;
 const AT = Date.parse('2026-10-19T12:30:00Z');
@@ -51,7 +52,7 @@ const STATUS = {
 function envOf({ status = STATUS, usage = null }: { status?: typeof STATUS; usage?: unknown } = {}) {
   const hot = {
     config: {
-      bot: { owners: ['42'], access: { 'status.show': { everyone: false, roles: ['staff'], users: [] } } },
+      bot: { ownerPerson: OWNER_PERSON, access: { 'status.show': { everyone: false, roles: ['staff'], users: [] } } },
       llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 },
     },
     prompts: { labels: { status: { inner: LABELS } } },
@@ -246,3 +247,6 @@ test('status.show part: her call defaults to the overview, a part holds its fiel
 });
 
 // PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy(['42']);

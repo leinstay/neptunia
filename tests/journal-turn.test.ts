@@ -17,6 +17,7 @@ import { journalTurnRecord } from '../src/behavior/turn.ts';
 import { openTestMemorySync, journalLabel } from './fixtures/memory-db/service.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
+import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 const OWNER = '42';
 const SELF = 'self-1';
@@ -166,7 +167,7 @@ function makeAdmin(journal: Record<string, Untyped>) {
     config: {
       features: { tools: true, journal: true },
       tools: { safeMode: false },
-      bot: { owners: [OWNER], access: {} },
+      bot: { ownerPerson: OWNER_PERSON, access: {} },
     },
     prompts: { labels: {} },
   };
@@ -472,3 +473,6 @@ test('a skill action line keeps the tool call id and the coerced argument names,
   assert.deepEqual(line.input.coerced, ['count']);
   assert.equal(JSON.stringify(line).includes('"7"'), false);
 });
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy([OWNER]);

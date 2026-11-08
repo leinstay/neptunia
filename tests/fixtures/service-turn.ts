@@ -29,6 +29,7 @@ import { tempDir } from './tmp.ts';
 import { completionOf } from './tool-answers.ts';
 import { onWorld, world } from './turn-world.ts';
 import type { Fake } from './turn-world.ts';
+import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 
@@ -204,7 +205,7 @@ export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
     config: {
       bot: {
         timezone: 'UTC',
-        owners: ['u1'],
+        ownerPerson: OWNER_PERSON,
         access: Object.fromEntries(GRANTED.map((name) => [name, { everyone: false, roles: [], users: ['self-id'] }])),
       },
       context: { ...SERVICE_CONTEXT, memory: { ...SERVICE_CONTEXT.memory, ...spec.settings } },
@@ -366,3 +367,6 @@ export function blockOf(text: string, tag: string): string {
 export function rootTags(text: string): Array<string> {
   return [...text.matchAll(/^<([a-z_]+)>\n[\s\S]*?\n<\/\1>$/gm)].map((match) => match[1] ?? '');
 }
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy(['u1']);

@@ -28,7 +28,7 @@ export const ANSWER = 'γεια σου, καλημέρα';
 /** The private layer of every rig: the settle wait and typing off. PR 7d: the `features` switches are code or gone with
  * the cut, so the rig no longer turns optional behaviour off. */
 const BASE_CONFIG: Settings = {
-  bot: { timezone: 'UTC', owners: [] },
+  bot: { timezone: 'UTC' },
   // No video role, so the start sends no canary probe to YouTube.
   models: { base: { video: false } },
   pace: { settleMs: 0, settleMaxMs: 0 },

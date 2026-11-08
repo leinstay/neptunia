@@ -16,6 +16,7 @@ import {
   describeGrants,
 } from '../src/tools/operations/grants.ts';
 import type { Access, GrantEntry, OpInfo, Rights } from '../src/tools/types.ts';
+import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 /** One operation descriptor as src/tools/operations/registry.ts#listOps gives it. */
 function op(name: string, rights: Partial<Rights> = {}): OpInfo {
@@ -85,14 +86,22 @@ function allowed(
 // isOwnerId / hasGrant
 // ---------------------------------------------------------------------------
 
-test('isOwnerId: a listed id passes as a string or a number; no user and no owners list never do', () => {
-  const config = { bot: { owners: ['1', 2] } };
-  assert.equal(isOwnerId(config, '1'), true);
-  assert.equal(isOwnerId(config, '2'), true);
-  assert.equal(isOwnerId(config, '3'), false);
-  assert.equal(isOwnerId(config, undefined), false);
-  assert.equal(isOwnerId({}, '1'), false);
-  assert.equal(isOwnerId(undefined, '1'), false);
+test('isOwnerId: a bound account passes as a string or a number; no user and no owner person never do', () => {
+  // The expectation changed with plan 2026-11-08-meta-person slice 8: the owner is `bot.ownerPerson` and the accounts
+  // bound to it, and the retired `bot.owners` list passes nobody.
+  const stop = ownedBy(['1', 2]);
+  try {
+    const config = { bot: { ownerPerson: OWNER_PERSON } };
+    assert.equal(isOwnerId(config, '1'), true);
+    assert.equal(isOwnerId(config, 2), true);
+    assert.equal(isOwnerId(config, '3'), false);
+    assert.equal(isOwnerId(config, undefined), false);
+    assert.equal(isOwnerId({}, '1'), false);
+    assert.equal(isOwnerId(undefined, '1'), false);
+    assert.equal(isOwnerId({ bot: { owners: ['1'] } }, '1'), false);
+  } finally {
+    stop();
+  }
 });
 
 test('hasGrant: true exactly when revoke with the same arguments would change something', () => {

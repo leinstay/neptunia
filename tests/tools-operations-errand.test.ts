@@ -17,6 +17,7 @@ import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { asRecord } from './fixtures/records.ts';
+import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -55,7 +56,7 @@ function makeEnv({ errandSettings = {}, agents = {}, configured = true } = {}) {
   const rootDir = tempDir('nep-ops-task-');
   const hot = {
     config: {
-      bot: { owners: [OWNER], access: {} },
+      bot: { ownerPerson: OWNER_PERSON, access: {} },
       features: {},
       errands: { maxOpen: 3, ...errandSettings },
       agents: {
@@ -560,3 +561,6 @@ test('errand.resolve: closes a finished task of her view so the list drops it; a
     );
   });
 });
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy([OWNER]);

@@ -27,6 +27,7 @@ import type { Untyped } from '../src/tools/types.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
 import type { RunOutcome, RunRequest } from '../src/errands/types.ts';
 import type { Created, IntentionService } from '../src/intentions/types.ts';
+import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 /** The answer of an operation with its `data` read by field name, as these tests do. */
 type OpAnswer = Omit<OpResult, 'data'> & {
@@ -91,7 +92,7 @@ function makeEnv({
 } = {}) {
   const hot = {
     config: {
-      bot: { owners: [OWNER], access: {}, ...wrongly<{ timezone?: string }>({}) },
+      bot: { ownerPerson: OWNER_PERSON, access: {}, ...wrongly<{ timezone?: string }>({}) },
       errands: { maxOpen: 3, ...errandSettings },
       agents: { scout: { enabled: true, daily: { tasks: 10 } }, ...agents },
       intentions: {
@@ -763,3 +764,6 @@ test('store: a closed record beyond KEEP_CLOSED moves to the archive, never lost
     'read back from the database'
   );
 });
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy([OWNER]);

@@ -821,6 +821,10 @@
         "find": {
           "source": "Source: media.find, your GIF library. {count} results for \"{query}\".",
           "none": "No GIFs matched."
+        },
+        "link": {
+          "sent": "A one-time code went to the other account in a direct message. The next message from this account here must be that code, and no other message counts. Tell them so.",
+          "already": "These two accounts are one person to you already."
         }
       },
       "toolsText": {
@@ -1040,6 +1044,13 @@
         "failed": "gh gave no usable answer about {repository}. Check the name and that GitHub is reachable, then try again.",
         "no-modules": "The development checkout has no node_modules, so the tests of a task cannot run. Run npm install in selfimprovement.checkout, then unblock the task."
       }
+    },
+    "pairing": {
+      "code": "Your one-time pairing code is {code}. Type /interfaces pair {code} in her command line within an hour.",
+      "ask": "Write to her in a direct message on {iface}. She answers with a one-time code: type it here, or press Enter to approve it later with /interfaces pair <code>:"
+    },
+    "link": {
+      "code": "Someone wants to link another account to this one. If that is you, send {code} from that account as your next message in the conversation where it was asked. The code works for an hour."
     }
   }
 }

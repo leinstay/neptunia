@@ -518,7 +518,6 @@ export const KEPT: ReadonlyArray<string> = [
   'interfaces.drainMs',
   'interfaces.*.enabled',
   'bot.timezone',
-  'bot.owners',
   'bot.access',
   'models.base.core',
   'models.base.memory',

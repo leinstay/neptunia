@@ -42,7 +42,7 @@ const withPlaceLabels = {
   },
 };
 
-/** The owner's account on the root's interface (`bot.owners` of the harness config), who the command line reads as. */
+/** The owner's account on the root's interface, who the command line reads as (the turn runner's `ownerAccount`). */
 const OWNER_ACCOUNT = 'u1';
 const STRANGER = 'u9';
 
@@ -103,6 +103,7 @@ async function readFromCli(channel: string): Promise<string> {
     runOp: admin.runSkillOp,
     runOwnOp: admin.runOwnSkillOp,
     runInitiativeOp: admin.runInitiativeSkillOp,
+    ownerAccount: () => OWNER_ACCOUNT,
   });
   await turns.runTurn({
     channel: cli,

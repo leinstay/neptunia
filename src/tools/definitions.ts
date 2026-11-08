@@ -859,6 +859,11 @@ const ENTRIES: Array<Definition> = [
       };
     },
   }),
+  def('person.link', {
+    params: obj({ person: str(200) }, ['person']),
+    effects: 'write',
+    toArgs: (a) => ({ person: val(a, 'person') }),
+  }),
 ];
 
 function checkIdentity(definition: Obj, names: Set<string>, apis: Set<string>): string {

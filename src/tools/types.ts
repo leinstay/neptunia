@@ -120,7 +120,7 @@ export type OpContext = {
   /** `persona` for her own call, else the kind of caller (`owner`, `member`). */
   actor?: string;
   /** The owner's console: set by the command desk for the `cli` principal alone, it passes as an owner whatever
-   * `bot.owners` says (src/tools/operations/grants.ts#isOwnerCaller). */
+   * the owner check says (src/tools/operations/grants.ts#isOwnerCaller). */
   asOwner?: boolean;
   dmChat?: boolean;
   mentionAccountIds?: ReadonlyArray<string>;

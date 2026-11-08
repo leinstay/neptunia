@@ -65,6 +65,16 @@ The package's `setup.json` declares a `settings` array. Each setting has `key`, 
 
 The shared setup stores values under `data/interfaces/<name>/`. Secrets go to `credentials.json`; other values go to `config.json`. Technical state belongs in that directory too. Disabling the package preserves both its state and the core's memories.
 
+## Pairing the owner's account
+
+On a fresh install only the command line is connected, and its account is the owner's first account under his meta-person, `bot.ownerPerson`. The owner proves his account on any other interface by pairing, after the rules of Hermes's `gateway/pairing.py`. `/interfaces setup <name>` ends, once every required value is stored, by opening pairing on that interface and asking for the code in the chat with `labels.pairing.ask`. `/interfaces pair open <name>` opens it later, and `neptunia setup` names that command for each interface it set up, since the core is not running during its questions.
+
+While pairing is open on an interface, an hour from the moment it opened, a direct message to her there from an account that is not the owner's starts no turn. `createOwnerPairing` in `src/interface/owner-pairing.ts` answers it in the same chat with a one-time code worded by `labels.pairing.code`, and the line is only observed, so its account is stored. The owner types the code with `/interfaces pair <code>`, or at the setup's question. The account that asked is then bound to his meta-person by the rules of `/memory bind` (`bindAccount` in `src/memory/db/person-bind.ts`): an account with a meta-person of its own merges into his, and the approval stands for the yes of that merge. An approval closes pairing on its interface and voids its other codes.
+
+A code is eight characters from `CODE_ALPHABET` in `src/interface/pairing.ts`, which leaves out `0`, `O`, `1` and `I`, drawn from the system's secure random source. The core keeps only its SHA-256 hash, in the process: a restart drops every waiting code. A code lives one hour, three codes wait on an interface at most, and an account gets one code per ten minutes. Five wrong codes lock the approvals for an hour. Logs say that a code was sent and never the code. Her own line that carries a code is never observed, and `readHistory` in `src/turn/tool-round.ts` leaves it out of the chat a turn reads, so a code reaches no request.
+
+Changing the owner's account on an interface is the same pairing. The newly paired account becomes one more child of his meta-person and his account on that interface (`ownerAccountOf` in `src/memory/db/person-links.ts`, the account whose owner link came last), and the earlier account stays his. A command line turn reads a root's channels as the owner's account on that root's interface.
+
 ## Clients and principals
 
 The core socket authenticates each client against `clients.json` and its token file. An interface client has kind `interface` and a fixed `iface`. It supplies platform events, not owner administrative commands. CLI and agent clients have separate kinds and permissions.

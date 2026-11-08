@@ -53,7 +53,7 @@ const handlers = perEnv((env) => {
     return env.errands;
   }
 
-  /** Whether the caller is an owner (`bot.owners`, read now). */
+  /** Whether the caller is an owner (grants.ts#isOwnerId, read now). */
   function ownerCalls(context: OpContext) {
     return isOwnerCaller(hot.config, context);
   }

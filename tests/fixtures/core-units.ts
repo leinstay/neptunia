@@ -45,7 +45,7 @@ process.env.NODE_COMPILE_CACHE ??= join(tmpdir(), 'neptunia-compile-cache');
 /** The private layer of every rig: units mode, the settle wait and typing off. PR 7d: the `features` switches are code
  * or gone with the cut, so the rig no longer turns optional behaviour off. */
 const BASE_CONFIG: Settings = {
-  bot: { timezone: 'UTC', owners: [], placeId: 'g1' },
+  bot: { timezone: 'UTC', placeId: 'g1' },
   // An address that refuses every connection: `neptunia doctor` checks the keys it finds for real, and no rig reaches a
   // provider (owner, 2026-11-08).
   llm: { baseUrl: 'http://127.0.0.1:9/api/v1' },

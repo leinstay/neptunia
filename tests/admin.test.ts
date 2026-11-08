@@ -348,7 +348,7 @@ test('run: set and unset read a key with a dot as one key, never a path', async 
   );
 });
 
-test('set: a non-owner granted set cannot touch bot.owners or bot.access; an owner can', async () => {
+test('set: a non-owner granted set cannot touch bot.ownerPerson or bot.access; an owner can', async () => {
   const rootDir = makeRoot();
   const hot = makeHot(rootDir);
   hot.config.bot.access = {
@@ -360,16 +360,16 @@ test('set: a non-owner granted set cannot touch bot.owners or bot.access; an own
 
   const stranger = { placeId: 'g1', accountId: '999' };
   await assert.rejects(
-    () => admin.run('config.set', { path: 'bot.owners', value: '["42","999"]' }, stranger),
-    /only an owner may change bot\.owners/
+    () => admin.run('config.set', { path: 'bot.ownerPerson', value: '"person:999"' }, stranger),
+    /only an owner may change bot\.ownerPerson/
   );
   await assert.rejects(
     () => admin.run('config.set', { path: 'bot.access.set', value: '{}' }, stranger),
     /only an owner may change bot\.access/
   );
   await assert.rejects(
-    () => admin.run('config.unset', { path: 'bot.owners' }, stranger),
-    /only an owner may change bot\.owners/
+    () => admin.run('config.unset', { path: 'bot.ownerPerson' }, stranger),
+    /only an owner may change bot\.ownerPerson/
   );
   await assert.rejects(
     () => admin.run('config.unset', { path: 'bot.access' }, stranger),
@@ -377,11 +377,11 @@ test('set: a non-owner granted set cannot touch bot.owners or bot.access; an own
   );
   await assert.rejects(() => admin.run('config.unset', { path: 'bot' }, stranger), /only an owner may change bot/);
   await assert.rejects(
-    () => admin.run('config.set', { path: 'bot..owners', value: '["999"]' }, stranger),
+    () => admin.run('config.set', { path: 'bot..ownerPerson', value: '"person:999"' }, stranger),
     /only an owner/
   );
   await assert.rejects(
-    () => admin.run('config.set', { path: 'bot.owners', value: '["999"]' }, {}),
+    () => admin.run('config.set', { path: 'bot.ownerPerson', value: '"person:999"' }, {}),
     /only an owner/,
     'no caller is no owner'
   );
@@ -389,11 +389,11 @@ test('set: a non-owner granted set cannot touch bot.owners or bot.access; an own
 
   const result = await admin.run(
     'config.set',
-    { path: 'bot.owners', value: '["42","7"]' },
+    { path: 'bot.ownerPerson', value: '"person:7"' },
     { placeId: 'g1', accountId: '42' }
   );
-  assert.match(result, /^Set bot\.owners/);
-  assert.deepEqual(readLocal(rootDir), { bot: { owners: ['42', '7'] } });
+  assert.match(result, /^Set bot\.ownerPerson/);
+  assert.deepEqual(readLocal(rootDir), { bot: { ownerPerson: 'person:7' } });
 });
 
 test('set: accepts only an own leaf path of the live config and a value of the same JSON type', async () => {
@@ -401,6 +401,8 @@ test('set: accepts only an own leaf path of the live config and a value of the s
   const hot = makeHot(rootDir);
   hot.config.models = { ...hot.config.models, base: { ...hot.config.models.base, spare: null } };
   hot.config.tools = { ...hot.config.tools, safeMode: false };
+  // An array setting, for the type check below (`bot.owners` was the array here before it was retired).
+  hot.config.mention = { neverIgnore: [] };
   const { admin } = makeAdmin(rootDir, { hot });
   const owner = { accountId: '42' };
 
@@ -422,8 +424,8 @@ test('set: accepts only an own leaf path of the live config and a value of the s
     /tools\.safeMode expects a boolean, got a string/
   );
   await assert.rejects(
-    () => admin.run('config.set', { path: 'bot.owners', value: '"42"' }, owner),
-    /bot\.owners expects an array, got a string/
+    () => admin.run('config.set', { path: 'mention.neverIgnore', value: '"42"' }, owner),
+    /mention\.neverIgnore expects an array, got a string/
   );
   assert.equal(fs.existsSync(localPath(rootDir)), false, 'nothing was written');
 

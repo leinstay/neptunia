@@ -10,6 +10,7 @@ import type { TurnEnd, TurnParams } from '../turn/outcome.ts';
 import type { Draft } from '../turn/draft.ts';
 import type { FactsApi } from './inner.ts';
 import type { ReportedTurn } from './turn.ts';
+import type { PersonLinks } from '../interface/person-link.ts';
 
 export type CreateTurnRunnerInput = {
   /** The event loop watch's `track` (src/loop-watch.ts); the stages of the request phase are named operations. */
@@ -70,6 +71,10 @@ export type CreateTurnRunnerInput = {
   selfreflectionFacts?: Untyped;
   /** The memory's read handle while it is open (null while closed), for `<my_day>` (src/turn/request/my-day.ts). */
   journalDb?: (() => unknown) | null;
+  /** Her link tool (src/interface/person-link.ts): `person.link` and the messages it withholds; null: none. */
+  personLinks?: Pick<PersonLinks, 'start' | 'isWithheld'> | null;
+  /** The owner's account on the interface of a place; the memory's own reader (frame-reads.ts) when absent. */
+  ownerAccount?: ((placeId: string) => string | null) | null;
   memoryContext?: Untyped;
   attention?: Set<string>;
   roleHealth?: Untyped;

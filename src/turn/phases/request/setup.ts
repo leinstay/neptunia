@@ -13,7 +13,6 @@ import { createDeadline } from '../../../behavior/turn-parts.ts';
 import type { Deadline } from '../../../behavior/turn-parts.ts';
 import type { Context } from '../../../memory/db/scope.ts';
 import type { MemberInfo } from '../../../protocol/adapter.ts';
-import { ownerNativesOf } from '../../../tools/operations/grants.ts';
 import { transportOf } from '../../../tools/tool-calls.ts';
 import { replyOptionsOf } from '../../calls.ts';
 import type { Selfreflection } from '../../selfreflection.ts';
@@ -196,10 +195,10 @@ export async function setupRequest(
   // The root's listing, once for the attempt (neighbours, pulls, routing, places, audience rails); a private
   // chat is listed for its partner's sake.
   const partnerId = isDm ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
-  // On the command line the owner is nobody the root knows: the account the root's owners list gives for
-  // them is the reader whose view of its channels decides which of them a read may name.
+  // On the command line the owner is nobody the root knows: his account on the root's interface is the reader whose
+  // view of its channels decides which of them a read may name.
   const cliOwner = isCliOwner(channel.iface, partnerId);
-  const partnerHint = cliOwner ? (ownerNativesOf(config)[0] ?? null) : partnerId;
+  const partnerHint = cliOwner ? ctx.ownerAccount(reading[0] ?? placeId) : partnerId;
   const snapshotPending = takeSnapshotOf(
     ifaceReads,
     reading.length > 0 ? reading : [placeId],

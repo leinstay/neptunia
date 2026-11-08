@@ -223,8 +223,9 @@ const placeholders = (values: ReadonlyArray<unknown>): string => values.map(() =
 
 /**
  * Who `person` stands for: the survivor of its merges, every person merged into that survivor and their verified
- * accounts, joined through stored rows. `ownerMergesOnly` is for an outward context: a merge by anyone but the owner
- * neither moves the person nor adds to it. An account that has no person yet belongs to the legacy id that spells it.
+ * accounts, joined through stored rows. `ownerMergesOnly` is for an outward context: a merge only counts there when
+ * the owner wrote it or a one-time code proved it (`by` `code`, her link tool); any other neither moves the person nor
+ * adds to it. An account that has no person yet belongs to the legacy id that spells it.
  */
 export function personMembers(
   db: Db,
@@ -232,7 +233,7 @@ export function personMembers(
   { ownerMergesOnly }: { ownerMergesOnly: boolean }
 ): PersonMembers {
   const own = spelledAccount(db, person);
-  const whose = ownerMergesOnly ? " AND by = 'owner'" : '';
+  const whose = ownerMergesOnly ? " AND by IN ('owner', 'code')" : '';
   const forward = db.prepare(`SELECT into_person AS next FROM people_merges WHERE from_person = ?${whose}`);
   const backward = db.prepare(
     `SELECT from_person AS next FROM people_merges WHERE into_person = ?${whose} ORDER BY from_person`
@@ -315,6 +316,32 @@ export function ownerLinkedPerson(db: Db, accountId: string): string | null {
 }
 
 /**
+ * The owner's account on `iface`: the native id of the account whose live owner link to `ownerPerson`, or to the
+ * person it was merged into, came last. Pairing a second account there makes it this one, and the first stays his.
+ * Null when he has none there.
+ */
+export function ownerAccountOf(db: Db, ownerPerson: string, iface: string): string | null {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(a.native_key, a.native_id) AS native FROM account_person_links l
+       JOIN accounts a ON a.id = l.account_id
+       WHERE l.person_id = ? AND l.state = 'verified' AND l.by = 'owner' AND l.valid_to_at IS NULL AND a.iface = ?
+       ORDER BY l.recorded_at DESC, l.rowid DESC LIMIT 1`
+    )
+    .get(survivorOf(db, ownerPerson), iface);
+  return typeof row?.native === 'string' ? row.native : null;
+}
+
+/** The owner's account on the interface of the stored place `placeId`, by `bot.ownerPerson` of `config`; null when none. */
+export function ownerAccountOfPlace(db: Db, config: unknown, placeId: string): string | null {
+  const bot: unknown = config !== null && typeof config === 'object' ? Reflect.get(config, 'bot') : null;
+  const named: unknown = bot !== null && typeof bot === 'object' ? Reflect.get(bot, 'ownerPerson') : null;
+  const owner = typeof named === 'string' && named !== '' ? named : null;
+  const iface = db.prepare('SELECT iface FROM places WHERE id = ?').get(placeId)?.iface;
+  return owner === null || typeof iface !== 'string' ? null : ownerAccountOf(db, owner, iface);
+}
+
+/**
  * The owner check's reader over a read connection. Only a live link the owner wrote counts: a memory session proposes
  * links and an import carries them, and neither hands out his rights. The account's columns are never read, and a
  * person merged away stands for the person it was merged into. The interface is the current event's or turn's, the
@@ -322,7 +349,6 @@ export function ownerLinkedPerson(db: Db, accountId: string): string | null {
  */
 export function createOwnerAccounts({ database, home }: { database: () => Db | null; home: () => string }): {
   isBoundTo(person: string, native: string): boolean;
-  onHomeInterface(): boolean;
 } {
   return {
     isBoundTo(person, native) {
@@ -331,10 +357,6 @@ export function createOwnerAccounts({ database, home }: { database: () => Db | n
       const account = accountByNative(db, currentIface() ?? home(), native);
       const linked = account === undefined ? null : ownerLinkedPerson(db, account.id);
       return linked !== null && survivorOf(db, linked) === survivorOf(db, person);
-    },
-    onHomeInterface() {
-      const iface = currentIface();
-      return iface === null || iface === home();
     },
   };
 }

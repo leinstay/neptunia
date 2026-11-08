@@ -17,6 +17,7 @@ import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { openBoard } from '../src/board/board.ts';
 import type { BoardDb } from '../src/board/schema.ts';
+import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 
 /** The fields of a status card answer: `status.show` carries them in its data. */
 const fieldsOf = (result: { data: unknown }) =>
@@ -102,6 +103,7 @@ const AGREED = new Set([
   'places.list',
   'tools.describe',
   'conversation.read',
+  'person.link',
   'inner.status',
 ]);
 
@@ -126,7 +128,7 @@ function makeEnv({
   fs.mkdirSync(path.join(rootDir, 'prompts'));
   fs.writeFileSync(path.join(rootDir, 'prompts', 'rules.md'), '## Rules\n\n- be kind\n');
   const hot = {
-    config: { bot: { owners: ['42'], access }, llm: { model: 'x/y', maxRequestsPerDay: 10 } },
+    config: { bot: { ownerPerson: OWNER_PERSON, access }, llm: { model: 'x/y', maxRequestsPerDay: 10 } },
     prompts: { labels: {} },
     promptSources: {},
     promptsDir: path.join(rootDir, 'prompts'),
@@ -271,7 +273,7 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
     keyUnavailable: '{lead} unavailable',
   };
   const hot = {
-    config: { bot: { owners: ['42'] }, llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 } },
+    config: { bot: { ownerPerson: OWNER_PERSON }, llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 } },
     prompts: { labels: { status: { costs } } },
     promptSources: {},
     rootDir,
@@ -345,7 +347,7 @@ test('status keys: a role on the simulator key (here the vision role) is shown o
     keyUnavailable: '{lead} unavailable',
   };
   const hot = {
-    config: { bot: { owners: ['42'] }, llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 } },
+    config: { bot: { ownerPerson: OWNER_PERSON }, llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 } },
     prompts: { labels: { status: { costs } } },
     promptSources: {},
     rootDir,
@@ -421,7 +423,7 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
   };
   const NOW = Date.parse('2026-10-18T12:00:00Z');
   const config = {
-    bot: { owners: ['42'] },
+    bot: { ownerPerson: OWNER_PERSON },
     llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 },
     agents: { scout: { daily: { tasks: 40 } }, server: { daily: { tasks: 40 } } },
   };
@@ -557,7 +559,7 @@ async function developmentField(seed: (db: BoardDb) => void): Promise<Array<stri
     const db = handle.db as BoardDb;
     seed(db);
     const board = openBoard({ db, privateDir, now: () => now, settings: () => BOARD_SETTINGS });
-    const config = { bot: { owners: ['42'] }, llm: { maxRequestsPerDay: 10 } };
+    const config = { bot: { ownerPerson: OWNER_PERSON }, llm: { maxRequestsPerDay: 10 } };
     const hot = {
       config,
       prompts: { labels: { status: { costs: COST_LABELS } } },
@@ -637,3 +639,6 @@ test('ops: /nep task inner stops, starts and reports the inner life for an owner
   assert.equal(member.status, 'denied');
   assert.equal(member.code, 'owner-only');
 });
+
+// The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
+ownedBy(['42']);

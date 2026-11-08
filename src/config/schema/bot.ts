@@ -11,20 +11,12 @@ export const BOT: ReadonlyArray<SchemaEntry> = [
     'text': 'Timezone for model timestamps',
   },
   {
-    'key': 'bot.owners',
-    'types': ['array'],
-    'reader': 'src/behavior/core-pause.ts',
-    'default': [],
-    'text':
-      'Native ids of the home interface that count as owners until `bot.ownerPerson` is set; the input of that migration',
-  },
-  {
     'key': 'bot.ownerPerson',
     'types': ['string'],
     'reader': 'src/tools/operations/grants.ts',
     'default': '',
     'text':
-      "The owner's meta-person, whose bound accounts are the owner. The first line of the command line on a raw install writes it, and so does `/memory bind <iface> <account> owner` while it is empty. See [Owner identity](memory.md#owner-identity)",
+      "The owner's meta-person, whose bound accounts are the owner: the command line's account, and every account paired with `/interfaces pair` or bound with `/memory bind`. The first line of the command line on a raw install writes it, and so does `/memory bind <iface> <account> owner` while it is empty. See [Owner identity](memory.md#owner-identity)",
   },
   {
     'key': 'bot.access',

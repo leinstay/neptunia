@@ -20,8 +20,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `bot.timezone` | string | `"UTC"` | Timezone for model timestamps | `src/behavior/selfreflection.ts` |
-| `bot.owners` | array | `[]` | Native ids of the home interface that count as owners until `bot.ownerPerson` is set; the input of that migration | `src/behavior/core-pause.ts` |
-| `bot.ownerPerson` | string | `""` | The owner's meta-person, whose bound accounts are the owner. The first line of the command line on a raw install writes it, and so does `/memory bind <iface> <account> owner` while it is empty. See [Owner identity](memory.md#owner-identity) | `src/tools/operations/grants.ts` |
+| `bot.ownerPerson` | string | `""` | The owner's meta-person, whose bound accounts are the owner: the command line's account, and every account paired with `/interfaces pair` or bound with `/memory bind`. The first line of the command line on a raw install writes it, and so does `/memory bind <iface> <account> owner` while it is empty. See [Owner identity](memory.md#owner-identity) | `src/tools/operations/grants.ts` |
 | `bot.access` | map | `{}` | Who besides owners may run which operations, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access) | `src/behavior/sandbox.ts` |
 
 ## models.base

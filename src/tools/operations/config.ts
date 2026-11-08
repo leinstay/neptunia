@@ -1,4 +1,4 @@
-// Operations: `/nep set|unset`: one config override in the private settings file (config.local/config.json); a path under bot.owners or bot.access only for an owner.
+// Operations: `/nep set|unset`: one config override in the private settings file (config.local/config.json); a path under bot.ownerPerson or bot.access only for an owner.
 // The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
@@ -22,7 +22,7 @@ import type { Obj, OpContext } from '../types.ts';
 const handlers = perEnv((env) => {
   const { hot, editLocalConfig, writeLocalPath } = env;
 
-  /** Refuses a change under `bot.owners` / `bot.access` (see OWNER_ONLY_CONFIG_PATHS) unless the
+  /** Refuses a change under `bot.ownerPerson` or `bot.access` (see OWNER_ONLY_CONFIG_PATHS) unless the
    * caller is an owner: a member granted `set` must never make themselves one. Made by the persona
    * (`context.actor`, her skills) a change of any key that governs authorization or her own
    * controls (src/tools/operations/rights.ts#governsPersona) is refused whoever asked. */

@@ -122,6 +122,8 @@ export type PhaseContext = {
   myDay: MyDayReader | null;
   /** The reads of a framed request over the memory (src/memory/db/frame-reads.ts); null: none. */
   frameReads: FrameReads | null;
+  /** The owner's account on the interface of a place, the reader a command line turn reads its channels as. */
+  ownerAccount: (placeId: string) => string | null;
   /** Her lookups per place for `<recall>` (src/turn/calls.ts#createLookupRing). */
   lookupRing: LookupRing;
   busy: Set<string>;
