@@ -7,7 +7,7 @@ import { cellWidth, wrapWords } from './layout.ts';
 import { foldedText } from './state.ts';
 
 /**
- * `lead` is a muted prefix on the entry's first row, such as `[2026-11-08 13:04] [#3] `. Every other row of the entry,
+ * `lead` is a muted prefix on the entry's first row, such as `[#3] `. Every other row of the entry,
  * wrapped or after a newline, starts `indent` cells in, the width of the lead unless it says otherwise, so the text keeps
  * one column as Hermes draws its message bodies (ui-tui/src/components/messageLine.tsx).
  */
@@ -80,9 +80,14 @@ export function lineTime(at: number, timeZone?: string): string {
   return `${part.year}-${part.month}-${part.day} ${part.hour}:${part.minute}`;
 }
 
-/** The muted lead of a line: its date and minute in `timeZone`, then its number, as `[2026-11-08 13:04] [#3] `. */
+/** The muted lead of a command in the command window: its date and minute in `timeZone`, then its number. */
 export function lineLead(at: number, number: number, timeZone?: string): string {
-  return `[${lineTime(at, timeZone)}] [#${number}] `;
+  return `[${lineTime(at, timeZone)}] ${numberLead(number)}`;
+}
+
+/** The muted lead of a chat line, its number alone, as `[#3] `. */
+export function numberLead(number: number): string {
+  return `[#${number}] `;
 }
 
 function expandTabs(line: string): string {

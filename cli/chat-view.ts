@@ -91,7 +91,7 @@ type Who = 'owner' | 'her' | 'system';
 
 function rowStyle(row: TranscriptRow, who: Who | undefined): object {
   if (row.kind === 'fold' || who === 'system') return THEME.muted;
-  return who === 'owner' ? THEME.owner : who === 'her' && row.block === 'plain' ? THEME.her : BLOCK_STYLE[row.block];
+  return who === 'owner' ? THEME.owner : BLOCK_STYLE[row.block];
 }
 
 /** A row's text with the cells of a mouse selection in the selection style, and its lead muted when nothing is selected. */
