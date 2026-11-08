@@ -18,7 +18,8 @@
 //
 //   touchNames(db, sourceTable, sourceId)   the rows of one stored row deleted and written again from the row as it is
 //       now. graph.ts#projectRow calls it for every unit it projects, so every writer of those tables keeps the index. An
-//       account's touch also touches its person and its memberships, since their names point through the account.
+//       account's touch also touches its person and its memberships, since their names point through the account. It
+//       returns the nodes whose rows it rewrote, whose name sets object-vectors.ts#touchNameVectors compares.
 //   rebuildNames(db)   every row again from the stored rows; the migration that makes the table runs it.
 //   namesOf(db, ctx, words)   the nodes each word names, read under `ctx` (scope.ts#audienceWhere). A word is matched by
 //       its folded exact form first, then by its stems, then by trigrams; a weaker way is tried only when the stronger
@@ -236,14 +237,17 @@ function hasNames(db: Db): boolean {
   return found !== undefined;
 }
 
-function writeRows(db: Db, sourceTable: string, sourceId: string, stem: (word: string) => string): void {
+/** Writes the rows of one stored row; returns the nodes it wrote rows for. */
+function writeRows(db: Db, sourceTable: string, sourceId: string, stem: (word: string) => string): Array<string> {
   const insert = db.prepare(
     `INSERT OR IGNORE INTO names (label, normalized, stem, kind, node_id, audience_id, source_table, source_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   );
+  const nodes: Array<string> = [];
   for (const row of ROWS_OF[sourceTable]?.(db, sourceId) ?? []) {
     const normalized = normalName(row.label);
     if (normalized === '') continue;
+    nodes.push(row.nodeId);
     insert.run(
       row.label,
       normalized,
@@ -255,22 +259,28 @@ function writeRows(db: Db, sourceTable: string, sourceId: string, stem: (word: s
       sourceId
     );
   }
+  return nodes;
 }
 
-/** The rows of one stored row, deleted and written again from the row as it is now. */
-export function touchNames(db: Db, sourceTable: string, sourceId: string): void {
-  if (!NAME_SOURCES.has(sourceTable) || !hasNames(db)) return;
+/**
+ * The rows of one stored row, deleted and written again from the row as it is now. Returns the nodes whose rows it
+ * deleted or wrote, for the name sets of object-vectors.ts.
+ */
+export function touchNames(db: Db, sourceTable: string, sourceId: string, nodes = new Set<string>()): Set<string> {
+  if (!NAME_SOURCES.has(sourceTable) || !hasNames(db)) return nodes;
   const stem = loadStemmer(db).stem;
-  db.prepare('DELETE FROM names WHERE source_table = ? AND source_id = ?').run(sourceTable, sourceId);
-  writeRows(db, sourceTable, sourceId, stem);
-  if (sourceTable !== 'accounts') return;
+  const deleted = db.prepare('DELETE FROM names WHERE source_table = ? AND source_id = ? RETURNING node_id');
+  for (const row of deleted.all(sourceTable, sourceId)) nodes.add(String(row.node_id));
+  for (const nodeId of writeRows(db, sourceTable, sourceId, stem)) nodes.add(nodeId);
+  if (sourceTable !== 'accounts') return nodes;
   // An account's person and its memberships name through it: a link that changed moves their rows too.
   for (const row of db.prepare('SELECT id FROM memberships WHERE account_id = ?').all(sourceId))
-    touchNames(db, 'memberships', String(row.id));
+    touchNames(db, 'memberships', String(row.id), nodes);
   const people = db
     .prepare('SELECT DISTINCT person_id FROM account_person_links WHERE account_id = ? AND person_id IS NOT NULL')
     .all(sourceId);
-  for (const row of people) touchNames(db, 'people', String(row.person_id));
+  for (const row of people) touchNames(db, 'people', String(row.person_id), nodes);
+  return nodes;
 }
 
 /** Every row of the index again from the stored rows. */
