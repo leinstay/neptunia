@@ -1,6 +1,6 @@
 // The fifth phase of a turn attempt: her calls, then her speech, then one more request while something is left to read
 // (runSteps), each call under the effect key of the turn, and the cut-off and the short selfreflection set that end the turn
-// here. runTurnOnce (src/behavior/turn.ts) calls it after the act phase; the outcome phase reads what it posted.
+// here. runAttempt (src/turn/phases/attempt.ts) calls it after the act phase; the outcome phase reads what it posted.
 
 import { randomUUID } from 'node:crypto';
 import { lateMediaTeller } from '../../behavior/turn-parts.ts';
@@ -12,34 +12,71 @@ import type { Stepped } from '../tool-round.ts';
 import type { Acting } from './act.ts';
 import type { Ended, PhaseContext, PhaseParams } from './context.ts';
 
-/** What the tool round made: the steps her answer came to. */
-export type Rounded = Omit<Acting, 'ended'> & { ended: null; stepped: Stepped };
+/** What the tool round adds to the attempt: the steps her answer came to. */
+type RoundMade = { ended: null; stepped: Stepped };
 
-export async function toolRoundPhase(
+/** The attempt once the tool round made its part. */
+export type Rounded = Omit<Acting, 'ended'> & RoundMade;
+
+/** What the tool round reads of the attempt. */
+type RoundNeeds = Pick<
+  Acting,
+  | 'channel'
+  | 'placeId'
+  | 'isDm'
+  | 'prep'
+  | 'transport'
+  | 'memoryOn'
+  | 'selfId'
+  | 'selfName'
+  | 'startedAt'
+  | 'servedSnapshot'
+  | 'partner'
+  | 'cancel'
+  | 'finalMode'
+  | 'videoStage'
+  | 'videoCandidates'
+  | 'captions'
+  | 'captionCandidates'
+  | 'history'
+  | 'descriptions'
+  | 'selfreflectionPrep'
+  | 'pendingMedia'
+  | 'request'
+  | 'sentMessages'
+  | 'first'
+  | 'readAnswer'
+  | 'parsed'
+  | 'idByIndex'
+  | 'pulledIds'
+  | 'lines'
+  | 'routing'
+  | 'setShort'
+>;
+
+export async function toolRoundPhase<TTurn extends RoundNeeds>(
   ctx: PhaseContext,
   params: PhaseParams,
   draft: Draft,
-  acting: Acting
-): Promise<Ended | Rounded> {
+  turn: TTurn
+): Promise<Ended | (Omit<TTurn, 'ended'> & RoundMade)> {
   const { inTurnTools, stepTranscript, runSteps } = ctx;
   const { trigger = null, triggerKind = null, added = null, missed = null } = params;
   const requesterParam = params.requester ?? null;
-  const { opened, setup, pulled: pulledStep, staged, gathered, request, sentMessages, first, readAnswer } = acting;
-  const { idByIndex, pulledIds, lines, routing, setShort } = acting;
-  const { channel, placeId, isDm, prep } = opened;
-  const { transport, memoryOn, selfId, selfName, startedAt, servedSnapshot, partner } = setup;
-  const { finalMode } = pulledStep;
-  const { videoStage, videoCandidates, captions, captionCandidates } = staged;
-  const { history, descriptions, selfreflectionPrep, pendingMedia } = gathered;
+  const { request, sentMessages, first, readAnswer, parsed, idByIndex, pulledIds, lines, routing, setShort } = turn;
+  const { channel, placeId, isDm, prep, transport, memoryOn, selfId, selfName, startedAt, servedSnapshot, partner } =
+    turn;
+  const { cancel, finalMode, videoStage, videoCandidates, captions, captionCandidates } = turn;
+  const { history, descriptions, selfreflectionPrep, pendingMedia } = turn;
   const { knownNames, directory, handles, channelHandles, plain } = routing;
-  const { parsed } = acting;
   // Every call of the attempt: its turn (the journal's turn, else one id per attempt) and its index over every step.
   // Its key is the effect's record, `<turnId>:<effectIndex>:<target>` (the chat it names, else the turn's),
   // with no attempt in it, so a later attempt of the turn carries the key a first one would have carried.
   const turnKey = (draft.turnKey ??= { turnId: draft.started?.turnId ?? randomUUID() });
+  let callCount = 0;
   const envelopeOf = (call: { skill?: string; args?: Record<string, unknown> }) => {
-    const index = draft.callCount ?? 0;
-    draft.callCount = index + 1;
+    const index = callCount;
+    callCount = index + 1;
     const target = typeof call?.args?.placeId === 'string' ? call.args.placeId || channel.id : channel.id;
     const wake = draft.inner?.wake;
     return callEnvelope({
@@ -123,7 +160,7 @@ export async function toolRoundPhase(
       : null;
   // Her calls, then her speech, then (when something is left to read) another request, and so on (runSteps).
   const stepped = await runSteps({
-    cancel: setup.cancel,
+    cancel,
     noteStep: (step) => ctx.noteProgress(trigger?.id ?? null, step),
     channel,
     placeId,
@@ -161,5 +198,5 @@ export async function toolRoundPhase(
   // A set kind that ended below selfreflection.set.minPosted staged pictures (runSteps): nothing was posted.
   if (draft.setShort !== undefined) return { ended: setShort(draft.setShort) };
 
-  return { ...acting, ended: null, stepped };
+  return { ...turn, ended: null, stepped };
 }

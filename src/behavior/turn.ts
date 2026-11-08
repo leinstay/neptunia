@@ -11,13 +11,12 @@
 // reaction on a shown line of another channel lands in that channel, and a
 // post (a message, the GIF, the picture) answering such a line goes here
 // plain, with a jump link to it.
-// createTurnRunner builds the topic modules of src/turn/ once and runs every
-// attempt of a turn through the phases of src/turn/phases/ (runTurnOnce).
+// createTurnRunner builds the topic modules of src/turn/ once and hands every
+// attempt of a turn to runAttempt (src/turn/phases/attempt.ts), which runs its phases.
 
 import { fallbackLookupPlan } from './recall.ts';
 import { createImageFetcher } from '../media/fetch-image.ts';
 import { createOffPeriodsReader } from '../memory/index.ts';
-import { createLimits } from '../llm/limits.ts';
 import { createThinkStore } from './previous-think.ts';
 import { turnRoutes } from './turn-ability-route.ts';
 import { chunkPictures } from './mirror.ts';
@@ -29,7 +28,6 @@ import { postsPlain } from '../turn/triggers.ts';
 import { lookupClassifierInput } from '../turn/lookup-input.ts';
 import { mentionDirectory, pickOtherProfiles, resolveMentions, untaggedNote } from '../turn/mentions.ts';
 import { continuationHistory } from '../turn/history.ts';
-import { createHandles } from '../turn/handles.ts';
 import { myDayOf } from '../turn/request/my-day.ts';
 import type { JournalReader, MyDayReader } from '../turn/request/my-day.ts';
 import { placeChainInDb } from '../memory/db/place-tree.ts';
@@ -67,18 +65,12 @@ import type { FrameReads } from '../memory/db/frame-reads.ts';
 import type { Db } from '../memory/db/types.ts';
 import type { Context } from '../memory/db/scope.ts';
 import { taskInput } from '../turn/task-input.ts';
-import { preflight } from '../turn/phases/preflight.ts';
-import { requestPhase } from '../turn/phases/request.ts';
-import { responsePhase } from '../turn/phases/response.ts';
-import { actPhase } from '../turn/phases/act.ts';
-import { toolRoundPhase } from '../turn/phases/tool-round.ts';
-import { attemptReport, closeAttempt, outcomeOfError, outcomePhase } from '../turn/phases/outcome.ts';
+import { runAttempt } from '../turn/phases/attempt.ts';
 import type { Untyped } from '../tools/types.ts';
-import type { Draft } from '../turn/draft.ts';
 import type { TurnParams } from '../turn/outcome.ts';
 import type { Reads } from '../interface/reads.ts';
 import { untracked } from '../loop-watch.ts';
-import type { CreateTurnRunnerInput, TrackedParams, TurnRunner } from './turn-types.ts';
+import type { CreateTurnRunnerInput, TurnRunner } from './turn-types.ts';
 
 // A set's pictures are split and named as the selfreflection's mirrors send them (src/behavior/mirror.ts).
 export { chunkPictures };
@@ -271,12 +263,6 @@ export { fallbackLookupPlan };
  * her name in a root, `memberOf(placeId, accountId)` the name and kind of a member the core has been told of,
  * `membersOf(placeId)` all of them and `chatName(id)` the name the interface gave a chat.
  */
-/** An attempt's first draft: its limits, and the context and the restriction the turn was opened with. */
-function draftOf(args: TurnParams): Draft {
-  const { memoryContext, publicationBoundary } = args;
-  return { limits: createLimits(), memoryContext, publicationBoundary, handles: createHandles() } as Draft;
-}
-
 // health: allow function-length until 2027-04-01 -- the closure holds its whole operation, grown by the one dependency that names the loop watch
 export function createTurnRunner({
   hot,
@@ -624,7 +610,7 @@ export function createTurnRunner({
     classifierContext,
     linkCalls,
   });
-  // What the phases of an attempt (src/turn/phases/) read: the dependencies, the closure state and the topic functions.
+  // What an attempt and its phases (src/turn/phases/) read: the dependencies, the closure state and the topic functions.
   const phases = {
     hot,
     store,
@@ -684,6 +670,8 @@ export function createTurnRunner({
     turnDirectory,
     privatePartner,
     maybeSplit,
+    recordTurnFacts,
+    recordTurnThink,
   };
 
   /**
@@ -694,48 +682,10 @@ export function createTurnRunner({
    * fires the idle notifications), `part` (`{ index, total, parts }`: its
    * analyzer requests judge that part's text, its request names it), `reuseHistory` (the
    * first part's history, already fetched) and `plainPosts` (a later part
-   * posts plain).
+   * posts plain). The attempt itself is src/turn/phases/attempt.ts.
    */
-  async function runTurnOnce(args: TurnParams) {
-    // `limits`: what bit during this attempt, for its turn record. The request phase sets `tools` and the response phase `format` before any phase reads them (src/turn/draft.ts).
-    const draft = draftOf(args);
-    // `runTurn` names the chat of every attempt (TurnParams types it as optional) and adds the attempts to
-    // journal and the end facts (src/turn/outcome.ts).
-    const phaseArgs = args as Parameters<typeof preflight>[1] & TrackedParams;
-    let result;
-    try {
-      const opened = await preflight(phases, phaseArgs, draft);
-      if (opened.ended) {
-        result = opened.ended;
-      } else {
-        try {
-          const prepared = await requestPhase(phases, phaseArgs, draft, opened);
-          const answered = prepared.ended ? prepared : await responsePhase(phases, phaseArgs, draft, prepared);
-          const acting = answered.ended ? answered : actPhase(phases, phaseArgs, draft, answered);
-          const rounded = acting.ended ? acting : await toolRoundPhase(phases, phaseArgs, draft, acting);
-          result = rounded.ended ?? outcomePhase(phases, phaseArgs, draft, rounded);
-        } catch (err) {
-          result = outcomeOfError(phases, phaseArgs, draft, opened, err);
-        } finally {
-          closeAttempt(phases, phaseArgs, draft, opened);
-        }
-      }
-    } finally {
-      // An attempt whose turn.start was written closes with its turn record at runTurn's exit,
-      // whatever it returned (a throw counts as `error`).
-      if (draft.started) phaseArgs.journalAttempts?.push({ draft, result: result ?? { outcome: 'error' } });
-      const { turnEnds } = phaseArgs;
-      if (turnEnds) {
-        if (draft.info) turnEnds.info = draft.info;
-        turnEnds.replyTargets.push(...(draft.replyTargets ?? []));
-        if (typeof draft.reason === 'string') turnEnds.reasons.push(draft.reason);
-        if (draft.factsShown) turnEnds.factsShown = draft.factsShown;
-      }
-      // What an addressed turn lost, kept for her next request there (an inner turn's go to the inner life).
-      if (!args.inner) recordTurnFacts(args, draft);
-      recordTurnThink(args, draft, result);
-    }
-    return attemptReport(phaseArgs, draft, result);
+  function runTurnOnce(args: TurnParams) {
+    return runAttempt(phases, args);
   }
 
   return {

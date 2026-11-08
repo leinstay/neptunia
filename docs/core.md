@@ -21,6 +21,8 @@ The interface supplies a message and its chat, author and audience. The event do
 
 The request builder combines that context with the persona's prompts. The model can call tools before answering. Tool results return to the same turn; final output tags describe messages, reactions or silence. The interface executes supported actions and reports what happened.
 
+Each attempt of a turn runs in `runAttempt` in `src/turn/phases/attempt.ts`. It creates the attempt's draft, runs the phases of `src/turn/phases/` in order (the preflight, the request, the response, the act, the tool round and the outcome) and closes the attempt whatever it returned. Every phase, and every step of the request phase, adds its own fields to one flat record of what the attempt has made and names the fields it reads as a `Pick` of that record. The draft in `src/turn/draft.ts` holds what the attempt notes for its journal record and its turn's end, and each topic module of `src/turn/` declares the draft fields it reads in its own draft type.
+
 A line of the owner's CLI reaches the door when it arrives, as on any interface, and `src/turn/control.ts` tracks only what its client shows. The runner reads a cancel signal only for such a line (`cancelOf`, `src/behavior/turn.ts`), and it ends `cancelled` with nothing out. [CLI](cli.md#turns-the-queue-and-cancelling) explains the queue.
 
 An answer whose `<think>` is broken is never sent: the same request runs once more, and a second such answer ends the turn with the outcome `skip` and the reason `think-leaked`. [The prompt contract](prompt-contract.md#standards-of-output-and-stored-text) holds the standards of her output and of stored text.

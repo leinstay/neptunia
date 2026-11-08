@@ -1,8 +1,8 @@
 // The last phase of a turn attempt: what its steps posted, noted for the journal, the end hook and the pending pings,
 // a selfreflection post's entry recorded before any publication, and the result the attempt returns. Beside it, how an attempt
 // that threw ends (outcomeOfError) and what every attempt past its preflight closes whatever it returned
-// (closeAttempt), and what runTurn hears of the attempt (attemptReport). runTurnOnce (src/behavior/turn.ts) calls
-// them all.
+// (closeAttempt), and what runTurn hears of the attempt (attemptReport). runAttempt (src/turn/phases/attempt.ts)
+// calls them all.
 
 import { audienceChoice, turnBoundary } from '../../tools/publication.ts';
 import { recordEntry } from '../../behavior/selfreflection-turn.ts';
@@ -44,14 +44,15 @@ function isQuietInner(draft: Draft, stepped: Rounded['stepped']): boolean {
   return !reached && (draft.innerActions ?? []).every((action) => changedNothing(action as Record<string, unknown>));
 }
 
-export function outcomePhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, rounded: Rounded): AttemptResult {
+/** What the outcome phase reads of the attempt. */
+type OutcomeNeeds = Pick<
+  Rounded,
+  'channel' | 'now' | 'finalMode' | 'history' | 'selfreflectionPrep' | 'notAnswered' | 'stepped'
+>;
+
+export function outcomePhase(ctx: PhaseContext, draft: Draft, turn: OutcomeNeeds): AttemptResult {
   const { hot, store, noteSpokeSaw, recordSkillUses } = ctx;
-  const { opened, setup, pulled: pulledStep, gathered, told, stepped } = rounded;
-  const { channel } = opened;
-  const { now } = setup;
-  const { finalMode } = pulledStep;
-  const { history, selfreflectionPrep } = gathered;
-  const { notAnswered } = told;
+  const { channel, now, finalMode, history, selfreflectionPrep, notAnswered, stepped } = turn;
   // The lines her steps read carry their message ids, as the history's do.
   const loopSeen = (draft.loopSeen ?? []) as ReadonlyArray<{ id: string }>;
   noteSpokeSaw(channel, [...history, ...loopSeen], notAnswered);
@@ -118,12 +119,12 @@ export function outcomeOfError(
   ctx: PhaseContext,
   params: PhaseParams,
   draft: Draft,
-  opened: Opened,
+  turn: Pick<Opened, 'channel' | 'life'>,
   err: unknown
 ): AttemptResult {
   const { clock } = ctx;
   const { triggerKind = null } = params;
-  const { channel, life } = opened;
+  const { channel, life } = turn;
   if (err === TURN_CANCELLED) {
     log.info('turn: cancelled', { channel: channel.id, mode: life.turnMode, triggerKind: triggerKind ?? null });
     draft.reason = 'cancelled';
@@ -154,10 +155,15 @@ export function outcomeOfError(
 }
 
 /** What every attempt past its preflight closes, whatever it returned: its clocks and the attention. */
-export function closeAttempt(ctx: PhaseContext, params: PhaseParams, draft: Draft, opened: Opened): void {
+export function closeAttempt(
+  ctx: PhaseContext,
+  params: PhaseParams,
+  draft: Draft,
+  turn: Pick<Opened, 'channel' | 'prep' | 'life'>
+): void {
   const { busy, notifyIdle } = ctx;
   const { owned = false } = params;
-  const { channel, prep, life } = opened;
+  const { channel, prep, life } = turn;
   draft.mode = life.turnMode;
   prep.closeAll();
   life.stopTyping();

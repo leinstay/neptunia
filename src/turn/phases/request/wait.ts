@@ -6,11 +6,7 @@ import { log } from '../../../log.ts';
 import type { Draft } from '../../draft.ts';
 import { PREPARE_STAGES } from '../../timers.ts';
 import type { Ended, PhaseContext } from '../context.ts';
-import type { Opened } from '../preflight.ts';
-import type { Looked } from './lookup.ts';
-import type { SecondLook } from './second-look.ts';
-import type { Setup } from './setup.ts';
-import type { Staged } from './stages.ts';
+import type { Prepared } from '../request.ts';
 
 /** What the wait step made: the last stages, what was late, and the time each stage took. */
 export type Waited = {
@@ -20,21 +16,32 @@ export type Waited = {
   timings: Record<string, number | null>;
 };
 
-export async function waitForPreparation(
-  ctx: PhaseContext,
-  draft: Draft,
-  opened: Opened,
-  setup: Setup,
-  staged: Staged,
-  second: SecondLook,
-  looked: Looked
-): Promise<Ended | Waited> {
+/** What the wait step reads of the attempt. */
+type WaitNeeds = Pick<
+  Prepared,
+  | 'channel'
+  | 'life'
+  | 'rawHistory'
+  | 'startedAt'
+  | 'historyMs'
+  | 'beforeBar'
+  | 'deadline'
+  | 'stages'
+  | 'previews'
+  | 'captions'
+  | 'videoStage'
+  | 'splitStage'
+  | 'hasParts'
+  | 'prefetchStage'
+  | 'rewatchChain'
+  | 'linksStage'
+>;
+
+export async function waitForPreparation(ctx: PhaseContext, draft: Draft, turn: WaitNeeds): Promise<Ended | Waited> {
   const { clock } = ctx;
-  const { channel, life } = opened;
-  const { rawHistory, startedAt, historyMs, beforeBar } = setup;
-  const { deadline, stages, previews, captions, videoStage, splitStage, hasParts, prefetchStage } = staged;
-  const { rewatchChain } = second;
-  const { linksStage } = looked;
+  const { channel, life, rawHistory, startedAt, historyMs, beforeBar } = turn;
+  const { deadline, stages, previews, captions, videoStage, splitStage, hasParts, prefetchStage } = turn;
+  const { rewatchChain, linksStage } = turn;
 
   // Parts in time end the wait at once: the whole message's preparation is set aside.
   const partsReady = splitStage
