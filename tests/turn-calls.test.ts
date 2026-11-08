@@ -1,5 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import '../src/tools/operations/index.ts';
+import { CHANNEL_HANDLE_PREFIX, HANDLE_DIGITS, handleOf } from '../src/behavior/handles.ts';
+import { resolveCall } from '../src/tools/executors.ts';
+import { skillRegistry } from '../src/tools/registry.ts';
 import { callViewOf, searchHandles, type SearchRefs } from '../src/turn/calls.ts';
 import { memorySearchText } from '../src/tools/tools.ts';
 import { labels } from './fixtures/labels.ts';
@@ -81,4 +85,33 @@ test('a cut stored quote creates no resolvable handle while transcript numbers r
     chatId: 'current-room',
     messageId: 'transcript-one',
   });
+});
+
+test('a #handle and an @handle she carries from an earlier request resolve in a call when the place and member are known', () => {
+  // Bug: a handle of a channel or member this request did not show was refused as unknown in a tool argument.
+  const known = callViewOf({
+    channel: { id: 'current-room', rootId: 'g1' },
+    placeId: 'g1',
+    memoryOn: true,
+    store: {
+      listChannels: () => [{ id: 'kitchen-room', name: 'kitchen' }],
+      listUserProfiles: () => [{ id: 'member-7', names: ['Zoe'] }],
+    },
+    skills: skillRegistry(),
+    channelHandles: new Map(),
+    memberHandles: new Map(),
+  });
+  const read = resolveCall(
+    {
+      skill: 'memory.channel.read',
+      args: { place: `#${handleOf('kitchen-room', HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX)}` },
+    },
+    known
+  ) as { args?: Record<string, unknown> };
+  assert.equal(read.args?.place, 'kitchen-room');
+  const set = resolveCall(
+    { skill: 'intention.set', args: { text: 'ask', due: '1h', people: `@${handleOf('member-7')}` } },
+    known
+  ) as { args?: Record<string, unknown> };
+  assert.equal(set.args?.people, 'member-7');
 });

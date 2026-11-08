@@ -159,6 +159,8 @@ A name that fits more than one place is refused `target-ambiguous`, and one that
 
 People, channels and messages in the request have handles supplied by the formatters. The model must reuse these handles rather than inventing native IDs. The interface resolves outgoing references for its platform.
 
+A member's handle is `@u` and a channel's `#c` followed by base-36 digits of the id's SHA-256 (`handleOf` in `src/behavior/handles.ts`), so an id has the same handle in every request and only a collision lengthens it. A handle she carries from an earlier request, in an intention of `<inner>` or in her last think, therefore still names its member or channel when this request does not show it. `widenHandles` adds, behind the request's own handles, the handle of every member the turn's directory knows (`mentionDirectory` in `src/turn/mentions.ts`) and of every text channel of the turn's snapshot. `renderPost` in `src/turn/sends.ts` uses it for a post and `callViewOf` in `src/turn/calls.ts` for a tool argument. A handle two known ids share is left out, and a handle no known id has stays as written, logged `turn: unknown handle`.
+
 ### Memory session answer
 
 A memory session answers `<think>`, then one `<memory>` block holding a JSON object. `parseSessionAnswer` in `src/memory/db/session.ts` reads the block and `validateAnswer` checks its groups: `claims`, `episodes`, `affinity`, `descriptions`, `people`, `entities` and `assertions`, as `prompts/memory-session.md` spells them. Any other group counts one `unknown_group`, and a dropped op counts its reason in `counts.dropped`.

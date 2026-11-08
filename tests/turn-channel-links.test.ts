@@ -120,3 +120,36 @@ test('runTurn: a URL in a <msg> is posted exactly as written; a #name and an @ha
   assert.equal(result.outcome, 'spoke');
   assert.equal(channel.sent[0].content, `<@u1> δες ${url} στο <#${LINKED_ID}>`);
 });
+
+test('runTurn: a #handle of a guild text channel the request did not show is still sent as its <#id> link', async () => {
+  // Bug: a handle she carries over from an earlier request (an intention, her last think) went out as plain text,
+  // because only the channels of this request were in the handle map.
+  const handle = handleOf(LINKED_ID, 4, 'c');
+  const { result, channel } = await runLinkTurn(`<msg>δες στο #${handle}</msg>`);
+  assert.equal(result.outcome, 'spoke');
+  const [sent] = channel.sent;
+  assert.equal(sent.content, `δες στο <#${LINKED_ID}>`);
+});
+
+test('runTurn: an @handle of a known member who wrote nothing in the chat is still sent as a mention', async () => {
+  // Bug: a member's handle she carries over from an earlier request went out as plain `@handle`, because only the
+  // authors of this request's lines were in the handle map.
+  const turns = createTurnRunner({
+    hot: fakeHot(),
+    store: { ...fakeStore(), listUserProfiles: () => [{ id: 'u7', names: ['Zoe'], aliases: [] }] },
+    llm: fakeLlm(`<msg>@${handleOf('u7')} έτοιμο</msg>`),
+    calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
+  });
+  const raw = rawMessage({ id: 'm1' });
+  const channel = fakeTurnChannel([raw]);
+  const result = await turns.runTurn({
+    channel,
+    mode: 'reply',
+    trigger: normalizedTrigger(raw),
+    triggerKind: 'mention',
+  });
+  assert.equal(result.outcome, 'spoke');
+  const [sent] = channel.sent;
+  assert.equal(sent.content, '<@u7> έτοιμο');
+  assert.deepEqual(sent.allowedMentions, { parse: [], users: ['u7'], repliedUser: true });
+});

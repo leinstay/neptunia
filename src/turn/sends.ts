@@ -8,7 +8,7 @@ import { settleWait } from '../behavior/activity.ts';
 import { messageLinkOf } from '../behavior/elsewhere.ts';
 import type { IndexedEmoji } from '../behavior/emoji-index.ts';
 import { renderCustomEmoji } from '../behavior/emoji.ts';
-import { resolveHandles } from '../behavior/handles.ts';
+import { CHANNEL_HANDLE_PREFIX, idText, resolveHandles, widenHandles } from '../behavior/handles.ts';
 import { selfreflectionPlaces, readMirrors } from '../behavior/mirror.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { log } from '../log.ts';
@@ -137,7 +137,15 @@ export function createSends(ctx: SendsContext): Sends {
     const handles = channelHandles instanceof Map ? (channelHandles as Map<string, string>) : null;
     if (!snapshot || !inRoot(channel)) return handles ? linkChannels(text, [], handles) : text;
     const channels = snapshot.chats.map((entry) => ({ id: entry.id, name: entry.name }));
-    return linkChannels(text, channels, handles);
+    // A channel handle this request did not show: the handle of one of the root's text channels, from any request.
+    const widened = handles
+      ? widenHandles(
+          handles,
+          channels.map((entry) => String(entry.id)),
+          CHANNEL_HANDLE_PREFIX
+        )
+      : null;
+    return linkChannels(text, channels, widened);
   }
 
   /**
@@ -210,7 +218,16 @@ export function createSends(ctx: SendsContext): Sends {
     written = referred.text;
     let mentioned: { text: string; accountIds: Array<string | undefined>; unknown?: number };
     if (handles instanceof Map) {
-      const resolved = resolveHandles(written, handles);
+      let resolved = resolveHandles(written, handles);
+      // A handle this request did not show: the handle of a member the core knows (mentionDirectory), from any request.
+      if (resolved.unknown > 0 && typeof directory === 'function')
+        resolved = resolveHandles(
+          written,
+          widenHandles(
+            handles,
+            [...(directory() ?? [])].flatMap((entry) => idText(entry?.id))
+          )
+        );
       mentioned = resolved;
       if (resolved.unknown > 0 && !quiet)
         log.info('turn: unknown handle', { channel: channel.id, count: resolved.unknown });

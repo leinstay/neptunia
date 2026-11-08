@@ -2,7 +2,15 @@
 // request, a profiled member never moved by one in view) and `@handle` -> `<@id>` in the persona's output. Pure.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { HANDLE_DIGITS, HANDLE_PREFIX, assignHandles, handleOf, resolveHandles } from '../src/behavior/handles.ts';
+import {
+  CHANNEL_HANDLE_PREFIX,
+  HANDLE_DIGITS,
+  HANDLE_PREFIX,
+  assignHandles,
+  handleOf,
+  resolveHandles,
+  widenHandles,
+} from '../src/behavior/handles.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 
 // Two ids whose four-digit handles collide (found by search; see the derivation in handles.js).
@@ -73,4 +81,22 @@ test('resolveHandles: a handle inside a URL is part of the address; @everyone is
 
 test('resolveHandles: no map resolves nothing', () => {
   assert.deepEqual(resolveHandles('@uaaaa', wrongly(null)), { text: '@uaaaa', accountIds: [], unknown: 1 });
+});
+
+test('widenHandles: a handle shown in an earlier request resolves for a known id; a shared short handle stays out', () => {
+  // Bug: her `@handle` of a member this request did not show was posted as plain text.
+  const widened = widenHandles(null, ['1', OLDER, NEWER]);
+  assert.equal(widened.get(handleOf('1')), '1');
+  assert.equal(widened.has(handleOf(OLDER)), false, 'two known ids share the short handle: neither is guessed');
+  assert.equal(widened.get(handleOf(OLDER, HANDLE_DIGITS + 1)), OLDER);
+  assert.equal(widened.get(handleOf(NEWER, HANDLE_DIGITS + 1)), NEWER);
+  assert.equal(resolveHandles(`@${handleOf('1')} γεια`, widened).text, '<@1> γεια');
+});
+
+test("widenHandles: the request's own handles win; channel ids take the channel prefix", () => {
+  const shown = new Map([[handleOf(OLDER), OLDER]]);
+  assert.equal(widenHandles(shown, [NEWER]).get(handleOf(OLDER)), OLDER);
+  const channels = widenHandles(null, ['5'], CHANNEL_HANDLE_PREFIX);
+  assert.equal(channels.get(handleOf('5', HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX)), '5');
+  assert.equal(channels.has(handleOf('5')), false, 'no member handle for a channel');
 });
