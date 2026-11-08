@@ -83,7 +83,7 @@ The paths of her core, her memory writer and the simulation through a subharness
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `models.harness.core` | map, null | `null` | Her core's subscription route, `{ "backend": "claude" or "codex", "model": id, "effort": level or null }`. Null is the OpenRouter API. `/model set core <model> --via <route>` writes it after one reply, and `/model set core <model>` clears it | `src/subharness/routing.ts` |
-| `models.harness.memory` | map, null | `null` | The memory writer's path through a subharness, in the shape of `models.harness.core`. Null is the direct path on the memory role's key. `/model set memory <model> --via <route>` writes it after one reply | `src/subharness/routing.ts` |
+| `models.harness.memory` | map, null | `null` | The memory writer's path through a subharness, in the shape of `models.harness.core`. Null is the direct path on the memory role's key. The path carries every memory-role request: the session, the description review and the bind merge. `/model set memory <model> --via <route>` writes it after one reply | `src/subharness/routing.ts` |
 | `models.harness.simulation` | map, null | `null` | The simulation's subscription route for the paid scripts, in the shape of `models.harness.core`. Null is the API on the simulation key. `/model set simulation <model> --via <route>` writes it | `src/subharness/routing.ts` |
 
 ## llm
