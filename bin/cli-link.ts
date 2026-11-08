@@ -56,6 +56,8 @@ const CLI_CAPABILITIES: Capabilities = {
   threads: false,
   reactions: false,
   customEmoji: false,
+  mentions: false,
+  channelLinks: false,
   presence: false,
   voiceFormats: [],
   publish: [],

@@ -10,6 +10,7 @@ import { accountNodeOf } from './db/person-links.ts';
 import { placeChainInDb, rootPlaceInDb } from './db/place-tree.ts';
 import type { PlaceChainLink } from './db/place-tree.ts';
 import { linkedPrivateClaims } from './db/private-read.ts';
+import { lineNumberOf } from './db/chat-lines.ts';
 import { PERSONA_ID } from './db/storage-keys.ts';
 import type { StorageKind } from './db/storage-keys.ts';
 import { listUnits, subjectOf } from './db/storage-units.ts';
@@ -275,6 +276,11 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
         const first = listUnits(seam.db(), { kind })[0];
         return first ? subjectOf(first).id : null;
       });
+    },
+
+    /** The number the owner's chat draws on the stored line of a place by its message id (chat-lines.ts), or null. */
+    lineNumberOf(placeId: string, nativeId: string): number | null {
+      return readable() ? seam.run(() => lineNumberOf(seam.db(), placeId, nativeId)) : null;
     },
 
     /** What a person said in their other DMs, for the request of a DM turn: `{ text }` per claim. */
