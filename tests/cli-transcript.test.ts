@@ -107,8 +107,9 @@ const chatRows = (rig: Rig): Array<string> => {
     .map((line) => line.trimEnd());
 };
 
-test('every line opens with its time, then its number, then its text, and no line carries a `>` mark', async () => {
-  // Bug: the time stands on a row of its own, the number is missing or comes first, or the owner's line keeps `> `.
+test('every line opens with its number, then its text, carries no date and no `>` mark', async () => {
+  // Bug: the date stays in the line, the number is missing or comes first, or the owner's line keeps `> `.
+  // The lead held the date as well until the owner's word of 2026-11-08 moved it to a time row of its own.
   const { env, entry } = chatEnv({ now: () => SENT, timeZone: 'UTC' });
   await withChat(env, async (rig) => {
     await press(rig, 'ΓΡΑΜΜΗ-ΝΕΑ', shows(rig, '> ΓΡΑΜΜΗ-ΝΕΑ'));
@@ -116,8 +117,8 @@ test('every line opens with its time, then its number, then its text, and no lin
     entry({ who: 'her', text: 'her-reply' });
     await until(shows(rig, 'her-reply'));
     const rows = chatRows(rig);
-    assert.ok(rows.includes('[2026-11-08 13:04] [#1] ΓΡΑΜΜΗ-ΝΕΑ'), rows.join('\n'));
-    assert.ok(rows.includes('[2026-11-08 13:04] [#2] her-reply'), rows.join('\n'));
+    assert.ok(rows.includes('[#1] ΓΡΑΜΜΗ-ΝΕΑ'), rows.join('\n'));
+    assert.ok(rows.includes('[#2] her-reply'), rows.join('\n'));
     assert.equal(
       rows.some((line) => line.trimStart().startsWith('>')),
       false
@@ -125,8 +126,46 @@ test('every line opens with its time, then its number, then its text, and no lin
   });
 });
 
+/** The rows of the chat that hold the time `2026-11-08 13:04` and nothing else. */
+const timeRows = (rows: ReadonlyArray<string>): Array<number> =>
+  rows.flatMap((line, index) => (line.trim() === '2026-11-08 13:04' ? [index] : []));
+
+test("a time row stands above the owner's first line and above his line after hers, and nowhere else", async () => {
+  // Bug: the time stands above every line, above her lines, or above none of his.
+  const { env, entry } = chatEnv({ now: () => SENT, timeZone: 'UTC' });
+  await withChat(env, async (rig) => {
+    for (const [who, text] of [
+      ['owner', 'o-one'],
+      ['owner', 'o-two'],
+      ['her', 'h-one'],
+      ['owner', 'o-three'],
+      ['her', 'h-two'],
+      ['her', 'h-three'],
+    ] as const)
+      entry({ who, text });
+    await until(shows(rig, 'h-three'));
+    const rows = chatRows(rig);
+    const at = (needle: string): number => rows.findIndex((line) => line.endsWith(` ${needle}`));
+    assert.deepEqual(timeRows(rows), [at('o-one') - 1, at('o-three') - 1], rows.join('\n'));
+    assert.equal(rows[at('o-three') - 2], '');
+  });
+});
+
+test('a chat that opens with her line draws no time row above it', async () => {
+  // Bug: the first line of the view takes a time row whoever said it.
+  const { env, entry } = chatEnv({ now: () => SENT, timeZone: 'UTC' });
+  await withChat(env, async (rig) => {
+    entry({ who: 'her', text: 'h-first' });
+    entry({ who: 'her', text: 'h-second' });
+    await until(shows(rig, 'h-second'));
+    assert.deepEqual(timeRows(chatRows(rig)), []);
+  });
+});
+
 test("a blank row stands after her line only when the owner's line follows it", async () => {
   // Bug: a blank row before every owner line, after every reply, or none between her answer and his next line.
+  // The owner's line after hers carries a time row between the blank row and its text since the owner's word of
+  // 2026-11-08, so it stands three rows under her line.
   const { env, entry } = chatEnv({ timeZone: 'UTC' });
   await withChat(env, async (rig) => {
     for (const [who, text] of [
@@ -142,7 +181,7 @@ test("a blank row stands after her line only when the owner's line follows it", 
     const rows = chatRows(rig);
     const at = (needle: string): number => rows.findIndex((line) => line.endsWith(` ${needle}`));
     assert.equal(at('h-one') - at('o-one'), 1);
-    assert.equal(at('o-two') - at('h-one'), 2);
+    assert.equal(at('o-two') - at('h-one'), 3);
     assert.equal(rows[at('h-one') + 1], '');
     assert.equal(at('o-three') - at('o-two'), 1);
     assert.equal(at('h-two') - at('o-three'), 1);
@@ -166,6 +205,7 @@ test("a line's later rows start in the column of its text, under the lead", asyn
 // A line's number, from the specifier's shape: `ChatEntry.number`, the line's place in the chat's whole stored history as
 // the core numbers it (`session.page`). A new line takes the number after the line before it until her turn is committed,
 // and then the number of its stored line, which the chat reads again with `storedPage(null)`.
+// The rows below are matched whole as `[#N] text`: the owner's word of 2026-11-08 took the date out of the lead.
 const NUMBERED: Record<string, ReadonlyArray<Stored>> = {
   newest: [
     { id: 's3', who: 'owner', text: 'ΓΡΑΜΜΗ-ΤΡΙΤΗ', at: SENT, number: 1334 },
@@ -185,7 +225,7 @@ test('a stored line draws the number of its place in the whole chat, and keeps i
   const { env } = chatEnv({ storedPage: numberedPage, timeZone: 'UTC' });
   await withChat(env, async (rig) => {
     await until(shows(rig, 'ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'));
-    assert.ok(chatRows(rig).includes('[2026-11-08 13:04] [#1335] ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'), chatRows(rig).join('\n'));
+    assert.ok(chatRows(rig).includes('[#1335] ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'), chatRows(rig).join('\n'));
     rig.type(KEY.pageUp);
     await until(shows(rig, 'ΓΡΑΜΜΗ-ΠΡΩΤΗ'));
     const screen = rig.screen().join('\n');
@@ -200,7 +240,7 @@ test('a fresh chat over the same stored lines draws the same numbers', async () 
     const { env } = chatEnv({ storedPage: numberedPage, timeZone: 'UTC' });
     await withChat(env, async (rig) => {
       await until(shows(rig, 'ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'));
-      assert.ok(chatRows(rig).includes('[2026-11-08 13:04] [#1334] ΓΡΑΜΜΗ-ΤΡΙΤΗ'), chatRows(rig).join('\n'));
+      assert.ok(chatRows(rig).includes('[#1334] ΓΡΑΜΜΗ-ΤΡΙΤΗ'), chatRows(rig).join('\n'));
     });
   }
 });
@@ -212,7 +252,7 @@ test('a new line takes the number after the newest stored line, and the line sen
     await until(shows(rig, 'ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'));
     await press(rig, 'ΓΡΑΜΜΗ-ΝΕΑ', shows(rig, '> ΓΡΑΜΜΗ-ΝΕΑ'));
     await press(rig, KEY.enter, () => chatRows(rig).some((line) => line.includes('ΓΡΑΜΜΗ-ΝΕΑ')));
-    assert.ok(chatRows(rig).includes('[2026-11-08 13:04] [#1336] ΓΡΑΜΜΗ-ΝΕΑ'), chatRows(rig).join('\n'));
+    assert.ok(chatRows(rig).includes('[#1336] ΓΡΑΜΜΗ-ΝΕΑ'), chatRows(rig).join('\n'));
   });
   assert.deepEqual(sent, ['ΓΡΑΜΜΗ-ΝΕΑ']);
 });
@@ -255,9 +295,9 @@ test('a file of hers that comes right after her words shares their number, and t
     entry({ who: 'owner', text: 'nice' });
     await until(shows(rig, 'nice'));
     const rows = chatRows(rig);
-    assert.ok(rows.includes('[2026-11-08 13:04] [#1] look'), rows.join('\n'));
-    assert.ok(rows.includes('[2026-11-08 13:04] [#1] [image] out.png: A grey square'), rows.join('\n'));
-    assert.ok(rows.includes('[2026-11-08 13:04] [#2] nice'), rows.join('\n'));
+    assert.ok(rows.includes('[#1] look'), rows.join('\n'));
+    assert.ok(rows.includes('[#1] [image] out.png: A grey square'), rows.join('\n'));
+    assert.ok(rows.includes('[#2] nice'), rows.join('\n'));
   });
 });
 
@@ -280,7 +320,7 @@ test('a stored line draws a marker for each of its files after its text, in the 
   await withChat(env, async (rig) => {
     await until(shows(rig, '[#6]'));
     const rows = chatRows(rig);
-    assert.ok(rows.includes('[2026-11-08 13:04] [#5] listen to this [voice]'), rows.join('\n'));
-    assert.ok(rows.includes('[2026-11-08 13:04] [#6] [image] [file]'), rows.join('\n'));
+    assert.ok(rows.includes('[#5] listen to this [voice]'), rows.join('\n'));
+    assert.ok(rows.includes('[#6] [image] [file]'), rows.join('\n'));
   });
 });

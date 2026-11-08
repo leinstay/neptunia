@@ -57,7 +57,7 @@ import type { MouseReport } from './mouse.ts';
 import type { Panel } from './panel.ts';
 import { FOLD_LINES, backspace, browse, emptyInput, insert, menuOf, moveCursor, statusLine, submit } from './state.ts';
 import type { InputState, MenuCommand, StatusBrief } from './state.ts';
-import { TAIL, displaySafe, lineLead, scrollView, transcriptWindow } from './transcript.ts';
+import { TAIL, displaySafe, lineLead, lineTime, numberLead, scrollView, transcriptWindow } from './transcript.ts';
 import type { TranscriptDims, TranscriptEntry, TranscriptRow, TranscriptView, TranscriptWindow } from './transcript.ts';
 import {
   activeTurn,
@@ -198,6 +198,8 @@ type ShownEntry = {
 
 /** The id of the blank row between her line and the owner's line after it. */
 const GAP_PREFIX = 'gap-';
+/** The id of the row of the date and minute above an owner's line. */
+const TIME_PREFIX = 'time-';
 
 /** A search of the history or the transcript. The draft waits untouched, and the query goes nowhere else. */
 type Search = { kind: 'history' | 'transcript'; query: string; skip: number; viewBefore: TranscriptView };
@@ -289,7 +291,7 @@ function entryText(entry: ChatEntry): string {
 
 /**
  * What the transcript draws for an entry, with every control character made visible: the owner's text and hers as they
- * arrived, under the lead of their time and number, and `· ` before a notice of the chat, which carries neither.
+ * arrived, under the lead of their number, and `· ` before a notice of the chat, which carries neither.
  */
 function drawnText(entry: ChatEntry): string {
   const lines = displaySafe(entryText(entry).replaceAll('\r\n', '\n')).split('\n');
@@ -478,10 +480,12 @@ export class ChatController {
   shownCache: { from: ReadonlyArray<ShownEntry>; list: Array<TranscriptEntry> } | null = null;
   led = new WeakMap<ShownEntry, { number: number; entry: TranscriptEntry }>();
   gaps = new WeakMap<ShownEntry, TranscriptEntry>();
+  times = new WeakMap<ShownEntry, { number: number; entry: TranscriptEntry }>();
 
   /**
-   * The transcript as it is drawn: each line of the owner or of hers under `[time] [#N] `, and one blank row after her
-   * line when the owner's line follows it, nowhere else. N is the line's stored number. A line without one takes the
+   * The transcript as it is drawn: each line of the owner or of hers under `[#N] `, and one blank row after her line when
+   * the owner's line follows it, nowhere else. The date and minute stand on a row of their own above the owner's first
+   * line and above his line after the blank row, and nowhere else. N is the line's stored number. A line without one takes the
    * number after the line before it, and a file of hers that follows her words takes theirs, since both are one line.
    */
   shownEntries(): Array<TranscriptEntry> {
@@ -492,11 +496,13 @@ export class ChatController {
     let before: ShownEntry | undefined;
     let lastLine: ShownEntry | undefined;
     for (const entry of entries) {
-      if (entry.who === 'owner' && before?.who === 'her') list.push(this.gapOf(entry));
+      const isAfterHer = entry.who === 'owner' && before?.who === 'her';
+      if (isAfterHer) list.push(this.gapOf(entry));
       if (entry.who === 'system') list.push(entry);
       else {
         const isHerFile = entry.who === 'her' && lastLine?.who === 'her' && entry.original === '';
         number = entry.number ?? (isHerFile ? number : number + 1);
+        if (entry.who === 'owner' && (isAfterHer || lastLine === undefined)) list.push(this.timeOfLine(entry, number));
         list.push(this.ledOf(entry, number));
         lastLine = entry;
       }
@@ -514,11 +520,20 @@ export class ChatController {
     return gap;
   }
 
+  /** The row of the date and minute above an owner's line, starting in the column of the line's text. */
+  timeOfLine(entry: ShownEntry, number: number): TranscriptEntry {
+    const found = this.times.get(entry);
+    if (found?.number === number && found !== undefined) return found.entry;
+    const text = lineTime(entry.at ?? this.env.now(), this.env.timeZone);
+    const time = { id: `${TIME_PREFIX}${entry.id}`, text, indent: cellWidth(numberLead(number)) };
+    this.times.set(entry, { number, entry: time });
+    return time;
+  }
+
   ledOf(entry: ShownEntry, number: number): TranscriptEntry {
     const found = this.led.get(entry);
     if (found?.number === number && found !== undefined) return found.entry;
-    const lead = lineLead(entry.at ?? this.env.now(), number, this.env.timeZone);
-    const led = { id: entry.id, text: entry.text, lead };
+    const led = { id: entry.id, text: entry.text, lead: numberLead(number) };
     this.led.set(entry, { number, entry: led });
     return led;
   }
@@ -953,6 +968,7 @@ export class ChatController {
   }
 
   whoOf(entryId: string): ShownEntry['who'] | undefined {
+    if (entryId.startsWith(TIME_PREFIX)) return 'owner';
     return this.entries().find((one) => one.id === entryId)?.who;
   }
 
@@ -1576,7 +1592,9 @@ export class ChatController {
       case 'prompt.previous':
       case 'prompt.next': {
         const rows = transcriptWindow(this.shownEntries(), now.view, this.drawn).rows;
-        const top = rows.find((row) => !row.entryId.startsWith(GAP_PREFIX))?.entryId ?? '';
+        const top =
+          rows.find((row) => !row.entryId.startsWith(GAP_PREFIX) && !row.entryId.startsWith(TIME_PREFIX))?.entryId ??
+          '';
         const entryId = jumpToPrompt(this.originals(), top, action === 'prompt.previous' ? -1 : 1);
         if (entryId !== null) this.update({ view: { kind: 'anchor', entryId, row: 0 } });
         return;
