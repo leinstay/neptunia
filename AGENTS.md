@@ -129,7 +129,7 @@ Nothing from `.agents/` goes into a pull request. A script used a second time st
 
 ## Forbidden
 
-- Never start the engine, call a provider or spend a key from a checkout or a test.
+- Never start the engine from a checkout, and never call a provider or spend a key from a test.
 - Never commit, paste or quote `data/`, a character card, a real chat line or a key.
 - Never add a dependency to the core, a build step, or a second runtime.
 - Never add a helper model that decides for the persona, or a step that edits her words after generation.
