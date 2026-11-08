@@ -189,7 +189,7 @@ async function reflectionFacts(
       from: new Date(last).toISOString(),
       to: new Date(now).toISOString(),
       participants: profiles.flatMap((one: Record<string, unknown>) =>
-        typeof one.id === 'string' ? [personOfMember(store, one.id)] : []
+        typeof one.id === 'string' ? (personOfMember(store, one.id) ?? []) : []
       ),
       entities: [],
     });

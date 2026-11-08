@@ -29,3 +29,10 @@ test('a stand-in store holds the native ids, the root before the chat', () => {
   assert.equal(placeOfRoot(undefined, 'g1'), 'g1');
   assert.equal(accountOf({}, 'u1'), 'u1');
 });
+
+test('a member has no person when the store holds none or links none', () => {
+  // Bug: a module spells `person:<iface>:<native>`, a person no row holds, and reads or writes under it.
+  assert.equal(personOfMember({}, 'u1', 'one'), null);
+  assert.equal(personOfMember(null, 'u1'), null);
+  assert.equal(personOfMember({ ...answering, personOfAccount: () => null }, 'u1'), null);
+});

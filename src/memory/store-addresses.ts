@@ -1,9 +1,10 @@
 // How the store names what a core module holds natively: the place of a chat, the top of its tree, the account and
 // the person of a member, and the native id back for a read of the interface. Reads the memory database through the store's
-// read seam; without a database every id answers as given, so a test's store needs no rows.
+// read seam; without a database every id answers as given, so a test's store needs no rows. The way back, from an id to
+// its person or native id, reads a stored row or what this store named the id from, and never the text of the id.
 
 import { currentIface } from './db/current-iface.ts';
-import { interfaceAccountId, interfacePlaceOf, nativeAuthorityOf, nativeOfAny, topPlaceSpelled } from './db/ids.ts';
+import { interfaceAccountId, interfacePlaceOf, nativeAuthorityOf, topPlaceSpelled } from './db/ids.ts';
 import { LEGACY_IFACE } from './db/legacy-namespace.ts';
 import { chatPlaceKey } from './db/observe-event.ts';
 import { accountNodeOf } from './db/person-links.ts';
@@ -44,13 +45,21 @@ const NAMED_MAX = 2000;
 
 function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam }) {
   const readable = (): boolean => Boolean(memoryDb?.readHandle?.());
-  // The places named from a chat the interface described: its native id and the top of its tree, for a place
-  // the database holds no row of yet (no message of it observed) or a store with no database.
-  const named = new Map<string, { chat: string; top: string }>();
-  const remember = (placeId: string, chat: string, top: string): void => {
+  // The places named from a chat or a root the interface described: its native id and the top of its tree, for a place
+  // the database holds no row of yet (no message of it observed, the hello's roots not yet written) or a store with no
+  // database. `root` marks a place named as a root.
+  const named = new Map<string, { chat: string; top: string; root: boolean }>();
+  const remember = (placeId: string, chat: string, top: string, root = false): void => {
     named.delete(placeId);
-    named.set(placeId, { chat, top });
+    named.set(placeId, { chat, top, root });
     if (named.size > NAMED_MAX) named.delete(named.keys().next().value ?? placeId);
+  };
+  // The accounts this store minted an id for, by the native id it was minted from, for an account no row holds yet.
+  const minted = new Map<string, string>();
+  const rememberAccount = (accountId: string, nativeId: string): void => {
+    minted.delete(accountId);
+    minted.set(accountId, nativeId);
+    if (minted.size > NAMED_MAX) minted.delete(minted.keys().next().value ?? accountId);
   };
   const ifaceNow = (): string => {
     const named: unknown = typeof memoryDb?.namespace === 'function' ? memoryDb.namespace() : null;
@@ -94,12 +103,17 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
     return typeof found === 'string' ? found : null;
   }
 
-  /** The native id an account or a place holds, for the stored value's own `id`. */
-  function nativeOfRow(table: 'accounts' | 'places', id: string): string {
+  /**
+   * The native id an account or a place holds, for the stored value's own `id`: its row's, else the one this store
+   * named it from, else null. Without a database the id as given (already native).
+   */
+  function nativeOfRow(table: 'accounts' | 'places', id: string): string | null {
+    if (!memoryDb) return id;
     const native: unknown = readable()
       ? seam.run(() => seam.db().prepare(`SELECT native_id FROM ${table} WHERE id = ?`).get(id)?.native_id)
       : null;
-    return typeof native === 'string' && native ? native : (nativeOfAny(id) ?? id);
+    if (typeof native === 'string' && native) return native;
+    return (table === 'accounts' ? minted.get(id) : named.get(id)?.chat) ?? null;
   }
 
   function placeOfRoot(nativeId: string, iface?: string): string {
@@ -115,7 +129,10 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
               .get(authority, String(nativeId))?.id
         )
       : null;
-    return typeof found === 'string' ? found : topPlaceSpelled(name, nativeId);
+    if (typeof found === 'string') return found;
+    const spelled = topPlaceSpelled(name, nativeId);
+    remember(spelled, String(nativeId), spelled, true);
+    return spelled;
   }
 
   function placeOfChat(chat: ChatNames, iface?: string): string {
@@ -190,27 +207,32 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
             })
           )
         : null;
-      return found ?? interfaceAccountId(authority, String(nativeId));
+      if (found) return found;
+      const account = interfaceAccountId(authority, String(nativeId));
+      rememberAccount(account, String(nativeId));
+      return account;
     },
 
-    /** The person an account is linked to: the stored one, the id spelled from the account before one exists. */
-    personOfAccount(accountId: string): string {
-      return storedPersonOfAccount(accountId) ?? `person:${accountId}`;
-    },
+    /** The person an account is linked to (`accounts.person_id`), null when no stored row links one. */
+    personOfAccount: storedPersonOfAccount,
 
     /** The person an account is linked to, null when no stored row links one. */
     storedPersonOfAccount,
 
     /**
-     * The native id an interface knows a root by, from its place: the id as given when no row holds it (already
-     * native), null for a place no root read can name (a DM, a place with no native id).
+     * The native id an interface knows a root by, from its place: the row's native id, else the native id this store
+     * named a root without a row from, else the id as given (a caller that holds a root's native id passes it on, and a
+     * store without a database holds native ids). Null for a place no root read can name (a DM, a place with no native
+     * id).
      */
     nativeRootOf(placeId: string): string | null {
-      if (!readable()) return placeId;
-      const row = seam.run(() =>
-        seam.db().prepare('SELECT native_id, kind, chat FROM places WHERE id = ?').get(placeId)
-      );
-      if (!row) return /^[^:]+:server:(.+)$/.exec(placeId)?.[1] ?? placeId;
+      const row = readable()
+        ? seam.run(() => seam.db().prepare('SELECT native_id, kind, chat FROM places WHERE id = ?').get(placeId))
+        : undefined;
+      if (!row) {
+        const known = named.get(placeId);
+        return known?.root ? known.chat : placeId;
+      }
       if (row.kind === 'dm' || row.chat === 'dm') return null;
       return typeof row.native_id === 'string' ? row.native_id : null;
     },
@@ -230,16 +252,18 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
     /**
      * The native chat of a place, for a call that speaks to its interface: the native id of a channel, a thread
      * or a group, and for a DM the chat `dmChatOf` names for its partner's native id, else the one this store
-     * named the place from, else the one kept on the place. With no row: the chat the place was named from,
-     * else the id as given (already native). Null for a DM whose chat is unknown.
+     * named the place from, else the one kept on the place. With no row: the chat the place was named from, else the
+     * id as given (a caller that holds a native chat passes it on, and a store without a database holds native ids).
+     * Null for a DM whose chat is unknown.
      */
     chatOfPlace(placeId: string, dmChatOf?: ((partnerId: string) => string | null) | null): string | null {
       const known = named.get(placeId)?.chat ?? null;
-      if (!readable()) return known ?? placeId;
-      const row = seam.run(() =>
-        seam.db().prepare('SELECT kind, native_id, partner_account, extra FROM places WHERE id = ?').get(placeId)
-      );
-      if (!row) return known ?? nativeOfAny(placeId) ?? placeId;
+      const row = readable()
+        ? seam.run(() =>
+            seam.db().prepare('SELECT kind, native_id, partner_account, extra FROM places WHERE id = ?').get(placeId)
+          )
+        : undefined;
+      if (!row) return known ?? placeId;
       if (row.kind !== 'dm') return typeof row.native_id === 'string' && row.native_id ? row.native_id : null;
       const partner = typeof row.partner_account === 'string' ? nativeOfRow('accounts', row.partner_account) : null;
       const open = partner === null ? null : (dmChatOf?.(partner) ?? null);
