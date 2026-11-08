@@ -2020,13 +2020,14 @@ export function createRecall({
   ): Promise<MemoryPage | null> {
     const reader = dbReader({ db, config, ...where });
     const asker: unknown = where.asker;
-    const speaks = typeof asker === 'string' && asker !== '' && typeof store.personOfAccount === 'function';
+    const speaker =
+      typeof asker === 'string' && asker !== '' ? personOfMember(store, asker, String(reader.ctx.iface)) : null;
     return prefetchFacts({
       db,
       ctx: reader.ctx,
       retrieval,
       text,
-      speaker: speaks ? [personOfMember(store, asker, String(reader.ctx.iface))] : [],
+      speaker: speaker === null ? [] : [speaker],
       config,
       prefetch: settings.prefetch,
       now,

@@ -405,9 +405,10 @@ export { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR };
 
 /**
  * A member profile nobody has written to yet: what every write starts from (`touchUser`,
- * `applyProfileOps`, ...) and what `getUser` heals a hand-edited file towards.
+ * `applyProfileOps`, ...) and what `getUser` heals a hand-edited file towards. `id` is the account's native id, null
+ * when no row or name of the store holds one.
  */
-export function emptyProfile(id: string): object {
+export function emptyProfile(id: string | null): object {
   return {
     id,
     names: [],
@@ -465,7 +466,7 @@ function isoStampOrNull(value: Untyped) {
 
 /** A channel of the server map as the store keeps it: its text notes, its day tally and who writes in it. */
 export type ChannelEntry = {
-  id: string;
+  id: string | null;
   name: string;
   topic: string | null;
   purpose: string;
@@ -484,7 +485,7 @@ export type ChannelEntry = {
   notesAttemptAt: string | null;
 };
 
-export function emptyChannel(id: string): ChannelEntry {
+export function emptyChannel(id: string | null): ChannelEntry {
   return {
     id,
     name: '',

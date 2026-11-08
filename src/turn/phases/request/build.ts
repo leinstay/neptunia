@@ -215,14 +215,17 @@ const NO_FRAMED: FramedInputs = {
   refLineOf: null,
 };
 
-/** The person she answers as the memory stores them: the account row of their platform id and its person. */
+/**
+ * The person she answers as the memory stores them: the account row of their platform id and its person. Null when no
+ * row links a person, since a graph seed names a person node.
+ */
 function counterpartOf(frame: Frame, reads: Pick<FrameReads, 'account' | 'person'>): Seeds['counterpart'] {
   const them = frame.counterpart;
   const native = frame.answers?.authorId ?? null;
   if (them === null) return null;
   const account = native === null ? null : reads.account(frame.interface, native);
-  const person = account === null ? null : reads.person(account);
-  return { personId: person ?? them.personId, accountId: account ?? them.accountId };
+  const personId = (account === null ? null : reads.person(account)) ?? them.personId;
+  return personId === null ? null : { personId, accountId: account ?? them.accountId };
 }
 
 /** The window as the graph reader's seeds: each line by its stored source id, the trigger marked, oldest first. */
