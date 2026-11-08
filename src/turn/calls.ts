@@ -12,6 +12,7 @@ import { parseToolCallBlocks } from '../llm/tool-text.ts';
 import { REPLY_REQUEST } from '../llm/openrouter.ts';
 import { thinkLeakOf } from '../llm/parse.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
+import { CHANNEL_HANDLE_PREFIX, widenHandles } from '../behavior/handles.ts';
 import { readablePlaces } from '../behavior/readable-places.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { ChatInfo } from '../protocol/adapter.ts';
@@ -189,7 +190,12 @@ export function callViewOf({
           handles: channelHandles instanceof Map ? (channelHandles as Map<string, string>) : null,
         })
       : null;
-  // The request's handle maps and the record's deleted ids hold strings: handle -> id, and message ids.
+  const members =
+    memoryOn && placeId && typeof store?.listUserProfiles === 'function' ? (store.listUserProfiles() ?? []) : [];
+  // The request's handle maps and the record's deleted ids hold strings: handle -> id, and message ids. Behind each, the
+  // handle of every channel and member the view knows, for a handle she carries from an earlier request.
+  const shownChannels = channelHandles instanceof Map ? (channelHandles as Map<string, string>) : null;
+  const shownMembers = memberHandles instanceof Map ? (memberHandles as Map<string, string>) : null;
   return {
     currentChatId: String(channel.id),
     currentIface,
@@ -197,8 +203,19 @@ export function callViewOf({
     ...(places ? { places } : {}),
     ...(stem ? { stem } : {}),
     ...(placesNamed ? { placesNamed } : {}),
-    channelHandles: channelHandles instanceof Map ? (channelHandles as Map<string, string>) : null,
-    memberHandles: memberHandles instanceof Map ? (memberHandles as Map<string, string>) : null,
+    channelHandles: shownChannels
+      ? widenHandles(
+          shownChannels,
+          chats.map((chat) => chat.id),
+          CHANNEL_HANDLE_PREFIX
+        )
+      : null,
+    memberHandles: shownMembers
+      ? widenHandles(
+          shownMembers,
+          members.flatMap((member) => (member?.id === undefined || member.id === null ? [] : [String(member.id)]))
+        )
+      : null,
     messageAt: (n) => {
       // A line a memory.search of the turn quoted: its number was numbered on past the request's own.
       const found = searchRefs && n >= searchRefs.base ? searchRefs.byNumber.get(n) : null;
@@ -235,8 +252,7 @@ export function callViewOf({
         ...(line?.deleted === true ? { deleted: true } : {}),
       };
     },
-    members:
-      memoryOn && placeId && typeof store?.listUserProfiles === 'function' ? (store.listUserProfiles() ?? []) : [],
+    members,
     selfId: selfId ?? null,
     roles,
     skills,

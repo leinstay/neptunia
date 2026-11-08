@@ -69,8 +69,9 @@ export function actPhase<TTurn extends ActNeeds>(
     memoryOn && !handles
       ? storedNames(request.peopleShown, [], (accountId) => store.getUser(accountOf(store, accountId)))
       : [];
-  // Behind those, every member of the served place the bot knows (built once, on the first `@`).
-  const directory = handles ? null : turnDirectory({ placeId, memoryOn });
+  // Behind those, every member of the served place the bot knows (built once, on first use): with handles, the members
+  // whose handle she carries from an earlier request (src/behavior/handles.ts#widenHandles); without, their names.
+  const directory = turnDirectory({ placeId, memoryOn });
   const linkFor = createLinker({
     linkOf: (chatId, messageId) => messageLinkOf(iface, placeId, chatId, messageId),
     pulledIds,

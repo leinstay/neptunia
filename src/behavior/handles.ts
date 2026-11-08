@@ -129,6 +129,37 @@ export function resolveHandles(
   return { text: resolved, accountIds, unknown };
 }
 
+/** How many lengths past HANDLE_DIGITS widenHandles reads: a third id on one handle is rare already. */
+const WIDEN_EXTRA_DIGITS = 2;
+
+/**
+ * `shown` (one request's handle -> id) with, behind it, the handle every id of `ids` has in any
+ * request: handleOf at HANDLE_DIGITS digits and at each of WIDEN_EXTRA_DIGITS more, since a
+ * collision in the request that showed it may have lengthened it. A handle two ids of `ids` share
+ * is left out, so a collision is never guessed, and a handle of `shown` keeps its id. A handle
+ * depends on the id alone, so this resolves a handle she carries from an earlier request (an
+ * intention, her last think) for a member or channel this request did not show. Pure.
+ * @param [prefix]  HANDLE_PREFIX (members) by default; CHANNEL_HANDLE_PREFIX for channels.
+ * @returns handle (without the sigil) -> id.
+ */
+export function widenHandles(
+  shown: ReadonlyMap<string, string> | null,
+  ids: Iterable<string>,
+  prefix: string = HANDLE_PREFIX
+): Map<string, string> {
+  const owners = new Map<string, string | null>();
+  const unique = new Set([...ids].filter((id) => id !== undefined && id !== null && String(id) !== '').map(String));
+  for (const id of unique)
+    for (let digits = HANDLE_DIGITS; digits <= HANDLE_DIGITS + WIDEN_EXTRA_DIGITS; digits += 1) {
+      const handle = handleOf(id, digits, prefix);
+      owners.set(handle, owners.has(handle) && owners.get(handle) !== id ? null : id);
+    }
+  const widened = new Map<string, string>();
+  for (const [handle, id] of owners) if (id !== null) widened.set(handle, id);
+  for (const [handle, id] of shown ?? []) widened.set(handle, id);
+  return widened;
+}
+
 /**
  * Every channel's handle for one request: assignHandles over `ids` with CHANNEL_HANDLE_PREFIX,
  * so the oldest of two channels sharing a handle keeps the short form and the other takes one
