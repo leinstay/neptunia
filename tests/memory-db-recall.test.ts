@@ -317,7 +317,7 @@ test('people: a member named by the plan locates their lines; a name that is no 
 });
 
 test("stretches: reply chain, neighbours and the followed chat come with a hit, and the turn's own lines stay out", () => {
-  const env = fixture({ channels: { [MAIN]: 'main' } });
+  const env = fixture();
   try {
     const minute = (n: number) => NOW - 3 * DAY + n * 60000;
     for (let i = 0; i < 12; i += 1)
@@ -555,7 +555,7 @@ test('window: a line the context may not open ends the read there and is never c
 });
 
 test('quotes: windows become the stretches recall returns, with entries per line', () => {
-  const env = fixture({ channels: { [MAIN]: 'main' } });
+  const env = fixture();
   try {
     env.account(ALICE, ['Αλίκη']);
     env.say({ native: 'q1', at: Date.parse('2026-10-20T10:00:00.000Z'), text: 'το σπιτι του δασκαλου' });

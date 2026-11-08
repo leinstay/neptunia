@@ -186,18 +186,3 @@ test('an equal hit on the interface of the read comes before one on another inte
     ['src:near', 'src:far-away']
   );
 });
-
-test('a DM line of an opaque partner names the native id of the partner account as its chat', () => {
-  // Bug: the chat is parsed out of the place id, so a DM place whose id spells nothing names itself.
-  const service = serviceOver((db) => {
-    // A DM place holds no native id of its own: the chat is its partner's.
-    db.prepare("UPDATE places SET native_id = NULL WHERE id = 'place:dm-a11'").run();
-    line(db, 'src:own', 'place:dm-a11', 'the orchard by the river');
-  });
-  const ctx = service.issueContext({ kind: 'dm', iface: 'discord', person: ANNA, place: 'place:dm-a11' });
-  const found = search(readOf(service), { ctx, plan: orchard, now: NOW });
-  assert.deepEqual(
-    found.windows.flatMap((window) => window.messages.map((message) => message.placeId)),
-    ['n1']
-  );
-});

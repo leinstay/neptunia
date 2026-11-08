@@ -71,7 +71,7 @@ function makeFixture() {
       );
       return id;
     },
-    /** The place row of a group channel, as every stored line's place has one: a window names its chat by `native`. A row already there stays. */
+    /** The place row of a group channel, as every stored line's place has one. A row already there stays. */
     channel(place: string, native: string) {
       db.prepare(
         "INSERT OR IGNORE INTO places (id, iface, kind, native_id, chat, scope_kind) VALUES (?, 'discord', 'channel', ?, 'group', 'group')"
@@ -143,9 +143,6 @@ function makeFixture() {
   return api;
 }
 
-/** A fixture whose `channels` get their place rows, each place id mapped to its native id. */
-export function fixture({ channels = {} }: { channels?: Record<string, string> } = {}): ReturnType<typeof makeFixture> {
-  const env = makeFixture();
-  for (const [place, native] of Object.entries(channels)) env.channel(place, native);
-  return env;
+export function fixture(): ReturnType<typeof makeFixture> {
+  return makeFixture();
 }
