@@ -43,9 +43,10 @@ export const PACE: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'pace.settleMs',
     'types': ['number'],
-    'reader': 'src/behavior/pipeline.ts',
+    'reader': 'src/turn/sends.ts',
     'default': 3000,
-    'text': 'Wait for the person to stop writing before reading the chat, so quick messages are answered whole',
+    'text':
+      'Wait for the person to stop writing before reading the chat, so quick messages are answered whole in one turn, in a group, a DM and the CLI alike',
   },
   {
     'key': 'pace.settleMaxMs',

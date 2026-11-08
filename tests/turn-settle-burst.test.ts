@@ -149,7 +149,7 @@ async function chatScene({
   turns.setOnIdle(() => void drain());
   await deliver(first);
 
-  return { llm: scripted, turns, handler };
+  return { requests: scripted.calls, turns, handler };
 }
 
 /** Waits until `check` holds, letting the scene's promises and immediates run. */
@@ -167,13 +167,13 @@ test('three lines sent within the settle window are one turn that reads all thre
     first: line('m1', 'alpha-line', T0),
     during: [line('m2', 'beta-line', T0 + 1300), line('m3', 'gamma-line', T0 + 2900)],
   });
-  await until(() => scene.llm.calls.length >= 1 && !scene.turns.isAnyBusy() && scene.handler.pendingCount() === 0);
+  await until(() => scene.requests.length >= 1 && !scene.turns.isAnyBusy() && scene.handler.pendingCount() === 0);
   // Room for a second turn to start, were one owed.
-  await until(() => scene.llm.calls.length >= 2, 400);
+  await until(() => scene.requests.length >= 2, 400);
   await until(() => !scene.turns.isAnyBusy());
 
-  assert.equal(scene.llm.calls.length, 1);
-  const read = requestText(scene.llm.calls[0] ?? []);
+  assert.equal(scene.requests.length, 1);
+  const read = requestText(scene.requests[0] ?? []);
   for (const text of ['alpha-line', 'beta-line', 'gamma-line']) assert.ok(read.includes(text), text);
 });
 
@@ -184,9 +184,9 @@ test('a line sent after the turn read the chat gets its own turn', async () => {
     during: [line('m2', 'beta-line', T0 + 1300)],
     whileAnswering: [line('m4', 'delta-line', T0 + 9000)],
   });
-  await until(() => scene.llm.calls.length >= 2 && !scene.turns.isAnyBusy());
+  await until(() => scene.requests.length >= 2 && !scene.turns.isAnyBusy());
 
-  assert.equal(scene.llm.calls.length, 2);
-  assert.equal(requestText(scene.llm.calls[0] ?? []).includes('delta-line'), false);
-  assert.ok(requestText(scene.llm.calls[1] ?? []).includes('delta-line'));
+  assert.equal(scene.requests.length, 2);
+  assert.equal(requestText(scene.requests[0] ?? []).includes('delta-line'), false);
+  assert.ok(requestText(scene.requests[1] ?? []).includes('delta-line'));
 });
