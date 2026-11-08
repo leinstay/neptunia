@@ -140,3 +140,31 @@ test('the staging folder and its files are private', async () => {
   assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
   for (const name of fs.readdirSync(dir)) assert.equal(fs.statSync(path.join(dir, name)).mode & 0o777, 0o600);
 });
+
+test('a file of any kind is staged for the command line, typed by its name when its bytes are no image', async () => {
+  // Bug: the owner can attach only pictures, so a voice note or a document never reaches her.
+  const { dir, staging } = rig();
+  const file = path.join(dir, '..', `voice-${process.pid}.ogg`);
+  fs.writeFileSync(file, Uint8Array.from([0x4f, 0x67, 0x67, 0x53, 1, 2]));
+  try {
+    const answer = await staging.stageAttachment(file);
+    if (!answer.ok) throw new Error(answer.code);
+    assert.deepEqual([answer.staged.name, answer.staged.contentType], [`voice-${process.pid}.ogg`, 'audio/ogg']);
+    assert.deepEqual(await staging.read(answer.staged.id), Uint8Array.from([0x4f, 0x67, 0x67, 0x53, 1, 2]));
+  } finally {
+    fs.rmSync(file, { force: true });
+  }
+});
+
+test('a picture staged as an attachment keeps the type its bytes declare', async () => {
+  const { dir, staging } = rig();
+  const file = path.join(dir, '..', `named-${process.pid}.txt`);
+  fs.writeFileSync(file, syntheticPng());
+  try {
+    const answer = await staging.stageAttachment(file);
+    if (!answer.ok) throw new Error(answer.code);
+    assert.equal(answer.staged.contentType, 'image/png');
+  } finally {
+    fs.rmSync(file, { force: true });
+  }
+});

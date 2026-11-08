@@ -1,7 +1,8 @@
 // Images on their way between the owner's terminal and the core, kept in one private folder of the data root. The core's
 // media readers take URLs, so a staged image is named by a `neptunia-staged:` reference, and `fetch` answers such a
 // reference as a server would and passes every other address on. A file is read once when it is staged, so the owner may
-// delete it afterwards. The content type comes from the bytes. A staged file's modification time is the moment it was
+// delete it afterwards. The content type of a picture comes from the bytes; `stageAttachment` also stages any other file of
+// the command line, typed by its name (src/media/kept-files.ts#contentTypeOfName). A staged file's modification time is the moment it was
 // staged by the injected clock, and `sweep` removes what outlived `ttlMs`, so a retried turn still finds its image. The
 // chat (bin/chat-images.ts) writes here and the core's image fetcher (src/core.ts) reads, two processes of one user.
 
@@ -9,6 +10,7 @@ import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { VISION_MAX_BYTES } from './fetch-image.ts';
+import { contentTypeOfName } from './kept-files.ts';
 
 export type StagedImage = { id: string; name: string; contentType: string; reference: string; size: number };
 export type StageResult = { ok: true; staged: StagedImage } | { ok: false; code: StageRefusal };
@@ -17,6 +19,8 @@ export type StageRefusal = 'invalid-image' | 'too-large' | 'vanished' | 'failed'
 export type ImageStaging = {
   stageBytes(bytes: Uint8Array, details: { name: string }): Promise<StageResult>;
   stageFile(file: string): Promise<StageResult>;
+  /** A file of any kind for the command line: a picture as `stageFile` stages it, anything else typed by its name. */
+  stageAttachment(file: string): Promise<StageResult>;
   /** The staged bytes, null when the id is unknown or released. A read leaves them for the next one. */
   read(id: string): Promise<Uint8Array | null>;
   release(id: string): Promise<void>;
@@ -28,6 +32,9 @@ export type ImageStaging = {
 
 /** One week, decided 2026-11-05: a paused core keeps a line until `/resume`, and its image has to outlast that. */
 export const STAGING_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** The largest file that is no picture: one file of the socket's frame, as src/protocol/wire.ts sizes it. */
+export const FILE_MAX_BYTES = 10 * 1024 * 1024;
 
 const SCHEME = 'neptunia-staged:///';
 const ID = /^[A-Za-z0-9_-]+$/;
@@ -79,6 +86,10 @@ export function createImageStaging({
     if (bytes.length > maxBytes) return { ok: false, code: 'too-large' };
     const contentType = imageTypeOf(bytes);
     if (contentType === null) return { ok: false, code: 'invalid-image' };
+    return write(bytes, name, contentType);
+  }
+
+  async function write(bytes: Uint8Array, name: string, contentType: string): Promise<StageResult> {
     const id = newId();
     const temporary = `${fileOf(id)}.tmp`;
     try {
@@ -107,6 +118,21 @@ export function createImageStaging({
     return stageBytes(bytes, { name: path.basename(file) });
   }
 
+  async function stageAttachment(file: string): Promise<StageResult> {
+    let bytes: Buffer;
+    try {
+      const { size } = await fs.stat(file);
+      if (size > Math.max(maxBytes, FILE_MAX_BYTES)) return { ok: false, code: 'too-large' };
+      bytes = await fs.readFile(file);
+    } catch {
+      return { ok: false, code: 'vanished' };
+    }
+    const name = path.basename(file);
+    if (imageTypeOf(bytes) !== null) return stageBytes(bytes, { name });
+    if (bytes.length > FILE_MAX_BYTES) return { ok: false, code: 'too-large' };
+    return write(bytes, name, contentTypeOfName(name));
+  }
+
   async function read(id: string): Promise<Uint8Array<ArrayBuffer> | null> {
     if (!ID.test(id)) return null;
     try {
@@ -119,6 +145,7 @@ export function createImageStaging({
   return {
     stageBytes,
     stageFile,
+    stageAttachment,
     read,
     async release(id) {
       if (ID.test(id)) await fs.rm(fileOf(id), { force: true });
