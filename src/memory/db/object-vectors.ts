@@ -11,9 +11,15 @@
 //   touchVectors(db, table, id)                 graph.ts#projectRow, in the writer's transaction: the rows of a claim, a
 //       description or an episode whose text changed or which retired are deleted
 //   touchNameVectors(db, nodeIds)               the same for the name sets of the nodes names.ts#touchNames rewrote
+//   embedObjects({ db, write, embed, config, model, now })   service.ts's minute job: at most
+//       `memoryDb.retrieval.embedBatch` pending texts, oldest first, cut where the next text would pass
+//       `llm.maxRequestTokens`, in one `embed` request of purpose `memory-object`, written through one `object-embedding`
+//       message. A text over the cap alone is never sent. A failed request writes nothing, so the batch stays pending.
 // Between a change and the next embedding the object has no vector and a search finds it by its words.
 // Logs nothing.
 
+import { estimateTokens } from '../../llm/tokens.ts';
+import { objOf } from '../../tools/types.ts';
 import { quantize } from '../vectors.ts';
 import { shortHash } from './ids.ts';
 import { scopeOfAudience } from './scope.ts';
@@ -258,4 +264,68 @@ export function touchNameVectors(db: Db, nodeIds: ReadonlySet<string>): number {
       count += 1;
     }
   return count;
+}
+
+/** `memoryDb.retrieval.embedBatch` when missing or invalid: config.json's value. */
+const EMBED_BATCH_FALLBACK = 50;
+/** `llm.maxRequestTokens` when missing or invalid: config.json's value. */
+const MAX_REQUEST_TOKENS_FALLBACK = 50_000;
+
+const positive = (value: unknown, fallback: number): number =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+
+/** The pending objects one request carries: oldest first, cut where the next text would pass `maxTokens`. */
+function batchUnder(pending: ReadonlyArray<PendingObject>, maxTokens: number): Array<PendingObject> {
+  const batch: Array<PendingObject> = [];
+  let tokens = 0;
+  for (const one of pending) {
+    const cost = estimateTokens(one.text);
+    if (cost > maxTokens) continue; // the client would refuse it in any batch
+    if (tokens + cost > maxTokens) break;
+    tokens += cost;
+    batch.push(one);
+  }
+  return batch;
+}
+
+/**
+ * One bounded batch of the minute job (service.ts#startRetrievalEmbed): the oldest pending objects, at most
+ * `memoryDb.retrieval.embedBatch` and under `llm.maxRequestTokens`, in one `embed` request, then one writer message.
+ * Rejects when the request fails, writing nothing.
+ */
+export async function embedObjects({
+  db,
+  write,
+  embed,
+  config,
+  model,
+  now,
+}: {
+  db: Db;
+  write: (update: Row) => Promise<unknown>;
+  embed: (texts: ReadonlyArray<string>, opts: Row) => Promise<unknown>;
+  config: unknown;
+  model: string;
+  now: number;
+}): Promise<{ pending: number; written: number }> {
+  const retrieval = objOf(objOf(objOf(config).memoryDb).retrieval);
+  const limit = positive(retrieval.embedBatch, EMBED_BATCH_FALLBACK);
+  const maxTokens = positive(objOf(objOf(config).llm).maxRequestTokens, MAX_REQUEST_TOKENS_FALLBACK);
+  const batch = batchUnder(pendingObjectEmbeds(db, { model, limit }), maxTokens);
+  if (batch.length === 0) return { pending: 0, written: 0 };
+  // The embedding client answers one vector per text, in input order.
+  const vectors = (await embed(
+    batch.map((one) => one.text),
+    { config, purpose: 'memory-object' }
+  )) as Array<ArrayLike<number> | undefined> | undefined;
+  const items = batch.flatMap((one, index) => {
+    const vector = vectors?.[index];
+    if (!vector || vector.length === 0) return [];
+    return [
+      { kind: one.kind, itemId: one.itemId, audienceId: one.audienceId, hash: one.hash, vector: Array.from(vector) },
+    ];
+  });
+  if (items.length === 0) return { pending: batch.length, written: 0 };
+  const done = (await write({ kind: 'object-embedding', model, now, items })) as { written?: number } | undefined;
+  return { pending: batch.length, written: done?.written ?? 0 };
 }

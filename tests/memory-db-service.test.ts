@@ -459,3 +459,67 @@ test('issued contexts: recorded while the database is open, a pure object when i
     await env.done();
   }
 });
+
+/** An embedding client that records the purpose of every request and answers one small vector per text. */
+function recordingEmbed(purposes: Array<unknown>) {
+  return (texts: ReadonlyArray<string>, options: Record<string, unknown>): Promise<unknown> => {
+    purposes.push(options.purpose);
+    return Promise.resolve(texts.map(() => [0.5, -0.25, 0.75]));
+  };
+}
+
+/** Lets the loop run until `done()` holds or a bounded number of turns passed. */
+async function settle(done: () => boolean): Promise<void> {
+  for (let turn = 0; turn < 500 && !done(); turn += 1) await new Promise((resolve) => setImmediate(resolve));
+}
+
+const objectVectorCount = (file: string): number => {
+  const reader = openMemoryDb(file, { readOnly: true });
+  try {
+    return Number(
+      dbOf(reader)
+        .prepare(
+          `SELECT COUNT(*) AS n FROM vectors
+            WHERE substr(chunk_key, 1, 6) IN ('claim:', 'names:') OR substr(chunk_key, 1, 5) = 'desc:'
+               OR substr(chunk_key, 1, 8) = 'episode:'`
+        )
+        .get()?.n
+    );
+  } finally {
+    reader.close();
+  }
+};
+
+test('a tick embeds the pending memory objects while memoryDb.retrieval.embedObjects is true', async () => {
+  // Bug: the job is never started, so claims and descriptions stay without vectors and searches stay lexical.
+  const purposes: Array<unknown> = [];
+  const env = setup({
+    memoryDb: { retrieval: { embedObjects: true, embedBatch: 50 } },
+    embed: recordingEmbed(purposes),
+  });
+  try {
+    await env.service.tick();
+    await settle(() => purposes.includes('memory-object') && objectVectorCount(env.dbFile()) > 0);
+    assert.ok(purposes.includes('memory-object'), 'one request of purpose memory-object');
+    assert.ok(objectVectorCount(env.dbFile()) > 0, 'the vectors are written');
+  } finally {
+    await env.done();
+  }
+});
+
+test('a tick sends no memory-object request while memoryDb.retrieval.embedObjects is false', async () => {
+  // Bug: the switch is ignored, so turning it off still spends requests against the daily cap.
+  const purposes: Array<unknown> = [];
+  const env = setup({
+    memoryDb: { retrieval: { embedObjects: false, embedBatch: 50 } },
+    embed: recordingEmbed(purposes),
+  });
+  try {
+    await env.service.tick();
+    await settle(() => false);
+    assert.ok(!purposes.includes('memory-object'));
+    assert.equal(objectVectorCount(env.dbFile()), 0);
+  } finally {
+    await env.done();
+  }
+});

@@ -121,7 +121,6 @@ import {
   writeError,
 } from './pending-quarantine.ts';
 import type { QuarantinedPending, QuarantineStatus } from './pending-quarantine.ts';
-
 import type { StorageKey } from './storage-keys.ts';
 
 import { importCoreJsonState } from '../migration/core-state-import.ts';
@@ -146,6 +145,7 @@ import { recoverRequestArchive } from './request-archive.ts';
 import { isLegacySelfreflectionFile } from '../migration/paths.ts';
 import { applySelfreflectionUpdate, createSelfreflectionMedia } from './selfreflection-media.ts';
 import { embedMedia } from './media-store.ts';
+import { embedObjects } from './object-vectors.ts';
 import { NEWEST_CLAIM_VERSION_SQL, applyMemoryWrite, writeTurnReadRows } from './session-write.ts';
 import { FOCUS_DEFAULTS, focusView, lastFocusDay, runFocusDay } from './focus.ts';
 import { utcDay } from '../../time.ts';
@@ -1245,27 +1245,26 @@ export function createMemoryDb({
       });
   }
 
-  // The embeddings of new semantic documents (semantic-search.ts#embedSemanticDocuments), at most once a minute. A search
-  // stays lexical for a document until its vector is written.
-  let semanticRun: Promise<void> | null = null;
-  let semanticAt = -Infinity;
-  function startSemanticEmbed() {
-    if (closing || !handle || semanticRun || engine?.dead || typeof embed !== 'function') return;
+  // Semantic documents (semantic-search.ts) and memory objects (object-vectors.ts): one embedding batch a minute each.
+  const embedJobs: Record<string, { run: Promise<unknown> | null; at: number }> = {};
+  function startRetrievalEmbed(key: 'embedDocuments' | 'embedObjects') {
+    const job = (embedJobs[key] ??= { run: null, at: -Infinity });
+    if (closing || !handle || job.run || engine?.dead || typeof embed !== 'function') return;
     const config = hot.config;
-    if ((config?.memoryDb?.retrieval as Row | undefined)?.embedDocuments !== true) return;
+    if ((config?.memoryDb?.retrieval as Row | undefined)?.[key] !== true) return;
     const at = now();
-    if (at - semanticAt < REEMBED_EVERY_MS) return;
-    semanticAt = at;
+    if (at - job.at < REEMBED_EVERY_MS) return;
+    job.at = at;
     const db = dbOf(handle);
-    semanticRun = (async () => {
-      const { roleModel } = await import('../../llm/roles.ts');
-      const model = roleModel(config, 'embedding');
+    job.run = (async () => {
+      const model = (await import('../../llm/roles.ts')).roleModel(config, 'embedding');
       if (typeof model !== 'string' || model === '') return;
-      await embedSemanticDocuments({ db, write, embed, config, model, now: at });
+      const run = key === 'embedObjects' ? embedObjects : embedSemanticDocuments;
+      await run({ db, write, embed, config, model, now: at });
     })()
-      .catch((error: unknown) => log.warn('memory db: semantic embedding failed', { code: codeOf(error) }))
+      .catch((error: unknown) => log.warn('memory db: embedding job failed', { job: key, code: codeOf(error) }))
       .finally(() => {
-        semanticRun = null;
+        job.run = null;
       });
   }
 
@@ -1664,7 +1663,7 @@ export function createMemoryDb({
     startIndexPolicy();
     startReembed();
     startMediaEmbed();
-    startSemanticEmbed();
+    for (const key of ['embedDocuments', 'embedObjects'] as const) startRetrievalEmbed(key);
     startSession();
     startBackup();
   }
@@ -1943,6 +1942,7 @@ export function createMemoryDb({
     await waitFor(indexRun, Math.max(0, deadline - performance.now()));
     await waitFor(reembedRun, Math.max(0, deadline - performance.now()));
     await waitFor(mediaEmbedRun, Math.max(0, deadline - performance.now()));
+    for (const job of Object.values(embedJobs)) await waitFor(job.run, Math.max(0, deadline - performance.now()));
     await waitFor(projectRun, Math.max(0, deadline - performance.now()));
     await waitFor(sessionRun, Math.max(0, deadline - performance.now()));
     await waitFor(backupRun, Math.max(0, deadline - performance.now()));
