@@ -13,7 +13,7 @@
 // toRows(rel, line, ctx) -> { day|decisions|sources|affinity_events: [...] }      ctx: { position? }
 // fromRows(rows, ctx) -> the line
 
-import { answerSourceId, nativeOfAny, personId } from '../ids.ts';
+import { answerSourceId, personId } from '../ids.ts';
 import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './common.ts';
 import { privateUserOf, scopeFrom, scopeInto } from './scope-parts.ts';
 import type { OldScope } from './scope-parts.ts';
@@ -42,16 +42,18 @@ const DECISION_SPEC: Array<Spec> = [
 const ANSWER_SPEC: Array<Spec> = [{ col: 'think', key: 'think', type: 'text' }];
 
 /**
- * An attitude entry's columns: the member it is toward is the member's stored person, else (an account no row holds) the
- * person its platform id spells. A person the platform id cannot be read back from keeps the platform id beside it.
+ * An attitude entry's columns: the member it is toward is the stored person of the member's account, null when no
+ * stored account holds the platform id. The platform id stays beside the person, since no person gives it back.
  */
 const attitudeSpec = (ctx: MapContext): Array<Spec> => [
   {
     col: 'person_id',
     key: 'accountId',
     type: 'text',
-    enc: (v: unknown, iface: string) => ctx.personOfMember?.(iface, String(v)) ?? personId(iface, v),
-    dec: nativeOfAny,
+    // The import of the legacy files has no database, so only it spells the person from the platform id.
+    enc: (v: unknown, iface: string) =>
+      ctx.personOfMember ? ctx.personOfMember(iface, String(v)) : personId(iface, String(v)),
+    dec: () => null,
     exact: true,
   },
   { col: 'delta', key: 'delta', type: 'num' },
@@ -92,7 +94,7 @@ function memoryRows(rel: string, line: Row, ctx: MapContext, privateUser: string
   if (mappable) {
     const scopeRest: Row = {};
     const scope = scopeRows(
-      scopeInto(scopeRest, line.scope as OldScope | undefined, privateUser, iface, ctx.dmPlace, ctx.dmOfMember)
+      scopeInto(scopeRest, line.scope as OldScope | undefined, privateUser, iface, ctx.dmPlace, ctx)
     );
     attitude.forEach((entry, index) => {
       const part = split(entry, attitudeSpec(ctx), iface);
@@ -129,7 +131,7 @@ export function toRows(rel: string, line: Row, ctx: MapContext = {}): Rows {
     );
   }
   const { cols, rest } = split(body, DAY_SPEC);
-  const scope = scopeInto(rest, line.scope as OldScope | undefined, privateUser, iface, ctx.dmPlace, ctx.dmOfMember);
+  const scope = scopeInto(rest, line.scope as OldScope | undefined, privateUser, iface, ctx.dmPlace, ctx);
   const placeId = scope.place_id;
   const scoped = scopeRows(scope);
   put(rows, 'day', {
@@ -183,7 +185,8 @@ export function fromRows(rows: Rows, ctx: MapContext = {}): Row {
     day,
     rest,
     ctx.privateAccountId ?? privateUserOf(String(day.owner_file)),
-    ifaceOf(day, 'scope_iface')
+    ifaceOf(day, 'scope_iface'),
+    ctx.partnerOfDm
   );
   const line = join(day, rest, DAY_SPEC);
   if (scope !== undefined) line.scope = scope;

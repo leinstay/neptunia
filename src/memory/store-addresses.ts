@@ -71,6 +71,13 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
     return typeof found === 'string' ? found : null;
   }
 
+  function storedPersonOfAccount(accountId: string): string | null {
+    const stored: unknown = readable()
+      ? seam.run(() => seam.db().prepare('SELECT person_id FROM accounts WHERE id = ?').get(accountId)?.person_id)
+      : null;
+    return typeof stored === 'string' && stored ? stored : null;
+  }
+
   /** Where a private item of an account is archived: its DM place, the persona's archive when it has none yet. */
   function dmHomeOf(accountId: string): string | null {
     if (!readable()) return null;
@@ -188,11 +195,11 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
 
     /** The person an account is linked to: the stored one, the id spelled from the account before one exists. */
     personOfAccount(accountId: string): string {
-      const stored: unknown = readable()
-        ? seam.run(() => seam.db().prepare('SELECT person_id FROM accounts WHERE id = ?').get(accountId)?.person_id)
-        : null;
-      return typeof stored === 'string' && stored ? stored : `person:${accountId}`;
+      return storedPersonOfAccount(accountId) ?? `person:${accountId}`;
     },
+
+    /** The person an account is linked to, null when no stored row links one. */
+    storedPersonOfAccount,
 
     /**
      * The native id an interface knows a root by, from its place: the id as given when no row holds it (already

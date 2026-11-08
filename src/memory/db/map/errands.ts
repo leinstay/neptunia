@@ -38,7 +38,7 @@ function workRow(rel: string, errand: Row, position: number, ctx: MapContext) {
       errand.scope,
       [(errand.requester as { accountId?: unknown } | undefined)?.accountId],
       undefined,
-      ctx.dmOfMember
+      ctx
     ),
     owner_file: rel,
     position,

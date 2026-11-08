@@ -69,7 +69,7 @@
 // it is memory about real people, kept under data/ only.
 
 // health: allow file-length until 2027-04-01 -- one runner over the recall sources, grown by the one dependency that names the loop watch
-import { personOfMember } from '../memory/addresses.ts';
+import { dmPlaceOfMember, personOfMember, storedPersonOfMember } from '../memory/addresses.ts';
 import { log } from '../log.ts';
 import { createSummaryBuilder } from './summary-builder.ts';
 import { railReason } from '../llm/openrouter.ts';
@@ -993,8 +993,13 @@ export function createRecall({
    * The read context of a db read (see dbReader): the turn's own when it fits, else one issued for this read; an issued internal context spans every audience.
    */
   function readContext({ channel, privateAccountId, asker, memoryContext = null }: ReadContextInput) {
-    const spec = readContextSpec(currentIface(), iface, channel?.id, privateAccountId, (on, platformId) =>
-      personOfMember(store, platformId, on)
+    const spec = readContextSpec(
+      currentIface(),
+      iface,
+      channel?.id,
+      privateAccountId,
+      (on, platformId) => personOfMember(store, platformId, on),
+      (on, platformId) => dmPlaceOfMember(store, platformId, on)
     );
     const fits =
       memoryContext &&
@@ -1011,9 +1016,8 @@ export function createRecall({
       : typeof memoryDb?.issueContext === 'function'
         ? memoryDb.issueContext(spec)
         : issueContext({ ...spec, now });
-    return privateAccountId || !asker
-      ? issued
-      : { ...issued, asker: [personOfMember(store, String(asker), spec.iface)] };
+    const askerPerson = privateAccountId || !asker ? null : storedPersonOfMember(store, String(asker), spec.iface);
+    return askerPerson === null ? issued : { ...issued, asker: [askerPerson] };
   }
 
   /**

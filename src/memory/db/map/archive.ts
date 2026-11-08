@@ -14,10 +14,10 @@
 // toRows(rel, entry, ctx) -> { claim_versions: [row], claims?: [stub] }     ctx: { position?, hotClaimIds? }
 // fromRows(rows, ctx) -> the entry
 
-import { shortHash } from '../ids.ts';
+import { personId, shortHash } from '../ids.ts';
 import { scopeColumns } from '../scope.ts';
 import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.ts';
-import { dmPlaceScope, memberDmOf, privateUserOf } from './scope-parts.ts';
+import { dmPlaceScope, memberDmOf, privateUserOf, storedDmOf } from './scope-parts.ts';
 import { LEGACY_IFACE } from '../legacy-namespace.ts';
 import type { Row, Rows } from '../types.ts';
 import type { MapContext, Spec } from './common.ts';
@@ -37,12 +37,13 @@ export function claimStub(rel: string, entry: Row, ctx: MapContext = {}): Row {
   const scope = (entry.scope ?? {}) as { user?: unknown; channel?: unknown };
   const entryText = entry.text as { text?: unknown } | undefined;
   const observedAt = entry.observedAt as { date?: unknown } | undefined;
+  const user = typeof scope.user === 'string' && scope.user ? scope.user : null;
+  // The import of the legacy files has no database, so only it spells the person from the platform id.
+  const member =
+    user === null ? null : ctx.personOfMember ? ctx.personOfMember(LEGACY_IFACE, user) : personId(LEGACY_IFACE, user);
   const subject =
-    typeof scope.user === 'string' && scope.user
-      ? {
-          subject_kind: 'person',
-          subject_id: ctx.personOfMember?.(LEGACY_IFACE, scope.user) ?? `person:${LEGACY_IFACE}:${scope.user}`,
-        }
+    member !== null
+      ? { subject_kind: 'person', subject_id: member }
       : typeof scope.channel === 'string' && scope.channel
         ? { subject_kind: 'place', subject_id: `${LEGACY_IFACE}:channel:${scope.channel}` }
         : { subject_kind: null, subject_id: null };
@@ -67,6 +68,7 @@ export function claimStub(rel: string, entry: Row, ctx: MapContext = {}): Row {
       : scopeColumns(entry.scope, {
           privateUser: privateUserOf(rel),
           dmOf: memberDmOf(LEGACY_IFACE, ctx.dmOfMember),
+          dmOfPlace: storedDmOf(LEGACY_IFACE, ctx.dmPlaceOf),
         })),
     created_at: null,
     retired_at: typeof entry.recordedAt === 'string' ? entry.recordedAt : null,

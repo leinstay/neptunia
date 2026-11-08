@@ -10,17 +10,20 @@ import { storageMapper } from '../src/memory/db/map/index.ts';
 import { personOfAccount } from '../src/memory/db/meta-person.ts';
 import { observe, OBSERVATION_VERSION } from '../src/memory/db/observe.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { allowedAudience, dmAudienceId, readContextSpec } from '../src/memory/db/scope.ts';
+import { allowedAudience, dmAudienceId, dmUserOf, issueContext, readContextSpec } from '../src/memory/db/scope.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
-import { journalKey, placeCollection, storageId } from '../src/memory/db/storage-keys.ts';
+import { journalKey, personaKey, placeCollection, storageId } from '../src/memory/db/storage-keys.ts';
+import { resolveRow } from '../src/memory/db/rows.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle, Row } from '../src/memory/db/types.ts';
+import { addAccount } from './fixtures/memory-db/opaque-people.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const AT = '2026-11-08T10:00:00.000Z';
 const NOW = Date.parse('2026-11-08T12:00:00.000Z');
 const UUID_PERSON = /^person:[0-9a-f]{8}-[0-9a-f]{4}-/;
+const META = 'person:00000000-0000-4000-8000-000000000001';
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
 const OPTS = { now: () => NOW, log: quiet };
 const AUTHORITY: Record<string, string> = { discord: 'discord/global', telegram: 'telegram/global', cli: 'cli/local' };
@@ -242,4 +245,149 @@ test('a member with two accounts reads their private layer from either account',
       assert.equal(allowedAudience({ audience_id: dmAudienceId(discordDm) }, fromTelegram), true);
     }
   );
+});
+
+/** Observes one line from `native` in a group channel, so the member has an account and a meta-person and no direct chat. */
+function seeInGroup(handle: MemoryHandle, native: string, key = `g${native}:1`): void {
+  const authority = AUTHORITY.discord ?? 'discord/global';
+  const result = observe(
+    handle,
+    {
+      v: OBSERVATION_VERSION,
+      iface: 'discord',
+      authority,
+      native: { kind: 'message', key, revision: 1 },
+      place: { authority, key: 'channel:c1', kind: 'channel', chat: 'channel' },
+      author: { kind: 'account', key: native },
+      occurredAt: AT,
+      observedAt: AT,
+      text: `synthetic line ${key}`,
+    },
+    OPTS
+  );
+  assert.equal(result.ok, true, JSON.stringify(result));
+}
+
+/** The audience the writer gives a mapped row, `conflict` when it refuses the row's pair. */
+const writtenAudience = (db: Db, row: Row | undefined): unknown => {
+  const resolved = resolveRow(db, row ?? {});
+  return resolved.conflict ? 'conflict' : resolved.audience_id;
+};
+
+test('a line naming the direct chat of a member with no stored direct chat is internal, never a spelled person', () => {
+  // Bug: with no stored direct chat, `scopeColumns` spells `person:discord:<native>` and the DM place from the native id.
+  withDb((db, handle) => {
+    seeInGroup(handle, '701');
+    const mapper = journalMapper(db);
+    const line = answerLine('701');
+    const rows = mapper.toRows('j', line, { position: 0 });
+    const source = rows.sources?.[0];
+    assert.equal(source?.scope_kind, 'internal');
+    assert.equal(source?.scope_dm, null);
+    assert.equal(writtenAudience(db, source), 'aud:internal');
+    assert.deepEqual(mapper.fromRows(rows), line);
+  });
+});
+
+test('an intention for one member with no stored direct chat is internal, never a spelled person', () => {
+  // Bug: `stringScope` falls back to the spelled person when the member has no stored direct chat.
+  withDb((db, handle) => {
+    seeInGroup(handle, '701');
+    const key = personaKey('intentions');
+    const { mapper } = storageMapper(db, key, storageId(key));
+    const value: Row = {
+      intentions: [{ id: 'i1', status: 'open', provenance: { scope: 'dm', participants: ['701'] } }],
+    };
+    const [row] = mapper.toRows('i', value, {}).intentions ?? [];
+    assert.equal(row?.scope_kind, 'internal');
+    assert.equal(row?.scope_dm, null);
+  });
+});
+
+test("an archived item of a member with no stored direct chat names the member's meta-person and stays internal", () => {
+  // Bug: the stub claim of an archived private item spells the member's person in its scope.
+  withDb((db, handle) => {
+    seeInGroup(handle, '701');
+    const key = placeCollection('archive', 'discord:channel:c1', { partition: '2026-11' });
+    const { mapper } = storageMapper(db, key, storageId(key));
+    const entry: Row = { id: 'ar1', kind: 'archive', event: 'expired', itemId: 'c9', scope: { user: '701' } };
+    const [stub] = mapper.toRows('a', entry, { hotClaimIds: new Set<string>() }).claims ?? [];
+    assert.equal(stub?.subject_id, personOf(db, 'discord:701'));
+    assert.equal(stub?.scope_kind, 'internal');
+  });
+});
+
+test("a direct chat whose place names no partner person scopes its lines to its partner account's meta-person", () => {
+  // Bug: a stored DM place with no partner person gives its lines `person:discord:<native>`, spelled from the place id.
+  withDb((db, handle) => {
+    const place = seeDm(handle, 'discord', '700');
+    db.prepare('UPDATE places SET partner_person = NULL WHERE id = ?').run(place);
+    const mapper = journalMapper(db);
+    const rows = mapper.toRows('j', answerLine('700'), { position: 0 });
+    const source = rows.sources?.[0];
+    assert.equal(source?.scope_dm, personOf(db, 'discord:700'));
+    assert.equal(writtenAudience(db, source), dmAudienceId(place));
+  });
+});
+
+test('a mention of an account no row holds stores no spelled person and comes back exactly', () => {
+  // Bug: the teacher of a lesson is spelled `person:discord:<native>` when no stored account holds the mention.
+  withDb((db) => {
+    const key = placeCollection('place', 'discord:channel:c1');
+    const { mapper } = storageMapper(db, key, storageId(key));
+    const notes: Row = { learned: [{ id: 'l2', text: 'synthetic lesson', from: '<@999>', weight: 1 }] };
+    const rows = mapper.toRows('n', notes, {});
+    const lesson = (rows.claims ?? []).find((claim) => claim.kind === 'lesson');
+    assert.equal(lesson?.from_person, null);
+    assert.deepEqual(mapper.fromRows(rows), notes);
+  });
+});
+
+test('the partner of a direct chat is read from the stored place its audience names', () => {
+  // Bug: the partner is parsed out of the audience id, so a place whose id spells nobody gives back no member.
+  const row = { scope_kind: 'dm', scope_iface: 'discord', scope_dm: META, audience_id: dmAudienceId('place:opaque') };
+  assert.equal(
+    dmUserOf(row, (audienceId) => (audienceId === dmAudienceId('place:opaque') ? '700' : null)),
+    '700'
+  );
+});
+
+test("a read's direct chat context of a meta-person reads the lines of the account's direct chat", () => {
+  // Bug: the spec names no place, a meta-person spells none, so the issued context reads nothing private.
+  const spec = readContextSpec(
+    'discord',
+    'discord',
+    'c1',
+    '700',
+    () => META,
+    (iface, native) => `${iface}:dm:${native}`
+  );
+  const ctx = issueContext({ ...spec, now: () => NOW });
+  assert.equal(allowedAudience({ audience_id: dmAudienceId('discord:dm:700') }, ctx), true);
+});
+
+test("a mention names the person of the interface's own account when another authority holds the same platform id", () => {
+  // Bug: the platform id is looked up on the interface alone, so an account of another authority that sorts first wins.
+  withDb((db) => {
+    addAccount(db, {
+      id: 'account:other-authority',
+      iface: 'discord',
+      authority: 'discord/other',
+      native: '700',
+      person: 'person:elsewhere',
+    });
+    addAccount(db, { id: 'discord:700', iface: 'discord', authority: 'discord/global', native: '700', person: META });
+    const mapper = journalMapper(db);
+    const line: Row = {
+      id: 'mem2',
+      kind: 'memory',
+      occurredAt: AT,
+      batchId: 'b2',
+      stage: 'attitude',
+      scope: { channel: 'c1' },
+      attitude: [{ accountId: '700', delta: 1, applied: 1, reason: 'synthetic' }],
+    };
+    const [event] = mapper.toRows('j', line, { position: 0 }).affinity_events ?? [];
+    assert.equal(event?.person_id, META);
+  });
 });

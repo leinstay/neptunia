@@ -29,7 +29,7 @@ function rowOf(rel: string, record: Row, position: number, archived: unknown, ct
     due_ms: num(record.dueAt),
     created_ms: num(record.createdAt),
     updated_ms: num(record.updatedAt),
-    ...stringScope(provenance?.scope, provenance?.participants, undefined, ctx.dmOfMember),
+    ...stringScope(provenance?.scope, provenance?.participants, undefined, ctx),
     archived: archived ? 1 : 0,
     owner_file: rel,
     position: position ?? null,

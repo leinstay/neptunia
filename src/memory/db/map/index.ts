@@ -9,7 +9,14 @@ import * as gifs from './gifs.ts';
 import type { MapContext } from './common.ts';
 import type { Db, Row, Rows } from '../types.ts';
 import { dmPartnerOfPlace, nativeOfAny, personId } from '../ids.ts';
-import { dmOfAccount, dmOfPlatformId, personOfPlatformId } from '../meta-person.ts';
+import {
+  dmOfAccount,
+  dmOfPlatformId,
+  partnerOfDmAudience,
+  partnerPersonOfPlace,
+  personOfPlatformId,
+  storedDmPlace,
+} from '../meta-person.ts';
 import { ensureAccountPerson, linkedProfileUnit } from '../person-links.ts';
 import { accountCollection, storageId } from '../storage-keys.ts';
 import type { StorageKey } from '../storage-keys.ts';
@@ -111,11 +118,13 @@ function identityOf(
   };
 }
 
-/** A DM place subject as the mappers scope by it; one no row holds yet names its partner by its spelled id. */
-function dmPlaceOfSubject(id: string, place: Row | undefined): NonNullable<MapContext['dmPlace']> {
-  const stored = place?.partner_person;
-  if (typeof stored === 'string') return { id, partnerPerson: stored };
-  return { id, partnerPerson: place ? null : (dmPartnerOfPlace(id)?.person ?? null) };
+/**
+ * A DM place subject as the mappers scope by it: the partner person of its row (meta-person.ts#partnerPersonOfPlace).
+ * A place no row holds is a legacy file imported before its place exists, and names the partner its id spells
+ * (legacy-namespace.ts), which the writer stores with the place.
+ */
+function dmPlaceOfSubject(db: Db, id: string, place: Row | undefined): NonNullable<MapContext['dmPlace']> {
+  return { id, partnerPerson: place ? partnerPersonOfPlace(db, place) : (dmPartnerOfPlace(id)?.person ?? null) };
 }
 
 /** The native id of the partner of a stored DM place, or null for any other place. */
@@ -160,7 +169,7 @@ export function storageContext(db: Db, key: StorageKey): MapContext {
     privateAccountId: key.subject.type === 'account' && key.kind !== 'user' ? subject.native : partner,
     ...memberReads(db),
     ...(key.subject.type === 'place' && partner !== null
-      ? { dmPlaceId: key.subject.id, dmPlace: dmPlaceOfSubject(key.subject.id, subject.row) }
+      ? { dmPlaceId: key.subject.id, dmPlace: dmPlaceOfSubject(db, key.subject.id, subject.row) }
       : {}),
     ...(key.kind === 'private' && key.subject.type === 'account' ? { dmPlace: dmOfAccount(db, key.subject.id) } : {}),
     ...(key.kind === 'user' && key.subject.type === 'account' ? { membership: membershipOf(db, key.subject.id) } : {}),
@@ -171,10 +180,12 @@ export function storageContext(db: Db, key: StorageKey): MapContext {
 }
 
 /** How the mappers reach a member's stored person and direct chat from the platform id a file names. */
-function memberReads(db: Db): Pick<MapContext, 'personOfMember' | 'dmOfMember'> {
+function memberReads(db: Db): Pick<MapContext, 'personOfMember' | 'dmOfMember' | 'dmPlaceOf' | 'partnerOfDm'> {
   return {
     personOfMember: (iface, platformId) => personOfPlatformId(db, iface, platformId),
     dmOfMember: (iface, platformId) => dmOfPlatformId(db, iface, platformId),
+    dmPlaceOf: (placeId) => storedDmPlace(db, placeId),
+    partnerOfDm: (audienceId) => partnerOfDmAudience(db, audienceId),
   };
 }
 
