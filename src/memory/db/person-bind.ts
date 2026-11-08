@@ -197,7 +197,8 @@ async function joinPair(deps: BindDeps, pair: Pair): Promise<Joined> {
  * failure come back as results, and only a bind that answers `attached` or `merged` wrote anything.
  */
 export async function bindAccount(deps: BindDeps, input: BindInput, confirm: BindConfirm | null): Promise<BindResult> {
-  const owner = deps.hot.config?.bot?.ownerPerson;
+  const { hot } = deps;
+  const owner = hot.config?.bot?.ownerPerson;
   const ownerPerson = typeof owner === 'string' ? owner : '';
   const plan = planOf(deps.db, input, ownerPerson);
   if (plan.kind === 'refused') return { status: 'refused', code: plan.code };
@@ -213,8 +214,8 @@ export async function bindAccount(deps: BindDeps, input: BindInput, confirm: Bin
     if (!(await confirm(question))) return { status: 'declined', removed: plan.removed };
     const descriptions: Array<Joined> = [];
     for (const pair of pairsOf(deps.db, plan.removed, plan.into)) descriptions.push(await joinPair(deps, pair));
-    const model = roleModel(deps.hot.config, MEMORY_ROLE) ?? null;
-    const prompt = shortHash(deps.hot.prompts?.[MERGE_PURPOSE]);
+    const model = roleModel(hot.config, MEMORY_ROLE) ?? null;
+    const prompt = shortHash(hot.prompts?.[MERGE_PURPOSE]);
     await deps.write({ kind: 'person-bind', ...input, from: plan.removed, descriptions, model, prompt, now });
     return { status: 'merged', person: plan.into, removed: plan.removed };
   } catch (error) {
