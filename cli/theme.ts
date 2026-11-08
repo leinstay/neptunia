@@ -15,6 +15,8 @@ export const THEME = {
   mark: { color: OWNER_COLOUR },
   /** the owner's lines in the chat, and his commands in the command window */
   owner: { color: OWNER_COLOUR },
+  /** the rule above the slash menu */
+  rule: { color: 'white' },
   activeBorder: { borderColor: 'cyan' },
   inactiveBorder: { borderColor: 'gray' },
   selection: { inverse: true },

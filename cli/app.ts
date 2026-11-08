@@ -46,17 +46,16 @@ function openPanel(chat: ChatController, frame: ChatFrame, body: number): ReactE
   });
 }
 
-/** The question, the notice, and the input or a closed question's selector. */
-function Bottom({ chat, frame }: { chat: ChatController; frame: ChatFrame }) {
+/** The slash menu, the question, the input or a closed question's selector, and the status row under them. */
+function Bottom({ chat, frame, columns }: { chat: ChatController; frame: ChatFrame; columns: number }) {
   const { question: pending, notice, selected } = chat.model;
-  const { items, menuHeight, hasChoices, choiceRows, layout, isLinear, owner, turnRow } = frame;
+  const { items, menuHeight, hasChoices, choiceRows, layout, isLinear, owner, statusRow, hasNotice } = frame;
+  const rest = hasNotice && notice !== null ? statusRow.slice(notice.length) : statusRow;
   return h(
     Box,
     { flexDirection: 'column', flexShrink: 0 },
-    menuHeight > 0 ? h(Menu, { items, selected, height: menuHeight }) : null,
+    menuHeight > 0 ? h(Menu, { items, selected, height: menuHeight, columns }) : null,
     pending === null ? null : h(Text, { bold: true }, pending.question),
-    turnRow === null ? null : h(Text, { ...THEME.muted, wrap: 'truncate' }, turnRow),
-    notice === null ? null : h(Text, { ...THEME.warning, wrap: 'truncate' }, notice),
     hasChoices && pending !== null
       ? h(ChoiceSelector, {
           key: pending.question,
@@ -66,7 +65,14 @@ function Bottom({ chat, frame }: { chat: ChatController; frame: ChatFrame }) {
           answer: (value: string) => chat.closeQuestion(value),
           cancel: () => chat.closeQuestion(''),
         })
-      : h(ComposerBox, { layout, isLinear, isActive: owner === 'input' })
+      : h(ComposerBox, { layout, isLinear, isActive: owner === 'input' }),
+    // One row always, blank with nothing to say, so a notice coming or going moves nothing.
+    h(
+      Text,
+      { wrap: 'truncate' },
+      hasNotice && notice !== null ? h(Text, THEME.warning, notice) : null,
+      h(Text, THEME.muted, rest === '' && !hasNotice ? ' ' : rest)
+    )
   );
 }
 
@@ -140,10 +146,7 @@ export function ChatApp({
         rows: frame.transcript.rows,
         marks: frame.marks,
         whoOf: (entryId: string) => chat.whoOf(entryId),
-      }),
-      frame.isOffTail
-        ? h(Text, { ...THEME.muted, wrap: 'truncate' }, `↓ ${frame.transcript.hiddenBelow} rows below · Page Down`)
-        : null
+      })
     ),
     frame.window === null
       ? null
@@ -154,6 +157,6 @@ export function ChatApp({
           marks: frame.window.marks,
           panel: openPanel(chat, frame, frame.window.body),
         }),
-    h(Bottom, { chat, frame })
+    h(Bottom, { chat, frame, columns })
   );
 }
