@@ -928,7 +928,7 @@ test('draw.create on a turn nobody asked (her own initiative): the picture is ch
 });
 
 /** A turn on the fake interface whose `conversation.read` names, by a `#handle` the request never showed, a channel of another interface that holds one stored line. */
-async function readFarRoom(context: object, chat: string | null) {
+async function readFarRoom(context: object, chat: string | null): Promise<string> {
   const mind = openWorld();
   noteInterface(mind, 'other', [{ id: 'r9', name: 'Ρίζα' }]);
   const room = addRoom(mind.db, { iface: 'other', native: 'far-room', root: rootId('other', 'r9'), name: 'μακριά' });
@@ -949,7 +949,7 @@ async function readFarRoom(context: object, chat: string | null) {
     runner: { journalDb: () => mind.db, memoryContext: () => context },
   } as unknown as Parameters<typeof coreTurn>[0]);
   mind.close();
-  return toolContent(run.llm, 1);
+  return String(toolContent(run.llm, 1));
 }
 
 test("conversation.read: a #handle she carries of another interface's channel reads that place's stored lines", async () => {
