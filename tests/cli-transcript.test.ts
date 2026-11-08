@@ -149,7 +149,7 @@ test("the time row starts at the terminal's left edge in brackets, as the line n
 /** The number leads of the chat's rows, such as `[#07]`, in the order they stand. */
 const leads = (rows: ReadonlyArray<string>): Array<string> => rows.flatMap((line) => /^\[#\d+\]/.exec(line)?.[0] ?? []);
 
-test('a view of nine lines draws its numbers with one digit and no padding', async () => {
+test('a history of nine lines draws its numbers with one digit and no padding', async () => {
   // Bug: the padding counts a digit too many, so a short chat opens `[#01]`.
   const { env, entry } = chatEnv({ now: () => SENT, timeZone: 'UTC' });
   await withChat(
@@ -165,7 +165,7 @@ test('a view of nine lines draws its numbers with one digit and no padding', asy
   );
 });
 
-test('a view of 120 lines pads every number to three digits, so the text keeps one column', async () => {
+test('a history of 120 lines pads every number to three digits, so the text keeps one column', async () => {
   // Bug: `[#9]`, `[#99]` and `[#120]` take different widths, and the text column jumps from line to line.
   const { env, entry } = chatEnv({ now: () => SENT, timeZone: 'UTC' });
   await withChat(
@@ -285,6 +285,36 @@ test('a stored line draws the number of its place in the whole chat, and keeps i
     const screen = rig.screen().join('\n');
     assert.ok(screen.includes('[#1332] ΓΡΑΜΜΗ-ΠΡΩΤΗ'), screen);
     assert.ok(screen.includes('[#1335] ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'), screen);
+  });
+});
+
+// The owner's word of 2026-11-08: the numbers take one width from the whole stored history, the number of its newest
+// line, so a page of older lines with fewer digits loads under the width the chat opened with.
+const ACROSS_HUNDRED: Record<string, ReadonlyArray<Stored>> = {
+  newest: [
+    { id: 's3', who: 'owner', text: 'ΓΡΑΜΜΗ-ΤΡΙΤΗ', at: SENT, number: 100 },
+    { id: 's4', who: 'her', text: 'ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ', at: SENT, number: 101 },
+  ],
+  s3: [
+    { id: 's1', who: 'owner', text: 'ΓΡΑΜΜΗ-ΠΡΩΤΗ', at: SENT, number: 98 },
+    { id: 's2', who: 'her', text: 'ΓΡΑΜΜΗ-ΔΕΥΤΕΡΗ', at: SENT, number: 99 },
+  ],
+};
+
+test('older lines loaded above take the width of the whole history, and the lines shown keep theirs', async () => {
+  // Bug: the width follows the lines on the screen, so Page Up or a scroll reflows every line already shown.
+  const { env } = chatEnv({
+    storedPage: (before) => Promise.resolve(ACROSS_HUNDRED[before ?? 'newest'] ?? []),
+    timeZone: 'UTC',
+  });
+  await withChat(env, async (rig) => {
+    await until(shows(rig, 'ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'));
+    rig.type(KEY.pageUp);
+    await until(shows(rig, 'ΓΡΑΜΜΗ-ΠΡΩΤΗ'));
+    const screen = rig.screen().join('\n');
+    assert.ok(screen.includes('[#098] ΓΡΑΜΜΗ-ΠΡΩΤΗ'), screen);
+    assert.ok(screen.includes('[#099] ΓΡΑΜΜΗ-ΔΕΥΤΕΡΗ'), screen);
+    assert.ok(screen.includes('[#101] ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'), screen);
   });
 });
 
