@@ -17,10 +17,7 @@ import { FAILED_TURN_KEEP_MS, settleUnknownSends } from '../../journal.ts';
 import { askedFor } from '../../triggers.ts';
 import { taskInput } from '../../task-input.ts';
 import type { PhaseContext, PhaseParams } from '../context.ts';
-import type { Opened } from '../preflight.ts';
-import type { Gathered } from './gather.ts';
-import type { Pulled } from './pulls.ts';
-import type { Setup } from './setup.ts';
+import type { Prepared } from '../request.ts';
 
 /** What the facts step made for the request: the facts told, the tasks, and what it read for the prompt. */
 export type Told = {
@@ -34,23 +31,28 @@ export type Told = {
   activeSkills: ReadonlyArray<ActiveSkill>;
 };
 
+/** What the facts step reads of the attempt. */
+type FactsNeeds = Pick<
+  Prepared,
+  | 'channel'
+  | 'placeId'
+  | 'reading'
+  | 'isDm'
+  | 'config'
+  | 'now'
+  | 'memoryOn'
+  | 'selfId'
+  | 'finalMode'
+  | 'history'
+  | 'prompts'
+>;
+
 // health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.ts in stage 5c, a pure split
-export async function tellFacts(
-  ctx: PhaseContext,
-  params: PhaseParams,
-  draft: Draft,
-  opened: Opened,
-  setup: Setup,
-  pulled: Pulled,
-  gathered: Gathered
-): Promise<Told> {
+export async function tellFacts(ctx: PhaseContext, params: PhaseParams, draft: Draft, turn: FactsNeeds): Promise<Told> {
   const { store, iface, facts, dmChannels, promptState, offPeriodsFor, activeSkills } = ctx;
   const { mode, trigger = null, triggerKind = null, part = null, queued = null, added = null } = params;
   const { missed = null } = params;
-  const { channel, placeId, reading, isDm } = opened;
-  const { config, now, memoryOn, selfId } = setup;
-  const { finalMode } = pulled;
-  const { history, prompts } = gathered;
+  const { channel, placeId, reading, isDm, config, now, memoryOn, selfId, finalMode, history, prompts } = turn;
   // A part of a split message, the author's other calls still queued, the messages folded into this one.
   // Addressed turns of this channel that failed earlier, told once (first part only); cleared at the turn's end unless it fails too.
   const addressedHere = mode === 'reply' && askedFor(trigger, triggerKind) && (!part || part.index === 1);

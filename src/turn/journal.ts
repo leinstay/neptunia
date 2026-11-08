@@ -368,7 +368,13 @@ function formatCountsOf(format: Partial<Record<keyof FormatCounts, unknown>>): F
 export type JournalDraft = {
   /** The journal's ids of the attempt, and the place whose journal it is written to. */
   started: { turnId: string; attemptId: string; startedAt: number; placeId: string };
-  seen?: { messageIds: Array<string>; parents: Array<unknown>; parts: { filePreviews: Array<unknown> } } | null;
+  /** The lines the request showed; `pulled` is kept empty in the stored record. */
+  seen?: {
+    messageIds: Array<string>;
+    parents: Array<unknown>;
+    parts: { filePreviews: Array<unknown> };
+    pulled?: Array<{ placeId: string; messageIds: Array<string> }>;
+  } | null;
   /** The chat as the interface described it when the attempt began. */
   info?: { id: string } | null;
   privateAccountId?: string | null;

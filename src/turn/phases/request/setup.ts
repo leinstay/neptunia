@@ -99,7 +99,7 @@ export async function setupRequest(
   ctx: PhaseContext,
   params: PhaseParams,
   draft: Draft,
-  opened: Opened
+  turn: Pick<Opened, 'channel' | 'placeId' | 'reading' | 'libraryPlace' | 'isDm' | 'prepStep' | 'life'>
 ): Promise<Ended | Setup> {
   const {
     hot,
@@ -122,11 +122,10 @@ export async function setupRequest(
   } = ctx;
   const { mode, trigger = null, triggerKind = null, part = null, reuseHistory = null } = params;
   const selfreflectionParams = params.selfreflection ?? null;
-  const { channel, placeId, reading, libraryPlace, isDm, prepStep, life } = opened;
+  const { channel, placeId, reading, libraryPlace, isDm, prepStep, life } = turn;
   const config = hot.config;
   // How her tools travel this turn (tools.transport, read once): native tool calls, or text blocks.
   const transport = transportOf(config);
-  draft.transport = transport;
   const memoryOn = true;
   const selfId = selfIdOf();
   const selfName = getSelfName(placeId);
@@ -188,7 +187,8 @@ export async function setupRequest(
         config,
       })
     : Promise.resolve(null);
-  // The groups the requester holds in the root, read once: the rights of her calls are checked against them.
+  // The requester as a member of the root, read once and awaited under the bar. No step reads its groups:
+  // her calls carry the requester `requesterOf` makes from the trigger alone (src/turn/calls.ts#callEnvelope).
   const requesterPending =
     !isDm && trigger?.authorId
       ? ifaceReads.memberInfo({ placeId, accountId: String(trigger.authorId) })
@@ -233,7 +233,7 @@ export async function setupRequest(
   const historyMs = clock() - historyStartedAt;
   const partner = await beforeBar(partnerPending);
   await beforeBar(emojiPending);
-  draft.requesterGroups = (await beforeBar(requesterPending))?.member?.groupIds ?? [];
+  await beforeBar(requesterPending);
   // A private chat on its partner's behalf: pulls and the server search from the served root (none otherwise).
   const likeServer = isDm && partner !== null;
   if (likeServer && partnerId) draft.readerId = String(partnerId);
@@ -278,7 +278,7 @@ export async function setupRequest(
           memoryOn,
           // The planner's request on the turn frame, built when the plan has what it chooses from.
           planMessages: (parts) =>
-            plannerRequest(ctx, draft, opened, { config, selfName, selfId, now }, parts).messages,
+            plannerRequest(ctx, draft, { channel, isDm, config, selfName, selfId, now }, parts).messages,
           draft,
         }).then(
           (value) => ({ value }),

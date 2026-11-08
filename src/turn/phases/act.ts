@@ -1,5 +1,5 @@
 // The fourth phase of a turn attempt: how her answer reaches the chat (which line lives where, whose `@name` resolves,
-// which post carries a jump link) and the recovery turn's last check that its messages still wait. runTurnOnce (src/behavior/turn.ts) calls it after the response phase;
+// which post carries a jump link) and the recovery turn's last check that its messages still wait. runAttempt (src/turn/phases/attempt.ts) calls it after the response phase;
 // the tool round posts through the routing it made.
 
 import { accountOf } from '../../memory/addresses.ts';
@@ -25,8 +25,8 @@ export type Routing = {
   plain: boolean;
 };
 
-/** What the act phase made: the routing, and the result of a set below its minimum. */
-export type Acting = Omit<Answered, 'ended'> & {
+/** What the act phase adds to the attempt: the routing, and the result of a set below its minimum. */
+type ActMade = {
   ended: null;
   idByIndex: Map<number, string>;
   pulledIds: Map<string, string>;
@@ -35,16 +35,23 @@ export type Acting = Omit<Answered, 'ended'> & {
   setShort: (pictures: number, extra?: Record<string, unknown>) => AttemptResult;
 };
 
+/** The attempt once the act phase made its part. */
+export type Acting = Omit<Answered, 'ended'> & ActMade;
+
+/** What the act phase reads of the attempt. */
+type ActNeeds = Pick<Answered, 'channel' | 'placeId' | 'memoryOn' | 'finalMode' | 'history' | 'request'>;
+
 // health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.ts in stage 5c, a pure split
-export function actPhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, answered: Answered): Ended | Acting {
+export function actPhase<TTurn extends ActNeeds>(
+  ctx: PhaseContext,
+  params: PhaseParams,
+  draft: Draft,
+  turn: TTurn
+): Ended | (Omit<TTurn, 'ended'> & ActMade) {
   const { hot, store, iface, turnDirectory } = ctx;
   const { triggerKind = null, plainPosts = false } = params;
   const { stillDue = null } = params;
-  const { opened, setup, pulled: pulledStep, gathered, request } = answered;
-  const { channel, placeId } = opened;
-  const { memoryOn } = setup;
-  const { finalMode } = pulledStep;
-  const { history } = gathered;
+  const { channel, placeId, memoryOn, finalMode, history, request } = turn;
   const idByIndex = request.idByIndex;
   // Names resolve over this chat's history, then the stored names of the members whose profile the request kept, and
   // only then the fallback directory: a member the model was not shown is mentioned by a name nobody else in the served
@@ -107,5 +114,5 @@ export function actPhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, a
     draft.reason = 'answered-meanwhile';
     return { ended: { outcome: 'not-now', mode: finalMode, reason: 'answered-meanwhile' } };
   }
-  return { ...answered, ended: null, idByIndex, pulledIds, lines, routing, setShort };
+  return { ...turn, ended: null, idByIndex, pulledIds, lines, routing, setShort };
 }
