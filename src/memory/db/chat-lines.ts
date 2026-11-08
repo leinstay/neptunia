@@ -27,7 +27,9 @@ export type ChatLine = {
 
 const HOLDS_SOMETHING = `(length(COALESCE(s.text, '')) > 0 OR ${LINE_HOLDS_MEDIA})`;
 
-export function chatLines(db: Db, placeId: string): Array<ChatLine> {
+/** The stored lines of `placeId`, oldest first, each with its number; none without a database. */
+export function chatLines(db: Db | null, placeId: string): Array<ChatLine> {
+  if (db === null) return [];
   const counted = db
     .prepare(`SELECT COUNT(*) AS n FROM sources s WHERE s.place_id = ? AND ${CURRENT_SOURCE} AND ${HOLDS_SOMETHING}`)
     .get(placeId);
@@ -55,6 +57,27 @@ export function chatLines(db: Db, placeId: string): Array<ChatLine> {
     ...(media.has(asText(row.id)) ? { media: media.get(asText(row.id)) } : {}),
     number: skipped + index + 1,
   }));
+}
+
+/**
+ * The number `chatLines` gives the line of `placeId` whose message id is `nativeId`: how many of the place's lines come
+ * up to it in the same order. Null when the place holds no such line.
+ */
+export function lineNumberOf(db: Db, placeId: string, nativeId: string): number | null {
+  const line = db
+    .prepare(
+      `SELECT s.occurred_at, s.rowid AS r FROM sources s
+       WHERE s.place_id = ? AND s.native_id = ? AND ${CURRENT_SOURCE} AND ${HOLDS_SOMETHING} LIMIT 1`
+    )
+    .get(placeId, nativeId);
+  if (!line) return null;
+  const counted = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM sources s WHERE s.place_id = ? AND ${CURRENT_SOURCE} AND ${HOLDS_SOMETHING}
+       AND (s.occurred_at < ? OR (s.occurred_at = ? AND s.rowid <= ?))`
+    )
+    .get(placeId, line.occurred_at, line.occurred_at, line.r);
+  return Number(counted?.n ?? 0) || null;
 }
 
 /**

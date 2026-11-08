@@ -7,6 +7,7 @@
 import { chatOfPlace } from '../../memory/addresses.ts';
 import { placeIdParts } from '../../memory/db/ids.ts';
 import { cliChatRef } from '../../interface/cli-chat.ts';
+import { dmChatsOff } from '../../behavior/core-pause.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { listRules, locateBullets } from '../../rules-list.ts';
@@ -751,10 +752,13 @@ const dmReaderOf = (context: PostingContext): ((partnerId: string) => string | n
   return env?.directory?.dmChatOf ?? null;
 };
 
-/** Whether direct chats are open (`dm.enabled`, read now through `context.env.hot`). */
-const directChatsOpen = (context: PostingContext): boolean => {
+/**
+ * Whether the direct chat `info` describes is closed: `dm.enabled` is off (read now through `context.env.hot`) and the
+ * chat is not the owner's command line (src/behavior/core-pause.ts#dmChatsOff).
+ */
+const closedDirectChat = (info: { kind?: unknown; iface?: unknown } | null, context: PostingContext): boolean => {
   const hot: unknown = context.env?.hot;
-  return objOf(objOf(objOf(hot).config).dm).enabled === true;
+  return info?.kind === 'dm' && dmChatsOff(objOf(hot).config, info);
 };
 
 /**
@@ -799,12 +803,12 @@ export async function postingRef({
 
 /** Throws the refusal of `need` in a chat as the interface describes it (`info`), or returns when it may run. */
 function refuseThere(
-  info: { kind?: unknown; permissions: Permissions } | null,
+  info: { kind?: unknown; iface?: unknown; permissions: Permissions } | null,
   need: keyof typeof CHANNEL_NEEDS,
   chatId: string,
   context: PostingContext
 ): void {
-  const closedDm = info?.kind === 'dm' && !directChatsOpen(context);
+  const closedDm = closedDirectChat(info, context);
   if (closedDm && POSTING_NEEDS.has(need)) throw denied(`direct chats are closed, ${chatId}`, CODE.DM_DISABLED);
   if (info === null || closedDm || !CHANNEL_NEEDS[need](info.permissions))
     throw denied(`the bot may not ${need} in channel ${chatId}`, CODE.CHANNEL_NO_PERMISSION);
@@ -828,8 +832,7 @@ export async function writablePlace({
 }): Promise<ChatRef> {
   const target = refOfPlace(id, iface, dmReaderOf(context));
   const info = reads ? ((await reads.chatInfo(target))?.chat ?? null) : null;
-  if (info?.kind === 'dm' && !directChatsOpen(context))
-    throw denied(`direct chats are closed, ${id}`, CODE.DM_DISABLED);
+  if (closedDirectChat(info, context)) throw denied(`direct chats are closed, ${id}`, CODE.DM_DISABLED);
   if (info === null || !CHANNEL_NEEDS.send(info.permissions))
     throw denied(`no place to begin in at ${id}`, CODE.CHANNEL_NO_PERMISSION);
   return target;

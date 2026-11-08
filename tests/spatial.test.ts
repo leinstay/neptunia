@@ -5,7 +5,7 @@
 // Signatures these tests hold the code to:
 //   export type PlaceLink = { id: string; kind: string | null; name: string | null };
 //   export type Whereabouts =
-//     | { kind: 'cli' }
+//     | { kind: 'cli'; chain?: ReadonlyArray<PlaceLink> }
 //     | { kind: 'server' }
 //     | { kind: 'world' }
 //     | { kind: 'place'; iface: string; private: boolean; chain: ReadonlyArray<PlaceLink> };
@@ -34,6 +34,7 @@ const CHANNEL: PlaceLink = { id: 'p-channel', kind: 'channel', name: 'general' }
 const BARE_CHANNEL: PlaceLink = { id: 'p-bare', kind: 'channel', name: 'off-topic' };
 const THREAD: PlaceLink = { id: 'p-thread', kind: 'thread', name: 'weekend plans' };
 const DM: PlaceLink = { id: 'p-dm', kind: 'dm', name: 'Robin' };
+const CLI_DM: PlaceLink = { id: 'cli:dm:owner', kind: 'dm', name: 'owner' };
 
 function textOf(chain: ReadonlyArray<PlaceLink>, notes: unknown = {}, isDm = false): string {
   return spatialAwarenessText({
@@ -79,11 +80,32 @@ test('a direct chat is a private place, never a group one', () => {
   assert.ok(!lines.includes('SPATIAL-GROUP'));
 });
 
-test('the command line says she is on the command line, with the time', () => {
+// The lead's word of 2026-11-08: the command line is a direct chat, so it carries the private line and the owner's note
+// as a direct chat on another interface does. The expectation of a bare `cli` line changed with it.
+test('the command line says she is on the command line, with the time, in a private place', () => {
+  // Bug: the owner's chat read as a place others might hear, and she spoke to him as to a room.
   assert.equal(
-    spatialAwarenessText({ whereabouts: { kind: 'cli' }, now: NOW, timezone: 'UTC', labels, notes: {} }),
-    `SPATIAL-CLI AT ${WHEN}`
+    spatialAwarenessText({
+      whereabouts: { kind: 'cli', chain: [CLI_DM] },
+      now: NOW,
+      timezone: 'UTC',
+      labels,
+      notes: {},
+    }),
+    [`SPATIAL-CLI AT ${WHEN}`, 'SPATIAL-PRIVATE'].join('\n')
   );
+});
+
+test("the command line carries the owner's note on its place", () => {
+  // Bug: a note the owner set on his own chat never reached her there.
+  const text = spatialAwarenessText({
+    whereabouts: { kind: 'cli', chain: [CLI_DM] },
+    now: NOW,
+    timezone: 'UTC',
+    labels,
+    notes: { 'cli:dm:owner': 'speak plainly' },
+  });
+  assert.equal(text.split('\n').at(-1), 'SPATIAL-NOTE speak plainly');
 });
 
 test('a turn with no chat place is on her own server, with the time', () => {
@@ -132,9 +154,10 @@ test('no notes setting at all gives no note line and no failure', () => {
   }
 });
 
-test('the command line, her server and her world carry no note, whatever the notes hold', () => {
+// The command line left this test with the lead's word of 2026-11-08: its place takes the owner's note (above).
+test('her server and her world carry no note, whatever the notes hold', () => {
   const notes = { cli: 'x', server: 'y', world: 'z', 'p-server': 'adults only' };
-  for (const whereabouts of [{ kind: 'cli' as const }, { kind: 'server' as const }, { kind: 'world' as const }]) {
+  for (const whereabouts of [{ kind: 'server' as const }, { kind: 'world' as const }]) {
     const text = spatialAwarenessText({ whereabouts, now: NOW, timezone: 'UTC', labels, notes });
     assert.ok(!text.includes('SPATIAL-NOTE'), text);
   }
@@ -154,11 +177,12 @@ test('a place with no kind and no name reads through the fallback labels, an unn
 // Slice 7: whereaboutsOf left with the old producers; every turn states its whereabouts through its frame
 // (whereaboutsOfFrame), and a place the tree does not hold yet is a chain of itself before the frame is built
 // (src/turn/phases/request/build.ts).
-test('whereaboutsOfFrame: the command line is the command line, whatever place it is given', () => {
+// The command line keeps its chain since the lead's word of 2026-11-08, so the owner's note on it can be found.
+test('whereaboutsOfFrame: the command line is the command line, with the chain of its place', () => {
   const frame = frameOf(
-    frameInput({ interface: 'cli', chain: [DM], dm: { word: 'dm', nativeId: 'owner', partner: null } })
+    frameInput({ interface: 'cli', chain: [CLI_DM], dm: { word: 'dm', nativeId: 'owner', partner: null } })
   );
-  assert.deepEqual(whereaboutsOfFrame(frame), { kind: 'cli' });
+  assert.deepEqual(whereaboutsOfFrame(frame), { kind: 'cli', chain: [CLI_DM] });
 });
 
 test('whereaboutsOfFrame: a turn with no place or no interface is on her own server', () => {

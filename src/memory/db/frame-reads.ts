@@ -16,12 +16,17 @@ import type { PastEntry } from './selfreflection-past.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
 
-/** A stored chat line as a request reads it: the platform's message id, its place, epoch ms, the author's platform id. */
+/**
+ * A stored chat line as a request reads it: the platform's message id, its place, epoch ms, the author's platform id
+ * and stored name.
+ */
 export type FrameLine = {
   id: string;
   placeId: string;
   at: number;
   authorId: string | null;
+  /** The first name of the author's person, from the account that holds the person's profile, else the account's own. */
+  authorName: string | null;
   self: boolean;
   text: string;
 };
@@ -53,11 +58,18 @@ const lineOf = (row: Row): FrameLine => ({
   placeId: text(row.place_id) ?? '',
   at: Date.parse(text(row.occurred_at) ?? ''),
   authorId: text(row.author_account) === null ? null : nativeOfAny(row.author_account),
+  authorName: text(row.author_name),
   self: row.author_kind === 'self',
   text: text(row.text) ?? '',
 });
 
-const LINE_COLUMNS = 's.id, s.native_id, s.place_id, s.occurred_at, s.author_account, s.author_kind, s.text';
+/** The first stored name of a line's author: its person's profile account's, else its own account's. */
+const AUTHOR_NAME = `COALESCE(
+  (SELECT json_extract(pa.names, '$[0]') FROM accounts a JOIN people p ON p.id = a.person_id
+     JOIN storage_units u ON u.id = p.owner_key JOIN accounts pa ON pa.id = u.subject_id
+   WHERE a.id = s.author_account AND u.subject_type = 'account'),
+  (SELECT json_extract(a.names, '$[0]') FROM accounts a WHERE a.id = s.author_account)) AS author_name`;
+const LINE_COLUMNS = `s.id, s.native_id, s.place_id, s.occurred_at, s.author_account, s.author_kind, s.text, ${AUTHOR_NAME}`;
 const LIVE_LINE = `s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND length(COALESCE(s.text, '')) > 0`;
 
 /**

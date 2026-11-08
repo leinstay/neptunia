@@ -8,7 +8,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Permissions } from '../src/protocol/adapter.ts';
 import { ROOT, IFACE, channel, rig } from './fixtures/reads-rig.ts';
-import { postingChat } from '../src/tools/operations/shared.ts';
+import { createFakeAdapter } from '../src/interface/fake.ts';
+import { createReads } from '../src/interface/reads.ts';
+import { postingChat, writablePlace } from '../src/tools/operations/shared.ts';
+import type { PostingContext } from '../src/tools/operations/shared.ts';
+import { wrongly } from './fixtures/loose-types.ts';
 
 type Need = 'send' | 'reply' | 'attach' | 'read' | 'react';
 /** The permissions each need requires, as the keys that must all be true. */
@@ -152,4 +156,51 @@ test('refuses a call with neither a target nor a current chat', async () => {
     }),
     { status: 'invalid' }
   );
+});
+
+/** The owner's command line chat as its interface describes it: a direct chat of `cli`. */
+const cliChat = (): ReturnType<typeof channel> =>
+  channel('cli:dm:owner', { kind: 'dm', rootId: null, iface: 'cli', name: 'owner', partnerId: 'owner' });
+
+/** Reads over a fake command line that knows its one chat. */
+function cliReads(): ReturnType<typeof createReads> {
+  const fake = createFakeAdapter({ iface: 'cli', selfId: 'self' });
+  fake.seedChat(cliChat());
+  return createReads(fake, { info() {}, warn() {}, error() {} });
+}
+
+/** A context whose live config has direct chats off. */
+const dmOff = {
+  placeId: ROOT,
+  env: wrongly<NonNullable<PostingContext['env']>>({ hot: { config: { dm: { enabled: false } } } }),
+};
+
+// docs/cli.md under Access: the owner's command line is his own chat, so it stays open while `dm.enabled` is
+// false, at the gate and at every other place that asks.
+test("lets a post reach the owner's command line while direct chats are off", async () => {
+  // Bug: the gate let his line through and she answered, yet her own post to his chat came back dm-disabled.
+  const id = await postingChat({
+    reads: cliReads(),
+    store: null,
+    iface: IFACE,
+    chatId: 'cli:dm:owner',
+    context: dmOff,
+    need: 'send',
+  });
+  assert.equal(id, 'cli:dm:owner');
+});
+
+test("takes the owner's command line as an intention's place while direct chats are off", async () => {
+  // Bug: she could not promise the owner a reminder in his own chat while direct chats were off.
+  const target = await writablePlace({ reads: cliReads(), iface: IFACE, id: 'cli:dm:owner', context: dmOff });
+  assert.deepEqual(target, { iface: 'cli', chatId: 'cli:dm:owner' });
+});
+
+test('still refuses an intention in a direct chat of another interface while direct chats are off', async () => {
+  const { reads, fake } = rig();
+  fake.seedChat(channel('dm2', { kind: 'dm', rootId: null, partnerId: 'u9' }));
+  await assert.rejects(writablePlace({ reads, iface: IFACE, id: 'dm2', context: dmOff }), {
+    status: 'denied',
+    code: 'dm-disabled',
+  });
 });

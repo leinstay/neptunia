@@ -175,7 +175,11 @@ const logged = (logs: ReadonlyArray<Record<string, unknown>>, msg: string, id: u
 function errandConfig(runner: string, out: string, extra: Settings = {}): Settings {
   return {
     bot: { access: { 'errand.run': { everyone: false, roles: [], users: [SELF_ID] } } },
-    errands: { maxOpen: 3, resultCooldownSeconds: 0, resultRetrySeconds: 0 },
+    // The scout's end can reach the core while her opening turn still holds the attention, and the result turn is
+    // held and tried again every `resultRetrySeconds`, twenty times. At 0 the twenty tries run out within milliseconds
+    // when the opening turn's reply waits on a slow interface process, and no result turn runs at all. One second
+    // gives the opening turn twenty seconds.
+    errands: { maxOpen: 3, resultCooldownSeconds: 0, resultRetrySeconds: 1 },
     ...extra,
     agents: {
       scout: { enabled: true, socket: runner, out, daily: { tasks: 5 } },
@@ -283,6 +287,7 @@ test('her errand goes from her errand.run to its scout and back to her once, thr
       await until(() => errandTasks(dirs)[0]?.status === 'done', 'the errand to end');
       const id = errandTasks(dirs)[0]?.id;
       await until(() => logged(logs, 'errands: end delivered', id) > 0, 'the end to be delivered');
+      await until(() => logged(logs, 'errands: result turn', id) > 0, 'the result turn');
       await settle(800);
       assert.deepEqual(
         errandTasks(dirs).map((row) => [row.id, row.role, row.status]),

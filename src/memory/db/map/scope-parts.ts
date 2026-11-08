@@ -18,13 +18,13 @@ export function privateUserOf(rel: string): string | null {
 }
 
 /**
- * The scope of a row of a DM. A person id that spells this DM place is the whole answer. Any other person (an opaque id,
- * a place under another authority, an account bound to someone) gets the place's own audience and the partner the place
- * names, the pair rows.ts#resolveRow accepts.
+ * The scope of a row of a DM. A place that names its partner gives the place's own audience and that partner, the pair
+ * rows.ts#resolveRow accepts, whatever person the place id spells. A place with no stored partner keeps the person when
+ * that person spells this DM place, and otherwise gets the place's audience with no partner.
  */
 export function dmPlaceScope(person: string, iface: string, place: NonNullable<MapContext['dmPlace']>): Row {
   const scope = dmScope(person, iface);
-  if (audienceOf(scope).audience_id === dmAudienceId(place.id)) return scope;
+  if (place.partnerPerson === null && audienceOf(scope).audience_id === dmAudienceId(place.id)) return scope;
   return { scope_kind: 'dm', scope_iface: iface, scope_dm: place.partnerPerson, audience_id: dmAudienceId(place.id) };
 }
 
