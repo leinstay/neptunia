@@ -30,6 +30,9 @@ export type Delivery = {
   // The files the send posted, each named by the platform's attachment id with the message that carries it, in the
   // order they were given; absent when the interface does not say.
   attachments?: ReadonlyArray<{ messageId: string; attachmentId: string }>;
+  // True when the interface kept the post for a chat that is not open now: it is stored as sent and shown once the
+  // chat opens (src/interface/cli-chat.ts). Absent for a post that reached its chat.
+  deferred?: boolean;
 };
 
 /**

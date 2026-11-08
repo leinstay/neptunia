@@ -6,6 +6,7 @@
 
 import { chatOfPlace } from '../../memory/addresses.ts';
 import { placeIdParts } from '../../memory/db/ids.ts';
+import { cliChatRef } from '../../interface/cli-chat.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { listRules, locateBullets } from '../../rules-list.ts';
@@ -735,6 +736,9 @@ function checkWakePosting(context: PostingContext, capability: string | null): v
  * of `iface`.
  */
 function refOfPlace(id: string, iface: string, dmChatOf: ((partnerId: string) => string | null) | null): ChatRef {
+  // The command line's place id is its chat id, whether or not a chat of it was seen since the start.
+  const cli = cliChatRef(id);
+  if (cli !== null) return cli;
   const parts = placeIdParts(id);
   if (parts === null) return { iface, chatId: id };
   const chatId = parts.kind === 'dm' ? (dmChatOf?.(parts.native) ?? parts.native) : parts.native;
@@ -866,13 +870,14 @@ export async function messageRefOf(
 
 /**
  * An interface port's answer (src/interface/port.ts) as an operation's: `{ text, ref, at }` when
- * it went out, else a `failed` result with the port's code and `data.unknown` true when it may
+ * it went out, with `deferred` when the interface kept it for a chat that is not open, else a `failed` result with the port's code and `data.unknown` true when it may
  * have taken effect anyway (never retried).
  * `name` is the operation's name, for the summary, and `text` the answer when it went out.
  */
 export function portAnswer(name: string, answer: unknown, text: string): Obj {
   const result = objOf(answer);
-  if (result.status === 'ok') return { text, ref: result.ref ?? null, at: result.at };
+  if (result.status === 'ok')
+    return { text, ref: result.ref ?? null, at: result.at, ...(result.deferred === true ? { deferred: true } : {}) };
   const given = objOf(result.error).code ?? result.status;
   const code = typeof given === 'string' ? given : CODE.ERROR;
   const unknown = result.status === 'unknown';

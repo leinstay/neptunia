@@ -18,7 +18,9 @@
 // `createCommandIntake` stands between each link and the event door: a `command.requested` envelope is checked,
 // acknowledged at once and run on the desk, and its answer goes back as a `command.result` action over the same link;
 // every other envelope goes through the door. It also remembers the link of the owner's chat that sent the last line,
-// where the core sends her replies in `cli:dm:owner` (`chat()`).
+// where the core sends her replies in `cli:dm:owner` (`chat()`). With that link gone, `chat()` names the newest open
+// chat, a client that asked for the turn events with `turn.replay`, and null with none: a client that only runs commands
+// takes no post. src/interface/cli-chat.ts keeps a post while `chat()` is null.
 //
 // `neptunia -p` with text waits for the end of the turn over its line, which the link has no event for. The intake
 // keeps the link of each line of the command line, and `turnEnded` answers it with a `command.result` whose `replyRef`
@@ -509,7 +511,10 @@ export function createCommandIntake(deps: {
         },
       };
     },
-    chat: () => (chatLink !== null && !chatLink.isClosed() ? chatLink.adapter : null),
+    chat() {
+      if (chatLink !== null && !chatLink.isClosed()) return chatLink.adapter;
+      return turns.chats().at(-1)?.adapter ?? null;
+    },
     cancelOf: (triggerId) => turns.cancelOf(triggerId),
     noteProgress: (triggerId, step) => turns.noteProgress(triggerId, step),
     turnEnded(end) {

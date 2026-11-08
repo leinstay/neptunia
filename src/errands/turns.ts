@@ -8,8 +8,9 @@
 // requester the person who asked, and its request carries the `<errand_result>` block
 // (src/errands/blocks.ts). A turn held back is retried every `errands.resultRetrySeconds`, at
 // most RESULT_ATTEMPTS times, then left for her `<errands>` block (marked `resultTurnFailed`, so
-// the line says the turn never ran); a turn that failed on its own (`error`, `refused`, or any
-// outcome but spoke and skip) is retried the same way. Only a turn that spoke or chose silence
+// the line says the turn never ran); a chat the interface cannot describe now, and a turn that failed on its own
+// (`error`, `refused`, or any outcome but spoke and skip), are retried the same way. The chat of the owner's command
+// line (`cli:dm:owner`) is asked of the command line (src/interface/cli-chat.ts), which answers it while no chat is open. Only a turn that spoke or chose silence
 // marks the errand seen and read (`readAt`: its `<errand_result>` was in front of her); an errand not
 // read stays in her `<errands>` block until `errand.read` or `errand.resolve`. Settings are read at the moment of
 // use; logs carry ids and outcomes, never a goal or a result. An errand's end reaches this module
@@ -26,6 +27,7 @@
 
 import { log as defaultLog } from '../log.ts';
 import { lineOf } from '../behavior/line-of.ts';
+import { ifaceOfChat } from '../interface/cli-chat.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { ChatRef } from '../protocol/adapter.ts';
 import type { Reads } from '../interface/reads.ts';
@@ -204,13 +206,16 @@ export function createErrandTurns({
     }
     // A restricted errand names its exact origin, which may be on another interface than the home one.
     const boundary = errand.origin?.publicationBoundary;
+    // The command line's chat belongs to the command line, never to the served interface.
     const chat = {
-      iface: boundary?.origin.iface ?? iface(),
+      iface: boundary?.origin.iface ?? ifaceOfChat(String(chatId), iface()),
       chatId: String(chatId),
     };
     const known = await reads.chatInfo(chat);
     if (known === null) {
+      // The chat may come back (an interface that reconnects): the result is tried again, never dropped.
       log.warn('errands: result chat unavailable', { id: errand.id, placeId: chatId });
+      later(errand, attempt, retryMs);
       return null;
     }
     const trigger = await originMessage(chat, errand);

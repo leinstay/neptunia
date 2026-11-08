@@ -174,12 +174,15 @@ function routed(main: Fake, others: ReadonlyArray<Fake>): Fake {
   });
 }
 
-/** The command line's adapter with the owner's chat, where she may write. */
+/**
+ * The command line's adapter with the owner's chat, where she may write. The chat's id is its place id, `cli:dm:owner`,
+ * as the real client names it (bin/cli-link.ts); the fixture named it `owner`, which only the partner lookup reached.
+ */
 function cliAdapter(): Fake {
   const cli = createFakeAdapter({ iface: 'cli', selfId: 'self-id', now: () => TURN_NOW });
   cli.seedChat({
     iface: 'cli',
-    id: 'owner',
+    id: CLI_PLACE,
     kind: 'dm',
     name: null,
     rootId: null,
@@ -190,7 +193,7 @@ function cliAdapter(): Fake {
     voice: false,
     public: false,
   });
-  cli.seedDmChat('owner', 'owner');
+  cli.seedDmChat('owner', CLI_PLACE);
   return cli;
 }
 

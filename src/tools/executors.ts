@@ -90,15 +90,17 @@ export type CallResult = { status: string; code?: string; reason?: string; data?
 const argText = (value: unknown): string =>
   typeof value === 'string' ? value : typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
 /**
- * What an operation's result carries for her turn beside its text: the values its code's label names, and the route
+ * What an operation's result carries for her turn beside its text: the values its code's label names, the route
  * of a model role's call that went to the core model or did not happen (src/tools/gateway.ts#callOnRoute), read off
- * the result or, for an `ok` reply, its data.
+ * the result or, for an `ok` reply, its data, and `deferred` for a post kept for a chat that is not open.
  */
 function carriedOf(result: Obj): Obj {
   const route = result.route ?? objOf(result.data).route;
   return {
     ...(isObj(result.values) ? { values: result.values } : {}),
     ...(route === 'core' || route === 'unavailable' ? { route } : {}),
+    // A post the interface kept for a chat that is not open (src/interface/cli-chat.ts).
+    ...(objOf(result.data).deferred === true ? { deferred: true } : {}),
   };
 }
 /** The options whose value may be a transcript number `#N`: a message she can see. */

@@ -616,6 +616,12 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     };
   }
 
+  /** `labels.tools.result.storedUntilOpen`, read now: a post kept for a chat that is not open. */
+  function storedUntilOpen(): string {
+    const worded = objOf(objOf(objOf(hot.prompts?.labels).tools).result).storedUntilOpen;
+    return typeof worded === 'string' ? worded : '';
+  }
+
   /** `labels.tools.result.heldUntilEnd`, read now: a held post goes out when the wake's turn ends. */
   function heldUntilEnd(): string {
     const worded = objOf(objOf(objOf(hot.prompts?.labels).tools).result).heldUntilEnd;
@@ -974,7 +980,9 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
             hot.prompts?.labels
           )
         : '';
-    return { skill, ...result, ...(note ? { note } : {}) };
+    // A post the interface kept for a chat that is not open: the result tells her it is shown when the chat opens.
+    const notes = [note, result.status === 'ok' && result.deferred === true ? storedUntilOpen() : ''].filter(Boolean);
+    return { skill, ...result, ...(notes.length > 0 ? { note: notes.join('\n') } : {}) };
   }
 
   /**

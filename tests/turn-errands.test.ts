@@ -679,3 +679,64 @@ test('task turns: after the attempts a result that never got its turn stays unre
   assert.deepEqual([errands.seen, errands.read], [[], []]);
   assert.deepEqual(errands.failed, [{ ids: ['tab02'] }]);
 });
+
+test("task turns: a result for the command line's chat is tried again while the chat cannot be read, then runs there", async () => {
+  // Bug: the result turn asks the served interface for `cli:dm:owner`, finds no chat and returns with no retry, so
+  // the result of an errand asked at the command line is never told.
+  const chats: Array<unknown> = [];
+  const turns = {
+    isBusy: () => false,
+    isAnyBusy: () => false,
+    runTurn: (params: { chat?: unknown }) => {
+      chats.push(params.chat);
+      return Promise.resolve({ outcome: 'spoke' });
+    },
+  };
+  const asked: Array<{ iface: string; chatId: string }> = [];
+  let readable = false;
+  const cliChat = {
+    id: 'cli:dm:owner',
+    kind: 'dm',
+    rootId: null,
+    name: 'owner',
+    partnerId: 'owner',
+    iface: 'cli',
+    permissions: { read: true, send: true, attach: true, react: false },
+  };
+  const reads = {
+    chatInfo: (chat: { iface: string; chatId: string }) => {
+      asked.push(chat);
+      return Promise.resolve(
+        readable && chat.iface === 'cli' && chat.chatId === 'cli:dm:owner' ? { chat: cliChat } : null
+      );
+    },
+    fetchMessages: () => Promise.resolve({ messages: [] }),
+  };
+  const timers: Array<{ fn: () => void; ms: number }> = [];
+  const errands = fakeErrands();
+  const taskTurns = createErrandTurns({
+    hot: fakeHot(),
+    reads,
+    iface: () => 'fake',
+    turns,
+    errands,
+    now: () => NOW,
+    setTimer: (fn: () => void, ms: number) => timers.push({ fn, ms }),
+  } as unknown as Parameters<typeof createErrandTurns>[0]);
+  const cliTask = { ...doneTask, id: 'tab09', origin: { placeId: 'cli:dm:owner' } };
+  await withCapturedLogs(async () => {
+    await taskTurns.onFinished(cliTask as unknown as Parameters<typeof taskTurns.onFinished>[0]);
+    assert.equal(chats.length, 0, 'no turn while the chat cannot be read');
+    assert.equal(timers.length, 1, 'the result is tried again');
+    readable = true;
+    timers.shift()?.fn();
+    for (let i = 0; i < 50 && chats.length === 0; i += 1) await new Promise((r) => setImmediate(r));
+  });
+  assert.deepEqual(chats, [{ iface: 'cli', chatId: 'cli:dm:owner' }]);
+  assert.deepEqual(
+    asked.map((chat) => chat.iface),
+    ['cli', 'cli'],
+    'the command line is asked for its chat, never the served interface'
+  );
+  assert.deepEqual(errands.read, [{ ids: ['tab09'] }]);
+});

@@ -7,7 +7,9 @@
 // always did. A line the turn over an earlier line read during its settle wait (the end's `folded`) ends with that turn and
 // never runs. The pipeline may answer a line inside another line's turn or drop one it saw answered, so a line can have no turn
 // of its own: a later line's turn starting, or a stretch with no turn running anywhere, ends its wait. The states live in this
-// process, and `turn.replay` names the core's instance so a client learns of a restart. src/interface/neptunia-cli.ts holds one.
+// process, and `turn.replay` names the core's instance so a client learns of a restart. A client that asked with `turn.replay`
+// is an open chat (`chats`), where her posts go when the client that sent the last line is gone. src/interface/neptunia-cli.ts
+// holds one.
 
 import { randomUUID } from 'node:crypto';
 import { ackOf } from '../protocol/index.ts';
@@ -91,6 +93,8 @@ export type ChatTurns = {
   noteProgress(triggerId: string | null, step: { name: string; detail: string }): void;
   /** A `turn.*` command of the owner on `link`. */
   command(link: AdapterLink, name: string, args: Record<string, unknown>): Answer;
+  /** The open links that asked for the turn events with `turn.replay`: the open chats, the newest last. */
+  chats(): ReadonlyArray<AdapterLink>;
 };
 
 export function createChatTurns({
@@ -203,6 +207,10 @@ export function createChatTurns({
   }
 
   return {
+    chats() {
+      for (const link of subscribers) if (link.isClosed()) subscribers.delete(link);
+      return [...subscribers];
+    },
     async take({ id, value, message, from, onHeld, onNoTurn }) {
       if (lines.has(id)) return ackOf(value, 'duplicate');
       const line: TrackedLine = {
@@ -276,6 +284,8 @@ export function createChatTurns({
         case 'turn.queue':
           return { text: queueRows(), status: 'ok' };
         case 'turn.replay':
+          // Taken out first, so the chat that asked last is the newest.
+          subscribers.delete(link);
           subscribers.add(link);
           return { text: JSON.stringify({ instance, events: control.replay(action.after) }), status: 'ok' };
       }
