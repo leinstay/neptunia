@@ -98,10 +98,10 @@ function reachableAccounts(db: Db, person: string, except: string): Array<{ ifac
 
 const keyOf = (iface: string, native: string): string => JSON.stringify([iface, native]);
 
-/** The person she named: a person id as she reads it, or the member handle of exactly one person's account. */
+/** The person she named: the id of a stored person as she reads it, or the member handle of exactly one person's account. */
 function personNamed(db: Db, reference: string): string | null {
   const given = reference.trim().replace(/^@/, '');
-  if (given.startsWith('person:')) return given;
+  if (db.prepare('SELECT 1 FROM people WHERE id = ?').get(given)) return given;
   const people = [...peopleOfHandle(db, given)];
   return people.length === 1 ? (people[0] ?? null) : null;
 }

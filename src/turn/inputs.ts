@@ -117,7 +117,8 @@ export function createInputs(ctx: InputsContext): Inputs {
    * A turn that runs nowhere reads as herself (`internal`), except a selfreflection post, which reads as the interface's
    * group, the audience of the mirrors its entry is copied to. A private chat reads as a DM of its partner, anything
    * else as the interface's group. Null without the dependency
-   * or the draft, for a private chat whose partner is unknown, or when issuing fails (never a turn's failure).
+   * or the draft, for a private chat whose partner is unknown or has no stored person, or when issuing fails (never a
+   * turn's failure).
    */
   function turnContextOf(
     draft: InputsDraft | null | undefined,
@@ -138,13 +139,14 @@ export function createInputs(ctx: InputsContext): Inputs {
       const isDm = !inRoot(channel);
       const channelIface = portIface(channel) || portIface(port);
       const partner = isDm ? (draft.privateAccountId ?? null) : null;
-      if (!isDm || partner) {
+      const person = partner ? personOfMember(store, String(partner), channelIface) : null;
+      if (!isDm || person) {
         ctx =
           memoryContext(
-            isDm
+            isDm && person
               ? {
                   kind: 'dm',
-                  person: personOfMember(store, String(partner), channelIface),
+                  person,
                   place: placeOfChat(store, { kind: 'dm', partnerId: String(partner) }, channelIface),
                 }
               : { kind: 'group', destination: channel?.id ? channelPlaceId(channelIface, channel.id) : null }

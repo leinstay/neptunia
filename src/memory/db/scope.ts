@@ -100,14 +100,16 @@ export const internalContext = (): Context => ({ internal: true });
 /**
  * What a read's context is issued for: the DM of `privateAccountId`, else the group of `placeId`, on the channel's
  * interface. The person of a DM is the one `personOf` gives for the account's platform id on that interface, and its
- * place the one `placeOf` gives, since a meta-person spells no DM place.
+ * place the one `placeOf` gives, since a meta-person spells no DM place. A partner with no stored person reads as the
+ * interface's group: no private row names a person the database does not hold, so the group's rows are what such a DM
+ * shows.
  */
 export function readContextSpec(
   channelIface: unknown,
   home: unknown,
   placeId: unknown,
   privateAccountId: unknown,
-  personOf: (iface: string, platformId: string) => string,
+  personOf: (iface: string, platformId: string) => string | null,
   placeOf: (iface: string, platformId: string) => string | null = () => null
 ):
   | { iface: string; kind: 'dm'; person: string; place?: string }
@@ -117,8 +119,10 @@ export function readContextSpec(
     typeof privateAccountId === 'string' || typeof privateAccountId === 'number' ? String(privateAccountId) : '';
   if (!privateAccountId || !account)
     return { iface, kind: 'group' as const, destination: placeId ? channelPlaceId(iface, placeId) : null };
+  const person = personOf(iface, account);
+  if (person === null) return { iface, kind: 'group' as const, destination: null };
   const place = placeOf(iface, account);
-  return { iface, kind: 'dm' as const, person: personOf(iface, account), ...(filled(place) ? { place } : {}) };
+  return { iface, kind: 'dm' as const, person, ...(filled(place) ? { place } : {}) };
 }
 /** The context of the selfreflection's entry: `none` and the groups of every interface; no direct chat, nothing internal. */
 export const groupsContext = (): Context => ({ groups: true });

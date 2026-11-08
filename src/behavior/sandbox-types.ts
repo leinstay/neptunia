@@ -363,7 +363,7 @@ export type SandboxMemory = {
   placeOfChat?: (chat: { id: string }, iface?: string) => string | null;
   placeChainOf?: (placeId: string) => ReadonlyArray<PlaceChainLink>;
   accountOf?: (nativeId: string, iface?: string) => string;
-  personOfAccount?: (accountId: string) => string;
+  personOfAccount?: (accountId: string) => string | null;
 };
 
 /** What a sandbox turn reads of the world: the live prompts and config, the calibrator and the memory. */
