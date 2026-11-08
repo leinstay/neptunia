@@ -38,7 +38,7 @@ export type Refusal = {
   code: string;
   reason: string;
   choices?: ReadonlyArray<PlaceCandidate>;
-  place?: { match: PlaceChoices & { kind: 'several' | 'none' }; given: string };
+  place?: { match: PlaceChoices & { kind: 'several' | 'none' | 'found' }; given: string };
 };
 
 /** The member whose message led to a call. */

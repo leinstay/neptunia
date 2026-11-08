@@ -5,13 +5,15 @@
 // `indexedPlace` reads a name nothing of the snapshot holds through the name index of the memory
 // (src/memory/db/names.ts#placesNamed), so a place of any interface resolves to its place id. An answer that cannot be
 // one place carries the places she may read, and `placeChoicesText` renders them through `labels.tools.tools.place` so
-// she can call again. No I/O, no model-facing wording of its own.
+// she can call again. `foundPlaces` turns the places the memory graph ranks for words that name no place
+// (src/memory/db/graph-find.ts#placesFound) into such an answer, each with what it is for. No I/O, no model-facing
+// wording of its own.
 
 import { fill } from '../format.ts';
 import { objOf } from './types.ts';
 
-/** A place she may read: its id, its name and the handle of this request, when it has one. */
-export type PlaceCandidate = { id: string; name: string; handle: string | null };
+/** A place she may read: its id, its name, the handle of this request when it has one, and what it is for when known. */
+export type PlaceCandidate = { id: string; name: string; handle: string | null; about?: string | null };
 
 /** How many choices an answer lists at most; the rest is counted. */
 export const PLACE_CHOICES_MAX = 20;
@@ -19,7 +21,8 @@ export const PLACE_CHOICES_MAX = 20;
 /** The places an answer lists, and how many fit in all. */
 export type PlaceChoices = { choices: ReadonlyArray<PlaceCandidate>; total: number };
 
-export type PlaceMatch = { kind: 'one'; id: string } | ({ kind: 'several' | 'none' } & PlaceChoices);
+/** One place, several that share the name, none, or the places the memory graph found for words that name none. */
+export type PlaceMatch = { kind: 'one'; id: string } | ({ kind: 'several' | 'none' | 'found' } & PlaceChoices);
 
 /** The words of a name with case, accents and everything that is not a letter or a digit dropped. */
 function wordsOf(text: string): Array<string> {
@@ -93,20 +96,39 @@ export function indexedPlace(
     : { kind: 'several', choices: found.slice(0, max), total: found.length };
 }
 
+/**
+ * The places the memory graph ranked for `found`, best first, as an answer that names no place: `found` with them as
+ * the choices, each with the handle `handleOf` gives it and what it is for; null when the graph found none.
+ */
+export function foundPlaces(
+  found: ReadonlyArray<{ id: string; name: string; about: string | null }>,
+  handleOf: (id: string) => string | null,
+  max: number = PLACE_CHOICES_MAX
+): PlaceMatch | null {
+  if (found.length === 0) return null;
+  const choices = found.slice(0, max).map((place) => ({ ...place, handle: handleOf(place.id) }));
+  return { kind: 'found', choices, total: found.length };
+}
+
 /** What she writes to name a choice: its handle with the hash, else its id. */
 const refOf = (place: PlaceCandidate): string => (place.handle ? `#${place.handle}` : place.id);
 
 /**
- * The choices of an answer as the text of a tool result: the lead of `labels.tools.tools.place.several` or `.none`
- * (`{given}`, `{count}` the number of places that fit), one `.line` per choice (`{ref}`, the token to write, and
- * `{name}`), and `.more` (`{count}`) when some were left out. `given` is what she wrote. Reads the labels now.
+ * The choices of an answer as the text of a tool result: the lead of `labels.tools.tools.place.several`, `.none` or
+ * `.found` (`{given}`, `{count}` the number of places that fit), one `.line` per choice (`{ref}`, the token to write,
+ * and `{name}`), `.lineAbout` instead for a choice that says what it is for (`{about}` too), and `.more` (`{count}`)
+ * when some were left out. `given` is what she wrote. Reads the labels now.
  */
 export function placeChoicesText(match: PlaceMatch, labels: unknown, given: string): string {
   if (match.kind === 'one') return '';
   const words = objOf(objOf(objOf(objOf(labels).tools).tools).place);
   const word = (key: string): string => (typeof words[key] === 'string' ? words[key] : '');
   const lead = fill(word(match.kind), { given, count: match.total });
-  const lines = match.choices.map((place) => fill(word('line'), { ref: refOf(place), name: place.name }));
+  const lines = match.choices.map((place) =>
+    place.about && word('lineAbout')
+      ? fill(word('lineAbout'), { ref: refOf(place), name: place.name, about: place.about })
+      : fill(word('line'), { ref: refOf(place), name: place.name })
+  );
   const left = match.total - match.choices.length;
   const more = left > 0 ? fill(word('more'), { count: left }) : '';
   return [lead, ...lines, more].filter(Boolean).join('\n');

@@ -803,8 +803,15 @@
         "place": {
           "several": "\"{given}\" fits {count} places. Call again with one of these:",
           "none": "No place you can read is called \"{given}\". These are the places you can read:",
+          "found": "No place is called \"{given}\". By what you remember of them, these places fit it best, best first. Read the one that was meant. When you cannot tell which one was meant, ask which place by its name, never for an id or a link:",
           "line": "{name}, written as {ref}",
+          "lineAbout": "{name}, written as {ref}: {about}",
           "more": "{count} more places not shown."
+        },
+        "person": {
+          "found": "Nobody is called \"{given}\". By what you remember of them, these people fit it best, best first. Read the chat of the one that was meant. When you cannot tell which one was meant, ask which person by their name, never for an id or a link:",
+          "line": "{name}, written as {ref}",
+          "lineAbout": "{name}, written as {ref}: {about}"
         },
         "look": {
           "image": "Source: media.look, a closer look at {name} for the question \"{question}\":",

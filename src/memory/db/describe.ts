@@ -44,6 +44,8 @@ export const DRAFT_PURPOSE = 'description-draft';
 export const CHECK_PURPOSE = 'description-check';
 const EVIDENCE_MAX = 40;
 const SAMPLES_MAX = 8;
+// The latest lines a place review reads of the place and the places under it.
+const PLACE_LINES = 40;
 const SOURCES_PER_ITEM = 3;
 const SOURCE_CHARS = 200;
 
@@ -202,13 +204,46 @@ export type Gathered = {
   evidenceClaims: Array<unknown>;
   sourceIds: Array<unknown>;
   samples: Array<string>;
+  lines: Array<string>;
 };
+
+/**
+ * The latest lines of a place and of the places under it that the context reads, oldest first, her own marked with her
+ * name. A direct chat keeps what it is about in its lines more than in claims about the place.
+ */
+function placeLines(
+  db: Db,
+  subject: { kind: string; id: string },
+  readCtx: Context,
+  timezone: unknown,
+  selfName: string,
+  seen: Set<unknown>
+) {
+  if (subject.kind !== 'place') return [];
+  const scope = scopeWhere(readCtx, 's');
+  const rows = db
+    .prepare(
+      `WITH RECURSIVE under(id) AS (SELECT ? UNION SELECT p.id FROM places p JOIN under u ON p.parent_id = u.id)
+      SELECT s.id, s.kind, s.occurred_at, s.text FROM sources s JOIN under u ON u.id = s.place_id
+      WHERE s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND ${scope.sql}
+      ORDER BY s.occurred_at DESC, s.rowid DESC LIMIT ?`
+    )
+    .all(subject.id, ...scope.params, PLACE_LINES);
+  return rows.reverse().map((row) => {
+    seen.add(row.id);
+    const at = Date.parse(row.occurred_at as string);
+    const who = row.kind === 'said' && selfName ? `${selfName}: ` : '';
+    return `${Number.isFinite(at) ? stamp(at, timezone) : '?'}: ${who}${asText(row.text ?? '')
+      .replace(/\s+/g, ' ')
+      .slice(0, SOURCE_CHARS)}`;
+  });
+}
 
 export function gatherReview(
   db: Db,
   subject: { kind: string; id: string },
   field: unknown,
-  { config, readCtx }: { config: Config; readCtx: Context }
+  { config, readCtx, selfName = '' }: { config: Config; readCtx: Context; selfName?: string }
 ): Gathered {
   const scopeColumns = scopeOfContext(readCtx);
   const descriptionId = descriptionIdFor(db, subject, field, scopeColumns, {
@@ -293,6 +328,7 @@ export function gatherReview(
         .replace(/\s+/g, ' ')
         .slice(0, SOURCE_CHARS)}`
   );
+  const lines = placeLines(db, subject, readCtx, timezone, selfName, sourceIds);
   return {
     descriptionId,
     scope: scopeColumns,
@@ -305,6 +341,7 @@ export function gatherReview(
     evidenceClaims: [...evidenceClaims],
     sourceIds: [...sourceIds],
     samples,
+    lines,
   };
 }
 
@@ -384,14 +421,14 @@ export async function reviewDescription(
   const settings = sessionSettings(config);
   const cap = fieldCap(config, field);
   const selfName = ctx.selfName ?? '';
-  const gathered = gatherReview(db, subject, field, { config, readCtx });
+  const gathered = gatherReview(db, subject, field, { config, readCtx, selfName });
   const tokens = { prompt: 0, completion: 0 };
   const add = (completion: Completion): void => {
     tokens.prompt += Number(completion?.usage?.prompt_tokens) || 0;
     tokens.completion += Number(completion?.usage?.completion_tokens) || 0;
   };
 
-  // Call 1: the draft, from the claims and the evidence alone.
+  // Call 1: the draft, from the claims, the evidence and, for a place, its latest lines.
   const subjectBody = [
     `subject: ${subject.name ?? subject.id}`,
     `kind: ${subject.kind}`,
@@ -403,6 +440,7 @@ export async function reviewDescription(
     block('claims', gathered.claims.map(claimLine).join('\n')),
     block('evidence', gathered.evidence.join('\n')),
     block('samples', gathered.samples.join('\n')),
+    block('lines', gathered.lines.join('\n')),
   ]
     .filter(Boolean)
     .join('\n\n');

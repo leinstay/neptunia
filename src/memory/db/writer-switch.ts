@@ -39,7 +39,7 @@ import {
   sessionSettings,
 } from './session.ts';
 import { descriptionIdFor, scopeOfContext } from './describe.ts';
-import { dmContext, groupContext } from './scope.ts';
+import { audienceParts, dmContext, groupContext } from './scope.ts';
 import type { Context } from './scope.ts';
 import { SELF_PERSON } from './ids.ts';
 import { LEGACY_IFACE } from './legacy-namespace.ts';
@@ -168,6 +168,16 @@ export type OpenFlag = {
   readCtx: Context;
 };
 
+/**
+ * The context a flag's subject is read in: the group of its interface, or the DM its run swept. A partner who is a
+ * meta-person spells no place, so the DM comes from the audience of the run that raised the flag.
+ */
+function flagContext(scope: Row, run: Row | undefined): Context {
+  const iface = typeof scope.scope_iface === 'string' && scope.scope_iface ? scope.scope_iface : LEGACY_IFACE;
+  if (scope.scope_kind !== 'dm' || !scope.scope_dm) return groupContext(iface);
+  return dmContext(scope.scope_dm as string, iface, audienceParts(run?.audience_id)?.place_id ?? null);
+}
+
 export function openFlags(
   db: Db,
   config: Config,
@@ -182,6 +192,7 @@ export function openFlags(
   const reviewed = db.prepare(
     "SELECT 1 AS ok FROM description_versions WHERE description_id = ? AND origin = 'review' AND retired_at IS NULL AND written_at >= ? LIMIT 1"
   );
+  const runAudience = db.prepare('SELECT audience_id FROM session_runs WHERE id = ?');
   const seen = new Set<string>();
   const flags: Array<OpenFlag> = [];
   for (const row of rows) {
@@ -196,9 +207,7 @@ export function openFlags(
     )
       continue;
     const scope = (extra?.scope ?? {}) as Row;
-    const iface = typeof scope.scope_iface === 'string' && scope.scope_iface ? scope.scope_iface : LEGACY_IFACE;
-    const base =
-      scope.scope_kind === 'dm' && scope.scope_dm ? dmContext(scope.scope_dm as string, iface) : groupContext(iface);
+    const base = flagContext(scope, typeof extra?.run === 'string' ? runAudience.get(extra.run) : undefined);
     const readCtx: Context = audienceColumn ? { ...base, audienceColumn: true } : base;
     const subject = { kind: kind as string, id: kind === 'self' ? SELF_PERSON : op.subjectId };
     const key = descriptionIdFor(db, subject, op.field, scopeOfContext(readCtx), { audienceColumn });

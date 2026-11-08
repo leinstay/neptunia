@@ -153,7 +153,7 @@ export type ServiceTurnSpec = {
   seed?: ((service: ReturnType<typeof createIntentionService>) => void) | null;
   world?: World;
   /** Laid over `context.memory` of SERVICE_CONTEXT. */
-  settings?: { serviceMessages?: number };
+  settings?: { serviceMessages?: number; budgetTokens?: number };
   /** More interfaces the turn reaches, each answering the calls that name its `iface`. */
   adapters?: ReadonlyArray<Fake>;
 };

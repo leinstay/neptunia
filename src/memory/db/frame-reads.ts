@@ -5,6 +5,10 @@
 // read applies the turn's context (`whereFor`), so nothing a scope may not read leaves here. Read only.
 
 import { nativeOfAny } from './ids.ts';
+import { directChatsOf } from './direct-chats.ts';
+import type { DirectChats } from './direct-chats.ts';
+import { findSettingsOf, peopleFound, placesFound } from './graph-find.ts';
+import type { FoundPerson, FoundPlace } from './graph-find.ts';
 import { mindOf, mindSettingsOf } from './mind-read.ts';
 import type { Mind, Seeds } from './mind-read.ts';
 import { interfaceNouns, placesNamed } from './names.ts';
@@ -292,6 +296,12 @@ export type FrameReads = {
   selfreflection?(ctx: Context, limit: number): Array<PastEntry>;
   /** The live places a name she wrote names under the context, each once with its stored name (names.ts#placesNamed). */
   placesNamed?(ctx: Context, name: string): Array<{ id: string; name: string }>;
+  /** The places the memory graph ranks for words she wrote, best first (graph-find.ts#placesFound, `context.find`). */
+  placesFound?(ctx: Context, words: string): Array<FoundPlace>;
+  /** The people the memory graph ranks for words she wrote, best first (graph-find.ts#peopleFound, `context.find`). */
+  peopleFound?(ctx: Context, words: string): Array<FoundPerson>;
+  /** The direct chats of the person a reference names, newest first, or the people its words fit (direct-chats.ts). */
+  directChats?(ctx: Context, reference: string): DirectChats;
   /** Whether the context reads a stored place (placeReadableOf). */
   placeReadable?(ctx: Context, placeId: string): boolean;
   /** The id of every stored channel and thread (chatPlaceIdsOf). */
@@ -332,6 +342,10 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     sourceInPlace: (placeId, messageId) => over(null, (db) => sourceInPlace(db, placeId, messageId)),
     selfreflection: (ctx, limit) => over([], (db) => readSelfreflection(db, ctx, limit)),
     placesNamed: (ctx, name) => over([], (db) => placesNamed(db, ctx, name)),
+    placesFound: (ctx, words) => over([], (db) => placesFound(db, ctx, words, findSettingsOf(configOf()))),
+    peopleFound: (ctx, words) => over([], (db) => peopleFound(db, ctx, words, findSettingsOf(configOf()))),
+    directChats: (ctx, reference) =>
+      over<DirectChats>({ kind: 'none' }, (db) => directChatsOf(db, ctx, reference, findSettingsOf(configOf()))),
     placeReadable: (ctx, placeId) => over(false, (db) => placeReadableOf(db, ctx, placeId)),
     chatPlaceIds: () => over([], (db) => chatPlaceIdsOf(db)),
     ownerAccount: (placeId) => over(null, (db) => ownerAccountOfPlace(db, configOf(), placeId)),

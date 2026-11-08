@@ -98,7 +98,8 @@ function runner(overrides = {}) {
 test('registry: conversation.read is a read skill and an in-turn tool, with the options of the spec', () => {
   const skill = skillRegistry().get('conversation.read');
   assert.equal(loose(skill).kind, 'read');
-  // Slice 7: the tool argument `channel` is named `place`.
+  // Slice 7: the tool argument `channel` is named `place`. Meta-person fault 2: `person` names a direct chat, which
+  // has no place handle, so the spec's options gained it.
   assert.deepEqual(Object.keys(loose(skill).argsSchema.properties), [
     'place',
     'around',
@@ -106,6 +107,7 @@ test('registry: conversation.read is a read skill and an in-turn tool, with the 
     'after',
     'since',
     'last',
+    'person',
   ]);
   assert.equal(loose(skill).argsSchema.properties.last.maximum, 60);
   assert.ok(IN_TURN_TOOLS.includes('conversation.read'));

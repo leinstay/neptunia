@@ -524,3 +524,90 @@ test('apply: a mode the writer does not know is refused; a version moved meanwhi
     env.done();
   }
 });
+
+/** The user message of the first call a fake llm saw: the draft request. */
+function draftUserOf(calls: ReadonlyArray<unknown>): string {
+  const [first] = wrongly<Array<{ messages: Array<{ content: string }> }>>(calls);
+  const [, user] = first?.messages ?? [];
+  return user?.content ?? '';
+}
+
+/** A direct chat with no claims about it: its lines, one line of another direct chat and one of a group channel. */
+function chatFixture() {
+  const handle = openMemoryDb(':memory:');
+  const db = sqlOf(handle);
+  const meta = 'person:0b6f2c1e-0000-4000-8000-000000000002';
+  const line = (place: string, native: string, kind: string, at: string, text: string, audience: string) =>
+    db
+      .prepare(
+        `INSERT INTO sources (id, kind, iface, native_id, revision, place_id, author_account, occurred_at, text, direct, audience_id)
+        VALUES (?, ?, 'discord', ?, 1, ?, 'discord:n1', ?, ?, 1, ?)`
+      )
+      .run(messageSourceId('discord', native, 1, kind), kind, native, place, at, text, audience);
+  for (const [id, kind] of [
+    ['discord:dm:n1', 'dm'],
+    ['discord:dm:n2', 'dm'],
+    ['discord:channel:c1', 'channel'],
+  ])
+    db.prepare("INSERT INTO places (id, kind, iface) VALUES (?, ?, 'discord')").run(id, kind);
+  db.prepare(
+    "INSERT INTO audiences (id, kind, iface, place_id) VALUES ('aud:dm:discord:dm:n1', 'dm', 'discord', 'discord:dm:n1')"
+  ).run();
+  db.prepare(
+    "INSERT INTO audiences (id, kind, iface, place_id) VALUES ('aud:dm:discord:dm:n2', 'dm', 'discord', 'discord:dm:n2')"
+  ).run();
+  db.prepare("INSERT INTO audiences (id, kind, iface) VALUES ('aud:group:discord', 'group', 'discord')").run();
+  line(
+    'discord:dm:n1',
+    'm1',
+    'seen',
+    '2026-10-20T08:00:00.000Z',
+    'shall we test the drawing again',
+    'aud:dm:discord:dm:n1'
+  );
+  line('discord:dm:n1', 'm2', 'said', '2026-10-20T08:01:00.000Z', 'send me the photo first', 'aud:dm:discord:dm:n1');
+  line('discord:dm:n2', 'm3', 'seen', '2026-10-20T09:00:00.000Z', 'a secret of the other chat', 'aud:dm:discord:dm:n2');
+  line(
+    'discord:channel:c1',
+    'm4',
+    'seen',
+    '2026-10-20T10:00:00.000Z',
+    'a line of the public room',
+    'aud:group:discord'
+  );
+  const readCtx = { ...dmContext(meta, 'discord', 'discord:dm:n1'), audienceColumn: true };
+  return { handle, db, readCtx, done: () => handle.close() };
+}
+
+test('a direct chat with no claims about it is reviewed from its own lines', async () => {
+  const env = fixture();
+  const chat = chatFixture();
+  try {
+    const llm = fakeLlm(answer('We test drawings here.', 'from the lines'), answer('We test drawings here.', 'kept'));
+    await reviewDescription(wrongly(chat.db), { kind: 'place', id: 'discord:dm:n1' }, 'purpose', {
+      ctx: wrongly({ ...ctxOf(env, wrongly({ llm })), readCtx: chat.readCtx }),
+    });
+    const draftUser = draftUserOf(llm.calls);
+    assert.match(draftUser, /2026-10-20 08:00: shall we test the drawing again/);
+    assert.match(draftUser, /2026-10-20 08:01: Nep: send me the photo first/);
+  } finally {
+    chat.done();
+    env.done();
+  }
+});
+
+test('a direct chat review reads no line of another chat', async () => {
+  const env = fixture();
+  const chat = chatFixture();
+  try {
+    const llm = fakeLlm(answer('We test drawings here.', 'from the lines'), answer('We test drawings here.', 'kept'));
+    await reviewDescription(wrongly(chat.db), { kind: 'place', id: 'discord:dm:n1' }, 'purpose', {
+      ctx: wrongly({ ...ctxOf(env, wrongly({ llm })), readCtx: chat.readCtx }),
+    });
+    const draftUser = draftUserOf(llm.calls);
+    assert.doesNotMatch(draftUser, /secret of the other chat|public room/);
+  } finally {
+    chat.done();
+    env.done();
+  }
+});

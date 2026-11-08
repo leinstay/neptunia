@@ -74,6 +74,8 @@ export type SkillCallsContext = {
   stemmer?: () => { stem: (word: string) => string } | null;
   /** The name index of the memory under a turn's context: the live places a name names (names.ts#placesNamed). */
   placesNamedFor?: (draft: CallsDraft | null, channel: CallChannel) => CallView['placesNamed'];
+  /** The memory graph under a turn's context: the places it ranks for words that name no place (graph-find.ts#placesFound). */
+  placesFoundFor?: (draft: CallsDraft | null, channel: CallChannel) => CallView['placesFound'];
   /** The place ids of the memory's channels and threads on every interface, read at the moment of use; none while it is closed. */
   knownPlaces?: () => ReadonlyArray<string>;
   skills: SkillMap | null;
@@ -324,6 +326,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     store,
     stemmer = () => null,
     placesNamedFor = () => null,
+    placesFoundFor = () => null,
     knownPlaces = () => [],
     skills,
     selfIdOf,
@@ -429,6 +432,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       config: hot.config,
       stem: stemmer?.()?.stem ?? null,
       placesNamed: placesNamedFor(draft, channel) ?? null,
+      placesFound: placesFoundFor(draft, channel) ?? null,
       knownPlaces: knownPlaces(),
     });
   }

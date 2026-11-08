@@ -175,6 +175,10 @@
         "about": 30
       }
     },
+    "find": {
+      "candidates": 5,
+      "lines": 100
+    },
     "meanwhile": {
       "messages": 8,
       "around": 2
