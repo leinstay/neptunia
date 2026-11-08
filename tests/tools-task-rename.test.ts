@@ -4,7 +4,7 @@
 // old name keeps the tool.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SKILL_DEFINITIONS, API_NAMES } from '../src/tools/definitions.ts';
+import { SKILL_DEFINITIONS, apiNameOf } from '../src/tools/definitions.ts';
 import { moveConfigKeys } from '../src/config-moves.ts';
 import { grantedToPersona } from '../src/tools/access.ts';
 
@@ -24,17 +24,18 @@ test('the definitions hold the six board tools under task.* and none under board
 
 test('the tool-calling names are task_<verb> for the six tools and no board name remains', () => {
   // Catches: the provider still gets board_propose while the registry says task.propose, so the call maps to nothing.
-  for (const verb of VERBS) assert.equal(API_NAMES[`task.${verb}`], `task_${verb}`);
+  // Changed: the API names are read through apiNameOf and the definitions' `api`, the one place they are worked out.
+  for (const verb of VERBS) assert.equal(apiNameOf(`task.${verb}`), `task_${verb}`);
   assert.deepEqual(
-    Object.keys(API_NAMES).filter((name) => name.startsWith('board.')),
+    SKILL_DEFINITIONS.filter((entry) => entry.api.startsWith('board_')).map((entry) => entry.name),
     []
   );
 });
 
 test('the errand tools keep their names', () => {
   // Catches: the rename sweeps errand.run into task.run and clashes with the board verbs.
-  assert.equal(API_NAMES['errand.run'], 'errand_run');
-  assert.equal(API_NAMES['errand.status'], 'errand_status');
+  assert.equal(apiNameOf('errand.run'), 'errand_run');
+  assert.equal(apiNameOf('errand.status'), 'errand_status');
 });
 
 test('a live grant on board.propose moves to task.propose and still grants it to her', () => {

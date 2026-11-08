@@ -57,8 +57,8 @@ export const INNER_DEFAULTS = Object.freeze({
 
 /** The skills that post where people read: the trait `posts` of their definitions. */
 export const POSTING_SKILLS = toolsWith('posts');
-/** The calls that deliver something out of an inner turn: a post, a picture, an errand. */
-export const DELIVERY_SKILLS = Object.freeze(['message.create', 'draw.create', 'voice.say', 'errand.run']);
+/** The calls that deliver something out of an inner turn: the posting skills and an errand. */
+export const DELIVERY_SKILLS = Object.freeze([...POSTING_SKILLS, 'errand.run']);
 /** The kinds of feedback facts, as `labels.wake.feedback.<kind>` names them. */
 export const FEEDBACK_KINDS = Object.freeze([
   'callFailed',
