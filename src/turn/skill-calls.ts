@@ -134,7 +134,7 @@ const OWN_MESSAGE_SKILLS: ReadonlyArray<string> = [
 /** The skills whose `text` is stored as a record of hers: an intention made or changed. */
 const STORED_TEXT_SKILLS: ReadonlyArray<string> = ['intention.set', 'intention.update'];
 
-/** Whether a message argument is `last`, her own most recent message (any case, as src/tools/impl/message.ts reads it). */
+/** Whether a message argument is `last`, her own most recent message (any case, as src/tools/operations/message.ts reads it). */
 const isLast = (value: unknown): boolean => typeof value === 'string' && value.trim().toLowerCase() === 'last';
 
 /** One call of an inner turn as its action record keeps it. */
@@ -232,7 +232,7 @@ type CallAnswer = CallResult & {
   note?: string;
 };
 
-/** The operation a skill entry of the tools array runs (src/tools/impl/skill.ts#cmdRead). */
+/** The operation a skill entry of the tools array runs (src/tools/operations/skill.ts#cmdRead). */
 const READ_SKILL = 'skill.read';
 
 /** The skill a call reads when it is a `skill.read` of a skill the tools array offered, else null. */
@@ -1014,7 +1014,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
 
   /**
    * The intention one call of an inner turn names: `args.id` of `intention.update` / `intention.cancel`,
-   * or its body (`args.text`) when that is the id alone (src/tools/impl/intention.ts takes it the same way);
+   * or its body (`args.text`) when that is the id alone (src/tools/operations/intention.ts takes it the same way);
    * null for any other call.
    */
   function intentionNamed(skill: string, args: Obj | null | undefined): string | null {

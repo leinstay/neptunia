@@ -1339,7 +1339,7 @@ export function createRecall({
       if (trace) trace.meaning = meaningTrace;
     }
 
-    // The time of each step, for `recall: searched` (src/tools/impl/metrics.ts reads them off the log).
+    // The time of each step, for `recall: searched` (src/tools/operations/metrics.ts reads them off the log).
     const took = { memoryMs: 0, recordMs: 0, searchMs: 0 };
     let stepAt = now();
     // 0. Stored memory (the archive included): no request, before the first search request so it always fits the budget.

@@ -1,11 +1,11 @@
-// messageRefOf (src/tools/impl/shared.ts): the message an operation's argument names, a bare id or a link a person
+// messageRefOf (src/tools/operations/shared.ts): the message an operation's argument names, a bare id or a link a person
 // pasted. A link is read by the interface (`parseLinks`, the wire action `links.parse`), so the core holds no platform
 // address grammar. The fake adapter writes and reads message addresses as `https://discord.com/channels/...` shaped
 // templates, so the links below are the ones it would hand out.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rig } from './fixtures/reads-rig.ts';
-import { messageRefOf } from '../src/tools/impl/shared.ts';
+import { messageRefOf } from '../src/tools/operations/shared.ts';
 
 const ROOT_LINK = 'https://discord.com/channels/g1/c42/m77';
 const DIRECT_LINK = 'https://discord.com/channels/@me/dm9/m5';

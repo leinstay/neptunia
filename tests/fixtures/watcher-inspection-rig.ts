@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { BoardOp, BoardResults, TaskRecord } from '../../src/board/board.ts';
 import { BoardError } from '../../src/board/machine.ts';
-import type { BoardCaller } from '../../src/tools/impl/board.ts';
+import type { BoardCaller } from '../../src/tools/operations/board.ts';
 import type { InspectionAgentResult, InspectionDeps } from '../../src/watcher/inspection.ts';
 import type { ProcessIdentity, RunStore } from '../../src/watcher/lifecycle.ts';
 import { tempDir } from './tmp.ts';

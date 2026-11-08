@@ -12,7 +12,7 @@ import { observe } from '../src/memory/db/observe.ts';
 import { accountNodeOf } from '../src/memory/db/person-links.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { nativeAuthorityOf } from '../src/protocol/identity.ts';
-import { isOwnerId } from '../src/tools/impl/grants.ts';
+import { isOwnerId } from '../src/tools/operations/grants.ts';
 import {
   mention,
   query,

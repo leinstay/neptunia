@@ -34,7 +34,7 @@ export const WEB: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'web.quickSearch.enabled',
     'types': ['boolean'],
-    'reader': 'src/tools/impl/status.ts',
+    'reader': 'src/tools/operations/status.ts',
     'default': true,
     'text': 'Whether quick search may run once an engine is chosen. `web.read` does not depend on it',
   },

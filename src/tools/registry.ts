@@ -1,5 +1,5 @@
 // The persona's skills: one catalogue, defined by a table of their own (src/tools/definitions.ts).
-// Every registered operation (src/tools/impl/registry.ts) is a skill of the same name -- the vocabulary
+// Every registered operation (src/tools/operations/registry.ts) is a skill of the same name -- the vocabulary
 // `/nep access grant` uses for people -- its arguments the table's `params`, its `kind` and
 // `ownerOnly` the operation's. No skill exists without an operation behind it; nothing here reads
 // the owner's slash commands. Every skill is closed until the owner grants it to her
@@ -9,14 +9,14 @@
 // prompts layer, `hot.prompts.tools`), never here: `describeSkill` joins the two at the moment of
 // use, and a skill without texts is shown by its name alone.
 
-import { getOp as registryGetOp } from './impl/registry.ts';
-import { EFFECT_CLASSES } from './impl/effects.ts';
+import { getOp as registryGetOp } from './operations/registry.ts';
+import { EFFECT_CLASSES } from './operations/effects.ts';
 import { SKILL_DEFINITIONS, validateDefinitions, optionsOfDefinition } from './definitions.ts';
 import type { Definition, Given } from './definitions.ts';
 import { isObj, objOf } from './types.ts';
 import type { DescribedSkill, Obj, Rights, Skill, SkillMap } from './types.ts';
 
-/** What a skill does to the world, one value per skill: its operation's effect class (src/tools/impl/effects.ts). */
+/** What a skill does to the world, one value per skill: its operation's effect class (src/tools/operations/effects.ts). */
 export const EFFECTS = EFFECT_CLASSES;
 
 /** `free`, or `paid`: spends balance and needs a budget (src/tools/gateway.ts). */
@@ -26,7 +26,7 @@ export const COST_CLASSES: ReadonlyArray<string> = Object.freeze(['free', 'paid'
  * Whose things a skill may touch: `self-messages` (only the persona's own messages, in a
  * chat she may act in), `allowed-chats` (the current chat or a text
  * channel of the served place where the bot holds the platform permissions the operation needs,
- * src/tools/impl/shared.ts#postingChat), `any`, or null (no target).
+ * src/tools/operations/shared.ts#postingChat), `any`, or null (no target).
  */
 export const TARGETS: ReadonlyArray<string | null> = Object.freeze(['self-messages', 'allowed-chats', 'any', null]);
 
@@ -147,8 +147,8 @@ export function definitionsOf(table: ReadonlyArray<unknown> = SKILL_DEFINITIONS)
 /**
  * The whole registry: one skill per entry of the skills table (src/tools/definitions.ts), in
  * order. Throws like loadSkills. With `registered` true only the entries whose operation is
- * registered (src/tools/impl/registry.ts) are taken, as the live registry has always held only the
- * operations that exist: a process that never loaded src/tools/impl/index.ts has none.
+ * registered (src/tools/operations/registry.ts) are taken, as the live registry has always held only the
+ * operations that exist: a process that never loaded src/tools/operations/index.ts has none.
  */
 export function buildSkills({
   table = SKILL_DEFINITIONS,
@@ -180,7 +180,7 @@ export function skillRegistry(): SkillMap {
 
 /**
  * The names of the table's entries that have no skill in `registry`: an entry whose operation is
- * not registered (src/tools/impl/registry.ts) is left out of the live registry, so the start reports it
+ * not registered (src/tools/operations/registry.ts) is left out of the live registry, so the start reports it
  * (src/index.ts) instead of the persona silently lacking a skill.
  */
 export function missingDefinitions(

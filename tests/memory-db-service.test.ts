@@ -9,7 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createMemoryDb, turnReadRows } from '../src/memory/db/service.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { memoryDbStatusLine } from '../src/tools/impl/status.ts';
+import { memoryDbStatusLine } from '../src/tools/operations/status.ts';
 import { CHANNEL, GUILD, HOT_ITEM, MEMBER, buildDataDir, guildDir } from './fixtures/memory-db/datadir.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 

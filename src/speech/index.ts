@@ -1,7 +1,7 @@
 // The persona's voice messages: one `say` runs the whole pipeline -- the preparation pass
 // (src/speech/prepare.ts), the synthesis (synth.ts) and the conversion to a voice note
 // (convert.ts). Posting is the caller's
-// (src/tools/impl/voice.ts): this module makes the file and says what it cost.
+// (src/tools/operations/voice.ts): this module makes the file and says what it cost.
 //
 // Settings and prompts are read at the moment of use. Logs carry codes and counts, never the text.
 

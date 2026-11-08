@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { BoardRefusal } from '../src/board/machine.ts';
-import type { BoardCaller } from '../src/tools/impl/board.ts';
+import type { BoardCaller } from '../src/tools/operations/board.ts';
 import { readReport } from '../src/watcher/read.ts';
 import {
   DAY,

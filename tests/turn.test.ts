@@ -30,7 +30,7 @@ import { DailyCapError, TokenLimitError } from '../src/llm/openrouter.ts';
 import { findGif } from '../src/memory/gifs.ts';
 import { callMarksOf, createJournal } from '../src/memory/journal.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { loadSkills, skillRegistry } from '../src/tools/registry.ts';
 import { createAdmin } from '../src/admin.ts';
 import { createDiscordAdapter, createDiscordInterface } from '../interfaces/discord/index.ts';

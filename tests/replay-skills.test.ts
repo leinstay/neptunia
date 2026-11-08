@@ -10,8 +10,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import '../src/tools/impl/index.ts';
-import { expandPersonaGrant } from '../src/tools/impl/access.ts';
+import '../src/tools/operations/index.ts';
+import { expandPersonaGrant } from '../src/tools/operations/access.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { NOT_GRANTABLE_TO_PERSONA } from '../src/tools/access.ts';
 import { callViewOf, requesterOf } from '../src/behavior/turn.ts';

@@ -14,7 +14,7 @@ import type { ProxyCommandDeps } from '../src/interface/commands/proxy.ts';
 import { parseCommandLine, takesSecretStdin } from '../src/interface/commands/table.ts';
 import { serviceCredential } from '../src/keys/file.ts';
 import { subharnessPlace, writeHarnessCurlrc } from '../src/subharness/place.ts';
-import { readLocalConfig } from '../src/tools/impl/shared.ts';
+import { readLocalConfig } from '../src/tools/operations/shared.ts';
 import { scriptedDialog } from './fixtures/keys-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
 

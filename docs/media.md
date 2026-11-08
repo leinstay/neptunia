@@ -28,4 +28,4 @@ Deep search is an errand for the scout, which searches with its harness's own to
 
 When only deep search is available, the persona can use it directly. When both are available, the model chooses the appropriate tool and can follow an unhelpful quick result with deeper work. See [keys](keys.md#quick-search) for routing and [errands](errands.md) for the scout.
 
-Implementation entry points are [src/media/](../src/media/), [src/tools/impl/](../src/tools/impl/) and [src/memory/db/](../src/memory/db/).
+Implementation entry points are [src/media/](../src/media/), [src/tools/operations/](../src/tools/operations/) and [src/memory/db/](../src/memory/db/).

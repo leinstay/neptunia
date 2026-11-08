@@ -10,7 +10,7 @@ import { createSubscriptionClient } from '../src/subharness/subscription-client.
 import type { SubscriptionChild, SubscriptionProcess } from '../src/subharness/subscription-client.ts';
 import { createToolBridge } from '../src/subharness/tool-bridge.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { appendStep } from '../src/behavior/tool-step.ts';
 import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { buildSkills } from '../src/tools/registry.ts';
@@ -18,7 +18,7 @@ import { normalizeCalls } from '../src/tools/tool-calls.ts';
 import { parseOutput } from '../src/llm/parse.ts';
 import { DailyCapError, TokenLimitError, countLlmRequest, errorCodeOf } from '../src/llm/openrouter.ts';
 import type { CompleteResult } from '../src/llm/openrouter.ts';
-import type { UsageEntry } from '../src/tools/impl/usage.ts';
+import type { UsageEntry } from '../src/tools/operations/usage.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
 import type { KeysFile } from './fixtures/keys-file.ts';
 import { fakeVendor } from './fixtures/fake-vendor.ts';

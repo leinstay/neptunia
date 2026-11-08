@@ -12,7 +12,7 @@
 
 import { SELF } from '../board/fields.ts';
 import { BoardError } from '../board/machine.ts';
-import type { BoardCaller } from '../tools/impl/board.ts';
+import type { BoardCaller } from '../tools/operations/board.ts';
 import { SKILL_NAME } from './format.ts';
 import type { SkillsAccess } from './port.ts';
 

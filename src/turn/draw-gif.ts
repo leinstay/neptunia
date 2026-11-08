@@ -23,7 +23,7 @@ import type { GifForm } from '../media/gif-post.ts';
 import type { ChatInfo, ChatRef, MessageRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import { refusalStatus } from '../tools/executors.ts';
-import { messageRefOf, postingChat } from '../tools/impl/shared.ts';
+import { messageRefOf, postingChat } from '../tools/operations/shared.ts';
 import { NO_OP, closeResult, portError, postedOf } from './journal.ts';
 import type { JournalOp, PortResult } from './journal.ts';
 import { sendArgs, withLink } from './targets.ts';
@@ -220,7 +220,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    * picture through makePicture, the scene verbatim, with the local time, then one upload through the port. It posts
    * where `message.create` would: the channel she names, else the replied message's (a link names it; a channel and a
    * reply that disagree are refused `unknown-message`), else this one, checked before anything is generated, on `model`
-   * (the core model's id when its route moved it, else null) (src/tools/impl/shared.ts#postingChat, `attach`).
+   * (the core model's id when its route moved it, else null) (src/tools/operations/shared.ts#postingChat, `attach`).
    * A reply quotes the message in that channel. The picture is charged to the asking member's rail when the turn was
    * asked (askedFor), to nobody's otherwise. Every failure is a result she reads, never a limit notice: an image cap is
    * `image-cap-daily` or `image-cap-user-daily`, a generation failure `image-moderation`, `image-timeout` or
@@ -366,7 +366,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
         data: none,
       };
     } catch (err) {
-      // A thrown value is anything; an operation's refusal (src/tools/impl/shared.ts, OpError) carries its result.
+      // A thrown value is anything; an operation's refusal (src/tools/operations/shared.ts, OpError) carries its result.
       const opError = err as { name?: unknown; status: string; code: string } | null;
       if (opError?.name === 'OpError') return failed(opError.status, opError.code);
       log.warn('turn: draw error', { channel: channel.id, error: err });

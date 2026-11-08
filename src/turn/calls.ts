@@ -101,7 +101,7 @@ type ViewStore = {
  * What a `<call>` of the persona is resolved against (src/tools/executors.ts#resolveCall), read
  * now: the turn's channel as the current chat, the channels she can name (the chats of the
  * turn's `snapshot`, then the stored channel notes, the turn's own channel; where she may act is the
- * operation's rule, src/tools/impl/shared.ts#postingChat), this turn's transcript numbers (`idByIndex`;
+ * operation's rule, src/tools/operations/shared.ts#postingChat), this turn's transcript numbers (`idByIndex`;
  * a pulled line lives in its own channel, `pulledIds`; its author from `lines`), the stored
  * profiles (only with memory on), her own id (`selfId`), the root's groups, the request's channel
  * handles (`channelHandles`: handle -> channel id, a `#handle` resolved exactly before any name), the request's

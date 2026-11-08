@@ -1,4 +1,4 @@
-// Her task tools (src/tools/impl/board.ts): `task.propose` files a dev task on the board as `proposed`, with her
+// Her task tools (src/tools/operations/board.ts): `task.propose` files a dev task on the board as `proposed`, with her
 // evidence as its description and `persona:self` as its requester, and `task.status` reads back the tasks filed for
 // her with their questions and reviews. The core's board runs her calls as the builtin principal `persona`, whose
 // only board role is `persona` whatever clients.json says, so she never approves, reviews or merges. Neither tool is
@@ -14,8 +14,8 @@ import { openBoard } from '../src/board/board.ts';
 import type { Board, BoardSettings, Handoff, TaskRecord } from '../src/board/board.ts';
 import { BoardError } from '../src/board/machine.ts';
 import type { BoardDb } from '../src/board/schema.ts';
-import { runOp } from '../src/tools/impl/index.ts';
-import { createOpsEnv } from '../src/tools/impl/env.ts';
+import { runOp } from '../src/tools/operations/index.ts';
+import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { grantedToPersona } from '../src/tools/access.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';

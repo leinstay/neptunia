@@ -13,7 +13,7 @@ import { DAY_MS, utcDay } from '../time.ts';
 import type { Landed } from '../selfimprovement/landed.ts';
 import type { WatcherNews } from '../watcher/news.ts';
 import type { TaskRecord } from '../board/board.ts';
-import type { BoardCaller } from '../tools/impl/board.ts';
+import type { BoardCaller } from '../tools/operations/board.ts';
 import { isFiniteNumber, isObj, listOf, objOf } from '../tools/types.ts';
 import type { UseCounts } from '../memory/db/skills.ts';
 

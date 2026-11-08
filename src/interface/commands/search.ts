@@ -7,7 +7,7 @@
 import { readConfig } from '../../config.ts';
 import { localConfigPath } from '../../config/files.ts';
 import { searchModel } from '../../llm/roles.ts';
-import { readLocalConfig, setPath, writeLocalConfig } from '../../tools/impl/shared.ts';
+import { readLocalConfig, setPath, writeLocalConfig } from '../../tools/operations/shared.ts';
 import { objOf } from '../../tools/types.ts';
 
 const ENGINES: ReadonlyArray<string> = ['openrouter', 'brave', 'exa'];

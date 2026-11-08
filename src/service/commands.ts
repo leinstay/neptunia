@@ -13,7 +13,7 @@ import { sourceProblem, sourceState } from '../subharness/sources.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { nextWindowStart } from '../behavior/selfreflection.ts';
 import { innerSettings } from '../behavior/inner/settings.ts';
-import { setPath } from '../tools/impl/shared.ts';
+import { setPath } from '../tools/operations/shared.ts';
 import { objOf } from '../tools/types.ts';
 import { reportDays, reportsDirOf, watcherDir } from '../watcher/read.ts';
 import { watcherSettings } from '../watcher/settings.ts';

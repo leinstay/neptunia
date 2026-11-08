@@ -11,7 +11,7 @@ import { selfreflectionPlanFormat } from '../src/behavior/selfreflection.ts';
 import { labels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { completionOf } from './fixtures/tool-answers.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { onWorld, useIface, useSelf, world } from './fixtures/turn-world.ts';
 import type { Channel } from './fixtures/turn-world.ts';
 

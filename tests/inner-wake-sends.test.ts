@@ -24,7 +24,7 @@ import type { WakeQueueUpdate } from '../src/memory/db/wake-queue.ts';
 import { notOk } from '../src/interface/port.ts';
 import { CODE } from '../src/tools/codes.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';

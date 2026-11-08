@@ -16,7 +16,7 @@ import { readConfig } from '../src/config.ts';
 import { moveConfigKeys } from '../src/config-moves.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
 import { localConfigPath } from '../src/config/files.ts';
-import { readLocalConfig } from '../src/tools/impl/shared.ts';
+import { readLocalConfig } from '../src/tools/operations/shared.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { sourceFiles, readSource, ROOT } from './fixtures/source-tree.ts';

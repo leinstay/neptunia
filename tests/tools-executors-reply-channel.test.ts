@@ -5,7 +5,7 @@
 // send, because the refusal only matters if no message goes out.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { outcomeDetail, refusalStatus, resolveCall } from '../src/tools/executors.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { labels } from './fixtures/labels.ts';

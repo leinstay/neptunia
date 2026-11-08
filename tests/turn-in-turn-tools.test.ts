@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { createInTurnTools, type InTurnDraft } from '../src/turn/in-turn-tools.ts';
 import { callViewOf, searchHandles } from '../src/turn/calls.ts';
 import { memorySearchText } from '../src/tools/tools.ts';

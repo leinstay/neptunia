@@ -1,5 +1,5 @@
 // The persona's skills, defined by a table of their own: one entry per operation of the ops
-// registry (src/tools/impl/registry.ts), in the registry's order (that order drives the skills index,
+// registry (src/tools/operations/registry.ts), in the registry's order (that order drives the skills index,
 // the family listing and the expansion of `*` in a grant). An entry holds what she sees (`name`,
 // `params`, the JSON Schema of her arguments), how a call reaches the operation (`op`, `body`,
 // `toArgs`), and what the operation costs and changes (`effects`, `costClass`, `result`). Nothing here reads the owner's slash commands; `toArgs` maps her arguments to the
@@ -7,7 +7,7 @@
 
 import { idText, isObj, objOf } from './types.ts';
 import type { Obj } from './types.ts';
-import type { EffectClass } from './impl/effects.ts';
+import type { EffectClass } from './operations/effects.ts';
 
 const STRING_MAX = 6000;
 const API_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -107,9 +107,9 @@ export function flag(value: unknown): boolean | null {
 const opt = (given: Given, name: string): unknown => val(given, name) ?? undefined;
 
 /**
- * The arguments of each `intention.*` skill: only the fields its operation reads (src/tools/impl/intention.ts).
+ * The arguments of each `intention.*` skill: only the fields its operation reads (src/tools/operations/intention.ts).
  * `set` takes a new intention or attention; `update` the fields of an open one (`reason` goes with
- * `state: dropped`; nothing is required, since the id may also be the bare text, src/tools/impl/intention.ts#idOf);
+ * `state: dropped`; nothing is required, since the id may also be the bare text, src/tools/operations/intention.ts#idOf);
  * `cancel` the id alone; `list` nothing.
  */
 export const INTENT_PARAMS = Object.freeze({

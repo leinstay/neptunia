@@ -12,8 +12,8 @@ import type { ChildOutcome, ChildRun, MemoryWriterDeps } from '../src/subharness
 import type { SubharnessMemoryPath } from '../src/subharness/memory-path.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
 import { sweep } from '../src/memory/db/session.ts';
-import { createUsage } from '../src/tools/impl/usage.ts';
-import type { UsageEntry } from '../src/tools/impl/usage.ts';
+import { createUsage } from '../src/tools/operations/usage.ts';
+import type { UsageEntry } from '../src/tools/operations/usage.ts';
 import { baseConfig, chat, ctxOf, fakeLlm, fixture, memoryBlock } from './fixtures/memory-db/session-rig.ts';
 import type { LlmCall } from './fixtures/memory-db/session-shapes.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';

@@ -12,7 +12,7 @@ import { SKILL_USE_KINDS, listSkills, useCountsBySkill } from '../memory/db/skil
 import type { SkillUse, SkillsUpdate, UseCounts } from '../memory/db/skills.ts';
 import { apiNameOf } from '../tools/definitions.ts';
 import { grantedSkillNames } from '../tools/discovery.ts';
-import type { BoardCaller } from '../tools/impl/board.ts';
+import type { BoardCaller } from '../tools/operations/board.ts';
 import { skillRegistry } from '../tools/registry.ts';
 import { createSkillsClient } from './client.ts';
 import type { ActiveSkill } from './index-block.ts';

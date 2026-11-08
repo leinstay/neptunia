@@ -19,7 +19,7 @@ import { readLabels } from '../hot.ts';
 import { checkRepository, repositoryLine, repositoryOfRemote } from '../selfimprovement/repository.ts';
 import type { GhAnswer, GhRunner } from '../selfimprovement/repository.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
-import { readLocalConfig, setPath, writeLocalConfig } from '../tools/impl/shared.ts';
+import { readLocalConfig, setPath, writeLocalConfig } from '../tools/operations/shared.ts';
 import { whyFailed } from './install.ts';
 import type { RunResult } from './install.ts';
 import { selfimprovementStep } from './selfimprovement.ts';

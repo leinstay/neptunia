@@ -23,7 +23,7 @@ import {
   sequenceLlm,
 } from './fixtures/turn-harness.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 const ROOT = 'g1';

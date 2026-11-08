@@ -90,7 +90,7 @@ The missed-answer registry in `src/behavior/missed.ts` covers every group place 
 
 A tool names where it acts by its argument `place`, the same word on every interface and for a service with none. She writes a handle of `<memory>` or `<meanwhile>`, a place id of any interface, or a name. `resolveCall` in `src/tools/executors.ts` matches a name among the places of the turn's snapshot first and then in the name index of the memory, read by `placesNamed` in `src/memory/db/names.ts` under the turn's context. A stored name or alias of a place on another interface therefore resolves to its place id.
 
-A handle to read a place and a way to write there are two facts. `conversation.read` of a place outside the turn's snapshot reads the stored lines the turn's context may read and the interface's own history through the router, so a room that is gone keeps its read. A write asks the place's interface. `postingRef` in `src/tools/impl/shared.ts` refuses a room whose `chatInfo` grants no `send` with `channel-no-permission`, and a post to a direct chat while `dm.enabled` is false with `dm-disabled`.
+A handle to read a place and a way to write there are two facts. `conversation.read` of a place outside the turn's snapshot reads the stored lines the turn's context may read and the interface's own history through the router, so a room that is gone keeps its read. A write asks the place's interface. `postingRef` in `src/tools/operations/shared.ts` refuses a room whose `chatInfo` grants no `send` with `channel-no-permission`, and a post to a direct chat while `dm.enabled` is false with `dm-disabled`.
 
 ## Boundaries
 

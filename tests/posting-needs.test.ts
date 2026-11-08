@@ -1,4 +1,4 @@
-// postingChat (src/tools/impl/shared.ts): where an operation that acts as the persona may post. The chat
+// postingChat (src/tools/operations/shared.ts): where an operation that acts as the persona may post. The chat
 // comes from the interface's chat info (`reads.chatInfo`), and what she may do there from its
 // `permissions` (read, send, attach, react). The current chat passes as it is; any other, of any root,
 // must not be a private chat while private chats are off, and must grant the permissions the need names: `send` needs send,
@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Permissions } from '../src/protocol/adapter.ts';
 import { ROOT, IFACE, channel, rig } from './fixtures/reads-rig.ts';
-import { postingChat } from '../src/tools/impl/shared.ts';
+import { postingChat } from '../src/tools/operations/shared.ts';
 
 type Need = 'send' | 'reply' | 'attach' | 'read' | 'react';
 /** The permissions each need requires, as the keys that must all be true. */

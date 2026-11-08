@@ -7,7 +7,7 @@
 // here the list is given.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { resolveCall } from '../src/tools/executors.ts';
 import { PLACE_CHOICES_MAX, matchPlace, placeChoicesText, type PlaceCandidate } from '../src/tools/place-names.ts';
 import { skillRegistry } from '../src/tools/registry.ts';

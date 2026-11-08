@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PermissionFlagsBits } from 'discord.js';
 
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { createAdmin } from '../src/admin.ts';
 import { toolResultText } from '../src/tools/tool-calls.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
@@ -1326,7 +1326,7 @@ test("resolveCall: message.create media= takes a #N or a link of her own message
   const ok = resolve('message.create', { media: '#2', place: '#νέα' }, 'ξανά', PICS);
   assert.deepEqual(
     [ok.ok, ok.args.place, ok.args.text, ok.args.media],
-    // The core's own form of a message in a chat (src/tools/impl/shared.ts#messageRefOf reads it).
+    // The core's own form of a message in a chat (src/tools/operations/shared.ts#messageRefOf reads it).
     [true, NEWS, 'ξανά', 'ref:555/1002'],
     'its channel is only where to fetch from, never the target'
   );

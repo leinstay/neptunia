@@ -1,9 +1,9 @@
-// The owner operation over the private view (src/tools/impl/memory.ts), by person or by place, on a core with no root:
+// The owner operation over the private view (src/tools/operations/memory.ts), by person or by place, on a core with no root:
 // it reads `privateByPerson` and `privateByPlace` through the memory service and needs no root.
 // Contract, plan 2026-11-04-cli-and-memory task 5:
 //   runOp('memory.private.read', { person: personId } | { place: placeId }, context)
 //   memoryDb.privateByPerson(personId, context), memoryDb.privateByPlace(placeId, context)
-// Appendix entries: src/tools/impl/memory.ts, src/tools/impl/env.ts, src/interface/commands/console.ts.
+// Appendix entries: src/tools/operations/memory.ts, src/tools/operations/env.ts, src/interface/commands/console.ts.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -14,8 +14,8 @@ import { createMemoryDb } from '../src/memory/db/service.ts';
 import type { MemoryDbService } from '../src/memory/db/service.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';
-import { createOpsEnv } from '../src/tools/impl/env.ts';
-import { runOp } from '../src/tools/impl/index.ts';
+import { createOpsEnv } from '../src/tools/operations/env.ts';
+import { runOp } from '../src/tools/operations/index.ts';
 import { ANNA, seedOpaqueWorld } from './fixtures/memory-db/opaque-people.ts';
 import { tempDir } from './fixtures/tmp.ts';
 

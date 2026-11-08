@@ -1,9 +1,9 @@
-// The owner operations and her tools on neutral contracts (src/tools/impl/env.ts and the families over it): an operation
+// The owner operations and her tools on neutral contracts (src/tools/operations/env.ts and the families over it): an operation
 // that addresses a place reads it from its context or its arguments. Nothing falls back to a home root.
 // Contract, plan 2026-11-04-cli-and-memory task 5: `createOpsEnv` takes no `getRootId`; the env has no `requireRootId` or
 // `resolvedRootId`; `OpContext.placeId` replaces `OpContext.rootId`; a place operation with no place refuses with code
 // `PLACE_REQUIRED`.
-// Appendix entries: src/tools/impl/{env,access,alias,draw,errand,index,inner,intention,learning,lore,media,memory,message,
+// Appendix entries: src/tools/operations/{env,access,alias,draw,errand,index,inner,intention,learning,lore,media,memory,message,
 // pause,pings,places,search,shared,status,voice}.ts, src/tools/{codes,conversation-read,executors,tools,types}.ts,
 // src/turn/{act,calls,draw-gif,in-turn-tools,skill-calls,tool-round}.ts.
 import { after, test } from 'node:test';
@@ -14,8 +14,8 @@ import { createMemoryDb } from '../src/memory/db/service.ts';
 import type { MemoryDbService } from '../src/memory/db/service.ts';
 import { createStore } from '../src/memory/store.ts';
 import { CODE } from '../src/tools/codes.ts';
-import { createOpsEnv } from '../src/tools/impl/env.ts';
-import { runOp } from '../src/tools/impl/index.ts';
+import { createOpsEnv } from '../src/tools/operations/env.ts';
+import { runOp } from '../src/tools/operations/index.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const opened: Array<MemoryDbService> = [];

@@ -12,7 +12,7 @@ import path from 'node:path';
 import type { TaskRecord } from '../board/board.ts';
 import { BoardError, BoardRefusal } from '../board/machine.ts';
 import { DAY_MS } from '../time.ts';
-import type { BoardCaller } from '../tools/impl/board.ts';
+import type { BoardCaller } from '../tools/operations/board.ts';
 import { HER, WATCHER, herOpenTask, normalized } from './tasks.ts';
 import type { TaskDraft } from './tasks.ts';
 

@@ -1,4 +1,4 @@
-// Her skill tools (src/tools/impl/skill.ts): `skill.read` answers the whole stored text of an active skill, and
+// Her skill tools (src/tools/operations/skill.ts): `skill.read` answers the whole stored text of an active skill, and
 // `skill.disable` is her own switch, which the owner undoes with `/skills enable`. Neither is granted to her in the
 // tracked config: the owner opens them with `/tools grant`. The operations' environment gets the skills port from the
 // core (`createOpsEnv({ skills })`); a core with none answers failed. A real port over a memory database and real
@@ -9,8 +9,8 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runOpPrechecked } from '../src/tools/impl/index.ts';
-import { createOpsEnv } from '../src/tools/impl/env.ts';
+import { runOpPrechecked } from '../src/tools/operations/index.ts';
+import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { grantedToPersona } from '../src/tools/access.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';

@@ -300,7 +300,7 @@ function editDistance(a: string, b: string): number {
 export const MAX_CLOSEST = 5;
 
 /**
- * The skills `tools.describe` (src/tools/impl/skills.ts) answers for `name`: an exact skill name gives that skill in full
+ * The skills `tools.describe` (src/tools/operations/skills.ts) answers for `name`: an exact skill name gives that skill in full
  * (title, when to use, when not to, arguments, as a core row), a family (`memory`, `intent`: the part of a name before
  * its first dot) gives each of its skills with no arguments, one line each; a name that is neither gives no row and the
  * closest skill names. Every row is `allowed: true` and its `reason` says whether she has the skill now (`allowed`, or

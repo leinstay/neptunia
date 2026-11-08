@@ -1,7 +1,7 @@
 // The rails a read of another chat must pass: `checkPull` decides whether the persona may read a chat
 // of the turn's snapshot from the chat she speaks in (a readable channel, not a thread, visible to everyone who
 // can view the chat she speaks in -- in a private chat, to the partner -- and not older than
-// `context.pull.maxAgeDays`). Her reads of another place (src/turn/in-turn-tools.ts, src/tools/impl/search.ts), the
+// `context.pull.maxAgeDays`). Her reads of another place (src/turn/in-turn-tools.ts, src/tools/operations/search.ts), the
 // places a read may name (src/behavior/readable-places.ts) and the search of the message history ask it. No read is
 // made here.
 

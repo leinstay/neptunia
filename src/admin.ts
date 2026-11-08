@@ -4,28 +4,35 @@
 // inspection. No operation deletes stored memory. The tracked prompts/ layer is never written at
 // runtime: live corrections always land in the untracked prompts.local/ layer.
 //
-// `createAdmin(deps)` runs the typed operations under src/tools/impl/ (one file per area) by their
+// `createAdmin(deps)` runs the typed operations under src/tools/operations/ (one file per area) by their
 // names: `runSkillOp` with the requester's full rights check (the owner's console and her tool calls
 // for a person), `runOwnSkillOp` and `runInitiativeSkillOp` for her own calls, whose grant the skill
 // gateway checks. `run(op, args, context)` is the tests' entry: no rights check, and the result
 // rendered as the reply text, as `{ text, files }` with a picture or as `{ text, fields }` with the
 // status card, or a thrown `Error` with an operator-facing message on bad input. The pure functions
 // (listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSummary) live in
-// src/tools/impl/shared.ts and are re-exported from here.
+// src/tools/operations/shared.ts and are re-exported from here.
 
-import { createOpsEnv } from './tools/impl/env.ts';
-import { runOp, runOpPrechecked } from './tools/impl/index.ts';
-import { migrateStoredGrants } from './tools/impl/access.ts';
-import { listOps } from './tools/impl/registry.ts';
+import { createOpsEnv } from './tools/operations/env.ts';
+import { runOp, runOpPrechecked } from './tools/operations/index.ts';
+import { migrateStoredGrants } from './tools/operations/access.ts';
+import { listOps } from './tools/operations/registry.ts';
 import { legacyGrantOps } from './config-moves.ts';
-import { listAliases } from './tools/impl/alias.ts';
-import { listLessons } from './tools/impl/learning.ts';
-import { SELF_OWNED_OPS } from './tools/impl/effects.ts';
+import { listAliases } from './tools/operations/alias.ts';
+import { listLessons } from './tools/operations/learning.ts';
+import { SELF_OWNED_OPS } from './tools/operations/effects.ts';
 import { CODE } from './tools/codes.ts';
 import type { Untyped } from './tools/types.ts';
-import type { OpsDeps } from './tools/impl/env.ts';
+import type { OpsDeps } from './tools/operations/env.ts';
 
-export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSummary } from './tools/impl/shared.ts';
+export {
+  listRules,
+  appendRule,
+  removeRule,
+  setPath,
+  unsetPath,
+  buildProfileSummary,
+} from './tools/operations/shared.ts';
 
 /**
  * `hot`, `store` — see src/hot.ts, src/memory/store.js.
@@ -34,7 +41,7 @@ export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSumm
  *   chats the interface reported (`isDm`), `connection` — `{ lastReconnectAt }`, filled from
  *   `connection.changed`. The operations read them as `env.selfId()` and the like.
  * `reads` — the core's reads of the interface (src/interface/reads.ts): the permission checks of an operation
- *   posting in another chat (src/tools/impl/shared.ts#postingRef). The operations read it as `env.reads`.
+ *   posting in another chat (src/tools/operations/shared.ts#postingRef). The operations read it as `env.reads`.
  * `calibrator` — token calibrator (src/llm/tokens.ts), read for `.ratio`.
  * `turns` — from createTurnRunner() (src/behavior/turn.ts), optional: `waitIdle()`, used by
  *   `bot.pause` to wait out a turn already in flight. Absent -> the wait is simply skipped.
@@ -74,14 +81,14 @@ export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSumm
  * `record` — from createRecord() (src/memory/record.js), optional: `dayFile`, where the owner's
  *   status card finds the record's month indexes for its memory coverage. Absent -> the
  *   record line says it is not available.
- * `metrics` — from src/tools/impl/metrics.ts#createMetrics, optional: `summary`, the owner card's speed
+ * `metrics` — from src/tools/operations/metrics.ts#createMetrics, optional: `summary`, the owner card's speed
  *   field, and the turns of the last hour its storage line weighs. Absent -> no speed figures.
  * `lookup` — from src/web/lookup.ts#createLookup, optional: `searchEngine` and `hasSearch`, the
  *   `search:` line of the limits field. Absent -> no search line.
  * `describer` — from src/memory/describe.js#createDescriber, optional: its second look
  *   (`relookImage`, `rewatchVideo`, `rewatchGif`, `videoCapsLeft`) behind `media.look`.
  *   Absent -> that operation reports it is not available.
- * `usage` — from src/tools/impl/usage.ts#createUsage, optional: `byRole`, today's requests per role on
+ * `usage` — from src/tools/operations/usage.ts#createUsage, optional: `byRole`, today's requests per role on
  *   the owner card's costs field. Absent -> no role lines.
  * `simKey` — the optional simulator key (OPENROUTER_SIM_KEY), a string: used for one read-only GET of
  *   its limit on the owner card's costs field, never for a model request. Absent -> a "not set" line.
@@ -137,7 +144,7 @@ export function createAdmin(deps: OpsDeps): Admin {
   }
 
   /**
-   * One operation run for the persona by its name (src/tools/impl/index.ts#runOp), the requester's full
+   * One operation run for the persona by its name (src/tools/operations/index.ts#runOp), the requester's full
    * rights check included. Never throws.
    */
   async function runSkillOp(
@@ -149,7 +156,7 @@ export function createAdmin(deps: OpsDeps): Admin {
   }
 
   /**
-   * One of the persona's own expressive operations (src/tools/impl/effects.ts#SELF_OWNED_OPS) run for
+   * One of the persona's own expressive operations (src/tools/operations/effects.ts#SELF_OWNED_OPS) run for
    * her by its name, WITHOUT the requester's rights check: her grant, checked by the skill
    * gateway, alone decides (src/tools/executors.ts). Any other operation is refused
    * (`not-self-owned`): it goes through `runSkillOp`. Never throws.
@@ -187,7 +194,7 @@ export function createAdmin(deps: OpsDeps): Admin {
   };
 
   /** Once per place at start: the stored grants re-expanded under the operation names
-   * (src/tools/impl/access.ts#migrateStoredGrants). */
+   * (src/tools/operations/access.ts#migrateStoredGrants). */
   function migrateAccess(placeId: string) {
     const everyOp = listOps().map((op) => op.name);
     return migrateStoredGrants(env, placeId, (key) => legacyGrantOps(key, everyOp));

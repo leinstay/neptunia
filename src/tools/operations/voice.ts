@@ -2,7 +2,7 @@
 // hers only, no owner command. The pipeline (preparation, synthesis, conversion) is src/speech/;
 // this operation resolves where it goes, runs it, posts one attachment with no text through her
 // interface (`env.port`) and tells her what happened, stage by stage. A reply and a channel
-// resolve as `draw.create` resolves them (src/tools/impl/shared.ts#postingChat, need `attach`). The voice is
+// resolve as `draw.create` resolves them (src/tools/operations/shared.ts#postingChat, need `attach`). The voice is
 // made on the speech role's route (src/tools/gateway.ts#callOnRoute over `env.roleHealth`): with the role down it is
 // made on the core model when the core declares `audioOut`, else the call answers `ability-unavailable`.
 

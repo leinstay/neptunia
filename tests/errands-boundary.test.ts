@@ -26,7 +26,7 @@ import { createIntentionStores } from '../src/intentions/store.ts';
 import { currentToolName, SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { buildSkills } from '../src/tools/registry.ts';
 import { normalizeCalls } from '../src/tools/tool-calls.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { toolCallsOf } from '../src/llm/openrouter.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
 import { tempDir } from './fixtures/tmp.ts';

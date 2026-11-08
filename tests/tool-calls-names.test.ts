@@ -3,7 +3,7 @@
 // result she reads, and the broken name never goes back to the provider or into a result's attributes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { appendStep } from '../src/behavior/tool-step.ts';
 import { toolCallsOf } from '../src/llm/openrouter.ts';
 import { parseToolCallBlocks } from '../src/llm/tool-text.ts';

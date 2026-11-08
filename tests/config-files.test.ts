@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHot as createHotUntyped } from '../src/hot.ts';
 import * as files from '../src/config/files.ts';
-import { createOpsEnv } from '../src/tools/impl/env.ts';
+import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { ROOT } from './fixtures/private-layer.ts';

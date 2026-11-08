@@ -18,7 +18,7 @@ import {
   skillsIndex,
   takeSkillsLines,
 } from '../src/tools/discovery.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { loadSkills, skillNames, skillRegistry } from '../src/tools/registry.ts';
 import { listSkills } from '../src/tools/gateway.ts';
 import type { Rights } from '../src/tools/types.ts';

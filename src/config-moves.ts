@@ -22,7 +22,7 @@
 // reported as moved to the database (`toDatabase`). Nothing here reads a file.
 //
 // The grants of `bot.access` stored under the keys of the old slash command (`memory.show`, `emoji.rescan`, ...) are
-// read by `legacyGrantOps`, which src/tools/impl/access.ts#migrateStoredGrants calls once per place at start.
+// read by `legacyGrantOps`, which src/tools/operations/access.ts#migrateStoredGrants calls once per place at start.
 
 import { formatSchedule, parseSchedule } from './service/schedule.ts';
 
@@ -448,7 +448,7 @@ const LEGACY_COMMAND_TO_OP: Readonly<Record<string, string>> = Object.freeze({
 
 /**
  * The operations an old slash-command grant covered, for the one-time migration of the stored grants
- * (src/tools/impl/grants.ts#migrateGrants): `*` -> every operation of `everyOp` (`from: '*'`); an old command key ->
+ * (src/tools/operations/grants.ts#migrateGrants): `*` -> every operation of `everyOp` (`from: '*'`); an old command key ->
  * the operation it ran (`memory.affinity` -> `memory.affinity.read`); an old group -> its keys' operations (`from` the
  * group); a key with no operation (`ping`, `reload`, `learned.list` and the other removed commands) -> null, and such
  * a grant is dropped.

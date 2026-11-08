@@ -10,7 +10,7 @@ import { labels } from './labels.ts';
 import { openTestMemory } from './memory-db/service.ts';
 import { useIface, useSelf, world } from './turn-world.ts';
 import { worldTurnRunner } from './world-runner.ts';
-import '../../src/tools/impl/index.ts';
+import '../../src/tools/operations/index.ts';
 import { planAnswerText } from './plan-answer.ts';
 
 useIface('fake');

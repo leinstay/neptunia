@@ -5,7 +5,7 @@ import { localPath, madeLocalPath } from './fixtures/config-local.ts';
 import { makeAdmin, makeHotWithMedia, makeRoot, mayRun, readLocal } from './fixtures/admin-rig.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 
-// The operations of src/tools/impl/route.ts: route.list, route.set and route.remove over llm.providerByModel.
+// The operations of src/tools/operations/route.ts: route.list, route.set and route.remove over llm.providerByModel.
 
 type Admin = ReturnType<typeof makeAdmin>['admin'];
 

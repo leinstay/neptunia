@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readPromptFile } from '../agent-runner/opencode.ts';
 import { log } from '../log.ts';
-import type { BoardCaller } from '../tools/impl/board.ts';
+import type { BoardCaller } from '../tools/operations/board.ts';
 import { buildBrief } from './brief.ts';
 import {
   cancelFilings,

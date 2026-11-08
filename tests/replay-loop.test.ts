@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 
 import fs from 'node:fs';
 import path from 'node:path';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import {
   IN_TURN_TOOLS,

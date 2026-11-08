@@ -22,8 +22,8 @@ import { assertPersonaLayout, localConfigPath, readInterfaceConfig } from './con
 import { createHot } from './hot.ts';
 import { log, onLog } from './log.ts';
 import { createLoopWatch, loopStallMs } from './loop-watch.ts';
-import { createMetrics, metricsTap } from './tools/impl/metrics.ts';
-import { createUsage, usageTap } from './tools/impl/usage.ts';
+import { createMetrics, metricsTap } from './tools/operations/metrics.ts';
+import { createUsage, usageTap } from './tools/operations/usage.ts';
 import { createMemoryDb } from './memory/db/service.ts';
 import { quarantineNotices } from './memory/db/pending-quarantine.ts';
 import {
@@ -122,8 +122,8 @@ import { isPausedIn, resumeHeld } from './behavior/core-pause.ts';
 import { configuredInterfaces, drainMs, interfaceEnabled } from './interface/mode.ts';
 import { loadPrincipals, principalOfToken } from './interface/principals.ts';
 import { claimCore } from './memory/db/open.ts';
-import { ownerNativesOf, ownerPersonOf, useOwnerAccounts } from './tools/impl/grants.ts';
-import { readLocalConfig, setPath, writeLocalConfig } from './tools/impl/shared.ts';
+import { ownerNativesOf, ownerPersonOf, useOwnerAccounts } from './tools/operations/grants.ts';
+import { readLocalConfig, setPath, writeLocalConfig } from './tools/operations/shared.ts';
 import { moveConfigKeys } from './config-moves.ts';
 import { createIngestRecord } from './memory/db/ingest.ts';
 import { coreSocketPath, listenSocket } from './interface/socket.ts';
@@ -382,12 +382,12 @@ async function buildCore(
     useOwnerAccounts(createOwnerAccounts({ database: () => memoryDb.database(), home: () => identity.iface }))
   );
   await memoryDb.open();
-  // The speed figures of /nep status (src/tools/impl/metrics.ts): the durations the log lines carry,
+  // The speed figures of /nep status (src/tools/operations/metrics.ts): the durations the log lines carry,
   // kept for 24 h in the database metrics unit, written every minute and on shutdown.
   const metrics = createMetrics({ dataDir, log, memoryDb });
   const untapMetrics = onLog(metricsTap(metrics));
   cleanups.push(untapMetrics);
-  // The costs field of /nep status (src/tools/impl/usage.ts): today's requests per role from the `llm: usage`
+  // The costs field of /nep status (src/tools/operations/usage.ts): today's requests per role from the `llm: usage`
   // lines, kept in the database usage unit, written every minute and on shutdown.
   const usage = createUsage({ dataDir, log, memoryDb });
   const untapUsage = onLog(usageTap(usage));
@@ -634,7 +634,7 @@ async function buildCore(
     settings.reloadConfig();
   }
   // The owner's switch of each interface (interfaces.<name>.enabled), written to the private settings file and reloaded,
-  // as the owner commands write it (src/tools/impl/env.ts#editLocalConfig).
+  // as the owner commands write it (src/tools/operations/env.ts#editLocalConfig).
   function setInterfaceEnabled(name: string, enabled: boolean) {
     const file = localConfigPath(paths.privateDir);
     // No key of an old name lies under `interfaces` (src/config-moves.ts), so the file is edited as it is.
@@ -1025,7 +1025,7 @@ async function buildCore(
     // Her skills run by operation name, the requester's rights checked again
     // (src/admin.ts#runSkillOp); read at call time, the admin being created below.
     runOp: (op: Untyped, args: Untyped, context: Untyped) => admin.runSkillOp(op, args, context),
-    // Her own messages, drawings and selfreflection run on her grant alone (src/tools/impl/effects.ts#SELF_OWNED_OPS).
+    // Her own messages, drawings and selfreflection run on her grant alone (src/tools/operations/effects.ts#SELF_OWNED_OPS).
     runOwnOp: (op: Untyped, args: Untyped, context: Untyped) => admin.runOwnSkillOp(op, args, context),
     // An inner turn's calls (her own initiative, nobody asked) run on her grant alone too.
     runInitiativeOp: (op: Untyped, args: Untyped, context: Untyped) => admin.runInitiativeSkillOp(op, args, context),
@@ -1241,11 +1241,11 @@ async function buildCore(
   const admin = createAdmin({
     hot,
     store,
-    // Her board tools (src/tools/impl/board.ts): she files and reads as the builtin principal `persona`.
+    // Her board tools (src/tools/operations/board.ts): she files and reads as the builtin principal `persona`.
     board,
-    // Her skill tools (src/tools/impl/skill.ts): `skill.read` and `skill.disable`.
+    // Her skill tools (src/tools/operations/skill.ts): `skill.read` and `skill.disable`.
     skills: skillsWiring.access,
-    // Her tool `watcher.read` (src/tools/impl/watcher.ts): the reports folder follows `watcher.dir` at each read.
+    // Her tool `watcher.read` (src/tools/operations/watcher.ts): the reports folder follows `watcher.dir` at each read.
     watcher: createReportReader(() => reportsDirOf(paths.dataDir, watcherDir(hot.config))),
     roleHealth,
     // The operations' `env.reads`: the chat they post in, a message's event.
@@ -1948,7 +1948,7 @@ async function buildCore(
   await startupStep('embed.catchUp', () => embedQueue.catchUp());
 
   // Once per place after the deploy that keyed access by operation: the stored grants re-expanded
-  // under the operation names, a journal record of what each covers now (src/tools/impl/access.ts).
+  // under the operation names, a journal record of what each covers now (src/tools/operations/access.ts).
   await startupStep('access.migrate', () => eachServed(admin.migrateAccess), { wait: true });
 
   // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn

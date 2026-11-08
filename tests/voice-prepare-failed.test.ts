@@ -3,11 +3,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createSpeech, SpeechError } from '../src/speech/index.ts';
-import '../src/tools/impl/index.ts';
-import { getOp } from '../src/tools/impl/registry.ts';
+import '../src/tools/operations/index.ts';
+import { getOp } from '../src/tools/operations/registry.ts';
 import { CODE } from '../src/tools/codes.ts';
-import { asResult } from '../src/tools/impl/index.ts';
-import type { Env } from '../src/tools/impl/env.ts';
+import { asResult } from '../src/tools/operations/index.ts';
+import type { Env } from '../src/tools/operations/env.ts';
 
 function speechWith(complete: () => Promise<{ text?: string }>) {
   const state = { data: {}, markDirty() {} };

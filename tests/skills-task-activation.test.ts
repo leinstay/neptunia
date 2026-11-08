@@ -36,7 +36,7 @@ import { loadSkills } from '../src/skills/load.ts';
 import { snapshotDir } from '../src/skills/package.ts';
 import { createSkillsPort } from '../src/skills/port.ts';
 import { bindPackage, settleSkillTasks } from '../src/skills/task-activation.ts';
-import type { BoardCaller } from '../src/tools/impl/board.ts';
+import type { BoardCaller } from '../src/tools/operations/board.ts';
 import { skillText, skillsRig } from './fixtures/skills-rig.ts';
 import type { SkillsRig } from './fixtures/skills-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';

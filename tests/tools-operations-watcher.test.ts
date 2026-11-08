@@ -1,4 +1,4 @@
-// Her tool `watcher.read { day? }` (src/tools/impl/watcher.ts): the latest report, or the report of a day, as text.
+// Her tool `watcher.read { day? }` (src/tools/operations/watcher.ts): the latest report, or the report of a day, as text.
 // It is a read of a file the watcher wrote and is granted by the owner like `skill.read`: the tracked config does not
 // grant it, and an ungranted call is refused by the same access check as any tool. The operations' environment gets
 // the reader from the core (`createOpsEnv({ watcher })`); a core with none answers failed.
@@ -7,8 +7,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runOpPrechecked } from '../src/tools/impl/index.ts';
-import { createOpsEnv } from '../src/tools/impl/env.ts';
+import { runOpPrechecked } from '../src/tools/operations/index.ts';
+import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { grantedToPersona, skillAccess } from '../src/tools/access.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';

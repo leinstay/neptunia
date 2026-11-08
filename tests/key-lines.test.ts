@@ -1,9 +1,9 @@
 // Tests for the key lines and the core health: the core's `keys-exhausted` reaching the role tracker
-// (src/llm/role-health.ts#reportingCoreKeys) and the grant lines of the status card (src/tools/impl/key-lines.ts#keyGrantLines).
+// (src/llm/role-health.ts#reportingCoreKeys) and the grant lines of the status card (src/tools/operations/key-lines.ts#keyGrantLines).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRoleHealth, reportingCoreKeys } from '../src/llm/role-health.ts';
-import { keyGrantLines } from '../src/tools/impl/key-lines.ts';
+import { keyGrantLines } from '../src/tools/operations/key-lines.ts';
 
 const CONFIG = { models: { base: { core: 'x/core', vision: 'x/eyes' } } };
 const exhausted = () => Object.assign(new Error('out'), { code: 'keys-exhausted' });

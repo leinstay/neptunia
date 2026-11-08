@@ -11,7 +11,7 @@ import { readLabels } from '../hot.ts';
 import { checkRepository, repositoryOfRemote } from '../selfimprovement/repository.ts';
 import type { GhRunner, RepositoryFailure } from '../selfimprovement/repository.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
-import { readLocalConfig, setPath, writeLocalConfig } from '../tools/impl/shared.ts';
+import { readLocalConfig, setPath, writeLocalConfig } from '../tools/operations/shared.ts';
 import type { RunResult } from './install.ts';
 
 export type SelfimprovementStepDeps = {

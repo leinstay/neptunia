@@ -26,7 +26,7 @@ import { createKeyStore, keysFileExists } from '../keys/store.ts';
 import { log } from '../log.ts';
 import type { Transport } from '../protocol/wire.ts';
 import { bareToolName } from '../tools/gateway.ts';
-import type { UsageEntry } from '../tools/impl/usage.ts';
+import type { UsageEntry } from '../tools/operations/usage.ts';
 import { markedRun } from './activity.ts';
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX } from './mcp-server.ts';
 import type { BridgeAnswer, BridgeCall } from './mcp-server.ts';

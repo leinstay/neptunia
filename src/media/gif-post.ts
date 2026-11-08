@@ -1,5 +1,5 @@
 // The pieces of posting one of the persona's library GIFs that the media pick's post
-// (src/turn/draw-gif.ts#postGif) and `message.create`'s `gif` option (src/tools/impl/message.ts) share: a fresh URL of an
+// (src/turn/draw-gif.ts#postGif) and `message.create`'s `gif` option (src/tools/operations/message.ts) share: a fresh URL of an
 // attached GIF, the URL a GIF posts as, and the form the interface takes it in. No wording here.
 
 import type { Reads } from '../interface/reads.ts';

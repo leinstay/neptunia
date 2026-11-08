@@ -7,7 +7,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
 import { createAdmin } from '../src/admin.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { familyOf, ImageGenError, UnsupportedImageModelError } from '../src/llm/images.ts';
 import { onWorld, world } from './fixtures/turn-world.ts';

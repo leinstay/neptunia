@@ -241,7 +241,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/memory/db/semantic-types.ts` | public | The shapes of semantic memory: references, arguments, candidates, resolved writes and the retrieval page. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |
 | `src/memory/db/map/` | public | The mapping of memory rows to records and back. | `node:*`, `src/**` | required |
 | `src/memory/db/readers/` | public | The read queries of the memory database. | `node:*`, `src/**` | required |
-| `src/tools/impl/` | public | The typed operations behind the owner's commands and the persona's tools. | `node:*`, `src/**` | required |
+| `src/tools/operations/` | public | The typed operations behind the owner's commands and the persona's tools. | `node:*`, `src/**` | required |
 | `src/protocol/` | public | The neutral protocol of events, actions and envelopes between the core and its interfaces, and the serving side of the link. | `node:*`, `src/**` | required |
 | `src/protocol/host.ts` | public | The types of what the core hands an interface when it starts one and what the interface hands back. Types only. | `src/protocol/**` | none |
 | `src/tools/` | public | The tools the persona can call: definitions, registry, executors and the gateway. | `node:*`, `src/**` | required |

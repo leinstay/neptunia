@@ -1,4 +1,4 @@
-// The one rights evaluation of an operation for a caller, shared by src/tools/impl/index.ts#runOp (an
+// The one rights evaluation of an operation for a caller, shared by src/tools/operations/index.ts#runOp (an
 // owner command) and src/tools/gateway.ts (a member asking the persona to change shared state,
 // so she is never a way around the member's own rights). Pure over the live config the caller
 // reads at the moment of use; imports nothing that registers operations, so any module may use it.
@@ -12,7 +12,7 @@ export type RightsRefusal = 'owner-only' | 'not-grantable' | 'not-granted';
 
 /**
  * Null when the caller may run `op`, else the refusal code: the owner's console (`asOwner`) and the owner
- * (src/tools/impl/grants.ts#isOwnerId) always may, anyone else by src/tools/impl/grants.ts#isAllowed over
+ * (src/tools/operations/grants.ts#isOwnerId) always may, anyone else by src/tools/operations/grants.ts#isAllowed over
  * `bot.access`. `owner-only` for an owner-only operation, `not-grantable` for one no grant opens,
  * else `not-granted`.
  */
@@ -48,7 +48,7 @@ export function rightsRefusal(
  * heartbeat's and the selfimprovement wake's own limits (`heartbeat.*`, `selfimprovement.*`), and the boundary and limits
  * of the development worker (`development.*`).
  * The one list behind the non-delegable rule: she never changes her effective authority, directly or indirectly
- * (src/tools/impl/config.ts, src/tools/impl/access.ts).
+ * (src/tools/operations/config.ts, src/tools/operations/access.ts).
  */
 export const PERSONA_GOVERNED_CONFIG: ReadonlyArray<string> = Object.freeze([
   'bot.owners',

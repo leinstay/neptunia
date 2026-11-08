@@ -20,7 +20,7 @@ import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { placeIdParts } from '../memory/db/ids.ts';
 import { channelCore, matchChannel, occursAsWholeWord } from '../memory/mentions.ts';
 import { foldText } from '../memory/recent.ts';
-import { SELF_OWNED_OPS } from './impl/effects.ts';
+import { SELF_OWNED_OPS } from './operations/effects.ts';
 import { CODE, INVALID_CODES, NOT_CONFIGURED_CODES, WHAT } from './codes.ts';
 import { nestedRefusal } from './access.ts';
 import { bindPublicationPort, publicationRefusal } from './publication.ts';
@@ -155,7 +155,7 @@ function namesMessage(skill: string, option: string, text: string, view: CallVie
 /** The option of message.create that names a message of hers whose attachment is posted again. */
 const MEDIA_OPTION = 'media';
 
-/** The core's own form of a message in a chat, carrying the channel with the id (src/tools/impl/shared.ts#messageRefOf reads it). */
+/** The core's own form of a message in a chat, carrying the channel with the id (src/tools/operations/shared.ts#messageRefOf reads it). */
 function mediaRef(placeId: string, messageId: string): string {
   return `ref:${placeId}/${messageId}`;
 }
@@ -663,7 +663,7 @@ function messageChannelWins(skill: string, option: string): boolean {
   return (OWN_CHANNEL_SKILLS[skill] ?? []).includes(option);
 }
 
-/** The structured status of an operation's result (src/tools/impl/index.ts#runOp): `ok`; one that may
+/** The structured status of an operation's result (src/tools/operations/index.ts#runOp): `ok`; one that may
  * have taken effect (`data.unknown`) `unknown`; a not-configured code `not_configured`; `denied`
  * and `approval_required` `denied`; `invalid` `invalid`; `partial` `partial`; else `failed`. */
 function callStatus(answer: unknown): string {
@@ -803,7 +803,7 @@ async function postReturnedFiles(
  * (`deps.renderText`: the text, or `{ text, accountIds }` -- mentions, custom emoji, message and
  * channel links; src/behavior/turn.ts#renderPost), the members it mentions handed to the
  * operation as `mentionAccountIds`, the only ones it may notify. Then `deps.runOp(op, args, context)`
- * (src/admin.ts#runSkillOp) -- for her own expressive operations (src/tools/impl/effects.ts#SELF_OWNED_OPS)
+ * (src/admin.ts#runSkillOp) -- for her own expressive operations (src/tools/operations/effects.ts#SELF_OWNED_OPS)
  * `deps.runOwnOp` (src/admin.ts#runOwnSkillOp: her grant alone, no requester's right), and on
  * her own initiative (`envelope.ownInitiative` with no requester: an inner turn)
  * `deps.runInitiativeOp` (src/admin.ts#runInitiativeSkillOp, the same for any operation) -- on
@@ -907,7 +907,7 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
                   ...(envelope.wakeKind ? { wakeKind: String(envelope.wakeKind) } : {}),
                 }
               : {}),
-            // The message her turn answers: where an errand she starts brings its result back (src/tools/impl/errand.ts).
+            // The message her turn answers: where an errand she starts brings its result back (src/tools/operations/errand.ts).
             ...(Array.isArray(envelope.sourceMessageIds) && envelope.sourceMessageIds.length > 0
               ? { sourceMessageId: String(envelope.sourceMessageIds[0]) }
               : {}),

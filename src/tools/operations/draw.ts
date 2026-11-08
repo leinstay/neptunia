@@ -28,7 +28,7 @@ const handlers = perEnv((env) => {
    * generation failure throws with its reason and HTTP status; the prompt is
    * never logged. With `placeId` the picture is posted there as the persona, through her
    * interface (`env.port`), the channel being the one the command runs in or a text channel of
-   * the served place where the bot may send files (src/tools/impl/shared.ts#postingChat, checked
+   * the served place where the bot may send files (src/tools/operations/shared.ts#postingChat, checked
    * before anything is generated); the answer is then the line alone, or a `failed` result when the post did not go
    * through (`data.unknown` when it may have: never generated again).
    */

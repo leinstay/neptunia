@@ -1574,7 +1574,7 @@
       "count": 2
     }
   },
-  "src/tools/impl/access.ts": {
+  "src/tools/operations/access.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     },
@@ -1585,7 +1585,7 @@
       "count": 3
     }
   },
-  "src/tools/impl/alias.ts": {
+  "src/tools/operations/alias.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 14
     },
@@ -1596,7 +1596,7 @@
       "count": 15
     }
   },
-  "src/tools/impl/config.ts": {
+  "src/tools/operations/config.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 2
     },
@@ -1604,7 +1604,7 @@
       "count": 5
     }
   },
-  "src/tools/impl/draw.ts": {
+  "src/tools/operations/draw.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 13
     },
@@ -1615,7 +1615,7 @@
       "count": 13
     }
   },
-  "src/tools/impl/env.ts": {
+  "src/tools/operations/env.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 34
     },
@@ -1626,7 +1626,7 @@
       "count": 16
     }
   },
-  "src/tools/impl/errand.ts": {
+  "src/tools/operations/errand.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 1
     },
@@ -1643,12 +1643,12 @@
       "count": 1
     }
   },
-  "src/tools/impl/index.ts": {
+  "src/tools/operations/index.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 1
     }
   },
-  "src/tools/impl/inner.ts": {
+  "src/tools/operations/inner.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 3
     },
@@ -1665,7 +1665,7 @@
       "count": 1
     }
   },
-  "src/tools/impl/intention.ts": {
+  "src/tools/operations/intention.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 9
     },
@@ -1682,7 +1682,7 @@
       "count": 2
     }
   },
-  "src/tools/impl/learning.ts": {
+  "src/tools/operations/learning.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 3
     },
@@ -1696,7 +1696,7 @@
       "count": 19
     }
   },
-  "src/tools/impl/lore.ts": {
+  "src/tools/operations/lore.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 6
     },
@@ -1707,7 +1707,7 @@
       "count": 14
     }
   },
-  "src/tools/impl/media.ts": {
+  "src/tools/operations/media.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -1721,7 +1721,7 @@
       "count": 46
     }
   },
-  "src/tools/impl/memory.ts": {
+  "src/tools/operations/memory.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 22
     },
@@ -1735,7 +1735,7 @@
       "count": 122
     }
   },
-  "src/tools/impl/message.ts": {
+  "src/tools/operations/message.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 20
     },
@@ -1746,7 +1746,7 @@
       "count": 39
     }
   },
-  "src/tools/impl/model.ts": {
+  "src/tools/operations/model.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -1757,7 +1757,7 @@
       "count": 2
     }
   },
-  "src/tools/impl/pause.ts": {
+  "src/tools/operations/pause.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 6
     },
@@ -1771,7 +1771,7 @@
       "count": 1
     }
   },
-  "src/tools/impl/pings.ts": {
+  "src/tools/operations/pings.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 3
     },
@@ -1782,7 +1782,7 @@
       "count": 2
     }
   },
-  "src/tools/impl/places.ts": {
+  "src/tools/operations/places.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 1
     },
@@ -1799,7 +1799,7 @@
       "count": 1
     }
   },
-  "src/tools/impl/route.ts": {
+  "src/tools/operations/route.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -1810,7 +1810,7 @@
       "count": 5
     }
   },
-  "src/tools/impl/rule.ts": {
+  "src/tools/operations/rule.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 2
     },
@@ -1827,7 +1827,7 @@
       "count": 1
     }
   },
-  "src/tools/impl/search.ts": {
+  "src/tools/operations/search.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 3
     },
@@ -1838,7 +1838,7 @@
       "count": 21
     }
   },
-  "src/tools/impl/shared.ts": {
+  "src/tools/operations/shared.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 17
     },
@@ -1858,7 +1858,7 @@
       "count": 2
     }
   },
-  "src/tools/impl/skills.ts": {
+  "src/tools/operations/skills.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 1
     },
@@ -1869,7 +1869,7 @@
       "count": 4
     }
   },
-  "src/tools/impl/status.ts": {
+  "src/tools/operations/status.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 23
     },
@@ -1886,7 +1886,7 @@
       "count": 11
     }
   },
-  "src/tools/impl/usage.ts": {
+  "src/tools/operations/usage.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 18
     },
@@ -1897,7 +1897,7 @@
       "count": 87
     }
   },
-  "src/tools/impl/voice.ts": {
+  "src/tools/operations/voice.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 2
     },
@@ -4241,7 +4241,7 @@
       "count": 11
     }
   },
-  "tests/tools-impl-errand.test.ts": {
+  "tests/tools-operations-errand.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 5
     },

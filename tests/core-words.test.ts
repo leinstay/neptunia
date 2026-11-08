@@ -65,7 +65,7 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
   },
   { file: 'src/web/lookup.ts', pattern: /discordapp\.(com|net)/, why: 'media hosts the link reader never reads' },
   {
-    file: 'src/tools/impl/metrics.ts',
+    file: 'src/tools/operations/metrics.ts',
     pattern: /'discord search'|`?discordMs`?/,
     why: 'the /nep metrics name and an old log field',
   },

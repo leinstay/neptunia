@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { createMetrics, metricsTap, SPEED_METRICS } from '../src/tools/impl/metrics.ts';
+import { createMetrics, metricsTap, SPEED_METRICS } from '../src/tools/operations/metrics.ts';
 import { log, onLog } from '../src/log.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';

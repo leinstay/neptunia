@@ -16,7 +16,7 @@ import { userText } from '../src/behavior/prompt.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { createJournal, callMarksOf } from '../src/memory/journal.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { checkSkill } from '../src/tools/gateway.ts';
 import { createAdmin } from '../src/admin.ts';

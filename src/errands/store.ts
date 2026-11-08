@@ -27,7 +27,7 @@
 // marked `filesExpired` once its directory is gone from an out dir that is still there (checked when the errands are
 // read), and its handles name nothing from then on.
 // A finished errand's result stays until she has read it: the record carries `readAt` (null until a turn that showed
-// its `<errand_result>` completed, or `errand.read` returned it, src/tools/impl/errand.ts) and `resolvedAt` (she closed
+// its `<errand_result>` completed, or `errand.read` returned it, src/tools/operations/errand.ts) and `resolvedAt` (she closed
 // it: `errand.resolve`, or an intention that waited on it moved to done). `unread` lists the finished ones with
 // neither, oldest first; `seen` only says the result turn ran, and hides nothing. A record from before `readAt`
 // existed counts as read when it was `seen`.

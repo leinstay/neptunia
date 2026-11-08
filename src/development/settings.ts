@@ -3,7 +3,7 @@
 // the worker to the local settings, its boundary at its first start.
 
 import { localConfigPath } from '../config/files.ts';
-import { readLocalConfig, setPath, writeLocalConfig } from '../tools/impl/shared.ts';
+import { readLocalConfig, setPath, writeLocalConfig } from '../tools/operations/shared.ts';
 
 export type DevelopmentSettings = {
   /** the most thinker turns on a task before it blocks */

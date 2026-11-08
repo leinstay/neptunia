@@ -1,6 +1,6 @@
 // What is left of each key's grant. The owner sets `llm.keys.<VARIABLE_NAME>` to `{ grant, resetDay }`: the USD the key is
 // given and the day of the month (UTC) it is given again. The balance is the grant minus the cost of every request that
-// went out on the key since the last reset moment, summed from the engine's own usage records (src/tools/impl/usage.ts,
+// went out on the key since the last reset moment, summed from the engine's own usage records (src/tools/operations/usage.ts,
 // by key name), never read from the provider, whose limits follow their own calendar. A key without an entry has no
 // balance (null). A `resetDay` past the end of a short month resets on that month's last day. Pure.
 

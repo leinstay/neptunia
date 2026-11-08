@@ -1,12 +1,12 @@
 // The registry of operations: every owner command (and later the persona's own adapter) runs
-// one named operation with declared rights. It lives apart from src/tools/impl/index.ts so the area
+// one named operation with declared rights. It lives apart from src/tools/operations/index.ts so the area
 // modules can register themselves while index.js imports them, with no import cycle.
 
 import { CODE } from '../codes.ts';
 import type { Obj, OpContext, Rights } from '../types.ts';
 import type { Env } from './env.ts';
 
-/** The statuses an operation result may carry (src/tools/impl/index.ts#runOp); `partial`: part of it took effect (a text went out, its GIF did not). */
+/** The statuses an operation result may carry (src/tools/operations/index.ts#runOp); `partial`: part of it took effect (a text went out, its GIF did not). */
 export const STATUSES = Object.freeze(['ok', 'denied', 'approval_required', 'invalid', 'partial', 'failed']);
 
 /** What an operation runs: its arguments and its context; what it answers is read by `runOp`. */
@@ -80,7 +80,7 @@ export function listOps(): Array<{ name: string; rights: Readonly<Rights> }> {
 
 /**
  * `factory(env)` computed once per env object: the handlers of one area module, closed over the
- * env (src/tools/impl/env.ts#createOpsEnv) they run against.
+ * env (src/tools/operations/env.ts#createOpsEnv) they run against.
  */
 export function perEnv<T>(factory: (env: Env) => T): (env: Env) => T {
   const cache = new WeakMap<Env, T>();

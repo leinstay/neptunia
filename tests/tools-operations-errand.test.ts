@@ -1,4 +1,4 @@
-// Tests for src/tools/impl/task.ts: the `/nep task` operations over a real task store (a temp data/
+// Tests for src/tools/operations/task.ts: the `/nep task` operations over a real task store (a temp data/
 // directory) and a FAKE errand client. The rights: a member may run the scout agent but not the
 // server one, an owner may run both; a cap refuses with its code; the answer is at once (id and
 // `queued`) while the errand runs in the background; a cancel is for the requester or an owner;
@@ -8,8 +8,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { runOp } from '../src/tools/impl/index.ts';
-import { createOpsEnv } from '../src/tools/impl/env.ts';
+import { runOp } from '../src/tools/operations/index.ts';
+import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createErrandStores } from '../src/errands/store.ts';
 import { createErrandService } from '../src/errands/service.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';

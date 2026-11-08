@@ -10,7 +10,7 @@ import { createIntentionService } from '../../src/intentions/service.ts';
 import { createIntentionStores } from '../../src/intentions/store.ts';
 import type { ActiveSkill } from '../../src/skills/index-block.ts';
 import type { SkillsPort } from '../../src/skills/port.ts';
-import '../../src/tools/impl/index.ts';
+import '../../src/tools/operations/index.ts';
 import { skillRegistry } from '../../src/tools/registry.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import { withCapturedLogs } from './capture-logs.ts';

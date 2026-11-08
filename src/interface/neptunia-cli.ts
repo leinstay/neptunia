@@ -46,7 +46,7 @@ import type { TaskAnswer } from '../board/commands.ts';
 import type { AdapterLink, From, LinkDoor } from './link.ts';
 import type { Principal } from './principals.ts';
 import { SKILL_COMMAND_PREFIX, skillCommandOf } from '../skills/agent-commands.ts';
-import type { BoardCaller } from '../tools/impl/board.ts';
+import type { BoardCaller } from '../tools/operations/board.ts';
 import type { SkillsAccess } from '../skills/port.ts';
 
 /** One command's answer: the text the owner reads and its outcome. */
@@ -336,7 +336,7 @@ const callOf = (owner: unknown, name: string): ((...args: Array<unknown>) => unk
 
 /**
  * The summary's facts from the core's own objects (src/core.ts): the hot config, the store's state, today's usage
- * (src/tools/impl/usage.ts), the interface links, the inner life's status and the errand stores. Each is read at the
+ * (src/tools/operations/usage.ts), the interface links, the inner life's status and the errand stores. Each is read at the
  * call; one that lacks a method reads as empty.
  */
 export function coreStatusFacts(core: {

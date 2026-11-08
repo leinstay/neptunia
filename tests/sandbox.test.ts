@@ -10,7 +10,7 @@ import { fetchHistoryWindow } from '../interfaces/discord/index.ts';
 import { formatTranscript } from '../src/format.ts';
 import { videoUrlCacheKey } from '../src/media/video-sites.ts';
 import { createCalibrator } from '../src/llm/tokens.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { handleOf } from '../src/behavior/handles.ts';
 
 const {

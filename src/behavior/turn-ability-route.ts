@@ -1,6 +1,6 @@
 // The route of her tool abilities inside one turn (src/behavior/turn.ts): `draw.create` on the drawing role and
 // `media.look` on the vision or video role go through src/tools/gateway.ts#callOnRoute over the core's one role
-// health (src/llm/role-health.ts); `voice.say` routes inside its operation (src/tools/impl/voice.ts) and its result
+// health (src/llm/role-health.ts); `voice.say` routes inside its operation (src/tools/operations/voice.ts) and its result
 // carries the same mark. The first result of a turn that went to the core model or did not happen gets one route
 // line as its note, naming every tool role that is down in the order vision, video, drawing, speech
 // (`labels.tools.route.fallback` or `.unavailable` per role, `.separator` between them, the ability and the reason in

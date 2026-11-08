@@ -40,7 +40,7 @@ import type { BackendResult } from '../agent-runner/backend.ts';
 import type { DevelopmentCheck } from '../selfimprovement/repository.ts';
 import type { SelfimprovementSettings } from '../selfimprovement/settings.ts';
 import type { AgentRun } from '../subharness/run.ts';
-import type { BoardCaller } from '../tools/impl/board.ts';
+import type { BoardCaller } from '../tools/operations/board.ts';
 import {
   bodyOf,
   developmentOf,

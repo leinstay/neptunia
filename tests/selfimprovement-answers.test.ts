@@ -3,7 +3,7 @@
 // board's own operations already let `persona` do all three, so those are guards; her tools for them are missing. A
 // task that needs her answer shows once per new question. A real board; her tools as the operations run them.
 //
-// The signatures these tests hold the code to, in src/tools/impl/board.ts, src/tools/definitions.ts and config/tools.json:
+// The signatures these tests hold the code to, in src/tools/operations/board.ts, src/tools/definitions.ts and config/tools.json:
 // - `task.cancel { id, reason }`: `task.transition` to `cancelled`, as `persona`, at the task's current revision.
 // - `task.comment { id, text }`: `task.comment`, as `persona`.
 // - `task.answer { id, text }`: `id` is the task, as the wake text names it; it answers the open question addressed to
@@ -13,7 +13,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { skillRegistry } from '../src/tools/registry.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { herCalls, selfimprovementWorld, SELFIMPROVEMENT_T0 } from './fixtures/selfimprovement-rig.ts';
 import type { SelfimprovementWorld } from './fixtures/selfimprovement-rig.ts';
 import { callsOf, wakeLife } from './fixtures/wake-life.ts';

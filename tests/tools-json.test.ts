@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildTools, canonicalJson, skillNameOfToolCall } from '../src/tools/tools-json.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { buildSkills } from '../src/tools/registry.ts';
 import { SKILL_DEFINITIONS, apiNameOf } from '../src/tools/definitions.ts';
 import { skillText, skillsRig } from './fixtures/skills-rig.ts';

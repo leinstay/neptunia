@@ -5,7 +5,7 @@
 // channel on her line, and the Discord interface's list of readable channels. Pure; fake prompts and config.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import {
   CHANNEL_HANDLE_PREFIX,
   HANDLE_DIGITS,

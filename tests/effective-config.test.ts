@@ -16,7 +16,7 @@ import { readConfig } from '../src/config.ts';
 import { loopSettings } from '../src/behavior/turn.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { transportOf } from '../src/tools/tool-calls.ts';
 import { safeModeOn } from '../src/tools/access.ts';
 import { grantedSkillNames } from '../src/tools/discovery.ts';

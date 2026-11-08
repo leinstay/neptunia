@@ -1719,7 +1719,7 @@
       "test": "required"
     },
     {
-      "path": "src/tools/impl/",
+      "path": "src/tools/operations/",
       "purpose": "The typed operations behind the owner's commands and the persona's tools.",
       "layer": "public",
       "imports": ["node:*", "src/**"],

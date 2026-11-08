@@ -1,6 +1,6 @@
 // The shapes the errand modules share: the record the store keeps, what the store, the service and the client answer,
 // and the small value types between them. Types only, nothing runs here. src/errands/*.ts, the errand
-// operations (src/tools/impl/errand.ts) and the intention service (src/intentions/) import them.
+// operations (src/tools/operations/errand.ts) and the intention service (src/intentions/) import them.
 
 import type { MemoryPage } from '../memory/db/semantic-types.ts';
 import type { RetrievalInput } from '../memory/retrieval-input.ts';

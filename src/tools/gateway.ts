@@ -11,15 +11,15 @@
 // refusal code), never wording. `abilityRoute` decides where a call of a model role that runs as her tool goes when
 // the role is down (src/llm/role-health.ts): to the core model when it declares the role's ability, else nowhere.
 
-import { getOp as registryGetOp } from './impl/registry.ts';
-import type { Op } from './impl/registry.ts';
-import { rightsRefusal } from './impl/rights.ts';
+import { getOp as registryGetOp } from './operations/registry.ts';
+import type { Op } from './operations/registry.ts';
+import { rightsRefusal } from './operations/rights.ts';
 import { skillRegistry, describeSkill } from './registry.ts';
 import { CARRIED_OVER, skillAccess } from './access.ts';
 import { schemaError } from './schema.ts';
 import { skillArgs } from './discovery.ts';
 import { MINUTE_MS } from '../time.ts';
-import { SELF_OWNED_OPS } from './impl/effects.ts';
+import { SELF_OWNED_OPS } from './operations/effects.ts';
 import { CODE } from './codes.ts';
 import { CORE_ROLE, ROLE_ABILITY, modelAbilities, roleModel } from '../llm/roles.ts';
 import type { RoleDownReason, RoleHealth } from '../llm/role-health.ts';
@@ -97,10 +97,10 @@ const isSelfOwned = (op: string | null): boolean => op !== null && SELF_OWNED_OP
  * Null when the requester may have this skill run for them, else the refusal (`requester-denied`
  * with the rights code). A skill on an owner's operation -- one backed by an operation (src/tools/definitions.ts)
  * or one on an owner-only operation -- runs only for a requester who may run that operation
- * themselves (src/tools/impl/rights.ts, the owner commands' own check: an owner passes everything, an
+ * themselves (src/tools/operations/rights.ts, the owner commands' own check: an owner passes everything, an
  * owner-only operation only an owner, a member as their grants say); with no requester (nobody
  * asked: a spontaneous turn, the selfreflection) only a read, and only one open to everyone (`no-requester`
- * for a write). Her own expressive operations (src/tools/impl/effects.ts#SELF_OWNED_OPS) skip the
+ * for a write). Her own expressive operations (src/tools/operations/effects.ts#SELF_OWNED_OPS) skip the
  * requester's right -- hers alone decides -- but not the two rules on who asked: no write for
  * several people, only a read for nobody. Any other shared-state skill checks a requester's right
  * on its operation; with none the persona acts on her own. A carried-over skill aimed at the current
@@ -150,7 +150,7 @@ const BUDGETS: Readonly<Record<string, (context: GateContext, requester: Request
 const DESTRUCTIVE_COOLDOWN_MINUTES = 10;
 
 /**
- * Null unless a destructive skill (src/tools/impl/effects.ts) ran from this channel less than
+ * Null unless a destructive skill (src/tools/operations/effects.ts) ran from this channel less than
  * `tools.destructiveCooldownMinutes` ago (`context.lastRunAt`, the caller's record, against
  * `context.now`), else `cooldown`.
  */
@@ -189,7 +189,7 @@ function budgetRefusal(skill: Skill, requester: Requester | null, context: GateC
  * everyone, no write when the turn answers several people, `context.mixedRequesters`); a
  * destructive skill's cooldown in this channel (`context.lastRunAt`, `context.now`); a paid
  * skill's budget. Where a message may go and whose message may be changed is
- * the operation's own rule (src/tools/impl/message.ts), checked when it runs. Never throws.
+ * the operation's own rule (src/tools/operations/message.ts), checked when it runs. Never throws.
  * `wakeKind` and `wakeActions` (an inner turn, with `ownInitiative`): the wake envelope is checked with the access.
  */
 export function checkSkill({

@@ -1,4 +1,4 @@
-// Her errand tools (src/tools/impl/errand.ts) over the board (PR 6d): `errand.status`, `errand.list`, `errand.read`,
+// Her errand tools (src/tools/operations/errand.ts) over the board (PR 6d): `errand.status`, `errand.list`, `errand.read`,
 // `errand.resolve` and `errand.cancel` answer over errands moved from the `work` archive exactly as they answer over
 // the same errands kept in memory, and `errand.run` and `errand.cancel` write the board. The errand client is a fake
 // the test ends by hand; the memory service is the real one on the calling thread. Temporary data directories, a
@@ -7,8 +7,8 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { runOp } from '../src/tools/impl/index.ts';
-import { createOpsEnv } from '../src/tools/impl/env.ts';
+import { runOp } from '../src/tools/operations/index.ts';
+import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createErrandStores } from '../src/errands/store.ts';
 import { createErrandService } from '../src/errands/service.ts';
 import { readBoard } from '../src/board/board.ts';

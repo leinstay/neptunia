@@ -4,7 +4,7 @@
 // links to the accounts of one person. `linkedDmScopes` tells a DM context the stored DM places of those accounts, so a
 // DM reads the person's history while each row keeps the scope of the chat it came from. A merge written by the
 // owner widens a DM context and a merge written by anyone else never does. One `people` row carries the shared affinity
-// score. `createOwnerAccounts` answers the owner check over the same links (src/tools/impl/grants.ts#isOwnerId): the live
+// score. `createOwnerAccounts` answers the owner check over the same links (src/tools/operations/grants.ts#isOwnerId): the live
 // row of `account_person_links` is the one source of truth, and the account's `link` and `linked_by` columns are its copy
 // for the readers that join accounts. Called by session-write.ts (the writes), service.ts (the context), private-read.ts
 // (the private view), identity-links.ts and person-merge.ts (the links they write), core.ts and

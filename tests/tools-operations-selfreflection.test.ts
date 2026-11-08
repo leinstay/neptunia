@@ -21,7 +21,7 @@ import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { DISCORD, rawMessage, sequenceLlm } from './fixtures/turn-harness.ts';
 import { selfreflectionToolHot } from './fixtures/selfreflection-tool.ts';
 import { freshWorld, world } from './fixtures/turn-world.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 
 const NOW = Date.parse('2026-10-27T12:00:00Z');
 const ROOT = 'g1';
