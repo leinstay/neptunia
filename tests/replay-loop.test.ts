@@ -372,7 +372,7 @@ test('the step engine: every request of a trigger run takes the live cache marke
   const ttl = cacheTtlFor(config, llm.calls[0].options.role, 'anthropic/claude-x', llm.calls[0].options.cache);
   assert.equal(ttl, '1h', 'the options carry no cache: false');
   const marked = (messages: Untyped) =>
-    withCacheMarker(messages, ttl, null).map((message) =>
+    withCacheMarker(messages, ttl).map((message) =>
       Array.isArray(message.content) ? message.content.filter((part) => part.cache_control).length : 0
     );
   const [first, second] = llm.calls.map((recorded) => marked(recorded.messages));

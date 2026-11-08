@@ -1,6 +1,7 @@
 // Operations `skill.read` and `skill.disable`: her side of her skills (src/skills/). `skill.read { name }` answers the
-// whole stored text of the active version of a skill, the text she was shown a line of in `<skills>`. `skill.disable
-// { name }` is her own switch: the skill leaves her index until the owner brings it back with `/skills enable`. Both
+// whole stored text of the active version of a skill: a call of a skill's entry in her tools array runs it
+// (src/turn/skill-calls.ts). `skill.disable { name }` is her own switch: the skill leaves her tools until the owner
+// brings it back with `/skills enable`. Both
 // run against the skills the core gives the operations' environment (`env.skills`); a core with none answers
 // `failed`. Neither is granted to her in the tracked config: the owner opens them with `/tools grant`. A skill that
 // is not active or is disabled cannot be read.

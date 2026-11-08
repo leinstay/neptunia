@@ -1,5 +1,5 @@
-// The core's skills, wired once (src/core.ts calls it): the access over the memory writer (client.ts), the index of her
-// active skills for a request with the list of what it showed, the sweep that settles her done skill tasks
+// The core's skills, wired once (src/core.ts calls it): the access over the memory writer (client.ts), her active skills
+// for the tools array of a request, the sweep that settles her done skill tasks
 // (task-activation.ts), and the sources of the selfimprovement wake's facts that concern skills and the board. The packages
 // are `<data>/skills/<name>/`, read at each call, and the grants, the labels and `skills.reviewDays` are read from `hot` at
 // the moment of use, never kept.
@@ -10,23 +10,22 @@ import { landedFor } from '../selfimprovement/landed.ts';
 import type { SelfimprovementSources } from '../behavior/inner/types.ts';
 import { SKILL_USE_KINDS, listSkills, useCountsBySkill } from '../memory/db/skills.ts';
 import type { SkillUse, SkillsUpdate, UseCounts } from '../memory/db/skills.ts';
+import { apiNameOf } from '../tools/definitions.ts';
 import { grantedSkillNames } from '../tools/discovery.ts';
 import type { BoardCaller } from '../tools/impl/board.ts';
 import { skillRegistry } from '../tools/registry.ts';
-import { objOf } from '../tools/types.ts';
 import { createSkillsClient } from './client.ts';
-import { skillIndexBlock } from './index-block.ts';
+import type { ActiveSkill } from './index-block.ts';
 import { loadSkills } from './load.ts';
 import type { SkillsAccess } from './port.ts';
 import { skillsSettings } from './settings.ts';
 import { settleSkillTasks } from './task-activation.ts';
 import type { SettledTask } from './task-activation.ts';
-import type { IndexedSkill } from './uses.ts';
 
 export type SkillsWiring = {
   access: SkillsAccess;
-  /** The body of `<skills>` and the skills it showed; null when none is shown. Never throws. */
-  index: () => Promise<{ text: string; indexed: Array<IndexedSkill> } | null>;
+  /** Her active skills, those with a tool missing too; none when they cannot be read. Never throws. */
+  active: () => Promise<ReadonlyArray<ActiveSkill>>;
   /** Writes the use rows of a turn; resolves how many were written. */
   record: (uses: ReadonlyArray<SkillUse>) => Promise<number>;
   /** One sweep over her done skill tasks, as the board's `development` principal. */
@@ -34,8 +33,16 @@ export type SkillsWiring = {
   selfimprovement: Pick<SelfimprovementSources, 'granted' | 'skills' | 'proposals' | 'ackOutbox' | 'landed'>;
 };
 
-/** The tool that opens a line of the index; without her grant of it the index is not shown. */
-const READ_TOOL = 'skill.read';
+/** Every name a tool answers to, dotted and as the tools array names it: a skill may take none of them. */
+function toolNames(): Set<string> {
+  const names = new Set<string>();
+  for (const [name, skill] of skillRegistry()) {
+    names.add(name);
+    const api = skill.api ?? apiNameOf(name);
+    if (api) names.add(api);
+  }
+  return names;
+}
 
 export type SkillsWiringDeps = {
   hot: { readonly config: unknown; readonly prompts?: unknown };
@@ -52,6 +59,17 @@ export function wireSkills(deps: SkillsWiringDeps): SkillsWiring {
   const { hot, memoryDb } = deps;
   const granted = (): Array<string> =>
     grantedSkillNames({ config: hot.config, selfId: deps.selfId(), registry: skillRegistry() });
+  // A skill named like a tool is refused at every load and logged once per folder while the process runs.
+  const toolNamed = new Set<string>();
+  const load = (): ReturnType<typeof loadSkills> => {
+    const loaded = loadSkills({ localDir: path.join(deps.privateDir, 'skills'), toolNames: toolNames() });
+    for (const problem of loaded.problems)
+      if (problem.code === 'tool-name' && !toolNamed.has(problem.dir)) {
+        toolNamed.add(problem.dir);
+        deps.log.warn('skills: refused at load', { skill: problem.dir, code: problem.code });
+      }
+    return loaded;
+  };
   const access = createSkillsClient({
     write: (update) => memoryDb.memoryWrite(update),
     read: () => {
@@ -59,10 +77,7 @@ export function wireSkills(deps: SkillsWiringDeps): SkillsWiring {
       return db === null ? null : { db };
     },
     now: deps.now,
-    load: () =>
-      loadSkills({
-        localDir: path.join(deps.privateDir, 'skills'),
-      }),
+    load,
     granted: () => new Set(granted()),
     registered: () => new Set(skillRegistry().keys()),
     reviewDays: () => skillsSettings(hot.config).reviewDays,
@@ -75,20 +90,12 @@ export function wireSkills(deps: SkillsWiringDeps): SkillsWiring {
       memoryDb.database() === null
         ? []
         : await settleSkillTasks({ skills: access, board: deps.board, principal: 'development' }),
-    index: async () => {
+    active: async () => {
       try {
-        const labels = objOf(objOf(objOf(hot.prompts).labels).skills);
-        if (!granted().includes(READ_TOOL) || typeof labels.index !== 'string' || typeof labels.line !== 'string') {
-          return null;
-        }
-        const active = await access.active();
-        const text = skillIndexBlock(active, { index: labels.index, line: labels.line });
-        if (text === '') return null;
-        const shown = active.filter((skill) => skill.missing.length === 0);
-        return { text, indexed: shown.map(({ name, versionId, tools }) => ({ name, versionId, tools })) };
+        return await access.active();
       } catch (error) {
-        deps.log.warn('skills: index failed', { error });
-        return null;
+        deps.log.warn('skills: active not read', { error });
+        return [];
       }
     },
     selfimprovement: {

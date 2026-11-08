@@ -311,8 +311,6 @@ function hedgeOf(config: unknown, options: CompleteOptions): { afterMs: number; 
 export const VIDEO_TOKENS_PER_SECOND = 120;
 /** Her sampling temperature. */
 const TEMPERATURE = 1;
-/** The TTL of the profiles segment's cache marker. */
-const PROFILES_TTL = '1h';
 
 export class TokenLimitError extends Error {}
 export class DailyCapError extends Error {}
@@ -491,8 +489,8 @@ const countOrZero = (value: unknown): number =>
 // Every reply re-sends the same system message, and tokens read from a provider's prompt cache
 // cost a fraction of fresh input (and, on some providers, nothing against the account's quota of
 // the day). `complete()` is the one policy point: it puts a cache marker on the system message
-// (and on the user text parts a builder tagged with a neutral `cacheSegment`: the reply's stable
-// prefix and its profiles, see `withCacheMarker`)
+// (and on the user text parts a builder tagged with a neutral `cacheSegment`: the request's `<self>`
+// and its `<surroundings>`, see `withCacheMarker`)
 // for the model roles `llm.cache.roles` lists, on the model families `llm.cache.models` lists, while
 // `features.promptCache` is on, AFTER the token estimate was taken, so the 50k rail and the
 // calibration see exactly what they saw without it. The model gate exists because the engine is
@@ -624,10 +622,9 @@ export function toolCallsOf(calls: unknown): Array<ParsedToolCall> {
  * non-empty string content becomes one text part `{ type: 'text', text, cache_control }`, an
  * array content gets it on its last non-empty text part -- and every `cache_control` a builder
  * already placed on any part takes the same marker; only the first four markers in message order
- * survive, the rest are removed. A part a builder tagged with `cacheSegment` (the reply's user
- * message, src/behavior/prompt.ts#buildRequest) gets a marker too: `'stable'` the request's
- * `ttl`, `'profiles'` `profilesTtl` (from `profilesTtlFor`; null -> none), never longer than a
- * `'5m'` `ttl` (a longer TTL must not follow a shorter one); any other value none. The
+ * survive, the rest are removed. A part a builder tagged with `cacheSegment` (the request's user
+ * message, src/behavior/prompt.ts#buildRequest) gets a marker too: `'stable'` and `'surroundings'`
+ * the request's `ttl`, any other value none. The
  * `cacheSegment` field itself is removed from every part in every case, so it never reaches the
  * provider. A request with more than two messages (a turn's appended steps) also gets a `5m` marker
  * on the last part of its last message when fewer than four are placed (the latest tool message, or the
@@ -636,18 +633,13 @@ export function toolCallsOf(calls: unknown): Array<ParsedToolCall> {
  * nothing else changes (a string system content stays a string).
  * @param messages The caller's chat-completions messages.
  * @param ttl From `cacheTtlFor`.
- * @param profilesTtl From `profilesTtlFor`; omitted -> no profiles marker.
  */
-export function withCacheMarker<M extends ChatMessage>(
-  messages: Array<M>,
-  ttl: CacheTtl | null,
-  profilesTtl: CacheTtl | null = null
-): Array<M> {
+export function withCacheMarker<M extends ChatMessage>(messages: Array<M>, ttl: CacheTtl | null): Array<M> {
   if (!Array.isArray(messages)) return messages;
   const marker = cacheMarkerFor(ttl);
   const segmentMarkers: Record<string, ReturnType<typeof cacheMarkerFor>> = {
     stable: marker,
-    profiles: marker ? cacheMarkerFor(ttl === '5m' && profilesTtl ? '5m' : profilesTtl) : null,
+    surroundings: marker,
   };
   const systemAt = marker ? messages.findIndex((message) => isRec(message) && message.role === 'system') : -1;
   let kept = 0;
@@ -1613,8 +1605,7 @@ export function createLlm({
    * `llm.cache.ttl`) is placed on the system message by `withCacheMarker` after
    * the estimate and the token cap check, which always see the caller's
    * `messages` as given; so are the markers of the user parts tagged with a
-   * `cacheSegment` (`'stable'`: `llm.cache.ttl`, `'profiles'`:
-   * `llm.cache.profilesTtl`, see `profilesTtlFor`), and the tag is never sent.
+   * `cacheSegment` (`'stable'` and `'surroundings'`, both `llm.cache.ttl`), and the tag is never sent.
    * `options.timeoutMs` overrides `llm.timeoutMs` for the request's abort
    * signal — the analyzer (a large batch, a long JSON answer) and the media
    * describer need more room than a chat reply's default.
@@ -1733,7 +1724,7 @@ export function createLlm({
       model,
       // The cache marker goes on only now: `raw` above was estimated from the caller's own
       // messages, and a marker is a JSON field, not prompt text.
-      messages: withCacheMarker(messages, cacheTtlFor(getConfig(), options.role, model, options.cache), PROFILES_TTL),
+      messages: withCacheMarker(messages, cacheTtlFor(getConfig(), options.role, model, options.cache)),
       temperature: options.temperature ?? TEMPERATURE,
       max_tokens: options.maxOutputTokens ?? cfg.maxOutputTokens,
     };

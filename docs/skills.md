@@ -1,6 +1,6 @@
 # Skills
 
-A skill is a procedure the persona can discover and follow. It can combine existing tools or run a script for a specific job. It is stored with the persona, so adding one does not require a new engine plugin.
+A skill is a procedure the persona can find among her tools and follow. It can combine existing tools or run a script for a specific job. It is stored with the persona, so adding one does not require a new engine plugin.
 
 ## Write a skill
 
@@ -79,9 +79,17 @@ Each settled task gets one comment, `skill-activation <code>`, which names the r
 | `invalid-name` | The binding's skill name is no skill name, so no folder was read. |
 | `unknown-version` | The binding's version is not a version of that skill. |
 
-Nothing else activates. Other pending versions stay pending, and so does the version of a failed or cancelled task, of a task the owner or the watcher filed, and an edit made after the binding. A watcher's finding about a skill is evidence for the owner and changes no skill. The owner reviews a pending version with `/skills review <name>` and activates the newest one with `/skills activate <name>`. `/skills rollback <name>` returns to the previous version, and a later beat leaves that in place. `/skills disable <name>` keeps a skill out of her index, and an activation does not lift the switch.
+Nothing else activates. Other pending versions stay pending, and so does the version of a failed or cancelled task, of a task the owner or the watcher filed, and an edit made after the binding. A watcher's finding about a skill is evidence for the owner and changes no skill. The owner reviews a pending version with `/skills review <name>` and activates the newest one with `/skills activate <name>`. `/skills rollback <name>` returns to the previous version, and a later beat leaves that in place. `/skills disable <name>` keeps a skill out of her tools, and an activation does not lift the switch.
 
-The prompt lists usable active skills by name and description. `skill.read` opens the procedure; `skill.run` executes a declared script. Required tools must already be registered and granted. Activation grants no additional tool access.
+## A skill among her tools
+
+A skill she can use is an entry of her tools array. `buildTools` in [the tools array](../src/tools/tools-json.ts) appends one function per active skill after the tools, sorted by name. The function's name is the skill's `name`, its description is the skill's `description` line followed by `labels.skills.procedure`, and it takes no parameter. A skill gets an entry when every tool in its `tools` is registered and granted to her, and only while she holds the grant of `skill.read`, because a call of the entry runs `skill.read` of that name. Activation grants no tool, and a procedure widens no permission: each step she takes is checked as any call of hers.
+
+The array is the same for a reply, the command line and every wake, so all of them share one cached prefix. A wake checks each call by name against its own set when the call is made, and a skill is checked like any tool. A heartbeat answers a skill's call with `heartbeat-only` and reads nothing. `wakeRefusalCode` in [the wake rules](../src/tools/wake-tools.ts) decides it.
+
+A call of a skill's entry returns the skill's whole text and is recorded in the journal as a read of `skill.read`. The turn keeps the first read in `draft.procedures` with the version its array offered, and a second call of the same skill in the turn answers the same text without reading the skill again (`src/turn/skill-calls.ts`). `skill.run` executes a script the skill declares, and `skill.disable` is her own switch.
+
+The loader refuses a skill whose name is the name of a tool, dotted or as the tools array writes it, with the problem `tool-name`. The core logs `skills: refused at load` once per folder with the skill and the code.
 
 Runs have time and output limits. A timed-out script may already have acted, so its outcome can be unknown. Interrupted runs are not automatically replayed. Keep useful service results in the skill's state so a later question can reuse them.
 

@@ -412,7 +412,14 @@ export function answerOf(
     transport = 'native',
     step = 1,
     registry = skillRegistry(),
-  }: { transport?: 'native' | 'text'; step?: number; registry?: SkillMap } = {}
+    procedures = null,
+  }: {
+    transport?: 'native' | 'text';
+    step?: number;
+    registry?: SkillMap;
+    /** Her skills the tools array offered, by name (src/tools/tool-calls.ts#normalizeCalls). */
+    procedures?: ReadonlyMap<string, unknown> | null;
+  } = {}
 ): { rawText: string; speechText: string; calls: Array<NormalCall> } {
   const rawText = typeof completion?.text === 'string' ? completion.text : '';
   const finishReason = completion?.finishReason ?? null;
@@ -421,13 +428,13 @@ export function answerOf(
     return {
       rawText,
       speechText: found.rest,
-      calls: normalizeCalls({ calls: found.calls, transport, finishReason, step, registry }),
+      calls: normalizeCalls({ calls: found.calls, transport, finishReason, step, registry, procedures }),
     };
   }
   return {
     rawText,
     speechText: rawText,
-    calls: normalizeCalls({ calls: completion?.toolCalls ?? [], transport, finishReason, step, registry }),
+    calls: normalizeCalls({ calls: completion?.toolCalls ?? [], transport, finishReason, step, registry, procedures }),
   };
 }
 

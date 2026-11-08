@@ -1096,16 +1096,12 @@
       "deep": 2,
       "repeated": 0
     },
-    "tests/skills-request.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/skills-task-activation.test.ts": {
       "deep": 53,
       "repeated": 0
     },
     "tests/skills-wiring.test.ts": {
-      "deep": 20,
+      "deep": 16,
       "repeated": 0
     },
     "tests/skills.test.ts": {
@@ -1399,7 +1395,7 @@
   },
   "files": {
     "src/behavior/recall.ts": 2357,
-    "tests/openrouter.test.ts": 3557,
+    "tests/openrouter.test.ts": 3545,
     "tests/prompt.test.ts": 2812,
     "tests/recall.test.ts": 2379
   },
@@ -1727,7 +1723,7 @@
     },
     "src/llm/openrouter.ts": {
       "createLlm": {
-        "function-length": 618
+        "function-length": 617
       },
       "createLlm>complete": {
         "complexity": 44

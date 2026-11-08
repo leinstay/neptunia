@@ -76,3 +76,52 @@ test('buildRequest: a picture in the chat reserves nothing of the budget -- it i
   assert.ok(withPicture.messages[1].content.every((part: Part) => part.type === 'text'));
   assert.equal('images' in withPicture.stats, false);
 });
+
+// --- slice 8 of the turn frame: the chat window trims in steps (`context.chatSteps`) ----------------------------------
+
+/** A reply over `count` chat lines of one length, the newest the trigger, under `maxRequestTokens` and `chatSteps`. */
+function chatInput(count: number, maxRequestTokens: number, chatSteps: Array<number>) {
+  const lines = Array.from({ length: count }, (_, i) => ({
+    id: String(1000 + i),
+    ts: NOW - (count - i) * 60_000,
+    authorId: i % 2 === 0 ? 'a' : 'b',
+    authorName: i % 2 === 0 ? 'Zoé' : 'Ελένη',
+    self: false,
+    content: `γραμμή ${1000 + i} με λίγες λέξεις για το μέτρημα`,
+    attachments: [],
+    stickers: [],
+    replyToId: null,
+  }));
+  const base = input();
+  const trigger = lines[lines.length - 1];
+  const config = {
+    ...base.config,
+    context: { ...base.config.context, chatSteps },
+    llm: { ...base.config.llm, maxRequestTokens },
+  };
+  const loose = { ...base, config, history: lines, trigger };
+  return { ...loose, frame: frameOfInput(loose) };
+}
+
+/** The request cap under which a request of 70 lines keeps about `share` of its chat lines when nothing cuts them in steps. */
+function capKeeping(share: number, chatSteps: Array<number>): number {
+  const roomy = buildRequest(chatInput(70, 200_000, chatSteps));
+  const chat = roomy.stats.chat as { used: number; kept: number };
+  assert.equal(chat.kept, 70, 'the roomy request keeps every line');
+  const rest = roomy.stats.used - chat.used;
+  return Math.ceil((rest + Math.floor(chat.used * share) + TAG_OVERHEAD) / 0.9);
+}
+
+test('buildRequest: a chat cut lands on the nearest lower step of context.chatSteps, never between two steps', () => {
+  // Bug: a cut to whatever fits moves the kept window by one line per turn, so no two turns share a cached chat.
+  const steps = [100, 60, 30, 10];
+  const request = buildRequest(chatInput(70, capKeeping(45 / 70, steps), steps));
+  assert.equal((request.stats.chat as { kept: number }).kept, 30);
+});
+
+test('buildRequest: the chat steps are read from the setting at the moment of use', () => {
+  // Bug: steps hard-coded in the budget ignore an owner's context.chatSteps.
+  const steps = [50, 20];
+  const request = buildRequest(chatInput(70, capKeeping(45 / 70, steps), steps));
+  assert.equal((request.stats.chat as { kept: number }).kept, 20);
+});

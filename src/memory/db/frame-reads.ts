@@ -173,6 +173,24 @@ export function placeFieldsOf(db: Db, ctx: Context, placeId: string): Record<str
   return fields;
 }
 
+/**
+ * The `current_version` ids of the live descriptions of a place the context reads, sorted: what `placeFieldsOf` renders
+ * changes only with one of them, so a request holds `<surroundings>` per cache bucket under these ids.
+ */
+export function placeVersionsOf(db: Db, ctx: Context, placeId: string): Array<string> {
+  const where = whereFor(ctx, 'd');
+  return db
+    .prepare(
+      `SELECT d.current_version AS version FROM descriptions d
+       WHERE d.subject_kind = 'place' AND d.subject_id = ? AND d.retired_at IS NULL AND d.current_version IS NOT NULL
+         AND ${where.sql}
+       ORDER BY d.current_version`
+    )
+    .all(placeId, ...where.params)
+    .map((row) => text(row.version))
+    .filter((id): id is string => id !== null);
+}
+
 /** The account row of a platform id on an interface, its newest generation first; null when none is stored. */
 export function accountOfNative(db: Db, iface: string, native: string): string | null {
   const row = db
@@ -238,6 +256,8 @@ export type FrameReads = {
   around(ctx: Context, placeId: string, at: number, count: number): Array<FrameLine>;
   line(ctx: Context, key: string): IdentityLine | null;
   placeFields(ctx: Context, placeId: string): Record<string, string>;
+  /** The description versions `placeFields` renders (placeVersionsOf). */
+  placeVersions?(ctx: Context, placeId: string): Array<string>;
   interfaceNames(iface: string): { name: string | null; nouns: Record<string, string> };
   /** The ids of the interfaces she runs on (interfaceIdsOf). */
   interfaceIds?(): Array<string>;
@@ -278,6 +298,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     around: (ctx, placeId, at, count) => over([], (db) => linesAroundOf(db, ctx, placeId, at, count)),
     line: (ctx, key) => over(null, (db) => lineOfIdentity(db, ctx, key)),
     placeFields: (ctx, placeId) => over({}, (db) => placeFieldsOf(db, ctx, placeId)),
+    placeVersions: (ctx, placeId) => over([], (db) => placeVersionsOf(db, ctx, placeId)),
     interfaceNames: (iface) => over({ name: null, nouns: {} }, (db) => interfaceNamesOf(db, iface)),
     interfaceIds: () => over([], (db) => interfaceIdsOf(db)),
     account: (iface, native) => over(null, (db) => accountOfNative(db, iface, native)),

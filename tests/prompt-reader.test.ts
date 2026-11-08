@@ -102,13 +102,12 @@ function block(built: Built, tag: string): string {
   return new RegExp(`^<${tag}>\\n([\\s\\S]*?)\\n</${tag}>$`, 'm').exec(userOf(built))?.[1] ?? '';
 }
 
-test("the root tags of a reply are the frame's list in its order, and the stable segment holds exactly <self> and <surroundings>", () => {
+// Slice 8 of the turn frame: `<surroundings>` is a cached segment of its own after the stable `<self>`.
+test("the root tags of a reply are the frame's list in its order, the stable segment holds exactly <self> and the surroundings segment <surroundings>", () => {
   // Bug: an old block such as <senses> or <channel_directory> stays in the request, or the tail keeps the old order.
   const built = request();
-  const stable = new Set(['self', 'surroundings']);
-  const expected = FRAME.blocks
-    .filter((name) => name !== 'persona')
-    .map((name) => `${stable.has(name) ? 'stable' : 'tail'} ${name}`);
+  const cached: Record<string, string> = { self: 'stable', surroundings: 'surroundings' };
+  const expected = FRAME.blocks.filter((name) => name !== 'persona').map((name) => `${cached[name] ?? 'tail'} ${name}`);
   assert.deepEqual(emittedBlocks(built), expected);
 });
 

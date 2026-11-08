@@ -1,9 +1,6 @@
-// Her skill index: the body of the `<skills>` block, one line per skill she can use now, in her words. A skill whose
-// tools are not all registered and granted is left out, and `missingTools` names what is missing and why, for
-// `/skills` to show. The labels (`skills.index`, `skills.line` in prompts/labels.json) are handed in; the request
-// builder (src/turn/request/) adds the tag.
-
-import { fill } from '../format.ts';
+// Her active skills as the skills port gives them, each with what keeps her from using it: `missingTools` names the tools
+// of a skill that are not registered or not granted, for `/skills` to show. A skill with nothing missing is an entry of
+// her tools array (src/tools/tools-json.ts#skillEntries).
 
 export type MissingTool = { tool: string; reason: 'not-registered' | 'not-granted' };
 export type ActiveSkill = {
@@ -26,14 +23,4 @@ export function missingTools(
     else if (!state.granted.has(tool)) missing.push({ tool, reason: 'not-granted' });
   }
   return missing;
-}
-
-/** The header and one line per usable skill, or '' when none is usable. */
-export function skillIndexBlock(skills: ReadonlyArray<ActiveSkill>, labels: { index: string; line: string }): string {
-  const usable = skills.filter((skill) => skill.missing.length === 0);
-  if (usable.length === 0) return '';
-  return [
-    labels.index,
-    ...usable.map((skill) => fill(labels.line, { name: skill.name, description: skill.description })),
-  ].join('\n');
 }

@@ -1,4 +1,4 @@
-// The skills wiring of the core (src/skills/wiring.ts): the index of her active skills for a request, the use rows and
+// The skills wiring of the core (src/skills/wiring.ts): her active skills for the tools array, the use rows and
 // the sources of the selfimprovement wake. A real in-memory memory database behind the writer's `applySkillsWrite`,
 // real temporary skill folders, her grants as the config states them and a fake board.
 import fs from 'node:fs';
@@ -76,80 +76,60 @@ function accessFor(names: ReadonlyArray<string>) {
   return { bot: { access: Object.fromEntries(names.map((name) => [name, { users: [SELF] }])) } };
 }
 
-test('the index shows an active skill whose tools are granted and says which skill each line stands for', async (t) => {
+// Slice 8 of the turn frame: the index of her skills (`index`, the body of `<skills>`) became `active`, the list the tools
+// array is built from. The grant of `skill.read` that gated the index is checked where the array is built
+// (src/turn/phases/request/build.ts), so the two tests of that grant left this file with the labels case.
+test('active gives an active skill with its tools and the version that was activated', async (t) => {
   const r = rig(t);
   r.write('look-it-up', LOOK);
   await r.wiring.access.activate('look-it-up', 'agent:hand');
-  const index = await r.wiring.index();
-  assert.ok(index);
-  assert.ok(index.text.includes('look-it-up'));
-  assert.ok(index.text.includes('I check the web before I answer a fact'));
+  const active = await r.wiring.active();
   assert.deepEqual(
-    index.indexed.map(({ name, tools }) => ({ name, tools })),
-    [{ name: 'look-it-up', tools: ['web.read', 'web.search'] }]
+    active.map(({ name, tools, missing }) => ({ name, tools, missing })),
+    [{ name: 'look-it-up', tools: ['web.read', 'web.search'], missing: [] }]
   );
-  assert.match(index.indexed[0]?.versionId ?? '', /\S/);
+  assert.match(active[0]?.versionId ?? '', /\S/);
 });
 
-test('a pending file is not in the index until somebody activates it', async (t) => {
-  // Catches an index built from the files on disk instead of the active versions.
+test('a pending file is not active until somebody activates it', async (t) => {
+  // Catches a list built from the files on disk instead of the active versions.
   const r = rig(t);
   r.write('look-it-up', LOOK);
-  assert.equal(await r.wiring.index(), null);
+  assert.deepEqual(await r.wiring.active(), []);
   assert.equal((await r.wiring.access.pending()).length, 1);
 });
 
-test('without her grant of skill.read the index is null even with an active skill', async (t) => {
-  // Catches an index that advertises skills she has no tool to open.
-  const r = rig(t, { grants: ['web.read', 'web.search'] });
-  r.write('look-it-up', LOOK);
-  await r.wiring.access.activate('look-it-up', 'agent:hand');
-  assert.equal(await r.wiring.index(), null);
-});
-
-test('the grant is read at the moment of use: revoking skill.read removes the index at the next call', async (t) => {
-  // Catches grants cached when the core started.
-  const r = rig(t);
-  r.write('look-it-up', LOOK);
-  await r.wiring.access.activate('look-it-up', 'agent:hand');
-  assert.ok(await r.wiring.index());
-  r.state.config = accessFor(['web.read', 'web.search']);
-  assert.equal(await r.wiring.index(), null);
-});
-
-test('a skill with a tool she was not granted is left out of the index and of the shown list', async (t) => {
+test('a skill with a tool she was not granted names the tool as missing, so it gets no entry', async (t) => {
   const r = rig(t, { grants: ['skill.read', 'web.read'] });
   r.write('look-it-up', LOOK);
   r.write('read-only', skillText('read-only', 'I only read pages', ['web.read']));
   await r.wiring.access.activate('look-it-up', 'agent:hand');
   await r.wiring.access.activate('read-only', 'agent:hand');
-  const index = await r.wiring.index();
+  const active = await r.wiring.active();
   assert.deepEqual(
-    index?.indexed.map((one) => one.name),
-    ['read-only']
+    active.map((one) => [one.name, one.missing.map((missing) => missing.tool)]),
+    [
+      ['look-it-up', ['web.search']],
+      ['read-only', []],
+    ]
   );
-  assert.equal(index?.text.includes('look-it-up'), false);
 });
 
-test('no active skill and no labels both give null, not an empty block', async (t) => {
+test('no active skill gives an empty list', async (t) => {
   const none = rig(t);
-  assert.equal(await none.wiring.index(), null);
-  const unlabelled = rig(t, { labels: {} });
-  unlabelled.write('look-it-up', LOOK);
-  await unlabelled.wiring.access.activate('look-it-up', 'agent:hand');
-  assert.equal(await unlabelled.wiring.index(), null);
+  assert.deepEqual(await none.wiring.active(), []);
 });
 
-test('an index that fails answers null and logs a warning instead of throwing into the turn', async (t) => {
+test('a list that fails to read answers none and logs a warning instead of throwing into the turn', async (t) => {
   const r = rig(t);
   r.write('look-it-up', LOOK);
   await r.wiring.access.activate('look-it-up', 'agent:hand');
-  r.state.prompts = {
-    get labels(): never {
-      throw new Error('labels unreadable');
+  r.state.config = {
+    get bot(): never {
+      throw new Error('config unreadable');
     },
   };
-  assert.equal(await r.wiring.index(), null);
+  assert.deepEqual(await r.wiring.active(), []);
   assert.equal(r.warnings.length, 1);
 });
 

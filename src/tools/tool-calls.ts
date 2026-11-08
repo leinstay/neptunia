@@ -65,12 +65,15 @@ export function normalizeCalls({
   finishReason = null,
   step = 1,
   registry = skillRegistry(),
+  procedures = null,
 }: {
   calls?: ReadonlyArray<unknown>;
   transport?: 'native' | 'text';
   finishReason?: string | null;
   step?: number;
   registry?: SkillMap;
+  /** The names of her skills the tools array offered: a call of one is known under the skill's name. */
+  procedures?: ReadonlyMap<string, unknown> | null;
 } = {}): Array<NormalCall> {
   const list = Array.isArray(calls) ? (calls as ReadonlyArray<unknown>) : [];
   const used = new Set<string>();
@@ -83,15 +86,20 @@ export function normalizeCalls({
     const given = textOf(call.name);
     const isBrokenName = !CALL_NAME.test(given);
     const written = isBrokenName ? carriableName(given) : given;
-    const dotted = transport === 'text' ? written : skillNameOfToolCall(written);
-    const known = !isBrokenName && dotted !== null && dotted !== '' && registry.has(dotted);
-    const name = known ? dotted : written;
+    const { known, procedure } = isBrokenName
+      ? { known: false, procedure: false }
+      : knownName(written, { transport, registry, procedures });
+    const name = known
+      ? procedure || transport === 'text'
+        ? written
+        : (skillNameOfToolCall(written) ?? written)
+      : written;
     let problem: NormalCall['problem'] = null;
     if (finishReason === 'length') problem = 'truncated-call';
     else if (call.parseError === 'truncated') problem = 'truncated-call';
     else if (isBrokenName || (typeof call.parseError === 'string' && call.parseError)) problem = 'malformed-call';
     else if (!known) problem = 'unknown-skill';
-    const apiName = transport === 'text' ? (known ? (apiNameOf(name) ?? name) : written) : written;
+    const apiName = transport === 'text' && known && !procedure ? (apiNameOf(name) ?? name) : written;
     return {
       id,
       index,
@@ -102,6 +110,23 @@ export function normalizeCalls({
       problem,
     };
   });
+}
+
+/**
+ * Whether a well-formed call name names something she may call: one of her skills the tools array offered, under the
+ * skill's name, or a registered tool, dotted on the text transport and by its API name on the native one.
+ */
+function knownName(
+  written: string,
+  {
+    transport,
+    registry,
+    procedures,
+  }: { transport: 'native' | 'text'; registry: SkillMap; procedures: ReadonlyMap<string, unknown> | null }
+): { known: boolean; procedure: boolean } {
+  if (procedures?.has(written) === true) return { known: true, procedure: true };
+  const dotted = transport === 'text' ? written : skillNameOfToolCall(written);
+  return { known: dotted !== null && dotted !== '' && registry.has(dotted), procedure: false };
 }
 
 /** One call of her answer as the step engine plans it. */

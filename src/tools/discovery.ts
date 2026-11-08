@@ -15,7 +15,6 @@ import { CARRIED_OVER, NOT_GRANTABLE_TO_PERSONA, grantedToPersona, safeModeOn } 
 import { describeSkill, skillNames } from './registry.ts';
 import { CODE } from './codes.ts';
 import { objOf } from './types.ts';
-import { wakeAccepts } from './wake-tools.ts';
 import { roleOn } from '../llm/roles.ts';
 import type { DescribedSkill, Skill } from './types.ts';
 
@@ -86,26 +85,25 @@ function servedByOffRole(config: unknown, name: string): boolean {
  * reaction, a picture), each that the registry holds and whose feature switch is on, sorted by
  * name and de-duplicated. `draw.create` is listed only while `features.imageGeneration` is not
  * false. With `features.tools` off the list is empty; under safe mode it is the carried-over ones
- * alone. Only her grants, the registry and the live config decide it -- never a requester or a
- * channel -- so the tool list of a request stays byte-identical until a grant changes. Pure.
+ * alone. Only her grants, the registry and the live config decide it -- never a requester, a
+ * channel or a wake -- so the tool list of a request stays byte-identical until a grant changes. A wake refuses a
+ * call outside its own set when the call is made (src/tools/wake-tools.ts#wakeRefusalCode). Pure.
  */
 export function exposedSkillNames({
   config,
   selfId = null,
   registry = null,
-  wakeKind = null,
 }: {
   config: unknown;
   selfId?: string | null;
   registry?: ReadonlyMap<string, Skill> | null;
-  wakeKind?: string | null;
 }): Array<string> {
   if (!(registry instanceof Map)) return [];
   const names = safeModeOn(config)
     ? [...CARRIED_OVER]
     : [...grantedSkillNames({ config, selfId, registry }), ...CARRIED_OVER];
   return [...new Set(names)]
-    .filter((name) => registry.has(name) && !servedByOffRole(config, name) && wakeAccepts(wakeKind, name))
+    .filter((name) => registry.has(name) && !servedByOffRole(config, name))
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 

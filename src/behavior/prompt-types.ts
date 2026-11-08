@@ -84,7 +84,6 @@ export type BuildRequestInput = {
   } | null;
   offPeriods?: Array<{ kind: 'paused' | 'stopped'; from: number; to: number }> | null;
   skillsInventory?: Array<{ name: string; title: string; whenToUse: string; allowed: boolean; reason: string }> | null;
-  skillIndex?: string | null;
   toolsGranted?: Array<string> | null;
   toolsBlock?: string | null;
   toolsTokens?: number | null;
@@ -123,7 +122,7 @@ export type RequestMessage = { role: string; content: string | Array<RequestPart
 export type BuildRequestResult = {
   messages: Array<RequestMessage>;
   stats: Record<string, Untyped>;
-  segments: Array<{ segment: 'stable' | 'profiles' | 'tail'; chars: number; hash: string }>;
+  segments: Array<{ segment: 'stable' | 'surroundings' | 'tail'; chars: number; hash: string }>;
   /** Every block of the user message, empty ones too, for the archive row (src/llm/archive.ts). */
   blocks: Array<BlockRecord>;
   idByIndex: Map<number, string>;

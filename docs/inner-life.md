@@ -26,7 +26,7 @@ Use the `intentions`, `wakes` and `heartbeat` sections of [configuration](config
 
 ## Heartbeat and selfimprovement
 
-Heartbeat and selfimprovement are separate wakes with separate prompts, schedules and switches. Each one wakes the persona nowhere, with her character, her memory and her lines elsewhere, as the previous section says. [src/tools/wake-tools.ts](../src/tools/wake-tools.ts) holds what each accepts, and the model is offered the same set.
+Heartbeat and selfimprovement are separate wakes with separate prompts, schedules and switches. Each one wakes the persona nowhere, with her character, her memory and her lines elsewhere, as the previous section says. [src/tools/wake-tools.ts](../src/tools/wake-tools.ts) holds what each accepts. The model is offered the one tools array of every turn, and a call outside the wake's set is refused with the wake's code (`heartbeat-only` or `selfimprovement-only`) when it is made.
 
 An inner turn that posted nothing, reacted to nothing and answered `<skip/>` last ends `skip`, the reason `nothing-to-do`, when each of its calls was refused, failed or ran a skill whose row in `OP_EFFECTS` is `read` (`outcomePhase` in `src/turn/phases/outcome.ts`). A proposal in shadow mode or any other call that ran keeps it `spoke`.
 

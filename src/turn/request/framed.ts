@@ -17,6 +17,7 @@ import { ordered } from './reads.ts';
 import { renderSenses } from './senses.ts';
 import type { SensesOf } from './senses.ts';
 import { selfreflectionFramedOf } from './selfreflection.ts';
+import { surroundingsOf } from './surroundings.ts';
 import type { SelfreflectionFramed } from './selfreflection.ts';
 import { seenOf } from './tail.ts';
 import type { Task } from './task.ts';
@@ -72,6 +73,21 @@ function interfaceTextOf(given: RequestInput, base: Base): string {
   return [declared, emoji].filter((text) => text.trim() !== '').join('\n');
 }
 
+/**
+ * The body of `<surroundings>`, held for the cache bucket per place (freezePerBucket) while the description versions it
+ * renders stay the same: a field edited under the same version shows at the next bucket edge, a new version or a
+ * renamed place at once.
+ */
+function surroundingsHeld(given: RequestInput, base: Base, frame: Frame): string {
+  const stored: SurroundingsInput | null = given.surroundings ?? null;
+  const versions = [...(stored?.versions ?? [])].sort().join(',');
+  const { place } = frame;
+  const path = place === null ? '' : place.path.join('/');
+  return base.frozen(`surroundings:${place?.id ?? ''}`, `${path}|${versions}`, () =>
+    surroundingsOf(frame, interfaceTextOf(given, base), stored?.root ?? null, stored?.place ?? null, base.labels)
+  );
+}
+
 /** The stored facts among the prefetch's excerpts (`source: 'semantic'`), for `<found>`. */
 function storedFactsOf(prefetch: RequestInput['prefetch']): Array<StoredFact> {
   return (prefetch?.excerpts ?? []).flatMap((excerpt) =>
@@ -91,11 +107,7 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
   const { frame, base, task, senses, own, room, tempo, tempoText } = steps;
   const { labels, nameOf } = base;
   const selfreflection = selfreflectionFramedOf({ ...given, labels });
-  const surroundings: SurroundingsInput = {
-    interfaceText: interfaceTextOf(given, base),
-    root: given.surroundings?.root ?? null,
-    place: given.surroundings?.place ?? null,
-  };
+  const surroundingsText = surroundingsHeld(given, base, frame);
   const selfFacts = base.frozen('self', '', () =>
     (given.placeMemory?.self ?? []).map((fact) => `- ${String(resolveChatText(fact, nameOf))}`)
   );
@@ -113,9 +125,8 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     // The interface's text goes to `<surroundings>`.
     senses: renderSenses(given.config, labels, { ...senses.sensesOptions, interfaceText: null }),
     toolsText: senses.toolsText,
-    skillIndexText: senses.skillIndexText,
     selfFacts,
-    surroundings,
+    surroundingsText,
     mind: given.mind ?? NO_MIND,
     facts: storedFactsOf(given.prefetch),
     selfreflectionIds: new Set(given.selfreflectionChannelIds ?? []),

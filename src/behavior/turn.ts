@@ -310,7 +310,7 @@ export function createTurnRunner({
   record = null,
   port,
   skills = null,
-  skillIndex = null, // her skill index and the sink of its use rows (src/skills/); null: none
+  activeSkills = null, // her active skills for the tools array and the sink of their use rows (src/skills/); null: none
   recordSkillUses = null,
   runOp = null,
   runOwnOp = null,
@@ -642,7 +642,7 @@ export function createTurnRunner({
     iface,
     ifaceReads,
     skills,
-    ...{ skillIndex, recordSkillUses },
+    ...{ activeSkills, recordSkillUses },
     memoryReads,
     myDay,
     frameReads,

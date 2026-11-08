@@ -829,8 +829,7 @@
       }
     },
     "skills": {
-      "index": "Procedures you can follow, each written down for your tools. Read one with skill.read before you use it.",
-      "line": "- {name}: {description}"
+      "procedure": "A call returns this skill's written steps: when it applies, what to do and the way out. Read them before you follow the skill. The call itself does nothing else."
     },
     "peopleNow": {
       "lead": "Right now, per person (the handle is the same as in <people> and <directory>):",

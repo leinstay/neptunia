@@ -187,6 +187,10 @@ export type CallsDraft = NonNullable<Parameters<JournalNotes['journalOp']>[0]> &
     framePlace?: { id: string; path: Array<string> } | null;
     /** How a line's identity in her posted words is read back (src/turn/sends.ts#renderPost). */
     frameRefs?: PostRefs | null;
+    /** Her skills the tools array offered, name to the version offered (src/turn/phases/request/build.ts). */
+    offeredSkills?: Map<string, string>;
+    /** The skills she read in this turn, each as first read: a second call answers from here. */
+    procedures?: Map<string, { text: string; versionId: string }>;
   };
 
 /** The turn's registry of the lines a memory.search quoted (src/turn/calls.ts#searchHandles), when it has one. */
@@ -227,6 +231,42 @@ type CallAnswer = CallResult & {
   error?: { code?: string; cause?: unknown } | null;
   note?: string;
 };
+
+/** The operation a skill entry of the tools array runs (src/tools/impl/skill.ts#cmdRead). */
+const READ_SKILL = 'skill.read';
+
+/** The skill a call reads when it is a `skill.read` of a skill the tools array offered, else null. */
+function offeredRead(draft: CallsDraft | null | undefined, skill: string, args: Obj | null | undefined): string | null {
+  const name = skill === READ_SKILL && typeof args?.name === 'string' ? args.name : '';
+  return name !== '' && draft?.offeredSkills?.has(name) === true ? name : null;
+}
+
+/**
+ * The answer kept from the first read in this turn of the procedure a call reads (docs/skills.md), null when this read
+ * is the first or the call reads no offered skill: a second call answers the text the first one read.
+ */
+function procedureKept(
+  draft: CallsDraft | null | undefined,
+  skill: string,
+  args: Obj | null | undefined
+): CallAnswer | null {
+  const name = offeredRead(draft, skill, args);
+  const kept = name === null ? undefined : draft?.procedures?.get(name);
+  return kept === undefined ? null : { status: 'ok', data: { text: kept.text } };
+}
+
+/** Keeps the text of a first read of an offered skill that worked, with the version the tools array offered. */
+function keepProcedure(
+  draft: CallsDraft | null | undefined,
+  skill: string,
+  args: Obj | null | undefined,
+  answer: CallAnswer
+): void {
+  const name = offeredRead(draft, skill, args);
+  const text = objOf(answer.data).text;
+  if (draft == null || name === null || answer.status !== 'ok' || typeof text !== 'string') return;
+  (draft.procedures ??= new Map()).set(name, { text, versionId: draft.offeredSkills?.get(name) ?? '' });
+}
 
 /** A call's result with its skill. */
 export type CallOutcome = CallAnswer & { skill: string };
@@ -514,6 +554,10 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       log.info(`${String(wakeKind ?? 'selfimprovement')}: call refused`, { skill: call.skill, code: wakeRefusal });
       return { call, op, envelope, resolved: null, refusal: { code: wakeRefusal, reason } };
     }
+    // A skill her tools array offered is read as `skill.read` of its name: the journal records the read, and her grant
+    // of `skill.read` is checked as for any call. A procedure widens no permission.
+    if (draft?.offeredSkills?.has(call.skill) === true)
+      call = { ...call, skill: READ_SKILL, args: { name: call.skill } };
     // An inner turn's picture lands in its current channel, as its speech does; with none, there is nowhere to post it.
     if (
       draft?.inner &&
@@ -755,34 +799,38 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
           STORED_TEXT_SKILLS.includes(skill) && typeof text === 'string' && draft?.handles
             ? { ...resolvedCall, args: { ...resolvedCall.args, text: draft.handles.canonical(text) } }
             : resolvedCall;
-        result = await executeCall(executed, {
-          publicationBoundary,
-          port,
-          here: chatOf(channel),
-          refOf: (chatId) => chatOf({ id: String(chatId) }),
-          renderText,
-          envelope,
-          ...(runOp ? { runOp } : {}),
-          ...(runOwnOp ? { runOwnOp } : {}),
-          ...(runInitiativeOp ? { runInitiativeOp } : {}),
-          opContext: {
+        const kept = procedureKept(draft, skill, executed.args);
+        result =
+          kept ??
+          (await executeCall(executed, {
             publicationBoundary,
-            // The place the call runs in (none for a turn that is nowhere); an operation on what the tree shares asks for
-            // its top.
-            placeId: draft?.nowhere === true ? null : placeOfChat(store, channel),
-            ...(dmChat ? { dmChat: true } : {}),
-            // A live wake turn's posts wait in its hold (src/tools/send-hold.ts).
-            ...(inner?.hold ? { hold: inner.hold } : {}),
-          },
-          // The live config, for the wake envelope's check at the capabilities a skill reaches (src/tools/access.ts).
-          config: hot.config,
-          timeoutMs:
-            typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
-              ? timeoutMs
-              : (hot.config.tools?.callTimeoutMs ?? 120000),
-          // Her in-turn tools: run here, in the turn, over its context.
-          ...(inTurn ? { inTurn } : {}),
-        });
+            port,
+            here: chatOf(channel),
+            refOf: (chatId) => chatOf({ id: String(chatId) }),
+            renderText,
+            envelope,
+            ...(runOp ? { runOp } : {}),
+            ...(runOwnOp ? { runOwnOp } : {}),
+            ...(runInitiativeOp ? { runInitiativeOp } : {}),
+            opContext: {
+              publicationBoundary,
+              // The place the call runs in (none for a turn that is nowhere); an operation on what the tree shares asks for
+              // its top.
+              placeId: draft?.nowhere === true ? null : placeOfChat(store, channel),
+              ...(dmChat ? { dmChat: true } : {}),
+              // A live wake turn's posts wait in its hold (src/tools/send-hold.ts).
+              ...(inner?.hold ? { hold: inner.hold } : {}),
+            },
+            // The live config, for the wake envelope's check at the capabilities a skill reaches (src/tools/access.ts).
+            config: hot.config,
+            timeoutMs:
+              typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) && timeoutMs > 0
+                ? timeoutMs
+                : (hot.config.tools?.callTimeoutMs ?? 120000),
+            // Her in-turn tools: run here, in the turn, over its context.
+            ...(inTurn ? { inTurn } : {}),
+          }));
+        if (kept === null) keepProcedure(draft, skill, executed.args, result);
         // A post the hold kept goes out when the wake completes: she is told so, and it has no message yet.
         const key = envelope.idempotencyKey;
         if (result.status === 'ok' && inner?.hold && key && inner.hold.countUnder(key) > 0) {

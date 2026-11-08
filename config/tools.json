@@ -377,10 +377,10 @@
   },
   "skill.read": {
     "title": "Read a skill",
-    "whenToUse": "The whole text of one skill from your skills list: when it applies, the steps, the way out. Read it before you follow it.",
-    "whenNotToUse": "Not for a skill you do not see listed.",
+    "whenToUse": "The whole text of one of your skills: when it applies, the steps, the way out. Read it before you follow it.",
+    "whenNotToUse": "Not for a skill that is not among your tools.",
     "args": {
-      "name": "The skill's name as listed."
+      "name": "The skill's name, as its entry among your tools has it."
     }
   },
   "watcher.read": {
@@ -394,20 +394,20 @@
   },
   "skill.run": {
     "title": "Run a skill's script",
-    "whenToUse": "A skill from your list has a script that does its work: an outside site, a file, a result it keeps. Read the skill first, then run the script it names. A result that returns files gives you handles to post with message.create.",
+    "whenToUse": "One of your skills has a script that does its work: an outside site, a file, a result it keeps. Call the skill first to read its steps, then run the script it names. A result that returns files gives you handles to post with message.create.",
     "whenNotToUse": "Not for a skill that names no script. A script's result is yours to use: it posts nothing by itself.",
     "args": {
-      "name": "The skill's name as listed.",
+      "name": "The skill's name, as its entry among your tools has it.",
       "script": "The script's file name, as the skill names it.",
       "args": "The script's arguments as one JSON object."
     }
   },
   "skill.disable": {
     "title": "Turn a skill off",
-    "whenToUse": "A skill keeps steering you wrong. It leaves your list until the owner turns it back on.",
+    "whenToUse": "A skill keeps steering you wrong. It leaves your tools until the owner turns it back on.",
     "whenNotToUse": "Not for a skill you merely did not need this time.",
     "args": {
-      "name": "The skill's name as listed."
+      "name": "The skill's name, as its entry among your tools has it."
     }
   },
   "errand.cancel": {

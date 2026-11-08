@@ -134,6 +134,8 @@ export type RequestConfig = {
   readonly private?: { readonly likeServer?: unknown };
   readonly context: {
     readonly caps: Caps;
+    /** `context.chatSteps`: the line counts `<chat>` may be cut to (src/turn/request/reader.ts). */
+    readonly chatSteps?: unknown;
     readonly customEmoji?: EmojiConfig;
     readonly around?: { readonly maxTokens?: number };
   };
@@ -284,6 +286,8 @@ export type Section = {
   keep?: 'first' | 'newest' | 'oldest';
   cap?: number;
   required?: boolean;
+  /** Item counts the section may be cut to, any order (src/llm/budget.ts#fitSections). */
+  steps?: ReadonlyArray<number>;
 };
 
 /** A section's budget line, with the counts some blocks add to it. */
@@ -342,8 +346,6 @@ export type RequestInput = {
   readonly selfreflection?: SelfreflectionInput | null;
   readonly offPeriods?: unknown;
   readonly skillsInventory?: Array<SkillRow | null> | null;
-  /** The body of the `<skills>` block, the index of her active skills; empty or null sends no block. */
-  readonly skillIndex?: string | null;
   readonly toolsGranted?: unknown;
   readonly toolsBlock?: unknown;
   readonly toolsTokens?: unknown;

@@ -1,101 +1,73 @@
-// Where her skill index stands in a request (src/behavior/prompt.ts#buildRequest, the `skillIndex` input): a request
-// with no skill indexed is byte-identical to one built without the input, and a request with one carries `<skills>` in
-// the cached stable part between `<tools>` and `<self_facts>`. Fake input, no model, no network.
+// Her skills as entries of the tools array in a live turn (plan 2026-11-06-turn-frame, slice 8): the array is the same
+// for a reply in a room, a reply on the command line and a heartbeat; a call of a skill answers its text and a second
+// call in the turn answers it again without a read; a wake refuses a skill outside its set by name. The real turn
+// runner, the real operations and a real skills port over a memory database (tests/fixtures/skill-tool-turns.ts), a
+// fake model, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRequest } from '../src/behavior/prompt.ts';
-import type { BuildRequestInput, BuildRequestResult } from '../src/behavior/prompt-types.ts';
-import { labels } from './fixtures/labels.ts';
-import { frameOfInput } from './fixtures/prompt-rig.ts';
+import { skillTurn } from './fixtures/skill-tool-turns.ts';
+import type { SkillTurn } from './fixtures/skill-tool-turns.ts';
+import { skillText, skillsRig } from './fixtures/skills-rig.ts';
+import type { SkillsRig } from './fixtures/skills-rig.ts';
+import { call, toolAnswer } from './fixtures/tool-answers.ts';
 
-const NOW = Date.UTC(2026, 10, 1, 10, 0, 0);
+const BODY = 'Search first, then read the best hit and say where it came from.';
 
-function fakeConfig() {
-  return {
-    bot: { timezone: 'UTC' },
-    context: {
-      gapMarkerMinutes: 20,
-      maxMessageChars: 800,
-      caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000, server: 2500, lore: 1500 },
-      vision: { maxImages: 0, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
-      customEmoji: { max: 30 },
-    },
-    features: { vision: false, promptCache: true },
-    gifs: { max: 20, halfLifeDays: 30, ownMarkHours: 24 },
-    llm: { maxRequestTokens: 50000, safetyMargin: 0.9, cache: { ttl: '1h' } },
-    lore: { scanMessages: 30 },
-    memory: {},
-  };
+/** A rig with one active skill, `look-it-up`, which needs `web.search`. */
+function withSkill(t: { after: (fn: () => void) => void }): SkillsRig {
+  const rig = skillsRig(t);
+  rig.writeLocal('look-it-up', skillText('look-it-up', 'I check the web first', ['web.search'], BODY));
+  rig.port.activate('look-it-up', 'agent:hand');
+  return rig;
 }
 
-function baseInput(overrides: Partial<BuildRequestInput> = {}): BuildRequestInput {
-  const input = {
-    config: fakeConfig(),
-    prompts: {
-      'system-prompt': 'SYSTEM',
-      'character-card': 'CARD',
-      rules: 'RULES',
-      format: 'FORMAT',
-      reply: 'REPLY_TASK',
-      labels,
-    },
-    calibrator: { ratio: 1, apply: (n: number) => n },
-    mode: 'reply',
-    now: NOW,
-    selfName: 'Nept',
-    history: [
-      {
-        id: '1',
-        ts: NOW - 60_000,
-        authorId: 'a',
-        authorName: 'Zoé',
-        self: false,
-        content: 'γεια',
-        attachments: [],
-        stickers: [],
-        replyToId: null,
-      },
-    ],
-    neighbors: [],
-    trigger: null,
-    triggerKind: null,
-    placeMemory: { self: ['likes tea'] },
-    toolsBlock: 'TOOLS_BODY',
-    interlocutor: null,
-    otherProfiles: [],
-    ...overrides,
-  };
-  // The labels fixture nests groups (callStatus) that the Labels type reads as plain strings. Every request is built on
-  // its turn frame (slice 7).
-  return { ...input, frame: frameOfInput(input) } as unknown as BuildRequestInput;
+/** The text of the last tool message of a request, '' with none. */
+function lastToolResult(request: SkillTurn['requests'][number] | undefined): string {
+  const message = [...(request ?? [])].reverse().find((one) => one.role === 'tool');
+  return typeof message?.content === 'string' ? message.content : '';
 }
 
-const INDEX = 'SKILLS_HEADER\n- look-it-up: I check the web first';
-
-/** The stable text and the tail text of a reply request. */
-function parts(request: BuildRequestResult): { stable: string; tail: string } {
-  const content = request.messages[1]?.content as Array<{ cacheSegment?: string; text: string }>;
-  const stable = content.find((entry) => entry.cacheSegment === 'stable');
-  return { stable: stable?.text ?? '', tail: content.at(-1)?.text ?? '' };
-}
-
-test('buildRequest: with no skill indexed the request is byte-identical to one built without the input', () => {
-  const plain = JSON.stringify(buildRequest(baseInput()));
-  assert.equal(JSON.stringify(buildRequest(baseInput({ skillIndex: '' }))), plain);
-  assert.equal(JSON.stringify(buildRequest(baseInput({ skillIndex: null }))), plain);
-  assert.equal(plain.includes('<skills>'), false);
+test('the tools array is byte-identical between a reply in a room, a reply on the command line and a heartbeat', async (t) => {
+  // Bug: a turn kind that filters its own tools breaks the one cached prefix and says another thing about what she can do.
+  const rig = withSkill(t);
+  const room = await skillTurn({ kind: 'discord-reply', answers: ['ok'], skills: rig.port });
+  const cli = await skillTurn({ kind: 'cli-reply', answers: ['ok'], skills: rig.port });
+  const heartbeat = await skillTurn({ kind: 'heartbeat', answers: ['ok'], skills: rig.port });
+  assert.ok(room.offered.includes('look-it-up'), 'her active skill is an entry of the array');
+  assert.equal(cli.toolsJson, room.toolsJson);
+  assert.equal(heartbeat.toolsJson, room.toolsJson);
 });
 
-test('buildRequest: the skill index is the block <skills> in the stable part, after <tools> and before <self_facts>', () => {
-  const { stable, tail } = parts(buildRequest(baseInput({ skillIndex: INDEX })));
-  assert.ok(stable.includes(`<skills>\n${INDEX}\n</skills>`), stable);
-  assert.ok(stable.indexOf('<tools>') < stable.indexOf('<skills>'));
-  assert.ok(stable.indexOf('<skills>') < stable.indexOf('<self_facts>'));
-  assert.equal(tail.includes('<skills>'), false, 'the index is never in the tail');
+test('a call of a skill answers its text, and a second call in the same turn answers the same without a read', async (t) => {
+  // Bug: every call reads the skill anew, so a version activated mid-turn changes the procedure she is following.
+  const rig = withSkill(t);
+  const run = await skillTurn({
+    kind: 'discord-reply',
+    answers: [toolAnswer('', [call('look-it-up')]), toolAnswer('', [call('look-it-up')]), 'done'],
+    skills: rig.port,
+  });
+  assert.ok(lastToolResult(run.requests[1]).includes(BODY), 'the first call answers the text');
+  assert.ok(lastToolResult(run.requests[2]).includes(BODY), 'the second call answers the same text');
+  assert.deepEqual(run.readsAt.slice(1, 3), [1, 1]);
 });
 
-test('buildRequest: the same index twice gives the same stable text, so the cache holds', () => {
-  const first = parts(buildRequest(baseInput({ skillIndex: INDEX }))).stable;
-  const second = parts(buildRequest(baseInput({ skillIndex: INDEX, now: NOW + 1000 }))).stable;
-  assert.equal(second, first);
+test('a heartbeat refuses a call of a skill outside its set with heartbeat-only', async (t) => {
+  // Bug: a skill in the one tools array lets a heartbeat act before it decides on an intention.
+  const rig = withSkill(t);
+  const run = await skillTurn({
+    kind: 'heartbeat',
+    answers: [toolAnswer('', [call('look-it-up')]), 'ok'],
+    skills: rig.port,
+  });
+  assert.ok(run.actions.includes('look-it-up:refused:heartbeat-only'), run.actions.join(', '));
+  assert.equal(run.readsAt.at(-1), 0, 'the refused skill is never read');
+});
+
+test('a turn without the skill.read grant offers no skill entry', async (t) => {
+  // Bug: the owner takes skill.read away and her skills are still offered and run as reads.
+  const rig = withSkill(t);
+  const grants = ['conversation.read', 'memory.search', 'message.create', 'web.search', 'skill.run', 'skill.disable'];
+  const run = await skillTurn({ kind: 'discord-reply', answers: ['ok'], skills: rig.port, grants });
+  assert.ok(run.offered.includes('web_search'), 'the granted tools are offered');
+  assert.equal(run.offered.includes('look-it-up'), false);
 });

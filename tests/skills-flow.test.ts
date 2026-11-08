@@ -2,10 +2,10 @@
 // network: three turns of hers call web.search, web.read and message.create; the `selfimprovement` view lists that
 // shape with the count 3; her scripted answer files `task.propose` of kind `skill` with the example turns; a fake
 // agent principal claims the task, writes `skills.local/<name>/SKILL.md` and submits, the owner activates the version
-// (his decision of 2026-11-04: an agent never does); `/skills` shows the activation; a later turn of the same shape carries the skill in `<skills>`, her
-// `skill.read` returns its text, and `skill_uses` holds discovered, read, tried and succeeded. Then the guards: a
-// SKILL.md nobody activated is not in her index, activation grants no tool, and her own switch takes a skill out of
-// the index until the owner enables it. The scripted model is the list of tool calls each turn makes.
+// (his decision of 2026-11-04: an agent never does); `/skills` shows the activation; a later turn of the same shape carries the skill as an entry of her tools
+// array, her `skill.read` returns its text, and `skill_uses` holds discovered, read, tried and succeeded. Then the
+// guards: a SKILL.md nobody activated has no entry, activation grants no tool, and her own switch takes a skill's entry
+// away until the owner enables it. The scripted model is the list of tool calls each turn makes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -19,11 +19,11 @@ import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { useCountsBySkill } from '../src/memory/db/skills.ts';
-import { skillIndexBlock } from '../src/skills/index-block.ts';
 import type { ActiveSkill } from '../src/skills/index-block.ts';
 import { skillUsesOfTurn } from '../src/skills/uses.ts';
 import type { TurnCall } from '../src/skills/uses.ts';
 import { runOpPrechecked } from '../src/tools/impl/index.ts';
+import { buildTools } from '../src/tools/tools-json.ts';
 import { createOpsEnv } from '../src/tools/impl/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { utcDay } from '../src/time.ts';
@@ -35,7 +35,15 @@ import { tempDir } from './fixtures/tmp.ts';
 const NOW = SKILLS_T0;
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
-const LABELS = { index: 'SKILLS_HEADER', line: '- {name}: {description}' };
+const PROCEDURE = 'PROCEDURE_SENTENCE';
+
+// Slice 8 of the turn frame: the `<skills>` index went, and a skill she can use is an entry of her tools array. The
+// checks that read the index read the entries `buildTools` makes from the same active skills.
+/** Her skill entries of the tools array for `skills`, as the turn builds them. */
+const entriesOf = (skills: ReadonlyArray<ActiveSkill>) =>
+  buildTools([], { skills, procedure: PROCEDURE }).map((entry) => entry.function);
+/** The names of those entries. */
+const entryNames = (skills: ReadonlyArray<ActiveSkill>) => entriesOf(skills).map((entry) => entry.name);
 const HANDOFF: Handoff = {
   result: 'The skill is written.',
   evidence: [],
@@ -228,7 +236,7 @@ test('a chain she repeated becomes a skill she uses: view, proposal, agent, acti
   // 4. `/skills pending` lists the version, and it is in no index yet.
   const pending = await owner('/skills pending');
   assert.ok(pending.text.includes('look-it-up') && pending.text.includes(taskId), pending.text);
-  assert.equal(skillIndexBlock(rig.port.active(), LABELS), '');
+  assert.deepEqual(entryNames(rig.port.active()), []);
 
   // 5. The owner activates it; `/skills` shows the activation with who made it. Changed from the agent's own
   // activation by the owner's decision of 2026-11-04.
@@ -237,8 +245,10 @@ test('a chain she repeated becomes a skill she uses: view, proposal, agent, acti
   assert.ok(listed.includes('owner'), listed);
 
   // 6. A later turn of the same shape: the index carries the skill, `skill.read` returns its text.
-  const block = skillIndexBlock(rig.port.active(), LABELS);
-  assert.equal(block, 'SKILLS_HEADER\n- look-it-up: I search and read before I answer a fact');
+  assert.deepEqual(
+    entriesOf(rig.port.active()).map(({ name, description }) => [name, description]),
+    [['look-it-up', `I search and read before I answer a fact\n${PROCEDURE}`]]
+  );
   const read = await her('skill.read', { name: 'look-it-up' });
   assert.equal(read.status, 'ok');
   assert.ok(String(read.summary).includes('Search, read the best hit, answer.'));
@@ -256,7 +266,7 @@ test('a SKILL.md that no agent activated is never in her index, and she cannot r
   const her = herCalls(null, rig);
   rig.writeLocal('look-it-up', skillText('look-it-up', 'I search and read first', ['web.search']));
   rig.writeTracked('tracked-habit', skillText('tracked-habit', 'a tracked one', ['web.read']));
-  for (let turn = 0; turn < 3; turn += 1) assert.equal(skillIndexBlock(rig.port.active(), LABELS), '');
+  for (let turn = 0; turn < 3; turn += 1) assert.deepEqual(entryNames(rig.port.active()), []);
   assert.equal((await her('skill.read', { name: 'look-it-up' })).status, 'failed');
   assert.equal(
     (await ownerConsole(rig)('/skills pending')).text.includes('tracked-habit'),
@@ -273,10 +283,10 @@ test('an activation grants no tool: the skill is unavailable until the owner gra
   const line =
     (await ownerConsole(rig)('/skills list')).text.split('\n').find((one) => one.includes('ping-someone')) ?? '';
   assert.ok(line.includes('pings.set') && line.includes('not-granted'), line);
-  assert.equal(skillIndexBlock(rig.port.active(), LABELS), '');
+  assert.deepEqual(entryNames(rig.port.active()), []);
   assert.deepEqual([...rig.granted].sort(), grantedBefore);
   rig.granted.add('pings.set');
-  assert.ok(skillIndexBlock(rig.port.active(), LABELS).includes('ping-someone'));
+  assert.ok(entryNames(rig.port.active()).includes('ping-someone'));
 });
 
 test('her own switch takes a skill out of the index and the owner brings it back with /skills enable', async (t) => {
@@ -285,9 +295,9 @@ test('her own switch takes a skill out of the index and the owner brings it back
   const owner = ownerConsole(rig);
   rig.writeLocal('look-it-up', skillText('look-it-up', 'I search and read first', ['web.search']));
   rig.port.activate('look-it-up', 'owner');
-  assert.ok(skillIndexBlock(rig.port.active(), LABELS).includes('look-it-up'));
+  assert.ok(entryNames(rig.port.active()).includes('look-it-up'));
   assert.equal((await her('skill.disable', { name: 'look-it-up' })).status, 'ok');
-  assert.equal(skillIndexBlock(rig.port.active(), LABELS), '');
+  assert.deepEqual(entryNames(rig.port.active()), []);
   assert.equal((await owner('/skills enable look-it-up')).status, 'ok');
-  assert.ok(skillIndexBlock(rig.port.active(), LABELS).includes('look-it-up'));
+  assert.ok(entryNames(rig.port.active()).includes('look-it-up'));
 });
