@@ -8,12 +8,15 @@
 //   the writer message { kind: 'object-embedding', model, now, items: [{ kind, itemId, audienceId, hash, vector }] }
 //     writes a row only while the object still holds the text of `hash`; returns { written }
 //   touchVectors(db, table, id), called by graph.ts#projectRow beside names.ts#touchNames
+//   embedObjects({ db, write, embed, config, model, now }): Promise<{ pending, written }>   one bounded batch: at most
+//     `memoryDb.retrieval.embedBatch` pending texts, oldest first, cut to stay under `llm.maxRequestTokens`, in one
+//     `embed` request with purpose `memory-object`, written through one `object-embedding` message
 // Names are invented, in Greek and accented Latin.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { auditMemory } from '../src/memory/db/audit.ts';
-import { applyObjectEmbedding, pendingObjectEmbeds } from '../src/memory/db/object-vectors.ts';
+import { applyObjectEmbedding, embedObjects, pendingObjectEmbeds } from '../src/memory/db/object-vectors.ts';
 import type { PendingObject } from '../src/memory/db/object-vectors.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
@@ -181,4 +184,108 @@ test('object vectors are counted by no month manifest and keep their audience', 
   } finally {
     db.close();
   }
+});
+
+// ---------- the minute job ----------
+
+type EmbedCall = { texts: Array<string>; purpose: unknown };
+
+/** A fake embedding client: one vector per text, every call recorded. */
+function fakeEmbedder(calls: Array<EmbedCall>, fail = false) {
+  return (texts: ReadonlyArray<string>, options: Record<string, unknown>): Promise<unknown> => {
+    calls.push({ texts: [...texts], purpose: options.purpose });
+    return fail ? Promise.reject(new Error('provider down')) : Promise.resolve(texts.map(() => VECTOR));
+  };
+}
+
+/** A person with episodes far older than anything else in the world, each `what` its own text. */
+function withEpisodes(episodes: Array<{ id: string; what: string; at: string }>): World {
+  const w = withPerson();
+  insertRows(w.db, {
+    episodes: episodes.map((one) => ({
+      id: one.id,
+      kind: 'episode',
+      subject_id: PERSON,
+      what: one.what,
+      created_at: one.at,
+      scope_kind: 'group',
+      scope_iface: 'discord',
+      scope_dm: null,
+    })),
+  });
+  // The world's name sets get their vectors first, so the job's batch holds only the episodes.
+  const others = pendingObjectEmbeds(w.db, { model: MODEL, limit: 1000 }).filter((one) => one.kind !== 'episode');
+  applyMemoryWrite(w.handle, { kind: 'object-embedding', model: MODEL, now: NOW, items: others.map(embedded) });
+  return w;
+}
+
+function runJob(w: World, calls: Array<EmbedCall>, config: unknown, fail = false) {
+  return embedObjects({
+    db: w.db,
+    write: (update) => Promise.resolve(applyMemoryWrite(w.handle, update)),
+    embed: fakeEmbedder(calls, fail),
+    config,
+    model: MODEL,
+    now: NOW,
+  });
+}
+
+const vectorsOf = (db: Db, prefix: string): Array<string> =>
+  db
+    .prepare('SELECT item_id FROM vectors WHERE substr(chunk_key, 1, ?) = ? ORDER BY item_id')
+    .all(prefix.length, prefix)
+    .map((row) => String(row.item_id));
+
+test('the job embeds at most embedBatch texts, oldest first, in one request', async () => {
+  // Bug: the job sends every pending text at once, or the newest first, so a backfill outruns the batch it promised.
+  const w = withEpisodes([
+    { id: 'episode:c', what: 'Τρίτο επεισόδιο', at: '2020-01-03T00:00:00.000Z' },
+    { id: 'episode:a', what: 'Πρώτο επεισόδιο', at: '2020-01-01T00:00:00.000Z' },
+    { id: 'episode:b', what: 'Δεύτερο επεισόδιο', at: '2020-01-02T00:00:00.000Z' },
+  ]);
+  const calls: Array<EmbedCall> = [];
+  await runJob(w, calls, { memoryDb: { retrieval: { embedBatch: 2 } }, llm: { maxRequestTokens: 50000 } });
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].texts, ['Πρώτο επεισόδιο', 'Δεύτερο επεισόδιο']);
+  assert.equal(calls[0].purpose, 'memory-object');
+  assert.deepEqual(vectorsOf(w.db, 'episode:'), ['episode:a', 'episode:b']);
+  assert.equal(pendingOf(w.db, 'episode:c').length, 1);
+});
+
+test('the job cuts a batch at llm.maxRequestTokens and sends the rest on its next run', async () => {
+  // Bug: a batch over the request cap goes out whole, the client refuses it, and nothing is ever embedded.
+  const w = withEpisodes([
+    { id: 'episode:a', what: 'Α'.repeat(20), at: '2020-01-01T00:00:00.000Z' },
+    { id: 'episode:b', what: 'Β'.repeat(20), at: '2020-01-02T00:00:00.000Z' },
+  ]);
+  const config = { memoryDb: { retrieval: { embedBatch: 50 } }, llm: { maxRequestTokens: 15 } };
+  const calls: Array<EmbedCall> = [];
+  await runJob(w, calls, config);
+  assert.deepEqual(calls[0].texts, ['Α'.repeat(20)]);
+  assert.deepEqual(vectorsOf(w.db, 'episode:'), ['episode:a']);
+  await runJob(w, calls, config);
+  assert.deepEqual(calls[1].texts, ['Β'.repeat(20)]);
+  assert.deepEqual(vectorsOf(w.db, 'episode:'), ['episode:a', 'episode:b']);
+});
+
+test('a failed embedding request leaves the batch pending', async () => {
+  // Bug: the job marks the batch done before the vectors arrive, so a provider outage loses the objects for good.
+  const w = withEpisodes([{ id: 'episode:a', what: 'Πρώτο επεισόδιο', at: '2020-01-01T00:00:00.000Z' }]);
+  const calls: Array<EmbedCall> = [];
+  await runJob(w, calls, { memoryDb: { retrieval: { embedBatch: 5 } }, llm: { maxRequestTokens: 50000 } }, true).catch(
+    () => {}
+  );
+  assert.equal(calls.length, 1);
+  assert.deepEqual(vectorsOf(w.db, 'episode:'), []);
+  assert.equal(pendingOf(w.db, 'episode:a').length, 1);
+});
+
+test('the job sends no request when nothing is pending', async () => {
+  // Bug: the steady state spends one request a minute on an empty batch against the daily cap.
+  const w = withEpisodes([{ id: 'episode:a', what: 'Πρώτο επεισόδιο', at: '2020-01-01T00:00:00.000Z' }]);
+  const config = { memoryDb: { retrieval: { embedBatch: 1000 } }, llm: { maxRequestTokens: 50000 } };
+  const calls: Array<EmbedCall> = [];
+  await runJob(w, calls, config);
+  await runJob(w, calls, config);
+  assert.equal(calls.length, 1);
 });
