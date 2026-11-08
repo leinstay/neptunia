@@ -17,7 +17,7 @@ import { log } from '../log.ts';
 import { SESSION_PURPOSE } from '../memory/db/session.ts';
 import type { Completion, SessionContext } from '../memory/db/session.ts';
 import type { MemoryBackend } from '../keys/file.ts';
-import type { UsageEntry } from '../tools/impl/usage.ts';
+import type { UsageEntry } from '../tools/operations/usage.ts';
 import { markedRun } from './activity.ts';
 import { memoryPath } from './memory-path.ts';
 import type { SubharnessMemoryPath } from './memory-path.ts';

@@ -12,7 +12,7 @@ import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createJournal } from '../src/memory/journal.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';

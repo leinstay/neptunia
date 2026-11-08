@@ -1,4 +1,4 @@
-// Pure functions and constants of the owner operations (src/tools/impl/*.ts), moved from src/admin.js:
+// Pure functions and constants of the owner operations (src/tools/operations/*.ts), moved from src/admin.js:
 // the rules-file and config-path functions, the profile views, the ping/route formatters, the
 // media wording tables and the line formatters several operations share. No I/O but
 // `treeSize` (a directory walk for the memory snapshot) and `postingChat` (a channel

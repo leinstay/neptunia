@@ -4,7 +4,7 @@
 // run and the steps of its tool loop), against a fake model; nothing is sent.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { answerReply, answerSkillScenario, liveView, personaGrantsConfig } from '../src/behavior/sandbox.ts';
 import { ALICE, CHANNEL, NOW, SELF_ID, fakeHot, fakeStore, moment } from './fixtures/sandbox-kit.ts';
 import { asRecord } from './fixtures/records.ts';

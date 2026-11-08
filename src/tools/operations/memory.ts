@@ -156,7 +156,7 @@ const handlers = perEnv((env) => {
 
   /**
    * Sectioned, human-readable view of one member's profile — see
-   * src/tools/impl/catalog.ts#MEMORY_SHOW_SECTIONS for the choices and the header
+   * src/tools/operations/catalog.ts#MEMORY_SHOW_SECTIONS for the choices and the header
    * comments of `buildProfileSummary`/`orderedSectionLines`/
    * `rawMemoryShowView` for what each section does. `section` defaults to
    * `'summary'`; `order` to `'rank'`; `limit` to 25 (1..100) — anything else
@@ -432,7 +432,7 @@ const handlers = perEnv((env) => {
    * to the id by src/tools/executors.ts#resolveCall) the turn that posted that message instead,
    * whole (journal.findTurn over the message's snowflake time, shown by turnView), the other
    * options ignored; a message no turn of the place journal posted is `not-found`.
-   * Owner-only (src/tools/impl/grants.ts); read only, so it works while paused.
+   * Owner-only (src/tools/operations/grants.ts); read only, so it works while paused.
    */
   async function cmdMemoryJournal(args: Obj, context: OpContext) {
     if (!journal) return 'the journal is not available';
@@ -459,7 +459,7 @@ const handlers = perEnv((env) => {
   /**
    * `/nep memory snapshot`: a consistent copy of `data/` for the tools (scripts/replay.ts): the store flushed, then every entry of `data/` but `snapshots/` and the vault copied to
    * `data/snapshots/<UTC time>/` while the journal holds its writes (journal.withWriterLock).
-   * Owner-only (src/tools/impl/grants.ts). Nothing under `data/` is changed but the new directory.
+   * Owner-only (src/tools/operations/grants.ts). Nothing under `data/` is changed but the new directory.
    */
   async function cmdMemorySnapshot() {
     if (!dataDir) return 'the memory snapshot is not available';

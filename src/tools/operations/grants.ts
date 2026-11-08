@@ -1,5 +1,5 @@
-// Owner-managed access grants, keyed by operation name (src/tools/impl/registry.ts): a pure decision
-// over `config.bot.access`, the shape `/nep access grant|revoke|list` (src/tools/impl/access.ts) read
+// Owner-managed access grants, keyed by operation name (src/tools/operations/registry.ts): a pure decision
+// over `config.bot.access`, the shape `/nep access grant|revoke|list` (src/tools/operations/access.ts) read
 // and write. An owner (`isOwnerId` below) always passes. Then the operation's own rights decide:
 // `ownerOnly` or `grantable: false` refuse everyone else whatever is stored, `*` included; a
 // `member` operation is open to every member while `features.memberCommands` is on; anything
@@ -9,7 +9,7 @@
 // granted by name. A grant is `{ everyone, roles: [], users: [], via? }`; `via` names the group
 // or `*` a target came from (`everyone`, `role:<id>`, `user:<id>` -> the pattern), only so
 // `access list` can say where a right came from. `migrateGrants` re-expands the old command-key
-// grants under the operation names once (src/tools/impl/access.ts#migrateStoredGrants).
+// grants under the operation names once (src/tools/operations/access.ts#migrateStoredGrants).
 
 import { idText, isObj, listOf, objOf } from '../types.ts';
 import type { Access, GrantEntry, GrantTarget, Obj, OpInfo } from '../types.ts';
@@ -125,7 +125,7 @@ export function isAllowed({
 
 /**
  * What a grant of `key` stores, against the operations that exist now (`ops`, as
- * src/tools/impl/registry.ts#listOps gives them): an operation name is itself (`names`) or, when no
+ * src/tools/operations/registry.ts#listOps gives them): an operation name is itself (`names`) or, when no
  * grant may open it, `refused`; a group (a whole dotted prefix of some operation, `memory`,
  * `memory.affinity`) or `*` is every grantable READ operation under it, with `from` the pattern.
  * Null when `key` names nothing.
@@ -337,7 +337,7 @@ function mergeEntry(current: unknown, incoming: GrantEntry): Obj {
 
 /**
  * One line per stored grant on a grantable operation that exists, or on a key of `alsoKeys` (the
- * persona's skills no person may hold, src/tools/impl/access.ts); stale keys and owner-only ones open
+ * persona's skills no person may hold, src/tools/operations/access.ts); stale keys and owner-only ones open
  * nothing for a person and are left out: `<op>: everyone, role id:<id>, user id:<id>`, a target
  * that came from a group or `*` followed by `(expanded from <pattern>, reads only)`.
  */

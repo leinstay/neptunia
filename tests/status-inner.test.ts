@@ -5,10 +5,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runOp } from '../src/tools/impl/index.ts';
-import { createOpsEnv } from '../src/tools/impl/env.ts';
+import { runOp } from '../src/tools/operations/index.ts';
+import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
-import { innerLines } from '../src/tools/impl/status.ts';
+import { innerLines } from '../src/tools/operations/status.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const DISCORD = createDiscordInterface().capabilities;

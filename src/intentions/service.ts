@@ -1,5 +1,5 @@
 // The persona's intentions at work (docs/inner-life.md): her own calls (`intention.set`,
-// `intention.update`, `intention.cancel`, `intention.list`, src/tools/impl/intention.ts) create and move them,
+// `intention.update`, `intention.cancel`, `intention.list`, src/tools/operations/intention.ts) create and move them,
 // an errand's end reaches the intention waiting on it (`onErrandFinished`), and a reconciliation
 // (`reconcile`, at start and for the scheduler of step 2) finds every wait whose errand already
 // ended, is gone, or passed its deadline. Reliable waiting: `waiting` needs a real errand id and

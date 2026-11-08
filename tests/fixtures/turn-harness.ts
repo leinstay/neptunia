@@ -12,7 +12,7 @@ import { createErrandStores } from '../../src/errands/store.ts';
 import { createErrandService } from '../../src/errands/service.ts';
 import { openTestMemorySync, journalLabel } from './memory-db/service.ts';
 import type { StorageKey } from '../../src/memory/db/storage-keys.ts';
-import '../../src/tools/impl/index.ts';
+import '../../src/tools/operations/index.ts';
 import { skillRegistry } from '../../src/tools/registry.ts';
 import { createAdmin } from '../../src/admin.ts';
 import { labels } from './labels.ts';

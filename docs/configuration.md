@@ -21,7 +21,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 |---|---|---|---|---|
 | `bot.timezone` | string | `"UTC"` | Timezone for model timestamps | `src/behavior/selfreflection.ts` |
 | `bot.owners` | array | `[]` | Native ids of the home interface that count as owners until `bot.ownerPerson` is set; the input of that migration | `src/behavior/core-pause.ts` |
-| `bot.ownerPerson` | string | `""` | The person whose bound accounts are the owner, written by the first line of the command line on a raw install and by `/memory bind <iface> <account> owner`. See [Owner identity](memory.md#owner-identity) | `src/tools/impl/grants.ts` |
+| `bot.ownerPerson` | string | `""` | The person whose bound accounts are the owner, written by the first line of the command line on a raw install and by `/memory bind <iface> <account> owner`. See [Owner identity](memory.md#owner-identity) | `src/tools/operations/grants.ts` |
 | `bot.access` | map | `{}` | Who besides owners may run which operations, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access) | `src/behavior/sandbox.ts` |
 
 ## models.base
@@ -53,14 +53,14 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `models.errands.scout` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the scout errand agent | `src/tools/impl/status.ts` |
-| `models.errands.server` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the server errand agent | `src/tools/impl/status.ts` |
+| `models.errands.scout` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the scout errand agent | `src/tools/operations/status.ts` |
+| `models.errands.server` | string | `"openrouter/openai/gpt-6.1-sol"` | OpenCode model id of the server errand agent | `src/tools/operations/status.ts` |
 
 ## models.development
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `models.development.thinker` | string | `"openrouter/anthropic/claude-opus-5.5"` | OpenCode model id of the orchestrator | `src/tools/impl/status.ts` |
+| `models.development.thinker` | string | `"openrouter/anthropic/claude-opus-5.5"` | OpenCode model id of the orchestrator | `src/tools/operations/status.ts` |
 | `models.development.dev` | string | `"openrouter/anthropic/claude-sonnet-5.5"` | OpenCode model id of the coding and writing worker | `src/llm/roles.ts` |
 
 ## llm
@@ -71,7 +71,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `llm.maxOutputTokens` | number | `2000` | Max output tokens | `src/llm/openrouter.ts` |
 | `llm.maxRequestTokens` | number | `50000` | Hard token cap per request | `src/behavior/sandbox.ts` |
 | `llm.timeoutMs` | number | `300000` | Request timeout (ms) | `src/llm/openrouter.ts` |
-| `llm.probeTimeoutMs` | number | `30000` | Timeout of each model probe and of the key reads of the status card (ms) | `src/tools/impl/status.ts` |
+| `llm.probeTimeoutMs` | number | `30000` | Timeout of each model probe and of the key reads of the status card (ms) | `src/tools/operations/status.ts` |
 | `llm.analyzerTimeoutMs` | number | `30000` | Timeout of a request on a model role other than the core's, made alongside the turn (route classifier, search classifier, recall summary). Past this the request is abandoned | `src/llm/embed.ts` |
 | `llm.retries` | number | `2` | Retries on transient HTTP errors (408/429/5xx) and network failures. A daily-quota 429 is thrown at once | `src/llm/embed.ts` |
 | `llm.maxRequestsPerDay` | number | `5000` | Daily request cap | `src/llm/openrouter.ts` |
@@ -268,7 +268,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `web.links.readCacheHours` | number | `6` | Hours a page read by `web.read` is cached | `src/web/lookup.ts` |
 | `web.links.maxOutputTokens` | number | `4000` | Max output tokens for the condenser | `src/behavior/recall.ts` |
 | `web.links.fetchTimeoutMs` | number | `10000` | Download timeout per page (ms) | `src/web/lookup.ts` |
-| `web.quickSearch.enabled` | boolean | `true` | Whether quick search may run once an engine is chosen. `web.read` does not depend on it | `src/tools/impl/status.ts` |
+| `web.quickSearch.enabled` | boolean | `true` | Whether quick search may run once an engine is chosen. `web.read` does not depend on it | `src/tools/operations/status.ts` |
 | `web.quickSearch.engine` | string, null | `null` | The one engine of quick search: `brave`, `exa` or `openrouter`. `null` leaves quick search off, and nothing answers for a chosen engine that fails | `src/web/lookup.ts` |
 | `web.quickSearch.model` | string, null | `null` | The model of the `openrouter` engine and of the search summary, apart from the analyzer. `null` leaves the `openrouter` engine off | `src/llm/roles.ts` |
 | `web.quickSearch.rawOutputTokens` | number | `256` | Max output tokens of the `openrouter` engine's request for `web.search` | `src/web/lookup.ts` |

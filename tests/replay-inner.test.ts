@@ -20,7 +20,7 @@ import {
   readOnlyJournal,
   recordingLlm,
 } from '../scripts/replay.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { parseOutput } from '../src/llm/parse.ts';
 import { answerOf } from '../src/behavior/turn.ts';
 import { call as toolCall } from './fixtures/tool-answers.ts';

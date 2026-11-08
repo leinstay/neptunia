@@ -1,7 +1,7 @@
 // Minimal structured logger: one JSON object per line, written to stdout, or to stderr once `logToStderr()` ran (the
 // `neptunia` chat and `-p`, whose stdout holds only what the owner reads).
 // No dependency, no levels config — callers filter downstream (journald, etc).
-// `onLog` lets a listener read each entry after it is written (src/tools/impl/metrics.ts takes the
+// `onLog` lets a listener read each entry after it is written (src/tools/operations/metrics.ts takes the
 // durations the log lines already carry); a listener never changes or stops the logging.
 
 // A parsed JSON value or an argument no module types yet: the alias of src/tools/types.ts, restated so this leaf

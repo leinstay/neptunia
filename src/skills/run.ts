@@ -1,4 +1,4 @@
-// One script of an activated skill as a separate process: `skill.run` (src/tools/impl/skill.ts) is the caller. The script
+// One script of an activated skill as a separate process: `skill.run` (src/tools/operations/skill.ts) is the caller. The script
 // comes from the activated package snapshot (package.ts). It takes its arguments as JSON on stdin and answers JSON on
 // stdout: `{ ok, text?, data?, error?, files? }`. Its working directory is `data/skills/<name>/state/`, where it keeps
 // its own state, and `SKILL_OUT_DIR` is one folder per run for files it returns. Its environment holds the host's PATH,

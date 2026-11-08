@@ -34,7 +34,7 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'llm.probeTimeoutMs',
     'types': ['number'],
-    'reader': 'src/tools/impl/status.ts',
+    'reader': 'src/tools/operations/status.ts',
     'default': 30000,
     'text': 'Timeout of each model probe and of the key reads of the status card (ms)',
   },

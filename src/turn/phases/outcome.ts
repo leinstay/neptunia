@@ -11,7 +11,7 @@ import { limitOf } from '../../behavior/limits.ts';
 import { DailyCapError, TokenLimitError, errorCodeOf, railReason } from '../../llm/openrouter.ts';
 import { log } from '../../log.ts';
 import { skillUsesOfTurn } from '../../skills/uses.ts';
-import { OP_EFFECTS } from '../../tools/impl/effects.ts';
+import { OP_EFFECTS } from '../../tools/operations/effects.ts';
 import type { AudienceChoice } from '../../tools/publication.ts';
 import type { HeldSpeech } from '../act.ts';
 import type { Draft } from '../draft.ts';

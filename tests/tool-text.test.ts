@@ -2,7 +2,7 @@
 // <tool_call> blocks a model without native tools writes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { buildSkills } from '../src/tools/registry.ts';
 import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { buildTools } from '../src/tools/tools-json.ts';

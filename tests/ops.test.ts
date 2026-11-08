@@ -1,4 +1,4 @@
-// Tests for src/tools/impl/: the typed operations behind the owner commands -- the registry, the rights
+// Tests for src/tools/operations/: the typed operations behind the owner commands -- the registry, the rights
 // check of runOp, the result shape, and the old command keys of the stored grants (legacyGrantOps).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -6,10 +6,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { listOps, runOp } from '../src/tools/impl/index.ts';
+import { listOps, runOp } from '../src/tools/operations/index.ts';
 // PR 7b: the old command keys of the stored grants are read in src/config-moves.ts, beside the other old config keys.
 import { legacyGrantOps } from '../src/config-moves.ts';
-import { createOpsEnv } from '../src/tools/impl/env.ts';
+import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { createErrandStore } from '../src/errands/store.ts';

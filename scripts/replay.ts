@@ -116,7 +116,7 @@
 // persona's grants are exactly `grants` in a copy of the config (never
 // written; src/behavior/sandbox.js#personaGrantsConfig): skill names, groups
 // and `*` expanded as `/nep access grant` expands them for her
-// (src/tools/impl/access.ts#expandPersonaGrant: a group or `*` is its read skills); a
+// (src/tools/operations/access.ts#expandPersonaGrant: a group or `*` is its read skills); a
 // name no grant opens for her is kept, so the gateway refuses it as live.
 // An errand (`errand.run`) passes the gateway's budget exactly as live: the
 // open tasks against `errands.maxOpen` and today's tasks and dollars against
@@ -2652,7 +2652,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     ...(await load('tools/registry.ts')),
     ...(await load('behavior/prompt.ts')),
   };
-  await load('tools/impl/index.ts');
+  await load('tools/operations/index.ts');
   const { createJournal } = await load('memory/journal.ts');
   const { deepMerge } = await load('config.ts');
   const {
@@ -3571,7 +3571,7 @@ export function loopRequestEstimate(settings: { maxSteps: number; maxCallsPerSte
 
 /**
  * The skill names a scenario's `grants` store for the persona, in order, de-duplicated: each
- * key expanded by `expand` (src/tools/impl/access.ts#expandPersonaGrant: a skill by name, a group or
+ * key expanded by `expand` (src/tools/operations/access.ts#expandPersonaGrant: a skill by name, a group or
  * `*` as its read skills), a name no grant opens for her kept (`refused`) so the gateway
  * refuses it as live. A key that names no skill is a CliError naming the scenario.
  */
@@ -6645,9 +6645,9 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
   const hot = createHot({ rootDir: root, privateDir: privateDirOf(root) });
   // Her turns run on the step engine in every mode that answers as a skill scenario (--skills, --pair-transport,
   // --loop-triggers); its bounds are read now for the estimate. (The operations register first, as for the skills
-  // below: src/tools/impl/index.ts.)
+  // below: src/tools/operations/index.ts.)
   const loopWanted = Boolean(scenarios || args.pairTransport || args.loopTriggers);
-  if (loopWanted) await load('tools/impl/index.ts');
+  if (loopWanted) await load('tools/operations/index.ts');
   const turnMod = loopWanted ? await load('behavior/turn.ts') : null;
   if (loopWanted && typeof turnMod.loopSettings !== 'function') {
     hot.close();
@@ -6815,12 +6815,12 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
       }
     : null;
   const recallMods = args.recall ? await loadRecallMods(load) : null;
-  // --skills: the operations register themselves and the command tree the skills derive from (src/tools/impl/index.ts).
+  // --skills: the operations register themselves and the command tree the skills derive from (src/tools/operations/index.ts).
   let skillMods = null;
   if (loopWanted) {
-    await load('tools/impl/index.ts');
+    await load('tools/operations/index.ts');
     const { skillRegistry } = await load('tools/registry.ts');
-    const { expandPersonaGrant } = await load('tools/impl/access.ts');
+    const { expandPersonaGrant } = await load('tools/operations/access.ts');
     const { requesterOf, callViewOf } = await load('behavior/turn.ts');
     const { createImageGen } = await load('llm/images.ts');
     const { grantedSkillNames } = await load('tools/discovery.ts');

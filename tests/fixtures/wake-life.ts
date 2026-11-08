@@ -9,7 +9,7 @@ import { createEventDoor } from '../../src/interface/door.ts';
 import { createIntentionService } from '../../src/intentions/service.ts';
 import { createIntentionStores } from '../../src/intentions/store.ts';
 import { landedFor } from '../../src/selfimprovement/landed.ts';
-import type { BoardCaller } from '../../src/tools/impl/board.ts';
+import type { BoardCaller } from '../../src/tools/operations/board.ts';
 import { tempDir } from './tmp.ts';
 import { useIface, world } from './turn-world.ts';
 

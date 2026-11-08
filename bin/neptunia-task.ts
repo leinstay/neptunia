@@ -25,7 +25,7 @@ import { answerText } from '../src/board/text.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
 import { resolvePaths } from '../src/paths.ts';
 import { ROOT_DIR } from '../src/config.ts';
-import type { BoardCaller } from '../src/tools/impl/board.ts';
+import type { BoardCaller } from '../src/tools/operations/board.ts';
 import type { Adapter, Capabilities } from '../src/protocol/adapter.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
 import type { CommandResult, Logger } from '../src/protocol/serve.ts';

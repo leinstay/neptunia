@@ -29,7 +29,7 @@ import { createRecord, toRecordLine } from '../src/memory/record.ts';
 import { createStore } from '../src/memory/store.ts';
 import { createVectors } from '../src/memory/vectors.ts';
 import { recordMessages } from '../src/tools/conversation-read.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { labels } from './fixtures/labels.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 import { addAccount, addDmPlace, addGroupPlace } from './fixtures/memory-db/opaque-people.ts';

@@ -1,6 +1,6 @@
 // What the persona can sense and do in a turn, as its request says it: the `<senses>` lines in their stable and
 // per-turn halves, and the `<skills>` catalogue of a turn whose question was what she can do. buildRequest
-// (src/behavior/prompt.js), her skill reads (src/tools/impl/skills.ts) and the tool round (src/turn/tool-round.ts)
+// (src/behavior/prompt.js), her skill reads (src/tools/operations/skills.ts) and the tool round (src/turn/tool-round.ts)
 // call them.
 
 import { isPlainObject } from '../../config.ts';

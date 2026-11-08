@@ -20,9 +20,9 @@ const LOCATIONS = {
   registry: ['src/tools/registry.ts', 'src/tools/registry.js', 'src/skills/registry.js'],
   gateway: ['src/tools/gateway.ts', 'src/tools/gateway.js', 'src/skills/gateway.js'],
   access: ['src/tools/access.ts', 'src/tools/access.js', 'src/skills/access.js'],
-  rights: ['src/tools/impl/rights.ts', 'src/tools/impl/rights.js', 'src/ops/rights.js'],
-  opsIndex: ['src/tools/impl/index.ts', 'src/tools/impl/index.js', 'src/ops/index.js'],
-  opsRegistry: ['src/tools/impl/registry.ts', 'src/tools/impl/registry.js', 'src/ops/registry.js'],
+  rights: ['src/tools/operations/rights.ts', 'src/tools/operations/rights.js', 'src/ops/rights.js'],
+  opsIndex: ['src/tools/operations/index.ts', 'src/tools/operations/index.js', 'src/ops/index.js'],
+  opsRegistry: ['src/tools/operations/registry.ts', 'src/tools/operations/registry.js', 'src/ops/registry.js'],
 };
 
 async function load(name: keyof typeof LOCATIONS): Promise<unknown> {

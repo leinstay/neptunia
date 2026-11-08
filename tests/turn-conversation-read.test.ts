@@ -9,7 +9,7 @@ import { createFakeAdapter } from '../src/interface/fake.ts';
 import { issueContext } from '../src/memory/db/scope.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 import { createTurnRunner } from './fixtures/turn-runner.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { createAdmin } from '../src/admin.ts';
 import { fill } from '../src/format.ts';

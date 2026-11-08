@@ -43,7 +43,7 @@ import {
   readFixture,
   scriptedHistory,
 } from '../scripts/inner-week.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { call as toolCall, callBlock as toolCallBlock } from './fixtures/tool-answers.ts';
 import { createStore } from '../src/memory/store.ts';
 import { CliError, REFUSED_EXIT } from '../scripts/lib/cli.ts';

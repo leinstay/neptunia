@@ -107,12 +107,12 @@ export const SELF_OWNED_OPS: ReadonlyArray<string> = Object.freeze([
   'message.react.remove',
   'draw.create',
   'voice.say',
-  // Her intentions are her own state (src/tools/impl/intention.ts).
+  // Her intentions are her own state (src/tools/operations/intention.ts).
   'intention.set',
   'intention.update',
   'intention.cancel',
   'intention.list',
-  // Her skills are her own too (src/tools/impl/skill.ts).
+  // Her skills are her own too (src/tools/operations/skill.ts).
   'skill.read',
   'skill.disable',
   'skill.run',

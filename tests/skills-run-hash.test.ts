@@ -1,4 +1,4 @@
-// `skill.run` runs only the bytes that were validated (src/tools/impl/skill.ts, src/skills/package.ts). The activated
+// `skill.run` runs only the bytes that were validated (src/tools/operations/skill.ts, src/skills/package.ts). The activated
 // version of a skill names the content hash of its package; the snapshot under `.versions/<hash>/` must still hash to
 // it when the script is about to run. A snapshot whose bytes changed after the activation is refused before anything
 // executes with `skill-tampered`, and a snapshot with its folder or the called script gone with `skill-missing`. Both
@@ -15,8 +15,8 @@ import { loadSkills } from '../src/skills/load.ts';
 import { createSkillsPort } from '../src/skills/port.ts';
 import type { SkillsPort } from '../src/skills/port.ts';
 import { snapshotDir } from '../src/skills/package.ts';
-import { runOpPrechecked } from '../src/tools/impl/index.ts';
-import { createOpsEnv } from '../src/tools/impl/env.ts';
+import { runOpPrechecked } from '../src/tools/operations/index.ts';
+import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { CATALOGUE, isCode } from '../src/tools/codes.ts';
 import { joinLabels } from '../src/config/labels.ts';

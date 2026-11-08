@@ -4,7 +4,7 @@
 // committed (src/behavior/inner/selfimprovement.ts), so a merge reaches her once. A heartbeat neither shows nor marks
 // them. Read as `persona`; the diff and the evidence text never leave the board.
 
-import type { BoardCaller } from '../tools/impl/board.ts';
+import type { BoardCaller } from '../tools/operations/board.ts';
 import { isObj, listOf } from '../tools/types.ts';
 
 export type Landed = {

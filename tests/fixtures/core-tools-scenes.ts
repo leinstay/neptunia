@@ -165,7 +165,7 @@ export async function singleScene(
   }: { content?: string; classifier?: string; answers?: Array<unknown>; access?: object; images?: unknown } = {}
 ): Promise<{ requests: Array<Array<{ content: string }>>; result: unknown }> {
   const { createTurnRunner } = await load('src/behavior/turn.ts');
-  await load('src/tools/impl/index.ts');
+  await load('src/tools/operations/index.ts');
   const { skillRegistry } = await load('src/tools/registry.ts');
   const { createAdmin } = await load('src/admin.ts');
   const { createDiscordInterface } = await load('interfaces/discord/index.ts');

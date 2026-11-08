@@ -4,7 +4,7 @@
 // it needs: the service key of `brave` or `exa`, the model of `openrouter`.
 
 import { searchCommand } from '../interface/commands/search.ts';
-import { readLocalConfig } from '../tools/impl/shared.ts';
+import { readLocalConfig } from '../tools/operations/shared.ts';
 import { objOf } from '../tools/types.ts';
 import { localConfigPath } from '../config/files.ts';
 import { SERVICES, writeService } from '../keys/services.ts';

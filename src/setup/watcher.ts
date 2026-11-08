@@ -13,7 +13,7 @@ import { availableSources } from '../subharness/sources.ts';
 import { updateLocalSettings } from '../service/local-settings.ts';
 import { formatSchedule } from '../service/schedule.ts';
 import type { ServiceSchedule } from '../service/schedule.ts';
-import { setPath } from '../tools/impl/shared.ts';
+import { setPath } from '../tools/operations/shared.ts';
 import { watcherSettings } from '../watcher/settings.ts';
 import { askSchedule, askSwitch } from './mechanics.ts';
 import type { Ask } from './mechanics.ts';

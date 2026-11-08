@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { intentionsBlockText } from '../src/intentions/blocks.ts';
 import { createIntention, transition, waitOn } from '../src/intentions/model.ts';
 import { formatClock, formatDate } from '../src/format.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { checkSkill, listSkills } from '../src/tools/gateway.ts';
 import { grantedSkillNames, skillsIndex } from '../src/tools/discovery.ts';

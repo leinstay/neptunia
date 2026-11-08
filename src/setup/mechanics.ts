@@ -17,7 +17,7 @@ import { updateLocalSettings } from '../service/local-settings.ts';
 import { formatSchedule, parseSchedule } from '../service/schedule.ts';
 import type { ServiceSchedule } from '../service/schedule.ts';
 import { objOf } from '../tools/types.ts';
-import { setPath } from '../tools/impl/shared.ts';
+import { setPath } from '../tools/operations/shared.ts';
 
 /** Asks the owner at the terminal; `offered` is shown as the default and an empty answer takes it. */
 export type Ask = (question: string, offered: string | null) => Promise<string>;

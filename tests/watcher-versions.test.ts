@@ -1,4 +1,4 @@
-// Repeated inspections of one day (src/watcher/read.ts, brief.ts, news.ts, src/tools/impl/watcher.ts): each successful
+// Repeated inspections of one day (src/watcher/read.ts, brief.ts, news.ts, src/tools/operations/watcher.ts): each successful
 // run keeps an immutable report, `<day>.md` is the latest successful view for the day readers, the next inspection
 // reads the one before it, a failed attempt replaces nothing, and her wake hears only safe findings. The clock is injected.
 import { test } from 'node:test';
@@ -8,8 +8,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runServiceHere } from '../bin/neptunia-service.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
-import { createOpsEnv } from '../src/tools/impl/env.ts';
-import { runOpPrechecked } from '../src/tools/impl/index.ts';
+import { createOpsEnv } from '../src/tools/operations/env.ts';
+import { runOpPrechecked } from '../src/tools/operations/index.ts';
 import { createReportReader, readReport } from '../src/watcher/read.ts';
 import * as reads from '../src/watcher/read.ts';
 import { watcherNews } from '../src/watcher/news.ts';

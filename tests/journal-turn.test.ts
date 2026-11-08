@@ -8,7 +8,7 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { createAdmin } from '../src/admin.ts';
 import { createJournal, turnOfMessage, turnView } from '../src/memory/journal.ts';
 import { executeCall, resolveCall } from '../src/tools/executors.ts';

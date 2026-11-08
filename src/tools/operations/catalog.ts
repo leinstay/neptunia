@@ -1,6 +1,6 @@
 // The choice lists the operations share: the model roles and the config path of each, the sections of a profile
 // read, the fields and parts of the status card, the journal kinds, the notification modes and the errand agents.
-// The operations under src/tools/impl/, her tool definitions (src/tools/definitions.ts) and the owner's command table
+// The operations under src/tools/operations/, her tool definitions (src/tools/definitions.ts) and the owner's command table
 // read them, and `leafPaths` lists every setting of a config.
 
 import { CORE_ROLES, OPENCODE_ROLES, ROLES, roleConfigKeys } from '../../llm/roles.ts';
@@ -8,7 +8,7 @@ import { isObj, objOf } from '../types.ts';
 
 /**
  * The core's model roles (src/llm/roles.ts#CORE_ROLES: the core, then the model roles other than `core`), each with the
- * config path of its model (src/tools/impl/model.ts): the roles the status card probes; with the other
+ * config path of its model (src/tools/operations/model.ts): the roles the status card probes; with the other
  * roles they make `MODEL_SET_PATHS`; every role choice list is derived from this one. `core` is
  * the one model that speaks as the persona: its replies. `embedding` serves the embeddings (src/llm/embed.ts), which
  * take no chat completion.
@@ -48,7 +48,7 @@ export const MEMORY_SHOW_SECTIONS = Object.freeze([
 ]);
 
 /**
- * The fields of the status card, in order (src/tools/impl/status.ts renders them; the costs,
+ * The fields of the status card, in order (src/tools/operations/status.ts renders them; the costs,
  * memory and speed ones are the owner's only): the choices of the `field` argument of `status.show`.
  */
 export const STATUS_FIELDS = Object.freeze([
@@ -69,7 +69,7 @@ export const STATUS_FIELDS = Object.freeze([
 
 /**
  * The parts of the status card her own `status.show` call may ask for (`part`), each a few of the
- * card's fields (src/tools/impl/status.ts#PART_FIELDS): `overview` (the default of her call), `limits`,
+ * card's fields (src/tools/operations/status.ts#PART_FIELDS): `overview` (the default of her call), `limits`,
  * `models`, `memory`, `inner`, `errands` and `all` (the whole card).
  */
 export const STATUS_PARTS = Object.freeze(['overview', 'limits', 'models', 'memory', 'inner', 'errands', 'all']);

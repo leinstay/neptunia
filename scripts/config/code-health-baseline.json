@@ -1208,15 +1208,15 @@
       "deep": 2,
       "repeated": 0
     },
-    "tests/tools-impl-board.test.ts": {
+    "tests/tools-operations-board.test.ts": {
       "deep": 4,
       "repeated": 0
     },
-    "tests/tools-impl-errand.test.ts": {
+    "tests/tools-operations-errand.test.ts": {
       "deep": 2,
       "repeated": 0
     },
-    "tests/tools-impl-selfreflection.test.ts": {
+    "tests/tools-operations-selfreflection.test.ts": {
       "deep": 1,
       "repeated": 0
     },
@@ -1904,17 +1904,17 @@
         "complexity": 21
       }
     },
-    "src/tools/impl/draw.ts": {
+    "src/tools/operations/draw.ts": {
       "<anonymous>>cmdDraw": {
         "complexity": 36
       }
     },
-    "src/tools/impl/errand.ts": {
+    "src/tools/operations/errand.ts": {
       "<anonymous>>cmdRead": {
         "complexity": 26
       }
     },
-    "src/tools/impl/memory.ts": {
+    "src/tools/operations/memory.ts": {
       "<anonymous>": {
         "function-length": 450
       },
@@ -1922,7 +1922,7 @@
         "complexity": 22
       }
     },
-    "src/tools/impl/message.ts": {
+    "src/tools/operations/message.ts": {
       "<anonymous>>mediaFile": {
         "complexity": 26
       },
@@ -1930,17 +1930,17 @@
         "complexity": 34
       }
     },
-    "src/tools/impl/metrics.ts": {
+    "src/tools/operations/metrics.ts": {
       "metricsTap><anonymous>": {
         "complexity": 24
       }
     },
-    "src/tools/impl/shared.ts": {
+    "src/tools/operations/shared.ts": {
       "buildProfileSummary": {
         "complexity": 22
       }
     },
-    "src/tools/impl/status.ts": {
+    "src/tools/operations/status.ts": {
       "<anonymous>#2>keyCostsValue": {
         "complexity": 21
       },
@@ -1948,12 +1948,12 @@
         "complexity": 23
       }
     },
-    "src/tools/impl/usage.ts": {
+    "src/tools/operations/usage.ts": {
       "keyLine": {
         "complexity": 23
       }
     },
-    "src/tools/impl/voice.ts": {
+    "src/tools/operations/voice.ts": {
       "<anonymous>>cmdVoice": {
         "complexity": 26
       }
@@ -2070,27 +2070,27 @@
       "src/speech/synth.ts",
       "src/tools/call-args.ts",
       "src/tools/gateway.ts",
-      "src/tools/impl/alias.ts",
-      "src/tools/impl/catalog.ts",
-      "src/tools/impl/draw.ts",
-      "src/tools/impl/effects.ts",
-      "src/tools/impl/env.ts",
-      "src/tools/impl/grants.ts",
-      "src/tools/impl/index.ts",
-      "src/tools/impl/intention.ts",
-      "src/tools/impl/learning.ts",
-      "src/tools/impl/memory.ts",
-      "src/tools/impl/message.ts",
-      "src/tools/impl/model.ts",
-      "src/tools/impl/pause.ts",
-      "src/tools/impl/pings.ts",
-      "src/tools/impl/places.ts",
-      "src/tools/impl/registry.ts",
-      "src/tools/impl/rights.ts",
-      "src/tools/impl/rule.ts",
-      "src/tools/impl/shared.ts",
-      "src/tools/impl/status.ts",
-      "src/tools/impl/voice.ts",
+      "src/tools/operations/alias.ts",
+      "src/tools/operations/catalog.ts",
+      "src/tools/operations/draw.ts",
+      "src/tools/operations/effects.ts",
+      "src/tools/operations/env.ts",
+      "src/tools/operations/grants.ts",
+      "src/tools/operations/index.ts",
+      "src/tools/operations/intention.ts",
+      "src/tools/operations/learning.ts",
+      "src/tools/operations/memory.ts",
+      "src/tools/operations/message.ts",
+      "src/tools/operations/model.ts",
+      "src/tools/operations/pause.ts",
+      "src/tools/operations/pings.ts",
+      "src/tools/operations/places.ts",
+      "src/tools/operations/registry.ts",
+      "src/tools/operations/rights.ts",
+      "src/tools/operations/rule.ts",
+      "src/tools/operations/shared.ts",
+      "src/tools/operations/status.ts",
+      "src/tools/operations/voice.ts",
       "src/tools/registry.ts",
       "src/tools/schema.ts"
     ]

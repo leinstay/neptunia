@@ -3,8 +3,8 @@
 // owner's config, a label file) through these, so a wrong shape is an empty value and never an exception.
 
 import type { PublicationBoundary } from './publication.ts';
-import type { Env } from './impl/env.ts';
-import type { EffectClass } from './impl/effects.ts';
+import type { Env } from './operations/env.ts';
+import type { EffectClass } from './operations/effects.ts';
 import type { Given, Schema } from './definitions.ts';
 
 /**
@@ -42,7 +42,7 @@ export function textOf(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-/** What an operation declares about who may run it (src/tools/impl/registry.ts#defineOp). */
+/** What an operation declares about who may run it (src/tools/operations/registry.ts#defineOp). */
 export type Rights = {
   kind: 'read' | 'write';
   /** No grant ever opens it: only an owner runs it. */
@@ -120,7 +120,7 @@ export type OpContext = {
   /** `persona` for her own call, else the kind of caller (`owner`, `member`). */
   actor?: string;
   /** The owner's console: set by the command desk for the `cli` principal alone, it passes as an owner whatever
-   * `bot.owners` says (src/tools/impl/grants.ts#isOwnerCaller). */
+   * `bot.owners` says (src/tools/operations/grants.ts#isOwnerCaller). */
   asOwner?: boolean;
   dmChat?: boolean;
   mentionAccountIds?: ReadonlyArray<string>;

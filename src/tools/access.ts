@@ -1,6 +1,6 @@
 // The persona's access to her skills: two levels, allowed or not, granted the same way people's
-// rights are -- `/nep access grant|revoke` (src/tools/impl/access.ts) with her (the bot's own user) as
-// the target, stored in the same place, `bot.access[<skill name>].users` (src/tools/impl/grants.ts).
+// rights are -- `/nep access grant|revoke` (src/tools/operations/access.ts) with her (the bot's own user) as
+// the target, stored in the same place, `bot.access[<skill name>].users` (src/tools/operations/grants.ts).
 // Default deny; only a grant naming her user id opens a skill for her: a grant to everyone or to
 // a role is people's and opens nothing for her, so no grant she could make for others widens her
 // own rights. For her a grant may open an owner-only operation (it still runs only when an owner
@@ -60,7 +60,7 @@ export const WAKE_POLICY_VERSION = 1;
 /**
  * The capabilities a skill reaches inside its own operation, as the skills that stand for them: a picture and a voice
  * message are posts (`message.create`). Checked against a wake's envelope before the operation runs and again where
- * it posts (src/tools/executors.ts, src/tools/impl/shared.ts#postingChat).
+ * it posts (src/tools/executors.ts, src/tools/operations/shared.ts#postingChat).
  */
 export const NESTED_CAPABILITIES: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
   'draw.create': Object.freeze(['message.create']),

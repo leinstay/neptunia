@@ -1,6 +1,6 @@
 // The operations layer: one typed operation behind every owner command and every tool of the persona.
 // `runOp(name, args, ctx)` checks the caller's rights (owner-only before any grant; grants are stored per
-// operation name, src/tools/impl/grants.ts), runs the operation and always answers
+// operation name, src/tools/operations/grants.ts), runs the operation and always answers
 // `{ status, code, summary, data }`: it never throws. The owner's console (src/interface/commands/console.ts) and
 // her tools (src/tools/definitions.ts) name the operations directly.
 
@@ -48,7 +48,7 @@ function refusal(status: string, code: string, summary: string): OpResult {
 
 /**
  * Null when the caller (`ctx.accountId`, `ctx.roleIds`) may run `op`, else the `denied` result with
- * its code: src/tools/impl/rights.ts#rightsRefusal over `bot.owners`, `bot.access` and `features`, all
+ * its code: src/tools/operations/rights.ts#rightsRefusal over `bot.owners`, `bot.access` and `features`, all
  * read now. `owner-only` for an owner-only operation, `not-grantable` for one no grant opens (a
  * member operation while `features.memberCommands` is off included), else `not-granted`.
  */
@@ -97,7 +97,7 @@ export async function runOpPrechecked(name: string, args: Obj = {}, ctx: Partial
 /**
  * Runs one operation for a caller: rights first (see `checkRights`), then the operation.
  * Never throws: `{ status: 'ok'|'denied'|'approval_required'|'invalid'|'failed', code, summary, data }`.
- * `ctx` is `{ env, placeId, accountId, roleIds }`; `env` from src/tools/impl/env.ts#createOpsEnv.
+ * `ctx` is `{ env, placeId, accountId, roleIds }`; `env` from src/tools/operations/env.ts#createOpsEnv.
  */
 export async function runOp(name: string, args: Obj = {}, ctx: Partial<OpContext> = {}): Promise<OpResult> {
   const op = getOp(name);

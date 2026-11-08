@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { serviceCredential } from '../src/keys/file.ts';
 import { servicesStep } from '../src/setup/services.ts';
-import { readLocalConfig } from '../src/tools/impl/shared.ts';
+import { readLocalConfig } from '../src/tools/operations/shared.ts';
 import { localConfigPath } from '../src/config/files.ts';
 import { tempDir } from './fixtures/tmp.ts';
 

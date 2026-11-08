@@ -13,7 +13,7 @@ import { createDeadline } from '../../../behavior/turn-parts.ts';
 import type { Deadline } from '../../../behavior/turn-parts.ts';
 import type { Context } from '../../../memory/db/scope.ts';
 import type { MemberInfo } from '../../../protocol/adapter.ts';
-import { ownerNativesOf } from '../../../tools/impl/grants.ts';
+import { ownerNativesOf } from '../../../tools/operations/grants.ts';
 import { transportOf } from '../../../tools/tool-calls.ts';
 import { replyOptionsOf } from '../../calls.ts';
 import type { Selfreflection } from '../../selfreflection.ts';

@@ -16,11 +16,11 @@
 // member's card only names the models. Each role shows its own model (never another role's), and
 // each base role's line is followed by the `models.byPurpose` overrides of its purposes. The memory field (the coverage of every kind of
 // memory) is computed at most once a minute: directory listings and the record's month indexes,
-// never its day files. The speed field reads src/tools/impl/metrics.ts (the last 24 h), then today's
+// never its day files. The speed field reads src/tools/operations/metrics.ts (the last 24 h), then today's
 // missed-answer figures from the journal (src/behavior/missed.js). The `keys.base`
 // field reads the limit of each API key of the core (one free GET per key; the errand agents' key
 // is left out: their spend is `costs.errands`) and the rolling 7/30-day sums per key; `costs.base`
-// reads today's per-role accumulator (src/tools/impl/usage.ts, drawing's row included); `costs.errands` the errand records' spend
+// reads today's per-role accumulator (src/tools/operations/usage.ts, drawing's row included); `costs.errands` the errand records' spend
 // per agent (src/errands/costs.ts through the place's task store); `costs.development` the development agents'
 // (thinker, dev) from the board's `costs.agents` by role (src/board/costs.ts, with the thinker's last-wave
 // context), both shown with no runs when the board does not answer. The owner's `inner`
@@ -60,7 +60,7 @@ const COSTS_READER = 'thinker';
 /** The tokens line of the `inner` field: the core role's tokens today. */
 type InnerTokens = { prompt: number; cached: number; completion: number };
 
-/** The card's field names, in order (src/tools/impl/catalog.ts#STATUS_FIELDS, the `field` option's choices). */
+/** The card's field names, in order (src/tools/operations/catalog.ts#STATUS_FIELDS, the `field` option's choices). */
 export { STATUS_FIELDS };
 
 /**
@@ -612,7 +612,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * The owner's `keys.base` field (src/tools/impl/usage.ts#keyCostsLines, every word from
+   * The owner's `keys.base` field (src/tools/operations/usage.ts#keyCostsLines, every word from
    * `labels.status.costs`): the main API key's limit and spend, the simulator key's and those of
    * each extra key `llm.keyByRole` puts in use (`llm.roleKeys`, read by role, never holding a key
    * here) but the errand agents' (a key whose roles are all ERRAND_KEY_ROLES: no line, no read), free GETs in parallel (`llm.keyInfo`; `llm.probeTimeoutMs`, never counted against
@@ -702,7 +702,7 @@ const handlers = perEnv((env) => {
     return lines.length > 0 ? withKeyLines(lines, { llm, usage, hot, config: cfg, now: clock() }) : '-';
   }
 
-  /** The owner's `costs.base` field (src/tools/impl/usage.ts#roleCostsLines): today's requests
+  /** The owner's `costs.base` field (src/tools/operations/usage.ts#roleCostsLines): today's requests
    * per role from the usage accumulator; `-` when the labels give no line. */
   function roleCostsValue() {
     const rows = typeof usage?.byRole === 'function' ? usage.byRole() : [];
@@ -710,7 +710,7 @@ const handlers = perEnv((env) => {
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
-  /** The owner's `costs.errands` field (src/tools/impl/usage.ts#agentCostsLines): each errand agent's
+  /** The owner's `costs.errands` field (src/tools/operations/usage.ts#agentCostsLines): each errand agent's
    * runs, tokens and estimated dollars today and over the last 7 and 30 days, from the place's
    * task store (src/errands/store.ts#costs; none without the errands or a place). An agent with
    * no figures shows no runs. `-` when the labels give no line. */
@@ -721,7 +721,7 @@ const handlers = perEnv((env) => {
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
-  /** The owner's `costs.development` field (src/tools/impl/usage.ts#agentCostsLines): thinker and dev from the board's
+  /** The owner's `costs.development` field (src/tools/operations/usage.ts#agentCostsLines): thinker and dev from the board's
    * `costs.agents` by role (src/board/costs.ts), read as COSTS_READER; a missing, refusing or failing board shows them
    * with no runs and never fails the field. `-` when the labels give no line. */
   async function developmentCostsValue() {

@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { localConfigPath } from '../config/files.ts';
-import { readLocalConfig, setPath, writeLocalConfig } from '../tools/impl/shared.ts';
+import { readLocalConfig, setPath, writeLocalConfig } from '../tools/operations/shared.ts';
 import { provisionInterfaceClient } from './clients.ts';
 import { systemctlOf, whyFailed } from './install.ts';
 import type { RunResult } from './install.ts';

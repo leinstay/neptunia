@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { withIface } from '../src/memory/db/current-iface.ts';
-import { isOwnerId } from '../src/tools/impl/grants.ts';
+import { isOwnerId } from '../src/tools/operations/grants.ts';
 import { mention, query, spawnCli, startUnitsCore, startedUnit, until, withRig } from './fixtures/core-units.ts';
 import type { Dirs, Rig } from './fixtures/core-units.ts';
 

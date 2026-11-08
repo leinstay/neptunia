@@ -1,11 +1,11 @@
-// The `tools.describe` operation (src/tools/impl/skills.ts): one skill in full or a family as lines,
+// The `tools.describe` operation (src/tools/operations/skills.ts): one skill in full or a family as lines,
 // from the registry and the skills layer read now, rendered as a core row; a stranger gets the
 // closest names; the skill is a read the persona can be granted.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { runOp } from '../src/tools/impl/index.ts';
-import { createOpsEnv } from '../src/tools/impl/env.ts';
+import { runOp } from '../src/tools/operations/index.ts';
+import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { tempDir } from './fixtures/tmp.ts';

@@ -7,7 +7,7 @@
 // set it waiting on an errand: `errand:<errand id>` and/or `deadline:`; a `deadline` without an errand
 // waits on the errand her same turn hands off), `intention.cancel` (also how she rejects a
 // candidate), `intention.list`. Her own state, so her own calls run on her grant alone
-// (src/tools/impl/effects.ts#SELF_OWNED_OPS) under the gateway's rules on who asked; for people they are
+// (src/tools/operations/effects.ts#SELF_OWNED_OPS) under the gateway's rules on who asked; for people they are
 // owner operations an owner may grant (no `member` right). A call never widens anything: a wait
 // names only an errand the errand store holds, a place to begin in is recorded once the interface says
 // she may write there, and a candidate is accepted only where its origin allows
@@ -256,7 +256,7 @@ const handlers = perEnv((env) => {
     };
   }
 
-  /** A place to begin in, refused when she cannot write there (src/tools/impl/shared.ts#writablePlace). */
+  /** A place to begin in, refused when she cannot write there (src/tools/operations/shared.ts#writablePlace). */
   async function checkBegin(place: string | undefined, context: OpContext): Promise<void> {
     if (!place) return;
     const port = env.port as { iface?: unknown } | null | undefined;

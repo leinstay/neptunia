@@ -5,7 +5,7 @@
 // has `/skills`. Answers are the socket's `{ status, text, data }`. `skillCommand` runs over a port that answers at once,
 // `skillCommandOf` over the core's access, which answers later.
 
-import type { BoardCaller } from '../tools/impl/board.ts';
+import type { BoardCaller } from '../tools/operations/board.ts';
 import { SKILL_NAME } from './format.ts';
 import type { SkillProblem } from './load.ts';
 import type { SkillsAccess, SkillsPort } from './port.ts';

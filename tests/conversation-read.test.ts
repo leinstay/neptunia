@@ -3,7 +3,7 @@
 // history when the record lacks the span, a hidden channel refused), and the registry rows.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { IN_TURN_TOOLS } from '../src/tools/tools.ts';
 import {

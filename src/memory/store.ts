@@ -2814,7 +2814,7 @@ function buildStore({
      * people taught the persona, via src/memory/details.ts#applyDetailOps --
      * the same confirmation/ranking/eviction mechanics as a member's
      * details, with the place's own `learnedNextId` id counter. Used by the
-     * owner commands (src/tools/impl/learning.ts). The limits are the `config.memory` keys of the same name, so
+     * owner commands (src/tools/operations/learning.ts). The limits are the `config.memory` keys of the same name, so
      * a caller can pass `{ ...config.memory, seenAt }` as-is; `seenAt` falls
      * back to the wall clock. Garbage `ops` change nothing and never throw.
      * The place is marked dirty (and `updatedAt` stamped) only when the list

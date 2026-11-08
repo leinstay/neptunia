@@ -12,7 +12,7 @@ import { privateGate } from '../behavior/private.ts';
 import type { Reads } from '../interface/reads.ts';
 import { log } from '../log.ts';
 import type { ChatInfo, ChatRef } from '../protocol/adapter.ts';
-import { isOwnerId } from '../tools/impl/grants.ts';
+import { isOwnerId } from '../tools/operations/grants.ts';
 import { withIface } from '../memory/db/current-iface.ts';
 import type { TurnParams } from '../turn/outcome.ts';
 import type { MessageReadOptions } from './types.ts';

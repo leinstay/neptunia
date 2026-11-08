@@ -1,5 +1,5 @@
 // Tests for the persona's intentions at work: src/intentions/service.ts and store.js behind the
-// `/nep task intent` operations (src/tools/impl/intent.ts), over a real task store and errand service (a
+// `/nep task intent` operations (src/tools/operations/intent.ts), over a real task store and errand service (a
 // temp data/ directory) with a FAKE errand client and a fake clock. Reliable waiting: a failed
 // launch leaves nothing waiting, an errand of the same turn is linked whichever call came first,
 // its end moves the wait back to pending once (a duplicate end is a no-op), a missing end is found
@@ -9,9 +9,9 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
-import { runOp as runOperation } from '../src/tools/impl/index.ts';
-import type { OpResult } from '../src/tools/impl/index.ts';
-import { createOpsEnv } from '../src/tools/impl/env.ts';
+import { runOp as runOperation } from '../src/tools/operations/index.ts';
+import type { OpResult } from '../src/tools/operations/index.ts';
+import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createErrandStores } from '../src/errands/store.ts';
 import { createErrandService } from '../src/errands/service.ts';
 import { createErrandTurns, errandDoneEvent } from '../src/errands/turns.ts';

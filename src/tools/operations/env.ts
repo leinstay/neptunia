@@ -232,7 +232,7 @@ function buildEnv({
     return hot.reloadConfig() as boolean;
   }
 
-  /** `value` written at `dottedPath` (or an array of keys, src/tools/impl/shared.ts#splitPath) of
+  /** `value` written at `dottedPath` (or an array of keys, src/tools/operations/shared.ts#splitPath) of
    * the private settings file, then reloaded; the reload's outcome. */
   function writeLocalPath(dottedPath: string | ReadonlyArray<string>, value: unknown): boolean {
     return editLocalConfig((local) => setPath(local, dottedPath, value));
@@ -295,7 +295,7 @@ function buildEnv({
     memoryDb,
     record,
     metrics,
-    // The web lookup: the status card's search line and `/nep task search` (src/tools/impl/search.ts).
+    // The web lookup: the status card's search line and `/nep task search` (src/tools/operations/search.ts).
     lookup,
     // The server search of the recall runner (src/behavior/recall-run.ts): `/nep memory search`.
     recall,
@@ -320,11 +320,11 @@ function buildEnv({
     // The persona's inner life (src/behavior/inner.ts): `/nep task inner`.
     inner,
     // The selfreflection's publisher (src/behavior/mirror.ts): what she writes to her selfreflection with message.create is held there.
-    // The task board (src/tools/impl/board.ts): `task.propose` and `task.status`, and the status card's agent costs.
+    // The task board (src/tools/operations/board.ts): `task.propose` and `task.status`, and the status card's agent costs.
     board,
-    // Her skills (src/tools/impl/skill.ts): `skill.read` and `skill.disable`.
+    // Her skills (src/tools/operations/skill.ts): `skill.read` and `skill.disable`.
     skills,
-    // The watcher's reports (src/tools/impl/watcher.ts): `watcher.read`.
+    // The watcher's reports (src/tools/operations/watcher.ts): `watcher.read`.
     watcher,
     now,
     dataDir,

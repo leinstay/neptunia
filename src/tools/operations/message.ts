@@ -9,7 +9,7 @@
 // delete and react go through the interface too. The rules live here, for every caller: a post,
 // an edit, a deletion or a reaction in the chat the command runs in, or in any text
 // channel of the served place where the bot holds the platform permissions it needs
-// (src/tools/impl/shared.ts#postingChat; a person may ask for her turn in any channel); edit and
+// (src/tools/operations/shared.ts#postingChat; a person may ask for her turn in any channel); edit and
 // delete reach only her own messages (the port refuses anyone else's). A message is named by its
 // id or its link; for an edit or a deletion also by `last`, her own most recent message in that
 // channel. A port answer that may have taken effect is `failed` with `data.unknown` true:
@@ -42,7 +42,7 @@ import type { Env } from './env.ts';
 import { mentionsUnderPings } from '../../turn/mentions.ts';
 import type { PingState } from '../../memory/pings.ts';
 
-/** The chat `chatId` names, checked for what `need` asks there (src/tools/impl/shared.ts#postingChat). */
+/** The chat `chatId` names, checked for what `need` asks there (src/tools/operations/shared.ts#postingChat). */
 function checkedChat(
   env: Env,
   p: Adapter,
@@ -109,7 +109,7 @@ function isLast(value: unknown): boolean {
 /** A file a post carries, read for upload. */
 type Upload = { name: string; data: Uint8Array; contentType?: string };
 
-/** What the bot needs to be allowed in the chat an operation acts in (src/tools/impl/shared.ts#CHANNEL_NEEDS). */
+/** What the bot needs to be allowed in the chat an operation acts in (src/tools/operations/shared.ts#CHANNEL_NEEDS). */
 type Need = Parameters<typeof postingChat>[0]['need'];
 
 /** The message an operation acts on and the chat it is in. */
@@ -342,7 +342,7 @@ const handlers = perEnv((env) => {
 
   /**
    * The message `args.messageId` names, in the chat it may be acted on in -- the bot
-   * holding there the permissions `need` names (src/tools/impl/shared.ts#CHANNEL_NEEDS): `{ placeId, ref }`.
+   * holding there the permissions `need` names (src/tools/operations/shared.ts#CHANNEL_NEEDS): `{ placeId, ref }`.
    */
   async function target(
     args: Obj,

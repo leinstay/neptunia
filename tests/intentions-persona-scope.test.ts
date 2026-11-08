@@ -3,7 +3,7 @@
 // Contract, plan 2026-11-04-cli-and-memory task 5: `createIntentionStore({ memoryDb, log })` takes no `rootId` and its
 // collection is `personaKey('intentions')`; `createIntentionService` takes no `getRootId` and `service.list(options?)`,
 // `service.due()` and `service.reconcile()` take no root.
-// Appendix entries: src/intentions/{service,store,types}.ts, src/memory/db/readers/intentions.ts, src/tools/impl/intention.ts.
+// Appendix entries: src/intentions/{service,store,types}.ts, src/memory/db/readers/intentions.ts, src/tools/operations/intention.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createIntention } from '../src/intentions/model.ts';

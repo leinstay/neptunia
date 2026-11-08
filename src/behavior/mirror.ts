@@ -14,7 +14,7 @@
 // it goes out, so a retry resumes at the segment that stopped under the same key. A send that throws, hangs past
 // `mirrors.sendTimeoutMs` or answers `unknown` makes the row `unknown` and nothing more goes out: only a receipt, an
 // adapter's lookup or the owner settles it. The turn's act path (src/behavior/turn.ts#act) splits a set with the same
-// `chunkPictures` and names its files with `pictureAttachments`; `voice.say` (src/tools/impl/voice.ts) builds its file
+// `chunkPictures` and names its files with `pictureAttachments`; `voice.say` (src/tools/operations/voice.ts) builds its file
 // with `voiceAttachment`. Before any send the entry's pictures and voice file are kept in memory as files under the data
 // directory and `media` rows (memoryWrite kind `entry-media`, src/memory/db/selfreflection-media.ts), so a row still queued after
 // a restart goes out whole, and a row whose file is gone holds as `incomplete` with nothing posted

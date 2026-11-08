@@ -1,7 +1,7 @@
 // Tests for src/behavior/tool-step.ts: the pure parts of a step of a turn that calls tools.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { buildSkills } from '../src/tools/registry.ts';
 import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import {

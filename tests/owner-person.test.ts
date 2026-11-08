@@ -1,4 +1,4 @@
-// The owner's rights come from the person: src/tools/impl/grants.ts#isOwnerId asks the accounts the owner bound
+// The owner's rights come from the person: src/tools/operations/grants.ts#isOwnerId asks the accounts the owner bound
 // (src/memory/db/person-links.ts#createOwnerAccounts), and `bot.owners` holds only until the owner person is bound.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,8 +9,8 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { createOwnerAccounts } from '../src/memory/db/person-links.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { dbOf } from '../src/memory/db/types.ts';
-import { isOwnerCaller, isOwnerId, useOwnerAccounts } from '../src/tools/impl/grants.ts';
-import { rightsRefusal } from '../src/tools/impl/rights.ts';
+import { isOwnerCaller, isOwnerId, useOwnerAccounts } from '../src/tools/operations/grants.ts';
+import { rightsRefusal } from '../src/tools/operations/rights.ts';
 import { mention, query, runCli, startUnitsCore, startedUnit, until, withRig } from './fixtures/core-units.ts';
 import { tempDir } from './fixtures/tmp.ts';
 

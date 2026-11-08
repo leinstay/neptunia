@@ -4,8 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { listOps } from '../src/tools/impl/index.ts';
-import { OP_EFFECTS } from '../src/tools/impl/effects.ts';
+import { listOps } from '../src/tools/operations/index.ts';
+import { OP_EFFECTS } from '../src/tools/operations/effects.ts';
 import {
   API_NAMES,
   INTENT_PARAMS,

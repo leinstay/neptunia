@@ -15,7 +15,7 @@ import type { DevelopmentDeps, DevelopmentWorker, SkillPackageAnswer } from '../
 import { checkRepository } from '../../src/selfimprovement/repository.ts';
 import type { GhAnswer } from '../../src/selfimprovement/repository.ts';
 import type { AgentRun } from '../../src/subharness/run.ts';
-import type { BoardCaller } from '../../src/tools/impl/board.ts';
+import type { BoardCaller } from '../../src/tools/operations/board.ts';
 import { freshMemoryDb } from './memory-db-copy.ts';
 import { tempDir } from './tmp.ts';
 

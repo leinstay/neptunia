@@ -1,11 +1,11 @@
-// Tests for the key rows of the usage accumulator (src/tools/impl/usage.ts) and the key name on the usage line of the chat
+// Tests for the key rows of the usage accumulator (src/tools/operations/usage.ts) and the key name on the usage line of the chat
 // client (src/llm/openrouter.ts): the spend by key name is what the balance of a key's grant is computed from.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createUsage, usageTap } from '../src/tools/impl/usage.ts';
+import { createUsage, usageTap } from '../src/tools/operations/usage.ts';
 import { createLlm } from '../src/llm/openrouter.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 

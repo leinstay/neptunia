@@ -42,7 +42,7 @@ import { placeDetail } from '../src/memory/db/places-read.ts';
 import type { Context } from '../src/memory/db/scope.ts';
 import { internalContext } from '../src/memory/db/scope.ts';
 import type { Db } from '../src/memory/db/types.ts';
-import { listOps } from '../src/tools/impl/index.ts';
+import { listOps } from '../src/tools/operations/index.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 import { actualTableNames, cell, countOf, databaseDigest } from './fixtures/memory-db/browser-world.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';

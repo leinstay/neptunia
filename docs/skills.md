@@ -93,4 +93,4 @@ The loader refuses a skill whose name is the name of a tool, dotted or as the to
 
 Runs have time and output limits. A timed-out script may already have acted, so its outcome can be unknown. Interrupted runs are not automatically replayed. Keep useful service results in the skill's state so a later question can reuse them.
 
-Read the implementation in [format](../src/skills/format.ts), [version packages](../src/skills/package.ts), [runner](../src/skills/run.ts) and [tool entry point](../src/tools/impl/skill.ts).
+Read the implementation in [format](../src/skills/format.ts), [version packages](../src/skills/package.ts), [runner](../src/skills/run.ts) and [tool entry point](../src/tools/operations/skill.ts).

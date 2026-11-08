@@ -3,7 +3,7 @@
 // the latency of her replies. A stuck errand is the board's own reclaim condition (src/board/board.ts, `reap`): a
 // task of lane `errand`, `approved` or `in_progress`, whose lease expired. The owner's console
 // (src/interface/commands/console.ts) calls `coreHealth` for `/doctor core` over the core's read connection; the
-// turn durations come from the `reply` metric (src/tools/impl/metrics.ts). Pure over the database and its options.
+// turn durations come from the `reply` metric (src/tools/operations/metrics.ts). Pure over the database and its options.
 
 import type { DatabaseSync } from 'node:sqlite';
 import { worse } from './server.ts';

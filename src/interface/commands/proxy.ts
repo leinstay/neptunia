@@ -12,7 +12,7 @@ import { writeService } from '../../keys/services.ts';
 import { isProxyUrl, proxySettings } from '../../net/proxy.ts';
 import type { ProxyRoute } from '../../net/proxy.ts';
 import { writeHarnessCurlrc } from '../../subharness/place.ts';
-import { readLocalConfig, setPath, writeLocalConfig } from '../../tools/impl/shared.ts';
+import { readLocalConfig, setPath, writeLocalConfig } from '../../tools/operations/shared.ts';
 
 /** What the proxy commands read and call besides the persona's folder. */
 export type ProxyCommandDeps = {

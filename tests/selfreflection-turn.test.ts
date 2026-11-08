@@ -18,7 +18,7 @@ import type { LogEntry } from './fixtures/capture-logs.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import { contentText } from './fixtures/turn-harness.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { attachmentCount, onWorld, useIface, useSelf, world } from './fixtures/turn-world.ts';
 import type { Channel } from './fixtures/turn-world.ts';
 import { appendedPost, selfreflectionCounts, entryOf, publishTo } from './fixtures/selfreflection-mirror.ts';

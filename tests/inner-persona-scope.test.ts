@@ -5,7 +5,7 @@
 // `inner.mayAct()`. Missed-wake and disable policies stay as they are.
 // Appendix entries: src/behavior/inner.ts, src/behavior/inner/{status,places,queue,drain,deliveries,recovery,review,
 // heartbeat,selfimprovement,facts,types,wake-store}.ts, src/behavior/heartbeat-view.ts,
-// src/behavior/selfimprovement-view.ts, src/tools/impl/inner.ts, src/memory/db/wake-queue.ts.
+// src/behavior/selfimprovement-view.ts, src/tools/operations/inner.ts, src/memory/db/wake-queue.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInnerLife } from '../src/behavior/inner.ts';

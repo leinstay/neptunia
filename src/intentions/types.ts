@@ -1,6 +1,6 @@
 // The shapes the intention modules share: the record the store keeps, the answers of the model's moves, the store, the
 // service and the notes of where a line came from. Types only, nothing runs here. src/intentions/*.ts, the intention
-// operations (src/tools/impl/intention.ts) and the scheduler's JavaScript read them.
+// operations (src/tools/operations/intention.ts) and the scheduler's JavaScript read them.
 
 import type { PublicationBoundary } from '../tools/publication.ts';
 import type { Untyped } from '../tools/types.ts';

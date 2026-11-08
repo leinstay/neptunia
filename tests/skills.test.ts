@@ -1,7 +1,7 @@
 // Tests for src/tools/: the persona's skills ARE the owner's /nep commands (one skill per
 // operation, derived from the command that runs it), the rights gateway, the catalogue view, the
 // effect table, and how the owner opens a skill for her (`/nep access grant|revoke` with her as
-// the user, src/tools/impl/access.ts), with the rule she never changes her own authority. Nothing here
+// the user, src/tools/operations/access.ts), with the rule she never changes her own authority. Nothing here
 // executes a skill: the gateway only answers whether one may run.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,12 +9,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { runOp } from '../src/tools/impl/index.ts';
-import { listOps } from '../src/tools/impl/registry.ts';
-import { createOpsEnv } from '../src/tools/impl/env.ts';
-import { EFFECT_CLASSES, OP_EFFECTS, SELF_OWNED_OPS } from '../src/tools/impl/effects.ts';
-import { PERSONA_GOVERNED_CONFIG, governsPersona } from '../src/tools/impl/rights.ts';
-import { RENAMED_OPS, renameGrants } from '../src/tools/impl/access.ts';
+import { runOp } from '../src/tools/operations/index.ts';
+import { listOps } from '../src/tools/operations/registry.ts';
+import { createOpsEnv } from '../src/tools/operations/env.ts';
+import { EFFECT_CLASSES, OP_EFFECTS, SELF_OWNED_OPS } from '../src/tools/operations/effects.ts';
+import { PERSONA_GOVERNED_CONFIG, governsPersona } from '../src/tools/operations/rights.ts';
+import { RENAMED_OPS, renameGrants } from '../src/tools/operations/access.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import {
   loadSkills,
@@ -33,7 +33,7 @@ import {
   wakeEnvelope,
 } from '../src/tools/access.ts';
 import { executeCall } from '../src/tools/executors.ts';
-import { postingChat } from '../src/tools/impl/shared.ts';
+import { postingChat } from '../src/tools/operations/shared.ts';
 import { schemaError } from '../src/tools/schema.ts';
 import { checkReplyEffect, checkSkill, listSkills } from '../src/tools/gateway.ts';
 import { tempDir } from './fixtures/tmp.ts';

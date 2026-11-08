@@ -25,7 +25,7 @@ const handlers = perEnv((env) => {
   /** Refuses a change under `bot.owners` / `bot.access` (see OWNER_ONLY_CONFIG_PATHS) unless the
    * caller is an owner: a member granted `set` must never make themselves one. Made by the persona
    * (`context.actor`, her skills) a change of any key that governs authorization or her own
-   * controls (src/tools/impl/rights.ts#governsPersona) is refused whoever asked. */
+   * controls (src/tools/operations/rights.ts#governsPersona) is refused whoever asked. */
   function assertMayChangeConfig(parts: ReadonlyArray<string>, context: OpContext): void {
     if (context?.actor === 'persona' && governsPersona(parts.join('.'))) {
       throw denied(`the persona never changes ${parts.join('.')}`, CODE.SELF_GRANT);
@@ -36,7 +36,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep set`: one leaf of the live config (a path autocomplete offers, src/tools/impl/catalog.ts
+   * `/nep set`: one leaf of the live config (a path autocomplete offers, src/tools/operations/catalog.ts
    * #leafPaths, walked over own keys only) overridden in the private settings file. The value is JSON, or
    * the raw text when it does not parse -- or when the setting is a string, so an id typed bare
    * stays text. Its JSON type must be the current one's (any type when the current is null).

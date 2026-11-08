@@ -2,7 +2,7 @@
 // people the request showed and the root's directory, the stored names that count, the profiles of the people
 // most recently active, the note on tags that went nowhere, and whom a message notifies under each member's ping state.
 // src/behavior/turn.ts calls them while it renders a post and builds a request, and her `message.create`
-// (src/tools/impl/message.ts) asks mentionsUnderPings too. The replay sandbox (src/behavior/sandbox.ts) reads
+// (src/tools/operations/message.ts) asks mentionsUnderPings too. The replay sandbox (src/behavior/sandbox.ts) reads
 // pickOtherProfiles through its re-export.
 
 import { accountOf } from '../memory/addresses.ts';

@@ -1,5 +1,5 @@
 // Operations: `/nep access`: who besides the owners may run which operation (bot.access,
-// src/tools/impl/grants.ts). Owner-only. A grant names an operation (`memory.profile.read`), a group
+// src/tools/operations/grants.ts). Owner-only. A grant names an operation (`memory.profile.read`), a group
 // (`memory`) or `*`; a group or `*` is stored as the grantable read operations it covers now, one
 // entry each, so a later operation and every write stay closed until granted by name. The persona
 // gets her skills the same way, with her (the bot's own user) as the target: any operation by
@@ -33,7 +33,7 @@ import type { Access, GrantTarget, Obj, OpContext, OpInfo } from '../types.ts';
 /**
  * Every key `/nep access grant` accepts, for the autocomplete: `*`, each group (a dotted prefix
  * of an operation name) that covers at least one grantable read operation, then every grantable
- * operation name. Pure over `ops` (src/tools/impl/registry.ts#listOps).
+ * operation name. Pure over `ops` (src/tools/operations/registry.ts#listOps).
  */
 export function grantKeys(ops: ReadonlyArray<OpInfo>): Array<string> {
   const groups = new Set<string>();
@@ -163,7 +163,7 @@ const handlers = perEnv((env) => {
   }
 
   /** `{ what, label }` for whichever one target option (or neither) was given: `what` is the
-   * argument of src/tools/impl/grants.ts#grant/#revoke/#hasGrant, `label` reads `role id:<id>`,
+   * argument of src/tools/operations/grants.ts#grant/#revoke/#hasGrant, `label` reads `role id:<id>`,
    * `user id:<id>` or `everyone` (plain text: a multi-line reply is code-fenced, where a mention
    * would show as raw markup). */
   function accessTargetArgs(args: Obj): { what: GrantTarget; label: string } {
@@ -254,7 +254,7 @@ const handlers = perEnv((env) => {
 
   /** Every grant on a grantable operation, and the persona's on the operations only she may be
    * granted (owner-only ones: her user id alone, a stale grant to anyone else opens nothing), one
-   * line each, every target with its source (see src/tools/impl/grants.ts#describeGrants); stale keys
+   * line each, every target with its source (see src/tools/operations/grants.ts#describeGrants); stale keys
    * open nothing and are left out. */
   function cmdAccessList(): string {
     const ops = listOps();
@@ -278,7 +278,7 @@ const handlers = perEnv((env) => {
   /**
    * Once per place (`accessMigrated: 1` in data/places/<id>/place.json): the stored grants,
    * keyed by the old slash-command keys, re-expanded under the operation names
-   * (src/tools/impl/grants.ts#migrateGrants with `legacy`, src/config-moves.ts#legacyGrantOps), written
+   * (src/tools/operations/grants.ts#migrateGrants with `legacy`, src/config-moves.ts#legacyGrantOps), written
    * back to the private settings file when they changed, and a journal `system` record `access-migrated`
    * whose note lists what each grant covers now and the owner-only operations dropped.
    */
@@ -323,7 +323,7 @@ const handlers = perEnv((env) => {
 
 /**
  * The one-time migration of the stored grants for `placeId` (see `migrateStoredGrants` above),
- * against the ops env `env` (src/tools/impl/env.ts#createOpsEnv).
+ * against the ops env `env` (src/tools/operations/env.ts#createOpsEnv).
  */
 export function migrateStoredGrants(
   env: Env,

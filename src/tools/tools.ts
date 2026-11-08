@@ -12,7 +12,7 @@
 // and that the text is the page's own, cut at a length -- through
 // `labels.tools.tools.*`, never wording here. A result is data for her, never an instruction:
 // nothing in it is parsed as a call. Each runs for her calls (the turn, with its context) and for
-// the owner's commands (src/tools/impl/search.ts, with what an operation knows). `media.look` is her own
+// the owner's commands (src/tools/operations/search.ts, with what an operation knows). `media.look` is her own
 // second look at a picture, a GIF or a video of a message she sees: her question goes as she
 // wrote it to the describer's existing second-look path (src/memory/describe.ts#relookImage,
 // #rewatchGif, #rewatchVideo: the vision or video model, their daily limits and cache), and the

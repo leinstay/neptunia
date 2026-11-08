@@ -24,7 +24,7 @@ import type { InspectionValueChunk } from '../src/memory/db/inspection-snapshots
 import { internalContext } from '../src/memory/db/scope.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db } from '../src/memory/db/types.ts';
-import { listOps } from '../src/tools/impl/index.ts';
+import { listOps } from '../src/tools/operations/index.ts';
 import { createCommandDesk } from '../src/interface/neptunia-cli.ts';
 import type { CommandDeps } from '../src/interface/neptunia-cli.ts';
 import { wrongly } from './fixtures/loose-types.ts';

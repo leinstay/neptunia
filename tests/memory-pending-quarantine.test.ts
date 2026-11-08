@@ -13,7 +13,7 @@ import { createMemoryDb } from '../src/memory/db/service.ts';
 import { unitLines } from '../src/memory/db/readers/common.ts';
 import type { StorageKey } from '../src/memory/db/storage-keys.ts';
 import { CATALOGUE } from '../src/tools/codes.ts';
-import { memoryDbStatusLine } from '../src/tools/impl/status.ts';
+import { memoryDbStatusLine } from '../src/tools/operations/status.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const NOW = Date.parse('2026-11-06T09:00:00.000Z');

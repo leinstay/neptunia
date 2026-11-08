@@ -12,7 +12,7 @@ import type { BoardOp, BoardResults, BoardSettings, Row } from '../src/board/boa
 import type { BoardDb } from '../src/board/schema.ts';
 import { CORE_BUILTINS, applyBoardWrite, createBoardPort } from '../src/board/writer.ts';
 import type { BoardPort } from '../src/board/writer.ts';
-import type { BoardCaller } from '../src/tools/impl/board.ts';
+import type { BoardCaller } from '../src/tools/operations/board.ts';
 import { freshMemoryDb } from './fixtures/memory-db-copy.ts';
 import { FIX_REQUEST, herCalls } from './fixtures/selfimprovement-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';

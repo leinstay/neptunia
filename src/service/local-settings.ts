@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { moveConfigKeys } from '../config-moves.ts';
 import { localConfigPath } from '../config/files.ts';
-import { readLocalConfig } from '../tools/impl/shared.ts';
+import { readLocalConfig } from '../tools/operations/shared.ts';
 
 type Settings = Record<string, unknown>;
 

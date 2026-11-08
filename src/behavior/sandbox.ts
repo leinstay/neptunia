@@ -63,7 +63,7 @@ import { appendStep, cutToFit, roomLeft, segments, stepNote, stepVerdict, thinkM
 import { diagnosticText } from './wake.ts';
 import { callMarksFor, callReason, MAX_MESSAGE_CHARS } from '../format.ts';
 import { replayFrame } from './sandbox-frame.ts';
-import { grant as accessGrant, revoke as accessRevoke } from '../tools/impl/grants.ts';
+import { grant as accessGrant, revoke as accessRevoke } from '../tools/operations/grants.ts';
 import {
   collectAudio,
   collectEmojiItems,
@@ -1015,7 +1015,7 @@ export function handleMentions(
   return accountIds.length > 0 || unknown > 0 ? { mentions: accountIds, unknownHandles: unknown } : {};
 }
 
-/** The operations whose `text` argument is a message she posts (src/tools/impl/message.ts). */
+/** The operations whose `text` argument is a message she posts (src/tools/operations/message.ts). */
 const MESSAGE_TEXT_SKILLS: ReadonlyArray<unknown> = Object.freeze(['message.create', 'message.edit']);
 
 /** The text a tool call would post: the `text` argument of a message.create or message.edit; '' for none. Pure. */
@@ -1035,7 +1035,7 @@ const RESULT_MAX_CHARS = 4500;
 /**
  * A copy of `config` whose persona grants are exactly `names`: her user id (`selfId`) taken
  * off every `bot.access` entry, then granted on each name -- with the very grant and revoke
- * `/nep access` stores (src/tools/impl/grants.ts). People's grants are kept. The names are used as
+ * `/nep access` stores (src/tools/operations/grants.ts). People's grants are kept. The names are used as
  * given (the caller expands `*` and groups, as `/nep access grant` does); a name no grant opens
  * for her (src/tools/access.ts#NOT_GRANTABLE_TO_PERSONA) is stored too, so the gateway's own
  * refusal of it shows. `config` is never changed. Pure.

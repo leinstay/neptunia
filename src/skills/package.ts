@@ -2,7 +2,7 @@
 // so an edited script is a new candidate version like an edited text, and nothing runs until it is activated.
 // `snapshotPackage` keeps an immutable copy per hash under `.versions/<hash>/`, and `skill.run` runs the activated
 // version's copy, so an edit never changes what runs. A skill with only a `SKILL.md` keeps the hash of its text. Called by
-// load.ts and src/tools/impl/skill.ts.
+// load.ts and src/tools/operations/skill.ts.
 
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';

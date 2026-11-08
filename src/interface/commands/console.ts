@@ -33,8 +33,8 @@ import { setInterfaceToken } from './interface-token.ts';
 import { DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../../llm/roles.ts';
 import { backupInWorker, backupName, backupSettings, backupsIn, partialOf } from '../../memory/db/backup.ts';
 import { grantedSkillNames } from '../../tools/discovery.ts';
-import { ownerPersonOf } from '../../tools/impl/grants.ts';
-import { ownValueAt, splitPath } from '../../tools/impl/shared.ts';
+import { ownerPersonOf } from '../../tools/operations/grants.ts';
+import { ownValueAt, splitPath } from '../../tools/operations/shared.ts';
 import { skillRegistry } from '../../tools/registry.ts';
 import type { SkillsAccess } from '../../skills/port.ts';
 import type { ConsoleSubharness } from './subharness.ts';
@@ -64,12 +64,12 @@ import { modelRoleRegistry, roleSources } from '../../subharness/model-capabilit
 import { usageLines } from '../../subharness/usage.ts';
 import type { BackendUsage } from '../../subharness/usage.ts';
 import { callMethod, listOf, objOf } from '../../tools/types.ts';
-import type { Counters, DaysSum, RoleRow } from '../../tools/impl/usage.ts';
+import type { Counters, DaysSum, RoleRow } from '../../tools/operations/usage.ts';
 
 /** One command's answer: the text the owner reads and its outcome. */
 export type Answer = { text: string; status: string; code?: string };
 
-/** An operation's result as src/tools/impl/index.ts#runOp answers it. */
+/** An operation's result as src/tools/operations/index.ts#runOp answers it. */
 type OpResult = { status: string; code: string; summary: string; data: unknown };
 
 /** An owner's run in the background: started once, its state readable while it runs and after it ends. */
@@ -108,7 +108,7 @@ export type ConsoleDeps = {
   /** The memory database (src/memory/db/service.ts): `database()` is its read connection, null while it is closed. */
   memoryDb: unknown;
   usage: { byRole(): Array<RoleRow>; sumDays(days: number): DaysSum } | null;
-  /** The speed figures (src/tools/impl/metrics.ts): `samples('reply', 24)` are the reply durations of the last day. */
+  /** The speed figures (src/tools/operations/metrics.ts): `samples('reply', 24)` are the reply durations of the last day. */
   metrics: unknown;
   /** The owner's media backfill, null where no interface can read history. */
   mediaBackfill?: OwnerRun | null;
@@ -388,7 +388,7 @@ function cardSections(data: unknown, replace: Readonly<Record<string, string>>):
     .join('\n\n');
 }
 
-/** The probe lines of the status card (src/tools/impl/status.ts#probeLine) mark a failed probe so. */
+/** The probe lines of the status card (src/tools/operations/status.ts#probeLine) mark a failed probe so. */
 const FAILED_PROBE = '· failed';
 
 /** A route's role as the owner typed it: `any`, or none, is a route of every role. */

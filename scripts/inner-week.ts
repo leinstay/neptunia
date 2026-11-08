@@ -67,7 +67,7 @@ import {
   withChannelMap,
 } from './lib/inner-week.ts';
 import { onLog } from '../src/log.ts';
-import '../src/tools/impl/index.ts';
+import '../src/tools/operations/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { Fixture } from './lib/inner-week-fixture.ts';

@@ -1,11 +1,11 @@
-// `pings.get` and `pings.set` (src/tools/impl/pings.ts): the caller's own state, `on`, `off` or default. `pings.set`
+// `pings.get` and `pings.set` (src/tools/operations/pings.ts): the caller's own state, `on`, `off` or default. `pings.set`
 // takes the mode `on`, `off` or `clear` (back to default, where the interface switch decides). The store is a fake that
 // keeps the state the way `getPings` and `setPings` of src/memory/store.ts hand it out.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import '../src/tools/impl/pings.ts';
-import { getOp } from '../src/tools/impl/registry.ts';
-import type { Env } from '../src/tools/impl/env.ts';
+import '../src/tools/operations/pings.ts';
+import { getOp } from '../src/tools/operations/registry.ts';
+import type { Env } from '../src/tools/operations/env.ts';
 
 type State = 'on' | 'off' | null;
 

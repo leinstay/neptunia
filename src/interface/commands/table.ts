@@ -22,7 +22,7 @@ import { BASE_ROLES, MEMORY_ROLE, SEARCH_ROLE } from '../../llm/roles.ts';
 import { BACKEND_NAMES } from '../../agent-runner/profiles.ts';
 import { AGENT_MODES, SUBHARNESS_AGENTS } from '../../subharness/control.ts';
 import { SERVICE_NAMES, setupRefusal } from '../../service/schedule.ts';
-import { MODEL_SET_ROLES, ROUTE_ROLES } from '../../tools/impl/catalog.ts';
+import { MODEL_SET_ROLES, ROUTE_ROLES } from '../../tools/operations/catalog.ts';
 
 /** One argument of a command, in the order the line gives them. */
 export type CommandArg = {

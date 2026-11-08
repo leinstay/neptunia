@@ -63,7 +63,7 @@ export type ReasonedPauseDeps = {
 /**
  * The core's pause over the owner's operations: `pause(reason)` pauses her and stores the reason, and does nothing
  * while she is paused already, so no reason replaces another or the owner's. `resume(reason)` asks `bot.resume` to lift
- * only a pause of that reason. A pause the owner gives over one of these becomes his (src/tools/impl/pause.ts).
+ * only a pause of that reason. A pause the owner gives over one of these becomes his (src/tools/operations/pause.ts).
  */
 export function reasonedPause(deps: ReasonedPauseDeps): PauseControl {
   const state = () => deps.store.state;
@@ -97,7 +97,7 @@ export function reasonedPause(deps: ReasonedPauseDeps): PauseControl {
  */
 export type Answer = { text: string; status: string; code?: string };
 
-/** A provider slug of OpenRouter, as `/routes set` takes it (src/tools/impl/route.ts). */
+/** A provider slug of OpenRouter, as `/routes set` takes it (src/tools/operations/route.ts). */
 const PROVIDER_SLUG = /^[a-z0-9-]+$/;
 
 export type KeysDeps = {

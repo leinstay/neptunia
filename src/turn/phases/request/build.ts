@@ -67,7 +67,7 @@ function privateProfileOf(store: PhaseContext['store'], accountId: string): obje
 
 export type BuiltRequest = ReturnType<typeof buildRequest>;
 
-/** The tool a skill entry of the tools array is read through (src/tools/impl/skill.ts#cmdRead). */
+/** The tool a skill entry of the tools array is read through (src/tools/operations/skill.ts#cmdRead). */
 const READ_TOOL = 'skill.read';
 
 /** `labels.skills.procedure`, read now: the sentence after a skill's line that a call returns a procedure to follow. */

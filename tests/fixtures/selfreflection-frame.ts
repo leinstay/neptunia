@@ -11,7 +11,7 @@ import { after } from 'node:test';
 import { userText } from '../../src/behavior/prompt.ts';
 import { createStore } from '../../src/memory/store.ts';
 import { insertRows } from '../../src/memory/db/rows.ts';
-import '../../src/tools/impl/index.ts';
+import '../../src/tools/operations/index.ts';
 import { addDm, addLine, addPerson, addRoom, noteInterface, rootId } from './memory-db/mind-world.ts';
 import { openTestMemory } from './memory-db/service.ts';
 import { planAnswerText } from './plan-answer.ts';
