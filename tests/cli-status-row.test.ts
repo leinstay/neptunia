@@ -20,30 +20,30 @@ const aboveInput = (rig: Rig): string => rig.screen().slice(0, upperBorder(rig))
 test('the status row under the input is always there, blank when nothing is said, and the input never moves', async () => {
   // Bug: a notice or her running turn takes a row above the input, so the input and the transcript jump by one row each
   // time a notice comes or goes.
-  const rig = chatEnv();
-  const event = (one: ClientTurnEvent): void => rig.listeners.turn?.(one);
-  await withChat(rig.env, async (screen) => {
-    await until(() => lowerBorder(screen) >= 0);
-    assert.equal(lowerBorder(screen), ROWS - 2, 'one row stands under the input');
-    assert.equal((screen.screen()[ROWS - 1] ?? '').trim(), '', 'the status row is blank with nothing to say');
-    await press(screen, KEY.ctrlV, shows(screen, 'Images are not available'));
-    assert.equal(lowerBorder(screen), ROWS - 2, 'a notice leaves the input where it was');
-    assert.match(screen.screen()[ROWS - 1] ?? '', /Images are not available/);
-    assert.ok(!aboveInput(screen).includes('Images are not available'), 'no notice above the input');
-    await press(screen, 'x', () => !screen.screen().join('\n').includes('Images are not available'));
+  const chat = chatEnv();
+  const event = (one: ClientTurnEvent): void => chat.listeners.turn?.(one);
+  await withChat(chat.env, async (rig) => {
+    await until(() => lowerBorder(rig) >= 0);
+    assert.equal(lowerBorder(rig), ROWS - 2, 'one row stands under the input');
+    assert.equal((rig.screen()[ROWS - 1] ?? '').trim(), '', 'the status row is blank with nothing to say');
+    await press(rig, KEY.ctrlV, shows(rig, 'Images are not available'));
+    assert.equal(lowerBorder(rig), ROWS - 2, 'a notice leaves the input where it was');
+    assert.match(rig.screen()[ROWS - 1] ?? '', /Images are not available/);
+    assert.ok(!aboveInput(rig).includes('Images are not available'), 'no notice above the input');
+    await press(rig, 'x', () => !rig.screen().join('\n').includes('Images are not available'));
     event({ type: 'accepted', turnId: 't1', seq: 1, at: AT });
     event({ type: 'running', turnId: 't1', seq: 2, at: AT, streaming: false });
-    await until(shows(screen, 'Her turn is running'));
-    assert.equal(lowerBorder(screen), ROWS - 2, 'her running turn leaves the input where it was');
-    assert.match(screen.screen()[ROWS - 1] ?? '', /Her turn is running/);
+    await until(shows(rig, 'Her turn is running'));
+    assert.equal(lowerBorder(rig), ROWS - 2, 'her running turn leaves the input where it was');
+    assert.match(rig.screen()[ROWS - 1] ?? '', /Her turn is running/);
   });
 });
 
 test('the calls of her running turn show on the status row and not above the input', async () => {
   // Bug: `using <tool>` takes a row between the transcript and the input and pushes the chat up while she works.
-  const rig = chatEnv();
-  const event = (one: ClientTurnEvent): void => rig.listeners.turn?.(one);
-  await withChat(rig.env, async (screen) => {
+  const chat = chatEnv();
+  const event = (one: ClientTurnEvent): void => chat.listeners.turn?.(one);
+  await withChat(chat.env, async (rig) => {
     event({ type: 'accepted', turnId: 't1', seq: 1, at: AT });
     event({ type: 'running', turnId: 't1', seq: 2, at: AT, streaming: false });
     event({
@@ -55,9 +55,9 @@ test('the calls of her running turn show on the status row and not above the inp
       name: 'conversation.read',
       detail: 'started',
     });
-    await until(shows(screen, 'using conversation.read'));
-    assert.match(screen.screen().at(-1) ?? '', /using conversation\.read/);
-    assert.ok(!aboveInput(screen).includes('using'), 'nothing of the turn above the input');
+    await until(shows(rig, 'using conversation.read'));
+    assert.match(rig.screen().at(-1) ?? '', /using conversation\.read/);
+    assert.ok(!aboveInput(rig).includes('using'), 'nothing of the turn above the input');
   });
 });
 
