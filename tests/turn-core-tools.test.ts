@@ -25,6 +25,7 @@ import { addLine, addRoom, noteInterface, openWorld, rootId } from './fixtures/m
 import { DRAW_CONFIG, DRAW_PROMPTS, drawTurn, fakeImages } from './fixtures/turn-draws.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { asRecord } from './fixtures/records.ts';
+import { CHANNEL_HANDLE_PREFIX, HANDLE_DIGITS, handleOf } from '../src/behavior/handles.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -924,4 +925,44 @@ test('draw.create on a turn nobody asked (her own initiative): the picture is ch
   assert.equal(images.calls.length, 1, JSON.stringify(run.logs.filter((l) => /skill/.test(l.msg))));
   assert.equal(asRecord(images.calls[0]).accountId, null, "nobody's rail");
   assert.equal(run.sends.filter((send) => asRecord(send.attachments)?.length === 1).length, 1);
+});
+
+/** A turn on the fake interface whose `conversation.read` names, by a `#handle` the request never showed, a channel of another interface that holds one stored line. */
+async function readFarRoom(context: object, chat: string | null): Promise<string> {
+  const mind = openWorld();
+  noteInterface(mind, 'other', [{ id: 'r9', name: 'Ρίζα' }]);
+  const room = addRoom(mind.db, { iface: 'other', native: 'far-room', root: rootId('other', 'r9'), name: 'μακριά' });
+  // A channel whose chat kind is unknown is internal: only the owner's command line reads it.
+  mind.db.prepare('UPDATE places SET chat = ? WHERE id = ?').run(chat, room);
+  addLine(mind.db, {
+    id: 'src:other:far-1:1:seen',
+    iface: 'other',
+    place: room,
+    author: 'self',
+    text: 'η βροχή στο βουνό',
+    at: new Date(NOW - 60_000).toISOString(),
+  });
+  const handle = handleOf('far-room', HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX);
+  const run = await coreTurn({
+    answers: [toolAnswer('', [call('conversation.read', { place: `#${handle}`, last: 5 })]), '<msg>εντάξει</msg>'],
+    allowed: ['conversation.read'],
+    runner: { journalDb: () => mind.db, memoryContext: () => context },
+  });
+  mind.close();
+  return String(toolContent(run.llm, 1));
+}
+
+test("conversation.read: a #handle she carries of another interface's channel reads that place's stored lines", async () => {
+  // Bug: on the owner's command line a handle carried from a turn on another interface resolved only over the turn's
+  // own channels, so the read fell to the command line chat itself and answered unsupported.
+  const read = await readFarRoom({ id: 'ctx:owner', mode: 'internal', internal: true }, null);
+  assert.ok(read.includes('η βροχή στο βουνό'), read);
+});
+
+test("conversation.read: a resolved handle of a place the turn's context may not read is refused", async () => {
+  // Bug: resolving a handle would hand a group turn a place only the owner's command line may read.
+  const read = await readFarRoom({ kind: 'group', iface: 'fake' }, null);
+  assert.ok(!read.includes('η βροχή στο βουνό'), read);
+  const readable = await readFarRoom({ kind: 'group', iface: 'fake' }, 'group');
+  assert.ok(readable.includes('η βροχή στο βουνό'), 'a group channel stays readable to a group turn');
 });
