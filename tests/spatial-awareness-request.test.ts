@@ -82,9 +82,11 @@ test('a reply turn names its place, the interface and the time', () => {
   assert.equal(body?.split('\n')[0], `SPATIAL-PLACE channel general < server Example Server ON discord AT ${WHEN}`);
 });
 
-test('the command line says the command line', () => {
+// The lead's word of 2026-11-08: the command line is a private place, as a direct chat is, so its body gains the
+// private line after the command line's own.
+test('the command line says the command line, then that it is private', () => {
   const body = spatialOf(buildRequest(baseInput({ whereabouts: { kind: 'cli' } })));
-  assert.equal(body, `SPATIAL-CLI AT ${WHEN}`);
+  assert.equal(body, [`SPATIAL-CLI AT ${WHEN}`, 'SPATIAL-PRIVATE'].join('\n'));
 });
 
 for (const wakeKind of ['heartbeat', 'selfimprovement']) {

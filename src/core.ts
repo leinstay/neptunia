@@ -728,7 +728,7 @@ async function buildCore(
     ready: () => doorReady.promise,
     desk: () => commandDesk,
     linesHeld: () => isPausedIn(store),
-    isAnyTurnRunning: () => turns.isAnyBusy(),
+    runner: () => turns,
     chatCommands: (name: string, args: Record<string, unknown>) => chatState?.command(name, args) ?? null,
     lineLinks: lineLinksOf({ hot, parseLinks: (texts) => reads.parseLinks(texts) }),
     ownerName,
