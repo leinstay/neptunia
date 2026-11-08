@@ -330,6 +330,7 @@
     "memory": {
       "privateChannel": "private chat",
       "redaction": "someone",
+      "placeUnwritten": "[{handle}] fields not written yet: {fields}",
       "origin": {
         "native": "named in the message you answer",
         "reply": "the message you answer replies to it",

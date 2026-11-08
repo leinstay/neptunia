@@ -732,9 +732,18 @@ export function buildSessionRequest({
     placeLines.push(`[${handleOf.get(id)}] server: ${asText(row?.name || id)}`);
     read('place', id, 'place');
   }
+  const written = new Map<unknown, Set<unknown>>();
   for (const description of currentDescriptions(db, [...parents, ...placeIds], ctx)) {
     placeLines.push(`${asText(description.field)}: ${asText(description.text)}`);
     read('description', description.id, 'place');
+    written.set(description.subject_id, (written.get(description.subject_id) ?? new Set()).add(description.field));
+  }
+  // A place of the batch names the place fields it has not written, so the session may flag them.
+  const unwritten = asText((labels.memory as Row | undefined)?.placeUnwritten ?? '');
+  for (const row of unwritten ? placeRows : []) {
+    const missing = ['purpose', 'tone', 'topics'].filter((field) => !written.get(row.id)?.has(field)).join(', ');
+    if (missing)
+      placeLines.push(unwritten.replace('{handle}', String(handleOf.get(row.id))).replace('{fields}', missing));
   }
   const placeScope = scopeWhere(ctx, 'c');
   const placeSubjects = [...parents, ...placeIds];

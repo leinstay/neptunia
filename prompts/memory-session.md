@@ -115,6 +115,8 @@ Flags that a description needs a rewrite. The rewrite happens in a separate step
 
 The place fields mean the same for every place with lines: a room, a server or another top place, a direct chat, and the command line. `purpose` is what people come to the place for. `tone` is how people talk there, the register and the mood. `topics` are the subjects that keep coming back. For a top place the three fields cover the place as a whole across its rooms. For a direct chat they cover what the two of you use the chat for, how you talk in it and what you talk about. `patterns` are the habits of the place's conversation over time, and `starters` the openings that work there.
 
+`<place>` lists, for each place of the batch, the fields among `purpose`, `tone` and `topics` that it has never had. A field that was never written needs writing as much as a stale one needs a rewrite: when the lines show enough to say it, flag it.
+
 ### People
 
 Propose that an author become a tracked person. An author handle (`a1`, `a2`, …) appears in batch lines before the name for authors who are not yet a person. An account that spoke with you on two separate days, wrote to you privately, or that you want to remember, may be worth tracking. Most batches add none.
