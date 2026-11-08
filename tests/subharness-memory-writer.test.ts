@@ -12,9 +12,21 @@ import type { ChildOutcome, ChildRun, MemoryWriterDeps } from '../src/subharness
 import type { SubharnessMemoryPath } from '../src/subharness/memory-path.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
 import { sweep } from '../src/memory/db/session.ts';
+import { askMemoryModel, reviewDescription } from '../src/memory/db/describe.ts';
+import { memoryPath } from '../src/subharness/memory-path.ts';
 import { createUsage } from '../src/tools/operations/usage.ts';
 import type { UsageEntry } from '../src/tools/operations/usage.ts';
-import { baseConfig, chat, ctxOf, fakeLlm, fixture, memoryBlock } from './fixtures/memory-db/session-rig.ts';
+import {
+  ADA,
+  baseConfig,
+  chat,
+  ctxOf,
+  fakeLlm,
+  fixture,
+  memoryBlock,
+  personOf,
+  prompts,
+} from './fixtures/memory-db/session-rig.ts';
 import type { LlmCall } from './fixtures/memory-db/session-shapes.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
 import type { KeysFile } from './fixtures/keys-file.ts';
@@ -481,4 +493,83 @@ test('a request on the direct path reports nothing about a harness', async () =>
   const { llm } = clientOf(deps, { ran: (backend, outcome) => outcomes.push(`${backend}:${outcome}`) });
   await llm.complete(SESSION_MESSAGES, SESSION_OPTIONS);
   assert.deepEqual(outcomes, []);
+});
+
+// the description review and the bind merge: every request of the memory role takes the writer's path
+
+const MEMORY_RECORD = { backend: 'claude' as const, model: 'claude-opus-4-6', effort: null };
+const REVIEW_PROMPTS = { ...prompts, 'description-draft': 'DRAFT PROMPT', 'description-check': 'CHECK PROMPT' };
+/** A session config with no key named for the memory role. */
+const keylessConfig = (): Record<string, unknown> => ({ ...baseConfig(), llm: {} });
+const described = (text: string): string => `<think>t</think><description>${text}</description><reason>r</reason>`;
+
+test('a description review on the harness path with no key runs its draft and check through claude', async () => {
+  // Catches: the review's two calls sent to the direct client, refused ROLE_KEY_MISSING while the session runs on claude.
+  const env = fixture();
+  try {
+    chat(env);
+    let runs = 0;
+    const { deps, seen, privateDir } = rig(
+      () => {
+        runs += 1;
+        return claudeAnswers(described(runs === 1 ? 'Ada likes café mornings' : 'Ada likes quiet café mornings'))();
+      },
+      { subharness: { memory: MEMORY_RECORD } }
+    );
+    const { llm, direct } = clientOf(deps);
+    const ctx = {
+      ...ctxOf(env, { llm, config: keylessConfig(), promptSet: REVIEW_PROMPTS, envVars: {} }),
+      path: () => memoryPath(privateDir),
+    };
+    const result = await reviewDescription(env.db, { kind: 'person', id: personOf(ADA), name: 'Ada' }, 'character', {
+      ctx,
+    });
+    assert.equal(result.status, 'ok');
+    assert.equal(direct.calls.length, 0);
+    assert.equal(seen.length, 2);
+    assert.ok(String(after(seen[0]?.args ?? [], '--system-prompt')).endsWith('DRAFT PROMPT'));
+    assert.ok(String(after(seen[1]?.args ?? [], '--system-prompt')).endsWith('CHECK PROMPT'));
+  } finally {
+    env.done();
+  }
+});
+
+test('a description review on the direct path with no key is refused and nothing is sent', async () => {
+  // Catches: the harness exemption from the key check leaking to the direct path, so a keyless request goes out.
+  const env = fixture();
+  try {
+    chat(env);
+    const { deps, seen, privateDir } = rig(claudeAnswers(described('x')));
+    const { llm, direct } = clientOf(deps);
+    const ctx = {
+      ...ctxOf(env, { llm, config: keylessConfig(), promptSet: REVIEW_PROMPTS, envVars: {} }),
+      path: () => memoryPath(privateDir),
+    };
+    const result = await reviewDescription(env.db, { kind: 'person', id: personOf(ADA), name: 'Ada' }, 'character', {
+      ctx,
+    });
+    assert.deepEqual({ status: result.status, code: result.code }, { status: 'refused', code: 'not_configured' });
+    assert.equal(direct.calls.length, 0);
+    assert.equal(seen.length, 0);
+  } finally {
+    env.done();
+  }
+});
+
+test("the bind merge's description join runs through claude on the harness path", async () => {
+  // Catches: the merge of two people's descriptions sent to the direct client, which has no key on a harness path.
+  const { deps, seen } = rig(claudeAnswers(described('joined')), { subharness: { memory: MEMORY_RECORD } });
+  const { llm, direct } = clientOf(deps);
+  const completion = await askMemoryModel(
+    { llm, hot: { config: keylessConfig() } },
+    [
+      { role: 'system', content: 'MERGE PROMPT' },
+      { role: 'user', content: 'kept and merged' },
+    ],
+    { purpose: 'description-merge', maxOutputTokens: 900 }
+  );
+  assert.equal(completion.text, described('joined'));
+  assert.equal(direct.calls.length, 0);
+  assert.equal(seen.length, 1);
+  assert.equal(after(seen[0]?.args ?? [], '--system-prompt'), 'MERGE PROMPT');
 });
