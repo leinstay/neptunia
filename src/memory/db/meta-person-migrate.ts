@@ -395,17 +395,19 @@ export function migrateMetaPersons(db: Db, { ownerPerson, at, newId }: MetaPerso
   const earlier = new Map([...merged].filter(([id]) => !fresh.has(id)));
   for (const [from, into] of earlier) add(tally.changed, 'daily relationship counts', moveRelationship(db, from, into));
   rewrite(db, earlier, tally);
-  const filled = fillAccounts(db, at);
+  fillAccounts(db, at);
   const authors = fillAuthors(db);
+  const after = tableCounts(db);
   return {
     persons: Object.fromEntries(merged),
     minted: fresh.size + accounts.minted,
     promoted,
     linked,
-    accounts: filled,
+    // The links above write most account rows themselves (person-links.ts#linkAccount), so the table's growth counts.
+    accounts: Number(after.person_accounts ?? 0) - Number(before.person_accounts ?? 0),
     authorPerson: authors,
     ...tally,
     ownerPerson: ownerPerson === null ? null : { from: ownerPerson, to: survivorOf(db, ownerPerson) },
-    counts: { before, after: tableCounts(db) },
+    counts: { before, after },
   };
 }

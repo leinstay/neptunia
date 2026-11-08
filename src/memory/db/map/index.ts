@@ -9,7 +9,7 @@ import * as gifs from './gifs.ts';
 import type { MapContext } from './common.ts';
 import type { Db, Row, Rows } from '../types.ts';
 import { dmPartnerOfPlace, nativeOfAny, personId } from '../ids.ts';
-import { linkedProfileUnit } from '../person-links.ts';
+import { ensureAccountPerson, linkedProfileUnit } from '../person-links.ts';
 import { accountCollection, storageId } from '../storage-keys.ts';
 import type { StorageKey } from '../storage-keys.ts';
 import * as intentions from './intentions.ts';
@@ -142,6 +142,8 @@ function partnerNativeOf(db: Db, id: string, place: Row | undefined): string | n
   return key ?? null;
 }
 
+const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
+
 const TABLE_OF_SUBJECT = { account: 'accounts', place: 'places', person: 'people', authority: 'places' } as const;
 
 /** Context passed to the existing field mappers for a semantic collection. */
@@ -197,10 +199,18 @@ function membershipOf(db: Db, accountId: string): MapContext['membership'] {
 
 /**
  * What a member's unit `id` writes under: the person whose `people` row it owns (a linked account's dormant row keeps its
- * own id), or only the account's own facts when another unit holds the person's profile. The account row keeps the link
- * the database holds.
+ * own id), or only the account's own facts when another unit holds the person's profile. A stored account with no
+ * person gets a meta-person first, never one spelled from its native id. The account row keeps the link the database
+ * holds.
  */
 function memberWriteContext(db: Db, id: string, subjectId: string): MapContext {
+  const owned = db.prepare('SELECT id FROM people WHERE owner_key = ? AND retired_at IS NULL LIMIT 1').get(id);
+  // A stored account with no person gets its meta-person before its profile is written (plan 2026-11-08-meta-person).
+  const stored = db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(subjectId);
+  const person =
+    typeof owned?.id !== 'string' && stored !== undefined && !filled(stored.person_id)
+      ? ensureAccountPerson(db, subjectId, new Date().toISOString())
+      : null;
   const account = db.prepare('SELECT person_id, link, linked_by, linked_at FROM accounts WHERE id = ?').get(subjectId);
   const accountLink =
     typeof account?.person_id === 'string' && account.person_id
@@ -211,9 +221,9 @@ function memberWriteContext(db: Db, id: string, subjectId: string): MapContext {
           linked_at: account.linked_at,
         }
       : undefined;
-  const owned = db.prepare('SELECT id FROM people WHERE owner_key = ? AND retired_at IS NULL LIMIT 1').get(id);
   if (typeof owned?.id === 'string') return { subjectPersonId: owned.id, accountLink };
-  return linkedProfileUnit(db, subjectId) ? { accountOnly: true, accountLink } : { accountLink };
+  if (linkedProfileUnit(db, subjectId)) return { accountOnly: true, accountLink };
+  return person === null ? { accountLink } : { subjectPersonId: person, accountLink };
 }
 
 /** Owner conversion preserves legacy provenance only for the explicit importer. */

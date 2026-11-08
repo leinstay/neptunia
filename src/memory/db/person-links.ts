@@ -1,6 +1,7 @@
 // The owner's binding of accounts to people. A person may hold any number of accounts on any interfaces, the owner and
 // the persona included. Only the owner's `/memory bind` command writes here, through the memory writer, with `by` set
-// to `owner`: no model proposal, name match or claimed id creates a link. `personMembers` follows merges and verified
+// to `owner`: no model proposal, name match or claimed id creates a link. The one other link is the core's, `by`
+// `core`, from a new account to a meta-person of its own (`ensureAccountPerson`). `personMembers` follows merges and verified
 // links to the accounts of one person. `linkedDmScopes` tells a DM context the stored DM places of those accounts, so a
 // DM reads the person's history while each row keeps the scope of the chat it came from. A merge written by the
 // owner widens a DM context and a merge written by anyone else never does. One `people` row carries the shared affinity
@@ -12,7 +13,9 @@
 
 import { currentIface } from './current-iface.ts';
 import { projectRow } from './graph.ts';
-import { SELF_PERSON, newPersonId, survivorOf } from './ids.ts';
+import { SELF_PERSON, survivorOf } from './ids.ts';
+import { personOfAccount } from './meta-person.ts';
+import { followAccount, hasMetaSchema, mintMetaPerson, syncPersonAccount } from './meta-person-write.ts';
 import type { AccountAddress } from '../../protocol/identity.ts';
 import type { StorageKey } from './storage-keys.ts';
 import type { Db, MemoryHandle } from './types.ts';
@@ -64,10 +67,30 @@ export function accountNodeOf(db: Db, address: AccountAddress): string | null {
 /** The person of an account, made from the account's own DM person when it has none yet. */
 function personOf(db: Db, account: AccountRow, at: string): string {
   if (account.person_id) return account.person_id;
-  const person = newPersonId();
-  db.prepare('INSERT OR IGNORE INTO people (id, first_seen_at) VALUES (?, ?)').run(person, at);
+  const person = mintMetaPerson(db, at);
   link(db, account.id, person, at);
   return person;
+}
+
+/**
+ * The person of an account, a new meta-person linked to it when it has none (plan 2026-11-08-meta-person: every account
+ * has one). The link is the core's, not the owner's word, so it hands out no owner rights. A person of the old shape
+ * stays as it is until the offline migration moves it. Returns the person, null on a database older than schema 40.
+ */
+export function ensureAccountPerson(db: Db, accountId: string, at: string): string | null {
+  // A database older than schema version 40 has no meta-person: its accounts stay as they are.
+  if (!hasMetaSchema(db)) return null;
+  const person = personOfAccount(db, accountId);
+  if (person !== null) {
+    syncPersonAccount(db, accountId, at);
+    return person;
+  }
+  const meta = mintMetaPerson(db, at);
+  linkAccount(db, accountId, meta, at, { by: 'core', reason: 'new account' });
+  // The person and the account's link are graph rows too, projected in the same transaction as the link.
+  projectRow(db, 'people', { id: meta }, { at });
+  projectRow(db, 'accounts', { id: accountId }, { at });
+  return meta;
 }
 
 function closeLinks(db: Db, accountId: string, at: string): void {
@@ -84,7 +107,8 @@ const OWNER_COMMAND: LinkAuthor = { by: 'owner', reason: 'owner command' };
 
 /**
  * Links `accountId` to `person`: its live links closed, one new row in `account_person_links`, and the account's columns
- * copied from it (a proposal leaves `person_id` empty, as `people:add` does).
+ * copied from it (a proposal leaves `person_id` empty, as `people:add` does). A verified link moves the account's row
+ * in `person_accounts` and the author person of its lines with it (meta-person-write.ts#followAccount).
  */
 export function linkAccount(db: Db, accountId: string, person: string, at: string, author: LinkAuthor): void {
   const state = author.state ?? 'verified';
@@ -93,13 +117,14 @@ export function linkAccount(db: Db, accountId: string, person: string, at: strin
     `INSERT INTO account_person_links (id, account_id, person_id, state, by, reason, valid_from_at, recorded_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(`link:${accountId}:${person}:${at}`, accountId, person, state, author.by, author.reason, at, at);
-  if (state === 'verified')
-    db.prepare("UPDATE accounts SET person_id = ?, link = 'verified', linked_by = ?, linked_at = ? WHERE id = ?").run(
-      person,
-      author.by,
-      at,
-      accountId
-    );
+  if (state !== 'verified') return;
+  db.prepare("UPDATE accounts SET person_id = ?, link = 'verified', linked_by = ?, linked_at = ? WHERE id = ?").run(
+    person,
+    author.by,
+    at,
+    accountId
+  );
+  followAccount(db, accountId, at);
 }
 
 function link(db: Db, accountId: string, person: string, at: string): void {
@@ -129,8 +154,7 @@ export function applyPersonLinkWrite(handle: MemoryHandle, update: Row): { ok: t
 function bindingOf(db: Db, account: AccountRow, update: Row, at: string): { ok: true; person: string | null } {
   if (update.op === 'unbind') {
     closeLinks(db, account.id, at);
-    const own = newPersonId();
-    db.prepare('INSERT OR IGNORE INTO people (id, first_seen_at) VALUES (?, ?)').run(own, at);
+    const own = mintMetaPerson(db, at);
     link(db, account.id, own, at);
     return { ok: true as const, person: own };
   }

@@ -10,8 +10,9 @@
 //   (`native.revision` may be absent only with `edited: true`: observe takes it from the database.)
 //
 // observe(handle, envelope) checks the envelope, then in ONE transaction resolves or creates the authority, the place,
-// the account or participant (a person only for her own account and the owner's command line; anyone else becomes one
-// through her session's `people:add`), writes the source with its
+// the account or participant (her own account is linked to her person, the owner's command line to his, and any other
+// account seen for the first time gets a meta-person of its own, plan 2026-11-08-meta-person; a participant gets none),
+// writes the source with its author's person (`author_person`, rows.ts#deriveRow) and its
 // audience (the place's chat: `group` -> `aud:group:<iface>`, `dm` -> `aud:dm:<place>`, anything else ->
 // `aud:internal`), its relations and its bundle membership. Idempotent on the native tuple: the source id is the hash of
 // (authority, native kind, key, generation, revision, subtype), and a replay writes nothing. A malformed envelope is
@@ -47,8 +48,8 @@
 //     the database, so it survives a restart;
 //   - `author.account_kind` (`user`, `bot`, `shared`, `self`) is the account's kind, updated on a stored account;
 //     `mentions` (native user ids) and `direct` are the line's columns;
-//   - a DM place observed with a partner (`place.partner`) names the partner's person when the partner's account is
-//     linked (a verified link), else none (the DM stays its own audience, fail-closed); a stored DM place without a
+//   - a DM place observed with a partner (`place.partner`) names the partner's person, the meta-person a new partner
+//     account gets or the person its verified link names; the DM stays its own audience. A stored DM place without a
 //     partner gets it filled in;
 //   - her own account (author `self`) is linked to `person:self` on any interface, and a line of the owner's command
 //     line that carries `consoleOwner` links its account, and the accounts it lists, to the owner's person before the
@@ -102,6 +103,8 @@ import {
 } from './identity-links.ts';
 import { rescopeDmPlace } from './dm-rescope.ts';
 import { mergePersonInto } from './person-merge.ts';
+import { ensureAccountPerson } from './person-links.ts';
+import { authorPersonOf } from './meta-person-write.ts';
 import { nativeAuthorityOf } from '../../protocol/identity.ts';
 import { projectRow } from './graph.ts';
 import { nextPosition, noteUnit } from './unit-write.ts';
@@ -597,6 +600,7 @@ function partnerOf(db: Db, envelope: ObservationPlaceInput, at: string): { accou
     envelope.occurredAt,
     at
   );
+  ensureAccountPerson(db, account.id, at);
   return { account: account.id, person: linkedPersonOf(db, account.id) };
 }
 
@@ -848,17 +852,15 @@ function authorOf(
   const authority = a.authority ?? envelope.authority;
   const generation = isWholeNumber(a.generation) ? a.generation : null;
   if (a.kind === 'account') {
-    return {
-      kind: 'account',
-      account: accountOf(
-        db,
-        envelope.iface,
-        { authority, key: a.key as string, display: a.display ?? null, generation, kind: a.account_kind ?? null },
-        envelope.occurredAt,
-        at
-      ).id,
-      participant: null,
-    };
+    const account = accountOf(
+      db,
+      envelope.iface,
+      { authority, key: a.key as string, display: a.display ?? null, generation, kind: a.account_kind ?? null },
+      envelope.occurredAt,
+      at
+    ).id;
+    ensureAccountPerson(db, account, at);
+    return { kind: 'account', account, participant: null };
   }
   if (a.kind === 'participant')
     return { kind: 'participant', account: null, participant: participantOf(db, envelope, place, at) };
@@ -965,7 +967,11 @@ function fillOwnAuthor(db: Db, e: Envelope, sourceId: string, at: string): numbe
     .get(sourceId);
   if (!stored || stored.author_account !== null) return 0;
   const { account } = authorOf(db, e, placeOf(db, e, at), at);
-  db.prepare('UPDATE sources SET author_account = ? WHERE id = ?').run(account, sourceId);
+  db.prepare('UPDATE sources SET author_account = ?, author_person = ? WHERE id = ?').run(
+    account,
+    authorPersonOf(db, account),
+    sourceId
+  );
   return 1;
 }
 
