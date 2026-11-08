@@ -28,6 +28,7 @@ function rig(
     subharness?: Partial<KeysFile['subharness']>;
     models?: Partial<Record<WatchedRole, string | null>>;
     session?: 'apply' | 'off';
+    offline?: boolean;
   } = {}
 ) {
   const privateDir = tempDir('nep-route-watch-');
@@ -42,7 +43,7 @@ function rig(
   const models = { ...MODELS, ...options.models };
   const watches = createRouteWatches({
     privateDir,
-    fetch,
+    fetch: options.offline === true ? null : fetch,
     baseUrl: () => BASE_URL,
     route: () => ({ name: 'core-1', value: SECRET }),
     model: (role) => models[role] ?? null,
@@ -150,4 +151,17 @@ test('a memory session that is off is not probed and passes', async () => {
   await watches.start();
   assert.equal(asked('memory'), 0);
   assert.equal(watches.last('memory')?.ok, true);
+});
+
+test('with no fetch the parts on the API pass with no request, and a harness part is still probed', async () => {
+  // Catches: a core with an injected model client that probes the real provider, or puts her to sleep for want of it.
+  const { privateDir, watches, pause, ran, asked } = rig({
+    offline: true,
+    subharness: { memory: { backend: 'claude', model: 'claude-opus-4-6', effort: null } },
+  });
+  fakeVendor(privateDir, 'claude', { loggedIn: true });
+  await watches.start();
+  assert.deepEqual([asked('core'), asked('analyzer')], [0, 0]);
+  assert.equal(ran.length, 1);
+  assert.deepEqual(pause.pauses, []);
 });

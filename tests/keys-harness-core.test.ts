@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startCore } from '../src/core.ts';
 import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
+import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { runCli, settle, withRig } from './fixtures/core-units.ts';
 import type { Core, Dirs, Llm } from './fixtures/core-units.ts';
 
@@ -31,6 +32,9 @@ function store(dirs: Dirs, harness: boolean, keys = true): void {
     core: keys ? [{ name: 'core-1', value: VALUE }] : [],
     subharness: { key: null, modes: {}, ...(harness ? { core: ON_CLAUDE } : {}) },
   });
+  // The core probes the harness her turns run on at start and sleeps with core-down when it cannot answer (owner,
+  // 2026-11-08), so a harness core here has its CLI installed and logged in: the fake vendor, which runs no model.
+  if (harness) fakeVendor(dirs.privateDir, 'claude', { loggedIn: true });
 }
 
 const p = (dirs: Dirs, line: string): ReturnType<typeof runCli> => runCli(dirs, ['-p', line]);

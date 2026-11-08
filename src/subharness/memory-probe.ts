@@ -6,7 +6,8 @@
 // her with the reason `memory-down` through the core's pause (src/keys/commands.ts#PauseControl), the next passing
 // probe resumes her, and neither touches a pause of another reason: the owner's and `no-core-key` stay as they are. A
 // source the vendor's own status command reports logged out fails with no model run. A pass on a subharness path names
-// the controls that path lacks in `gaps`, so a green probe claims no parity with the direct one.
+// the controls that path lacks in `gaps`, so a green probe claims no parity with the direct one. `routeProbe` and a
+// watch with its own `reason` serve the core and the analyzer the same way (src/subharness/route-watch.ts).
 
 import type { BackendResult } from '../agent-runner/backend.ts';
 import { checkRole } from '../keys/check.ts';
@@ -15,6 +16,7 @@ import { log } from '../log.ts';
 import { MEMORY_ROLE } from '../llm/roles.ts';
 import type { EffortLevel } from '../llm/roles.ts';
 import { memoryPath } from './memory-path.ts';
+import type { SubharnessMemoryPath } from './memory-path.ts';
 import { memoryGaps } from './memory-writer.ts';
 import { sourceState } from './sources.ts';
 
@@ -45,16 +47,22 @@ export type MemoryProbeDeps = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+/** The path a probe takes: the role's key, or one harness with the model and effort it runs. */
+export type ProbePath = { kind: 'direct' } | { kind: 'api' } | SubharnessMemoryPath;
+
+/** What one probe of any role needs: the memory probe's deps for `role`, with the path it runs on now. */
+export type RouteProbeDeps = MemoryProbeDeps & { role: string; path(): ProbePath };
+
 /** One probe, which may throw on an unreadable config.json or keys.json. */
-async function probeOnce(deps: MemoryProbeDeps, at: number): Promise<ProbeResult> {
-  const path = memoryPath(deps.privateDir);
-  if (path.kind === 'direct') {
+async function probeOnce(deps: RouteProbeDeps, at: number): Promise<ProbeResult> {
+  const path = deps.path();
+  if (path.kind !== 'subharness') {
     const route = deps.route();
-    if (route === null) return { ok: false, code: 'no-memory-key', at };
+    if (route === null) return { ok: false, code: `no-${deps.role}-key`, at };
     const result = await checkRole({
       fetch: deps.fetch,
       baseUrl: deps.baseUrl,
-      role: MEMORY_ROLE,
+      role: deps.role,
       model: deps.model(),
       keyName: route.name,
       value: route.value,
@@ -68,13 +76,18 @@ async function probeOnce(deps: MemoryProbeDeps, at: number): Promise<ProbeResult
   return { ok: false, code: outcome.error ?? 'no-reply', at };
 }
 
-/** One probe of the writer's path as config.json names it now. Never rejects. `at` is `now`. */
-export async function memoryProbe(deps: MemoryProbeDeps, now: number): Promise<ProbeResult> {
+/** One probe of `deps.role` on the path it runs on now. Never rejects. `at` is `now`. */
+export async function routeProbe(deps: RouteProbeDeps, now: number): Promise<ProbeResult> {
   try {
     return await probeOnce(deps, now);
   } catch {
     return { ok: false, code: 'probe-error', at: now };
   }
+}
+
+/** One probe of the writer's path as config.json names it now. Never rejects. `at` is `now`. */
+export function memoryProbe(deps: MemoryProbeDeps, now: number): Promise<ProbeResult> {
+  return routeProbe({ ...deps, role: MEMORY_ROLE, path: () => memoryPath(deps.privateDir) }, now);
 }
 
 /** `memory.probeMinutes` of the live config: a positive finite number, else the default 30. */
@@ -86,6 +99,10 @@ export function probeMinutes(config: unknown): number {
 
 export type MemoryWatchDeps = {
   probe(now: number): Promise<ProbeResult>;
+  /** The pause reason of a failed probe; `memory-down` when absent. */
+  reason?: string;
+  /** After this watch lifted its own pause: the reason of another part that still fails, which she sleeps with next. */
+  others?: () => string | null;
   pause: PauseControl;
   now(): number;
   /** The live config, read at every tick. */
@@ -99,24 +116,30 @@ export type MemoryWatch = {
   tick(): Promise<ProbeResult | null>;
   /** After a refused writer run: probes at once, whatever the interval. */
   refused(): Promise<ProbeResult>;
+  /** The result of the last probe, null before the first. */
+  last(): ProbeResult | null;
 };
 
 export function createMemoryWatch(deps: MemoryWatchDeps): MemoryWatch {
   let lastAt = Number.NEGATIVE_INFINITY;
   let running: Promise<ProbeResult> | null = null;
+  let lastResult: ProbeResult | null = null;
+  const own = deps.reason ?? MEMORY_DOWN;
 
-  /** Pauses on a failure while she runs, resumes a `memory-down` pause on a pass, and touches nothing else. */
+  /** Pauses on a failure while she runs, resumes a pause of its own reason on a pass, and touches nothing else. */
   async function follow(result: ProbeResult): Promise<void> {
     const pauseControl = deps.pause;
     const reason = pauseControl.reason();
     if (!result.ok && reason === null) {
-      log.warn('memory probe: failed, she sleeps', { code: result.code });
-      await pauseControl.pause(MEMORY_DOWN);
-    } else if (result.ok && reason === MEMORY_DOWN) {
-      log.info('memory probe: passed, she wakes', {});
-      await pauseControl.resume(MEMORY_DOWN);
+      log.warn('probe: failed, she sleeps', { reason: own, code: result.code });
+      await pauseControl.pause(own);
+    } else if (result.ok && reason === own) {
+      log.info('probe: passed, she wakes', { reason: own });
+      await pauseControl.resume(own);
+      const next = deps.others?.() ?? null;
+      if (next !== null) await pauseControl.pause(next);
     } else if (!result.ok) {
-      log.warn('memory probe: failed', { code: result.code, paused: reason });
+      log.warn('probe: failed', { reason: own, code: result.code, paused: reason });
     }
   }
 
@@ -129,10 +152,11 @@ export function createMemoryWatch(deps: MemoryWatchDeps): MemoryWatch {
     } catch {
       result = { ok: false, code: 'probe-error', at };
     }
+    lastResult = result;
     try {
       await follow(result);
     } catch (error) {
-      log.warn('memory probe: the pause did not go through', { error });
+      log.warn('probe: the pause did not go through', { reason: own, error });
     }
     return result;
   }
@@ -152,5 +176,6 @@ export function createMemoryWatch(deps: MemoryWatchDeps): MemoryWatch {
       return probe();
     },
     refused: probe,
+    last: () => lastResult,
   };
 }

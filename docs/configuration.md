@@ -259,7 +259,7 @@ The paths of her core, her memory writer and the simulation through a subharness
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `memory.vaultDir` | string | `"vault"` | Directory under `data/` that an older install may have used for copies of deleted memory. Nothing in the engine writes here now; the setting tells `memory.snapshot` where to find it so the vault is skipped when copying | `src/memory/root.ts` |
-| `memory.probeMinutes` | number | `30` | Minutes between two probes of the memory writer's path, one minimal request on the memory key or one one-word reply through the subharness. The probe also runs at core start and right after a refused writer run. A failed probe pauses her with the reason `memory-down`, and the next passing one resumes her. A value that is no positive number counts as 30 | `src/subharness/memory-probe.ts` |
+| `memory.probeMinutes` | number | `30` | Minutes between two probes of each of her core, the analyzer and the memory writer, on the route each runs on: one minimal request on its key or one one-word reply through its harness. The probes also run at core start, and the memory writer's right after a refused writer run. A failed probe pauses her with the reason `core-down`, `analyzer-down` or `memory-down`, and the next passing probe of that part resumes her. A value that is no positive number counts as 30 | `src/subharness/memory-probe.ts` |
 | `memory.describeAfterLines` | number | `20` | The live lines after which the memory audit expects a place to carry `purpose`, `tone` and `topics` (`placeUndescribed`). A value that is no positive whole number counts as 20 | `src/memory/db/audit.ts` |
 
 ## media
