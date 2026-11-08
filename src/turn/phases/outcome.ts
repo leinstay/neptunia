@@ -47,15 +47,17 @@ function isQuietInner(draft: Draft, stepped: Rounded['stepped']): boolean {
 /** What the outcome phase reads of the attempt. */
 type OutcomeNeeds = Pick<
   Rounded,
-  'channel' | 'now' | 'finalMode' | 'history' | 'selfreflectionPrep' | 'notAnswered' | 'stepped'
+  'channel' | 'now' | 'finalMode' | 'history' | 'selfreflectionPrep' | 'notAnswered' | 'folded' | 'stepped'
 >;
 
 export function outcomePhase(ctx: PhaseContext, draft: Draft, turn: OutcomeNeeds): AttemptResult {
   const { hot, store, noteSpokeSaw, recordSkillUses } = ctx;
-  const { channel, now, finalMode, history, selfreflectionPrep, notAnswered, stepped } = turn;
+  const { channel, now, finalMode, history, selfreflectionPrep, notAnswered, folded, stepped } = turn;
   // The lines her steps read carry their message ids, as the history's do.
   const loopSeen = (draft.loopSeen ?? []) as ReadonlyArray<{ id: string }>;
   noteSpokeSaw(channel, [...history, ...loopSeen], notAnswered);
+  // The lines its settle wait read as part of the call, answered with it, for the end hook (noteTurnEnd).
+  draft.folded = [...folded];
   const acts = stepped.acts;
   if (draft.started) {
     draft.posted = acts.flatMap((acted) => acted.posts ?? []);
