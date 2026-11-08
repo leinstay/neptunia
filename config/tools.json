@@ -476,7 +476,7 @@
   },
   "conversation.read": {
     "title": "Read a place",
-    "whenToUse": "Any place you can read. around (#N), since (delay, time, date-time), last (default 20, max 60). Returns #N lines.",
+    "whenToUse": "Any place you can read. around (#N), since (delay, time, date-time), last (default 20, max 60). Returns #N lines. A direct chat: person instead of place.",
     "whenNotToUse": "memory.search for topics.",
     "args": {
       "around": "#N or link; before/after for range (default 10).",
@@ -484,7 +484,8 @@
       "last": "N messages (1 to 60).",
       "before": "With around: count before (default 10). Alone: #N or link, read last lines before it.",
       "after": "With around: count after (default 10). Alone: #N or link, read last lines after it.",
-      "place": "#handle, or the place in the words its people use: its name or what it is for."
+      "place": "#handle, or the place in the words its people use: its name or what it is for.",
+      "person": "@handle or name: reads your newest direct chat with them, on any interface."
     }
   },
   "intention.set": {
