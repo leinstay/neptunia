@@ -27,6 +27,7 @@ import { DISCORD, fakeStore, hotWith, personaGrants, rawMessage, sequenceLlm } f
 import { freshWorld, world } from './fixtures/turn-world.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import '../src/tools/operations/index.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 const ROOT = 'g1';
@@ -241,7 +242,7 @@ function handlerOver(core: Root) {
   const asked: Array<unknown> = [];
   // The handler's live settings are an event emitter that holds the config and the prompts, as src/hot.js makes them.
   const hot = Object.assign(new EventEmitter(), hotWith({ config: { mention: TRACKED.mention, pace: TRACKED.pace } }));
-  const store = createStore({ dataDir: tempDir('nep-guard-store-') });
+  const store = createStore(memoryAt(tempDir('nep-guard-store-')));
   // A real turn runner whose turns are only counted: the handler gets everything a runner has.
   const runner = createTurnRunner({
     hot,

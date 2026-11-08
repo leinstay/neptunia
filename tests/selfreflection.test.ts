@@ -39,6 +39,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import { openTestMemory, openTestMemorySync, unitFile } from './fixtures/memory-db/service.ts';
 import { seedMirror } from './fixtures/selfreflection-mirror.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -769,12 +770,12 @@ const post = (n: Untyped) => ({
 });
 
 test('store: getSelfreflection returns the empty default', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   assert.deepEqual(store.getSelfreflection(), { posts: [], updatedAt: 0 });
 });
 
 test('store: appendSelfreflectionPost keeps the newest max posts and stamps updatedAt', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   for (let n = 1; n <= 4; n += 1) store.appendSelfreflectionPost(post(n), { max: 3, now: 5000 + n });
   const selfreflection = store.getSelfreflection();
   assert.deepEqual(
@@ -787,7 +788,7 @@ test('store: appendSelfreflectionPost keeps the newest max posts and stamps upda
 });
 
 test('store: setSelfreflectionPosts replaces the list and keeps the newest max', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   store.appendSelfreflectionPost(post(1), { max: 10, now: 1 });
   store.setSelfreflectionPosts([post(5), post(6), post(7)], { max: 2, now: 9 });
   const selfreflection = store.getSelfreflection();

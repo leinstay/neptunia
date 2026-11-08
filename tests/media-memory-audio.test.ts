@@ -14,6 +14,7 @@ import { fakeImageFetcher, fakeLlm, fakeState, fakeVideoFetcher } from './fixtur
 import { tempDir } from './fixtures/tmp.ts';
 import type { Rec } from './fixtures/describe-fakes.ts';
 import type { Row } from '../src/memory/db/types.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
 
 const AUDIO_CLIP = 'data:video/mp4;base64,YXVkaW8=';
 const VIDEO_PROVIDER = { order: ['test-host'], allow_fallbacks: false };
@@ -28,7 +29,7 @@ function audioRig({
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- the default widens the parameter a caller replaces
   answer = { text: HEARD, model: 'x/flash' } as unknown,
 } = {}) {
-  const store = createStore({ dataDir: tempDir('nep-media-memory-') });
+  const store = createStore(memoryAt(tempDir('nep-media-memory-')));
   const llm = fakeLlm(answer);
   const fetchedUrls: Array<string> = [];
   const videoFetcher = {
@@ -140,7 +141,7 @@ test('a binary file is no kind a model can tell, and no request is made for it',
 });
 
 test('a text file is kept as its text form from its own words, with no model', async () => {
-  const store = createStore({ dataDir: tempDir('nep-media-memory-') });
+  const store = createStore(memoryAt(tempDir('nep-media-memory-')));
   const llm = fakeLlm({ text: 'never asked' });
   const describer = createDescriber({
     hot: { config: { models: { base: { vision: 'x/vision' } } }, prompts: { describe: 'Describe.' } },
@@ -193,7 +194,7 @@ test('a replayed moment shows a voice message with the text form the cache held 
 // ---------- the standard of a stored text form ----------
 
 function pictureRig(answers: Array<Rec>) {
-  const store = createStore({ dataDir: tempDir('nep-media-memory-') });
+  const store = createStore(memoryAt(tempDir('nep-media-memory-')));
   const llm = fakeLlm(answers);
   const describer = createDescriber({
     hot: {

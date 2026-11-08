@@ -2,8 +2,7 @@
 // Contract, plan 2026-11-04-cli-and-memory task 5:
 //   store.getUser(accountId): StoredRecord | null
 //   store.touchUser(accountId, name, at?): StoredRecord
-//   store.noteAffinityMoves(moves: Array<{ personId, applied }>): number
-// Appendix entries: src/memory/store.ts (user collection, affinity cache), src/memory/db/map/index.ts (storage context).
+// Appendix entries: src/memory/store.ts (user collection), src/memory/db/map/index.ts (storage context).
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -16,7 +15,7 @@ import { dbOf } from '../src/memory/db/types.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';
 import { wrongly } from './fixtures/loose-types.ts';
-import { ANNA, addAccount, seedOpaqueWorld } from './fixtures/memory-db/opaque-people.ts';
+import { addAccount, seedOpaqueWorld } from './fixtures/memory-db/opaque-people.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 type Store = ReturnType<typeof createStore>;
@@ -96,14 +95,4 @@ test('a profile read follows a bind and stops at the unbind, with no stale cache
   assert.deepEqual(namesOf(store.getUser('account:free')), ['Newcomer']);
   await memoryDb.personLink({ op: 'unbind', accountId: 'account:free' });
   assert.equal(firstSeen('account:free'), own);
-});
-
-test('an attitude move of an opaque person drops the cached profile of the account', async () => {
-  // Bug: `noteAffinityMoves` parses `person:<iface>:<native>` first, so an opaque person's move never reaches the cache.
-  const { store, read } = rig();
-  store.touchUser('account:a21', 'Anna', 1000);
-  await save(store);
-  store.getUser('account:a21');
-  assert.equal(read().prepare('SELECT person_id FROM accounts WHERE id = ?').get('account:a21')?.person_id, ANNA);
-  assert.equal(store.noteAffinityMoves([{ personId: ANNA, applied: 2 }]), 1);
 });

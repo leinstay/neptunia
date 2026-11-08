@@ -11,6 +11,7 @@ import { PERSONA_ID } from '../src/memory/db/storage-keys.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
 
 type Scoped = { scope: Record<string, unknown>; itemKind: string };
 
@@ -48,7 +49,7 @@ function closing(apply: 'applyPrivateOps' | 'applyProfileOps') {
       return Promise.resolve();
     },
   };
-  const store = createStore({ dataDir: tempDir('nep-closed-'), archive }) as never as Record<
+  const store = createStore({ ...memoryAt(tempDir('nep-closed-')), archive }) as never as Record<
     string,
     (...args: Array<unknown>) => unknown
   >;

@@ -11,6 +11,7 @@ import { createStore } from '../src/memory/store.ts';
 import { createYoutubeCheck } from '../src/memory/youtube-check.ts';
 import { fakeImageFetcher, fakeLlm, fakeState, fakeVideoFetcher } from './fixtures/describe-fakes.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
 
 const PROXY = 'socks5h://login:pass-word@proxy.example:1080';
 
@@ -63,7 +64,7 @@ function describerWith(proxy: () => string | null) {
   const videoFetcher = fakeVideoFetcher({ probe: { ok: true, durationSec: 125, title: null } });
   const describer = createDescriber({
     hot,
-    store: createStore({ dataDir: dataDir() }),
+    store: createStore(memoryAt(dataDir())),
     llm: fakeLlm({ text: 'someone dances' }),
     imageFetcher: fakeImageFetcher(),
     videoFetcher,

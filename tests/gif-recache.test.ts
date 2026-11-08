@@ -5,7 +5,6 @@
 // the per-run cap, watched entries skipped, one run at a time, the pause
 // respected.
 
-import { placeOfRoot } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -30,6 +29,7 @@ import type { Untyped } from '../src/tools/types.ts';
 import { wrongly, removeField } from './fixtures/loose-types.ts';
 import type { GifEntry } from '../src/memory/gifs.ts';
 import type { Store } from '../src/memory/store.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
 
 const T0 = Date.UTC(2026, 8, 1);
 const TENOR = (n: number) => `https://tenor.com/view/danse-${n}`;
@@ -48,7 +48,7 @@ type GifStore = Omit<Store, 'getGifs' | 'getMediaCache'> & {
 function withStore(fn: (store: GifStore) => unknown) {
   const dir = tempDir('nep-gif-recache-');
   return Promise.resolve()
-    .then(() => fn(wrongly<GifStore>(createStore({ dataDir: dir }))))
+    .then(() => fn(wrongly<GifStore>(createStore(memoryAt(dir)))))
     .finally(() => fs.rmSync(dir, { recursive: true, force: true }));
 }
 
@@ -289,7 +289,7 @@ function fakeDescriber(
       if (gate) await gate();
       const result = outcome ? outcome(item) : { state: 'watched', text: `watched ${item.itemId}` };
       if (result.state === 'watched') {
-        store.getMediaCache(placeOfRoot(store, placeId))[item.itemId] = {
+        store.getMediaCache(placeId)[item.itemId] = {
           text: result.text,
           reaction: '',
           action: result.text,
@@ -316,10 +316,10 @@ function silentLog() {
 }
 
 function seed(store: GifStore, entries: Array<Record<string, Untyped>>, cache = {}) {
-  store.recordGifs(placeOfRoot(store, 'g1'), []);
+  store.recordGifs('g1', []);
   const gifs = store.getGifs();
   Object.assign(gifs, library(entries));
-  Object.assign(store.getMediaCache(placeOfRoot(store, 'g1')), cache);
+  Object.assign(store.getMediaCache('g1'), cache);
 }
 
 // PR 7d: `gifs.recachePerRun` is the constant 50, so the three entries are watched in one run (recacheQueue's cap is
@@ -344,11 +344,11 @@ test('gif recache: drops one-frame captions at once, then watches the entries, o
     const started = recache.start('g1');
     assert.deepEqual(started, { ok: true, dropped: 1, queued: 3 });
     assert.equal(
-      store.getMediaCache(placeOfRoot(store, 'g1'))['x9#e0'],
+      store.getMediaCache('g1')['x9#e0'],
       undefined,
       'the stray one-frame caption is dropped, not re-described'
     );
-    assert.equal(store.getMediaCache(placeOfRoot(store, 'g1'))['556'].text, 'a picture');
+    assert.equal(store.getMediaCache('g1')['556'].text, 'a picture');
     assert.equal(recache.isRunning(), true);
     await recache.waitIdle();
     assert.equal(recache.isRunning(), false);
@@ -386,7 +386,7 @@ test('gif recache: a second run skips what the first watched and continues with 
       describer.calls.map((c) => c.item.itemId),
       ids.map((n) => `m${n}#e0`)
     );
-    assert.deepEqual(gifCaptionCounts(store.getGifs(), store.getMediaCache(placeOfRoot(store, 'g1'))), {
+    assert.deepEqual(gifCaptionCounts(store.getGifs(), store.getMediaCache('g1')), {
       watched: 51,
       'one-frame': 0,
       failed: 0,
@@ -465,7 +465,7 @@ test('gif recache: refused while paused, without a describer or while GIFs are n
       ok: false,
       reason: 'paused',
     });
-    assert.equal(store.getMediaCache(placeOfRoot(store, 'g1'))['x9#e0'].text, 'a stray still');
+    assert.equal(store.getMediaCache('g1')['x9#e0'].text, 'a stray still');
   });
 });
 

@@ -20,8 +20,8 @@
 //   - `memoryWrite` is the one way her memory session and the description review write (session-write.ts): a message to
 //     the worker, so the bot's loop never holds a write transaction. The service stamps `audienceColumn` (the target check
 //     reads through `audience_id`) into every write. After an apply, its committed attitude moves are told
-//     once to the subscribers of `onAffinityMoves(fn)` (the store, whose cached profiles would otherwise write an older
-//     score over them).
+//     once to the subscribers of `onAffinityMoves(fn)` (the store's unit cache, src/memory/unit-cache.ts, whose cached
+//     profiles would otherwise write an older score over them).
 //   - `status().observe` counts the observations waiting for the database (`queued`), under way (`writing`) and lost
 //     (`dropped`: the bounded queue's oldest, a write that failed every retry, one the shutdown could not write);
 //     `waitObservations()` writes the waiting ones and awaits them.

@@ -52,6 +52,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { Fixture, WeekRun } from '../scripts/lib/inner-week-fixture.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURES = path.join(ROOT, 'scripts', 'fixtures');
@@ -802,7 +803,7 @@ test('inner-week: in live mode every writable fixture channel is the real channe
 
 test("inner-week: the fixture's people join the copied directory with their names and nothing is written to disk", () => {
   const dataDir = tempDir('nep-week-people-');
-  const store = createStore({ dataDir });
+  const store = createStore(memoryAt(dataDir));
   const at = Date.parse('2026-11-02T00:00:00Z');
   const added = addFixturePeople(store, 'g1', { Ivo: 'u-201', Sanne: 'u-202' }, at);
   assert.deepEqual(added, ['u-201', 'u-202']);

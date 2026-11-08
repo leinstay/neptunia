@@ -5,11 +5,11 @@
 // fake fetchers. Synthetic text only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { placeOfRoot } from '../src/memory/addresses.ts';
 import { createDescriber } from '../src/memory/describe.ts';
 import { createStore } from '../src/memory/store.ts';
 import { fakeImageFetcher, fakeLlm, fakeState, fakeVideoFetcher } from './fixtures/describe-fakes.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
 
 const GREEK = 'Μια γκρίζα γάτα κοιμάται στον καναπέ';
 const ENGLISH = 'A grey cat sleeps on a sofa';
@@ -25,7 +25,7 @@ const HOT = {
 };
 
 function rig(answers: ReadonlyArray<string>) {
-  const store = createStore({ dataDir: tempDir('nep-describe-standard-') });
+  const store = createStore(memoryAt(tempDir('nep-describe-standard-')));
   const llm = fakeLlm(answers.map((text) => ({ text, usage: {}, estimated: 1 })));
   const videoFetcher = Object.assign(fakeVideoFetcher(), {
     fetchGif: () =>
@@ -46,7 +46,7 @@ function rig(answers: ReadonlyArray<string>) {
     state: fakeState(),
   });
   const entryOf = (key: string): Entry | undefined =>
-    (store.getMediaCache(placeOfRoot(store, 'g1')) as Record<string, Entry | undefined>)[key];
+    (store.getMediaCache('g1') as Record<string, Entry | undefined>)[key];
   return { describer, llm, entryOf };
 }
 
@@ -113,7 +113,7 @@ test('a watched GIF in another script is described again once', async () => {
 
 // Bug: a failed second request throws the first description away, leaving her blind to the picture.
 test('a second request that fails keeps the first description, marked', async () => {
-  const store = createStore({ dataDir: tempDir('nep-describe-standard-') });
+  const store = createStore(memoryAt(tempDir('nep-describe-standard-')));
   const llm = fakeLlm([{ text: GREEK, usage: {}, estimated: 1 }, new Error('provider down')]);
   const describer = createDescriber({
     hot: HOT,
@@ -124,7 +124,7 @@ test('a second request that fails keeps the first description, marked', async ()
     state: fakeState(),
   });
   await describer.describe('g1', PICTURE);
-  const entry = (store.getMediaCache(placeOfRoot(store, 'g1')) as Record<string, Entry>).a1;
+  const entry = (store.getMediaCache('g1') as Record<string, Entry>).a1;
   assert.equal(entry.text, GREEK);
   assert.equal(entry.offScript, true);
 });

@@ -1,17 +1,17 @@
 // Persistent memory: the memory database (src/memory/db/service.ts) holds it, this module caches it -- it survives
 // restarts, hot reloads and prompt edits; nothing in the codebase ever wipes it. Each cached value is one unit of the
 // database, named by the path it had under data/ (`places/<g>/users/<u>.json`; the mappers of src/memory/db/map/
-// turn a unit into rows and back); the operational files beside it stay JSON files under data/:
+// turn a unit into rows and back); the operational files beside it stay JSON files under data/. The units:
 //
-//   state.json        the pause flag, the daily counters and the marks of the running process
 //   an account's      its profile (`user`) and what it said in private (`private`)
 //   a place's         its notes (`place`), its map entry (`channel`), lore, media, GIFs, recent lines, participation
 //                     and the previous texts of its prose (`versions`)
-//   the persona's     the selfreflection
+//   the persona's     her state (the pause flag, the daily counters and the marks of the running process) and the
+//                     selfreflection
 //
 // The errand tasks (src/errands/store.ts) and the intentions (src/intentions/store.ts) are units of their own
-// stores, not cached here. Everything is cached in memory, marked dirty on change and flushed on a timer and on
-// shutdown: a memory unit's whole value goes to the database's writer through an outbox (src/memory/db/unit-outbox.ts),
+// stores, not cached here. Everything is cached in memory (src/memory/unit-cache.ts), marked dirty on change and flushed
+// on a timer and on shutdown: a memory unit's whole value goes to the database's writer through the cache's outbox,
 // an operational file is written atomically (temp file + rename; when the OS refuses the rename the file is written
 // in place instead, with a warning, see writeJsonAtomic).
 //
@@ -41,16 +41,13 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { accountCollection, keyText, personaKey, placeCollection, storageId } from './db/storage-keys.ts';
+import { accountCollection, keyText, personaKey, placeCollection } from './db/storage-keys.ts';
 import type { StorageKey, StorageKind, StorageSelector } from './db/storage-keys.ts';
 import { isMediaDescriptionEntry, mediaDescriptionOf } from './db/export.ts';
 import { entryPictureDescriptions, linkedAttachmentIds } from './db/media-store.ts';
 import type { MediaDescriptionEntry } from './db/export.ts';
 import type { InterfaceNames } from './db/roots.ts';
 
-import { listUnits } from './db/storage-units.ts';
-import type { UnitQuery } from './db/storage-units.ts';
-import { storageContext } from './db/map/index.ts';
 import { linkedProfileUnit } from './db/person-links.ts';
 
 import { isRecord, propOf, isFiniteNumber, isIntegerNumber, canWriteUnits, readSeamOf } from './types.ts';
@@ -98,10 +95,10 @@ import { ITEM_ID_PREFIX, archiveEntry, archiveRevision } from './archive.ts';
 import { normalizeAvatar } from './avatars.ts';
 import { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR, memoryRootOf } from './root.ts';
 import { isCoreStatePath } from './migration/paths.ts';
-import { unitValue } from './db/readers/common.ts';
 import { createAddressing } from './store-addresses.ts';
 
-import { createUnitOutbox } from './db/unit-outbox.ts';
+import { createUnitCache } from './unit-cache.ts';
+import type { CacheItem } from './unit-cache.ts';
 import type { StoredRecord, MemoryDb, Untyped } from './types.ts';
 import type { Track } from '../loop-watch.ts';
 import { untracked } from '../loop-watch.ts';
@@ -130,8 +127,6 @@ const CLOSED_KINDS = ['interest', 'detail', 'alias', 'realName'];
 /** How long a stored real name may be. */
 const REAL_NAME_CHARS = 60;
 
-/** The fields an owner's fill writes into old selfreflection entries: the reconstructed plan and the audience. */
-const SELFREFLECTION_FILLED = ['plan', 'publicationAudience'] as const;
 /** The selfreflection of a place with no post yet (the persona's selfreflection unit). */
 const emptySelfreflection = () => ({ posts: [], updatedAt: 0 });
 
@@ -401,7 +396,7 @@ function writeTextAtomic(file: string, text: string) {
   }
 }
 
-/** The fallback cap of the recall trace file (config.json `recall.traceMaxLines`). */
+/** The fallback cap of the recall trace (config.json `recall.traceMaxLines`). */
 const RECALL_TRACE_MAX_LINES = 500;
 
 /** `memory.vaultDir` when it is missing and the snapshots directory: src/memory/root.ts, re-exported here. */
@@ -1019,9 +1014,6 @@ function normalizeChannel(channel: Untyped) {
   channel.notesAttemptAt = isoStampOrNull(channel.notesAttemptAt);
 }
 
-/** A cached file of the store: its parsed value, whether it waits for a flush, and the holds on that flush. */
-type CacheItem = { value: Untyped; dirty: boolean; holdFlush?: number; stale?: boolean };
-
 /** A cached profile's value field by field: every stored value here is a profile object. */
 const entryRecord = (item: CacheItem): StoredRecord => item.value as StoredRecord;
 
@@ -1079,7 +1071,7 @@ type StoreDeps = {
   recordOn?: () => boolean;
   archive?: Untyped;
   archiveOn?: () => boolean;
-  memoryDb?: MemoryDb | null;
+  memoryDb: MemoryDb;
   /** The event loop watch's `track` (src/loop-watch.ts); a flush of the cache is a named operation. */
   track?: Track;
 };
@@ -1178,14 +1170,13 @@ function buildStore({
   recordOn = () => Boolean(record),
   archive = null,
   archiveOn = () => Boolean(archive),
-  memoryDb = null,
+  memoryDb,
   track = untracked,
 }: StoreDeps) {
-  const root = memoryRootOf(dataDir);
   const seam = readSeamOf(memoryDb, log, 'store');
-  const entries = new Map<string, CacheItem>();
-  // The units a flush hands over, until their write resolved.
-  const outbox = canWriteUnits(memoryDb) ? createUnitOutbox({ memoryDb, log, name: 'store' }) : null;
+  // The memory units and files this store holds, and their one way to the writer.
+  const cache = createUnitCache({ memoryDb, seam, files: { read: readJson, write: writeJsonAtomic } });
+  const { address, collection, entry } = cache;
   const seededMedia = new Set<string>();
   const pendingMedia = new Map<string, { key: StorageKey; entry: MediaDescriptionEntry }>();
 
@@ -1194,29 +1185,29 @@ function buildStore({
   }
 
   function rememberMedia(placeId: string, cacheKey: string, value: MediaDescriptionEntry, seed = false): void {
-    if (!outbox) return;
+    if (!cache.writable()) return;
     const key = mediaDescriptionKey(placeId, cacheKey);
     const text = keyText(key);
     if (seed && (pendingMedia.has(text) || mediaDescriptionOf(seam.db(), key))) return;
     const snapshot = structuredClone(value);
     pendingMedia.set(text, { key, entry: snapshot });
-    outbox.lines(key, [{ op: seed ? 'seed' : 'described', id: newId(), entry: snapshot }]);
+    cache.lines(key, [{ op: seed ? 'seed' : 'described', id: newId(), entry: snapshot }]);
   }
 
   function currentMedia(placeId: string, cacheKey: string): MediaDescriptionEntry | null {
-    if (!outbox) return null;
+    if (!cache.writable()) return null;
     const key = mediaDescriptionKey(placeId, cacheKey);
     const text = keyText(key);
     const pending = pendingMedia.get(text);
-    if (pending && outbox.holds(key)) return structuredClone(pending.entry);
+    if (pending && cache.holds(key)) return structuredClone(pending.entry);
     pendingMedia.delete(text);
     return seam.run(() => mediaDescriptionOf(seam.db(), key));
   }
 
-  function seedMedia(placeId: string, file: string, cache: StoredRecord): void {
-    if (!outbox || seededMedia.has(file)) return;
+  function seedMedia(placeId: string, file: string, described: StoredRecord): void {
+    if (!cache.writable() || seededMedia.has(file)) return;
     seededMedia.add(file);
-    for (const [key, value] of Object.entries(cache)) {
+    for (const [key, value] of Object.entries(described)) {
       if (!isMediaDescriptionEntry(value) || /^(?:preview|search|results|page):/.test(key)) continue;
       const provenance = isFiniteNumber(value.describedAt) && typeof value.model === 'string' && value.model !== '';
       const answer = /^(?:video|image|gif):.+:q:[a-f0-9]+$/.test(key) && typeof value.answer === 'string';
@@ -1516,7 +1507,7 @@ function buildStore({
         keep.push(held);
         continue;
       }
-      const item = entries.get(held.file);
+      const item = cache.cached(held.file);
       // A file not in the cache (unloaded by a pause) is trimmed once it is read again.
       if (!item) {
         keep.push(held);
@@ -1551,7 +1542,7 @@ function buildStore({
     const member = (keys: Untyped) => {
       if (!accountId) return null;
       if (isPrivate) return { item: hasPrivate(accountId) ? privateEntry(accountId) : null, path: keys };
-      return { item: store.getUser(accountId) ? entries.get(userFile(accountId)) : null, path: keys };
+      return { item: store.getUser(accountId) ? cache.cached(userFile(accountId)) : null, path: keys };
     };
     const place = (keys: Untyped, strings = false) => {
       const item = entry(placeFile(placeId), emptyPlace);
@@ -1615,146 +1606,15 @@ function buildStore({
     }
   }
 
-  function entry(file: string, fallback: () => Untyped): CacheItem {
-    let item = entries.get(file);
-    // A profile an attitude move made stale (`noteAffinityMoves`) is read again once its own write has landed.
-    if (item?.stale && !item.dirty && !outbox?.holds(unitKeys.get(file) ?? file)) {
-      entries.delete(file);
-      item = undefined;
-    }
-    if (!item) {
-      const place = dbPlace(file);
-      let value: Untyped;
-      if (!place.file) {
-        // A memory unit: the database's value; a unit it does not hold is new (and so is every unit without a database).
-        const unit: Untyped = memoryDb
-          ? seam.run(() => unitValue(seam.db(), place.key ?? place.rel))
-          : { found: false };
-        value = unit.found ? unit.value : fallback();
-      } else {
-        value = readJson(file, fallback());
-      }
-      item = { value, dirty: false };
-      entries.set(file, item);
-    }
-    return item;
-  }
-
-  /**
-   * Where a cache entry lands: `{ rel, file, send }`. An operational file (`operationalJsonPath`) or a path the mappers
-   * do not map as a JSON memory unit is written as a file (`file`). Inventoried core state uses the supplied database
-   * along with mapped memory units (`send`). Standalone operational state retains its file backend.
-   */
-  function dbPlace(file: string) {
-    const key = unitKeys.get(file);
-    if (key) return { rel: file, key, file: false, send: true };
-    return { rel: root.relative(file), file: true, send: false };
-  }
-
-  /** Whether a file has a value, cached or stored (a memory unit's `files` row in the database, an operational file on disk). */
-  function known(file: string) {
-    if (entries.has(file)) return true;
-    const place = dbPlace(file);
-    if (!place.file) {
-      if (!memoryDb) return false;
-      const db: Untyped = seam.db();
-      return seam.run(
-        () =>
-          db
-            .prepare('SELECT 1 AS ok FROM storage_units WHERE id = ? AND retired_at IS NULL')
-            .get(place.key ? storageId(place.key) : place.rel) !== undefined
-      );
-    }
-    return fs.existsSync(file);
-  }
-
-  /** Every id of the memory units under `dir`, stored in the database or only cached (no side effects on the cache). */
-  function idsUnder(dir: string) {
-    const ids = new Set<string>();
-    if (memoryDb) {
-      const db = seam.db();
-      const query = directoryQueries.get(dir);
-      if (!query) return [];
-      const keys = [...seam.run(() => listUnits(db, query)).map((unit) => unit.key), ...unitKeys.values()];
-      for (const key of keys) if (key.kind === query.kind && !key.selector && !key.partition) ids.add(key.subject.id);
-      return [...ids];
-    }
-    const kind = directoryQueries.get(dir)?.kind;
-    for (const key of unitKeys.values()) if (key.kind === kind && entries.has(keyText(key))) ids.add(key.subject.id);
-    return [...ids];
-  }
-
-  /**
-   * Write one dirty cache entry to disk; a failed write is logged and stays dirty for the next
-   * flush. An entry held for the archive (`holdFlush` > 0: the old version of an item its file
-   * replaced in place is not archived yet, see `archiveReplaced`) is skipped unless `force`.
-   */
-  function flushEntry(file: string, item: CacheItem, { force = false } = {}): 'clean' | 'held' | 'written' | 'failed' {
-    if (!item.dirty) return 'clean';
-    if (!force && (item.holdFlush ?? 0) > 0) return 'held';
-    const place = dbPlace(file);
-    // A memory unit goes to the database (the outbox), never to a file.
-    if (!place.file) {
-      sendUnit(place.rel, item);
-      return 'written';
-    }
-    try {
-      writeJsonAtomic(file, item.value);
-      item.dirty = false;
-      if (place.send) sendUnit(place.rel, item);
-      return 'written';
-    } catch (err) {
-      log.error('store: flush failed', { file, error: err });
-      return 'failed';
-    }
-  }
-
-  /**
-   * The entry's whole value handed to the outbox (a JSON copy), which keeps it until the write resolved and sends it
-   * again after a failure. Without a database (tests) the entry is clean at once: nothing is persisted. With one that
-   * has no writer the entry stays dirty.
-   */
-  function sendUnit(rel: string, item: CacheItem) {
-    if (!memoryDb) {
-      item.dirty = false;
-      return;
-    }
-    if (!outbox) {
-      log.warn('store: unit write failed', { code: 'DB_CLOSED' });
-      return;
-    }
-    outbox.value(unitKeys.get(rel) ?? rel, JSON.parse(JSON.stringify(item.value)));
-    item.dirty = false;
-  }
+  /** Whether a unit has a value, cached or stored (see unit-cache.ts#known), an operational file on disk. */
+  const known = (file: string) => cache.known(file, fs.existsSync);
+  const idsUnder = cache.idsUnder;
 
   /** Flush every dirty cache entry (`flushEntry`); returns how many were written, failed and held. */
   function flushAll({ force = false } = {}) {
-    return track('store.flushAll', () => flushAllNow({ force }));
+    return track('store.flushAll', () => cache.flushAll({ force }));
   }
 
-  function flushAllNow({ force = false } = {}) {
-    const counts = { written: 0, failed: 0, held: 0 };
-    for (const [file, item] of entries) {
-      const outcome = flushEntry(file, item, { force });
-      if (outcome !== 'clean') counts[outcome] += 1;
-    }
-    // What the flush handed over, and what failed before, goes to the database now (not awaited).
-    if (outbox && outbox.size() > 0) outbox.push();
-    return counts;
-  }
-
-  const unitKeys = new Map<string, StorageKey>();
-  const directoryQueries = new Map<string, UnitQuery>();
-  function address(key: StorageKey): string {
-    const address = keyText(key);
-    unitKeys.set(address, key);
-    return address;
-  }
-  function collection(kind: StorageKind): string {
-    const address = JSON.stringify({ kind });
-    directoryQueries.set(address, { kind });
-    return address;
-  }
   const addressing = createAddressing({ memoryDb, seam });
   const { partnerOfPlace, dmHomeOf } = addressing;
   /** What an archived item of an account says about where it belongs. */
@@ -1771,7 +1631,7 @@ function buildStore({
    */
   function userFile(accountId: string): string {
     const own = accountFile(accountId);
-    if (!memoryDb?.readHandle?.()) return own;
+    if (!memoryDb.readHandle?.()) return own;
     const unit = seam.run(() => linkedProfileUnit(seam.db(), accountId));
     return unit ? address(unit.key) : own;
   }
@@ -1801,7 +1661,7 @@ function buildStore({
           : placeCollection('place', placeId ?? id);
     return address({ ...base, kind: 'versions', selector });
   };
-  const stateFile = memoryDb ? address(personaKey('state')) : root.stateFile;
+  const stateFile = address(personaKey('state'));
 
   const stateEntry = entry(stateFile, () => ({}));
 
@@ -2007,7 +1867,7 @@ function buildStore({
   let gifVectors: Map<string, { model: string | null; vector: Float32Array }> | null = null;
   /** The GIF vectors as this store knows them, read from the database once. */
   function heldGifVectors() {
-    gifVectors ??= (memoryDb ? seam.run(() => readGifVectors(seam.db())) : null) ?? new Map();
+    gifVectors ??= seam.run(() => readGifVectors(seam.db())) ?? new Map();
     return gifVectors;
   }
 
@@ -2026,7 +1886,7 @@ function buildStore({
    * permanent. An unparsable file reads as empty with `readJson`'s warning. */
   function recentEntry(placeId: string) {
     const file = recentFile(placeId);
-    const loading = !entries.has(file);
+    const loading = !cache.cached(file);
     const item = entry(file, emptyRecent);
     const raw = item.value;
     const recent = normalizeRecent(raw);
@@ -2047,7 +1907,7 @@ function buildStore({
    * unparsable file reads as empty with `readJson`'s warning. */
   function participationEntry(placeId: string) {
     const file = participationFile(placeId);
-    const loading = !entries.has(file);
+    const loading = !cache.cached(file);
     const item = entry(file, emptyParticipation);
     const raw = item.value;
     const participation = normalizeParticipation(raw);
@@ -2677,8 +2537,7 @@ function buildStore({
         item.dirty = true;
       }
       // Written at once: the place unit goes to the database now, not at the next flush.
-      flushEntry(placeFile(placeId), item);
-      if (outbox) outbox.push();
+      cache.writeNow(placeFile(placeId), item);
       return pingStateOf(place.pings, accountId);
     },
 
@@ -2976,7 +2835,7 @@ function buildStore({
 
     /** The attachment ids stored lines and selfreflection posts link: what the media cache's cap leaves alone (src/web/cache.ts#trimCache). */
     linkedMediaKeys(): ReadonlySet<string> {
-      return memoryDb ? seam.run(() => linkedAttachmentIds(seam.db())) : new Set<string>();
+      return seam.run(() => linkedAttachmentIds(seam.db()));
     },
 
     getMediaDescription: currentMedia,
@@ -2985,14 +2844,14 @@ function buildStore({
     },
     markMediaDescriptionRefreshFailed(placeId: string, cacheKey: string, at: number): void {
       const previous = currentMedia(placeId, cacheKey);
-      if (!previous || !outbox) return;
+      if (!previous || !cache.writable()) return;
       const key = mediaDescriptionKey(placeId, cacheKey);
       pendingMedia.set(keyText(key), { key, entry: { ...previous, refreshFailedAt: at } });
-      outbox.lines(key, [{ op: 'refresh-failed', at }]);
+      cache.lines(key, [{ op: 'refresh-failed', at }]);
     },
 
     markMediaCacheDirty(placeId: string) {
-      const item = entries.get(mediaCacheFile(placeId));
+      const item = cache.cached(mediaCacheFile(placeId));
       if (item) item.dirty = true;
     },
 
@@ -3115,7 +2974,7 @@ function buildStore({
      * hello writes them again.
      */
     noteRoots(iface: string, roots: ReadonlyArray<{ id: string; name: string }>, names?: InterfaceNames): void {
-      if (typeof memoryDb?.memoryWrite !== 'function') return;
+      if (typeof memoryDb.memoryWrite !== 'function') return;
       void Promise.resolve(
         memoryDb.memoryWrite({
           kind: 'roots',
@@ -3207,7 +3066,7 @@ function buildStore({
       // selfreflectionEntry() replaces a value that is not `{ posts: [...] }` with the empty selfreflection.
       const copy = structuredClone(selfreflectionEntry().value) as SelfreflectionCopy;
       const ids = copy.posts.flatMap((post) => (post.itemId ? [post.itemId] : []));
-      const described = memoryDb && ids.length > 0 ? seam.run(() => entryPictureDescriptions(seam.db(), ids)) : null;
+      const described = ids.length > 0 ? seam.run(() => entryPictureDescriptions(seam.db(), ids)) : null;
       for (const post of copy.posts) {
         const description = post.itemId ? described?.get(post.itemId) : undefined;
         if (description) post.pictureDescription = description;
@@ -3228,8 +3087,7 @@ function buildStore({
     ): { dropped: Array<object> } {
       const done = writeSelfreflection([...selfreflectionEntry().value.posts, structuredClone(post)], opts);
       // The post goes to the database at once; a failed write waits in the outbox, past a shutdown in `memory-pending/`.
-      flushEntry(selfreflectionFile(), selfreflectionEntry());
-      if (outbox) outbox.push();
+      cache.writeNow(selfreflectionFile(), selfreflectionEntry());
       return done;
     },
 
@@ -3242,10 +3100,10 @@ function buildStore({
       return writeSelfreflection(Array.isArray(posts) ? structuredClone(posts) : [], opts);
     },
 
-    /** `read(db)` on the memory database's read connection, null without one (src/behavior/mirror.ts reads its mirrors).
+    /** `read(db)` on the memory database's read connection (src/behavior/mirror.ts reads its mirrors).
      * @template T @param read */
     readMemory<TResult>(read: (db: Untyped) => TResult): TResult | null {
-      return memoryDb ? seam.run(() => read(seam.db())) : null;
+      return seam.run(() => read(seam.db()));
     },
 
     // ---- the recent store: short dated lines about the last days (src/memory/recent.ts) ----
@@ -3380,41 +3238,17 @@ function buildStore({
     },
 
     /**
-     * With a database, queue the trace through its writer under a semantic key. The file path below is only
-     * the standalone backend.
-     * Append one recall run's record (src/behavior/recall-run.js, `features.recallTrace`)
-     * as one JSON line to data/places/<id>/recall-trace.jsonl, written at once (not
-     * through the cache). The file keeps the newest `maxLines` lines (a missing or unusable
-     * value: 500): while there is room the line is appended, past the cap the file is
-     * rewritten atomically without the oldest. Lines a hand edit left blank are dropped on
-     * that rewrite. Throws on an I/O failure (the caller logs it).
+     * Queue one recall run's record (src/behavior/recall-run.js, `features.recallTrace`) as a line of the place's
+     * `recall_trace` unit through the writer, sent at once (not through the cache), with the cap the unit keeps: the
+     * newest `maxLines` lines (a missing or unusable value: 500). Throws `DB_CLOSED` when the database has no writer
+     * (the caller logs it).
      */
     appendRecallTrace(placeId: string, record: StoredRecord, { maxLines }: { maxLines?: number } = {}) {
       const cap = isFiniteNumber(maxLines) && maxLines >= 1 ? Math.floor(maxLines) : RECALL_TRACE_MAX_LINES;
-      if (memoryDb) {
-        if (!outbox) throw Object.assign(new Error('Memory writer unavailable'), { code: 'DB_CLOSED' });
-        outbox.lines(placeCollection('recall_trace', placeId), [
-          { record: JSON.parse(JSON.stringify(record)) as StoredRecord, maxLines: cap },
-        ]);
-        void outbox.push();
-        return;
-      }
-      const file = path.join(root.placeDir(placeId), 'recall-trace.jsonl');
-      const line = JSON.stringify(record);
-      let text = '';
-      try {
-        text = fs.readFileSync(file, 'utf8');
-      } catch {
-        // no trace yet
-      }
-      const lines = text.split('\n').filter((l) => l.trim());
-      if (lines.length + 1 <= cap) {
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-        // A hand edit may have left the last line without its line break.
-        fs.appendFileSync(file, `${text && !text.endsWith('\n') ? '\n' : ''}${line}\n`);
-        return;
-      }
-      writeTextAtomic(file, `${[...lines, line].slice(-cap).join('\n')}\n`);
+      const line = { record: JSON.parse(JSON.stringify(record)) as StoredRecord, maxLines: cap };
+      if (!cache.lines(placeCollection('recall_trace', placeId), [line]))
+        throw Object.assign(new Error('Memory writer unavailable'), { code: 'DB_CLOSED' });
+      cache.push();
     },
 
     /**
@@ -3438,7 +3272,7 @@ function buildStore({
       waiting?: number;
       pending?: number;
     }> {
-      const heldFiles = () => [...entries.values()].filter((item) => item.dirty && (item.holdFlush ?? 0) > 0).length;
+      const heldFiles = () => cache.held();
       if (heldFiles() > 0) {
         const waitMs = isFiniteNumber(holdMaxMs) && holdMaxMs >= 0 ? holdMaxMs : DEFAULT_HOLD_MAX_MS;
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -3462,10 +3296,10 @@ function buildStore({
         force: true,
       });
       if (held > 0) log.warn('store: flushed held', { files: held });
-      if (outbox) {
-        counts.waiting = await outbox.flush();
-        for (const [text, pending] of pendingMedia) if (!outbox.holds(pending.key)) pendingMedia.delete(text);
-        if (final) counts.pending = outbox.keep();
+      if (cache.writable()) {
+        counts.waiting = await cache.settle();
+        for (const [text, pending] of pendingMedia) if (!cache.holds(pending.key)) pendingMedia.delete(text);
+        if (final) counts.pending = cache.keep();
       }
       return counts;
     },
@@ -3592,30 +3426,14 @@ function buildStore({
     ...addressing.methods(),
 
     /**
-     * Drop every cached file EXCEPT `state.json` (`/nep pause`): called
-     * right after a flush, so nothing stale can be written from memory while
-     * the owner hand-edits files under `data/` -- the next read of any
-     * profile/place/channel/lore/media/buffer lazily re-populates from disk,
-     * exactly like a fresh process. `state.json` itself is left cached (it
-     * carries the `paused` flag this feature relies on); see `reloadState`
-     * below for forcing a fresh read of it too, used by `/nep resume`.
+     * Drop every cached entry except her state and those the outbox still holds (`/nep pause`): called right after a
+     * flush, so nothing stale is written from memory while the owner edits the memory, and the next read of a unit
+     * takes the stored value like a fresh process. The state stays cached because it carries the `paused` flag;
+     * `reloadState` reads it again at `/nep resume`.
      * @returns how many cache entries were dropped
      */
     dropCaches(): number {
-      let dropped = 0;
-      for (const [file, item] of entries) {
-        if (file === stateFile) continue;
-        if (item.dirty) log.warn('store: dropping a cache entry with unflushed changes', { file });
-      }
-      for (const file of [...entries.keys()]) {
-        if (file === stateFile) continue;
-        // An entry whose write has not resolved stays, so no later read takes the older value.
-        const place = dbPlace(file);
-        if (outbox?.holds(place.key ?? place.rel)) continue;
-        entries.delete(file);
-        dropped += 1;
-      }
-      return dropped;
+      return cache.drop(stateFile);
     },
 
     /**
@@ -3623,13 +3441,7 @@ function buildStore({
      * Any unflushed in-memory change is discarded. The supplied database is authoritative.
      */
     reloadState() {
-      const place = dbPlace(stateFile);
-      if (place.file) stateEntry.value = readJson(stateFile, {});
-      else {
-        const unit = seam.run(() => unitValue(seam.db(), place.key ?? place.rel));
-        stateEntry.value = unit.found ? unit.value : {};
-      }
-      stateEntry.dirty = false;
+      cache.reload(stateFile, stateEntry);
     },
 
     /**
@@ -3638,73 +3450,10 @@ function buildStore({
      */
     validate(): Array<string> {
       return findInvalidJsonFiles(dataDir, {
-        only: (rel) => operationalJsonPath(rel) || (!memoryDb && isCoreStatePath(rel)),
+        only: operationalJsonPath,
       });
     },
-
-    /**
-     * Her memory session moved these people's attitude in the database (`[{ personId, applied }]`,
-     * src/memory/db/service.ts#onAffinityMoves, any person id `person:<interface>:<id>`). A member's cached profile
-     * holds the attitude as it was before the move, so it is dropped: a clean entry no write holds at once, any other
-     * (changed since, or its write still under way) once its write has landed (`stale`, see `entry`). Its write keeps
-     * the session's score and reason (src/memory/db/session-rows.ts#sessionHold), and the next read takes the
-     * database's profile, the moves in its history.
-     * @returns how many cached profiles were dropped or marked
-     */
-    noteAffinityMoves(moves: Array<{ personId: string; applied: number }>): number {
-      if (!Array.isArray(moves)) return 0;
-      let taken = 0;
-      for (const move of moves) {
-        for (const [file, item] of [...entries]) {
-          const key = unitKeys.get(file);
-          if (!key || key.kind !== 'user' || storageContext(seam.db(), key).subjectPersonId !== move.personId) continue;
-          if (!item.dirty && !outbox?.holds(key)) entries.delete(file);
-          else item.stale = true;
-          taken += 1;
-        }
-      }
-      return taken;
-    },
-
-    /**
-     * The owner filled old entries of the selfreflection in the database (a reconstructed plan, an audience:
-     * src/memory/db/service.ts#onSelfreflectionFill). A clean cached selfreflection no write holds is dropped, and the next read
-     * takes the database's. Any other gains, on each post with an item id, the filled fields (`SELFREFLECTION_FILLED`) the
-     * database holds and the post lacks, and goes to the outbox again, so its next write keeps them.
-     * @returns whether a cached selfreflection was dropped or merged
-     */
-    noteSelfreflectionFill(): boolean {
-      const file = selfreflectionFile();
-      const item = entries.get(file);
-      if (!item || !memoryDb) return false;
-      const key = unitKeys.get(file) ?? file;
-      if (!item.dirty && !outbox?.holds(key)) {
-        entries.delete(file);
-        return true;
-      }
-      const stored: Untyped = seam.run(() => unitValue(seam.db(), dbPlace(file).key ?? file));
-      const held = new Map<string, Record<string, Untyped>>();
-      for (const post of stored?.found && Array.isArray(stored.value?.posts) ? stored.value.posts : [])
-        if (isRecord(post) && typeof post.itemId === 'string') held.set(post.itemId, post);
-      for (const post of Array.isArray(item.value?.posts) ? item.value.posts : []) {
-        const filled = isRecord(post) && typeof post.itemId === 'string' ? held.get(post.itemId) : undefined;
-        if (!filled) continue;
-        for (const field of SELFREFLECTION_FILLED)
-          if (post[field] === undefined && filled[field] !== undefined) post[field] = structuredClone(filled[field]);
-      }
-      item.dirty = true;
-      flushEntry(file, item);
-      if (outbox) void outbox.push();
-      return true;
-    },
   };
-
-  // Her session's attitude moves reach the cached profiles (see noteAffinityMoves).
-  if (typeof memoryDb?.onAffinityMoves === 'function')
-    memoryDb.onAffinityMoves((moves: Untyped) => store.noteAffinityMoves(moves));
-  // The owner's fills of old entries reach the cached selfreflection (see noteSelfreflectionFill).
-  if (typeof memoryDb?.onSelfreflectionFill === 'function')
-    memoryDb.onSelfreflectionFill(() => store.noteSelfreflectionFill());
 
   return store;
 }
@@ -3750,19 +3499,15 @@ export type Store = Omit<
  *   write; src/index.js passes features.archive exactly true) nothing leaves a hot list on disk
  *   before its copy is in the archive -- see "The archive" inside, `settleArchive`,
  *   `drainArchive` and `trimArchived`.
- *   `memoryDb` (the memory database service): every memory unit of the cache (users, private layers, channels, the
- *   place, lore, recent, versions, the selfreflection) is loaded from it (`unitValue`; a unit it does not hold is new; a closed
- *   database throws, with a code), whether it exists is the database's `files` row (`known`), a directory's ids
- *   are the database's (`idsUnder`), and a flush hands its whole value to the outbox (src/memory/db/unit-outbox.ts,
- *   op `value`): the entry stays the truth and counts as written only when the outbox no longer holds it (the write
- *   resolved); a failed write waits there and goes again at the next flush. Core state, participation, GIFs and media
+ *   `memoryDb` (the memory database service, required): every memory unit of the cache (users, private layers, channels, the
+ *   place, lore, recent, versions, the selfreflection) is loaded from it and flushed to its writer through the unit
+ *   cache (src/memory/unit-cache.ts), which also reconciles its entries with her session's attitude moves and the
+ *   owner's selfreflection fills. Core state, participation, GIFs and media
  *   use the database with their existing unit owners. Other operational files retain their file backend.
  *   A selfreflection post is sent at once (`appendSelfreflectionPost` flushes the selfreflection: its
  *   row and its mirror's `sent` publication). `flushSettled({ final: true })` (the shutdown) waits for the outbox and
  *   keeps what still fails in `memory-pending/` (`memoryDb.keepPending`, replayed by the service at its next open);
  *   `dropCaches` keeps the entries the outbox holds; `validate` (`/nep resume`) checks the operational JSON files.
- *   Without a `memoryDb` (tests, a tool) the memory units live in the cache only: nothing is read or
- *   written for them.
  */
 export function createStore(deps: Parameters<typeof buildStore>[0]): Store {
   return buildStore(deps);

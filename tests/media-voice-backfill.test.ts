@@ -28,6 +28,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import type { Env, Kind } from './fixtures/media-memory.ts';
 import type { HistoryQuery } from '../src/protocol/adapter.ts';
 import type { Row } from '../src/memory/db/types.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
 
 const IMAGE = KINDS[0];
 const VOICE = KINDS.find((kind) => kind.name === 'voice received') as Kind;
@@ -200,7 +201,7 @@ function fetcherOver(contentType: string) {
 const AUDIO_OPTIONS = { durationSec: 9, maxSeconds: 300, maxBytes: 1000, toolTimeoutMs: 5000, ffmpegPath: 'ffmpeg' };
 
 function describerOver(videoFetcher: object) {
-  const store = createStore({ dataDir: tempDir('nep-voice-store-') });
+  const store = createStore(memoryAt(tempDir('nep-voice-store-')));
   const llm = fakeLlm({ text: HEARD, model: 'x/flash' });
   const describer = createDescriber({
     hot: {
