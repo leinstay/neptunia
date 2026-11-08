@@ -101,6 +101,35 @@ function credit(query: string, queryStem: string, word: string, stem: (word: str
   return shared >= MIN_SHARED && shared >= shorter - 1 ? PARTIAL : 0;
 }
 
+/** The words of the vocabulary that match `query`, each with its credit. */
+function creditsOf(
+  query: string,
+  vocabulary: ReadonlySet<string>,
+  stem: (word: string) => string
+): Map<string, number> {
+  const queryStem = stem(query);
+  const credits = new Map<string, number>();
+  for (const word of vocabulary) {
+    const given = credit(query, queryStem, word, stem);
+    if (given > 0) credits.set(word, given);
+  }
+  return credits;
+}
+
+/** How well one candidate fits the matching words: each field's saturated count of matches, by its weight. */
+function fitOf(doc: Doc, credits: ReadonlyMap<string, number>): number {
+  let fit = 0;
+  for (const [field, counts] of doc.fields) {
+    let matched = 0;
+    for (const [word, given] of credits) matched += given * (counts.get(word) ?? 0);
+    if (matched > 0) fit += FIELD_WEIGHTS[field] * ((matched * (SATURATION + 1)) / (matched + SATURATION));
+  }
+  return fit;
+}
+
+/** The weight of a word that `df` of `n` candidates fit; a word every candidate of several holds tells none apart. */
+const idfOf = (n: number, df: number): number => (n > 1 && df >= n ? 0 : Math.log(1 + (n - df + 0.5) / (df + 0.5)));
+
 /** The candidates ranked against `request`, best first, with their scores; those that fit nothing are left out. */
 function rank(
   docs: ReadonlyArray<Doc>,
@@ -114,28 +143,11 @@ function rank(
     for (const counts of doc.fields.values()) for (const word of counts.keys()) vocabulary.add(word);
   const scores = new Map<string, number>();
   for (const query of queries) {
-    const queryStem = stem(query);
-    const credits = new Map<string, number>();
-    for (const word of vocabulary) {
-      const given = credit(query, queryStem, word, stem);
-      if (given > 0) credits.set(word, given);
-    }
+    const credits = creditsOf(query, vocabulary, stem);
     if (credits.size === 0) continue;
-    const perDoc = new Map<string, number>();
-    for (const doc of docs) {
-      let fit = 0;
-      for (const [field, counts] of doc.fields) {
-        let matched = 0;
-        for (const [word, given] of credits) matched += given * (counts.get(word) ?? 0);
-        if (matched > 0) fit += FIELD_WEIGHTS[field] * ((matched * (SATURATION + 1)) / (matched + SATURATION));
-      }
-      if (fit > 0) perDoc.set(doc.id, fit);
-    }
-    const n = docs.length;
-    const df = perDoc.size;
-    // A word every candidate of several holds tells none apart.
-    const idf = n > 1 && df >= n ? 0 : Math.log(1 + (n - df + 0.5) / (df + 0.5));
-    for (const [id, fit] of perDoc) scores.set(id, (scores.get(id) ?? 0) + idf * fit);
+    const fits = docs.map((doc) => ({ id: doc.id, fit: fitOf(doc, credits) })).filter((one) => one.fit > 0);
+    const idf = idfOf(docs.length, fits.length);
+    for (const { id, fit } of fits) scores.set(id, (scores.get(id) ?? 0) + idf * fit);
   }
   const ranked = [...scores]
     .filter(([, score]) => score > 0)
