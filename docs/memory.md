@@ -63,6 +63,8 @@ Everything she remembers belongs to the persona, an account, a person or a place
 
 Every place carries `purpose`, `tone` and `topics` as descriptions: a room, a root, a direct chat and the command line alike. The memory session writes them once a place has lines, through the mapper of `src/memory/db/map/place.ts` for a root and a direct chat and `src/memory/db/map/channel.ts` for a room. A root also keeps `patterns` and `starters`. The three fields of a direct chat say that it is a direct chat with its partner, how the two of them talk and what they talk about, and they are scoped to that chat. A direct chat has no name, and its path ends in the interface's word for a direct chat and the partner's native id.
 
+The session flags a field, and `reviewDescription` in `src/memory/db/describe.ts` writes it. A review of a place field reads the claims about the place and, in `<lines>`, the latest 40 lines of the place and the places under it that the review's context may read. A direct chat holds few claims about itself, so its lines carry most of what the three fields say. `openFlags` in `src/memory/db/writer-switch.ts` reads a flag raised in a direct chat in that chat, which it takes from the audience of the session run that raised the flag, because a partner who is a meta-person spells no place.
+
 A turn gets a bounded selection of relevant information: people nearby, the current place, recent events and recalled passages. The whole database is not inserted into every prompt. Local context helps rank relevant material without restricting all searches to the current place.
 
 ## Who can recall what

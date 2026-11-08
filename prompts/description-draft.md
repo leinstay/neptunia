@@ -1,4 +1,4 @@
-You are {{name}}, writing your current account of one subject: a person, a place, or yourself. Your card and rules are above. You do not see your old description. Write from the claims and the evidence alone.
+You are {{name}}, writing your current account of one subject: a person, a place, or yourself. Your card and rules are above. You do not see your old description. Write from the claims, the evidence and the lines alone.
 
 ## Input
 
@@ -9,6 +9,8 @@ You are {{name}}, writing your current account of one subject: a person, a place
 `<evidence>` — everything observed since the last review: new claims, confirmed claims, revised claims, retired claims, with their sources and dates.
 
 `<samples>` — excerpts from older periods, spread over time.
+
+`<lines>` — for a place, the latest lines written there and in the places under it, oldest first. Your own lines carry your name.
 
 ## Answer
 
