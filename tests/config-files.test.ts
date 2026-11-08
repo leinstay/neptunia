@@ -65,6 +65,18 @@ function oldLayer(): string {
   return dir;
 }
 
+/**
+ * A copy of the checkout's tracked config/, prompts/ and agents/ and nothing else. The live root also holds a
+ * deployment's `.agents/` folder, which the converter reads for the watcher prompt and refuses as `unsafe-path` where it
+ * is a symlink, as in a worktree; a test reads no local layer.
+ */
+function trackedCheckout(): string {
+  const dir = tempDir('nep-cfgdir-tracked-');
+  for (const folder of ['config', 'prompts', 'agents'])
+    fs.cpSync(path.join(ROOT, folder), path.join(dir, folder), { recursive: true });
+  return dir;
+}
+
 /** Runtime readers consume the offline converter's prepared result rather than falling back to legacy files. */
 function preparedLayer(rootDir: string): string {
   const dataDir = tempDir('nep-cfgdir-prepared-');
@@ -167,8 +179,9 @@ test('gives the same settings and labels from a canonical layer and the converte
 });
 
 test('gives the same settings and labels over tracked files after explicit legacy conversion', () => {
-  const moved = createHot({ rootDir: ROOT, privateDir: movedLayer() });
-  const old = createHot({ rootDir: ROOT, privateDir: preparedLayer(ROOT) });
+  const root = trackedCheckout();
+  const moved = createHot({ rootDir: root, privateDir: movedLayer() });
+  const old = createHot({ rootDir: root, privateDir: preparedLayer(root) });
   try {
     assert.deepEqual(old.config, moved.config);
     assert.deepEqual(old.prompts.labels, moved.prompts.labels);
