@@ -153,7 +153,6 @@ async function turnOf(
     describer: undefined,
     lookup: undefined,
     emoji: undefined,
-    routeChannels: undefined,
     images: undefined,
     now: () => NOW,
     port: core.port,

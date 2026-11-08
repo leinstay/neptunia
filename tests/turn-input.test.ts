@@ -40,10 +40,11 @@ test('turnRequestInput: passes every named key through, in the list order, and n
 });
 
 test('turnRequestInput: null is a deliberately absent input and passes as null', () => {
-  // PR 7d: drawQuota became the boolean drawOn, so recentLines is the absent input this test passes.
-  const ctx = { ...fullContext(), recentLines: null };
+  // PR 7d: drawQuota became the boolean drawOn. Slice 7: recentLines left the input with `<recent>`, so previousThink is
+  // the absent input this test passes.
+  const ctx = { ...fullContext(), previousThink: null };
   const input = turnRequestInput(ctx);
-  assert.equal(input.recentLines, null);
+  assert.equal(input.previousThink, null);
 });
 
 test('turnRequestInput: a named key that holds undefined is left out, never a failed turn', () => {

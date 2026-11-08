@@ -4,15 +4,11 @@
 // their budget, and the plan request. Fake prompts/config/labels only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  buildSelfreflectionPlanRequest,
-  buildDrawPrompt,
-  userText as textOf,
-  worldText,
-} from '../src/behavior/prompt.ts';
+import { buildDrawPrompt, userText as textOf, worldText } from '../src/behavior/prompt.ts';
 import { fill } from '../src/format.ts';
 import { labels } from './fixtures/labels.ts';
 import { buildRequest, type Built } from './fixtures/built-request.ts';
+import { framed } from './fixtures/prompt-rig.ts';
 import { blocksOf } from '../src/turn/request/frame.ts';
 import {
   JOURNAL,
@@ -94,7 +90,7 @@ function makeMessage(id: number | string, ts: number, overrides = {}) {
 }
 
 function baseInput(overrides = {}) {
-  return {
+  const input = {
     config: fakeConfig(),
     prompts: fakePrompts(),
     calibrator: identityCalibrator(),
@@ -110,6 +106,8 @@ function baseInput(overrides = {}) {
     otherProfiles: [],
     ...overrides,
   };
+  // Every request is built on its turn frame (slice 7).
+  return framed(input);
 }
 
 // The whole user text, every cache part: the stable part always carries the static senses lines.
@@ -122,26 +120,6 @@ const post = (at: number, kind: string | null, gist: string, picture: string | n
   picture,
   messageIds: [],
   search: null,
-});
-
-test('buildRequest: the world block appears in diary mode whenever world.md has text, never in an ordinary turn', () => {
-  // Slice 6: `selfreflection.world` is gone. A non-empty world.md is always the selfreflection's world, whatever a
-  // leftover switch says, and an ordinary turn never carries it.
-  for (const config of [
-    fakeConfig(),
-    fakeConfig({ selfreflection: { world: false } }),
-    fakeConfig({ selfreflection: { world: 'yes' } }),
-  ]) {
-    const text = userText(
-      buildRequest(
-        baseInput({ mode: 'selfreflection', config, selfreflection: { posts: [], plan: null, found: null } })
-      )
-    );
-    assert.ok(text.includes('<world>\nA world of Nept.\n</world>'), text);
-  }
-
-  const reply = userText(buildRequest(baseInput({ mode: 'reply', config: fakeConfig() })));
-  assert.ok(!reply.includes('<world>'), 'never in an ordinary turn');
 });
 
 test('buildRequest: no world block without the file', () => {
@@ -189,102 +167,6 @@ test('renderSenses: does not name the diary channel when unset', () => {
   }
 });
 
-/** The `<plan>` body of `plan` as lines: the intro, then the kind, the brief and whether it carries a picture. */
-const planLines = (plan: { kind: string; brief: string; picture: boolean }): string =>
-  [
-    labels.selfreflection.plan,
-    fill(labels.selfreflection.planKind, { value: plan.kind }),
-    fill(labels.selfreflection.planBrief, { value: plan.brief }),
-    plan.picture ? labels.selfreflection.planPicture : labels.selfreflection.planNoPicture,
-  ].join('\n');
-
-test('buildRequest: diary mode renders diary, plan and found blocks before the chat and uses prompts.selfreflection as the task', () => {
-  const posts = [
-    post(NOW - 2 * DAY, 'status', 'café au lait again'),
-    post(NOW - DAY, null, 'un phare la nuit', 'a lighthouse at night'),
-  ];
-  const plan = { kind: 'selfPicture', brief: 'a rooftop at dawn', picture: true };
-  const text = userText(
-    buildRequest(
-      baseInput({
-        mode: 'selfreflection',
-        selfreflection: { posts, plan, found: 'Une comète passe ce soir.' },
-        config: fakeConfig(),
-      })
-    )
-  );
-  const at = (tag: string) => text.indexOf(`<${tag}>`);
-  for (const tag of ['world', 'diary', 'plan', 'found', 'chat', 'task']) assert.ok(at(tag) >= 0, `${tag} present`);
-  assert.ok(
-    at('world') < at('diary') && at('diary') < at('plan') && at('plan') < at('found') && at('found') < at('chat')
-  );
-  assert.ok(text.includes(`<diary>\n${labels.selfreflection.intro}\n`));
-  assert.ok(
-    text.includes(fill(labels.selfreflection.line, { date: '2026-09-18', kind: 'status', gist: 'café au lait again' }))
-  );
-  assert.ok(
-    text.includes(
-      fill(labels.selfreflection.line, {
-        date: '2026-09-19',
-        kind: labels.selfreflection.kindUnknown,
-        gist: 'un phare la nuit',
-      })
-    )
-  );
-  // Slice 6: the plan is lines, one per field, and no JSON (nothing in a request is JSON).
-  assert.ok(text.includes(`<plan>\n${planLines(plan)}\n</plan>`), text);
-  assert.ok(!text.includes(JSON.stringify(plan)));
-  assert.ok(text.includes(`<found>\n${labels.selfreflection.found}\nUne comète passe ce soir.\n</found>`));
-  assert.ok(text.includes('<task>\nDIARY_TASK for Nept\n</task>'));
-});
-
-test('buildRequest: a diary post with seeds renders them right after the plan, never cut; none without', () => {
-  const plan = { kind: 'tour', brief: 'a harbour walk', picture: true };
-  const seeds = `${labels.selfreflection.seeds}
-- a pier; fog
-- a market; rain`;
-  const posts = Array.from({ length: 40 }, (_, i) =>
-    post(NOW - (40 - i) * DAY, 'thought', `σκέψη ${i} ${'λόγος '.repeat(30)}`)
-  );
-  const full = buildRequest(baseInput({ mode: 'selfreflection', selfreflection: { posts, plan, found: null, seeds } }));
-  const text = userText(full);
-  assert.ok(
-    // Slice 6: the plan before the seeds is lines, no JSON.
-    text.includes(`<plan>
-${planLines(plan)}
-</plan>
-
-<seeds>
-${seeds}
-</seeds>`)
-  );
-  const base = full.stats.used - full.stats.selfreflection.used;
-  const tight = buildRequest(
-    baseInput({
-      mode: 'selfreflection',
-      selfreflection: { posts, plan, found: null, seeds },
-      config: fakeConfig({ llm: { maxRequestTokens: Math.ceil((base + 60) / 0.9) } }),
-    })
-  );
-  assert.ok(tight.stats.selfreflection.dropped > 0, 'the history is cut');
-  assert.ok(
-    userText(tight).includes(`<seeds>
-${seeds}
-</seeds>`),
-    'the seeds are not'
-  );
-  assert.ok(
-    !userText(
-      buildRequest(baseInput({ mode: 'selfreflection', selfreflection: { posts, plan, found: null } }))
-    ).includes('<seeds>')
-  );
-  assert.ok(
-    !userText(buildRequest(baseInput({ mode: 'reply', selfreflection: { posts, plan, found: null, seeds } }))).includes(
-      '<seeds>'
-    )
-  );
-});
-
 test('buildRequest: no diary blocks outside diary mode, none without posts or a find', () => {
   const selfreflection = {
     posts: [post(NOW - DAY, 'status', 'bonjour')],
@@ -304,169 +186,6 @@ test('buildRequest: no diary blocks outside diary mode, none without posts or a 
   );
   assert.ok(!bare.includes('<diary>') && !bare.includes('<found>'));
   assert.ok(bare.includes('<plan>'));
-});
-
-test('buildRequest: diary block loses its oldest lines first under budget', () => {
-  const posts = Array.from({ length: 60 }, (_, i) =>
-    post(NOW - (60 - i) * DAY, 'thought', `pensée numéro ${i} ${'λόγος '.repeat(30)}`)
-  );
-  const full = buildRequest(baseInput({ mode: 'selfreflection', selfreflection: { posts, plan: null, found: null } }));
-  const base = full.stats.used - full.stats.selfreflection.used;
-  // Room for about a third of the history.
-  const limitTokens = Math.ceil((base + full.stats.selfreflection.used / 3 + 60) / 0.9);
-  const tight = buildRequest(
-    baseInput({
-      mode: 'selfreflection',
-      selfreflection: { posts, plan: null, found: null },
-      config: fakeConfig({ llm: { maxRequestTokens: limitTokens } }),
-    })
-  );
-  const text = userText(tight);
-  assert.ok(
-    tight.stats.selfreflection.dropped > 0 && tight.stats.selfreflection.kept > 0,
-    JSON.stringify(tight.stats.selfreflection)
-  );
-  assert.ok(text.includes('pensée numéro 59 '), 'the newest post stays');
-  assert.ok(!text.includes('pensée numéro 0 '), 'the oldest post goes first');
-  assert.ok(text.includes(`<diary>\n${labels.selfreflection.intro}\n`), 'the intro stays with the kept lines');
-});
-
-test('buildSelfreflectionPlanRequest: the plan prompt as system, the blocks in order, kinds and seeds whole', () => {
-  const config = fakeConfig({ selfreflection: { world: true } });
-  const channels = [
-    { id: 'd1', name: 'journal', purpose: 'the persona posts here', topics: '', tone: '', days: {}, topWriters: [] },
-  ];
-  const request = buildSelfreflectionPlanRequest({
-    config,
-    prompts: fakePrompts(),
-    calibrator: identityCalibrator(),
-    now: NOW,
-    selfName: 'Nept',
-    history: [],
-    placeMemory: { patterns: 'short lines, lots of jokes' },
-    channels,
-    loreEntries: [],
-    currentChannelId: 'd1',
-    recentLines: [],
-    recentAudience: null,
-    candidateProfiles: [],
-    nameOf: null,
-    posts: [post(NOW - DAY, 'status', 'ennui')],
-    kinds: { status: 3, picture: 0, thought: 2 },
-    seedsText: `${labels.selfreflection.seeds}\n- a pier; fog`,
-  });
-  assert.equal(request.messages[0].content, 'PLAN_SYSTEM for Nept');
-  const text = request.messages[1].content;
-  const order = ['now', 'places', 'about_chat', 'world', 'diary', 'kinds', 'seeds'];
-  const positions = order.map((tag) => text.indexOf(`<${tag}>`));
-  for (const [i, tag] of order.entries()) assert.ok(positions[i] >= 0, `${tag} present`);
-  assert.deepEqual(
-    [...positions].sort((a, b) => a - b),
-    positions,
-    'in the planned order'
-  );
-  assert.ok(text.includes(fill(labels.selfreflection.kindLine, { key: 'status', weight: 3, count: 1, window: 1 })));
-  assert.ok(
-    !text.includes(fill(labels.selfreflection.kindLine, { key: 'picture', weight: 0, count: 0, window: 1 })),
-    'a weight 0 kind is not offered'
-  );
-  assert.ok(text.includes('<seeds>\n' + labels.selfreflection.seeds + '\n- a pier; fog\n</seeds>'));
-  assert.ok(!text.includes('<chat>') && !text.includes('<task>'));
-});
-
-test('buildSelfreflectionPlanRequest: no seeds block without seeds, no diary block without posts', () => {
-  const request = buildSelfreflectionPlanRequest({
-    config: fakeConfig(),
-    prompts: fakePrompts(),
-    calibrator: identityCalibrator(),
-    now: NOW,
-    selfName: 'Nept',
-    posts: [],
-    kinds: { status: 1 },
-    seedsText: '',
-  });
-  const text = request.messages[1].content;
-  // Slice 6: with `selfreflection.world` gone the world.md text is always there; seeds and diary still need content.
-  assert.ok(!text.includes('<seeds>') && !text.includes('<diary>'));
-  assert.ok(text.includes('<world>'));
-  assert.ok(text.includes('<kinds>'));
-});
-
-/** The user text of a plan request over `posts`, with `selfreflection.sceneChars` at 30. */
-function planText(posts: Array<object>): string {
-  const request = buildSelfreflectionPlanRequest({
-    config: fakeConfig({ selfreflection: { sceneChars: 30 } }),
-    prompts: fakePrompts(),
-    calibrator: identityCalibrator(),
-    now: NOW,
-    selfName: 'Nept',
-    posts,
-    kinds: { picture: 1 },
-    seedsText: '',
-  });
-  // The lead: the message named first, for the chain rule.
-  const user = request.messages[1];
-  return user.content;
-}
-
-const DRAWN = 'a cafe interior, warm light';
-const scene = (text: string) => fill(labels.selfreflection.picture, { scene: text });
-
-test('buildSelfreflectionPlanRequest: a planned picture post shows its brief as the scene in <diary>', () => {
-  // Bug: the diary shows the drawing prompt, which names the room and stops before the activity.
-  const planned = {
-    ...post(NOW - DAY, 'picture', 'μια μέρα στη λίμνη', DRAWN),
-    pictureDescription: 'a girl at a window table',
-    plan: { brief: 'she learns to skate on a frozen lake', seeds: [['a lake', 'skating']], seed: 1 },
-  };
-  const text = planText([planned]);
-  assert.ok(text.includes(scene('she learns to skate on a frozen lake')), text);
-  assert.equal(text.includes(DRAWN), false);
-});
-
-test('buildSelfreflectionPlanRequest: a picture post with no plan shows its picture description cut to sceneChars', () => {
-  // Bug: an old row shows its drawing prompt although its picture was described, or the description is not cut.
-  const described = {
-    ...post(NOW - DAY, 'picture', 'une longue descente', DRAWN),
-    pictureDescription: 'a girl rides a red bicycle\ndown a wet hill road at dawn',
-  };
-  const text = planText([described]);
-  assert.ok(text.includes(scene('a girl rides a red bicycle')), text);
-  assert.equal(text.includes('hill road'), false);
-  assert.equal(text.includes(DRAWN), false);
-});
-
-test('buildSelfreflectionPlanRequest: a picture post with neither shows its drawing prompt', () => {
-  // Bug: the fallback drops the scene of a row that has only its drawing prompt.
-  const text = planText([post(NOW - DAY, 'picture', 'καφές', DRAWN)]);
-  assert.ok(text.includes(scene(DRAWN)), text);
-});
-
-test('buildRequest: the server block marks the diary channel', () => {
-  const channel = (id: string, name: string) => ({
-    id,
-    name,
-    purpose: '',
-    topics: '',
-    tone: '',
-    days: {},
-    topWriters: [],
-  });
-  const channels = [channel('c-talk', 'agora'), channel('c-diary', 'journal-κ')];
-  const input = { channels, currentChannelId: 'c-talk', neighbors: [{ placeId: 'c-diary', messages: [] }] };
-  const mark = fill(labels.server.selfreflection, { channel: 'journal-κ' });
-
-  // Stage 3 design, section 5: the places of her diary are its mirrors, which the turn reads from memory and hands the
-  // builder as `selfreflectionChannelIds`; `diary.placeId` is only a seed.
-  const on = userText(buildRequest(baseInput({ ...input, selfreflectionChannelIds: ['c-diary'] })));
-  const entries = on.slice(on.indexOf('<server>'), on.indexOf('</server>')).split('\n\n');
-  const selfreflectionEntry = entries.find((entry) => entry.includes('# journal-κ'));
-  const talkEntry = entries.find((entry) => entry.includes('# agora'));
-  assert.ok(selfreflectionEntry && selfreflectionEntry.includes(mark), on);
-  assert.ok(talkEntry && !talkEntry.includes(mark), 'another channel does not carry the mark');
-
-  const off = userText(buildRequest(baseInput({ ...input })));
-  assert.ok(off.includes('# journal-κ') && !off.includes(mark), 'no mark without a mirror on it');
 });
 
 // The writer on the turn frame (plan 2026-11-06-turn-frame, slice 6, with the owner's answers of 2026-11-07): the turn

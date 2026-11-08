@@ -56,7 +56,7 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'llm.maxRequestsPerDay',
     'types': ['number'],
-    'reader': 'src/behavior/pull-fetch.ts',
+    'reader': 'src/llm/openrouter.ts',
     'default': 5000,
     'text': 'Daily request cap',
   },
@@ -105,7 +105,7 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
   {
     'key': 'llm.cache.ttl',
     'types': ['string'],
-    'reader': 'src/behavior/prompt.ts',
+    'reader': 'src/llm/openrouter.ts',
     'default': '1h',
     'text': 'Cache TTL for the markers on the system message and the stable user prefix: `"1h"` or `"5m"`',
   },

@@ -76,10 +76,6 @@
       "deep": 4,
       "repeated": 1
     },
-    "tests/channel-handles.test.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
     "tests/channels-selfreflection.test.ts": {
       "deep": 1,
       "repeated": 0
@@ -230,14 +226,6 @@
     },
     "tests/door-address.test.ts": {
       "deep": 5,
-      "repeated": 0
-    },
-    "tests/elsewhere-hooks.test.ts": {
-      "deep": 4,
-      "repeated": 0
-    },
-    "tests/elsewhere-pick.test.ts": {
-      "deep": 6,
       "repeated": 0
     },
     "tests/elsewhere.test.ts": {
@@ -856,10 +844,6 @@
       "deep": 1,
       "repeated": 0
     },
-    "tests/neighbors.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/openrouter-role-keys.test.ts": {
       "deep": 1,
       "repeated": 0
@@ -912,16 +896,12 @@
       "deep": 3,
       "repeated": 0
     },
-    "tests/prompt-anchors.test.ts": {
-      "deep": 3,
-      "repeated": 0
-    },
     "tests/prompt-budget.test.ts": {
-      "deep": 46,
+      "deep": 1,
       "repeated": 0
     },
     "tests/prompt-directory.test.ts": {
-      "deep": 3,
+      "deep": 2,
       "repeated": 0
     },
     "tests/prompt-emoji.test.ts": {
@@ -936,24 +916,16 @@
       "deep": 1,
       "repeated": 0
     },
-    "tests/prompt-memory-reads.test.ts": {
+    "tests/prompt-selfreflection.test.ts": {
       "deep": 1,
       "repeated": 0
     },
-    "tests/prompt-participation.test.ts": {
-      "deep": 8,
-      "repeated": 0
-    },
-    "tests/prompt-selfreflection.test.ts": {
-      "deep": 10,
-      "repeated": 0
-    },
     "tests/prompt.test.ts": {
-      "deep": 212,
+      "deep": 46,
       "repeated": 0
     },
     "tests/prompts-shipped.test.ts": {
-      "deep": 19,
+      "deep": 15,
       "repeated": 0
     },
     "tests/prose-check.test.ts": {
@@ -984,16 +956,8 @@
       "deep": 6,
       "repeated": 0
     },
-    "tests/pull-fetch-core.test.ts": {
-      "deep": 20,
-      "repeated": 0
-    },
     "tests/pull-fetch.test.ts": {
       "deep": 5,
-      "repeated": 0
-    },
-    "tests/pull-seen.test.ts": {
-      "deep": 9,
       "repeated": 0
     },
     "tests/query-builder.test.ts": {
@@ -1065,7 +1029,7 @@
       "repeated": 0
     },
     "tests/sandbox.test.ts": {
-      "deep": 87,
+      "deep": 75,
       "repeated": 0
     },
     "tests/search-reads.test.ts": {
@@ -1317,7 +1281,7 @@
       "repeated": 0
     },
     "tests/turn-core-tools.test.ts": {
-      "deep": 34,
+      "deep": 31,
       "repeated": 5
     },
     "tests/turn-errands.test.ts": {
@@ -1357,7 +1321,7 @@
       "repeated": 0
     },
     "tests/turn.test.ts": {
-      "deep": 265,
+      "deep": 219,
       "repeated": 8
     },
     "tests/usage.test.ts": {
@@ -1436,7 +1400,7 @@
   "files": {
     "src/behavior/recall.ts": 2357,
     "tests/openrouter.test.ts": 3557,
-    "tests/prompt.test.ts": 6523,
+    "tests/prompt.test.ts": 2812,
     "tests/recall.test.ts": 2387
   },
   "functions": {
@@ -1647,11 +1611,6 @@
         "complexity": 24
       }
     },
-    "src/behavior/prompt.ts": {
-      "buildSelfreflectionPlanRequest": {
-        "complexity": 24
-      }
-    },
     "src/behavior/recall-run.ts": {
       "createRecall>findPeople": {
         "complexity": 36
@@ -1698,7 +1657,7 @@
         "complexity": 41
       },
       "sandboxRequestInput": {
-        "complexity": 38
+        "complexity": 34
       }
     },
     "src/behavior/wake.ts": {
@@ -1898,11 +1857,6 @@
     "src/memory/lore.ts": {
       "upsertLore": {
         "complexity": 28
-      }
-    },
-    "src/memory/recent.ts": {
-      "recentView": {
-        "complexity": 26
       }
     },
     "src/memory/record-index.ts": {

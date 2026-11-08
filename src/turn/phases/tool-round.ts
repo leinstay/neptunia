@@ -22,7 +22,7 @@ export async function toolRoundPhase(
   acting: Acting
 ): Promise<Ended | Rounded> {
   const { inTurnTools, stepTranscript, runSteps } = ctx;
-  const { trigger = null, triggerKind = null, source = null, added = null, missed = null } = params;
+  const { trigger = null, triggerKind = null, added = null, missed = null } = params;
   const requesterParam = params.requester ?? null;
   const { opened, setup, pulled: pulledStep, staged, gathered, request, sentMessages, first, readAnswer } = acting;
   const { idByIndex, pulledIds, lines, routing, setShort } = acting;
@@ -70,7 +70,6 @@ export async function toolRoundPhase(
     trigger,
     selfName,
     ...routing,
-    sourceId: isPrivate ? null : (source?.placeId ?? null),
     mediaPicks: !selfreflectionPrep,
     participation: isPrivate ? null : { descriptions: descriptions ?? null },
     draft,

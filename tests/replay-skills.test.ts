@@ -290,10 +290,10 @@ test('simulateCall: not granted, not grantable, or a requester without the right
 });
 
 test("simulateCall: her own operations skip the requester's right but not her grant", () => {
-  const elsewhere = { skill: 'message.create', args: { channel: '#νέα', text: 'καλημέρα' } };
+  const elsewhere = { skill: 'message.create', args: { place: '#νέα', text: 'καλημέρα' } };
   const own = simulate(elsewhere, { grants: ['message.create'], author: MEMBER });
   assert.equal(own.verdict.ok, true, "self-owned: the member's missing right does not matter");
-  assert.deepEqual(own.executed, { skill: 'message.create', args: { channel: NEWS, text: 'καλημέρα' } });
+  assert.deepEqual(own.executed, { skill: 'message.create', args: { place: NEWS, text: 'καλημέρα' } });
   assert.equal(
     simulate(elsewhere, { author: MEMBER }).verdict.code,
     'not-allowed',
@@ -314,7 +314,7 @@ test('simulateCall: a call the server cannot resolve, a drawing answered canned'
     ['resolve', 'unknown-skill', 'invalid']
   );
   const channel = simulate(
-    { skill: 'message.create', args: { channel: '#πουθενά', text: 'γεια' } },
+    { skill: 'message.create', args: { place: '#πουθενά', text: 'γεια' } },
     { grants: ['message.create'] }
   );
   assert.deepEqual([channel.verdict.stage, channel.verdict.code], ['resolve', 'invalid-args']);
@@ -711,7 +711,7 @@ test('replay --skills steps: three steps keep her lines and her call marks betwe
     ],
     [
       toolAnswer('<think>θα το στείλω</think><msg>μια στιγμή</msg>', [
-        call('message.create', { channel: '#νέα', text: 'καλημέρα' }),
+        call('message.create', { place: '#νέα', text: 'καλημέρα' }),
       ]),
       toolAnswer('<think>t</think><msg>εντάξει</msg>', [call('rule.list', {})]),
       '<think>t</think><msg>έγινε</msg>',
@@ -793,7 +793,7 @@ test('replay --skills steps: three steps keep her lines and her call marks betwe
   );
   assert.deepEqual(Object.keys(records[0]).slice(0, 3), ['scenario', 'run', 'step']);
   assert.equal(records[0].first.think, 'θα το στείλω');
-  assert.deepEqual([records[0].verdict.ok, records[0].executed.args.channel, records[0].followUp], [true, NEWS, null]);
+  assert.deepEqual([records[0].verdict.ok, records[0].executed.args.place, records[0].followUp], [true, NEWS, null]);
   assert.deepEqual(records[1].followUp.messages, ['έγινε']);
   assert.equal(records[1].loop.held, 1);
   assert.deepEqual(played.records, records);

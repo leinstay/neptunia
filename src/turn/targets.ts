@@ -67,29 +67,6 @@ export async function reactionChannel(
 }
 
 /**
- * What the first post of a turn about another channel (`source`) links to
- * when it answers no pulled line: a routed call (in its own channel), else the
- * newest line of the source the request showed (buildRequest's `pulledKept`).
- * Null without a source, or when nothing of it was shown (the budget dropped
- * its block): a post never points at a line the model did not see.
- */
-export function sourceLinkTarget({
-  source,
-  trigger,
-  pulledKept,
-}: {
-  source: { placeId?: string | null; reason?: string | null } | null | undefined;
-  trigger: { id?: string | null; placeId?: string | null } | null | undefined;
-  pulledKept: ReadonlyArray<{ placeId: string; newestId?: string | null }>;
-}): { placeId: string; messageId: string } | null {
-  if (!source?.placeId) return null;
-  const sourceId = source.placeId;
-  if (source.reason === 'routed' && trigger?.id) return { placeId: trigger.placeId || sourceId, messageId: trigger.id };
-  const newestId = pulledKept.find((shown) => shown.placeId === sourceId)?.newestId ?? null;
-  return newestId ? { placeId: sourceId, messageId: newestId } : null;
-}
-
-/**
  * `text` with `link` joined through `labels.elsewhere.link` (`{text}` `{link}`);
  * without the label, a newline between them; without a link, `text` as it is.
  * Nothing is cut: an adapter whose platform limits a message splits the post itself.

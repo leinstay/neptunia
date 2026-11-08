@@ -10,6 +10,7 @@ import { callMarksFor, formatTranscript } from '../src/format.ts';
 import { orderedHistory } from '../src/turn/history.ts';
 import { labels } from './fixtures/labels.ts';
 import { buildRequest } from './fixtures/built-request.ts';
+import { frameOfInput } from './fixtures/prompt-rig.ts';
 
 // A selection without a think answers why; the picks that carry one have no `why`.
 const whyOf = (picked: object) => (picked as { why?: string }).why;
@@ -98,7 +99,7 @@ function requestWith(
     stickers: [],
     replyToId: null,
   };
-  return buildRequest({
+  const input = {
     config: {
       bot: { timezone: 'UTC' },
       context: {
@@ -137,7 +138,9 @@ function requestWith(
     channels: [{ id: 'c1', name: 'general' }],
     currentChannelId: 'c1',
     previousThink,
-  });
+  };
+  // Every request is built on its turn frame (slice 7).
+  return buildRequest({ ...input, frame: frameOfInput(input) });
 }
 
 test('buildRequest: the previous think is one block in the uncached tail, the note and the engine metadata above the inert text', () => {
@@ -181,13 +184,14 @@ test("callArgsText: the skill's main arguments, one line, quoted, cut with a mar
     callArgsText('web.search', { query: 'tulip bulbs\nin autumn', goal: 'plan', extra: 'x' }),
     'query: "tulip bulbs in autumn", goal: "plan"'
   );
-  assert.equal(callArgsText('conversation.read', { channel: 'general', last: 20 }), 'channel: "general", last: 20');
+  // Slice 7: the tool argument `channel` is named `place`.
+  assert.equal(callArgsText('conversation.read', { place: 'general', last: 20 }), 'place: "general", last: 20');
   const long = callArgsText('web.search', { query: 'a'.repeat(300) });
   assert.ok(long.endsWith('…"') || long.endsWith('…'), long);
   assert.ok(Array.from(long).length < 100);
   assert.equal(callArgsText('config.set', { path: 'x', value: 'sk-secret' }), '');
   assert.equal(callArgsText('web.read', { url: 'https://e.test/a]b<c>' }), 'url: "https://e.test/a b c"');
-  assert.equal(callArgsText('message.create', { text: 'hello', channel: 'general' }), '');
+  assert.equal(callArgsText('message.create', { text: 'hello', place: 'general' }), '');
   assert.equal(callArgsText('web.search', null), '');
 });
 

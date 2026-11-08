@@ -98,8 +98,9 @@ function runner(overrides = {}) {
 test('registry: conversation.read is a read skill and an in-turn tool, with the options of the spec', () => {
   const skill = skillRegistry().get('conversation.read');
   assert.equal(loose(skill).kind, 'read');
+  // Slice 7: the tool argument `channel` is named `place`.
   assert.deepEqual(Object.keys(loose(skill).argsSchema.properties), [
-    'channel',
+    'place',
     'around',
     'before',
     'after',

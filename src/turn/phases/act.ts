@@ -8,7 +8,6 @@ import { createLinker, messageLinkOf } from '../../behavior/elsewhere.ts';
 import { log } from '../../log.ts';
 import type { Draft } from '../draft.ts';
 import { storedNames } from '../mentions.ts';
-import { sourceLinkTarget } from '../targets.ts';
 import { postsPlain } from '../triggers.ts';
 import type { AttemptResult, Ended, HistoryLine, PhaseContext, PhaseParams } from './context.ts';
 import type { Answered } from './response.ts';
@@ -39,33 +38,21 @@ export type Acting = Omit<Answered, 'ended'> & {
 // health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.ts in stage 5c, a pure split
 export function actPhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, answered: Answered): Ended | Acting {
   const { hot, store, iface, turnDirectory } = ctx;
-  const { trigger = null, triggerKind = null, source = null, plainPosts = false } = params;
+  const { triggerKind = null, plainPosts = false } = params;
   const { stillDue = null } = params;
-  const { opened, setup, pulled: pulledStep, gathered, request, shownPulled } = answered;
-  const { channel, placeId, isPrivate } = opened;
+  const { opened, setup, pulled: pulledStep, gathered, request } = answered;
+  const { channel, placeId } = opened;
   const { memoryOn } = setup;
   const { finalMode } = pulledStep;
-  const { history, pulled } = gathered;
+  const { history } = gathered;
   const idByIndex = request.idByIndex;
-  // The output side of the pulled channels: which line lives where, whose @name resolves,
-  // which post carries a jump link. Names resolve over the
-  // pulled lines the request showed, then this chat's history: resolveMentions keeps the
-  // last author of a display name, so a chat author wins a name both share. The stored names
-  // of the members whose profile the request kept and of the pulled lines' authors resolve
-  // too, behind every display name: a pulled line fetched without its member carries the
-  // global name while `<people>` reads the server nickname. Only then the fallback directory:
-  // a member the model was not shown (another channel, a block the budget dropped) is
-  // mentioned by a name nobody else in the served place carries.
+  // Names resolve over this chat's history, then the stored names of the members whose profile the request kept, and
+  // only then the fallback directory: a member the model was not shown is mentioned by a name nobody else in the served
+  // place carries.
   const pulledIds = request.pulledIds ?? new Map();
   // The highest line number of the request: a memory.search of the turn numbers its quotes on past it.
   draft.handleFloor = Math.max(0, ...idByIndex.keys());
-  const shownLines = shownPulled.flatMap(({ placeId: conversationId, ids }) => {
-    const shownIds = new Set(ids);
-    return (pulled.find((entry) => entry.placeId === conversationId)?.messages ?? []).filter((message) =>
-      shownIds.has(message.id)
-    );
-  });
-  const lines = shownLines.length > 0 ? [...shownLines, ...history] : history;
+  const lines = history;
   // With features.mentionHandles on (the request was built with it: `handles`), only her
   // `@handle` mentions anyone and no name is matched at all.
   const handles = request.handles ?? null;
@@ -73,14 +60,14 @@ export function actPhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, a
   const channelHandles = request.channelHandles ?? null;
   const knownNames =
     memoryOn && !handles
-      ? storedNames(request.peopleShown, shownLines, (accountId) => store.getUser(accountOf(store, accountId)))
+      ? storedNames(request.peopleShown, [], (accountId) => store.getUser(accountOf(store, accountId)))
       : [];
   // Behind those, every member of the served place the bot knows (built once, on the first `@`).
   const directory = handles ? null : turnDirectory({ placeId, memoryOn });
   const linkFor = createLinker({
     linkOf: (conversationId, messageId) => messageLinkOf(iface, placeId, conversationId, messageId),
     pulledIds,
-    sourceTarget: isPrivate ? null : sourceLinkTarget({ source, trigger, pulledKept: shownPulled }),
+    sourceTarget: null,
   });
   // A follow-up or an overheard turn (postsPlain) never posts as a platform reply -- the
   // model's reply="#n" quotes nothing.

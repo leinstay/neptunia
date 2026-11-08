@@ -155,36 +155,6 @@ export function recordPing(
 }
 
 /**
- * Stamp a call answered (a turn that showed it spoke, a reaction alone
- * included). An earlier stamp is kept.
- * An answer wins over an earlier skip (`pingStatus`).
- * The stored ring is not mutated.
- */
-export function markPingAnswered(ring: unknown, messageId: string, now: number): Array<RingPing> {
-  const id = idOf(messageId);
-  return ringEntries(ring).map((entry) =>
-    entry.messageId === id && entry.answeredAt === null ? { ...entry, answeredAt: now } : entry
-  );
-}
-
-/**
- * Stamp a call skipped: the persona was shown it and chose to let it pass,
- * so later pulls must not present it as waiting for an answer. An answered
- * call stays answered; an earlier skip stamp is kept. A call lost before any
- * turn saw it (a restart during the settle) is never stamped and stays
- * unanswered.
- * The stored ring is not mutated.
- */
-export function markPingSkipped(ring: unknown, messageId: string, now: number): Array<RingPing> {
-  const id = idOf(messageId);
-  return ringEntries(ring).map((entry) =>
-    entry.messageId === id && entry.answeredAt === null && entry.skippedAt === null
-      ? { ...entry, skippedAt: now }
-      : entry
-  );
-}
-
-/**
  * The state of one ring entry: `'answered'` once answered (even after a
  * skip), else `'skipped'` once skipped, else `'unanswered'`.
  */
@@ -194,43 +164,6 @@ export function pingStatus(
   if (Number.isFinite(entry?.answeredAt)) return 'answered';
   if (Number.isFinite(entry?.skippedAt)) return 'skipped';
   return 'unanswered';
-}
-
-/**
- * Stamp several calls of the ring at once, in order: `answered` through
- * `markPingAnswered`, `skipped` through `markPingSkipped` (an answered call is
- * never skipped, an answer wins over a skip, a stamp is never moved). A
- * message id the ring does not hold, a stamp of another status and garbage
- * are passed over. `marked` lists each stamp that changed its call's state,
- * with the call's channel and its state after it, so the caller logs those
- * and marks the state dirty only when there is one.
- * The stored ring is not mutated; `stamps` are `{ messageId, status: 'answered'|'skipped' }`, anything else is passed over.
- */
-export function stampPings(
-  ring: unknown,
-  stamps: unknown,
-  now: number
-): {
-  ring: Array<RingPing>;
-  marked: Array<{ messageId: string; placeId: string; status: 'answered' | 'skipped' | 'unanswered' }>;
-} {
-  let entries = ringEntries(ring);
-  const marked: Array<{ messageId: string; placeId: string; status: 'answered' | 'skipped' | 'unanswered' }> = [];
-  for (const stamp of (Array.isArray(stamps) ? stamps : []) as Array<{
-    messageId?: unknown;
-    status?: unknown;
-  } | null>) {
-    const mark = stamp?.status === 'answered' ? markPingAnswered : stamp?.status === 'skipped' ? markPingSkipped : null;
-    const id = idOf(stamp?.messageId);
-    const index = entries.findIndex((entry) => entry.messageId === id);
-    const found = entries[index];
-    if (!mark || id === null || found === undefined) continue;
-    const before = pingStatus(found);
-    entries = mark(entries, id, now);
-    const after = pingStatus(entries[index]);
-    if (after !== before) marked.push({ messageId: id, placeId: found.placeId, status: after });
-  }
-  return { ring: entries, marked };
 }
 
 /**

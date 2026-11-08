@@ -70,7 +70,7 @@ test('a group turn reads a line stored in another channel of the same server', a
       if (fixed !== undefined) return Promise.resolve(toolAnswer(fixed));
       step += 1;
       if (step === 1)
-        return Promise.resolve(toolAnswer('', [call('conversation.read', { channel: '#room-c2', last: 5 })]));
+        return Promise.resolve(toolAnswer('', [call('conversation.read', { place: '#room-c2', last: 5 })]));
       if (step === 2) read = toolResults(messages);
       return Promise.resolve(toolAnswer('<skip/>'));
     },

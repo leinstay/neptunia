@@ -68,12 +68,6 @@ export function pulledMoment(ts: number, timezone: string, locale: string | unde
   return `${formatDate(ts, timezone, locale)}, ${formatClock(ts, timezone, locale)}`;
 }
 
-/** A stored `YYYY-MM-DD` in the transcript's date form (`formatDate`), read as that calendar day:
- * its noon formatted in UTC, so no zone moves it to a neighbouring day. */
-export function calendarDate(ymd: string, locale: string | undefined): string {
-  return formatDate(Date.parse(`${ymd}T12:00:00.000Z`), 'UTC', locale);
-}
-
 /**
  * A stored text as a value inside a request: `<` and `>` written as entities, so a name, a field or a message that holds
  * a tag can neither close a block nor open one in the frame's own words. Anything that is not a string reads as ''.

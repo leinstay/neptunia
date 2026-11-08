@@ -12,7 +12,12 @@
 /** The labels the checks read: the transcript's markers and the spatial block's phrasing. */
 export type CheckLabels = {
   readonly transcript?: Readonly<Record<string, unknown>>;
-  readonly spatial?: Readonly<{ place?: string; within?: string; kinds?: Readonly<Record<string, string>> }>;
+  readonly spatial?: Readonly<{
+    place?: string;
+    within?: string;
+    kind?: string;
+    kinds?: Readonly<Record<string, string>>;
+  }>;
   readonly memory?: Readonly<Record<string, unknown>>;
   readonly recall?: Readonly<Record<string, unknown>>;
 };
@@ -85,7 +90,7 @@ export function chatInTimeOrder(request: string, labels: CheckLabels): Array<str
 
 /**
  * `<spatial_awareness>` puts her in `placeName`: its place sentence (`spatial.place`) names a path whose first link,
- * read through `spatial.kinds`, is that name. No block, no place sentence or another first place is a finding.
+ * read through `spatial.kind` or `spatial.kinds`, is that name. No block, no place sentence or another first place is a finding.
  */
 export function placeBound(request: string, placeName: string, labels: CheckLabels): Array<string> {
   const spatial = blockOf(request, 'spatial_awareness');
@@ -98,7 +103,7 @@ export function placeBound(request: string, placeName: string, labels: CheckLabe
   if (!path) return ['<spatial_awareness> names no place'];
   const within = labels.spatial?.within ?? ' ';
   const first = path.split(within)[0] ?? '';
-  const kinds = Object.values(labels.spatial?.kinds ?? {});
+  const kinds = [labels.spatial?.kind, ...Object.values(labels.spatial?.kinds ?? {})];
   const names = kinds
     .map((kind) => patternOf(kind, 'name')?.exec(first)?.[1] ?? null)
     .filter((name): name is string => name !== null);

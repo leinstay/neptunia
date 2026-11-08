@@ -4,14 +4,14 @@
 // the skill (the others for a skill with no row), one line, each value cut with a marker, the whole
 // bounded, and never a field whose name suggests a secret. Pure.
 
-/** The arguments worth showing per skill, in order. The target (message, channel) is shown by the mark itself where it can. */
+/** The arguments worth showing per skill, in order. The target (message, place) is shown by the mark itself where it can. */
 const SHOWN: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
   'web.search': ['query', 'goal'],
   'web.read': ['url'],
   'media.look': ['question', 'url', 'item'],
   'media.find': ['query', 'n'],
-  'memory.search': ['question', 'people', 'channel', 'when', 'terms', 'entity', 'predicate', 'as_of', 'historical'],
-  'conversation.read': ['channel', 'around', 'before', 'after', 'since', 'last'],
+  'memory.search': ['question', 'people', 'place', 'when', 'terms', 'entity', 'predicate', 'as_of', 'historical'],
+  'conversation.read': ['place', 'around', 'before', 'after', 'since', 'last'],
   'memory.profile.read': ['user', 'section', 'limit'],
   'memory.journal.read': ['day', 'kind', 'n', 'message'],
 
@@ -33,8 +33,8 @@ const SHOWN: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
   'task.comment': ['id'],
   'task.answer': ['id'],
   'task.unblock': ['id'],
-  'intention.set': ['id', 'text', 'due', 'every', 'channel'],
-  'intention.update': ['id', 'text', 'due', 'every', 'channel'],
+  'intention.set': ['id', 'text', 'due', 'every', 'place'],
+  'intention.update': ['id', 'text', 'due', 'every', 'place'],
   'intention.cancel': ['id'],
   'message.create': [],
   'message.react.add': ['emoji'],

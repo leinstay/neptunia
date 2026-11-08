@@ -14,7 +14,6 @@
 import { fill, formatDuration } from '../format.ts';
 import { clampChars, oneLine } from '../memory/clamp.ts';
 import { isFiniteNumber } from '../tools/types.ts';
-import type { Untyped } from '../tools/types.ts';
 import type { PresenceRecord, VoiceRecord } from './around-store.ts';
 
 type ActivityRecord = PresenceRecord['activities'][number];
@@ -62,9 +61,6 @@ export function cleanText(text: unknown): string {
   if (typeof text !== 'string') return '';
   return clampChars(oneLine(text.replace(/[<>]/g, '')), AROUND_TEXT_CHARS).trim();
 }
-
-/** Names compare by plain code unit order: stable whatever the locale. */
-const byText = (a: Untyped, b: Untyped) => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
  * One field line of a `<people_now>` row: `labels.peopleNow.field` (`{field}` `{value}`) with
@@ -181,53 +177,6 @@ export function liveFields(
       : [];
   lines.push(fieldLine(labels, 'activity', unknown ? (values[unknown] ?? '') : doing.join('; ') || values.none || ''));
   return lines.filter((line): line is string => Boolean(line));
-}
-
-/**
- * The block-level notices of `<people_now>`, in this order: `labels.peopleNow.stale` when the
- * gateway dropped since the last update (what is held may be out of date), then
- * `labels.peopleNow.unavailable` when the presences intent is off (no activity
- * can be known). [] for a fresh snapshot with the intent on, no snapshot or no labels. The
- * caller shows them only when the block has rows anyway.
- * @param labels  The whole labels object.
- */
-export function liveNotices(
-  snapshot: { presences: boolean; stale: boolean } | null,
-  labels: AroundLabels
-): Array<string> {
-  const l = peopleNowOf(labels);
-  if (!l || !snapshot) return [];
-  return [snapshot.stale === true ? l.stale : '', snapshot.presences !== true ? l.unavailable : ''].filter(
-    (notice): notice is string => Boolean(notice)
-  );
-}
-
-/**
- * The members sitting in a voice channel the audience may see (`channelNameOf` names it), but
- * those in `excludeIds`, each with a name (`nameOf`, else the name the snapshot holds; one
- * without either is left out), by name then id.
- */
-export function voiceOccupants(
-  snapshot: { voice: Map<string, VoiceRecord> },
-  {
-    excludeIds = new Set(),
-    nameOf,
-    channelNameOf,
-  }: {
-    excludeIds?: Set<string>;
-    nameOf?: (accountId: string) => string | null;
-    channelNameOf?: (placeId: string) => string | null;
-  } = {}
-): Array<{ accountId: string; name: string }> {
-  if (!snapshot?.voice || typeof channelNameOf !== 'function') return [];
-  const out: Array<{ accountId: string; name: string }> = [];
-  for (const entry of snapshot.voice.values()) {
-    if (excludeIds.has(entry.accountId)) continue;
-    if (!cleanText(channelNameOf(entry.placeId) ?? '')) continue;
-    const name = cleanText((typeof nameOf === 'function' ? nameOf(entry.accountId) : null) ?? entry.name ?? '');
-    if (name) out.push({ accountId: entry.accountId, name });
-  }
-  return out.sort((a, b) => byText(a.name, b.name) || byText(a.accountId, b.accountId));
 }
 
 /**

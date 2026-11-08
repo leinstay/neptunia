@@ -491,6 +491,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         deletedIds: draft.deletedIds,
         searchRefs: draft.searchRefs ?? null,
         partnerId: draft.readerId ?? null,
+        draft,
       });
     const contextOf = (r: Routing, timeoutMs: number | null = null): CallContext => ({
       ...callContext,

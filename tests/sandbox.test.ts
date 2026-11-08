@@ -10,8 +10,6 @@ import { fetchHistoryWindow } from '../interfaces/discord/index.ts';
 import { formatTranscript } from '../src/format.ts';
 import { videoUrlCacheKey } from '../src/media/video-sites.ts';
 import { createCalibrator } from '../src/llm/tokens.ts';
-import { fill } from '../src/format.ts';
-import { buildRequest } from '../src/behavior/prompt.ts';
 import '../src/tools/impl/index.ts';
 import { handleOf } from '../src/behavior/handles.ts';
 
@@ -26,7 +24,6 @@ const {
   hiddenLater,
   replayMedia,
 } = sandbox;
-import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { labels } from './fixtures/labels.ts';
 import { call, completionOf, textAnswer, toolAnswer } from './fixtures/tool-answers.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -98,7 +95,9 @@ test('liveView: the calibrator follows the live ratio and never feeds it', () =>
 
 // ---- answerReply -------------------------------------------------------------
 
-test("answerReply: sends the live system prompt and renders the member's profile", async () => {
+// Slice 7: the member's profile from the store went with the old `<people>` producer; a request on its frame reads
+// people from the memory database, so this test keeps the system prompt, the answers and the no-write rule.
+test('answerReply: sends the live system prompt and parses the answers, writing nothing', async () => {
   const hot = fakeHot();
   const store = fakeStore({
     userProfiles: { [ALICE]: { id: ALICE, names: ['Alice'], character: 'CHARACTER_MARKER solves chess problems' } },
@@ -123,7 +122,6 @@ test("answerReply: sends the live system prompt and renders the member's profile
   assert.equal(result.request.system, system.content);
   assert.equal(typeof result.request.user, 'string');
   assert.equal(result.request.user, user.content);
-  assert.ok(result.request.user.includes('CHARACTER_MARKER'));
   assert.ok(result.request.user.includes('what do you think about chess?'));
   assert.deepEqual(result.answers, [
     {
@@ -523,8 +521,8 @@ test('answerReply: reads everything through the view, so another view of the sam
     samples: 1,
     at: NOW,
   } as unknown as Parameters<typeof answerReply>[0]);
+  // Slice 7: the overlay's member profile went with the old `<people>` producer, so the system prompt is what it shows.
   assert.ok(result.request.system.includes('OVERLAY_SYSTEM'));
-  assert.ok(result.request.user.includes('OVERLAY_CHARACTER'));
 });
 
 // ---- a stored moment replayed as the turn it was ----------------------------
@@ -542,7 +540,6 @@ function kindHot(featureOverrides = {}) {
 }
 
 const TRIGGER_ID = '800000000000000002';
-const KITCHEN = { id: '500000000000000003', name: 'kitchen' };
 
 function aliceStore() {
   return fakeStore({
@@ -605,13 +602,10 @@ test('answerReply: a moment stored as overheard is replayed with the overheard t
     overheard.request.user
   );
   assert.ok(!overheard.request.user.includes('REPLY_TASK'));
-  // Its author is not the one who called her.
-  assert.ok(overheard.request.user.includes('ALICE_PORTRAIT'));
-  assert.ok(!overheard.request.user.includes(labels.peopleNow.marks.interlocutor));
-  // The same moment without its kind is the old guess: a mention under the reply task.
+  // The same moment without its kind is the old guess: a mention under the reply task. Slice 7: the portrait and the
+  // interlocutor mark of the old `<people>` and `<people_now>` are no part of a request on its frame.
   const guessed = await replay(storedMoment());
   assert.ok(guessed.request.user.includes(`REPLY_TASK Alice: ${labels.triggers.mention}`));
-  assert.ok(guessed.request.user.includes(labels.peopleNow.marks.interlocutor));
 });
 
 // Plan 2026-11-04-cli-and-memory B1: the `name` kind is gone with name triggers.
@@ -654,33 +648,6 @@ test('answerReply: a follow-up and an untagged reply are replayed with the follo
   );
   assert.ok(tagged.request.user.includes(`REPLY_TASK Alice: ${labels.triggers.reply}`), tagged.request.user);
   assert.ok(!tagged.request.user.includes('FOLLOW_UP_TASK'));
-});
-
-test('answerReply: no other channel is pulled in and no call is routed', async () => {
-  const result = await replay({
-    ...storedMoment(),
-    pulled: [{ placeId: KITCHEN.id }],
-    source: { placeId: KITCHEN.id, reason: 'routed' },
-  });
-  assert.ok(!result.request.user.includes('<channel_view>'));
-  const input = sandboxRequestInput({
-    view: liveView({ hot: kindHot(), store: aliceStore(), placeId: 'g1' }),
-    situation: storedMoment(),
-    selfId: SELF_ID,
-    selfName: 'Zoë',
-    channel: CHANNEL,
-    at: NOW,
-  });
-  assert.deepEqual(input.pulled, []);
-  assert.equal(input.source, null);
-});
-
-test('answerReply: the destination of a read-only call reaches <senses>', async () => {
-  const destination = fill(labels.senses.elsewhere, { destination: 'general' });
-  const withDestination = await replay(storedMoment(), { elsewhereDestination: { name: 'general' } });
-  assert.ok(withDestination.request.user.includes(destination));
-  const without = await replay(storedMoment());
-  assert.ok(!without.request.user.includes(destination));
 });
 
 test('answerReply: the sandbox never runs the server search, so <senses> never offers it', async () => {
@@ -782,70 +749,6 @@ test('liveView: the recent store is read for the one guild; a store without one 
   assert.equal(liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' }).memory.getRecent(), null);
 });
 
-test("answerReply: the channel's recent lines inside the window render as <recent>, as they stood at the turn's time", async () => {
-  const lines = [
-    recentLine(1, 'RECENT_HERE the café closed early'),
-    recentLine(2, 'RECENT_ELSEWHERE a kitchen rumour', { placeId: KITCHEN.id }),
-    recentLine(3, 'RECENT_OLD the market moved', { at: NOW - 80 * HOUR }),
-  ];
-  const ask = async (store: unknown, featureOverrides = {}, at = NOW) => {
-    const view = liveView({ hot: fakeHot(featureOverrides), store, placeId: 'g1' });
-    const result = await answerReply({
-      view,
-      situation: twoLines(),
-      selfId: SELF_ID,
-      selfName: 'Zoë',
-      channel: CHANNEL,
-      llm: fakeLlm('<skip/>'),
-      samples: 1,
-      at,
-    });
-    return result.request.user;
-  };
-  const user = await ask(recentStore(lines));
-  const block = /<recent>\n([^]*?)\n<\/recent>/.exec(user)?.[1] ?? '';
-  assert.ok(block.startsWith(fill(labels.recent.header, { hours: 72 })), user);
-  assert.ok(block.includes('RECENT_HERE the café closed early'));
-  // Another channel's audience cannot be checked without the guild: its line stays out.
-  assert.ok(!user.includes('RECENT_ELSEWHERE'));
-  // A line older than memory.recentHours at the turn's time is no longer live.
-  assert.ok(!user.includes('RECENT_OLD'));
-  // The window is measured at the turn's time, not at today's.
-  assert.ok((await ask(recentStore(lines), {}, NOW - 70 * HOUR)).includes('RECENT_OLD the market moved'));
-
-  // No block: a store without a recent store.
-  assert.ok(!(await ask(fakeStore())).includes('<recent>'));
-});
-
-test('answerReply: a recent store that cannot be read costs the block, never the answer', async () => {
-  const store = {
-    ...fakeStore(),
-    getRecent: () => {
-      throw new Error('the memory store is read-only here');
-    },
-  };
-  const view = liveView({ hot: fakeHot(), store, placeId: 'g1' });
-  const llm = fakeLlm('<msg>ok</msg>');
-  const { result, logs } = await withCapturedLogs(() =>
-    answerReply({
-      view,
-      situation: twoLines(),
-      selfId: SELF_ID,
-      selfName: 'Zoë',
-      channel: CHANNEL,
-      llm,
-      samples: 1,
-      at: NOW,
-    })
-  );
-  assert.equal(result.answers.length, 1);
-  assert.ok(!result.request.user.includes('<recent>'));
-  assert.deepEqual(
-    logs.map((entry) => [entry.level, entry.msg]),
-    [['warn', 'sandbox: recent failed']]
-  );
-});
-
 /** Every input buildRequest reads: the keys it destructures from `input` and each `input.<key>` of its body. */
 function buildRequestInputs() {
   const source = fs.readFileSync(new URL('../src/behavior/prompt.ts', import.meta.url), 'utf8');
@@ -866,7 +769,11 @@ function buildRequestInputs() {
 test('sandboxRequestInput: names every input buildRequest reads; what it leaves out is SANDBOX_OMITS, passed as absent', () => {
   const view = liveView({ hot: fakeHot(), store: fakeStore(), placeId: 'g1' });
   const wanted = buildRequestInputs();
-  assert.ok(wanted.has('history') && wanted.has('pulled') && wanted.has('gifs'), 'the reader finds both kinds of key');
+  // Slice 7: `pulled` left the input; the destructured key buildRequest reads is `currentChannelId`.
+  assert.ok(
+    wanted.has('history') && wanted.has('currentChannelId') && wanted.has('gifs'),
+    'the reader finds both kinds of key'
+  );
   for (const situation of [twoLines(), { ...storedMoment(), mode: 'interject' }]) {
     const input = sandboxRequestInput({ view, situation, selfId: SELF_ID, selfName: 'Zoë', channel: CHANNEL, at: NOW });
     assert.deepEqual(Object.keys(input).sort(), [...wanted].sort());
@@ -1772,7 +1679,9 @@ function handlesView(features = {}) {
   return liveView({ hot, store, placeId: 'g1' });
 }
 
-test("answerReply: the replay shows the live turn's <directory> and author handles, and resolves @handle as a live turn would", async () => {
+// Slice 7: no directory up front (the lead's decision 3), so a profiled member outside the request (Zoé) has no handle
+// and her `@handle` stays text, as in a live turn.
+test("answerReply: the replay shows the live turn's author handles, and resolves @handle as a live turn would", async () => {
   const view = handlesView();
   const zoe = `@${handleOf(ZOE_ID)}`;
   const alice = `@${handleOf(ALICE)}`;
@@ -1788,32 +1697,11 @@ test("answerReply: the replay shows the live turn's <directory> and author handl
     samples: 1,
     at: NOW,
   });
-
-  const live = buildRequest(
-    sandboxRequestInput({
-      view,
-      situation: twoLines(),
-      selfId: SELF_ID,
-      selfName: 'Zoë',
-      channel: CHANNEL,
-      at: NOW,
-    }) as unknown as Parameters<typeof buildRequest>[0]
-  );
-  const directory = /<directory>\n[\s\S]*?\n<\/directory>/.exec(result.request.user)?.[0];
-  assert.equal(
-    directory,
-    `<directory>\nDIRECTORY\n${zoe} "Zoé" aka "Zo"\n</directory>`,
-    "the persona's own profile is never listed"
-  );
-  assert.ok(
-    asRecord(live.messages[1].content)
-      .find((part: Untyped) => part.cacheSegment === 'stable')
-      .text.includes(directory)
-  );
+  assert.equal(/<directory>/.exec(result.request.user), null);
   assert.ok(result.request.user.includes(`Alice [${alice}]: what do you think about chess?`), result.request.user);
   assert.ok(result.request.user.includes(`Bruno [@${handleOf(BRUNO)}]: καλημέρα`));
   assert.deepEqual(result.answers[0].messages, [
-    { text: `${zoe} ${alice} @Alice ${unknown}`, replyTo: null, mentions: [ZOE_ID, ALICE], unknownHandles: 1 },
+    { text: `${zoe} ${alice} @Alice ${unknown}`, replyTo: null, mentions: [ALICE], unknownHandles: 2 },
     { text: 'ναι', replyTo: null },
   ]);
 });
@@ -1821,10 +1709,11 @@ test("answerReply: the replay shows the live turn's <directory> and author handl
 test('answerSkillScenario: a message.create text is resolved like a <msg> (callMentions); the answers carry their mentions', async () => {
   const { answerSkillScenario } = sandbox;
   const view = handlesView();
-  const zoe = `@${handleOf(ZOE_ID)}`;
+  // Slice 7: the handle is an author's in the request; a profiled member outside it has none (no directory).
+  const alice = `@${handleOf(ALICE)}`;
   const llm = fakeToolLlm([
-    toolAnswer(`<think>a</think><msg>${zoe}</msg>`, [
-      call('message.create', { channel: '#general', text: `${zoe} @Zo` }),
+    toolAnswer(`<think>a</think><msg>${alice}</msg>`, [
+      call('message.create', { place: '#general', text: `${alice} @Alice` }),
     ]),
     toolAnswer('<think>b</think><msg>ok</msg>', []),
   ]);
@@ -1840,18 +1729,19 @@ test('answerSkillScenario: a message.create text is resolved like a <msg> (callM
     onCall: (given: Untyped) => OK_DATA(given.skill),
   });
   const [first, second] = result.runs;
-  assert.deepEqual(first.callMentions, { mentions: [ZOE_ID], unknownHandles: 0 });
-  assert.deepEqual(first.answer.messages[0].mentions, [ZOE_ID]);
+  assert.deepEqual(first.callMentions, { mentions: [ALICE], unknownHandles: 0 });
+  assert.deepEqual(first.answer.messages[0].mentions, [ALICE]);
   assert.equal('callMentions' in second, false, 'a run without a call has none');
 });
 
 test("answerSkillScenario: only a message's text is rendered as a post (message.edit too, rule.add not)", async () => {
   const { answerSkillScenario } = sandbox;
   const view = handlesView();
-  const zoe = `@${handleOf(ZOE_ID)}`;
+  // Slice 7: the handle is an author's in the request; a profiled member outside it has none (no directory).
+  const alice = `@${handleOf(ALICE)}`;
   const llm = fakeToolLlm([
-    toolAnswer('<think>a</think>', [call('message.edit', { message: '#1', text: zoe })]),
-    toolAnswer('<think>b</think>', [call('rule.add', { text: zoe })]),
+    toolAnswer('<think>a</think>', [call('message.edit', { message: '#1', text: alice })]),
+    toolAnswer('<think>b</think>', [call('rule.add', { text: alice })]),
   ]);
   const result = await answerSkillScenario({
     view,
@@ -1865,7 +1755,7 @@ test("answerSkillScenario: only a message's text is rendered as a post (message.
     onCall: (given: Untyped) => OK_DATA(given.skill),
   });
   const [edit, other] = result.runs;
-  assert.deepEqual(edit.callMentions, { mentions: [ZOE_ID], unknownHandles: 0 });
+  assert.deepEqual(edit.callMentions, { mentions: [ALICE], unknownHandles: 0 });
   assert.equal('callMentions' in other, false);
 });
 

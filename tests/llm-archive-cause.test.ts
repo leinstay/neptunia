@@ -6,17 +6,14 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { archivedLlm } from '../src/llm/archive.ts';
 import { createLlm } from '../src/llm/openrouter.ts';
-import { createElsewherePicker } from '../src/behavior/elsewhere-pick.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { readRequests } from '../src/memory/db/request-archive.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
-import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const SILENT = { info() {}, warn() {}, error() {} };
-const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 // A request that never settles fails here and not at the runner's two minutes.
 const LIMIT = { timeout: 5000 };
 
@@ -132,59 +129,4 @@ test('a network failure is archived as network', LIMIT, async () => {
   // Bug: a request that never reached the provider reads as one it answered badly.
   const network: Network = () => Promise.reject(new TypeError('fetch failed'));
   assert.equal(await codeOfFailure(network, {}), 'network');
-});
-
-test('a participation pick past its budget leaves the row aborted while the turn gets no pick', LIMIT, async () => {
-  // Bug: 21 of 21 failed picks in production were this abort, and each row said only `error`.
-  const { handle, llm, errorCode } = rig(silentNetwork);
-  try {
-    const timers: Array<() => void> = [];
-    const hot = {
-      config: settings(),
-      prompts: { 'elsewhere-pick': 'You are {{name}}.', labels },
-    };
-    const picker = createElsewherePicker({
-      hot,
-      listPlaces: () => [
-        {
-          id: 'c2',
-          name: 'journal',
-          iface: 'fake',
-          kind: 'channel',
-          lastActivityAt: NOW - 60_000,
-          lastAttentionAt: null,
-        },
-      ],
-      listEpisodes: () => [
-        { id: 'p1', placeId: 'c2', ageMs: 60_000, memberName: null, memberLines: '', selfLines: 'στο ράφι' },
-      ],
-      llm,
-      now: () => NOW,
-      schedule: (fire: () => void) => {
-        timers.push(fire);
-        return () => {};
-      },
-    });
-    const candidate = { id: 'm1', authorId: 'u1', authorName: 'Nikos', content: 'θυμάσαι;', ts: NOW, self: false };
-    const { result } = await withCapturedLogs(async () => {
-      const picking = picker({
-        channel: { id: 'c1', rootId: 'community' },
-        history: [candidate],
-        trigger: candidate,
-        triggerKind: 'mention',
-        mode: 'reply',
-        selfName: 'Zoë',
-        audience: () => true,
-      });
-      // The request has to be out before the budget runs out, as it is on the running core.
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      assert.equal(timers.length, 1, 'the picker set its budget');
-      for (const fire of timers) fire();
-      return picking;
-    });
-    assert.deepEqual(result, { place: null, episodes: [] });
-    assert.equal(errorCode(), 'aborted');
-  } finally {
-    handle.close();
-  }
 });

@@ -28,7 +28,7 @@ inspect its results and choose one that fits. If the service fails, report
 that failure rather than inventing a result.
 ```
 
-The folder and `name` must match. Front matter accepts `name`, `description`, `tools` and optional `task`. The body explains when to use the skill, its inputs, steps and failure handling. It is not a place to grant permissions.
+The folder and `name` must match. Front matter accepts `name`, `description`, `tools` and optional `task`. The body explains when to use the skill, its inputs, steps and failure handling. It is not a place to grant permissions. A procedure that tells her where a tool acts names the tool's argument `place`, which every tool that acts somewhere takes on every interface ([prompt contract](prompt-contract.md#the-place-argument)).
 
 ## Scripts and setup
 

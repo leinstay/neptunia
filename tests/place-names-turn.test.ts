@@ -25,7 +25,7 @@ const withPlaceLabels = {
 
 async function readChannel(channel: string) {
   const run = await coreTurn({
-    answers: [toolAnswer('', [call('conversation.read', { channel })]), '<skip/>'],
+    answers: [toolAnswer('', [call('conversation.read', { place: channel })]), '<skip/>'],
     allowed: ['conversation.read'],
     neighbours: [
       { id: 'c3', name: '🌿 herbs' },

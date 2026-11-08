@@ -4,16 +4,12 @@
 // with createParticipation; the attempt, the act and the journal notes call its functions.
 
 import type { AroundSnapshot } from '../behavior/around-store.ts';
-import { audienceCovers } from '../behavior/elsewhere.ts';
 import { selfreflectionConversationIds } from '../behavior/mirror.ts';
-import { audienceAllows, everyMemberAudience, railAudience } from '../behavior/snapshot.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { log } from '../log.ts';
 import { collectPictures } from '../media/classify.ts';
 import { participationSettings, recordOwnLine } from '../memory/index.ts';
-import { liveRecent, recentSettings } from '../memory/recent.ts';
 import type { ConversationInfo } from '../protocol/adapter.ts';
-import { NO_RECENT } from './history.ts';
 import { inCommunity } from './routing.ts';
 
 /** The config keys participation reads itself; the settings functions read their own sections. */
@@ -60,22 +56,11 @@ type ParticipationMessage = {
   caption: string | null;
 };
 
-/** The input of `<recent>`: the lines and which source channels the turn may show them from. */
-type RecentInput = {
-  lines: Array<object> | undefined;
-  audience: ((placeId: string | null) => boolean) | undefined;
-};
-
 /** The live part of `<people_now>`. */
 type AroundInput = { snapshot: AroundSnapshot; channelNameOf: (placeId: string) => string | null };
 
 export type Participation = {
   participationOn: (channel: ConversationInfo) => boolean;
-  participationAudience: (
-    channel: ConversationInfo,
-    config: unknown,
-    snapshot?: Snapshot | null
-  ) => (placeId: string) => boolean;
   aroundInputFor: (args: {
     config: ParticipationConfig;
     mode: string | null | undefined;
@@ -96,24 +81,6 @@ export type Participation = {
     selfName: string;
     descriptions: unknown;
   }) => void;
-  recentInput: (args: {
-    channel: ConversationInfo;
-    snapshot?: Snapshot | null;
-    placeId: string;
-    isPrivate: boolean;
-    config: object;
-    now: number;
-  }) => RecentInput;
-  recentOfPlaces: (
-    holders: ReadonlyArray<string>,
-    args: {
-      channel: ConversationInfo;
-      snapshot?: Snapshot | null;
-      isPrivate: boolean;
-      config: object;
-      now: number;
-    }
-  ) => RecentInput;
 };
 
 export function createParticipation({ store, around, clock }: ParticipationContext): Participation {
@@ -121,33 +88,11 @@ export function createParticipation({ store, around, clock }: ParticipationConte
    * Whether a server turn in `channel` has the persona's participation store: features.memory
    * and features.participation on (`config`, the turn's live config; a missing key counts as on),
    * a server channel that is not a place of her selfreflection (src/behavior/mirror.ts#selfreflectionConversationIds), and a store that
-   * keeps one. Recording, the pick classifier and the `<participation>` block all ask this.
+   * keeps one. Recording asks this.
    */
   function participationOn(channel: ConversationInfo): boolean {
     if (!inCommunity(channel) || typeof store.getParticipation !== 'function') return false;
     return !selfreflectionConversationIds(store).has(String(channel.id));
-  }
-
-  /**
-   * Which channels a turn in `channel` may show participation episodes from: a conversation of its
-   * community (the turn's snapshot) whose audience passes the rail the neighbours and the pulls pass
-   * (src/behavior/snapshot.ts#audienceAllows, `context.pull.sameAudience`: everyone who can
-   * read this channel can read that one). A conversation the snapshot does not hold, or a check that
-   * throws, is refused.
-   */
-  function participationAudience(
-    channel: ConversationInfo,
-    config: unknown,
-    snapshot: Snapshot | null = null
-  ): (placeId: string) => boolean {
-    return (placeId) => {
-      try {
-        const other = snapshot?.get(String(placeId)) ?? null;
-        return Boolean(other) && audienceAllows(channel, other, config);
-      } catch {
-        return false;
-      }
-    };
   }
 
   /**
@@ -281,81 +226,10 @@ export function createParticipation({ store, around, clock }: ParticipationConte
     }
   }
 
-  /**
-   * The input of a turn's `<recent>` block (src/behavior/prompt.ts#buildRequest
-   * `recentLines` / `recentAudience`): the place's recent lines inside the last
-   * `memory.recentHours` (src/memory/store.ts#getRecent, read now) and which
-   * source channels this turn may show them from. On a server turn: the
-   * channel the turn posts in, and every channel whose audience covers it
-   * (the snapshot's audiences, src/behavior/elsewhere.ts#audienceCovers:
-   * everyone who can read this channel can read that one). In a private chat:
-   * the channels every member of the served place can read. A channel the
-   * place does not hold is never covered. No live line: an empty list (the
-   * block may still show the members' moments of those hours). Nothing
-   * (`lines` undefined: no block at all) with features.recent off (a missing
-   * key counts as on) or for a store without the recent store (tests' fakes);
-   * a read that throws is logged (`recent: failed`) and is nothing either: the
-   * block is never worth a turn.
-   */
-  /**
-   * `<recent>` of a turn that belongs to no server (her selfreflection with no place to be posted in): the recent lines of every
-   * place in `holders`, each under the audience rule of `recentInput`.
-   */
-  function recentOfPlaces(
-    holders: ReadonlyArray<string>,
-    args: Omit<Parameters<Participation['recentInput']>[0], 'placeId'>
-  ): RecentInput {
-    const parts = holders.map((placeId) => recentInput({ ...args, placeId }));
-    const [only] = parts;
-    if (parts.length === 1 && only) return only;
-    return {
-      lines: parts.flatMap((part) => part.lines ?? []),
-      audience: (conversationId) => parts.some((part) => part.audience?.(conversationId) === true),
-    };
-  }
-
-  function recentInput({
-    channel,
-    snapshot = null,
-    placeId,
-    isPrivate,
-    config,
-    now,
-  }: {
-    channel: ConversationInfo;
-    snapshot?: Snapshot | null;
-    placeId: string;
-    isPrivate: boolean;
-    config: object;
-    now: number;
-  }): RecentInput {
-    const settings = recentSettings(config);
-    if (!settings || typeof store.getRecent !== 'function') return NO_RECENT;
-    try {
-      const lines = liveRecent(store.getRecent(placeId)?.lines, { now, hours: settings.hours });
-      if (lines.length === 0) return { lines, audience: undefined };
-      const here = isPrivate ? everyMemberAudience() : railAudience(channel.audience);
-      const allowed = new Set<unknown>();
-      // liveRecent keeps the recent store's lines, each a record with its source `placeId`.
-      for (const id of new Set(lines.map((line) => (line as { placeId?: unknown }).placeId))) {
-        if (typeof id !== 'string' || !id) continue;
-        if (!isPrivate && id === channel.id) allowed.add(id);
-        else if (audienceCovers(here, railAudience(snapshot?.get(String(id))?.audience))) allowed.add(id);
-      }
-      return { lines, audience: (conversationId) => allowed.has(conversationId) };
-    } catch (err) {
-      log.warn('recent: failed', { channel: channel.id, error: err });
-      return NO_RECENT;
-    }
-  }
-
   return {
     participationOn,
-    participationAudience,
     aroundInputFor,
     liveChannelName,
     recordOwnParticipation,
-    recentInput,
-    recentOfPlaces,
   };
 }

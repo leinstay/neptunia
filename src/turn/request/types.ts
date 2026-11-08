@@ -10,9 +10,8 @@ import type { SurroundingsInput } from './reader.ts';
 import type { LineOf } from './refs.ts';
 import type { CallMark } from '../../behavior/lines.ts';
 import type { formatTranscript } from '../../format.ts';
-import type { ParticipationInput } from './memory.ts';
-import type { Lookup, Prefetch } from './recall.ts';
-import type { PlaceMemory, StoredChannel } from './server.ts';
+import type { Prefetch } from './recall.ts';
+import type { PlaceMemory } from './server.ts';
 import type { SkillRow } from './senses.ts';
 import type { Tasks } from './task.ts';
 import type { PreviousThink } from './wake.ts';
@@ -105,6 +104,8 @@ export type SurroundingsLabels = LabelGroup & { readonly fields?: LabelGroup };
 export type SpatialLabels = {
   readonly place?: string;
   readonly within?: string;
+  /** A place of a native kind the labels do not name: `{noun}` the interface's word for the kind, `{name}`. */
+  readonly kind?: string;
   readonly kinds?: LabelGroup;
   readonly unnamed?: string;
   readonly group?: string;
@@ -297,9 +298,6 @@ export type Fit = {
 /** The price of a text in tokens (src/llm/budget.ts#sectionCost). */
 export type Cost = (text: string) => number;
 
-/** A neighbouring channel's recent lines (src/behavior/neighbors.ts#fetchNeighbors). */
-export type Neighbor = { readonly placeId?: string; readonly channelName: string; readonly messages: Array<Message> };
-
 /**
  * Every input buildRequest reads (src/behavior/prompt.ts, where each is described). An input the block builders read
  * only after its own check is `unknown` here; the builders hand on the checked value under the same name.
@@ -313,7 +311,6 @@ export type RequestInput = {
   readonly selfName: string;
   readonly selfId?: string | null;
   readonly history: Array<Message>;
-  readonly neighbors: Array<Neighbor>;
   readonly trigger: Message | null;
   readonly triggerKind: string | null;
   readonly taggedCall?: boolean | null;
@@ -324,16 +321,11 @@ export type RequestInput = {
   readonly otherProfiles?: unknown;
   readonly candidateProfiles?: unknown;
   readonly nameOf?: unknown;
-  readonly channels: Array<StoredChannel>;
-  readonly channelDirectory?: Array<{ id: string; name: string }> | null;
-  readonly loreEntries?: unknown;
   readonly currentChannelId: string | null;
   readonly descriptions?: Map<string, string>;
-  readonly neighborDescriptions?: unknown;
   readonly videos?: Map<string, { state: 'watched' | 'limit' | 'error' | 'pending'; text?: string; reason?: string }>;
   readonly imageAnswers?: Map<string, { question: string; text: string }> | null;
   readonly reads?: Map<string, string>;
-  readonly lookup?: Lookup | null;
   readonly prefetch?: Prefetch | null;
   readonly searchAvailable?: unknown;
   readonly recallAvailable?: unknown;
@@ -342,14 +334,8 @@ export type RequestInput = {
   readonly mediaPickText?: string | null;
   readonly mediaCache?: MediaCache | null;
   readonly gifs?: unknown;
-  readonly pulled?: unknown;
-  readonly source?: { readonly placeId: string; readonly reason: string } | null;
   readonly tasks?: Tasks | null;
   readonly elsewhereDestination?: { readonly name?: string } | null;
-  readonly readOnlyIds?: unknown;
-  readonly recentLines?: unknown;
-  readonly recentAudience?: unknown;
-  readonly participation?: ParticipationInput | null;
   readonly selfreflectionChannel?: unknown;
   readonly selfreflectionChannelIds?: Iterable<string> | null;
   readonly selfreflection?: SelfreflectionInput | null;
@@ -369,7 +355,6 @@ export type RequestInput = {
   /** A selfimprovement wake's `<work>` and `<board>` bodies (src/behavior/selfimprovement-text.ts). */
   readonly serviceInner?: { readonly work: string; readonly board: string } | null;
   readonly wakeKind?: string | null;
-  readonly places?: unknown;
   readonly previousThink?: PreviousThink | null;
   /** What she did today, one line each (src/turn/request/my-day.ts#myDayOf): the body of `<my_day>`. */
   readonly myDay?: ReadonlyArray<string> | null;

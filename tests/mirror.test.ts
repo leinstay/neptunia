@@ -691,9 +691,10 @@ test('restricting a saved diary entry hides its existing media while independent
       items: [{ data: new Uint8Array([1, 2, 3]), mime: 'image/png' }],
     });
   const db = dbOf(core.memory.memoryDb);
+  // The owner's answer 13 of 2026-11-07: an entry's pictures are stored under the `media:selfreflection:` prefix.
   const nodes = db
     .prepare(
-      "SELECT g.id, m.id AS media_id, m.owner FROM graph_nodes g JOIN media m ON g.row_id = m.id WHERE g.kind = 'media' AND m.id LIKE 'media:diary:%'"
+      "SELECT g.id, m.id AS media_id, m.owner FROM graph_nodes g JOIN media m ON g.row_id = m.id WHERE g.kind = 'media' AND m.id LIKE 'media:selfreflection:%'"
     )
     .all();
   assert.equal(nodes.length, 2);

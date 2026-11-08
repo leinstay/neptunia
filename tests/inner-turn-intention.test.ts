@@ -3,8 +3,8 @@
 // intention first and whole in `<intentions>` inside `<inner>`. Without one she wakes nowhere in the service frame and
 // reaches any place through `message.create`, the command line's `cli:dm:owner` included. `intention.set` takes the
 // place as optional and refuses a root and a place she cannot write to. The shapes the specifier chose:
-//   the place of `intention.set` is its model-facing argument `channel` (src/tools/definitions.ts), as today;
-//   `message.create` names the destination by its place id in the same argument until slice 7 renames it;
+//   the place of `intention.set` is its model-facing argument `place` (src/tools/definitions.ts, slice 7);
+//   `message.create` names the destination by its place id in the same argument;
 //   a refusal is an action whose status is not `executed` with a code that is not `ok`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -83,7 +83,7 @@ test('a message.create naming the command line from an intention nowhere posts i
   const due = { id: '' };
   const run = await serviceTurn({
     wake: () => dueWake(due.id),
-    answers: [toolAnswer(THINK, [call('message.create', { channel: CLI_PLACE, text: 'καλημέρα από εδώ' })]), '<skip/>'],
+    answers: [toolAnswer(THINK, [call('message.create', { place: CLI_PLACE, text: 'καλημέρα από εδώ' })]), '<skip/>'],
     conversation: null,
     seed: seeded(due, null),
   });
@@ -110,7 +110,10 @@ test('intention.set without a place is accepted and stores no place', async () =
 async function setNaming(channel: string): Promise<{ status: string; code: string; open: number }> {
   const run = await serviceTurn({
     wake: serviceWake('heartbeat'),
-    answers: [toolAnswer(THINK, [call('intention.set', { due: '1h', text: 'να γράψω εκεί', channel })]), '<skip/>'],
+    answers: [
+      toolAnswer(THINK, [call('intention.set', { due: '1h', text: 'να γράψω εκεί', place: channel })]),
+      '<skip/>',
+    ],
     conversation: null,
   });
   const [, status = '', code = ''] = (run.actions[0] ?? '').split(':');

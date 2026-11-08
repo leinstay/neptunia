@@ -23,6 +23,8 @@
 //   namesOf(db, ctx, words)   the nodes each word names, read under `ctx` (scope.ts#audienceWhere). A word is matched by
 //       its folded exact form first, then by its stems, then by trigrams; a weaker way is tried only when the stronger
 //       found nothing, and one node is one hit per word, by its strongest match.
+//   placesNamed(db, ctx, name)   the live places a name she wrote in a tool's `place` argument names under `ctx`, by
+//       its exact folded form or its stems, each place once with its stored name (src/tools/executors.ts#resolveCall).
 // Pure of the bot; works on an opened database.
 
 import { indexWords } from '../record-index.ts';
@@ -377,6 +379,21 @@ export function namesOf(db: Db, ctx: Context, words: Array<string>): Array<NameH
       audienceId,
     }))
   );
+}
+
+/** The live places `name` names under `ctx`, by exact form or stems: each place once, with its stored name. */
+export function placesNamed(db: Db, ctx: Context, name: string): Array<{ id: string; name: string }> {
+  const prefix = 'place:';
+  const ids = new Set(
+    matchName(db, ctx, name.replace(/^#/, ''), ['exact', 'stem'])
+      .filter((hit) => hit.nodeId.startsWith(prefix))
+      .map((hit) => hit.nodeId.slice(prefix.length))
+  );
+  const read = db.prepare('SELECT id, name FROM places WHERE id = ? AND retired_at IS NULL');
+  return [...ids].flatMap((id) => {
+    const row = read.get(id);
+    return row ? [{ id, name: typeof row.name === 'string' && row.name !== '' ? row.name : id }] : [];
+  });
 }
 
 /** The words and the phrases of two and three words of a text, folded, for a name lookup. */

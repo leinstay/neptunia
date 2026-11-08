@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { freezePerBucket } from '../src/behavior/prompt.ts';
 import { cacheTtlMs } from '../src/llm/openrouter.ts';
 import { labels } from './fixtures/labels.ts';
+import { frameOfInput } from './fixtures/prompt-rig.ts';
 import { buildRequest, type Built } from './fixtures/built-request.ts';
 
 const HOUR = 3_600_000;
@@ -34,7 +35,7 @@ function fakeConfig(overrides: { features?: object; cache?: object } = {}) {
 
 function baseInput(overrides: Record<string, unknown> & { now?: number } = {}) {
   const now = overrides.now ?? EDGE + 10 * MINUTE;
-  return {
+  const input = {
     config: fakeConfig(),
     prompts: {
       'system-prompt': 'SYSTEM',
@@ -69,6 +70,8 @@ function baseInput(overrides: Record<string, unknown> & { now?: number } = {}) {
     otherProfiles: [],
     ...overrides,
   };
+  // Every request is built on its turn frame (slice 7).
+  return { ...input, frame: frameOfInput(input) };
 }
 
 function stableText(request: Built) {

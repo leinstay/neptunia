@@ -52,7 +52,8 @@ const has = (dataDir: string, relative: string): boolean => fs.existsSync(path.j
 function openedPath(file: string, dataDir?: string): unknown {
   const handle = openMemoryDb(file, dataDir === undefined ? {} : { context: { dataDir } });
   try {
-    return dbOf(handle).prepare("SELECT path FROM media WHERE id = 'media:diary:dy-e2-1'").get()?.path;
+    // The owner's answer 13 of 2026-11-07: the open also moves the picture's id to the `media:selfreflection:` prefix.
+    return dbOf(handle).prepare("SELECT path FROM media WHERE id = 'media:selfreflection:dy-e2-1'").get()?.path;
   } finally {
     handle.close();
   }

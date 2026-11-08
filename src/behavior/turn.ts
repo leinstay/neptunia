@@ -14,11 +14,9 @@
 // createTurnRunner builds the topic modules of src/turn/ once and runs every
 // attempt of a turn through the phases of src/turn/phases/ (runTurnOnce).
 
-import { createPullViews } from './pull-fetch.ts';
 import { fallbackLookupPlan } from './recall.ts';
 import { createImageFetcher } from '../media/fetch-image.ts';
 import { createOffPeriodsReader } from '../memory/index.ts';
-import { createElsewhereHooks } from './elsewhere-pick.ts';
 import { createLimits } from '../llm/limits.ts';
 import { createThinkStore } from './previous-think.ts';
 import { turnRoutes } from './turn-ability-route.ts';
@@ -67,6 +65,7 @@ import { frameReadsOver } from '../memory/db/frame-reads.ts';
 import { lookupsOfRecords } from '../memory/journal.ts';
 import type { FrameReads } from '../memory/db/frame-reads.ts';
 import type { Db } from '../memory/db/types.ts';
+import type { Context } from '../memory/db/scope.ts';
 import { taskInput } from '../turn/task-input.ts';
 import { preflight } from '../turn/phases/preflight.ts';
 import { requestPhase } from '../turn/phases/request.ts';
@@ -177,33 +176,14 @@ export { fallbackLookupPlan };
  * never been asked. Parts in time: the turn sets its preparation aside and
  * runChain answers the parts one after another (see there).
  *
- * `routeChannels` (the place pick's hook; by default src/behavior/elsewhere-pick.ts#createElsewhereHooks) is optional:
- * `({ placeId, channel, place, partner, history, trigger, triggerKind, selfName, config }) => Promise<string[]>`,
- * the ids of channels the conversation is about; `triggerKind` is the turn's
- * TriggerKind (null on a turn without a trigger), so the hook can decline
- * kinds it does not serve (src/behavior/route.ts#routeAllowed); `place` is the
- * place the ids are judged in, `partner` a private chat's partner (null on a
- * server turn). It is asked on a server turn, or a private chat with its
- * partner (features.privateLikeServer, see runTurn),
- * with features.channelPull on and the labels able
- * to render the block (`labels.pull.header`) while a
- * `<channel_view>` slot (`context.pull.maxChannels`) is left after the turn's
- * source and the explicit `<#id>` mentions; its ids are pulled after those
- * (src/behavior/pull.ts#pullTargets). On a routed turn `history` is the source
- * channel's lines, not this chat. A throw or an answer that is not an array
- * counts as no id (a throw logs `pull: route failed`).
- *
  * Participation (src/memory/participation.js; features.participation and features.memory,
  * a missing key counts as on; never in a private chat or a place of her selfreflection): every message a
  * turn sends for real in a server channel is recorded in the place's participation store with
- * the history lines before it and the line it replies to (recordOwnParticipation). A server turn that builds a reply request (not a selfreflection post) hands the
- * store to buildRequest as `<participation>`; beside its preparation the pick classifier
- * (src/behavior/elsewhere-pick.ts) chooses which stored episodes
- * of other channels come first, under the same deadline -- late, the newest are shown.
+ * the history lines before it and the line it replies to (recordOwnParticipation).
  *
  * Everything a turn prepares before its reply request (the file previews, the
  * captions, the videos and their re-watch, the link reads, the search
- * classifier with its searches, the neighbours, the pulled channels) starts as soon as its inputs exist and runs alongside the
+ * classifier with its searches) starts as soon as its inputs exist and runs alongside the
  * rest, under one deadline (paceSettings: `pace.prepareMs` from the turn's
  * start, `pace.prepareSearchMs` once the search classifier asked for a
  * search -- and at most that long while its verdict is still out --,
@@ -323,7 +303,6 @@ export function createTurnRunner({
   memberOf = () => null,
   membersOf = null,
   conversationName = () => null,
-  routeChannels = undefined,
   now: clock = Date.now,
   schedule = scheduleTimer,
   activity = null,
@@ -376,15 +355,12 @@ export function createTurnRunner({
   const busy = attention;
   const routes = turnRoutes(hot, roleHealth);
   // The topic modules of the closure (src/turn/<topic>.ts), each built once from the context it reads.
-  const {
-    participationOn,
-    participationAudience,
-    aroundInputFor,
-    liveChannelName,
-    recordOwnParticipation,
-    recentInput,
-    recentOfPlaces,
-  } = createParticipation({ hot, store, around, clock });
+  const { aroundInputFor, liveChannelName, recordOwnParticipation } = createParticipation({
+    hot,
+    store,
+    around,
+    clock,
+  });
 
   const iface = port;
   const inputs = createInputs({ store, iface, memoryContext, errands, intentions, places });
@@ -394,28 +370,11 @@ export function createTurnRunner({
   // The channels known to be private chats (a deferred call names only its channel).
   const privateChannels = new Set<string>();
   const lastPostAt = new Map<string, number>(); // placeId -> ts of the persona's last message
-  // placeId -> ids of the messages in the history of the last turn that spoke there; for a channel the bot cannot
-  // write in, the lines its `<channel_view>` showed in the last turn that spoke anywhere while showing it (noteSpokeSaw).
+  // placeId -> ids of the messages in the history of the last turn that spoke there (noteSpokeSaw).
   // The pending-ping drain (src/behavior/pipeline.ts) skips a ping such a turn already had in view.
   const spokeSaw = new Map<string, Set<string>>();
   // Whether the last turn that wanted prompts['follow-up'] found it missing: warned once each time (falls back to reply.md).
   const promptState = { followUpMissing: false };
-  // The elsewhere pick (src/behavior/elsewhere-pick.ts): the place the pull phase shows and the exchanges `<participation>`
-  // shows first, one request for both. A runner given its own route hook keeps that for the place.
-  const elsewhere = createElsewhereHooks({
-    hot,
-    store,
-    llm,
-    now: clock,
-    schedule,
-    lastPostAt: (placeId) => lastPostAt.get(placeId) ?? null,
-  });
-  const pickParticipation = elsewhere.pickEpisodes;
-  // The last view of each pulled channel shown in each channel, in process only: a channel
-  // shown again says what of it is new since (createPullViews; `seenBefore` on the entry).
-  const pullViews = createPullViews();
-  // The channels an exchange keeps pulled, by destination (process memory, like pullViews): `{ placeIds, at, turns, authorId }`.
-  const keptPulls = new Map();
   // Posted message id -> the id of the message that started the turn which posted it, in
   // process (noteTrigger at each post, seedTriggerLinks at start from the journal); the oldest
   // links go first past TRIGGER_LINKS_MAX. Her transcript lines read it (linkTriggers).
@@ -583,21 +542,18 @@ export function createTurnRunner({
     emojiInventory: () => emoji?.list() ?? [],
     recordOwnParticipation,
   });
-  const { pullChannels, withSeenBefore, markPulledSeen, noteSpokeSaw, stampShownCalls } = createPulls({
-    hot,
-    store,
-    describer,
-    routeChannels: routeChannels ?? elsewhere.routeChannels,
-    clock,
-    ifaceReads,
-    pullViews,
-    keptPulls,
-    spokeSaw,
-  });
+  const { noteSpokeSaw } = createPulls({ spokeSaw });
   const { callView, planToolCall, runCalls } = createSkillCalls({
     hot,
     store,
     stemmer,
+    // A place she names by a stored name or alias, of any interface, read under the turn's memory context.
+    placesNamedFor: (draft, channel) => {
+      const context = turnContextOf(draft, channel) as Context | null;
+      return frameReads?.placesNamed && context
+        ? (name: string) => frameReads.placesNamed?.(context, name) ?? []
+        : null;
+    },
     skills,
     selfIdOf,
     clock,
@@ -651,6 +607,7 @@ export function createTurnRunner({
     memberOf,
     conversationOf,
     turnContextOf: (draft, channel) => turnContextOf(draft, channel),
+    placeReads: frameReads,
     linkCalls,
     drawTool,
   });
@@ -694,18 +651,12 @@ export function createTurnRunner({
     selfIdOf,
     getSelfName,
     privateChannels,
-    pullViews,
     promptState,
-    pickParticipation,
     notifyIdle,
     facts,
     track,
-    participationOn,
-    participationAudience,
     aroundInputFor,
     liveChannelName,
-    recentInput,
-    recentOfPlaces,
     ...inputs,
     linkTriggers,
     linkCalls,
@@ -719,11 +670,7 @@ export function createTurnRunner({
     emojiLookup,
     settleAuthor,
     selfreflectionChannelName,
-    pullChannels,
-    withSeenBefore,
-    markPulledSeen,
     noteSpokeSaw,
-    stampShownCalls,
     readHistory,
     noteThink,
     stepTranscript,

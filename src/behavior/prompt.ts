@@ -1,99 +1,18 @@
-// Assembles one LLM request for a turn. Pure: takes already-fetched data and
-// the live prompts/config, returns chat-completions messages. The token budget
-// is spent in this priority order (see src/llm/budget.js):
-//   1. system prompt (persona + live rules + output format), task, clock, tempo, and the
-//      interlocutor's `<people_now>` entry (what is current about them) — never cut
-//   2. memory about the trigger's author (the person the persona is talking to, or the one overheard)
-//   2b. what the persona looked up this turn (`<lookup>`, one piece: online,
-//       in the server's own history, or both)
-//   3. how this server talks + what the persona has said about itself
-//   3b. lorebook entries matched by the transcript (`<lore>`)
-//   4. the map of the server's channels
-//   5. the channel transcript, newest messages first
-//   5b. another channel pulled into this turn (`<channel_view>`, newest lines
-//       first); on a routed turn -- a call from a channel the persona cannot
-//       write in, answered here -- it goes right BEFORE the chat instead,
-//       since the call itself lives in it
-//   5b2. the anchored window (`<earlier>`, features.anchoredWindow): lines of the current
-//       channel older than the chat that matter -- the reply parents (moved out of
-//       `<chat>`, keeping their numbers) and the persona's saved stretch of it younger than
-//       `participation.earlierHours`, open requests to her marked and ranked first --
-//       capped by `context.caps.earlier`; rendered in the tail right after
-//       `<participation>`; never in a private chat
-//   5c. the last `memory.recentHours` (`<recent>`): the recent lines this
-//       channel's audience may read, then members' moments of those hours that
-//       `<people>` does not show, capped by `context.caps.recent`, ranked by who
-//       the turn is about
-//   5d. the persona's own exchanges on other channels (`<participation>`): the
-//       episodes the pick classifier chose, then the newest, capped by
-//       `context.caps.participation`; never in a private chat
-//   6. memory about other people present in the transcript, each with their
-//      `<people_now>` entry (the entry lives and dies with the profile)
-//   6b. the members the persona feels most strongly about that the request
-//       does not describe (`<attitudes>`, one piece: names and bands)
-//   6c. a selfreflection post with no frame only (mode `selfreflection`): the persona's world (`<world>`, one piece),
-//       then its past selfreflection posts (`<diary>`, the oldest lines cut first);
-//       the post's `<plan>` and a set post's `<seeds>` are never cut, and what its search found (`<found>`) ranks
-//       right after `<lookup>`
-//   7. neighbouring channels
-//   8. the server's custom emoji (`<emoji>`)
-//  10. the `<people_now>` entries of the people in voice the request has no profile for,
-//      capped by `context.around.maxTokens`
-// The rendered order is different, and laid out for the provider's prompt
-// cache: what changes least first, in three text parts -- the stable part
-// (the senses that read only the config, her tools in text on the text transport, `<self_facts>`,
-// `<about_chat>`, the people directory `<directory>`), the profiles (`<people>` with the interlocutor alone), then the
-// tail that changes every turn, opening with a second `<people>` for everyone
-// else, with `<people_now>` (what is current about each person) right before the chat,
-// the clock, the per-turn senses, the tempo and the task last, where the model attends best (see assembleUser and
-// docs/prompt-contract.md, "Cache segments"). A private chat (`privateChat`)
-// drops the server map, the neighbouring channels and any pulled channel and
-// sees its partner through the public and private profiles merged
-// (src/behavior/private.ts). Pictures of another channel are shown as
-// captions only: nothing outside the turn's own channel is ever attached.
-// buildRequest assembles the request from the block builders of src/turn/request/, one module per
-// group of blocks. The classifiers' transcript and the drawing prompt are built here too, and the selfreflection's old plan
-// request, which no turn builds since the planner runs on the turn frame; it leaves with the old producers.
+// Assembles one LLM request for a turn. Pure: takes already-fetched data and the live prompts and config, returns
+// chat-completions messages. Every request is built on its turn frame (src/turn/request/frame.ts): buildRequest builds
+// the head, the task, the senses and her own texts from the builders of src/turn/request/, and framedBuild
+// (src/turn/request/framed.ts) lays out the frame's tags in their order under the token budget (docs/prompt-contract.md).
+// The classifiers' transcript and the drawing prompt are built here too.
 
-import { createHash } from 'node:crypto';
-import { fitSections, requestTokenLimit, sectionCost } from '../llm/budget.ts';
-import { computeTempo, fill, formatNow, formatTranscript, renderTempo, renderTranscript } from '../format.ts';
+import { computeTempo, fill, formatTranscript, renderTempo, renderTranscript } from '../format.ts';
 import type { VideoState } from '../format.ts';
-import type { MemoryRead, Prompts, RequestConfig } from '../turn/request/types.ts';
-import { RECENT_EPISODES_PER_MEMBER, recentSettings, recentView } from '../memory/recent.ts';
-import { DEFAULT_HISTORY_POSTS, renderKindsBlock } from './selfreflection.ts';
-import { selfreflectionHistoryLines, selfreflectionOf, worldText } from '../turn/request/selfreflection.ts';
 import { requestHead, requestRoom } from '../turn/request/head.ts';
-import {
-  keptEarlier,
-  keptParticipation,
-  keptRecent,
-  memorySections,
-  memoryViews,
-  recentEntries,
-  recentOf,
-} from '../turn/request/memory.ts';
-import {
-  askedAboutOf,
-  attitudesOf,
-  interlocutorOf,
-  keptPeopleNow,
-  peopleOfferedOf,
-  peopleShownOf,
-  placeAskedAbout,
-} from '../turn/request/people.ts';
-import { fitPulled, neighborItemsOf, pulledKeptOf, pulledView } from '../turn/request/pulled.ts';
-import { collectReads, ordered } from '../turn/request/reads.ts';
-import { aheadOf, fitAll, headSections } from '../turn/request/sections.ts';
-import { sensesKept, sensesOf } from '../turn/request/senses.ts';
-import { aboutChatItems, learnedConfig, loreItems, serverItems } from '../turn/request/server.ts';
+import { sensesOf } from '../turn/request/senses.ts';
 import { framedRequest, kindOfRequest } from '../turn/request/frame.ts';
 import { framedBuild } from '../turn/request/framed.ts';
-import { assembleUser, seenOf } from '../turn/request/tail.ts';
-import { finalTask, taskOf } from '../turn/request/task.ts';
-import { TAG_OVERHEAD, block, fillPromptTemplate, requireLabels } from '../turn/request/text.ts';
+import { taskOf } from '../turn/request/task.ts';
+import { fillPromptTemplate } from '../turn/request/text.ts';
 import { wakeTexts } from '../turn/request/wake.ts';
-import { LORE_LIMITS } from '../memory/text-limits.ts';
 
 // The block builders live in src/turn/request/; their importers read them from here.
 export { block, fillPromptTemplate, hasRequiredLabels } from '../turn/request/text.ts';
@@ -114,34 +33,10 @@ import type {
   BuildDrawPromptInput,
   BuildRequestInput,
   BuildRequestResult,
-  BuildSelfreflectionPlanRequestInput,
 } from './prompt-types.ts';
 export { skillsInventoryText } from '../turn/request/senses.ts';
 export { usesFollowUpTask } from '../turn/request/task.ts';
 export { worldText } from '../turn/request/selfreflection.ts';
-
-/**
- * An `analyzer` request's user content in two cache parts: the `stable` block (the
- * bulk that repeats between calls) tagged `cacheSegment: 'stable'` and
- * followed by `separator`, then the per-turn blocks joined with `separator`
- * and untagged. Empty blocks are left out; with no per-turn block the stable
- * part has no trailing separator. The parts' texts joined with nothing
- * (userText) are the old single string. A blank `stable` gives the plain
- * joined string. Pure.
- */
-export function stableThenTail(
-  stable: string,
-  tail: Array<string>,
-  separator: string
-): string | Array<{ type: 'text'; text: string; cacheSegment?: 'stable' }> {
-  const rest = tail.filter(Boolean).join(separator);
-  if (!stable) return rest;
-  if (!rest) return [{ type: 'text', text: stable, cacheSegment: 'stable' }];
-  return [
-    { type: 'text', text: stable + separator, cacheSegment: 'stable' },
-    { type: 'text', text: rest },
-  ];
-}
 
 /**
  * The whole text of a user message's content: a string as it is; an array of
@@ -206,324 +101,11 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
 }
 
 /**
- * @param input.config            Live config.
- * @param input.prompts           Live prompts keyed by file name.
- * @param input.mode  `prompts[mode]` is the task
- *   text; `elsewhere` (a noticed comment on a read-only channel) takes `prompts.elsewhere`.
- * @param [input.selfId]  The persona's own user id: her stored profile, if any, is
- *   never listed in `<directory>`, and a reply parent that mentions it is addressed to her
- *   (`<earlier>`'s open requests). Omitted -> no profile is left out for being hers.
- * @param input.history         Normalized channel messages, oldest first.
- *   `placeId` (see src/behavior/neighbors.ts#fetchNeighbors) is how `<server>` tells which
- *   stored channel note, if any, belongs to a neighbour that contributed to `<other_channels>` --
- *   omitted (an older/direct caller) simply means that neighbour never gets its note shown.
- * @param input.trigger      Normalized message the turn answers (reply mode): a call,
- *   or an overheard line.
- * @param input.triggerKind  src/behavior/turn.ts#TriggerKind, null on a spontaneous turn.
- *   Its `labels.triggers` entry fills `{{trigger}}`. `overheard` (a line about the persona, said to
- *   someone else or to the room) takes `prompts.overheard` as its task text instead of
- *   `prompts[mode]` when that file is a non-empty string, falls back to the `followUp` then the
- *   `reply` label, and tags the author's `<people_now>` heading with `labels.peopleNow.marks.overheard`
- *   instead of `labels.peopleNow.marks.interlocutor`.
- *   `followUp` and an untagged `reply` take `prompts['follow-up']` instead of `prompts.reply`
- *   (usesFollowUpTask) when that file is a non-empty string; missing or blank, `prompts.reply`.
- * @param [input.taggedCall]  Whether the trigger tags the persona
- *   (src/behavior/mention.ts#isTaggedCall); read only for a `reply` trigger: exactly false makes it
- *   an untagged reply. Null or missing counts as tagged.
- * @param input.interlocutor Profile of the trigger's author (the public one).
- * @param [input.privateChat]  Set for a private (DM) turn: the
- *   interlocutor renders as `mergeProfiles(interlocutor, privateProfile)`, `<server>` and
- *   `<other_channels>` are omitted, `prompts.private` (when present) is appended to the task
- *   text (same placeholders as `prompts[mode]`), and `<senses>` carries `senses.privateChat`.
- * @param [input.privateProfile]  The DM partner's private layer
- *   (store.getPrivate); read only when `privateChat` is set.
- * @param input.otherProfiles   Profiles of other people in the transcript, most relevant first.
- * @param [input.candidateProfiles]  Every member profile known in the place
- *   (store.listUserProfiles), scanned to pull a silent member into `<people>` by a
- *   real mention/name/alias in the trigger or the last few messages (see `splitPeople`
- *   above); [] or omitted -> nobody is pulled in. Also the source of `<attitudes>` (see
- *   `renderAttitudes`): the top `context.attitudes` (6 when unset, 0 = no block) of them by
- *   `|affinity.score|`, the interlocutor and the members `<people>` keeps left out, in a
- *   private chat too; budget section `attitudes`, one piece capped by
- *   `context.caps.attitudes` (400 when unset), fitted right after `<people>`.
- * @param [input.nameOf]  Resolves a member id to their
- *   current stored name, for turning every `<@id>` token this request renders into
- *   display text -- see docs/prompt-contract.md, "Members are referred to by
- *   id, never by nickname". Omitted -> tokens render exactly as stored.
- * @param [input.channels]      The server's channel map (store.listChannels), [] when memory is off.
- * @param [input.channelDirectory]  The text
- *   channels the persona can read (src/behavior/turn.ts#channelDirectoryOf), [] or omitted for
- *   none. With features.mentionHandles on each gets a handle (src/behavior/handles.ts#assignChannelHandles),
- *   listed in `<channel_directory>` (`labels.channelDirectory`, renderChannelDirectory, sorted by id:
- *   the stable part, before `<directory>`, never cut) and shown beside each channel a line mentions
- *   (`labels.transcript.channel`, src/format.ts#formatTranscript); the request's
- *   `channelHandles` maps each handle back to its channel id.
- * @param [input.loreEntries]   The place's stored lorebook (store.getLore), [] when memory is off.
- * @param [input.currentChannelId]  Id of the channel this turn happens in.
- * @param [input.descriptions]  Item id -> describer caption (see
- *   src/behavior/turn.ts, src/memory/describe.js): the only way a picture reaches the persona.
- * @param [input.neighborDescriptions]  Item id -> the caption the
- *   describer's cache already held for a picture in a neighbour's lines
- *   (src/memory/describe.js#cachedDescriptions); used for `<other_channels>` only, alongside
- *   `descriptions`. Omitted -> a neighbour picture shows a caption only when `descriptions` has one.
- * @param [input.videos]  Item id -> video state from the video describer
- *   (src/memory/describe.js#describeVideos), passed to formatTranscript.
- * @param [input.imageAnswers]  Picture or GIF id ->
- *   a second look on a question (src/memory/describe.js#relookImage / #rewatchGif), passed to formatTranscript.
- * @param [input.reads]  Link id -> the excerpt the web lookup read from that
- *   page (src/web/lookup.js#readLinks), passed to formatTranscript.
- * @param [input.lookup]  What was looked up this turn,
- *   rendered as `<lookup>` (see `lookupCandidates`): the web search's result
- *   (src/web/lookup.js#search) as it is, and under `server` what the search of the server's own
- *   history found (src/behavior/recall-run.ts; src/behavior/turn.ts adds the key only when it found
- *   something). A web result without `server` renders exactly as before the server part existed;
- *   the server part needs `labels.lookup.serverHeader`, its stretch `labels.lookup.stretch`.
- *   The automatic memory prefetch of this turn (src/behavior/recall-run.ts `prefetch`), rendered as `<retrieved>` in the tail right after
- *   `<lookup>` (prefetchText): `labels.prefetch.header`, the query basis, the caution and one
- *   `<excerpt>` per excerpt, or the status line when nothing qualified, the deadline passed or
- *   the search was unavailable. One piece, ahead of the chat, already bounded by
- *   `recall.prefetch.maxTokens`. Omitted or null (no prefetch ran: the switch off, a trivial or
- *   non-external trigger) -> no block and no budget section.
- * @param [input.searchAvailable]  Whether a web search key is configured
- *   (lookup.hasSearch()); `senses.search` renders only when it is true.
- * @param [input.recallAvailable]  Whether the search of the server's own history could
- *   run this turn (src/behavior/turn.ts#recallAvailable, never in a private chat); `senses.recall`
- *   renders, right after the web search line, only when it is true (and never in a private chat).
- * @param [input.drawOn]  Whether this turn may draw (an image client and Attach Files);
- *   false or omitted -> no drawing line in `<senses>`.
- * @param [input.customEmoji]  The custom emoji the interface offers (src/behavior/emoji-index.ts). With a non-empty list
- *   the interface's text (`input.mediaPickText`) shows in `<senses>`.
- * @param [input.mediaPickText]  What the interface declares for the turn (src/interface/capabilities.ts#portMediaPick).
- * @param [input.mediaCache]  The describer cache (store.getMediaCache), read only
- *   for the `emoji:<id>` captions of a custom emoji in the chat and the three
- *   caption fields of a library GIF in the transcript (`transcript.gifKnownFields`, see
- *   gifFieldsMap).
- * @param [input.gifs]  The GIF library (store.getGifs). A GIF of the library in the transcript carries its handle
- *   (`transcript.gifKnownFields`/`gifKnown`/`gifKnownNoText`).
- *   Omitted or empty -> none of it.
- * @param [input.pulled]  Other channels pulled into this turn, rendered as
- *   `<channel_view>` (one item per channel, see `fitPulledChannel`) after `<other_channels>`:
- *   lines numbered on after the chat's (and after each earlier pulled channel), captions only
- *   (nothing of another channel is attached for vision), budget section `pulled` capped by
- *   `context.caps.pulled` (4000 when unset) and fitted right after the chat -- right before it
- *   on a routed turn. The block's room is shared evenly between the channels; a trigger that
- *   lives in a pulled channel (a routed call) keeps its line and the header past the share and
- *   the cap whenever the request has room for them. A pulled channel whose block is shown
- *   leaves `<other_channels>` (one dropped by the budget stays there); its stored note joins
- *   `<server>` right after the current channel either way; the authors of its kept lines are
- *   asked-about candidates for `<people>` (see `splitPeople`). No `labels.pull.header` -> no block.
- * @param [input.source]  The channel a
- *   routed call or a noticed comment comes from (it is among `pulled`). It fills the task's
- *   `{{place}}` (its name) and `{{destination}}` (this channel's name: the one the chat's
- *   messages carry, else `elsewhereDestination`'s, else the channel map's, else ''). `routed`:
- *   the trigger is looked up in the pulled lines; when its line is shown, its index fills
- *   `{{target}}` and `labels.elsewhere.called` (`{channel}` `{destination}`, left out while the
- *   destination has no name) follows the mode's task text -- when it is not, `{{target}}` is ''
- *   and no called text follows. The pulled block is fitted before the chat, and `<tempo>` is
- *   measured to `now` without saying that nobody answered the persona.
- * @param [input.tasks]  What else the trigger's author is waiting for, after
- *   the task text (src/behavior/turn.ts). `part`: this turn answers one part of a message that
- *   holds several requests (src/behavior/split.ts) -- `labels.task.part` with `{index}` (1-based),
- *   `{total}`, `{part}` (the part answered now) and `{others}` (every other part, then each of
- *   `queued`, as `<n>. <text>` items numbered on, joined by `; `). `queued`: the author's other
- *   calls still waiting for their own turns -- without a part, `labels.task.queued` with
- *   `{others}` (them, `<n>. <text>` items from 1, joined by `; `). `queuedOthers`: other members'
- *   calls waiting in this channel -- `labels.task.queuedOthers` with `{others}` (`<n>. <author>:
- *   <text>` items from 1, joined by `; `), on a part too. `added`: later messages of the
- *   author about this same call -- `labels.task.added` with `{added}` (their texts joined by `; `).
- *   A label missing (an older labels file) or a part outside its parts adds nothing for it.
- * @param [input.elsewhereDestination]  Where a call from a read-only
- *   channel is answered: `<senses>` gains `senses.elsewhere` with `{destination}`.
- * @param [input.readOnlyIds]  Channels the bot can read but not write in:
- *   their `<server>` entries (never the current channel's) carry `labels.server.readOnly`, as do
- *   pulled channels whose record says `readOnly`. A private chat ignores `pulled`, `source`,
- *   `elsewhereDestination` and `readOnlyIds`; with none of them given the request is
- *   the one built before pulled channels existed, save `senses.channels` on a server turn.
- * @param [input.recentLines]  The place's recent lines (store.getRecent(placeId).lines;
- *   an empty array for a store that holds none). With it an array, `features.recent` on (a
- *   missing key counts as on) and `labels.recent.header` and `labels.recent.line` present,
- *   `<recent>` renders after `<self_facts>` whenever the last `memory.recentHours` (72 when
- *   unset) hold an item this turn may show: `labels.recent.header` (`{hours}`), then the items
- *   kept, oldest first (see `recentEntries`). The items are chosen by
- *   src/memory/recent.js#recentView in its order -- the lines `recentAudience` accepts, the ones
- *   about the trigger's author, the interlocutor or a member asked about first; then up to
- *   two moments per member inside the window (src/memory/recent.js#RECENT_EPISODES_PER_MEMBER),
- *   those members first (none without `labels.recent.episode`) -- under `context.caps.recent` (1200
- *   when unset), ranked right after the chat and the pulled block and ahead of `<people>`; a
- *   header without an item, or items without the header, make no block. The moments
- *   `<people>` shows are left out: the interlocutor's that its block keeps and those of a
- *   member asked about. One that `<people>` cuts comes back here, in the room this block took
- *   plus what the request has beyond `<people>`'s room, so `<people>` never loses room to it,
- *   and a member asked about that `<people>` could not place gets the room it frees. A private
- *   chat shows no member's moment. The switch off, the labels missing, or the input omitted or
- *   not an array (the replay sandbox): no block, the request as before.
- * @param [input.recentAudience]  Whether a recent line from
- *   that channel may be shown in this turn (src/behavior/turn.ts decides it from the channels'
- *   audiences). Omitted -> only the lines of `currentChannelId`.
- * @param [input.participation]  The
- *   persona's own exchanges on other channels, rendered as `<participation>` right after
- *   `<recent>` (see `participationView`): `state` is the place's participation store
- *   (store.getParticipation), `pickedIds` the pick classifier's episode ids
- *   (src/behavior/elsewhere-pick.ts; [] or omitted: the newest are shown), `audience` the
- *   channels this turn may show them from (the `<recent>` and neighbour rule:
- *   context.pull.sameAudience), and `channelName` a channel's live name when its stored note has
- *   none. The selection happens here (src/memory/participation.js#selectEpisodes), so the
- *   block's dedup against the chat, the neighbours and the pulled channels is this builder's.
- *   Budget section `participation`, capped by `context.caps.participation` (6000 when unset),
- *   right after `recent`; one item per episode, the header first. Never in a private chat;
- *   none with `features.participation` false or without `labels.participation.header` and
- *   `labels.participation.episode`. While it is shown, `<senses>` carries `senses.participation`.
- *   With `features.anchoredWindow` exactly true the same `state` also gives `<earlier>` (see
- *   `anchorsView`): the current channel's episodes cut to their lines older than the window's
- *   first line, beside the reply parents of `history`, which then leave `<chat>`; budget section
- *   `earlier` right after the pulled block, capped by `context.caps.earlier` (2500 when unset).
- * @param [input.selfreflectionChannel]  The bare name of the selfreflection channel (the persona's
- *   own, src/behavior/selfreflection.ts) when one is set: `<senses>` gains `senses.selfreflection` with
- *   `{channel}`. Omitted or null -> no line. `input.selfreflectionChannelIds` (ids) are its places, marked in `<server>`.
- * @param [input.selfreflection]  A selfreflection post's own input, read only with `mode:
- *   'selfreflection'` (whose task text is `prompts.selfreflection`) on a request with no frame: `<world>` (prompts/world.md,
- *   `{{name}}` filled, see `worldText`; one piece, fitted right after `<attitudes>`),
- *   `<diary>` (the past posts through src/behavior/selfreflection.ts#renderSelfreflectionBlock, the newest
- *   `selfreflection.historyPosts` (150 when unset) oldest first, fitted after `<world>` and losing its
- *   oldest lines first), `<plan>` (`labels.selfreflection.plan`, then the plan as one JSON line with `kind`,
- *   `brief`, `picture` and, with an owner's topic, `topic`; never cut), `<seeds>` (`seeds`, a set
- *   post's seed combinations already rendered; right after `<plan>`, never cut; absent when
- *   empty) and `<found>` (`labels.selfreflection.found`, then what the search
- *   found; one piece, fitted right after `<lookup>`). They render after `<channel_view>` and before
- *   `<chat>`. `<world>` never renders outside a selfreflection post.
- * @param [input.offPeriods]  The
- *   persona's recent time away (src/memory/journal.js#offPeriods, newest first): with
- *   `features.offPeriods` on (a missing key counts as on), `<now>` gains `labels.journal.offLead`
- *   and one `offPaused` / `offStopped` line per period (nowBlock). Omitted, null or empty -> none.
- *   The persona's skills catalogue for this requester and conversation
- *   (src/tools/gateway.ts#listSkills), given on a turn whose question was what she can do (the
- *   classifier's `skills: inventory`): `<tool_catalogue>` in the tail right before `<chat>`, one
- *   `labels.tools.line` per row (skillsInventoryText), budget section `tool_catalogue` (one piece,
- *   after `found`). Omitted or null -> no `<tool_catalogue>`.
- * @param [input.skillIndex]  The body of the `<skills>` block, the index of her active skills
- *   (src/skills/index-block.ts#skillIndexBlock): it renders in the cached stable part after `<tools>` and before
- *   `<self_facts>`, and counts in the fixed budget section. Empty, null or omitted -> no block, the request unchanged.
- * @param [input.toolsGranted]  The names of the tools exposed to her this turn
- *   (src/tools/discovery.ts#exposedSkillNames): only the in-turn ones (`web.search`, `web.read`,
- *   `media.look`, `memory.search`) matter here, to `<senses>` (the search
- *   lines say she calls them). The tools themselves travel as the request's `tools`, not in a block.
- * @param [input.toolsBlock]  The `<tools>` body (src/llm/tool-text.js#toolsBlockText), the text
- *   transport only: in the stable part where the three skills blocks used to stand, fixed, never cut.
- *   Omitted, null or '' -> no block (the native transport sends the tools as a request field).
- * @param [input.toolsTokens]  The calibrated tokens the request's `tools` field costs
- *   (the native transport): taken off the room the sections share, so the request stays under the cap.
- *   The live glance at the server's sidebar (src/behavior/around-store.ts): `snapshot` is the
- *   store's snapshot, `channelNameOf` the name of a voice channel the audience may see (else
- *   null: left out). It is the live part of `<people_now>`, in the tail right after `<tool_catalogue>`
- *   and before `<chat>`, never in a cached part: one entry per person
- *   (src/behavior/around.ts#personRow): a heading line with their mention handle and name, then
- *   one labelled field per line -- the interlocutor first (the heading tagged with
- *   `labels.peopleNow.marks.interlocutor`, or `.overheard` on an overheard turn; never cut), then
- *   the people of the tail `<people>` in their order (each entry one budget item with its
- *   profile), then the people in a voice channel the request has no profile for, by name (the
- *   lowest priority, capped by `context.around.maxTokens`, default 400; none from a stale
- *   snapshot). The live fields (liveFields: status, voice, current activity) come first, then
- *   for a profiled person the attitude, its moves and the message count (profileStateFields);
- *   `labels.peopleNow.lead` and the notices (liveNotices) open the block when it has an entry,
- *   the entries separated by a blank line. `features.around` off, a private chat, a selfreflection post,
- *   an omitted or null input or no `labels.peopleNow`: no live fields, the fields of memory alone.
- * @param [input.errands]  The persona's errands
- *   (src/errands/blocks.ts, rendered by the turn): `list`, the `<errands>` block's body (her open
- *   errands and the finished ones she has not seen), and `result`, the `<errand_result>` block's
- *   body on the turn an errand's end opened. Both sit in the tail right before `<people_now>`,
- *   paid for with the fixed part and never cut; '' or a missing key leaves its block out.
- * @param [input.intentions]  The `<intentions>` block's body (src/intentions/blocks.ts,
- *   rendered and cut to `context.caps.intentions` by the turn; features.intentions): in the tail
- *   right after `<errand_result>`, paid for with the fixed part and never cut here; '' or a missing
- *   key leaves the block out, so with the switch off the request is as it was.
- * @param [input.wake]  The `<feedback>` body of `<inner>`: what did not go through and she has not been told
- *   (src/behavior/wake.ts#feedbackText on an inner turn, feedbackInTurnText on any other); '' or null leaves it out.
- *   The task of mode `inner` is `prompts.inner`, like any mode's; on a heartbeat or a selfimprovement wake
- *   (`input.wakeKind`) it is the wake's own file when that is present and non-blank.
- * @param [input.awake]  Why she is awake with nobody's message in front of her (src/behavior/wake.ts#awakeLines),
- *   after the whereabouts in `<spatial_awareness>`; null on a turn that answers someone.
- * @param [input.serviceInner]  A selfimprovement wake's `<work>` and `<board>` bodies in `<inner>`
- *   (src/behavior/selfimprovement-text.ts); null on any other turn.
- * @param [input.wakeKind]  An inner turn's wake kind: `heartbeat` and `selfimprovement` take the prompt of that name as
- *   their task text in place of `prompts.inner`; null or any other kind keeps the mode's.
- * @param [input.places]  An addressed turn's `<places>` body (src/behavior/wake.ts#placesBlockText,
- *   rendered by the turn with `context.places` on):
- *   in the tail right after `<feedback>`, paid for with the fixed part and never cut; '' or null leaves it out.
- * @param [input.previousThink]  Her one
- *   previous think (src/behavior/previous-think.ts, chosen by the turn under features.previousThink): in
- *   `<inner>` after `<my_day>`, paid for with the fixed part and never cut; null leaves it out.
- * @param [input.myDay]  What she did today, one line each (src/turn/request/my-day.ts#myDayOf): `<my_day>` at the
- *   head of `<inner>`, in the tail where `<previous_think>` stood, paid for with the fixed part and never cut, since
- *   `context.myDay.lines` bounds it; null or empty leaves it out.
- * @param [input.callMarks]  Her call marks (src/turn/journal-notes.ts#callMarksOf): put among the lines of `<chat>`
- *   by time (src/turn/history.ts#orderedHistory), each a line of hers with no number; null leaves none.
- * @param [input.stableFreeze]  The caller's long-lived holder of what
- *   the stable part shows from memory (src/behavior/turn.ts keeps one per place): with
- *   `features.promptCache` exactly true, `<self_facts>` renders as they were at the
- *   first request of the current time bucket, one bucket being the cache TTL
- *   (src/llm/openrouter.js#cacheTtlMs: an hour for `llm.cache.ttl` `'1h'`), see freezePerBucket;
- *   a memory batch's change shows at the next bucket edge. Omitted, null or the cache off ->
- *   rendered from the input every time.
- * @param [input.mind]  What the graph reader brought to her mind (src/memory/db/mind-read.ts#mindOf): the entries of
- *   `<memory>` on a request built on the frame. Omitted or null -> an empty memory, the person she answers alone.
- * @param [input.lookups]  Her lookups still anchored in this place's window (src/turn/calls.ts#createLookupRing):
- *   `<recall>`. Omitted or null -> none.
- * @param [input.meanwhileReads]  The reads of `<meanwhile>` (src/turn/request/meanwhile.ts): her last lines in other
- *   places, `context.meanwhile.messages` of them, with `context.meanwhile.around` lines on each side. Omitted -> none.
- * @param [input.surroundings]  The interface's own text and the stored fields of the place and its root:
- *   `<surroundings>` (src/turn/request/surroundings.ts). Omitted -> the place by its path alone.
- * @param [input.refLineOf]  Reads a stored line by its identity under the turn's scope: a reference in a stored text
- *   renders through it (src/turn/request/refs.ts). Omitted -> an identity outside the chat renders as unavailable.
- * @param [input.frame]  The facts of the turn (src/turn/request/frame.ts): its kind decides what her own time leaves
- *   out and which task text applies. A reply and an errand's result are built on the frame (src/turn/request/framed.ts):
- *   its tags in its order, `<self>` and `<surroundings>` cached, no `<people_now>`, `<directory>` or other old block.
- *   Without a frame the kind is read off `mode`, `triggerKind` and `wakeKind` and the old blocks go out.
- * @param [input.whereabouts]  Where the turn is (src/turn/request/spatial.ts#whereaboutsOf): `<spatial_awareness>` in
- *   the tail right after `<chat>` and before `<now>`, paid for with the fixed part and never cut, with the owner's note
- *   from `config.spatial.notes` read now. A heartbeat and a selfimprovement wake are on her own server and a
- *   selfreflection post in her own world, whatever place it names. With the block the clock leaves `<now>`; omitted or
- *   null: no block, and `<now>` keeps the clock.
- *   The user message's content is always an array of text parts (assembleUser: the stable
- *   part, the profiles and the tail, each tagged with its `cacheSegment` but the tail; an empty
- *   one left out), never an image part: the persona sees pictures through the describer's
- *   captions only; userText reads its whole text. `idByIndex` maps chat AND pulled indices; `pulledIds` maps
- *   every pulled line's message id to its channel id (the output side reacts there, never
- *   replies across channels); `pulledKept` lists the channels whose block survived the budget,
- *   with the ids of the lines shown and the newest window line shown; `pulledViews` the same
- *   channels with each shown line's hash and the oldest window line's time (what the next view of
- *   that channel in this destination compares against: the PulledChannel's `seenBefore`,
- *   src/behavior/pull-fetch.ts#createPullViews). `peopleShown` lists the
- *   members whose profile the request shows (the interlocutor when its block was kept, then those
- *   `<people>` kept, in its order) with their stored names: whose `@name` the reply may resolve
- *   with features.mentionHandles off (src/behavior/turn.ts#resolveMentions). `handles` maps
- *   every mention handle of the request to its member id (src/behavior/turn.ts#renderPost): with
- *   features.mentionHandles on (a missing key counts as on) each member of `candidateProfiles`
- *   (the stored profiles of the served place, never `selfId`'s) that has a name or an open
- *   alias gets one and is listed in `<directory>` -- `labels.directory.lead`, then one
- *   `labels.directory.line` / `lineAliases` per member (src/behavior/handles.ts#renderDirectory),
- *   last in the stable part and never cut -- and every other author of the chat, the pulled
- *   channels and the neighbours (never the persona, never a bot; a private chat: the chat only)
- *   gets one from the same derivation, shown on their lines through `labels.transcript.author`
- *   (src/format.ts#formatTranscript); null with the switch off. `stats.pulled` is the
- *   block's budget line: `used`, `kept` (channels shown), `dropped` (channels offered and not
- *   shown, the budget's cut or a missing header label), `lines` (lines offered) and `linesCut`
- *   (lines offered and not shown), plus `seenFresh` / `seenOlder` (summed over the channels shown
- *   with a seen line) when one was. `recent` counts what `<recent>` did, null when it was off or
- *   its view held nothing (no item, none hidden, repeated or unnamed): `lines` and `episodes`
- *   shown, `cut` (items offered and not shown), `hidden` (lines `recentAudience` refused),
- *   `repeated` (moments in the window left out as shown in `<people>`) and `unnamed` (moments
- *   left out because their member has no name); `stats.recent` (only when an item was offered)
- *   counts the items, not the header. `stats.participation` (only when the block was built)
- *   adds to the budget line `offered` (episodes selected), `shown`, `cut` (offered and not
- *   shown: a channel without a name, an episode left without an own line by the dedup, the
- *   budget's cut) and `deduped` (lines left out as already shown elsewhere in the request).
- *   `memoryReads` lists what the request carried from memory, `{ kind, id, block, ord }` each once, in the memory's own identity
- *   (an item's `itemId`, a channel id, a lore entry's id, a message id; see `noteItems`): the profile items shown,
- *   the channels, place notes and lore kept, the lines and moments of `<recent>`, the `<participation>` episodes and
- *   what the prefetch offered. The per-turn record (src/memory/db/service.js) writes it; no text depends on it.
- *   `seen` (seenOf) names what of the chat window went in: the kept lines' ids, the reply
- *   parents among them and the messages whose text attachments were previewed -- for the
- *   journal's turn record.
+ * The request of one turn on its frame (`input.frame`, required: without one it throws). A heartbeat's and a
+ * selfimprovement turn's request reads no chat, since her own time is in no place; their whereabouts are her own server,
+ * and a selfreflection's are her own world, whatever place the turn rode in on. The result carries the messages, the
+ * budget's line (`stats`), the cache segments, the archive's blocks, the transcript's numbers (`idByIndex`), the
+ * handles of her `@` and `#` tags, the people shown and what of memory and of the chat window went in.
  */
 export function buildRequest(input: BuildRequestInput): BuildRequestResult {
   // The transport anchor is not the conversation of a wake of her own time. Memory and its wake remain available.
@@ -534,7 +116,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     wakeKind: input.wakeKind,
   });
   const ownTime = turnKind === 'heartbeat' || turnKind === 'selfimprovement';
-  if (ownTime) input = { ...input, history: [], neighbors: [], pulled: null, currentChannelId: null };
+  if (ownTime) input = { ...input, history: [], currentChannelId: null };
   // Her own time is at the command line of her own server, a selfreflection post in her own world (the owner's word of
   // 2026-11-06), whatever place the turn rode in on.
   const turnPlace = input.whereabouts ?? null;
@@ -544,7 +126,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
       ? { kind: 'world' as const }
       : null;
   const whereabouts = turnPlace && ownPlace ? ownPlace : turnPlace;
-  const { channels = [], currentChannelId = null, lookup = null } = input;
+  const { currentChannelId = null } = input;
   // Every input, named once: the block builders of src/turn/request/ read theirs from it.
   const given = {
     config: input.config,
@@ -555,7 +137,6 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     selfName: input.selfName,
     selfId: input.selfId,
     history: input.history,
-    neighbors: input.neighbors,
     trigger: input.trigger,
     triggerKind: input.triggerKind,
     taggedCall: input.taggedCall,
@@ -566,16 +147,11 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     otherProfiles: input.otherProfiles,
     candidateProfiles: input.candidateProfiles,
     nameOf: input.nameOf,
-    channels,
-    channelDirectory: input.channelDirectory,
-    loreEntries: input.loreEntries,
     currentChannelId,
     descriptions: input.descriptions,
-    neighborDescriptions: input.neighborDescriptions,
     videos: input.videos,
     imageAnswers: input.imageAnswers,
     reads: input.reads,
-    lookup,
     prefetch: input.prefetch,
     searchAvailable: input.searchAvailable,
     recallAvailable: input.recallAvailable,
@@ -584,14 +160,8 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     mediaPickText: input.mediaPickText,
     mediaCache: input.mediaCache,
     gifs: input.gifs,
-    pulled: input.pulled,
-    source: input.source,
     tasks: input.tasks,
     elsewhereDestination: input.elsewhereDestination,
-    readOnlyIds: input.readOnlyIds,
-    recentLines: input.recentLines,
-    recentAudience: input.recentAudience,
-    participation: input.participation,
     selfreflectionChannel: input.selfreflectionChannel,
     selfreflectionChannelIds: input.selfreflectionChannelIds,
     selfreflection: input.selfreflection,
@@ -608,7 +178,6 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     awake: input.awake,
     serviceInner: input.serviceInner,
     wakeKind: input.wakeKind,
-    places: input.places,
     previousThink: input.previousThink,
     myDay: input.myDay,
     callMarks: input.callMarks,
@@ -621,303 +190,16 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     surroundings: input.surroundings,
     refLineOf: input.refLineOf,
   };
-  // Each builder reads the input and what the builders before it gave, under the names they give it; a later one
-  // hands on a checked value under the input's own name (`privateChat`, `interlocutor`, `nameOf`, `source`).
+  // Each builder reads the input and what the builders before it gave, under the names they give it.
+  const frame = input.frame;
+  if (!framedRequest(frame)) throw new Error('buildRequest: a request is built on its turn frame');
   const base = requestHead(given);
   const { labels } = base;
-  const view = pulledView({ ...given, ...base });
-  const views = memoryViews({ ...given, ...base, ...view });
-  // On a routed turn the call is not in this chat: its silence is measured to now, and its
-  // last line being the persona's own is no sign that nobody answered the persona.
-  const tempo = computeTempo(given.history, given.now, view.routed ? null : given.trigger);
-  const tempoText = ownTime ? '' : renderTempo(view.routed ? { ...tempo, lastIsOwn: false } : tempo, labels);
-  const task = taskOf({ ...given, ...base, ...view });
-  const senses = sensesOf({ ...given, ...base, ...views });
-  const selfreflection = selfreflectionOf({ ...given, labels });
+  const tempo = computeTempo(given.history, given.now, given.trigger);
+  const tempoText = ownTime ? '' : renderTempo(tempo, labels);
+  const task = taskOf({ ...given, ...base });
+  const senses = sensesOf({ ...given, ...base });
   const own = wakeTexts(given, labels);
   const room = requestRoom(given);
-  // A reply and an errand's result carry the frame's tags (src/turn/request/reader.ts); the other kinds the old ones. A
-  // routed call or a noticed comment lives in a pulled channel, which the frame has no block for, so it keeps them too.
-  const frame = input.frame;
-  if (framedRequest(frame) && !given.source)
-    return framedBuild(given, { frame, base, task, senses, own, room, tempo, tempoText });
-  const speaker = interlocutorOf({ ...given, ...base, ...room, ...task });
-  const sections = headSections({
-    ...given,
-    ...base,
-    ...view,
-    ...task,
-    ...senses,
-    ...selfreflection,
-    ...own,
-    ...room,
-    ...speaker,
-    tempoText,
-  });
-  const fits = fitPulled({ ...given, ...base, ...view, ...room, ...sections });
-  const neighborItems = neighborItemsOf({ ...given, ...base, ...view, ...fits });
-  const asked = askedAboutOf({ ...given, ...base, ...fits });
-  const recent = recentOf({ ...given, ...base, ...room, ...speaker, ...sections, ...asked });
-  const memory = memorySections({ ...views, ...room });
-  const ahead = aheadOf({ ...view, ...sections, ...fits, ...memory });
-  // The members asked about placed in `<people>`'s room; `<recent>` as built again for them.
-  const placed = placeAskedAbout({ ...given, ...base, ...room, ...speaker, ...asked, ...recent, ...ahead });
-  const people = peopleOfferedOf({ ...given, ...base, ...room, ...speaker, ...asked, ...placed });
-  const attitudesText = attitudesOf({ ...given, ...base, ...room, ...recent, ...placed, ...people });
-  const fit = fitAll({
-    ...given,
-    ...base,
-    ...room,
-    ...view,
-    ...selfreflection,
-    ...placed,
-    ...people,
-    neighborItems,
-    attitudesText,
-  });
-  // What the budget kept, made whole: each step only shortens the request, so the fit holds.
-  const keptPeopleEntries = keptPeopleNow(fit, { ...room, ...speaker, ...placed, ...people });
-  // The memory-read collector, filled from what the request kept (see noteItems; `memoryReads` in the result).
-  const memoryReads: Array<MemoryRead> = [];
-  const recentCounts = keptRecent(fit, placed.recentBuilt, memoryReads);
-  keptParticipation(fit, views.participationBuilt, memoryReads);
-  const earlierShown = keptEarlier(fit, { ...views, ...memory, labels });
-  const sensesShown = sensesKept(fit, { ...given, ...base, ...views, ...room, ...senses });
-  const peopleShown = peopleShownOf(fit.kept, base.interlocutor, keptPeopleEntries);
-  collectReads(memoryReads, fit.kept, { ...given, ...speaker, ...sections }, keptPeopleEntries);
-  const { pulledKept, pulledViews } = pulledKeptOf(fit, { ...view, ...fits });
-  const taskText = finalTask(fit, { ...task, ...room }, pulledKept);
-
-  const { chatItems, handleById, memberNames, channelHandleById } = base;
-  const keptChatLines = fit.kept.chat;
-  const keptChat = chatItems.slice(chatItems.length - keptChatLines.length);
-  const seen = seenOf({ history: given.history, keptChat, anchoredIds: earlierShown?.parentIds ?? [] });
-  // The text parts (assembleUser's cache segments) are the whole user content: no image part
-  // ever, the persona sees pictures through the describer's captions.
-  const { parts: user, blocks } = assembleUser(
-    {
-      nowText: base.nowText,
-      spatial: base.spatialText,
-      timezone: base.timezone,
-      labels,
-      senses: sensesShown,
-      tools: senses.toolsText,
-      skillIndex: senses.skillIndexText,
-      channelDirectory: base.channelDirectoryText,
-      directory: base.directoryText,
-      kept: fit.kept,
-      tempoText,
-      task: taskText,
-      chatItems: ownTime ? null : keptChat,
-      selfreflection: selfreflection.selfreflectionParts,
-      errands: own.errandsText,
-      intentions: own.intentionsText,
-      wake: own.wakeText,
-      places: own.placesText,
-      myDay: own.myDayText,
-      previousThink: own.previousThinkText,
-    },
-    fit.stats
-  );
-
-  return {
-    messages: [
-      { role: 'system', content: base.system },
-      { role: 'user', content: user },
-    ],
-    stats: { ...fit.stats, used: fit.used, limit: room.limit },
-    segments: user.map((part) => ({
-      segment: part.cacheSegment ?? 'tail',
-      chars: part.text.length,
-      hash: createHash('sha1').update(part.text).digest('hex').slice(0, 8),
-    })),
-    blocks,
-    idByIndex: base.idByIndex,
-    tempo,
-    pulledIds: view.pulledIds,
-    pulledKept,
-    // pulledKeptOf (src/turn/request/pulled.ts) types a line's hash as possibly missing; the consumers need one.
-    pulledViews: pulledViews as Array<{
-      placeId: string;
-      hashes: Map<string, string>;
-      oldestTs: number;
-      oldestId: string | number;
-    }>,
-    peopleShown,
-    recent: recentCounts,
-    seen,
-    // What the request carried from memory, `{ kind, id }` in the memory's own identity, each once (the per-turn record).
-    memoryReads: ordered(memoryReads),
-    // Handle -> member id, for the persona's `@handle` (null with features.mentionHandles off).
-    handles: handleById ? new Map([...handleById].map(([id, handle]) => [handle, id])) : null,
-    // Member id -> names, for the note on her tag that named a member without the handle (null with the handles off).
-    memberNames: memberNames ?? null,
-    // Channel handle -> channel id, for the persona's `#handle` (null with features.mentionHandles
-    // off or no channel given).
-    channelHandles: channelHandleById ? new Map([...channelHandleById].map(([id, handle]) => [handle, id])) : null,
-  };
-}
-
-/** The stored places the planner may name: the current one, and those the audience of the post's readers covers. */
-function placesNamed(
-  channels: unknown,
-  currentId: unknown,
-  mayName: ((placeId: string) => boolean) | null | undefined
-): Array<Untyped> {
-  const all: Array<Untyped> = Array.isArray(channels) ? channels : [];
-  if (!mayName) return all;
-  return all.filter((channel: { id?: unknown } | null) => channel?.id === currentId || mayName(String(channel?.id)));
-}
-
-/**
- * The selfreflection's old plan request, which no turn sends: the planner's request is built on the turn frame
- * (src/turn/phases/request/build.ts#plannerRequest). The system message is the plan prompt with
- * `{{name}}` filled; the user message carries, in this order, `<now>`,
- * `<places>` (the stored channel map, the selfreflection channel first as the current
- * one, without a place `placeAudience` refuses: a post that everyone reads does not retell a narrower room), `<about_chat>`, `<recent>` (the lines `recentAudience` accepts and the
- * members' moments of the last `memory.recentHours`, oldest first; needs
- * `labels.recent.header` and `line`), `<lore>` (the entries the selfreflection
- * channel's lines match), `<world>` (`worldText`),
- * `<diary>` (the past posts, as in the post request), `<kinds>`
- * (src/behavior/selfreflection.ts#renderKindsBlock over `kinds`, the use counted among
- * the newest `selfreflection.historyPosts`) and `<seeds>` (`seedsText`, already
- * rendered by src/behavior/selfreflection.ts#renderSeedsBlock), then `<topic>`
- * (`topicText`, the owner's topic already rendered by
- * src/behavior/selfreflection.ts#renderTopicBlock; absent without one). Under the
- * request token limit `<now>`, `<kinds>`, `<seeds>` and `<topic>` are never cut, then in
- * priority order: `<diary>` (the oldest lines first), `<world>` (whole),
- * `<about_chat>`, `<places>`, `<recent>`, `<lore>` (each under its
- * `context.caps` entry). Pure.
- */
-export function buildSelfreflectionPlanRequest(input: BuildSelfreflectionPlanRequestInput): {
-  messages: Array<{ role: string; content: string }>;
-  stats: Record<string, Untyped>;
-} {
-  const { config, prompts, calibrator, now, selfName, currentChannelId = null, seedsText = '', topicText = '' } = input;
-  const labels = requireLabels(prompts);
-  const timezone: string = config.bot?.timezone;
-  const nameOf = typeof input.nameOf === 'function' ? input.nameOf : () => null;
-  const history = Array.isArray(input.history) ? input.history : [];
-  const channels = placesNamed(input.channels, currentChannelId, input.placeAudience);
-  const posts = Array.isArray(input.posts) ? input.posts : [];
-  const caps: Record<string, number | undefined> = config.context?.caps ?? {};
-  const cost = sectionCost(calibrator);
-  const limit = Math.max(0, requestTokenLimit(config) - TAG_OVERHEAD);
-
-  const system = fillPromptTemplate(prompts['selfreflection-planner'] ?? '', { name: selfName }).trim();
-  const nowText = formatNow(now, timezone, labels.locale);
-  const kindsText = renderKindsBlock(input.kinds, posts, labels, { window: DEFAULT_HISTORY_POSTS });
-  // The live config and prompts, which the selfreflection readers type by the sections they read.
-  const selfreflectionLines = selfreflectionHistoryLines(posts, labels, config as RequestConfig);
-  const selfreflectionIntro = selfreflectionLines.length > 0 ? (labels.selfreflection?.intro ?? '') : '';
-
-  // `<recent>`: the lines of the last hours this channel's audience may read, then the members' moments.
-  const recentCfg = recentSettings(config);
-  // Read only when `recentOn` holds, which needs `labels.recent` to name a header and a line.
-  const recentLabels = labels.recent as NonNullable<typeof labels.recent>;
-  const recentOn = Boolean(recentCfg && recentLabels?.header && recentLabels?.line && Array.isArray(input.recentLines));
-  let recentBuilt = null;
-  if (recentOn) {
-    const episodesOn = Boolean(recentLabels.episode);
-    const profiles = episodesOn && Array.isArray(input.candidateProfiles) ? input.candidateProfiles : [];
-    const view = recentView({
-      lines: input.recentLines,
-      profiles,
-      now,
-      hours: recentCfg.hours,
-      focusIds: [],
-      excludeEpisodeKeys: new Set(),
-      isShown:
-        typeof input.recentAudience === 'function' ? input.recentAudience : (placeId) => placeId === currentChannelId,
-      perMember: RECENT_EPISODES_PER_MEMBER,
-    });
-    const { entries } = recentEntries(view.items, {
-      labels,
-      timezone,
-      currentChannelId,
-      channels,
-      nameOf,
-    });
-    if (entries.length > 0) recentBuilt = { header: fill(recentLabels.header, { hours: recentCfg.hours }), entries };
-  }
-
-  const placeIds = channels.map((channel) => channel?.id).filter(Boolean);
-  const { kept, stats, used } = fitSections(
-    [
-      {
-        name: 'fixed',
-        required: true,
-        items: [system, nowText, kindsText, seedsText, topicText, selfreflectionIntro].filter(Boolean),
-      },
-      { name: 'selfreflection', keep: 'newest', items: selfreflectionLines },
-      { name: 'world', items: [worldText(config, prompts as Prompts, selfName)].filter(Boolean) },
-      {
-        name: 'aboutChat',
-        cap: caps.aboutChat,
-        items: aboutChatItems(input.placeMemory, labels, nameOf, learnedConfig(config)),
-      },
-      {
-        name: 'places',
-        cap: caps.server ?? 4000,
-        keep: 'first',
-        items: serverItems(
-          channels,
-          currentChannelId,
-          placeIds,
-          history,
-          now,
-          labels,
-          nameOf,
-          new Set(),
-          new Set(input.selfreflectionChannelIds ?? [])
-        ),
-      },
-      {
-        name: 'recent',
-        cap: caps.recent ?? 1200,
-        keep: 'first',
-        items: recentBuilt ? [recentBuilt.header, ...recentBuilt.entries.map((entry) => entry.text)] : [],
-      },
-      {
-        name: 'lore',
-        cap: caps.lore,
-        keep: 'first',
-        items: loreItems(input.loreEntries, history, null, labels, LORE_LIMITS, nameOf),
-      },
-    ],
-    limit,
-    cost
-  );
-
-  // `<recent>` as one piece: the header, then the entries kept, oldest first; the header alone is no block.
-  let recentText = '';
-  if (recentBuilt && kept.recent.length >= 2 && kept.recent[0] === recentBuilt.header) {
-    const keptTexts = new Set(kept.recent.slice(1));
-    const shown = recentBuilt.entries.filter((entry) => keptTexts.has(entry.text)).sort((a, b) => a.at - b.at);
-    recentText = [recentBuilt.header, ...shown.map((entry) => entry.text)].join('\n');
-  }
-  const user = [
-    block('now', nowText),
-    block('places', kept.places.join('\n\n')),
-    block('about_chat', kept.aboutChat.join('\n')),
-    block('recent', recentText),
-    block('lore', kept.lore.join('\n\n')),
-    block('world', kept.world.join('\n')),
-    block(
-      'diary',
-      kept.selfreflection.length > 0 ? [selfreflectionIntro, ...kept.selfreflection].filter(Boolean).join('\n') : ''
-    ),
-    block('kinds', kindsText),
-    block('seeds', seedsText),
-    block('topic', topicText),
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-  return {
-    messages: [
-      { role: 'system', content: system },
-      { role: 'user', content: user },
-    ],
-    stats: { ...stats, used, limit },
-  };
+  return framedBuild(given, { frame, base, task, senses, own, room, tempo, tempoText });
 }

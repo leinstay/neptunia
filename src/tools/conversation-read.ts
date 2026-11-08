@@ -489,7 +489,7 @@ export async function runConversationRead({
 }): Promise<{ status: string; code?: string; reason?: string; data?: { text: string } }> {
   try {
     const target = text(objOf(args).placeId) || idText(placeId);
-    if (!target) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.channel:required' };
+    if (!target) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.place:required' };
     const zone = objOf(objOf(config).bot).timezone;
     const selection = readSelection(args, { now, timezone: typeof zone === 'string' ? zone : timezone });
     if ('error' in selection) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: selection.error };

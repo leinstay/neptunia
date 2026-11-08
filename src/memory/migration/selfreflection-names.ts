@@ -28,6 +28,10 @@ const NEW = 'selfreflection';
 const OLD_MEDIA = `media/${OLD}/`;
 const NEW_MEDIA = `media/${NEW}/`;
 
+/** The prefix of the id of a picture of an entry before the move of the ids, and after it. */
+export const LEGACY_ENTRY_MEDIA = `media:${OLD}:`;
+export const ENTRY_MEDIA = `media:${NEW}:`;
+
 /** The columns that hold the word as a whole value, each changed with the column's rows alone. */
 const DISCRIMINATORS: ReadonlyArray<readonly [string, string]> = [
   ['mirrors', 'row_kind'],
@@ -106,21 +110,19 @@ function renameGraph(db: Db, from: string, to: string): void {
     )
     .all(`${prefix}%`, `${prefix}%`);
   const setEdge = db.prepare('UPDATE graph_edges SET id = ?, src = ?, dst = ?, projection_key = ? WHERE id = ?');
-  for (const edge of edges) renameEdge(edge, { from, moved, setEdge, setWitness });
+  const end = (id: unknown): string => (String(id).startsWith(prefix) ? moved(id) : String(id));
+  for (const edge of edges) renameEdge(edge, { moved: end, setEdge, setWitness });
 }
 
 function renameEdge(
   edge: Row,
   rename: {
-    from: string;
     moved: (id: unknown) => string;
     setEdge: ReturnType<Db['prepare']>;
     setWitness: ReturnType<Db['prepare']>;
   }
 ): void {
-  const { from, moved, setEdge, setWitness } = rename;
-  const prefix = `${from}:`;
-  const end = (id: unknown): string => (String(id).startsWith(prefix) ? moved(id) : String(id));
+  const { moved: end, setEdge, setWitness } = rename;
   const src = end(edge.src);
   const dst = end(edge.dst);
   const predicate = String(edge.predicate);
@@ -327,6 +329,62 @@ export function renameToSelfreflection(db: Db): void {
       OLD_MEDIA.length + 1,
       `${OLD_MEDIA}%`
     );
+}
+
+/** The graph node of a media row. */
+const mediaNode = (id: string): string => `media:${id}`;
+
+/**
+ * The ids of her entries' pictures, `media:diary:<entry>-<n>`, become `media:selfreflection:<entry>-<n>`: the item in
+ * `media` with every other column kept, its links in `media_links`, its graph node with the edges and witnesses that name
+ * it. A picture whose new id is already taken keeps its old one and is counted. A second run finds nothing to move.
+ */
+export function moveSelfreflectionMediaIds(db: Db): { moved: number; kept: number } {
+  const report = { moved: 0, kept: 0 };
+  if (!tableExists(db, 'media')) return report;
+  const old = db
+    .prepare('SELECT id FROM media WHERE id LIKE ?')
+    .all(`${LEGACY_ENTRY_MEDIA}%`)
+    .map((row) => String(row.id));
+  if (old.length === 0) return report;
+  const taken = db.prepare('SELECT 1 AS ok FROM media WHERE id = ?');
+  const renamed = new Map<string, string>();
+  for (const id of old) {
+    const next = `${ENTRY_MEDIA}${id.slice(LEGACY_ENTRY_MEDIA.length)}`;
+    if (taken.get(next) === undefined) renamed.set(id, next);
+    else report.kept += 1;
+  }
+  atomically(db, () => {
+    const setMedia = db.prepare('UPDATE media SET id = ? WHERE id = ?');
+    const setLink = tableExists(db, 'media_links')
+      ? db.prepare('UPDATE media_links SET media_id = ? WHERE media_id = ?')
+      : null;
+    for (const [from, to] of renamed) {
+      setMedia.run(to, from);
+      setLink?.run(to, from);
+    }
+    if (!tableExists(db, 'graph_nodes')) return;
+    db.exec('PRAGMA defer_foreign_keys = ON');
+    const setNode = db.prepare('UPDATE graph_nodes SET id = ?, row_id = ? WHERE id = ?');
+    const setAccess = db.prepare('UPDATE node_access SET node_id = ? WHERE node_id = ?');
+    const setWitness = db.prepare('UPDATE node_access SET evidence_id = ? WHERE evidence_id = ?');
+    const nodes = new Map([...renamed].map(([from, to]) => [mediaNode(from), mediaNode(to)]));
+    for (const [from, to] of renamed) {
+      setNode.run(mediaNode(to), to, mediaNode(from));
+      setAccess.run(mediaNode(to), mediaNode(from));
+      setWitness.run(mediaNode(to), mediaNode(from));
+    }
+    const setEdge = db.prepare('UPDATE graph_edges SET id = ?, src = ?, dst = ?, projection_key = ? WHERE id = ?');
+    const edgeOf = db.prepare(
+      'SELECT id, src, dst, predicate, evidence_id, projection_key FROM graph_edges WHERE src = ? OR dst = ?'
+    );
+    for (const from of nodes.keys())
+      for (const edge of edgeOf.all(from, from))
+        renameEdge(edge, { moved: (id) => nodes.get(String(id)) ?? String(id), setEdge, setWitness });
+  });
+  report.moved = renamed.size;
+  if (report.kept > 0) log.warn('selfreflection media: ids kept under the old prefix', { kept: report.kept });
+  return report;
 }
 
 /** One file of the old folder moved; a file the new folder already holds stays where it is unless it is the same. */

@@ -46,7 +46,6 @@ import {
 import '../src/tools/impl/index.ts';
 import { call as toolCall, callBlock as toolCallBlock } from './fixtures/tool-answers.ts';
 import { createStore } from '../src/memory/store.ts';
-import { directoryEntries } from '../src/behavior/handles.ts';
 import { CliError, REFUSED_EXIT } from '../scripts/lib/cli.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS } from '../src/time.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -807,14 +806,18 @@ test("inner-week: the fixture's people join the copied directory with their name
   const at = Date.parse('2026-11-02T00:00:00Z');
   const added = addFixturePeople(store, 'g1', { Ivo: 'u-201', Sanne: 'u-202' }, at);
   assert.deepEqual(added, ['u-201', 'u-202']);
-  const entries = directoryEntries(store.listUserProfiles(), { selfId: 'self' });
-  assert.deepEqual(
-    entries.map((e) => [e.id, e.names, e.aliases]),
-    [
-      ['u-201', ['Ivo'], []],
-      ['u-202', ['Sanne'], []],
-    ]
-  );
+  // Slice 7: directoryEntries left with the people directory, so the profiles are read as the store holds them.
+  const entries = store
+    .listUserProfiles()
+    .map((profile) => {
+      const { id, names, aliases } = profile as { id?: unknown; names?: unknown; aliases?: unknown };
+      return [String(id), names, aliases];
+    })
+    .sort(([a], [b]) => String(a).localeCompare(String(b)));
+  assert.deepEqual(entries, [
+    ['u-201', ['Ivo'], []],
+    ['u-202', ['Sanne'], []],
+  ]);
   assert.equal(fs.existsSync(path.join(dataDir, 'guilds')), false);
   // Idempotent: the same people again add nothing.
   assert.deepEqual(addFixturePeople(store, 'g1', { Ivo: 'u-201' }, at), []);

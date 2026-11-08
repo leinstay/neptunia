@@ -663,7 +663,7 @@ function pictureSuffix(post: Obj, labels: unknown, sceneChars: unknown): string 
 }
 
 /**
- * The body of the `<diary>` block over `posts` (oldest first; each `{ at, kind, gist, picture, pictures }`, with `plan` and
+ * The body of the `<selfreflection>` block over `posts` (oldest first; each `{ at, kind, gist, picture, pictures }`, with `plan` and
  * `pictureDescription` when the store has them): `labels.selfreflection.intro`, then one
  * `labels.selfreflection.line` per post (`{date}` the post's local date in
  * `timezone`, `{kind}` its kind key or `labels.selfreflection.kindUnknown`, `{gist}`)

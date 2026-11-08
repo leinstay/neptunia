@@ -55,15 +55,14 @@ export async function requestPhase(
   const setup = await track('turn.setup', () => setupRequest(ctx, params, draft, opened));
   if (setup.ended) return setup;
   const planned = planRequest(ctx, opened, setup);
-  const pulled = await track('turn.pulls', () => pullRequest(ctx, params, opened, setup));
-  if (pulled.ended) return pulled;
-  const staged = startStages(ctx, params, opened, setup, pulled);
+  const pulled = pullRequest(ctx, params, opened);
+  const staged = startStages(ctx, params, opened, setup);
   const second = startSecondLook(ctx, params, opened, setup, staged);
   const looked = startLookup(ctx, opened, setup, planned, staged);
-  const waited = await waitForPreparation(ctx, params, draft, opened, setup, pulled, staged, second, looked);
+  const waited = await waitForPreparation(ctx, draft, opened, setup, staged, second, looked);
   if (waited.ended) return waited;
   const gathered = await track('turn.gather', () =>
-    gatherRequest(ctx, params, draft, opened, setup, pulled, staged, second, looked, waited)
+    gatherRequest(ctx, params, draft, opened, setup, staged, second, looked, waited)
   );
   const told = await track('turn.facts', () => tellFacts(ctx, params, draft, opened, setup, pulled, gathered));
   const request = track('turn.build', () =>

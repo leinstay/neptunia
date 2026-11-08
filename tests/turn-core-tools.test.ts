@@ -15,15 +15,12 @@ import {
   AGENTS,
   NOW,
   WEB_CONFIG,
-  contentText,
   coreTurn,
   errandService,
   hotWith,
   journalOverMemory,
-  rawMessage,
   requestText,
 } from './fixtures/turn-harness.ts';
-import { world } from './fixtures/turn-world.ts';
 import { addLine, addRoom, noteInterface, openWorld, rootId } from './fixtures/memory-db/mind-world.ts';
 import { DRAW_CONFIG, DRAW_PROMPTS, drawTurn, fakeImages } from './fixtures/turn-draws.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -501,62 +498,6 @@ function prefetchRecall(
   return recall;
 }
 
-/** The routed turn's source: #jardin (c2) with one line, pulled with the call into #general. */
-const ROUTED = {
-  params: { source: { placeId: 'c2', reason: 'routed' } },
-  setup: () =>
-    world().channel({
-      id: 'c2',
-      name: 'jardin',
-      placeId: 'g1',
-      historyMessages: [rawMessage({ id: 'p1', ts: NOW - 60_000, content: 'ένα κουνέλι' })],
-    }),
-};
-
-// Slice 4: a reply carries the prefetch's finds in `<found>` inside `<memory>`, and `<retrieved>` leaves it. A routed
-// turn keeps the old emission until the frame has a block for a pulled room, so the block's form is tested there.
-test('prefetch: one search for the trigger before a routed turn; <retrieved> in the uncached tail before <chat>, the same in every step of the loop', async () => {
-  const recall = prefetchRecall();
-  const run = await coreTurn({
-    answers: [toolAnswer('', [call('memory.search', { question: 'το δάσος' })]), '<msg>ναι, ο σκύλος</msg>'],
-    allowed: ['memory.search'],
-    features: { recall: true },
-    config: WEB_CONFIG,
-    runner: { recall },
-    content: 'θυμάσαι τη ζωγραφιά με το δάσος;',
-    ...ROUTED,
-  } as unknown as Parameters<typeof coreTurn>[0]);
-  assert.equal(run.llm.calls.length, 2, 'the reply and one loop step');
-  assert.equal(asRecord(recall).prefetches.length, 1, "not again on the loop's step");
-  const [args] = asRecord(recall).prefetches;
-  assert.deepEqual(
-    args.lanes.map((lane: Untyped) => [lane.kind, lane.text]),
-    [['message', 'θυμάσαι τη ζωγραφιά με το δάσος;']]
-  );
-  assert.deepEqual(
-    args.history.map((line: Untyped) => line.id),
-    ['m0', 'm1'],
-    "the turn's chat is handed over (left out of the hits)"
-  );
-  const l = labels.prefetch;
-  const expected = `<retrieved>\n${l.header}\n${fill(l.basis, { basis: l.lanes.message })}\n${l.caution}\n<excerpt>\n${fill(l.excerpt, { n: 1, source: l.sources.history, date: '2026-10-02', channel: 'jardin', id: 'r9' })}\n>> [09:00] Éloïse: το δάσος και ο σκύλος\n</excerpt>\n</retrieved>`;
-  for (const i of [0, 1]) {
-    const parts = asRecord(run.llm.calls[i][1].content).filter((part: Untyped) => part.type === 'text');
-    const tail = parts[parts.length - 1];
-    assert.equal(tail.cacheSegment ?? null, null, 'the tail carries no cache segment');
-    assert.ok(tail.text.includes(expected), tail.text);
-    assert.ok(tail.text.indexOf('<retrieved>') < tail.text.indexOf('<chat>'), 'right before the chat');
-    assert.ok(
-      parts.slice(0, -1).every((part: Untyped) => !part.text.includes('<retrieved>')),
-      'never in a cached part'
-    );
-  }
-  assert.ok(
-    run.logs.every((entry) => !JSON.stringify(entry).includes('ζωγραφιά')),
-    'counts only in the log'
-  );
-});
-
 test("prefetch: a reply carries the prefetch's find in <found> inside <memory>, in the uncached tail of every step, and no <retrieved>", async () => {
   // Slice 4: the find of `<retrieved>` moves to `<found>` (the prefetch's hits enter the graph reader's seeds). The
   // line is stored as the memory stores every line, under its source id.
@@ -597,24 +538,8 @@ test("prefetch: a reply carries the prefetch's find in <found> inside <memory>, 
   }
 });
 
-test('prefetch: on a routed turn nothing qualified shows the status line; a trivial trigger is not searched; the switch off runs none', async () => {
-  const none = prefetchRecall({ status: 'none', basis: ['message'], excerpts: [], ms: 2 });
-  // Slice 4: the status line belongs to `<retrieved>`, which a reply no longer carries and a routed turn keeps.
-  const quiet = await coreTurn({
-    answers: ['<msg>όχι</msg>'],
-    features: { recall: true },
-    config: WEB_CONFIG,
-    runner: { recall: none },
-    content: 'θυμάσαι τον ελέφαντα;',
-    ...ROUTED,
-  } as unknown as Parameters<typeof coreTurn>[0]);
-  const l = labels.prefetch;
-  assert.ok(
-    requestText(quiet.llm, 0).includes(
-      `<retrieved>\n${l.header}\n${fill(l.basis, { basis: l.lanes.message })}\n${l.status.none}\n</retrieved>`
-    )
-  );
-
+// Slice 7: the routed turn and its `<retrieved>` status line are deleted, so what is left is the trivial trigger.
+test('prefetch: a trivial trigger is not searched and the request carries no <retrieved>', async () => {
   const trivial = prefetchRecall();
   const greeted = await coreTurn({
     answers: ['<msg>γεια</msg>'],
@@ -628,22 +553,20 @@ test('prefetch: on a routed turn nothing qualified shows the status line; a triv
   assert.ok(!requestText(greeted.llm, 0).includes('<retrieved>'));
 });
 
-test('prefetch: a failing runner never fails the turn; a routed request says unavailable', async () => {
+test('prefetch: a failing runner never fails the turn', async () => {
   const recall = fakeRecall();
   asRecord(recall).prefetch = async () => {
     throw new Error('boom');
   };
-  // Slice 4: the status line belongs to `<retrieved>`, which a reply no longer carries and a routed turn keeps.
+  // Slice 7: the routed turn, whose `<retrieved>` said unavailable, is deleted; a reply carries no status line.
   const run = await coreTurn({
     answers: ['<msg>δεν ξέρω</msg>'],
     features: { recall: true },
     config: WEB_CONFIG,
     runner: { recall },
     content: 'θυμάσαι τη ζωγραφιά;',
-    ...ROUTED,
   } as unknown as Parameters<typeof coreTurn>[0]);
   assert.equal(asRecord(run.result).outcome, 'spoke');
-  assert.ok(requestText(run.llm, 0).includes(labels.prefetch.status.unavailable));
 });
 
 // media.look: her own second look, in place of the re-watch classifier.
@@ -925,7 +848,7 @@ test('draw.create: reply quotes that message here; a channel she names is where 
     ['c1', 'c1', 'm1']
   );
   const there = await drawTurn({
-    answers: [toolAnswer('', [call('draw.create', { channel: '#jardin', text: 'ένας φάρος' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('draw.create', { place: '#jardin', text: 'ένας φάρος' })]), '<skip/>'],
     neighbours: [jardin],
   });
   assert.deepEqual(

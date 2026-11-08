@@ -1,25 +1,19 @@
 // The eighth step of a turn's request: what the preparation brought, taken as the request will show it. The deleted
-// lines put back, the late video states, the captions, reads and searches that came in time, the neighbours and
-// pulled channels, a selfreflection post's plan, the drawing quota and the `<recent>` lines. The request phase
+// lines put back, the late video states, the captions, reads and searches that came in time, a selfreflection post's
+// plan and the drawing quota. The request phase
 // (src/turn/phases/request.ts) runs it after the wait.
 
 import { accountOf } from '../../../memory/addresses.ts';
 import { DELETED_LINES_MAX, deletedLinesOf, withDeletedLines } from '../../../behavior/deleted-lines.ts';
 import { DEFAULT_SET_KINDS, isSetKind } from '../../../behavior/selfreflection.ts';
-import type { Neighbor } from '../../../behavior/neighbors.ts';
-import type { PulledChannel } from '../../../behavior/pull-fetch.ts';
 import { lateVideoStates } from '../../../media/classify.ts';
 import { log } from '../../../log.ts';
 import type { Selfreflection } from '../../selfreflection.ts';
 import type { Draft } from '../../draft.ts';
-import { describableCandidates } from '../../media.ts';
-import type { Participation } from '../../participation.ts';
 import type { VideoState } from '../../rewatch.ts';
-import { NO_RECENT } from '../../history.ts';
 import type { HistoryLine, PhaseContext, PhaseParams, PhasePrompts } from '../context.ts';
 import type { Opened } from '../preflight.ts';
 import type { Looked } from './lookup.ts';
-import type { Pulled } from './pulls.ts';
 import type { SecondLook } from './second-look.ts';
 import type { Setup } from './setup.ts';
 import type { Staged } from './stages.ts';
@@ -35,14 +29,8 @@ export type Gathered = {
   imageAnswers: Map<string, unknown> | null;
   reads: Map<string, unknown> | undefined;
   prefetchResult: unknown;
-  neighbors: Array<Neighbor>;
-  neighborsHidden: number;
-  pulled: Array<PulledChannel>;
   selfreflectionPrep: Awaited<ReturnType<Selfreflection['prepareSelfreflection']>> | null;
-  neighborDescriptions: Map<string, unknown> | undefined;
   drawOn: boolean;
-  readOnlyIds: Set<string>;
-  recent: ReturnType<Participation['recentInput']>;
   prompts: PhasePrompts;
 };
 
@@ -53,20 +41,19 @@ export async function gatherRequest(
   draft: Draft,
   opened: Opened,
   setup: Setup,
-  pulled: Pulled,
   staged: Staged,
   second: SecondLook,
   looked: Looked,
   waited: Waited
 ): Promise<Gathered> {
-  const { hot, store, clock, record, describer, images, recentOfPlaces } = ctx;
-  const { channel, placeId, reading, isPrivate, prep } = opened;
-  const { config, memoryOn, selfId, selfName, snapshot, now, prefetching, selfreflectionPending } = setup;
+  const { hot, store, clock, record, images } = ctx;
+  const { channel, placeId, isPrivate, prep } = opened;
+  const { memoryOn, selfId, selfName, prefetching, selfreflectionPending } = setup;
   const { beforeBar } = setup;
   const { previewed, captions, captionCandidates, videoStage, videoCandidates } = staged;
   const { slot: second2, videosSoFar } = second;
   const { linksStage } = looked;
-  const { neighborsStage, pulledStage, timings } = waited;
+  const { timings } = waited;
   const { prefetchStage } = staged;
   const rewatchStage = second2.rewatch;
   // The history the request is built from: with its file previews once they are ready.
@@ -143,15 +130,6 @@ export async function gatherRequest(
   prep.take('captions', Boolean(captions?.done), { hold: Boolean(captions) });
   prep.take('videos', Boolean(videoStage?.done), { hold: Boolean(videoStage) });
   prep.take('links', Boolean(linksStage?.done));
-  const neighborsFound = neighborsStage?.done ? neighborsStage.value : null;
-  const neighbors = Array.isArray(neighborsFound?.neighbors) ? neighborsFound.neighbors : [];
-  const neighborsHidden = neighborsFound?.hidden ?? 0;
-  // Pulled ahead of a chooser, the channels keep their cached captions when the fresh ones are late.
-  const pulledList =
-    pulledStage?.done && Array.isArray(pulledStage.value) ? pulledStage.value : (pulled.early?.pulled ?? []);
-
-  // A neighbour's pictures get only the captions the cache already holds, under the
-  // chat captions' switch: cachedDescriptions never sends a request or counts a day.
   // A selfreflection post's plan, search and picture check (a request or token cap refuses the turn).
   let selfreflectionPrep: Gathered['selfreflectionPrep'] = null;
   if (selfreflectionPending) {
@@ -163,24 +141,9 @@ export async function gatherRequest(
     // The post's kind decides how many pictures it takes (drawTool, runSteps): a set kind several, any other one.
     draft.selfreflection = { set: isSetKind(selfreflectionPrep.plan.kind, DEFAULT_SET_KINDS) };
   }
-  const neighborDescriptions =
-    typeof describer?.cachedDescriptions === 'function' && neighbors.length > 0
-      ? describer.cachedDescriptions(
-          placeId,
-          neighbors.flatMap((neighbor) => describableCandidates(neighbor.messages))
-        )
-      : undefined;
   // Drawing needs the image client and Attach Files here. A selfreflection post draws only while its picture check allowed it.
   const drawOn =
     Boolean(images) && channel.permissions.attach && (!selfreflectionPrep || selfreflectionPrep.pictureAllowed);
-  // Neighbours the bot can read but not write in, marked in `<server>` (a pulled channel's
-  // record carries its own mark). A pulled channel whose block is shown is left out of the
-  // neighbours by buildRequest itself.
-  const readOnlyIds = new Set(
-    neighbors.filter((neighbor) => neighbor.readOnly === true).map((neighbor) => neighbor.placeId)
-  );
-  // `<recent>`: the place's live recent lines (none: an empty list) and the channels this turn may show them from.
-  const recent = memoryOn ? recentOfPlaces(reading, { channel, snapshot, isPrivate, config, now }) : NO_RECENT;
   // The prompts this request is built from, read once: the task labels below decide what it names.
   const prompts = hot.prompts;
   return {
@@ -191,14 +154,8 @@ export async function gatherRequest(
     imageAnswers,
     reads,
     prefetchResult,
-    neighbors,
-    neighborsHidden,
-    pulled: pulledList,
     selfreflectionPrep,
-    neighborDescriptions,
     drawOn,
-    readOnlyIds,
-    recent,
     prompts,
   };
 }

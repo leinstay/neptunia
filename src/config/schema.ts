@@ -18,7 +18,6 @@ import { TYPING } from './schema/typing.ts';
 import { PACE } from './schema/pace.ts';
 import { FORMAT } from './schema/format.ts';
 import { SPLIT } from './schema/split.ts';
-import { ELSEWHERE } from './schema/elsewhere.ts';
 import { MEMORY } from './schema/memory.ts';
 import { MEDIA } from './schema/media.ts';
 import { WEB } from './schema/web.ts';
@@ -76,7 +75,6 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...PACE,
   ...FORMAT,
   ...SPLIT,
-  ...ELSEWHERE,
   ...MEMORY,
   ...MEDIA,
   ...WEB,

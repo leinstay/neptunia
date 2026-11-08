@@ -126,7 +126,6 @@ async function turnIn(
     describer: undefined,
     lookup: undefined,
     emoji: undefined,
-    routeChannels: undefined,
     now: () => NOW,
     port: core.port,
     reads: core.reads,
@@ -255,7 +254,6 @@ function handlerOver(core: Community) {
     describer: undefined,
     lookup: undefined,
     emoji: undefined,
-    routeChannels: undefined,
     images: undefined,
     now: () => NOW,
     port: core.port,
@@ -319,9 +317,9 @@ test('a message, a picture and a voice from an ordinary turn elsewhere are refus
     here: 'c1',
     answers: [
       toolAnswer('', [
-        call('message.create', { channel: '#journal', text: 'από εδώ' }),
-        call('draw.create', { channel: '#journal', text: 'a pier' }),
-        call('voice.say', { channel: '#journal', text: 'από εδώ' }),
+        call('message.create', { place: '#journal', text: 'από εδώ' }),
+        call('draw.create', { place: '#journal', text: 'a pier' }),
+        call('voice.say', { place: '#journal', text: 'από εδώ' }),
       ]),
       '<skip/>',
     ],
@@ -370,7 +368,7 @@ test('a disabled mirror row lets her message there through', async () => {
   const core = await community({ enabled: false });
   const logs = await turnIn(core, {
     here: 'c1',
-    answers: [toolAnswer('', [call('message.create', { channel: '#journal', text: 'από εδώ' })]), '<skip/>'],
+    answers: [toolAnswer('', [call('message.create', { place: '#journal', text: 'από εδώ' })]), '<skip/>'],
   });
   assert.deepEqual(calledOf(logs), ['message.create:ok']);
   assert.equal(core.sendsTo(MIRROR).length, 1);

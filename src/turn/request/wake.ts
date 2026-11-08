@@ -31,7 +31,6 @@ export type WakeTexts = {
   errandsText: { list: string; result: string };
   intentionsText: string;
   wakeText: string;
-  placesText: string;
   myDayText: string;
   previousThinkText: string;
 };
@@ -50,8 +49,6 @@ export function wakeTexts(given: RequestInput, labels: Labels): WakeTexts {
   const intentionsText = typeof given.intentions === 'string' ? given.intentions : '';
   // `<wake>`: an inner turn's reason to be awake, rendered by the turn (src/behavior/wake.ts), never cut.
   const wakeText = typeof given.wake === 'string' ? given.wake : '';
-  // `<places>`: an addressed turn's places page (context.places), rendered by the turn, never cut.
-  const placesText = typeof given.places === 'string' ? given.places : '';
   // `<previous_think>`: her reasoning from the request before this one (features.previousThink, chosen by the turn), never cut.
   const previousThinkText = previousThinkBody(given.previousThink, labels);
   // `<my_day>`: what she did today, read by the turn and bounded by context.myDay.lines, never cut; its header names
@@ -64,5 +61,5 @@ export function wakeTexts(given: RequestInput, labels: Labels): WakeTexts {
     days.length > 0
       ? [typeof header === 'string' ? fill(header, { date }) : '', ...days].filter(Boolean).join('\n')
       : '';
-  return { errandsText, intentionsText, wakeText, placesText, myDayText, previousThinkText };
+  return { errandsText, intentionsText, wakeText, myDayText, previousThinkText };
 }

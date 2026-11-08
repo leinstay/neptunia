@@ -12,7 +12,6 @@ import type { Untyped } from '../tools/types.ts';
 import type { CallMark } from './lines.ts';
 import type { Prompts, RequestConfig, RequestInput } from '../turn/request/types.ts';
 import type { sectionCost } from '../llm/budget.ts';
-import type { PulledChannel } from './pull-fetch.ts';
 
 export type ClassifierTranscriptArg2 = {
   config: Untyped;
@@ -35,12 +34,11 @@ export type BuildRequestInput = {
   config: RequestConfig;
   prompts: Prompts;
   calibrator: Parameters<typeof sectionCost>[0];
-  mode: 'reply' | 'interject' | 'elsewhere' | 'inner';
+  mode: 'reply' | 'interject' | 'inner';
   now: number;
   selfName: string;
   selfId?: string | null;
   history: RequestInput['history'];
-  neighbors: Array<{ placeId?: string; channelName: string; messages: Array<Untyped> }>;
   trigger: RequestInput['trigger'];
   triggerKind: string | null;
   taggedCall?: boolean | null;
@@ -51,26 +49,11 @@ export type BuildRequestInput = {
   otherProfiles: Array<Untyped>;
   candidateProfiles?: Array<Untyped>;
   nameOf?: (id: string) => string | null;
-  channels?: Array<Untyped>;
-  channelDirectory?: Array<{ id: string; name: string }>;
-  loreEntries?: Array<Untyped>;
   currentChannelId?: string | null;
   descriptions?: Map<string, string>;
-  neighborDescriptions?: Map<string, string>;
   videos?: Map<string, Untyped>;
   imageAnswers?: Map<string, { question: string; text: string }> | null;
   reads?: Map<string, string>;
-  lookup?: {
-    query?: string;
-    text?: string;
-    sources?: Array<Untyped>;
-    cached?: boolean;
-    server?: {
-      text: string | null;
-      stretch: { placeId: string; channelName: string | null; startTs: number; lines: string } | null;
-      people: Array<Untyped>;
-    };
-  } | null;
   prefetch?: {
     status: 'ok' | 'none' | 'timeout' | 'unavailable';
     basis: Array<string>;
@@ -83,8 +66,6 @@ export type BuildRequestInput = {
   mediaPickText?: string | null;
   mediaCache?: RequestInput['mediaCache'];
   gifs?: RequestInput['gifs'];
-  pulled?: Array<PulledChannel> | null;
-  source?: { placeId: string; reason: 'routed' | 'noticed' } | null;
   tasks?: {
     part: { index: number; total: number; parts: Array<string> } | null;
     queued: Array<string>;
@@ -93,15 +74,6 @@ export type BuildRequestInput = {
     failedEarlier?: Array<{ author: string; messageId: string; link?: string; at: number; code: string }>;
   } | null;
   elsewhereDestination?: { name: string } | null;
-  readOnlyIds?: Set<string> | Array<string>;
-  recentLines?: Array<Untyped>;
-  recentAudience?: (placeId: string | null) => boolean;
-  participation?: {
-    state: Untyped;
-    pickedIds?: Array<string>;
-    audience?: (placeId: string) => boolean;
-    channelName?: (placeId: string) => string | null;
-  } | null;
   selfreflectionChannel?: string | null;
   selfreflectionChannelIds?: Iterable<string>;
   selfreflection?: {
@@ -123,13 +95,12 @@ export type BuildRequestInput = {
   awake?: string | null;
   serviceInner?: { work: string; board: string } | null;
   wakeKind?: string | null;
-  places?: string | null;
   previousThink?: { text: string; relation: 'same' | 'earlier'; ageMs?: number } | null;
   myDay?: ReadonlyArray<string> | null;
   callMarks?: ReadonlyArray<CallMark> | null;
   stableFreeze?: Map<string, Untyped> | null;
   whereabouts?: Whereabouts | null;
-  /** The facts of the turn (src/turn/request/frame.ts). Without one its kind is read off `mode`, `triggerKind` and `wakeKind`. */
+  /** The facts of the turn (src/turn/request/frame.ts): every request is built on it. */
   frame?: Frame | null;
   /** What the graph reader brought to her mind (src/memory/db/mind-read.ts#mindOf): `<memory>` of the frame's request. */
   mind?: Mind | null;
@@ -160,35 +131,8 @@ export type BuildRequestResult = {
   handles: Map<string, string> | null;
   channelHandles: Map<string, string> | null;
   pulledIds: Map<string, string>;
-  pulledKept: Array<{ placeId: string; ids: Array<string>; newestId: string; newestTs: number }>;
-  pulledViews: Array<{ placeId: string; hashes: Map<string, string>; oldestTs: number; oldestId: string | number }>;
   peopleShown: Array<{ id: string; names: Array<string> }>;
-  recent: { lines: number; episodes: number; cut: number; hidden: number; repeated: number; unnamed: number } | null;
   seen: { messageIds: Array<string>; parents: Array<string>; parts: { filePreviews: Array<string> } };
   memoryReads: Array<{ kind: string; id: string; block?: string; ord: number }>;
   memberNames: Map<string, Array<string>> | null;
-};
-
-export type BuildSelfreflectionPlanRequestInput = {
-  /** Whether a place's audience covers the post's readers; a place it refuses is not named. Absent: every place is. */
-  placeAudience?: ((placeId: string) => boolean) | null;
-  config: Record<string, Untyped>;
-  prompts: Record<string, Untyped>;
-  calibrator: Untyped;
-  now: number;
-  selfName: string;
-  history?: Array<Untyped>;
-  placeMemory?: Untyped;
-  channels?: Array<Untyped>;
-  loreEntries?: Array<Untyped>;
-  currentChannelId?: string | null;
-  selfreflectionChannelIds?: Iterable<string>;
-  recentLines?: Array<Untyped> | null;
-  recentAudience?: ((placeId: string | null) => boolean) | null;
-  candidateProfiles?: Array<Untyped>;
-  nameOf?: ((id: string) => string | null) | null;
-  posts?: Array<Untyped>;
-  kinds?: Record<string, number>;
-  seedsText?: string;
-  topicText?: string;
 };

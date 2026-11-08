@@ -408,7 +408,7 @@ test('inner turn: with no current channel a <msg> or a draw.create without a cha
   const run = await innerTurn({
     answers: [
       toolAnswer('<msg>γεια σας</msg><gif>g1</gif>', [call('draw.create', { text: 'ένας φάρος' })]),
-      toolAnswer('', [call('message.create', { channel: '#general', text: 'καλημέρα' })]),
+      toolAnswer('', [call('message.create', { place: '#general', text: 'καλημέρα' })]),
       '<skip/>',
     ],
     shadow: false,
@@ -1047,7 +1047,7 @@ test('inner turn, last step: her tags run beside the one terminal call, after it
   const failed = await innerTurn({
     answers: [
       toolAnswer('', [call('lore.list')]),
-      toolAnswer('<msg>πρώτο</msg>', [call('message.create', { channel: '#nowhere', text: 'τρίτο' })]),
+      toolAnswer('<msg>πρώτο</msg>', [call('message.create', { place: '#nowhere', text: 'τρίτο' })]),
       '<skip/>',
     ],
     shadow: false,

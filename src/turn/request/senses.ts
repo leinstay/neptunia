@@ -10,8 +10,7 @@ import { ROLE_ABILITY, offRoles, roleOn } from '../../llm/roles.ts';
 import { collectPictures, collectVideos } from '../../media/classify.ts';
 import { IN_TURN_TOOLS, byFamily } from '../../tools/discovery.ts';
 import type { Base } from './head.ts';
-import type { MemoryViews } from './memory.ts';
-import type { Cost, Fit, Labels, RequestConfig, RequestInput } from './types.ts';
+import type { Labels, RequestConfig, RequestInput } from './types.ts';
 
 /** The two halves of `<senses>`: the lines that read only the config, and the lines of this turn. */
 export type Senses = { stable: string; turn: string };
@@ -27,9 +26,7 @@ export type SensesOptions = {
   privateChat?: boolean;
   interfaceText?: string | null;
   gifWatching?: boolean;
-  elsewhereDestination?: { name?: unknown } | null;
   selfreflectionChannel?: string | null;
-  participation?: boolean;
   toolsGranted?: Array<string>;
   /** The messages the request shows: the media of an off role among them is told once (mediaOffLines). */
   window?: ReadonlyArray<object>;
@@ -124,9 +121,8 @@ function abilitiesOffLine(config: RequestConfig, labels: SensesLabels): string |
  * under the live config (see docs/prompt-contract.md, "`<senses>`"), in two
  * halves for the prompt cache: `stable`, the lines that read only the config,
  * the prompts and the server's lists (the same on every turn of a day), and
- * `turn`, the lines that depend on this turn -- `senses.recallTool` (the server
- * search), the drawing line (`drawOn`), `senses.participation`
- * (whether `<participation>` is shown) and `senses.privateChat` (this turn is
+ * `turn`, the lines that depend on this turn -- `senses.recallTool` (the
+ * search of the message history), the drawing line (`drawOn`) and `senses.privateChat` (this turn is
  * a private chat). Each half keeps the lines in the order described below.
  * Both are '' when `labels.senses` is missing entirely, so an older
  * deployment's labels.json never breaks — the block is simply omitted.
@@ -142,11 +138,7 @@ function abilitiesOffLine(config: RequestConfig, labels: SensesLabels): string |
  * swaps `senses.gifDescribed` for `senses.gifWatched` when the labels have it.
  * Right after the files line, `senses.abilitiesOff` while an optional model role is off (abilitiesOffLine), then `senses.time` (how to read clock times, line
  * ages and gap markers), private chats included, when the label is a non-empty string.
- * Outside a private chat, after it: `senses.channels` (the
- * persona sees only the channels this request shows), then, with
- * `participation` (the request shows `<participation>`), `senses.participation`, then, with an
- * `elsewhereDestination` (`{ name }`, where a call from a read-only channel is
- * answered), `senses.elsewhere` with `{destination}`. With a `selfreflectionChannel`
+ * With a `selfreflectionChannel`
  * (the bare name of the selfreflection channel; the label carries the `#`),
  * `senses.selfreflection` with `{channel}` follows. A missing label adds nothing.
  */
@@ -161,9 +153,7 @@ export function renderSenses(
     privateChat = false,
     interfaceText = null,
     gifWatching = false,
-    elsewhereDestination = null,
     selfreflectionChannel = null,
-    participation = false,
     toolsGranted = [],
     window = [],
   }: SensesOptions = {}
@@ -187,10 +177,9 @@ export function renderSenses(
   // picture (through the vision model) or a video (video vision).
   if (granted('media.look') && senses.lookTool) lines.push(senses.lookTool);
 
-  // Stickers get their own lines (a picture-format one behaves like an
-  // image); senses.lottie only shows up alongside them -- an animated
-  // built-in (Lottie) sticker is never a picture, name only.
-  if (senses.stickerDescribed) lines.push(senses.stickerDescribed, senses.lottie);
+  // Stickers get their own line (a picture-format one behaves like an image); what an interface's own kinds of sticker
+  // are comes with the interface's text.
+  if (senses.stickerDescribed) lines.push(senses.stickerDescribed);
   // What the interface says of its custom emoji, as it declares it.
   if (interfaceText) lines.push(interfaceText);
 
@@ -223,15 +212,6 @@ export function renderSenses(
   turnLines.push(...mediaOffLines(config, labels, window));
   // How to read clock times, line ages and gap markers; private chats too.
   if (typeof senses.time === 'string' && senses.time) lines.push(senses.time);
-  // Which channels the persona sees, and where it answers a call from one it
-  // cannot write in: a server turn only.
-  if (!privateChat && senses.channels) lines.push(senses.channels);
-  // The persona's own exchanges on other channels (`<participation>`), only while the block is
-  // there: per turn.
-  if (!privateChat && participation === true && senses.participation) turnLines.push(senses.participation);
-  if (!privateChat && senses.elsewhere && typeof elsewhereDestination?.name === 'string' && elsewhereDestination.name) {
-    lines.push(fill(senses.elsewhere, { destination: elsewhereDestination.name }));
-  }
   // Where the persona keeps its selfreflection, so it can speak of it anywhere.
   if (senses.selfreflection && typeof selfreflectionChannel === 'string' && selfreflectionChannel)
     lines.push(fill(senses.selfreflection, { channel: selfreflectionChannel }));
@@ -240,14 +220,6 @@ export function renderSenses(
   if (privateChat) turnLines.push(senses.privateChat);
   else if (config.private?.enabled === true) lines.push(senses.privateAware);
   return { stable: lines.filter(Boolean).join('\n'), turn: turnLines.filter(Boolean).join('\n') };
-}
-
-/**
- * The whole `<senses>` text of `senses` (renderSenses' halves), as the budget
- * counts it: the same characters as one block of every line.
- */
-export function sensesWhole(senses: Senses): string {
-  return [senses.stable, senses.turn].filter(Boolean).join('\n');
 }
 
 // Notation of an argument's allowed values in `<skills>`: separator, and the mark of a cut list.
@@ -369,8 +341,8 @@ export type SensesOf = {
  * the skills catalogue of a turn whose question was what she can do.
  */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
-export function sensesOf(given: RequestInput & Base & MemoryViews): SensesOf {
-  const { config, prompts, labels, privateChat, customEmoji, participationOffered } = given;
+export function sensesOf(given: RequestInput & Base): SensesOf {
+  const { config, prompts, labels, privateChat, customEmoji } = given;
   const sensesOptions: SensesOptions = {
     searchAvailable: given.searchAvailable === true,
     recallAvailable: given.recallAvailable === true,
@@ -386,10 +358,7 @@ export function sensesOf(given: RequestInput & Base & MemoryViews): SensesOf {
     interfaceText: customEmoji.length > 0 ? (given.mediaPickText ?? null) : null,
     // Whether a GIF in the transcript was watched rather than seen in one frame, under the live config and prompts.
     gifWatching: gifWatchBlocker(prompts) === null,
-    elsewhereDestination: given.elsewhereDestination ?? null,
     selfreflectionChannel: typeof given.selfreflectionChannel === 'string' ? given.selfreflectionChannel : null,
-    // Fitted as if `<participation>` is shown; checked once the budget is spent.
-    participation: participationOffered,
   };
   const senses = renderSenses(config, labels, sensesOptions);
   // The persona's skills: the catalogue
@@ -400,27 +369,4 @@ export function sensesOf(given: RequestInput & Base & MemoryViews): SensesOf {
   const inventoryText = skillsShown ? skillsInventoryText(given.skillsInventory, labels) : '';
   const skillIndexText = typeof given.skillIndex === 'string' ? given.skillIndex.trim() : '';
   return { sensesOptions, senses, toolsText, inventoryText, skillIndexText };
-}
-
-/**
- * The senses line names `<participation>` only when the block is there. The request only gets shorter, so the fit
- * holds. Fills `fit`; the senses the request shows.
- */
-export function sensesKept(
-  fit: Fit,
-  given: { config: RequestConfig; labels: Labels; participationOffered: boolean; cost: Cost } & SensesOf
-): Senses {
-  const { kept, stats } = fit;
-  let { used } = fit;
-  const { config, labels, participationOffered, cost, sensesOptions } = given;
-  let { senses } = given;
-  if (participationOffered && (kept.participation ?? []).length === 0) {
-    const fitted = sensesWhole(senses);
-    senses = renderSenses(config, labels, { ...sensesOptions, participation: false });
-    const saved = cost(fitted) - cost(sensesWhole(senses));
-    stats.fixed.used -= saved;
-    used -= saved;
-  }
-  fit.used = used;
-  return senses;
 }

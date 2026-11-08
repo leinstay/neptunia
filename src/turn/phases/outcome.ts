@@ -45,19 +45,17 @@ function isQuietInner(draft: Draft, stepped: Rounded['stepped']): boolean {
 }
 
 export function outcomePhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, rounded: Rounded): AttemptResult {
-  const { hot, store, noteSpokeSaw, stampShownCalls, recordSkillUses } = ctx;
-  const { opened, setup, pulled: pulledStep, gathered, told, stepped, serverShown, ownCallId } = rounded;
+  const { hot, store, noteSpokeSaw, recordSkillUses } = ctx;
+  const { opened, setup, pulled: pulledStep, gathered, told, stepped } = rounded;
   const { channel } = opened;
   const { now } = setup;
   const { finalMode } = pulledStep;
-  const { history, pulled, selfreflectionPrep } = gathered;
+  const { history, selfreflectionPrep } = gathered;
   const { notAnswered } = told;
   // The lines her steps read carry their message ids, as the history's do.
   const loopSeen = (draft.loopSeen ?? []) as ReadonlyArray<{ id: string }>;
-  noteSpokeSaw(channel, [...history, ...loopSeen], serverShown, pulled, notAnswered);
+  noteSpokeSaw(channel, [...history, ...loopSeen], notAnswered);
   const acts = stepped.acts;
-  const answeredAll = new Set(acts.flatMap((acted) => [...(acted.answered ?? [])]));
-  stampShownCalls({ shown: serverShown, pulled, answered: answeredAll, exceptId: ownCallId });
   if (draft.started) {
     draft.posted = acts.flatMap((acted) => acted.posts ?? []);
     draft.reactions = acts.flatMap((acted) => acted.reacted ?? []);

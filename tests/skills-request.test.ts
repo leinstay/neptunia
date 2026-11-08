@@ -1,13 +1,12 @@
-// Where her skill index stands in a request (src/behavior/prompt.ts#buildRequest, the `skillIndex` input) and what
-// the old catalogue is called now that `<skills>` is the index: a request with no skill indexed is byte-identical to
-// one built without the input, a request with one carries `<skills>` in the cached stable part between `<tools>`
-// and `<self_facts>`, and the catalogue of the tools she may call is `<tool_catalogue>` in the tail. Fake input,
-// no model, no network.
+// Where her skill index stands in a request (src/behavior/prompt.ts#buildRequest, the `skillIndex` input): a request
+// with no skill indexed is byte-identical to one built without the input, and a request with one carries `<skills>` in
+// the cached stable part between `<tools>` and `<self_facts>`. Fake input, no model, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildRequest } from '../src/behavior/prompt.ts';
 import type { BuildRequestInput, BuildRequestResult } from '../src/behavior/prompt-types.ts';
 import { labels } from './fixtures/labels.ts';
+import { frameOfInput } from './fixtures/prompt-rig.ts';
 
 const NOW = Date.UTC(2026, 10, 1, 10, 0, 0);
 
@@ -66,8 +65,9 @@ function baseInput(overrides: Partial<BuildRequestInput> = {}): BuildRequestInpu
     otherProfiles: [],
     ...overrides,
   };
-  // The labels fixture nests groups (callStatus) that the Labels type reads as plain strings.
-  return input as unknown as BuildRequestInput;
+  // The labels fixture nests groups (callStatus) that the Labels type reads as plain strings. Every request is built on
+  // its turn frame (slice 7).
+  return { ...input, frame: frameOfInput(input) } as unknown as BuildRequestInput;
 }
 
 const INDEX = 'SKILLS_HEADER\n- look-it-up: I check the web first';
@@ -98,13 +98,4 @@ test('buildRequest: the same index twice gives the same stable text, so the cach
   const first = parts(buildRequest(baseInput({ skillIndex: INDEX }))).stable;
   const second = parts(buildRequest(baseInput({ skillIndex: INDEX, now: NOW + 1000 }))).stable;
   assert.equal(second, first);
-});
-
-test('buildRequest: the tool catalogue is <tool_catalogue> in the tail, and <skills> stays the index', () => {
-  const rows = [{ name: 'message.create', title: 'Post', whenToUse: 'to speak', allowed: true, reason: 'allowed' }];
-  const { stable, tail } = parts(buildRequest(baseInput({ skillsInventory: rows, skillIndex: INDEX })));
-  assert.ok(tail.includes('<tool_catalogue>\n'));
-  assert.equal(tail.includes('<skills>'), false);
-  assert.equal(stable.includes('<tool_catalogue>'), false);
-  assert.ok(stable.includes('<skills>\n'));
 });

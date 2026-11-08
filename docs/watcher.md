@@ -56,7 +56,7 @@ The window opens at the last successful inspection, or at the start of the UTC d
 
 ## The analyzer's work
 
-`analyzerFacts` in `src/watcher/analyzer-facts.ts` reads what the analyzer did in the observation window from the memory database, with no model call. Each entry of `functions` is one `purpose` of the `model_requests` rows with role `analyzer`: `address`, `split`, `merge`, `missed`, `elsewhere-pick`, `media-pick`, `query-builder` and `selfreflection-planner`. It holds `enabled`, `requests` with the `total`, the counts `byStatus` and the `errorCodes`, and `decisions`. A function is enabled when its prompt file is not empty, read from both prompt layers as the core loads them.
+`analyzerFacts` in `src/watcher/analyzer-facts.ts` reads what the analyzer did in the observation window from the memory database, with no model call. Each entry of `functions` is one `purpose` of the `model_requests` rows with role `analyzer`: `address`, `split`, `merge`, `missed`, `media-pick`, `query-builder` and `selfreflection-planner`. It holds `enabled`, `requests` with the `total`, the counts `byStatus` and the `errorCodes`, and `decisions`. A function is enabled when its prompt file is not empty, read from both prompt layers as the core loads them.
 
 Each recorded answer is read by the function's own parser, so `decisions` counts what the engine acted on.
 
@@ -66,7 +66,6 @@ Each recorded answer is read by the function's own parser, so `decisions` counts
 | `split` | `one`, `several` | `parseSplitAnswer`, an answer it refuses counting as `one` |
 | `merge` | `joined`, `new` | `parseMergeAnswer`, against the items of the request's `<waiting>` |
 | `missed` | each verdict, and `unchecked` | `parseMissedAnswer`, against the request's `<candidates>` |
-| `elsewhere-pick` | `place`, `episodes`, `none` | `parseElsewhereAnswer` |
 | `media-pick` | `none`, `gif`, `emoji`, `replace` | `parseMediaPick`, against the handles and names the request offered |
 | `query-builder` | `web`, `history`, `none` | `parseQueryPlan` |
 | `selfreflection-planner` | the plan's `kind`, `no-kind` or `unparsed` | `parseJsonObject` |

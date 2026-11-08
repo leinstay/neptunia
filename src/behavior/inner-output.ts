@@ -35,7 +35,7 @@ export function innerOutputCalls(
   const calls: Array<{ skill: string; args: Record<string, string>; refuse?: { code: string; reason: string } }> = [];
   const refuse = current ? {} : { refuse: DESTINATION_REQUIRED };
   const place: Record<string, string> =
-    current && String(current) !== String(turnChannel) ? { channel: String(current) } : {};
+    current && String(current) !== String(turnChannel) ? { place: String(current) } : {};
   const reply = (replyTo: Untyped): Record<string, string> =>
     Number.isInteger(replyTo) ? { reply: `#${replyTo}` } : {};
   for (const reaction of parsed?.reactions ?? []) {

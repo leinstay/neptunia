@@ -105,7 +105,7 @@ const isWakeKind = (value: string): value is WakeKind => Object.hasOwn(KIND_OF_W
 export const PLANNER_MODE = 'selfreflection-planner';
 
 /**
- * The kind of a turn from the fields the callers pass. `reply`, `interject` and `elsewhere` give a reply, and
+ * The kind of a turn from the fields the callers pass. `reply` and `interject` give a reply, and
  * an errand's trigger on any of them gives `errand_result`.
  */
 export function turnKindOf(mode: string, triggerKind: string | null, wakeKind: string | null): TurnKind {
@@ -269,8 +269,5 @@ const FRAMED_KINDS: ReadonlySet<TurnKind> = new Set<TurnKind>([
 export const framedRequest = (frame: Frame | null | undefined): frame is Frame =>
   frame !== null && frame !== undefined && FRAMED_KINDS.has(frame.kind);
 
-/**
- * Whether a turn will build the frame's request, known before its frame is: every turn but one with a `source` (a
- * routed or noticed call), so the pulls, the neighbours and the elsewhere pick serve only those.
- */
+/** Whether a turn will build the frame's request, known before its frame is: every turn without a `source`. */
 export const framedTurn = (_mode: string, source: unknown): boolean => !source;

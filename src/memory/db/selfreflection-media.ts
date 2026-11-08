@@ -22,6 +22,7 @@
 //
 // Schema v9: each `media` row written is projected into the graph in the same transaction (graph.ts#projectRow).
 
+import { ENTRY_MEDIA } from '../migration/selfreflection-names.ts';
 import { writeEntryFiles } from './media-store.ts';
 import type { EntryFile } from './media-store.ts';
 import fs from 'node:fs';
@@ -317,7 +318,7 @@ export function applyEntryMedia(handle: MemoryHandle, given: unknown): number {
     );
     writeAtomic(path.join(update.dataDir, rel), buffer);
     return {
-      id: `media:diary:${base}-${index + 1}`,
+      id: `${ENTRY_MEDIA}${base}-${index + 1}`,
       path: rel.split(path.sep).join('/'),
       // Once the file is posted: the message and the attachment it became, and what memory saw in that attachment.
       nativeRef: item.ref ? JSON.stringify(item.ref) : null,
@@ -538,7 +539,7 @@ export function createSelfreflectionMedia({
                 : null;
           if (duration !== null) extra.durationSec = duration;
           media.push({
-            id: `media:diary:${base}-${n}`,
+            id: `${ENTRY_MEDIA}${base}-${n}`,
             path: rel.split(path.sep).join('/'),
             ...platformOf(db() as Db | null, message, attachment),
             sha1: createHash('sha1').update(got.buffer).digest('hex'),
@@ -565,7 +566,7 @@ export function createSelfreflectionMedia({
         const rel = path.join(MEDIA_DIR, `${base}-${n}.${EXTENSIONS[mime] ?? 'bin'}`);
         writeAtomic(path.join(dataDir, rel), buffer);
         media.push({
-          id: `media:diary:${base}-${n}`,
+          id: `${ENTRY_MEDIA}${base}-${n}`,
           path: rel.split(path.sep).join('/'),
           ...platformOf(db() as Db | null, message, attachment),
           sha1: createHash('sha1').update(buffer).digest('hex'),

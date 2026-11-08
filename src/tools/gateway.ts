@@ -74,9 +74,9 @@ function refused(code: string, reason: string): Refusal {
   return { ok: false, code, reason };
 }
 
-/** The conversation a call aims at: its `channel` argument (an id the server resolved), else the current one. */
+/** The conversation a call aims at: its `place` argument (an id the interface resolved), else the current one. */
 function targetConversation(args: unknown, audience: Audience | null): string | null {
-  const given = isObj(args) ? args.channel : undefined;
+  const given = isObj(args) ? args.place : undefined;
   return given === undefined || given === null ? (audience?.conversationId ?? null) : idText(given);
 }
 

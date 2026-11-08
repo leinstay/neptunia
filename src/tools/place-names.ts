@@ -1,9 +1,11 @@
-// How a place named in a read call resolves. A turn in a private chat or on the command line has no
-// `<channel_directory>`, so she writes a name she guessed. `matchPlace` compares it with the places she may read (the
-// list is decided elsewhere, src/behavior/readable-places.ts): by native id or mention, by request handle, by name once
-// case, accents, emoji, punctuation and spaces are dropped, and with a loaded stemmer by the stem of every word. An
-// answer that cannot be one place carries the places she may read, and `placeChoicesText` renders them through
-// `labels.tools.tools.place` so she can call again. No I/O, no model-facing wording of its own.
+// How a place named in a tool's `place` argument resolves. She writes a handle, a name she read in `<memory>` or
+// `<meanwhile>`, or a name she guessed. `matchPlace` compares it with the places of the turn's snapshot she may read
+// (the list is decided elsewhere, src/behavior/readable-places.ts): by native id or mention, by request handle, by name
+// once case, accents, emoji, punctuation and spaces are dropped, and with a loaded stemmer by the stem of every word.
+// `indexedPlace` reads a name nothing of the snapshot holds through the name index of the memory
+// (src/memory/db/names.ts#placesNamed), so a place of any interface resolves to its place id. An answer that cannot be
+// one place carries the places she may read, and `placeChoicesText` renders them through `labels.tools.tools.place` so
+// she can call again. No I/O, no model-facing wording of its own.
 
 import { fill } from '../format.ts';
 import { objOf } from './types.ts';
@@ -71,6 +73,24 @@ export function matchPlace(
   if (exact) return exact;
   const stemmed = stem ? one(keyed(places, keyOf(given, stem), stem)) : null;
   return stemmed ?? { kind: 'none', ...listed(places) };
+}
+
+/**
+ * The place `reference` names by the name index: `named` reads the live places the name names under the turn's context
+ * (src/memory/db/names.ts#placesNamed). One place is `one` with its place id, several are `several` with them as the
+ * choices, none is `none` with no choices.
+ */
+export function indexedPlace(
+  reference: string,
+  named: (name: string) => ReadonlyArray<{ id: string; name: string }>,
+  max: number = PLACE_CHOICES_MAX
+): PlaceMatch {
+  const found: Array<PlaceCandidate> = named(reference.trim()).map((place) => ({ ...place, handle: null }));
+  const [first] = found;
+  if (first === undefined) return { kind: 'none', choices: [], total: 0 };
+  return found.length === 1
+    ? { kind: 'one', id: first.id }
+    : { kind: 'several', choices: found.slice(0, max), total: found.length };
 }
 
 /** What she writes to name a choice: its handle with the hash, else its id. */

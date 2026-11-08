@@ -11,9 +11,6 @@ export const PREPARE_STAGES = Object.freeze([
   'rewatch',
   'links',
   'lookup',
-  'neighbors',
-  'pulled',
-  'participation',
 ]);
 
 /** What a turn throws to itself once its bar (pace.dropAfterMs) has passed: caught by runTurnOnce. */

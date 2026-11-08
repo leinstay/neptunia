@@ -191,12 +191,12 @@ test('innerAnswerOf and innerReportMarkdown: the think whole, the messages, the 
   const answer = innerAnswerOf(text, parseOutput, null, {
     answerOf,
     transport: 'native',
-    toolCalls: [toolCall('message.create', { channel: 'c1', text: 'body' })],
+    toolCalls: [toolCall('message.create', { place: 'c1', text: 'body' })],
   });
   assert.equal(answer.think, 'STEP 1: a\nSTEP 2: b');
   assert.deepEqual(answer.messages, ['hello']);
   assert.equal(answer.calls[0].skill, 'message.create');
-  assert.equal(answer.calls[0].args.channel, 'c1');
+  assert.equal(answer.calls[0].args.place, 'c1');
   const markdown = innerReportMarkdown({
     kind: 'heartbeat',
     intention: null,
@@ -220,7 +220,7 @@ test('innerAnswerOf and innerReportMarkdown: the think whole, the messages, the 
     '## wake',
     'STEP 2: b',
     '- hello',
-    '"channel": "c1"',
+    '"place": "c1"',
     'proposed',
     '0.0123 USD',
   ])

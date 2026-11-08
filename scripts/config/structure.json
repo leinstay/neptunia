@@ -899,7 +899,7 @@
     },
     {
       "path": "src/turn/participation.ts",
-      "purpose": "Her participation in a server turn: whether the store applies, the channels its episodes come from, the live `<people_now>` input, the record of her lines and the `<recent>` input. Tested through the turn and participation tests.",
+      "purpose": "Her participation in a server turn: whether the store applies, the live input of a person's live line and the record of her lines. Tested through the turn and participation tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -948,7 +948,7 @@
     },
     {
       "path": "src/turn/pulls.ts",
-      "purpose": "The other channels a turn shows in `<channel_view>`: which it pulls, their captions and last views, and the seen marks, lines in view and ring stamps a turn leaves. Tested through the turn, pull and pull seen tests.",
+      "purpose": "What a turn that spoke had in view: the lines of its chat, so a call queued meanwhile and already shown is not answered twice. Tested through the turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1053,7 +1053,7 @@
     },
     {
       "path": "src/turn/phases/request/pulls.ts",
-      "purpose": "The channels a turn shows in `<channel_view>`, the chooser of a turn whose mode is still open and the source of a routed call. Tested through the turn tests.",
+      "purpose": "The mode a turn is answered in, noted on its life. Tested through the turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1081,14 +1081,14 @@
     },
     {
       "path": "src/turn/phases/request/wait.ts",
-      "purpose": "The neighbours, the pulled channels and the participation pick, the one wait for the preparation, and what of it was late. Tested through the turn tests.",
+      "purpose": "The one wait for the preparation, and what of it was late. Tested through the turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
     },
     {
       "path": "src/turn/phases/request/gather.ts",
-      "purpose": "What the preparation brought, taken as the request shows it: deleted lines, late video states, reads, searches, neighbours, pulls, a selfreflection plan, whether the turn may draw and `<recent>`. Tested through the turn tests.",
+      "purpose": "What the preparation brought, taken as the request shows it: deleted lines, late video states, reads, searches, a selfreflection plan and whether the turn may draw. Tested through the turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1165,21 +1165,14 @@
     },
     {
       "path": "src/turn/request/profiles.ts",
-      "purpose": "One member as a request shows them: the `<people>` profile with its marks, the `<attitudes>` list and the fields of their `<people_now>` entry. Tested through the prompt and memory session tests.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "none"
-    },
-    {
-      "path": "src/turn/request/people.ts",
-      "purpose": "The people of a request: who `<people>` shows in full and in short, the room for the moments of the members asked about, the `<people_now>` entries and the people in voice. Tested through the prompt, prompt budget and around tests.",
+      "purpose": "One member as a request shows them: the profile with its marks and the fields of their live line. Tested through the prompt and memory session tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
     },
     {
       "path": "src/turn/request/server.ts",
-      "purpose": "The server and its places in a request: the `<server>` entries, the `<about_chat>` lines and the `<lore>` entries. Tested through the prompt and prompt selfreflection tests.",
+      "purpose": "What memory learned of a place, as a request quotes it: the stored place notes and their settings. Tested through the prompt tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1192,22 +1185,8 @@
       "test": "none"
     },
     {
-      "path": "src/turn/request/memory.ts",
-      "purpose": "The memory blocks of a request: `<recent>`, `<participation>` and the anchored window `<earlier>`, before and after the budget. Tested through the prompt, prompt participation and prompt anchors tests.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "none"
-    },
-    {
-      "path": "src/turn/request/pulled.ts",
-      "purpose": "The other channels in a request: `<channel_view>` with its call marks and seen line, each channel cut to its share, the neighbours and the authors in view. Tested through the prompt and pull seen tests.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "none"
-    },
-    {
       "path": "src/turn/request/recall.ts",
-      "purpose": "What a turn looked up and recalled: the `<lookup>` block with its smaller fallbacks and the `<retrieved>` block of the memory prefetch. Tested through the prompt tests.",
+      "purpose": "The automatic memory prefetch of a turn as its request reads it: the excerpts whose stored facts go to `<found>`. Tested through the prompt tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1236,13 +1215,6 @@
     {
       "path": "src/turn/request/wake.ts",
       "purpose": "What a request carries from the persona's own life: the bodies of her errands, intentions, wake, places and previous think. Tested through the prompt, previous think and inner turn tests.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "none"
-    },
-    {
-      "path": "src/turn/request/sections.ts",
-      "purpose": "The budget sections of a request in priority order: the fixed part, the interlocutor, the lookups, the server's memory, the chat and the lists fitted last. Tested through the prompt and prompt budget tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

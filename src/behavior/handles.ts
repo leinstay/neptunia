@@ -14,9 +14,7 @@
 // channel she names resolves exactly and a made-up name never has to be guessed. Pure.
 
 import { createHash } from 'node:crypto';
-import { fill } from '../format.ts';
 import { oneLine } from '../memory/clamp.ts';
-import { isOpen } from '../memory/index.ts';
 import { outsideUrls } from '../memory/mentions.ts';
 import type { Untyped } from '../tools/types.ts';
 
@@ -101,94 +99,6 @@ export function assignHandles(
   return handles;
 }
 
-/** Non-blank one-line strings of `values`, each once, in code point order. */
-function sortedNames(values: Untyped) {
-  const names = new Set<string>();
-  for (const value of Array.isArray(values) ? values : []) {
-    if (typeof value !== 'string') continue;
-    const name = oneLine(value);
-    if (name) names.add(name);
-  }
-  return [...names].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-}
-
-/**
- * The people directory's members from the stored profiles of the served place: one entry per
- * member, never the persona herself (`selfId`; bots get no profile: the live pipeline skips
- * their lines). `names`: the stored
- * names the platform gave them; `aliases`: their open stored aliases (src/memory/interests.js#isOpen),
- * as stored, without one equal to a name. Both one-line, each once, in code point order, so
- * the stored order (the newest name first) never moves the text. A member with neither is
- * left out. Sorted by their first name (else first alias), then id. No notes, games or weights.
- * Pure.
- * @param profiles  store.listUserProfiles of the served place.
- */
-export function directoryEntries(
-  profiles: Iterable<Record<string, Untyped>>,
-  { selfId = null }: { selfId?: string | null } = {}
-): Array<{ id: string; names: Array<string>; aliases: Array<string> }> {
-  const self = selfId === undefined || selfId === null ? null : String(selfId);
-  const byId = new Map<string, { id: string; names: Array<string>; aliases: Array<string> }>();
-  for (const profile of profiles ?? []) {
-    if (!profile || typeof profile !== 'object' || profile.id === undefined || profile.id === null) continue;
-    const id = String(profile.id);
-    if (id === '' || id === self || byId.has(id)) continue;
-    const names = sortedNames(profile.names);
-    const aliases = sortedNames(
-      (Array.isArray(profile.aliases) ? profile.aliases : [])
-        .filter((alias: Untyped) => isOpen(alias))
-        .map((alias: Untyped) => alias?.name)
-    ).filter((alias) => !names.includes(alias));
-    if (names.length === 0 && aliases.length === 0) continue;
-    byId.set(id, { id, names, aliases });
-  }
-  const keyOf = (entry: { names: Array<string>; aliases: Array<string> }) => entry.names[0] ?? entry.aliases[0];
-  return [...byId.values()].sort((a, b) => {
-    const ka = keyOf(a);
-    const kb = keyOf(b);
-    return ka < kb ? -1 : ka > kb ? 1 : compareIds(a.id, b.id);
-  });
-}
-
-/** The words of a directory block (`labels.directory`, `labels.channelDirectory`) the renderers read. */
-type DirectoryLabels = { line?: unknown; lineAliases?: unknown; lead?: unknown };
-
-/** The names of a directory line: each as a JSON string (quoted, escaped), joined by ", ". */
-function quotedList(names: Untyped) {
-  return names.map((name: string) => JSON.stringify(name)).join(', ');
-}
-
-/**
- * The `<directory>` block's body: `labels.directory.lead` (when set), then one line per entry
- * with a handle -- `labels.directory.lineAliases` (`{handle}` `{names}` `{aliases}`) for a member
- * with aliases when that label is set, else `labels.directory.line` (`{handle}` `{names}`).
- * `{handle}` is the exact token to write, `@` included; `{names}` and `{aliases}` are quoted
- * lists (quotedList). '' without `labels.directory.line` or without a line. Pure.
- * @param entries  directoryEntries'.
- * @param handles  id -> handle (assignHandles').
- */
-export function renderDirectory(
-  entries: Array<{ id: string; names: Array<string>; aliases: Array<string> }>,
-  handles: Map<string, string>,
-  labels: { directory?: DirectoryLabels | null; [key: string]: unknown }
-): string {
-  const l = labels?.directory;
-  if (typeof l?.line !== 'string' || !l.line) return '';
-  const lines: Array<string> = [];
-  for (const entry of entries ?? []) {
-    const handle = handles?.get(entry.id);
-    if (!handle) continue;
-    const values = { handle: `@${handle}`, names: quotedList(entry.names) };
-    lines.push(
-      entry.aliases.length > 0 && typeof l.lineAliases === 'string' && l.lineAliases
-        ? fill(l.lineAliases, { ...values, aliases: quotedList(entry.aliases) })
-        : fill(l.line, values)
-    );
-  }
-  if (lines.length === 0) return '';
-  return [typeof l.lead === 'string' ? l.lead : '', ...lines].filter(Boolean).join('\n');
-}
-
 /**
  * `text` with every whole `@handle` of `ids` (handle -> member id) turned into a real mention
  * (`<@id>`), outside URLs (src/memory/mentions.ts#outsideUrls). Only the exact token counts: no
@@ -227,50 +137,6 @@ export function resolveHandles(
  */
 export function assignChannelHandles(ids: Iterable<string>): Map<string, string> {
   return assignHandles({ profiled: ids ?? [] }, { prefix: CHANNEL_HANDLE_PREFIX });
-}
-
-/**
- * The channel directory's entries: one per channel id of `channels` (`{ id, name }`)
- * with a non-blank name, the first given winning; `name` one-line. Sorted by id (oldest first), so the text moves only when a channel
- * is added, removed or renamed -- never with activity, position or time. Pure.
- */
-export function channelDirectoryEntries(
-  channels: Iterable<{ id: string; name: string }>
-): Array<{ id: string; name: string }> {
-  const byId = new Map();
-  for (const channel of channels ?? []) {
-    if (!channel || typeof channel !== 'object' || channel.id === undefined || channel.id === null) continue;
-    const id = String(channel.id);
-    const name = typeof channel.name === 'string' ? oneLine(channel.name) : '';
-    if (id === '' || !name || byId.has(id)) continue;
-    byId.set(id, { id, name });
-  }
-  return [...byId.values()].sort((a, b) => compareIds(a.id, b.id));
-}
-
-/**
- * The `<channel_directory>` block's body: `labels.channelDirectory.lead` (when set), then one line
- * per entry with a handle, `labels.channelDirectory.line` (`{handle}` `{name}`). `{handle}` is the
- * exact token to write, `#` included; `{name}` is a JSON string (quoted, escaped). '' without
- * `labels.channelDirectory.line` or without a line. Pure.
- * @param entries  channelDirectoryEntries'.
- * @param handles  channel id -> handle (assignChannelHandles').
- */
-export function renderChannelDirectory(
-  entries: Array<{ id: string; name: string }>,
-  handles: Map<string, string>,
-  labels: { channelDirectory?: DirectoryLabels | null; [key: string]: unknown }
-): string {
-  const l = labels?.channelDirectory;
-  if (typeof l?.line !== 'string' || !l.line) return '';
-  const lines: Array<string> = [];
-  for (const entry of entries ?? []) {
-    const handle = handles?.get(entry.id);
-    if (!handle) continue;
-    lines.push(fill(l.line, { handle: `#${handle}`, name: JSON.stringify(entry.name) }));
-  }
-  if (lines.length === 0) return '';
-  return [typeof l.lead === 'string' ? l.lead : '', ...lines].filter(Boolean).join('\n');
 }
 
 /** A normalized message, as far as the name map reads it. */

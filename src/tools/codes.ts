@@ -60,6 +60,7 @@ export const CATALOGUE = Object.freeze({
   'daily-cap': skill('denied'),
   'channel-no-permission': skill('denied'),
   'channel-not-visible': skill('denied'),
+  'dm-disabled': skill('denied'),
   'cap-open': skill('denied'),
   'cap-tasks': skill('denied'),
   'heartbeat-only': skill('denied'),

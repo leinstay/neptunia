@@ -9,9 +9,6 @@ import type { CallMark, Line } from '../behavior/lines.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { ConversationInfo } from '../protocol/adapter.ts';
 
-/** No `<recent>` input: no store's lines handed over, so the request builder builds no block. */
-export const NO_RECENT = Object.freeze({ lines: undefined, audience: undefined });
-
 /** The parent lines placed before the window per turn. Production value, config cut of 2026-10-31. */
 const REPLY_PARENTS_MAX = 4;
 

@@ -15,7 +15,7 @@ const API_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 const EFFECT_NAMES: ReadonlyArray<string> = Object.freeze(['read', 'write', 'destructive', 'administrative', 'paid']);
 const COST_NAMES: ReadonlyArray<string> = Object.freeze(['free', 'paid']);
 const RESULT_NAMES: ReadonlyArray<string> = Object.freeze(['effect', 'job', 'data']);
-const REF_KINDS: ReadonlyArray<string> = Object.freeze(['channel', 'user', 'role']);
+const REF_KINDS: ReadonlyArray<string> = Object.freeze(['place', 'user', 'role']);
 
 /** The JSON Schema of an argument, in the few keywords src/tools/schema.ts reads. */
 export type Schema = {
@@ -39,8 +39,8 @@ export type Given = Record<string, unknown> | null | undefined;
 /** The operation's arguments for her `given`, or null when they map to nothing. */
 export type ToArgs = (given: Given) => Obj | null;
 
-/** What a reference argument names: a channel, a member or a role the server resolves to an id. */
-export type RefKind = 'channel' | 'user' | 'role';
+/** What a reference argument names: a place, a member or a role the interface resolves to an id. */
+export type RefKind = 'place' | 'user' | 'role';
 
 /** One skill as the table defines it. */
 export type Definition = {
@@ -88,7 +88,7 @@ export const int = (min?: number, max?: number): Schema => ({
 });
 /** A yes/no. */
 export const bool = (): Schema => ({ type: 'boolean' });
-/** An opaque reference (a member, a channel, a role) the server resolves to an id. */
+/** An opaque reference (a member, a place, a role) the interface resolves to an id. */
 export const ref = (): Schema => ({ type: 'string', minLength: 1, maxLength: 100 });
 
 /** Her argument `name`, or null when she did not give it. */
@@ -123,7 +123,7 @@ export const INTENT_PARAMS = Object.freeze({
     deadline: str(40),
     chain: str(64),
     condition: str(300),
-    channel: ref(),
+    place: ref(),
     attend: ref(),
     people: str(500),
     settle: int(0, 86400),
@@ -144,7 +144,7 @@ export const INTENT_PARAMS = Object.freeze({
     deadline: str(40),
     chain: str(64),
     condition: str(300),
-    channel: ref(),
+    place: ref(),
     people: str(500),
     settle: int(0, 86400),
     perday: int(1, 1000),
@@ -178,7 +178,7 @@ export function intentArgs(action: string): ToArgs {
       const value = val(a, name);
       if (value !== null) out[name] = value;
     }
-    const placeId = idOf(a, 'channel');
+    const placeId = idOf(a, 'place');
     const attend = idOf(a, 'attend');
     return { ...out, ...(placeId ? { placeId } : {}), ...(attend ? { attend } : {}) };
   };
@@ -268,7 +268,7 @@ const JOBS: ReadonlyArray<string> = Object.freeze(['errand.run', 'media.recache'
 const ROUTE_ROLES = ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing'];
 const MEDIA_PARAMS = (kinds: ReadonlyArray<string>): Schema => obj({ kind: oneOf(kinds) }, ['kind']);
 const ACCESS_PARAMS = () => obj({ command: str(), role: ref(), user: ref() }, ['command']);
-const REACT_PARAMS = () => obj({ message: str(), emoji: str(100), channel: ref() }, ['message', 'emoji']);
+const REACT_PARAMS = () => obj({ message: str(), emoji: str(100), place: ref() }, ['message', 'emoji']);
 const USER_ONLY = () => obj({ user: ref() }, ['user']);
 const EMPTY = () => obj({});
 
@@ -311,7 +311,7 @@ const reactArgs =
     action,
     messageId: val(a, 'message'),
     emoji: val(a, 'emoji'),
-    placeId: idOf(a, 'channel'),
+    placeId: idOf(a, 'place'),
   });
 const taskStatusArgs =
   (action: string | undefined): ToArgs =>
@@ -361,12 +361,12 @@ const ENTRIES: Array<Definition> = [
   def('bot.pause', { params: EMPTY(), effects: 'administrative', toArgs: none }),
   def('bot.resume', { params: EMPTY(), effects: 'administrative', toArgs: none }),
   def('draw.create', {
-    params: obj({ text: str(), self: bool(), reply: ref(), channel: ref() }, ['text']),
-    refs: { channel: 'channel' },
+    params: obj({ text: str(), self: bool(), reply: ref(), place: ref() }, ['text']),
+    refs: { place: 'place' },
     body: 'text',
     effects: 'paid',
     toArgs: (a) => {
-      const placeId = idOf(a, 'channel');
+      const placeId = idOf(a, 'place');
       const replyTo = opt(a, 'reply');
       return {
         text: val(a, 'text'),
@@ -377,12 +377,12 @@ const ENTRIES: Array<Definition> = [
     },
   }),
   def('voice.say', {
-    params: obj({ text: str(1500), channel: ref(), reply: str() }, ['text']),
-    refs: { channel: 'channel' },
+    params: obj({ text: str(1500), place: ref(), reply: str() }, ['text']),
+    refs: { place: 'place' },
     body: 'text',
     effects: 'paid',
     toArgs: (a) => {
-      const placeId = idOf(a, 'channel');
+      const placeId = idOf(a, 'place');
       const replyTo = opt(a, 'reply');
       return {
         text: val(a, 'text'),
@@ -553,10 +553,10 @@ const ENTRIES: Array<Definition> = [
     })),
   }),
   def('memory.channel.read', {
-    params: obj({ channel: ref() }),
-    refs: { channel: 'channel' },
+    params: obj({ place: ref() }),
+    refs: { place: 'place' },
     effects: 'read',
-    toArgs: (a) => ({ placeId: idOf(a, 'channel') }),
+    toArgs: (a) => ({ placeId: idOf(a, 'place') }),
   }),
   def('memory.server.read', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('memory.recent.read', { params: EMPTY(), effects: 'read', toArgs: none }),
@@ -597,7 +597,7 @@ const ENTRIES: Array<Definition> = [
   def('message.create', {
     params: obj(
       {
-        channel: ref(),
+        place: ref(),
         reply: str(),
         text: str(2000),
         file: str(300),
@@ -607,11 +607,11 @@ const ENTRIES: Array<Definition> = [
       },
       []
     ),
-    refs: { channel: 'channel' },
+    refs: { place: 'place' },
     body: 'text',
     effects: 'write',
     toArgs: (a) => ({
-      placeId: idOf(a, 'channel'),
+      placeId: idOf(a, 'place'),
       replyTo: opt(a, 'reply'),
       text: opt(a, 'text'),
       file: opt(a, 'file'),
@@ -621,27 +621,27 @@ const ENTRIES: Array<Definition> = [
     }),
   }),
   def('message.edit', {
-    params: obj({ message: str(), text: str(2000), channel: ref() }, ['message', 'text']),
-    refs: { channel: 'channel' },
+    params: obj({ message: str(), text: str(2000), place: ref() }, ['message', 'text']),
+    refs: { place: 'place' },
     body: 'text',
     effects: 'write',
-    toArgs: (a) => ({ messageId: val(a, 'message'), text: val(a, 'text'), placeId: idOf(a, 'channel') }),
+    toArgs: (a) => ({ messageId: val(a, 'message'), text: val(a, 'text'), placeId: idOf(a, 'place') }),
   }),
   def('message.delete', {
-    params: obj({ message: str(), channel: ref() }, ['message']),
-    refs: { channel: 'channel' },
+    params: obj({ message: str(), place: ref() }, ['message']),
+    refs: { place: 'place' },
     effects: 'destructive',
-    toArgs: (a) => ({ messageId: val(a, 'message'), placeId: idOf(a, 'channel') }),
+    toArgs: (a) => ({ messageId: val(a, 'message'), placeId: idOf(a, 'place') }),
   }),
   def('message.react.add', {
     params: REACT_PARAMS(),
-    refs: { channel: 'channel' },
+    refs: { place: 'place' },
     effects: 'write',
     toArgs: reactArgs('add'),
   }),
   def('message.react.remove', {
     params: REACT_PARAMS(),
-    refs: { channel: 'channel' },
+    refs: { place: 'place' },
     effects: 'write',
     toArgs: reactArgs('remove'),
   }),
@@ -740,14 +740,14 @@ const ENTRIES: Array<Definition> = [
   }),
   def('intention.set', {
     params: INTENT_PARAMS.set,
-    refs: { channel: 'channel', attend: 'channel' },
+    refs: { place: 'place', attend: 'place' },
     body: 'text',
     effects: 'write',
     toArgs: intentArgs('add'),
   }),
   def('intention.update', {
     params: INTENT_PARAMS.update,
-    refs: { channel: 'channel' },
+    refs: { place: 'place' },
     body: 'text',
     effects: 'write',
     toArgs: intentArgs('update'),
@@ -813,7 +813,7 @@ const ENTRIES: Array<Definition> = [
     params: obj({
       question: str(500),
       people: str(200),
-      channel: ref(),
+      place: ref(),
       when: str(40),
       terms: str(300),
       anchor: str(200),
@@ -825,13 +825,13 @@ const ENTRIES: Array<Definition> = [
       as_of: str(40),
       historical: bool(),
     }),
-    refs: { channel: 'channel' },
+    refs: { place: 'place' },
     body: 'question',
     effects: 'read',
     toArgs: (a) => ({
       question: opt(a, 'question'),
       people: opt(a, 'people'),
-      placeId: idOf(a, 'channel'),
+      placeId: idOf(a, 'place'),
       when: opt(a, 'when'),
       terms: opt(a, 'terms'),
       // The window read's arguments ride along only when she gave them.
@@ -849,14 +849,14 @@ const ENTRIES: Array<Definition> = [
   }),
   def('conversation.read', {
     params: obj({
-      channel: ref(),
+      place: ref(),
       around: str(200),
       before: str(200),
       after: str(200),
       since: str(40),
       last: int(1, 60),
     }),
-    refs: { channel: 'channel' },
+    refs: { place: 'place' },
     effects: 'read',
     toArgs: (a) => {
       const out: Obj = {};
@@ -864,7 +864,7 @@ const ENTRIES: Array<Definition> = [
         const value = val(a, name);
         if (value !== null) out[name] = value;
       }
-      const placeId = idOf(a, 'channel');
+      const placeId = idOf(a, 'place');
       return {
         ...out,
         ...(placeId ? { placeId } : {}),

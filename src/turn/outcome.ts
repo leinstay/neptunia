@@ -33,7 +33,7 @@ type EndTrigger = {
 
 /** What a turn was asked to do, as its end reads it; the attempt reads the rest. */
 /** The modes a turn runs in. */
-export type TurnMode = 'reply' | 'interject' | 'elsewhere' | 'inner' | 'selfreflection';
+export type TurnMode = 'reply' | 'interject' | 'inner' | 'selfreflection';
 
 export type TurnParams = {
   memoryContext?: Context;
@@ -175,7 +175,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   history, the journal's turn under herself, a tool that takes a place needs it named
    * @param {{ turnId: string, attemptId?: number }|null} [params.journalTurn]  The journal's turn and attempt (runTurn passes them on).
    * @param {string} [params.placeId]  The community of a private chat; a server channel uses its own; a private chat with neither has none.
-   * @param {'reply'|'interject'|'elsewhere'|'selfreflection'|'inner'} params.mode  'inner' is an inner turn
+   * @param {'reply'|'interject'|'selfreflection'|'inner'} params.mode  'inner' is an inner turn
    *   (with `params.inner`).
    * @param {{ wake: import('./inner/types.ts').TurnWake, shadow: boolean, mayAct?: () => boolean, currentChannel?: string|null }|null} [params.inner]  An inner turn (src/behavior/inner.ts,
    *   docs/inner-life.md), with `mode: 'inner'` and no trigger: nobody's message is fabricated; its

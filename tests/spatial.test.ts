@@ -1,5 +1,5 @@
 // src/turn/request/spatial.ts: the `<spatial_awareness>` body, where and when she is, and the whereabouts a turn
-// resolves from its interface, its place and the places tree. The labels are the fixture's markers, so a test checks
+// reads off its frame. The labels are the fixture's markers, so a test checks
 // which lines were built and in what order, never their wording. Synthetic names only.
 //
 // Signatures these tests hold the code to:
@@ -12,10 +12,7 @@
 //   export function spatialAwarenessText(input: {
 //     whereabouts: Whereabouts; now: number; timezone: string; labels: Labels; notes: unknown;
 //   }): string;
-//   export function whereaboutsOf(input: {
-//     iface: string | null; placeId: string | null; isPrivate: boolean;
-//     chainOf: ((placeId: string) => ReadonlyArray<PlaceLink>) | null;
-//   }): Whereabouts;
+//   export function whereaboutsOfFrame(frame: Frame, nouns?: Readonly<Record<string, string>>): Whereabouts;
 // `chain` runs from the place itself up to the top of its tree. `notes` is `config.spatial.notes`: stored place id ->
 // the owner's note.
 // Stage AC, the owner's word of 2026-11-06: a wake with no conversation place says she is at the command line of her own
@@ -23,8 +20,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatNow } from '../src/format.ts';
-import { spatialAwarenessText, whereaboutsOf } from '../src/turn/request/spatial.ts';
+import { frameOf } from '../src/turn/request/frame.ts';
+import { spatialAwarenessText, whereaboutsOfFrame } from '../src/turn/request/spatial.ts';
 import type { PlaceLink } from '../src/turn/request/spatial.ts';
+import { frameInput, wakeInput } from './fixtures/frame-input.ts';
 import { labels } from './fixtures/labels.ts';
 
 const NOW = Date.parse('2026-11-06T14:05:00Z');
@@ -46,19 +45,21 @@ function textOf(chain: ReadonlyArray<PlaceLink>, notes: unknown = {}, isPrivate 
   });
 }
 
-// A category is no place, the owner's word of 2026-11-06, so no chain holds one.
+// A category is no place, the owner's word of 2026-11-06, so no chain holds one. Slice 7: the labels hold no word for a
+// server, a channel or a thread; each reads `spatial.kind` with its native kind as the noun (the fixture's
+// `{noun} {name}`), so a channel no longer carries the `#` of the old `kinds.channel`.
 test('a channel names the channel and its server, then the interface and the time', () => {
   // Bug: the path is read root first, or a level of the nesting is dropped, and she places herself in the server.
   assert.equal(
     textOf([CHANNEL, SERVER]),
-    [`SPATIAL-PLACE channel #general < server Example Server ON discord AT ${WHEN}`, 'SPATIAL-GROUP'].join('\n')
+    [`SPATIAL-PLACE channel general < server Example Server ON discord AT ${WHEN}`, 'SPATIAL-GROUP'].join('\n')
   );
 });
 
 test('a channel with no category goes straight to its server', () => {
   assert.equal(
     textOf([BARE_CHANNEL, SERVER]).split('\n')[0],
-    `SPATIAL-PLACE channel #off-topic < server Example Server ON discord AT ${WHEN}`
+    `SPATIAL-PLACE channel off-topic < server Example Server ON discord AT ${WHEN}`
   );
 });
 
@@ -66,7 +67,7 @@ test('a thread names itself, then the channel it sits in, up to the server', () 
   // Bug: a thread is shown as its channel, so she answers the channel's topic inside a thread.
   assert.equal(
     textOf([THREAD, CHANNEL, SERVER]).split('\n')[0],
-    `SPATIAL-PLACE thread weekend plans < channel #general < server Example Server ON discord AT ${WHEN}`
+    `SPATIAL-PLACE thread weekend plans < channel general < server Example Server ON discord AT ${WHEN}`
   );
 });
 
@@ -126,7 +127,7 @@ test('no notes setting at all gives no note line and no failure', () => {
   // Bug: a deployment without `spatial.notes` throws in the middle of every turn.
   for (const notes of [undefined, null, 'adults only', ['adults only']]) {
     const text = textOf([CHANNEL, SERVER], notes);
-    assert.ok(text.startsWith('SPATIAL-PLACE channel #general'), text);
+    assert.ok(text.startsWith('SPATIAL-PLACE channel general'), text);
     assert.ok(!text.includes('SPATIAL-NOTE'), text);
   }
 });
@@ -139,53 +140,49 @@ test('the command line, her server and her world carry no note, whatever the not
   }
 });
 
-test('a place of an unknown kind and with no name reads through the fallback labels', () => {
+// Slice 7: a native kind the labels do not name reads `spatial.kind` with the kind itself as the noun
+// (docs/prompt-contract.md), so only a place with no kind falls back to `kinds.place`.
+test('a place with no kind and no name reads through the fallback labels, an unnamed kind through its own word', () => {
   // Bug: a place the store has not named yet renders `undefined` or a raw `{name}` to the model.
   const text = textOf([
     { id: 'p-x', kind: null, name: null },
     { id: 'p-y', kind: 'board', name: 'Notices' },
   ]);
-  assert.equal(text.split('\n')[0], `SPATIAL-PLACE place UNNAMED < place Notices ON discord AT ${WHEN}`);
+  assert.equal(text.split('\n')[0], `SPATIAL-PLACE place UNNAMED < board Notices ON discord AT ${WHEN}`);
 });
 
-test('whereaboutsOf: the command line is the command line, whatever place it is given', () => {
-  assert.deepEqual(whereaboutsOf({ iface: 'cli', placeId: 'cli:dm:owner', isPrivate: true, chainOf: () => [DM] }), {
-    kind: 'cli',
-  });
+// Slice 7: whereaboutsOf left with the old producers; every turn states its whereabouts through its frame
+// (whereaboutsOfFrame), and a place the tree does not hold yet is a chain of itself before the frame is built
+// (src/turn/phases/request/build.ts).
+test('whereaboutsOfFrame: the command line is the command line, whatever place it is given', () => {
+  const frame = frameOf(
+    frameInput({ interface: 'cli', chain: [DM], dm: { word: 'dm', nativeId: 'owner', partner: null } })
+  );
+  assert.deepEqual(whereaboutsOfFrame(frame), { kind: 'cli' });
 });
 
-test('whereaboutsOf: a turn with no place or no interface is on her own server', () => {
-  assert.deepEqual(whereaboutsOf({ iface: 'discord', placeId: null, isPrivate: false, chainOf: () => [CHANNEL] }), {
-    kind: 'server',
-  });
-  assert.deepEqual(whereaboutsOf({ iface: null, placeId: 'p-channel', isPrivate: false, chainOf: () => [CHANNEL] }), {
-    kind: 'server',
-  });
+test('whereaboutsOfFrame: a turn with no place or no interface is on her own server', () => {
+  assert.deepEqual(whereaboutsOfFrame(frameOf(wakeInput('heartbeat', { interface: 'discord' }))), { kind: 'server' });
+  assert.deepEqual(whereaboutsOfFrame(frameOf(frameInput({ interface: '', chain: [CHANNEL] }))), { kind: 'server' });
 });
 
-test('whereaboutsOf: a place takes its chain from the tree and its privacy from the turn', () => {
-  const asked: Array<string> = [];
-  const chainOf = (placeId: string): ReadonlyArray<PlaceLink> => {
-    asked.push(placeId);
-    return [CHANNEL, SERVER];
-  };
-  assert.deepEqual(whereaboutsOf({ iface: 'discord', placeId: 'p-channel', isPrivate: false, chainOf }), {
+test('whereaboutsOfFrame: a place takes its chain from the frame and its privacy from the scope', () => {
+  const group = frameOf(frameInput({ interface: 'discord', chain: [CHANNEL, SERVER] }));
+  assert.deepEqual(whereaboutsOfFrame(group), {
     kind: 'place',
     iface: 'discord',
     private: false,
     chain: [CHANNEL, SERVER],
+    nouns: {},
   });
-  assert.deepEqual(asked, ['p-channel']);
-});
-
-test('whereaboutsOf: a place the tree does not know yet is still a place, unnamed', () => {
-  // Bug: the first turn in a new channel says she is nowhere because no line of it is stored yet.
-  const expected = {
+  const direct = frameOf(
+    frameInput({ interface: 'discord', chain: [DM], dm: { word: 'dm', nativeId: '1', partner: null } })
+  );
+  assert.deepEqual(whereaboutsOfFrame(direct), {
     kind: 'place',
     iface: 'discord',
     private: true,
-    chain: [{ id: 'p-new', kind: null, name: null }],
-  };
-  assert.deepEqual(whereaboutsOf({ iface: 'discord', placeId: 'p-new', isPrivate: true, chainOf: () => [] }), expected);
-  assert.deepEqual(whereaboutsOf({ iface: 'discord', placeId: 'p-new', isPrivate: true, chainOf: null }), expected);
+    chain: [DM],
+    nouns: {},
+  });
 });

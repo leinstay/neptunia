@@ -25,6 +25,8 @@ import '../src/tools/impl/index.ts';
 import { createAdmin } from '../src/admin.ts';
 import { toolResultText } from '../src/tools/tool-calls.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
+import { createIfaceRouter } from '../src/interface/link.ts';
+import { createReads } from '../src/interface/reads.ts';
 import { RESULT_STATUSES, executeCall, outcomeDetail, refusalStatus, resolveCall } from '../src/tools/executors.ts';
 import type { ExecuteDeps, Resolved } from '../src/tools/executors.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
@@ -176,9 +178,9 @@ function resolve(
 test("resolveCall: only a registry skill; its arguments are its command's options by name", () => {
   assert.deepEqual([resolve('files.wipe').ok, resolve('files.wipe').code], [false, 'unknown-skill']);
   assert.equal(resolve('draw').code, 'unknown-skill', 'no skill exists that is not an operation');
-  const said = resolve('message.create', { channel: '#Νέα', text: 'καλημέρα' });
-  assert.deepEqual([said.ok, said.skill, said.args], [true, 'message.create', { channel: NEWS, text: 'καλημέρα' }]);
-  assert.deepEqual(resolve('message.create', { channel: '#νέα', who: 'x', text: 'γεια' }).reason, 'args.who:unknown');
+  const said = resolve('message.create', { place: '#Νέα', text: 'καλημέρα' });
+  assert.deepEqual([said.ok, said.skill, said.args], [true, 'message.create', { place: NEWS, text: 'καλημέρα' }]);
+  assert.deepEqual(resolve('message.create', { place: '#νέα', who: 'x', text: 'γεια' }).reason, 'args.who:unknown');
   assert.equal('bodyArg' in said, false, 'no body is read any more');
   // whole numbers and yes/no are read strictly; anything else stays text for the schema to refuse
   assert.deepEqual(resolve('rule.remove', { number: '3' }).args, { number: 3 });
@@ -259,11 +261,11 @@ test("resolveCall: a member by the request's @handle; the people of an attention
 
 test('resolveCall: a channel by name, mention or id; a member by name, alias or mention; a role by name or mention', () => {
   for (const channel of ['#🍡νέα', '💖νέα', 'ΝΕΑ'])
-    assert.equal(resolve('memory.channel.read', { channel }).args.channel, NEWS, channel);
-  assert.equal(resolve('memory.channel.read', { channel: '<#123>' }).args.channel, '123', 'a mention is its id');
-  assert.deepEqual([resolve('memory.channel.read', { channel: '#κουζίνα' }).code], ['target-ambiguous']);
-  assert.equal(resolve('memory.channel.read', { channel: '#🍰κουζίνα' }).args.channel, 'k2', 'the exact name wins');
-  assert.deepEqual(resolve('memory.channel.read', { channel: '#κανένα' }).reason, 'args.channel:unknown-channel');
+    assert.equal(resolve('memory.channel.read', { place: channel }).args.place, NEWS, channel);
+  assert.equal(resolve('memory.channel.read', { place: '<#123>' }).args.place, '123', 'a mention is its id');
+  assert.deepEqual([resolve('memory.channel.read', { place: '#κουζίνα' }).code], ['target-ambiguous']);
+  assert.equal(resolve('memory.channel.read', { place: '#🍰κουζίνα' }).args.place, 'k2', 'the exact name wins');
+  assert.deepEqual(resolve('memory.channel.read', { place: '#κανένα' }).reason, 'args.place:unknown-channel');
   for (const user of ['Zoë', '@zoë', 'Ζωή', `<@${MEMBER}>`, MEMBER])
     assert.equal(resolve('memory.profile.read', { user }).args.user, MEMBER, user);
   assert.deepEqual(
@@ -281,7 +283,7 @@ test('resolveCall: a channel by name, mention or id; a member by name, alias or 
 
 test('resolveCall: a transcript number names a message she saw and its channel; edit and delete reach only her own', () => {
   const edit = resolve('message.edit', { message: '#4' }, 'διόρθωση');
-  assert.deepEqual(edit.args, { message: '1004', text: 'διόρθωση', channel: NEWS });
+  assert.deepEqual(edit.args, { message: '1004', text: 'διόρθωση', place: NEWS });
   assert.equal(resolve('message.delete', { message: '#2' }).args.message, '1002');
   assert.deepEqual([resolve('message.edit', { message: '#1' }, 'όχι').code], ['not-own-message']);
   assert.deepEqual([resolve('message.delete', { message: '#3' }).code], ['not-own-message']);
@@ -290,15 +292,15 @@ test('resolveCall: a transcript number names a message she saw and its channel; 
     ['unknown-message', 'message']
   );
   // the channel she names does not hold it: the line's own channel wins
-  assert.deepEqual([resolve('message.delete', { message: '#4', channel: '#γενικά' }).args.channel], [NEWS]);
+  assert.deepEqual([resolve('message.delete', { message: '#4', place: '#γενικά' }).args.place], [NEWS]);
   // a reaction on anyone's line; a reply records whom it answers
   assert.deepEqual(resolve('message.react.add', { message: '#3', emoji: '🎉' }).args, {
     message: '1003',
     emoji: '🎉',
-    channel: NEWS,
+    place: NEWS,
   });
   const reply = resolve('message.create', { reply: '#3' }, 'απάντηση');
-  assert.deepEqual([reply.args, reply.repliedAuthorId], [{ reply: '1003', text: 'απάντηση', channel: NEWS }, MEMBER]);
+  assert.deepEqual([reply.args, reply.repliedAuthorId], [{ reply: '1003', text: 'απάντηση', place: NEWS }, MEMBER]);
 });
 
 /** An admin over a fake store and the fake port, with the operations a call reaches. */
@@ -441,7 +443,7 @@ test('executeCall: message.create posts her own text where she may, the reply no
   // The lead: `asked` names who chose `on`, nobody here (owner, 2026-11-06: silent mode pings only those members).
   assert.deepEqual(posted.mentions, { users: [], repliedUser: true, asked: { users: [], repliedUser: false } });
   // a channel the bot may see but not send in: refused before anything is sent
-  const away = await executeCall(resolve('message.create', { channel: '#αλλού' }, 'γεια'), deps(admin, port));
+  const away = await executeCall(resolve('message.create', { place: '#αλλού' }, 'γεια'), deps(admin, port));
   assert.deepEqual([away.status, away.code], ['denied', 'channel-no-permission']);
   assert.equal(port.messagesIn(ELSEWHERE).length, 0);
   // a port answer of unknown fate: unknown, never ok
@@ -585,8 +587,8 @@ test('message.create gif=: an attached GIF posts a fresh URL of its attachment; 
 test('resolveCall and executeCall: a file handle of one of her errands attaches its file; an unknown handle or a file too large is refused', async () => {
   const known = 'file:tab1/meme.png';
   const fileOf = (handle: string) => (handle === known ? { name: 'meme.png' } : null);
-  const call = resolve('message.create', { file: known, channel: '#νέα' }, 'βρήκα', { fileOf });
-  assert.deepEqual([call.ok, call.args], [true, { file: known, channel: NEWS, text: 'βρήκα' }]);
+  const call = resolve('message.create', { file: known, place: '#νέα' }, 'βρήκα', { fileOf });
+  assert.deepEqual([call.ok, call.args], [true, { file: known, place: NEWS, text: 'βρήκα' }]);
   const unknown = resolve('message.create', { file: 'file:tab1/other.png' }, 'βρήκα', { fileOf });
   assert.deepEqual([unknown.ok, unknown.code, unknown.reason], [false, 'unknown-file', 'file']);
   assert.equal(refusalStatus('unknown-file'), 'invalid', 'a call that was not right');
@@ -643,10 +645,10 @@ test("resolveCall: an errand's file goes to the channel the errand was asked in,
     given === handle ? { name: 'meme.png', errand: task(goal) } : null;
   const here = { fileOf: fileOf('φέρε μια εικόνα εδώ') };
   // To the origin channel (the result turn's own): passes.
-  const origin = resolve('message.create', { file: handle, channel: '#γενικά' }, 'βρήκα', here);
-  assert.deepEqual([origin.ok, origin.args], [true, { file: handle, channel: HERE, text: 'βρήκα' }]);
+  const origin = resolve('message.create', { file: handle, place: '#γενικά' }, 'βρήκα', here);
+  assert.deepEqual([origin.ok, origin.args], [true, { file: handle, place: HERE, text: 'βρήκα' }]);
   // To another channel nobody named: refused, a wrong call.
-  const elsewhere = resolve('message.create', { file: handle, channel: '#νέα' }, 'βρήκα', here);
+  const elsewhere = resolve('message.create', { file: handle, place: '#νέα' }, 'βρήκα', here);
   assert.deepEqual([elsewhere.ok, elsewhere.code], [false, 'file-elsewhere']);
   assert.equal(refusalStatus('file-elsewhere'), 'invalid');
   assert.equal(
@@ -661,27 +663,27 @@ test("resolveCall: an errand's file goes to the channel the errand was asked in,
     'στείλε την εικόνα στο #c8gtz',
     'στείλε την στο <#c-news>, ευχαριστώ',
   ]) {
-    const named = resolve('message.create', { file: handle, channel: '#νέα' }, 'βρήκα', {
+    const named = resolve('message.create', { file: handle, place: '#νέα' }, 'βρήκα', {
       fileOf: fileOf(goal),
       channelHandles: new Map([['c8gtz', NEWS]]),
     });
-    assert.deepEqual([named.ok, named.args.channel], [true, NEWS], goal);
+    assert.deepEqual([named.ok, named.args.place], [true, NEWS], goal);
   }
   // A word that only contains the name is no naming of it.
   assert.equal(
-    resolve('message.create', { file: handle, channel: '#νέα' }, 'βρήκα', {
+    resolve('message.create', { file: handle, place: '#νέα' }, 'βρήκα', {
       fileOf: fileOf('μια εικόνα για τη γενεά μας'),
     }).code,
     'file-elsewhere'
   );
   // The trigger message of the turn names it: passes.
-  const asked = resolve('message.create', { file: handle, channel: '#νέα' }, 'βρήκα', {
+  const asked = resolve('message.create', { file: handle, place: '#νέα' }, 'βρήκα', {
     ...here,
     triggerText: "βάλ' την και στο νέα",
   });
-  assert.deepEqual([asked.ok, asked.args.channel], [true, NEWS]);
+  assert.deepEqual([asked.ok, asked.args.place], [true, NEWS]);
   assert.equal(
-    resolve('message.create', { file: handle, channel: '#νέα' }, 'βρήκα', { ...here, triggerText: 'ωραία' }).code,
+    resolve('message.create', { file: handle, place: '#νέα' }, 'βρήκα', { ...here, triggerText: 'ωραία' }).code,
     'file-elsewhere'
   );
   // Without a channel: resolved without one, and posted to the current conversation as today.
@@ -782,7 +784,7 @@ test("executeCall: edit and delete change her own message; the port refuses anyo
     {
       ok: true,
       skill: 'message.edit',
-      args: { message: '1003', text: 'όχι', channel: NEWS },
+      args: { message: '1003', text: 'όχι', place: NEWS },
       dispatch: skill?.dispatch as Resolved['dispatch'],
       repliedAuthorId: null,
     },
@@ -831,39 +833,39 @@ test('executeCall: `last` edits or deletes her own most recent message in the ch
     ['3001', '3003']
   );
   // None of hers among them: a clear failure, nothing touched.
-  const none = await executeCall(resolve('message.delete', { message: 'last', channel: '#νέα' }), deps(admin, port));
+  const none = await executeCall(resolve('message.delete', { message: 'last', place: '#νέα' }), deps(admin, port));
   assert.deepEqual([none.status, none.code], ['invalid', 'no-own-message']);
 });
 
 test('resolveCall: a message link names the message and its channel; a raw id passes as written', () => {
   const link = 'https://discord.com/channels/111/555/1009';
   const conversations = [...view().conversations, { id: '555', name: 'ιστορίες' }];
-  assert.deepEqual(resolve('message.delete', { message: link }).args, { message: '1009', channel: '555' });
+  assert.deepEqual(resolve('message.delete', { message: link }).args, { message: '1009', place: '555' });
   assert.deepEqual(
     resolve('message.delete', { message: `<${link}>` }).args,
-    { message: '1009', channel: '555' },
+    { message: '1009', place: '555' },
     'in angle brackets too'
   );
-  assert.deepEqual(resolve('message.edit', { message: link, channel: '#ιστορίες' }, 'σωστό', { conversations }).args, {
+  assert.deepEqual(resolve('message.edit', { message: link, place: '#ιστορίες' }, 'σωστό', { conversations }).args, {
     message: '1009',
-    channel: '555',
+    place: '555',
     text: 'σωστό',
   });
   assert.deepEqual(
     resolve('message.react.add', { message: 'https://ptb.discord.com/channels/111/555/1009', emoji: '🎉' }).args,
-    { message: '1009', emoji: '🎉', channel: '555' }
+    { message: '1009', emoji: '🎉', place: '555' }
   );
   const reply = resolve('message.create', { reply: link }, 'απάντηση');
-  assert.deepEqual([reply.ok, reply.args], [true, { reply: '1009', text: 'απάντηση', channel: '555' }]);
+  assert.deepEqual([reply.ok, reply.args], [true, { reply: '1009', text: 'απάντηση', place: '555' }]);
   // the channel she names does not hold it: the link's own channel wins
-  const fixed = resolve('message.delete', { message: link, channel: '#γενικά' });
-  assert.deepEqual([fixed.ok, fixed.args, fixed.channelFixed], [true, { message: '1009', channel: '555' }, true]);
+  const fixed = resolve('message.delete', { message: link, place: '#γενικά' });
+  assert.deepEqual([fixed.ok, fixed.args, fixed.channelFixed], [true, { message: '1009', place: '555' }, true]);
   // elsewhere than the five message calls the channel she names must still be the link's
-  assert.equal(resolve('conversation.read', { before: link, channel: '#γενικά' }).reason, 'conversation');
+  assert.equal(resolve('conversation.read', { before: link, place: '#γενικά' }).reason, 'conversation');
   // a raw id: as written, its channel the one she names
-  assert.deepEqual(resolve('message.delete', { message: '123456789012345678', channel: '#νέα' }).args, {
+  assert.deepEqual(resolve('message.delete', { message: '123456789012345678', place: '#νέα' }).args, {
     message: '123456789012345678',
-    channel: NEWS,
+    place: NEWS,
   });
 });
 
@@ -897,7 +899,7 @@ test('executeCall: draw.create without a channel posts its picture here, once; w
   assert.equal(here.status, 'ok', JSON.stringify(here));
   assert.equal(generated.length, 1);
   assert.equal(asRecord(port.calls.filter((call) => call.op === 'send')[0].args[0]).conversationId, HERE);
-  const there = await executeCall(resolve('draw.create', { channel: '#νέα' }, 'a lighthouse'), deps(admin, port));
+  const there = await executeCall(resolve('draw.create', { place: '#νέα' }, 'a lighthouse'), deps(admin, port));
   assert.equal(there.status, 'ok', JSON.stringify(there));
   assert.equal(asRecord(port.calls.filter((call) => call.op === 'send')[1].args[0]).conversationId, NEWS);
   assert.equal(generated.length, 2, 'one generation per call');
@@ -914,29 +916,35 @@ function direct(skill: string, args: Obj): Resolved {
 // like any other; a DM stays refused here because the config sets no `private.enabled`.
 test('executeCall: she may post in any text channel the bot may send in, another guild included -- no list; permissions are the only limit', async () => {
   const { admin, port } = makeAdmin();
-  const there = await executeCall(resolve('message.create', { channel: '#νέα' }, 'καλημέρα'), deps(admin, port));
+  const there = await executeCall(resolve('message.create', { place: '#νέα' }, 'καλημέρα'), deps(admin, port));
   assert.equal(there.status, 'ok', JSON.stringify(there));
   assert.equal(port.messagesIn(NEWS).at(-1)?.text, 'καλημέρα');
   // the current conversation needs no lookup at all, as before
   const here = await executeCall(resolve('message.create', {}, 'εδώ'), deps(admin, port));
   assert.equal(here.status, 'ok', JSON.stringify(here));
   assert.equal(port.messagesIn(HERE).at(-1)?.text, 'εδώ');
-  const away = await executeCall(direct('message.create', { channel: OTHER_GUILD, text: 'γεια' }), deps(admin, port));
+  const away = await executeCall(direct('message.create', { place: OTHER_GUILD, text: 'γεια' }), deps(admin, port));
   assert.equal(away.status, 'ok', JSON.stringify(away));
   assert.equal(port.messagesIn(OTHER_GUILD).at(-1)?.text, 'γεια');
-  // no permission to send, a DM while private chats are off, a channel the bot cannot find: refused, nothing sent
-  for (const channel of [ELSEWHERE, DM, 'c-unknown']) {
-    const refused = await executeCall(direct('message.create', { channel, text: 'γεια' }), deps(admin, port));
-    assert.deepEqual([refused.status, refused.code], ['denied', 'channel-no-permission'], channel);
+  // no permission to send, a DM while private chats are off, a channel the bot cannot find: refused, nothing sent.
+  // Slice 7 of the turn frame: the DM is refused with `dm-disabled`, the code that names the switch, in place of
+  // `channel-no-permission`, so she can tell a closed direct chat from a room without permission.
+  for (const [channel, code] of [
+    [ELSEWHERE, 'channel-no-permission'],
+    [DM, 'dm-disabled'],
+    ['c-unknown', 'channel-no-permission'],
+  ]) {
+    const refused = await executeCall(direct('message.create', { place: channel, text: 'γεια' }), deps(admin, port));
+    assert.deepEqual([refused.status, refused.code], ['denied', code], channel);
     assert.equal(port.messagesIn(channel).length, 0, channel);
   }
 });
 
 test('executeCall: a leftover tools.conversations is ignored -- it neither opens nor closes a channel', async () => {
   const { admin, port } = makeAdmin({ cfg: config({ tools: { conversations: [ELSEWHERE] } }) });
-  const listed = await executeCall(resolve('message.create', { channel: '#αλλού' }, 'γεια'), deps(admin, port));
+  const listed = await executeCall(resolve('message.create', { place: '#αλλού' }, 'γεια'), deps(admin, port));
   assert.deepEqual([listed.status, listed.code], ['denied', 'channel-no-permission']);
-  const unlisted = await executeCall(resolve('message.create', { channel: '#νέα' }, 'γεια'), deps(admin, port));
+  const unlisted = await executeCall(resolve('message.create', { place: '#νέα' }, 'γεια'), deps(admin, port));
   assert.equal(unlisted.status, 'ok', JSON.stringify(unlisted));
 });
 
@@ -947,38 +955,35 @@ test('executeCall: each operation needs its own permissions there -- edit, delet
   port.seed(ELSEWHERE, { authorId: MEMBER, messageId: '2003', text: 'ερώτηση' });
   // READ_ONLY: no Add Reactions -- an edit and taking a reaction back pass, a new reaction does not
   const edited = await executeCall(
-    direct('message.edit', { message: '2001', channel: READ_ONLY, text: 'σωστό' }),
+    direct('message.edit', { message: '2001', place: READ_ONLY, text: 'σωστό' }),
     deps(admin, port)
   );
   assert.equal(edited.status, 'ok', JSON.stringify(edited));
   const reacted = await executeCall(
-    direct('message.react.add', { message: '2001', channel: READ_ONLY, emoji: '🎉' }),
+    direct('message.react.add', { message: '2001', place: READ_ONLY, emoji: '🎉' }),
     deps(admin, port)
   );
   assert.deepEqual([reacted.status, reacted.code], ['denied', 'channel-no-permission']);
   const unreacted = await executeCall(
-    direct('message.react.remove', { message: '2001', channel: READ_ONLY, emoji: '🎉' }),
+    direct('message.react.remove', { message: '2001', place: READ_ONLY, emoji: '🎉' }),
     deps(admin, port)
   );
   assert.equal(unreacted.status, 'ok', JSON.stringify(unreacted));
   // ELSEWHERE: no Send Messages -- her old message may go and a reaction may land, a reply may not
-  const deleted = await executeCall(
-    direct('message.delete', { message: '2002', channel: ELSEWHERE }),
-    deps(admin, port)
-  );
+  const deleted = await executeCall(direct('message.delete', { message: '2002', place: ELSEWHERE }), deps(admin, port));
   assert.equal(deleted.status, 'ok', JSON.stringify(deleted));
   const liked = await executeCall(
-    direct('message.react.add', { message: '2003', channel: ELSEWHERE, emoji: '🎉' }),
+    direct('message.react.add', { message: '2003', place: ELSEWHERE, emoji: '🎉' }),
     deps(admin, port)
   );
   assert.equal(liked.status, 'ok', JSON.stringify(liked));
   const replied = await executeCall(
-    direct('message.create', { reply: '2003', channel: ELSEWHERE, text: 'απάντηση' }),
+    direct('message.create', { reply: '2003', place: ELSEWHERE, text: 'απάντηση' }),
     deps(admin, port)
   );
   assert.deepEqual([replied.status, replied.code], ['denied', 'channel-no-permission']);
   // a DM is never a target, whatever it would allow
-  const dm = await executeCall(direct('message.delete', { message: '2002', channel: DM }), deps(admin, port));
+  const dm = await executeCall(direct('message.delete', { message: '2002', place: DM }), deps(admin, port));
   assert.deepEqual([dm.status, dm.code], ['denied', 'channel-no-permission']);
 });
 
@@ -997,7 +1002,7 @@ test('executeCall: draw.create to a channel without Attach Files is refused befo
     extra: { images },
   });
   const refused = await executeCall(
-    direct('draw.create', { channel: NO_FILES, text: 'a lighthouse' }),
+    direct('draw.create', { place: NO_FILES, text: 'a lighthouse' }),
     deps(admin, port)
   );
   assert.deepEqual([refused.status, refused.code], ['denied', 'channel-no-permission']);
@@ -1073,7 +1078,7 @@ test('outcomeDetail: a non-ok outcome names its argument, its message or its cod
   // resolveCall's own reasons, as it gives them.
   const of = (refusal: Untyped) =>
     outcomeDetail({ status: refusalStatus(refusal.code), code: refusal.code, reason: refusal.reason });
-  assert.deepEqual(of(resolve('message.create', { channel: '#νέα', who: 'x' }, 'γεια')), {
+  assert.deepEqual(of(resolve('message.create', { place: '#νέα', who: 'x' }, 'γεια')), {
     kind: 'unknown-arg',
     code: 'invalid-args',
     arg: 'who',
@@ -1097,17 +1102,18 @@ test('outcomeDetail: a non-ok outcome names its argument, its message or its cod
     code: 'invalid-args',
     arg: 'text',
   });
-  assert.deepEqual(of(resolve('message.create', { channel: '#πουθενά' }, 'x')), {
+  // Slice 7: the tool argument `channel` is named `place`.
+  assert.deepEqual(of(resolve('message.create', { place: '#πουθενά' }, 'x')), {
     kind: 'unknown-channel',
     code: 'invalid-args',
-    arg: 'channel',
+    arg: 'place',
   });
   assert.deepEqual(of(resolve('message.delete', { message: '#7' })), {
     kind: 'unknown-message',
     code: 'unknown-message',
     arg: 'message',
   });
-  assert.deepEqual(of(resolve('conversation.read', { before: '#4', channel: '#γενικά' })), {
+  assert.deepEqual(of(resolve('conversation.read', { before: '#4', place: '#γενικά' })), {
     kind: 'message-elsewhere',
     code: 'unknown-message',
     arg: null,
@@ -1162,7 +1168,7 @@ test("executeCall: an in-turn tool runs in place of the command, on the operatio
   const inTurn = {
     'memory.search': async (args: unknown) => (seen.push(args), { status: 'ok', data: { text: 'βρέθηκαν' } }),
   };
-  const resolved = resolve('memory.search', { channel: '#νέα', terms: 'λαγός' }, 'τι είπε η Ana');
+  const resolved = resolve('memory.search', { place: '#νέα', terms: 'λαγός' }, 'τι είπε η Ana');
   assert.equal(resolved.ok, true);
   const result = await executeCall(
     resolved,
@@ -1260,20 +1266,20 @@ test('resolveCall: the channel of a #N message wins over a channel that does not
     ['message.delete', { message: '#4' }],
   ];
   for (const [skill, args] of fixedChannelCalls) {
-    const r = resolve(skill, { ...args, channel: '#γενικά' });
-    assert.deepEqual([r.ok, r.args.channel, r.channelFixed], [true, NEWS, true], skill);
+    const r = resolve(skill, { ...args, place: '#γενικά' });
+    assert.deepEqual([r.ok, r.args.place, r.channelFixed], [true, NEWS, true], skill);
   }
-  const edit = resolve('message.edit', { message: '#4', channel: '#γενικά' }, 'νέο');
-  assert.deepEqual([edit.ok, edit.args.channel], [true, NEWS]);
+  const edit = resolve('message.edit', { message: '#4', place: '#γενικά' }, 'νέο');
+  assert.deepEqual([edit.ok, edit.args.place], [true, NEWS]);
   // Contract change: message.create no longer takes the reply's channel over a destination she named. That substitution posted a reply in another channel than the one she chose. A mismatch is refused unknown-message (conversation), nothing sent; react, edit and delete keep the rule because their channel only locates the message they act on.
-  const reply = resolve('message.create', { reply: '#3', channel: '#γενικά' }, 'ναι');
+  const reply = resolve('message.create', { reply: '#3', place: '#γενικά' }, 'ναι');
   assert.deepEqual([reply.ok, reply.reason], [false, 'conversation']);
   assert.equal(
-    resolve('message.react.add', { message: '#3', emoji: '🎉', channel: '#💖νέα' }).channelFixed,
+    resolve('message.react.add', { message: '#3', emoji: '🎉', place: '#💖νέα' }).channelFixed,
     undefined,
     'the right channel is no fix'
   );
-  assert.equal(resolve('conversation.read', { before: '#3', channel: '#γενικά' }).reason, 'conversation');
+  assert.equal(resolve('conversation.read', { before: '#3', place: '#γενικά' }).reason, 'conversation');
 });
 
 type HeldMessages = Record<string, { author: { id: string }; attachments?: Map<string, object> }>;
@@ -1317,14 +1323,14 @@ const PIC = (over = {}) => ({
 });
 
 test("resolveCall: message.create media= takes a #N or a link of her own message; another's, a deleted one, and media beside file or gif are refused", () => {
-  const ok = resolve('message.create', { media: '#2', channel: '#νέα' }, 'ξανά', PICS);
+  const ok = resolve('message.create', { media: '#2', place: '#νέα' }, 'ξανά', PICS);
   assert.deepEqual(
-    [ok.ok, ok.args.channel, ok.args.text, ok.args.media],
+    [ok.ok, ok.args.place, ok.args.text, ok.args.media],
     // The core's own form of a message in a conversation (src/tools/impl/shared.ts#messageRefOf reads it).
     [true, NEWS, 'ξανά', 'ref:555/1002'],
     'its channel is only where to fetch from, never the target'
   );
-  assert.equal(resolve('message.create', { media: '#2' }, '', PICS).args.channel, undefined);
+  assert.equal(resolve('message.create', { media: '#2' }, '', PICS).args.place, undefined);
   assert.equal(
     resolve('message.create', { media: 'https://discord.com/channels/111/222/333' }).args.media,
     'ref:222/333'
@@ -1379,7 +1385,7 @@ test('message.create media=: the picture of her own message goes up as a file to
   const mine = (id: string) => port.messagesIn(id).filter((message) => message.authorId === SELF);
   const run = (args: Untyped, body = '') => executeCall(resolve('message.create', args, body, PICS), deps(admin, port));
 
-  const first = await run({ media: '#2', channel: '#νέα' }, 'ξανά');
+  const first = await run({ media: '#2', place: '#νέα' }, 'ξανά');
   assert.equal(first.status, 'ok');
   assert.deepEqual(calls, ['https://cdn.example/one.png']);
   const [posted] = mine(NEWS);
@@ -1624,7 +1630,7 @@ test('a same-interface stored message handle sends its verified native locator t
   );
   assert.equal(resolved.ok, true);
   if (!resolved.ok) assert.fail('routable own message was refused');
-  assert.deepEqual(resolved.args, { message: '1004', channel: NEWS, text: 'edited' });
+  assert.deepEqual(resolved.args, { message: '1004', place: NEWS, text: 'edited' });
   port.calls.length = 0;
   const result = await executeCall(resolved, deps(admin, port));
   assert.equal(result.status, 'ok');
@@ -1639,7 +1645,7 @@ for (const route of ['foreign', 'unroutable'] as const) {
       const { admin, port } = makeAdmin();
       port.seed(NEWS, { authorId: SELF, messageId: '1004', text: 'local-message-must-stay' });
       const resolved = resolveCall(
-        { skill, args: skill === 'message.delete' ? { message: '#8' } : { channel: '#νέα', before: '#8' } },
+        { skill, args: skill === 'message.delete' ? { message: '#8' } : { place: '#νέα', before: '#8' } },
         view({
           currentIface: 'fake',
           messageAt: () => ({
@@ -1733,7 +1739,7 @@ test('an internal turn refuses an outward drawing before image generation', asyn
     cfg: { ...config(), models: { base: { drawing: 'openai/gpt-image' } } },
     extra: { images },
   });
-  const result = await executeCall(resolve('draw.create', { channel: '#νέα', text: 'private drawing' }), {
+  const result = await executeCall(resolve('draw.create', { place: '#νέα', text: 'private drawing' }), {
     ...deps(admin, port),
     publicationBoundary: internalPublication,
   });
@@ -1755,8 +1761,8 @@ test('an internal turn refuses returned files when the executor destination diff
 
 test('model arguments cannot remove the publication boundary or impersonate an owner command', () => {
   for (const args of [
-    { channel: '#νέα', text: 'private', publicationBoundary: null },
-    { channel: '#νέα', text: 'private', actor: 'owner' },
+    { place: '#νέα', text: 'private', publicationBoundary: null },
+    { place: '#νέα', text: 'private', actor: 'owner' },
   ]) {
     const result = resolve('message.create', args);
     assert.deepEqual([result.ok, result.code], [false, 'invalid-args']);
@@ -1774,7 +1780,7 @@ test('an internal turn cannot repost an errand attachment to another conversatio
         errands: { fileOf: () => ({ path: filePath, name: 'evidence.png', contentType: 'image/png', bytes: 3 }) },
       },
     });
-    const resolved = resolve('message.create', { file: handle, channel: '#νέα' }, '', {
+    const resolved = resolve('message.create', { file: handle, place: '#νέα' }, '', {
       fileOf: () => ({ name: 'evidence.png' }),
     });
     const result = await executeCall(resolved, { ...deps(admin, port), publicationBoundary: internalPublication });
@@ -1794,4 +1800,105 @@ test('an internal publication restriction preserves nonpublishing message deleti
   });
   assert.equal(result.status, 'ok');
   assert.deepEqual(port.messagesIn(NEWS), []);
+});
+
+// ---- slice 7 of the turn frame: a message.create from the command line to a place of another interface ------------
+// The command line (`cli`, the owner's chat `owner`) and a second interface `tele` behind one router, as the core routes
+// a send by the interface its reference names. `tele` holds the direct chat with its member `555` (the conversation
+// `555`) and the room `k9`, where the interface grants a read and no send. The destination is named by `place`, a place
+// id. The shape the specifier chose: a direct chat refused while `private.enabled` is false answers the code
+// `dm-disabled`, which names the switch (`dm` is the one word for a one-to-one chat, owner's answer 10 of 2026-11-07).
+
+/** The conversation info of `tele`'s conversation `id`, a direct chat or a room, with `send` as given. */
+function teleConversation(id: string, kind: 'dm' | 'channel', send: boolean) {
+  return {
+    iface: 'tele',
+    id,
+    kind,
+    name: kind === 'dm' ? null : 'λιμάνι',
+    rootId: kind === 'dm' ? null : 't1',
+    topic: null,
+    permissions: { read: true, send, attach: send, react: send },
+    owner: null,
+    lastMessageAt: null,
+    voice: false,
+    public: kind !== 'dm',
+  };
+}
+
+/** The admin and the executor's dependencies of a turn in the owner's chat, with `private.enabled` set to `enabled`. */
+function fromCommandLine(enabled: boolean) {
+  const cli = createFakeAdapter({ iface: 'cli', selfId: SELF, now: () => 1000 });
+  cli.seedConversation({
+    iface: 'cli',
+    id: 'owner',
+    kind: 'dm',
+    name: null,
+    rootId: null,
+    topic: null,
+    permissions: { read: true, send: true, attach: true, react: true },
+    owner: null,
+    lastMessageAt: null,
+    voice: false,
+    public: false,
+  });
+  const tele = createFakeAdapter({ iface: 'tele', selfId: SELF, now: () => 1000 });
+  tele.seedConversation(teleConversation('555', 'dm', true));
+  tele.seedDmConversation('555', '555');
+  tele.seedConversation(teleConversation('k9', 'channel', false));
+  const port = createIfaceRouter(
+    cli,
+    (name) => (name === 'tele' ? tele : null),
+    () => [tele]
+  );
+  const quiet = { info() {}, warn() {}, error() {}, debug() {} };
+  const cfg = { ...config(), private: { enabled } };
+  const admin = createAdmin({
+    hot: { config: cfg, prompts: { labels: {} } },
+    store: { state: { data: {}, markDirty() {} }, getUser: () => null, getPlace: () => ({}), rootPlaceOf: () => null },
+    client: { user: { id: SELF } },
+    isServedCommunity: () => false,
+    reads: createReads(port, quiet),
+    port,
+  });
+  const run = (place: string) =>
+    executeCall(
+      resolve('message.create', { place }, 'γεια από τη γραμμή εντολών'),
+      deps(admin, port, {
+        here: { iface: 'cli', conversationId: 'owner' },
+        opContext: { placeId: 'cli:dm:owner' },
+        refOf: (conversationId: unknown) => ({ iface: 'cli', conversationId: String(conversationId) }),
+      })
+    );
+  const sentIn = (conversationId: string) => tele.messagesIn(conversationId).filter((one) => one.authorId === SELF);
+  return { run, sentIn };
+}
+
+test('message.create from the command line to a direct chat of another interface is sent while private.enabled is true', async () => {
+  // Bug: the destination rule still refuses every direct chat, or the send goes to the command line's own port.
+  const { run, sentIn } = fromCommandLine(true);
+  const result = await run('tele:dm:555');
+  assert.equal(result.status, 'ok', JSON.stringify(result));
+  assert.deepEqual(
+    sentIn('555').map((one) => one.text),
+    ['γεια από τη γραμμή εντολών']
+  );
+});
+
+test('message.create from the command line to a direct chat of another interface is refused naming the switch while private.enabled is false', async () => {
+  // Bug: a closed direct chat answers the same code as a room without permission, so she cannot tell that the owner
+  // turned direct chats off, or the message goes out although they are off.
+  const { run, sentIn } = fromCommandLine(false);
+  const result = await run('tele:dm:555');
+  assert.deepEqual([result.status, result.code], ['denied', 'dm-disabled']);
+  assert.equal(sentIn('555').length, 0);
+});
+
+test('message.create from the command line to a room where the interface grants no send is refused by that answer', async () => {
+  // Bug: a room she holds only a read handle for is written to, because the check asks the command line and not the
+  // interface the place belongs to.
+  const { run, sentIn } = fromCommandLine(true);
+  const result = await run('tele:channel:k9');
+  assert.deepEqual([result.status, result.code], ['denied', 'channel-no-permission']);
+  assert.equal(sentIn('k9').length, 0);
 });

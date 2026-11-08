@@ -33,7 +33,7 @@
 //
 //   cd /opt/neptunia/app && node scripts/replay.ts <placeId> <triggerMessageId>
 //        [--before 40] [--samples 1] [--show-request] [--as-of-moment]
-//        [--hide-self <substring>]... [--hide-self-all] [--snapshot <dir>] [--frame old|new] [--spend <usd>]
+//        [--hide-self <substring>]... [--hide-self-all] [--snapshot <dir>] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts <placeId> <triggerMessageId> --split
 //        [--text "<candidate text>"] [--before <split.contextMessages>] [--samples 3] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts <placeId> <triggerMessageId> --recall
@@ -355,11 +355,6 @@
 // directory (its `memory.db`, opened read only by scripts/lib/memory-read.ts);
 // the operational files beside it (state.json, inner.json) are read as files.
 //
-// `--frame old|new` (a message, and `--show-request <turnId>`): `old`, the default, builds the request without a turn
-// frame, as the sandbox always did; `new` builds the frame a live reply carries (src/behavior/sandbox-frame.ts), so the
-// request has `<spatial_awareness>`. Both arms read the same `--snapshot` and the same fetched lines, and the output
-// says which arm ran (`frame`); scripts/replay-compare.ts checks the requests (scripts/lib/frame-checks.ts).
-//
 // `--pair <promptsDirA> <promptsDirB>`: the same triggers answered twice, once
 // with each prompt layer: each directory is laid over the tracked prompts/
 // exactly as prompts.local/ is at runtime (so `--pair prompts prompts` gives
@@ -573,7 +568,7 @@ import type { ReplayArgs } from './lib/replay-args.ts';
 import type { SimulationLlm } from './lib/cli.ts';
 import type { Hot } from '../src/hot.ts';
 import { proxySettings } from '../src/net/proxy.ts';
-import { frameFlag, parseArgs, withoutFrame, MAX_BEFORE, SNOWFLAKE } from './lib/replay-args.ts';
+import { parseArgs, MAX_BEFORE, SNOWFLAKE } from './lib/replay-args.ts';
 
 /** An object read by key whose values are not typed yet. */
 
@@ -5889,7 +5884,9 @@ export function requestBlocks(
   recallLine: boolean;
   recallToolLine: boolean;
 } {
-  const has = (tag: string) => blockOf(user, tag) !== null;
+  // A block may stand inside another (`<tools>` inside `<self>` on the frame), so it is found at any line start.
+  const has = (tag: string) =>
+    new RegExp(`(?:^|\\n)<${tag}>\\n[\\s\\S]*?\\n</${tag}>(?=\\n|$)`).test(String(user ?? ''));
   const line = (text: string) => typeof text === 'string' && text !== '' && String(user ?? '').includes(text);
   return {
     lookup: has('lookup'),
@@ -6575,8 +6572,7 @@ export async function main(
   const all = argv.includes('--answers-all');
   const own = argv.includes('--selfreflection-own-history');
   const flags = argv.filter((arg) => arg !== '--answers-all' && arg !== '--selfreflection-own-history');
-  const frame = frameFlag(flags);
-  const args: ReplayArgs = { ...parseArgs(withoutFrame(flags)), answersAll: all, selfreflectionOwnHistory: own, frame };
+  const args: ReplayArgs = { ...parseArgs(flags), answersAll: all, selfreflectionOwnHistory: own };
   if (args.answersDir === null) return runMain(args, { root, signal, rng, answers: null });
   // `--answers-dir`: Anthropic models are answered through files (scripts/lib/answers-dir.ts); `done` ends the run.
   const { estimateMessages } = await import(pathToFileURL(path.join(root, 'src', 'llm', 'tokens.ts')).href);
@@ -7278,7 +7274,6 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
           mediaCache,
           searchAvailable,
           channelDirectory,
-          frame: args.frame,
         })
       );
       const [systemMessage, userMessage] = request.messages;
@@ -7324,7 +7319,6 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
       mediaCache,
       searchAvailable,
       channelDirectory,
-      frame: args.frame,
     });
 
     const out: Untyped = {
@@ -7339,7 +7333,6 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
       channel: { id: channel.id, name: channel.name ?? null },
       lines: history.length,
       memory: args.asOfMoment ? 'as-of-moment' : 'live',
-      frame: args.frame,
       ...(args.snapshot !== null ? { snapshot: dataDir } : {}),
       ...(hidden ? { hidden } : {}),
       hiddenSelf,

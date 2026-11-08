@@ -14,6 +14,9 @@ import { collectReadableLinks } from '../media/classify.ts';
 import type { ConversationInfo, ConversationRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import { isIssuedInternalContext } from '../memory/db/scope.ts';
+import type { Context } from '../memory/db/scope.ts';
+import type { FrameReads } from '../memory/db/frame-reads.ts';
+import { placeIdParts } from '../memory/db/ids.ts';
 import { fetchSpan, recordMessages, runConversationRead } from '../tools/conversation-read.ts';
 import type { ReadMessage } from '../tools/conversation-read.ts';
 import {
@@ -52,6 +55,9 @@ type InTurnStore = NonNullable<Parameters<typeof runMediaFind>[0]['store']> & {
   listUserProfiles: () => ReadonlyArray<{ id?: unknown; names?: Array<unknown> } | null> | null;
 };
 
+/** The stored lines a read of a place outside the turn's snapshot takes from the memory, at most (conversation.read's own cap). */
+const PLACE_READ_LINES = 60;
+
 /** What createInTurnTools reads: the dependencies and the functions of the other topic modules it calls. */
 export type InTurnToolsContext = {
   hot: { readonly config: InTurnConfig; readonly prompts: { labels?: unknown } | null | undefined };
@@ -67,6 +73,8 @@ export type InTurnToolsContext = {
   memberOf: (placeId: string, accountId: string) => { name?: string | null } | null;
   conversationOf: (channel: { id: string }) => ConversationRef;
   turnContextOf: (draft: InTurnDraft | null | undefined, channel: ConversationInfo) => unknown;
+  /** The memory's reads of a place by its id, on any interface (src/memory/db/frame-reads.ts); null while closed. */
+  placeReads?: Pick<FrameReads, 'placeReadable' | 'around'> | null;
   linkCalls: JournalNotes['linkCalls'];
   drawTool: DrawGif['drawTool'];
 };
@@ -162,6 +170,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     memberOf,
     conversationOf,
     turnContextOf,
+    placeReads = null,
     linkCalls,
     drawTool,
   } = ctx;
@@ -260,6 +269,65 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
   }
 
   /**
+   * One conversation.read of a place named by its place id outside the turn's snapshot, on any interface: the stored
+   * lines the turn's memory context reads, joined by the interface's own history through the router when the record
+   * lacks the span. The context decides whether she may read the place at all, a gone room included; the owner's
+   * command line reads every place. `not_configured` while the memory is closed. Never throws.
+   */
+  async function readPlace({
+    args,
+    placeId,
+    parts,
+    channel,
+    selfName,
+    draft,
+  }: {
+    args: Obj;
+    placeId: string;
+    parts: NonNullable<ReturnType<typeof placeIdParts>>;
+    channel: ConversationInfo;
+    selfName: string;
+    draft: InTurnDraft | null;
+  }): Promise<{ status: string; code?: string; reason?: string; data?: { text: string } }> {
+    const context = turnContextOf(draft, channel) as Context | null;
+    if (!placeReads?.placeReadable || !context) return { status: 'not_configured', code: CODE.UNSUPPORTED };
+    const config = hot.config;
+    const labels = hot.prompts?.labels ?? {};
+    const ref: ConversationRef = { iface: parts.iface, conversationId: parts.native };
+    return runConversationRead({
+      args: { ...args, placeId },
+      labels,
+      config,
+      placeId,
+      allowed: (id) => isIssuedInternalContext(context) || Boolean(placeReads.placeReadable?.(context, id)),
+      readRecord: ({ from }) =>
+        Promise.resolve(
+          placeReads.around(context, placeId, clock(), PLACE_READ_LINES).flatMap((line) =>
+            line.at < from
+              ? []
+              : [
+                  {
+                    id: line.id.split(':').pop() ?? line.id,
+                    placeId,
+                    authorId: line.authorId,
+                    authorName: line.self ? selfName : '-',
+                    self: line.self,
+                    bot: false,
+                    content: line.text,
+                    ts: line.at,
+                  },
+                ]
+          )
+        ),
+      fetchLive: (request) => fetchSpan(ifaceReads, ref, request as Parameters<typeof fetchSpan>[2]),
+      render: { timezone: config.bot?.timezone ?? 'UTC', selfName, labels, seeReactions: true },
+      refs: draft ? searchHandles(draft) : null,
+      now: clock(),
+      timezone: config.bot?.timezone ?? 'UTC',
+    });
+  }
+
+  /**
    * One conversation.read of hers (src/tools/conversation-read.ts): the channel she names (default
    * this one) read in order from the record first, the interface's history when the record lacks
    * the span, rendered like the chat with each line's `#N` handle in the turn's registry
@@ -284,6 +352,10 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     selfName: string;
     draft: InTurnDraft | null;
   }): Promise<{ status: string; code?: string; reason?: string; data?: { text: string } }> {
+    const named = typeof args.placeId === 'string' ? placeIdParts(args.placeId) : null;
+    if (named && (!snapshot || named.iface !== conversationOf(channel).iface || !snapshot.get(named.native)))
+      return readPlace({ args, placeId: String(args.placeId), parts: named, channel, selfName, draft });
+    const asked = named ? { ...args, placeId: named.native } : args;
     if (!snapshot || (!inCommunity(channel) && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const config = hot.config;
     const labels = hot.prompts?.labels ?? {};
@@ -298,7 +370,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     const settings = recallSettings(config);
     const timezone = config.bot?.timezone ?? 'UTC';
     return runConversationRead({
-      args,
+      args: asked,
       labels,
       config,
       placeId: String(channel.id),
