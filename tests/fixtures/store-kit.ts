@@ -30,12 +30,8 @@ after(async () => {
   for (const memoryDb of MEMORY_OF.values()) await memoryDb.close();
 });
 
-/**
- * A temporary data directory with its memory database open on the calling thread (the first tick opens it at once):
- * `{ dir, memoryDb }`, the `memoryDb` the store takes.
- */
-export function memDataDir(): { dir: string; memoryDb: MemoryDbService; } {
-  const dir = tmpDataDir();
+/** A memory database open on the calling thread over `dir` (the first tick opens it at once), closed after the file. */
+function openMemoryAt(dir: string): MemoryDbService {
   const memoryDb = createMemoryDb({
     hot: { config: { memoryDb: { session: { mode: 'off' } } } },
     dataDir: dir,
@@ -45,7 +41,44 @@ export function memDataDir(): { dir: string; memoryDb: MemoryDbService; } {
   memoryDb.tick();
   if (!memoryDb.readHandle()) throw new Error('the test memory database did not open');
   MEMORY_OF.set(dir, memoryDb);
-  return { dir, memoryDb };
+  return memoryDb;
+}
+
+/**
+ * A freshly migrated memory database, made once per test file: a new one is a copy of it, about 10 ms against the
+ * 300 ms of a migration.
+ */
+let freshDatabase: string | null = null;
+function copyFreshDatabase(dir: string): void {
+  if (freshDatabase === null) {
+    const template = tmpDataDir();
+    const file = path.join(tempDir('nep-store-template-'), 'memory.db');
+    const db = openMemoryAt(template).database() as unknown as { exec(sql: string): void };
+    db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+    freshDatabase = file;
+  }
+  fs.copyFileSync(freshDatabase, path.join(dir, 'memory.db'));
+}
+
+/**
+ * A temporary data directory with its memory database open on the calling thread (the first tick opens it at once):
+ * `{ dir, memoryDb }`, the `memoryDb` the store takes.
+ */
+export function memDataDir(): { dir: string; memoryDb: MemoryDbService; } {
+  const dir = tmpDataDir();
+  return { dir, memoryDb: memoryAt(dir).memoryDb };
+}
+
+/**
+ * The store's data directory `dataDir` with its memory database: the one already open there, else a fresh one opened
+ * over it. `{ dataDir, memoryDb }`, spread into `createStore`.
+ */
+export function memoryAt(dataDir: string): { dataDir: string; memoryDb: MemoryDbService } {
+  const open = MEMORY_OF.get(dataDir);
+  if (open) return { dataDir, memoryDb: open };
+  fs.mkdirSync(dataDir, { recursive: true });
+  if (!fs.existsSync(path.join(dataDir, 'memory.db'))) copyFreshDatabase(dataDir);
+  return { dataDir, memoryDb: openMemoryAt(dataDir) };
 }
 
 /** Stores `channel` under the top place `top`, as the observation of its first line does. */

@@ -7,7 +7,7 @@ import { placeOfRoot } from '../src/memory/addresses.ts';
 import { personaKey } from '../src/memory/db/storage-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
-import { memDataDir } from './fixtures/store-kit.ts';
+import { memDataDir, memoryAt } from './fixtures/store-kit.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -82,7 +82,7 @@ function withStore(fn: Untyped) {
   const cleanup = () => fs.rmSync(dir, { recursive: true, force: true });
   let result;
   try {
-    result = fn(createStore({ dataDir: dir }), dir);
+    result = fn(createStore(memoryAt(dir)), dir);
   } catch (err) {
     cleanup();
     throw err;

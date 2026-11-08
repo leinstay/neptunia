@@ -16,6 +16,7 @@ import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
 
 // The Discord interface's capabilities object, as src/index.ts injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -23,7 +24,7 @@ const DISCORD = createDiscordInterface().capabilities;
 const URL = 'https://example.com/a?b=1&c=2#d';
 
 function tmpStore() {
-  return createStore({ dataDir: tempDir('nep-links-') });
+  return createStore(memoryAt(tempDir('nep-links-')));
 }
 
 function noUrl(value: unknown) {
@@ -285,7 +286,7 @@ test('applyRecentOps: a recent line is stored without links; one that is only a 
   assert.equal(counts.added, 1);
   assert.equal(counts.invalid, 1);
   assert.deepEqual(
-    store.getRecent(placeOfRoot(store, 'g1')).lines.map((line) => line.text),
+    store.getRecent('g1').lines.map((line) => line.text),
     ['Ανέβηκε νέο τραγούδι']
   );
 });
@@ -305,7 +306,7 @@ test('restoreArchived: an item restored from an old archive line comes back with
   const entry = {
     itemKind: 'detail',
     itemId: 'dt-9',
-    scope: { user: 'u1' },
+    scope: { user: accountOf(store, 'u1') },
     text: { text: `παίζει πιάνο ${URL}` },
     stored: { id: 9, firstSeen: '2026-10-01T00:00:00.000Z' },
     weight: 1,
@@ -362,13 +363,13 @@ test('ops lore.add / learning.add / alias.add: what they store holds no link', a
   await runOp('lore.add', { title: `Ο βράχος ${URL}`, keys: `βράχος, ${URL}`, text: `Το αστείο ${URL}` }, ctx);
   await runOp('learning.add', { text: `το café κλείνει νωρίς ${URL}` }, ctx);
   await runOp('alias.add', { accountId: '7', name: `Λένα ${URL}` }, ctx);
-  const [entry] = store.getLore(placeOfRoot(store, 'g1'));
+  const [entry] = store.getLore('g1');
   assert.deepEqual(
     [asRecord(entry).title, asRecord(entry).keys, asRecord(entry).text],
     ['Ο βράχος', ['βράχος'], 'Το αστείο']
   );
   assert.deepEqual(
-    asRecord(store.getPlace(placeOfRoot(store, 'g1'))).learned.map((item: Untyped) => item.text),
+    asRecord(store.getPlace('g1')).learned.map((item: Untyped) => item.text),
     ['το café κλείνει νωρίς']
   );
   assert.deepEqual(

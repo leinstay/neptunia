@@ -276,10 +276,10 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
   });
   let client: Untyped = null;
   let sim: SimulationLlm | null = null;
+  const { memoryDb } = readOnlyMemory(dataDir);
+  if (!memoryDb) throw new CliError(`inner-week: no memory database in ${dataDir}`);
   try {
-    const { store, state } = replay.unflushedStore(
-      mods.createStore({ dataDir, memoryDb: readOnlyMemory(dataDir).memoryDb })
-    );
+    const { store, state } = replay.unflushedStore(mods.createStore({ dataDir, memoryDb }));
     const calibrator = mods.createCalibrator(state.data.calibration);
     const calls: Array<Untyped> = [];
     sim = simulationLlm('inner-week', {

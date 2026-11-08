@@ -12,6 +12,7 @@ import { fakeLlm, fakeState, fakeVideoFetcher } from './fixtures/describe-fakes.
 import { fixture, kindNamed, observeLine, tell } from './fixtures/media-memory.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import type { Rec } from './fixtures/describe-fakes.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
 
 const UNQUOTED = 'грибы рано в этом году, и дождь идёт каждый день';
 
@@ -23,7 +24,7 @@ test('a text mostly in another script is off the standard, one that quotes it is
 });
 
 test('a transcript with no quotation marks stays as heard: one request and no mark', async () => {
-  const store = createStore({ dataDir: tempDir('nep-media-standard-') });
+  const store = createStore(memoryAt(tempDir('nep-media-standard-')));
   const llm = fakeLlm({ text: UNQUOTED, model: 'x/flash' });
   const describer = createDescriber({
     hot: {

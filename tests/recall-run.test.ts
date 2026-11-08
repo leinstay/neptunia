@@ -4,7 +4,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import path from 'node:path';
 import { createRecall } from '../src/behavior/recall-run.ts';
 import { createStore } from '../src/memory/store.ts';
 import { HIT_MARK } from '../src/behavior/recall.ts';
@@ -38,6 +37,9 @@ import {
   rabbitAnswers,
   searches,
 } from './fixtures/recall-run-kit.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
+import { unitLines } from '../src/memory/db/readers/common.ts';
+import { placeCollection } from '../src/memory/db/storage-keys.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -966,20 +968,14 @@ test('recall: the summary reads the last six chat lines as <context> right befor
   );
 });
 
-/** A real store in a fresh temporary directory (never data/), and its trace file of root g1. */
+/** A real store over its memory database in a fresh temporary directory (never data/), and the trace lines of root g1. */
 function tempStore() {
   const dataDir = tempDir('recall-trace-');
-  const store = createStore({ dataDir });
-  const file = path.join(dataDir, 'places', ROOT, 'recall-trace.jsonl');
+  const { memoryDb } = memoryAt(dataDir);
+  const store = createStore({ dataDir, memoryDb });
   const lines = () =>
-    fs.existsSync(file)
-      ? fs
-          .readFileSync(file, 'utf8')
-          .split('\n')
-          .filter(Boolean)
-          .map((l) => JSON.parse(l))
-      : [];
-  return { store, file, lines, cleanup: () => fs.rmSync(dataDir, { recursive: true, force: true }) };
+    unitLines(memoryDb.readHandle()?.db, placeCollection('recall_trace', ROOT)).map((l) => JSON.parse(l));
+  return { store, lines, cleanup: () => fs.rmSync(dataDir, { recursive: true, force: true }) };
 }
 
 test('recall: every run appends one trace line with the clusters, the summary and its stretch', async () => {

@@ -14,6 +14,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { seedMirror } from './fixtures/selfreflection-mirror.ts';
 import { selfreflectionChatIds } from '../src/behavior/mirror.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
 
 const channel = { id: 'c1', name: 'journal', category: null, topic: null, purpose: '', topics: '', tone: '' };
 
@@ -45,7 +46,7 @@ test('renderChannel: the diary mark is omitted when its label is missing', () =>
 function withStore<T>(fn: (store: ReturnType<typeof createStore>) => T): T {
   const dir = tempDir('nep-diary-map-');
   try {
-    return fn(createStore({ dataDir: dir }));
+    return fn(createStore(memoryAt(dir)));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

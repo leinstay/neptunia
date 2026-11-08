@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createStore, writeJsonAtomic } from '../src/memory/store.ts';
+import { personaKey } from '../src/memory/db/storage-keys.ts';
 import { legacyStorageKey } from '../src/memory/migration/paths.ts';
 import { mergeEpisodes } from '../src/memory/episodes.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
@@ -28,13 +29,14 @@ import {
   writeOldChannelFile,
   underTop,
   writeRaw,
+  memoryAt,
 } from './fixtures/store-kit.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
 test('touchUser: puts the current name first, keeps previous names after, deduplicated', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   store.touchUser(accountOf(store, 'u1'), 'Bob', 2000); // renamed
   const profile = store.touchUser(accountOf(store, 'u1'), 'Alice', 3000); // renamed back
@@ -43,7 +45,7 @@ test('touchUser: puts the current name first, keeps previous names after, dedupl
 
 test('touchUser: names list is capped at 5 entries', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   const names = ['n1', 'n2', 'n3', 'n4', 'n5', 'n6'];
   let profile;
   for (const [i, name] of names.entries()) profile = store.touchUser(accountOf(store, 'u1'), name, i);
@@ -53,7 +55,7 @@ test('touchUser: names list is capped at 5 entries', () => {
 
 test('touchUser: an empty/falsy name does not touch the names list', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   const profile = store.touchUser(accountOf(store, 'u1'), '', 2000);
   assert.deepEqual(asRecord(profile).names, ['Alice']);
@@ -63,7 +65,7 @@ test('touchUser: an empty/falsy name does not touch the names list', () => {
 
 test('touchUser: firstSeen is min(existing, at) and lastSeen is max(existing, at), regardless of arrival order', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   // Live touch today...
   store.touchUser(accountOf(store, 'u1'), 'Alice', 5_000_000);
   // ...then four years of older history arrive.
@@ -79,7 +81,7 @@ test('touchUser: firstSeen is min(existing, at) and lastSeen is max(existing, at
 
 test('touchUser: an older/backdated touch never moves a name to the front', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 5_000_000); // live, current display name
   const profile = store.touchUser(accountOf(store, 'u1'), 'OldNick', 1000); // backdated history, an older name
   assert.deepEqual(
@@ -91,7 +93,7 @@ test('touchUser: an older/backdated touch never moves a name to the front', () =
 
 test('touchUser: a backdated touch of an already-known name leaves the names order untouched', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 5_000_000);
   store.touchUser(accountOf(store, 'u1'), 'Bob', 6_000_000); // renamed, now current
   const profile = store.touchUser(accountOf(store, 'u1'), 'Alice', 1000); // backdated history mentioning the old name
@@ -100,7 +102,7 @@ test('touchUser: a backdated touch of an already-known name leaves the names ord
 
 test('touchUser: a touch at exactly the stored lastSeen still counts as newest (moves the name to the front)', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   const profile = store.touchUser(accountOf(store, 'u1'), 'Bob', 1000);
   assert.deepEqual(asRecord(profile).names, ['Bob', 'Alice']);
@@ -108,7 +110,7 @@ test('touchUser: a touch at exactly the stored lastSeen still counts as newest (
 
 test('updateUser: cannot set interests or details via raw LLM fields', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   store.applyProfileOps(
     accountOf(store, 'u1'),
@@ -312,7 +314,7 @@ test('applyLearnedOps: adds items with per-guild ids, from kept, returns the new
 });
 
 test('applyLearnedOps: ids are never reused after a remove; seen bumps past the gap; sure:false starts at 0', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['a fact', 'b fact'] }, { ...LEARNED_CFG, seenAt: TEACH_AT });
   store.applyLearnedOps(
     placeOfRoot(store, 'g1'),
@@ -334,7 +336,7 @@ test('applyLearnedOps: ids are never reused after a remove; seen bumps past the 
 });
 
 test('applyLearnedOps: text is clamped to learnedChars, storage capped at max(maxLearnedStored, maxLearned)', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   const long = 'ω'.repeat(400);
   const cfg = { ...LEARNED_CFG, learnedChars: 10, clampTolerance: 1, maxLearned: 2, maxLearnedStored: 3 };
   const learned = store.applyLearnedOps(
@@ -347,7 +349,7 @@ test('applyLearnedOps: text is clamped to learnedChars, storage capped at max(ma
 });
 
 test('applyLearnedOps: garbage ops never throw and change nothing', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['kept fact'] }, { ...LEARNED_CFG, seenAt: TEACH_AT });
   for (const garbage of [
     null,
@@ -377,7 +379,7 @@ test('applyLearnedOps: garbage ops never throw and change nothing', () => {
 });
 
 test('applyLearnedOps: leaves every other guild field alone', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'μιμίδια', injokes: ['ο βράχος'] });
   store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['a fact'] }, { ...LEARNED_CFG, seenAt: TEACH_AT });
   const guild = store.getPlace(placeOfRoot(store, 'g1'));
@@ -386,7 +388,7 @@ test('applyLearnedOps: leaves every other guild field alone', () => {
 });
 
 test('updatePlace: can never overwrite learned or learnedNextId wholesale', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['a fact'] }, { ...LEARNED_CFG, seenAt: TEACH_AT });
   store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'p', learned: [], learnedNextId: 99 });
   const guild = store.getPlace(placeOfRoot(store, 'g1'));
@@ -399,7 +401,7 @@ test('updatePlace: can never overwrite learned or learnedNextId wholesale', () =
 });
 
 test('updatePlace: a re-send identical to what is stored leaves updatedAt alone; a change is stamped', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   const earlier = '2000-01-01T00:00:00.000Z';
   asRecord(
     store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'μιμίδια', injokes: ['ο βράχος', 'café'] })
@@ -429,7 +431,7 @@ test('updatePlace: a re-send identical to what is stored leaves updatedAt alone;
 const NOTES_EARLIER = '2000-01-01T00:00:00.000Z';
 
 test('updatePlace: notesUpdatedAt moves for patterns, starters or injokes only', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   const rewind = () =>
     Object.assign(store.getPlace(placeOfRoot(store, 'g1')), {
       updatedAt: NOTES_EARLIER,
@@ -492,7 +494,7 @@ test('updatePlace: notesUpdatedAt moves for patterns, starters or injokes only',
 });
 
 test('updatePlace: the notes stamps can never be set through the fields', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'μιμίδια' });
   Object.assign(store.getPlace(placeOfRoot(store, 'g1')), {
     updatedAt: NOTES_EARLIER,
@@ -510,7 +512,7 @@ test('updatePlace: the notes stamps can never be set through the fields', () => 
 });
 
 test('applyLearnedOps: a lesson never moves notesUpdatedAt', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'μιμίδια' });
   Object.assign(store.getPlace(placeOfRoot(store, 'g1')), {
     updatedAt: NOTES_EARLIER,
@@ -528,11 +530,11 @@ test('applyLearnedOps: a lesson never moves notesUpdatedAt', () => {
 });
 
 test('markNotesFlagged: stamps notesFlaggedAt on existing channels and the guild only', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   store.updateChannel(placeOfChat(store, { id: 'c1' }), { purpose: 'alpha' });
   const r = store.markNotesFlagged(
     placeOfRoot(store, 'g1'),
-    { channels: ['c1', 'ghost'], place: true },
+    { channels: [placeOfChat(store, { id: 'c1' }), 'ghost'], place: true },
     Date.UTC(2026, 9, 7)
   );
   assert.deepEqual(r, { channels: 1, place: true });
@@ -542,16 +544,20 @@ test('markNotesFlagged: stamps notesFlaggedAt on existing channels and the guild
 });
 
 test('markNotesSampled: reviewed clears the attempt, attempt leaves the review stamp alone', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   store.updateChannel(placeOfChat(store, { id: 'c1' }), { purpose: 'alpha' });
   assert.equal(
-    store.markNotesSampled(placeOfRoot(store, 'g1'), 'c1', Date.UTC(2026, 9, 7), { outcome: 'attempt' }),
+    store.markNotesSampled(placeOfRoot(store, 'g1'), placeOfChat(store, { id: 'c1' }), Date.UTC(2026, 9, 7), {
+      outcome: 'attempt',
+    }),
     true
   );
   assert.equal(store.getChannel(placeOfChat(store, { id: 'c1' }))?.notesAttemptAt, '2026-10-07T00:00:00.000Z');
   assert.equal(store.getChannel(placeOfChat(store, { id: 'c1' }))?.notesSampleReviewedAt, null);
   assert.equal(
-    store.markNotesSampled(placeOfRoot(store, 'g1'), 'c1', Date.UTC(2026, 9, 8), { outcome: 'reviewed' }),
+    store.markNotesSampled(placeOfRoot(store, 'g1'), placeOfChat(store, { id: 'c1' }), Date.UTC(2026, 9, 8), {
+      outcome: 'reviewed',
+    }),
     true
   );
   assert.equal(store.getChannel(placeOfChat(store, { id: 'c1' }))?.notesSampleReviewedAt, '2026-10-08T00:00:00.000Z');
@@ -667,22 +673,23 @@ test('flush: only writes the units that are dirty', async () => {
   assert.deepEqual(writes, [legacyStorageKey('guilds/g1/users/u1.json')]);
 });
 
-test('state: data persists across restarts via flush + markDirty', () => {
+test('state: data persists across restarts via flush + markDirty', async () => {
   const dir = tmpDataDir();
-  const storeA = createStore({ dataDir: dir });
+  const storeA = createStore(memoryAt(dir));
   storeA.state.data.llmDay = '2026-09-20';
   storeA.state.data.llmCount = 5;
   storeA.state.markDirty();
   storeA.flush();
+  await storeA.flushSettled({});
 
-  const storeB = createStore({ dataDir: dir });
+  const storeB = createStore(memoryAt(dir));
   assert.equal(storeB.state.data.llmDay, '2026-09-20');
   assert.equal(storeB.state.data.llmCount, 5);
 });
 
 test('countUsers: counts a profile not flushed yet, like every other lister', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   store.flush();
   store.touchUser(accountOf(store, 'u2'), 'Zoé', 1000); // only cached
@@ -719,7 +726,7 @@ test('adjustAffinity: creates the affinity object for a profile written before t
 
 test('updateUser: cannot overwrite affinity via LLM-extracted fields', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   store.adjustAffinity(accountOf(store, 'u1'), 20, 'liked', { maxDelta: 30, historySize: 10, now: 1000 });
 
@@ -738,7 +745,7 @@ test('updateUser: cannot overwrite affinity via LLM-extracted fields', () => {
 
 test('touchChannel: repeated calls the same UTC day increment the same bucket', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   const facts = { name: 'general', topic: null };
   store.touchChannel(placeOfChat(store, { id: 'c1' }), facts, Date.UTC(2026, 8, 20, 1, 0, 0));
   const channel = store.touchChannel(placeOfChat(store, { id: 'c1' }), facts, Date.UTC(2026, 8, 20, 23, 0, 0));
@@ -748,7 +755,7 @@ test('touchChannel: repeated calls the same UTC day increment the same bucket', 
 
 test('touchChannel: lastMessageAt keeps the maximum timestamp seen, even out of order', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   const facts = { name: 'general', topic: null };
   store.touchChannel(placeOfChat(store, { id: 'c1' }), facts, 5000);
   const channel = store.touchChannel(placeOfChat(store, { id: 'c1' }), facts, 1000); // arrives "late", out of order
@@ -757,7 +764,7 @@ test('touchChannel: lastMessageAt keeps the maximum timestamp seen, even out of 
 
 test('touchChannel: trims the day histogram to the newest 30 dates', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   const facts = { name: 'general', topic: null };
   let channel;
   for (let day = 0; day < 35; day += 1) {
@@ -771,7 +778,7 @@ test('touchChannel: trims the day histogram to the newest 30 dates', () => {
 
 test('touchChannel: bumps the author into topWriters and adds up repeated visits', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   const facts = { name: 'general', topic: null };
   store.touchChannel(placeOfChat(store, { id: 'c1' }), facts, 1000, 'alice');
   store.touchChannel(placeOfChat(store, { id: 'c1' }), facts, 2000, 'alice');
@@ -784,7 +791,7 @@ test('touchChannel: bumps the author into topWriters and adds up repeated visits
 
 test('updateChannel: the analyzer cannot overwrite counters or Discord facts', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchChannel(placeOfChat(store, { id: 'c1' }), { name: 'general', topic: 'chat' }, 1000);
   store.updateChannel(placeOfChat(store, { id: 'c1' }), {
     purpose: 'chatter',
@@ -804,7 +811,7 @@ test('updateChannel: the analyzer cannot overwrite counters or Discord facts', (
 const EARLIER_STAMP = '2000-01-01T00:00:00.000Z';
 
 test('updateChannel: a re-send identical to what is stored leaves updatedAt alone', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   store.touchChannel(placeOfChat(store, { id: 'c1' }), { name: 'general', topic: null }, 1000);
   asRecord(
     store.updateChannel(placeOfChat(store, { id: 'c1' }), {
@@ -841,7 +848,7 @@ test('flush + a new store instance: channels survive a "restart"', async () => {
 // ---- the writers tally behind a channel's topWriters ------------------------
 
 test('touchChannel: a newcomer who keeps writing enters topWriters past five stored writers', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   for (const [i, id] of ['άλφα', 'βήτα', 'γάμα', 'δέλτα', 'έψιλον'].entries())
     writeLines(store, 'c1', id, 1, WRITERS_T0 + i);
 
@@ -861,7 +868,7 @@ test('touchChannel: a newcomer who keeps writing enters topWriters past five sto
 });
 
 test('touchChannel: a writer silent for 90 days falls below a steady newcomer', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   const pair = (placeId: string, daysLater: number, opts?: Parameters<typeof writeLines>[5]) => {
     writeLines(store, placeId, 'παλιός', 8, WRITERS_T0, opts);
     return writeLines(store, placeId, 'νέος', 3, WRITERS_T0 + daysLater * WRITERS_DAY_MS, opts).topWriters;
@@ -891,7 +898,7 @@ test('touchChannel: a writer silent for 90 days falls below a steady newcomer', 
 });
 
 test('touchChannel: channelWritersHalfLifeDays is read from the call; 0 ranks by count alone', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   const order = (placeId: string, opts: Parameters<typeof writeLines>[5]) => {
     writeLines(store, placeId, 'παλιός', 8, WRITERS_T0, opts);
     return writeLines(store, placeId, 'νέος', 3, WRITERS_T0 + 90 * WRITERS_DAY_MS, opts).topWriters.map(
@@ -915,7 +922,7 @@ test('touchChannel: channelWritersHalfLifeDays is read from the call; 0 ranks by
 });
 
 test('touchChannel: the tally keeps channelWritersStored writers, 20 unless told, never fewer than the five shown', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   const stored = (placeId: string, opts?: Parameters<typeof writeLines>[5]) => {
     for (let n = 0; n < 25; n += 1)
       writeLines(store, placeId, `γράφων-${String(n).padStart(2, '0')}`, 1, WRITERS_T0 + n, opts);
@@ -933,7 +940,7 @@ test('touchChannel: the tally keeps channelWritersStored writers, 20 unless told
 });
 
 test('touchChannel: a writer below the five shown comes back with the count they gathered', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   for (const id of ['άλφα', 'βήτα', 'γάμα', 'δέλτα', 'έψιλον']) writeLines(store, 'c1', id, 3, WRITERS_T0);
   const below = writeLines(store, 'c1', 'ζήτα', 2, WRITERS_T0);
   assert.ok(
@@ -946,14 +953,14 @@ test('touchChannel: a writer below the five shown comes back with the count they
 });
 
 test("touchChannel: a line that arrives late is counted and never moves the writer's last backwards", () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   writeLines(store, 'c1', 'άλφα', 1, WRITERS_T0 + 5000);
   const channel = writeLines(store, 'c1', 'άλφα', 1, WRITERS_T0);
   assert.deepEqual(channel.writers, { άλφα: { count: 2, last: WRITERS_T0 + 5000 } });
 });
 
 test('touchChannel: a message without an author leaves the tally and topWriters as they are', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   writeLines(store, 'c1', 'άλφα', 2, WRITERS_T0);
   const before = structuredClone(store.getChannel(placeOfChat(store, { id: 'c1' })));
 
@@ -963,7 +970,7 @@ test('touchChannel: a message without an author leaves the tally and topWriters 
 });
 
 test('touchChannel: counters never stamp updatedAt, only a change of the notes does', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   writeLines(store, 'c1', 'άλφα', 3, WRITERS_T0);
   assert.equal(store.getChannel(placeOfChat(store, { id: 'c1' }))?.updatedAt, null);
   assert.equal(store.getChannel(placeOfChat(store, { id: 'c1' }))?.notesCheckedAt, null);
@@ -1073,7 +1080,7 @@ test('getChannel: a tally or a check stamp a hand edit broke is made safe to rea
 
 test('getMediaCache: the same live object is returned on every call, mutation-friendly', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   const cache = store.getMediaCache(placeOfRoot(store, 'g1'));
   asRecord(cache).a1 = { text: 'a cat', ts: 1000 };
   assert.deepEqual(store.getMediaCache(placeOfRoot(store, 'g1')), { a1: { text: 'a cat', ts: 1000 } });
@@ -1117,7 +1124,7 @@ test('addEpisodes: tolerates a profile written before this feature existed', () 
   fs.mkdirSync(guildDir, { recursive: true });
   fs.writeFileSync(path.join(guildDir, 'u1.json'), JSON.stringify({ id: 'u1', names: ['Alice'], messageCount: 3 }));
 
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   const added = store.addEpisodes(accountOf(store, 'u1'), [{ what: 'first ever episode' }], {
     maxEpisodes: 20,
     maxNew: 3,
@@ -1150,7 +1157,7 @@ test('addEpisodes: persists across store instances', async () => {
 
 test('updateUser: never overwrites episodes even if the field is present in fields', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   store.addEpisodes(accountOf(store, 'u1'), [{ what: 'a real episode' }], { maxEpisodes: 20, maxNew: 3, now: 1000 });
 
@@ -1185,7 +1192,7 @@ test('getUser: a hand-edited details array missing valid ids gets fresh ones ass
 
 test('applyProfileOps: a detail id is never reused after a remove', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   store.applyProfileOps(accountOf(store, 'u1'), { details: { add: ['a', 'b'] } }, { maxDetails: 15, now: 1000 });
   store.applyProfileOps(accountOf(store, 'u1'), { details: { remove: [1] } }, { maxDetails: 15, now: 2000 });
@@ -1202,7 +1209,7 @@ test('applyProfileOps: a detail id is never reused after a remove', () => {
 
 test('applyProfileOps: opts.seenAt (not opts.now) dates interests/details, and drives the confirmGapHours bump', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   const seenAt1 = Date.UTC(2020, 0, 1);
   store.applyProfileOps(
@@ -1239,7 +1246,7 @@ test('applyProfileOps: opts.seenAt (not opts.now) dates interests/details, and d
 
 test('applyProfileOps: sets character/style/relationship only when given as non-empty strings', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   store.applyProfileOps(
     accountOf(store, 'u1'),
@@ -1259,7 +1266,7 @@ test('applyProfileOps: sets character/style/relationship only when given as non-
 
 test('applyProfileOps: a first write of a prose field is clamped tolerantly to opts.fieldChars; a rewrite is never cut', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   const profile = store.applyProfileOps(
     accountOf(store, 'u1'),
@@ -1306,7 +1313,7 @@ test('applyProfileOps: normalizes a hand-edited interests array before applying 
 
 test('applyProfileOps: details add is de-duplicated case-insensitively (a sighting on the existing item), remove is exact-text', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   store.applyProfileOps(
     accountOf(store, 'u1'),
@@ -1330,7 +1337,7 @@ test('applyProfileOps: details add is de-duplicated case-insensitively (a sighti
 
 test('applyProfileOps: details are capped at maxDetails, evicting the lowest weight (then oldest) first', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   const profile = store.applyProfileOps(
     accountOf(store, 'u1'),
@@ -1345,7 +1352,7 @@ test('applyProfileOps: details are capped at maxDetails, evicting the lowest wei
 
 test('applyProfileOps: threads interestHalfLifeDays into applyInterestOps -- decay lets a recent light interest survive eviction over an ancient heavier one', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   const ancientMs = Date.parse('2021-01-01T00:00:00.000Z');
   store.applyProfileOps(
@@ -1396,7 +1403,7 @@ test('applyProfileOps: threads interestHalfLifeDays into applyInterestOps -- dec
 
 test('applyProfileOps: threads detailHalfLifeDays into applyDetailOps -- decay lets a recent light detail survive eviction over an ancient heavier one', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   const ancientMs = Date.parse('2021-01-01T00:00:00.000Z');
   store.applyProfileOps(
@@ -1433,7 +1440,7 @@ test('applyProfileOps: threads detailHalfLifeDays into applyDetailOps -- decay l
 
 test('applyProfileOps: tolerates garbage ops without throwing, leaves the profile unchanged', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   for (const garbage of [null, undefined, 'not an object', 42, { interests: 'nope', details: 5 }]) {
     assert.doesNotThrow(() =>
@@ -1488,7 +1495,7 @@ test('applyProfileOps: persists across store instances', async () => {
 
 test('setLore: an owner entry is never overwritten by a later analyzer update', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.setLore(
     placeOfRoot(store, 'g1'),
     [{ title: 'Founders Day', keys: ['founders'], text: 'owner text', always: true }],
@@ -1514,7 +1521,7 @@ test('setLore: an owner entry is never overwritten by a later analyzer update', 
 });
 
 test('setLore: an identical analyzer re-send returns 0 and keeps updatedAt; a changed text returns 1', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   const flood = { title: 'The Flood', keys: ['flood'], text: 'It flooded once.' };
   store.setLore(placeOfRoot(store, 'g1'), [flood], { source: 'analyzer', now: 1000 });
 
@@ -1594,7 +1601,7 @@ test('getUser: a profile with no aliases key at all is tolerated, gets []', asyn
 
 test('applyProfileOps: routes users.aliases ops through applyAliasOps, threading maxAliases/maxAliasesStored/aliasHalfLifeDays', () => {
   const freshStore = () => {
-    const store = createStore({ dataDir: tmpDataDir() });
+    const store = createStore(memoryAt(tmpDataDir()));
     store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
     return store;
   };
@@ -1650,7 +1657,7 @@ test('applyProfileOps: routes users.aliases ops through applyAliasOps, threading
 
 test("applyProfileOps: an alias equal (case-insensitively) to the member's OWN stored display name is never added", () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
 
   const profile = store.applyProfileOps(accountOf(store, 'u1'), { aliases: { add: ['alice'] } }, { now: 1000 });
@@ -1704,15 +1711,16 @@ test('dropCaches: forgets every cached unit except state.json, so the next read 
   assert.equal(store.state.data.llmCount, 3);
 });
 
-test('reloadState: re-reads state.json from disk, discarding the cached in-memory value', () => {
-  const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+test('reloadState: re-reads the stored state, discarding the cached in-memory value', async () => {
+  const { dir, memoryDb } = memDataDir();
+  const store = createStore({ dataDir: dir, memoryDb });
   store.state.data.llmCount = 1;
   store.state.markDirty();
   store.flush();
+  await store.flushSettled({});
 
-  // A hand-edit to state.json itself, made while paused.
-  fs.writeFileSync(path.join(dir, 'state.json'), JSON.stringify({ llmCount: 99, job: { done: false } }));
+  // A hand edit of the stored state, made while paused.
+  await memoryDb.writeUnit({ op: 'value', key: personaKey('state'), value: { llmCount: 99, job: { done: false } } });
 
   assert.equal(store.state.data.llmCount, 1, 'still the stale cached value before reloadState');
   store.reloadState();
@@ -1760,7 +1768,7 @@ function privateFile(dir: string, placeId: string, accountId: string) {
 
 test('getPrivate: null when no private file exists, and nothing is created', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   assert.equal(store.getPrivate(accountOf(store, 'u1')), null);
   store.flush();
   assert.equal(fs.existsSync(privateFile(dir, 'g1', 'u1')), false);
@@ -1854,7 +1862,7 @@ test('applyPrivateOps: relationship, interests and details land in the private f
 
 test('applyPrivateOps: an empty relationship never blanks the stored one; garbage ops never throw', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.applyPrivateOps(accountOf(store, 'u1'), { relationship: 'Old friend' }, { fieldChars: 300 });
   store.applyPrivateOps(accountOf(store, 'u1'), { relationship: '   ' }, { fieldChars: 300 });
   assert.doesNotThrow(() =>
@@ -1870,7 +1878,7 @@ test('applyPrivateOps: an empty relationship never blanks the stored one; garbag
 
 test('adjustPrivateAffinity: starts at 0, clamps the delta and the score, never touches the public affinity', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   store.adjustAffinity(accountOf(store, 'u1'), 4, 'public reason', { maxDelta: 5, historySize: 5, now: 1000 });
 
@@ -1900,7 +1908,7 @@ test('adjustPrivateAffinity: starts at 0, clamps the delta and the score, never 
 
 test('addPrivateEpisodes: appends via mergeEpisodes to the private file only', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   const added = store.addPrivateEpisodes(accountOf(store, 'u1'), [{ what: 'told the persona a secret' }], {
     maxEpisodes: 20,
@@ -2011,7 +2019,7 @@ test('decayAffinities: decay off writes nothing; no profiles -> zero counts', as
   await store.flushSettled({});
   assert.equal(readRaw(userFileOf(dir, 'g1', 'u1')), raw);
   // Profiles are the persona's now: a store with none is another database.
-  assert.deepEqual(createStore({ dataDir: tmpDataDir() }).decayAffinities(DECAY_NOW, DECAY_CFG), {
+  assert.deepEqual(createStore(memoryAt(tmpDataDir())).decayAffinities(DECAY_NOW, DECAY_CFG), {
     profiles: 0,
     decayed: 0,
   });
@@ -2064,7 +2072,7 @@ test('normalisation on read keeps decayedAt and relationshipScore, public and pr
 
 test('applyProfileOps: stamps relationshipScore when the relationship text is written, not otherwise', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Zoé', 1000);
   store.adjustAffinity(accountOf(store, 'u1'), 30, 'x', { maxDelta: 30, historySize: 10, now: 1000 });
 
@@ -2099,7 +2107,7 @@ test('applyProfileOps: stamps relationshipScore when the relationship text is wr
 
 test('applyPrivateOps: stamps relationshipScore when the private relationship text is written, not otherwise', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.adjustPrivateAffinity(accountOf(store, 'u1'), 12, 'x', { maxDelta: 15, historySize: 10, now: 1000 });
 
   store.applyPrivateOps(
@@ -2131,7 +2139,7 @@ const LONG_RELATIONSHIP =
 
 test('applyProfileOps: a written relationship is stamped relationshipWrittenAt and clamped to relationshipChars', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Zoé', 1000);
 
   store.applyProfileOps(
@@ -2186,7 +2194,7 @@ test('applyProfileOps: a written relationship is stamped relationshipWrittenAt a
 
 test('applyPrivateOps: a written private relationship is stamped relationshipWrittenAt and clamped to relationshipChars', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.applyPrivateOps(
     accountOf(store, 'u1'),
     { details: { add: ['a secret'] } },
@@ -2298,7 +2306,7 @@ function recentCounts(fields = {}) {
 
 test('store: getRecent on a fresh guild creates no file, nor does a write that changes nothing', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   assert.deepEqual(store.getRecent(placeOfRoot(store, 'g1')), { nextId: 1, lines: [] });
   assert.deepEqual(store.applyRecentOps(placeOfRoot(store, 'g1'), [], { now: RECENT_NOW }), recentCounts());
   assert.deepEqual(
@@ -2606,7 +2614,7 @@ test('store: participation round trip, a copy on read, nothing created by readin
 });
 
 test('store: participation expires on every write', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   let state = partState(emptyParticipation(), { placeId: 'c1', minute: 0 });
   state = partState(state, { placeId: 'c2', minute: 120 });
   state = partState(state, { placeId: 'c3', minute: 240 });
@@ -2689,7 +2697,7 @@ test('markRelationshipRewrite: sets and clears the flag on a profile with a text
 
 test('applyProfileOps: writing a relationship text clears the rewrite flag, any other write keeps it', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir });
+  const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Zoé', 1000);
   store.applyProfileOps(
     accountOf(store, 'u1'),
@@ -2830,7 +2838,7 @@ test('store: an item without itemId gets one on write and old items load unchang
 
 test('store: eviction returns the dropped items with their itemId', () => {
   const dir = tmpDataDir();
-  const store = createStore({ dataDir: dir, newId: counterIds() });
+  const store = createStore({ ...memoryAt(dir), newId: counterIds() });
 
   let onDropped = null;
   store.updatePlace(placeOfRoot(store, 'g1'), { injokes: ['ο café', 'η γάτα'] });
@@ -2996,7 +3004,12 @@ test('store: an evicted episode is archived before the hot file on disk loses it
 
   // With features.archive off (archiveOn false) a victim leaves at once and nothing is archived.
   const offArchive = fakeArchive();
-  const off = createStore({ dataDir: tmpDataDir(), newId: counterIds(), archive: offArchive, archiveOn: () => false });
+  const off = createStore({
+    ...memoryAt(tmpDataDir()),
+    newId: counterIds(),
+    archive: offArchive,
+    archiveOn: () => false,
+  });
   off.addEpisodes(accountOf(off, 'u1'), [{ date: '2026-10-01', what: 'παλιό', weight: 1 }], opts);
   off.addEpisodes(accountOf(off, 'u1'), [{ date: '2026-10-04', what: 'νέο', weight: 3 }], opts);
   assert.deepEqual(whats(asRecord(off.getUser(accountOf(off, 'u1'))).episodes), ['νέο']);
@@ -3062,7 +3075,7 @@ test('store: a failing archive keeps every victim hot and queues them; drainPend
 
 test('store: a replace op archives the previous version with event replaced', async () => {
   const archive = fakeArchive();
-  const store = createStore({ dataDir: tmpDataDir(), newId: counterIds(), archive });
+  const store = createStore({ ...memoryAt(tmpDataDir()), newId: counterIds(), archive });
   store.applyProfileOps(
     accountOf(store, 'u1'),
     { interests: { add: [{ topic: 'σκάκι', note: 'παίζει τα βράδια' }] } },
@@ -3146,7 +3159,7 @@ test('store: a replaced note is not flushed to disk before its old version is ar
 
 test('store: closed items are capped and archived as replaced', async () => {
   const archive = fakeArchive();
-  const store = createStore({ dataDir: tmpDataDir(), newId: counterIds(), archive });
+  const store = createStore({ ...memoryAt(tmpDataDir()), newId: counterIds(), archive });
   const opts = (n: number) => ({ now: ID_NOW + n * 1000, maxClosedStored: 2 });
   store.applyProfileOps(accountOf(store, 'u1'), { interests: { add: [{ topic: 'α', note: '' }] } }, opts(0));
   for (const [n, topic] of [
@@ -3195,7 +3208,7 @@ test('store: closed items are capped and archived as replaced', async () => {
 // ---- the real name and the names people use (src/memory/addressed.ts) ----
 
 test('applyProfileOps: a realName is set, an equal one is a sighting, a different string changes nothing', () => {
-  const store = createStore({ dataDir: tmpDataDir(), newId: counterIds() });
+  const store = createStore({ ...memoryAt(tmpDataDir()), newId: counterIds() });
   store.applyProfileOps(accountOf(store, 'u1'), { realName: '  Théo  ' }, { now: ID_NOW, seenAt: ID_NOW });
   const set = asRecord(store.getUser(accountOf(store, 'u1'))).realName;
   assert.equal(set.name, 'Théo');
@@ -3217,14 +3230,14 @@ test('applyProfileOps: a realName is set, an equal one is a sighting, a differen
 });
 
 test('applyProfileOps: a realName is clamped to 60 characters', () => {
-  const store = createStore({ dataDir: tmpDataDir(), newId: counterIds() });
+  const store = createStore({ ...memoryAt(tmpDataDir()), newId: counterIds() });
   store.applyProfileOps(accountOf(store, 'u1'), { realName: 'α'.repeat(80) }, { now: ID_NOW });
   assert.ok([...asRecord(store.getUser(accountOf(store, 'u1'))).realName.name].length <= 60);
 });
 
 test('applyProfileOps: a realName that supersedes the stored one closes it into the closed list, archived once evicted', async () => {
   const archive = fakeArchive();
-  const store = createStore({ dataDir: tmpDataDir(), newId: counterIds(), archive });
+  const store = createStore({ ...memoryAt(tmpDataDir()), newId: counterIds(), archive });
   store.applyProfileOps(accountOf(store, 'u1'), { realName: 'Léon' }, {
     now: ID_NOW,
     maxClosedStored: 1,
@@ -3300,7 +3313,7 @@ test('getUser: addressedAs and realName are normalised on read, absent stays abs
 });
 
 test('recordAddressUses: folds uses into an existing profile only, with the half-life given', () => {
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   assert.equal(
     store.recordAddressUses(accountOf(store, 'nobody'), [{ name: 'Ana', at: ID_NOW }], { halfLifeDays: 30 }),
     null

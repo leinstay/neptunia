@@ -598,6 +598,12 @@ function memoryFor(dataDir: string) {
   if (!memories.has(dataDir)) memories.set(dataDir, readOnlyMemory(dataDir).memoryDb);
   return memories.get(dataDir);
 }
+/** The memory a store of `dataDir` reads: a store needs its database, so a directory without `memory.db` is refused. */
+function storeMemoryFor(dataDir: string) {
+  const memoryDb: Untyped = memoryFor(dataDir);
+  if (!memoryDb) throw new CliError(`replay-cli: no memory database in ${dataDir}`);
+  return memoryDb;
+}
 /** An inner turn's requests at most: her answer and up to four tool-loop steps (wakes.loop.maxSteps' default). */
 const INNER_REQUESTS = 5;
 /** A selfreflection brief's requests: the plan (classifier model) and the compose (voice model). */
@@ -2057,7 +2063,7 @@ async function runSelfreflection({ args, root, load, hot: liveHot, createHot, lo
       log.warn('replay-cli: the kind is a set kind; only the first <draw> is reported', { kind });
 
     // The store and the counters: an in-memory copy; the picture gate opened there only.
-    const { store, state } = unflushedStore(createStore({ dataDir: liveData, memoryDb: memoryFor(liveData) }));
+    const { store, state } = unflushedStore(createStore({ dataDir: liveData, memoryDb: storeMemoryFor(liveData) }));
     const nowMs = Date.now();
     const were = { images: countToday(state.data, { dayKey: 'imageDay', countKey: 'imageCount' }, nowMs) };
     state.data.imageCount = 0;
@@ -2687,7 +2693,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     const config = hot.config;
     const settings = mods.innerSettings(config);
     const timezone = config.bot?.timezone ?? 'UTC';
-    const { store, state } = unflushedStore(createStore({ dataDir, memoryDb: memoryFor(dataDir) }));
+    const { store, state } = unflushedStore(createStore({ dataDir, memoryDb: storeMemoryFor(dataDir) }));
     const calibrator = createCalibrator(state.data.calibration);
     const sim = replaySimulation(createLlm, hot, calibrator, state);
     const calls: Array<Untyped> = [];
@@ -3128,7 +3134,7 @@ async function runSelfreflectionDay({ args, root, load, hot: liveHot, log, signa
     const now = () => clock.base + (Date.now() - clock.real);
 
     // The store and the counters: an in-memory copy, today's selfreflection and image counts at 0.
-    const { store, state } = unflushedStore(createStore({ dataDir: liveData, memoryDb: memoryFor(liveData) }));
+    const { store, state } = unflushedStore(createStore({ dataDir: liveData, memoryDb: storeMemoryFor(liveData) }));
     state.data.imageCount = 0;
     if (state.data.paused) log.warn('replay-cli: the bot is paused; every slot will answer paused', {});
 
@@ -6890,7 +6896,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
     // `<channel_directory>`: the guild's readable text channels, as a live turn lists them.
     const channelDirectory = channelDirectoryOf(guild);
 
-    const realStore = createStore({ dataDir, memoryDb: memoryFor(dataDir) });
+    const realStore = createStore({ dataDir, memoryDb: storeMemoryFor(dataDir) });
     const store = readOnlyStore(realStore, SANDBOX_STORE_READS);
     const stateData = store.state.data;
     const calibrator = createCalibrator(stateData.calibration);

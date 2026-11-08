@@ -12,8 +12,7 @@
 //   - a fill drops a clean selfreflection; a dirty or held one gains, on each post with an item id, the filled fields
 //     the database holds and the post lacks (`SELFREFLECTION_FILLED`), and is written again.
 //
-// A name `address` never registered is an operational file: read and written through `files`. Without a database
-// (tests) a memory unit lives in the cache only: nothing is read, and a flush marks it clean.
+// A name `address` never registered is an operational file: read and written through `files`.
 
 import { storageContext } from './db/map/index.ts';
 import { unitValue } from './db/readers/common.ts';
@@ -75,7 +74,7 @@ export type UnitCache = {
 };
 
 /**
- * The cache over `memoryDb` (null in tests), reading through `seam`, with operational files through `files`.
+ * The cache over `memoryDb`, reading through `seam`, with operational files through `files`.
  * See the head of this file.
  */
 // health: allow function-length until 2027-04-01 -- one closure over the cache map and the outbox
@@ -84,7 +83,7 @@ export function createUnitCache({
   seam,
   files,
 }: {
-  memoryDb: MemoryDb | null;
+  memoryDb: MemoryDb;
   seam: Seam;
   files: Files;
 }): UnitCache {
@@ -124,10 +123,8 @@ export function createUnitCache({
       const key = unitKeys.get(file);
       let value: unknown;
       if (key) {
-        // A memory unit: the database's value; a unit it does not hold is new (and so is every unit without a database).
-        const unit: ReturnType<typeof unitValue> = memoryDb
-          ? seam.run(() => unitValue(seam.db(), key))
-          : { found: false };
+        // A memory unit: the database's value; a unit it does not hold is new.
+        const unit = seam.run(() => unitValue(seam.db(), key));
         value = unit.found ? unit.value : fallback();
       } else {
         value = files.read(file, fallback());
@@ -143,7 +140,6 @@ export function createUnitCache({
     if (entries.has(file)) return true;
     const key = unitKeys.get(file);
     if (!key) return onDisk(file);
-    if (!memoryDb) return false;
     const db = seam.db();
     return seam.run(
       () =>
@@ -152,31 +148,23 @@ export function createUnitCache({
     );
   }
 
-  /** Every id of the units under a `collection`, stored in the database or only cached (no side effects on the cache). */
+  /**
+   * Every id of the units under a `collection`, stored in the database or only cached (no side effects on the cache). A
+   * name only addressed, never stored nor cached, is no unit.
+   */
   function idsUnder(dir: string): Array<string> {
     const ids = new Set<string>();
     const query = directoryQueries.get(dir);
-    if (memoryDb) {
-      const db = seam.db();
-      if (!query) return [];
-      const keys = [...seam.run(() => listUnits(db, query)).map((unit) => unit.key), ...unitKeys.values()];
-      for (const key of keys) if (key.kind === query.kind && !key.selector && !key.partition) ids.add(key.subject.id);
-      return [...ids];
-    }
-    for (const key of unitKeys.values())
-      if (key.kind === query?.kind && entries.has(keyText(key))) ids.add(key.subject.id);
+    const db = seam.db();
+    if (!query) return [];
+    const cachedKeys = [...unitKeys].filter(([name]) => entries.has(name)).map(([, key]) => key);
+    const keys = [...seam.run(() => listUnits(db, query)).map((unit) => unit.key), ...cachedKeys];
+    for (const key of keys) if (key.kind === query.kind && !key.selector && !key.partition) ids.add(key.subject.id);
     return [...ids];
   }
 
-  /**
-   * The entry's whole value handed to the outbox (a JSON copy). Without a database (tests) the entry is clean at once:
-   * nothing is persisted. With one that has no writer the entry stays dirty.
-   */
+  /** The entry's whole value handed to the outbox (a JSON copy). With a database that has no writer the entry stays dirty. */
   function sendUnit(file: string, item: CacheItem): void {
-    if (!memoryDb) {
-      item.dirty = false;
-      return;
-    }
     if (!outbox) {
       log.warn('store: unit write failed', { code: 'DB_CLOSED' });
       return;
@@ -281,7 +269,7 @@ export function createUnitCache({
   function selfreflectionFilled(): boolean {
     const file = address(personaKey('selfreflection'));
     const item = entries.get(file);
-    if (!item || !memoryDb) return false;
+    if (!item) return false;
     if (!item.dirty && !holds(file)) {
       entries.delete(file);
       return true;
@@ -302,11 +290,11 @@ export function createUnitCache({
   }
 
   // The database's other writers reach the cached units (see the head of this file).
-  if (typeof memoryDb?.onAffinityMoves === 'function')
+  if (typeof memoryDb.onAffinityMoves === 'function')
     memoryDb.onAffinityMoves((moves: Array<Record<string, unknown>>) =>
       attitudeMoved(moves as Array<{ personId: string }>)
     );
-  if (typeof memoryDb?.onSelfreflectionFill === 'function') memoryDb.onSelfreflectionFill(() => selfreflectionFilled());
+  if (typeof memoryDb.onSelfreflectionFill === 'function') memoryDb.onSelfreflectionFill(() => selfreflectionFilled());
 
   return {
     address,
@@ -327,7 +315,7 @@ export function createUnitCache({
     keep: (): number | undefined => (outbox ? outbox.keep() : undefined),
     drop,
     reload,
-    /** Whether a unit can be written: false without a database or with a closed writer. */
+    /** Whether a unit can be written: false with a closed writer. */
     writable: (): boolean => outbox !== null,
     /** Lines of a JSONL unit queued for the writer; false (nothing queued) when there is none. */
     lines(key: StorageKey, list: Array<unknown>): boolean {

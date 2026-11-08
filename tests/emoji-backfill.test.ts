@@ -14,6 +14,7 @@ import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { IFACE, SELF_ID, channel, message, rig } from './fixtures/reads-rig.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { Reads } from '../src/interface/reads.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -23,7 +24,7 @@ const T0 = Date.UTC(2026, 8, 1);
 function withStore(fn: Untyped) {
   const dir = tempDir('nep-emoji-backfill-');
   return Promise.resolve()
-    .then(() => fn(createStore({ dataDir: dir }), dir))
+    .then(() => fn(createStore(memoryAt(dir)), dir))
     .finally(() => fs.rmSync(dir, { recursive: true, force: true }));
 }
 
@@ -102,7 +103,7 @@ test("emoji backfill run: counts members' emoji over every readable channel, bot
     const result = await backfill.run(placeOfRoot(backfill, 'g1'));
     assert.deepEqual(result, { ok: true, channels: 2, messages: 4, emoji: 4 });
 
-    const usage = store.getPlace(placeOfRoot(store, 'g1')).emojiUsage;
+    const usage = store.getPlace('g1').emojiUsage;
     assert.deepEqual(usage['111'], { name: 'kappa', count: 2, last: T0 + 2000 });
     assert.deepEqual(usage['222'], { name: 'omega', count: 2, last: T0 + 6000 });
     assert.equal(
@@ -111,7 +112,7 @@ test("emoji backfill run: counts members' emoji over every readable channel, bot
       'a chat the persona may not read is never read'
     );
 
-    const stamp = store.getPlace(placeOfRoot(store, 'g1')).emojiBackfill;
+    const stamp = store.getPlace('g1').emojiBackfill;
     assert.equal(stamp.channels, 2);
     assert.equal(stamp.messages, 4);
     assert.ok(Number.isFinite(Date.parse(stamp.at)));
@@ -130,7 +131,7 @@ test('emoji backfill run: a second run without force is a no-op and never double
     const second = await backfill.run(placeOfRoot(backfill, 'g1'));
 
     assert.deepEqual(second, { ok: false, reason: 'done' });
-    assert.equal(store.getPlace(placeOfRoot(store, 'g1')).emojiUsage['111'].count, 2);
+    assert.equal(store.getPlace('g1').emojiUsage['111'].count, 2);
     assert.equal(world.asked('history').length, fetchesAfterFirst, 'no history read on the no-op');
   });
 });
@@ -147,11 +148,11 @@ test('emoji backfill run: force clears emojiUsage and recounts from history', as
 
     await backfill.run(placeOfRoot(backfill, 'g1'));
     // An entry the history no longer shows (e.g. counted before) disappears on a forced rescan.
-    store.recordEmojiUsage(placeOfRoot(store, 'g1'), [{ id: 'x', ts: T0, emojis: [{ id: '999', name: 'stale' }] }]);
+    store.recordEmojiUsage('g1', [{ id: 'x', ts: T0, emojis: [{ id: '999', name: 'stale' }] }]);
     const result = await backfill.run(placeOfRoot(backfill, 'g1'), { force: true });
 
     assert.deepEqual(result, { ok: true, channels: 2, messages: 4, emoji: 4 });
-    const usage = store.getPlace(placeOfRoot(store, 'g1')).emojiUsage;
+    const usage = store.getPlace('g1').emojiUsage;
     assert.deepEqual(Object.keys(usage).sort(), ['111', '222']);
     assert.equal(usage['111'].count, 2, 'recounted, not added to the first run');
   });
@@ -160,7 +161,7 @@ test('emoji backfill run: force clears emojiUsage and recounts from history', as
 test("emoji backfill run: a first run over a ranking with counts ends with the history's counts alone", async () => {
   await withStore(async (store: Untyped) => {
     // What the analyzer counted since the feature went live: messages the history window also holds.
-    store.recordEmojiUsage(placeOfRoot(store, 'g1'), [
+    store.recordEmojiUsage('g1', [
       { id: '1001', ts: T0 + 1000, emojis: [{ id: '111', name: 'kappa' }] },
       { id: '1006', ts: T0 + 6000, emojis: [{ id: '222', name: 'omega' }] },
       { id: 'old', ts: T0 - 1000, emojis: [{ id: '333', name: 'gone' }] },
@@ -175,7 +176,7 @@ test("emoji backfill run: a first run over a ranking with counts ends with the h
 
     const result = await backfill.run(placeOfRoot(backfill, 'g1'));
     assert.deepEqual(result, { ok: true, channels: 2, messages: 4, emoji: 4 });
-    assert.deepEqual(store.getPlace(placeOfRoot(store, 'g1')).emojiUsage, {
+    assert.deepEqual(store.getPlace('g1').emojiUsage, {
       111: { name: 'kappa', count: 2, last: T0 + 2000 },
       222: { name: 'omega', count: 2, last: T0 + 6000 },
     });
@@ -196,7 +197,7 @@ test('emoji backfill run: backfillMessages caps the messages read per channel', 
 
     const result = await backfill.run(placeOfRoot(backfill, 'g1'));
     assert.deepEqual(result, { ok: true, channels: 1, messages: 500, emoji: 0 });
-    assert.equal(store.getPlace(placeOfRoot(store, 'g1')).emojiUsage['111'], undefined);
+    assert.equal(store.getPlace('g1').emojiUsage['111'], undefined);
   });
 });
 
@@ -245,7 +246,7 @@ test('emoji backfill startIfNeeded: runs once when the feature is on and nothing
     const backfill = createEmojiBackfill({ ...depsOf(world), hot: fakeHot(), store, log: fakeLog() });
 
     await backfill.startIfNeeded(placeOfRoot(backfill, 'g1'));
-    assert.equal(store.getPlace(placeOfRoot(store, 'g1')).emojiUsage['111'].count, 2);
+    assert.equal(store.getPlace('g1').emojiUsage['111'].count, 2);
     const fetches = world.asked('history').length;
     await backfill.startIfNeeded(placeOfRoot(backfill, 'g1'));
     assert.equal(world.asked('history').length, fetches, 'stamped: never again at startup');

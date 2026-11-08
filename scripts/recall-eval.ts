@@ -242,9 +242,9 @@ async function openSources(dataDir: Untyped, dbFile: Untyped) {
   const { createArchive } = await import('../src/memory/archive.ts');
   const { createVectors } = await import('../src/memory/vectors.ts');
   const { createStore } = await import('../src/memory/store.ts');
-  if (!fs.existsSync(dbFile)) throw new CliError(`recall-eval: no database at ${dbFile}`);
   // Reads only: no writer, so nothing built here can write the database.
   const { memoryDb, close } = readOnlyMemory(dataDir, { file: dbFile });
+  if (!memoryDb) throw new CliError(`recall-eval: no database at ${dbFile}`);
   // Iteration only: the archive's append store never gets an append, so it never opens a file for writing.
   const record = createRecord({ dataDir, memoryDb });
   const archive = createArchive({ appendStore: createAppendStore(), dataDir, memoryDb });

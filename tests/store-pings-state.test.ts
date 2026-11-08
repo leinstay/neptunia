@@ -7,18 +7,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { placeOfRoot } from '../src/memory/addresses.ts';
 import { createStore } from '../src/memory/store.ts';
-import { memDataDir, readRaw, settle, tmpDataDir, writeRaw } from './fixtures/store-kit.ts';
+import { memDataDir, readRaw, settle, tmpDataDir, writeRaw, memoryAt } from './fixtures/store-kit.ts';
 
 test('getPings: null for a member who never set a state', () => {
   // Bug: an unset member reads as `on` or `off`, and nobody follows the interface switch any more.
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   assert.equal(store.getPings(placeOfRoot(store, 'g1'), 'u1'), null);
   assert.equal(store.isPingsOff(placeOfRoot(store, 'g1'), 'u1'), false);
 });
 
 test('setPings: on, off and null are each kept, replace the earlier state and return the new one', () => {
   // Bug: `on` is stored as the absence of `off`, so a member who chose `on` cannot be told from one who never chose.
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   const place = placeOfRoot(store, 'g1');
   assert.equal(store.setPings(place, 'u1', 'on'), 'on');
   assert.equal(store.getPings(place, 'u1'), 'on');
@@ -34,7 +34,7 @@ test('setPings: on, off and null are each kept, replace the earlier state and re
 
 test('setPings: the state is per member and per place', () => {
   // Bug: one member's `on` is read for the whole place, or for the same account in another server.
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   store.setPings(placeOfRoot(store, 'g1'), 'u1', 'on');
   assert.equal(store.getPings(placeOfRoot(store, 'g1'), 'u2'), null);
   assert.equal(store.getPings(placeOfRoot(store, 'g2'), 'u1'), null);
@@ -79,7 +79,7 @@ test('an off stored by the earlier switch reads as off', () => {
 
 test('updatePlace from the analyzer never overwrites a ping state', () => {
   // Bug: the analyzer writes the place back whole and clears the members' own switches.
-  const store = createStore({ dataDir: tmpDataDir() });
+  const store = createStore(memoryAt(tmpDataDir()));
   const place = placeOfRoot(store, 'g1');
   store.setPings(place, 'u1', 'on');
   store.setPings(place, 'u2', 'off');

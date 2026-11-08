@@ -1,13 +1,13 @@
 // Persistent memory: the memory database (src/memory/db/service.ts) holds it, this module caches it -- it survives
 // restarts, hot reloads and prompt edits; nothing in the codebase ever wipes it. Each cached value is one unit of the
 // database, named by the path it had under data/ (`places/<g>/users/<u>.json`; the mappers of src/memory/db/map/
-// turn a unit into rows and back); the operational files beside it stay JSON files under data/:
+// turn a unit into rows and back); the operational files beside it stay JSON files under data/. The units:
 //
-//   state.json        the pause flag, the daily counters and the marks of the running process
 //   an account's      its profile (`user`) and what it said in private (`private`)
 //   a place's         its notes (`place`), its map entry (`channel`), lore, media, GIFs, recent lines, participation
 //                     and the previous texts of its prose (`versions`)
-//   the persona's     the selfreflection
+//   the persona's     her state (the pause flag, the daily counters and the marks of the running process) and the
+//                     selfreflection
 //
 // The errand tasks (src/errands/store.ts) and the intentions (src/intentions/store.ts) are units of their own
 // stores, not cached here. Everything is cached in memory (src/memory/unit-cache.ts), marked dirty on change and flushed
@@ -396,7 +396,7 @@ function writeTextAtomic(file: string, text: string) {
   }
 }
 
-/** The fallback cap of the recall trace file (config.json `recall.traceMaxLines`). */
+/** The fallback cap of the recall trace (config.json `recall.traceMaxLines`). */
 const RECALL_TRACE_MAX_LINES = 500;
 
 /** `memory.vaultDir` when it is missing and the snapshots directory: src/memory/root.ts, re-exported here. */
@@ -1071,7 +1071,7 @@ type StoreDeps = {
   recordOn?: () => boolean;
   archive?: Untyped;
   archiveOn?: () => boolean;
-  memoryDb?: MemoryDb | null;
+  memoryDb: MemoryDb;
   /** The event loop watch's `track` (src/loop-watch.ts); a flush of the cache is a named operation. */
   track?: Track;
 };
@@ -1170,10 +1170,9 @@ function buildStore({
   recordOn = () => Boolean(record),
   archive = null,
   archiveOn = () => Boolean(archive),
-  memoryDb = null,
+  memoryDb,
   track = untracked,
 }: StoreDeps) {
-  const root = memoryRootOf(dataDir);
   const seam = readSeamOf(memoryDb, log, 'store');
   // The memory units and files this store holds, and their one way to the writer.
   const cache = createUnitCache({ memoryDb, seam, files: { read: readJson, write: writeJsonAtomic } });
@@ -1632,7 +1631,7 @@ function buildStore({
    */
   function userFile(accountId: string): string {
     const own = accountFile(accountId);
-    if (!memoryDb?.readHandle?.()) return own;
+    if (!memoryDb.readHandle?.()) return own;
     const unit = seam.run(() => linkedProfileUnit(seam.db(), accountId));
     return unit ? address(unit.key) : own;
   }
@@ -1662,7 +1661,7 @@ function buildStore({
           : placeCollection('place', placeId ?? id);
     return address({ ...base, kind: 'versions', selector });
   };
-  const stateFile = memoryDb ? address(personaKey('state')) : root.stateFile;
+  const stateFile = address(personaKey('state'));
 
   const stateEntry = entry(stateFile, () => ({}));
 
@@ -1868,7 +1867,7 @@ function buildStore({
   let gifVectors: Map<string, { model: string | null; vector: Float32Array }> | null = null;
   /** The GIF vectors as this store knows them, read from the database once. */
   function heldGifVectors() {
-    gifVectors ??= (memoryDb ? seam.run(() => readGifVectors(seam.db())) : null) ?? new Map();
+    gifVectors ??= seam.run(() => readGifVectors(seam.db())) ?? new Map();
     return gifVectors;
   }
 
@@ -2836,7 +2835,7 @@ function buildStore({
 
     /** The attachment ids stored lines and selfreflection posts link: what the media cache's cap leaves alone (src/web/cache.ts#trimCache). */
     linkedMediaKeys(): ReadonlySet<string> {
-      return memoryDb ? seam.run(() => linkedAttachmentIds(seam.db())) : new Set<string>();
+      return seam.run(() => linkedAttachmentIds(seam.db()));
     },
 
     getMediaDescription: currentMedia,
@@ -2975,7 +2974,7 @@ function buildStore({
      * hello writes them again.
      */
     noteRoots(iface: string, roots: ReadonlyArray<{ id: string; name: string }>, names?: InterfaceNames): void {
-      if (typeof memoryDb?.memoryWrite !== 'function') return;
+      if (typeof memoryDb.memoryWrite !== 'function') return;
       void Promise.resolve(
         memoryDb.memoryWrite({
           kind: 'roots',
@@ -3067,7 +3066,7 @@ function buildStore({
       // selfreflectionEntry() replaces a value that is not `{ posts: [...] }` with the empty selfreflection.
       const copy = structuredClone(selfreflectionEntry().value) as SelfreflectionCopy;
       const ids = copy.posts.flatMap((post) => (post.itemId ? [post.itemId] : []));
-      const described = memoryDb && ids.length > 0 ? seam.run(() => entryPictureDescriptions(seam.db(), ids)) : null;
+      const described = ids.length > 0 ? seam.run(() => entryPictureDescriptions(seam.db(), ids)) : null;
       for (const post of copy.posts) {
         const description = post.itemId ? described?.get(post.itemId) : undefined;
         if (description) post.pictureDescription = description;
@@ -3101,10 +3100,10 @@ function buildStore({
       return writeSelfreflection(Array.isArray(posts) ? structuredClone(posts) : [], opts);
     },
 
-    /** `read(db)` on the memory database's read connection, null without one (src/behavior/mirror.ts reads its mirrors).
+    /** `read(db)` on the memory database's read connection (src/behavior/mirror.ts reads its mirrors).
      * @template T @param read */
     readMemory<TResult>(read: (db: Untyped) => TResult): TResult | null {
-      return memoryDb ? seam.run(() => read(seam.db())) : null;
+      return seam.run(() => read(seam.db()));
     },
 
     // ---- the recent store: short dated lines about the last days (src/memory/recent.ts) ----
@@ -3239,40 +3238,17 @@ function buildStore({
     },
 
     /**
-     * With a database, queue the trace through its writer under a semantic key. The file path below is only
-     * the standalone backend.
-     * Append one recall run's record (src/behavior/recall-run.js, `features.recallTrace`)
-     * as one JSON line to data/places/<id>/recall-trace.jsonl, written at once (not
-     * through the cache). The file keeps the newest `maxLines` lines (a missing or unusable
-     * value: 500): while there is room the line is appended, past the cap the file is
-     * rewritten atomically without the oldest. Lines a hand edit left blank are dropped on
-     * that rewrite. Throws on an I/O failure (the caller logs it).
+     * Queue one recall run's record (src/behavior/recall-run.js, `features.recallTrace`) as a line of the place's
+     * `recall_trace` unit through the writer, sent at once (not through the cache), with the cap the unit keeps: the
+     * newest `maxLines` lines (a missing or unusable value: 500). Throws `DB_CLOSED` when the database has no writer
+     * (the caller logs it).
      */
     appendRecallTrace(placeId: string, record: StoredRecord, { maxLines }: { maxLines?: number } = {}) {
       const cap = isFiniteNumber(maxLines) && maxLines >= 1 ? Math.floor(maxLines) : RECALL_TRACE_MAX_LINES;
-      if (memoryDb) {
-        const line = { record: JSON.parse(JSON.stringify(record)) as StoredRecord, maxLines: cap };
-        if (!cache.lines(placeCollection('recall_trace', placeId), [line]))
-          throw Object.assign(new Error('Memory writer unavailable'), { code: 'DB_CLOSED' });
-        cache.push();
-        return;
-      }
-      const file = path.join(root.placeDir(placeId), 'recall-trace.jsonl');
-      const line = JSON.stringify(record);
-      let text = '';
-      try {
-        text = fs.readFileSync(file, 'utf8');
-      } catch {
-        // no trace yet
-      }
-      const lines = text.split('\n').filter((l) => l.trim());
-      if (lines.length + 1 <= cap) {
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-        // A hand edit may have left the last line without its line break.
-        fs.appendFileSync(file, `${text && !text.endsWith('\n') ? '\n' : ''}${line}\n`);
-        return;
-      }
-      writeTextAtomic(file, `${[...lines, line].slice(-cap).join('\n')}\n`);
+      const line = { record: JSON.parse(JSON.stringify(record)) as StoredRecord, maxLines: cap };
+      if (!cache.lines(placeCollection('recall_trace', placeId), [line]))
+        throw Object.assign(new Error('Memory writer unavailable'), { code: 'DB_CLOSED' });
+      cache.push();
     },
 
     /**
@@ -3450,13 +3426,10 @@ function buildStore({
     ...addressing.methods(),
 
     /**
-     * Drop every cached file EXCEPT `state.json` (`/nep pause`): called
-     * right after a flush, so nothing stale can be written from memory while
-     * the owner hand-edits files under `data/` -- the next read of any
-     * profile/place/channel/lore/media/buffer lazily re-populates from disk,
-     * exactly like a fresh process. `state.json` itself is left cached (it
-     * carries the `paused` flag this feature relies on); see `reloadState`
-     * below for forcing a fresh read of it too, used by `/nep resume`.
+     * Drop every cached entry except her state and those the outbox still holds (`/nep pause`): called right after a
+     * flush, so nothing stale is written from memory while the owner edits the memory, and the next read of a unit
+     * takes the stored value like a fresh process. The state stays cached because it carries the `paused` flag;
+     * `reloadState` reads it again at `/nep resume`.
      * @returns how many cache entries were dropped
      */
     dropCaches(): number {
@@ -3477,7 +3450,7 @@ function buildStore({
      */
     validate(): Array<string> {
       return findInvalidJsonFiles(dataDir, {
-        only: (rel) => operationalJsonPath(rel) || (!memoryDb && isCoreStatePath(rel)),
+        only: operationalJsonPath,
       });
     },
   };
@@ -3526,7 +3499,7 @@ export type Store = Omit<
  *   write; src/index.js passes features.archive exactly true) nothing leaves a hot list on disk
  *   before its copy is in the archive -- see "The archive" inside, `settleArchive`,
  *   `drainArchive` and `trimArchived`.
- *   `memoryDb` (the memory database service): every memory unit of the cache (users, private layers, channels, the
+ *   `memoryDb` (the memory database service, required): every memory unit of the cache (users, private layers, channels, the
  *   place, lore, recent, versions, the selfreflection) is loaded from it and flushed to its writer through the unit
  *   cache (src/memory/unit-cache.ts), which also reconciles its entries with her session's attitude moves and the
  *   owner's selfreflection fills. Core state, participation, GIFs and media
@@ -3535,8 +3508,6 @@ export type Store = Omit<
  *   row and its mirror's `sent` publication). `flushSettled({ final: true })` (the shutdown) waits for the outbox and
  *   keeps what still fails in `memory-pending/` (`memoryDb.keepPending`, replayed by the service at its next open);
  *   `dropCaches` keeps the entries the outbox holds; `validate` (`/nep resume`) checks the operational JSON files.
- *   Without a `memoryDb` (tests, a tool) the memory units live in the cache only: nothing is read or
- *   written for them.
  */
 export function createStore(deps: Parameters<typeof buildStore>[0]): Store {
   return buildStore(deps);

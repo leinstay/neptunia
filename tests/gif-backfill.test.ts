@@ -8,7 +8,7 @@ import { placeOfRoot } from '../src/memory/addresses.ts';
 import { personaKey } from '../src/memory/db/storage-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
-import { MEMORY_OF, memDataDir } from './fixtures/store-kit.ts';
+import { MEMORY_OF, memDataDir, memoryAt } from './fixtures/store-kit.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -42,7 +42,7 @@ type GifStore = Omit<Store, 'getGifs' | 'getMediaCache'> & {
 function withStore(fn: (store: GifStore, dir: string) => unknown) {
   const dir = tempDir('nep-gif-backfill-');
   return Promise.resolve()
-    .then(() => fn(wrongly<GifStore>(createStore({ dataDir: dir })), dir))
+    .then(() => fn(wrongly<GifStore>(createStore(memoryAt(dir))), dir))
     .finally(() => fs.rmSync(dir, { recursive: true, force: true }));
 }
 
@@ -312,7 +312,7 @@ test('gif backfill run: describes the top backfillDescribe entries without a cac
     const describer: Record<string, Untyped> = fakeDescriber();
     const hot = fakeHot();
     // The most used gif already has a caption (its first embed id): it is skipped, not re-described.
-    wrongly<Record<string, unknown>>(store.getMediaCache(placeOfRoot(store, 'g1')))['1001#e0'] = {
+    wrongly<Record<string, unknown>>(store.getMediaCache('g1'))['1001#e0'] = {
       text: 'a cat dancing',
       ts: T0,
     };
@@ -509,10 +509,10 @@ test('store setGifBackfill / resetGifCounts: the stamp is normalised and persist
     assert.equal(onDisk.entries['m#e0'].last, T0);
     assert.equal(onDisk.nextId, 2);
     assert.equal(
-      wrongly<Untyped>(createStore({ dataDir: dir, memoryDb: MEMORY_OF.get(dir) }).getGifs().entries['m#e0']).id,
+      wrongly<Untyped>(createStore(memoryAt(dir)).getGifs().entries['m#e0']).id,
       'g1',
       'a reset entry survives a restart'
     );
     assert.deepEqual(onDisk.backfill, { at: '2026-09-30T00:00:00.000Z', channels: 2, messages: 0 });
-  })(wrongly<GifStore>(createStore({ dataDir: memoryDir, memoryDb: MEMORY_OF.get(memoryDir) })), memoryDir);
+  })(wrongly<GifStore>(createStore(memoryAt(memoryDir))), memoryDir);
 });

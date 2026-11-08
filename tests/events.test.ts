@@ -56,6 +56,8 @@ import {
 } from './fixtures/turn-world.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { table, wrongly, present } from './fixtures/loose-types.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
+import { topPlaceSpelled } from '../src/memory/db/ids.ts';
 
 // Plan 2026-11-04-cli-and-memory B1: `address.attentionMinutes` of the config these tests run under, and a run of `no`
 // verdicts for the tests that show it no longer closes anything.
@@ -5045,7 +5047,7 @@ const TENOR_GIFV = {
 
 /** A real store over a temporary data dir (never the deployment's data/). */
 function tmpStore() {
-  return createStore({ dataDir: tempDir('nep-events-update-') });
+  return createStore(memoryAt(tempDir('nep-events-update-')));
 }
 
 /** The message as messageCreate saw it (a bare link) and as messageUpdate carries it (with the embed). */
@@ -5545,7 +5547,8 @@ test('events: a deleted message writes a deleted line and an edit writes revisio
   await handler.onMessageDelete(created);
   assert.equal(appended.length, 1);
   const [deleted] = appended[0].lines;
-  assert.equal(appended[0].placeId, 'g1');
+  // The store over its memory database spells the server's place for the interface that saw it.
+  assert.equal(appended[0].placeId, topPlaceSpelled('fake', 'g1'));
   assert.equal(deleted.kind, 'deleted');
   assert.equal(deleted.messageId, 'm1');
   assert.equal(deleted.occurredAt, new Date(at - 60_000).toISOString(), 'dated by the message itself');

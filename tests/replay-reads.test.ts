@@ -6,6 +6,7 @@ import { readOnlyStore, readableChannel, readMoment } from '../scripts/replay.ts
 import { SANDBOX_STORE_READS } from '../src/behavior/sandbox.ts';
 import { createStore } from '../src/memory/store.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
 
 type Store = ReturnType<typeof createStore>;
 type Reads = {
@@ -18,7 +19,7 @@ type Reads = {
 };
 
 function stores() {
-  const real: Store = createStore({ dataDir: tempDir('nep-replay-reads-') });
+  const real: Store = createStore(memoryAt(tempDir('nep-replay-reads-')));
   const wrapped = readOnlyStore(real, SANDBOX_STORE_READS) as Reads;
   return { real: real as unknown as Reads, wrapped };
 }

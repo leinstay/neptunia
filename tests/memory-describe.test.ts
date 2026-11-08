@@ -8,6 +8,7 @@ import { createStore } from '../src/memory/store.ts';
 import { createDescriber } from '../src/memory/describe.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { fakeImageFetcher, fakeLlm, fakeState, fakeVideoFetcher } from './fixtures/describe-fakes.ts';
+import { memoryAt } from './fixtures/store-kit.ts';
 
 const loose = (value: unknown): Record<string, unknown> => value as Record<string, unknown>;
 
@@ -36,7 +37,7 @@ function rig(base: Record<string, unknown>) {
   const llm = fakeLlm({ text: 'a described thing' });
   const imageFetcher = fakeImageFetcher();
   const videoFetcher = fakeVideoFetcher();
-  const store = createStore({ dataDir: tempDir('nep-describe-off-') });
+  const store = createStore(memoryAt(tempDir('nep-describe-off-')));
   const describer = createDescriber({ hot, store, llm, imageFetcher, videoFetcher, state: fakeState() });
   return { describer, llm, imageFetcher, videoFetcher, store };
 }
