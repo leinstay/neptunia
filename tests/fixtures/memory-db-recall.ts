@@ -143,6 +143,9 @@ function makeFixture() {
   return api;
 }
 
-export function fixture(): ReturnType<typeof makeFixture> {
-  return makeFixture();
+/** A fixture whose `channels` get their place rows, each place id mapped to its native id. */
+export function fixture({ channels = {} }: { channels?: Record<string, string> } = {}): ReturnType<typeof makeFixture> {
+  const env = makeFixture();
+  for (const [place, native] of Object.entries(channels)) env.channel(place, native);
+  return env;
 }
