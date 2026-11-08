@@ -52,16 +52,20 @@ test('segments: consecutive reads are one parallel segment, every other call is 
 
 const outcome = (name: string, status = 'ok') => ({ name, result: { status } });
 
-test('stepVerdict: all-quiet completion, every call an ok effect, speech goes out and nothing is fresh', () => {
+// The expectation changed on the owner's word of 2026-11-08: a step's calls return to her as a Claude Code turn's do,
+// whatever they were, so an action that worked (an edit, a reaction, a job) is fresh too; she then answers or stays
+// silent. Before, a step of effects ended the turn and she never saw that the edit went through.
+test('stepVerdict: every call an ok effect, speech goes out and the results still return to her', () => {
   assert.deepEqual(stepVerdict([outcome('draw.create'), outcome('message.react.add')], { definitionOf }), {
     speak: true,
-    fresh: false,
+    fresh: true,
   });
+  assert.deepEqual(stepVerdict([outcome('message.edit')], { definitionOf }), { speak: true, fresh: true });
   assert.deepEqual(stepVerdict([], { definitionOf }), { speak: true, fresh: false });
 });
 
-test('stepVerdict: an accepted job covers speech and needs no further request', () => {
-  assert.deepEqual(stepVerdict([outcome('errand.run')], { definitionOf }), { speak: true, fresh: false });
+test('stepVerdict: an accepted job covers speech, and its result returns to her', () => {
+  assert.deepEqual(stepVerdict([outcome('errand.run')], { definitionOf }), { speak: true, fresh: true });
 });
 
 test('stepVerdict: a data result or a failure holds the speech and the next request follows', () => {
@@ -74,13 +78,6 @@ test('stepVerdict: a data result or a failure holds the speech and the next requ
   assert.deepEqual(stepVerdict([outcome('nope.none')], { definitionOf }), { speak: false, fresh: true });
   assert.deepEqual(stepVerdict([outcome('message.create', 'unknown')], { definitionOf }), {
     speak: false,
-    fresh: true,
-  });
-});
-
-test('stepVerdict: an inner turn with an open follow-up is fresh even when every call covered speech', () => {
-  assert.deepEqual(stepVerdict([outcome('errand.run')], { definitionOf, openFollowUp: true }), {
-    speak: true,
     fresh: true,
   });
 });

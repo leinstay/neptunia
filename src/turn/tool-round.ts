@@ -1,5 +1,5 @@
-// The steps of a turn: her answer's calls planned and made, her speech posted or held, and one more request while
-// something is left to read and room is left; the history a turn reads, the think it keeps, the transcript of a step's
+// The steps of a turn: her answer's calls planned and made, her speech posted or held, and one more request after
+// every step with calls while room is left; the history a turn reads, the think it keeps, the transcript of a step's
 // note and the open intentions of an inner turn. createTurnRunner (src/behavior/turn.js) builds it once per runner with
 // createToolRound; the attempt calls its functions.
 
@@ -385,9 +385,11 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * heartbeat and destination rules, the argument repair, the resolution and the gateway), runs them in segments
    * (runCalls: reads together, every other call alone) and only then lets her speech go out -- when every call worked
    * and its result is an effect or an accepted errand (src/behavior/tool-step.js#stepVerdict). Otherwise the speech
-   * is held, never posted later, and the next request says so. A step that left something to read (a `data` result, a
-   * call that did not work, an inner turn's open intention) is followed by one more request, when room is left
-   * (src/behavior/tool-step.js#roomLeft): the previous messages, her answer, one result for every call, and a note
+   * is held, never posted later, and the next request says so. A step with calls is followed by one more request, when
+   * room is left, whatever the calls were: an effect or an accepted errand returns its result to her as a read does, and
+   * she then answers, calls again or stays silent. An inner turn's post written as a tag, which makes no call, earns one
+   * such request for the open intentions, once per turn. The room is src/behavior/tool-step.js#roomLeft's, and the
+   * request holds the previous messages, her answer, one result for every call, and a note
    * (the speech held, the lines that came in meanwhile numbered past every number in use, the messages that did not go
    * out, the last-step notice, an inner turn's open intentions, what the parser did with her answer). The first user
    * message is never rebuilt. `tools.loop.maxSteps` (an inner turn's: `wakes.loop`) counts those requests and the
@@ -443,9 +445,12 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     const registry = skills ?? defaultSkills();
     const definitionOf = (name: string) => registry.get(name) ?? null;
     const settings = loopSettings(hot.config, { inner, selfreflection });
-    // The pictures staged so far as the set the post carries (a single picture is a set of one), or null.
+    // The pictures a held speech already carried: a step after it holds the set again only when a picture was staged since.
+    let heldPictures = 0;
+    // The pictures staged so far as the set the post carries (a single picture is a set of one), or null when none is
+    // staged or the speech already carried them all.
     const stagedSet = () =>
-      selfreflection && (draft.staged?.length ?? 0) > 0
+      selfreflection && (draft.staged?.length ?? 0) > heldPictures
         ? { pictures: (draft.staged ?? []).map(({ picture, self, text }) => ({ ...picture, self, text })) }
         : null;
     // The most one call may run: an inner turn's own (wakes.loop.callTimeoutMs), else tools.callTimeoutMs (read now).
@@ -643,7 +648,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         }
       }
 
-      // 2. Her speech: out after the calls when every one of them worked and needs no reading, else held.
+      // 2. Her speech: out after the calls when every one of them worked and its result is an effect or a job, else held.
       // What there is to say now: her messages and reactions, and a selfreflection post's staged pictures (one item).
       const heldItems = speechItemsOf(parsed) + (stagedSet() ? 1 : 0);
       let speak =
@@ -684,15 +689,12 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       const posted = stepResults.some((result) => result.skill === 'message.create' && result.status === 'ok');
       if (isCancelled()) break;
 
-      // 3. What follows: a request when something is left to read and room is left, else the end.
-      const verdict = stepVerdict(
+      // 3. What follows: after a step with calls, a request that returns every call's result to her when room is left,
+      // whatever the calls were; she then answers, calls again or stays silent. A step without calls ends the turn.
+      const { fresh } = stepVerdict(
         results.map((result) => ({ name: result.skill, result })),
         { definitionOf }
       );
-      // A note on a post that went out (a tag that named nobody) is something to read too: she may edit the post.
-      const fresh =
-        records.length > 0 &&
-        (verdict.fresh || results.some((result) => typeof result.note === 'string' && result.note !== ''));
       const labels = hot.prompts?.labels ?? {};
       // The room the calls left: the time they took counts.
       const left = roomLeft({
@@ -702,7 +704,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         timeBudgetMs: settings.timeBudgetMs,
       });
       // An inner turn that posted: the intentions it woke for that no intent call has named yet. They ride every note that follows a post; a post
-      // that left nothing to read earns one request of its own for them, once per turn.
+      // written as a tag, which made no call and so has no request of its own, earns one request for them, once per turn.
       const openLine = inner && posted && !isFinal ? openIntentionsText(draft, labels) : '';
       const openAlone = openLine !== '' && !fresh && !openTaken && left.run && left.next !== 'none';
       // Under the full stop (features.tools off) she is silent: nothing more is asked of her.
@@ -936,6 +938,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           channelHandles: routed.channelHandles,
         } as ActArgs & HoldArgs;
         acted = await (selfreflection ? holdSpeech : act)(speech);
+        if (set) heldPictures = set.pictures.length;
       }
       const out: {
         acted: ActOutcome | HeldSpeech | null;
