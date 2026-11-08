@@ -56,6 +56,7 @@ import type {
   PlannedCall,
   SkillCalls,
 } from './skill-calls.ts';
+import { askedFor } from './triggers.ts';
 import type { TriggerKind } from './triggers.ts';
 import type { Typing } from './typing.ts';
 
@@ -442,6 +443,10 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     const selfreflection = Boolean(draft.selfreflection);
     const registry = skills ?? defaultSkills();
     const definitionOf = (name: string) => registry.get(name) ?? null;
+    // Someone waits for this turn (askedFor), and it is no inner, selfreflection or errand result turn (that one quotes
+    // the message that asked for the errand, and nobody waits for it): the owner's rule of 2026-10-20.
+    const answersSomeone = askedFor(trigger, triggerKind) && triggerKind !== 'errand' && !inner && !selfreflection;
+    const quietSkill = (skill: string): boolean => ['effect', 'job'].includes(definitionOf(skill)?.result ?? '');
     const settings = loopSettings(hot.config, { inner, selfreflection });
     // The pictures staged so far as the set the post carries (a single picture is a set of one), or null.
     const stagedSet = () =>
@@ -690,9 +695,12 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         { definitionOf }
       );
       // A note on a post that went out (a tag that named nobody) is something to read too: she may edit the post.
+      // A turn that answers someone shows her a quiet call that worked (a post, an edit, a reaction, a picture, a job) in
+      // one step, where she answers or stays silent; a turn nobody asked for, an inner one included, ends with it.
+      const seen = answersSomeone && results.some((result) => result.status === 'ok' && quietSkill(result.skill));
       const fresh =
         records.length > 0 &&
-        (verdict.fresh || results.some((result) => typeof result.note === 'string' && result.note !== ''));
+        (verdict.fresh || seen || results.some((result) => typeof result.note === 'string' && result.note !== ''));
       const labels = hot.prompts?.labels ?? {};
       // The room the calls left: the time they took counts.
       const left = roomLeft({
