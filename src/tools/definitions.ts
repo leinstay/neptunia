@@ -841,12 +841,13 @@ const ENTRIES: Array<Definition> = [
       after: str(200),
       since: str(40),
       last: int(1, 60),
+      person: str(200),
     }),
     refs: { place: 'place' },
     effects: 'read',
     toArgs: (a) => {
       const out: Obj = {};
-      for (const name of ['around', 'before', 'after', 'since']) {
+      for (const name of ['around', 'before', 'after', 'since', 'person']) {
         const value = val(a, name);
         if (value !== null) out[name] = value;
       }

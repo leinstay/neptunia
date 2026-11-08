@@ -30,7 +30,9 @@ import {
 } from '../tools/tools.ts';
 import type { LookDescriber, RecallClient, WebLookup } from '../tools/tools.ts';
 import type { InTurnCall, ResolvedMessageRef } from '../tools/executors.ts';
+import { objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
+import { fill } from '../format.ts';
 import { searchHandles } from './calls.ts';
 import type { SearchRefs } from './calls.ts';
 import type { DrawGif } from './draw-gif.ts';
@@ -74,7 +76,7 @@ export type InTurnToolsContext = {
   chatOf: (channel: { id: string }) => ChatRef;
   turnContextOf: (draft: InTurnDraft | null | undefined, channel: ChatInfo) => unknown;
   /** The memory's reads of a place by its id, on any interface (src/memory/db/frame-reads.ts); null while closed. */
-  placeReads?: Pick<FrameReads, 'placeReadable' | 'around'> | null;
+  placeReads?: Pick<FrameReads, 'placeReadable' | 'around' | 'directChats'> | null;
   linkCalls: JournalNotes['linkCalls'];
   drawTool: DrawGif['drawTool'];
 };
@@ -327,6 +329,48 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
   }
 
   /**
+   * One conversation.read of the direct chat of the person she names (`args.person`: a member handle or a name the
+   * memory holds, src/memory/db/direct-chats.ts): their newest direct chat on any interface other than the one she
+   * stands in, the newest one the turn's context reads first, read as readPlace reads any stored place, so the same
+   * audience rule decides. Words that name nobody answer `unknown-member` with the people the memory graph ranks for
+   * them (`labels.tools.tools.person`); a person with no other direct chat answers `PLACE_NOT_FOUND`. Never throws.
+   */
+  async function readPerson({
+    args,
+    channel,
+    placeId,
+    selfName,
+    draft,
+  }: {
+    args: Obj;
+    channel: ChatInfo;
+    placeId: string;
+    selfName: string;
+    draft: InTurnDraft | null;
+  }): Promise<ReadAnswer> {
+    const context = turnContextOf(draft, channel) as Context | null;
+    if (!placeReads?.directChats || !context) return { status: 'not_configured', code: CODE.UNSUPPORTED };
+    const reference = String(args.person);
+    const found = placeReads.directChats(context, reference);
+    if (found.kind !== 'chats') {
+      const text = found.kind === 'found' ? personChoicesText(found.people, hot.prompts?.labels, reference) : '';
+      return { status: 'invalid', code: CODE.UNKNOWN_MEMBER, ...(text ? { data: { text } } : {}) };
+    }
+    const here = new Set([placeId, String(channel.id)]);
+    const others = found.places.filter((id) => !here.has(id));
+    const readable = (id: string): boolean =>
+      isIssuedInternalContext(context) || Boolean(placeReads.placeReadable?.(context, id));
+    const chosen = others.find(readable) ?? others[0];
+    const parts = chosen === undefined ? null : placeIdParts(chosen);
+    if (chosen === undefined || parts === null) return { status: 'invalid', code: CODE.PLACE_NOT_FOUND };
+    // The read takes the chat's place id; the person and any place she wrote beside it are not its arguments.
+    const rest = Object.fromEntries(
+      Object.entries(args).filter(([key]) => !['person', 'place', 'placeId'].includes(key))
+    );
+    return readPlace({ args: rest, placeId: chosen, parts, channel, selfName, draft });
+  }
+
+  /**
    * One conversation.read of hers (src/tools/conversation-read.ts): the channel she names (default
    * this one) read in order from the record first, the interface's history when the record lacks
    * the span, rendered like the chat with each line's `#N` handle in the turn's registry
@@ -351,6 +395,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     selfName: string;
     draft: InTurnDraft | null;
   }): Promise<{ status: string; code?: string; reason?: string; data?: { text: string } }> {
+    if (typeof args.person === 'string' && args.person.trim() !== '')
+      return readPerson({ args, channel, placeId, selfName, draft });
     const named = typeof args.placeId === 'string' ? placeIdParts(args.placeId) : null;
     if (named && (!snapshot || named.iface !== chatOf(channel).iface || !snapshot.get(named.native)))
       return readPlace({ args, placeId: String(args.placeId), parts: named, channel, selfName, draft });
@@ -434,6 +480,30 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
   }
 
   return { inTurnTools };
+}
+
+/** What a read answers before anything is read. */
+type ReadAnswer = { status: string; code?: string; reason?: string; data?: { text: string } };
+
+/**
+ * The people the memory graph ranked for words that name nobody, as the text of a tool result: the lead of
+ * `labels.tools.tools.person.found` (`{given}`, `{count}`) and one `.line` per person (`{ref}`, the handle to write,
+ * `{name}`, and `{about}` through `.lineAbout` when a character is stored). Reads the labels now.
+ */
+function personChoicesText(
+  people: ReadonlyArray<{ id: string; name: string; about: string | null; handle: string | null }>,
+  labels: unknown,
+  given: string
+): string {
+  const words = objOf(objOf(objOf(objOf(labels).tools).tools).person);
+  const word = (key: string): string => (typeof words[key] === 'string' ? words[key] : '');
+  const lines = people.map((person) => {
+    const ref = person.handle ? `@${person.handle}` : person.id;
+    return person.about && word('lineAbout')
+      ? fill(word('lineAbout'), { ref, name: person.name, about: person.about })
+      : fill(word('line'), { ref, name: person.name });
+  });
+  return [fill(word('found'), { given, count: people.length }), ...lines].filter(Boolean).join('\n');
 }
 
 /** The first link of a message that a page read can open (src/media/classify.ts#collectReadableLinks). */
