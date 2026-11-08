@@ -130,3 +130,43 @@ test('a network failure is archived as network', LIMIT, async () => {
   const network: Network = () => Promise.reject(new TypeError('fetch failed'));
   assert.equal(await codeOfFailure(network, {}), 'network');
 });
+
+test('a provider refusal keeps the provider words on the record, bounded, without the request', LIMIT, async () => {
+  // Bug: the 400s of 2026-11-08 left `http_400` and nothing else on their rows, and the cause could not be read.
+  const raw = JSON.stringify({ error: { message: `Invalid request: ${'z'.repeat(600)}` } });
+  const body = JSON.stringify({
+    error: { message: 'Provider returned error', code: 400, metadata: { provider_name: 'Anthropic', raw } },
+  });
+  const network: Network = () =>
+    Promise.resolve({ ok: false, status: 400, text: () => Promise.resolve(body), headers: new Headers() });
+  const { handle, llm } = rig(network);
+  try {
+    const messages = [{ role: 'user', content: 'chat-line-marker-91c2' }];
+    await withCapturedLogs(() =>
+      assert.rejects((llm.complete as (m: unknown, o: unknown) => Promise<unknown>)(messages, { model: 'x/a' }))
+    );
+    const row = readRequests(dbOf(handle))[0];
+    const text = String(row?.error_text);
+    assert.equal(row?.error_code, 'http_400');
+    assert.ok(text.startsWith('Provider returned error'), text.slice(0, 80));
+    assert.ok(text.includes('Invalid request: zzz'), text.slice(0, 80));
+    assert.ok(text.length <= 300, String(text.length));
+    assert.equal(text.includes('chat-line-marker-91c2'), false);
+  } finally {
+    handle.close();
+  }
+});
+
+test('a failure with no provider words leaves the record without error text', LIMIT, async () => {
+  // Bug: a timeout or a network failure gets an invented text on its row.
+  const network: Network = () => Promise.reject(new TypeError('fetch failed'));
+  const { handle, llm } = rig(network);
+  try {
+    await withCapturedLogs(() =>
+      assert.rejects((llm.complete as (m: unknown, o: unknown) => Promise<unknown>)(ask, { model: 'x/a' }))
+    );
+    assert.equal(readRequests(dbOf(handle))[0]?.error_text, null);
+  } finally {
+    handle.close();
+  }
+});

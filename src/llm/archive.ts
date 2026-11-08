@@ -164,6 +164,12 @@ function failureCause(error: unknown): string {
   return 'error';
 }
 
+/** The provider's words of a refused request (src/llm/provider-error.ts), already bounded by the client; else null. */
+function failureText(error: unknown): string | null {
+  const words = (error ?? {}) as Row;
+  return typeof words.providerError === 'string' ? words.providerError : null;
+}
+
 /** `llm` whose `complete` keeps each request and its outcome. Every other member passes through. */
 export function archivedLlm<TLlm extends { complete: (...args: Array<never>) => Promise<unknown> }>(
   llm: TLlm,
@@ -197,7 +203,8 @@ export function archivedLlm<TLlm extends { complete: (...args: Array<never>) => 
       await keep(id, { op: 'finish', id, at: now(), status: 'ok', ...answerFields(answer, options.purpose) });
       return answer;
     } catch (error) {
-      await keep(id, { op: 'finish', id, at: now(), status: 'failed', error_code: failureCause(error) });
+      const failure = { error_code: failureCause(error), error_text: failureText(error) };
+      await keep(id, { op: 'finish', id, at: now(), status: 'failed', ...failure });
       throw error;
     }
   };

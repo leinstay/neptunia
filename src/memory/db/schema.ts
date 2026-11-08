@@ -1564,6 +1564,8 @@ export const MIGRATIONS: Array<Migration> = [
   },
   // Version 39: `places.conversation` is `places.chat`, and stored JSON keys take the words chat and dm.
   renameChat,
+  // Version 40: a failed request keeps the provider's words beside its code (src/llm/provider-error.ts).
+  'ALTER TABLE model_requests ADD COLUMN error_text TEXT;',
 ];
 
 /** Every table schema v8 adds. */

@@ -35,6 +35,7 @@ import { createKeyFailover, isBudgetError } from './key-failover.ts';
 import type { KeyFailover, KeyState } from './key-failover.ts';
 import type { KeyRing } from '../keys/ring.ts';
 import { MAIN_KEY_NAME, keyHashOf, roleApiKey, roleKeyGroups, roleKeyNames } from './role-keys.ts';
+import { logRefusals, providerWordsOf } from './provider-error.ts';
 
 // The key lookup over `.env` and `llm.keyByRole` lives in role-keys.ts; the callers import it from here.
 export {
@@ -553,6 +554,17 @@ function cacheMarkerFor(ttl: CacheTtl | null): { type: 'ephemeral'; ttl?: '1h' }
   if (ttl === '1h') return { type: 'ephemeral', ttl: '1h' };
   if (ttl === '5m') return { type: 'ephemeral' };
   return null;
+}
+
+// The TTL of one request's marker: `cacheTtlFor`, except that a strict schema request to an `anthropic/` model gets none
+// unless the caller forces one (`options.cache === true`), since Anthropic caches the schema with the prefix.
+function requestCacheTtl(
+  config: unknown,
+  options: { role?: unknown; cache?: unknown; responseFormat?: unknown },
+  model: unknown
+): CacheTtl | null {
+  const schemaOnAnthropic = options.responseFormat !== undefined && String(model).startsWith('anthropic/');
+  return schemaOnAnthropic && options.cache !== true ? null : cacheTtlFor(config, options.role, model, options.cache);
 }
 
 // The index of the last text part with a non-empty text in a content array, or -1.
@@ -1130,13 +1142,14 @@ function keysExhausted(role: string): Error {
   });
 }
 
-type HttpError = Error & { statusCode: number; body: string };
+type HttpError = Error & { statusCode: number; body: string; providerError: string; providerName: string | null };
 
 async function httpErrorOf(response: Response): Promise<HttpError> {
   const rawBody = await response.text();
   return Object.assign(new Error(`OpenRouter HTTP ${response.status}: ${rawBody.slice(0, 500)}`), {
     statusCode: response.status,
     body: rawBody,
+    ...providerWordsOf(rawBody),
   });
 }
 
@@ -1690,7 +1703,7 @@ export function createLlm({
     }
   }
 
-  async function complete(given: unknown, asked: unknown = {}): Promise<CompleteResult> {
+  const complete = logRefusals(async function complete(given: unknown, asked: unknown = {}): Promise<CompleteResult> {
     // The callers build both; the rails and the checks below read them as these shapes.
     const [messages, options] = [given, asked] as [Array<ChatMessage>, CompleteOptions];
     const cfg = getConfig().llm;
@@ -1724,7 +1737,7 @@ export function createLlm({
       model,
       // The cache marker goes on only now: `raw` above was estimated from the caller's own
       // messages, and a marker is a JSON field, not prompt text.
-      messages: withCacheMarker(messages, cacheTtlFor(getConfig(), options.role, model, options.cache)),
+      messages: withCacheMarker(messages, requestCacheTtl(getConfig(), options, model)),
       temperature: options.temperature ?? TEMPERATURE,
       max_tokens: options.maxOutputTokens ?? cfg.maxOutputTokens,
     };
@@ -1890,7 +1903,7 @@ export function createLlm({
       return answer(await answerJsonOf(response));
     }
     throw lastError;
-  }
+  });
 
   /**
    * One GET of OpenRouter's public endpoint listing of `model`

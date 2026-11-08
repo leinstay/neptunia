@@ -36,6 +36,7 @@ const COLUMNS = [
   'tool_calls',
   'usage',
   'error_code',
+  'error_text',
   'source',
   'service',
   'backend',
@@ -82,7 +83,7 @@ export function applyRequestArchiveWrite(handle: MemoryHandle, update: Row): { c
       const result = db
         .prepare(
           `UPDATE model_requests SET status = ?, finished_at = ?, response_text = ?, think = ?, tool_calls = ?, usage = ?,
-           error_code = ?, model = COALESCE(?, model), backend = COALESCE(?, backend), source = COALESCE(?, source)
+           error_code = ?, error_text = ?, model = COALESCE(?, model), backend = COALESCE(?, backend), source = COALESCE(?, source)
            WHERE id = ? AND status = 'pending'`
         )
         .run(
@@ -93,6 +94,7 @@ export function applyRequestArchiveWrite(handle: MemoryHandle, update: Row): { c
           update.tool_calls ?? null,
           update.usage ?? null,
           update.error_code ?? null,
+          update.error_text ?? null,
           update.model ?? null,
           update.backend ?? null,
           update.source ?? null,
