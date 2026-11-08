@@ -8,7 +8,6 @@ import type { Context } from '../memory/db/scope.ts';
 import type { FactInput } from '../behavior/inner.ts';
 import { currentRequestMeta, turnOutcome, turnService, withRequestMeta } from '../llm/archive.ts';
 import { withIface } from '../memory/db/current-iface.ts';
-import { isUnrecorded, runUnrecorded } from './unrecorded.ts';
 import { errorCodeOf } from '../llm/openrouter.ts';
 import { log } from '../log.ts';
 import type { ChatRef } from '../protocol/adapter.ts';
@@ -38,8 +37,6 @@ export type TurnMode = 'reply' | 'interject' | 'inner' | 'selfreflection';
 
 export type TurnParams = {
   memoryContext?: Context;
-  /** A turn over a line of the `service` client: it answers, and nothing of it is recorded (src/turn/unrecorded.ts). */
-  unrecorded?: boolean;
   /** A restriction inherited from deferred work: the turn may publish only to its origin. */
   publicationBoundary?: PublicationBoundary;
   /** The chat of the turn; null or absent for a turn that runs nowhere (a service, a selfreflection post). */
@@ -276,13 +273,11 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
   function runTurn(params: TurnParams): Promise<TurnResult> {
     // A turn taken from a queue runs under the interface of its own chat, whatever event woke the queue.
     return withIface(params?.chat?.iface, () =>
-      runUnrecorded(params?.unrecorded === true, () =>
-        withRequestMeta(() => {
-          const wake = (params?.inner as { wake?: { kind?: unknown } } | undefined)?.wake;
-          Object.assign(currentRequestMeta() ?? {}, { service: turnService(params?.mode, wake?.kind) });
-          return runTurnHere(params);
-        })
-      )
+      withRequestMeta(() => {
+        const wake = (params?.inner as { wake?: { kind?: unknown } } | undefined)?.wake;
+        Object.assign(currentRequestMeta() ?? {}, { service: turnService(params?.mode, wake?.kind) });
+        return runTurnHere(params);
+      })
     );
   }
 
@@ -321,8 +316,6 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    */
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/turn.ts in stage 5b, a pure move
   function noteFailedTurn(params: TurnParams, result: TurnResult | undefined, ends: Ends, thrown: unknown): void {
-    // An unrecorded turn tells no fact and keeps none: the owner's next turn reads them as it would have.
-    if (isUnrecorded()) return;
     try {
       const { trigger = null, triggerKind = null, mode = null } = params ?? {};
       const channel = ends.info;
@@ -358,7 +351,6 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    * result of (`callFailed`). Never throws.
    */
   function recordTurnFacts(args: { placeId?: string | null }, draft: FactsDraft): void {
-    if (isUnrecorded()) return;
     try {
       const channel = draft.info;
       if (!channel) return;

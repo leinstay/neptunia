@@ -18,12 +18,7 @@ export type AcceptedMessageEvent = Readonly<{
   receipt: AcceptedEventReceipt;
 }>;
 
-/** `unrecorded`: a line of the `service` client, answered and never observed into memory (src/turn/unrecorded.ts). */
-export type MessageReadOptions = {
-  memoryContext?: Context;
-  acceptedEvent?: AcceptedMessageEvent;
-  unrecorded?: boolean;
-};
+export type MessageReadOptions = { memoryContext?: Context; acceptedEvent?: AcceptedMessageEvent };
 
 /** A chat as the interface describes it (src/protocol/adapter.ts). */
 export type Conv = ChatInfo;
@@ -132,8 +127,6 @@ export type PipelineState = {
 /** A turn as runTurn starts it (src/behavior/turn.ts#runTurn), as far as the pipeline fills it in. */
 export type TurnRequest = {
   memoryContext?: Context;
-  /** A turn over a line of the `service` client: answered, and nothing of it recorded (src/turn/unrecorded.ts). */
-  unrecorded?: boolean;
   chat: { iface: string; chatId: string };
   placeId?: string;
   mode: 'reply';

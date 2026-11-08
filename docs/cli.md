@@ -15,21 +15,6 @@ neptunia doctor live
 
 The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. This trusted owner connection can inspect stored memory across interfaces and private chats. Talking to the owner in a Discord group does not give that chat the CLI's memory access.
 
-## The service client
-
-The lead, the development agents and scripts check the persona through the client `service`, never through the owner's `cli`. `NEPTUNIA_CLIENT=service` makes `neptunia` connect with `data/clients/service.token`. Unset or empty, the variable selects `cli`. Any other value exits `2` with the reason on stderr before anything connects, so a misspelt name never falls back to the owner. `neptunia setup` makes the client with its token, a principal of kind `cli` (`SERVICE_CLIENT` in `src/setup/clients.ts`), and keeps a token that exists.
-
-```bash
-NEPTUNIA_CLIENT=service neptunia -p "answer one word"
-NEPTUNIA_CLIENT=service neptunia status
-```
-
-A command of `service` runs as the owner's does, through the same table, rights and answers, and a command never reaches her memory. A line of `service` goes to `cli:dm:owner` and gets her turn, so `-p` prints her answer, and her memory keeps nothing of it. `createMessageProducers` in `src/behavior/core-message-producers.ts` marks the line unrecorded. The private-chat gate hands it to her turn without observing it, so no `sources` row holds it and her memory sessions never read it. While the core is paused the line is not held for `/resume`, and `-p` exits `1` with `paused`.
-
-`runTurn` in `src/turn/outcome.ts` runs the turn unrecorded, a mark `src/turn/unrecorded.ts` carries through its awaits. Her reply is stored as no line. The journal keeps no turn record and no operation, so no `turn_reads` row follows either, and no `skill_uses` row is written. The turn keeps no fact, no think for her next turn and no missed-answer candidate.
-
-Her history reads in that turn answer from the stored lines of `cli:dm:owner` and from the lines the `service` client sent in its own run, and her reply goes back to that client alone. A turn of the owner reads the history of his own chat and never the `service` client's, so a check never reaches a later `<chat>` of hers. The owner's open chat does not show a `service` line: the turn control never takes one, so no turn event names it, and a chat that opens later reads stored lines alone. Her model request still reaches the request archive, as every request does. The ingestion row the door writes for each event names the event and holds no text.
-
 ## Chat controls
 
 | Key | Action |
@@ -245,7 +230,7 @@ Start with `/help`. It is generated from the command table, so it includes the a
 
 ## The memory browser
 
-The browser reads her memory for the owner and nobody else: only a principal of kind `cli`, the owner's `cli` or the `service` client, reaches it, no operation of hers names it, and a development agent's command goes to the task board. `src/interface/commands/memory.ts` answers each read with the JSON of its reader in `src/memory/db/`, so a script and the chat select the same typed ids. A read asks no model, changes no setting and writes no row, `node_access` and `turn_reads` included, and what it answers never reaches her memory. A refusal has a status other than `ok` and a stable `code`, such as `PERSON_NOT_FOUND` or `INSPECTION_BAD_CURSOR`. In the chat, a bare `/memory users`, `/memory places`, `/memory entities`, `/memory graph` or `/memory inspect` opens a panel whose rows prefill the command that opens them.
+The browser reads her memory for the owner and nobody else: only the `cli` principal reaches it, no operation of hers names it, and a development agent's command goes to the task board. `src/interface/commands/memory.ts` answers each read with the JSON of its reader in `src/memory/db/`, so a script and the chat select the same typed ids. A read asks no model, changes no setting and writes no row, `node_access` and `turn_reads` included, and what it answers never reaches her memory. A refusal has a status other than `ok` and a stable `code`, such as `PERSON_NOT_FOUND` or `INSPECTION_BAD_CURSOR`. In the chat, a bare `/memory users`, `/memory places`, `/memory entities`, `/memory graph` or `/memory inspect` opens a panel whose rows prefill the command that opens them.
 
 A page holds at most `memoryDb.inspection.pageRows` rows, whatever `--limit` asks for, and says what it left out in `total`, `truncated` and `reason`. Its `next` is the `--cursor` of the next page. A cursor is bound to its read: another filter, table, context or snapshot refuses it.
 
