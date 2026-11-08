@@ -757,6 +757,13 @@ async function runInkChat(
     async lineFiles(number) {
       return lineFilesOf(where.dataDir, await link.ask({ name: 'session.line', args: { number } }), number);
     },
+    // The message id of the numbered line a reply names as its parent, null when the stored chat holds no such line.
+    async replyParent(number) {
+      const answer = await link.ask({ name: 'session.line', args: { number } });
+      if (answer.status !== 'ok') return null;
+      const { messageId } = JSON.parse(answer.text) as { messageId?: unknown };
+      return typeof messageId === 'string' ? messageId : null;
+    },
     now: () => Date.now(),
     // Her clock, as `src/time.ts` reads it.
     timeZone: settings.bot?.timezone ?? 'UTC',
@@ -805,10 +812,10 @@ async function runInkChat(
       });
     },
     // A command's answer goes back to the chat's command window, never into the chat with her.
-    send(line, attachments = []) {
+    send(line, attachments = [], replyTo) {
       const text = line.trim();
       if (!text.startsWith('/')) {
-        void link.say(line, attachments).then((status) => {
+        void link.say(line, attachments, replyTo).then((status) => {
           if (status !== 'ok' && status !== 'duplicate')
             entry({ who: 'system', text: `the core did not take the line (${status})` });
         });

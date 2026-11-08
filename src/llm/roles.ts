@@ -176,10 +176,16 @@ export const PURPOSE_ROLES = Object.freeze({
 });
 
 /**
- * The purposes of the model role `memory` (her memory session and description review, src/memory/db/session.ts and
- * describe.js): not in PURPOSE_ROLES, as that model role is not one of ROLES.
+ * The purposes of the model role `memory` (her memory session, description review and the description merge of
+ * `/memory bind`, src/memory/db/session.ts, describe.ts and person-bind.ts): not in PURPOSE_ROLES, as that model role
+ * is not one of ROLES.
  */
-export const MEMORY_PURPOSES = Object.freeze(['memory-session', 'description-draft', 'description-check']);
+export const MEMORY_PURPOSES = Object.freeze([
+  'memory-session',
+  'description-draft',
+  'description-check',
+  'description-merge',
+]);
 
 /** Whether `role` is one of ROLES. */
 export function isRole(role: unknown): boolean {

@@ -13,6 +13,8 @@
 // or the path it refused. The text is for the owner alone and never reaches her memory or a request.
 
 import { accountNodeOf } from '../../memory/db/person-links.ts';
+import { SELF_PERSON } from '../../memory/db/ids.ts';
+import type { BindConfirm, BindResult, BindTarget } from '../../memory/db/person-bind.ts';
 import { nativeAuthorityOf } from '../../protocol/identity.ts';
 import type { Db } from '../../memory/db/types.ts';
 import fs from 'node:fs';
@@ -192,7 +194,7 @@ function ownCommand(
     return Promise.resolve({ text: JSON.stringify(read), status: 'ok' });
   }
   if (name.startsWith('search.')) return Promise.resolve(searchCommand(dataDir, name, args, ENGINE_ROOT));
-  if (name === 'memory.bind') return personLinkCommand({ memoryDb, runOp, hot }, args);
+  if (name === 'memory.bind') return personLinkCommand({ memoryDb, runOp, hot }, args, dialog);
   if ((name === 'memory.users.names.add' || name === 'memory.users.names.remove') && personWord(args.user))
     return ownerNameCommand(memoryDb, name, args);
   const action = moduleActionOf(name);
@@ -218,73 +220,92 @@ async function ownerNameCommand(memoryDb: unknown, name: string, args: Record<st
   }
 }
 
-/** The codes of a merge that has nothing to do: the earlier owner person is unknown or already the new one. */
-const MERGE_NOTHING = new Set(['SAME_PERSON', 'UNKNOWN_PERSON', 'MERGE_CYCLE']);
+/** The Y/n before a merge, naming the person it removes. */
+function mergeQuestion({ removed, into }: { removed: BindTarget; into: BindTarget }): string {
+  const named = (one: BindTarget): string => (one.name === null ? one.id : `${one.id} (${one.name})`);
+  return `This merges ${named(removed)} into ${named(into)} and removes ${removed.id}. Merge? Y/n`;
+}
 
-/**
- * The person named owner before a bind merges into the person the bind names, so the command line and every account
- * of the earlier one follow the owner (src/memory/db/person-merge.ts).
- */
-async function mergeEarlierOwner(memoryDb: unknown, earlier: string | null, person: unknown): Promise<void> {
-  if (earlier === null || typeof person !== 'string' || earlier === person) return;
-  try {
-    await (callMethod(memoryDb, 'personMerge', {
-      from: earlier,
-      into: person,
-      by: 'owner',
-      reason: 'the owner bound another account',
-    }) as Promise<unknown>);
-  } catch (err) {
-    if (!MERGE_NOTHING.has(String((err as { code?: unknown }).code))) throw err;
+/** Whether an answer to a Y/n is yes: blank, `y` or `yes`, in any case. */
+const saysYes = (answer: string): boolean => ['', 'y', 'yes'].includes(answer.trim().toLowerCase());
+
+/** The owner's words of a bind result. */
+function bindAnswer(account: string, result: BindResult): Answer {
+  switch (result.status) {
+    case 'attached':
+    case 'bound':
+      return { text: `${account}: bound to ${result.person}`, status: 'ok' };
+    case 'merged':
+      return { text: `${account}: bound to ${result.person}; ${result.removed} merged into it`, status: 'ok' };
+    case 'declined':
+      return { text: `${account}: nothing changed; ${result.removed} stays`, status: 'ok' };
+    case 'unconfirmed':
+      return {
+        text: `binding ${account} merges ${result.removed} and asks Y/n first: run it in the chat`,
+        status: 'invalid',
+      };
+    case 'refused':
+      return { text: `${account} cannot be bound there: ${result.code}`, status: 'invalid' };
+    case 'failed':
+      return { text: `the binding could not be written: ${result.code}`, status: 'failed' };
   }
 }
 
-/** `/memory bind`: accounts by their native words come to share a person, the persona or the owner. */
+/**
+ * The owner's account on a raw install, while `bot.ownerPerson` names nobody: its own person becomes the owner person.
+ */
+async function firstOwner(
+  { memoryDb, runOp }: Pick<ConsoleDeps, 'memoryDb' | 'runOp'>,
+  accountId: string,
+  account: string
+): Promise<Answer> {
+  const written = (await (callMethod(memoryDb, 'personLink', {
+    op: 'bind',
+    accountId,
+    target: { owner: true },
+  }) as Promise<unknown>)) as { person?: unknown } | null;
+  const set = await runOp('config.set', { path: 'bot.ownerPerson', value: written?.person }, { asOwner: true });
+  if (set.status !== 'ok') return { text: `the owner person was not set: ${set.summary}`, status: 'failed' };
+  return { text: `${account}: bound`, status: 'ok' };
+}
+
+/**
+ * `/memory bind <iface> <account> <person>`: the account, by its interface and platform id, binds to a meta-person,
+ * `owner` naming the owner's and `self` hers (src/memory/db/person-bind.ts). A merge asks Y/n through the dialog first.
+ */
 async function personLinkCommand(
   { memoryDb, runOp, hot }: Pick<ConsoleDeps, 'memoryDb' | 'runOp' | 'hot'>,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  dialog: Dialog | null
 ): Promise<Answer> {
   const word = (key: string) => (typeof args[key] === 'string' ? args[key] : '');
-  const named = word('target');
-  const target =
-    named === 'self'
-      ? { self: true }
-      : named === 'owner'
-        ? { owner: true }
-        : { iface: named, native: word('targetAccount') };
-  if ('native' in target && target.native === '')
-    return {
-      text: 'name the other account: bind <iface> <account> <iface> <account>, or self, or owner',
-      status: 'invalid',
-    };
+  const account = `${word('iface')} ${word('account')}`;
   try {
-    const accountOfWords = (iface: string, native: string): string | null =>
-      accountNodeOf(callMethod(memoryDb, 'database') as Db, {
-        interfaceId: iface,
-        authorityId: nativeAuthorityOf(iface),
-        nativeId: native,
-        generation: 1,
-      });
-    const accountId = accountOfWords(word('iface'), word('account'));
-    const other = 'native' in target ? accountOfWords(String(target.iface), String(target.native)) : null;
-    if (accountId === null || ('native' in target && other === null))
+    const accountId = accountNodeOf(callMethod(memoryDb, 'database') as Db, {
+      interfaceId: word('iface'),
+      authorityId: nativeAuthorityOf(word('iface')),
+      nativeId: word('account'),
+      generation: 1,
+    });
+    if (accountId === null)
       return { text: 'she has not met that account yet; bind it after its first message', status: 'invalid' };
-    const written = (await (callMethod(memoryDb, 'personLink', {
-      op: 'bind',
-      accountId,
-      target: 'native' in target ? { accountId: other } : target,
-    }) as Promise<unknown>)) as { person?: unknown } | null;
-    if ('owner' in target) {
-      await mergeEarlierOwner(memoryDb, ownerPersonOf(objOf(hot).config), written?.person);
-      const set = await runOp('config.set', { path: 'bot.ownerPerson', value: written?.person }, { asOwner: true });
-      if (set.status !== 'ok') return { text: `the owner person was not set: ${set.summary}`, status: 'failed' };
-    }
-    return { text: `${word('iface')} ${word('account')}: bound`, status: 'ok' };
-  } catch (err) {
-    const code = (err as { code?: unknown }).code;
-    return code === 'UNKNOWN_ACCOUNT'
-      ? { text: 'she has not met that account yet; bind it after its first message', status: 'invalid' }
-      : { text: 'the binding could not be written', status: 'failed' };
+    const named = word('person');
+    const owner = ownerPersonOf(objOf(hot).config);
+    if (named === 'owner' && owner === null) return await firstOwner({ memoryDb, runOp }, accountId, account);
+    const personId = named === 'owner' ? String(owner) : named === 'self' ? SELF_PERSON : named;
+    const confirm: BindConfirm | null =
+      dialog === null
+        ? null
+        : async (question) => saysYes(await dialog.ask(mergeQuestion(question), { fallback: 'y' }));
+    const result = (await (callMethod(
+      memoryDb,
+      'personBind',
+      { accountId, personId },
+      confirm
+    ) as Promise<unknown>)) as BindResult;
+    return bindAnswer(account, result);
+  } catch {
+    return { text: 'the binding could not be written', status: 'failed' };
   }
 }
 

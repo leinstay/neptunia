@@ -10,6 +10,7 @@ import type { MapContext } from './common.ts';
 import type { Db, Row, Rows } from '../types.ts';
 import { dmPartnerOfPlace, nativeOfAny, personId } from '../ids.ts';
 import { linkedProfileUnit } from '../person-links.ts';
+import { accountCollection, storageId } from '../storage-keys.ts';
 import type { StorageKey } from '../storage-keys.ts';
 import * as intentions from './intentions.ts';
 import * as journal from './journal.ts';
@@ -171,7 +172,17 @@ export function storageContext(db: Db, key: StorageKey): MapContext {
       ? { dmPlace: dmPlaceOfAccount(db, key.subject.id) }
       : {}),
     ...(key.kind === 'user' && key.subject.type === 'account' ? { membership: membershipOf(db, key.subject.id) } : {}),
+    ...(key.kind === 'versions' && key.subject.type === 'account' && key.selector?.versionKind === 'users'
+      ? profilePersonOf(db, key.subject.id)
+      : {}),
   };
+}
+
+/** The person whose `people` row the account's profile unit owns, which its description versions belong to. */
+function profilePersonOf(db: Db, accountId: string): Pick<MapContext, 'profilePersonId'> {
+  const unit = storageId(accountCollection('user', accountId));
+  const owned = db.prepare('SELECT id FROM people WHERE owner_key = ? AND retired_at IS NULL LIMIT 1').get(unit);
+  return typeof owned?.id === 'string' ? { profilePersonId: owned.id } : {};
 }
 
 /** The one membership row a user unit writes: its id and place, as stored. */

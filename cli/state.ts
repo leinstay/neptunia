@@ -120,8 +120,8 @@ function roleLine(label: string, state: string, facts: RoleFacts | undefined): s
 }
 
 /**
- * The header's status: one line per role (core, memory, analyzer) with its state, its model and its route, and one for the
- * enabled interfaces. What is not known says so: a configured credential is never shown as a live connection, a lost link
+ * The header's status: one line per role (core, memory, analyzer) with its state, its model and its route, and one that
+ * names the command line and every interface that is enabled and connected, with no state word. What is not known says so: a configured credential is never shown as a live connection, a lost link
  * marks every line, and a poll too old says `outdated`. The view cuts each line to the width.
  */
 export function statusLine(
@@ -133,20 +133,33 @@ export function statusLine(
   if (brief === null || polledAt === null) return labels.map((label) => `${label}: …`).join('\n');
   const stale = now - polledAt > STALE_AFTER_MS ? ' (outdated)' : '';
   const reason = brief.core.reason === null ? '' : ` (${brief.core.reason})`;
-  const interfaces = brief.interfaces
-    .filter((one) => one.enabled)
-    .map(
-      (one) =>
-        `${one.name.charAt(0).toUpperCase()}${one.name.slice(1)} (${one.connected ? STATE_WORDS.active : STATE_WORDS.error})`
-    );
+  // The command line is the chat this header stands in, so it always works; another interface shows while it works.
+  const interfaces = [
+    'CLI',
+    ...brief.interfaces
+      .filter((one) => one.enabled && one.connected && one.name !== 'cli')
+      .map((one) => `${one.name.charAt(0).toUpperCase()}${one.name.slice(1)}`),
+  ];
   // A core older than this chat sends no analyzer.
   const analyzer = (brief as Partial<StatusBrief>).analyzer;
   return [
     roleLine('Core', `${coreState(brief.core)}${reason}`, brief.core),
     roleLine('Memory', memoryState(brief.memory), brief.memory),
     analyzer === undefined ? 'Analyzer: …' : roleLine('Analyzer', analyzerState(analyzer), analyzer),
-    `Interfaces: ${interfaces.join(', ') || STATE_WORDS.disabled}`,
+    `Interfaces: ${interfaces.join(', ')}`,
   ]
     .map((line) => line + stale)
     .join('\n');
+}
+
+/** The reply marker a message starts with, as `[#34] ` or `[#00034] `: what the chat draws before a line's text. */
+const REPLY_MARKER = /^\[#(\d+)\][ \t]*/;
+
+/**
+ * The line number a message replies to and its text without the marker, or null when it does not start with one. The
+ * leading zeros the chat pads numbers with are ignored, and a marker anywhere else is the message's own text.
+ */
+export function replyMarker(text: string): { number: number; text: string } | null {
+  const found = REPLY_MARKER.exec(text);
+  return found === null ? null : { number: Number(found[1]), text: text.slice(found[0].length) };
 }

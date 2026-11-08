@@ -338,8 +338,9 @@ export function reviewRefusal(
   return null;
 }
 
-async function ask(
-  ctx: SessionContext,
+/** One request on the memory role with the session's limits: the review's two calls and the bind's merge (person-bind.ts). */
+export async function askMemoryModel(
+  ctx: Pick<SessionContext, 'llm' | 'hot'>,
   messages: ReadonlyArray<Row>,
   { purpose, maxOutputTokens }: { purpose: string; maxOutputTokens: number }
 ): Promise<Completion> {
@@ -408,7 +409,7 @@ export async function reviewDescription(
   let draft: { description: string; reason: string } | null;
   const answers: Array<{ purpose: string; text: string }> = [];
   try {
-    const completion = await ask(
+    const completion = await askMemoryModel(
       ctx,
       [
         { role: 'system', content: systemTextOf(prompts, selfName, prompts?.[DRAFT_PURPOSE]) },
@@ -442,7 +443,7 @@ export async function reviewDescription(
     .join('\n\n');
   let final: { description: string; reason: string } | null;
   try {
-    const completion = await ask(
+    const completion = await askMemoryModel(
       ctx,
       [
         { role: 'system', content: systemTextOf(prompts, selfName, prompts?.[CHECK_PURPOSE]) },

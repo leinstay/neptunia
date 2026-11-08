@@ -37,7 +37,6 @@ const SCOPE_TABLES = [
 const SUBJECT_MOVES = [
   { key: 'claims', table: 'claims', column: 'subject_id', where: "subject_kind = 'person'" },
   { key: 'claimAuthors', table: 'claims', column: 'from_person', where: '1 = 1' },
-  { key: 'descriptions', table: 'descriptions', column: 'subject_id', where: "subject_kind = 'person'" },
   { key: 'episodes', table: 'episodes', column: 'subject_id', where: '1 = 1' },
   { key: 'affinity', table: 'affinity_events', column: 'person_id', where: '1 = 1' },
 ] as const;
@@ -60,6 +59,23 @@ const idsWhere = (db: Db, table: string, where: string, person: string): Array<s
     .prepare(`SELECT id FROM "${table}" WHERE ${where}`)
     .all(person)
     .map((row) => String(row.id));
+
+/**
+ * A description moves unless the survivor holds one of the same field in the same audience: that one stays with the
+ * person who went, as history, so the survivor never holds two current texts of one field.
+ */
+function moveDescriptions(db: Db, from: string, survivor: string): Array<string> {
+  const ids = db
+    .prepare(
+      `SELECT id FROM descriptions d WHERE subject_kind = 'person' AND subject_id = ? AND NOT EXISTS (
+         SELECT 1 FROM descriptions k WHERE k.subject_kind = 'person' AND k.subject_id = ? AND k.field IS d.field
+           AND k.audience_id IS d.audience_id)`
+    )
+    .all(from, survivor)
+    .map((row) => String(row.id));
+  for (const id of ids) db.prepare('UPDATE descriptions SET subject_id = ? WHERE id = ?').run(survivor, id);
+  return ids;
+}
 
 /** The person's accounts and their live links move to the survivor; each old link stays, closed, as history. */
 function moveAccounts(db: Db, from: string, survivor: string, by: string, at: string): Array<string> {
@@ -115,8 +131,8 @@ function moveParticipantLinks(db: Db, from: string, survivor: string, at: string
   return links.length;
 }
 
-/** The daily relationship counts of the two add up, day by day and audience by audience. */
-function moveRelationship(db: Db, from: string, survivor: string): number {
+/** The daily relationship counts of the two add up, day by day and audience by audience; returns how many rows moved. */
+export function moveRelationship(db: Db, from: string, survivor: string): number {
   const rows = db.prepare('SELECT COUNT(*) AS n FROM relationship_daily WHERE person_id = ?').get(from)?.n;
   if (!rows) return 0;
   db.prepare(
@@ -159,6 +175,9 @@ function moveRows(
     moved[key] = ids.length;
     for (const id of ids) project.push([table, id]);
   }
+  const descriptions = moveDescriptions(db, from, survivor);
+  moved.descriptions = descriptions.length;
+  for (const id of descriptions) project.push(['descriptions', id]);
   const accounts = moveAccounts(db, from, survivor, by, at);
   moved.accounts = accounts.length;
   for (const id of accounts) project.push(['accounts', id]);
