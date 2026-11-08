@@ -1,7 +1,7 @@
 // `/memory bind <iface> <account> <person>` from the owner's line to the memory service (plan 2026-11-08-meta-person,
 // slice 6): the console names the account by its interface and platform id, names `owner` by `bot.ownerPerson`, and
 // before a merge asks one Y/n through the dialog that names the person it removes. A synthetic database and a recording
-// memory service; the bind itself is tested in tests/memory-db-person-bind.test.ts.
+// memory service. The bind itself is tested in tests/memory-db-person-bind.test.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -108,7 +108,8 @@ test('owner as the target names the meta-person of bot.ownerPerson', async () =>
   // Bug: the word `owner` is sent as a person id, or the account's own person is made the owner instead.
   await withConsole(async ({ binds, say }) => {
     await say('/memory bind telegram t1 owner', 'y');
-    assert.equal(binds[0]?.input.personId, OWNER);
+    const [first] = binds;
+    assert.equal(first?.input.personId, OWNER);
   });
 });
 

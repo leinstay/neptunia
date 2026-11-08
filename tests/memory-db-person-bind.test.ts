@@ -36,7 +36,7 @@ function blockOf(text: string, tag: string): string {
 
 const textOf = (value: unknown): string => (typeof value === 'string' ? value : '');
 
-/** A model that joins the two texts it is given, the kept one first; or one that fails every call. */
+/** A model that joins the two texts it is given, the kept one first, or one that fails every call. */
 function fakeLlm(fail = false): FakeLlm {
   const calls: Array<Call> = [];
   return {
@@ -204,9 +204,9 @@ test('an account under its own meta-person asks one Y/n naming the person it rem
     const { asked, confirm } = answering(false);
     await bindAccount(deps, { accountId: 'account:o1', personId: TARGET }, confirm);
     assert.equal(asked.length, 1);
-    assert.equal(asked[0]?.removed.id, OTHER);
-    assert.equal(asked[0]?.removed.name, 'Dima');
-    assert.equal(asked[0]?.into.id, TARGET);
+    const [question] = asked;
+    assert.deepEqual(question?.removed, { id: OTHER, name: 'Dima' });
+    assert.equal(question?.into.id, TARGET);
   });
 });
 
@@ -242,7 +242,8 @@ test('on yes the memory model joins the two descriptions of a field with the tar
     const call = llm.calls[0];
     assert.equal(call?.options.role, 'memory');
     assert.equal(call?.options.purpose, 'description-merge');
-    assert.ok(textOf(call?.messages[0]?.content).includes('MERGE PROMPT for Ayla'));
+    const [system] = call?.messages ?? [];
+    assert.ok(textOf(system?.content).includes('MERGE PROMPT for Ayla'));
     assert.deepEqual(currentText(db, TARGET, 'character'), ['Target character text (also: Other character text)']);
     assert.deepEqual(currentText(db, TARGET, 'style'), ['Other style text']);
     // The other person's own character stays with the alias as history, never current for the target.
