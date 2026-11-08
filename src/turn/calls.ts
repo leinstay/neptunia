@@ -14,6 +14,7 @@ import { thinkLeakOf } from '../llm/parse.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { CHANNEL_HANDLE_PREFIX, idText, widenHandles } from '../behavior/handles.ts';
 import { readablePlaces } from '../behavior/readable-places.ts';
+import { placeIdParts } from '../memory/db/ids.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { ChatInfo } from '../protocol/adapter.ts';
 import type { CallView } from '../tools/executors.ts';
@@ -100,13 +101,40 @@ type ViewStore = {
 };
 
 /**
+ * The channel handles a call resolves: `shown` (the request's, handle -> channel id) and, behind it, the handle of
+ * every channel of `chatIds` (the turn's own, by native id) and of every place of `knownPlaces` (the memory's channels
+ * and threads of every interface, by place id; a direct chat has no channel handle), a handle two ids share left out
+ * (widenHandles). A native id of a known place outside the turn's chats becomes that place's id, the form a call names
+ * a place on any interface in; a native id two known places share stays as it is. Pure.
+ */
+function callChannelHandles(
+  shown: ReadonlyMap<string, string>,
+  chatIds: ReadonlyArray<string>,
+  knownPlaces: ReadonlyArray<string>
+): Map<string, string> {
+  const chats = new Set(chatIds);
+  const placeOfNative = new Map<string, string | null>();
+  for (const id of knownPlaces) {
+    const parts = placeIdParts(id);
+    if (parts === null || parts.kind === 'dm' || chats.has(parts.native)) continue;
+    const before = placeOfNative.get(parts.native);
+    placeOfNative.set(parts.native, before === undefined || before === id ? id : null);
+  }
+  const unique = [...placeOfNative].flatMap(([native, id]) => (id === null ? [] : [native]));
+  const widened = widenHandles(shown, [...chats, ...unique], CHANNEL_HANDLE_PREFIX);
+  for (const [handle, id] of widened) widened.set(handle, placeOfNative.get(id) ?? id);
+  return widened;
+}
+
+/**
  * What a `<call>` of the persona is resolved against (src/tools/executors.ts#resolveCall), read
  * now: the turn's channel as the current chat, the channels she can name (the chats of the
  * turn's `snapshot`, then the stored channel notes, the turn's own channel; where she may act is the
  * operation's rule, src/tools/operations/shared.ts#postingChat), this turn's transcript numbers (`idByIndex`;
  * a pulled line lives in its own channel, `pulledIds`; its author from `lines`), the stored
  * profiles (only with memory on), her own id (`selfId`), the root's groups, the request's channel
- * handles (`channelHandles`: handle -> channel id, a `#handle` resolved exactly before any name), the request's
+ * handles (`channelHandles`: handle -> channel id, a `#handle` resolved exactly before any name, widened over the
+ * turn's chats and `knownPlaces`, callChannelHandles), the request's
  * member handles (`memberHandles`: handle -> member id, her `@handle` in a member argument) and the skill registry
  * (`skills`: a skill's options are resolved by its dispatch), `places` (the channels a read call may name, from the
  * snapshot by the pull rail with `partnerId` as the reader of a private chat or the command line; left out without a
@@ -139,6 +167,7 @@ export function callViewOf({
   config = null,
   stem = null,
   placesNamed = null,
+  knownPlaces = null,
 }: {
   // The interface's description of the chat: a private chat (`rootId` null) lists no channels.
   channel: Pick<Chat, 'rootId'> & { id: string | number; name?: unknown };
@@ -162,6 +191,8 @@ export function callViewOf({
   config?: Record<string, unknown> | null;
   stem?: ((word: string) => string) | null;
   placesNamed?: CallView['placesNamed'];
+  // The place ids of the memory's channels and threads on every interface (frame-reads.ts#chatPlaceIdsOf).
+  knownPlaces?: ReadonlyArray<string> | null;
 }): CallView & { currentChatId: string } {
   const chats: Array<{ id: string; name: string }> = [];
   // A private chat shows no channel of the root: only the turn's own.
@@ -204,10 +235,10 @@ export function callViewOf({
     ...(stem ? { stem } : {}),
     ...(placesNamed ? { placesNamed } : {}),
     channelHandles: shownChannels
-      ? widenHandles(
+      ? callChannelHandles(
           shownChannels,
           chats.map((chat) => chat.id),
-          CHANNEL_HANDLE_PREFIX
+          knownPlaces ?? []
         )
       : null,
     memberHandles: shownMembers

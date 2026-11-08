@@ -695,8 +695,7 @@ test('inner turn, shadow: a lore.add with an argument it does not take is refuse
     run.result.inner.actions.map((a) => `${a.skill}:${a.status}:${a.code ?? ''}`),
     ['lore.add:refused:invalid-args', 'lore.add:proposed:shadow']
   );
-  // The owner's decision of 2026-11-08: the proposed corrected call's result returns to her too; her skip ends the turn.
-  assert.equal(run.llm.calls.length, 3, 'the refusal came back to her, then the proposed corrected call');
+  assert.equal(run.llm.calls.length, 2, 'the refusal came back to her; the corrected call is only proposed');
   const reason = fill(labels.tools.refusals.unknownArg, { arg: 'channel', args: 'title, keys, text, always' });
   assert.ok(readsOf(run, 1).join('\n').includes(reason), readsOf(run, 1).join('\n'));
   assert.deepEqual(callMarksOf(lines).calls, [], 'nothing of a shadow turn is marked for later turns');
@@ -865,8 +864,7 @@ test("inner turn, budget: a slow call past tools.loop's 20 s completes inside wa
 });
 
 test('inner turn: the open line names only intentions no intent call touched', async () => {
-  // intention.update naming i1 (in shadow: only proposed) takes it off the open line: the request that follows its call
-  // carries no open line.
+  // intention.update naming i1 (in shadow: only proposed) takes it off the open line: no request is made for it.
   const touched = await innerTurn({
     answers: [toolAnswer('<msg>έτοιμο</msg>', [call('intention.update', { id: 'i1', state: 'done' })]), '<skip/>'],
     allowed: ['lore.list', 'intention.update'],
@@ -880,9 +878,7 @@ test('inner turn: the open line names only intentions no intent call touched', a
     ['i1'],
     'the result names the intentions her calls touched (the scheduler advances a recurring one as recurred)'
   );
-  // The owner's decision of 2026-11-08: the update's result returns to her in a next request; nothing is left open, so its note has no open line.
-  assert.equal(touched.llm.calls.length, 2);
-  assert.ok(!noteOf(touched, 1).includes(OPEN_LINE), noteOf(touched, 1));
+  assert.equal(touched.llm.calls.length, 1, 'nothing left open: no request');
   // The id alone as the text counts the same.
   const bare = await innerTurn({
     answers: [toolAnswer('<msg>έτοιμο</msg>', [call('intention.update', { state: 'done', text: 'i1' })]), '<skip/>'],
@@ -892,8 +888,7 @@ test('inner turn: the open line names only intentions no intent call touched', a
     bare.result.inner.actions.map((a) => `${a.skill}:${a.status}`),
     ['intention.update:proposed', 'message.create:proposed']
   );
-  assert.equal(bare.llm.calls.length, 2);
-  assert.ok(!noteOf(bare, 1).includes(OPEN_LINE), noteOf(bare, 1));
+  assert.equal(bare.llm.calls.length, 1);
   const none = await innerTurn({ answers: ['<skip/>'] });
   assert.deepEqual(none.result.inner.intentIds, []);
 });
@@ -938,29 +933,26 @@ test('inner turn, last step: one post or intention change still runs, nothing fo
   );
 });
 
-test('inner turn, open follow-up: a <msg> post with no call while a woken intention is untouched gets one more request with the open line', async () => {
-  // The owner's decision of 2026-11-08: a post made by a message.create call returns to her as every call does, so the open follow-up is the request
-  // after a post written as a tag, which makes no call; the open line rides the call's own request otherwise.
+test('inner turn, open follow-up: a post that leaves nothing to show while a woken intention is untouched gets one more request with the open line', async () => {
   const run = await innerTurn({
     answers: [
-      '<msg>καλημέρα σε όλους</msg>',
+      toolAnswer('', [call('message.create', { text: 'καλημέρα σε όλους' })]),
       toolAnswer('', [call('intention.update', { id: 'i1', state: 'done' })]),
-      '<skip/>',
     ],
     allowed: ['lore.list', 'intention.update'],
   });
-  assert.equal(run.llm.calls.length, 3, 'the open follow-up request, then the one returning the update to her');
+  assert.equal(run.llm.calls.length, 2, 'the open follow-up request; the proposed update leaves nothing to show');
   assert.equal(noteOf(run, 1), OPEN_LINE);
   assert.deepEqual(
     run.result.inner.actions.map((a) => `${a.skill}:${a.status}`),
     ['message.create:proposed', 'intention.update:proposed']
   );
   assert.equal(run.result.inner.openFollowUp, true);
-  // Live, the same: the post went out, the intention was named in the extra request, and the update's outcome comes
-  // back to her once more; she ends the turn.
+  // Live, the same: the post went out, the intention was named in the extra request (without an
+  // intention service the update's outcome comes back to her once more; she ends the turn).
   const live = await innerTurn({
     answers: [
-      '<msg>καλημέρα σε όλους</msg>',
+      toolAnswer('', [call('message.create', { text: 'καλημέρα σε όλους' })]),
       toolAnswer('', [call('intention.update', { id: 'i1', state: 'done' })]),
       '<skip/>',
     ],
@@ -971,19 +963,16 @@ test('inner turn, open follow-up: a <msg> post with no call while a woken intent
   assert.equal(live.sends.length, 1);
   assert.equal(live.result.inner.openFollowUp, true);
   assert.equal(live.result.outcome, 'spoke');
-  // A post by a message.create call: its own request follows, the open line in its note; it is not the extra one.
-  const called = await innerTurn({
-    answers: [toolAnswer('', [call('message.create', { text: 'καλημέρα σε όλους' })]), '<skip/>'],
-  });
-  const { llm: calledLlm, result: calledResult } = called;
-  assert.equal(calledLlm.calls.length, 2);
-  assert.equal(noteOf(called, 1), OPEN_LINE);
-  assert.equal(calledResult.inner.openFollowUp, undefined);
 });
 
 test('inner turn, open follow-up: once per turn; none when her post named the intention, and none past the steps', async () => {
-  // Posts written as tags, which make no call (the owner's decision of 2026-11-08 returns every call's result to her).
-  const again = await innerTurn({ answers: ['<msg>ένα</msg>', '<msg>δύο</msg>', '<msg>τρία</msg>'] });
+  const again = await innerTurn({
+    answers: [
+      toolAnswer('', [call('message.create', { text: 'ένα' })]),
+      toolAnswer('', [call('message.create', { text: 'δύο' })]),
+      toolAnswer('', [call('message.create', { text: 'τρία' })]),
+    ],
+  });
   assert.equal(again.llm.calls.length, 2, 'a second post with the intention still open gets no second extra request');
   assert.equal(again.result.inner.openFollowUp, true);
   const named = await innerTurn({
@@ -996,9 +985,7 @@ test('inner turn, open follow-up: once per turn; none when her post named the in
     ],
     allowed: ['lore.list', 'intention.update'],
   });
-  // The owner's decision of 2026-11-08: the calls' results return to her; nothing is left open, so no open line and no extra request.
-  assert.equal(named.llm.calls.length, 2);
-  assert.ok(!noteOf(named, 1).includes(OPEN_LINE), noteOf(named, 1));
+  assert.equal(named.llm.calls.length, 1, 'nothing left open: no request');
   assert.equal(named.result.inner.openFollowUp, undefined);
   // The post as the last request's terminal action: nothing follows it.
   const spent = await innerTurn({
@@ -1070,10 +1057,9 @@ test('inner turn, last step: her tags run beside the one terminal call, after it
 });
 
 test('inner turn, open follow-up: on the last request the open line comes with the last-step notice, and the intention change still runs', async () => {
-  // A post written as a tag, which makes no call: the extra request is the open follow-up (owner's decision of 2026-11-08).
   const run = await innerTurn({
     answers: [
-      '<msg>καλημέρα</msg>',
+      toolAnswer('', [call('message.create', { text: 'καλημέρα' })]),
       toolAnswer('', [call('intention.update', { id: 'i1', state: 'done' })]),
       '<skip/>',
     ],
