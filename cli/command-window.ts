@@ -9,7 +9,7 @@ import { Box, Text } from 'ink';
 import { TranscriptRows } from './chat-view.ts';
 import { THEME } from './theme.ts';
 import { cellWidth } from './layout.ts';
-import { displaySafe, lineLead } from './transcript.ts';
+import { displaySafe, leadDigits, lineLead } from './transcript.ts';
 import type { TranscriptEntry, TranscriptRow } from './transcript.ts';
 import type { ResultGraphic } from './file-view.ts';
 
@@ -52,8 +52,8 @@ const kept = new WeakMap<CommandResult, { key: string; entries: Array<Transcript
 export const GRAPHIC_SUFFIX = ':graphic';
 
 /**
- * The window's entries: the command line under the lead of its time and its number among the session's commands, as the
- * chat leads its lines, then its answer as it arrived in the same column, with every control character made visible. A
+ * The window's entries: the command line under the lead of its time and its number among the session's commands, padded to
+ * the digits of the newest as the chat pads its lines, then its answer as it arrived in the same column, with every control character made visible. A
  * result named in `slots` gets that many blank rows after its answer, where its picture is drawn. Kept per result, so the
  * wrapped rows of an unchanged result are reused.
  */
@@ -62,13 +62,14 @@ export function resultEntries(
   timeZone?: string,
   slots: ReadonlyMap<string, number> = new Map()
 ): Array<TranscriptEntry> {
+  const digits = leadDigits(results.length);
   return results.flatMap((result, index) => {
     const slot = slots.get(result.id) ?? 0;
-    const key = `${index}|${timeZone ?? ''}|${slot}`;
+    const key = `${index}|${digits}|${timeZone ?? ''}|${slot}`;
     const found = kept.get(result);
     if (found?.key === key && found !== undefined) return found.entries;
     const answer = result.answer ?? WAITING;
-    const lead = lineLead(result.at, index + 1, timeZone);
+    const lead = lineLead(result.at, index + 1, timeZone, digits);
     const entries: Array<TranscriptEntry> = [
       { id: `${result.id}${LINE_SUFFIX}`, text: displaySafe(result.line), lead },
       ...(answer === ''

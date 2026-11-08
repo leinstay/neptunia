@@ -80,15 +80,21 @@ export function lineTime(at: number, timeZone?: string): string {
   return `${part.year}-${part.month}-${part.day} ${part.hour}:${part.minute}`;
 }
 
-/** The muted lead of a command in the command window: its date and minute in `timeZone`, then its number. */
-export function lineLead(at: number, number: number, timeZone?: string): string {
-  return `[${lineTime(at, timeZone)}] ${numberLead(number)}`;
+/**
+ * The muted lead of a command in the command window: its date and minute in `timeZone`, then its number padded to
+ * `digits`.
+ */
+export function lineLead(at: number, number: number, timeZone?: string, digits = 1): string {
+  return `[${lineTime(at, timeZone)}] ${numberLead(number, digits)}`;
 }
 
-/** The muted lead of a chat line, its number alone, as `[#3] `. */
-export function numberLead(number: number): string {
-  return `[#${number}] `;
+/** The muted lead of a chat line, its number alone with zeros up to `digits`, as `[#3] ` or `[#03] `. */
+export function numberLead(number: number, digits = 1): string {
+  return `[#${String(number).padStart(digits, '0')}] `;
 }
+
+/** The digits of the largest number a view shows, the width every number of that view is padded to. */
+export const leadDigits = (largest: number): number => String(Math.max(0, largest)).length;
 
 function expandTabs(line: string): string {
   let out = '';
