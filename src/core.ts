@@ -103,7 +103,7 @@ import {
   createLinkSwitch,
   openAdapterLink,
 } from './interface/link.ts';
-import { createCommandDesk, createCommandIntake, coreStatusFacts } from './interface/neptunia-cli.ts';
+import { createCommandDesk, createCommandIntake, coreStatusFacts, lineLinksOf } from './interface/neptunia-cli.ts';
 import { createChatState } from './interface/commands/chat-state.ts';
 import type { ChatState } from './interface/commands/chat-state.ts';
 import { createChatSessions } from './chat/sessions.ts';
@@ -716,12 +716,11 @@ async function buildCore(
   }
   // The owner's commands (src/interface/neptunia-cli.ts) are answered before the door: a command never reaches her
   // memory or a turn. The desk exists once the admin does, below; a command that arrives sooner waits for the door.
-  // The link of the owner's chat that sent the last line is where her replies in `cli:dm:owner` go.
   let commandDesk: ReturnType<typeof createCommandDesk> | null = null;
   let chatState: ChatState | null = null;
   const numberOrNull = (value: unknown): number | null => (typeof value === 'number' ? value : null);
   const stringOrNull = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
-  // Every staged file of a line of the owner's chat is kept in the data folder before the line reaches the door.
+  // A chat line keeps its staged files and gains its links. Her `cli:dm:owner` replies go to the last line's link.
   const intake = createCommandIntake({
     door: keepLineFiles(linkDoor, { dataDir, readStaged: (id) => imageStaging.read(id) }),
     ready: () => doorReady.promise,
@@ -729,6 +728,7 @@ async function buildCore(
     linesHeld: () => isPausedIn(store),
     isAnyTurnRunning: () => turns.isAnyBusy(),
     chatCommands: (name: string, args: Record<string, unknown>) => chatState?.command(name, args) ?? null,
+    lineLinks: lineLinksOf({ hot, parseLinks: (texts) => reads.parseLinks(texts) }),
     log,
   });
   const linkServer = await listenSocket({
