@@ -115,8 +115,8 @@ function moveParticipantLinks(db: Db, from: string, survivor: string, at: string
   return links.length;
 }
 
-/** The daily relationship counts of the two add up, day by day and audience by audience. */
-function moveRelationship(db: Db, from: string, survivor: string): number {
+/** The daily relationship counts of the two add up, day by day and audience by audience; returns how many rows moved. */
+export function moveRelationship(db: Db, from: string, survivor: string): number {
   const rows = db.prepare('SELECT COUNT(*) AS n FROM relationship_daily WHERE person_id = ?').get(from)?.n;
   if (!rows) return 0;
   db.prepare(
