@@ -96,7 +96,8 @@ test('a click on the number of her line makes the next message a reply to it, sh
     clickOn(rig, '[#34]');
     await until(shows(rig, 'replying to #34'));
     assert.match(rig.screen().at(-1) ?? '', /replying to #34/, 'the reply target stands on the row under the input');
-    await press(rig, 'hi', shows(rig, '> hi'));
+    // The click puts the marker at the start of the draft as one chip.
+    await press(rig, 'hi', shows(rig, '> [#34] hi'));
     await press(rig, KEY.enter, () => sent.length === 1);
     await until(() => !rig.screen().join('\n').includes('replying to'));
   });
@@ -112,7 +113,7 @@ test('a click on the number of his own line makes the next message a reply to it
     await until(shows(rig, 'words of hers'));
     clickOn(rig, '[#12]');
     await until(shows(rig, 'replying to #12'));
-    await press(rig, 'more', shows(rig, '> more'));
+    await press(rig, 'more', shows(rig, '> [#12] more'));
     await press(rig, KEY.enter, () => sent.length === 1);
   });
   assert.deepEqual(sent, [{ line: 'more', replyTo: 'msg-12' }]);
@@ -141,9 +142,10 @@ test('a click on a number the store does not know sends nothing and keeps the dr
     await until(shows(rig, 'words of hers'));
     clickOn(rig, '[#77]');
     await until(shows(rig, 'replying to #77'));
-    await press(rig, 'hi', shows(rig, '> hi'));
+    await press(rig, 'hi', shows(rig, '> [#77] hi'));
     await press(rig, KEY.enter, shows(rig, 'No line #77'));
-    assert.ok(rig.screen().join('\n').includes('> hi'), 'the draft stays');
+    // The owner's chip rule of 2026-11-08 keeps the clicked marker in the draft, so the kept draft shows it.
+    assert.ok(rig.screen().join('\n').includes('> [#77] hi'), 'the draft stays');
   });
   assert.deepEqual(sent, []);
 });
