@@ -416,11 +416,8 @@ test('errand.run in the loop: after a search she hands off the errand, it is que
   // because errand.run names none (stage 4 design, "After Astra": the delivery identity is the effect's record).
   assert.equal(task.idempotencyKey, `${task.origin.turnId}:1:c1`, 'her second call of the turn');
   assert.equal(runs.length, 1);
-  assert.equal(
-    run.llm.calls.length,
-    2,
-    'an accepted errand covers her speech: the turn ends with it, no request to read it'
-  );
+  // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
+  assert.equal(run.llm.calls.length, 3, 'the accepted errand came back to her in one step, where she stayed silent');
   assert.deepEqual(
     run.sends.map((send) => send.text),
     ['το στέλνω να ψάξει']

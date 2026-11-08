@@ -217,9 +217,13 @@ test("draw parity: a reply turn's draw.create call asked by a member", async () 
     stickers: [],
   };
   const turns = runner({
-    answer: toolAnswer('<msg>one sec</msg>', [
-      call('draw.create', { reply: '#1', text: 'a lighthouse at dusk, waves below' }),
-    ]),
+    // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step. She stays silent there.
+    answer: [
+      toolAnswer('<msg>one sec</msg>', [
+        call('draw.create', { reply: '#1', text: 'a lighthouse at dusk, waves below' }),
+      ]),
+      '<skip/>',
+    ],
     images,
   });
   const { result } = await withCapturedLogs(() =>

@@ -29,7 +29,7 @@ import { asRecord } from './fixtures/records.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
-const texts = (run: Untyped) => run.sends.map((send: Untyped) => send.text);
+const texts = (run: Untyped): Array<unknown> => run.sends.map((send: Untyped) => send.text);
 const called = (run: Untyped) =>
   run.logs
     .filter((entry: Untyped) => entry.msg === 'skills: called')
@@ -112,14 +112,16 @@ test('draw failure with held speech: nothing is posted in step 1, step 2 sees th
   assert.deepEqual(run.sends.filter((send) => asRecord(send.attachments)?.length).length, 0, 'no picture posted');
 });
 
-test('all-quiet completion: draw.create ok with no speech is one request, the picture is posted and the turn ends', async () => {
+test('all-quiet completion: draw.create ok with no speech posts the picture once and shows it to her in one step, where she may stay silent', async () => {
   const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.ts');
   const images = fakeImages();
   const run = await drawTurn({
-    answers: [toolAnswer('<think>x</think>', [call('draw.create', { text: 'ένας φάρος' })]), '<msg>ποτέ</msg>'],
+    answers: [toolAnswer('<think>x</think>', [call('draw.create', { text: 'ένας φάρος' })]), '<skip/>'],
     images,
   });
-  assert.equal(run.llm.calls.length, 1, 'no request follows');
+  // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
+  assert.equal(run.llm.calls.length, 2, 'the picture comes back to her in one step');
+  assert.deepEqual(texts(run).filter(Boolean), [], 'she stayed silent');
   assert.equal(images.calls.length, 1);
   assert.equal(run.sends.filter((send) => asRecord(send.attachments)?.length === 1).length, 1);
   assert.equal(asRecord(run.result).delivered, true);
@@ -128,9 +130,13 @@ test('all-quiet completion: draw.create ok with no speech is one request, the pi
 test('a picture and its announcement in one answer: the picture result covers the speech, the speech goes out after the picture', async () => {
   const { drawTurn } = await import('./fixtures/turn-draws.ts');
   const run = await drawTurn({
-    answers: [toolAnswer('<think>x</think><msg>ορίστε</msg>', [call('draw.create', { text: 'ένας φάρος' })])],
+    answers: [
+      toolAnswer('<think>x</think><msg>ορίστε</msg>', [call('draw.create', { text: 'ένας φάρος' })]),
+      '<skip/>',
+    ],
   });
-  assert.equal(run.llm.calls.length, 1);
+  // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
+  assert.equal(run.llm.calls.length, 2);
   const order = run.sends.map((send) => (asRecord(send.attachments)?.length ? 'picture' : send.text));
   assert.deepEqual(order, ['picture', 'ορίστε'], 'calls run before her speech');
 });
@@ -180,7 +186,7 @@ test('dependent diary announcement: a failed picture and a post to the diary cha
   assert.ok(noteText(run.llm, 1).includes(labels.task.step.held));
 });
 
-test('an accepted background job covers the speech: errand.run ok, the speech goes out after it, no extra request', async () => {
+test('an accepted background job covers the speech: errand.run ok, the speech goes out after it, the job is shown to her in one step and queued once', async () => {
   const hot = hotWith({ config: { ...WEB_CONFIG, ...AGENTS } });
   const { service, runs } = errandService(hot);
   const run = await coreTurn({
@@ -188,14 +194,15 @@ test('an accepted background job covers the speech: errand.run ok, the speech go
       toolAnswer('<think>x</think><msg>το στέλνω να ψάξει</msg>', [
         call('errand.run', { agent: 'scout', goal: 'βρες κάτι' }),
       ]),
-      '<msg>ποτέ</msg>',
+      '<skip/>',
     ],
     allowed: ['errand.run'],
     config: { ...WEB_CONFIG, ...AGENTS },
     runner: { errands: service },
     adminExtra: { errands: service },
   });
-  assert.equal(run.llm.calls.length, 1, 'accepted is the end of it here');
+  // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
+  assert.equal(run.llm.calls.length, 2, 'the accepted job came back to her, where she stayed silent');
   assert.deepEqual(texts(run), ['το στέλνω να ψάξει']);
   assert.equal(runs.length, 1);
   assert.equal(asRecord(run.result).delivered, true);

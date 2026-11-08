@@ -1139,13 +1139,16 @@ function userTextOf(messages: Untyped): string {
 }
 
 test('runTurn: a draw.create call goes out before her messages, as a file; the messages follow', async () => {
-  const { result, channel, images } = await runDrawTurn({
+  const { result, channel, images, llm } = await runDrawTurn({
     answers: [
       toolAnswer('<msg>one sec</msg><msg>here</msg>', [call('draw.create', { reply: '#1', text: 'a cat on a roof' })]),
+      '<skip/>',
     ],
   });
 
   assert.equal(result.outcome, 'spoke');
+  // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
+  assert.equal(llm.calls.length, 2, 'the picture came back to her in a second request');
   assert.equal(channel.sent.length, 3);
   const file = channel.sent[0];
   assert.equal(file.content, undefined);
@@ -1199,7 +1202,9 @@ test('runTurn: a self <draw> passes the avatar as reference', async () => {
     contentType: 'image/png',
   });
   const { images } = await runDrawTurn({
-    answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me waving' })])],
+    // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to
+    // her in one step; she stays silent there.
+    answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me waving' })]), '<skip/>'],
     client,
     imageFetcher,
   });
@@ -1246,7 +1251,9 @@ test('runTurn: an avatar that cannot be fetched is logged and the picture is dra
     avatar: { hash: null, url: null, largeUrl: 'https://cdn.example.com/avatar.png' },
   });
   const { images, channel, logs } = await runDrawTurn({
-    answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me' })])],
+    // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to
+    // her in one step; she stays silent there.
+    answers: [toolAnswer('', [call('draw.create', { self: true, text: 'me' })]), '<skip/>'],
     client,
     imageFetcher: fakeImageFetcher(null),
   });
@@ -1309,10 +1316,12 @@ test('runTurn: a turn whose reaction the platform refused or whose picture moder
 
 test('runTurn: a draw.create alone is a spoken turn', async () => {
   const { result, channel, llm, logs } = await runDrawTurn({
-    answers: [toolAnswer('', [call('draw.create', { text: 'a cat' })])],
+    answers: [toolAnswer('', [call('draw.create', { text: 'a cat' })]), '<skip/>'],
   });
 
   assert.equal(result.outcome, 'spoke');
+  // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
+  assert.equal(llm.calls.length, 2, 'the picture came back to her and she stayed silent');
   assert.equal(channel.sent.length, 1);
   assert.equal(channel.sent[0].content, undefined);
   assert.equal(channel.sent[0].files?.length, 1);
@@ -1339,7 +1348,9 @@ test('runTurn: a follow-up turn posts the picture without a Discord reply', asyn
     createPort: createDiscordAdapter,
     hot: drawHot(),
     store: fakeStore(),
-    llm: sequenceLlm([toolAnswer('', [call('draw.create', { reply: '#1', text: 'a cat' })])]),
+    // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to
+    // her in one step; she stays silent there.
+    llm: sequenceLlm([toolAnswer('', [call('draw.create', { reply: '#1', text: 'a cat' })]), '<skip/>']),
     calibrator: identityCalibrator(),
     client: fakeClient(),
     images: fakeImages(),
@@ -1515,11 +1526,13 @@ test('runTurn: a failing typing indicator does not stop the message', async () =
 });
 
 test('runTurn: a private turn may draw (no Attach Files check in a DM), counted for the DM partner', async () => {
-  const { result, channel, images } = await runPrivateTurn({
-    answers: [toolAnswer('<msg>sure</msg>', [call('draw.create', { text: 'a cat' })])],
+  const { result, channel, images, llm } = await runPrivateTurn({
+    answers: [toolAnswer('<msg>sure</msg>', [call('draw.create', { text: 'a cat' })]), '<skip/>'],
   });
 
   assert.equal(result.outcome, 'spoke');
+  // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
+  assert.equal(llm.calls.length, 2, 'the picture came back to her in a second request');
   assert.equal(images.generateCalls.length, 1);
   assert.equal(images.generateCalls[0].accountId, 'u1');
   assert.equal(images.generateCalls[0].prompt, 'Drawing for GuildBot.\n\na cat');
@@ -5078,6 +5091,7 @@ test('skills gateway: the GIF and the drawing are published through the port', a
   const images = fakeImages();
   const gatewayLlm = sequenceLlm([
     toolAnswer('<msg>χα</msg>', [call('draw.create', { reply: '#1', text: 'a cat on a roof' })]),
+    '<skip/>',
   ]);
   const turns = createTurnRunner({
     discord: DISCORD,
@@ -5104,6 +5118,8 @@ test('skills gateway: the GIF and the drawing are published through the port', a
   assert.equal(channel.sent.length, 0, 'nothing went around the port');
   const sends = port.calls.filter((call) => call.op === 'send').map((call) => call.args[1]);
   assert.equal(sends.length, 2);
+  // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
+  assert.equal(gatewayLlm.calls.length, 2, 'the picture came back to her and she stayed silent');
   const [picture, gif] = sends;
   assert.deepEqual(
     gif,
@@ -5251,7 +5267,7 @@ function followUpTool(llm: Untyped, i: number, n = 0): string {
     : (message?.content ?? []).map((part: Untyped) => part.text ?? '').join('');
 }
 
-test('skill call: message.create to another channel where the bot may send runs before her reply, journaled proposed, started, succeeded, with its invocation id; it covers her speech, so no step follows', async () => {
+test('skill call: message.create to another channel where the bot may send runs before her reply, journaled proposed, started, succeeded, with its invocation id; her speech goes out after it and the post comes back to her in one step', async () => {
   const { journal, lines } = journalOverMemory();
   const run = await callTurn({
     answers: [
@@ -5273,7 +5289,8 @@ test('skill call: message.create to another channel where the bot may send runs 
     'her call runs first, her speech after it'
   );
   assert.deepEqual(run.sends[0].mentions, { users: [], repliedUser: false }, 'nobody is notified');
-  assert.equal(run.llm.calls.length, 1, 'a post that went out needs no reading: no step');
+  // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
+  assert.equal(run.llm.calls.length, 2, 'the post came back to her in one step, where she stayed silent');
   assert.deepEqual(skillPhases(lines), ['proposed', 'started', 'succeeded']);
   const actions = actionsNamed(lines, 'skill');
   assert.match(actions[0].input.invocationId, /^[0-9a-f-]{36}$/, 'the invocation id is kept with its state');
@@ -5296,7 +5313,8 @@ test('skill call: her message.create and message.edit text goes out like a <msg>
   const written = `${alice} @Alice ${unknown} @everyone :dance: #2 #αλλού`;
   const rendered = `<@u1> @Alice ${unknown} @everyone <a:dance:222222222222222222> https://discord.com/channels/g1/c1/m1 <#c8>`;
   const created = await callTurn({
-    answers: [toolAnswer(``, [call('message.create', { place: `#νέα`, text: `${written}` })])],
+    // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
+    answers: [toolAnswer(``, [call('message.create', { place: `#νέα`, text: `${written}` })]), '<skip/>'],
     allowed: ['message.create'],
     emoji: fakeEmojiIndex(),
   });
@@ -5313,7 +5331,7 @@ test('skill call: her message.create and message.edit text goes out like a <msg>
   );
   // A reply keeps working, its author notified as before.
   const replied = await callTurn({
-    answers: [toolAnswer(``, [call('message.create', { reply: `#2`, text: `${alice} :dance:` })])],
+    answers: [toolAnswer(``, [call('message.create', { reply: `#2`, text: `${alice} :dance:` })]), '<skip/>'],
     emoji: fakeEmojiIndex(),
   });
   assert.deepEqual(
@@ -5329,7 +5347,7 @@ test('skill call: her message.create and message.edit text goes out like a <msg>
   );
   // Pings off: the mention stays in the text and notifies nobody.
   const quiet = await callTurn({
-    answers: [toolAnswer(``, [call('message.create', { place: `#νέα`, text: `${alice}` })])],
+    answers: [toolAnswer(``, [call('message.create', { place: `#νέα`, text: `${alice}` })]), '<skip/>'],
     allowed: ['message.create'],
     store: storeWithPingsOff(['u1']),
   });
@@ -5347,18 +5365,46 @@ test('skill call: her message.create and message.edit text goes out like a <msg>
     .filter((call) => call.op === 'edit')
     .map((call) => [asRecord(call.args[0]).messageId, call.args[1]]);
   assert.deepEqual(edits, [['m0', { text: rendered, mentions: { users: ['u1'], repliedUser: false } }]]);
-  assert.equal(edited.llm.calls.length, 1, 'an edit that went out needs no reading');
+  // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
+  assert.equal(edited.llm.calls.length, 2, 'the edit came back to her in one step');
 });
 
-test('skill call: a quiet success in an addressed turn ends the turn: no step, nothing more to say; her speech goes out after it', async () => {
+// The expectation changed on 2026-11-08: the owner's rule of 2026-10-20 (#314) shows her a quiet call's outcome in one
+// step when the turn answers someone. The switch to the step engine (fe2828e7) dropped it, so an edit she made on
+// request ended the turn with Discord showing her typing and nothing said.
+test('skill call: a quiet success in an addressed turn is shown to her in one step; a turn nobody asked for ends with it', async () => {
   const addressed = await callTurn({
-    answers: [toolAnswer('', [call('message.edit', { message: '#1', text: 'διορθωμένη' })]), '<skip/>'],
+    answers: [
+      toolAnswer('', [call('message.edit', { message: '#1', text: 'διορθωμένη' })]),
+      '<msg>έγινε, διόρθωσα</msg>',
+    ],
     allowed: ['message.edit'],
   });
   assert.equal(addressed.result.outcome, 'spoke');
-  assert.equal(addressed.llm.calls.length, 1);
-  assert.deepEqual(addressed.sends, []);
+  assert.equal(addressed.llm.calls.length, 2, 'the edit came back to her in a second request');
+  assert.deepEqual(
+    addressed.sends.map((send) => send.text),
+    ['έγινε, διόρθωσα']
+  );
   assert.equal(addressed.result.delivered, true, 'the edit went out');
+  const silent = await callTurn({
+    answers: [toolAnswer('', [call('message.edit', { message: '#1', text: 'διορθωμένη' })]), '<skip/>'],
+    allowed: ['message.edit'],
+  });
+  const { calls: silentCalls } = silent.llm;
+  assert.equal(silentCalls.length, 2);
+  assert.deepEqual(silent.sends, [], 'she may stay silent after seeing it');
+  // One step, as the rule of 2026-10-20 gave: a quiet call she makes in the shown step ends the turn with it.
+  const twice = await callTurn({
+    answers: [
+      toolAnswer('', [call('message.edit', { message: '#1', text: 'διορθωμένη' })]),
+      toolAnswer('', [call('message.edit', { message: '#1', text: 'ξανά διορθωμένη' })]),
+      '<msg>δεν θα ζητηθεί</msg>',
+    ],
+    allowed: ['message.edit'],
+  });
+  const { calls: twiceCalls } = twice.llm;
+  assert.equal(twiceCalls.length, 2, 'the quiet call of the shown step is not shown again');
   const task = {
     id: 'tabc',
     agent: 'scout',
@@ -5380,12 +5426,32 @@ test('skill call: a quiet success in an addressed turn ends the turn: no step, n
   assert.deepEqual(
     spontaneous.sends.map((send) => send.text),
     ['να το', 'κι αυτό']
+  ); // An errand's result turn quotes the message that asked for the errand as its trigger, and still nobody waits for it:
+  // the errand's own outcome is what she reports, a quiet call ends the turn.
+  const result = await callTurn({
+    answers: [
+      toolAnswer('<msg>βρήκα</msg>', [call('message.create', { place: '#🍡νέα', text: 'να το' })]),
+      '<msg>δεν θα ειπωθεί</msg>',
+    ],
+    allowed: ['message.create'],
+    turnExtra: { triggerKind: 'errand', taskResult: { ...task, requester: { accountId: 'u1', kind: 'owner' } } },
+  });
+  const { calls: resultCalls } = result.llm;
+  assert.equal(resultCalls.length, 1, 'an errand result turn with a trigger ends with the call');
+  assert.deepEqual(
+    result.sends.map((send) => send.text),
+    ['να το', 'βρήκα']
   );
 });
 
 test('skill call: a call alone is no skip; here it needs no grant and replies to a line of this chat', async () => {
-  const here = await callTurn({ answers: [toolAnswer('', [call('message.create', { reply: '#2', text: 'ναι' })])] });
+  const here = await callTurn({
+    answers: [toolAnswer('', [call('message.create', { reply: '#2', text: 'ναι' })]), '<skip/>'],
+  });
   assert.equal(here.result.outcome, 'spoke');
+  // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
+  const { calls: hereCalls } = here.llm;
+  assert.equal(hereCalls.length, 2, 'the post came back to her and she stayed silent');
   // The current chat: carried over, the replied author notified.
   assert.deepEqual(
     here.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions.repliedUser]),
@@ -5411,6 +5477,7 @@ test('skill call: not granted, or a channel where the bot may not send -- refuse
     answers: [
       toolAnswer('<msg>μισό</msg>', [call('message.create', { place: '#νέα', text: 'γεια' })]),
       toolAnswer('<msg>δεν μπορώ εκεί</msg>', [call('message.create', { text: 'ξανά' })]),
+      '<skip/>',
     ],
     journal,
   });
@@ -5422,7 +5489,8 @@ test('skill call: not granted, or a channel where the bot may not send -- refuse
     ],
     'the held "μισό" never went out'
   );
-  assert.equal(run.llm.calls.length, 2, 'one more request, no third');
+  // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
+  assert.equal(run.llm.calls.length, 3, 'the refusal came back, then the post that worked, where she stayed silent');
   const followUp = run.llm.calls[1];
   const first = run.llm.calls[0];
   assert.deepEqual(followUp[0], first[0], 'the same system prompt');
@@ -5461,7 +5529,8 @@ test('skill call: edit and delete reach only her own message', async () => {
       .map((call) => [asRecord(call.args[0]).messageId, asRecord(call.args[1]).text]),
     [['m0', 'πρώτη, διορθωμένη']]
   );
-  assert.equal(edited.llm.calls.length, 1);
+  // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
+  assert.equal(edited.llm.calls.length, 2);
   const deleted = await callTurn({
     answers: [toolAnswer('', [call('message.delete', { message: '#1' })]), '<skip/>'],
     allowed: ['message.delete'],
@@ -5621,7 +5690,8 @@ test('skill call: draw.create elsewhere generates once and the operation posts i
     delivered.sends.map((send) => [send.to, send.attachments.length]),
     [['c9', 1]]
   );
-  assert.equal(delivered.llm.calls.length, 1, 'a picture that went out needs no reading');
+  // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
+  assert.equal(delivered.llm.calls.length, 2, 'the picture came back to her in one step, where she stayed silent');
 });
 
 test('skill call: a call that did not work comes back as a result with its reason, her speech is held, the corrected call goes through and the journal keeps both', async () => {
@@ -5631,12 +5701,18 @@ test('skill call: a call that did not work comes back as a result with its reaso
     answers: [
       toolAnswer('<msg>σβήνω και το ξαναγράφω</msg>', [call('message.delete')]),
       toolAnswer('<msg>έσβησα το πρώτο</msg>', [call('message.delete', { message: '#1' })]),
+      '<skip/>',
     ],
     allowed: ['message.delete'],
     journal,
   });
   assert.equal(run.result.outcome, 'spoke');
-  assert.equal(run.llm.calls.length, 2, 'one more request, never a third');
+  // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: a quiet call in a turn that answers someone is shown to her in one step.
+  assert.equal(
+    run.llm.calls.length,
+    3,
+    'the refusal came back, then the deletion that worked, where she stayed silent'
+  );
   const reason = fill(labels.transcript.callReasons['missing-arg'], { arg: 'message' });
   assert.equal(followUpTool(run.llm, 1), fill(labels.tools.result.refused, { reason }), 'she reads what was missing');
   assert.deepEqual(
@@ -5654,7 +5730,8 @@ test('skill call: a call that did not work comes back as a result with its reaso
   const records = lines.map(({ record }) => record);
   const turn = records.find((record) => record.kind === 'turn');
   assert.equal(turn.posted.length, 1);
-  assert.equal(turn.steps, 1);
+  // The owner's rule of 2026-10-20 (#314), restored 2026-11-08: the deletion that worked is shown to her in a second step.
+  assert.equal(turn.steps, 2);
   const failed = actionsNamed(lines, 'skill')[1];
   assert.deepEqual(
     [failed.result.code, failed.result.status, failed.result.reason],
