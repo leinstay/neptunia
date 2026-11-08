@@ -63,9 +63,8 @@ import {
 import { log } from '../../log.ts';
 import { foldText } from '../recent.ts';
 import { indexWords } from '../record-index.ts';
-import { channelPlaceId, nativeOf } from './ids.ts';
 import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
-import { audienceOf, canRead, dmScope, scopeWhere, whereFor } from './scope.ts';
+import { canRead, scopeWhere, whereFor } from './scope.ts';
 import { loadStemmer } from './stems.ts';
 import { asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Config, Db, Row } from './types.ts';
@@ -151,6 +150,10 @@ type Reader = {
   exclude: Set<unknown>;
   authorOf: (accountId: unknown) => { id: string | null; name: string | null; nameKey: string | null };
   channelNameOf: (placeId: unknown) => string | null;
+  /** The chat a stored place's lines name: its native id, a DM's partner native id; null for a place no row holds. */
+  chatOf: (placeId: unknown) => string | null;
+  /** The interface of a stored place; null for a place no row holds. */
+  ifaceOf: (placeId: unknown) => string | null;
   mediaOf: (sourceId: string) => ReadonlyArray<MediaRow>;
 };
 /** The settings of a db recall: the recall settings with the keys of `recall.db` lifted out. */
@@ -204,7 +207,14 @@ const parseJson = (text: unknown): unknown => {
 const str = (value: unknown): string => (typeof value === 'string' ? value : '');
 
 type AccountName = { nativeId: string | null; iface: string; name: string | null };
-type PlaceName = { nativeId: string | null; iface: string; name: string | null; private: boolean };
+type PlaceName = {
+  nativeId: string | null;
+  partnerAccount: string | null;
+  iface: string;
+  name: string | null;
+  private: boolean;
+  retired: boolean;
+};
 
 /** Account names retain their exact identity when native IDs collide across interfaces. */
 function accountNames(db: Db): Map<unknown, AccountName> {
@@ -225,22 +235,24 @@ function accountNames(db: Db): Map<unknown, AccountName> {
 function placeNames(db: Db): Map<unknown, PlaceName> {
   const names = new Map<unknown, PlaceName>();
   for (const row of db
-    .prepare('SELECT id, native_id, name, iface, scope_kind, chat FROM places WHERE retired_at IS NULL')
+    .prepare('SELECT id, native_id, partner_account, name, iface, scope_kind, chat, retired_at FROM places')
     .all()) {
     names.set(row.id, {
       nativeId: str(row.native_id) || null,
+      partnerAccount: str(row.partner_account) || null,
       iface: str(row.iface),
       name: str(row.name) || null,
       private: row.scope_kind === 'dm' || row.scope_kind === 'internal' || row.chat === 'dm',
+      retired: row.retired_at !== null,
     });
   }
   return names;
 }
 
-/** The channel id a source row belongs to: its place's, or the private channel the record line carried. */
-function channelOf(row: Row, extra: Row): string {
+/** The channel id a source row belongs to: the private channel the record line carried, else its place's chat. */
+function channelOf(row: Row, extra: Row, chatOf: Reader['chatOf']): string {
   const dm = typeof extra?.dmChannel === 'string' && extra.dmChannel ? extra.dmChannel : null;
-  return dm ?? nativeOf(row.place_id) ?? asText(row.place_id ?? '');
+  return dm ?? chatOf(row.place_id) ?? asText(row.place_id ?? '');
 }
 
 function storedRefOf(row: Row, extra: Row): StoredSourceRef {
@@ -259,7 +271,7 @@ const shownName = (name: string | null): string => (name ?? '').replace(/\s+/g, 
 /** One source row as a normalized chat message (the shape renderRecallWindows reads). */
 function messageOf(
   row: Row,
-  { authorOf, selfName, mediaOf }: Pick<Reader, 'authorOf' | 'selfName' | 'mediaOf'>
+  { authorOf, selfName, mediaOf, chatOf }: Pick<Reader, 'authorOf' | 'selfName' | 'mediaOf' | 'chatOf'>
 ): RecallMessage {
   const extra = (parseJson(row.extra) ?? {}) as Row;
   const self = row.kind === 'said';
@@ -273,7 +285,7 @@ function messageOf(
     id: row.native_id,
     ...(!self && author.nameKey !== null ? { nameKey: author.nameKey } : {}),
     stored: storedRefOf(row, extra),
-    placeId: channelOf(row, extra),
+    placeId: channelOf(row, extra, chatOf),
     authorId: author.id,
     authorName: shownName(name),
     self,
@@ -312,14 +324,31 @@ function termsOf(stem: (word: string) => string, forms: unknown): Array<Term> {
 }
 
 /**
- * How near a hit's place is to the chat the read is for: its own place, then its own interface, then the rest.
- * It only breaks a tie of relevance, so a stronger hit elsewhere keeps its rank and no hit is left out.
+ * How near a hit's place is to the chat the read is for: its own place, then its own interface (`places.iface` of
+ * both), then the rest. It only breaks a tie of relevance, so a stronger hit elsewhere keeps its rank and no hit is
+ * left out.
  */
-function nearness(placeId: unknown, context: unknown): number {
-  const here = (context as { destination?: unknown; iface?: unknown } | null)?.destination;
+function nearness(placeId: unknown, context: unknown, ifaceOf: Reader['ifaceOf']): number {
+  const here = (context as { destination?: unknown } | null)?.destination;
   if (typeof placeId !== 'string' || typeof here !== 'string') return 0;
   if (placeId === here) return 2;
-  return placeId.split(':')[0] === here.split(':')[0] ? 1 : 0;
+  const iface = ifaceOf(placeId);
+  return iface !== null && iface === ifaceOf(here) ? 1 : 0;
+}
+
+/**
+ * The chat an interface names by its native id, from `places`: a group chat first, then a place of unknown chat, never
+ * a DM. The empty id when no row holds one, so a read narrowed to a chat nobody stored finds nothing (no place id is
+ * empty).
+ */
+function channelOfNative(db: Db, iface: string, native: string): string {
+  const found = db
+    .prepare(
+      `SELECT id FROM places WHERE iface = ? AND native_id = ? AND chat IS NOT 'dm'
+       ORDER BY chat IS 'group' DESC, id LIMIT 1`
+    )
+    .get(iface, native)?.id;
+  return typeof found === 'string' ? found : '';
 }
 
 /**
@@ -414,7 +443,7 @@ function filters(
     parts.push(`${alias}.occurred_at <= ?`);
     params.push(iso(to));
   }
-  if (placeId) {
+  if (placeId !== null) {
     parts.push(`${alias}.place_id = ?`);
     params.push(placeId);
   }
@@ -954,22 +983,28 @@ function readerOf(
 ): Reader {
   let names: Map<unknown, AccountName> | null = null;
   let places: Map<unknown, PlaceName> | null = null;
+  const placeOf = (placeId: unknown): PlaceName | null => (places ??= placeNames(db)).get(placeId) ?? null;
+  const accountOf = (accountId: unknown): AccountName | null => (names ??= accountNames(db)).get(accountId) ?? null;
   return {
     selfName,
     mediaOf: (sourceId) => lineMedia(db, [sourceId], ctx).get(sourceId) ?? [],
     exclude: exclude instanceof Set ? exclude : new Set(Array.isArray(exclude) ? exclude : []),
     authorOf: (accountId) => {
-      names ??= accountNames(db);
-      const account = names.get(accountId);
+      const account = accountOf(accountId);
       if (!account) return { id: null, name: null, nameKey: null };
       const own = account.iface === ctx.iface ? account.nativeId : null;
       const given = own && typeof nameOf === 'function' ? str(nameOf(own)) : '';
       return { id: account.nativeId, name: given || account.name, nameKey: marks ? own : null };
     },
+    // A DM place holds no native id, so its lines name the native id of its partner account.
+    chatOf: (placeId) => {
+      const place = placeOf(placeId);
+      return place ? (place.nativeId ?? accountOf(place.partnerAccount)?.nativeId ?? null) : null;
+    },
+    ifaceOf: (placeId) => placeOf(placeId)?.iface || null,
     channelNameOf: (placeId: unknown): string | null => {
-      places ??= placeNames(db);
-      const place = places.get(placeId);
-      if (!place || (place.private && ctx.internal !== true)) return null;
+      const place = placeOf(placeId);
+      if (!place || place.retired || (place.private && ctx.internal !== true)) return null;
       const own = place.iface === ctx.iface ? place.nativeId : null;
       if (own && marks) marks.places[placeId as string] = own;
       const given = own && typeof channelNameOf === 'function' ? str(channelNameOf(own)) : '';
@@ -1100,7 +1135,8 @@ export function search(
   const scopeArgs: ScopeArgs = {
     from: isFiniteNumber(plan?.from) ? plan.from : null,
     to: isFiniteNumber(plan?.to) ? plan.to : null,
-    placeId: typeof plan?.placeId === 'string' && plan.placeId ? channelPlaceId(ifaceOf(context), plan.placeId) : null,
+    placeId:
+      typeof plan?.placeId === 'string' && plan.placeId ? channelOfNative(db, ifaceOf(context), plan.placeId) : null,
     // The caller's place rule runs inside every stream's query (see placesAllowed).
     places: placesAllowed(db, context, allowPlace, allowedPlaces),
   };
@@ -1185,6 +1221,7 @@ export function search(
   const weights = [1, 1, 1, terms.length > 0 ? PEOPLE_WEIGHT_WITH_FORMS : 1, 1];
   const shown = (row: Row): boolean => !skip.has(row.id);
   const visible = fuseRanks(lists, { k: RRF_K, weights }).filter((entry) => shown(rowsOf.get(entry.id) as Row));
+  const read = readerOf(db, context, { nameOf, selfName, channelNameOf, exclude: skip, marks });
   const target = targetOf(scopeArgs, now);
   const dated = scopeArgs.from !== null || scopeArgs.to !== null;
   // No hit of the time stream is weaker than another: a share of 0 keeps every one.
@@ -1212,12 +1249,11 @@ export function search(
         : (a, b) =>
             b.terms - a.terms ||
             b.phrases - a.phrases ||
-            nearness(b.placeId, context) - nearness(a.placeId, context) ||
+            nearness(b.placeId, context, read.ifaceOf) - nearness(a.placeId, context, read.ifaceOf) ||
             Math.abs(a.ts - target) - Math.abs(b.ts - target) ||
             b.score - a.score
     );
 
-  const read = readerOf(db, context, { nameOf, selfName, channelNameOf, exclude: skip, marks });
   const byScore = [...hits].sort((a, b) => b.score - a.score);
   const chosen = new Set(hits.slice(0, keep * HITS_PER_WINDOW).map((hit) => hit.rowid));
   for (const hit of byScore.slice(0, keep)) chosen.add(hit.rowid);
@@ -1325,6 +1361,17 @@ const askersOf = (ctx: Context): Array<string> =>
     (id): id is string => typeof id === 'string' && id !== ''
   );
 
+/** The DM audiences of the `askers` on `iface`: the audiences of the DM places whose partner is one of them. */
+function askerDmAudiences(db: Db, askers: ReadonlyArray<string>, iface: unknown): Set<string> {
+  const rows = db
+    .prepare(
+      `SELECT a.id AS id FROM places p JOIN audiences a ON a.place_id = p.id AND a.kind = 'dm'
+       WHERE p.chat = 'dm' AND p.iface = ? AND p.partner_person IN (SELECT value FROM json_each(?))`
+    )
+    .all(String(iface), JSON.stringify(askers));
+  return new Set(rows.map((row) => String(row.id)));
+}
+
 /**
  * Whether a DM of the person who asked holds a word match better than anything this context may show: the matches
  * are walked best first; a line the context may show means no (a visible match is at least as good); a DM line of this
@@ -1341,10 +1388,10 @@ function hiddenBetter(
   askers: ReadonlyArray<string>
 ): boolean {
   if (askers.length === 0) return false;
-  // The asker's own DM on this interface: by the triple, or by its audience (the DM place of the asker) on `audience_id`.
-  const askerAudiences = new Set(askers.map((person) => audienceOf(dmScope(person, ctx.iface as string)).audience_id));
+  // The asker's own DM on this interface: the audience of a DM place whose partner asked, else the triple.
+  const askerAudiences = ctx.audienceColumn === true ? askerDmAudiences(db, askers, ctx.iface) : null;
   const askedIn =
-    ctx.audienceColumn === true
+    askerAudiences !== null
       ? (row: Row) => askerAudiences.has(row.audience_id as string)
       : (row: Row) =>
           row.scope_kind === 'dm' && row.scope_iface === ctx.iface && askers.includes(row.scope_dm as string);
@@ -1358,7 +1405,7 @@ function hiddenBetter(
     parts.push('s.occurred_at <= ?');
     params.push(iso(scopeArgs.to));
   }
-  if (scopeArgs.placeId) {
+  if (scopeArgs.placeId !== null) {
     parts.push('s.place_id = ?');
     params.push(scopeArgs.placeId);
   }
