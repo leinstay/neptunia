@@ -93,7 +93,7 @@ test('a line both stored and held by the chat client appears once, with the atta
   const adapter = withStoredHistory(freshClient([clientLine('n2', 'stored 2', 20, [image])]), () => lines);
   const read = await createReads(adapter, quiet).history(CHAT, { limit: 100 });
   assert.deepEqual(
-    read?.events.map((event) => [event.message.id, event.message.attachments?.length ?? 0]),
+    read?.events.map(({ message }) => [message.id, message.attachments?.length ?? 0]),
     [
       ['n1', 0],
       ['n2', 1],
