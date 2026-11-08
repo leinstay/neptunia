@@ -55,6 +55,9 @@ const OTHER = channelPlaceId('discord', 'other');
 const ALICE = 'u-alice';
 const BOB = 'u-bob';
 const CAROL = 'u-carol';
+/** The stored person of a fixture member's account, as the store answers it; no person is spelled from a member id. */
+const storedPersonOf = (account: string): string | null =>
+  [ALICE, BOB, CAROL].includes(account) ? personId('discord', account) : null;
 const group = groupContext('discord');
 
 const plan = (forms: Array<string>, extra: Record<string, unknown> = {}) => ({
@@ -674,6 +677,7 @@ function runner(
       markDirty() {},
     },
     listUserProfiles: () => [],
+    personOfAccount: storedPersonOf,
   };
   const llmCalls: Array<Array<unknown>> = [];
   const llm = {
@@ -988,7 +992,7 @@ test("recall: the turn's execution context is used when it fits the read; a read
         history: () => Promise.resolve(null),
       }),
       hot: s.hot,
-      store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [] },
+      store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [], personOfAccount: storedPersonOf },
       llm: { capLeft: () => 100, complete: async () => ({ text: '' }) },
       now: () => NOW,
       memoryDb: {
@@ -1636,7 +1640,7 @@ test('search, window and prefetch retain one issued internal context rather than
     const recaller = createRecall({
       reads: rig().reads,
       hot: s.hot,
-      store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [] },
+      store: { state: { data: {}, markDirty() {} }, listUserProfiles: () => [], personOfAccount: storedPersonOf },
       llm: {
         capLeft: () => 100,
         complete: () => Promise.reject(new Error('quoted database reads do not summarize')),
