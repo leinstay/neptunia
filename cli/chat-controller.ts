@@ -11,6 +11,8 @@ import type { AttachmentActions } from './attachment-actions.ts';
 import { composerLayout, composerMaxRows, headerMode, headerRows, menuRows } from './chat-view.ts';
 import type { ComposerLayout, HeaderMode } from './chat-view.ts';
 import type { ClipboardResult } from './clipboard.ts';
+import { resultEntries, windowBody, windowChrome, windowHeight } from './command-window.ts';
+import type { CommandResult } from './command-window.ts';
 import {
   DEFAULT_PASTE_LIMITS,
   assembleDraft,
@@ -51,8 +53,8 @@ import type { MouseReport } from './mouse.ts';
 import type { Panel } from './panel.ts';
 import { FOLD_LINES, backspace, browse, emptyInput, insert, menuOf, moveCursor, statusLine, submit } from './state.ts';
 import type { InputState, MenuCommand, StatusBrief } from './state.ts';
-import { TAIL, displaySafe, lineTime, scrollView, transcriptWindow } from './transcript.ts';
-import type { TranscriptDims, TranscriptRow, TranscriptView, TranscriptWindow } from './transcript.ts';
+import { TAIL, displaySafe, lineLead, scrollView, transcriptWindow } from './transcript.ts';
+import type { TranscriptDims, TranscriptEntry, TranscriptRow, TranscriptView, TranscriptWindow } from './transcript.ts';
 import {
   activeTurn,
   callsInProgress,
@@ -92,8 +94,11 @@ export type ChatEnv = {
   commands: ReadonlyArray<MenuCommand>;
   history: ReadonlyArray<string>;
   still: boolean;
-  /** One line typed: a command or a chat line, with its staged images. The answer, when it is text for the chat, comes through `onEntry`. */
-  send: (line: string, attachments?: ReadonlyArray<ChatAttachment>) => void;
+  /**
+   * One line typed: a command or a chat line, with its staged images. A slash command gives back the promise of its
+   * answer's text, which the command window shows; her answer to a chat line comes through `entry`.
+   */
+  send: (line: string, attachments?: ReadonlyArray<ChatAttachment>) => Promise<string> | undefined;
   /** Asks the core to cancel a turn. Clearing a draft or leaving the chat never reaches this. */
   cancelTurn?: (turnId: string) => void;
   /** The text of a panel a command opens, or null when this line opens none. */
@@ -166,9 +171,12 @@ type ShownEntry = {
   text: string;
   original: string;
   attachments: ReadonlyArray<ChatAttachment>;
-  /** the muted time above the line, for the owner's lines and hers */
-  stamp?: string;
+  /** when the line was sent, for the owner's lines and hers */
+  at?: number;
 };
+
+/** The id of the blank row between her line and the owner's line after it. */
+const GAP_PREFIX = 'gap-';
 
 /** A search of the history or the transcript. The draft waits untouched, and the query goes nowhere else. */
 type Search = { kind: 'history' | 'transcript'; query: string; skip: number; viewBefore: TranscriptView };
@@ -185,7 +193,13 @@ export type Model = EditorState & {
   selected: number;
   expanded: ReadonlySet<string>;
   view: TranscriptView;
+  /** the live panel of the newest command, drawn inside the command window */
   panel: Panel | null;
+  /** the session's slash commands and their answers, in the order they ran */
+  results: ReadonlyArray<CommandResult>;
+  isWindowOpen: boolean;
+  /** where the command window is scrolled, apart from the chat */
+  windowView: TranscriptView;
   question: Question | null;
   /** what is typed for the open question: a buffer of its own, so an answer reaches neither the draft nor a store */
   answer: InputState;
@@ -204,8 +218,13 @@ export type Model = EditorState & {
 
 /** A cell of the transcript as last drawn: the index of its row on the screen and a zero-based cell in that row. */
 type TranscriptCell = { row: number; col: number };
-/** A mouse selection from where the button went down to where it is, and the text it held when the button came up. */
-type Selection = { anchor: TranscriptCell; focus: TranscriptCell; dragging: boolean; text: string };
+/** The chat or the command window: each scrolls and selects on its own. */
+type Area = 'chat' | 'window';
+/**
+ * A mouse selection inside one area, from where the button went down to where it is, and the text it held when the
+ * button came up.
+ */
+type Selection = { area: Area; anchor: TranscriptCell; focus: TranscriptCell; dragging: boolean; text: string };
 /** The cells of one drawn row a selection covers, `[from, to)`. */
 export type RowMark = { from: number; to: number };
 
@@ -222,7 +241,12 @@ function selectionMarks({ anchor, focus }: Selection, rowCount: number): Array<R
 /** The text a selection covers, its rows joined by newlines. */
 function selectedText(selection: Selection, rows: ReadonlyArray<TranscriptRow>): string {
   return selectionMarks(selection, rows.length)
-    .flatMap((mark, index) => (mark === null ? [] : [sliceCells(rows[index]?.text ?? '', mark.from, mark.to)]))
+    .flatMap((mark, index) => {
+      if (mark === null) return [];
+      const row = rows[index];
+      // The blank cells a later row of a line starts with keep the text's column on the screen, not in the copy.
+      return [sliceCells(row?.text ?? '', Math.max(mark.from, row?.pad ?? 0), mark.to)];
+    })
     .join('\n');
 }
 
@@ -239,15 +263,13 @@ function entryText(entry: ChatEntry): string {
 }
 
 /**
- * What the transcript draws for an entry: a blank row and `> ` for the owner, `· ` for a command's answer and no mark for
- * her, so the kinds differ without colour, and every control character made visible.
+ * What the transcript draws for an entry, with every control character made visible: the owner's text and hers as they
+ * arrived, under the lead of their time and number, and `· ` before a notice of the chat, which carries neither.
  */
 function drawnText(entry: ChatEntry): string {
   const lines = displaySafe(entryText(entry).replaceAll('\r\n', '\n')).split('\n');
-  if (entry.who === 'her') return lines.join('\n');
-  const mark = entry.who === 'owner' ? '> ' : '· ';
-  const body = lines.map((line, index) => `${index === 0 ? mark : '  '}${line}`).join('\n');
-  return entry.who === 'owner' ? `\n${body}` : body;
+  if (entry.who !== 'system') return lines.join('\n');
+  return lines.map((line, index) => `${index === 0 ? '· ' : '  '}${line}`).join('\n');
 }
 
 /** The fields of an edit alone: an editor function hands back whatever else the state held when it was called. */
@@ -301,7 +323,12 @@ export type ChatFrame = {
   turnRow: string | null;
   /** the selected cells of each transcript row, in the order of `transcript.rows` */
   marks: Array<RowMark | null>;
+  /** the command window's rows and the selected cells of each, or null while it is closed */
+  window: { height: number; rows: Array<TranscriptRow>; marks: Array<RowMark | null>; body: number } | null;
 };
+
+/** The command window never folds an answer: it scrolls instead. */
+const NO_FOLD: Pick<TranscriptDims, 'expanded' | 'foldLines'> = { expanded: new Set(), foldLines: Infinity };
 
 export class ChatController {
   readonly env: ChatEnv;
@@ -324,6 +351,17 @@ export class ChatController {
   drawnInput = { safe: '', width: 1, first: 0, firstRow: 0, rowCount: 0 };
   // The transcript rows as last drawn and the one-based screen row of the first: what a selection measures against.
   drawnRows: { top: number; rows: ReadonlyArray<TranscriptRow> } = { top: 1, rows: [] };
+  // The command window as last drawn: its first and last screen rows, one-based, its rows and their first screen row.
+  drawnWindow: { first: number; last: number; top: number; rows: ReadonlyArray<TranscriptRow>; dims: TranscriptDims } =
+    {
+      first: 0,
+      last: -1,
+      top: 1,
+      rows: [],
+      dims: { columns: 80, budget: 0, ...NO_FOLD },
+    };
+  // The command whose panel request is on its way, so Esc can mark it cancelled.
+  loadingResult: string | null = null;
   // Set while a child closes itself on a key: the same key must not reach the composer that just got the focus back.
   keyTaken = false;
   // A panel request is on its way: Esc takes that back before it asks anything of the core.
@@ -362,6 +400,9 @@ export class ChatController {
       expanded: new Set(),
       view: TAIL,
       panel: null,
+      results: [],
+      isWindowOpen: false,
+      windowView: TAIL,
       question: null,
       answer: emptyInput(),
       connected: true,
@@ -391,12 +432,54 @@ export class ChatController {
     this.paint();
   }
 
-  /** The time above a line of the owner or of hers, in `bot.timezone`; a command's answer carries none. */
-  stampOf(entry: ChatEntry): { stamp?: string } {
-    if (entry.who === 'system') return {};
-    // Above the line's text column, past the owner's `> `, as Hermes draws it (ui-tui/src/components/messageLine.tsx).
-    const indent = entry.who === 'owner' ? '  ' : '';
-    return { stamp: indent + lineTime(entry.at ?? this.env.now(), this.env.timeZone) };
+  /** When a line of the owner or of hers was sent: a stored line keeps its time, a new one takes the chat's clock. */
+  timeOf(entry: ChatEntry): { at?: number } {
+    return entry.who === 'system' ? {} : { at: entry.at ?? this.env.now() };
+  }
+
+  // The drawn entries of the last `model.entries`, and each line's entry under its lead, kept while its number holds.
+  shownCache: { from: ReadonlyArray<ShownEntry>; list: Array<TranscriptEntry> } | null = null;
+  led = new WeakMap<ShownEntry, { number: number; entry: TranscriptEntry }>();
+  gaps = new WeakMap<ShownEntry, TranscriptEntry>();
+
+  /**
+   * The transcript as it is drawn: each line of the owner or of hers under `[time] [#N] `, N counting the lines of the
+   * chat from the oldest shown, and one blank row after her line when the owner's line follows it, nowhere else.
+   */
+  shownEntries(): Array<TranscriptEntry> {
+    const { entries } = this.model;
+    if (this.shownCache?.from === entries) return this.shownCache.list;
+    const list: Array<TranscriptEntry> = [];
+    let number = 0;
+    let before: ShownEntry | undefined;
+    for (const entry of entries) {
+      if (entry.who === 'owner' && before?.who === 'her') list.push(this.gapOf(entry));
+      if (entry.who === 'system') list.push(entry);
+      else {
+        number += 1;
+        list.push(this.ledOf(entry, number));
+      }
+      before = entry;
+    }
+    this.shownCache = { from: entries, list };
+    return list;
+  }
+
+  gapOf(entry: ShownEntry): TranscriptEntry {
+    const found = this.gaps.get(entry);
+    if (found !== undefined) return found;
+    const gap = { id: `${GAP_PREFIX}${entry.id}`, text: '' };
+    this.gaps.set(entry, gap);
+    return gap;
+  }
+
+  ledOf(entry: ShownEntry, number: number): TranscriptEntry {
+    const found = this.led.get(entry);
+    if (found?.number === number && found !== undefined) return found.entry;
+    const lead = lineLead(entry.at ?? this.env.now(), number, this.env.timeZone);
+    const led = { id: entry.id, text: entry.text, lead };
+    this.led.set(entry, { number, entry: led });
+    return led;
   }
 
   addEntry(entry: ChatEntry): void {
@@ -406,7 +489,7 @@ export class ChatController {
       text: drawnText(entry),
       original: entry.text,
       attachments: entry.attachments ?? [],
-      ...this.stampOf(entry),
+      ...this.timeOf(entry),
     };
     this.update({ entries: [...this.model.entries, shown] });
   }
@@ -460,7 +543,7 @@ export class ChatController {
           text: drawnText(entry),
           original: entry.text,
           attachments: entry.attachments ?? [],
-          ...this.stampOf(entry),
+          ...this.timeOf(entry),
         }));
         this.update({ entries: [...shown, ...this.model.entries] });
       })
@@ -506,6 +589,7 @@ export class ChatController {
         text: displaySafe(turn.text),
         original: turn.text,
         attachments: [],
+        at: this.entries().find((one) => one.id === liveId)?.at ?? this.env.now(),
       };
       const isShown = this.entries().some((one) => one.id === liveId);
       this.update({
@@ -572,9 +656,26 @@ export class ChatController {
     });
   }
 
+  /** A panel closed by its own Esc takes the command window with it. */
   closePanel(): void {
     this.takeKey();
-    this.update({ panel: null });
+    this.closeWindow();
+  }
+
+  /** Esc while the window is open: it closes, and a panel still on its way opens nothing. The draft stays. */
+  closeWindow(): void {
+    if (this.panelLoading) {
+      this.panelLoading = false;
+      this.panelRequest += 1;
+      if (this.loadingResult !== null) this.answerResult(this.loadingResult, 'Cancelled.');
+    }
+    this.update({ panel: null, isWindowOpen: false, windowView: TAIL, selection: null });
+  }
+
+  /** The answer of one command, in its place in the window. */
+  answerResult(id: string, answer: string): void {
+    const { results } = this.model;
+    this.update({ results: results.map((one) => (one.id === id ? { ...one, answer } : one)) });
   }
 
   closeQuestion(value: string): void {
@@ -640,8 +741,7 @@ export class ChatController {
     const isLinear = this.env.linear === true;
     const hasChoices = owner === 'choices';
     const items = this.itemsOf(now);
-    // A panel takes the transcript's rows and the header's: it is what the owner opened it to read.
-    const mode = panel === null ? headerMode(rows, columns, isLinear) : 'none';
+    const mode = headerMode(rows, columns, isLinear);
     const questionRows = asked === null ? 0 : wrapWords(asked.question, columns).length;
     const turnRow = this.turnRow();
     const fixed = headerRows(mode) + (notice === null ? 0 : 1) + (turnRow === null ? 0 : 1) + questionRows;
@@ -654,7 +754,9 @@ export class ChatController {
     const choiceRows = Math.min(QUESTION_ROWS, Math.max(1, rows - fixed - FILTER_ROWS));
     const inputRows = hasChoices ? choiceRows + FILTER_ROWS : layout.height;
     const menuHeight = panel === null && items.length > 0 ? menuRows(items.length, rows - fixed - inputRows - 1) : 0;
-    const budget = transcriptBudget({ rows, fixed, composer: inputRows, overlay: panel === null ? menuHeight : rows });
+    // The open command window takes half of what the header and the input leave, and the chat keeps the rest.
+    const height = windowHeight(rows - fixed - inputRows - menuHeight, now.isWindowOpen);
+    const budget = transcriptBudget({ rows, fixed, composer: inputRows, overlay: menuHeight + height });
     const isOffTail = view.kind === 'anchor' && budget > OFF_TAIL_ROWS;
     this.drawn = {
       columns,
@@ -671,7 +773,7 @@ export class ChatController {
       firstRow: rows - (isLinear ? 0 : 1) - layout.rows.length + 1,
       rowCount: layout.rows.length,
     };
-    const window = transcriptWindow(now.entries, view, this.drawn);
+    const window = transcriptWindow(this.shownEntries(), view, this.drawn);
     // An expanded last entry can be taller than the budget: its newest rows show, and Page Up reaches the rest.
     const cut = Math.max(0, window.rows.length - this.drawn.budget);
     const transcript =
@@ -681,6 +783,7 @@ export class ChatController {
       top: headerRows(mode) + 1 + Math.max(0, this.drawn.budget - transcript.rows.length),
       rows: transcript.rows,
     };
+    const shownWindow = this.measureWindow(height, headerRows(mode) + budget + 1, columns);
     return {
       owner,
       mode,
@@ -694,8 +797,30 @@ export class ChatController {
       transcript,
       status: statusLine(now.brief, { connected: now.connected, polledAt: now.polledAt, now: this.env.now() }),
       turnRow,
-      marks: now.selection === null ? [] : selectionMarks(now.selection, transcript.rows.length),
+      marks: this.marksOf('chat', transcript.rows.length),
+      window: shownWindow,
     };
+  }
+
+  /** The cells the selection covers on each drawn row of one area, none when it lies in the other. */
+  marksOf(area: Area, rowCount: number): Array<RowMark | null> {
+    const { selection } = this.model;
+    return selection?.area === area ? selectionMarks(selection, rowCount) : [];
+  }
+
+  /** The command window's rows, its rule on the screen row `first`, or null while it is closed. */
+  measureWindow(height: number, first: number, columns: number): ChatFrame['window'] {
+    const now = this.model;
+    const body = windowBody(height, now.panel !== null);
+    // A live panel draws in place of the rows, so no row of the window is drawn or scrolled meanwhile.
+    const dims: TranscriptDims = { columns, budget: now.panel === null ? body : 0, ...NO_FOLD };
+    const shown = transcriptWindow(resultEntries(now.results, this.env.timeZone), now.windowView, dims);
+    // The rows stand at the bottom of the window, under its rule.
+    const ruleRows = windowChrome(height, now.panel !== null).rule ? 1 : 0;
+    const top = first + ruleRows + Math.max(0, dims.budget - shown.rows.length);
+    this.drawnWindow = { first, last: first + height - 1, top, rows: shown.rows, dims };
+    if (!now.isWindowOpen) return null;
+    return { height, rows: shown.rows, marks: this.marksOf('window', shown.rows.length), body };
   }
 
   /** The slash commands the menu offers. */
@@ -767,22 +892,58 @@ export class ChatController {
       this.update({ entries: [], view: TAIL, expanded: new Set() });
       return;
     }
+    if (isCommand) {
+      this.runCommand(line);
+      return;
+    }
+    // A chat line goes to her alone: it asks for no panel and replaces no command's request.
     this.update({ view: TAIL });
     this.addEntry({ who: 'owner', text: line, attachments: sent });
-    // A chat line replaces no overlay; a command does, and the older request's answer is dropped whatever it is.
-    if (isCommand) this.panelRequest += 1;
+    void this.env.send(line, sent);
+  }
+
+  /**
+   * A slash line: the command window opens with the line and its time, and the answer joins it there, as text or as a
+   * live panel. The older request's answer is dropped whatever it is, and nothing of a command reaches the chat.
+   */
+  runCommand(line: string): void {
+    const typed = line.trim();
+    this.panelRequest += 1;
     const request = this.panelRequest;
-    this.panelLoading = isCommand;
-    void (line.trim() === '' ? Promise.resolve(null) : this.env.panelOf(line.trim()))
+    const result: CommandResult = { id: this.nextId('c'), line: typed, at: this.env.now(), answer: null };
+    if (this.panelLoading && this.loadingResult !== null) this.answerResult(this.loadingResult, 'Cancelled.');
+    this.panelLoading = true;
+    this.loadingResult = result.id;
+    this.update({
+      results: [...this.model.results, result],
+      isWindowOpen: true,
+      windowView: TAIL,
+      panel: null,
+      selection: null,
+    });
+    const failed = (error: unknown): void =>
+      this.answerResult(result.id, error instanceof Error ? error.message : 'The command failed.');
+    void this.env
+      .panelOf(typed)
       .then((opened) => {
         if (request !== this.panelRequest) return;
         this.panelLoading = false;
-        if (opened === null) this.env.send(line, sent);
-        else this.update({ panel: opened });
+        this.loadingResult = null;
+        if (opened === null) {
+          const answer = this.env.send(line, []);
+          if (answer === undefined) this.answerResult(result.id, '');
+          else void answer.then((text) => this.answerResult(result.id, text), failed);
+        } else if (opened.rows === undefined && opened.picker === undefined)
+          this.answerResult(result.id, opened.lines.join('\n'));
+        else {
+          this.answerResult(result.id, [opened.title, ...opened.lines].join('\n'));
+          this.update({ panel: opened });
+        }
       })
       .catch((error: unknown) => {
         this.panelLoading = false;
-        this.say(error instanceof Error ? error.message : 'The command failed.');
+        this.loadingResult = null;
+        failed(error);
       });
   }
 
@@ -972,7 +1133,7 @@ export class ChatController {
   /** Ctrl+O: the newest entry on the screen that folds or is expanded changes alone. */
   toggleFold(): void {
     const now = this.model;
-    const shownRows = transcriptWindow(now.entries, now.view, this.drawn).rows;
+    const shownRows = transcriptWindow(this.shownEntries(), now.view, this.drawn).rows;
     const target = shownRows.toReversed().find((row) => row.kind === 'fold' || now.expanded.has(row.entryId));
     if (target === undefined) return;
     const expanded = new Set(now.expanded);
@@ -1031,11 +1192,22 @@ export class ChatController {
     this.placeDraftCaret(caretFromCell(safe, { row: first + row, col }, width));
   }
 
-  /** The transcript cell under a report, clamped to the drawn rows; null off them unless `clamp` asks for the nearest. */
-  transcriptCell(report: MouseReport, clamp: boolean): TranscriptCell | null {
-    const { top, rows } = this.drawnRows;
+  /** The area a screen row belongs to: the command window's rows and rule, else the chat. */
+  areaAt(row: number): Area {
+    const { first, last } = this.drawnWindow;
+    return this.model.isWindowOpen && row >= first && row <= last ? 'window' : 'chat';
+  }
+
+  /** The rows of an area as last drawn and the screen row of the first. */
+  drawnIn(area: Area): { top: number; rows: ReadonlyArray<TranscriptRow> } {
+    return area === 'chat' ? this.drawnRows : this.drawnWindow;
+  }
+
+  /** The cell of an area under a report, clamped to its drawn rows; null off them unless `clamp` asks for the nearest. */
+  cellIn(area: Area, report: MouseReport, clamp: boolean): TranscriptCell | null {
+    const { top, rows } = this.drawnIn(area);
     const row = report.row - top;
-    if (!clamp && (row < 0 || row >= rows.length)) return null;
+    if (rows.length === 0 || (!clamp && (row < 0 || row >= rows.length))) return null;
     return { row: Math.max(0, Math.min(rows.length - 1, row)), col: Math.max(0, report.column - 1) };
   }
 
@@ -1045,23 +1217,25 @@ export class ChatController {
     this.update({ selection: null, notice: `copied ${graphemes(text).length} chars to clipboard` });
   }
 
-  /** The left button down: the caret in the input, or the start of a selection over the transcript. */
+  /** The left button down: the caret in the input, or the start of a selection in the chat or the command window. */
   pressAt(report: MouseReport): void {
     const { firstRow, rowCount } = this.drawnInput;
     const isInDraft = report.row >= firstRow && report.row < firstRow + rowCount;
-    const cell = isInDraft ? null : this.transcriptCell(report, false);
-    this.update({ selection: cell === null ? null : { anchor: cell, focus: cell, dragging: true, text: '' } });
-    if (isInDraft) this.clickInDraft(report);
+    const area = this.areaAt(report.row);
+    const cell = isInDraft ? null : this.cellIn(area, report, false);
+    this.update({ selection: cell === null ? null : { area, anchor: cell, focus: cell, dragging: true, text: '' } });
+    // A live panel holds the keys, so a click leaves the caret of the input where it is.
+    if (isInDraft && focusOwner(this.model) === 'input') this.clickInDraft(report);
   }
 
   /** The button up: a drag copies what it covers, and a click without one leaves nothing selected. */
   releaseAt(report: MouseReport): void {
     const { selection } = this.model;
     if (selection?.dragging !== true) return;
-    const focus = this.transcriptCell(report, true) ?? selection.focus;
+    const focus = this.cellIn(selection.area, report, true) ?? selection.focus;
     const isClick = focus.row === selection.anchor.row && focus.col === selection.anchor.col;
     const ended = { ...selection, focus, dragging: false };
-    const text = isClick ? '' : selectedText(ended, this.drawnRows.rows);
+    const text = isClick ? '' : selectedText(ended, this.drawnIn(selection.area).rows);
     if (text === '') {
       this.update({ selection: null });
       return;
@@ -1071,21 +1245,31 @@ export class ChatController {
     this.update({ selection: { ...ended, text } });
   }
 
+  /** A wheel notch: the command window under the pointer scrolls alone, else the slash menu moves or the chat scrolls. */
+  wheel(report: MouseReport, delta: -1 | 1): void {
+    const now = this.model;
+    if (this.areaAt(report.row) === 'window') {
+      const entries = resultEntries(now.results, this.env.timeZone);
+      const windowView = scrollView(entries, now.windowView, delta * WHEEL_ROWS, this.drawnWindow.dims);
+      this.update({ selection: null, windowView });
+    } else if (this.itemsOf(now).length > 0) this.moveMenu(delta);
+    else
+      this.update({ selection: null, view: scrollView(this.shownEntries(), now.view, delta * WHEEL_ROWS, this.drawn) });
+  }
+
   onMouse(report: MouseReport): void {
     const now = this.model;
-    if (focusOwner(now) !== 'input' || now.question !== null) return;
+    // A live panel in the command window keeps its keys, and the mouse still scrolls and selects around it.
+    if (focusOwner(now) === 'choices' || now.question !== null) return;
     const isLeft = report.button === 0;
     if (report.kind === 'press' && isLeft) this.pressAt(report);
     else if (report.kind === 'drag' && isLeft) {
-      const cell = this.transcriptCell(report, true);
-      if (now.selection?.dragging === true && cell !== null)
-        this.update({ selection: { ...now.selection, focus: cell } });
+      const { selection } = now;
+      const cell = selection?.dragging === true ? this.cellIn(selection.area, report, true) : null;
+      if (selection !== null && cell !== null) this.update({ selection: { ...selection, focus: cell } });
     } else if (report.kind === 'release') this.releaseAt(report);
-    else if (report.kind === 'wheel-up' || report.kind === 'wheel-down') {
-      const delta = report.kind === 'wheel-up' ? -1 : 1;
-      if (this.itemsOf(now).length > 0) this.moveMenu(delta);
-      else this.update({ selection: null, view: scrollView(now.entries, now.view, delta * WHEEL_ROWS, this.drawn) });
-    }
+    else if (report.kind === 'wheel-up' || report.kind === 'wheel-down')
+      this.wheel(report, report.kind === 'wheel-up' ? -1 : 1);
   }
 
   contextOf = (now: Model): FocusContext => {
@@ -1112,6 +1296,11 @@ export class ChatController {
         this.typed('\n');
         return;
       case 'composer.clear':
+        // The open command window goes first, and the draft waits for the next Esc.
+        if (now.isWindowOpen) {
+          this.closeWindow();
+          return;
+        }
         if (displayDraft(now.draft) === '' && !this.panelLoading) this.cancelRunningTurn();
         // The panel still on its way opens nothing now.
         this.panelLoading = false;
@@ -1156,16 +1345,20 @@ export class ChatController {
       case 'transcript.pageUp':
       case 'transcript.pageDown': {
         // At the top of what is drawn, Page Up asks the store for the page before it.
-        if (action === 'transcript.pageUp' && transcriptWindow(now.entries, now.view, this.drawn).hiddenAbove === 0)
+        if (
+          action === 'transcript.pageUp' &&
+          transcriptWindow(this.shownEntries(), now.view, this.drawn).hiddenAbove === 0
+        )
           this.loadStoredPage();
         const page = Math.max(1, this.drawn.budget - 1);
         const delta = action === 'transcript.pageUp' ? -page : page;
-        this.update({ view: scrollView(now.entries, now.view, delta, this.drawn) });
+        this.update({ view: scrollView(this.shownEntries(), now.view, delta, this.drawn) });
         return;
       }
       case 'prompt.previous':
       case 'prompt.next': {
-        const top = transcriptWindow(now.entries, now.view, this.drawn).rows[0]?.entryId ?? '';
+        const rows = transcriptWindow(this.shownEntries(), now.view, this.drawn).rows;
+        const top = rows.find((row) => !row.entryId.startsWith(GAP_PREFIX))?.entryId ?? '';
         const entryId = jumpToPrompt(this.originals(), top, action === 'prompt.previous' ? -1 : 1);
         if (entryId !== null) this.update({ view: { kind: 'anchor', entryId, row: 0 } });
         return;

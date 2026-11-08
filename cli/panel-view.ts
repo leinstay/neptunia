@@ -10,11 +10,18 @@ import { displaySafe } from './transcript.ts';
 import { backspace, emptyInput, insert, moveCursor } from './state.ts';
 import type { InputState } from './state.ts';
 
-type Props = { panel: Panel; active: boolean; close: () => void; prefill: (line: string) => void };
+type Props = {
+  panel: Panel;
+  active: boolean;
+  close: () => void;
+  prefill: (line: string) => void;
+  /** the rows its list may take inside the command window */
+  height?: number;
+};
 
-export function PanelView({ panel, active, close, prefill }: Props): ReactElement {
+export function PanelView({ panel, active, close, prefill, height: given }: Props): ReactElement {
   const { stdout } = useStdout();
-  const height = Math.max(3, ((stdout as { rows?: number }).rows ?? 24) - 15);
+  const height = given ?? Math.max(3, ((stdout as { rows?: number }).rows ?? 24) - 15);
   const groups = [...new Set(panel.rows?.map((row) => row.group) ?? [])];
   const [tab, setTab] = useState(0);
   const [search, setSearch] = useState('');
@@ -113,7 +120,8 @@ export function PanelView({ panel, active, close, prefill }: Props): ReactElemen
   const shownGroups = groups.slice(Math.max(0, tab - 1), Math.max(0, tab - 1) + 5);
   return h(
     Box,
-    { flexDirection: 'column', borderStyle: 'round', borderColor: 'cyan', paddingX: 1 },
+    // The command window's rule frames it, so it draws no border of its own.
+    { flexDirection: 'column', paddingX: 1 },
     h(Text, { bold: true, color: 'cyan' }, panel.title),
     groups.length > 0
       ? h(

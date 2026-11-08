@@ -595,13 +595,16 @@ export function ModelPicker({
   env,
   active,
   close,
+  height: given,
 }: {
   env: PickerEnv;
   active: boolean;
   close: () => void;
+  /** the rows its list may take inside the command window */
+  height?: number;
 }): ReactElement {
   const { stdout } = useStdout();
-  const height = Math.max(3, ((stdout as { rows?: number }).rows ?? 24) - 15);
+  const height = given ?? Math.max(3, ((stdout as { rows?: number }).rows ?? 24) - 15);
   const [state, setState] = useState(() => openPicker(env.registry));
   const [detour, setDetour] = useState<Detour | null>(null);
   const latest = useRef(state);
@@ -747,7 +750,8 @@ export function ModelPicker({
   const waiting = state.step === 'providerType' && state.read === null && state.error === null;
   return h(
     Box,
-    { flexDirection: 'column', borderStyle: 'round', borderColor: 'cyan', paddingX: 1 },
+    // The command window's rule frames it, so it draws no border of its own.
+    { flexDirection: 'column', paddingX: 1 },
     h(Text, { bold: true, color: 'cyan' }, `Model · ${STEP_TITLES[state.step]}`),
     detour !== null
       ? h(DetourView, { detour, height })

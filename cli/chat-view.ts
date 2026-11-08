@@ -90,12 +90,18 @@ const BLOCK_STYLE: Readonly<Record<RowBlock, object>> = {
 type Who = 'owner' | 'her' | 'system';
 
 function rowStyle(row: TranscriptRow, who: Who | undefined): object {
-  if (row.kind === 'fold' || row.kind === 'stamp' || who === 'system') return THEME.muted;
-  return who === 'owner' ? THEME.userMarker : BLOCK_STYLE[row.block];
+  if (row.kind === 'fold' || who === 'system') return THEME.muted;
+  return who === 'owner' ? THEME.owner : who === 'her' && row.block === 'plain' ? THEME.her : BLOCK_STYLE[row.block];
 }
 
-/** A row's text with the cells of a mouse selection in the selection style. */
-function markedText(text: string, mark: { from: number; to: number } | null): Array<ReactElement | string> {
+/** A row's text with the cells of a mouse selection in the selection style, and its lead muted when nothing is selected. */
+function markedText(row: TranscriptRow, mark: { from: number; to: number } | null): Array<ReactElement | string> {
+  const { text } = row;
+  if (mark === null && row.lead !== undefined)
+    return [
+      h(Text, { key: 'lead', ...THEME.muted }, sliceCells(text, 0, row.lead)),
+      sliceCells(text, row.lead, Infinity),
+    ];
   if (mark === null) return [text || ' '];
   const on = sliceCells(text, mark.from, mark.to);
   return [
@@ -118,11 +124,7 @@ export function TranscriptRows({
     Box,
     { flexDirection: 'column', flexGrow: 1, justifyContent: 'flex-end', overflow: 'hidden' },
     ...rows.map((row, index) =>
-      h(
-        Text,
-        { key: String(index), ...rowStyle(row, whoOf(row.entryId)) },
-        ...markedText(row.text, marks[index] ?? null)
-      )
+      h(Text, { key: String(index), ...rowStyle(row, whoOf(row.entryId)) }, ...markedText(row, marks[index] ?? null))
     )
   );
 }
