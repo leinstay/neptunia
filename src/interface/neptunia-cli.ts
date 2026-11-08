@@ -385,14 +385,20 @@ const TURN_PREFIX = 'turn.';
 /** The turn outcomes that are an answer to the line: she spoke, or chose silence. */
 const ANSWERED: ReadonlySet<string> = new Set(['spoke', 'skip']);
 
+/** What the chat's turns ask of the turn runner. */
+type ChatRunner = { isAnyBusy(): boolean; spokeAfterSeeing(chatId: string, lineId: string): boolean };
+
 export function createCommandIntake(deps: {
   door: LinkDoor;
   ready(): Promise<unknown>;
   desk(): Desk | null;
   /** Whether the core holds a new line instead of starting a turn over it; absent, it never does. */
   linesHeld?(): boolean;
-  /** Whether a turn runs anywhere now; absent, none does. */
-  isAnyTurnRunning?(): boolean;
+  /**
+   * The turn runner, as far as the chat's turns ask it: whether a turn runs anywhere now, and whether the last turn that
+   * spoke in a chat had a line in view (src/behavior/turn.ts). Absent, no turn runs and none saw a line.
+   */
+  runner?(): ChatRunner;
   /** The chat's other reads (src/interface/commands/chat-state.ts): an answer, or null for a name it does not own. */
   chatCommands?(name: string, args: Record<string, unknown>): Promise<Answer> | null;
   /** The owner's line with the link items of its URLs (src/interface/cli-line-links.ts); absent, it goes on as sent. */
@@ -403,6 +409,7 @@ export function createCommandIntake(deps: {
   chat(): Adapter | null;
   turnEnded(end: {
     trigger: { id: string | null } | null;
+    chatId?: string | null;
     outcome: string;
     reason: string | null;
     turnId?: unknown;
@@ -414,7 +421,8 @@ export function createCommandIntake(deps: {
   const turns = createChatTurns({
     door: deps.door,
     linesHeld: () => deps.linesHeld?.() === true,
-    isAnyTurnRunning: () => deps.isAnyTurnRunning?.() === true,
+    isAnyTurnRunning: () => deps.runner?.().isAnyBusy() === true,
+    seenByTurn: (chatId, lineId) => deps.runner?.().spokeAfterSeeing(chatId, lineId) === true,
     log: deps.log,
   });
   let chatLink: AdapterLink | null = null;
