@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { reproject } from '../src/memory/db/graph.ts';
+import { rebuildGraph, reproject } from '../src/memory/db/graph.ts';
 import { SELF_PERSON } from '../src/memory/db/ids.ts';
 import { storageMapper } from '../src/memory/db/map/index.ts';
 import { accountsOfPerson, personOfAccount } from '../src/memory/db/meta-person.ts';
@@ -302,6 +302,32 @@ test('the graph, the name index and the alias keys name the meta-person and no o
       dora
     );
     assert.deepEqual(leftovers(db, OLD_IDS), []);
+  });
+});
+
+test('an edge whose end moves to the meta-person takes the id a projection gives it, and its witnesses follow', () => {
+  // Bug: the edge keeps the hash of its old tuple, so the next projection of its unit hits the unique projection key.
+  withWorld((db) => {
+    const dora = metaOf(migrate(db), DORA);
+    const edgesOf = (): Map<string, string> =>
+      new Map(
+        db
+          .prepare('SELECT projection_key, id FROM graph_edges WHERE projection_key LIKE ? ORDER BY projection_key')
+          .all(`%${dora}%`)
+          .map((row) => [String(row.projection_key), String(row.id)])
+      );
+    const migrated = edgesOf();
+    assert.ok(migrated.size > 0);
+    const witnessed = (id: string): number =>
+      Number(one(db, 'SELECT COUNT(*) AS n FROM node_access WHERE evidence_id = ?', id)?.n);
+    const witnesses = new Map([...migrated].map(([key, id]) => [key, witnessed(id)]));
+    rebuildGraph(db);
+    const projected = edgesOf();
+    for (const [key, id] of migrated) {
+      if (!projected.has(key)) continue;
+      assert.equal(id, projected.get(key), key);
+      assert.equal(witnesses.get(key), witnessed(id), key);
+    }
   });
 });
 

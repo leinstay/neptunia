@@ -726,6 +726,9 @@ function writeUnit(db: Db, table: string, id: string, at: unknown): { nodes: num
     'INSERT OR IGNORE INTO node_access (node_id, audience_id, evidence_id) VALUES (?, ?, ?)'
   );
   const unwitness = prepared(db, 'DELETE FROM node_access WHERE evidence_id = ?');
+  // An edge that holds the key under another id is replaced with its witnesses: its id hashes a tuple its ends no
+  // longer spell (a text rewrite of a person id, meta-person-migrate.ts), and the upsert would hit the unique key.
+  const displace = prepared(db, 'DELETE FROM graph_edges WHERE projection_key = ? AND id <> ? RETURNING id');
   for (const n of produced.nodes) {
     upsertNode.run(n.id, n.kind, String(n.row_id), n.created_at);
     // A node's own witness is keyed by the node itself: dropped, then written again if the row is live.
@@ -757,6 +760,7 @@ function writeUnit(db: Db, table: string, id: string, at: unknown): { nodes: num
     placeholder.run(dst, e.dst[0], String(e.dst[1]), EPOCH);
     const audience = usableAudience(db, e.audience);
     const edgeId = edgeIdOf(e.predicate, src, dst, evidence, e.qualifier);
+    for (const stale of displace.all(key, edgeId)) unwitness.run(stale.id);
     upsertEdge.run(
       edgeId,
       src,

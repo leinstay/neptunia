@@ -15,7 +15,8 @@
 //     the ids built from a person id included (`alias:<person>:...`, `desc:<person>:...` and their versions, graph nodes,
 //     edges, `node_access`, names). The survivors of earlier merges are rewritten first, the people merged into them
 //     after, and a row whose new id is already taken is dropped, the first one's data winning. The daily relationship
-//     counts of a merged person are added to the survivor's instead;
+//     counts of a merged person are added to the survivor's instead. An edge's id hashes its tuple (graph.ts#edgeIdOf),
+//     so a rewritten edge gets the id of its new tuple and the witnesses in `node_access` follow it;
 //   - `person_accounts` gets one row per account: its interface, platform id, generation, newest display name and
 //     avatar. The handle and the profile text stay empty, since no older row holds them apart;
 //   - `sources.author_person` names the meta-person of every line whose author account has one. A line with no account
@@ -27,11 +28,12 @@
 // the request archive and the columns of words. No row changes its `audience_id`. A second run finds nothing to do and
 // changes nothing. Counts and ids only; no message content.
 
+import { edgeIdOf } from './graph.ts';
 import { OWNER_CONSOLE_IFACE, linkOwnerAccount } from './identity-links.ts';
 import { SELF_PERSON, legacyPersonNative, newPersonId, survivorOf } from './ids.ts';
 import { moveRelationship } from './person-merge.ts';
 import { linkAccount } from './person-links.ts';
-import type { Db } from './types.ts';
+import type { Db, Row } from './types.ts';
 
 /** What the run needs: the owner's person as the live config names it, the time it writes and the uuid source. */
 export type MetaPersonOptions = { ownerPerson: string | null; at: string; newId?: () => string };
@@ -190,6 +192,65 @@ function rewritten(
 }
 
 /**
+ * The evidence and qualifier an edge's id was hashed with, read off the tail of its projection key; null when no split
+ * of the tail gives the stored id (graph.ts#writeUnit replaces such an edge when its unit is projected).
+ */
+function hashedTail(edge: Row): { evidence: string | null; qualifier: string | undefined } | null {
+  const [predicate, src, dst] = [String(edge.predicate), String(edge.src), String(edge.dst)];
+  const base = `${predicate}:${src}:${dst}`;
+  const key = String(edge.projection_key);
+  if (!key.startsWith(base)) return null;
+  const tail = key.slice(base.length + 1);
+  const splits: Array<{ evidence: string | null; qualifier: string | undefined }> = [
+    { evidence: tail === '' ? null : tail, qualifier: undefined },
+    { evidence: null, qualifier: tail === '' ? undefined : tail },
+  ];
+  for (let at = tail.indexOf(':'); at > 0; at = tail.indexOf(':', at + 1))
+    splits.push({ evidence: tail.slice(0, at), qualifier: tail.slice(at + 1) });
+  return splits.find((split) => edgeIdOf(predicate, src, dst, split.evidence, split.qualifier) === edge.id) ?? null;
+}
+
+/**
+ * The graph edges whose ends name an old id of `mapping`, rewritten with the id of their new tuple, their witnesses in
+ * `node_access` repointed to it. An edge whose new id or key another edge holds is dropped with its witnesses. The rest
+ * of the row (`evidence_id`, `owner_key`) is left to the rewrite of every column.
+ */
+function rewriteEdges(db: Db, rewrite: (value: string) => string, tally: Tally): void {
+  const rows = db
+    .prepare(
+      'SELECT rowid AS rid, id, src, predicate, dst, projection_key FROM graph_edges WHERE projection_key LIKE ?'
+    )
+    .all('%person:%');
+  const update = db.prepare(
+    'UPDATE OR IGNORE graph_edges SET id = ?, src = ?, dst = ?, projection_key = ? WHERE rowid = ?'
+  );
+  const drop = db.prepare('DELETE FROM graph_edges WHERE rowid = ?');
+  const repoint = db.prepare('UPDATE OR IGNORE node_access SET evidence_id = ? WHERE evidence_id = ?');
+  const unwitness = db.prepare('DELETE FROM node_access WHERE evidence_id = ?');
+  for (const row of rows) {
+    const key = rewrite(String(row.projection_key));
+    if (key === row.projection_key) continue;
+    const [src, dst] = [rewrite(String(row.src)), rewrite(String(row.dst))];
+    const tail = hashedTail(row);
+    const old = String(row.id);
+    const id =
+      tail === null
+        ? old
+        : edgeIdOf(row.predicate, src, dst, tail.evidence === null ? null : rewrite(tail.evidence), tail.qualifier);
+    if (Number(update.run(id, src, dst, key, Number(row.rid)).changes) === 0) {
+      add(tally.dropped, 'graph_edges.id', Number(drop.run(Number(row.rid)).changes));
+      unwitness.run(old);
+      continue;
+    }
+    add(tally.changed, 'graph_edges.projection_key', 1);
+    if (id === old) continue;
+    add(tally.changed, 'graph_edges.id', 1);
+    repoint.run(id, old);
+    unwitness.run(old);
+  }
+}
+
+/**
  * Rewrites every whole occurrence of an old id of `mapping` to its meta-person, column by column. A row whose new value
  * is already taken by another row is dropped, so the row that holds it wins.
  */
@@ -198,7 +259,9 @@ function rewrite(db: Db, mapping: ReadonlyMap<string, string>, tally: Tally): vo
   const pattern = tokens([...mapping.keys()]);
   const sealedList = sealedIds(db);
   const sealed = sealedList.length > 0 ? tokens(sealedList) : null;
-  for (const table of tablesOf(db)) {
+  const tables = tablesOf(db);
+  if (tables.includes('graph_edges')) rewriteEdges(db, (value) => rewritten(value, pattern, mapping, sealed), tally);
+  for (const table of tables) {
     if (KEPT_TABLES.has(table)) continue;
     for (const column of idColumns(db, table)) {
       const rows = db
