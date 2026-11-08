@@ -117,7 +117,14 @@ const bodyOf = (value: Envelope): Record<string, unknown> => value.body as Recor
  * The core end with a door whose handlers record what started and, for the ids in `held`, wait until released. The
  * interface end is the loopback's client, driven by hand: `received` is every envelope the core sent it.
  */
-function core(held: ReadonlyArray<string> = [], options: { principalOf?: typeof principalOf; intake?: boolean } = {}) {
+function core(
+  held: ReadonlyArray<string> = [],
+  options: {
+    principalOf?: typeof principalOf;
+    intake?: boolean;
+    lineLinks?: (message: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  } = {}
+) {
   const started: Array<string> = [];
   const contexts: Array<EventHandlerContext> = [];
   const events: Array<object> = [];
@@ -159,6 +166,7 @@ function core(held: ReadonlyArray<string> = [], options: { principalOf?: typeof 
           commandChecks += 1;
           return null;
         },
+        ...(options.lineLinks === undefined ? {} : { lineLinks: options.lineLinks }),
         log: quiet,
       })
     : null;
@@ -532,6 +540,54 @@ test('command intake preserves authenticated sender metadata for an ordinary CLI
     assert.deepEqual(rig.started, ['through-intake']);
     assert.deepEqual(rig.contexts[0]?.authenticated, { name: OWNER.name, kind: 'cli' });
     assert.equal(rig.commandChecks(), 0);
+  } finally {
+    rig.link.close();
+  }
+});
+
+test('command intake hands a CLI line to the door with the link items its lineLinks gave', async () => {
+  // Catches the intake passing the owner's line on without its links, so a pasted URL reaches her as plain text.
+  const item = { id: 'm#l0', kind: 'link', site: 'example.org', title: '', text: '', thumbnailUrl: null, url: 'u' };
+  const rig = core([], {
+    intake: true,
+    lineLinks: (message) => Promise.resolve({ ...message, links: [item] }),
+  });
+  try {
+    rig.hello('owner-token', { iface: 'cli' });
+    await within(rig.link.hello);
+    rig.client.send(numbered(ordinaryMessage('with-link'), 1));
+    assert.equal((await answered(rig, 'with-link')).status, 'ok');
+    const message = (rig.events[0] as { message?: { links?: Array<object> } }).message;
+    assert.deepEqual(message?.links, [item]);
+  } finally {
+    rig.link.close();
+  }
+});
+
+test('command intake keeps the order of CLI lines when the links of the first take longer', async () => {
+  // Catches a line without links overtaking an earlier line whose link read is still running.
+  let release: () => void = () => {};
+  const slow = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const rig = core([], {
+    intake: true,
+    lineLinks: async (message) => {
+      if (message.id === 'first') await slow;
+      return message;
+    },
+  });
+  try {
+    rig.hello('owner-token', { iface: 'cli' });
+    await within(rig.link.hello);
+    // Un-numbered, as the command line sends its lines: the link runs such events concurrently.
+    rig.client.send(envelope('event', ordinaryMessage('first'), { id: 'first' }));
+    rig.client.send(envelope('event', ordinaryMessage('second'), { id: 'second' }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    release();
+    await answered(rig, 'second');
+    await answered(rig, 'first');
+    assert.deepEqual(rig.started, ['first', 'second']);
   } finally {
     rig.link.close();
   }
