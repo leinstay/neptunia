@@ -3,7 +3,8 @@
 // `operational` row (kind versions) that lists the fields and anything else the file holds.
 //
 // The description a field belongs to is named like the profile mappers name it: a member's file (`users/<id>`)
-// `desc:person:discord:<id>:<field>`, a channel's `desc:discord:channel:<id>:<field>`, a place's
+// `desc:<person>:<field>` under the person whose `people` row the member's profile unit owns (ctx.profilePersonId),
+// `desc:person:<iface>:<id>:<field>` when no unit owns one, a channel's `desc:discord:channel:<id>:<field>`, a place's
 // `desc:<place id>:<field>` (ctx.subjectId), a lorebook entry's `desc:lore:<file key>:<field>`.
 // A version's id is `<description id>:v<position>`; `at` is written_at, `by` the author, origin legacy; `before`,
 // `after`, `itemId` and unnamed keys are in `extra`. The operational row keeps `{ $has: { <field>: <description id> } }`
@@ -40,7 +41,7 @@ export function descriptionPrefix(rel: string, ctx: MapContext = {}): string {
     ? [ctx.versionKind, ctx.itemId ?? ctx.subjectNativeId ?? ctx.subjectId ?? rel]
     : versionKeyOf(rel);
   const iface = ifaceOf(ctx);
-  if (kind === 'users') return `desc:${personId(iface, key)}`;
+  if (kind === 'users') return `desc:${ctx.profilePersonId ?? personId(iface, key)}`;
   if (kind === 'channels') return `desc:${channelPlaceId(iface, key)}`;
   if (kind === 'place') return `desc:${ctx.subjectId ?? key}`;
   return `desc:${kind}:${key}`;

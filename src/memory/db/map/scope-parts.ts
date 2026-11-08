@@ -3,7 +3,7 @@
 // kept in the remainder (`dmChannel`). When the columns cannot rebuild the old scope exactly, the old scope is kept
 // verbatim in the remainder (`scope`), or `$noScope` marks that the line had none, so the round trip is exact either way.
 
-import { channelPlaceId, dmPlaceId, personId } from '../ids.ts';
+import { channelPlaceId, dmPlaceId, personId, placeIdParts } from '../ids.ts';
 import { LEGACY_IFACE } from '../legacy-namespace.ts';
 import { audienceOf, dmAudienceId, dmScope, dmUserOf, scopeColumns } from '../scope.ts';
 import { jsonEqual } from './common.ts';
@@ -66,6 +66,16 @@ export function scopeInto(
   return cols;
 }
 
+/**
+ * The partner's native id that a direct chat's audience spells (`aud:dm:<iface>:dm:<native>`), or null. A meta-person in
+ * `scope_dm` spells no native id, and the audience of the line still names its chat.
+ */
+function dmUserOfAudience(audience: unknown): string | null {
+  const place = typeof audience === 'string' && audience.startsWith('aud:dm:') ? audience.slice('aud:dm:'.length) : '';
+  const parts = placeIdParts(place);
+  return parts?.kind === 'dm' ? parts.native : null;
+}
+
 /** The old scope from the columns and the remainder; removes the scope markers from `rest`. */
 export function scopeFrom(
   cols: Row,
@@ -89,6 +99,6 @@ export function scopeFrom(
   } else if (place.startsWith(`${iface}:channel:`)) {
     scope.channel = place.slice(`${iface}:channel:`.length);
   }
-  if (!privateUser && cols.scope_kind === 'dm') scope.user = dmUserOf(cols);
+  if (!privateUser && cols.scope_kind === 'dm') scope.user = dmUserOf(cols) ?? dmUserOfAudience(cols.audience_id);
   return scope;
 }
