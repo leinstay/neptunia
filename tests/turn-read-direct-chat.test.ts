@@ -102,8 +102,9 @@ test("the owner's command line reads his direct chat on another interface named 
   try {
     const read = await readPerson(world, internalContext(), 'Orestis');
     assert.equal(read.status, 'ok', JSON.stringify(read));
-    assert.ok(read.data?.text.includes(SECRET), read.data?.text ?? '');
-    assert.equal(read.data?.text.includes('a line of the command line'), false, 'not the chat she stands in');
+    const text = read.data?.text ?? '';
+    assert.ok(text.includes(SECRET), text);
+    assert.equal(text.includes('a line of the command line'), false, 'not the chat she stands in');
   } finally {
     world.close();
   }
