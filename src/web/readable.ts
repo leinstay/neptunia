@@ -18,6 +18,10 @@
 //     nothing; entities are decoded; whitespace collapses to single spaces and
 //     at most one blank line; control characters and byte-order marks go;
 //   - `maxChars` cuts on a word boundary with an ellipsis, in code points.
+//
+// Every scan adds the characters or tokens it visits to one step counter,
+// which `readerSteps` reads. Linearity is a property of that count, the same
+// on any machine, where a wall-clock time depends on the load beside it.
 
 const RAW_TEXT = new Set(['script', 'style', 'noscript', 'template', 'svg']);
 const BOILERPLATE = new Set(['nav', 'header', 'footer', 'aside', 'form', 'title']);
@@ -157,8 +161,25 @@ const ENTITY = /&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z][a-zA-Z0-9]{1,31});/
 // Control characters other than tab/newline, zero-width space and byte-order marks.
 const INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f\u200b\ufeff]/g;
 
+let steps = 0;
+
+/** Count the positions `from` up to `to` as visited. A search that finds nothing counts up to the end. */
+function visit(from: number, to: number): void {
+  if (to > from) steps += to - from;
+}
+
+/**
+ * The steps all readers of this module have taken since the process started:
+ * one per character a scan visits and one per token a pass walks. The
+ * difference across a call is that call's work.
+ */
+export function readerSteps(): number {
+  return steps;
+}
+
 /** Decode named (the common set) and numeric entities; unknown ones stay as written. */
 function decodeEntities(text: string): string {
+  visit(0, text.length);
   return text.replace(ENTITY, (whole: string, body: string) => {
     if (body[0] !== '#') return NAMED_ENTITIES.get(body) ?? whole;
     const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
@@ -183,10 +204,16 @@ function tagEnd(s: string, from: number): number {
       continue;
     }
     if ((c === '"' || c === "'") && prev === '=') quote = c;
-    else if (c === '>') return j;
+    else if (c === '>') {
+      visit(from, j + 1);
+      return j;
+    }
     if (c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') prev = c;
   }
-  return s.indexOf('>', from);
+  visit(from, s.length);
+  const end = s.indexOf('>', from);
+  visit(from, end === -1 ? s.length : end + 1);
+  return end;
 }
 
 /** Split `s` into `{ type: 'text', value }` and `{ type: 'tag', name, closing, selfClosing }` tokens. */
@@ -202,16 +229,19 @@ function tokenize(s: string): Array<Token> {
   };
   while (i < s.length) {
     const lt = s.indexOf('<', i);
+    visit(i, lt === -1 ? s.length : lt + 1);
     if (lt === -1) break;
     if (s.startsWith('<!--', lt)) {
       pushText(lt);
       const end = s.indexOf('-->', lt + 4);
+      visit(lt + 4, end === -1 ? s.length : end + 3);
       i = textStart = end === -1 ? s.length : end + 3;
       continue;
     }
     if (s[lt + 1] === '!' || s[lt + 1] === '?') {
       pushText(lt);
       const end = s.indexOf('>', lt + 2);
+      visit(lt + 2, end === -1 ? s.length : end + 1);
       i = textStart = end === -1 ? s.length : end + 1;
       continue;
     }
@@ -232,10 +262,12 @@ function tokenize(s: string): Array<Token> {
       const close = new RegExp(`</${name}[\\s/>]`, 'gi');
       close.lastIndex = i;
       const found = close.exec(s);
+      visit(i, found ? close.lastIndex : s.length);
       if (!found) {
         i = textStart = s.length;
       } else {
         const after = s.indexOf('>', found.index);
+        visit(found.index, after === -1 ? s.length : after + 1);
         i = textStart = after === -1 ? s.length : after + 1;
       }
     }
@@ -249,6 +281,7 @@ function dropBoilerplate(tokens: Array<Token>): Array<Token> {
   const depth = new Map<string, number>();
   let open = 0;
   const out: Array<Token> = [];
+  visit(0, tokens.length);
   for (const token of tokens) {
     if (token.type === 'tag' && BOILERPLATE.has(token.name) && !token.selfClosing) {
       const current = depth.get(token.name) ?? 0;
@@ -271,6 +304,7 @@ function elementRanges(tokens: Array<Token>, names: Set<string>): Array<[number,
   const ranges: Array<[number, number]> = [];
   let current: { name: string; start: number } | null = null;
   let depth = 0;
+  visit(0, tokens.length);
   for (const [idx, token] of tokens.entries()) {
     if (token.type !== 'tag' || token.selfClosing) continue;
     if (!current) {
@@ -294,6 +328,7 @@ function elementRanges(tokens: Array<Token>, names: Set<string>): Array<[number,
 /** Tokens -> normalised plain text (see the header comment). */
 function render(tokens: Array<Token>): string {
   const parts: Array<string> = [];
+  visit(0, tokens.length);
   for (const token of tokens) {
     if (token.type === 'text') parts.push(decodeEntities(token.value).replace(/\s+/g, ' '));
     else if (BLOCK.has(token.name)) parts.push('\n');
@@ -330,6 +365,7 @@ export function truncateText(text: string, maxChars?: number): string {
   const value = String(text ?? '');
   const limit = Math.floor(Number(maxChars));
   if (!Number.isFinite(limit) || limit <= 0) return value;
+  visit(0, value.length);
   const points = Array.from(value);
   if (points.length <= limit) return value;
   const room = limit - 1;
@@ -368,6 +404,7 @@ const isSpace = (c: string | undefined): boolean => c === ' ' || c === '\t' || c
 function attributes(tagSource: string): Record<string, string> {
   const out: Record<string, string> = {};
   const s = tagSource;
+  visit(0, s.length);
   let i = 0;
   while (i < s.length) {
     while (i < s.length && (isSpace(s[i]) || s[i] === '/')) i += 1;
@@ -403,13 +440,17 @@ function attributes(tagSource: string): Record<string, string> {
  */
 function findTag(s: string, lower: string, name: string, from: number): { start: number; nameEnd: number } | null {
   const needle = `<${name}`;
-  let at = lower.indexOf(needle, from);
+  let start = from;
+  let at = lower.indexOf(needle, start);
   while (at !== -1) {
+    visit(start, at + needle.length);
     const after = s[at + needle.length];
     if (after === undefined || after === '>' || after === '/' || isSpace(after))
       return { start: at, nameEnd: at + needle.length };
-    at = lower.indexOf(needle, at + 1);
+    start = at + 1;
+    at = lower.indexOf(needle, start);
   }
+  visit(start, s.length);
   return null;
 }
 
@@ -431,17 +472,22 @@ export function pageTitle(html: string): string | null {
   try {
     const s = html.slice(0, TITLE_SCAN_CHARS);
     // Lowercasing ASCII only keeps every index aligned with `s`.
+    visit(0, s.length);
     const lower = s.replace(/[A-Z]+/g, (m) => m.toLowerCase());
     const title = findTag(s, lower, 'title', 0);
     if (title) {
       const open = tagEnd(s, title.nameEnd);
       if (open !== -1) {
-        let close = lower.indexOf('</title', open + 1);
+        let start = open + 1;
+        let close = lower.indexOf('</title', start);
         while (close !== -1) {
+          visit(start, close + 8);
           const after = s[close + 7];
           if (after === undefined || after === '>' || isSpace(after)) break;
-          close = lower.indexOf('</title', close + 1);
+          start = close + 1;
+          close = lower.indexOf('</title', start);
         }
+        if (close === -1) visit(start, s.length);
         const fromTitle = close === -1 ? null : cleanTitle(s.slice(open + 1, close));
         if (fromTitle) return fromTitle;
       }

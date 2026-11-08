@@ -5,7 +5,7 @@
 // title.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { htmlToText, pageTitle, truncateText } from '../src/web/readable.ts';
+import { htmlToText, pageTitle, readerSteps, truncateText } from '../src/web/readable.ts';
 
 test('htmlToText: the article is preferred over the rest of the body', () => {
   const html =
@@ -138,23 +138,19 @@ test('pageTitle: only the first 64 KB of the document are looked at', () => {
   assert.equal(pageTitle(`<title>Early</title>${pad}`), 'Early');
 });
 
-// Linearity is a ratio, not a wall-clock bound: a bound of 500 ms on 1.5 MB failed on a loaded CI runner (537 ms) for a
-// reader that takes 70 ms there locally. Eight times the input takes about eight times as long when the reader is
-// linear and about sixty-four times when it is quadratic, on any machine. A gap of four times failed on CI at x9.3
-// against a bound of 8, garbage collection on the large string being noise of that size, so the gap is eight times, the
-// bound 24, one warm-up run is thrown away and each size keeps its fastest of five.
-test('readable: pageTitle and htmlToText stay linear on 1.5 MB of unclosed title or meta tags', () => {
-  const fastest = (fn: (html: string) => unknown, page: string): number => {
-    let best = Infinity;
+// Linearity is counted in the reader's own steps, never in wall time. A wall-time ratio depends on the load beside the
+// test: the runner runs files in parallel, and with eight copies on four cores a reader that takes 29 ns a character at
+// every size from 96 KB to 3 MB measured eight times the input at up to x37 the time. The step count is the same on any
+// machine, eight times for eight times the input when the reader is linear and sixty-four times when a scan restarts
+// at every tag.
+test('readable: pageTitle and htmlToText stay linear on pages of unclosed title or meta tags', () => {
+  const stepsOf = (fn: (html: string) => unknown, page: string): number => {
+    const before = readerSteps();
     fn(page);
-    for (let run = 0; run < 5; run += 1) {
-      const started = process.hrtime.bigint();
-      fn(page);
-      best = Math.min(best, Number(process.hrtime.bigint() - started) / 1e6);
-    }
-    return best;
+    return readerSteps() - before;
   };
-  const size = 1.5 * 1024 * 1024;
+  // 32 KB stays inside the 64 KB that pageTitle reads, and a quadratic reader still ends within seconds.
+  const size = 32 * 1024;
   for (const unit of ['<title>', '<meta ', '<meta a="', "<title x='", '<meta ' + 'a'.repeat(50)]) {
     const page = unit.repeat(Math.ceil(size / unit.length));
     const eighth = unit.repeat(Math.ceil(size / 8 / unit.length));
@@ -163,15 +159,29 @@ test('readable: pageTitle and htmlToText stay linear on 1.5 MB of unclosed title
       ['htmlToText', htmlToText],
     ];
     for (const [name, fn] of readers) {
-      const whole = fastest(fn, page);
-      const part = fastest(fn, eighth);
-      // Under 20 ms on the whole page the reader is fast whatever its growth, and a ratio of such times is noise.
-      if (whole < 20) continue;
-      const ratio = whole / Math.max(part, 1);
+      const part = stepsOf(fn, eighth);
+      const ratio = stepsOf(fn, page) / part;
+      assert.ok(part > 0, `${name} on repeated ${JSON.stringify(unit.slice(0, 12))} counted no step`);
       assert.ok(
-        ratio < 24,
-        `${name} on repeated ${JSON.stringify(unit.slice(0, 12))}: x8 input took x${ratio.toFixed(1)}`
+        ratio < 9,
+        `${name} on repeated ${JSON.stringify(unit.slice(0, 12))}: x8 input took x${ratio.toFixed(1)} steps`
       );
     }
   }
+});
+
+test('readerSteps: a scan that restarts at every unclosed tag counts quadratic growth', () => {
+  // The linearity test holds only if a quadratic scan shows in the count. A page with no `>` makes every pageTitle call
+  // scan to its end, so one call from every tag is the quadratic scan the tokenizer avoids by stopping at the first
+  // unclosed tag.
+  const scanAll = (page: string): void => {
+    for (let at = page.indexOf('<'); at !== -1; at = page.indexOf('<', at + 1)) pageTitle(page.slice(at));
+  };
+  const before = readerSteps();
+  scanAll('<meta a="'.repeat(500));
+  const small = readerSteps() - before;
+  const middle = readerSteps();
+  scanAll('<meta a="'.repeat(4000));
+  const large = readerSteps() - middle;
+  assert.ok(large / small > 40, `x8 input of restarting scans took x${(large / small).toFixed(1)} steps`);
 });
