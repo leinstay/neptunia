@@ -29,6 +29,7 @@
 
 import { OWNER_CONSOLE_IFACE, linkOwnerAccount } from './identity-links.ts';
 import { SELF_PERSON, legacyPersonNative, newPersonId, survivorOf } from './ids.ts';
+import { moveRelationship } from './person-merge.ts';
 import { linkAccount } from './person-links.ts';
 import type { Db } from './types.ts';
 
@@ -37,7 +38,8 @@ export type MetaPersonOptions = { ownerPerson: string | null; at: string; newId?
 
 /**
  * What the run did, as counts and ids. `changed`, `dropped` and `kept` are keyed by `table.column`: the rows rewritten,
- * the rows dropped because their new id was taken, and the rows an append-only guard keeps as they were written.
+ * the rows dropped because their new id was taken, and the rows an append-only guard keeps as they were written. The
+ * daily relationship counts of a person merged before the run, added to its survivor's, count under their own key.
  */
 export type MetaPersonReport = {
   persons: Record<string, string>;
@@ -222,24 +224,6 @@ function rewrite(db: Db, mapping: ReadonlyMap<string, string>, tally: Tally): vo
   }
 }
 
-/** The daily relationship counts of a merged person, added day by day to its survivor's. */
-function addRelationship(db: Db, from: string, into: string, tally: Tally): void {
-  const rows = Number(db.prepare('SELECT COUNT(*) AS n FROM relationship_daily WHERE person_id = ?').get(from)?.n ?? 0);
-  if (rows === 0) return;
-  db.prepare(
-    `INSERT INTO relationship_daily (person_id, day, audience_id, addressed_by_them, addressed_by_her, meaningful, last_contact_at)
-     SELECT ?, day, audience_id, addressed_by_them, addressed_by_her, meaningful, last_contact_at
-     FROM relationship_daily WHERE person_id = ? AND true
-     ON CONFLICT(person_id, day, audience_id) DO UPDATE SET
-       addressed_by_them = addressed_by_them + excluded.addressed_by_them,
-       addressed_by_her = addressed_by_her + excluded.addressed_by_her,
-       meaningful = MAX(meaningful, excluded.meaningful),
-       last_contact_at = MAX(COALESCE(last_contact_at, ''), COALESCE(excluded.last_contact_at, ''))`
-  ).run(into, from);
-  db.prepare('DELETE FROM relationship_daily WHERE person_id = ?').run(from);
-  add(tally.changed, 'relationship_daily.person_id', rows);
-}
-
 /** The person an account is verified to: its live verified link, else the copy in `accounts`; null for none. */
 function verifiedPerson(db: Db, accountId: string): { person: string; by: string } | null {
   const live = db
@@ -409,7 +393,7 @@ export function migrateMetaPersons(db: Db, { ownerPerson, at, newId }: MetaPerso
   const merged = mergedPeople(db);
   // The people merged before this run; the ones minted above are rewritten already.
   const earlier = new Map([...merged].filter(([id]) => !fresh.has(id)));
-  for (const [from, into] of earlier) addRelationship(db, from, into, tally);
+  for (const [from, into] of earlier) add(tally.changed, 'daily relationship counts', moveRelationship(db, from, into));
   rewrite(db, earlier, tally);
   const filled = fillAccounts(db, at);
   const authors = fillAuthors(db);
