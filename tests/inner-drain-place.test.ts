@@ -99,3 +99,32 @@ test("an intention whose place is the command line's chat runs there, found thro
   assert.equal(calls.length, 1);
   assert.deepEqual(chatOf(calls[0]), { iface: 'cli', chatId: 'cli:dm:owner' });
 });
+
+// docs/cli.md under Access: the owner's command line is his own chat and stays open while `dm.enabled` is
+// false, so a wake anchored there runs there as his line would.
+test("an intention whose place is the command line's chat runs there while direct chats are off", async () => {
+  // Bug: the gate let his lines through, yet her reminder in his chat ran nowhere with dm-off.
+  clock.t = NOW;
+  const cliChat = {
+    id: 'cli:dm:owner',
+    kind: 'dm',
+    rootId: null,
+    name: 'owner',
+    partnerId: 'owner',
+    iface: 'cli',
+    permissions: { read: true, send: true, attach: true, react: false },
+  };
+  const client = wrongly<SetupOptions['client']>({
+    reads: {
+      chatInfo: (chat: { iface: string; chatId: string }) =>
+        Promise.resolve(chat.iface === 'cli' && chat.chatId === 'cli:dm:owner' ? { chat: cliChat } : null),
+    },
+  });
+  const hot = wrongly<SetupOptions['hot']>({ config: { ...hotWith().config, dm: { enabled: false } } });
+  const run = setup({ records: [placed('i1', 'cli:dm:owner')], client, hot });
+  await run.inner.tick();
+  await settle();
+  const { calls } = run.turns;
+  assert.equal(calls.length, 1);
+  assert.deepEqual(chatOf(calls[0]), { iface: 'cli', chatId: 'cli:dm:owner' });
+});
