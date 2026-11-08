@@ -126,9 +126,63 @@ test('every line opens with its number, then its text, carries no date and no `>
   });
 });
 
-/** The rows of the chat that hold the time `2026-11-08 13:04` and nothing else. */
+/**
+ * The rows of the chat that hold the time `[2026-11-08 13:04]` and nothing else. The owner's word of 2026-11-08 put the
+ * time in brackets, so the bare time of before no longer counts as a time row.
+ */
 const timeRows = (rows: ReadonlyArray<string>): Array<number> =>
-  rows.flatMap((line, index) => (line.trim() === '2026-11-08 13:04' ? [index] : []));
+  rows.flatMap((line, index) => (line.trim() === '[2026-11-08 13:04]' ? [index] : []));
+
+test("the time row starts at the terminal's left edge in brackets, as the line numbers do", async () => {
+  // Bug: the time row stands indented to the text column, or it loses its brackets and reads as a line of text.
+  const { env, entry } = chatEnv({ now: () => SENT, timeZone: 'UTC' });
+  await withChat(env, async (rig) => {
+    entry({ who: 'owner', text: 'o-first' });
+    await until(shows(rig, 'o-first'));
+    const rows = chatRows(rig);
+    const at = rows.findIndex((line) => line.endsWith(' o-first'));
+    assert.equal(rows[at - 1], '[2026-11-08 13:04]', rows.join('\n'));
+    assert.equal(rows[at]?.startsWith('[#'), true, rows.join('\n'));
+  });
+});
+
+/** The number leads of the chat's rows, such as `[#07]`, in the order they stand. */
+const leads = (rows: ReadonlyArray<string>): Array<string> => rows.flatMap((line) => /^\[#\d+\]/.exec(line)?.[0] ?? []);
+
+test('a history of nine lines draws its numbers with one digit and no padding', async () => {
+  // Bug: the padding counts a digit too many, so a short chat opens `[#01]`.
+  const { env, entry } = chatEnv({ now: () => SENT, timeZone: 'UTC' });
+  await withChat(
+    env,
+    async (rig) => {
+      for (let index = 1; index <= 9; index += 1) entry({ who: 'her', text: `line-${index}` });
+      await until(shows(rig, 'line-9'));
+      const rows = chatRows(rig);
+      assert.ok(rows.includes('[#1] line-1'), rows.join('\n'));
+      assert.ok(rows.includes('[#9] line-9'), rows.join('\n'));
+    },
+    { rows: 40 }
+  );
+});
+
+test('a history of 120 lines pads every number to three digits, so the text keeps one column', async () => {
+  // Bug: `[#9]`, `[#99]` and `[#120]` take different widths, and the text column jumps from line to line.
+  const { env, entry } = chatEnv({ now: () => SENT, timeZone: 'UTC' });
+  await withChat(
+    env,
+    async (rig) => {
+      for (let index = 1; index <= 120; index += 1) entry({ who: 'her', text: `line-${index}` });
+      await until(shows(rig, 'line-120'));
+      const rows = chatRows(rig);
+      assert.ok(rows.includes('[#001] line-1'), rows.join('\n'));
+      assert.ok(rows.includes('[#010] line-10'), rows.join('\n'));
+      assert.ok(rows.includes('[#099] line-99'), rows.join('\n'));
+      assert.ok(rows.includes('[#120] line-120'), rows.join('\n'));
+      assert.deepEqual(new Set(leads(rows).map((lead) => lead.length)), new Set([6]));
+    },
+    { rows: 140 }
+  );
+});
 
 test("a time row stands above the owner's first line and above his line after hers, and nowhere else", async () => {
   // Bug: the time stands above every line, above her lines, or above none of his.
@@ -231,6 +285,36 @@ test('a stored line draws the number of its place in the whole chat, and keeps i
     const screen = rig.screen().join('\n');
     assert.ok(screen.includes('[#1332] ΓΡΑΜΜΗ-ΠΡΩΤΗ'), screen);
     assert.ok(screen.includes('[#1335] ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'), screen);
+  });
+});
+
+// The owner's word of 2026-11-08: the numbers take one width from the whole stored history, the number of its newest
+// line, so a page of older lines with fewer digits loads under the width the chat opened with.
+const ACROSS_HUNDRED: Record<string, ReadonlyArray<Stored>> = {
+  newest: [
+    { id: 's3', who: 'owner', text: 'ΓΡΑΜΜΗ-ΤΡΙΤΗ', at: SENT, number: 100 },
+    { id: 's4', who: 'her', text: 'ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ', at: SENT, number: 101 },
+  ],
+  s3: [
+    { id: 's1', who: 'owner', text: 'ΓΡΑΜΜΗ-ΠΡΩΤΗ', at: SENT, number: 98 },
+    { id: 's2', who: 'her', text: 'ΓΡΑΜΜΗ-ΔΕΥΤΕΡΗ', at: SENT, number: 99 },
+  ],
+};
+
+test('older lines loaded above take the width of the whole history, and the lines shown keep theirs', async () => {
+  // Bug: the width follows the lines on the screen, so Page Up or a scroll reflows every line already shown.
+  const { env } = chatEnv({
+    storedPage: (before) => Promise.resolve(ACROSS_HUNDRED[before ?? 'newest'] ?? []),
+    timeZone: 'UTC',
+  });
+  await withChat(env, async (rig) => {
+    await until(shows(rig, 'ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'));
+    rig.type(KEY.pageUp);
+    await until(shows(rig, 'ΓΡΑΜΜΗ-ΠΡΩΤΗ'));
+    const screen = rig.screen().join('\n');
+    assert.ok(screen.includes('[#098] ΓΡΑΜΜΗ-ΠΡΩΤΗ'), screen);
+    assert.ok(screen.includes('[#099] ΓΡΑΜΜΗ-ΔΕΥΤΕΡΗ'), screen);
+    assert.ok(screen.includes('[#101] ΓΡΑΜΜΗ-ΤΕΤΑΡΤΗ'), screen);
   });
 });
 

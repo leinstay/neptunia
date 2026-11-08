@@ -94,13 +94,20 @@ function rowStyle(row: TranscriptRow, who: Who | undefined): object {
   return who === 'owner' ? THEME.owner : BLOCK_STYLE[row.block];
 }
 
-/** A row's text with the cells of a mouse selection in the selection style, and its lead muted when nothing is selected. */
-function markedText(row: TranscriptRow, mark: { from: number; to: number } | null): Array<ReactElement | string> {
+/**
+ * A row's text with the cells of a mouse selection in the selection style. With nothing selected, its lead is muted and
+ * only the rest takes the row's style, so a number stays grey on the owner's red line.
+ */
+function markedText(
+  row: TranscriptRow,
+  mark: { from: number; to: number } | null,
+  style: object
+): Array<ReactElement | string> {
   const { text } = row;
   if (mark === null && row.lead !== undefined)
     return [
       h(Text, { key: 'lead', ...THEME.muted }, sliceCells(text, 0, row.lead)),
-      sliceCells(text, row.lead, Infinity),
+      h(Text, { key: 'rest', ...style }, sliceCells(text, row.lead, Infinity)),
     ];
   if (mark === null) return [text || ' '];
   const on = sliceCells(text, mark.from, mark.to);
@@ -123,9 +130,12 @@ export function TranscriptRows({
   return h(
     Box,
     { flexDirection: 'column', flexGrow: 1, justifyContent: 'flex-end', overflow: 'hidden' },
-    ...rows.map((row, index) =>
-      h(Text, { key: String(index), ...rowStyle(row, whoOf(row.entryId)) }, ...markedText(row, marks[index] ?? null))
-    )
+    ...rows.map((row, index) => {
+      const style = rowStyle(row, whoOf(row.entryId));
+      const mark = marks[index] ?? null;
+      const isSplit = mark === null && row.lead !== undefined;
+      return h(Text, { key: String(index), ...(isSplit ? {} : style) }, ...markedText(row, mark, style));
+    })
   );
 }
 

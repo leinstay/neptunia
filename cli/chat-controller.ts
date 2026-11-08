@@ -57,7 +57,16 @@ import type { MouseReport } from './mouse.ts';
 import type { Panel } from './panel.ts';
 import { FOLD_LINES, backspace, browse, emptyInput, insert, menuOf, moveCursor, statusLine, submit } from './state.ts';
 import type { InputState, MenuCommand, StatusBrief } from './state.ts';
-import { TAIL, displaySafe, lineLead, lineTime, numberLead, scrollView, transcriptWindow } from './transcript.ts';
+import {
+  TAIL,
+  displaySafe,
+  leadDigits,
+  lineLead,
+  lineTime,
+  numberLead,
+  scrollView,
+  transcriptWindow,
+} from './transcript.ts';
 import type { TranscriptDims, TranscriptEntry, TranscriptRow, TranscriptView, TranscriptWindow } from './transcript.ts';
 import {
   activeTurn,
@@ -478,9 +487,9 @@ export class ChatController {
 
   // The drawn entries of the last `model.entries`, and each line's entry under its lead, kept while its number holds.
   shownCache: { from: ReadonlyArray<ShownEntry>; list: Array<TranscriptEntry> } | null = null;
-  led = new WeakMap<ShownEntry, { number: number; entry: TranscriptEntry }>();
+  led = new WeakMap<ShownEntry, { lead: string; entry: TranscriptEntry }>();
   gaps = new WeakMap<ShownEntry, TranscriptEntry>();
-  times = new WeakMap<ShownEntry, { number: number; entry: TranscriptEntry }>();
+  times = new WeakMap<ShownEntry, TranscriptEntry>();
 
   /**
    * The transcript as it is drawn: each line of the owner or of hers under `[#N] `, and one blank row after her line when
@@ -491,20 +500,30 @@ export class ChatController {
   shownEntries(): Array<TranscriptEntry> {
     const { entries } = this.model;
     if (this.shownCache?.from === entries) return this.shownCache.list;
-    const list: Array<TranscriptEntry> = [];
+    // The numbers first: the newest line's number is the count of the whole stored history, and its digits pad every lead,
+    // so a page of older lines loads under the same width.
+    const numbers: Array<number> = [];
     let number = 0;
-    let before: ShownEntry | undefined;
     let lastLine: ShownEntry | undefined;
+    for (const entry of entries) {
+      if (entry.who === 'system') continue;
+      const isHerFile = entry.who === 'her' && lastLine?.who === 'her' && entry.original === '';
+      number = entry.number ?? (isHerFile ? number : number + 1);
+      numbers.push(number);
+      lastLine = entry;
+    }
+    const digits = leadDigits(numbers.reduce((most, one) => Math.max(most, one), 0));
+    const list: Array<TranscriptEntry> = [];
+    let before: ShownEntry | undefined;
+    let lines = 0;
     for (const entry of entries) {
       const isAfterHer = entry.who === 'owner' && before?.who === 'her';
       if (isAfterHer) list.push(this.gapOf(entry));
       if (entry.who === 'system') list.push(entry);
       else {
-        const isHerFile = entry.who === 'her' && lastLine?.who === 'her' && entry.original === '';
-        number = entry.number ?? (isHerFile ? number : number + 1);
-        if (entry.who === 'owner' && (isAfterHer || lastLine === undefined)) list.push(this.timeOfLine(entry, number));
-        list.push(this.ledOf(entry, number));
-        lastLine = entry;
+        if (entry.who === 'owner' && (isAfterHer || lines === 0)) list.push(this.timeOfLine(entry));
+        list.push(this.ledOf(entry, numberLead(numbers[lines] ?? 0, digits)));
+        lines += 1;
       }
       before = entry;
     }
@@ -520,21 +539,23 @@ export class ChatController {
     return gap;
   }
 
-  /** The row of the date and minute above an owner's line, starting in the column of the line's text. */
-  timeOfLine(entry: ShownEntry, number: number): TranscriptEntry {
+  /** The row of the date and minute in brackets above an owner's line, starting at the left edge as the numbers do. */
+  timeOfLine(entry: ShownEntry): TranscriptEntry {
     const found = this.times.get(entry);
-    if (found?.number === number && found !== undefined) return found.entry;
-    const text = lineTime(entry.at ?? this.env.now(), this.env.timeZone);
-    const time = { id: `${TIME_PREFIX}${entry.id}`, text, indent: cellWidth(numberLead(number)) };
-    this.times.set(entry, { number, entry: time });
+    if (found !== undefined) return found;
+    const time = {
+      id: `${TIME_PREFIX}${entry.id}`,
+      text: `[${lineTime(entry.at ?? this.env.now(), this.env.timeZone)}]`,
+    };
+    this.times.set(entry, time);
     return time;
   }
 
-  ledOf(entry: ShownEntry, number: number): TranscriptEntry {
+  ledOf(entry: ShownEntry, lead: string): TranscriptEntry {
     const found = this.led.get(entry);
-    if (found?.number === number && found !== undefined) return found.entry;
-    const led = { id: entry.id, text: entry.text, lead: numberLead(number) };
-    this.led.set(entry, { number, entry: led });
+    if (found?.lead === lead && found !== undefined) return found.entry;
+    const led = { id: entry.id, text: entry.text, lead };
+    this.led.set(entry, { lead, entry: led });
     return led;
   }
 
@@ -937,7 +958,7 @@ export class ChatController {
     const at = results.findLastIndex((one) => one.graphic !== undefined);
     const result = results[at];
     if (result?.graphic === undefined || body <= PICTURE_CHROME_ROWS) return null;
-    const indent = cellWidth(lineLead(result.at, at + 1, this.env.timeZone));
+    const indent = cellWidth(lineLead(result.at, at + 1, this.env.timeZone, leadDigits(results.length)));
     const box = graphicBox(result.graphic, columns - indent, body - PICTURE_CHROME_ROWS);
     return { id: result.id, graphic: result.graphic, box, indent };
   }
@@ -968,7 +989,7 @@ export class ChatController {
   }
 
   whoOf(entryId: string): ShownEntry['who'] | undefined {
-    if (entryId.startsWith(TIME_PREFIX)) return 'owner';
+    if (entryId.startsWith(TIME_PREFIX)) return 'system';
     return this.entries().find((one) => one.id === entryId)?.who;
   }
 
