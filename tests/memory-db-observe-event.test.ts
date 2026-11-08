@@ -15,6 +15,7 @@ import { validateEvent } from '../src/protocol/index.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
 import { checkEnvelope, observe } from '../src/memory/db/observe.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
+import { dbOf } from '../src/memory/db/types.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { slimMessage, toRecordLine } from '../src/memory/index.ts';
@@ -307,8 +308,11 @@ test('observationOf: every kind of line goes from toEvent through the envelope c
     );
     assert.deepEqual([herEdit.row.kind, herEdit.row.revision], ['seen', 2]);
 
-    // A one-to-one DM: the partner's place (`dm:<partner>`), its own audience; the partner is an account nobody linked.
+    // A one-to-one DM: the partner's place (`dm:<partner>`), its own audience; the partner is an account nobody bound.
     const dm = write(message({ id: 'm-5', channel: dmChannel(), guild: false, content: 'ιδιωτικά', at: T0 + 5000 }));
+    const partnerPerson = String(
+      dbOf(handle).prepare('SELECT person_id FROM accounts WHERE id = ?').get(`discord:${MEMBER}`)?.person_id
+    );
     assert.deepEqual(present(dm.envelope).place, {
       authority: 'discord/global',
       key: `dm:${MEMBER}`,
@@ -323,8 +327,10 @@ test('observationOf: every kind of line goes from toEvent through the envelope c
         partner: placeOf(dm.done).partner_account,
         person: placeOf(dm.done).partner_person,
       },
-      { chat: 'dm', partner: `discord:${MEMBER}`, person: null }
+      // Plan 2026-11-08-meta-person: the partner's account has the meta-person its first line gave it, and the DM names it.
+      { chat: 'dm', partner: `discord:${MEMBER}`, person: partnerPerson }
     );
+    assert.match(partnerPerson, /^person:[0-9a-f]{8}-/);
     assert.equal(dm.row.audience_id, `aud:dm:discord:dm:${MEMBER}`);
 
     // A group DM: a group chat of its own.

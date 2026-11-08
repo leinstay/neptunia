@@ -6,6 +6,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import type { MemoryHandle } from '../src/memory/db/types.ts';
 import {
   OBSERVATION_VERSION,
   captureSettings,
@@ -66,6 +68,13 @@ const sizes = (db: UntypedDb) =>
 function fresh() {
   return openMemoryDb(':memory:');
 }
+
+/** A minted meta-person id: `person:` and a uuid, never an interface and a native id. */
+const UUID_PERSON = /^person:[0-9a-f]{8}-[0-9a-f]{4}-/;
+
+/** The person an account's columns name, as text. */
+const linkedPerson = (handle: MemoryHandle, account: string): string =>
+  String(dbOf(handle).prepare('SELECT person_id FROM accounts WHERE id = ?').get(account)?.person_id);
 
 // ---------- Twitter ----------
 
@@ -158,12 +167,11 @@ test('twitter: her post opens a bundle, replies join it, a mention of her opens 
       },
       { target_source_id: post.sourceId, resolved: 1 }
     );
-    const stranger = db.prepare('SELECT person_id, kind, names FROM accounts WHERE id = ?').get(reply.author.account);
-    assert.deepEqual(
-      { ...stranger },
-      { person_id: null, kind: 'user', names: '["Zoé"]' },
-      'an account, never a person'
-    );
+    // Plan 2026-11-08-meta-person: every account seen for the first time gets a meta-person of its own, so the stranger's
+    // account is linked to a new `person:<uuid>` rather than to none.
+    const stranger = db.prepare('SELECT kind, names FROM accounts WHERE id = ?').get(reply.author.account);
+    assert.deepEqual({ ...stranger }, { kind: 'user', names: '["Zoé"]' });
+    assert.match(linkedPerson(handle, reply.author.account), UUID_PERSON, 'an account under a meta-person of its own');
     assert.deepEqual(
       db
         .prepare('SELECT role FROM capture_members WHERE bundle_id = ? ORDER BY role')
@@ -210,7 +218,8 @@ test('twitter: her post opens a bundle, replies join it, a mention of her opens 
         .target_source_id,
       null
     );
-    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM people'), people, 'observing creates no person');
+    // Plan 2026-11-08-meta-person: each of the two strangers' accounts gets a meta-person of its own.
+    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM people'), people + 2, 'one meta-person per new account');
 
     // The same post again: nothing is written.
     const before = sizes(db);
@@ -332,17 +341,17 @@ test('imageboard: thread tokens stay in their thread, post numbers and display n
     assert.equal(none.ok, true);
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM participant_links'), 0, 'nothing links participants');
 
-    // A site-wide stable id is an account of the site, with no person.
+    // A site-wide stable id is an account of the site. Plan 2026-11-08-meta-person: a stable mark is a real account and
+    // gets its meta-person by the general rule, so it holds one verified link instead of none.
     const site = observed(handle, post('501', { kind: 'account', key: 'id:9f3c' }), opts);
     assert.deepEqual(
-      {
-        ...db.prepare('SELECT authority_id, native_key, person_id FROM accounts WHERE id = ?').get(site.author.account),
-      },
-      { authority_id: SITE, native_key: 'id:9f3c', person_id: null }
+      { ...db.prepare('SELECT authority_id, native_key FROM accounts WHERE id = ?').get(site.author.account) },
+      { authority_id: SITE, native_key: 'id:9f3c' }
     );
+    assert.match(linkedPerson(handle, site.author.account), UUID_PERSON);
     assert.equal(
       count(db, 'SELECT COUNT(*) AS n FROM account_person_links WHERE account_id = ?', site.author.account),
-      0
+      1
     );
     const again = observed(handle, post('502', { kind: 'account', key: 'id:9f3c' }, { place: threadB }), opts);
     assert.equal(again.author.account, site.author.account, 'a site id is one account across threads');
@@ -424,8 +433,11 @@ test("telegram: a DM is its own audience, a group is the interface's, an unknown
     const dm = observed(handle, message('555:1', dmPlace, { kind: 'account', key: '555', display: 'Ilse' }), opts);
     assert.equal(dm.ok, true, JSON.stringify(dm));
     assert.equal(dm.audienceId, `aud:dm:${dm.placeId}`);
+    // Plan 2026-11-08-meta-person: the partner's new account gets a meta-person, and the DM names it as its partner.
     const place = db.prepare('SELECT chat, partner_account, partner_person FROM places WHERE id = ?').get(dm.placeId);
-    assert.deepEqual({ ...place }, { chat: 'dm', partner_account: dm.author.account, partner_person: null });
+    const partnerPerson = linkedPerson(handle, dm.author.account);
+    assert.match(partnerPerson, UUID_PERSON);
+    assert.deepEqual({ ...place }, { chat: 'dm', partner_account: dm.author.account, partner_person: partnerPerson });
     assert.deepEqual(
       { ...db.prepare('SELECT kind, iface, place_id FROM audiences WHERE id = ?').get(dm.audienceId) },
       { kind: 'dm', iface: 'telegram', place_id: dm.placeId }
@@ -726,11 +738,12 @@ test('people:add: the batch carries author handles; the validator keeps a well-f
         now: NOW,
       })
     );
+    // Plan 2026-11-08-meta-person: the site account has its meta-person from its first line, so it has a person.
     assert.deepEqual(
       [...built.maps.authors.entries()],
       [
         ['a1', { kind: 'participant', id: p1.author.participant, hasPerson: false }],
-        ['a2', { kind: 'account', id: p2.author.account, hasPerson: false }],
+        ['a2', { kind: 'account', id: p2.author.account, hasPerson: true }],
       ]
     );
     assert.ok(
@@ -748,8 +761,8 @@ test('people:add: the batch carries author handles; the validator keeps a well-f
           { op: 'add', subject: 'a1', sources: ['#1'], reason: 'the same voice in two threads' },
           { op: 'add', subject: 'a9', sources: ['#1'], reason: 'r' },
           { op: 'add', subject: 'a3', sources: ['#1'], reason: 'r' },
-          { op: 'add', subject: 'a2', sources: ['#2'] },
-          { op: 'add', subject: 'a2', sources: ['#7'], reason: 'r' },
+          { op: 'add', subject: 'a1', sources: ['#1'] },
+          { op: 'add', subject: 'a1', sources: ['#7'], reason: 'r' },
           { op: 'merge', subject: 'a2', sources: ['#2'], reason: 'r' },
         ],
       },
@@ -764,6 +777,8 @@ test('people:add: the batch carries author handles; the validator keeps a well-f
         reason: 'the same voice in two threads',
       },
     ]);
+    // Plan 2026-11-08-meta-person: the site account has a person, so the ops with no reason and with an unknown source
+    // name the participant, and each reason is still dropped once.
     assert.deepEqual(counts.dropped, { unknown_subject: 1, has_person: 1, no_reason: 1, unknown_source: 1, bad_op: 1 });
   } finally {
     handle.close();
@@ -830,9 +845,11 @@ test('people:add in shadow is a proposal only; in apply it mints a tentative per
         add('account', p2.author.account, p2.sourceId),
       ]),
     });
-    assert.equal(applied.people, 2);
+    // Plan 2026-11-08-meta-person: the site account got a meta-person with its first line, so its add is refused as
+    // `has_person` and only the participant becomes a tentative person.
+    assert.equal(applied.people, 1);
     const first = 'person:00000000-0000-4000-8000-000000000001';
-    const second = 'person:00000000-0000-4000-8000-000000000002';
+    const own = linkedPerson(handle, p2.author.account);
     assert.deepEqual(
       { ...db.prepare('SELECT kind, status FROM people WHERE id = ?').get(first) },
       { kind: 'person', status: 'active' }
@@ -856,12 +873,7 @@ test('people:add in shadow is a proposal only; in apply it mints a tentative per
       {
         ...db.prepare('SELECT person_id, state FROM account_person_links WHERE account_id = ?').get(p2.author.account),
       },
-      { person_id: second, state: 'proposed' }
-    );
-    assert.equal(
-      db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(p2.author.account).person_id,
-      null,
-      'a proposed link is not the verified projection'
+      { person_id: own, state: 'verified' }
     );
     assert.deepEqual(
       db
@@ -870,7 +882,7 @@ test('people:add in shadow is a proposal only; in apply it mints a tentative per
         .map((r) => ({ ...r })),
       [
         { action: 'people_add', target_id: first },
-        { action: 'people_add', target_id: second },
+        { action: 'rejected:has_person', target_id: p2.author.account },
       ]
     );
 
@@ -887,7 +899,7 @@ test('people:add in shadow is a proposal only; in apply it mints a tentative per
       db.prepare("SELECT action FROM decisions WHERE id = 'dec:run:b:1'").get().action,
       'rejected:has_person'
     );
-    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM people'), people + 2);
+    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM people'), people + 1);
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
   } finally {
     handle.close();

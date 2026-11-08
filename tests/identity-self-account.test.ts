@@ -99,7 +99,8 @@ test('an account first seen as anyone links to her person once its author turns 
   // Bug: a line observed before the interface told her id leaves the account a user, and the kind's update skips the link.
   withDb((handle, db) => {
     line(handle, 'discord', { id: 'm1', author: 'her-id', name: 'Someone', selfId: null });
-    assert.equal(accountOf(db, 'discord', 'her-id')?.person_id, null);
+    // Plan 2026-11-08-meta-person: an account seen as anyone first gets a meta-person of its own, never her person.
+    assert.match(String(accountOf(db, 'discord', 'her-id')?.person_id), /^person:[0-9a-f]{8}-/);
     line(handle, 'discord', { id: 'm2', author: 'her-id', name: 'Someone', selfId: 'her-id' });
     assert.equal(accountOf(db, 'discord', 'her-id')?.person_id, SELF);
   });
@@ -111,7 +112,8 @@ test('a stranger under her name stays a stranger, and all her accounts read as o
     line(handle, 'discord', { id: 'm1', author: 'her-id', name: 'Same Name', selfId: 'her-id' });
     line(handle, 'telegram', { id: 'm2', author: 'her-other-id', name: 'Other Name', selfId: 'her-other-id' });
     line(handle, 'discord', { id: 'm3', author: 'stranger', name: 'Same Name', selfId: 'her-id' });
-    assert.equal(accountOf(db, 'discord', 'stranger')?.person_id, null);
+    // Plan 2026-11-08-meta-person: the stranger's account has a meta-person of its own, which is not hers.
+    assert.match(String(accountOf(db, 'discord', 'stranger')?.person_id), /^person:[0-9a-f]{8}-/);
     assert.deepEqual(
       personMembers(db, SELF, { ownerMergesOnly: true })
         .accounts.map((account) => account.id)
