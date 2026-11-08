@@ -1513,6 +1513,34 @@ function createNames(db: Db): void {
   rebuildNames(db);
 }
 
+// Version 40 (plan 2026-11-08-meta-person, slice 3): the structures of the meta-person, added empty.
+//  - `people.meta`: 1 marks a meta-person, the top node of one person that every account of that person hangs under.
+//    The meta-person is a `people` row, so the claims, descriptions, episodes, affinity, links and merges that key on
+//    `people.id` read it unchanged. No existing row is marked: the offline migration mints the meta-people.
+//  - `person_accounts`: one row per account, keyed by interface, platform id and generation, with the account-only
+//    fields (handle, display name, avatar, profile text). `person_id` is required and names a stored meta-person: the
+//    foreign key refuses a person nobody stored, and two triggers refuse a person that is not marked `meta`.
+//    `id` is the account's node id, the same as its `accounts` row. `accounts` stays as it is, because its writers
+//    store accounts with no person yet.
+//  - `sources.author_person`: the meta-person of a line's author, null for a line with no account and until the
+//    offline migration fills it. It is indexed where it is set.
+const NOT_META = 'EXISTS (SELECT 1 FROM people WHERE id = NEW.person_id AND meta IS NOT 1)';
+const V40 = `
+ALTER TABLE people ADD COLUMN meta INTEGER DEFAULT 0 CHECK (meta IN (0, 1));
+CREATE TABLE person_accounts (
+  id TEXT PRIMARY KEY, person_id TEXT NOT NULL REFERENCES people(id), iface TEXT NOT NULL, platform_id TEXT NOT NULL,
+  generation INTEGER NOT NULL DEFAULT 1, handle TEXT, display_name TEXT, avatar JSON, profile_text TEXT,
+  recorded_at TEXT NOT NULL, UNIQUE (iface, platform_id, generation)
+);
+CREATE INDEX person_accounts_person ON person_accounts(person_id);
+CREATE TRIGGER person_accounts_meta_insert BEFORE INSERT ON person_accounts WHEN ${NOT_META}
+BEGIN SELECT RAISE(ABORT, 'ACCOUNT_PARENT_NOT_META'); END;
+CREATE TRIGGER person_accounts_meta_update BEFORE UPDATE OF person_id ON person_accounts WHEN ${NOT_META}
+BEGIN SELECT RAISE(ABORT, 'ACCOUNT_PARENT_NOT_META'); END;
+ALTER TABLE sources ADD COLUMN author_person TEXT REFERENCES people(id);
+CREATE INDEX sources_author_person ON sources(author_person) WHERE author_person IS NOT NULL;
+`;
+
 export const MIGRATIONS: Array<Migration> = [
   V1,
   V2,
@@ -1564,6 +1592,8 @@ export const MIGRATIONS: Array<Migration> = [
   },
   // Version 39: `places.conversation` is `places.chat`, and stored JSON keys take the words chat and dm.
   renameChat,
+  // Version 40: the meta-person, its accounts and the author person of a line (src/memory/db/meta-person.ts).
+  V40,
 ];
 
 /** Every table schema v8 adds. */
