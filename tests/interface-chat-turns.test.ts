@@ -264,3 +264,34 @@ test('a subscribed link gets the events and a replay of what it missed; an unkno
   assert.equal(turns.command(link, 'turn.cancel', {}).status, 'invalid');
   assert.equal(turns.command(link, 'turn.other', { turnId: 'x' }).status, 'invalid');
 });
+
+test('lines read by the turn over an earlier line end committed with that turn and never run on their own', async () => {
+  // Bug: quick lines folded into one answer showed as queued and then running turns of their own, and failed no-own-turn.
+  const { take, turns, queue, typesOf, events } = rig({ wait: 4 });
+  await take('m1', 'one');
+  await take('m2', 'two');
+  await take('m3', 'three');
+  const [second, third] = queue();
+  turns.turnEnded({ trigger: { id: 'm1' }, outcome: 'spoke', reason: null, turnId: 't-one', folded: ['m2', 'm3'] });
+  await pause(20);
+  for (const folded of [second, third]) {
+    assert.deepEqual(typesOf(folded?.turnId ?? ''), ['accepted', 'queued', 'committed']);
+    assert.equal(events.findLast((event) => event.turnId === folded?.turnId)?.responseId, 't-one');
+  }
+  assert.deepEqual(queue(), []);
+  assert.equal(
+    events.some((event) => event.code === 'no-own-turn'),
+    false
+  );
+});
+
+test('a turn that failed leaves the lines it read waiting for their own turn', async () => {
+  // Bug: a failed turn takes the lines it read down with it, and nothing ever answers them.
+  const { take, turns, queue, typesOf } = rig();
+  await take('m1', 'one');
+  await take('m2', 'two');
+  const [second] = queue();
+  turns.turnEnded({ trigger: { id: 'm1' }, outcome: 'error', reason: 'llm-error', turnId: null, folded: ['m2'] });
+  await tick();
+  assert.equal(typesOf(second?.turnId ?? '').at(-1), 'running');
+});

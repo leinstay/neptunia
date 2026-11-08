@@ -77,6 +77,8 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'selfref
   skillsIndexed?: Array<IndexedSkill>;
   /** The messages her posts replied to, for the end hook (src/turn/phases/outcome.ts). */
   replyTargets?: Array<string>;
+  /** The trigger author's lines answered with the call (src/turn/phases/outcome.ts), for the end hook. */
+  folded?: Array<string>;
   /** The bodies of her `<audience>` tags over every answer of a selfreflection turn (src/llm/parse.ts#takeAudience). */
   selfreflectionAudience?: Array<string>;
 };

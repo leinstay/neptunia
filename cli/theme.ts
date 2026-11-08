@@ -8,7 +8,10 @@ export const THEME = {
   muted: { dimColor: true },
   title: { bold: true, color: 'cyan' },
   mark: { color: 'magenta' },
-  userMarker: { color: 'cyan' },
+  /** the owner's lines in the chat and his commands in the command window */
+  owner: { color: 'magenta' },
+  /** her plain text */
+  her: { color: 'white' },
   activeBorder: { borderColor: 'cyan' },
   inactiveBorder: { borderColor: 'gray' },
   selection: { inverse: true },

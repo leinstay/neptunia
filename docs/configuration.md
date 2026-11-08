@@ -214,7 +214,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `pace.prepareMediaMs` | number | `20000` | Extended deadline on a direct call whose trigger carries a picture, GIF or video. `0` removes it | `src/turn/settings.ts` |
 | `pace.dropAfterMs` | number | `120000` | If the finished answer has not arrived by this time, the turn is dropped. `0` removes it | `src/turn/phases/request/setup.ts` |
 | `pace.replyHedgeMs` | number | `30000` | On a direct call, when the reply has no answer after this long, a second request is sent. `0` = one attempt only | `src/llm/openrouter.ts` |
-| `pace.settleMs` | number | `3000` | Wait for the person to stop writing before reading the chat, so quick messages are answered whole | `src/behavior/pipeline.ts` |
+| `pace.settleMs` | number | `3000` | Wait for the person to stop writing before reading the chat, so quick messages are answered whole in one turn, in a group, a DM and the CLI alike | `src/turn/sends.ts` |
 | `pace.settleMaxMs` | number | `8000` | The longest that wait may run from the calling message | `src/turn/sends.ts` |
 
 ## format

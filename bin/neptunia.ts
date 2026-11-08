@@ -753,6 +753,7 @@ async function runInkChat(
           entry({ who: 'system', text: `the cancel did not reach the core (${answer.status})` });
       });
     },
+    // A command's answer goes back to the chat's command window, never into the chat with her.
     send(line, attachments = []) {
       const text = line.trim();
       if (!text.startsWith('/')) {
@@ -760,11 +761,10 @@ async function runInkChat(
           if (status !== 'ok' && status !== 'duplicate')
             entry({ who: 'system', text: `the core did not take the line (${status})` });
         });
-        return;
+        return undefined;
       }
       const parsed = parseCommandLine(text);
-      if (!parsed.ok) entry({ who: 'system', text: parsed.reason });
-      else void run(parsed).then((answer) => entry({ who: 'system', text: answer.text }));
+      return parsed.ok ? run(parsed).then((answer) => answer.text) : Promise.resolve(parsed.reason);
     },
   });
   link.close();

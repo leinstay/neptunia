@@ -30,6 +30,8 @@ export type TurnControl = {
   submit(line: { requestId: string; text: string; attachments: ReadonlyArray<TurnAttachment> }): Submitted;
   remove(turnId: string): { status: 'ok' | 'too-late' | 'unknown' };
   cancel(turnId: string): { status: 'cancelled' | 'cancelling' | 'finished' | 'unknown' };
+  /** Ends a queued turn with `outcome` without running it: its line was answered in another turn. */
+  endQueued(turnId: string, outcome: TurnOutcome): { status: 'ok' | 'too-late' | 'unknown' };
   queued(): ReadonlyArray<TurnRun>;
   /** What the running turn's tools and tasks did; ignored for any other turn. */
   progress(turnId: string, step: { kind: 'tool' | 'task'; name: string; detail: string }): void;
@@ -85,12 +87,17 @@ export function createTurnControl({
     }
   }
 
-  function finished(turnId: string, outcome: TurnOutcome): void {
-    active = null;
-    end(turnId);
+  /** Tells how a turn ended. */
+  function sayEnd(turnId: string, outcome: TurnOutcome): void {
     if (outcome.status === 'committed') say(turnId, 'committed', { responseId: outcome.responseId });
     else if (outcome.status === 'cancelled') say(turnId, 'cancelled');
     else say(turnId, 'failed', { code: outcome.code });
+  }
+
+  function finished(turnId: string, outcome: TurnOutcome): void {
+    active = null;
+    end(turnId);
+    sayEnd(turnId, outcome);
     startNext();
   }
 
@@ -113,11 +120,11 @@ export function createTurnControl({
       });
   }
 
-  /** A queued turn out of the queue, with its end told. */
-  function dropQueued(turnId: string): void {
+  /** A queued turn out of the queue, with its end told: cancelled, or the outcome it had elsewhere. */
+  function dropQueued(turnId: string, outcome: TurnOutcome = { status: 'cancelled' }): void {
     queue = queue.filter((turn) => turn.turnId !== turnId);
     end(turnId);
-    say(turnId, 'cancelled');
+    sayEnd(turnId, outcome);
   }
 
   return {
@@ -152,6 +159,13 @@ export function createTurnControl({
       }
       if (active?.turnId === turnId) active.controller.abort();
       return { status: 'cancelling' };
+    },
+    endQueued(turnId, outcome) {
+      const phase = phases.get(turnId);
+      if (phase === undefined) return { status: 'unknown' };
+      if (phase !== 'queued') return { status: 'too-late' };
+      dropQueued(turnId, outcome);
+      return { status: 'ok' };
     },
     queued: () => queue,
     progress(turnId, step) {

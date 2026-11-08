@@ -106,6 +106,7 @@ export type TrackedParams = TurnParams & {
   journalAttempts?: Array<{ draft: Draft; result: { outcome: string } }>;
   turnEnds?: {
     replyTargets: Array<string>;
+    folded: Array<string>;
     reasons: Array<string>;
     factsShown: Array<string> | null;
     info: Draft['info'] | null;

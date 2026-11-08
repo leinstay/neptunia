@@ -4,7 +4,8 @@
 // `run` waits for the end of the turn over the message. A said line cannot be unsaid, so its text cannot be edited, and a
 // cancel takes back its turn and leaves its source: the runner reads the line's signal by the message id (`cancelOf`) and ends
 // an aborted turn before any request. No other interface's line comes here, so a turn over one has no signal and runs as it
-// always did. The pipeline may answer a line inside another line's turn or drop one it saw answered, so a line can have no turn
+// always did. A line the turn over an earlier line read during its settle wait (the end's `folded`) ends with that turn and
+// never runs. The pipeline may answer a line inside another line's turn or drop one it saw answered, so a line can have no turn
 // of its own: a later line's turn starting, or a stretch with no turn running anywhere, ends its wait. The states live in this
 // process, and `turn.replay` names the core's instance so a client learns of a restart. src/interface/neptunia-cli.ts holds one.
 
@@ -53,6 +54,8 @@ type TurnEnd = {
   outcome: string;
   reason: string | null;
   turnId?: unknown;
+  /** The lines the turn read as part of its call (pace.settleMs), answered with it. */
+  folded?: ReadonlyArray<string>;
 };
 
 type Answer = { text: string; status: string };
@@ -124,6 +127,14 @@ export function createChatTurns({
     if (line.outcome !== null) return;
     settle(line, { status: 'failed', code: 'no-own-turn' });
     line.onNoTurn();
+  }
+
+  /** A line the turn over another line read and answered: it ends with that turn and never runs on its own. */
+  function answeredWith(line: TrackedLine | undefined, outcome: TurnOutcome): void {
+    if (line === undefined || line.hasStarted || line.outcome !== null) return;
+    line.hasStarted = true;
+    settle(line, outcome);
+    if (line.turnId !== null) control.endQueued(line.turnId, outcome);
   }
 
   /** The line's turn began or ended: every line before it that never had one will have none. */
@@ -231,12 +242,14 @@ export function createChatTurns({
       if (line === undefined || end.outcome === 'busy') return;
       line.hasStarted = true;
       endEarlierThan(line);
-      if (ANSWERED.has(end.outcome))
-        settle(line, {
+      if (ANSWERED.has(end.outcome)) {
+        const outcome: TurnOutcome = {
           status: 'committed',
           responseId: typeof end.turnId === 'string' ? end.turnId : (line.turnId ?? line.id),
-        });
-      else if (end.outcome === 'cancelled') settle(line, { status: 'cancelled' });
+        };
+        for (const id of end.folded ?? []) answeredWith(lines.get(id), outcome);
+        settle(line, outcome);
+      } else if (end.outcome === 'cancelled') settle(line, { status: 'cancelled' });
       else settle(line, { status: 'failed', code: end.reason ?? end.outcome });
     },
     cancelOf(triggerId) {

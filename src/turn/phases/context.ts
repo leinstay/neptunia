@@ -145,7 +145,7 @@ export type PhaseContext = {
     'linkTriggers' | 'linkCalls' | 'callMarksOf' | 'earlierThinkFor' | 'journalOn' | 'offPeriodsFor' | 'journalOp'
   > &
   Pick<Selfreflection, 'prepareSelfreflection' | 'selfreflectionPictureGate'> &
-  Pick<Sends, 'emojiLookup' | 'settleAuthor' | 'selfreflectionChannelName'> &
+  Pick<Sends, 'emojiLookup' | 'settleAuthor' | 'settles' | 'selfreflectionChannelName'> &
   Pulls &
   Pick<ToolRound, 'readHistory' | 'noteThink' | 'stepTranscript' | 'runSteps'> & {
     cancelOf: (triggerId: string | null) => AbortSignal | null;
