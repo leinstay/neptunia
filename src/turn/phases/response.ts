@@ -156,7 +156,7 @@ export async function responsePhase<TTurn extends ResponseNeeds>(
     // The one field shaping adds, `loweredCalls`, is set below before it returns.
     const parsed = raw as Shaped;
     // A custom emoji reaction resolves through the index; an unknown one (or the switch off) is dropped.
-    const lookupEmoji = emojiLookup();
+    const lookupEmoji = emojiLookup(ctx.chatOf(channel));
     parsed.reactions = parsed.reactions
       .map((reaction) => ({ ...reaction, emoji: resolveReactionEmoji(reaction.emoji, lookupEmoji) }))
       .filter((reaction): reaction is { to: number; emoji: string } => Boolean(reaction.emoji));

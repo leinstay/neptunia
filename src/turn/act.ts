@@ -18,7 +18,7 @@ import { CODE } from '../tools/codes.ts';
 import type { DrawGif, ResolvedGif } from './draw-gif.ts';
 import { applyEmojiPick } from '../behavior/media-pick.ts';
 import type { EmojiRef, MediaPick, MediaPickArgs, MediaPickResult } from '../behavior/media-pick.ts';
-import { portMediaPick } from '../interface/capabilities.ts';
+import { portAt, portMediaPick } from '../interface/capabilities.ts';
 import { closeResult, portError, postedOf, sendHash } from './journal.ts';
 import type { JournalOp, PortResult } from './journal.ts';
 import type { JournalNotes, NotesDraft } from './journal-notes.ts';
@@ -406,7 +406,7 @@ export function createAct(ctx: ActContext): Act {
     // The media pick starts first (its request is sent at once), then the first message's typing.
     // `pickDone` once it answered (none included): an answer already there needs no grace timer.
     let pickDone = false;
-    const capability = mediaPicks ? portMediaPick(iface) : null;
+    const capability = mediaPicks ? portMediaPick(portAt(iface, chatOf(channel))) : null;
     const pickOn = capability !== null;
     const picking: Promise<MediaPickResult> = (
       pickOn

@@ -13,10 +13,23 @@ import { getOp as registryGetOp } from './operations/registry.ts';
 import { EFFECT_CLASSES, SKILL_DEFINITIONS, validateDefinitions, optionsOfDefinition } from './definitions.ts';
 import type { Definition, Given } from './definitions.ts';
 import { isObj, objOf } from './types.ts';
+import { CAPABILITIES } from '../protocol/actions.ts';
 import type { DescribedSkill, Obj, Rights, Skill, SkillMap } from './types.ts';
 
 /** What a skill does to the world, one value per skill: its definition's `effects` (src/tools/definitions.ts). */
 export const EFFECTS = EFFECT_CLASSES;
+
+/**
+ * The port operation each skill needs of the interface it acts on (`interfaceCapability`): a turn whose place's
+ * interface does not declare it is not offered the skill (src/tools/discovery.ts#placeSkillNames).
+ */
+const INTERFACE_CAPABILITY: Readonly<Record<string, string>> = Object.freeze({
+  'message.create': CAPABILITIES.send,
+  'message.edit': CAPABILITIES.edit,
+  'message.delete': CAPABILITIES.delete,
+  'message.react.add': CAPABILITIES.react,
+  'message.react.remove': CAPABILITIES.unreact,
+});
 
 /** `free`, or `paid`: spends balance and needs a budget (src/tools/gateway.ts). */
 export const COST_CLASSES: ReadonlyArray<string> = Object.freeze(['free', 'paid']);
@@ -122,7 +135,7 @@ export function definitionsOf(table: ReadonlyArray<unknown> = SKILL_DEFINITIONS)
       sharedState: effects !== 'read',
       costClass: entry.costClass,
       targets: null,
-      interfaceCapability: null,
+      interfaceCapability: INTERFACE_CAPABILITY[entry.name] ?? null,
       api: entry.api,
       result: entry.result,
       dispatch: Object.freeze({

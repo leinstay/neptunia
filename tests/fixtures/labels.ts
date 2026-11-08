@@ -464,6 +464,7 @@ export const labels = {
     result: {
       coerced: '{arg} read as {value}',
       untaggedNote: '{name} tagged nobody; handle @{handle}',
+      storedUntilOpen: 'kept until the chat opens',
       ok: 'skill ok, data:',
       refused: 'skill refused: {reason}',
       failed: 'skill failed: {reason}',

@@ -6,6 +6,7 @@
 import type { Chat } from '../protocol/events.ts';
 import { settleWait } from '../behavior/activity.ts';
 import { messageLinkOf } from '../behavior/elsewhere.ts';
+import { portAt, portCustomEmoji, portIface } from '../interface/capabilities.ts';
 import type { IndexedEmoji } from '../behavior/emoji-index.ts';
 import { renderCustomEmoji } from '../behavior/emoji.ts';
 import { CHANNEL_HANDLE_PREFIX, idText, resolveHandles, widenHandles } from '../behavior/handles.ts';
@@ -42,8 +43,8 @@ export type SendsContext = {
   iface: MirrorPort;
 };
 
-/** The channel a post is rendered for, as the interface described it: its id, and its root for a link. */
-type PostChannel = Pick<Chat, 'id' | 'rootId'>;
+/** The channel a post is rendered for, as the interface described it: its id, its root for a link, its interface. */
+type PostChannel = Pick<Chat, 'id' | 'rootId'> & { iface?: string };
 
 /** How a post's `#n` numbers and mentions are resolved. */
 type RenderArgs = {
@@ -77,7 +78,7 @@ export type RenderedPost = {
 };
 
 export type Sends = {
-  emojiLookup: () => ((name: string) => IndexedEmoji | null) | null;
+  emojiLookup: (at?: { iface?: unknown } | null) => ((name: string) => IndexedEmoji | null) | null;
   renderPost: (written: string, args: RenderArgs) => RenderedPost;
   settleAuthor: (
     placeId: string,
@@ -110,15 +111,18 @@ export function createSends(ctx: SendsContext): Sends {
       dmChat: boolean;
       idByIndex: ReadonlyMap<number, string> | null | undefined;
       pulledIds?: ReadonlyMap<string, string> | null;
+      // The chat reference whose interface addresses the links.
+      at: { iface: string };
     }
   ): string {
     const { chat, dmChat, idByIndex, pulledIds } = slots;
     if (!idByIndex) return text;
     const root = dmChat || !slots.root ? null : slots.root;
+    const placePort = portAt(iface, slots.at);
     return linkMessageNumbers(text, (n) => {
       const messageId = idByIndex.get(n);
       if (!messageId) return null;
-      return messageLinkOf(iface, root, pulledIds?.get(messageId) ?? chat, messageId);
+      return messageLinkOf(placePort, root, pulledIds?.get(messageId) ?? chat, messageId);
     });
   }
 
@@ -164,7 +168,7 @@ export function createSends(ctx: SendsContext): Sends {
       linkOf: (line) => {
         const chat = line.dm ? null : nativeOfAny(line.placeId);
         if (!chat || !line.placeId.startsWith(`${here}:`)) return null;
-        return messageLinkOf(iface, rootOfPlace(line.placeId), chat, line.messageId);
+        return messageLinkOf(portAt(iface, { iface: here }), rootOfPlace(line.placeId), chat, line.messageId);
       },
       labels,
       timezone: refs.timezone,
@@ -178,9 +182,17 @@ export function createSends(ctx: SendsContext): Sends {
     return top === null || top === placeId ? null : (known.nativeRootOf?.(top) ?? null);
   }
 
-  /** The custom emoji lookup, or null when there is no index or features.customEmoji is off (read now). */
-  function emojiLookup(): ((name: string) => IndexedEmoji | null) | null {
-    return emoji ? emoji.byName : null;
+  /**
+   * The custom emoji lookup, or null when there is no index, features.customEmoji is off (read now) or the interface of
+   * `at` (a chat reference, the served interface when none) declares no custom emoji.
+   */
+  function emojiLookup(at: { iface?: unknown } | null = null): ((name: string) => IndexedEmoji | null) | null {
+    return emoji && portCustomEmoji(portAt(iface, at)) ? emoji.byName : null;
+  }
+
+  /** The chat reference of `channel` for the port: the interface it names, else the served one. */
+  function refOf(channel: PostChannel): { iface: string } {
+    return { iface: portIface(channel) || portIface(iface) };
   }
 
   /**
@@ -236,7 +248,7 @@ export function createSends(ctx: SendsContext): Sends {
       const fallback = typeof directory === 'function' && String(written ?? '').includes('@') ? directory() : [];
       mentioned = resolveMentions(written, lines ?? [], knownNames ?? [], fallback);
     }
-    const spoken = renderCustomEmoji(mentioned.text, emojiLookup());
+    const spoken = renderCustomEmoji(mentioned.text, emojiLookup(refOf(channel)));
     const text = withLink(
       withChannelLinks(
         channel,
@@ -246,6 +258,7 @@ export function createSends(ctx: SendsContext): Sends {
           dmChat,
           idByIndex,
           pulledIds,
+          at: refOf(channel),
         }),
         channelHandles,
         snapshot

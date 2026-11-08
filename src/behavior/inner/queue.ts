@@ -17,6 +17,7 @@ import { storedWakes } from '../wake.ts';
 import { addFactTo, asText, idOrNull } from './facts.ts';
 import { INNER_DEFAULTS, WAKE_KINDS, innerSettings } from './settings.ts';
 import { backendOf, loadQueue } from './wake-queue.ts';
+import { ifaceOfChat } from '../../interface/cli-chat.ts';
 import type {
   Fact,
   FactInput,
@@ -278,10 +279,9 @@ const retryKey = (wake: Wake | undefined): string => (wake?.retry ? `${wake.retr
 
 /** Capture the native chat alongside inner evidence. */
 export function contextOf(life: InnerContext, chatId?: unknown): Pick<Fact, 'scopePlaceId' | 'chat'> {
-  const iface = life.iface();
   return {
     scopePlaceId: null,
-    chat: typeof chatId === 'string' && chatId ? { iface, chatId } : null,
+    chat: typeof chatId === 'string' && chatId ? { iface: ifaceOfChat(chatId, life.iface()), chatId } : null,
   };
 }
 
