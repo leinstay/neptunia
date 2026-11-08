@@ -210,7 +210,8 @@ test("keys bind checks the role's model on the new key and binds nothing when th
     }).run('keys.bind', { role: 'vision', name: 'art' }, null);
   assert.equal((await run(refuse.fetch)).status, 'failed');
   assert.equal(refuse.calls.length, 1);
-  assert.equal(refuse.calls[0]?.auth, SECRET_3);
+  const [call] = refuse.calls;
+  assert.equal(call?.auth, SECRET_3);
   assert.equal(store.boundTo('vision'), null);
   const accept = fakeFetch();
   assert.equal((await run(accept.fetch)).status, 'ok');
