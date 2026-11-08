@@ -125,15 +125,20 @@ test('a file that does not parse is an unreadable-file error that holds none of 
   );
 });
 
-test('a write keeps the sections of the file it does not own', () => {
+test('a write keeps the secret sections of the file it does not own and drops the routing ones', () => {
   const { store, file } = setup();
+  // Changed: `subharness`, `simulation` and `roles` are routing, which lives in config.json; a write of keys.json drops
+  // them and keeps the other secret sections, here the service credentials.
   const sections = { subharness: { backend: 'codex', key: null, modes: { dev: 'sudo' } }, simulation: { key: 'sim' } };
-  fs.writeFileSync(file, JSON.stringify({ core: [], extra: {}, roles: {}, ...sections }), { mode: 0o600 });
-  // Bug caught: the store rewriting the file from its own three sections and dropping the next PR's settings.
+  const services = { youtube: 'yt-SECRET' };
+  fs.writeFileSync(file, JSON.stringify({ core: [], extra: {}, roles: {}, services, ...sections }), { mode: 0o600 });
+  // Bug caught: the store rewriting the file from its own three sections and dropping the service credentials.
   store.addCore({ name: 'core-1', value: SECRET });
   const written = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
-  assert.deepEqual(written.subharness, sections.subharness);
-  assert.deepEqual(written.simulation, sections.simulation);
+  assert.deepEqual(written.services, services);
+  assert.equal(Object.hasOwn(written, 'subharness'), false);
+  assert.equal(Object.hasOwn(written, 'simulation'), false);
+  assert.equal(Object.hasOwn(written, 'roles'), false);
 });
 
 test('a folder with no keys.json lists nothing and holds no key', () => {

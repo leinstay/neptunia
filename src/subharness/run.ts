@@ -1,8 +1,8 @@
-// The one seam every agent run goes through: errands (scout and server), development and the watcher. It reads
-// keys.json at the moment of the run, as Hermes' approval guard reads its mode on each check
+// The one seam every agent run goes through: errands (scout and server), development and the watcher. It reads the
+// agent's route from config.json (src/subharness/routing.ts) at the moment of the run, as Hermes' approval guard reads its mode on each check
 // (hermes_cli/approval_mode.py), so a logout and "agent mode" act on the next run without a restart.
 //
-// An agent runs through the backend `subharness.uses` names for it. A run is refused with `subharness-off` while it
+// An agent runs through the backend `models.agents.via` names for it. A run is refused with `subharness-off` while it
 // names none, or when opencode is on a key that has left the store, with `bad-route` for a route that is not one, and with `not-installed` while the backend is not in `<private>/subharness/<backend>/` (src/subharness/place.ts),
 // whose binary every run starts with that folder's home in its environment. Otherwise the agent's mode (src/subharness/control.ts) becomes the backend's sandbox, and the child gets a
 // PATH on which `sudo` refuses unless the mode is `sudo`: a stand-in named `sudo` in a folder of its own comes first.
@@ -10,8 +10,8 @@
 // route the one the task brought (`routeKey`, a run without it fails `route-no-key`); codex and claude bring their own
 // login and get no key. An opencode run that searches with exa gets `OPENCODE_ENABLE_EXA=1` and, when the task brought
 // the stored Exa key (`searchKey`), that key as `EXA_API_KEY`. A run with a `route` (src/agent-runner/protocol.ts#TaskRoute) is the runner's: the core decided
-// the backend, model, effort, mode and provider when it dispatched the task, because a runner unit may hide keys.json. Such a
-// run uses exactly the route and never opens keys.json. A run in `full` or `sudo` writes one log line before it starts, with
+// the backend, model, effort, mode and provider when it dispatched the task, because a runner unit may hide the private
+// folder. Such a run uses exactly the route and opens neither config.json nor keys.json. A run in `full` or `sudo` writes one log line before it starts, with
 // the agent and the mode and never the brief, so the log shows who worked without a sandbox. A claude whose `--help` lists
 // `--session-id` gets a fresh one on each run, and src/subharness/sessions.ts maps it to the agent and the run, so the
 // watcher can tell whose transcript it reads. The child reaches the network through the engine proxy the caller decided
@@ -33,7 +33,7 @@ import { log } from '../log.ts';
 import { backendOfAgent, modeOf } from './control.ts';
 import type { AgentMode } from './control.ts';
 import type { EffortLevel } from '../llm/roles.ts';
-import { hasExtraKey, readKeys } from '../keys/file.ts';
+import { opencodeKey, readRouting } from './routing.ts';
 import { helpOfInstalled, isInstalled, modelOfBackend } from './place.ts';
 import { recordSession } from './sessions.ts';
 import { PROXY_ENV_NAMES, proxyEnvOf } from '../net/proxy.ts';
@@ -59,7 +59,7 @@ export type AgentRun = {
   /** codex: pictures handed to the agent */
   images?: ReadonlyArray<string>;
   signal?: AbortSignal;
-  /** the path the core decided; with it the run reads nothing from keys.json */
+  /** the path the core decided; with it the run reads nothing from the private folder */
   route?: TaskRoute;
   /** the key an opencode route spends; it comes with the task and is never read from keys.json */
   routeKey?: string;
@@ -77,7 +77,7 @@ export type AgentRun = {
 
 /** What `runAgent` takes besides the run. */
 export type RunDeps = {
-  /** where keys.json is */
+  /** where config.json and keys.json are */
   privateDir: string;
   /** the folder that holds the `sudo` stand-in; created at the first run that needs it */
   denyDir: string;
@@ -188,28 +188,30 @@ type Path = {
 /** The option that pins a run to a provider, empty where there is no pin. */
 const pinOf = (provider: string | undefined): { provider?: string } => (provider === undefined ? {} : { provider });
 
-/** The path of a run from keys.json, or the refusal. */
+/** The path of a run from config.json and, for opencode, its key from keys.json, or the refusal. */
 function pathFromStore(run: AgentRun, deps: RunDeps): Path | BackendResult {
-  let store;
+  let sub;
+  let opencode;
   try {
-    store = readKeys(deps.privateDir);
+    sub = readRouting(deps.privateDir).subharness;
+    opencode = opencodeKey(deps.privateDir);
   } catch (err) {
-    log.warn('subharness: keys.json unreadable, the run is refused', {
+    log.warn('subharness: config.json or keys.json unreadable, the run is refused', {
       agent: run.agent,
-      reason: (err as Error).message,
+      reason: (err as Error).name,
     });
     return off();
   }
-  const { key, models, efforts, providers } = store.subharness;
-  const name = backendOfAgent(store.subharness, run.agent);
+  const { models, efforts, providers } = sub;
+  const name = backendOfAgent(sub, run.agent);
   if (name === null) return off();
-  if (name === 'opencode' && (key === null || !hasExtraKey(store, key))) return off();
+  if (name === 'opencode' && opencode === null) return off();
   return {
     name,
-    mode: modeOf(store.subharness.modes, run.agent),
+    mode: modeOf(sub.modes, run.agent),
     model: Object.hasOwn(models, run.agent) ? (models[run.agent] ?? null) : null,
     effort: Object.hasOwn(efforts, run.agent) ? (efforts[run.agent] ?? null) : null,
-    keyValue: name === 'opencode' && key !== null ? (store.extra[key] ?? '') : null,
+    keyValue: name === 'opencode' ? (opencode?.value ?? '') : null,
     ...(Object.hasOwn(providers, run.agent) ? { provider: providers[run.agent] ?? '' } : {}),
   };
 }
@@ -255,7 +257,8 @@ function mapped(run: AgentRun, deps: RunDeps, name: BackendName, sessionId: stri
 
 /**
  * Runs one agent through its backend, in the mode the owner gave it. With a route the path is the route's and
- * keys.json stays closed; without one it resolves `subharness-off` while keys.json names no backend for the agent.
+ * the private folder stays closed; without one it resolves `subharness-off` while config.json names no backend for the
+ * agent.
  */
 export async function runAgent(run: AgentRun, deps: RunDeps): Promise<BackendResult> {
   const settled = run.route === undefined ? pathFromStore(run, deps) : pathFromRoute(run, run.route);

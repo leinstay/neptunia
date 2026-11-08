@@ -4,7 +4,7 @@
 // src/subharness/usage.ts reads through this.
 
 import { stripVTControlCharacters } from 'node:util';
-import { readKeys } from '../../keys/file.ts';
+import { readRouting } from '../routing.ts';
 import { isInstalled, subharnessPlace, vendorEnv } from '../place.ts';
 import type { BackendUsage, Observation, UsageExec, UsageMetric } from '../usage.ts';
 
@@ -57,7 +57,7 @@ export async function readOpenCodeUsage(deps: OpenCodeUsageDeps): Promise<Backen
     ...over,
   });
   if (!isInstalled(deps.privateDir, 'opencode')) return answer({ errors: [{ code: 'not-installed' }] });
-  const account = { label: readKeys(deps.privateDir).subharness.key };
+  const account = { label: readRouting(deps.privateDir).subharness.key };
   const { binary } = subharnessPlace(deps.privateDir, 'opencode');
   const env = vendorEnv(deps.privateDir, 'opencode');
   const run = await deps.exec(binary, ['stats'], { env }).catch(() => null);

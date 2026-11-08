@@ -297,6 +297,9 @@ test('a model check that fails is reported with the reason it gave and saves not
   // Bug: "gave no reply" for a rejection, or a model saved on a backend that refused it.
   const one = await rig(() => ({ ok: false, text: '', exitCode: 1, detail: 'that model is not on this plan' }));
   const before = digestOf(one);
+  // Changed: the rig's old list of backends is written as every agent's `models.agents.via`, so the thinker's source
+  // before the refusal is the list's first backend, and the refusal must leave it as it was.
+  const sourceBefore = readKeysFile(one.dir).subharness.uses?.thinker;
   const network = noNetwork();
   let answer: Answer;
   try {
@@ -308,7 +311,7 @@ test('a model check that fails is reported with the reason it gave and saves not
   assert.equal(answer.code, 'model-rejected');
   assert.ok(answer.text.includes('that model is not on this plan'), answer.text);
   const stored = readKeysFile(one.dir).subharness;
-  assert.equal(stored.uses?.thinker, undefined);
+  assert.equal(stored.uses?.thinker, sourceBefore);
   assert.equal(stored.models?.thinker, undefined);
   assert.equal(one.checks.length, 1, 'the one check the owner asked for');
   assert.deepEqual(network.reached, []);

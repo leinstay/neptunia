@@ -1,6 +1,7 @@
 // The key store: `keys.json` in the private folder, the one file that holds the model keys of a deployment. The core
-// list (`core`, the first key is the primary), the extra keys by name and the base roles bound to an extra key live
-// here; the sections of later features (`subharness`, `simulation`) pass through every write untouched. Every read goes
+// list (`core`, the first key is the primary) and the extra keys by name live here, and the service credentials pass
+// through every write untouched. Which role is bound to which extra key is routing: `bind` and `unbind` write it to
+// `llm.boundKeys` of config.json (src/subharness/routing.ts), and no write leaves routing in keys.json. Every read goes
 // to the file at the moment of use, so a key added from the chat is used by the next request. The file is mode 600,
 // written whole to a temp file and renamed over the old one, with the mode set on every write. A listing shows a key's
 // name and its last four characters, never a value; an error names a code and never holds a value, a bad name or the
@@ -8,7 +9,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { readRouting, updateRouting } from '../subharness/routing.ts';
 import { SEARCH_ROLE, roleGroup } from '../llm/roles.ts';
+import { secretsOnly } from './file.ts';
 
 export const KEYS_FILE = 'keys.json';
 
@@ -73,7 +76,7 @@ export type KeyStore = {
   setGrant(name: string, grant: { grant: number; resetDay: number } | null): void;
   addExtra(input: { name: string; value: string; from?: string }): void;
   removeExtra(name: string): void;
-  /** Binds a base role to an extra key. */
+  /** Binds a base role to an extra key, in config.json. */
   bind(role: string, name: string): void;
   unbind(role: string): void;
   /** The `.env` variable each imported key came from, by key name. */
@@ -84,7 +87,6 @@ type CoreRow = { name: string; value: string; grant: number | null; resetDay: nu
 type Content = {
   core: Array<CoreRow>;
   extra: Record<string, string>;
-  roles: Record<string, string>;
   variables: Record<string, string>;
 };
 
@@ -151,17 +153,16 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
     const raw = readRaw();
     const core = coreRowsOf(raw.core);
     const extra = stringMapOf(raw.extra);
-    const roles = stringMapOf(raw.roles);
-    if (core === null || extra === null || roles === null) throw new KeysError('unreadable-file');
+    if (core === null || extra === null) throw new KeysError('unreadable-file');
     const variables = stringMapOf(raw.variables);
     if (variables === null) throw new KeysError('unreadable-file');
-    return { core, extra, roles, variables };
+    return { core, extra, variables };
   }
 
-  /** Writes the three sections the store owns and keeps every other section of the file as it was. */
+  /** Writes the three sections the store owns and keeps every other secret section of the file as it was. */
   function write(content: Content): void {
-    const kept = readRaw();
-    const text = `${JSON.stringify({ ...kept, core: content.core, extra: content.extra, roles: content.roles, variables: content.variables }, null, 2)}\n`;
+    const kept = secretsOnly(readRaw());
+    const text = `${JSON.stringify({ ...kept, core: content.core, extra: content.extra, variables: content.variables }, null, 2)}\n`;
     fs.mkdirSync(privateDir, { recursive: true, mode: 0o700 });
     const temp = `${file}.${process.pid}.tmp`;
     try {
@@ -187,7 +188,8 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
 
   return {
     list() {
-      const { core, extra, roles } = read();
+      const { core, extra } = read();
+      const { roles } = readRouting(privateDir);
       return {
         core: core.map((row) => ({
           name: row.name,
@@ -207,7 +209,7 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
     },
     coreNames: () => read().core.map((row) => row.name),
     boundTo(role) {
-      const { roles } = read();
+      const { roles } = readRouting(privateDir);
       return Object.hasOwn(roles, role) ? (roles[role] ?? null) : null;
     },
     valueOf(name) {
@@ -252,7 +254,7 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
     removeExtra(name) {
       const content = read();
       if (!Object.hasOwn(content.extra, name)) throw new KeysError('unknown-key');
-      if (Object.values(content.roles).includes(name)) throw new KeysError('key-in-use');
+      if (Object.values(readRouting(privateDir).roles).includes(name)) throw new KeysError('key-in-use');
       delete content.extra[name];
       delete content.variables[name];
       write(content);
@@ -261,15 +263,15 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
       const content = read();
       if (roleGroup(role) !== 'base' && role !== SEARCH_ROLE) throw new KeysError('unknown-role');
       if (!Object.hasOwn(content.extra, name)) throw new KeysError('unknown-key');
-      content.roles[role] = name;
-      write(content);
+      updateRouting(privateDir, (routing) => ({ ...routing, roles: { ...routing.roles, [role]: name } }));
     },
     variables: () => ({ ...read().variables }),
     unbind(role) {
-      const content = read();
-      if (!Object.hasOwn(content.roles, role)) throw new KeysError('not-bound');
-      delete content.roles[role];
-      write(content);
+      if (!Object.hasOwn(readRouting(privateDir).roles, role)) throw new KeysError('not-bound');
+      updateRouting(privateDir, (routing) => ({
+        ...routing,
+        roles: Object.fromEntries(Object.entries(routing.roles).filter(([bound]) => bound !== role)),
+      }));
     },
   };
 }

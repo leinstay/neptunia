@@ -34,6 +34,18 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 <!-- settings: models.development -->
 
+## models.agents
+
+Which backend, model, effort, provider and mode each agent runs on, and the extra key `opencode` runs on. `src/subharness/routing.ts` reads them at each run, and `/model set` and `/subharness mode` write them. See [Keys and models](keys.md#model-sources).
+
+<!-- settings: models.agents -->
+
+## models.harness
+
+The paths of her core, her memory writer and the simulation through a subharness. `src/subharness/routing.ts` reads them at each request, and `/model set <role> <model> --via <route>` writes them after one reply. See [Keys and models](keys.md#her-core-on-a-subscription).
+
+<!-- settings: models.harness -->
+
 ## llm
 
 <!-- settings: llm -->

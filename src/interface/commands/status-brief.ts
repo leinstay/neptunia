@@ -9,7 +9,7 @@ import { sessionSettings } from '../../memory/db/session.ts';
 import type { RouteBackend } from '../../subharness/route-names.ts';
 import { routeName } from '../../subharness/route-names.ts';
 
-/** The path of a role as keys.json holds it: the API, or one harness with the model it runs. */
+/** The path of a role as config.json holds it: the API, or one harness with the model it runs. */
 export type RolePath = { kind: 'direct' } | { kind: 'subharness'; backend: RouteBackend; model: string };
 
 export type RoleFacts = { model: string | null; route: string; bound: boolean };
@@ -25,7 +25,7 @@ export type StatusBriefDeps = {
   config: () => unknown;
   paused: () => boolean;
   pauseReason: () => string | null;
-  /** The keys.json path of the core or the memory writer, read at the call. */
+  /** The config.json path of the core or the memory writer, read at the call. */
   path: (role: 'core' | 'memory') => RolePath;
   /** Whether the key ring holds a key for `role`'s requests on the API. */
   hasKey: (role: string) => boolean;

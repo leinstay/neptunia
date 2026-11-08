@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { readKeys } from '../src/keys/file.ts';
+import { readRouting } from '../src/subharness/routing.ts';
 import { watcherStep } from '../src/setup/watcher.ts';
 import type { WatcherStepDeps } from '../src/setup/watcher.ts';
 import { keysPath, readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
@@ -87,7 +87,7 @@ test('the backend question offers the first connected backend when the watcher h
   await watcherStep(r.options, r.deps);
   assert.equal(r.asked[2]?.offered, 'claude');
   // Changed: the stored list already migrated to this `uses` entry at read time, so the step has nothing to write.
-  assert.equal(readKeys(r.options.privateDir).subharness.uses.watcher, 'claude');
+  assert.equal(readRouting(r.options.privateDir).subharness.uses.watcher, 'claude');
 });
 
 test('an empty model with none offered stores no model, so the backend runs on its default', async () => {
@@ -96,7 +96,7 @@ test('an empty model with none offered stores no model, so the backend runs on i
   r.answers = ['on', '00:00', 'codex', ''];
   await watcherStep(r.options, r.deps);
   // Changed: the stored list already migrated to this `uses` entry at read time, so the step has nothing to write.
-  assert.equal(readKeys(r.options.privateDir).subharness.uses.watcher, 'codex');
+  assert.equal(readRouting(r.options.privateDir).subharness.uses.watcher, 'codex');
   assert.equal(Object.hasOwn(readKeysFile(r.options.privateDir).subharness.models ?? {}, 'watcher'), false);
 });
 
@@ -121,11 +121,14 @@ test('on with no connected backend is refused and stored off', async () => {
 test('a backend that is not connected is refused and stored nowhere', async () => {
   // Catches: the watcher is pointed at claude while only codex is connected, and every run is refused subharness-off.
   const r = rig(null, ['codex']);
+  // Changed: the rig's list of connected backends is written as every agent's `models.agents.via`, so the watcher's
+  // source before the step is codex, and the refused claude must leave it there.
+  const before = readKeysFile(r.options.privateDir).subharness.uses?.watcher;
   r.answers = ['on', '00:00', 'claude', ''];
   const outcome = await watcherStep(r.options, r.deps);
   assert.equal(outcome.state, 'refused');
   assert.equal(watcherOf(r.options.privateDir).enabled, false);
-  assert.equal(readKeysFile(r.options.privateDir).subharness.uses?.watcher, undefined);
+  assert.equal(readKeysFile(r.options.privateDir).subharness.uses?.watcher, before);
 });
 
 test('a rerun that keeps every value is already done and rewrites neither file', async () => {

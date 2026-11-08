@@ -1,7 +1,7 @@
 // The owner's settings of the subharness roles: the source, model and effort each agent runs on and the mode it runs in.
 // A source is a backend that is installed and logged in (src/subharness/sources.ts); it has no switch of its own, and its
-// account commands are src/subharness/account.ts. Everything is stored in keys.json (src/keys/file.ts) and read again at
-// each use, so a change needs no restart. The shape follows the approval mode of Hermes (hermes_cli/approval_mode.py): a
+// account commands are src/subharness/account.ts. Everything is stored under `models.agents` of config.json
+// (src/subharness/routing.ts) and read again at each use, so a change needs no restart. The shape follows the approval mode of Hermes (hermes_cli/approval_mode.py): a
 // tuple of modes, a frozen result with `ok`, `changed` and a message, no argument inspects, and the one write of each
 // change is in this file. No result, log line or status text carries a key value, only a key's name.
 
@@ -12,8 +12,9 @@ import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { EFFORT_LEVELS, isEffortLevel, isListedEffort } from '../llm/roles.ts';
 import type { EffortLevel } from '../llm/roles.ts';
-import { SUBHARNESS_AGENTS, readKeys, writeKeys } from '../keys/file.ts';
-import type { KeyStore, SubharnessAgent } from '../keys/file.ts';
+import { SUBHARNESS_AGENTS, readRouting, updateRouting } from './routing.ts';
+import type { Routing, SubharnessAgent } from './routing.ts';
+import { readKeys } from '../keys/file.ts';
 import { modelOfBackend } from './place.ts';
 import { routeName, routeNamesText } from './route-names.ts';
 import { checkedSelection, listsEffort } from './selection.ts';
@@ -87,9 +88,9 @@ export function modeOf(modes: Readonly<Record<string, string>>, agent: string): 
   return isAgent(agent) ? DEFAULT_MODES[agent] : FALLBACK_MODE;
 }
 
-/** The subharness as keys.json and the installed sources hold it now. Runs each CLI's status command, no model. */
+/** The subharness as config.json and the installed sources hold it now. Runs each CLI's status command, no model. */
 export async function subharnessView(privateDir: string): Promise<SubharnessView> {
-  const stored = readKeys(privateDir).subharness;
+  const stored = readRouting(privateDir).subharness;
   const modes = Object.fromEntries(SUBHARNESS_AGENTS.map((agent) => [agent, modeOf(stored.modes, agent)])) as Record<
     SubharnessAgent,
     AgentMode
@@ -106,7 +107,7 @@ function notAnAgent(name: string): SubharnessResult {
 }
 
 /** What a stored route of `agent` is, for telling whether it moved while a check ran. */
-const routeText = (store: KeyStore, agent: string): string => {
+const routeText = (store: Routing, agent: string): string => {
   const { uses, models, efforts, providers } = store.subharness;
   return JSON.stringify([uses[agent] ?? null, models[agent] ?? null, efforts[agent] ?? null, providers[agent] ?? null]);
 };
@@ -160,7 +161,7 @@ export async function setAgentModel(
   const noEffort = (word: string): SubharnessResult =>
     refused('unknown-effort', `${word} is no effort; use ${EFFORT_LEVELS.join(', ')}`);
   if (level !== undefined && !isListedEffort(level)) return noEffort(level);
-  const store = readKeys(deps.privateDir);
+  const store = readRouting(deps.privateDir);
   const current = backendOfAgent(store.subharness, agent);
   const backend = via === undefined ? current : BACKEND_NAMES.find((one) => one === via);
   if (backend === undefined)
@@ -172,7 +173,7 @@ export async function setAgentModel(
   const unsupported = providerUnsupported(provider, backend);
   if (unsupported !== null) return unsupported;
   const { key } = store.subharness;
-  const value = key === null ? '' : (store.extra[key] ?? '');
+  const value = key === null ? '' : (readKeys(deps.privateDir).extra[key] ?? '');
   const model = modelOfBackend(backend, typed);
   return checkedSelection(
     deps,
@@ -184,23 +185,24 @@ export async function setAgentModel(
       ...(level === undefined ? {} : { effort: level }),
       ...(provider === undefined ? {} : { provider }),
     },
-    () => routeText(readKeys(deps.privateDir), agent),
+    () => routeText(readRouting(deps.privateDir), agent),
     () => {
-      const fresh = readKeys(deps.privateDir);
-      const { efforts, uses } = fresh.subharness;
-      const kept =
-        backend === uses[agent] && effort !== DEFAULT_EFFORT
-          ? efforts
-          : Object.fromEntries(Object.entries(efforts).filter(([role]) => role !== agent));
-      writeKeys(deps.privateDir, {
-        ...fresh,
-        subharness: {
-          ...fresh.subharness,
-          providers: pinnedTo(fresh.subharness.providers, agent, provider),
-          uses: { ...fresh.subharness.uses, [agent]: backend },
-          models: { ...fresh.subharness.models, [agent]: model },
-          efforts: level === undefined ? kept : { ...kept, [agent]: level },
-        },
+      updateRouting(deps.privateDir, (fresh) => {
+        const { efforts, uses } = fresh.subharness;
+        const kept =
+          backend === uses[agent] && effort !== DEFAULT_EFFORT
+            ? efforts
+            : Object.fromEntries(Object.entries(efforts).filter(([role]) => role !== agent));
+        return {
+          ...fresh,
+          subharness: {
+            ...fresh.subharness,
+            providers: pinnedTo(fresh.subharness.providers, agent, provider),
+            uses: { ...fresh.subharness.uses, [agent]: backend },
+            models: { ...fresh.subharness.models, [agent]: model },
+            efforts: level === undefined ? kept : { ...kept, [agent]: level },
+          },
+        };
       });
       const at = level === undefined ? '' : ` at ${level} effort`;
       const pin = provider === undefined ? '' : `, pinned to ${provider} alone`;
@@ -219,12 +221,12 @@ export function backendOfAgent(
 
 /**
  * The path the core puts inside a task for `agent`: the backend it runs through, its model and effort (null where the
- * owner set none), its mode and the provider it is pinned to (absent where none), as keys.json holds them now. Null while the agent has no source; a source that is
- * gone from the machine fails the run with `not-installed`, where a runner can see it. Throws when keys.json cannot be
+ * owner set none), its mode and the provider it is pinned to (absent where none), as config.json holds them now. Null while the agent has no source; a source that is
+ * gone from the machine fails the run with `not-installed`, where a runner can see it. Throws when config.json cannot be
  * read.
  */
 export function routeOfAgent(privateDir: string, agent: string): TaskRoute | null {
-  const stored = readKeys(privateDir).subharness;
+  const stored = readRouting(privateDir).subharness;
   const backend = backendOfAgent(stored, agent);
   if (backend === null) return null;
   return {
@@ -247,8 +249,7 @@ export function setAgentMode(
       ...refused('unknown-agent', `${agent} is no agent; use ${SUBHARNESS_AGENTS.join(', ')}`),
       mode: null,
     });
-  const store = readKeys(privateDir);
-  const current = modeOf(store.subharness.modes, agent);
+  const current = modeOf(readRouting(privateDir).subharness.modes, agent);
   if (mode === undefined) return Promise.resolve({ ...done(`${agent} runs in ${current}`, false), mode: current });
   if (!isMode(mode))
     return Promise.resolve({
@@ -256,8 +257,10 @@ export function setAgentMode(
       mode: null,
     });
   if (mode === current) return Promise.resolve({ ...done(`${agent} runs in ${mode} already`, false), mode });
-  const modes = { ...store.subharness.modes, [agent]: mode };
-  writeKeys(privateDir, { ...store, subharness: { ...store.subharness, modes } });
+  updateRouting(privateDir, (store) => ({
+    ...store,
+    subharness: { ...store.subharness, modes: { ...store.subharness.modes, [agent]: mode } },
+  }));
   return Promise.resolve({ ...done(`${agent} runs in ${mode} from its next run`), mode });
 }
 
@@ -283,9 +286,9 @@ export type AgentPath = {
   provider?: string;
 };
 
-/** Each agent's path as keys.json holds it now. */
+/** Each agent's path as config.json holds it now. */
 export function agentPaths(privateDir: string): Array<AgentPath> {
-  const stored = readKeys(privateDir).subharness;
+  const stored = readRouting(privateDir).subharness;
   return SUBHARNESS_AGENTS.map((agent) => ({
     agent,
     backend: backendOfAgent(stored, agent),

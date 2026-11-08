@@ -6,7 +6,7 @@
 
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
-import { readKeys, SUBHARNESS_AGENTS } from '../keys/file.ts';
+import { opencodeKey, SUBHARNESS_AGENTS } from './routing.ts';
 import { roleModelListing } from '../keys/models.ts';
 import { MEMORY_ROLE } from '../llm/roles.ts';
 import { FIXED_MODELS } from './models.ts';
@@ -62,9 +62,7 @@ async function ofBackend(deps: ChoicesDeps, backend: BackendName, role: string):
   if (!state.available) return { choices: [], notices: [{ source: backend, code: state.code }] };
   if (backend !== 'opencode')
     return { choices: FIXED_MODELS[backend].map((model) => choice(backend, model, true)), notices: [] };
-  const store = readKeys(deps.privateDir);
-  const { key } = store.subharness;
-  return listed(deps, backend, key === null ? '' : (store.extra[key] ?? ''), role);
+  return listed(deps, backend, opencodeKey(deps.privateDir)?.value ?? '', role);
 }
 
 /** The choices of `role` now, OpenRouter's first. */

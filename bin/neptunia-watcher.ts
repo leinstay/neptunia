@@ -11,6 +11,7 @@ import { readConfig } from '../src/config.ts';
 import { serviceCredential } from '../src/keys/file.ts';
 import { proxyForRun } from '../src/net/proxy.ts';
 import { readKeys } from '../src/keys/file.ts';
+import { readRouting } from '../src/subharness/routing.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { backendOfAgent } from '../src/subharness/control.ts';
@@ -33,10 +34,10 @@ import { openBoardCaller } from './neptunia-task.ts';
 
 type Where = { rootDir: string; privateDir: string; dataDir: string };
 
-/** The backend, model and effort of the watcher as keys.json holds them, for the log line of the run. */
+/** The backend, model and effort of the watcher as config.json holds them, for the log line of the run. */
 function selectedOf(privateDir: string): InspectionDeps['selected'] {
   try {
-    const { subharness } = readKeys(privateDir);
+    const { subharness } = readRouting(privateDir);
     return {
       backend: backendOfAgent(subharness, 'watcher'),
       model: subharness.models.watcher ?? null,
@@ -68,7 +69,7 @@ async function moneyOf(where: Where, config: unknown): Promise<MoneyFacts> {
     return await moneyFacts({
       db,
       keys: moneyKeysOf(store),
-      roleSlots: store.roles,
+      roleSlots: readRouting(where.privateDir).roles,
       requestsToday: requestsTodayOf(db, now),
       fetch: (url, init) => fetch(url, init),
       now: () => now,

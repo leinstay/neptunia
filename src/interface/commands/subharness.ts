@@ -1,5 +1,5 @@
 // The owner's `/subharness`, `/agent mode` and `/simulation` commands: what the console (console.ts) runs for
-// `subharness.*`, `agent.mode` and `simulation.*` over keys.json (src/subharness/, src/simulation/). A refused change answers `failed` with the command as
+// `subharness.*`, `agent.mode` and `simulation.*` over the routing of config.json (src/subharness/routing.ts). A refused change answers `failed` with the command as
 // the owner typed it and the reason; a change answers `ok` with what it did. The text is for the owner alone, carries a
 // key's name and never its value, and never reaches a request. Only the owner's chat reaches the console, so a mode is
 // never changed by an agent.
@@ -234,7 +234,7 @@ export async function subharnessCommand(
   }
 }
 
-/** Runs `simulation.<sub>` over the private directory's keys.json. */
+/** Runs `simulation.<sub>` over the routing of the private directory's config.json. */
 export function simulationCommand(
   privateDir: string,
   name: string,

@@ -4,7 +4,7 @@ The engine ships agent definitions under `agents/<name>/`. Each definition has a
 
 The [development worker](selfimprovement.md) runs the thinker and dev on a filed task, each through its own route in `keys.json`. Scout and server handle errands. The watcher inspects the project and reports findings. Overriding an existing profile does not introduce a new agent kind.
 
-The watcher and development units hide the other clients' tokens and the interfaces' `credentials.json` from their agents with `InaccessiblePaths=` (see [what the watcher enforces](watcher.md#what-the-system-enforces)). Each keeps its own token, since the worker needs it to reach the board, and `keys.json`, since the worker reads each agent's route from it. The development client carries the board roles `reviewer` and `worker`, and both approve only at risk `low`. A client made after a unit was rendered stays visible to it until `neptunia setup` renders the unit again.
+The watcher and development units hide the other clients' tokens and the interfaces' `credentials.json` from their agents with `InaccessiblePaths=` (see [what the watcher enforces](watcher.md#what-the-system-enforces)). Each keeps its own token, since the worker needs it to reach the board, and `config.json`, since the worker reads each agent's route from it. The development client carries the board roles `reviewer` and `worker`, and both approve only at risk `low`. A client made after a unit was rendered stays visible to it until `neptunia setup` renders the unit again.
 
 ## Customize an agent
 

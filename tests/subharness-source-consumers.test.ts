@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chatPanel } from '../bin/chat-panels.ts';
-import { readKeys, writeKeys } from '../src/keys/file.ts';
+import { readRouting } from '../src/subharness/routing.ts';
 import { subharnessCommand } from '../src/interface/commands/subharness.ts';
 import { unitText } from '../src/setup/install.ts';
 import type { UnitTarget } from '../src/setup/install.ts';
@@ -23,7 +23,7 @@ import { subharnessPlace } from '../src/subharness/place.ts';
 import { runAgent } from '../src/subharness/run.ts';
 import { featureRows } from '../src/subharness/summary.ts';
 import { fakeVendor, treeOf } from './fixtures/fake-vendor.ts';
-import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
+import { writeKeysFile } from './fixtures/keys-file.ts';
 import type { KeysFile } from './fixtures/keys-file.ts';
 import { fakeFetch } from './fixtures/keys-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -36,50 +36,8 @@ function storeWith(subharness: Partial<KeysFile['subharness']>): string {
   return privateDir;
 }
 
-// Migration of the stored list
-
-test('a stored list becomes the role of every agent that named no backend, and models, efforts and modes stay', () => {
-  // Catches: dropping the list silently moves an agent that ran through backends[0] onto nothing.
-  const privateDir = storeWith({
-    backends: ['codex', 'claude'],
-    uses: { scout: 'claude' },
-    models: { dev: 'gpt-6.1-sol' },
-    efforts: { dev: 'high' },
-    modes: { dev: 'full' },
-  });
-  const { subharness } = readKeys(privateDir);
-  assert.deepEqual(subharness.uses, {
-    scout: 'claude',
-    server: 'codex',
-    dev: 'codex',
-    watcher: 'codex',
-    thinker: 'codex',
-  });
-  assert.deepEqual(subharness.models, { dev: 'gpt-6.1-sol' });
-  assert.deepEqual(subharness.efforts, { dev: 'high' });
-  assert.deepEqual(subharness.modes, { dev: 'full' });
-});
-
-test('the single backend of the oldest store migrates the same way', () => {
-  // Catches: the store written before the list reads as no assignment, so a restored persona loses her agents.
-  const privateDir = storeWith({ backend: 'claude' });
-  assert.equal(readKeys(privateDir).subharness.uses.dev, 'claude');
-});
-
-test('the next write leaves no enabled list in the file, and reading it again changes nothing', () => {
-  // Catches: the list survives a write, so an old consumer can go on reading a flag nobody maintains.
-  const privateDir = storeWith({ backends: ['codex'], modes: { server: 'read' } });
-  const first = readKeys(privateDir);
-  writeKeys(privateDir, first);
-  const onDisk = readKeysFile(privateDir).subharness;
-  assert.equal(Object.hasOwn(onDisk, 'backends'), false);
-  assert.equal(Object.hasOwn(onDisk, 'backend'), false);
-  assert.deepEqual(readKeys(privateDir), first);
-  // An empty list invents no default for a persona that never chose one, and opencode keeps its key's name.
-  const empty = readKeys(storeWith({ backends: [], key: 'oc-1' })).subharness;
-  assert.deepEqual(empty.uses, {});
-  assert.equal(empty.key, 'oc-1');
-});
+// Changed: the tests of the stored list's migration are gone. The engine reads the agents' backends from
+// `models.agents.via` of config.json alone, and the deploy's one-off moved the old list there.
 
 // Runner selection
 
@@ -209,7 +167,7 @@ test('the watcher step takes an installed, authenticated source the old list omi
     watcherRig(privateDir, ['on', 'every 6h', 'claude', 'sonnet'])
   );
   assert.equal(outcome.state, 'done');
-  assert.equal(readKeys(privateDir).subharness.uses.watcher, 'claude');
+  assert.equal(readRouting(privateDir).subharness.uses.watcher, 'claude');
 });
 
 test('the watcher step refuses a source that is installed and not logged in', async () => {

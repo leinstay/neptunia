@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readPrompts } from '../hot.ts';
-import { readKeys } from '../keys/file.ts';
+import { readRouting } from '../subharness/routing.ts';
 import { auditMemory, auditSettingsOf } from '../memory/db/audit.ts';
 import { openMemoryDb } from '../memory/db/open.ts';
 import { dbOf } from '../memory/db/types.ts';
@@ -295,7 +295,7 @@ export function watcherSelect(deps: ServiceDeps, args: Readonly<Record<string, u
 /** The backend, model and effort the watcher runs on, `default` for what the backend picks, `unknown` with no backend. */
 function sourceText(deps: ServiceDeps): string {
   try {
-    const { subharness } = readKeys(deps.privateDir);
+    const { subharness } = readRouting(deps.privateDir);
     const backend = backendOfAgent(subharness, 'watcher');
     if (backend === null) return 'unknown';
     return `${backend} ${subharness.models.watcher ?? 'default'} ${subharness.efforts.watcher ?? 'default'}`;

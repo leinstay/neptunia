@@ -16,7 +16,7 @@ import {
   subharnessView,
 } from '../src/subharness/control.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
-import { readKeys } from '../src/keys/file.ts';
+import { readRouting } from '../src/subharness/routing.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
@@ -59,7 +59,7 @@ test('a store with no subharness section reads as off with the default modes', a
   const dir = tempDir('nep-subharness-');
   writeKeysFile(dir);
   // Changed: off is a store with no source named for any agent, and the view lists every source as it stands.
-  assert.deepEqual(readKeys(dir).subharness.uses, {});
+  assert.deepEqual(readRouting(dir).subharness.uses, {});
   const view = await subharnessView(dir);
   assert.equal(view.key, null);
   assert.deepEqual(view.modes, DEFAULT_MODES);

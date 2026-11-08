@@ -1,15 +1,16 @@
 // The simulation's switch and its one key reader. The simulation is the paid scripts of scripts/ (the replay, the
 // recall evaluation, the memory session): they spend a named `extra` key of keys.json and nothing else, and refuse with
-// one line while the simulation is off. `simulation enable --key <name>` names the key, `simulation disable` forgets
-// it. The shape follows the other features of Hermes' tool configuration (hermes_cli/tools_config.py): the same
+// one line while the simulation is off. `simulation enable --key <name>` names the key in `llm.simulationKey` of
+// config.json (src/subharness/routing.ts), `simulation disable` forgets it. The shape follows the other features of Hermes' tool configuration (hermes_cli/tools_config.py): the same
 // result as the subharness, a state that is read at each use. Nothing here prints a key value.
 
 import type { SubharnessResult } from '../subharness/control.ts';
-import { hasExtraKey, readKeys, writeKeys } from '../keys/file.ts';
+import { readRouting, updateRouting } from '../subharness/routing.ts';
+import { hasExtraKey, readKeys } from '../keys/file.ts';
 
-/** The simulation as keys.json holds it: whether it is on, and the name of its key. */
+/** The simulation as config.json holds it: whether it is on, and the name of its key. */
 export function simulationStatus(privateDir: string): { on: boolean; key: string | null } {
-  const { key } = readKeys(privateDir).simulation;
+  const { key } = readRouting(privateDir).simulation;
   return { on: key !== null, key };
 }
 
@@ -23,18 +24,17 @@ export function enableSimulation(privateDir: string, name: string): SubharnessRe
       changed: false,
       message: `${name} is no extra key; the simulation never spends a core key`,
     };
-  if (store.simulation.key === name)
+  if (readRouting(privateDir).simulation.key === name)
     return { ok: true, code: 'ok', changed: false, message: `the simulation is on with key ${name} already` };
-  writeKeys(privateDir, { ...store, simulation: { key: name } });
+  updateRouting(privateDir, (routing) => ({ ...routing, simulation: { key: name } }));
   return { ok: true, code: 'ok', changed: true, message: `the simulation is on with key ${name}` };
 }
 
 /** Switches the simulation off. */
 export function disableSimulation(privateDir: string): SubharnessResult {
-  const store = readKeys(privateDir);
-  if (store.simulation.key === null)
+  if (readRouting(privateDir).simulation.key === null)
     return { ok: true, code: 'ok', changed: false, message: 'the simulation is off already' };
-  writeKeys(privateDir, { ...store, simulation: { key: null } });
+  updateRouting(privateDir, (routing) => ({ ...routing, simulation: { key: null } }));
   return { ok: true, code: 'ok', changed: true, message: 'the simulation is off; the paid scripts refuse to run' };
 }
 
@@ -48,8 +48,8 @@ function refusal(message: string): Error {
  * that names `simulation enable` while the simulation is off or its key has left the store.
  */
 export function simulationKey(privateDir: string): string {
+  const { key } = readRouting(privateDir).simulation;
   const store = readKeys(privateDir);
-  const { key } = store.simulation;
   if (key === null) throw refusal('the simulation is off: switch it on with "simulation enable --key <name>"');
   if (!hasExtraKey(store, key))
     throw refusal(`the simulation key ${key} is not in the store: name another with "simulation enable --key <name>"`);

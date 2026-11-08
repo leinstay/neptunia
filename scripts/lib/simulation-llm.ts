@@ -1,6 +1,6 @@
 // The llm of a paid script (scripts/replay.ts, scripts/inner-week.ts, scripts/memory-session.ts,
 // scripts/recall-eval.ts), re-exported by scripts/lib/cli.ts. The script reads the simulation's route of keys.json
-// (`subharness.simulation`, src/subharness/subscription-path.ts) once at its start. With no route stored, every request
+// (`models.harness.simulation`, src/subharness/subscription-path.ts) once at its start. With no route stored, every request
 // spends the simulation key through the direct client. With a route stored, requests of the role `core` run through
 // `claude` or `codex` (src/subharness/subscription-client.ts), and every other role (the analyzer, the describers, the
 // embedder) spends the simulation key when one is set and is refused with `simulation-off` when none is. A core step

@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createErrandService } from '../src/errands/service.ts';
 import { createErrandStores } from '../src/errands/store.ts';
-import { keysPath, writeKeysFile } from './fixtures/keys-file.ts';
+import { writeKeysFile } from './fixtures/keys-file.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
@@ -110,10 +110,12 @@ test("an opencode route carries no credential: the task's secrets hold the extra
   assert.ok(!JSON.stringify(runs[0]).includes('sk-agent-SECRET'));
 });
 
-test('an errand fails without being sent when the core cannot read keys.json for its route', async () => {
+test('an errand fails without being sent when the core cannot read config.json for its route', async () => {
   // Catches: the broken file is read as "no route", so the runner falls back to its own view of the switch and runs on another backend.
+  // Changed: the route lives in config.json, so the broken file is that one.
   const privateDir = tempDir('nep-errands-route-');
-  fs.writeFileSync(keysPath(privateDir), '{not json');
+  fs.mkdirSync(path.join(privateDir, 'config'), { recursive: true });
+  fs.writeFileSync(path.join(privateDir, 'config', 'config.json'), '{not json');
   const { errands, runs } = rig(privateDir);
   const accepted = errands.submit(ask);
   assert.ok(accepted.ok);

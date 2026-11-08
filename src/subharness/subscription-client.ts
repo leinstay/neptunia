@@ -1,5 +1,5 @@
 // Her core requests through a subscription CLI: the client in front of the direct client (src/llm/openrouter.ts) while
-// the route of keys.json (src/subharness/subscription-path.ts) names a backend. The step loop stays as it is and calls
+// the route of config.json (src/subharness/subscription-path.ts) names a backend. The step loop stays as it is and calls
 // `complete` per step. The first step of a turn starts one `claude -p` or `codex exec` with her system text in place of
 // the CLI's own and her user text on stdin, and resolves when the model's first call stops. Her tools reach the CLI
 // through the `nep` MCP server (bin/neptunia-mcp.ts), which forwards each call over the core socket to the tool bridge
@@ -49,7 +49,7 @@ export type SubscriptionProcess = { lines: AsyncIterable<string>; exited: Promis
 
 export type SubscriptionClientDeps = {
   privateDir: string;
-  /** The record of keys.json this client reads: the core's, or the simulation's. */
+  /** The record of config.json this client reads: the core's, or the simulation's. */
   route: SubscriptionRole;
   /** The route as a paid script read it once at its start; absent, the record is read again at every first step. */
   fixedPath?: SubscriptionPath;
@@ -737,7 +737,7 @@ export function createSubscriptionClient(deps: SubscriptionClientDeps): {
     [...sessions].find((session) => session.entries.some((entry) => results.some((one) => one.id === entry.id))) ??
     null;
 
-  /** Whether the direct client has a key to go out on: keys.json names one for the route, or none is kept there at all. */
+  /** Whether the direct client has a key to go out on: one is bound to the route or a core key is kept, or keys.json is absent. */
   function apiKeyExists(): boolean {
     try {
       if (!keysFileExists(deps.privateDir)) return true;

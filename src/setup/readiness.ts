@@ -163,7 +163,7 @@ function modelOnDisk(privateDir: string, dataDir: string): ReadinessHealth['mode
 
 /**
  * How her turns run: `routeDown` while a subscription backend carries them and cannot run now, `harness` while one
- * carries them at all. A keys.json that cannot be read says neither.
+ * carries them at all. A config.json that cannot be read says neither.
  */
 async function coreRoute(privateDir: string): Promise<{ routeDown?: true; harness?: true }> {
   let path: ReturnType<typeof subscriptionPath>;

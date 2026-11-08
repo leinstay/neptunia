@@ -232,7 +232,7 @@ async function readKey(
 
 /**
  * The money fact over the requests of the 24 hours before `now`: the spend, each key's balance, the rails and their
- * runways. `roleSlots` names the extra key a role spends on (keys.json `roles`); a role with none spends on `core`.
+ * runways. `roleSlots` names the extra key a role spends on (`llm.boundKeys` of config.json); a role with none spends on `core`.
  * `requestsToday` is the engine's count against `llm.maxRequestsPerDay`, whose day ends at midnight UTC.
  */
 export async function moneyFacts(input: {
@@ -286,7 +286,7 @@ export async function moneyFacts(input: {
 
 /**
  * The keys of keys.json as named slots: the core pool (`core`, or `core:<name>` for each key of a pool of several), every
- * extra key by its name, the simulation key and the paid services (`services.<name>`). Each OpenRouter key is read for its
+ * extra key by its name (the simulation's among them) and the paid services (`services.<name>`). Each OpenRouter key is read for its
  * balance, and a service with no balance read is named as unavailable.
  */
 export function moneyKeysOf(store: KeyStore): Array<MoneyKey> {
@@ -302,11 +302,7 @@ export function moneyKeysOf(store: KeyStore): Array<MoneyKey> {
   for (const [name, value] of Object.entries(store.extra)) {
     if (value.trim() !== '') keys.push({ slot: name, service: 'openrouter', value });
   }
-  const simulationKey = store.simulation.key;
-  if (simulationKey !== null && simulationKey.trim() !== '') {
-    keys.push({ slot: 'simulation', service: 'openrouter', value: simulationKey });
-  }
-  const services = (store as { services?: unknown }).services;
+  const { services } = store;
   for (const [name, value] of Object.entries(isRecord(services) ? services : {})) {
     if (typeof value === 'string' && value.trim() !== '') keys.push({ slot: name, service: name, value });
   }

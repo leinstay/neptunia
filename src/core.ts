@@ -359,7 +359,7 @@ async function buildCore(
   // (src/memory/db/pending-quarantine.ts) is a `pendingQuarantined` fact, held until the inner life exists.
   // The options are named first: the module declares the ones it reads, and `embed` and `selfName` are not among them yet.
   // The session's model client (src/subharness/memory-writer.ts): the chat client below on the direct path, else one run
-  // through the subharness keys.json names; set once the chat client exists. A refused run wakes the memory probe.
+  // through the subharness config.json names; set once the chat client exists. A refused run wakes the memory probe.
   let sessionClient: SessionContext['llm'] | null = null;
   // The probe of the writer's path (src/subharness/memory-probe.ts), created with the pause below.
   let memoryWatch: MemoryWatch | null = null;
@@ -1409,7 +1409,7 @@ async function buildCore(
       if (role === 'core') clearSubscriptionPath(paths.privateDir, 'core');
     },
     harnessOf,
-    // `keys check memory` proves the path the writer runs on: the probe through the backend while keys.json names one.
+    // `keys check memory` proves the path the writer runs on: the probe through the backend while config.json names one.
     memoryPath: () => memoryCheckPath(paths.privateDir),
     probeMemory: () => probeMemoryRaw(clock()),
   });

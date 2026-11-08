@@ -1,7 +1,7 @@
 // Her memory writer through a subharness: the memory session's one request (src/memory/db/session.ts) as one run of
 // `claude -p` or `codex exec` installed in the private layer (src/subharness/place.ts), with no tools, the session's
 // system text in place of the backend's own and the answer read by the same `parseSessionAnswer`. Nothing else of the
-// writer changes. `memoryWriterClient` is the session's model client: at every call it reads the path in keys.json
+// writer changes. `memoryWriterClient` is the session's model client: at every call it reads the path in config.json
 // (src/subharness/memory-path.ts) and sends the request either to the direct client or through the backend. A run that
 // fails rejects with an Error whose `code` says why, which the sweep records as it records a failed request. The child
 // gets the backend's home and the plain variables of `childEnvOf`, never a key of the core. Log lines carry the
@@ -16,7 +16,7 @@ import { childEnvOf, outputLimitEnv, tokensOf } from '../agent-runner/backend.ts
 import { log } from '../log.ts';
 import { SESSION_PURPOSE } from '../memory/db/session.ts';
 import type { Completion, SessionContext } from '../memory/db/session.ts';
-import type { MemoryBackend } from '../keys/file.ts';
+import type { MemoryBackend } from './routing.ts';
 import type { UsageEntry } from '../tools/operations/usage.ts';
 import { markedRun } from './activity.ts';
 import { memoryPath } from './memory-path.ts';
@@ -238,7 +238,7 @@ function splitMessages(messages: ReadonlyArray<Record<string, unknown>>): { syst
 }
 
 /**
- * The session's model client: the direct client or the subharness, by the path in keys.json at each call. Only the
+ * The session's model client: the direct client or the subharness, by the path in config.json at each call. Only the
  * sweep's request (purpose `memory-session`) can take the subharness path; the description review stays direct.
  */
 export function memoryWriterClient(deps: {
