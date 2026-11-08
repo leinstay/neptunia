@@ -5,7 +5,7 @@ import { createElement as h, useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Box, Text } from 'ink';
 import { galaxyFrame } from './galaxy.ts';
-import { caretCell, composerViewport, graphemes, wrapCells } from './layout.ts';
+import { caretCell, composerViewport, graphemes, sliceCells, wrapCells } from './layout.ts';
 import type { MenuCommand } from './state.ts';
 import { THEME } from './theme.ts';
 import { displaySafe } from './transcript.ts';
@@ -13,11 +13,13 @@ import type { RowBlock, TranscriptRow } from './transcript.ts';
 
 const GALAXY_MS = 200;
 const GALAXY_ROWS = 5;
+/** The galaxy's fixed box: every frame is drawn in it, so the title beside it never moves. */
+const GALAXY_COLUMNS = galaxyFrame(0)[0]?.length ?? 13;
 const GALAXY_GAP_ROWS = 1;
 /** Below these sizes the galaxy leaves its rows to the chat (measured: docs/cli.md, "Measured geometry"). */
 const FULL_HEADER_MIN_ROWS = 16;
 const FULL_HEADER_MIN_COLUMNS = 40;
-/** Below this height the header goes altogether, and the input and the footer keep what is left. */
+/** Below this height the header goes altogether, and the input keeps what is left. */
 const LINE_HEADER_MIN_ROWS = 8;
 /** The tallest the input grows. Past it the draft scrolls inside the box. */
 const COMPOSER_MAX_ROWS = 8;
@@ -63,10 +65,15 @@ export function Header({
   return h(
     Box,
     { paddingX: 1, gap: 2, marginBottom: GALAXY_GAP_ROWS, flexShrink: 0 },
-    h(Text, THEME.mark, galaxyFrame(tick).join('\n')),
     h(
       Box,
-      { flexDirection: 'column', flexShrink: 1 },
+      { width: GALAXY_COLUMNS, height: GALAXY_ROWS, flexShrink: 0 },
+      h(Text, { ...THEME.mark, wrap: 'truncate' }, galaxyFrame(tick).join('\n'))
+    ),
+    // A status line wider than the terminal is cut here and never squeezes the galaxy.
+    h(
+      Box,
+      { flexDirection: 'column', flexShrink: 1, minWidth: 0 },
       h(Text, THEME.title, title),
       ...status.split('\n').map((line) => h(Text, { key: line, wrap: 'truncate' }, line))
     )
@@ -87,17 +94,36 @@ function rowStyle(row: TranscriptRow, who: Who | undefined): object {
   return who === 'owner' ? THEME.userMarker : BLOCK_STYLE[row.block];
 }
 
+/** A row's text with the cells of a mouse selection in the selection style. */
+function markedText(text: string, mark: { from: number; to: number } | null): Array<ReactElement | string> {
+  if (mark === null) return [text || ' '];
+  const on = sliceCells(text, mark.from, mark.to);
+  return [
+    sliceCells(text, 0, mark.from),
+    h(Text, { key: 'on', ...THEME.selection }, on || ' '),
+    sliceCells(text, mark.to, Infinity),
+  ];
+}
+
 export function TranscriptRows({
   rows,
   whoOf,
+  marks = [],
 }: {
   rows: ReadonlyArray<TranscriptRow>;
   whoOf: (entryId: string) => Who | undefined;
+  marks?: ReadonlyArray<{ from: number; to: number } | null>;
 }): ReactElement {
   return h(
     Box,
-    { flexDirection: 'column', flexGrow: 1, justifyContent: 'flex-end' },
-    ...rows.map((row, index) => h(Text, { key: String(index), ...rowStyle(row, whoOf(row.entryId)) }, row.text || ' '))
+    { flexDirection: 'column', flexGrow: 1, justifyContent: 'flex-end', overflow: 'hidden' },
+    ...rows.map((row, index) =>
+      h(
+        Text,
+        { key: String(index), ...rowStyle(row, whoOf(row.entryId)) },
+        ...markedText(row.text, marks[index] ?? null)
+      )
+    )
   );
 }
 

@@ -1,12 +1,12 @@
 // The mouse where a terminal has one: SGR reports parsed and taken out of the input before Ink sees them, whether tracking
-// may go on at all, and a click turned into a caret offset. Tracking takes native text selection away, so it stays off
-// unless the setting `cli.mouse` asks for it, and it stays off for a plain or linear screen. The keyboard does everything
-// the mouse does. cli/index.ts wraps stdin with it, and cli/app.ts takes the reports.
+// may go on at all, and a click turned into a caret offset. Tracking takes the terminal's own selection away, so the chat
+// selects and copies itself (cli/chat-controller.ts). The setting `cli.mouse` turns tracking off, and it stays off for a
+// plain or linear screen. cli/index.ts wraps stdin with it, and cli/app.ts takes the reports.
 import { Readable } from 'node:stream';
 import { graphemes, wrapCells, cellWidth } from './layout.ts';
 
 export type MouseReport = {
-  kind: 'press' | 'release' | 'wheel-up' | 'wheel-down';
+  kind: 'press' | 'drag' | 'release' | 'wheel-up' | 'wheel-down';
   button: number;
   column: number;
   row: number;
@@ -20,6 +20,8 @@ const REPORTS = /\u001b\[<\d+;\d+;\d+[Mm]/g;
 const PARTIAL = /\u001b\[(?:<[\d;]*)?$/;
 const WHEEL_UP = 64;
 const WHEEL_DOWN = 65;
+/** The bit a terminal adds to the button of a motion report while that button is held (button-event tracking, 1002). */
+const MOTION = 32;
 /** As long as Ink itself waits for the rest of an escape sequence. A lone Esc passes at once, and Ink keeps it apart from a late `[<`. */
 const PARTIAL_WAIT_MS = 20;
 
@@ -32,6 +34,7 @@ export function parseMouse(input: string): MouseReport | null {
   const row = Number(found[3]);
   if (button === WHEEL_UP) return { kind: 'wheel-up', button, column, row };
   if (button === WHEEL_DOWN) return { kind: 'wheel-down', button, column, row };
+  if ((button & MOTION) !== 0) return { kind: 'drag', button: button - MOTION, column, row };
   return { kind: found[4] === 'M' ? 'press' : 'release', button, column, row };
 }
 

@@ -33,7 +33,6 @@ const ACTIONS = {
   'draft.stash': 'Stash the draft, or bring it back on an empty input',
   'editor.external': 'Edit the draft in $VISUAL or $EDITOR',
   'image.paste': 'Attach an image from the clipboard',
-  'part.inspect': 'Show what stands behind the chip',
   'menu.accept': 'Run the exact command or complete the selected one',
   'menu.complete': 'Complete the selected command',
   'menu.previous': 'Select the row above',
@@ -90,8 +89,8 @@ const INPUT_BINDINGS = {
 
 const DEFAULTS: Readonly<Record<FocusContext, Readonly<Record<string, KeyAction>>>> = {
   composer: INPUT_BINDINGS,
-  // The caret stands right after a chip: the same keys, with Ctrl+O on what the chip holds.
-  attachment: { ...INPUT_BINDINGS, 'ctrl+o': 'part.inspect' },
+  // The caret stands right after a chip: the same keys, so Backspace and Delete take the chip whole.
+  attachment: INPUT_BINDINGS,
   menu: {
     ...INPUT_BINDINGS,
     enter: 'menu.accept',
@@ -176,20 +175,4 @@ export function keyNameOf(typed: string, key: Key): string | null {
   if (key.backspace) return 'backspace';
   if (key.delete) return 'delete';
   return key.ctrl && typed !== '' ? `ctrl+${typed}` : null;
-}
-
-/** The keys named in a footer, in the owner's spelling, as the registry binds them now. */
-export function keyHints(keymap: Keymap, context: FocusContext, hints: ReadonlyArray<[KeyAction, string]>): string {
-  const spelled = (key: string): string =>
-    key
-      .split('+')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join('+');
-  const rows = keymap.help(context);
-  return hints
-    .flatMap(([action, word]) => {
-      const row = rows.find((one) => one.action === action);
-      return row === undefined ? [] : [`${spelled(row.key)} ${word}`];
-    })
-    .join(' · ');
 }

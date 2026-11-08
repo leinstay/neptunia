@@ -14,7 +14,16 @@ export type { ChatAttachment, Draft, DraftPart, PasteLimits } from './composer.t
 export type { KeyBinding } from './keymap.ts';
 export type { StatusBrief } from './state.ts';
 
-/** Draws the chat until the owner leaves. Leaving ends this process only: the core goes on. */
+// Buttons, the wheel and motion while a button is held, in SGR form: the fewest reports a drag selection needs.
+const MOUSE_ON = '\u001b[?1000h\u001b[?1002h\u001b[?1006h';
+const MOUSE_OFF = '\u001b[?1006l\u001b[?1002l\u001b[?1000l';
+const LEAVE_SCREEN = '\u001b[?1049l\u001b[?25h';
+
+/**
+ * Draws the chat until the owner leaves. Leaving ends this process only: the core goes on. Outside the linear mode the
+ * chat owns the whole window on the alternate screen, so no frame reaches the terminal's scrollback, and the primary
+ * screen comes back as it was on Ctrl-C, a SIGINT, a SIGTERM or a crash.
+ */
 export async function runInteractive(
   env: ChatEnv,
   streams: { stdin?: NodeJS.ReadStream; stdout?: NodeJS.WriteStream } = {}
@@ -22,27 +31,44 @@ export async function runInteractive(
   const mouse = env.mouse === true ? mouseFilter(streams.stdin ?? process.stdin) : null;
   const stdout = streams.stdout ?? process.stdout;
   const input = mouse === null ? {} : { stdin: mouse.input };
+  // The linear mode stays inline: a screen reader reads the column in the terminal's own history.
+  const alternateScreen = env.linear !== true;
   // Only a terminal reaches this chat, and Ink otherwise stops drawing under a `CI` variable.
   const app = render(createElement(ChatApp, { env, mouse: mouse?.reports ?? null }), {
     exitOnCtrlC: false,
     interactive: true,
+    alternateScreen,
     ...streams,
     ...input,
   });
-  // SGR reports of buttons and the wheel, with no motion: the fewest reports that do the job.
-  if (mouse !== null) stdout.write('\u001b[?1000h\u001b[?1006h');
-  // A SIGINT leaves like Ctrl-C: the app unmounts, so the lines below run and the terminal comes back.
-  const onSigint = () => app.unmount();
-  process.once('SIGINT', onSigint);
+  if (mouse !== null) stdout.write(MOUSE_ON);
+  let restored = false;
+  /** Mouse tracking off, once. Ink leaves the alternate screen itself when the app unmounts. */
+  const restore = (): void => {
+    if (restored) return;
+    restored = true;
+    if (mouse === null) return;
+    stdout.write(MOUSE_OFF);
+    mouse.close();
+  };
+  // A SIGINT or a SIGTERM leaves like Ctrl-C: the app unmounts, so the lines below run and the terminal comes back.
+  const onSignal = () => app.unmount();
+  // A crash ends the process before the app unmounts: the primary screen and the cursor come back here.
+  const onExit = (): void => {
+    if (alternateScreen) stdout.write(LEAVE_SCREEN);
+    restore();
+  };
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
+  process.once('exit', onExit);
   try {
     await app.waitUntilExit();
   } finally {
-    process.off('SIGINT', onSigint);
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
+    process.off('exit', onExit);
+    restore();
   }
-  if (mouse !== null) {
-    stdout.write('\u001b[?1006l\u001b[?1000l');
-    mouse.close();
-  }
-  // The frame ends on its footer line: the shell prompt starts on a fresh one.
-  stdout.write('\n');
+  // Inline, the frame ends on its last line: the shell prompt starts on a fresh one.
+  if (!alternateScreen) stdout.write('\n');
 }

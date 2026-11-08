@@ -22,7 +22,6 @@ import {
   draftFromHistory,
   draftFromParts,
   draftFromText,
-  inspectPart,
   moveInDraft,
   pasteIntoDraft,
   placeCaret,
@@ -44,16 +43,16 @@ import {
   undo,
 } from './editor-actions.ts';
 import type { EditorState } from './editor-actions.ts';
-import { buildKeymap, keyHints, keyNameOf } from './keymap.ts';
+import { buildKeymap, keyNameOf } from './keymap.ts';
 import type { FocusContext, KeyAction, KeyBinding, Keymap } from './keymap.ts';
-import { caretCell, graphemes, transcriptBudget, wrapCells, wrapWords } from './layout.ts';
+import { caretCell, graphemes, sliceCells, transcriptBudget, wrapCells, wrapWords } from './layout.ts';
 import { caretFromCell } from './mouse.ts';
 import type { MouseReport } from './mouse.ts';
 import type { Panel } from './panel.ts';
 import { FOLD_LINES, backspace, browse, emptyInput, insert, menuOf, moveCursor, statusLine, submit } from './state.ts';
 import type { InputState, MenuCommand, StatusBrief } from './state.ts';
 import { TAIL, displaySafe, scrollView, transcriptWindow } from './transcript.ts';
-import type { TranscriptDims, TranscriptView, TranscriptWindow } from './transcript.ts';
+import type { TranscriptDims, TranscriptRow, TranscriptView, TranscriptWindow } from './transcript.ts';
 import { activeTurn, emptyTurns, queuedTurns, reduceTurns, requestCancel, turnOf } from './turn-state.ts';
 import type { ClientTurnEvent, TurnsState } from './turn-state.ts';
 
@@ -181,11 +180,37 @@ export type Model = EditorState & {
   polledAt: number | null;
   /** one row of feedback, gone with the next key */
   notice: string | null;
+  /** the transcript text the mouse selected, gone with the next key, click or scroll */
+  selection: Selection | null;
   /** until when Enter is swallowed, after a question closed */
   enterHeldUntil: number;
   /** what the core said of the turns */
   turns: TurnsState;
 };
+
+/** A cell of the transcript as last drawn: the index of its row on the screen and a zero-based cell in that row. */
+type TranscriptCell = { row: number; col: number };
+/** A mouse selection from where the button went down to where it is, and the text it held when the button came up. */
+type Selection = { anchor: TranscriptCell; focus: TranscriptCell; dragging: boolean; text: string };
+/** The cells of one drawn row a selection covers, `[from, to)`. */
+export type RowMark = { from: number; to: number };
+
+/** The cells a selection covers on each row it touches, in reading order whichever way the mouse went. */
+function selectionMarks({ anchor, focus }: Selection, rowCount: number): Array<RowMark | null> {
+  const [first, last] =
+    anchor.row < focus.row || (anchor.row === focus.row && anchor.col <= focus.col) ? [anchor, focus] : [focus, anchor];
+  return Array.from({ length: rowCount }, (_none, index) => {
+    if (index < first.row || index > last.row) return null;
+    return { from: index === first.row ? first.col : 0, to: index === last.row ? last.col + 1 : Infinity };
+  });
+}
+
+/** The text a selection covers, its rows joined by newlines. */
+function selectedText(selection: Selection, rows: ReadonlyArray<TranscriptRow>): string {
+  return selectionMarks(selection, rows.length)
+    .flatMap((mark, index) => (mark === null ? [] : [sliceCells(rows[index]?.text ?? '', mark.from, mark.to)]))
+    .join('\n');
+}
 
 /** Who takes the keys and a paste now. A question goes first, because the core is waiting on it. */
 export function focusOwner({ question, panel }: Pick<Model, 'question' | 'panel'>): 'choices' | 'input' | 'panel' {
@@ -239,28 +264,9 @@ function searchRow(
   return `transcript search: ${search.query}${search.query === '' ? '' : ` → ${shown}`}`;
 }
 
-const FOOTER_ROWS = 1;
 const WHEEL_ROWS = 3;
 /** Where the draft's text starts inside the box: border, padding and the `> ` prompt, one-based for a mouse report. */
 const DRAFT_FIRST_COLUMN = 5;
-const COMPOSER_HINTS: ReadonlyArray<[KeyAction, string]> = [
-  ['history.search', 'search'],
-  ['draft.stash', 'stash'],
-  ['editor.external', 'editor'],
-  ['image.paste', 'image'],
-  ['transcript.expand', 'expand'],
-];
-const CHIP_HINTS: ReadonlyArray<[KeyAction, string]> = [
-  ['composer.backspace', 'remove'],
-  ['part.inspect', 'show'],
-  ['edit.undo', 'undo'],
-];
-const SEARCH_HINTS: ReadonlyArray<[KeyAction, string]> = [
-  ['search.accept', 'take'],
-  ['search.next', 'older'],
-  ['search.cancel', 'leave'],
-];
-
 const FILTER_ROWS = 1;
 const OFF_TAIL_ROWS = 1;
 
@@ -279,7 +285,8 @@ export type ChatFrame = {
   status: string;
   /** the running turn and the queue on one row, or null with neither */
   turnRow: string | null;
-  footer: string;
+  /** the selected cells of each transcript row, in the order of `transcript.rows` */
+  marks: Array<RowMark | null>;
 };
 
 export class ChatController {
@@ -287,6 +294,8 @@ export class ChatController {
   readonly exit: () => void;
   readonly suspendTerminal: (work: () => Promise<void>) => Promise<void>;
   readonly paint: () => void;
+  /** Puts text on the clipboard of the owner's terminal. */
+  readonly copy: (text: string) => void;
   readonly keymap: Keymap;
   model: Model;
   serial = 0;
@@ -299,6 +308,8 @@ export class ChatController {
   freed = new Set<string>();
   // The input as last drawn: what a row key and a click measure against.
   drawnInput = { safe: '', width: 1, first: 0, firstRow: 0, rowCount: 0 };
+  // The transcript rows as last drawn and the one-based screen row of the first: what a selection measures against.
+  drawnRows: { top: number; rows: ReadonlyArray<TranscriptRow> } = { top: 1, rows: [] };
   // Set while a child closes itself on a key: the same key must not reach the composer that just got the focus back.
   keyTaken = false;
   // A panel request is on its way: Esc takes that back before it asks anything of the core.
@@ -306,10 +317,16 @@ export class ChatController {
 
   constructor(
     env: ChatEnv,
-    { exit, suspendTerminal, paint }: Pick<ChatController, 'exit' | 'suspendTerminal' | 'paint'>
+    {
+      exit,
+      suspendTerminal,
+      paint,
+      copy = () => {},
+    }: Pick<ChatController, 'exit' | 'suspendTerminal' | 'paint'> & Partial<Pick<ChatController, 'copy'>>
   ) {
     this.env = env;
     this.exit = exit;
+    this.copy = copy;
     this.suspendTerminal = suspendTerminal;
     this.paint = paint;
     this.keymap = buildKeymap(env.bindings ?? []);
@@ -340,6 +357,7 @@ export class ChatController {
         conflicts.length === 0
           ? null
           : conflicts.map((one) => `Key ${one.key} (${one.context}) not bound: ${one.reason}.`).join(' '),
+      selection: null,
       enterHeldUntil: 0,
       turns: emptyTurns(),
     };
@@ -549,7 +567,9 @@ export class ChatController {
   /** A key for the input. `renderedOwner` is who held the keys when the frame on the screen was drawn. */
   onKey(text: string, key: Key, renderedOwner: ReturnType<typeof focusOwner>): void {
     if (key.ctrl && text === 'c') {
-      this.exit();
+      const { selection } = this.model;
+      if (selection === null || selection.text === '') this.exit();
+      else this.copySelection(selection.text);
       return;
     }
     if (renderedOwner !== 'input' || focusOwner(this.model) !== 'input' || this.keyTaken) return;
@@ -558,7 +578,7 @@ export class ChatController {
       for (let press = 0; press < text.length; press += 1) this.send();
       return;
     }
-    if (this.model.notice !== null) this.update({ notice: null });
+    if (this.model.notice !== null || this.model.selection !== null) this.update({ notice: null, selection: null });
     const name = keyNameOf(text, key);
     const action = name === null ? null : this.keymap.resolve(this.contextOf(this.model), name);
     if (action !== null) this.run(action);
@@ -588,15 +608,6 @@ export class ChatController {
     };
   }
 
-  footer(hasChoices: boolean): string {
-    if (this.model.question !== null)
-      return hasChoices ? '↑↓ select · type to filter · Enter choose · Esc cancel' : 'Enter continue · Esc cancel';
-    const context = this.contextOf(this.model);
-    if (context === 'search') return keyHints(this.keymap, context, SEARCH_HINTS);
-    if (context === 'attachment') return keyHints(this.keymap, context, CHIP_HINTS);
-    return `/ commands · ${keyHints(this.keymap, context, COMPOSER_HINTS)}`;
-  }
-
   /** The rows of everything on the next frame: the transcript gets `max(0, R - F - C - O)`, nothing is estimated. */
   frame(rows: number, columns: number): ChatFrame {
     const now = this.model;
@@ -609,8 +620,7 @@ export class ChatController {
     const mode = panel === null ? headerMode(rows, columns, isLinear) : 'none';
     const questionRows = asked === null ? 0 : wrapWords(asked.question, columns).length;
     const turnRow = this.turnRow();
-    const fixed =
-      headerRows(mode) + FOOTER_ROWS + (notice === null ? 0 : 1) + (turnRow === null ? 0 : 1) + questionRows;
+    const fixed = headerRows(mode) + (notice === null ? 0 : 1) + (turnRow === null ? 0 : 1) + questionRows;
     const { shown, caretAt } = this.inputText();
     const layout = composerLayout(shown, caretAt, {
       columns,
@@ -633,9 +643,19 @@ export class ChatController {
       safe: layout.safe,
       width: layout.width,
       first: layout.first,
-      // One-based, as a mouse report counts: above the footer and the box's lower border.
-      firstRow: rows - FOOTER_ROWS - (isLinear ? 0 : 1) - layout.rows.length + 1,
+      // One-based, as a mouse report counts: above the box's lower border.
+      firstRow: rows - (isLinear ? 0 : 1) - layout.rows.length + 1,
       rowCount: layout.rows.length,
+    };
+    const window = transcriptWindow(now.entries, view, this.drawn);
+    // An expanded last entry can be taller than the budget: its newest rows show, and Page Up reaches the rest.
+    const cut = Math.max(0, window.rows.length - this.drawn.budget);
+    const transcript =
+      cut === 0 ? window : { ...window, rows: window.rows.slice(cut), hiddenAbove: window.hiddenAbove + cut };
+    // The rows stand at the bottom of their area, under the header.
+    this.drawnRows = {
+      top: headerRows(mode) + 1 + Math.max(0, this.drawn.budget - transcript.rows.length),
+      rows: transcript.rows,
     };
     return {
       owner,
@@ -647,10 +667,10 @@ export class ChatController {
       choiceRows,
       menuHeight,
       isOffTail,
-      transcript: transcriptWindow(now.entries, view, this.drawn),
+      transcript,
       status: statusLine(now.brief, { connected: now.connected, polledAt: now.polledAt, now: this.env.now() }),
       turnRow,
-      footer: this.footer(hasChoices),
+      marks: now.selection === null ? [] : selectionMarks(now.selection, transcript.rows.length),
     };
   }
 
@@ -987,14 +1007,60 @@ export class ChatController {
     this.placeDraftCaret(caretFromCell(safe, { row: first + row, col }, width));
   }
 
+  /** The transcript cell under a report, clamped to the drawn rows; null off them unless `clamp` asks for the nearest. */
+  transcriptCell(report: MouseReport, clamp: boolean): TranscriptCell | null {
+    const { top, rows } = this.drawnRows;
+    const row = report.row - top;
+    if (!clamp && (row < 0 || row >= rows.length)) return null;
+    return { row: Math.max(0, Math.min(rows.length - 1, row)), col: Math.max(0, report.column - 1) };
+  }
+
+  /** Puts the text on the terminal's clipboard and says so on the notice row. */
+  copySelection(text: string): void {
+    this.copy(text);
+    this.update({ selection: null, notice: `copied ${graphemes(text).length} chars to clipboard` });
+  }
+
+  /** The left button down: the caret in the input, or the start of a selection over the transcript. */
+  pressAt(report: MouseReport): void {
+    const { firstRow, rowCount } = this.drawnInput;
+    const isInDraft = report.row >= firstRow && report.row < firstRow + rowCount;
+    const cell = isInDraft ? null : this.transcriptCell(report, false);
+    this.update({ selection: cell === null ? null : { anchor: cell, focus: cell, dragging: true, text: '' } });
+    if (isInDraft) this.clickInDraft(report);
+  }
+
+  /** The button up: a drag copies what it covers, and a click without one leaves nothing selected. */
+  releaseAt(report: MouseReport): void {
+    const { selection } = this.model;
+    if (selection?.dragging !== true) return;
+    const focus = this.transcriptCell(report, true) ?? selection.focus;
+    const isClick = focus.row === selection.anchor.row && focus.col === selection.anchor.col;
+    const ended = { ...selection, focus, dragging: false };
+    const text = isClick ? '' : selectedText(ended, this.drawnRows.rows);
+    if (text === '') {
+      this.update({ selection: null });
+      return;
+    }
+    this.copySelection(text);
+    // The selection stays lit until the next key, click or scroll, and Ctrl+C copies it again.
+    this.update({ selection: { ...ended, text } });
+  }
+
   onMouse(report: MouseReport): void {
     const now = this.model;
     if (focusOwner(now) !== 'input' || now.question !== null) return;
-    if (report.kind === 'press' && report.button === 0) this.clickInDraft(report);
+    const isLeft = report.button === 0;
+    if (report.kind === 'press' && isLeft) this.pressAt(report);
+    else if (report.kind === 'drag' && isLeft) {
+      const cell = this.transcriptCell(report, true);
+      if (now.selection?.dragging === true && cell !== null)
+        this.update({ selection: { ...now.selection, focus: cell } });
+    } else if (report.kind === 'release') this.releaseAt(report);
     else if (report.kind === 'wheel-up' || report.kind === 'wheel-down') {
       const delta = report.kind === 'wheel-up' ? -1 : 1;
       if (this.itemsOf(now).length > 0) this.moveMenu(delta);
-      else this.update({ view: scrollView(now.entries, now.view, delta * WHEEL_ROWS, this.drawn) });
+      else this.update({ selection: null, view: scrollView(now.entries, now.view, delta * WHEEL_ROWS, this.drawn) });
     }
   }
 
@@ -1095,12 +1161,6 @@ export class ChatController {
       case 'image.paste':
         this.pasteImage();
         return;
-      case 'part.inspect': {
-        const chip = chipBeforeCaret(now.draft);
-        const inspected = chip === null ? null : inspectPart(now.draft, chip.id);
-        if (inspected !== null) this.update({ panel: { title: 'Behind the chip', lines: inspected.split('\n') } });
-        return;
-      }
       case 'menu.complete': {
         const item = this.itemsOf(now)[now.selected];
         if (item !== undefined) this.completeCommand(item);

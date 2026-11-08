@@ -1,7 +1,7 @@
-// Leaving the owner chat: Ctrl-C and a SIGINT end it the same way and give the terminal back. The chat draws inline (no
-// alternate screen), so leaving means raw mode off, the cursor shown, bracketed paste off, mouse tracking off when it
-// was on, the input stream released, the cursor on a fresh line below the last frame, and the process exiting 0 as it
-// does on the normal quit. Each case runs in a child process (tests/fixtures/chat-leave-harness.ts) over a fake terminal,
+// Leaving the owner chat: Ctrl-C and a SIGINT end it the same way and give the terminal back. The chat draws on the
+// alternate screen, so leaving means raw mode off, the cursor shown, bracketed paste off, mouse tracking off when it
+// was on, the primary screen back with the chat's frames gone, the input stream released, and the process exiting 0 as
+// it does on the normal quit. A SIGTERM and a crash give the terminal back too. Each case runs in a child process (tests/fixtures/chat-leave-harness.ts) over a fake terminal,
 // because a SIGINT that nobody handles ends the process it is sent to.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,7 +16,7 @@ const HARNESS = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixture
 type Ended = { code: number | null; signal: NodeJS.Signals | null; report: LeaveReport | null; stderr: string };
 
 /** Runs the chat in a child, ends it by `how`, and returns how the child ended and what it did to the terminal. */
-function leave(how: 'key' | 'signal', mouse: boolean): Promise<Ended> {
+function leave(how: 'key' | 'signal' | 'term' | 'crash', mouse: boolean): Promise<Ended> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [HARNESS, mouse ? '1' : '0', how], { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
@@ -29,9 +29,9 @@ function leave(how: 'key' | 'signal', mouse: boolean): Promise<Ended> {
     child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
     child.stdout.on('data', (chunk: Buffer) => {
       out += chunk.toString();
-      if (how === 'signal' && !signalled && out.includes('ready\n')) {
+      if ((how === 'signal' || how === 'term') && !signalled && out.includes('ready\n')) {
         signalled = true;
-        child.kill('SIGINT');
+        child.kill(how === 'signal' ? 'SIGINT' : 'SIGTERM');
       }
     });
     child.on('close', (code, signal) => {
@@ -66,7 +66,9 @@ for (const how of ['key', 'signal'] as const) {
       assert.equal(lastSwitch(report.writes, '?2004'), 'off', 'bracketed paste stays on');
       assert.equal(lastSwitch(report.writes, '?1000'), mouse ? 'off' : null, 'mouse tracking stays on');
       assert.equal(lastSwitch(report.writes, '?1006'), mouse ? 'off' : null, 'mouse reporting stays on');
-      assert.equal(lastSwitch(report.writes, '?1049'), null, 'the chat draws inline: no alternate screen');
+      // The chat drew inline until the owner asked for a static window: every animation frame then reached the
+      // terminal's scrollback. It draws on the alternate screen, so leaving it is part of giving the terminal back.
+      assert.equal(lastSwitch(report.writes, '?1049'), 'off', 'the alternate screen stays on');
     });
 
     test(`${name} releases the input stream`, async () => {
@@ -81,11 +83,32 @@ for (const how of ['key', 'signal'] as const) {
       if (mouse) assert.equal(report.paused, true, 'the real stdin is left flowing');
     });
 
-    // Bug: the last frame ended with no newline, so the shell prompt was drawn at the end of the chat's footer line.
-    test(`${name} leaves the cursor on a fresh line below the last frame`, async () => {
+    // The newline after the last frame kept the shell prompt off the chat's footer line while the chat drew inline. On
+    // the alternate screen the frame leaves with the screen, and a newline written after it would push the prompt down.
+    test(`${name} leaves the alternate screen after its last frame and writes nothing visible after it`, async () => {
       const { report } = await leave(how, mouse);
       assert.ok(report, 'no report: the chat did not return');
-      assert.match(visible(report.writes), /Ctrl\+R search[^\n]*\n$/, 'the footer line is the last thing on screen');
+      const left = report.writes.lastIndexOf('\u001b[?1049l');
+      assert.ok(left > 0, 'the chat never left the alternate screen');
+      assert.match(visible(report.writes.slice(0, left)), /neptunia/, 'the header was drawn before leaving');
+      assert.equal(visible(report.writes.slice(left)).trim(), '', 'text written to the primary screen after leaving');
+    });
+  }
+}
+
+for (const how of ['term', 'crash'] as const) {
+  for (const mouse of [false, true]) {
+    const name = `${how === 'term' ? 'a SIGTERM' : 'a crash'} ${mouse ? 'with' : 'without'} mouse tracking`;
+
+    // Bug: only Ctrl-C and a SIGINT ran the chat's own teardown, so a SIGTERM or an uncaught error left mouse tracking
+    // on, and the owner's shell printed a report for every click and wheel turn.
+    test(`${name} gives the terminal back`, async () => {
+      const { report, stderr } = await leave(how, mouse);
+      assert.ok(report, `no report: ${stderr}`);
+      assert.equal(lastSwitch(report.writes, '?1049'), 'off', 'the alternate screen stays on');
+      assert.equal(lastSwitch(report.writes, '?25'), 'on', 'the cursor stays hidden');
+      assert.equal(lastSwitch(report.writes, '?1000'), mouse ? 'off' : null, 'mouse tracking stays on');
+      assert.equal(lastSwitch(report.writes, '?1006'), mouse ? 'off' : null, 'mouse reporting stays on');
     });
   }
 }

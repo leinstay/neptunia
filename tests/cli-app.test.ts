@@ -110,25 +110,29 @@ test('the input stays at the terminal bottom when the chat is empty and the term
   // Bug: an empty chat leaves the input below the header instead of at the terminal bottom.
   const { env } = envOf();
   await withChat(env, async (rig) => {
+    // The input row stood three rows from the bottom over a strip of key hints. The strip is gone (the chat follows
+    // Claude Code, which has none), so the input row is the second from the bottom, above the box's lower border.
     const inputRow = (): number => rig.screen().findIndex((line) => line.includes('> bottom-input'));
     rig.type('bottom-input');
-    await until(() => inputRow() === rig.stdout.rows - 3);
+    await until(() => inputRow() === rig.stdout.rows - 2);
     assert.equal(
       rig.screen().findIndex((line) => line.includes('> bottom-input')),
-      rig.stdout.rows - 3
+      rig.stdout.rows - 2
     );
     rig.stdout.rows = 32;
     rig.stdout.emit('resize');
-    await until(() => inputRow() === rig.stdout.rows - 3);
+    await until(() => inputRow() === rig.stdout.rows - 2);
     assert.equal(
       rig.screen().findIndex((line) => line.includes('> bottom-input')),
-      rig.stdout.rows - 3
+      rig.stdout.rows - 2
     );
   });
 });
 
-test('expanding a long answer preserves its first and final lines in terminal output', async () => {
+test('expanding a long answer shows its final line, and Page Up reaches its first', async () => {
   // Bug: clipping the chat to terminal height discards the beginning of an expanded answer.
+  // The chat draws inline no more: on the alternate screen nothing scrolls into the terminal's history, so the first and
+  // the final line of an answer taller than the window cannot share one screen. The start is reached with Page Up.
   const { env, listeners } = envOf();
   const lines = Array.from({ length: 40 }, (_, index) => `answer-line-${index + 1}`);
   await withChat(env, async (rig) => {
@@ -138,8 +142,12 @@ test('expanding a long answer preserves its first and final lines in terminal ou
     assert.equal(rig.screen().includes('answer-line-40'), false);
     rig.type('\u000f');
     await until(() => rig.screen().includes('answer-line-40'));
-    assert.ok(rig.screen().includes('answer-line-1'));
     assert.ok(rig.screen().includes('answer-line-40'));
+    for (let page = 0; page < 4 && !rig.screen().includes('answer-line-1'); page += 1) {
+      rig.type('\u001b[5~');
+      await until(() => rig.screen().includes('answer-line-1'), 500);
+    }
+    assert.ok(rig.screen().includes('answer-line-1'));
   });
 });
 

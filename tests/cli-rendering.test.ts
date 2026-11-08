@@ -217,3 +217,53 @@ test('the linear mode draws a plain column in reading order, with no borders and
     assert.ok(shown.indexOf('second-answer') < shown.indexOf('my-draft'));
   });
 });
+
+test('the animated header keeps its height and the title its column when a status line is wider than the terminal', async () => {
+  // Bug: a long memory line shrank the galaxy's box, so each frame wrapped differently: the title moved sideways and the
+  // header grew past its rows, which pushed the frame over the viewport and left copies of the header in the scrollback.
+  const brief = {
+    core: { state: 'running' as const, reason: null },
+    memory: {
+      path: '/opt/neptunia/data/memory/memory.db',
+      model: 'text-embedding-3-large',
+      probe: 'ok' as const,
+      checkedAt: 1,
+    },
+    interfaces: [{ name: 'discord', enabled: true, connected: true }],
+  };
+  const { env } = chatEnv({ title: 'Project Neptunia', still: false, status: () => Promise.resolve(brief) });
+  await withChat(
+    env,
+    async (rig) => {
+      await until(() => rig.screen().join('\n').includes('Memory: ready'));
+      const columns = new Set<number>();
+      const galaxies = new Set<string>();
+      for (let sample = 0; sample < 12; sample += 1) {
+        const screen = rig.screen();
+        assert.ok(screen.length <= 50, `${screen.length} rows in a terminal of 50`);
+        columns.add(screen[0]?.indexOf('Project Neptunia') ?? -1);
+        assert.match(screen[3] ?? '', /Interfaces: Discord/, 'the header lines stay on their rows');
+        galaxies.add(
+          screen
+            .slice(0, 5)
+            .map((line) => line.slice(0, 15))
+            .join('\n')
+        );
+        await pause(100);
+      }
+      assert.ok(galaxies.size > 1, 'the galaxy never moved, so this proves nothing');
+      assert.deepEqual([...columns], [16]);
+    },
+    { columns: 80, rows: 50 }
+  );
+});
+
+test('the bottom row is the input box with no strip of key hints under it', async () => {
+  // Bug: a strip of key hints under the input named actions the owner could not place and took a row from the chat.
+  const { env } = chatEnv();
+  await withChat(env, async (rig) => {
+    await until(() => (rig.screen().at(-1) ?? '').trim().startsWith('╰'));
+    assert.match(rig.screen().at(-1) ?? '', /^\s*╰─+╯\s*$/);
+    assert.equal(/Ctrl\+|commands ·/.test(rig.screen().join('\n')), false);
+  });
+});

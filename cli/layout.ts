@@ -32,6 +32,17 @@ export function cellWidth(text: string): number {
   return cells;
 }
 
+/** The glyphs of a row whose first cell lies in `[from, to)`: a wide glyph belongs to the cell it starts on. */
+export function sliceCells(text: string, from: number, to: number): string {
+  let cells = 0;
+  let kept = '';
+  for (const glyph of graphemes(text)) {
+    if (cells >= from && cells < to) kept += glyph;
+    cells += glyphWidth(glyph);
+  }
+  return kept;
+}
+
 /** One explicit line broken into rows by a choice of where a full row ends. */
 function wrapLine(
   line: string,

@@ -73,6 +73,11 @@ test('an SGR mouse report parses to its button and one-based cell, and other inp
   assert.equal(parseMouse(''), null);
 });
 
+test('a motion report with the left button held parses as a drag of that button', () => {
+  // Bug: a drag read as a new press, so a selection restarted on every cell the mouse crossed.
+  assert.deepEqual(parseMouse('\u001b[<32;6;7M'), { kind: 'drag', button: 0, column: 6, row: 7 });
+});
+
 test('mouse tracking is on only for a capable terminal outside the plain and linear modes', () => {
   // Bug: tracking on a dumb terminal or over a screen reader takes away native selection.
   const capable = { tty: true, term: 'xterm-256color', linear: false, plain: false };

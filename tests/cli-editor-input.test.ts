@@ -183,3 +183,86 @@ test('a wheel report scrolls the transcript when the mouse is on, and leaves the
   });
   assert.deepEqual(sent, ['draft']);
 });
+
+const OSC52 = '\u001b]52;c;';
+/** The texts the chat put on the terminal's clipboard, in order. */
+const copied = (rig: Rig): Array<string> =>
+  rig
+    .frames()
+    .split(OSC52)
+    .slice(1)
+    .map((rest) => Buffer.from(rest.slice(0, rest.indexOf('\u0007')), 'base64').toString('utf8'));
+/** The one-based cell where `needle` starts on the screen, as a mouse report counts. */
+const cellOf = (rig: Rig, needle: string): { row: number; column: number } => {
+  const screen = rig.screen();
+  const row = screen.findIndex((line) => line.includes(needle));
+  assert.ok(row >= 0, `"${needle}" is not on the screen`);
+  return { row: row + 1, column: (screen[row] ?? '').indexOf(needle) + 1 };
+};
+const drag = (rig: Rig, from: { row: number; column: number }, to: { row: number; column: number }): void => {
+  rig.type(`\u001b[<0;${from.column};${from.row}M`);
+  rig.type(`\u001b[<32;${to.column};${to.row}M`);
+  rig.type(`\u001b[<0;${to.column};${to.row}m`);
+};
+
+test('dragging over a reply copies the selected text to the clipboard and says how much', async () => {
+  // Bug: with mouse tracking on, the terminal's own selection is gone and nothing in the chat could be copied.
+  const { env, entry } = chatEnv({ mouse: true });
+  await withChat(env, async (rig) => {
+    entry({ who: 'her', text: 'alpha beta gamma' });
+    await until(shows(rig, 'alpha beta gamma'));
+    const start = cellOf(rig, 'alpha');
+    drag(rig, start, { row: start.row, column: start.column + 9 });
+    await until(shows(rig, 'copied 10 chars to clipboard'));
+    assert.deepEqual(copied(rig), ['alpha beta']);
+    assert.match(text(rig), /copied 10 chars to clipboard/);
+    // A key drops the selection, so the Ctrl+C that closes the chat leaves instead of copying again.
+    await press(rig, KEY.escape, () => !text(rig).includes('copied'));
+  });
+});
+
+test('a selection over two rows copies both, joined by a newline', async () => {
+  // Bug: a selection across rows kept only its first or its last row.
+  const { env, entry } = chatEnv({ mouse: true });
+  await withChat(env, async (rig) => {
+    entry({ who: 'her', text: 'upper-row\nlower-row' });
+    await until(shows(rig, 'lower-row'));
+    const start = cellOf(rig, 'upper-row');
+    const end = cellOf(rig, 'lower-row');
+    drag(rig, start, { row: end.row, column: end.column + 'lower-row'.length - 1 });
+    await until(() => copied(rig).length === 1);
+    assert.deepEqual(copied(rig), ['upper-row\nlower-row']);
+    await press(rig, KEY.escape, () => !text(rig).includes('copied'));
+  });
+});
+
+test('a click without a drag copies nothing', async () => {
+  // Bug: every click put one character on the clipboard and replaced what the owner had copied elsewhere.
+  const { env, entry } = chatEnv({ mouse: true });
+  await withChat(env, async (rig) => {
+    entry({ who: 'her', text: 'alpha beta gamma' });
+    await until(shows(rig, 'alpha beta gamma'));
+    const at = cellOf(rig, 'beta');
+    rig.type(`\u001b[<0;${at.column};${at.row}M`);
+    rig.type(`\u001b[<0;${at.column};${at.row}m`);
+    await pause();
+    assert.deepEqual(copied(rig), []);
+  });
+});
+
+test('Ctrl+C with a selection copies it again and keeps the chat open', async () => {
+  // Bug: Ctrl+C left the chat while the owner meant to copy what he had selected.
+  const { env, entry, sent } = chatEnv({ mouse: true });
+  await withChat(env, async (rig) => {
+    entry({ who: 'her', text: 'alpha beta gamma' });
+    await until(shows(rig, 'alpha beta gamma'));
+    const start = cellOf(rig, 'gamma');
+    drag(rig, start, { row: start.row, column: start.column + 4 });
+    await until(() => copied(rig).length === 1);
+    await press(rig, KEY.ctrlC, () => copied(rig).length === 2);
+    assert.deepEqual(copied(rig), ['gamma', 'gamma']);
+    await press(rig, 'still here', shows(rig, '> still here'));
+    await press(rig, KEY.enter, () => sent.length === 1);
+  });
+  assert.deepEqual(sent, ['still here']);
+});
