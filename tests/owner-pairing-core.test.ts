@@ -31,10 +31,10 @@ async function firstLine({ dirs, clis }: Pick<Rig, 'dirs' | 'clis'>): Promise<vo
 }
 
 /** A direct message of `author` to her on the fake interface, in the chat `dm-<author>`. */
-async function direct(unit: Unit, author: string, id: string): Promise<void> {
+async function direct(unit: Unit, author: string, id: string, text = 'hello, it is me'): Promise<void> {
   const chat = `dm-${author}`;
   await unit.ask({ op: 'seed-chat', info: channelInfo(chat, { kind: 'dm', rootId: null, partnerId: author }) }, 'done');
-  const line = lineEvent({ chatId: chat, id, text: 'hello, it is me', at: Date.now(), authorId: author });
+  const line = lineEvent({ chatId: chat, id, text, at: Date.now(), authorId: author });
   const event: MessageEvent = {
     ...line,
     chat: { id: chat, kind: 'dm', rootId: null, partnerId: author, name: author },
@@ -51,6 +51,15 @@ test('a code approved in the command line binds the account that wrote to her, w
     const opened = await runCli(dirs, ['-p', '/interfaces pair open fake']);
     assert.equal(opened.code, 0, opened.stdout + opened.stderr.slice(-2000));
 
+    // A member of the root, as a private chat asks of anyone, the owner included.
+    const member = {
+      id: 'u9',
+      name: 'Owner',
+      bot: false,
+      groupIds: [],
+      avatar: { hash: null, url: null, largeUrl: null },
+    };
+    await unit.ask({ op: 'seed-member', rootId: 'g1', member }, 'done');
     await direct(unit, 'u9', 'm1');
     let posted: Array<string> = [];
     // The posted texts are read over the unit's channel, so they are polled here rather than through `until`.
@@ -70,10 +79,16 @@ test('a code approved in the command line binds the account that wrote to her, w
       withIface('fake', () => isOwnerId(config, 'u9')),
       true
     );
-    // The pairing line started no turn, and the code reached no request.
+    // The pairing line started no turn.
     assert.equal(
       llm.requests.some((request) => JSON.stringify(request).includes('hello, it is me')),
       false
+    );
+    // Her next turn in that chat reads its history, and her line with the code stays out of the request.
+    await direct(unit, 'u9', 'm2', 'and now a real question');
+    await until(
+      () => llm.requests.some((request) => JSON.stringify(request).includes('and now a real question')),
+      'a turn over the next line'
     );
     assert.equal(
       llm.requests.some((request) => JSON.stringify(request).includes(code)),

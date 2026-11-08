@@ -53,3 +53,11 @@ test('a no writes nothing, and a yes without the required value leaves the inter
   await interfacesStep(where, { ask: scripted(['yes', '']).ask, run });
   assert.equal(fs.existsSync(localConfigPath(where.dataDir)), false);
 });
+
+test('a finished interface names the pairing command that makes the owner account there his', async () => {
+  // Bug: `neptunia setup` connects an interface and never says how the owner proves his account on it, so he stays a
+  // stranger there.
+  const where = rig();
+  const outcome = await interfacesStep(where, { ask: scripted(['yes', 'SECRETTOKEN']).ask, run });
+  assert.match(outcome.detail, /\/interfaces pair open chatty/);
+});
