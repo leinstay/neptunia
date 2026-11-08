@@ -731,7 +731,7 @@
     },
     {
       "path": "src/behavior/inner/queue.ts",
-      "purpose": "The inner life's wake queue and its state file `inner.json`: the door's handler of `inner.wake`, the wakes an intention gives and how queued wakes coalesce. Tested through the inner life tests.",
+      "purpose": "The inner life's state file `inner.json`, the wakes an intention gives, how queued wakes coalesce, its facts and journal notes. Tested through the inner life tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -739,13 +739,6 @@
     {
       "path": "src/behavior/inner/places.ts",
       "purpose": "Her attention and the places view of the inner life: the place index, the attend wakes and the places page. Tested through the inner life tests.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "none"
-    },
-    {
-      "path": "src/behavior/inner/review.ts",
-      "purpose": "The inner life's day review: its drawn moment and the channels she spoke in lately. Tested through the inner life tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -765,15 +758,8 @@
       "test": "none"
     },
     {
-      "path": "src/behavior/inner/wake-store.ts",
-      "purpose": "The inner life's wake queue in the memory database: the state's view of `wakes`, the claim and completion of a turn's wakes, and the in-memory database without one. Tested through the inner life, inner wakes and fault-injection tests.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "none"
-    },
-    {
-      "path": "src/behavior/inner/recovery.ts",
-      "purpose": "The inner life's start and sleep: a cut-off turn resolved and run again, the wakes that fell due while the core was down or paused slept, and the `core:alive` lease. Tested through the inner wakes and fault-injection tests.",
+      "path": "src/behavior/inner/wake-queue.ts",
+      "purpose": "The inner life's wake queue: the only writer of the queue's view and its rows in `wakes`, each transition written when it happens, the claim and finish of a turn's wakes, and the start's recovery of cut-off turns, slept wakes and the `core:alive` lease. Tested through the inner life, inner wakes and fault-injection tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

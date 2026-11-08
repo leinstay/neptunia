@@ -1,9 +1,9 @@
 // The drain and the turn it opens: one inner turn for the queue's first coalesced group, once the attention is free
 // and no cap holds it. The drain picks the chat, builds the `<wake>` facts, records the wake run, runs the
 // turn through the turn runner (src/behavior/turn.ts, mode `inner`), then marks the wakes handled or retries them,
-// keeps the turn's feedback facts and queues the feedback wake. The turn's wakes are claimed in the memory database
-// before the turn asks the model and completed or released after it (wake-store.ts); a live turn's posts are held
-// and sent once the completion committed (deliveries.ts). The start's recovery (recovery.ts) runs first. An errand an
+// keeps the turn's feedback facts and queues the feedback wake. The drain asks the wake queue (wake-queue.ts) to claim
+// the group before the turn asks the model and reports what became of each wake after it; a live turn's posts are held
+// and sent once the completion committed (deliveries.ts). The queue's start runs first. An errand an
 // inner turn handed off has its cost counted here when it ends. The tick (src/behavior/inner.ts) calls `drain`.
 
 import { isPublicationBoundary } from '../../tools/publication.ts';
@@ -30,8 +30,6 @@ import {
   addFact,
   channelless,
   coalesceGroup,
-  enqueue,
-  markHandled,
   mayAct,
   note,
   paused,
@@ -42,10 +40,18 @@ import {
   wakeFields,
   wakeWrite,
 } from './queue.ts';
-import { startUp } from './recovery.ts';
 import { FACTS_SHOWN_MAX, innerSettings } from './settings.ts';
-import { claimTurn, finishTurn } from './wake-store.ts';
-import type { TurnClaim } from './wake-store.ts';
+import {
+  claimWakes,
+  disposeWakes,
+  endRun,
+  enqueueWake,
+  finishWakes,
+  holdWake,
+  retryWakes,
+  startUp,
+} from './wake-queue.ts';
+import type { TurnClaim } from './wake-queue.ts';
 import type {
   ChainBudget,
   CostMeter,
@@ -80,12 +86,12 @@ function restrictedBy(records: ReadonlyArray<unknown>): { publicationBoundary?: 
 
 /**
  * The current channel of an inner turn for `group` (the coalesced wakes) and why it is that one,
- * chosen by the cause of the wake, never by recency: the first wake that is not a review is the
+ * chosen by the cause of the wake, never by recency: the first wake that runs in a place is the
  * cause. An `intention_due` wake: the intention's destination when recorded, else the channel it
  * was asked in (the wake's `placeId`, targetOf; a private chat's is that chat); `attend`: the
  * place; `errand_deadline`: the channel of the intention that waits on the errand; `feedback`:
- * the current channel of the turn it reports (`here`, null when that turn had none). A review, or
- * a wake with no channel: none. `why` is a short machine word (`destination`, `asked`, `attend`,
+ * the current channel of the turn it reports (`here`, null when that turn had none). A heartbeat, a
+ * selfimprovement wake or a wake with no channel: none. `why` is a short machine word (`destination`, `asked`, `attend`,
  * `errand`, `feedback`), null with no channel.
  * `records` are the open intentions of the group, for the destination.
  */
@@ -466,10 +472,7 @@ function endWakeRun(life: InnerContext, turnKey: string, actions: Array<unknown>
   });
 }
 
-/**
- * The wakes of a turn's group marked running in process and claimed in the database before the turn runs, and its
- * in-flight mark set (`state.inflight`, the view of the claim); null when the claim was refused.
- */
+/** The wakes of a turn's group claimed before the turn runs, with the chat it runs in; null when refused. */
 async function beginTurn(
   life: InnerContext,
   group: ReadonlyArray<Wake>,
@@ -481,21 +484,8 @@ async function beginTurn(
     privateAccountId: channel && channel.rootId === null ? idOrNull(channel.partnerId) : null,
     iface: channel?.iface ?? life.iface(),
   };
-  for (const wake of group) life.running.add(wake.id);
-  const claim = await claimTurn(life, group, { at, turn: { kind, ...where } });
-  if (!claim) {
-    for (const wake of group) life.running.delete(wake.id);
-    return null;
-  }
-  stateOf(life).inflight = {
-    turnId: claim.turnId,
-    wakeIds: group.map((wake) => wake.id),
-    kind,
-    startedAt: at,
-    ...contextOf(life, where.placeId),
-    ...where,
-  };
-  save(life);
+  const claim = await claimWakes(life, group, { at, kind, where });
+  if (claim) save(life);
   return claim;
 }
 
@@ -510,7 +500,7 @@ function dropSpentFeedback(life: InnerContext, state: InnerState, at: number): n
       !listOf(wake.factIds).some((id) => untold.has(asText(id)))
   );
   if (spent.length === 0) return 0;
-  markHandled(life, state, spent, 'told', at, {});
+  disposeWakes(life, spent, 'told', at);
   save(life);
   return spent.length;
 }
@@ -520,11 +510,7 @@ function dropStale(life: InnerContext, state: InnerState, at: number): number {
   const { intentions } = life;
   const openOf = (id: string) => openRecordOf(life, id);
   const stale = state.queue.filter(
-    (wake) =>
-      inScope(life, wake) &&
-      wake.kind !== 'review' &&
-      wake.intentionIds.length > 0 &&
-      wake.intentionIds.every((id) => !openOf(id))
+    (wake) => inScope(life, wake) && wake.intentionIds.length > 0 && wake.intentionIds.every((id) => !openOf(id))
   );
   if (stale.length > 0) {
     // Why it is stale: the status the intention ended in; one that is gone or never began is `forgotten`.
@@ -532,7 +518,7 @@ function dropStale(life: InnerContext, state: InnerState, at: number): number {
       const status = intentions?.store?.()?.get?.(wake.intentionIds[0])?.status;
       return status === 'done' || status === 'cancelled' || status === 'expired' ? status : 'forgotten';
     };
-    markHandled(life, state, stale, 'stale', at, { why: staleWhy });
+    disposeWakes(life, stale, 'stale', at, { why: staleWhy });
     save(life);
     for (const wake of stale) note(life, { event: 'stale', wake: wakeFields(wake) });
   }
@@ -558,7 +544,7 @@ function isEligible(wake: Wake, now: { held: ReadonlyArray<Wake>; at: number }):
  * refuses; a turn held back (`busy`, `paused`) leaves the group queued with its due times.
  */
 export async function drain(life: InnerContext): Promise<DrainAnswer> {
-  const { hot, turns, intentions, peopleWaiting, costs, now, log, running } = life;
+  const { hot, turns, intentions, peopleWaiting, costs, now, log } = life;
   const state = stateOf(life);
   await startUp(life);
   if (state.queue.length === 0) return null;
@@ -598,12 +584,11 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     const cap = holdOf(wake);
     if (!cap) {
       // The day rolled: a wake held by a cap is released.
-      delete wake.capped;
+      holdWake(life, wake, null);
       continue;
     }
     held.push(wake);
-    if (wake.capped === cap) continue;
-    wake.capped = cap;
+    if (!holdWake(life, wake, cap)) continue;
     heldFresh[cap] = (heldFresh[cap] ?? 0) + 1;
     // A hold is a fact once: what holds it and when it is expected to run (the next local midnight).
     freshHolds.push({
@@ -625,7 +610,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     // No turn is coming to carry the new holds of an intention's wake: a feedback wake in its chat tells her.
     for (const { wake, fact } of freshHolds) {
       if (!['intention_due', 'errand_deadline'].includes(wake.kind) || !wake.placeId) continue;
-      await enqueue(life, {
+      await enqueueWake(life, {
         id: `inner.wake:feedback:held:${wake.id}:${fact.id}`,
         kind: 'feedback',
         reason: 'feedback',
@@ -649,7 +634,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
 
   const { channel, why: noChannelWhy, drop, placeFailure } = await chatFor(life, group);
   if (drop) {
-    markHandled(life, state, group, 'no-channel', at, { why: noChannelWhy });
+    disposeWakes(life, group, 'no-channel', at, { why: noChannelWhy });
     save(life);
     log.info('inner: no chat', { wakes: group.length });
     for (const wake of group) note(life, { event: 'no-channel', wake: wakeFields(wake) });
@@ -693,7 +678,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     selfimprovement: kinds.selfimprovement,
     placeFailure,
   });
-  // The turn's wakes are claimed before it runs: a process that dies in it leaves them running (recovery.ts).
+  // The turn's wakes are claimed before it runs: a process that dies in it leaves them running (wake-queue.ts).
   const claimed = await beginTurn(life, group, { at, channel, kind: anchor.kind });
   if (!claimed) return { deferred: 'claim' };
   const { turnId: turnKey, attempt } = claimed;
@@ -725,21 +710,20 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     log.warn('inner: turn failed', { code, error: err });
     measured = { result: { outcome: 'error', reason: code }, usd: 0, requests: 0, voice: 0 };
   } finally {
-    for (const wake of group) running.delete(wake.id);
+    endRun(life, group);
   }
   const result = objOf(measured.result ?? { outcome: 'error' });
   const inner = objOf(result.inner);
   const outcome = result.outcome ?? 'error';
   const named = listOf(inner.intentIds ?? []);
   const after = stateOf(life);
-  after.inflight = null;
   endWakeRun(life, turnKey, listOf(inner.actions), outcome);
   if (HELD.has(outcome)) {
     // Stopped while it waited: its wakes go with the rest of the queue.
-    if (after.stopped) markHandled(life, after, group, 'stopped', now(), {});
+    if (after.stopped) disposeWakes(life, group, 'stopped', now());
     // The turn never ran: its mark goes, and its wakes are released.
     save(life);
-    await finishTurn(life, group, after);
+    await finishWakes(life, group);
     log.info('inner: turn held', { outcome, wakes: group.length });
     return { deferred: outcome };
   }
@@ -770,8 +754,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   // A wake of hers that comes back (a retry, or the one more try of a one-off) carries the facts of this turn.
   let comesBack = false;
   const requeue = (wakes: ReadonlyArray<Wake>, fields: Partial<Wake>) => {
-    const ids = new Set(wakes.map((wake) => wake.id));
-    for (const wake of after.queue.filter((queued) => ids.has(queued.id))) Object.assign(wake, fields);
+    retryWakes(life, wakes, fields);
     comesBack = comesBack || wakes.length > 0;
   };
   if (retry?.action === 'requeue') {
@@ -796,7 +779,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     });
   } else {
     if (retry?.action === 'drop') {
-      markHandled(life, after, group, 'provider', ended, { why: errorCode });
+      disposeWakes(life, group, 'provider', ended, { why: errorCode });
       log.warn('inner: turn failed, wakes dropped', {
         code: errorCode,
         retry: retry.n,
@@ -821,16 +804,15 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
           wakes: again.map(wakeFields),
         });
       }
-      markHandled(
+      disposeWakes(
         life,
-        after,
         group.filter((wake) => !again.includes(wake)),
         asText(outcome),
         ended,
         { named, why: errorCode }
       );
     } else {
-      markHandled(life, after, group, asText(outcome), ended, { named, why: errorCode });
+      disposeWakes(life, group, asText(outcome), ended, { named, why: errorCode });
     }
   }
   // What did not go through (feedbackFacts), and a failed turn itself: kept as facts. A feedback turn's own
@@ -857,13 +839,13 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     })
   );
   save(life);
-  const recorded = await finishTurn(life, group, after, deliveriesOf(hold, { turnId: turnKey, chainId }));
+  const recorded = await finishWakes(life, group, deliveriesOf(hold, { turnId: turnKey, chainId }));
   await sendDeliveries(life, recorded);
   await committedSelfimprovement(life, { ...kinds, outcome });
   let feedbackWakeId: string | null = null;
   if (feedback.length > 0 && !isFeedback && !comesBack) {
     feedbackWakeId = `inner.wake:feedback:${asText(turnId ?? ended)}`;
-    await enqueue(life, {
+    await enqueueWake(life, {
       id: feedbackWakeId,
       kind: 'feedback',
       reason: 'feedback',

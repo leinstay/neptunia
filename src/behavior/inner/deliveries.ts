@@ -14,8 +14,8 @@ import { isPublicationBoundary, publicationRefusal, refusedPublication } from '.
 import { createSendHold } from '../../tools/send-hold.ts';
 import type { HeldNote, SaidNote, SendHold } from '../../tools/send-hold.ts';
 import { errorCode, objOf } from '../../tools/types.ts';
-import { addFact, enqueue, mayAct, save, stateOf } from './queue.ts';
-import { backendOf, dbWrite } from './wake-store.ts';
+import { addFact, mayAct, save, stateOf } from './queue.ts';
+import { dbWrite, enqueueWake, readHandle } from './wake-queue.ts';
 import type { InnerContext, InnerJournalOp } from './types.ts';
 
 /** The hold of a wake turn: one for a live turn of a life with a port to send through, else null (sends go out). */
@@ -82,7 +82,7 @@ function chatOf(delivery: Delivery): ChatRef | null {
 /** What a delivery carries, its kept files read back from the data directory. */
 function contentOf(life: InnerContext, delivery: Delivery): Content {
   const given = objOf(objOf(delivery.payload).content);
-  const read = backendOf(life).read();
+  const read = readHandle(life);
   const attachments = read ? deliveryFiles(read, life.dataDir, delivery) : [];
   // The payload is what deliveriesOf recorded from a send's content (src/protocol/actions.ts#Content).
   const replyTo = given.replyTo as Content['replyTo'] | null;
@@ -107,7 +107,7 @@ async function move(
     const moved = await dbWrite(life, { kind: 'wake-queue', op: 'delivery', key, from, to, now: life.now(), receipt });
     return moved === true;
   } catch {
-    // Logged by the chain (wake-store.ts#dbWrite).
+    // Logged by the chain (wake-queue.ts#dbWrite).
     return false;
   }
 }
@@ -215,7 +215,7 @@ async function tellFailed(life: InnerContext, delivery: Delivery, answer: Sent):
     dmChat: noted.dmChat,
   });
   save(life);
-  await enqueue(life, {
+  await enqueueWake(life, {
     id: `inner.wake:feedback:delivery:${delivery.key}`,
     kind: 'feedback',
     reason: 'feedback',
@@ -289,7 +289,7 @@ async function sendOne(life: InnerContext, delivery: Delivery): Promise<void> {
 /** The deliveries `keys` (a completion's, in order) sent once each; a row no longer `queued` is left as it is. */
 export async function sendDeliveries(life: InnerContext, keys: ReadonlyArray<string>): Promise<void> {
   for (const key of keys) {
-    const read = backendOf(life).read();
+    const read = readHandle(life);
     const delivery = read ? deliveryOf(read, key) : null;
     if (delivery?.state === 'queued') await withIface(chatOf(delivery)?.iface, () => sendOne(life, delivery));
   }
@@ -314,7 +314,7 @@ function tellInterrupted(life: InnerContext, delivery: Delivery, status: 'failed
 /** Retire queued deliveries and reconcile uncertain sends without issuing a send or a feedback wake. */
 export async function resumeDeliveries(life: InnerContext): Promise<void> {
   const { port, log } = life;
-  const read = backendOf(life).read();
+  const read = readHandle(life);
   if (!read) return;
   const lost = deliveriesIn(read, 'sending');
   for (const delivery of lost) {
@@ -337,7 +337,7 @@ export async function resumeDeliveries(life: InnerContext): Promise<void> {
       );
     }
   }
-  const queued = deliveriesIn(backendOf(life).read() ?? read, 'queued');
+  const queued = deliveriesIn(readHandle(life) ?? read, 'queued');
   for (const delivery of queued) {
     await move(life, delivery.key, ['queued'], 'failed', { code: 'interrupted' });
     if (wakeOf(read, delivery.wakeId)) tellInterrupted(life, delivery, 'failed');

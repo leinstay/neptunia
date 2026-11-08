@@ -291,13 +291,15 @@ test("a wake's post into a cli DM is recorded under that DM, not the home interf
       now: () => NOW,
       dataDir: '/nowhere',
       writes: Promise.resolve(),
-      wakeDb: {
-        read: () => handle,
-        write: (update: Parameters<typeof applyWakeQueueWrite>[1]) =>
-          Promise.resolve(applyWakeQueueWrite(handle, update)),
+      wakes: {
+        backend: {
+          read: () => handle,
+          write: (update: Parameters<typeof applyWakeQueueWrite>[1]) =>
+            Promise.resolve(applyWakeQueueWrite(handle, update)),
+        },
+        loaded: true,
       },
       states: new Map([['persona', { stopped: false }]]),
-      viewLoaded: new Set(['persona']),
       port: {
         send: () => Promise.resolve({ status: 'ok', ref: { messageId: 'sent-1' }, parts: [], at: NOW }),
       },

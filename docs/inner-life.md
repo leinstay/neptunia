@@ -10,6 +10,8 @@ A wake with a place runs as the ordinary turn in that place, its chat and its co
 
 State belongs to one persona, with no home root: `createInnerLife` takes none, the wakes and the kill switch run on a core that has only DMs, and the stored state is a persona collection. Individual records carry an optional destination place and an audience, so a thought about one server does not create another independent persona for that server. `src/behavior/inner/persona-sources.ts` reads the record and the journal over every served place. The scheduler and its queues are in [src/behavior/inner/](../src/behavior/inner/).
 
+The wake queue in `src/behavior/inner/wake-queue.ts` is the only writer of the queued and handled wakes. Each wake is a row of the memory database's `wakes`, and each change of it is written when it happens. A wake the door admits is queued, and one the engine drops or a turn handles is handled with its outcome. A wake that fell due while the core was down or paused is slept and never runs. The drain asks the queue to claim a group before the turn asks the model, with a fenced lease per wake that lasts `context.turnLeaseMs` (default `300000`). After the turn it reports what became of each wake, and one write completes the handled wakes and puts the retried ones back. At start the queue handles the wakes of a turn a restart cut off as `interrupted` and runs none of them again. A fact tells her what the journal says that turn did.
+
 The core clears a `stopped` flag left in the stored state before each tick (`releaseStoredStop` in `src/behavior/inner/status.ts`), because no command releases one.
 
 ## Intentions
