@@ -1,0 +1,207 @@
+// The command window of the mounted chat: a slash command's answer, its line and its time go to a window of their own
+// between the chat and the input, which takes half the rows the header and the input leave, scrolls on its own and closes
+// on Esc. Her lines and the owner's lines to her stay in the chat.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { KEY, chatEnv, press, shows, until, withChat } from './fixtures/chat-rig.ts';
+import type { Rig } from './fixtures/chat-rig.ts';
+import type { ChatEnv, Panel } from '../cli/app.ts';
+
+const text = (rig: Rig): string => rig.screen().join('\n');
+/** The window's top rule: the one row that starts with a run of box-drawing lines at the left edge. */
+const ruleRow = (rig: Rig): number => rig.screen().findIndex((line) => /^─{3}/.test(line));
+/** The input box's upper border. */
+const inputTop = (rig: Rig): number => rig.screen().findIndex((line) => line.startsWith('╭'));
+const rowOf = (rig: Rig, needle: string): number => rig.screen().findIndex((line) => line.includes(needle));
+
+/** An env whose slash commands answer with `answers[line]` through `send`, as the core's command path does. */
+function commandEnv(answers: Record<string, string>, over: Partial<ChatEnv> = {}) {
+  const lines: Array<string> = [];
+  const made = chatEnv({
+    mouse: true,
+    timeZone: 'UTC',
+    send: (line: string): Promise<string> | undefined => {
+      lines.push(line);
+      return line.startsWith('/') ? Promise.resolve(answers[line] ?? 'no answer') : undefined;
+    },
+    ...over,
+  });
+  return { ...made, lines };
+}
+
+test("a slash command's answer shows in the command window under the chat and never in the chat", async () => {
+  // Bug: the answer of `/status` lands in the transcript among her lines, or the command line goes there as the owner's.
+  const { env, entry, lines } = commandEnv({ '/status': 'core-answer-text' });
+  await withChat(env, async (rig) => {
+    entry({ who: 'her', text: 'her-line' });
+    await until(shows(rig, 'her-line'));
+    await press(rig, '/status', shows(rig, '> /status'));
+    await press(rig, KEY.enter, shows(rig, 'core-answer-text'));
+    const rule = ruleRow(rig);
+    assert.ok(rule > rowOf(rig, 'her-line'), 'the window stands below the chat');
+    assert.ok(rowOf(rig, 'core-answer-text') > rule && rowOf(rig, 'core-answer-text') < inputTop(rig));
+    assert.ok(rowOf(rig, '] /status') > rule, 'the command line heads its answer in the window');
+    assert.equal(rig.screen().slice(0, rule).join('\n').includes('/status'), false);
+    // Closed, the window takes its rows with it: the answer was never a line of the chat.
+    await press(rig, KEY.escape, () => !text(rig).includes('core-answer-text'));
+    assert.ok(text(rig).includes('her-line'));
+    assert.equal(text(rig).includes('/status'), false);
+  });
+  assert.deepEqual(lines, ['/status']);
+});
+
+test('the window opens at half the free rows, the chat keeps the other half, and Esc gives the chat its rows back', async () => {
+  // Bug: the window covers the chat, takes a fixed size, or leaves the chat short after it closed.
+  const { env, entry } = commandEnv({ '/status': 'answer' });
+  const long = Array.from({ length: 30 }, (_none, index) => `line-${index + 1}`).join('\n');
+  const chatRows = (rig: Rig): number => rig.screen().filter((line) => /(^|\s)line-\d+$/.test(line.trim())).length;
+  await withChat(env, async (rig) => {
+    entry({ who: 'her', text: long });
+    await until(shows(rig, 'line-14'));
+    // 80 by 24: a header of 6 rows and an input of 3 leave 15, all of them the chat's, its fold row included.
+    assert.equal(chatRows(rig), 14);
+    await press(rig, '/status', shows(rig, '> /status'));
+    await press(rig, KEY.enter, () => ruleRow(rig) >= 0 && text(rig).includes('answer'));
+    assert.equal(ruleRow(rig), 6 + 8, 'the chat keeps 8 rows under the header');
+    assert.equal(inputTop(rig) - ruleRow(rig), 7, 'the window takes the other 7');
+    assert.equal(chatRows(rig), 7);
+    await press(rig, KEY.escape, () => ruleRow(rig) === -1);
+    assert.equal(chatRows(rig), 14);
+  });
+});
+
+test('Esc closes the window first and keeps the draft, and the next Esc clears the input as before', async () => {
+  // Bug: Esc with the window open throws the unfinished draft away, or a closed window changes what Esc does to the input.
+  const { env, lines } = commandEnv({ '/status': 'answer-here' });
+  await withChat(env, async (rig) => {
+    await press(rig, '/status', shows(rig, '> /status'));
+    await press(rig, KEY.enter, shows(rig, 'answer-here'));
+    await press(rig, 'half typed', shows(rig, '> half typed'));
+    await press(rig, KEY.escape, () => ruleRow(rig) === -1);
+    assert.match(text(rig), /> half typed/);
+    await press(rig, KEY.escape, () => !text(rig).includes('half typed'));
+    assert.equal(ruleRow(rig), -1);
+  });
+  assert.deepEqual(lines, ['/status']);
+});
+
+test('the next command reopens the window with the earlier results above, each under its line and its time', async () => {
+  // Bug: reopening shows only the newest answer, or an answer loses the command and the time that produced it.
+  const { env } = commandEnv({ '/status': 'first-answer', '/help': 'second-answer' });
+  await withChat(env, async (rig) => {
+    await press(rig, '/status', shows(rig, '> /status'));
+    await press(rig, KEY.enter, shows(rig, 'first-answer'));
+    await press(rig, KEY.escape, () => ruleRow(rig) === -1);
+    await press(rig, '/help', shows(rig, '> /help'));
+    await press(rig, KEY.enter, shows(rig, 'second-answer'));
+    const order = ['] /status', 'first-answer', '] /help', 'second-answer'].map((needle) => rowOf(rig, needle));
+    assert.ok(order.every((row) => row > ruleRow(rig)));
+    assert.deepEqual(
+      order,
+      order.toSorted((a, b) => a - b)
+    );
+    // `now` is 1000 ms past the epoch, drawn in UTC: each command line opens with its time and its number.
+    assert.match(rig.screen()[order[0]] ?? '', /^\[1970-01-01 00:00\] \[#1\] \/status$/);
+    assert.match(rig.screen()[order[2]] ?? '', /^\[1970-01-01 00:00\] \[#2\] \/help$/);
+    assert.equal(
+      rig
+        .screen()
+        .slice(ruleRow(rig))
+        .some((line) => line.trimStart().startsWith('>')),
+      false,
+      'no row of the window carries a `>` mark'
+    );
+  });
+});
+
+/** The rows that hold `prefix` followed by a number, as numbers. */
+const numbered = (rig: Rig, prefix: string): Array<number> =>
+  rig.screen().flatMap((line) => {
+    const found = new RegExp(`(?:^|\\] )${prefix}(\\d+)$`).exec(line.trim());
+    return found === null ? [] : [Number(found[1])];
+  });
+
+test('the wheel scrolls the window under the pointer and leaves the other where it was', async () => {
+  // Bug: the wheel over the command window scrolls the chat, or the wheel over the chat scrolls the window too.
+  const answer = Array.from({ length: 40 }, (_none, index) => `ans-${index}`).join('\n');
+  const { env, entry } = commandEnv({ '/status': answer });
+  await withChat(env, async (rig) => {
+    for (let index = 0; index < 40; index += 1) entry({ who: 'her', text: `chat-${index}` });
+    await until(shows(rig, 'chat-39'));
+    await press(rig, '/status', shows(rig, '> /status'));
+    await press(rig, KEY.enter, shows(rig, 'ans-39'));
+    const chatBefore = numbered(rig, 'chat-');
+    const windowRow = ruleRow(rig) + 3;
+    for (let tick = 0; tick < 4; tick += 1) rig.type(`\u001b[<64;2;${windowRow}M`);
+    await until(() => !text(rig).includes('ans-39'));
+    assert.equal(text(rig).includes('ans-39'), false);
+    assert.deepEqual(numbered(rig, 'chat-'), chatBefore);
+    const windowBefore = numbered(rig, 'ans-');
+    const chatRow = ruleRow(rig) - 2;
+    for (let tick = 0; tick < 4; tick += 1) rig.type(`\u001b[<64;2;${chatRow}M`);
+    await until(() => !text(rig).includes('chat-39'));
+    assert.equal(text(rig).includes('chat-39'), false);
+    assert.deepEqual(numbered(rig, 'ans-'), windowBefore);
+  });
+});
+
+test('a drag over the window copies its text', async () => {
+  // Bug: the selection measures against the chat's rows only, so a drag in the window copies a chat row or nothing.
+  const { env, entry } = commandEnv({ '/status': 'window alpha beta' });
+  await withChat(env, async (rig) => {
+    entry({ who: 'her', text: 'chat gamma delta' });
+    await press(rig, '/status', shows(rig, '> /status'));
+    await press(rig, KEY.enter, shows(rig, 'window alpha beta'));
+    const row = rowOf(rig, 'window alpha beta') + 1;
+    const column = (rig.screen()[row - 1] ?? '').indexOf('alpha') + 1;
+    rig.type(`\u001b[<0;${column};${row}M`);
+    rig.type(`\u001b[<32;${column + 9};${row}M`);
+    rig.type(`\u001b[<0;${column + 9};${row}m`);
+    await until(shows(rig, 'copied 10 chars'));
+    const copied = rig.frames().split('\u001b]52;c;').slice(1);
+    const last = copied.at(-1) ?? '';
+    assert.equal(Buffer.from(last.slice(0, last.indexOf('\u0007')), 'base64').toString('utf8'), 'alpha beta');
+    // A key drops the selection, so the Ctrl+C that closes the chat leaves instead of copying again.
+    await press(rig, KEY.escape, () => !text(rig).includes('copied'));
+  });
+});
+
+test('an interactive panel draws inside the window, under the chat and the header, and Esc closes both', async () => {
+  // Bug: `/config` draws over the chat and hides the header, or Esc leaves an empty window behind.
+  const panel: Panel = {
+    title: 'Settings',
+    lines: [],
+    rows: [{ id: 'a', label: 'first-setting-row', detail: 'a setting', group: 'General', value: 'on' }],
+  };
+  const { env, entry, lines } = commandEnv(
+    {},
+    { panelOf: (line: string) => Promise.resolve(line === '/config' ? panel : null) }
+  );
+  await withChat(env, async (rig) => {
+    entry({ who: 'her', text: 'her-line' });
+    await until(shows(rig, 'her-line'));
+    await press(rig, '/config', shows(rig, '> /config'));
+    await press(rig, KEY.enter, shows(rig, 'first-setting-row'));
+    const rule = ruleRow(rig);
+    assert.ok(rule > rowOf(rig, 'her-line'));
+    assert.ok(rowOf(rig, 'first-setting-row') > rule && rowOf(rig, 'first-setting-row') < rig.stdout.rows);
+    assert.ok(text(rig).includes('neptunia'), 'the header stays');
+    await press(rig, KEY.escape, () => ruleRow(rig) === -1);
+    assert.equal(text(rig).includes('first-setting-row'), false);
+    assert.ok(text(rig).includes('her-line'));
+  });
+  assert.deepEqual(lines, []);
+});
+
+test('a chat line that reads like a command word goes to her and opens no window', async () => {
+  // Bug: the chat asked `panelOf` for every line, so a plain `status` to her opened the status panel and was never sent.
+  const status: Panel = { title: 'Status', lines: ['the status panel body'] };
+  const { env, lines } = commandEnv({}, { panelOf: () => Promise.resolve(status) });
+  await withChat(env, async (rig) => {
+    await press(rig, 'status', shows(rig, '> status'));
+    await press(rig, KEY.enter, () => lines.length === 1);
+    assert.equal(ruleRow(rig), -1);
+    assert.equal(text(rig).includes('the status panel body'), false);
+  });
+  assert.deepEqual(lines, ['status']);
+});

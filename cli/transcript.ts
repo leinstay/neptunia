@@ -3,13 +3,28 @@
 // to an entry and a row inside it, so new entries and a resize leave the reader where they are. An expanded last entry may
 // go past the budget while the tail is followed. The rows of an entry are kept until its width or folding changes, so a
 // keystroke in a long session stays cheap. cli/app.ts draws the window, and the full text stays in its entries.
-import { wrapWords } from './layout.ts';
+import { cellWidth, wrapWords } from './layout.ts';
 import { foldedText } from './state.ts';
 
-/** `stamp` is a muted row above the entry's first line of text, after the blank rows it opens with. */
-export type TranscriptEntry = { id: string; text: string; stamp?: string };
+/**
+ * `lead` is a muted prefix on the entry's first row, such as `[2026-11-08 13:04] [#3] `. Every other row of the entry,
+ * wrapped or after a newline, starts `indent` cells in, the width of the lead unless it says otherwise, so the text keeps
+ * one column as Hermes draws its message bodies (ui-tui/src/components/messageLine.tsx).
+ */
+export type TranscriptEntry = { id: string; text: string; lead?: string; indent?: number };
 export type RowBlock = 'plain' | 'code' | 'quote' | 'heading';
-export type TranscriptRow = { entryId: string; text: string; kind: 'text' | 'fold' | 'stamp'; block: RowBlock };
+/**
+ * `lead` counts the cells of the muted prefix the row starts with, and `pad` the blank cells a later row of an entry starts
+ * with, which a copy leaves out.
+ */
+export type TranscriptRow = {
+  entryId: string;
+  text: string;
+  kind: 'text' | 'fold';
+  block: RowBlock;
+  lead?: number;
+  pad?: number;
+};
 export type TranscriptView = { kind: 'tail' } | { kind: 'anchor'; entryId: string; row: number };
 export type TranscriptDims = { columns: number; budget: number; expanded: ReadonlySet<string>; foldLines: number };
 export type TranscriptWindow = {
@@ -65,6 +80,11 @@ export function lineTime(at: number, timeZone?: string): string {
   return `${part.year}-${part.month}-${part.day} ${part.hour}:${part.minute}`;
 }
 
+/** The muted lead of a line: its date and minute in `timeZone`, then its number, as `[2026-11-08 13:04] [#3] `. */
+export function lineLead(at: number, number: number, timeZone?: string): string {
+  return `[${lineTime(at, timeZone)}] [#${number}] `;
+}
+
 function expandTabs(line: string): string {
   let out = '';
   for (const char of line) out += char === '\t' ? ' '.repeat(TAB_STOP - (out.length % TAB_STOP)) : char;
@@ -80,25 +100,36 @@ function entryRows(
   const folded = foldedText(entry.text, isExpanded, foldLines);
   const rows: Array<TranscriptRow> = [];
   let inCode = false;
-  let stamp = entry.stamp;
+  const lead = entry.lead ?? '';
+  const leadCells = cellWidth(lead);
+  // A terminal narrower than the lead wraps the text under it from the left edge.
+  const indent = Math.min(entry.indent ?? leadCells, Math.max(0, columns - 1));
+  const pad = ' '.repeat(indent);
+  let isFirst = true;
   for (const line of folded.text.split('\n')) {
-    if (stamp !== undefined && line !== '') {
-      rows.push({ entryId: entry.id, text: stamp.slice(0, columns), kind: 'stamp', block: 'plain' });
-      stamp = undefined;
-    }
     const isFence = line.trimStart().startsWith('```');
     const block: RowBlock =
       inCode || isFence ? 'code' : line.startsWith('>') ? 'quote' : /^#{1,6} /.test(line) ? 'heading' : 'plain';
     if (isFence) inCode = !inCode;
-    for (const row of wrapWords(expandTabs(line), columns))
-      rows.push({ entryId: entry.id, text: row.text, kind: 'text', block });
+    for (const row of wrapWords(expandTabs(line), Math.max(1, columns - indent))) {
+      const head = isFirst && lead !== '' ? lead + ' '.repeat(Math.max(0, indent - leadCells)) : pad;
+      rows.push({
+        entryId: entry.id,
+        text: head + row.text,
+        kind: 'text',
+        block,
+        ...(isFirst && lead !== '' ? { lead: leadCells } : indent > 0 ? { pad: indent } : {}),
+      });
+      isFirst = false;
+    }
   }
   if (folded.hidden > 0)
     rows.push({
       entryId: entry.id,
-      text: `… ${folded.hidden} more lines, ctrl+o shows them`,
+      text: `${pad}… ${folded.hidden} more lines, ctrl+o shows them`,
       kind: 'fold',
       block: 'plain',
+      ...(indent > 0 ? { pad: indent } : {}),
     });
   return rows;
 }

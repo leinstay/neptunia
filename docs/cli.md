@@ -25,7 +25,7 @@ The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. 
 | Left, Right, Home and End | Move the caret, by whole characters and across a chip in one step |
 | Backspace and Delete | Delete a whole character or a whole chip |
 | Tab | Complete the selected command |
-| Esc | Close a panel, cancel a panel still loading, cancel a question, leave a search or clear the input. On an empty input it asks the core to cancel her running turn |
+| Esc | Cancel a question, leave a search, or close the command window with its panel, cancelling a panel still loading. With the window closed it clears the input, and on an empty input it asks the core to cancel her running turn |
 | Ctrl+R | Search the history, and again for the next older match |
 | Ctrl+F | Search the transcript, and again for the next older match |
 | Alt+Up and Alt+Down | Jump to your line above or below |
@@ -33,7 +33,8 @@ The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. 
 | Ctrl+S | Stash the draft, or bring back the stashed draft on an empty input |
 | Ctrl+G | Edit the draft in `$VISUAL` or `$EDITOR` |
 | Ctrl+O | Expand or fold the newest folded answer on the screen |
-| Page Up and Page Down, or the mouse wheel | Scroll the transcript |
+| Page Up and Page Down | Scroll the transcript |
+| The mouse wheel | Scroll the chat or the command window, whichever is under the pointer |
 | Ctrl+V | Attach an image from the clipboard of this machine |
 | Ctrl+C | Copy the mouse selection when there is one, otherwise exit the CLI |
 | Ctrl+D on an empty input | Exit the CLI |
@@ -71,15 +72,15 @@ An image the persona sends is kept the same way, up to 10 MiB, and the transcrip
 
 The galaxy is drawn in a box of 13 by 5 cells that never shrinks, and a status line wider than the terminal is cut beside it. Every frame of the animation has the same size, so the title stays in its column.
 
-`cli/chat-controller.ts` gives the transcript what the other parts leave: the transcript budget is `max(0, R - F - C - O)` (`transcriptBudget` in `cli/layout.ts`), with `R` the terminal's rows, `F` the header, notice and question rows, `C` the input with its borders, and `O` the slash menu or a panel. Everything is counted in cells by `cli/layout.ts`: Backspace and the caret cross a whole grapheme, wrapping never splits a wide glyph, and the caret stands on the next row when its row is full. The input grows to at most 8 rows, then scrolls inside its box with the caret's row in view and a row counting what is hidden. Deleting rows gives them back to the transcript.
+`cli/chat-controller.ts` gives the transcript what the other parts leave: the transcript budget is `max(0, R - F - C - O)` (`transcriptBudget` in `cli/layout.ts`), with `R` the terminal's rows, `F` the header, notice and question rows, `C` the input with its borders, and `O` the slash menu and the open command window. Everything is counted in cells by `cli/layout.ts`: Backspace and the caret cross a whole grapheme, wrapping never splits a wide glyph, and the caret stands on the next row when its row is full. The input grows to at most 8 rows, then scrolls inside its box with the caret's row in view and a row counting what is hidden. Deleting rows gives them back to the transcript.
 
 `cli/transcript.ts` wraps each entry to the width and draws only the rows that fit, however long the session. Following the tail and reading further up are separate views. Page Up anchors the view to an entry and a row inside it, so a new answer or a resize leaves the reader in place, and reaching the end follows the tail again. An answer folds to at most 20 lines, fewer when the terminal has less room, so it starts on the screen. Ctrl+O changes one entry. An expanded last entry taller than the budget shows its newest rows, and Page Up reaches the rest. The full text stays in the entry.
 
-Each line of the owner and of hers carries the date and minute it was sent, such as `2026-11-08 13:04`, on a muted row above its text and in line with it, as Hermes draws its timestamps (`ui-tui/src/components/messageLine.tsx`). The zone is `bot.timezone` (default `UTC`). A stored line keeps its stored time (`at` of `session.page`), and a new line takes the time it reached the chat. A command's answer carries none.
+A line of the owner or of hers opens with a muted lead, then its text, as `[2026-11-08 13:04] [#3] text` (`lineLead` in `cli/transcript.ts`). The lead holds the date and minute it was sent and its number. That number counts the lines of the chat from the oldest one shown. Her requests carry a `#N` of their own that counts the lines of one request, and the core sends the client none of them. The later rows of a line start in the column of its text, as Hermes draws its message bodies (`ui-tui/src/components/messageLine.tsx`), and a copy leaves that indent out. Times are in `bot.timezone` (default `UTC`). A stored line keeps its stored time (`at` of `session.page`), and a new line takes the time it reached the chat. One blank row stands after her line when the owner's line follows it, and nowhere else.
 
-A stored control character is drawn as one visible character (`displaySafe`), so a line from memory can neither run an escape sequence nor vanish unseen. The owner's line starts with `> `, a command's answer with `· ` and her reply with no mark, so the kinds differ without colour. The selected row of the slash menu carries `›` beside its inverse video. Fenced code, quotes and headings get a style by their line, and their text stays as it arrived.
+A stored control character is drawn as one visible character (`displaySafe`), so a line from memory can neither run an escape sequence nor vanish unseen. No line carries a `>` mark: the owner's lines are purple and hers white, and a notice of the chat, such as a failed turn, starts with `· `. The selected row of the slash menu carries `›` beside its inverse video. Fenced code, quotes and headings get a style by their line, and their text stays as it arrived.
 
-`cli/theme.ts` holds the semantic tokens: `text`, `muted`, `title`, `mark`, `userMarker`, `activeBorder`, `inactiveBorder`, `selection`, `caret`, `code`, `quote`, `heading`, `success`, `warning` and `error`. A token asks for an ANSI style. The font family, its faces and the cell size belong to the terminal emulator.
+`cli/theme.ts` holds the semantic tokens: `text`, `muted`, `title`, `mark`, `owner`, `her`, `activeBorder`, `inactiveBorder`, `selection`, `caret`, `code`, `quote`, `heading`, `success`, `warning` and `error`. A token asks for an ANSI style. The font family, its faces and the cell size belong to the terminal emulator.
 
 `NEPTUNIA_LINEAR=1` draws one plain column in reading order for a screen reader, with no borders and no galaxy. It sets `ChatEnv.linear`.
 
@@ -93,10 +94,17 @@ These rows were read from frames the chat wrote into the fake terminal of `tests
 | Transcript budget | 15 rows | 9 rows | 3 rows | 22 rows |
 | Input with one row of text | 3 rows, on rows 21 to 23 | 3 rows, on rows 15 to 17 | 3 rows, on rows 3 to 5 | 1 row |
 | Text column of the input | 4 | 4 | 4 | 2 |
-| Blank rows above an owner line | 1 | 1 | 1 | 1 |
-| Blank rows between a reply and a command result | 0 | 0 | 0 | 0 |
+| Command window, open | 7 rows, 5 of them its rows | 4 rows, 2 of them its rows | 1 row, its rows alone | 11 rows, 9 of them its rows |
 
 The galaxy needs at least 16 rows and 40 columns. Below that the header is one line, and under 8 rows it goes.
+
+## The command window
+
+Every slash command but `/clear` and `/attach` runs in the command window (`cli/command-window.ts`), between the chat and the input. Sending one opens the window with the command line under the same lead of its time and its number among the session's commands, as `[2026-11-08 13:04] [#2] /status`, and its answer in the column of its text. The window takes half of the rows the header, the notices and the input leave, rounded down, and the chat keeps the rest: 7 and 8 rows at 80 by 24. A rule above its rows and the hint under them show while a row still fits between them. It keeps every result of the session in order, so the next command reopens it with the earlier results above. An answer never folds there, and the window scrolls with the wheel apart from the chat. A drag inside it selects and copies its text as in the chat.
+
+A command's answer reaches the window and never the chat: `ChatEnv.send` gives back the promise of a command's answer, and `panelOf` answers a command that has a panel. A panel of lines alone is shown as the command's text. An interactive panel, such as the `/model` selector, `/config`, `/setup`, `/help` or a picker, draws inside the window in place of its rows and holds the keys. The window's last row reads `Esc to close`, in the form of Claude Code's panel footers such as `Esc to cancel` under its `/help`, and a live panel shows its own keys there instead.
+
+Esc closes the window and the panel in it, and a panel request still on its way opens nothing and leaves `Cancelled.` as its answer. The draft stays, and with the window closed Esc acts on the input as before. A panel's own Esc goes first: it leaves a value editor, or steps the model selector back, and closes the window from the selector's first step. A chat line asks for no panel, so a plain word such as `status` goes to her.
 
 ## Editing and keys
 
@@ -108,13 +116,13 @@ Ctrl+G hands the terminal to the editor with the draft in a private temporary fi
 
 Raw mode clears `IXON` and `ISIG` (checked with `stty -a` under a pseudo-terminal), so Ctrl+S and Ctrl+Z reach the chat instead of the terminal's flow control and job control.
 
-`cli.mouse` (default `true`) takes the terminal's SGR mouse reports for buttons, the wheel and motion while a button is held (modes `1000`, `1002` and `1006`). `parseMouse` and `mouseFilter` in `cli/mouse.ts` take the reports out of the input before Ink sees them, and `ChatController.onMouse` in `cli/chat-controller.ts` acts on them. The wheel scrolls the transcript three rows a notch, or moves the slash menu while it is open. A click in the input places the caret on a whole character. `mouseAvailable` refuses tracking for `TERM=dumb` and the linear mode, and with it off Ink drops a stray report before it can reach the draft.
+`cli.mouse` (default `true`) takes the terminal's SGR mouse reports for buttons, the wheel and motion while a button is held (modes `1000`, `1002` and `1006`). `parseMouse` and `mouseFilter` in `cli/mouse.ts` take the reports out of the input before Ink sees them, and `ChatController.onMouse` in `cli/chat-controller.ts` acts on them. The wheel scrolls the chat or the command window under the pointer three rows a notch, or moves the slash menu while it is open. A click in the input places the caret on a whole character. `mouseAvailable` refuses tracking for `TERM=dumb` and the linear mode, and with it off Ink drops a stray report before it can reach the draft.
 
-Tracking takes the terminal's own selection away, so the chat selects transcript text itself. A drag over the transcript marks the cells it covers in inverse video, and releasing the button copies the text with an OSC 52 sequence (`osc52` in `cli/clipboard.ts`) and says `copied N chars to clipboard` on the notice row. The terminal does the copy, so it reaches the owner's own machine over SSH. A selection over several rows joins them with newlines, a click without a drag copies nothing, and Ctrl+C copies the selection again instead of leaving. The next key, click or wheel notch drops it. A terminal that ignores OSC 52 copies nothing, and tmux passes it on only with `set-clipboard on`. Shift with the mouse reaches the terminal's own selection in xterm, GNOME Terminal, Konsole, kitty, WezTerm and Windows Terminal, and Option does the same in iTerm2. Text is pasted with the terminal's own paste key, which arrives as a bracketed paste. Windows Terminal binds Ctrl+V to that paste, so Ctrl+V reaches the chat as an image attachment only in a terminal that leaves it unbound.
+Tracking takes the terminal's own selection away, so the chat selects text itself. A drag over the transcript or the command window marks the cells it covers in inverse video, and releasing the button copies the text with an OSC 52 sequence (`osc52` in `cli/clipboard.ts`) and says `copied N chars to clipboard` on the notice row. The terminal does the copy, so it reaches the owner's own machine over SSH. A selection over several rows joins them with newlines, a click without a drag copies nothing, and Ctrl+C copies the selection again instead of leaving. The next key, click or wheel notch drops it. A terminal that ignores OSC 52 copies nothing, and tmux passes it on only with `set-clipboard on`. Shift with the mouse reaches the terminal's own selection in xterm, GNOME Terminal, Konsole, kitty, WezTerm and Windows Terminal, and Option does the same in iTerm2. Text is pasted with the terminal's own paste key, which arrives as a bracketed paste. Windows Terminal binds Ctrl+V to that paste, so Ctrl+V reaches the chat as an image attachment only in a terminal that leaves it unbound.
 
 ## Overlays and questions
 
-One screen element holds the keys and a paste at a time. A question from the core goes first, then an open panel, then the input. `focusOwner` in `cli/chat-controller.ts` decides, and a panel that loses the keys stays on the screen.
+One screen element holds the keys and a paste at a time. A question from the core goes first, then a panel open in the command window, then the input. `focusOwner` in `cli/chat-controller.ts` decides, and a panel that loses the keys stays on the screen. The mouse still scrolls and selects while a panel holds the keys.
 
 A question replaces the input and keeps the unfinished line it interrupted. The line comes back after the answer or Esc, and an answer never joins it. Enter does nothing for 700 ms after the question closes, counted again from each Enter it swallows, so a held key cannot send a draft its owner has not seen. A secret answer is drawn as stars and stays out of the input history. A question with choices opens the selector in `cli/selector.ts`. Typing or pasting narrows the list, Enter answers with the choice exactly as the core sent it, and a filter that matches nothing answers nothing. The plain chat prints the choices beside the prompt.
 

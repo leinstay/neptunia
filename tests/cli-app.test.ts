@@ -47,7 +47,7 @@ function envOf(over: Partial<ChatEnv> = {}) {
     ],
     history: [],
     still: true,
-    send: (line) => sent.push(line),
+    send: (line) => void sent.push(line),
     panelOf: (line) =>
       Promise.resolve(
         line === '/help' ? { title: 'Help', lines: ['status the summary', 'keys the model keys'] } : null
@@ -135,26 +135,32 @@ test('expanding a long answer shows its final line, and Page Up reaches its firs
   // Bug: clipping the chat to terminal height discards the beginning of an expanded answer.
   // The chat draws inline no more: on the alternate screen nothing scrolls into the terminal's history, so the first and
   // the final line of an answer taller than the window cannot share one screen. The start is reached with Page Up.
+  // A row is matched by its text, not as the whole row: since the owner's word of 2026-11-08 the first row of a line
+  // carries the lead `[time] [#N] ` and its later rows start in the column of its text.
   const { env, listeners } = envOf();
   const lines = Array.from({ length: 40 }, (_, index) => `answer-line-${index + 1}`);
+  const onScreen = (rig: ReturnType<typeof terminal>, needle: string): boolean =>
+    rig.screen().some((row) => row.trim() === needle || row.trimEnd().endsWith(`] ${needle}`));
   await withChat(env, async (rig) => {
     listeners.entry?.({ who: 'her', text: lines.join('\n') });
-    await until(() => rig.screen().includes('answer-line-1'));
-    assert.ok(rig.screen().includes('answer-line-1'));
-    assert.equal(rig.screen().includes('answer-line-40'), false);
+    await until(() => onScreen(rig, 'answer-line-1'));
+    assert.ok(onScreen(rig, 'answer-line-1'));
+    assert.equal(onScreen(rig, 'answer-line-40'), false);
     rig.type('\u000f');
-    await until(() => rig.screen().includes('answer-line-40'));
-    assert.ok(rig.screen().includes('answer-line-40'));
-    for (let page = 0; page < 4 && !rig.screen().includes('answer-line-1'); page += 1) {
+    await until(() => onScreen(rig, 'answer-line-40'));
+    assert.ok(onScreen(rig, 'answer-line-40'));
+    for (let page = 0; page < 4 && !onScreen(rig, 'answer-line-1'); page += 1) {
       rig.type('\u001b[5~');
-      await until(() => rig.screen().includes('answer-line-1'), 500);
+      await until(() => onScreen(rig, 'answer-line-1'), 500);
     }
-    assert.ok(rig.screen().includes('answer-line-1'));
+    assert.ok(onScreen(rig, 'answer-line-1'));
   });
 });
 
-test('a slash opens its menu with descriptions, and a panel opens with its search', async () => {
+test('a slash opens its menu with descriptions, and a command shows its answer in the command window', async () => {
   // Bug: the slash menu lists commands that do not exist, or `/help` goes to the model as a chat line.
+  // A panel of lines alone is a command's text answer since the owner's word of 2026-11-08, kept in the command window's
+  // history, so it shows there as text and has no search of its own; the panels with rows keep theirs.
   const { env, sent } = envOf();
   await withChat(env, async (rig) => {
     rig.type('/');
@@ -163,13 +169,10 @@ test('a slash opens its menu with descriptions, and a panel opens with its searc
     rig.type('help');
     await until(shows(rig, '> /help'));
     rig.type('\r');
-    await until(() => /search:/.test(rig.frames()));
-    assert.match(rig.frames(), /search:/);
-    rig.type('keys');
-    await until(shows(rig, 'search: keys'));
-    assert.match(rig.frames(), /keys the model keys/);
+    await until(shows(rig, 'keys the model keys'));
+    assert.match(rig.screen().join('\n'), /status the summary/);
     rig.type('\u001b');
-    await until(() => !rig.screen().join('\n').includes('search:'));
+    await until(() => !rig.screen().join('\n').includes('keys the model keys'));
   });
   assert.deepEqual(sent, []);
 });

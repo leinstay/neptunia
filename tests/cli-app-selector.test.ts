@@ -52,7 +52,7 @@ function envOf(over: Partial<ChatEnv> = {}) {
     ],
     history: [],
     still: true,
-    send: (line) => sent.push(line),
+    send: (line) => void sent.push(line),
     panelOf: () => Promise.resolve(null),
     subscribe: (given) => Object.assign(listeners, given),
     status: () => Promise.resolve(null),

@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatEntry } from '../cli/index.ts';
 import { KEY, chatEnv, press, shows, until, withChat } from './fixtures/chat-rig.ts';
+import type { Rig } from './fixtures/chat-rig.ts';
 
 type Stored = ChatEntry & { id: string };
 
@@ -92,5 +93,72 @@ test("the owner's line just sent carries its send time in the persona's zone", a
     rig.type(KEY.enter);
     await until(shows(rig, '2026-11-08 22:04'));
     assert.ok(rig.screen().join('\n').includes('2026-11-08 22:04'), 'the time in the persona zone');
+  });
+});
+
+/** The rows above the input box: the chat and the header, never the draft's own `> ` prompt. */
+const chatRows = (rig: Rig): Array<string> => {
+  const screen = rig.screen();
+  return screen
+    .slice(
+      0,
+      screen.findIndex((line) => line.startsWith('╭'))
+    )
+    .map((line) => line.trimEnd());
+};
+
+test('every line opens with its time, then its number, then its text, and no line carries a `>` mark', async () => {
+  // Bug: the time stands on a row of its own, the number is missing or comes first, or the owner's line keeps `> `.
+  const { env, entry } = chatEnv({ now: () => SENT, timeZone: 'UTC' });
+  await withChat(env, async (rig) => {
+    await press(rig, 'ΓΡΑΜΜΗ-ΝΕΑ', shows(rig, '> ΓΡΑΜΜΗ-ΝΕΑ'));
+    await press(rig, KEY.enter, () => chatRows(rig).some((line) => line.includes('ΓΡΑΜΜΗ-ΝΕΑ')));
+    entry({ who: 'her', text: 'her-reply' });
+    await until(shows(rig, 'her-reply'));
+    const rows = chatRows(rig);
+    assert.ok(rows.includes('[2026-11-08 13:04] [#1] ΓΡΑΜΜΗ-ΝΕΑ'), rows.join('\n'));
+    assert.ok(rows.includes('[2026-11-08 13:04] [#2] her-reply'), rows.join('\n'));
+    assert.equal(
+      rows.some((line) => line.trimStart().startsWith('>')),
+      false
+    );
+  });
+});
+
+test("a blank row stands after her line only when the owner's line follows it", async () => {
+  // Bug: a blank row before every owner line, after every reply, or none between her answer and his next line.
+  const { env, entry } = chatEnv({ timeZone: 'UTC' });
+  await withChat(env, async (rig) => {
+    for (const [who, text] of [
+      ['owner', 'o-one'],
+      ['her', 'h-one'],
+      ['owner', 'o-two'],
+      ['owner', 'o-three'],
+      ['her', 'h-two'],
+      ['her', 'h-three'],
+    ] as const)
+      entry({ who, text });
+    await until(shows(rig, 'h-three'));
+    const rows = chatRows(rig);
+    const at = (needle: string): number => rows.findIndex((line) => line.endsWith(` ${needle}`));
+    assert.equal(at('h-one') - at('o-one'), 1);
+    assert.equal(at('o-two') - at('h-one'), 2);
+    assert.equal(rows[at('h-one') + 1], '');
+    assert.equal(at('o-three') - at('o-two'), 1);
+    assert.equal(at('h-two') - at('o-three'), 1);
+    assert.equal(at('h-three') - at('h-two'), 1);
+  });
+});
+
+test("a line's later rows start in the column of its text, under the lead", async () => {
+  // Bug: a reply's second line starts at the left edge, under the time, so the text loses its column.
+  const { env, entry } = chatEnv({ timeZone: 'UTC' });
+  await withChat(env, async (rig) => {
+    entry({ who: 'her', text: 'first-row\nsecond-row' });
+    await until(shows(rig, 'second-row'));
+    const rows = chatRows(rig);
+    const first = rows.find((line) => line.endsWith('first-row')) ?? '';
+    const second = rows.find((line) => line.endsWith('second-row')) ?? '';
+    assert.equal(second.indexOf('second-row'), first.indexOf('first-row'));
   });
 });

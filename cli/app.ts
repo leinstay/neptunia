@@ -1,7 +1,8 @@
 // The interactive chat's screen, written with `React.createElement`, so no build step appears: the header, the rows of the
-// transcript that fit, the input with its slash menu, and panels over the chat for `/help`, `/status` and `/config` with a
-// search, and the model selector for `/model`. A closed question is a selector over its choices. What each key does and what
-// each row holds comes from cli/chat-controller.ts, and cli/index.ts starts it.
+// transcript that fit, the command window with every slash command's answer and the live panel of the newest (`/help`,
+// `/config` with a search, the model selector for `/model`), and the input with its slash menu. A closed question is a
+// selector over its choices. What each key does and what each row holds comes from cli/chat-controller.ts, and
+// cli/index.ts starts it.
 
 import { createElement as h, useEffect, useReducer, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
@@ -9,6 +10,7 @@ import { Box, Text, useApp, useInput, usePaste, useStdout } from 'ink';
 import { ComposerBox, Header, Menu, TranscriptRows } from './chat-view.ts';
 import { ChatController } from './chat-controller.ts';
 import { osc52 } from './clipboard.ts';
+import { CommandWindow } from './command-window.ts';
 import type { ChatEnv, ChatFrame } from './chat-controller.ts';
 export type { ChatEntry, ChatEnv, ChatImages, Question, StageResult } from './chat-controller.ts';
 import { ModelPicker } from './model-picker.ts';
@@ -20,19 +22,26 @@ import { THEME } from './theme.ts';
 
 const POLL_MS = 15_000;
 
-/** The panel over the transcript, with the keys while it owns them. */
-function OpenPanel({ chat, frame, request }: { chat: ChatController; frame: ChatFrame; request: number }) {
+/** The rows a panel draws around its list: its title, filter, count, detail and keys. */
+const PANEL_CHROME_ROWS = 6;
+const PICKER_CHROME_ROWS = 4;
+
+/** The live panel inside the command window, with the keys while it owns them, or null with none. */
+function openPanel(chat: ChatController, frame: ChatFrame, body: number): ReactElement | null {
   const { panel } = chat.model;
   if (panel === null) return null;
   const active = frame.owner === 'panel';
   const close = (): void => chat.closePanel();
-  if (panel.picker !== undefined) return h(ModelPicker, { key: String(request), env: panel.picker, active, close });
+  const key = String(chat.panelRequest);
+  if (panel.picker !== undefined)
+    return h(ModelPicker, { key, env: panel.picker, active, close, height: Math.max(1, body - PICKER_CHROME_ROWS) });
   return h(PanelView, {
-    key: String(request),
+    key,
     panel,
     active,
     close,
     prefill: (line: string) => chat.prefill(line),
+    height: Math.max(1, body - PANEL_CHROME_ROWS),
   });
 }
 
@@ -112,9 +121,17 @@ export function ChatApp({ env, mouse = null }: { env: ChatEnv; mouse?: MouseSour
       }),
       frame.isOffTail
         ? h(Text, { ...THEME.muted, wrap: 'truncate' }, `↓ ${frame.transcript.hiddenBelow} rows below · Page Down`)
-        : null,
-      h(OpenPanel, { chat, frame, request: chat.panelRequest })
+        : null
     ),
+    frame.window === null
+      ? null
+      : h(CommandWindow, {
+          height: frame.window.height,
+          columns,
+          rows: frame.window.rows,
+          marks: frame.window.marks,
+          panel: openPanel(chat, frame, frame.window.body),
+        }),
     h(Bottom, { chat, frame })
   );
 }
