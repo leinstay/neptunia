@@ -28,7 +28,7 @@ import { heldPort } from './send-hold.ts';
 import { idText, isObj, listOf, objOf, textOf } from './types.ts';
 import type { Obj, Skill, SkillMap } from './types.ts';
 import type { Refusal } from './gateway.ts';
-import { indexedPlace, matchPlace } from './place-names.ts';
+import { foundPlaces, indexedPlace, matchPlace } from './place-names.ts';
 import type { PlaceCandidate, PlaceMatch } from './place-names.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { ChatRef } from '../protocol/adapter.ts';
@@ -55,6 +55,8 @@ export type CallView = {
   stem?: ((word: string) => string) | null;
   /** The live places a name names in the memory's name index, under the turn's context (names.ts#placesNamed). */
   placesNamed?: ((name: string) => ReadonlyArray<{ id: string; name: string }>) | null;
+  /** The places the memory graph ranks for words that name no place, best first, under the turn's context (graph-find.ts). */
+  placesFound?: ((words: string) => ReadonlyArray<{ id: string; name: string; about: string | null }>) | null;
   channelHandles?: ReadonlyMap<string, string> | null;
   memberHandles?: ReadonlyMap<string, string> | null;
   links?: ReadonlyMap<string, { chatId: string; messageId: string } | null> | null;
@@ -273,9 +275,24 @@ function indexedOf(given: string, view: CallView | undefined): PlaceMatch | null
 }
 
 /**
+ * The places the memory graph ranks for `given`, as choices with the handle each has in this call view (the request's
+ * or a widened one, by place id or by the native id of a chat of the turn); null when the view reads no graph or the
+ * graph finds none.
+ */
+function graphFoundOf(given: string, view: CallView | undefined): PlaceMatch | null {
+  if (typeof view?.placesFound !== 'function') return null;
+  const handles = new Map<string, string>();
+  for (const [handle, id] of view.channelHandles ?? []) if (!handles.has(idText(id))) handles.set(idText(id), handle);
+  return foundPlaces(view.placesFound(given.replace(/^#/, '').trim()), (id) => {
+    return handles.get(id) ?? handles.get(placeIdParts(id)?.native ?? '') ?? null;
+  });
+}
+
+/**
  * The place a read call names: an id (of digits, or of a chat of the view) or mention and a handle of the request go through as before (the operation's
  * rails still judge the place), any other name is matched among `view.places` (src/tools/place-names.ts#matchPlace),
- * then in the name index, and one that is not one place is refused with the places she may read as `choices`.
+ * then in the name index, then by the memory graph (graphFoundOf), and one that is not one place is refused with the
+ * places she may read, or the places the graph ranked for her words, as `choices`.
  */
 function placeOf(given: string, option: string, view: CallView): { id: string } | Refusal {
   const id = channelIdOf(given) ?? ((view.chats ?? []).some((c) => idText(c.id) === given) ? given : null);
@@ -283,14 +300,14 @@ function placeOf(given: string, option: string, view: CallView): { id: string } 
   const byHandle = view.channelHandles?.get(given.replace(/^#/, ''));
   if (byHandle !== undefined && idText(byHandle) !== '') return { id: idText(byHandle) };
   const listed = matchPlace(given, view.places ?? [], view.stem ? { stem: view.stem } : {});
-  const match = listed.kind === 'none' ? (indexedOf(given, view) ?? listed) : listed;
+  const match = listed.kind === 'none' ? (indexedOf(given, view) ?? graphFoundOf(given, view) ?? listed) : listed;
   return match.kind === 'one' ? { id: match.id } : placeRefusal(match, given, option);
 }
 
 /**
  * The place a `place` option names: a place id of any interface for the calls that take one, among the places she may
- * read for the read skills, else among the chats of the view, and last in the name index of the memory, which
- * holds the places of every interface by their stored names and aliases.
+ * read for the read skills, else among the chats of the view, then in the name index of the memory, which
+ * holds the places of every interface by their stored names and aliases, and last by the memory graph (graphFoundOf).
  */
 function channelOf(skill: string, given: string, option: string, view: CallView | undefined): { id: string } | Refusal {
   // A place id names a place on any interface; the operation asks that interface whether she may act there.
@@ -299,7 +316,7 @@ function channelOf(skill: string, given: string, option: string, view: CallView 
   const id = chatIdOf(given, view?.chats, view?.channelHandles);
   if (id === 'ambiguous') return refused(CODE.TARGET_AMBIGUOUS, 'chat');
   if (id) return { id };
-  const indexed = indexedOf(given, view);
+  const indexed = indexedOf(given, view) ?? graphFoundOf(given, view);
   if (indexed === null) return refused(CODE.INVALID_ARGS, `args.${option}:unknown-channel`);
   return indexed.kind === 'one' ? { id: indexed.id } : placeRefusal(indexed, given, option);
 }
