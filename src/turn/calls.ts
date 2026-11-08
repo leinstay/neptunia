@@ -12,7 +12,7 @@ import { parseToolCallBlocks } from '../llm/tool-text.ts';
 import { REPLY_REQUEST } from '../llm/openrouter.ts';
 import { thinkLeakOf } from '../llm/parse.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
-import { CHANNEL_HANDLE_PREFIX, widenHandles } from '../behavior/handles.ts';
+import { CHANNEL_HANDLE_PREFIX, idText, widenHandles } from '../behavior/handles.ts';
 import { readablePlaces } from '../behavior/readable-places.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { ChatInfo } from '../protocol/adapter.ts';
@@ -213,7 +213,7 @@ export function callViewOf({
     memberHandles: shownMembers
       ? widenHandles(
           shownMembers,
-          members.flatMap((member) => (member?.id === undefined || member.id === null ? [] : [String(member.id)]))
+          members.flatMap((member) => idText(member?.id))
         )
       : null,
     messageAt: (n) => {

@@ -129,6 +129,10 @@ export function resolveHandles(
   return { text: resolved, accountIds, unknown };
 }
 
+/** An id as widenHandles takes it: a string or a number as text, anything else none. */
+export const idText = (id: unknown): Array<string> =>
+  typeof id === 'string' || typeof id === 'number' ? [String(id)] : [];
+
 /** How many lengths past HANDLE_DIGITS widenHandles reads: a third id on one handle is rare already. */
 const WIDEN_EXTRA_DIGITS = 2;
 

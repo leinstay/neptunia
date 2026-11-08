@@ -8,7 +8,7 @@ import { settleWait } from '../behavior/activity.ts';
 import { messageLinkOf } from '../behavior/elsewhere.ts';
 import type { IndexedEmoji } from '../behavior/emoji-index.ts';
 import { renderCustomEmoji } from '../behavior/emoji.ts';
-import { CHANNEL_HANDLE_PREFIX, resolveHandles, widenHandles } from '../behavior/handles.ts';
+import { CHANNEL_HANDLE_PREFIX, idText, resolveHandles, widenHandles } from '../behavior/handles.ts';
 import { selfreflectionPlaces, readMirrors } from '../behavior/mirror.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { log } from '../log.ts';
@@ -225,9 +225,7 @@ export function createSends(ctx: SendsContext): Sends {
           written,
           widenHandles(
             handles,
-            [...directory()].flatMap((entry) =>
-              entry?.id === undefined || entry.id === null ? [] : [String(entry.id)]
-            )
+            [...(directory() ?? [])].flatMap((entry) => idText(entry?.id))
           )
         );
       mentioned = resolved;
