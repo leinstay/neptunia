@@ -3,9 +3,9 @@
 // system text in place of the backend's own and the answer read by the same `parseSessionAnswer`. Nothing else of the
 // writer changes. `memoryWriterClient` is the session's model client: at every call it reads the path in config.json
 // (src/subharness/memory-path.ts) and sends the request either to the direct client or through the backend. A run that
-// fails rejects with an Error whose `code` says why, which the sweep records as it records a failed request. The child
-// gets the backend's home and the plain variables of `childEnvOf`, never a key of the core. Log lines carry the
-// backend, the exit code and the tokens, never the text. `memoryCapabilities` says where a path differs from the direct
+// fails rejects with an Error whose `code` says why, `not-logged-in` when claude asks for a login, which the sweep records
+// as it records a failed request. The child gets the backend's home and the plain variables of `childEnvOf`, never a key
+// of the core. Log lines carry the backend, the exit code and the tokens, never the text. `memoryCapabilities` says where a path differs from the direct
 // one. Claude 2.1.317 enforces `CLAUDE_CODE_MAX_OUTPUT_TOKENS` (measured 2026-11-05: with 20 a run ended `is_error` at 80
 // output tokens, with none 436 at `end_turn`), so the cap goes there. Codex 0.164.0 has no such control, so its gap is
 // reported, and nothing trims the answer instead.
@@ -19,6 +19,8 @@ import type { Completion, SessionContext } from '../memory/db/session.ts';
 import type { MemoryBackend } from './routing.ts';
 import type { UsageEntry } from '../tools/operations/usage.ts';
 import { markedRun } from './activity.ts';
+import { LOGIN_FAILURE, runOutcomeOf } from './login-state.ts';
+import type { RunOutcome } from './login-state.ts';
 import { memoryPath } from './memory-path.ts';
 import type { SubharnessMemoryPath } from './memory-path.ts';
 import { isInstalled, subharnessPlace } from './place.ts';
@@ -138,6 +140,13 @@ function codexArgs(path: SubharnessMemoryPath, schemaFile: string, outFile: stri
   ];
 }
 
+/** Whether claude's run failed for want of a login: an error envelope or a failed exit whose text asks for one. */
+function loginLost(outcome: ChildOutcome): boolean {
+  const envelope = objectOf(outcome.stdout.trim());
+  const failed = outcome.exitCode !== 0 || envelope?.is_error === true;
+  return failed && LOGIN_FAILURE.test(`${outcome.stdout}\n${outcome.stderr}`);
+}
+
 /** The completion of claude's JSON envelope: its `result` and its tokens. */
 function claudeCompletion(stdout: string): Completion {
   const envelope = objectOf(stdout.trim());
@@ -203,6 +212,7 @@ export async function runMemoryWriter(
       ...(outcome.error === undefined ? {} : { error: outcome.error }),
     });
     if (outcome.error !== undefined) throw refusal(outcome.error);
+    if (!codex && loginLost(outcome)) throw refusal('not-logged-in');
     if (outcome.exitCode !== 0) throw refusal(`exit-${outcome.exitCode ?? 'signal'}`);
     if (!codex) return { ...claudeCompletion(outcome.stdout), ...ran, source: 'subprocess' };
     let final = '';
@@ -248,8 +258,10 @@ export function memoryWriterClient(deps: {
   record?: (entry: UsageEntry) => void;
   /** Called once per refused run on either path, before the rejection reaches the sweep: the memory probe runs at once. */
   onRefused?: () => void;
+  /** Told what each run of the subharness path came to, for the header's login state (src/subharness/login-state.ts). */
+  ran?: (backend: SubharnessMemoryPath['backend'], outcome: RunOutcome) => void;
 }): SessionContext['llm'] {
-  const { writer, direct, record, onRefused } = deps;
+  const { writer, direct, record, onRefused, ran } = deps;
   async function told<T>(run: () => Promise<T>): Promise<T> {
     try {
       return await run();
@@ -265,15 +277,22 @@ export function memoryWriterClient(deps: {
         const path = memoryPath(writer.privateDir);
         if (path.kind === 'direct') return direct.complete(messages, options);
         const timeout = Number(options.timeoutMs);
-        const completion = await runMemoryWriter(
-          path,
-          {
-            ...splitMessages(messages),
-            timeoutMs: timeout > 0 ? timeout : FALLBACK_TIMEOUT_MS,
-            ...(typeof options.maxOutputTokens === 'number' ? { maxOutputTokens: options.maxOutputTokens } : {}),
-          },
-          writer
-        );
+        let completion: Completion;
+        try {
+          completion = await runMemoryWriter(
+            path,
+            {
+              ...splitMessages(messages),
+              timeoutMs: timeout > 0 ? timeout : FALLBACK_TIMEOUT_MS,
+              ...(typeof options.maxOutputTokens === 'number' ? { maxOutputTokens: options.maxOutputTokens } : {}),
+            },
+            writer
+          );
+        } catch (error) {
+          ran?.(path.backend, runOutcomeOf(error));
+          throw error;
+        }
+        ran?.(path.backend, 'ok');
         const { usage } = completion;
         record?.({
           role: 'memory',

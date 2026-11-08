@@ -19,7 +19,7 @@ function deps(over: Partial<StatusBriefDeps> = {}): StatusBriefDeps {
     path: () => ({ kind: 'direct' }),
     hasKey: () => true,
     probe: () => ({ ok: true, at: 500 }),
-    loginLost: () => false,
+    runFailed: () => false,
     interfaces: () => [{ name: 'discord', enabled: true, connected: true }],
     ...over,
   };
@@ -87,7 +87,7 @@ test('a harness role whose last run lost its login reads as unbound, so the head
   const brief = statusBrief(
     deps({
       path: () => ({ kind: 'subharness', backend: 'claude', model: 'claude-opus-4-6' }),
-      loginLost: (role) => role === 'core',
+      runFailed: (role) => role === 'core',
     })
   );
   assert.equal(brief.core.bound, false);
@@ -101,12 +101,19 @@ test('a lost login is read for the harness the role runs through now', () => {
     deps({
       path: (role) =>
         role === 'core' ? { kind: 'subharness', backend: 'claude', model: 'claude-opus-4-6' } : { kind: 'direct' },
-      loginLost: (role, backend) => {
+      runFailed: (role, backend) => {
         asked.push(`${role}:${backend}`);
         return backend === 'codex';
       },
     })
   );
   assert.equal(brief.core.bound, true);
-  assert.deepEqual(asked, ['core:claude']);
+  assert.deepEqual(asked, ['core:claude', 'memory:api', 'analyzer:api']);
+});
+
+test('a role on the API whose last run failed reads as unbound though a key carries it', () => {
+  // Catches: an analyzer whose key the provider refuses (401) still shown active because a key is set.
+  const brief = statusBrief(deps({ runFailed: (role, backend) => role === 'analyzer' && backend === 'api' }));
+  assert.equal(brief.analyzer.bound, false);
+  assert.equal(brief.core.bound, true);
 });
