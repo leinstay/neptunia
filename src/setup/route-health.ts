@@ -36,110 +36,145 @@ const rec = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 
-export async function routeHealth(deps: RouteHealthDeps): Promise<RouteHealth> {
-  const { privateDir, config } = deps;
-  const routing = readRouting(privateDir);
-  const store = createKeyStore({ privateDir });
-  const baseUrl = text(rec(rec(config).llm).baseUrl);
-  const voice = text(rec(rec(config).speech).voice);
-  const sources = new Map<BackendName, Promise<SourceState>>();
-  const source = (backend: BackendName): Promise<SourceState> => {
-    const known = sources.get(backend) ?? sourceState(privateDir, backend);
-    sources.set(backend, known);
-    return known;
-  };
-  const probes = new Map<string, Promise<CheckResult>>();
-  const used = new Set<string>();
-  const badOf = (part: string): 'fail' | 'warn' => (MANDATORY.has(part) ? 'fail' : 'warn');
+/** What the lines of one doctor run share: the routing, the key store, and the answers asked once. */
+type Run = {
+  deps: RouteHealthDeps;
+  routing: ReturnType<typeof readRouting>;
+  sub: ReturnType<typeof readRouting>['subharness'];
+  store: ReturnType<typeof createKeyStore>;
+  baseUrl: string;
+  voice: string;
+  sources: Map<BackendName, Promise<SourceState>>;
+  probes: Map<string, Promise<CheckResult>>;
+  /** the extra keys some line used */
+  used: Set<string>;
+};
 
-  async function onHarness(part: string, backend: BackendName, model: string | null): Promise<Line> {
-    const state = await source(backend);
-    const head = `${part}: ${routeName(backend)}${model === null ? '' : ` ${model}`}`;
-    return state.available
-      ? { text: `${head} · logged in`, bad: null }
-      : { text: `${head} · ${sourceProblem(state)}`, bad: badOf(part) };
-  }
+const badOf = (part: string): 'fail' | 'warn' => (MANDATORY.has(part) ? 'fail' : 'warn');
 
-  async function onKey(part: string, role: string, model: string, keyName: string | null): Promise<Line> {
-    const value = keyName === null ? null : store.valueOf(keyName);
-    if (keyName === null || value === null) return { text: `${part}: ${model} · no key carries it`, bad: badOf(part) };
-    used.add(keyName);
-    const head = `${part}: ${model} on key ${keyName}`;
-    const kind = role === 'embedding' || role === 'speech' ? role : 'chat';
-    const id = `${kind}|${model}|${keyName}`;
-    const probe =
-      probes.get(id) ??
-      checkRole({ fetch: deps.fetch, baseUrl, role, model, keyName, value, voice: voice || undefined });
-    probes.set(id, probe);
-    const result = await probe;
-    if (result.capability === 'unsupported')
-      return { text: `${head} · not asked: no cheap request proves it`, bad: null };
-    if (result.ok) return { text: `${head} · answers`, bad: null };
-    const why =
-      result.status === null ? (result.error ?? 'no answer') : `${result.status} ${result.error ?? ''}`.trim();
-    return { text: `${head} · refused: ${why}`, bad: badOf(part) };
-  }
+function source(run: Run, backend: BackendName): Promise<SourceState> {
+  const known = run.sources.get(backend) ?? sourceState(run.deps.privateDir, backend);
+  run.sources.set(backend, known);
+  return known;
+}
 
-  const keyOf = (role: string): string | null => store.boundTo(role) ?? store.coreNames()[0] ?? null;
+async function onHarness(run: Run, part: string, backend: BackendName, model: string | null): Promise<Line> {
+  const state = await source(run, backend);
+  const head = `${part}: ${routeName(backend)}${model === null ? '' : ` ${model}`}`;
+  return state.available
+    ? { text: `${head} · logged in`, bad: null }
+    : { text: `${head} · ${sourceProblem(state)}`, bad: badOf(part) };
+}
 
-  async function partLine(role: (typeof API_ROLES)[number]): Promise<Line> {
-    const record = role === 'core' || role === 'memory' ? routing.subharness[role] : null;
-    if (record !== null) return onHarness(role, record.backend, record.model);
-    const model = roleModel(config, role);
-    if (model === undefined || model === '') return { text: `${role}: off`, bad: null };
-    if (role === 'drawing') return { text: `drawing: ${model} · not asked: one request bills a picture`, bad: null };
-    return onKey(role, role, model, keyOf(role));
-  }
+/** `checkRole` of `role` on `keyName`, one request per kind of endpoint, model and key. */
+function probe(run: Run, role: string, model: string, keyName: string, value: string): Promise<CheckResult> {
+  const kind = role === 'embedding' || role === 'speech' ? role : 'chat';
+  const id = `${kind}|${model}|${keyName}`;
+  const voice = run.voice === '' ? undefined : run.voice;
+  const asked =
+    run.probes.get(id) ??
+    checkRole({ fetch: run.deps.fetch, baseUrl: run.baseUrl, role, model, keyName, value, voice });
+  run.probes.set(id, asked);
+  return asked;
+}
 
-  const lines: Array<Line> = [];
-  for (const role of API_ROLES) lines.push(await partLine(role));
+async function onKey(run: Run, part: string, role: string, model: string, keyName: string | null): Promise<Line> {
+  const value = keyName === null ? null : run.store.valueOf(keyName);
+  if (keyName === null || value === null) return { text: `${part}: ${model} · no key carries it`, bad: badOf(part) };
+  run.used.add(keyName);
+  const head = `${part}: ${model} on key ${keyName}`;
+  const result = await probe(run, role, model, keyName, value);
+  if (result.capability === 'unsupported')
+    return { text: `${head} · not asked: no cheap request proves it`, bad: null };
+  if (result.ok) return { text: `${head} · answers`, bad: null };
+  const why = result.status === null ? (result.error ?? 'no answer') : `${result.status} ${result.error ?? ''}`.trim();
+  return { text: `${head} · refused: ${why}`, bad: badOf(part) };
+}
 
-  const simulation = routing.subharness.simulation;
-  if (simulation !== null) lines.push(await onHarness('simulation', simulation.backend, simulation.model));
-  else if (routing.simulation.key !== null)
-    lines.push(await onKey('simulation', 'core', roleModel(config, 'core') ?? '', routing.simulation.key));
-  else lines.push({ text: 'simulation: off', bad: null });
+const keyOf = (run: Run, role: string): string | null => run.store.boundTo(role) ?? run.store.coreNames()[0] ?? null;
 
-  const search = rec(rec(rec(config).web).quickSearch);
+function partLine(run: Run, role: (typeof API_ROLES)[number]): Promise<Line> {
+  const record = role === 'core' || role === 'memory' ? run.sub[role] : null;
+  if (record !== null) return onHarness(run, role, record.backend, record.model);
+  const model = roleModel(run.deps.config, role);
+  if (model === undefined || model === '') return Promise.resolve({ text: `${role}: off`, bad: null });
+  if (role === 'drawing')
+    return Promise.resolve({ text: `drawing: ${model} · not asked: one request bills a picture`, bad: null });
+  return onKey(run, role, role, model, keyOf(run, role));
+}
+
+function simulationLine(run: Run): Promise<Line> {
+  const record = run.sub.simulation;
+  if (record !== null) return onHarness(run, 'simulation', record.backend, record.model);
+  const { simulation } = run.routing;
+  const key = simulation.key;
+  if (key === null) return Promise.resolve({ text: 'simulation: off', bad: null });
+  return onKey(run, 'simulation', 'core', roleModel(run.deps.config, 'core') ?? '', key);
+}
+
+function searchLine(run: Run): Promise<Line> {
+  const search = rec(rec(rec(run.deps.config).web).quickSearch);
   const engine = text(search.engine);
-  if (engine === 'openrouter') lines.push(await onKey('search', 'search', text(search.model), keyOf('search')));
-  else
-    lines.push({
-      text: `search: ${engine === '' ? 'off' : `${engine} · not asked: its service key is its own`}`,
-      bad: null,
-    });
+  if (engine === 'openrouter') return onKey(run, 'search', 'search', text(search.model), keyOf(run, 'search'));
+  const said = engine === '' ? 'off' : `${engine} · not asked: its service key is its own`;
+  return Promise.resolve({ text: `search: ${said}`, bad: null });
+}
 
+async function agentLines(run: Run): Promise<Array<Line>> {
+  const lines: Array<Line> = [];
+  const { uses, models } = run.sub;
   for (const agent of SUBHARNESS_AGENTS) {
-    const backend = routing.subharness.uses[agent];
+    const backend = uses[agent];
     if (backend === undefined) continue;
-    lines.push(await onHarness(agent, backend, routing.subharness.models[agent] ?? null));
-    if (backend === 'opencode' && routing.subharness.key !== null) used.add(routing.subharness.key);
+    lines.push(await onHarness(run, agent, backend, models[agent] ?? null));
+    if (backend === 'opencode' && run.sub.key !== null) run.used.add(run.sub.key);
   }
+  return lines;
+}
 
-  for (const row of store.list().extra) {
-    if (used.has(row.name) || row.roles.length > 0) continue;
-    const value = store.valueOf(row.name) ?? '';
-    const info = await checkKey({ fetch: deps.fetch, baseUrl, value });
-    lines.push({
-      text: `${row.name}: bound to nothing · ${info.ok ? 'answers' : `refused: ${info.error ?? 'no answer'}`}`,
-      bad: info.ok ? null : 'warn',
+/** The extra keys bound to nothing and the installed harnesses no line asked: used by nothing. */
+async function unusedLines(run: Run): Promise<Array<Line>> {
+  const lines: Array<Line> = [];
+  for (const row of run.store.list().extra) {
+    if (run.used.has(row.name) || row.roles.length > 0) continue;
+    const info = await checkKey({
+      fetch: run.deps.fetch,
+      baseUrl: run.baseUrl,
+      value: run.store.valueOf(row.name) ?? '',
     });
+    const said = info.ok ? 'answers' : `refused: ${info.error ?? 'no answer'}`;
+    lines.push({ text: `${row.name}: bound to nothing · ${said}`, bad: info.ok ? null : 'warn' });
   }
-  const usedBackends = new Set<string>([...sources.keys()]);
   for (const backend of BACKEND_NAMES) {
-    if (usedBackends.has(backend)) continue;
-    const state = await sourceState(privateDir, backend);
+    if (run.sources.has(backend)) continue;
+    const state = await sourceState(run.deps.privateDir, backend);
     if (!state.installed) continue;
-    lines.push({
-      text: `${routeName(backend)}: used by nothing · ${state.available ? 'logged in' : sourceProblem(state)}`,
-      bad: null,
-    });
+    const said = state.available ? 'logged in' : sourceProblem(state);
+    lines.push({ text: `${routeName(backend)}: used by nothing · ${said}`, bad: null });
   }
+  return lines;
+}
 
-  const status = lines.some((one) => one.bad === 'fail')
+export async function routeHealth(deps: RouteHealthDeps): Promise<RouteHealth> {
+  const routing = readRouting(deps.privateDir);
+  const run: Run = {
+    deps,
+    routing,
+    sub: routing.subharness,
+    store: createKeyStore({ privateDir: deps.privateDir }),
+    baseUrl: text(rec(rec(deps.config).llm).baseUrl),
+    voice: text(rec(rec(deps.config).speech).voice),
+    sources: new Map(),
+    probes: new Map(),
+    used: new Set(),
+  };
+  const lines: Array<Line> = [];
+  for (const role of API_ROLES) lines.push(await partLine(run, role));
+  lines.push(await simulationLine(run), await searchLine(run), ...(await agentLines(run)), ...(await unusedLines(run)));
+  const worst = lines.some((one) => one.bad === 'fail')
     ? 'fail'
     : lines.some((one) => one.bad === 'warn')
       ? 'warn'
       : 'ok';
-  return { status, detail: lines.map((one) => one.text).join('\n') };
+  return { status: worst, detail: lines.map((one) => one.text).join('\n') };
 }
