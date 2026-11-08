@@ -147,3 +147,31 @@ test('a click on a number the store does not know sends nothing and keeps the dr
   });
   assert.deepEqual(sent, []);
 });
+
+test('one Backspace right after a typed marker removes the whole marker and the reply with it', async () => {
+  // Bug: Backspace eats the marker a character at a time, leaving `[#3` that still reads as a reply or as text.
+  const { env, sent } = replyChat();
+  await withChat(env, async (rig) => {
+    await press(rig, '[#34] ', shows(rig, 'replying to #34'));
+    await press(rig, KEY.backspace, () => !rig.screen().join('\n').includes('replying to'));
+    assert.ok(!rig.screen().join('\n').includes('[#'), 'no piece of the marker stays in the draft');
+    await press(rig, 'hi', shows(rig, '> hi'));
+    await press(rig, KEY.enter, () => sent.length === 1);
+  });
+  assert.deepEqual(sent, [{ line: 'hi', replyTo: undefined }]);
+});
+
+test('one Backspace right after the marker a click set removes it and the reply with it', async () => {
+  // Bug: the reply a click set stays on after the owner deleted what stood for it in the input.
+  const { env, sent, entry } = replyChat();
+  await withChat(env, async (rig) => {
+    entry({ who: 'her', text: 'words of hers', number: 34 });
+    await until(shows(rig, 'words of hers'));
+    clickOn(rig, '[#34]');
+    await until(shows(rig, 'replying to #34'));
+    await press(rig, KEY.backspace, () => !rig.screen().join('\n').includes('replying to'));
+    await press(rig, 'hi', shows(rig, '> hi'));
+    await press(rig, KEY.enter, () => sent.length === 1);
+  });
+  assert.deepEqual(sent, [{ line: 'hi', replyTo: undefined }]);
+});

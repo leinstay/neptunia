@@ -276,9 +276,11 @@ test('under the input box stands only the status row, with no strip of key hints
   // last row is blank while nothing is said.
   const { env } = chatEnv();
   await withChat(env, async (rig) => {
-    await until(() => (rig.screen().at(-2) ?? '').trim().startsWith('╰'));
-    assert.match(rig.screen().at(-2) ?? '', /^\s*╰─+╯\s*$/);
-    assert.equal((rig.screen().at(-1) ?? '').trim(), '');
+    // The frame's trailing blank row is not written, so the border is found by its row and the row under it is empty.
+    const border = (): number => rig.screen().findIndex((line) => /^\s*╰─+╯\s*$/.test(line));
+    await until(() => border() === rig.stdout.rows - 2);
+    assert.equal(border(), rig.stdout.rows - 2);
+    assert.equal((rig.screen()[rig.stdout.rows - 1] ?? '').trim(), '');
     assert.equal(/Ctrl\+|commands ·/.test(rig.screen().join('\n')), false);
   });
 });
