@@ -110,6 +110,8 @@ import type { ChatState } from './interface/commands/chat-state.ts';
 import { createChatSessions } from './chat/sessions.ts';
 import { createChatStore } from './chat/store.ts';
 import { withStoredHistory } from './chat/stored-history.ts';
+import { echoThrough, keepLineFiles, withKeptSends } from './chat/kept-media.ts';
+import { createKeptFetch } from './media/kept-files.ts';
 import type { ApprovalGate, ApprovalResult } from './board/approval-view.ts';
 import { createCheckpointDesk } from './development/checkpoint-desk.ts';
 import { WORKTREE_FOLDER } from './development/edges.ts';
@@ -568,8 +570,10 @@ async function buildCore(
   // An image from the owner's terminal waits in the staging folder, and these readers open its reference like any address.
   const imageStaging = openImageStaging(paths.dataDir);
   void imageStaging.sweep();
-  const imageFetcher = createImageFetcher({ fetchImpl: imageStaging.fetch });
-  const videoFetcher = createVideoFetcher({ fetchImpl: imageStaging.fetch });
+  // A file of the owner's chat kept under media/cli/ (src/chat/kept-media.ts) is opened by its reference too.
+  const keptFetch = createKeptFetch({ dataDir, next: imageStaging.fetch });
+  const imageFetcher = createImageFetcher({ fetchImpl: keptFetch });
+  const videoFetcher = createVideoFetcher({ fetchImpl: keptFetch });
   // state: the daily video counter lives next to the LLM client's daily counter.
   // Its vision and video requests tell the role health how they went.
   const describerLlm = reportingLlm(llm, { health: roleHealth, hot, roles: ['vision', 'video'] });
@@ -719,8 +723,9 @@ async function buildCore(
   let chatState: ChatState | null = null;
   const numberOrNull = (value: unknown): number | null => (typeof value === 'number' ? value : null);
   const stringOrNull = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
+  // Every staged file of a line of the owner's chat is kept in the data folder before the line reaches the door.
   const intake = createCommandIntake({
-    door: linkDoor,
+    door: keepLineFiles(linkDoor, { dataDir, readStaged: (id) => imageStaging.read(id) }),
     ready: () => doorReady.promise,
     desk: () => commandDesk,
     linesHeld: () => isPausedIn(store),
@@ -843,8 +848,12 @@ async function buildCore(
     newId: randomUUID,
   });
   // The chat's history reads those stored lines too, since the chat client holds only the lines said since it started.
+  // A file she sends there is kept, and her line comes back through the door as a platform's echo would.
   const cliAdapter = () =>
-    withStoredHistory(intake.chat() ?? closedAdapter(), (placeId) => chatSessions.shown(placeId));
+    withKeptSends(
+      withStoredHistory(intake.chat() ?? closedAdapter(), (placeId) => chatSessions.shown(placeId)),
+      { dataDir, newId: randomUUID, echo: echoThrough(linkDoor) }
+    );
   // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
   // after the skill gateway (src/tools/gateway.ts) let the call pass. It is the guarded port: a send to a selfreflection
   // mirror's place goes nowhere (`selfreflection-mirror`); only the mirrors' publisher below holds the link's own adapter.
@@ -1008,6 +1017,7 @@ async function buildCore(
   const turns = createTurnRunner({
     track: loopWatch.track,
     dataDir,
+    fetchImpl: keptFetch,
     embedQuery: embedOne('media-pick'),
     // A cancel and the steps of a turn over a line of the owner's chat (src/interface/chat-turns.ts).
     cancelOf: (triggerId: string | null) => intake.cancelOf(triggerId),

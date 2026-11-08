@@ -7,7 +7,12 @@ import { createFakeAdapter } from '../src/interface/fake.ts';
 import { closedAdapter } from '../src/interface/link.ts';
 import { createReads } from '../src/interface/reads.ts';
 import { historyLines } from '../src/behavior/lines.ts';
+import { chatLines } from '../src/memory/db/chat-lines.ts';
+import { mediaItemsOf, sourceLine, tellFromCacheKey, writeLineMedia } from '../src/memory/db/media-store.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { keptReference } from '../src/media/kept-files.ts';
 import type { SourceLine } from '../src/chat/sessions.ts';
+import type { Db } from '../src/memory/db/types.ts';
 import type { Adapter, MessageEvent } from '../src/protocol/adapter.ts';
 
 const PLACE = 'cli:dm:owner';
@@ -141,4 +146,83 @@ test('the history of another chat holds none of the stored lines of the owner ch
   const adapter = withStoredHistory(freshClient([]), (placeId) => lines.filter((line) => line.placeId === placeId));
   const read = await createReads(adapter, quiet).history({ iface: 'cli', chatId: 'cli:dm:someone' }, { limit: 10 });
   assert.deepEqual(read?.events ?? [], []);
+});
+
+/** A memory database holding one command line line of the owner with a picture kept under `media/cli/`. */
+function storedPicture(t: { after: (fn: () => void) => void }, description: string | null) {
+  const handle = openMemoryDb(':memory:');
+  t.after(() => handle.close());
+  const db = handle.db as Db;
+  db.prepare(
+    `INSERT INTO sources (id, kind, iface, native_id, revision, place_id, occurred_at, text, scope_iface)
+     VALUES ('s1', 'seen', 'cli', 'n1', 1, ?, '2026-11-08T10:00:00.000Z', 'look at this', 'cli')`
+  ).run(PLACE);
+  const kept = keptReference('media/cli/st1.png');
+  const message = {
+    attachments: [{ id: 'st1', kind: 'image', url: kept, name: 'kite.png', contentType: 'image/png' }],
+  };
+  const line = sourceLine(db, 's1');
+  if (line === undefined) throw new Error('the line was not stored');
+  writeLineMedia(db, line, mediaItemsOf(message), { at: '2026-11-08T10:00:00.000Z' });
+  if (description !== null)
+    tellFromCacheKey(db, { iface: 'cli', key: 'st1', text: description, at: '2026-11-08T10:00:01.000Z' });
+  return { db, kept };
+}
+
+test('a picture of a stored line comes back with its kept file and its description after a fresh client', async (t) => {
+  // Bug: after a restart a line the owner sent with a picture reads as text only, and she no longer sees the picture.
+  const { db, kept } = storedPicture(t, 'A red kite over a wheat field.');
+  const adapter = withStoredHistory(freshClient([]), (placeId) => chatLines(db, placeId));
+  const [line] = await historyLines(createReads(adapter, quiet), CHAT, { limit: 100 });
+  const attachments = (line?.attachments ?? []) as Array<{ id?: string; url?: string; told?: { text?: string } }>;
+  assert.deepEqual(
+    attachments.map((one) => [one.id, one.url, one.told?.text]),
+    [['st1', kept, 'A red kite over a wheat field.']]
+  );
+});
+
+test('the kept file of a stored line is linked to the line in memory', (t) => {
+  // Bug: the copy exists on disk but no media row points at it, so a backup or a recall cannot find it.
+  const { db } = storedPicture(t, null);
+  assert.deepEqual(
+    chatLines(db, PLACE).flatMap((line) => (line.media ?? []).map((row) => [row.nativeRef, row.path])),
+    [['st1', 'media/cli/st1.png']]
+  );
+});
+
+test('her line the chat client still holds takes the stored files it lacks', async () => {
+  // Bug: while the client runs, her reply with a picture shows as text only, since the client keeps only her words.
+  const picture = { id: 'f1', kind: 'image', url: keptReference('media/cli/f1.png'), name: 'drawn.png' };
+  const withFile: SourceLine = {
+    ...stored(4, 'her', 40),
+    media: [
+      {
+        mediaId: 'media:cli:f1',
+        position: 0,
+        kind: 'image',
+        nativeRef: 'f1',
+        path: 'media/cli/f1.png',
+        description: null,
+        describedAt: null,
+        availability: 'unknown',
+        sha1: null,
+        extra: { fileName: picture.name },
+      },
+    ],
+  };
+  const held: MessageEvent = {
+    ...clientLine('n4', 'stored 4', 40),
+    message: {
+      ...clientLine('n4', 'stored 4', 40).message,
+      author: { id: 'self', name: null, self: true, bot: false },
+    },
+  };
+  const adapter = withStoredHistory(freshClient([held]), () => [withFile]);
+  const read = await createReads(adapter, quiet).history(CHAT, { limit: 100 });
+  const first = read?.events[0];
+  const attachments = (first?.message.attachments ?? []) as Array<{ id?: string; url?: string }>;
+  assert.deepEqual(
+    attachments.map((one) => [one.id, one.url]),
+    [['f1', picture.url]]
+  );
 });

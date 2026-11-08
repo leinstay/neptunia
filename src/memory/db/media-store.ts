@@ -19,6 +19,7 @@ import { audienceOf, groupScope, scopeWhere } from './scope.ts';
 import { ensureAudience } from './rows.ts';
 import { CURRENT_SOURCE } from './source-current.ts';
 import { safeFileName } from '../../media/classify.ts';
+import { keptPathOf } from '../../media/kept-files.ts';
 import { mediaStamp } from './media-stems.ts';
 import { loadStemmer, markStemsPending } from './stems.ts';
 import { asText, dbOf, isFiniteNumber, transactionOf } from './types.ts';
@@ -79,6 +80,8 @@ export type MediaItem = {
   description: string | null;
   origin: MediaOrigin | null;
   extra: Row;
+  /** The kept file under `media/` of the data folder, for an item whose file the core copied (src/media/kept-files.ts). */
+  path?: string;
 };
 
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
@@ -142,7 +145,9 @@ export function mediaItemsOf(message: Row): Array<MediaItem> {
   const items: Array<MediaItem> = [];
   for (const attachment of listOf(message.attachments)) {
     if (!filled(attachment.kind)) continue;
+    const kept = filled(attachment.url) ? keptPathOf(attachment.url) : null;
     items.push({
+      ...(kept === null ? {} : { path: kept }),
       ...BARE,
       ...closedKind(attachment.kind),
       nativeRef: orNull(attachment.id),
@@ -583,12 +588,13 @@ type LineRow = Row & { id: unknown };
 /** A new row for an item of `line`, under the line's scope columns, which name its interface. */
 function insertItem(db: Db, line: LineRow, item: MediaItem, id: string): void {
   db.prepare(
-    `INSERT INTO media (id, kind, native_ref, availability, extra, scope_kind, scope_iface, scope_dm, audience_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO media (id, kind, native_ref, path, availability, extra, scope_kind, scope_iface, scope_dm, audience_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     item.kind,
     item.nativeRef,
+    item.path ?? null,
     item.availability === 'present' ? 'unknown' : item.availability,
     JSON.stringify(item.extra),
     line.scope_kind ?? null,
@@ -609,8 +615,16 @@ function mergeItem(db: Db, row: Row, item: MediaItem): void {
         : item.availability;
   const stems = filled(row.description) ? stampOf(db, { kind: item.kind, description: row.description, extra }) : null;
   db.prepare(
-    'UPDATE media SET kind = ?, native_ref = COALESCE(native_ref, ?), extra = ?, availability = ?, stems = ? WHERE id = ?'
-  ).run(item.kind, item.nativeRef, JSON.stringify(extra), availability, stems ?? row.stems ?? null, row.id);
+    'UPDATE media SET kind = ?, native_ref = COALESCE(native_ref, ?), path = COALESCE(path, ?), extra = ?, availability = ?, stems = ? WHERE id = ?'
+  ).run(
+    item.kind,
+    item.nativeRef,
+    item.path ?? null,
+    JSON.stringify(extra),
+    availability,
+    stems ?? row.stems ?? null,
+    row.id
+  );
 }
 
 const linkStatement = (db: Db) =>
