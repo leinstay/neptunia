@@ -104,7 +104,8 @@ test('refuses a private chat even with every permission', async () => {
       context: { placeId: COMMUNITY },
       need: 'send',
     }),
-    { status: 'denied', code: 'channel-no-permission' }
+    // Slice 7: a post to a direct chat while private chats are off is refused with its own code, dm-disabled.
+    { status: 'denied', code: 'dm-disabled' }
   );
 });
 
