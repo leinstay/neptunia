@@ -92,6 +92,7 @@ import { createErrandTurns, errandDoneEvent } from './errands/turns.ts';
 import { createEventDoor } from './interface/door.ts';
 import { createChatDirectory } from './interface/directory.ts';
 import { createOwnerPairing } from './interface/owner-pairing.ts';
+import { createPersonLinks, joinScreens } from './interface/person-link.ts';
 import { isReadable, takeSnapshot } from './behavior/snapshot.ts';
 import {
   CLI_IFACE,
@@ -312,8 +313,7 @@ async function buildCore(
   } catch (err) {
     fail(`index: invalid skill registry: ${String(objOf(err).message)}`);
   }
-  // A definition whose operation is not registered is left out of the registry: say so, loudly, at
-  // the start (never silently); the bot goes on.
+  // A definition whose operation is not registered is left out of the registry, said loudly at start; the bot goes on.
   {
     const missing = missingDefinitions();
     if (missing.length > 0) log.error('skills: definitions without a registered operation', { missing });
@@ -1006,7 +1006,10 @@ async function buildCore(
     const handle = memoryDb.readHandle();
     return handle ? loadStemmer(handle.db as Parameters<typeof loadStemmer>[0]) : null;
   };
+  // Her link tool (src/interface/person-link.ts): `person.link` in a turn, and the door's check of the next message.
+  const personLinks = createPersonLinks({ hot, memoryDb, port: iface, now: clock });
   const turns = createTurnRunner({
+    personLinks,
     track: loopWatch.track,
     dataDir,
     fetchImpl: keptFetch,
@@ -1223,7 +1226,7 @@ async function buildCore(
   // The owner's pairing of his accounts (src/interface/owner-pairing.ts): the door's screen and `/interfaces pair`.
   const ownerPairing = createOwnerPairing({ hot, memoryDb, port: iface, selfId: () => identity.selfId, now: clock });
   const onMessage = createMessageHandler({
-    screen: ownerPairing,
+    screen: joinScreens(personLinks, ownerPairing),
     gifKeeper,
     isServedRoot,
     rootsOf: (name: string) => rootRoutes.rootsOf(name),

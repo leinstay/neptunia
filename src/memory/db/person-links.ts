@@ -223,8 +223,9 @@ const placeholders = (values: ReadonlyArray<unknown>): string => values.map(() =
 
 /**
  * Who `person` stands for: the survivor of its merges, every person merged into that survivor and their verified
- * accounts, joined through stored rows. `ownerMergesOnly` is for an outward context: a merge by anyone but the owner
- * neither moves the person nor adds to it. An account that has no person yet belongs to the legacy id that spells it.
+ * accounts, joined through stored rows. `ownerMergesOnly` is for an outward context: a merge only counts there when
+ * the owner wrote it or a one-time code proved it (`by` `code`, her link tool); any other neither moves the person nor
+ * adds to it. An account that has no person yet belongs to the legacy id that spells it.
  */
 export function personMembers(
   db: Db,
@@ -232,7 +233,7 @@ export function personMembers(
   { ownerMergesOnly }: { ownerMergesOnly: boolean }
 ): PersonMembers {
   const own = spelledAccount(db, person);
-  const whose = ownerMergesOnly ? " AND by = 'owner'" : '';
+  const whose = ownerMergesOnly ? " AND by IN ('owner', 'code')" : '';
   const forward = db.prepare(`SELECT into_person AS next FROM people_merges WHERE from_person = ?${whose}`);
   const backward = db.prepare(
     `SELECT from_person AS next FROM people_merges WHERE into_person = ?${whose} ORDER BY from_person`

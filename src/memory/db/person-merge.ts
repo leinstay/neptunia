@@ -197,8 +197,9 @@ function moveRows(
 }
 
 /**
- * The merge itself, inside the caller's transaction: `from` into the survivor of `into`, by `by` (the owner). Throws a
- * coded error, before anything is written, for a merge that is not the owner's (`OWNER_ONLY`), her own person
+ * The merge itself, inside the caller's transaction: `from` into the survivor of `into`, by `by`: the owner, or `code`
+ * for a merge a one-time code proved (person-bind.ts, her link tool). Throws a coded error, before anything is written,
+ * for a merge by anyone else (`OWNER_ONLY`), her own person
  * (`SELF_PERSON`), a person nobody stored (`UNKNOWN_PERSON`), one person (`SAME_PERSON`), a chain that leads back to
  * `from` (`MERGE_CYCLE`) and a person already merged into somebody else (`ALREADY_MERGED`).
  */
@@ -207,7 +208,7 @@ export function mergePersonInto(
   { from, into, by, reason, at }: { from: string; into: string; by: string; reason: string | null; at: string }
 ): PersonMerge {
   if (!filled(from) || !filled(into)) throw coded('BAD_MERGE');
-  if (by !== 'owner') throw coded('OWNER_ONLY');
+  if (by !== 'owner' && by !== 'code') throw coded('OWNER_ONLY');
   if (from === SELF_PERSON || into === SELF_PERSON) throw coded('SELF_PERSON');
   const exists = db.prepare('SELECT 1 AS ok FROM people WHERE id = ?');
   if (!exists.get(from) || !exists.get(into)) throw coded('UNKNOWN_PERSON');

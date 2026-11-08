@@ -38,8 +38,12 @@ export const MERGE_PURPOSE = 'description-merge';
 export type BindTarget = { id: string; name: string | null };
 /** The owner's Y/n before a merge: true runs it. */
 export type BindConfirm = (question: { removed: BindTarget; into: BindTarget }) => Promise<boolean>;
-/** What a bind names: the account node and the meta-person it binds to. */
-export type BindInput = { accountId: string; personId: string };
+/**
+ * What a bind names: the account node and the meta-person it binds to, and who proved it: the owner (his command or
+ * his pairing), or a one-time code the person answered (her link tool, src/interface/person-link.ts). `owner` when
+ * absent.
+ */
+export type BindInput = { accountId: string; personId: string; by?: 'owner' | 'code' };
 /** What a bind reads and writes with: the read connection, the writer, the memory model client (null while off). */
 export type BindDeps = {
   db: Db;
@@ -276,6 +280,7 @@ export function applyPersonBindWrite(
   const accountId = typeof update.accountId === 'string' ? update.accountId : '';
   const person = typeof update.personId === 'string' ? update.personId : '';
   const from = typeof update.from === 'string' && update.from !== '' ? update.from : null;
+  const by = update.by === 'code' ? 'code' : 'owner';
   return handle.transaction(() => {
     const db = dbOf(handle);
     if (standingMeta(db, person) !== 'yes') throw coded('NOT_META');
@@ -283,12 +288,12 @@ export function applyPersonBindWrite(
     if (from !== null) {
       const joined = Array.isArray(update.descriptions) ? (update.descriptions as Array<Joined>) : [];
       writeJoined(db, joined, { model: update.model ?? null, prompt: update.prompt ?? null }, at);
-      mergePersonInto(db, { from, into: person, by: 'owner', reason: 'bind', at });
+      mergePersonInto(db, { from, into: person, by, reason: by === 'code' ? 'link code' : 'bind', at });
       db.prepare('UPDATE person_accounts SET person_id = ? WHERE person_id = ?').run(person, from);
       db.prepare('UPDATE sources SET author_person = ? WHERE author_person = ?').run(person, from);
       db.prepare('UPDATE people SET meta = 0 WHERE id = ?').run(from);
     } else {
-      linkAccount(db, accountId, person, at, { by: 'owner', reason: 'owner command' });
+      linkAccount(db, accountId, person, at, { by, reason: by === 'code' ? 'link code' : 'owner command' });
     }
     settleAccounts(db, person, at);
     projectRow(db, 'people', { id: person }, { at });
