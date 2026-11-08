@@ -234,7 +234,14 @@ test('one open of the v13 database moves the errand units and the intention reco
         }
         return result;
       });
-    const plain = (rows: Array<Row> | undefined) => (rows ?? []).map((row) => ({ ...row }));
+    // Schema v40 adds `people.meta` and `sources.author_person` for the meta-person (plan 2026-11-08), on purpose.
+    const plain = (rows: Array<Row> | undefined) =>
+      (rows ?? []).map((row) => {
+        const kept = { ...row };
+        delete kept.meta;
+        delete kept.author_person;
+        return kept;
+      });
     for (const table of Object.keys(old)) {
       if (TOUCHED.includes(table)) continue;
       // Schema v21 drops the eight reserved ledger_* tables of v1, empty in every database (spec 2026-10-31-stage-6-cut,
