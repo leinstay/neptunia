@@ -443,6 +443,8 @@ test("replay --skills taskResult: the turn an errand's end opens; her message.cr
     calls,
     complete: async (messages: unknown, options: unknown) => {
       calls.push({ messages, options });
+      // The owner's decision of 2026-11-08: the post's result returns to her in a next request; she says nothing more.
+      if (calls.length > 1) return { text: '<think>t</think>', usage: { prompt_tokens: 100, completion_tokens: 10 } };
       return {
         ...toolAnswer('<think>t</think><msg>έτοιμο</msg>', [
           call('message.create', { place: 'γενικά', text: 'Voilà le programme', file: handle }),
@@ -480,7 +482,7 @@ test("replay --skills taskResult: the turn an errand's end opens; her message.cr
         resultText: '',
       } as unknown as Parameters<typeof simulateCall>[0]),
   });
-  assert.equal(calls.length, 1, 'a message that went out covers her speech: no follow-up');
+  assert.equal(calls.length, 2, 'a message that went out covers her speech, and its result came back to her');
   const [run] = answered.runs;
   assert.deepEqual(run.outcome.verdict, { stage: 'gateway', ok: true });
   assert.deepEqual(run.outcome.executed, {

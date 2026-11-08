@@ -713,6 +713,8 @@ test('replay --skills steps: three steps keep her lines and her call marks betwe
       toolAnswer('<think>θα το στείλω</think><msg>μια στιγμή</msg>', [
         call('message.create', { place: '#νέα', text: 'καλημέρα' }),
       ]),
+      // The owner's decision of 2026-11-08: the post's result returns to her in a next request; she says nothing more.
+      '<think>t</think>',
       toolAnswer('<think>t</think><msg>εντάξει</msg>', [call('rule.list', {})]),
       '<think>t</think><msg>έγινε</msg>',
       '<think>t</think><msg>όχι</msg>',
@@ -721,16 +723,16 @@ test('replay --skills steps: three steps keep her lines and her call marks betwe
   assert.equal(played.stopped, false);
   assert.equal(
     llm.calls.length,
-    4,
-    'step 1 (a post covers her speech, no follow-up), step 2 and its follow-up (a list is read first), step 3'
+    5,
+    'step 1 and its follow-up (a post covers her speech, its result returns), step 2 and its follow-up (a list is read first), step 3'
   );
   assert.deepEqual(
     steps.map((s) => s.requests),
-    [1, 3, 4]
+    [2, 4, 5]
   );
 
   // Step 2 reads her step-1 line with the call's mark; the post went to νέα, so its text is not here.
-  const second = userOf(llm.calls[1]);
+  const second = userOf(llm.calls[2]);
   const secondLines: Array<string> = String(second).split('\n');
   const createLine = secondLines[secondLines.findIndex((line) => line.includes('μια στιγμή')) + 1];
   // Slice 2 (a), (c): the mark is its own line after hers and names γενικά, where she called from, not the target νέα.
@@ -747,8 +749,8 @@ test('replay --skills steps: three steps keep her lines and her call marks betwe
   );
 
   // The follow-up of step 2 appends to the same first messages (step 1's mark in them) with her answer and the call's result.
-  const followUp = llm.calls[2].messages;
-  assert.equal(userOf(llm.calls[2]), second, 'the first user message is never rebuilt');
+  const followUp = llm.calls[3].messages;
+  assert.equal(userOf(llm.calls[3]), second, 'the first user message is never rebuilt');
   assert.deepEqual(
     followUp.slice(2).map((message: Untyped) => message.role),
     ['assistant', 'tool', 'user']
@@ -757,7 +759,7 @@ test('replay --skills steps: three steps keep her lines and her call marks betwe
   assert.ok(followUp[4].content[0].text.includes(labels.task.step.held), 'her step-2 speech was held, and she is told');
 
   // Step 3 reads both turns: every line of hers that was posted, and the rule.list mark at its time.
-  const third = userOf(llm.calls[3]);
+  const third = userOf(llm.calls[4]);
   for (const text of ['μια στιγμή', 'έγινε', 'δεύτερο']) assert.ok(third.includes(text), text);
   assert.ok(!third.includes('εντάξει'), 'a held speech is not in the channel');
   const thirdLines: Array<string> = String(third).split('\n');
@@ -793,7 +795,9 @@ test('replay --skills steps: three steps keep her lines and her call marks betwe
   );
   assert.deepEqual(Object.keys(records[0]).slice(0, 3), ['scenario', 'run', 'step']);
   assert.equal(records[0].first.think, 'θα το στείλω');
-  assert.deepEqual([records[0].verdict.ok, records[0].executed.args.place, records[0].followUp], [true, NEWS, null]);
+  // The owner's decision of 2026-11-08: step 1 has a follow-up too, the request that returned the post's result to her.
+  const { followUp: firstFollowUp } = records[0];
+  assert.deepEqual([records[0].verdict.ok, records[0].executed.args.place, firstFollowUp?.messages], [true, NEWS, []]);
   assert.deepEqual(records[1].followUp.messages, ['έγινε']);
   assert.equal(records[1].loop.held, 1);
   assert.deepEqual(played.records, records);
@@ -812,6 +816,8 @@ test('replay --skills steps: a burst of two tagged calls gets two turns in arriv
     ],
     [
       toolAnswer('<think>t</think><msg>έγινε</msg>', [call('rule.add', { text: 'όχι spoilers' })]),
+      // The owner's decision of 2026-11-08: the added rule's result returns to her in a next request; she says nothing more.
+      '<think>t</think>',
       toolAnswer('<think>t</think>', [call('rule.add', { text: 'κι άλλος' })]),
       '<think>t</think><msg>όχι από σένα</msg>',
     ]
@@ -842,7 +848,7 @@ test('replay --skills steps: a burst of two tagged calls gets two turns in arriv
   assert.ok(first.includes('Élodie') && first.indexOf('πρόσθεσε κανόνα') < first.indexOf('κι εμένα έναν'), first);
   // The second turn: nothing waits any more, and her first turn is in the channel it reads.
   assert.deepEqual(steps[1].queued, []);
-  const second = userOf(llm.calls[1]);
+  const second = userOf(llm.calls[2]);
   assert.ok(!second.includes(fill(labels.task.queuedOthers, { others: '' }).slice(0, 20)), second);
   assert.ok(second.includes('έγινε') && second.indexOf('κι εμένα έναν') < second.indexOf('έγινε'), second);
   assert.ok(steps[1].at > steps[0].at && steps[0].at === lines.at(-1).ts);

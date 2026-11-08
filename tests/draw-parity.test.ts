@@ -217,9 +217,13 @@ test("draw parity: a reply turn's draw.create call asked by a member", async () 
     stickers: [],
   };
   const turns = runner({
-    answer: toolAnswer('<msg>one sec</msg>', [
-      call('draw.create', { reply: '#1', text: 'a lighthouse at dusk, waves below' }),
-    ]),
+    answer: [
+      toolAnswer('<msg>one sec</msg>', [
+        call('draw.create', { reply: '#1', text: 'a lighthouse at dusk, waves below' }),
+      ]),
+      // The owner's decision of 2026-11-08: the picture's result returns to her in a next request; she says nothing more.
+      '',
+    ],
     images,
   });
   const { result } = await withCapturedLogs(() =>
@@ -239,9 +243,11 @@ test("draw parity: a diary post's single self picture", async () => {
   const images = recordingImages();
   const plan = { kind: 'selfPicture', brief: 'a pier at dawn', search: '', picture: true };
   const turns = runner({
-    answer: toolAnswer('<msg>early start</msg>', [
-      call('draw.create', { text: 'me on a pier at dawn, fog', self: true }),
-    ]),
+    answer: [
+      toolAnswer('<msg>early start</msg>', [call('draw.create', { text: 'me on a pier at dawn, fog', self: true })]),
+      // The owner's decision of 2026-11-08: the picture's result returns to her in a next request; she says nothing more.
+      '',
+    ],
     plan,
     images,
   });
@@ -272,7 +278,8 @@ test("draw parity: a diary set's pictures, the persona in the first one only", a
     call('draw.create', { text: 'a café terrace' }),
     call('draw.create', { text: 'nets on the quay' }),
   ]);
-  const turns = runner({ answer, plan, images });
+  // The owner's decision of 2026-11-08: the picture's result returns to her in a next request; she says nothing more.
+  const turns = runner({ answer: [answer, ''], plan, images });
   const { result } = await withCapturedLogs(() =>
     turns.runTurn({
       channel: channel('d1', 'journal'),

@@ -1,4 +1,4 @@
-// The fifth phase of a turn attempt: her calls, then her speech, then one more request while something is left to read
+// The fifth phase of a turn attempt: her calls, then her speech, then one more request after every step with calls
 // (runSteps), each call under the effect key of the turn, and the cut-off and the short selfreflection set that end the turn
 // here. runAttempt (src/turn/phases/attempt.ts) calls it after the act phase; the outcome phase reads what it posted.
 
@@ -158,7 +158,7 @@ export async function toolRoundPhase<TTurn extends RoundNeeds>(
           transcript: (shown, options) => stepTranscript(shown, options as Parameters<typeof stepTranscript>[1]),
         })
       : null;
-  // Her calls, then her speech, then (when something is left to read) another request, and so on (runSteps).
+  // Her calls, then her speech, then (after a step with calls) another request with their results, and so on (runSteps).
   const stepped = await runSteps({
     cancel,
     noteStep: (step) => ctx.noteProgress(trigger?.id ?? null, step),
