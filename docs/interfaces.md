@@ -65,6 +65,12 @@ The package's `setup.json` declares a `settings` array. Each setting has `key`, 
 
 The shared setup stores values under `data/interfaces/<name>/`. Secrets go to `credentials.json`; other values go to `config.json`. Technical state belongs in that directory too. Disabling the package preserves both its state and the core's memories.
 
+## Phrase codes
+
+A phrase code is six distinct words that prove an account belongs to someone. `createPhraseCodes` in `src/interface/phrase-codes.ts` draws them from a word list with `node:crypto` and keeps only a seal: a random salt and the SHA-256 hash of the six words in list order. A message holds the phrase when all six words stand in it, in any order and in any grammatical form, and when it holds at most 18 words of the list, so a pasted list fails. Two words match when they share a key: the word itself, its key under the memory's learned stemmer (`loadStemmer` in `src/memory/db/stems.ts`), or the word without one of the stemmer's learned endings. While the memory database is closed only the exact word matches. Six distinct words of a 2048-word list give C(2048, 6), about 2^57 phrases, since the order does not count.
+
+The list is a file of `config/` with one word per line, and a line starting with `#` is a comment. `bot.phraseWords` names it (default `phrase-words-en.txt`, the English list of BIP-39, published under the MIT License), and the file of the same name in `data/config/` replaces it whole. A deployment whose audience writes another language puts its own list there, or names another file, so that the stemmer's endings fold the inflected forms of its words. The file is read at each use.
+
 ## Pairing the owner's account
 
 On a fresh install only the command line is connected, and its account is the owner's first account under his meta-person, `bot.ownerPerson`. The owner proves his account on any other interface by pairing, after the rules of Hermes's `gateway/pairing.py`. `/interfaces setup <name>` ends, once every required value is stored, by opening pairing on that interface and asking for the code in the chat with `labels.pairing.ask`. `/interfaces pair open <name>` opens it later, and `neptunia setup` names that command for each interface it set up, since the core is not running during its questions.
