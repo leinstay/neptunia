@@ -225,7 +225,7 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Send outbound connections through one proxy | `/proxy`. See [Proxy](proxy.md) |
 | Configure a chat platform | `/interfaces` |
 | Choose which providers serve a model | `/routes` |
-| Bind an account to a meta-person, or merge two people | `/memory bind`, `/memory users link`, `/memory users merge` |
+| Bind an account to a meta-person, or merge two people | `/memory bind`, `/memory users merge` |
 | Give her or a person a name the door and the classifier know | `/memory users names add person:self NAME`, `/memory users names remove person:self NAME` |
 | Replay the memory writes an open set aside | `/memory pending list`, `/memory pending replay`. See [Pending writes and their quarantine](memory.md#pending-writes-and-their-quarantine) |
 | Browse people, places, the graph and each memory family, and read every stored row | `/memory users`, `/memory places`, `/memory graph`, `/memory inspect`, `/memory claims` and the other families. See [The memory browser](#the-memory-browser) |
@@ -252,7 +252,6 @@ A page holds at most `memoryDb.inspection.pageRows` rows, whatever `--limit` ask
 | Command | What it reads |
 |---|---|
 | `/memory users list`, `show`, `accounts`, `names`, `relationship`, `private` | People, unlinked accounts and anonymous participants, by `--name`, `--interface` and `--authority`. A name is a search term and links nothing |
-| `/memory users link <person> <account>` | The write of an account's link, through the memory writer, by typed ids. No command unlinks an account |
 | `/memory users merge <from> <into> [--reason <text>]` | The owner's merge of one person into another, through the memory writer. Everything about `<from>` moves to `<into>` and keeps its audience. A person nobody stored answers `PERSON_NOT_FOUND` ([Merging people](memory.md#merging-people)) |
 | `/memory selfreflection audience fill [--dry-run]` | The owner's fill of the audience on old selfreflection entries, through the memory writer. Each group entry with no audience and no retirement gets `unrestricted`, and `--dry-run` only counts them ([Filling the audience of old entries](memory.md#filling-the-audience-of-old-entries)) |
 | `/memory users names add <user> <name>`, `remove <user> <name>` | The owner's confirmation of a member's alias |

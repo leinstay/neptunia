@@ -239,7 +239,6 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
   })),
   sub('users.relationship', 'Show the affinity of a person with its history', [arg('person')]),
   sub('users.private', 'Show the private memory of a person across their DMs', [arg('person')]),
-  sub('users.link', 'Link an account to a person', [arg('person'), arg('account')]),
   sub('users.merge', 'Merge a person into another, moving everything stored about them', [
     arg('from'),
     arg('into'),
@@ -965,6 +964,9 @@ function retiredWords(first: string, rest: ReadonlyArray<string>): string | null
   if (first === 'services' && rest[0] === 'watcher' && rest[1] === 'report')
     return '/services watcher report is retired: use neptunia logs watcher';
   const memoryWord = rest[0];
+  // Linking past the meta check and the merge (plan 2026-11-08-meta-person, slice 7): `/memory bind` links an account.
+  if (first === 'memory' && memoryWord === 'users' && rest[1] === 'link')
+    return '/memory users link is retired: use /memory bind <iface> <account> <person>';
   if (first === 'memory' && memoryWord !== undefined && Object.hasOwn(RETIRED_MEMORY, memoryWord))
     return `/memory ${memoryWord} is retired: use ${RETIRED_MEMORY[memoryWord] ?? '/help'}`;
   return retiredSubharness(first, rest);

@@ -333,6 +333,64 @@ test('two accounts of one person render one entry that names both', () => {
   assert.deepEqual([...(entries[0]?.accounts ?? [])].sort(), ['discord:p1', 'telegram:p2']);
 });
 
+/** The accounts an entry lists for her, as `<iface> <platform id>`. */
+const listedAccounts = (entry: PersonEntry | undefined): Array<string> =>
+  (entry?.profileAccounts ?? []).map((account) => `${account.iface} ${account.platformId}`);
+
+test('lines from two accounts of one person in one room raise one entry that lists both accounts', () => {
+  // Bug: one person writing from two accounts reads as two people, or the entry does not say which accounts are his.
+  const w = world();
+  const person = 'person:discord:p1';
+  addPerson(w.db, {
+    id: person,
+    accounts: [
+      { id: 'discord:p1', iface: 'discord', native: 'p1', names: ['Pétros'] },
+      { id: 'discord:p2', iface: 'discord', native: 'p2', names: ['Pit'] },
+    ],
+  });
+  addLine(w.db, { id: 'src:a1', iface: 'discord', place: w.room, author: 'discord:p1', text: 'καλημέρα' });
+  addLine(w.db, { id: 'src:a2', iface: 'discord', place: w.room, author: 'discord:p2', text: 'πάλι εγώ' });
+  const lines = [
+    message('src:a1', 'καλημέρα', { authorAccount: 'discord:p1', placeId: w.room }),
+    message('src:a2', 'πάλι εγώ', { authorAccount: 'discord:p2', placeId: w.room, trigger: true }),
+  ];
+  const mind = mindOf(w.db, GROUP, seedsOf(lines, { place: w.room }), SETTINGS, NOW);
+  const entries = mind.people.filter((entry) => entry.personId === person);
+  assert.equal(entries.length, 1);
+  assert.deepEqual(listedAccounts(entries[0]), ['discord p1', 'discord p2']);
+});
+
+test("the owner's entry read from the command line lists his Discord account with its platform id", () => {
+  // Bug: from the command line she knows the owner only as the command line's account, not his Discord id.
+  const w = world();
+  const owner = 'person:discord:o1';
+  addPerson(w.db, {
+    id: owner,
+    accounts: [
+      { id: 'discord:o1', iface: 'discord', native: 'o1', names: ['Ὅμηρος'] },
+      { id: 'cli:owner', iface: 'cli', native: 'owner', names: ['owner'] },
+    ],
+  });
+  const dm = addDm(w.db, { iface: 'cli', native: 'owner', person: owner, account: 'cli:owner' });
+  addLine(w.db, {
+    id: 'src:o1',
+    iface: 'cli',
+    place: dm,
+    author: 'cli:owner',
+    text: 'γεια',
+    audience: { dm, iface: 'cli', person: owner },
+  });
+  const trigger = message('src:o1', 'γεια', { authorAccount: 'cli:owner', placeId: dm, trigger: true });
+  const mind = mindOf(
+    w.db,
+    dmContext(owner, 'cli', dm),
+    seedsOf([trigger], { place: dm, counterpart: { personId: owner, accountId: 'cli:owner' } }),
+    SETTINGS,
+    NOW
+  );
+  assert.ok(listedAccounts(personIn(mind, owner)).includes('discord o1'));
+});
+
 test('the budget cuts the lowest evidence first and leftOut counts it', () => {
   // Bug: the cut takes entries in the order they were found, so a name said in passing pushes out the person asked about,
   // or the request says nothing about what it left out.

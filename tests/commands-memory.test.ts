@@ -143,7 +143,6 @@ const LINES = [
   ['/memory users names person:x', 'memory.users.names'],
   ['/memory users relationship person:x', 'memory.users.relationship'],
   ['/memory users private person:x', 'memory.users.private'],
-  ['/memory users link person:x account:y', 'memory.users.link'],
   ['/memory places list --interface zeta --authority zeta/one --roots --limit 5 --cursor c1', 'memory.places.list'],
   ['/memory places tree place:x --limit 5', 'memory.places.tree'],
   ['/memory places show place:x --include-children', 'memory.places.show'],
@@ -169,6 +168,9 @@ const RETIRED = [
   ['/memory server', '/memory places show'],
   ['/memory lore list', '/memory places lore'],
   ['/memory person u1', '/memory places show'],
+  // `/memory users link` linked an account to any person past the meta check and the merge (plan 2026-11-08-meta-person,
+  // slice 7): it is retired, and `/memory bind` is the one way to link an account.
+  ['/memory users link person:x account:y', '/memory bind'],
 ] as const;
 
 for (const [line, replacement] of RETIRED) {
@@ -282,15 +284,6 @@ test('a bad cursor answers invalid with its code and no partial page', async () 
   });
 });
 
-test('linking goes through the one writer, by typed ids', async () => {
-  // Bug: the console writes the link over its own connection, a second writer on her memory.
-  await withRig(async (one) => {
-    const answer = await one.say(`/memory users link ${ANNA} account:u1`);
-    assert.equal(answer.status, 'ok', answer.text);
-    assert.deepEqual(one.writes, [{ op: 'bind', accountId: 'account:u1', target: { personId: ANNA } }]);
-  });
-});
-
 test('no command unlinks an account', () => {
   // Bug: an unlink survives the owner's decision of 2026-11-08 that accounts are bound and never unbound
   // (plan 2026-11-08-meta-person), so an account leaves its meta-person with a copy of the person that lies.
@@ -298,12 +291,9 @@ test('no command unlinks an account', () => {
     assert.equal(parseCommandLine(line).ok, false, line);
 });
 
-test('linking an account nobody stored answers invalid and writes nothing', async () => {
-  await withRig(async (one) => {
-    assert.equal((await one.say(`/memory users link ${ANNA} account:unknown`)).status, 'invalid');
-    assert.deepEqual(one.writes, []);
-  });
-});
+// The tests of `/memory users link` writing through the one writer and refusing an unknown account are gone with the
+// command: `/memory bind` links an account (plan 2026-11-08-meta-person, slice 7), and tests/commands-memory-bind.test.ts
+// covers its writer and its refusals.
 
 // ---------- places ----------
 

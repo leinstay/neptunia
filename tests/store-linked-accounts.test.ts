@@ -221,3 +221,33 @@ test('after an unlink the account has its own score again and changes reach only
   assert.equal(profileOf(reader, '222').affinity.score, 3);
   assert.equal(profileOf(reader, '111').affinity.score, 17);
 });
+
+// Profile assembly (plan 2026-11-08-meta-person, slice 7): every account of a person reads the person's accounts.
+
+type Listed = { personId?: string; accounts?: Array<{ iface: string; platformId: string }> };
+
+/** The accounts a profile lists, as `<iface> <platform id>`. */
+const listedOf = (profile: unknown): Array<string> =>
+  ((profile as Listed | null)?.accounts ?? []).map((account) => `${account.iface} ${account.platformId}`);
+
+test('both accounts of a person read the same person and list both accounts', async () => {
+  // Bug: each account's profile knows only itself, so she cannot tell that the two accounts are one person.
+  const { store, bind } = await rigOf();
+  await bind('222', FIRST);
+  const first = store.getUser(accountOf(store, '111')) as Listed | null;
+  const second = store.getUser(accountOf(store, '222')) as Listed | null;
+  assert.equal(second?.personId, first?.personId);
+  assert.deepEqual(listedOf(first), ['discord 111', 'discord 222']);
+  assert.deepEqual(listedOf(second), ['discord 111', 'discord 222']);
+});
+
+test("the owner's profile from the command line lists his Discord account with its platform id", async () => {
+  // Bug: from the command line she reads only the command line's account and does not know his Discord id.
+  const { fresh, bind } = await rigOf([['cli', 'owner']]);
+  await bind('owner', FIRST, 'cli');
+  const profile = withIface('cli', () => {
+    const store = fresh();
+    return store.getUser(accountOf(store, 'owner'));
+  });
+  assert.ok(listedOf(profile).includes('discord 111'), JSON.stringify(listedOf(profile)));
+});

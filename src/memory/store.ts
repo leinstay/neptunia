@@ -49,6 +49,7 @@ import type { MediaDescriptionEntry } from './db/export.ts';
 import type { InterfaceNames } from './db/roots.ts';
 
 import { linkedProfileUnit } from './db/person-links.ts';
+import { profileOfAccount } from './db/meta-person.ts';
 
 import { isRecord, propOf, isFiniteNumber, isIntegerNumber, canWriteUnits, readSeamOf } from './types.ts';
 import { log } from '../log.ts';
@@ -1635,6 +1636,15 @@ function buildStore({
     const unit = seam.run(() => linkedProfileUnit(seam.db(), accountId));
     return unit ? address(unit.key) : own;
   }
+  /**
+   * `profile` with the person behind the account and every account of that person (meta-person.ts#profileOfAccount),
+   * as a copy, so nothing of it reaches the stored unit. As it is for an account with no person or a closed database.
+   */
+  function withPerson(profile: StoredRecord, accountId: string): StoredRecord {
+    if (!memoryDb.readHandle?.()) return profile;
+    const person = seam.run(() => profileOfAccount(seam.db(), accountId));
+    return person ? { ...profile, personId: person.personId, accounts: person.accounts } : profile;
+  }
   const placeFile = (placeId: string) => address(placeCollection('place', placeId));
   const channelsDir = () => collection('channel');
   const channelFile = (placeId: string) => address(placeCollection('channel', placeId));
@@ -1979,8 +1989,8 @@ function buildStore({
       const item = entry(file, () => emptyProfile(addressing.nativeOfRow('accounts', accountId)));
       normalizeProfile(item.value);
       const own = accountFile(accountId);
-      if (file === own) return item.value;
-      return linkedProfile(item, known(own) ? accountEntry(accountId) : null, String(accountId));
+      if (file === own) return withPerson(item.value, accountId);
+      return withPerson(linkedProfile(item, known(own) ? accountEntry(accountId) : null, String(accountId)), accountId);
     },
 
     /**

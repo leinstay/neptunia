@@ -3,7 +3,7 @@
 // panel see the same typed ids. A read goes straight to its reader with the owner's internal context: it runs no
 // operation, asks no model, changes no setting and writes no row, and what it answers never reaches her memory or a
 // request. Only the `cli` principal reaches this module (src/interface/neptunia-cli.ts), and no operation of hers names
-// it. A refusal has a status other than `ok` and a stable `code`. Linking and `/memory pending replay` go
+// it. A refusal has a status other than `ok` and a stable `code`. A merge and `/memory pending replay` go
 // through the one writer. `/memory inspect` reads through a snapshot the core holds for the owner: a command without
 // `--snapshot` opens one and names it in its answer, and `--snapshot` goes on reading that moment.
 
@@ -158,26 +158,6 @@ function usersRead(db: Db, name: string, args: Args, bounds: InspectionBounds): 
   if (!view.found || leaf === 'show') return detail(name, view);
   if (leaf === 'accounts') return ok({ accounts: view.accounts, links: view.links });
   return ok(leaf === 'names' ? { names: view.names } : { affinity: view.affinity });
-}
-
-/** `/memory users link`: typed ids checked on the read connection, the write through the one writer. */
-async function usersWrite(memoryDb: unknown, db: Db, name: string, args: Args): Promise<Answer> {
-  const person = word(args, 'person');
-  const account = word(args, 'account');
-  const view = personDetail(db, person, internalContext());
-  if (!view.found) return refused(name, view.code, 'nobody stored that person');
-  const known = db.prepare('SELECT 1 AS ok FROM accounts WHERE id = ?').get(account) !== undefined;
-  if (!known) return refused(name, 'ACCOUNT_NOT_FOUND', 'nobody stored that account');
-  try {
-    await (callMethod(memoryDb, 'personLink', {
-      op: 'bind',
-      accountId: account,
-      target: { personId: person },
-    }) as Promise<unknown>);
-    return ok({ accountId: account, personId: person, linked: true });
-  } catch {
-    return { text: `/${name.replaceAll('.', ' ')}: the link could not be written`, status: 'failed' };
-  }
 }
 
 /** `/memory selfreflection audience fill`: the owner's fill of the audience on old group entries, through the one writer. */
@@ -563,7 +543,6 @@ export async function memoryBrowserCommand(
     if (name === 'memory.pending.list' || name === 'memory.pending.replay') return pendingCommand(memoryDb, name);
     const db = callMethod(memoryDb, 'database') as Db | null | undefined;
     if (db == null) return closedDatabase(name);
-    if (name === 'memory.users.link') return usersWrite(memoryDb, db, name, args);
     if (name === 'memory.users.merge') return usersMerge(memoryDb, db, name, args);
     const bounds = boundsOf(hot);
     return (

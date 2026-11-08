@@ -31,6 +31,8 @@
 import { estimateTokens } from '../../llm/tokens.ts';
 import { indexWords } from '../record-index.ts';
 import { SELF_PERSON } from './ids.ts';
+import { profileAccountsOf } from './meta-person.ts';
+import type { ProfileAccount } from './meta-person.ts';
 import { loadStemmer } from './stems.ts';
 import { interfaceNouns, matchName, normalName, phrasesOf, namesIn } from './names.ts';
 import type { NameHitRow, NameMatch } from './names.ts';
@@ -58,6 +60,8 @@ export type PersonEntry = EntryBase & {
   affinity: number | null;
   /** The account row ids she knows the person through. */
   accounts: Array<string>;
+  /** Every account of the person the context may see, with its interface, platform id and own fields (meta-person.ts). */
+  profileAccounts: Array<ProfileAccount>;
   relation: string | null;
   character: string | null;
   style: string | null;
@@ -759,7 +763,8 @@ function personOf(
   const personId = rowIdOf(raised.nodeId, 'person');
   const person = db.prepare('SELECT id, real_name, affinity, retired_at FROM people WHERE id = ?').get(personId);
   if (!person || person.retired_at !== null) return null;
-  const accounts = walker.accountsOf(raised.nodeId);
+  const profileAccounts = profileAccountsOf(db, personId).filter((one) => walker.visible(node('account', one.id)));
+  const accounts = [...new Set([...walker.accountsOf(raised.nodeId), ...profileAccounts.map((one) => one.id)])].sort();
   const marks = accounts.map(() => '?').join(', ');
   const accountRows =
     accounts.length === 0
@@ -781,6 +786,7 @@ function personOf(
     realName: namesIn(person.real_name)[0] ?? null,
     affinity: typeof person.affinity === 'number' ? person.affinity : null,
     accounts,
+    profileAccounts,
     relation: descriptions.get('relationship')?.text ?? null,
     character: descriptions.get('character')?.text ?? null,
     style: descriptions.get('style')?.text ?? null,

@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
-import { accountsOfPerson, personOfAccount } from '../src/memory/db/meta-person.ts';
+import { accountsOfPerson, personOfAccount, profileOfAccount } from '../src/memory/db/meta-person.ts';
 import type { PersonAccount } from '../src/memory/db/meta-person.ts';
 import { newPersonId } from '../src/memory/db/ids.ts';
 import { dbOf } from '../src/memory/db/types.ts';
@@ -255,5 +255,63 @@ test('accountsOfPerson answers an empty list for a person with no account', () =
     const meta = newPersonId();
     addMetaPerson(db, meta);
     assert.deepEqual(accountsOfPerson(db, meta), []);
+  });
+});
+
+// Profile assembly (plan 2026-11-08-meta-person, slice 7): what she reads of a person seen on one account is the
+// meta-person and that account's own fields, with every account of the person listed.
+
+test('either account of a person reads as one profile that lists both accounts', () => {
+  // Bug: each account reads as its own person, so one person writing from two accounts looks like two people.
+  withDb((db) => {
+    const meta = newPersonId();
+    addMetaPerson(db, meta);
+    addAccount(db, { id: 'chat:1', person: meta, iface: 'chat', platformId: '1' });
+    addAccount(db, { id: 'other:9', person: meta, iface: 'other', platformId: '9' });
+    const first = profileOfAccount(db, 'chat:1');
+    const second = profileOfAccount(db, 'other:9');
+    assert.equal(first?.personId, meta);
+    assert.equal(second?.personId, meta);
+    const listed = (profile: typeof first): Array<string> =>
+      (profile?.accounts ?? []).map((account) => `${account.iface} ${account.platformId}`);
+    assert.deepEqual(listed(first), ['chat 1', 'other 9']);
+    assert.deepEqual(listed(second), ['chat 1', 'other 9']);
+  });
+});
+
+test("the seen account's fields come from that account and the real name from the meta-person", () => {
+  // Bug: the profile shows another account's handle or display name, or loses what the person holds.
+  withDb((db) => {
+    const meta = newPersonId();
+    addMetaPerson(db, meta);
+    db.prepare('UPDATE people SET real_name = ? WHERE id = ?').run(JSON.stringify({ name: 'Ilse Varga' }), meta);
+    addAccount(db, { id: 'chat:1', person: meta, iface: 'chat', platformId: '1' });
+    addAccount(db, { id: 'other:9', person: meta, iface: 'other', platformId: '9' });
+    const profile = profileOfAccount(db, 'other:9');
+    assert.equal(profile?.seen?.handle, 'handle-9');
+    assert.equal(profile?.seen?.displayName, 'Name 9');
+    assert.equal(profile?.realName, 'Ilse Varga');
+  });
+});
+
+test('an account linked the old way reads its person with the name its row holds', () => {
+  // Bug: a database the migration has not moved yet gives a linked account no profile.
+  withDb((db) => {
+    addLegacyPerson(db, 'person:chat:3');
+    addOldAccount(db, 'chat:3', '3', 'person:chat:3', 'verified');
+    db.prepare('UPDATE accounts SET names = ? WHERE id = ?').run(JSON.stringify(['Jan', 'Janek']), 'chat:3');
+    const profile = profileOfAccount(db, 'chat:3');
+    assert.equal(profile?.personId, 'person:chat:3');
+    assert.deepEqual(
+      profile?.accounts.map((account) => [account.platformId, account.displayName]),
+      [['3', 'Jan']]
+    );
+  });
+});
+
+test('an account with no person reads no profile', () => {
+  withDb((db) => {
+    addOldAccount(db, 'chat:5', '5', null, null);
+    assert.equal(profileOfAccount(db, 'chat:5'), null);
   });
 });
