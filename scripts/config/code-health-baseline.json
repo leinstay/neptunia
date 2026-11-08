@@ -89,7 +89,7 @@
       "repeated": 0
     },
     "tests/cli-clipboard.test.ts": {
-      "deep": 5,
+      "deep": 3,
       "repeated": 0
     },
     "tests/cli-editor-actions.test.ts": {

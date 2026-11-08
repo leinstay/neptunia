@@ -141,6 +141,7 @@ import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../src/llm/openrouter.ts';
 import { log, logToStderr } from '../src/log.ts';
 import { resolvePaths } from '../src/paths.ts';
 import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
+import { classifyAttachment } from '../src/media/classify.ts';
 import { chatImages, draftEditor, keepReceived, lineFilesOf, receivedActions, stageForPrompt } from './chat-images.ts';
 import { addToHistory, readHistory, writeHistory } from './cli-history.ts';
 import type { HistoryRecord } from './cli-history.ts';
@@ -610,8 +611,16 @@ async function runInkChat(
       say,
       async (file) => {
         const kept = await keepReceived(where.dataDir, file);
+        // A file the terminal cannot draw shows as its kind, as memory stores it: `/attach open #N` shows the file.
+        const kind = classifyAttachment({
+          contentType: file.contentType ?? null,
+          name: file.name,
+          isVoice: file.voice !== undefined,
+        });
         entry(
-          'note' in kept ? { who: 'system', text: kept.note } : { who: 'her', text: '', attachments: [kept.attachment] }
+          'note' in kept
+            ? { who: 'her', text: '', files: [kind] }
+            : { who: 'her', text: '', attachments: [kept.attachment] }
         );
       },
       { onTurnEvent, transcript }
@@ -672,8 +681,8 @@ async function runInkChat(
     commands: [
       { name: 'setup', help: 'Connect services, interfaces and skills' },
       { name: 'attach', help: 'Attach a file from this machine to the next message' },
-      { name: 'attach open', help: 'Open the newest image she sent, or with #N a file of line N' },
-      { name: 'attach save', help: 'Save the newest image she sent to a file, or with #N a file of line N' },
+      { name: 'attach open', help: 'Show the newest image she sent, or with #N a file of line N' },
+      { name: 'attach save', help: 'Save the newest image she sent, or with #N a file of line N, on this machine' },
       { name: 'queue', help: 'Cancel the turn over a line that still waits' },
       { name: 'sessions', help: 'List stored chats and resume one' },
       { name: 'branch', help: 'Continue this chat from an earlier line' },
@@ -709,7 +718,14 @@ async function runInkChat(
       const answer = await link.ask({ name: 'session.page', args: { before, count } });
       if (answer.status !== 'ok') return [];
       const { lines } = JSON.parse(answer.text) as {
-        lines: Array<{ id: string; at?: number; who: 'owner' | 'her'; text: string; number?: number }>;
+        lines: Array<{
+          id: string;
+          at?: number;
+          who: 'owner' | 'her';
+          text: string;
+          number?: number;
+          files?: Array<string>;
+        }>;
       };
       return lines;
     },

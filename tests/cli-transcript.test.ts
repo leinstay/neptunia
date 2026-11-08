@@ -260,3 +260,27 @@ test('a file of hers that comes right after her words shares their number, and t
     assert.ok(rows.includes('[2026-11-08 13:04] [#2] nice'), rows.join('\n'));
   });
 });
+
+// A line's files, from the specifier's shape: `ChatEntry.files`, the kinds of the files memory stores with the line
+// (`session.page`), drawn as `[image]`, `[voice]` and so on after its text, in the store's own kind names.
+test('a stored line draws a marker for each of its files after its text, in the kind names memory stores', async () => {
+  // Bug: a line that carried a voice note or a picture reads as text alone, or as an empty row.
+  const { env } = chatEnv({
+    storedPage: (before) =>
+      Promise.resolve(
+        before === null
+          ? [
+              { id: 's1', who: 'owner', text: 'listen to this', at: SENT, number: 5, files: ['voice'] },
+              { id: 's2', who: 'her', text: '', at: SENT, number: 6, files: ['image', 'file'] },
+            ]
+          : []
+      ),
+    timeZone: 'UTC',
+  });
+  await withChat(env, async (rig) => {
+    await until(shows(rig, '[#6]'));
+    const rows = chatRows(rig);
+    assert.ok(rows.includes('[2026-11-08 13:04] [#5] listen to this [voice]'), rows.join('\n'));
+    assert.ok(rows.includes('[2026-11-08 13:04] [#6] [image] [file]'), rows.join('\n'));
+  });
+});

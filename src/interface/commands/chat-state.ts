@@ -4,6 +4,7 @@
 // session authority stays here: the owner's command line holds the right to every session, and nothing else can ask.
 
 import type { ChatSessions, OpenSession, SourceLine } from '../../chat/sessions.ts';
+import type { MediaRow } from '../../memory/db/media-store.ts';
 import type { ApprovalAnswer, ApprovalGate, ApprovalResult } from '../../board/approval-view.ts';
 import type { CheckpointDesk } from '../../development/checkpoint-desk.ts';
 import { createApprovalRelay } from '../../tools/approvals.ts';
@@ -32,18 +33,22 @@ function pageOf<T extends { id: string }>(lines: ReadonlyArray<T>, before: strin
 /** The kinds of a line's items that are no file to open: an address and an emoji. */
 const NOT_FILES = new Set(['link', 'emoji']);
 
+/** The items of a stored line that are files, in their order. */
+const fileRows = (line: SourceLine): Array<MediaRow> => (line.media ?? []).filter((row) => !NOT_FILES.has(row.kind));
+
 /**
  * The files of a stored line for `/attach open #N` and `/attach save #N` (cli/chat-controller.ts), in their order: each
- * with its name, its kind and its kept path under the data folder, null for a file the core did not keep.
+ * with its name, its kind, its kept path under the data folder, null for a file the core did not keep, and the
+ * description memory stores for it.
  */
-function filesOf(line: SourceLine): Array<{ name: string; kind: string; path: string | null }> {
-  return (line.media ?? [])
-    .filter((row) => !NOT_FILES.has(row.kind))
-    .map((row) => {
-      const named = row.extra.fileName ?? row.extra.name;
-      const name = typeof named === 'string' && named !== '' ? named : (row.path?.split('/').at(-1) ?? row.kind);
-      return { name, kind: row.kind, path: row.path };
-    });
+function filesOf(
+  line: SourceLine
+): Array<{ name: string; kind: string; path: string | null; description: string | null }> {
+  return fileRows(line).map((row) => {
+    const named = row.extra.fileName ?? row.extra.name;
+    const name = typeof named === 'string' && named !== '' ? named : (row.path?.split('/').at(-1) ?? row.kind);
+    return { name, kind: row.kind, path: row.path, description: row.description };
+  });
 }
 
 /** A session and what it shows, for the chat to put on the screen and answer the core's history reads with. */
@@ -110,6 +115,8 @@ export function createChatState({
         who: line.who,
         text: line.text,
         ...(line.number === undefined ? {} : { number: line.number }),
+        // The kinds of its files, in the names memory stores, which the chat draws as `[voice]` and the like.
+        ...(fileRows(line).length === 0 ? {} : { files: fileRows(line).map((row) => row.kind) }),
       })),
     });
   }

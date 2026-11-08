@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { lineFilesOf } from '../bin/chat-images.ts';
 
-const answerOf = (files: Array<{ name: string; kind: string; path: string | null }>) => ({
+const answerOf = (files: Array<{ name: string; kind: string; path: string | null; description: string | null }>) => ({
   text: JSON.stringify({ number: 7, files }),
   status: 'ok',
 });
@@ -14,9 +14,9 @@ test('a kept path of a line becomes its path in the data folder, and a path outs
   const read = lineFilesOf(
     '/srv/data',
     answerOf([
-      { name: 'clip.mp4', kind: 'video', path: 'media/cli/v1.mp4' },
-      { name: 'odd', kind: 'file', path: '../etc/passwd' },
-      { name: 'lost.pdf', kind: 'file', path: null },
+      { name: 'clip.mp4', kind: 'video', path: 'media/cli/v1.mp4', description: 'A cat' },
+      { name: 'odd', kind: 'file', path: '../etc/passwd', description: null },
+      { name: 'lost.pdf', kind: 'file', path: null, description: null },
     ]),
     7
   );
@@ -26,6 +26,8 @@ test('a kept path of a line becomes its path in the data folder, and a path outs
     null,
     null,
   ]);
+  const first = read.ok ? read.files[0] : undefined;
+  assert.equal(first?.description, 'A cat');
 });
 
 test('an unknown line reads as a refusal that names its number', () => {

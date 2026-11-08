@@ -179,7 +179,10 @@ const NUMBERED: ReadonlyArray<SourceLine> = [
   { id: 'n3', placeId: 'cli:dm:owner', at: 30, who: 'owner', text: 'Thanks', number: 1335 },
 ];
 
-type LineAnswer = { number: number; files: Array<{ name: string; kind: string; path: string | null }> };
+type LineAnswer = {
+  number: number;
+  files: Array<{ name: string; kind: string; path: string | null; description: string | null }>;
+};
 
 test('a stored page gives each line its number over the whole chat, whatever page it is on', async () => {
   // Bug: the page leaves the number out, so the chat counts from the oldest line on the screen again.
@@ -201,10 +204,11 @@ test('session.line answers the files of the line with that number, of any kind, 
   assert.equal(answer.status, 'ok');
   const line = JSON.parse(answer.text) as LineAnswer;
   assert.equal(line.number, 1334);
+  // Each file also carries the description memory stores for it, which the window shows beside a picture.
   assert.deepEqual(line.files, [
-    { name: 'clip.mp4', kind: 'video', path: 'media/cli/v1.mp4' },
-    { name: 'note.ogg', kind: 'voice', path: 'media/cli/v2.ogg' },
-    { name: 'lost.pdf', kind: 'file', path: null },
+    { name: 'clip.mp4', kind: 'video', path: 'media/cli/v1.mp4', description: null },
+    { name: 'note.ogg', kind: 'voice', path: 'media/cli/v2.ogg', description: null },
+    { name: 'lost.pdf', kind: 'file', path: null, description: null },
   ]);
 });
 
@@ -233,4 +237,20 @@ test('session.line finds a line by its number while a branch hides it from the s
   await run({ name: 'session.branch', args: { from: rows[0]?.id, boundary: 'n1' } });
   const line = JSON.parse((await run({ name: 'session.line', args: { number: 1334 } })).text) as LineAnswer;
   assert.equal(line.files.length, 3);
+});
+
+test('a stored page gives each line the kinds of its files, and no link', async () => {
+  // Bug: the chat draws a line that carried a video and a voice note as text alone.
+  const { run } = rig(NUMBERED);
+  await run({ name: 'session.open', args: {} });
+  const answer = await run({ name: 'session.page', args: { before: null, count: 3 } });
+  const { lines } = JSON.parse(answer.text) as { lines: Array<{ id: string; files?: Array<string> }> };
+  assert.deepEqual(
+    lines.map((line) => [line.id, line.files ?? []]),
+    [
+      ['n1', []],
+      ['n2', ['video', 'voice', 'file']],
+      ['n3', []],
+    ]
+  );
 });
