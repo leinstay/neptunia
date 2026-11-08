@@ -236,3 +236,18 @@ test('her line the chat client still holds takes the stored files it lacks', asy
     [['f1', picture.url]]
   );
 });
+
+test('a stored reply reaches her chat as a reply to the line it answers', async () => {
+  // Bug: after a restart her chat read every stored line as a reply to nothing.
+  const lines = [stored(1, 'owner', 10), { ...stored(2, 'her', 20), replyToId: 'n1' }];
+  const adapter = withStoredHistory(freshClient([]), () => lines);
+  const read = await adapter.history(CHAT, { limit: 100 });
+  const events = read.status === 'ok' ? read.events : [];
+  assert.deepEqual(
+    events.map(({ message }) => [message.id, message.replyToId]),
+    [
+      ['n1', null],
+      ['n2', 'n1'],
+    ]
+  );
+});
