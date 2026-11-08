@@ -17,9 +17,9 @@
 //
 // toRows(rel, value, ctx) -> { vectors, operational }     fromRows(rows, ctx) -> the value
 
-import { personId, uniqueIds } from '../ids.ts';
+import { uniqueIds } from '../ids.ts';
 import { LEGACY_IFACE } from '../legacy-namespace.ts';
-import { dmScope, groupScope } from '../scope.ts';
+import { groupScope, scopeColumns } from '../scope.ts';
 import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.ts';
 import { dmPlaceScope, privateUserOf } from './scope-parts.ts';
 import { asText } from '../types.ts';
@@ -131,11 +131,15 @@ function monthContext(
   unique: (id: string) => string,
   iface: string,
   privateUser: string | null | undefined = undefined,
-  dmPlace: MapContext['dmPlace'] = null
+  dmPlace: MapContext['dmPlace'] = null,
+  dmOfMember: MapContext['dmOfMember'] = undefined
 ): MonthContext {
   const user = privateUser ?? privateUserOf(dir);
-  const dm = (user: string): Row =>
-    dmPlace ? dmPlaceScope(personId(iface, user), iface, dmPlace) : dmScope(personId(iface, user), iface);
+  // A private month is the member's DM: the unit's place, else the member's stored DM, else the DM the id spells.
+  const dm = (user: string): Row => {
+    const place = dmPlace ?? dmOfMember?.(iface, user) ?? null;
+    return place ? dmPlaceScope(iface, place) : scopeColumns(undefined, { privateUser: user, iface });
+  };
   return {
     manifest,
     i8,
@@ -163,7 +167,16 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   if (lines === null || dims === null) {
     operational.raw = { meta, i8: i8.toString('base64') };
   } else {
-    const month = monthContext(dir, manifest, i8, uniqueIds(), iface, ctx.privateAccountId, ctx.dmPlace);
+    const month = monthContext(
+      dir,
+      manifest,
+      i8,
+      uniqueIds(),
+      iface,
+      ctx.privateAccountId,
+      ctx.dmPlace,
+      ctx.dmOfMember
+    );
     lines.forEach((line, index) => put(rows, 'vectors', lineRow(line, index, month)));
     const used = lines.length * dims;
     if (i8.length > used) operational.tailI8 = i8.subarray(used).toString('base64');
@@ -189,12 +202,14 @@ export function appendRows(
     iface = LEGACY_IFACE,
     privateAccountId,
     dmPlace = null,
+    dmOfMember,
   }: {
     previous: Stored;
     keys: Iterable<string>;
     iface?: string;
     privateAccountId?: string | null;
     dmPlace?: MapContext['dmPlace'];
+    dmOfMember?: MapContext['dmOfMember'];
   }
 ): Rows | null {
   const dir = monthDirOf(rel);
@@ -225,7 +240,7 @@ export function appendRows(
     seen.add(out);
     return out;
   };
-  const month = monthContext(dir, manifest, i8, unique, iface, privateAccountId, dmPlace);
+  const month = monthContext(dir, manifest, i8, unique, iface, privateAccountId, dmPlace, dmOfMember);
   const rows: Rows = {};
   lines.forEach((line, index) => put(rows, 'vectors', lineRow(line, index, month)));
   const next: Stored = { manifest, gen: manifest.gen ?? null };

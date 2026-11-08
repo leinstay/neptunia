@@ -14,10 +14,10 @@
 // toRows(rel, entry, ctx) -> { claim_versions: [row], claims?: [stub] }     ctx: { position?, hotClaimIds? }
 // fromRows(rows, ctx) -> the entry
 
-import { personId, shortHash } from '../ids.ts';
+import { shortHash } from '../ids.ts';
 import { scopeColumns } from '../scope.ts';
 import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, rowsOf, split } from './common.ts';
-import { dmPlaceScope, privateUserOf } from './scope-parts.ts';
+import { dmPlaceScope, memberDmOf, privateUserOf } from './scope-parts.ts';
 import { LEGACY_IFACE } from '../legacy-namespace.ts';
 import type { Row, Rows } from '../types.ts';
 import type { MapContext, Spec } from './common.ts';
@@ -39,7 +39,10 @@ export function claimStub(rel: string, entry: Row, ctx: MapContext = {}): Row {
   const observedAt = entry.observedAt as { date?: unknown } | undefined;
   const subject =
     typeof scope.user === 'string' && scope.user
-      ? { subject_kind: 'person', subject_id: `person:${LEGACY_IFACE}:${scope.user}` }
+      ? {
+          subject_kind: 'person',
+          subject_id: ctx.personOfMember?.(LEGACY_IFACE, scope.user) ?? `person:${LEGACY_IFACE}:${scope.user}`,
+        }
       : typeof scope.channel === 'string' && scope.channel
         ? { subject_kind: 'place', subject_id: `${LEGACY_IFACE}:channel:${scope.channel}` }
         : { subject_kind: null, subject_id: null };
@@ -60,8 +63,11 @@ export function claimStub(rel: string, entry: Row, ctx: MapContext = {}): Row {
     truth: 'historical',
     shown: 0,
     ...(ctx.dmPlace && ctx.privateAccountId
-      ? dmPlaceScope(personId(ifaceOf(ctx), ctx.privateAccountId), ifaceOf(ctx), ctx.dmPlace)
-      : scopeColumns(entry.scope, { privateUser: privateUserOf(rel) })),
+      ? dmPlaceScope(ifaceOf(ctx), ctx.dmPlace)
+      : scopeColumns(entry.scope, {
+          privateUser: privateUserOf(rel),
+          dmOf: memberDmOf(LEGACY_IFACE, ctx.dmOfMember),
+        })),
     created_at: null,
     retired_at: typeof entry.recordedAt === 'string' ? entry.recordedAt : null,
     origin_file: rel,

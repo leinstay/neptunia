@@ -20,7 +20,7 @@ const text = (value: unknown) => (typeof value === 'string' ? value : null);
 
 export const isArchivePath = (rel: string): boolean => /intentions-archive\.jsonl$/.test(String(rel));
 
-function rowOf(rel: string, record: Row, position: number, archived: unknown): Row {
+function rowOf(rel: string, record: Row, position: number, archived: unknown, ctx: MapContext): Row {
   const provenance = record.provenance as { scope?: unknown; participants?: ReadonlyArray<unknown> } | undefined;
   return {
     id: record.id,
@@ -29,7 +29,7 @@ function rowOf(rel: string, record: Row, position: number, archived: unknown): R
     due_ms: num(record.dueAt),
     created_ms: num(record.createdAt),
     updated_ms: num(record.updatedAt),
-    ...stringScope(provenance?.scope, provenance?.participants),
+    ...stringScope(provenance?.scope, provenance?.participants, undefined, ctx.dmOfMember),
     archived: archived ? 1 : 0,
     owner_file: rel,
     position: position ?? null,
@@ -43,14 +43,14 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   if (ctx.collection === 'archive' || isArchivePath(rel)) {
     // A line that is not a record with an id cannot be keyed: it is kept as a record under a derived id.
     const record = mappable(value) ? value : { id: `archive-line-${ctx.position ?? 0}`, $raw: value };
-    put(rows, 'intentions', rowOf(rel, record, ctx.position ?? 0, true));
+    put(rows, 'intentions', rowOf(rel, record, ctx.position ?? 0, true, ctx));
     return rows;
   }
   const rest = { ...value };
   const list = value.intentions;
   const ids = Array.isArray(list) ? list.map((record) => record?.id) : [];
   if (Array.isArray(list) && list.every(mappable) && new Set(ids).size === ids.length) {
-    list.forEach((record, position) => put(rows, 'intentions', rowOf(rel, record, position, false)));
+    list.forEach((record, position) => put(rows, 'intentions', rowOf(rel, record, position, false, ctx)));
     delete rest.intentions;
     rest.$has = ['intentions'];
   } else {

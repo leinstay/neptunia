@@ -22,7 +22,12 @@ import type { MapContext, Spec } from './common.ts';
 
 const FIELDS = ['purpose', 'tone', 'topics', 'patterns', 'starters'];
 
-const LEARNED_SPEC: Array<Spec> = [
+/**
+ * A lesson's columns. Its teacher, a mention `<@platform id>`, is the teacher's stored person on the place's interface,
+ * else (an account no row holds) the person the mention spells; a person the mention cannot be read back from keeps
+ * the mention beside it.
+ */
+const learnedSpec = (ctx: MapContext): Array<Spec> => [
   { col: 'text', key: 'text', type: 'text' },
   { col: 'weight', key: 'weight', type: 'num' },
   { col: 'first_seen_at', key: 'firstSeen', type: 'text' },
@@ -32,18 +37,22 @@ const LEARNED_SPEC: Array<Spec> = [
     key: 'from',
     type: 'text',
     ok: (v: unknown) => /^<@\d+>$/.test(String(v)),
-    enc: (v: unknown, iface: string) => personId(iface, String(v).slice(2, -1)),
+    enc: (v: unknown, iface: string) => {
+      const platformId = String(v).slice(2, -1);
+      return ctx.personOfMember?.(ifaceOf(ctx), platformId) ?? personId(iface, platformId);
+    },
     dec: (id: unknown) => `<@${nativeOfAny(id)}>`,
+    exact: true,
   },
 ];
 
-const LISTS: Array<ListDef & { subject: string }> = [
+const listsOf = (ctx: MapContext): Array<ListDef & { subject: string }> => [
   { key: 'injokes', kind: 'injoke', strings: true, subject: 'place' },
   { key: 'self', kind: 'self_fact', strings: true, subject: 'self' },
   {
     key: 'learned',
     kind: 'lesson',
-    spec: LEARNED_SPEC,
+    spec: learnedSpec(ctx),
     stable: (item: Row) => [item.id ?? item.text],
     subject: 'place',
     how: 'taught',
@@ -53,7 +62,7 @@ const LISTS: Array<ListDef & { subject: string }> = [
 /** What the notes of a place are shown to: its partner in a DM, the groups elsewhere. */
 function notesScope(iface: string, ctx: MapContext): Row {
   if (!ctx.dmPlace || !ctx.privateAccountId) return groupScope(iface);
-  return dmPlaceScope(personId(iface, ctx.privateAccountId), iface, ctx.dmPlace);
+  return dmPlaceScope(iface, ctx.dmPlace);
 }
 
 export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
@@ -112,7 +121,7 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
     delete rest[field];
   }
   const has = [];
-  for (const def of LISTS) {
+  for (const def of listsOf(ctx)) {
     if (!Object.hasOwn(value, def.key)) continue;
     const self = def.subject === 'self';
     const ok = claimRows(rows, value[def.key], def, {
@@ -143,7 +152,7 @@ export function fromRows(rows: Rows): Row {
     const version = versions.get(description.id);
     if (version) obj[String(description.field)] = version.text;
   }
-  for (const def of LISTS) {
+  for (const def of listsOf({})) {
     if (!has.includes(def.key)) continue;
     obj[def.key] = claimItems(
       rowsOf(rows, 'claims').filter((row) => row.kind === def.kind),

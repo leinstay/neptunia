@@ -112,7 +112,7 @@ import { dbSettings, quotesOf, search as searchRows, window as windowRows } from
 import { factExcerpts, prefetchFacts, searchFacts } from './recall-facts.ts';
 import type { MemoryPage } from '../memory/db/semantic-types.ts';
 import type { RetrievalInput } from '../memory/retrieval-input.ts';
-import { nativeOf, personId } from '../memory/db/ids.ts';
+import { nativeOf } from '../memory/db/ids.ts';
 import { currentIface } from '../memory/db/current-iface.ts';
 import { isIssuedInternalContext, issueContext, readContextSpec } from '../memory/db/scope.ts';
 import { LEGACY_IFACE } from '../memory/db/legacy-namespace.ts';
@@ -993,11 +993,9 @@ export function createRecall({
    * The read context of a db read (see dbReader): the turn's own when it fits, else one issued for this read; an issued internal context spans every audience.
    */
   function readContext({ channel, privateAccountId, asker, memoryContext = null }: ReadContextInput) {
-    const named = readContextSpec(currentIface(), iface, channel?.id, privateAccountId);
-    const spec =
-      named.kind === 'dm' && privateAccountId
-        ? { ...named, person: personOfMember(store, String(privateAccountId), named.iface) }
-        : named;
+    const spec = readContextSpec(currentIface(), iface, channel?.id, privateAccountId, (on, platformId) =>
+      personOfMember(store, platformId, on)
+    );
     const fits =
       memoryContext &&
       typeof memoryContext === 'object' &&
@@ -1013,7 +1011,9 @@ export function createRecall({
       : typeof memoryDb?.issueContext === 'function'
         ? memoryDb.issueContext(spec)
         : issueContext({ ...spec, now });
-    return privateAccountId || !asker ? issued : { ...issued, asker: [personId(spec.iface, String(asker))] };
+    return privateAccountId || !asker
+      ? issued
+      : { ...issued, asker: [personOfMember(store, String(asker), spec.iface)] };
   }
 
   /**

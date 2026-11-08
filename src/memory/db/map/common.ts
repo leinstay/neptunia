@@ -49,6 +49,10 @@ export type MapContext = {
   /** The DM place of the unit (its subject, or a private unit's account's), with the partner person the place names. */
   dmPlace?: { id: string; partnerPerson: string | null } | null;
   privateAccountId?: string | null;
+  /** The stored person of the account a platform id names on an interface (meta-person.ts), null when none is stored. */
+  personOfMember?: (iface: string, platformId: string) => string | null;
+  /** The stored direct chat of the account a platform id names on an interface, null when none is stored. */
+  dmOfMember?: (iface: string, platformId: string) => { id: string; partnerPerson: string | null } | null;
   collection?: string;
   versionKind?: string;
   itemId?: string;
@@ -64,7 +68,12 @@ export type Spec = {
   enc?: (value: unknown, iface: string) => unknown;
   dec?: (value: unknown) => unknown;
   ok?: (value: unknown) => boolean;
+  /** The value is kept beside the column when `dec` cannot read it back from what `enc` stored, so it comes back exact. */
+  exact?: true;
 };
+
+/** The key of the remainder that keeps a value its column cannot give back (`Spec.exact`). */
+const keptKey = (key: string): string => `$kept:${key}`;
 
 const FITS: Record<Spec['type'], (value: unknown) => boolean> = {
   text: (v: unknown) => typeof v === 'string',
@@ -94,7 +103,7 @@ export function split(obj: Row, spec: ReadonlyArray<Spec>, iface = LEGACY_IFACE)
   const rest: Row = { ...obj };
   const cols: Row = {};
   const nulls: Array<unknown> = Array.isArray(obj.$null) ? [...(obj.$null as Array<unknown>)] : [];
-  for (const { col, key, type, enc, ok } of spec) {
+  for (const { col, key, type, enc, dec, ok, exact } of spec) {
     cols[col] = null;
     if (!Object.hasOwn(obj, key)) continue;
     const value = obj[key];
@@ -103,7 +112,9 @@ export function split(obj: Row, spec: ReadonlyArray<Spec>, iface = LEGACY_IFACE)
       nulls.push(key);
     } else if (FITS[type](value) && (!ok || ok(value))) {
       delete rest[key];
-      cols[col] = encode(type, enc ? enc(value, iface) : value);
+      const stored = enc ? enc(value, iface) : value;
+      cols[col] = encode(type, stored);
+      if (exact && dec && !jsonEqual(dec(stored), value)) rest[keptKey(key)] = value;
     }
   }
   if (nulls.length) rest.$null = nulls;
@@ -122,7 +133,11 @@ export function join(cols: Row | null | undefined, rest: unknown, spec: Readonly
   const obj: Row = {};
   for (const { col, key, type, dec } of spec) {
     const value = cols?.[col];
-    if (value !== null && value !== undefined) obj[key] = dec ? dec(decode(type, value)) : decode(type, value);
+    const kept = keptKey(key);
+    if (Object.hasOwn(left, kept)) {
+      obj[key] = left[kept];
+      delete left[kept];
+    } else if (value !== null && value !== undefined) obj[key] = dec ? dec(decode(type, value)) : decode(type, value);
   }
   for (const key of nulls) if (!Object.hasOwn(obj, key)) obj[key] = null;
   for (const [key, value] of Object.entries(left)) if (!Object.hasOwn(obj, key)) obj[key] = value;

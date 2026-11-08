@@ -15,7 +15,14 @@
 // every writer fills both from; `scopeOfAudience(id)` goes back. A malformed triple resolves to `aud:internal`.
 
 import { randomUUID } from 'node:crypto';
-import { channelPlaceId, dmPartnerOfPlace, dmPlaceOfPerson, personId } from './ids.ts';
+import {
+  channelPlaceId,
+  dmPartnerOfPlace,
+  dmPlaceOfPerson,
+  legacyPersonNative,
+  personId,
+  placeIdParts,
+} from './ids.ts';
 import { LEGACY_IFACE } from './legacy-namespace.ts';
 
 /** The three scope columns of a row. */
@@ -90,36 +97,49 @@ export const dmContext = <P extends string, T extends string>(
   place: place ?? dmPlaceOfPerson(person, iface),
 });
 export const internalContext = (): Context => ({ internal: true });
-/** What a read's context is issued for: the DM of `privateAccountId`, else the group of `placeId`, on the channel's interface. */
+/**
+ * What a read's context is issued for: the DM of `privateAccountId`, else the group of `placeId`, on the channel's
+ * interface. The person of a DM is the one `personOf` gives for the account's platform id on that interface.
+ */
 export function readContextSpec(
   channelIface: unknown,
   home: unknown,
   placeId: unknown,
-  privateAccountId: unknown
+  privateAccountId: unknown,
+  personOf: (iface: string, platformId: string) => string
 ): { iface: string; kind: 'dm'; person: string } | { iface: string; kind: 'group'; destination: string | null } {
   const iface = String(typeof channelIface === 'string' && channelIface !== '' ? channelIface : home);
-  return privateAccountId
-    ? { iface, kind: 'dm' as const, person: personId(iface, privateAccountId) }
+  const account =
+    typeof privateAccountId === 'string' || typeof privateAccountId === 'number' ? String(privateAccountId) : '';
+  return privateAccountId && account
+    ? { iface, kind: 'dm' as const, person: personOf(iface, account) }
     : { iface, kind: 'group' as const, destination: placeId ? channelPlaceId(iface, placeId) : null };
 }
 /** The context of the selfreflection's entry: `none` and the groups of every interface; no direct chat, nothing internal. */
 export const groupsContext = (): Context => ({ groups: true });
 
+/** The scope of a member's DM, with the audience of its stored place when the writer knows one. */
+export type DmScope = Scope & { audience_id?: string };
+
 /**
  * The scope columns of a scope object (`{ channel }`, `{ place }`, `{ place, private }`, `{ user }`, `{}`).
- * A private layer of user U (`opts.privateUser`) or a scope naming a user is `dm` with that member; a private place is
- * `dm` with the partner its id names. A channel or a place is `group`, unless it names a DM, carries the private mark or
- * is marked `unresolved` (a chat no stored place holds): those are `internal`, as is anything else (no scope, an
- * empty or unknown one). An unknown legacy scope is never shown outward. `none` is only for a unit that is source-free on purpose (a self fact, her own unprompted
- * line), which its mapper sets itself with SCOPE_NONE. The columns name `opts.iface`, the legacy namespace when none
- * is given.
+ * A private layer of user U (`opts.privateUser`) or a scope naming a user is `dm` with that member: the scope `opts.dmOf`
+ * gives for the member's platform id (the stored DM and its partner), else, for a DM no stored place holds, the partner
+ * its platform id spells. A private place is `dm` with the partner its id names. A channel or a place is `group`, unless
+ * it names a DM, carries the private mark or is marked `unresolved` (a chat no stored place holds): those are
+ * `internal`, as is anything else (no scope, an empty or unknown one). An unknown legacy scope is never shown outward.
+ * `none` is only for a unit that is source-free on purpose (a self fact, her own unprompted line), which its mapper sets
+ * itself with SCOPE_NONE. The columns name `opts.iface`, the legacy namespace when none is given.
  */
-export function scopeColumns(scope: unknown, opts: { privateUser?: string | null; iface?: string } = {}): Scope {
+export function scopeColumns(
+  scope: unknown,
+  opts: { privateUser?: string | null; iface?: string; dmOf?: (platformId: string) => DmScope | null } = {}
+): DmScope {
   const oldScope = scope as
     { user?: unknown; channel?: unknown; place?: unknown; private?: unknown; unresolved?: unknown } | null | undefined;
   const user = opts.privateUser ?? (typeof oldScope?.user === 'string' && oldScope.user ? oldScope.user : null);
   const iface = opts.iface ?? LEGACY_IFACE;
-  if (user) return dmScope(personId(iface, user), iface);
+  if (user) return opts.dmOf?.(user) ?? dmScope(personId(iface, user), iface);
   if (oldScope?.private === true) {
     const partner = typeof oldScope.place === 'string' ? dmPartnerOfPlace(oldScope.place) : null;
     return partner ? dmScope(partner.person, partner.iface) : { ...SCOPE_INTERNAL };
@@ -130,11 +150,16 @@ export function scopeColumns(scope: unknown, opts: { privateUser?: string | null
   return groupScope(iface);
 }
 
-/** The user id a scope row's `scope_dm` names, or null. */
+/**
+ * The platform id of the DM partner a scope row names, or null: the one its DM audience's place spells
+ * (`aud:dm:<iface>:dm:<platform id>`), else the one its legacy person id spells. A meta-person in `scope_dm` and a
+ * stored place with an opaque id spell none.
+ */
 export function dmUserOf(row: unknown): string | null {
-  const dm = (row as Partial3 | null | undefined)?.scope_dm;
-  const match = /^person:[^:]+:(.+)$/.exec(typeof dm === 'string' ? dm : '');
-  return match ? (match[1] ?? null) : null;
+  const scope = row as (Partial3 & { audience_id?: unknown }) | null | undefined;
+  const audience = typeof scope?.audience_id === 'string' ? scope.audience_id : '';
+  const parts = audience.startsWith('aud:dm:') ? placeIdParts(audience.slice('aud:dm:'.length)) : null;
+  return (parts?.kind === 'dm' ? parts.native : null) ?? legacyPersonNative(scope?.scope_dm)?.native ?? null;
 }
 
 function check(value: unknown): asserts value is Context {
