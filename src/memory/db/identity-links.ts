@@ -91,18 +91,6 @@ export function linkOwnerAccount(db: Db, accountId: string, owner: string, at: s
   return { linked, merged: merging };
 }
 
-/**
- * The person another account of the owner holds before a raw install's link (a unit write's copy, a link of an older
- * owner command): it merges into the owner's new person, so his memory stays one.
- */
-export function earlierPersonOf(db: Db, accountId: string): string | null {
-  const person =
-    verifiedPerson(db, accountId) ??
-    db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(accountId)?.person_id;
-  if (typeof person !== 'string' || person === '' || person === SELF_PERSON) return null;
-  return db.prepare('SELECT 1 AS ok FROM people WHERE id = ?').get(person) ? person : null;
-}
-
 /** The tables whose rows carry the authority that issued their native key. */
 const AUTHORITY_TABLES = [
   'accounts',

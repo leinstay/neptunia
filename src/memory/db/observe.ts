@@ -79,7 +79,6 @@ import {
   legacySourceIdOf,
   nodeId,
   resolveAlias,
-  survivorOf,
 } from './ids.ts';
 import { hasMessageFamilies } from './message-family-catalog.ts';
 import { envelopeItems, fillLineMedia } from './media-store.ts';
@@ -94,18 +93,10 @@ import {
   WATCH_OUTCOMES,
 } from './schema.ts';
 import { markStemsPending } from './stems.ts';
-import {
-  OWNER_CONSOLE_IFACE,
-  adoptNativeAuthority,
-  earlierPersonOf,
-  linkOwnerAccount,
-  linkSelfAccount,
-} from './identity-links.ts';
+import { OWNER_CONSOLE_IFACE, adoptNativeAuthority, linkOwnerAccount, linkSelfAccount } from './identity-links.ts';
 import { rescopeDmPlace } from './dm-rescope.ts';
-import { mergePersonInto } from './person-merge.ts';
 import { ensureAccountPerson } from './person-links.ts';
 import { authorPersonOf } from './meta-person-write.ts';
-import { nativeAuthorityOf } from '../../protocol/identity.ts';
 import { projectRow } from './graph.ts';
 import { nextPosition, noteUnit } from './unit-write.ts';
 import { ingestOption, insertIngest } from './ingest.ts';
