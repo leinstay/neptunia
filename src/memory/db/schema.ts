@@ -1609,6 +1609,9 @@ export const MIGRATIONS: Array<Migration> = [
   renameChat,
   // Version 40: the meta-person, its accounts and the author person of a line (src/memory/db/meta-person.ts).
   addMetaPerson,
+  // Version 41: the vectors of an object are found by its id, for the pending query and the retirement of
+  // src/memory/db/object-vectors.ts.
+  'CREATE INDEX IF NOT EXISTS vectors_item ON vectors(item_id);',
 ];
 
 /** Every table schema v8 adds. */
