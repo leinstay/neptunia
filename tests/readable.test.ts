@@ -138,19 +138,37 @@ test('pageTitle: only the first 64 KB of the document are looked at', () => {
   assert.equal(pageTitle(`<title>Early</title>${pad}`), 'Early');
 });
 
+// Linearity is a ratio, not a wall-clock bound: a bound of 500 ms on 1.5 MB failed on a loaded CI runner (537 ms) for a
+// reader that takes 70 ms there locally. Four times the input takes about four times as long when the reader is linear
+// and about sixteen times when it is quadratic, on any machine. Each size keeps its fastest of three runs.
 test('readable: pageTitle and htmlToText stay linear on 1.5 MB of unclosed title or meta tags', () => {
+  const fastest = (fn: (html: string) => unknown, page: string): number => {
+    let best = Infinity;
+    for (let run = 0; run < 3; run += 1) {
+      const started = process.hrtime.bigint();
+      fn(page);
+      best = Math.min(best, Number(process.hrtime.bigint() - started) / 1e6);
+    }
+    return best;
+  };
   const size = 1.5 * 1024 * 1024;
   for (const unit of ['<title>', '<meta ', '<meta a="', "<title x='", '<meta ' + 'a'.repeat(50)]) {
     const page = unit.repeat(Math.ceil(size / unit.length));
+    const quarter = unit.repeat(Math.ceil(size / 4 / unit.length));
     const readers: Array<[string, (html: string) => unknown]> = [
       ['pageTitle', pageTitle],
       ['htmlToText', htmlToText],
     ];
     for (const [name, fn] of readers) {
-      const started = process.hrtime.bigint();
-      fn(page);
-      const ms = Number(process.hrtime.bigint() - started) / 1e6;
-      assert.ok(ms < 500, `${name} on repeated ${JSON.stringify(unit.slice(0, 12))}: ${ms.toFixed(0)} ms`);
+      const whole = fastest(fn, page);
+      const part = fastest(fn, quarter);
+      // Under 20 ms on the whole page the reader is fast whatever its growth, and a ratio of such times is noise.
+      if (whole < 20) continue;
+      const ratio = whole / Math.max(part, 1);
+      assert.ok(
+        ratio < 8,
+        `${name} on repeated ${JSON.stringify(unit.slice(0, 12))}: x4 input took x${ratio.toFixed(1)}`
+      );
     }
   }
 });
