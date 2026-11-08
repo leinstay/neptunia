@@ -10,7 +10,6 @@ import { ROOT_DIR, readConfig } from '../config.ts';
 import { localConfigPath } from '../config/files.ts';
 import { loadPrincipals } from '../interface/principals.ts';
 import { CORE_UNIT } from '../service/manager.ts';
-import { sourceState } from '../subharness/sources.ts';
 import { subscriptionPath } from '../subharness/subscription-path.ts';
 import { coreSelection, readCoreCheck } from './model-check.ts';
 import type { CoreCheck } from './model-check.ts';
@@ -37,10 +36,11 @@ export type ReadinessHealth = {
   core: 'listening' | 'down';
   link: 'authenticated' | 'refused' | 'untested';
   /**
-   * `routeDown` while her turns run through a subscription backend that cannot run now; `harness` while they run
-   * through one at all, so the check of the API model and its key are not asked of her.
+   * `harness` while her turns run through a subscription backend, so neither the check of the API model nor a key is
+   * asked of her. A launch reads the route alone: the backend was checked when it was logged in and when the model was
+   * chosen on it, and a launch starts none of its CLI.
    */
-  model: { selection: string | null; check: CoreCheck | null; routeDown?: true; harness?: true };
+  model: { selection: string | null; check: CoreCheck | null; harness?: true };
   /** `unknown` with no core to ask, which `core-running` reports already. */
   memory: { service: MemoryState; writer: MemoryState };
   optional: Readonly<Record<string, string>>;
@@ -63,14 +63,12 @@ export const REPAIRS = {
   'check-missing': 'check the model with /keys check core',
   'check-stale': 'the model changed since its check: /keys check core',
   'check-failed': 'the provider refused the model or the key: /keys check core says why',
-  'core-route-down': "the core's subscription route cannot run: read /subharness status",
   'memory-service-down': 'the memory database is closed: read neptunia doctor memory',
   'memory-writer-down': 'the memory writer does not answer: read neptunia doctor memory and /subharness status',
 } as const;
 type FailureCode = keyof typeof REPAIRS;
 
-function codeOfModel({ selection, check, routeDown, harness }: ReadinessHealth['model']): FailureCode | null {
-  if (routeDown === true) return 'core-route-down';
+function codeOfModel({ selection, check, harness }: ReadinessHealth['model']): FailureCode | null {
   if (harness === true) return null;
   if (selection === null) return 'no-model';
   if (check === null) return 'check-missing';
@@ -161,21 +159,13 @@ function modelOnDisk(privateDir: string, dataDir: string): ReadinessHealth['mode
   return { selection, check: readCoreCheck(dataDir) };
 }
 
-/**
- * How her turns run: `routeDown` while a subscription backend carries them and cannot run now, `harness` while one
- * carries them at all. A keys.json that cannot be read says neither.
- */
-async function coreRoute(privateDir: string): Promise<{ routeDown?: true; harness?: true }> {
-  let path: ReturnType<typeof subscriptionPath>;
+/** `harness` while her turns run through a subscription backend; a config.json that cannot be read says nothing. */
+function coreRoute(privateDir: string): { harness?: true } {
   try {
-    path = subscriptionPath(privateDir, 'core');
+    return subscriptionPath(privateDir, 'core').kind === 'subharness' ? { harness: true } : {};
   } catch {
     return {};
   }
-  if (path.kind !== 'subharness') return {};
-  return (await sourceState(privateDir, path.backend)).available
-    ? { harness: true }
-    : { routeDown: true, harness: true };
 }
 
 const parsedReadiness = (text: string): CoreReadiness | null => {
@@ -203,7 +193,7 @@ export async function gatherHealth(where: {
     services: fs.existsSync(path.join(unitDir, CORE_UNIT)) ? ('ok' as const) : ('not-installed' as const),
     optional: {},
   };
-  const route = await coreRoute(privateDir);
+  const route = coreRoute(privateDir);
   const unread = {
     model: { ...modelOnDisk(privateDir, dataDir), ...route },
     memory: { service: 'unknown', writer: 'unknown' } as const,

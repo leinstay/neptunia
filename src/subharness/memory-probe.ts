@@ -45,7 +45,7 @@ export type MemoryProbeDeps = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/** One probe, which may throw on an unreadable keys.json. */
+/** One probe, which may throw on an unreadable config.json or keys.json. */
 async function probeOnce(deps: MemoryProbeDeps, at: number): Promise<ProbeResult> {
   const path = memoryPath(deps.privateDir);
   if (path.kind === 'direct') {
@@ -68,7 +68,7 @@ async function probeOnce(deps: MemoryProbeDeps, at: number): Promise<ProbeResult
   return { ok: false, code: outcome.error ?? 'no-reply', at };
 }
 
-/** One probe of the writer's path as keys.json names it now. Never rejects. `at` is `now`. */
+/** One probe of the writer's path as config.json names it now. Never rejects. `at` is `now`. */
 export async function memoryProbe(deps: MemoryProbeDeps, now: number): Promise<ProbeResult> {
   try {
     return await probeOnce(deps, now);

@@ -81,12 +81,14 @@ test('while the subharness is off every agent task is refused subharness-off and
   assert.equal(seen.length, 0);
 });
 
-test('keys.json is read at each run: turning the subharness off between two runs refuses the second', async () => {
+test('the route is read at each run: turning the subharness off between two runs refuses the second', async () => {
   // Bug: the backend is cached when the runner starts, so "subharness disable" changes nothing until a restart.
+  // Changed: the route lives in `models.agents.via` of config.json, where the old single backend became every agent's
+  // entry, so turning it off clears those entries.
   const { deps, privateDir } = rig({ backend: 'codex' });
   assert.equal((await runAgent(request('scout'), deps)).ok, true);
   const stored = readKeysFile(privateDir);
-  writeKeysFile(privateDir, { ...stored, subharness: { ...stored.subharness, backend: null } });
+  writeKeysFile(privateDir, { ...stored, subharness: { ...stored.subharness, backend: null, uses: {} } });
   assert.equal((await runAgent(request('scout'), deps)).error, 'subharness-off');
 });
 

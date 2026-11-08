@@ -111,4 +111,74 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
     'default': 'openrouter/anthropic/claude-sonnet-5.5',
     'text': 'OpenCode model id of the coding and writing worker',
   },
+  {
+    'key': 'models.agents.via',
+    'types': ['map'],
+    'reader': 'src/subharness/routing.ts',
+    'default': {},
+    'text':
+      'The backend each agent runs through, by agent (`scout`, `server`, `dev`, `watcher`, `thinker`): `claude`, `codex` or `opencode`. An agent with no entry has no route and its runs are refused `subharness-off`. `/model set <agent> <model> --via <route>` writes it',
+  },
+  {
+    'key': 'models.agents.model',
+    'types': ['map'],
+    'reader': 'src/subharness/routing.ts',
+    'default': {},
+    'text': "The model each agent runs on, by agent. An agent with no entry runs on its backend's own default",
+  },
+  {
+    'key': 'models.agents.effort',
+    'types': ['map'],
+    'reader': 'src/subharness/routing.ts',
+    'default': {},
+    'text': "The reasoning effort each agent runs at, by agent. An agent with no entry runs at its model's default",
+  },
+  {
+    'key': 'models.agents.provider',
+    'types': ['map'],
+    'reader': 'src/subharness/routing.ts',
+    'default': {},
+    'text':
+      'The OpenRouter provider each agent on `opencode` is pinned to, by agent, with no fallback. `/model set <agent> <model> --via opencode-harness --provider <slug>` writes it',
+  },
+  {
+    'key': 'models.agents.mode',
+    'types': ['map'],
+    'reader': 'src/subharness/routing.ts',
+    'default': {},
+    'text':
+      'What each agent may do, by agent: `read`, `write`, `full` or `sudo`. An agent with no entry runs in its default mode (see [Errands](errands.md)). `/subharness mode <agent> <mode>` writes it',
+  },
+  {
+    'key': 'models.agents.opencodeKey',
+    'types': ['string', 'null'],
+    'reader': 'src/subharness/routing.ts',
+    'default': null,
+    'text':
+      'The extra key of `keys.json` that `opencode` runs on. Null while `opencode` has no login. `neptunia subharness opencode login --key <name>` sets it',
+  },
+  {
+    'key': 'models.harness.core',
+    'types': ['map', 'null'],
+    'reader': 'src/subharness/routing.ts',
+    'default': null,
+    'text':
+      'Her core\'s subscription route, `{ "backend": "claude" or "codex", "model": id, "effort": level or null }`. Null is the OpenRouter API. `/model set core <model> --via <route>` writes it after one reply, and `/model set core <model>` clears it',
+  },
+  {
+    'key': 'models.harness.memory',
+    'types': ['map', 'null'],
+    'reader': 'src/subharness/routing.ts',
+    'default': null,
+    'text':
+      "The memory writer's path through a subharness, in the shape of `models.harness.core`. Null is the direct path on the memory role's key. `/model set memory <model> --via <route>` writes it after one reply",
+  },
+  {
+    'key': 'models.harness.simulation',
+    'types': ['map', 'null'],
+    'reader': 'src/subharness/routing.ts',
+    'default': null,
+    'text':
+      "The simulation's subscription route for the paid scripts, in the shape of `models.harness.core`. Null is the API on the simulation key. `/model set simulation <model> --via <route>` writes it",
+  },
 ];

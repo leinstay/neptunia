@@ -10,7 +10,8 @@ import { spawn } from 'node:child_process';
 import type { StdioOptions } from 'node:child_process';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
-import { hasExtraKey, readKeys, writeKeys } from '../keys/file.ts';
+import { updateRouting } from './routing.ts';
+import { hasExtraKey, readKeys } from '../keys/file.ts';
 import { BackendLocked, backendBusy, withBackendLock } from './activity.ts';
 import { installSubharness } from './install.ts';
 import type { InstallRun } from './install.ts';
@@ -96,15 +97,14 @@ async function vendorLogin(deps: AccountDeps, backend: 'codex' | 'claude'): Prom
 
 /** opencode's login: the named extra key becomes the one it runs on. */
 function opencodeLogin(deps: AccountDeps, key: string | undefined): AccountAnswer {
-  const store = readKeys(deps.privateDir);
-  if (key === undefined || !hasExtraKey(store, key))
+  if (key === undefined || !hasExtraKey(readKeys(deps.privateDir), key))
     return refused(
       'key-unknown',
       key === undefined
         ? 'opencode logs in by naming an extra key: --key <name>'
         : `${key} is no extra key; an extra key is added with keys extra`
     );
-  writeKeys(deps.privateDir, { ...store, subharness: { ...store.subharness, key } });
+  updateRouting(deps.privateDir, (store) => ({ ...store, subharness: { ...store.subharness, key } }));
   return ok(`opencode runs on the extra key ${key}`);
 }
 
@@ -155,8 +155,7 @@ async function status(deps: AccountDeps, backend: BackendName): Promise<AccountA
 async function logoutLocked(deps: AccountDeps, backend: BackendName): Promise<AccountAnswer> {
   if (backendBusy(deps.privateDir, backend)) return busy(backend);
   if (backend === 'opencode') {
-    const store = readKeys(deps.privateDir);
-    writeKeys(deps.privateDir, { ...store, subharness: { ...store.subharness, key: null } });
+    updateRouting(deps.privateDir, (store) => ({ ...store, subharness: { ...store.subharness, key: null } }));
     return ok('opencode has no key to run on now');
   }
   const exit = await vendorRun(deps, backend, LOGOUT_ARGS[backend], 'ignore', LOGOUT_MS);

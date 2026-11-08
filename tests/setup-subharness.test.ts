@@ -134,11 +134,13 @@ test('choosing none installs nothing and leaves the stored choices as they were'
     extra: { 'oc-key': SECRET },
     subharness: { backends: ['codex'], key: null, modes: {} },
   });
+  // Changed: the old list is written as every agent's `models.agents.via`; the stored choices are those entries.
+  const before = readKeysFile(r.privateDir).subharness.uses;
   r.answers = ['none'];
   const outcome = await subharnessStep({ privateDir: r.privateDir }, r.deps);
   assert.equal(outcome.state, 'skipped');
   assert.deepEqual(r.installs, []);
-  assert.deepEqual(readKeysFile(r.privateDir).subharness.backends, ['codex']);
+  assert.deepEqual(readKeysFile(r.privateDir).subharness.uses, before);
 });
 
 test('a failed install fails the step and connects nothing for that backend', async () => {

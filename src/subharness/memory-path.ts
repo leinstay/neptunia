@@ -1,6 +1,6 @@
 // The path of her memory writer: the direct path, her memory session's request on the `memory` role's key, or one
-// run of `claude` or `codex` through the subharness. The path is the record `subharness.memory` of keys.json
-// (src/keys/file.ts), read again at every call, so a change from the chat acts on the next sweep. `model set memory
+// run of `claude` or `codex` through the subharness. The path is the record `models.harness.memory` of config.json
+// (src/subharness/routing.ts), read again at every call, so a change from the chat acts on the next sweep. `model set memory
 // --via <route> <model> [--effort <level>]` writes the record after one reply on that model and effort, and `model
 // set memory <model>` removes it after the direct model passed its check (src/keys/commands.ts, `directPath`).
 // opencode cannot carry the writer, because `opencode run` takes no system prompt of its own.
@@ -8,8 +8,8 @@
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import { EFFORT_LEVELS, isEffortLevel, isListedEffort } from '../llm/roles.ts';
 import type { EffortLevel } from '../llm/roles.ts';
-import { MEMORY_BACKENDS, readKeys, writeKeys } from '../keys/file.ts';
-import type { MemoryBackend, MemoryPathRecord } from '../keys/file.ts';
+import { MEMORY_BACKENDS, readRouting, updateRouting } from './routing.ts';
+import type { MemoryBackend, MemoryPathRecord } from './routing.ts';
 import { routeName, routeNamesText } from './route-names.ts';
 import { MEMORY_CLAIM, checkedSelection, dropClaim, listsEffort } from './selection.ts';
 import type { EnableDeps, SubharnessResult } from './control.ts';
@@ -23,9 +23,9 @@ export type SubharnessMemoryPath = Extract<MemoryPath, { kind: 'subharness' }>;
 const done = (message: string, changed = true): SubharnessResult => ({ ok: true, code: 'ok', changed, message });
 const refused = (code: string, message: string): SubharnessResult => ({ ok: false, code, changed: false, message });
 
-/** The path in keys.json now, read at every call: the stored record, else direct. */
+/** The path in config.json now, read at every call: the stored record, else direct. */
 export function memoryPath(privateDir: string): MemoryPath {
-  const record = readKeys(privateDir).subharness.memory;
+  const record = readRouting(privateDir).subharness.memory;
   return record === null ? { kind: 'direct' } : { kind: 'subharness', ...record };
 }
 
@@ -37,7 +37,7 @@ export function memoryCheckPath(
   return path.kind === 'direct' ? path : { kind: 'subharness', backend: routeName(path.backend), model: path.model };
 }
 
-/** The keys.json records of a path through a subharness: the memory writer's, the core's and the simulation's. */
+/** The config.json records of a path through a subharness: the memory writer's, the core's and the simulation's. */
 export type PathSlot = 'memory' | 'core' | 'simulation';
 
 /**
@@ -72,11 +72,10 @@ export async function setPathRecord(
   return checkedSelection(
     deps,
     { claim: slot, backend: name, keyValue: '', model, ...(level === undefined ? {} : { effort: level }) },
-    () => JSON.stringify(readKeys(deps.privateDir).subharness[slot]),
+    () => JSON.stringify(readRouting(deps.privateDir).subharness[slot]),
     () => {
-      const fresh = readKeys(deps.privateDir);
       const record: MemoryPathRecord = { backend: name, model, effort: level ?? null };
-      writeKeys(deps.privateDir, { ...fresh, subharness: { ...fresh.subharness, [slot]: record } });
+      updateRouting(deps.privateDir, (fresh) => ({ ...fresh, subharness: { ...fresh.subharness, [slot]: record } }));
       return done(words.said(record));
     }
   );
@@ -107,9 +106,9 @@ export function setMemoryPath(
  */
 export function clearMemoryPath(privateDir: string): SubharnessResult {
   dropClaim(privateDir, MEMORY_CLAIM);
-  const store = readKeys(privateDir);
-  if (store.subharness.memory === null) return done('her memory writer is on direct-api already', false);
-  writeKeys(privateDir, { ...store, subharness: { ...store.subharness, memory: null } });
+  if (readRouting(privateDir).subharness.memory === null)
+    return done('her memory writer is on direct-api already', false);
+  updateRouting(privateDir, (store) => ({ ...store, subharness: { ...store.subharness, memory: null } }));
   return done('her memory writer is back on direct-api');
 }
 

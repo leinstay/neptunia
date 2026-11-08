@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { setAgentModel } from '../src/subharness/control.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
-import { readKeys } from '../src/keys/file.ts';
+import { readRouting } from '../src/subharness/routing.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
 import { runAgent } from '../src/subharness/run.ts';
 import type { AgentRun, RunDeps } from '../src/subharness/run.ts';
@@ -64,7 +64,7 @@ test('a typed opencode model with no provider prefix is stored with openrouter/'
   const dir = installed();
   const result = await setAgentModel(selectionDeps(dir), 'scout', 'google/gemini-4-argon', undefined, 'opencode');
   assert.equal(result.ok, true, result.message);
-  assert.equal(readKeys(dir).subharness.models.scout, 'openrouter/google/gemini-4-argon');
+  assert.equal(readRouting(dir).subharness.models.scout, 'openrouter/google/gemini-4-argon');
 });
 
 test('a typed opencode model that already names openrouter is stored as typed', async () => {
@@ -78,7 +78,7 @@ test('a typed opencode model that already names openrouter is stored as typed', 
     'opencode'
   );
   assert.equal(result.ok, true, result.message);
-  assert.equal(readKeys(dir).subharness.models.scout, 'openrouter/google/gemini-4-argon');
+  assert.equal(readRouting(dir).subharness.models.scout, 'openrouter/google/gemini-4-argon');
 });
 
 test('a bare opencode model stored in keys.json runs with openrouter/', async () => {

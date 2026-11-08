@@ -9,7 +9,7 @@
 
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
-import { readKeys, SUBHARNESS_AGENTS } from '../keys/file.ts';
+import { opencodeKey, readRouting, SUBHARNESS_AGENTS } from './routing.ts';
 import { roleModelListing } from '../keys/models.ts';
 import { BASE_ROLES, DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../llm/roles.ts';
 import { FIXED_MODELS } from './models.ts';
@@ -134,10 +134,9 @@ async function effortOf(deps: CapabilityDeps, backend: BackendName): Promise<Sou
 
 /** opencode's source when it can run: OpenRouter's listing on the extra key it logged in with. */
 async function opencodeReady(deps: CapabilityDeps, role: string): Promise<SourceDescriptor> {
-  const store = readKeys(deps.privateDir);
-  const { key } = store.subharness;
+  const { key } = readRouting(deps.privateDir).subharness;
   const reading = await roleModelListing(
-    { fetch: deps.fetch, baseUrl: deps.baseUrl, value: key === null ? '' : (store.extra[key] ?? '') },
+    { fetch: deps.fetch, baseUrl: deps.baseUrl, value: opencodeKey(deps.privateDir)?.value ?? '' },
     isAgent(role) ? LISTING_ROLE_OF_AGENT : role
   );
   const shape = { ...backendShape('opencode'), account: key, setup: [], effort: await effortOf(deps, 'opencode') };
@@ -220,7 +219,7 @@ async function apiSource(deps: CapabilityDeps, role: string): Promise<SourceDesc
 }
 
 function currentOf(privateDir: string, role: string): RoleSources['current'] {
-  const stored = readKeys(privateDir).subharness;
+  const stored = readRouting(privateDir).subharness;
   if (role === MEMORY_ROLE) {
     const { memory } = stored;
     return memory === null ? null : { via: memory.backend, model: memory.model, effort: memory.effort };

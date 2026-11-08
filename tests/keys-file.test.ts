@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { readRouting } from '../src/subharness/routing.ts';
 import { emptyKeys, hasExtraKey, readKeys, writeKeys } from '../src/keys/file.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
@@ -34,62 +35,35 @@ test('a write is mode 600 and keeps a section it does not know', () => {
   assert.equal(hasExtraKey(again, 'constructor'), false);
 });
 
-test('a backend that is none of the three reads as off', () => {
-  // Bug: a hand-edited backend name is passed on to a spawn.
-  const dir = tempDir('nep-keysfile-');
-  fs.writeFileSync(
-    path.join(dir, 'keys.json'),
-    JSON.stringify({ subharness: { backend: 'rm', key: null, modes: {} } })
-  );
-  // Changed: the store holds what each agent uses, and off is no entry.
-  assert.deepEqual(readKeys(dir).subharness.uses, {});
-});
+// Changed: the agents' backends live in config.json (src/subharness/routing.ts), so these read the routing there. The old
+// `subharness.backends` list and single `subharness.backend` are no longer read at all: the deploy's one-off moved
+// them into `models.agents.via` before the engine reads the new shape.
 
-// A stored `subharness.backends`, and the old single `subharness.backend` before it, migrate at read time into the
-// `uses` entry of every agent that named no backend. The first valid name is what those agents ran through.
-
-const writeRaw = (subharness: Record<string, unknown>): string => {
+const writeRouting = (agents: Record<string, unknown>): string => {
   const dir = tempDir('nep-keysfile-');
-  fs.writeFileSync(path.join(dir, 'keys.json'), JSON.stringify({ subharness }));
+  fs.mkdirSync(path.join(dir, 'config'));
+  fs.writeFileSync(path.join(dir, 'config', 'config.json'), JSON.stringify({ models: { agents } }));
   return dir;
 };
 
-test('a stored list becomes the uses of the agents, its first valid name, an unknown name dropped', () => {
-  // Catches: the list is sorted badly, so an agent moves off the backend it ran through, or a hand-edited name reaches a
-  // spawn.
-  // Changed: the list is read into `uses`, not kept.
-  const dir = writeRaw({ backends: ['rm', 'claude', 'codex', 'claude'], key: null, modes: {} });
-  assert.equal(readKeys(dir).subharness.uses.dev, 'claude');
-});
-
-test('the single backend of a store written before the list migrates the same way', () => {
-  // Catches: a deployment that enabled codex before this change reads as off after the upgrade and every errand fails.
-  // Changed: the list is read into `uses`, not kept.
-  const dir = writeRaw({ backend: 'codex', key: null, modes: {} });
-  assert.equal(readKeys(dir).subharness.uses.dev, 'codex');
-});
-
-test('an old single backend that is null or no backend assigns nothing', () => {
-  // Catches: `[null]` or `['rm']` is read as a backend and an agent run spawns it.
-  // Changed: the list is read into `uses`, not kept.
-  assert.deepEqual(readKeys(writeRaw({ backend: null, key: null, modes: {} })).subharness.uses, {});
-  assert.deepEqual(readKeys(writeRaw({ backend: 'rm', key: null, modes: {} })).subharness.uses, {});
+test('a backend that is none of the three reads as off', () => {
+  // Bug: a hand-edited backend name is passed on to a spawn.
+  assert.deepEqual(readRouting(writeRouting({ via: { dev: 'rm' } })).subharness.uses, {});
 });
 
 test('the backend each agent runs through keeps only backend names', () => {
-  // Catches: a hand-edited `uses` entry such as "sh" is passed to the run as a backend.
-  // Changed: no list in the seed, which would assign the other agents.
-  const dir = writeRaw({ uses: { watcher: 'claude', scout: 'sh' }, key: null, modes: {} });
-  assert.deepEqual(readKeys(dir).subharness.uses, { watcher: 'claude' });
+  // Catches: a hand-edited `via` entry such as "sh" is passed to the run as a backend.
+  const dir = writeRouting({ via: { watcher: 'claude', scout: 'sh' } });
+  assert.deepEqual(readRouting(dir).subharness.uses, { watcher: 'claude' });
 });
 
-test('a write of the store leaves neither the single backend nor the list', () => {
-  // Catches: the old `backend` survives a write and a reader of the old shape keeps a backend the owner disabled.
-  // Changed: the list is gone from the store too, its choice kept in `uses`.
-  const dir = writeRaw({ backend: 'codex', key: null, modes: {} });
+test('a write of the store leaves no routing section in keys.json', () => {
+  // Catches: the old `subharness` survives a write, so keys.json keeps routing the engine no longer reads.
+  // Changed: the routing sections leave keys.json whole, the old `backend` with them.
+  const dir = tempDir('nep-keysfile-');
+  fs.writeFileSync(path.join(dir, 'keys.json'), JSON.stringify({ subharness: { backend: 'codex' }, roles: {} }));
   writeKeys(dir, readKeys(dir));
-  const raw = JSON.parse(fs.readFileSync(path.join(dir, 'keys.json'), 'utf8')) as { subharness: object };
-  assert.equal(Object.hasOwn(raw.subharness, 'backend'), false);
-  assert.equal(Object.hasOwn(raw.subharness, 'backends'), false);
-  assert.equal(readKeys(dir).subharness.uses.dev, 'codex');
+  const raw = JSON.parse(fs.readFileSync(path.join(dir, 'keys.json'), 'utf8')) as object;
+  assert.equal(Object.hasOwn(raw, 'subharness'), false);
+  assert.equal(Object.hasOwn(raw, 'roles'), false);
 });

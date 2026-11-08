@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { readKeys } from '../src/keys/file.ts';
+import { readRouting } from '../src/subharness/routing.ts';
 import { setAgentModel } from '../src/subharness/control.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
 import { FIXED_MODELS } from '../src/subharness/models.ts';
@@ -212,7 +212,7 @@ test('the status names the backend a stored list migrated to, for an agent that 
   // Catches: an agent without a uses entry shown as "none" while it ran through backends[0] before the list went.
   // Changed: the list is no longer read at run time, it becomes each agent's `uses` entry.
   const { dir, deps } = rig({ backends: ['codex', 'claude'] });
-  assert.equal(readKeys(dir).subharness.uses.scout, 'codex');
+  assert.equal(readRouting(dir).subharness.uses.scout, 'codex');
   const status = await subharnessCommand(deps, 'subharness.status', {});
   assert.ok(lineOf(status.text, 'scout').includes('codex'));
 });

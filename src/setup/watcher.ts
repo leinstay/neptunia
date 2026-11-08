@@ -1,12 +1,12 @@
 // The watcher step of `neptunia setup` (src/setup/run.ts, docs/setup.md): whether the deployment's watcher runs, the
 // schedule of its runs (`watcher.schedule`, UTC), the subharness backend it runs through and its model. The watcher
 // is not one of the persona's mechanics, so it has a step of its own after hers (src/setup/mechanics.ts). The switch
-// and the schedule go into `<private>/config.local/config.json`, the backend and the model into keys.json
-// (`subharness.uses.watcher`, `subharness.models.watcher`). On with no source that is installed and logged in, or with
+// and the schedule go into `<private>/config/config.json`, the backend and the model beside them
+// (`models.agents.via.watcher`, `models.agents.model.watcher`, src/subharness/routing.ts). On with no source that is installed and logged in, or with
 // a backend that is not one, is `refused` and stored off. Nothing is written when no answer changes a value.
 
 import { readConfig } from '../config.ts';
-import { readKeys, writeKeys } from '../keys/file.ts';
+import { readRouting, updateRouting } from '../subharness/routing.ts';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { availableSources } from '../subharness/sources.ts';
@@ -28,19 +28,22 @@ function storeSettings(privateDir: string, enabled: boolean, schedule: ServiceSc
   );
 }
 
-/** Writes the watcher's backend and model into keys.json when either differs; true when it wrote. */
+/** Writes the watcher's backend and model into config.json when either differs; true when it wrote. */
 function storeBackend(privateDir: string, backend: BackendName, model: string | null): boolean {
-  const keys = readKeys(privateDir);
-  const { uses, models } = keys.subharness;
+  const { uses, models } = readRouting(privateDir).subharness;
   if (uses.watcher === backend && (models.watcher ?? null) === model) return false;
-  const restModels = Object.fromEntries(Object.entries(models).filter(([agent]) => agent !== 'watcher'));
-  writeKeys(privateDir, {
-    ...keys,
-    subharness: {
-      ...keys.subharness,
-      uses: { ...uses, watcher: backend },
-      models: model === null ? restModels : { ...restModels, watcher: model },
-    },
+  updateRouting(privateDir, (routing) => {
+    const restModels = Object.fromEntries(
+      Object.entries(routing.subharness.models).filter(([agent]) => agent !== 'watcher')
+    );
+    return {
+      ...routing,
+      subharness: {
+        ...routing.subharness,
+        uses: { ...routing.subharness.uses, watcher: backend },
+        models: model === null ? restModels : { ...restModels, watcher: model },
+      },
+    };
   });
   return true;
 }
@@ -65,7 +68,7 @@ export async function watcherStep(
     "The schedule of the watcher's runs, UTC (at 00:00,12:00 or every 6h):",
     settings.schedule
   );
-  const { uses, models } = readKeys(options.privateDir).subharness;
+  const { uses, models } = readRouting(options.privateDir).subharness;
   const backends = await availableSources(options.privateDir);
   const offeredBackend = uses.watcher ?? backends[0] ?? null;
   const backendAnswer = (await deps.ask('The subharness backend the watcher runs through:', offeredBackend)).trim();

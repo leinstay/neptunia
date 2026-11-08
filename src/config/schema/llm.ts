@@ -103,6 +103,22 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
       'Read only while the private layer has no `keys.json`; with one, each core key carries its own grant (see [Keys](keys.md)). The grant of each key, by the NAME of its `.env` variable: `{ "grant": USD, "resetDay": 1 to 31 }`. The balance of a key is its grant minus the cost of the requests that went out on it since the last reset (00:00 UTC on `resetDay`, the last day of a shorter month), summed from `data/usage.json`; no call to the provider. The balances of the core keys set the turns line of her wake view. A key without an entry counts 0 and is named on the status card as unconfigured',
   },
   {
+    'key': 'llm.boundKeys',
+    'types': ['map'],
+    'reader': 'src/subharness/routing.ts',
+    'default': {},
+    'text':
+      'The extra key of `keys.json` each role goes out on, by role: a base model role or `search`. A role with no entry goes out on the core keys. `/keys bind <role> <name>` writes an entry and `/keys unbind <role>` removes it',
+  },
+  {
+    'key': 'llm.simulationKey',
+    'types': ['string', 'null'],
+    'reader': 'src/subharness/routing.ts',
+    'default': null,
+    'text':
+      'The extra key of `keys.json` the paid scripts spend. Null is the simulation off, and the scripts refuse to run. `simulation enable --key <name>` sets it and `simulation disable` clears it',
+  },
+  {
     'key': 'llm.cache.ttl',
     'types': ['string'],
     'reader': 'src/llm/openrouter.ts',

@@ -996,7 +996,11 @@ test('legacy model and service credentials reach private JSON with roles and gra
     JSON.parse(fs.readFileSync(path.join(options.dataDir, 'interfaces/discord/credentials.json'), 'utf8')),
     { token: env.DISCORD_TOKEN }
   );
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(options.dataDir, 'config/config.json'), 'utf8')), config);
+  // Changed: the role the import binds to a key is routing, which lives in `llm.boundKeys` of config.json.
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(options.dataDir, 'config/config.json'), 'utf8')), {
+    ...config,
+    llm: { ...config.llm, boundKeys: { memory: 'memory' } },
+  });
   for (const target of ['keys.json', 'interfaces/discord/credentials.json'])
     assert.equal(fs.statSync(path.join(options.dataDir, target)).mode & 0o077, 0);
   assert.equal(JSON.stringify(plan.held).includes('UNCLASSIFIED_TOKEN'), true);

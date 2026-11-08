@@ -11,6 +11,7 @@ import { deepMerge, parseEnv } from '../config.ts';
 import { CUT_KEYS, cutConfigKeys } from '../config/cut.ts';
 import { importKeys } from '../keys/import.ts';
 import { createKeyStore } from '../keys/store.ts';
+import { readRouting } from '../subharness/routing.ts';
 
 export type PersonaLayerOptions = { rootDir: string; privateDir: string; dataDir: string };
 export type PersonaLayerStep = { source: string; target: string; kind: 'copy' | 'split-labels' };
@@ -198,16 +199,34 @@ function withoutInterfaceSettings(value: Record<string, unknown>): Record<string
   return result;
 }
 
-/** Reuse the credential importer's role and grant rules without touching either migration root. */
-function modelCredentials(env: Record<string, string>, config: Record<string, unknown>): Record<string, unknown> {
+/**
+ * Reuse the credential importer's role and grant rules without touching either migration root: the keys for keys.json,
+ * and the roles bound to a key, which belong in `llm.boundKeys` of config.json.
+ */
+function modelCredentials(
+  env: Record<string, string>,
+  config: Record<string, unknown>
+): { keys: Record<string, unknown>; boundKeys: Record<string, string> } {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'persona-key-import-'));
   try {
     importKeys({ env, config, store: createKeyStore({ privateDir: temporary }) });
     const file = path.join(temporary, 'keys.json');
-    return fs.existsSync(file) ? parse(fs.readFileSync(file), '.env', false) : {};
+    return {
+      keys: fs.existsSync(file) ? parse(fs.readFileSync(file), '.env', false) : {},
+      boundKeys: readRouting(temporary).roles,
+    };
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
+}
+
+/** The local settings with the imported bindings under `llm.boundKeys`, a binding set there already kept; null with none. */
+function withBoundKeys(local: unknown, boundKeys: Record<string, string>): Record<string, unknown> | null {
+  if (Object.keys(boundKeys).length === 0) return null;
+  const settings = isObject(local) ? local : {};
+  const llm = isObject(settings.llm) ? settings.llm : {};
+  const kept = isObject(llm.boundKeys) ? llm.boundKeys : {};
+  return { ...settings, llm: { ...llm, boundKeys: { ...boundKeys, ...kept } } };
 }
 
 const SERVICES: ReadonlyArray<[string, string]> = [
@@ -307,8 +326,20 @@ function inspection(options: PersonaLayerOptions): { plan: PersonaLayerPlan; mat
       inspect(options.rootDir, basePath) === null ? {} : parse(read(options.rootDir, basePath), basePath, true);
     const local = candidates.get(basePath)?.value;
     const config = merged(base, isObject(local) ? local : {});
-    let keys = existing ? parse(existing.bytes, 'keys.json', false) : modelCredentials(env, config);
+    const imported = existing ? null : modelCredentials(env, config);
+    let keys = existing ? parse(existing.bytes, 'keys.json', false) : (imported?.keys ?? {});
     let changed = !existing && Object.keys(keys).length > 0;
+    const settings = withBoundKeys(local, imported?.boundKeys ?? {});
+    if (settings !== null)
+      propose(
+        candidates.get(basePath)?.step.source ?? '.env',
+        basePath,
+        jsonBytes(settings),
+        'settings',
+        0o600,
+        'copy',
+        true
+      );
     for (const [variable, name] of SERVICES) {
       if (!env[variable]) continue;
       const services = isObject(keys.services) ? keys.services : {};

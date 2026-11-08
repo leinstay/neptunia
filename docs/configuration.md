@@ -63,6 +63,29 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `models.development.thinker` | string | `"openrouter/anthropic/claude-opus-5.5"` | OpenCode model id of the orchestrator | `src/tools/operations/status.ts` |
 | `models.development.dev` | string | `"openrouter/anthropic/claude-sonnet-5.5"` | OpenCode model id of the coding and writing worker | `src/llm/roles.ts` |
 
+## models.agents
+
+Which backend, model, effort, provider and mode each agent runs on, and the extra key `opencode` runs on. `src/subharness/routing.ts` reads them at each run, and `/model set` and `/subharness mode` write them. See [Keys and models](keys.md#model-sources).
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `models.agents.via` | map | `{}` | The backend each agent runs through, by agent (`scout`, `server`, `dev`, `watcher`, `thinker`): `claude`, `codex` or `opencode`. An agent with no entry has no route and its runs are refused `subharness-off`. `/model set <agent> <model> --via <route>` writes it | `src/subharness/routing.ts` |
+| `models.agents.model` | map | `{}` | The model each agent runs on, by agent. An agent with no entry runs on its backend's own default | `src/subharness/routing.ts` |
+| `models.agents.effort` | map | `{}` | The reasoning effort each agent runs at, by agent. An agent with no entry runs at its model's default | `src/subharness/routing.ts` |
+| `models.agents.provider` | map | `{}` | The OpenRouter provider each agent on `opencode` is pinned to, by agent, with no fallback. `/model set <agent> <model> --via opencode-harness --provider <slug>` writes it | `src/subharness/routing.ts` |
+| `models.agents.mode` | map | `{}` | What each agent may do, by agent: `read`, `write`, `full` or `sudo`. An agent with no entry runs in its default mode (see [Errands](errands.md)). `/subharness mode <agent> <mode>` writes it | `src/subharness/routing.ts` |
+| `models.agents.opencodeKey` | string, null | `null` | The extra key of `keys.json` that `opencode` runs on. Null while `opencode` has no login. `neptunia subharness opencode login --key <name>` sets it | `src/subharness/routing.ts` |
+
+## models.harness
+
+The paths of her core, her memory writer and the simulation through a subharness. `src/subharness/routing.ts` reads them at each request, and `/model set <role> <model> --via <route>` writes them after one reply. See [Keys and models](keys.md#her-core-on-a-subscription).
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `models.harness.core` | map, null | `null` | Her core's subscription route, `{ "backend": "claude" or "codex", "model": id, "effort": level or null }`. Null is the OpenRouter API. `/model set core <model> --via <route>` writes it after one reply, and `/model set core <model>` clears it | `src/subharness/routing.ts` |
+| `models.harness.memory` | map, null | `null` | The memory writer's path through a subharness, in the shape of `models.harness.core`. Null is the direct path on the memory role's key. `/model set memory <model> --via <route>` writes it after one reply | `src/subharness/routing.ts` |
+| `models.harness.simulation` | map, null | `null` | The simulation's subscription route for the paid scripts, in the shape of `models.harness.core`. Null is the API on the simulation key. `/model set simulation <model> --via <route>` writes it | `src/subharness/routing.ts` |
+
 ## llm
 
 | Key | Type | Default | What it does | Read by |
@@ -80,6 +103,8 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `llm.reasoningByRole` | map | `{}` | The reasoning effort of a role by role name, `{ "effort": "low" }`, `medium` or `high`, sent as `reasoning` on each request of the role that has no reasoning of its own. Read for `memory`, `analyzer`, `vision` and `video`, never for the core. `/model set <role> <model> --effort <level>` writes it | `src/llm/roles.ts` |
 | `llm.keyByRole` | map | `{ "thinker": "OPENROUTER_DEV_KEY", "dev": "OPENROUTER_DEV_KEY", "memory": "OPENROUTER_MEMORY_KEY" }` | Read only while the private layer has no `keys.json`; with one, the key store decides (see [Keys](keys.md)). Maps a role name to the NAME of a `.env` variable holding an OpenRouter key, or to a list of names. The first name of a list is the primary key. When a request gets HTTP 402, or 429 with a body naming credits or balance, the role moves to the next name and the request is repeated once on it; after the last name it goes back to the first. When every key failed within a minute the request fails with `keys-exhausted` and the role counts as down until 00:00 UTC. Read at every request. A role not in the map falls back to `OPENROUTER_CORE_KEY`, except that `scout`, `server` and `drawing` have no entry and get a key from a `keys.json` binding only, never the main key; the `core` role then uses `OPENROUTER_CORE_BACKUP_KEY` as its second key when that variable is set. A name that is not an `OPENROUTER_` variable or is unset is left out. The `memory` role is the exception: with `OPENROUTER_MEMORY_KEY` unset, the session is not configured and no request goes out on any other key | `src/core.ts` |
 | `llm.keys` | map | `{}` | Read only while the private layer has no `keys.json`; with one, each core key carries its own grant (see [Keys](keys.md)). The grant of each key, by the NAME of its `.env` variable: `{ "grant": USD, "resetDay": 1 to 31 }`. The balance of a key is its grant minus the cost of the requests that went out on it since the last reset (00:00 UTC on `resetDay`, the last day of a shorter month), summed from `data/usage.json`; no call to the provider. The balances of the core keys set the turns line of her wake view. A key without an entry counts 0 and is named on the status card as unconfigured | `src/core.ts` |
+| `llm.boundKeys` | map | `{}` | The extra key of `keys.json` each role goes out on, by role: a base model role or `search`. A role with no entry goes out on the core keys. `/keys bind <role> <name>` writes an entry and `/keys unbind <role>` removes it | `src/subharness/routing.ts` |
+| `llm.simulationKey` | string, null | `null` | The extra key of `keys.json` the paid scripts spend. Null is the simulation off, and the scripts refuse to run. `simulation enable --key <name>` sets it and `simulation disable` clears it | `src/subharness/routing.ts` |
 | `llm.cache.ttl` | string | `"1h"` | Cache TTL for the markers on the system message and the stable user prefix: `"1h"` or `"5m"` | `src/llm/openrouter.ts` |
 | `llm.cache.roles` | array | `["core"]` | Model roles whose requests get the cache marker. Add `analyzer` to cache its requests too | `src/llm/openrouter.ts` |
 | `llm.cache.models` | array | `["anthropic/"]` | Model id prefixes whose provider accepts the `cache_control` marker | `src/llm/openrouter.ts` |

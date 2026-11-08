@@ -1,5 +1,6 @@
 // The owner's key commands of the chat: `keys core|extra add|remove|list`, `keys core grant`, `keys bind|unbind|check`
-// and `model set`.
+// and `model set`. A binding is a choice of connection: it is written to `llm.boundKeys` of config.json through the key
+// store, after one request of the role's model on the bound key.
 // The console (src/interface/commands/console.ts) routes them here. A key value is never an argument: every add asks
 // for it through the dialog the link gives (a secret prompt, src/interface/commands/dialogs.ts), so the value reaches
 // neither the typed line, the chat's history file nor a refusal. A key is checked before it is saved (the first core
@@ -276,6 +277,42 @@ async function saveFlags(deps: KeysDeps, flags: ModelFlags & { model: string }):
   return lines;
 }
 
+/**
+ * `keys bind <role> <name>`: the choice of the key a role goes out on, written to config.json after one request of
+ * the role's model on that key. A refusal binds nothing. A role that is off binds with nothing sent, and a role no
+ * cheap request can check binds unverified.
+ */
+async function bindRole(deps: KeysDeps, name: string, args: Record<string, unknown>): Promise<Answer> {
+  const { store } = deps;
+  const role = text(args.role);
+  const key = text(args.name);
+  if (roleGroup(role) !== 'base' && role !== SEARCH_ROLE) throw new KeysError('unknown-role');
+  if (!store.list().extra.some((row) => row.name === key)) throw new KeysError('unknown-key');
+  const bound = `The ${role} role goes out on key ${key} alone.`;
+  const model = deps.currentModel(role);
+  if (model === '' || voiceOf(deps, role).voice === '') {
+    store.bind(role, key);
+    return { text: `${bound} The role is off, so nothing was checked.`, status: 'ok' };
+  }
+  const result = await checkRole({
+    fetch: deps.fetch,
+    baseUrl: deps.baseUrl(),
+    role,
+    model,
+    keyName: key,
+    value: store.valueOf(key) ?? '',
+    ...voiceOf(deps, role),
+  });
+  if (result.capability === 'unsupported') {
+    store.bind(role, key);
+    return { text: `${bound} ${unsupportedLine(role)} The binding is saved unverified.`, status: 'ok' };
+  }
+  if (!result.ok) return failed(name, `${checkLine(result)}\nThe role is not bound.`);
+  store.bind(role, key);
+  deps.recordCheck?.(role, checkRecord(result));
+  return { text: [checkLine(result), bound].join('\n'), status: 'ok' };
+}
+
 export function createKeysCommands(deps: KeysDeps): {
   run(name: string, args: Record<string, unknown>, dialog: Dialog | null): Promise<Answer>;
 } {
@@ -539,11 +576,7 @@ export function createKeysCommands(deps: KeysDeps): {
       case 'keys.extra.list':
         return listExtra();
       case 'keys.bind':
-        store.bind(text(args.role), text(args.name));
-        return {
-          text: `The ${text(args.role)} role goes out on key ${text(args.name)} alone. Prove it with /keys check ${text(args.role)}.`,
-          status: 'ok',
-        };
+        return bindRole(deps, name, args);
       case 'keys.unbind':
         store.unbind(text(args.role));
         return { text: `The ${text(args.role)} role is back on the core keys.`, status: 'ok' };

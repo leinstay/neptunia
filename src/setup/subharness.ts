@@ -8,7 +8,7 @@
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import type { StdioOptions } from 'node:child_process';
-import { readKeys } from '../keys/file.ts';
+import { readRouting } from '../subharness/routing.ts';
 import { accountCommand } from '../subharness/account.ts';
 import { installSubharness } from '../subharness/install.ts';
 import type { InstallRun } from '../subharness/install.ts';
@@ -62,7 +62,7 @@ async function setUpOne(privateDir: string, name: BackendName, deps: SubharnessS
   );
   if (installed.state === 'failed') return { name, state: 'failed', detail: `${name}: ${installed.detail}` };
   if (name === 'opencode') {
-    const stored = readKeys(privateDir).subharness.key;
+    const stored = readRouting(privateDir).subharness.key;
     const answer = (await deps.ask('The name of the extra key opencode runs on:', stored)).trim();
     const given = await accountCommand(
       { privateDir, hostEnv: deps.hostEnv, install: deps.install, ask: null },

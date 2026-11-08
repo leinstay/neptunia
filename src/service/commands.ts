@@ -7,7 +7,7 @@
 // manager. A status asks no model and writes nothing. An answer is `key: value` lines; `invalid` is missing syntax.
 
 import type { BackendName } from '../agent-runner/profiles.ts';
-import { readKeys } from '../keys/file.ts';
+import { readRouting } from '../subharness/routing.ts';
 import { backendOfAgent } from '../subharness/control.ts';
 import { sourceProblem, sourceState } from '../subharness/sources.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
@@ -179,11 +179,11 @@ const SOURCE_ROLES: Readonly<Record<ServiceName, ReadonlyArray<string>>> = {
   watcher: ['watcher'],
 };
 
-/** Why `role` cannot run now, null when its source can. An unreadable keys file names no source. */
+/** Why `role` cannot run now, null when its source can. An unreadable config.json names no source. */
 async function sourceMissing(privateDir: string, role: string): Promise<string | null> {
   let backend: BackendName | null = null;
   try {
-    backend = backendOfAgent(readKeys(privateDir).subharness, role);
+    backend = backendOfAgent(readRouting(privateDir).subharness, role);
   } catch {
     // no source
   }

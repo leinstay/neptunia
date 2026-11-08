@@ -33,7 +33,8 @@ import { log as defaultLog } from '../log.ts';
 import { loadProfiles, agentSettings, profileOf } from '../agent-runner/profiles.ts';
 import type { AgentPaths } from '../agent-runner/profiles.ts';
 import { roleApiKey } from '../llm/openrouter.ts';
-import { hasExtraKey, readKeys, serviceCredential } from '../keys/file.ts';
+import { serviceCredential } from '../keys/file.ts';
+import { opencodeKey } from '../subharness/routing.ts';
 import { routeOfAgent } from '../subharness/control.ts';
 import { MAX_RECENT_ENTRIES, RECENT_CHARS } from '../agent-runner/protocol.ts';
 import { httpProxyForm } from '../net/proxy.ts';
@@ -139,10 +140,10 @@ function exaKeyOf(
 type Dispatch = { route: TaskRoute | null; key: string | null; error?: string };
 
 /**
- * The route and the key of `agent`'s errand, read from keys.json now, since the runner's unit may hide that file.
- * The key is `subharness.key`'s extra key on an opencode route only: claude and codex agents search with their
+ * The route and the key of `agent`'s errand, read from config.json and keys.json now, since the runner's unit may hide
+ * those files. The key is the extra key `models.agents.opencodeKey` names, on an opencode route only: claude and codex agents search with their
  * harness's own tools and carry none. `route: null` while the agent has no
- * source (the runner then refuses with `subharness-off`), and an `error` code when keys.json cannot be read or an
+ * source (the runner then refuses with `subharness-off`), and an `error` code when either file cannot be read or an
  * opencode route has no key to spend.
  */
 function dispatchOf(privateDir: string | undefined, agent: string, log: Logger): Dispatch {
@@ -152,12 +153,10 @@ function dispatchOf(privateDir: string | undefined, agent: string, log: Logger):
   try {
     route = routeOfAgent(privateDir, agent);
     if (route?.backend === 'opencode') {
-      const store = readKeys(privateDir);
-      const name = store.subharness.key;
-      key = name !== null && hasExtraKey(store, name) ? (store.extra[name] ?? null) : null;
+      key = opencodeKey(privateDir)?.value ?? null;
     }
   } catch (err) {
-    log.warn('errands: keys.json unreadable, the errand is not sent', { agent, error: err });
+    log.warn('errands: config.json or keys.json unreadable, the errand is not sent', { agent, error: err });
     return { route: null, key: null, error: 'keys-unreadable' };
   }
   if (route?.backend === 'opencode' && !key) return { route, key: null, error: 'route-no-key' };

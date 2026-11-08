@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import { readConfig } from '../config.ts';
-import { readKeys } from '../keys/file.ts';
+import { readRouting } from '../subharness/routing.ts';
 import { modeOf } from '../subharness/control.ts';
 import type { ServiceSchedule } from '../service/schedule.ts';
 import { isInstalled } from '../subharness/place.ts';
@@ -77,14 +77,14 @@ function secretsOf(privateDir: string): { clients: Array<string>; interfaces: Ar
 }
 
 /**
- * The text of one unit as the scope, the owner's modes, the backends a role names in keys.json or installed in the private layer and the hour of the
+ * The text of one unit as the scope, the owner's modes, the backends a role names in config.json or installed in the private layer and the hour of the
  * watcher's run (`watcher.schedule` of the settings) want it.
  */
 export function unitText(target: UnitTarget, template: string, file: string): string {
   const agent = UNIT_AGENTS[file];
-  const { subharness } = readKeys(target.dataDir);
+  const { subharness } = readRouting(target.dataDir);
   // Named or installed: a restored persona's role finds its folder bound before the install, and a role moved to an
-  // installed backend finds it bound before keys.json says so.
+  // installed backend finds it bound before config.json says so.
   const named = new Set<string>([...Object.values(subharness.uses), subharness.memory?.backend ?? '']);
   const backends = BACKEND_NAMES.filter((name) => named.has(name) || isInstalled(target.dataDir, name));
   const vars: UnitVars = {

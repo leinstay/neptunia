@@ -1,14 +1,14 @@
 // The subscription route of her core and of the simulation: the API, or one run of `claude` or `codex` per turn
-// (src/subharness/subscription-client.ts). Each route is a record of keys.json beside the memory writer's,
-// `subharness.core` and `subharness.simulation`, read again at every request, so a change from the chat acts on the
+// (src/subharness/subscription-client.ts). Each route is a record of config.json beside the memory writer's,
+// `models.harness.core` and `models.harness.simulation` (src/subharness/routing.ts), read again at every request, so a change from the chat acts on the
 // next turn. `model set core|simulation <model> --via <route> [--effort <level>]` writes the record after one reply on
 // that model and effort; `model set core <model>` clears the core's after the API model passed its check
 // (src/keys/commands.ts, `directPath`), and `model set simulation direct-api` clears the simulation's. opencode cannot carry a
 // route, because `opencode run` takes no system prompt of its own.
 
 import type { EffortLevel } from '../llm/roles.ts';
-import { readKeys, writeKeys } from '../keys/file.ts';
-import type { MemoryBackend } from '../keys/file.ts';
+import { readRouting, updateRouting } from './routing.ts';
+import type { MemoryBackend } from './routing.ts';
 import type { EnableDeps, SubharnessResult } from './control.ts';
 import { memoryPath, setPathRecord } from './memory-path.ts';
 import { routeName } from './route-names.ts';
@@ -29,9 +29,9 @@ const CARRIES: Readonly<Record<SubscriptionRole, { what: string; runs: string; i
 
 const done = (message: string, changed = true): SubharnessResult => ({ ok: true, code: 'ok', changed, message });
 
-/** The route of `role` in keys.json now: the stored record, else the API. */
+/** The route of `role` in config.json now: the stored record, else the API. */
 export function subscriptionPath(privateDir: string, role: SubscriptionRole): SubscriptionPath {
-  const record = readKeys(privateDir).subharness[role];
+  const record = readRouting(privateDir).subharness[role];
   return record === null ? { kind: 'api' } : { kind: 'subharness', ...record };
 }
 
@@ -73,10 +73,10 @@ export function setSubscriptionPath(
 /** Back to the API: removes the record, and a check of a route that is still running can no longer save. */
 export function clearSubscriptionPath(privateDir: string, role: SubscriptionRole): SubharnessResult {
   dropClaim(privateDir, role);
-  const store = readKeys(privateDir);
   const { what, runs, is } = CARRIES[role];
-  if (store.subharness[role] === null) return done(`${what} ${runs} on ${routeName('api')} already`, false);
-  writeKeys(privateDir, { ...store, subharness: { ...store.subharness, [role]: null } });
+  if (readRouting(privateDir).subharness[role] === null)
+    return done(`${what} ${runs} on ${routeName('api')} already`, false);
+  updateRouting(privateDir, (store) => ({ ...store, subharness: { ...store.subharness, [role]: null } }));
   return done(`${what} ${is} back on ${routeName('api')}`);
 }
 

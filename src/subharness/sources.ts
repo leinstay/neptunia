@@ -1,12 +1,13 @@
 // Whether a subharness can run anything now: `available` is `installed` and `authenticated`, read from the disk and from
 // the backend itself at every call and stored nowhere. Installed is the binary in its folder of the private layer
 // (src/subharness/place.ts). Authenticated is what the vendor's own status command answers under the backend's home, with
-// no model request, and for opencode that the extra key keys.json names is still in the store, with no process.
+// no model request, and for opencode that the extra key `models.agents.opencodeKey` names is still in keys.json, with no
+// process.
 
 import { execFile } from 'node:child_process';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
-import { hasExtraKey, readKeys } from '../keys/file.ts';
+import { opencodeKey } from './routing.ts';
 import { isInstalled, subharnessPlace, vendorEnv } from './place.ts';
 
 export type SourceCode = 'ok' | 'not-installed' | 'not-logged-in';
@@ -41,9 +42,7 @@ function vendorSaysLoggedIn(privateDir: string, backend: 'codex' | 'claude'): Pr
 }
 
 function opencodeKeyStored(privateDir: string): boolean {
-  const store = readKeys(privateDir);
-  const { key } = store.subharness;
-  return key !== null && hasExtraKey(store, key);
+  return opencodeKey(privateDir) !== null;
 }
 
 /** One backend as it stands now. Never rejects on a status command that fails: that reads as not logged in. */

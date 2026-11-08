@@ -35,6 +35,19 @@
     "development": {
       "thinker": "openrouter/anthropic/claude-opus-5.5",
       "dev": "openrouter/anthropic/claude-sonnet-5.5"
+    },
+    "agents": {
+      "via": {},
+      "model": {},
+      "effort": {},
+      "provider": {},
+      "mode": {},
+      "opencodeKey": null
+    },
+    "harness": {
+      "core": null,
+      "memory": null,
+      "simulation": null
     }
   },
   "llm": {
@@ -55,6 +68,8 @@
       "memory": "OPENROUTER_MEMORY_KEY"
     },
     "keys": {},
+    "boundKeys": {},
+    "simulationKey": null,
     "cache": {
       "ttl": "1h",
       "roles": ["core"],

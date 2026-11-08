@@ -1,5 +1,5 @@
 // The names the owner reads and types for a route, mapped at the edge: `direct-api` for the OpenRouter API, and
-// `claude-harness`, `codex-harness` and `opencode-harness` for the three CLIs. keys.json, the folders under
+// `claude-harness`, `codex-harness` and `opencode-harness` for the three CLIs. config.json, the folders under
 // `data/subharness/`, the binaries and the logs keep the stored backend word (`claude`, `codex`, `opencode`), so
 // nothing but the code that renders a route or parses `--via` knows a second word.
 
