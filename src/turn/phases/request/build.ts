@@ -42,7 +42,7 @@ import type { Lookup } from '../../calls.ts';
 import { meanwhileSettingsOf, meanwhileWindows } from '../../request/meanwhile.ts';
 import type { MeanwhileReads, MeanwhileWindow } from '../../request/meanwhile.ts';
 import type { SurroundingsInput } from '../../request/reader.ts';
-import type { LineOf } from '../../request/refs.ts';
+import type { LineOf, SourceLineOf } from '../../request/refs.ts';
 import type { Message } from '../../request/types.ts';
 
 /** The request as buildRequest builds it. */
@@ -191,6 +191,7 @@ function registerHandles(
     const revision = typeof line?.revision === 'number' && line.revision > 0 ? line.revision : 1;
     handles.take(n, kind, {
       sourceId: messageSourceId(iface, messageId, revision, line?.self === true ? 'said' : 'seen'),
+      iface,
       placeId: pulledPlace ?? placeId,
       messageId,
       revision,
@@ -205,6 +206,7 @@ type FramedInputs = {
   meanwhileReads: MeanwhileReads | null;
   surroundings: SurroundingsInput | null;
   refLineOf: LineOf | null;
+  refSourceLineOf: SourceLineOf | null;
 };
 
 const NO_FRAMED: FramedInputs = {
@@ -213,6 +215,7 @@ const NO_FRAMED: FramedInputs = {
   meanwhileReads: null,
   surroundings: null,
   refLineOf: null,
+  refSourceLineOf: null,
 };
 
 /**
@@ -332,6 +335,12 @@ function framedInputsOf(
     const line = reads.line(memoryContext, key);
     return line ? { ...line, messageId: line.id } : null;
   };
+  const refSourceLineOf: SourceLineOf | null = reads.sourceLine
+    ? (sourceId) => {
+        const line = reads.sourceLine?.(memoryContext, sourceId) ?? null;
+        return line ? { ...line, messageId: line.id } : null;
+      }
+    : null;
   // Her posted words read a line's identity back under the same context (src/turn/sends.ts#renderPost).
   draft.frameRefs = { lineOf: refLineOf, placeId: place.id, timezone: frame.timezone };
   return {
@@ -351,6 +360,7 @@ function framedInputsOf(
       ],
     },
     refLineOf,
+    refSourceLineOf,
   };
 }
 
@@ -387,7 +397,8 @@ function intentionCandidatesOf(
 
 /**
  * Her lines of a service's `<meanwhile>` with the lines around them, as the graph reader's seeds, oldest first, and
- * what her open intentions refer to as candidates.
+ * what her open intentions refer to as candidates. A line's seed id is its stored source: the message's newest source
+ * on its place's interface, else the source row the line was read from. A line with neither is no seed.
  */
 function serviceSeedsOf(
   windows: ReadonlyArray<MeanwhileWindow>,
@@ -396,13 +407,13 @@ function serviceSeedsOf(
 ): Seeds {
   const lines = windows.flatMap((window) => window.lines).sort((a, b) => a.at - b.at);
   return {
-    messages: lines.map((line) => {
+    messages: lines.flatMap((line) => {
       const iface = line.placeId.slice(0, Math.max(0, line.placeId.indexOf(':')));
       const native = line.authorId;
+      const id = reads.sourceInPlace?.(line.placeId, line.id) ?? line.sourceId ?? null;
+      if (id === null) return [];
       return {
-        id:
-          reads.sourceInPlace?.(line.placeId, line.id) ??
-          messageSourceId(iface, line.id, 1, line.self ? 'said' : 'seen'),
+        id,
         at: new Date(line.at).toISOString(),
         authorAccount: line.self || native === null ? null : (reads.account(iface, native) ?? accountId(iface, native)),
         placeId: line.placeId,
@@ -450,7 +461,7 @@ function serviceInputsOf(
     const line = reads.line(memoryContext, key);
     return line ? { ...line, messageId: line.id } : null;
   };
-  return { mind, lookups: [], meanwhileReads, surroundings: null, refLineOf };
+  return { mind, lookups: [], meanwhileReads, surroundings: null, refLineOf, refSourceLineOf: null };
 }
 
 /**

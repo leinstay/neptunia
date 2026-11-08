@@ -23,7 +23,7 @@ import { MEMORY_SUBTAGS, channelIdOf, factItemsOf, memoryItemsOf, renderMemory }
 import type { LiveOf, MemoryItem, StoredFact } from './memory-block.ts';
 import { recallBlockOf } from './recall-block.ts';
 import { refResolverOf } from './refs.ts';
-import type { LineOf } from './refs.ts';
+import type { LineOf, SourceLineOf } from './refs.ts';
 import type { Senses } from './senses.ts';
 import type { PlaceFields } from './surroundings.ts';
 import type { SelfreflectionFramed } from './selfreflection.ts';
@@ -74,6 +74,8 @@ export type ReaderInput = {
   errandResult: string;
   nameOf: NameOf;
   lineOf: LineOf | null;
+  /** The reader of a lookup's source by its row, which says whether the line is gone or unreadable. */
+  sourceLineOf: SourceLineOf | null;
   live: LiveOf | null;
   /** The handles the chat was rendered with, by platform id: they keep their form whatever joins them. */
   chatHandles: Map<string, string> | null;
@@ -104,14 +106,15 @@ function chatWindow(frame: Frame, items: ReadonlyArray<TranscriptItem>): Map<str
   return window;
 }
 
-/** The ids of the sources the reader of lines names as retired: a lookup's source whose line is gone or unreadable. */
-function retiredOf(lookups: ReadonlyArray<Lookup>, lineOf: LineOf | null): Set<string> {
+/**
+ * The ids of the sources the reader of sources names as retired: a lookup's source whose row holds no line, or whose
+ * line is gone or unreadable.
+ */
+function retiredOf(lookups: ReadonlyArray<Lookup>, sourceLineOf: SourceLineOf | null): Set<string> {
   const retired = new Set<string>();
-  if (lineOf === null) return retired;
+  if (sourceLineOf === null) return retired;
   for (const id of lookups.flatMap((lookup) => lookup.sourceIds)) {
-    const parts = id.split(':');
-    if (parts[0] !== 'src' || parts.length < 5) continue;
-    const line = lineOf(parts.slice(0, -2).join(':'));
+    const line = sourceLineOf(id);
     if (line === null || line.deleted) retired.add(id);
   }
   return retired;
@@ -264,7 +267,7 @@ function offeredOf(given: ReaderInput): Offered {
       ...memoryItemsOf(mind, frame, labels, given.nameOf, given.live, given.selfreflectionIds),
       ...factItemsOf(given.facts ?? [], labels),
     ],
-    recall: recallBlockOf(lookups, { retired: retiredOf(given.lookups, lineOf) }, labels, timezone),
+    recall: recallBlockOf(lookups, { retired: retiredOf(given.lookups, given.sourceLineOf) }, labels, timezone),
     chat: given.chatItems.map((item) => ({ ...item, text: resolveRef(item.text) })),
     windows,
     windowTexts: windows.map((window) => windowText(window, frame, labels, given.nameOf)),

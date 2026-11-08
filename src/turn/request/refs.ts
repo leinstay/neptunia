@@ -28,6 +28,9 @@ type RefLabels = Pick<Labels, 'refs' | 'memory' | 'locale'>;
 /** Reads a line by its identity without the revision (`src:<iface>:<message id>`); null when unknown or unreadable. */
 export type LineOf = (key: string) => RefLine | null;
 
+/** Reads the line of the message a source row holds, by the source's id; null when no row holds it or it is unreadable. */
+export type SourceLineOf = (sourceId: string) => RefLine | null;
+
 /**
  * An identity: `src:`, the interface, the message id (which may hold colons) and the revision. No word character
  * follows it, and no dot, colon or dash with a word character after it, so a source id with its kind

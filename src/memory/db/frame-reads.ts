@@ -1,6 +1,6 @@
 // The reads of a request built on the turn frame beside the graph reader (src/memory/db/mind-read.ts): her own last
 // lines in other places and the lines around one line for `<meanwhile>`, one stored line by its identity for a
-// reference in a stored text, the stored fields of a place for `<surroundings>`, an interface's name and nouns and her
+// reference in a stored text or by its source row for a lookup's source, the stored fields of a place for `<surroundings>`, an interface's name and nouns and her
 // past selfreflection entries for a selfreflection request's `<selfreflection>`. Each
 // read applies the turn's context (`whereFor`), so nothing a scope may not read leaves here. Read only.
 
@@ -22,11 +22,12 @@ import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
 
 /**
- * A stored chat line as a request reads it: the platform's message id, its place, epoch ms, the author's platform id
- * and stored name.
+ * A stored chat line as a request reads it: the platform's message id, the id of its source row, its place, epoch ms,
+ * the author's platform id and stored name.
  */
 export type FrameLine = {
   id: string;
+  sourceId: string;
   placeId: string;
   at: number;
   authorId: string | null;
@@ -60,6 +61,7 @@ export function placePathOf(db: Db, placeId: string): PlacePath {
 
 const lineOf = (row: Row): FrameLine => ({
   id: String(row.native_id ?? row.id),
+  sourceId: String(row.id),
   placeId: text(row.place_id) ?? '',
   at: Date.parse(text(row.occurred_at) ?? ''),
   authorId: text(row.author_account) === null ? null : nativeOfAny(row.author_account),
@@ -155,8 +157,22 @@ export type IdentityLine = FrameLine & {
  */
 export function lineOfIdentity(db: Db, ctx: Context, key: string): IdentityLine | null {
   const match = /^src:([^:]+):(.+)$/.exec(key);
-  if (!match) return null;
-  const [, iface, native] = match;
+  return match ? lineOfMessage(db, ctx, match[1], match[2]) : null;
+}
+
+/**
+ * The line of the message a source row holds, found by the row's `iface` and `native_id`, as lineOfIdentity reads it.
+ * Null for a source id no row holds and for a line the context cannot read.
+ */
+export function lineOfSource(db: Db, ctx: Context, sourceId: string): IdentityLine | null {
+  const row = db.prepare('SELECT iface, native_id FROM sources WHERE id = ?').get(sourceId);
+  const iface = text(row?.iface);
+  const native = text(row?.native_id);
+  return iface === null || native === null ? null : lineOfMessage(db, ctx, iface, native);
+}
+
+/** The line of an interface's message id at its newest revision the context reads, `deleted` when it was deleted. */
+function lineOfMessage(db: Db, ctx: Context, iface: string, native: string): IdentityLine | null {
   const where = whereFor(ctx, 's');
   const rows = db
     .prepare(
@@ -280,6 +296,8 @@ export type FrameReads = {
   ownLines(ctx: Context, exceptPlace: string | null, limit: number): Array<FrameLine & PlacePath>;
   around(ctx: Context, placeId: string, at: number, count: number): Array<FrameLine>;
   line(ctx: Context, key: string): IdentityLine | null;
+  /** The line of the message a source row holds (lineOfSource). */
+  sourceLine?(ctx: Context, sourceId: string): IdentityLine | null;
   placeFields(ctx: Context, placeId: string): Record<string, string>;
   /** The description versions `placeFields` renders (placeVersionsOf). */
   placeVersions?(ctx: Context, placeId: string): Array<string>;
@@ -332,6 +350,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     ownLines: (ctx, exceptPlace, limit) => over([], (db) => ownLinesOf(db, ctx, exceptPlace, limit)),
     around: (ctx, placeId, at, count) => over([], (db) => linesAroundOf(db, ctx, placeId, at, count)),
     line: (ctx, key) => over(null, (db) => lineOfIdentity(db, ctx, key)),
+    sourceLine: (ctx, sourceId) => over(null, (db) => lineOfSource(db, ctx, sourceId)),
     placeFields: (ctx, placeId) => over({}, (db) => placeFieldsOf(db, ctx, placeId)),
     placeVersions: (ctx, placeId) => over([], (db) => placeVersionsOf(db, ctx, placeId)),
     interfaceNames: (iface) => over({ name: null, nouns: {} }, (db) => interfaceNamesOf(db, iface)),
