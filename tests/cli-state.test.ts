@@ -125,10 +125,11 @@ test('one state word means the same on every line of the header', () => {
   const lines = header(HEALTHY);
   const working = ['Core', 'Memory', 'Analyzer'].map((label) => stateOf(lines, label));
   assert.equal(new Set(working).size, 1, working.join(' '));
-  assert.match(lines[3] ?? '', new RegExp(`^Interfaces: Discord \\(${working[0] ?? ''}\\)$`));
+  // The owner's word of 2026-11-08 took the state words off the interfaces line: it names the command line and the
+  // interfaces that work, so a disconnected one is left out instead of reading `error`.
+  assert.equal(lines[3], 'Interfaces: CLI, Discord');
   const broken = header(BRIEF);
-  // A failed memory probe and a disconnected interface are the same fact: something that should work does not.
-  assert.equal(stateOf(broken, 'Memory'), /\((\w+)\)$/.exec(broken[3] ?? '')?.[1]);
+  assert.equal(broken[3], 'Interfaces: CLI', 'a disconnected interface is not listed');
   assert.notEqual(stateOf(broken, 'Memory'), working[0]);
   assert.match(broken[0] ?? '', /\(memory-down\)/, 'a pause keeps its reason');
   assert.notEqual(stateOf(broken, 'Core'), working[0]);

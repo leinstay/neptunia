@@ -253,7 +253,8 @@ test('the animated header keeps its height and the title its column when a statu
         const screen = rig.screen();
         assert.ok(screen.length <= 50, `${screen.length} rows in a terminal of 50`);
         columns.add(screen[0]?.indexOf('Project Neptunia') ?? -1);
-        assert.match(screen[4] ?? '', /Interfaces: Discord/, 'the header lines stay on their rows');
+        // The interfaces line names the command line first since the owner's word of 2026-11-08.
+        assert.match(screen[4] ?? '', /Interfaces: CLI, Discord/, 'the header lines stay on their rows');
         galaxies.add(
           screen
             .slice(0, 5)
@@ -269,12 +270,15 @@ test('the animated header keeps its height and the title its column when a statu
   );
 });
 
-test('the bottom row is the input box with no strip of key hints under it', async () => {
+test('under the input box stands only the status row, with no strip of key hints', async () => {
   // Bug: a strip of key hints under the input named actions the owner could not place and took a row from the chat.
+  // The owner's status row of 2026-11-08 stands under the input, so the box's border is the row above the last, and the
+  // last row is blank while nothing is said.
   const { env } = chatEnv();
   await withChat(env, async (rig) => {
-    await until(() => (rig.screen().at(-1) ?? '').trim().startsWith('╰'));
-    assert.match(rig.screen().at(-1) ?? '', /^\s*╰─+╯\s*$/);
+    await until(() => (rig.screen().at(-2) ?? '').trim().startsWith('╰'));
+    assert.match(rig.screen().at(-2) ?? '', /^\s*╰─+╯\s*$/);
+    assert.equal((rig.screen().at(-1) ?? '').trim(), '');
     assert.equal(/Ctrl\+|commands ·/.test(rig.screen().join('\n')), false);
   });
 });

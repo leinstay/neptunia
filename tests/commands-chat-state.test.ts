@@ -212,6 +212,14 @@ test('session.line answers the files of the line with that number, of any kind, 
   ]);
 });
 
+test('session.line answers the message id of the line, which a reply to it names as its parent', async () => {
+  // Bug: the chat can draw `[#N]` but cannot name line N's message, so a reply to it goes out with no parent.
+  const { run } = rig();
+  await run({ name: 'session.open', args: {} });
+  const line = JSON.parse((await run({ name: 'session.line', args: { number: 1 } })).text) as { messageId: string };
+  assert.equal(line.messageId, 'n1');
+});
+
 test('session.line answers a line with no file with an empty list', async () => {
   // Bug: a line of text alone answers a refusal that reads as an unknown line.
   const { run } = rig(NUMBERED);
