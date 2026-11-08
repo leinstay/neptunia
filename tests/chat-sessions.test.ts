@@ -178,3 +178,29 @@ test('the authority of one session opens no other session', () => {
   });
   assert.equal(branched.ok, false);
 });
+
+test('the shown lines of a place with no session are all its stored lines, and reading them writes nothing', () => {
+  // Bug: a turn in a chat that never opened a session reads no history, or the read creates a session.
+  const { store, rows } = storeOf();
+  const service = serviceOver(store);
+  assert.deepEqual(
+    service.shown('cli:dm:owner').map((line) => line.id),
+    ['s1', 's2', 's3', 's4']
+  );
+  assert.equal(rows.length, 0);
+});
+
+test('the shown lines of a place follow the branch selected there', () => {
+  // Bug: the model reads the lines past the boundary of the branch the owner chose.
+  const { store } = storeOf();
+  const service = serviceOver(store);
+  const root = ok(service.open({ placeId: 'cli:dm:owner' }));
+  const branch = ok(
+    service.branch({ from: root.session.id, boundary: 's2', requestKey: 'k1', authority: root.authority })
+  );
+  ok(service.select(branch.session.id));
+  assert.deepEqual(
+    service.shown('cli:dm:owner').map((line) => line.id),
+    ['s1', 's2']
+  );
+});

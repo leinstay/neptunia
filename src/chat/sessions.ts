@@ -65,6 +65,8 @@ export type ChatSessions = {
   branch(request: { from: string; boundary: string; requestKey: string; authority: string }): OpenSession | Refusal;
   /** The session new lines of `placeId` belong to now: the branch selected there, else the root. */
   current(placeId: string): Session | null;
+  /** The lines the current session of `placeId` shows, all its stored lines while it has none. Writes nothing. */
+  shown(placeId: string): ReadonlyArray<SourceLine>;
   /** Makes `id` the session new lines of its place belong to. */
   select(id: string): OpenSession | Refusal;
 };
@@ -106,6 +108,13 @@ export function createChatSessions({
     if (first === undefined) return EMPTY_NAME;
     const words = first.text.replaceAll(/\s+/g, ' ').trim();
     return words === '' ? EMPTY_NAME : words.slice(0, NAME_CHARS);
+  }
+
+  /** The row new lines of `placeId` belong to: the branch selected there, else the root, else none. */
+  function currentRow(placeId: string): SessionRow | null {
+    const rows = store.sessions().filter((row) => row.placeId === placeId);
+    const chosen = rows.find((row) => row.spans.some((span) => span.to === null));
+    return chosen ?? rows.find((one) => one.parentId === null) ?? null;
   }
 
   const sessionOf = (row: SessionRow): Session => ({
@@ -176,10 +185,12 @@ export function createChatSessions({
       return opened(row);
     },
     current(placeId) {
-      const rows = store.sessions().filter((row) => row.placeId === placeId);
-      const chosen = rows.find((row) => row.spans.some((span) => span.to === null));
-      const row = chosen ?? rows.find((one) => one.parentId === null);
-      return row === undefined ? null : sessionOf(row);
+      const row = currentRow(placeId);
+      return row === null ? null : sessionOf(row);
+    },
+    shown(placeId) {
+      const row = currentRow(placeId);
+      return row === null ? store.lines(placeId) : viewOf(row);
     },
     select(id) {
       const chosen = rowOf(id);
