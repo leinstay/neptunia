@@ -213,10 +213,8 @@ export function sessionSettings(configGiven: unknown): SessionSettings {
 }
 
 /**
- * Whether the memory role has a key. With a key ring (`keys.json` exists) it is the key the ring routes `memory` to:
- * the extra key the role is bound to, else the core key in use; `llm.keyByRole` and `env` are not read. Without a ring,
- * `llm.keyByRole.memory` names a variable (OPENROUTER_*) that is set in `env`, and no other key stands in. `name` is the
- * key's or the variable's name, never its value.
+ * Whether the memory writer has what it needs: on a harness `path` nothing; with a key ring the key it routes `memory`
+ * to (the bound extra key, else the core key in use); without a ring `llm.keyByRole.memory`, a variable set in `env`.
  */
 export function memoryKeyState(
   config: Config | null | undefined,
@@ -224,8 +222,7 @@ export function memoryKeyState(
   ring?: KeyRing | null,
   path?: MemoryPath | null
 ): { ok: boolean; name: string | null } {
-  // A writer on a harness sends no API key (src/subharness/memory-writer.ts), so it needs none.
-  if (path?.kind === 'subharness') return { ok: true, name: null };
+  if (path?.kind === 'subharness') return { ok: true, name: null }; // a harness writer sends no API key
   if (ring) {
     const route = ring.route(MEMORY_ROLE);
     return route === null ? { ok: false, name: null } : { ok: true, name: route.name };
@@ -237,9 +234,7 @@ export function memoryKeyState(
   return { ok: typeof value === 'string' && value.trim() !== '', name: valid ? name : null };
 }
 
-/**
- * Why the session cannot run now, or null: `off` (mode), `not_configured` (no key of its own), `no_prompt`.
- */
+/** Why the session cannot run now, or null: `off` (mode), `not_configured` (no key it needs), `no_prompt`. */
 export function refusalOf(
   config: Config | null | undefined,
   env: Row | null | undefined,
@@ -1269,8 +1264,7 @@ export type SessionContext = {
   env?: Row | null;
   /** The core's key ring while `keys.json` exists (see `memoryKeyState`), else null or absent. */
   ring?: KeyRing | null;
-  /** The writer's path now (src/subharness/memory-path.ts#memoryPath); absent is the direct path. */
-  path?: () => MemoryPath;
+  path?: () => MemoryPath; // the writer's path now (memory-path.ts#memoryPath); absent is the direct path
   now?: () => number;
   log?: Partial<Log>;
   selfName?: string;

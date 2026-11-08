@@ -742,7 +742,7 @@ export function createMemoryDb({
   track = untracked,
   sessionEnv = () => null,
   sessionKeys = () => null,
-  sessionPath,
+  sessionPath = (): MemoryPath => ({ kind: 'direct' }),
   onSessionFailure = null,
   sessionLookMs = 60_000,
   onBackupFailure = null,
@@ -1557,22 +1557,10 @@ export function createMemoryDb({
     const env = sessionEnv?.() ?? null;
     const llm = sessionLlm?.() ?? null;
     const ring = sessionKeys();
-    const path = sessionPath?.();
-    if (!llm || !handle || refusalOf(config, env, hot.prompts, ring, path)) return;
+    const path = sessionPath;
+    if (!llm || !handle || refusalOf(config, env, hot.prompts, ring, path())) return;
     const db = dbOf(handle);
-    const ctx = {
-      db,
-      write: memoryWrite,
-      llm,
-      hot,
-      env,
-      ring,
-      ...(sessionPath ? { path: sessionPath } : {}),
-      now,
-      log,
-      selfName: selfName() ?? '',
-      track,
-    };
+    const ctx = { db, write: memoryWrite, llm, hot, env, ring, path, now, log, selfName: selfName() ?? '', track };
     const due = track('session.batch', () => dueScopes(db, config, at, { log }));
     if (due.length > 0) {
       const result = await sweep(ctx, { scopes: new Set(due.map((scope) => scope.key)) });
@@ -1589,7 +1577,7 @@ export function createMemoryDb({
       });
     }
     // The reviews: at most `reviewsPerDay` a UTC day, accepted or failed.
-    if (closing || !handle || reviewRefusal(config, env, hot.prompts, ring, path)) return;
+    if (closing || !handle || reviewRefusal(config, env, hot.prompts, ring, path())) return;
     const day = utcDay(at);
     if (sessionState.reviewFailDay !== day) {
       sessionState.reviewFailDay = day;
