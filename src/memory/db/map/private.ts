@@ -24,7 +24,7 @@ export const privateIdOf = (rel: string): string => /([^/]+)\.json$/.exec(String
 
 /** The scope of a private unit's rows: its stored DM place's, the partner's own before the place exists. */
 function privateScope(person: string, iface: string, place: MapContext['dmPlace']): Row {
-  return place ? dmPlaceScope(person, iface, place) : dmScope(person, iface);
+  return place ? dmPlaceScope(iface, place) : dmScope(person, iface);
 }
 
 export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {

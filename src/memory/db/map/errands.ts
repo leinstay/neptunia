@@ -24,7 +24,7 @@ export const isEventsPath = (rel: string): boolean => /errands\.jsonl$/.test(Str
 
 const mappable = (errand: Row) => isPlainObject(errand) && typeof errand.id === 'string' && errand.id !== '';
 
-function workRow(rel: string, errand: Row, position: number) {
+function workRow(rel: string, errand: Row, position: number, ctx: MapContext) {
   return {
     id: errand.id,
     kind: 'errand',
@@ -34,7 +34,12 @@ function workRow(rel: string, errand: Row, position: number) {
     updated_ms: num(errand.endedAt) ?? num(errand.startedAt) ?? num(errand.createdAt),
     outcome: text(errand.error),
     seen: typeof errand.seen === 'boolean' ? (errand.seen ? 1 : 0) : null,
-    ...stringScope(errand.scope, [(errand.requester as { accountId?: unknown } | undefined)?.accountId]),
+    ...stringScope(
+      errand.scope,
+      [(errand.requester as { accountId?: unknown } | undefined)?.accountId],
+      undefined,
+      ctx.dmOfMember
+    ),
     owner_file: rel,
     position,
   };
@@ -59,7 +64,7 @@ export function toRows(rel: string, value: Row, ctx: MapContext = {}): Rows {
   const list = Array.isArray(rest.errands) ? rest.errands : rest.tasks;
   const ids = Array.isArray(list) ? list.map((errand) => errand?.id) : [];
   if (Array.isArray(list) && list.every(mappable) && new Set(ids).size === ids.length) {
-    list.forEach((errand, position) => put(rows, 'work', workRow(rel, errand, position)));
+    list.forEach((errand, position) => put(rows, 'work', workRow(rel, errand, position, ctx)));
     delete rest.errands;
     delete rest.tasks;
     rest.$has = ['errands'];

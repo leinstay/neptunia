@@ -41,13 +41,18 @@ const DECISION_SPEC: Array<Spec> = [
 
 const ANSWER_SPEC: Array<Spec> = [{ col: 'think', key: 'think', type: 'text' }];
 
-const ATTITUDE_SPEC: Array<Spec> = [
+/**
+ * An attitude entry's columns: the member it is toward is the member's stored person, else (an account no row holds) the
+ * person its platform id spells. A person the platform id cannot be read back from keeps the platform id beside it.
+ */
+const attitudeSpec = (ctx: MapContext): Array<Spec> => [
   {
     col: 'person_id',
     key: 'accountId',
     type: 'text',
-    enc: (v: unknown, iface: string) => personId(iface, v),
+    enc: (v: unknown, iface: string) => ctx.personOfMember?.(iface, String(v)) ?? personId(iface, v),
     dec: nativeOfAny,
+    exact: true,
   },
   { col: 'delta', key: 'delta', type: 'num' },
   { col: 'applied', key: 'applied', type: 'num' },
@@ -86,9 +91,11 @@ function memoryRows(rel: string, line: Row, ctx: MapContext, privateUser: string
   });
   if (mappable) {
     const scopeRest: Row = {};
-    const scope = scopeRows(scopeInto(scopeRest, line.scope as OldScope | undefined, privateUser, iface, ctx.dmPlace));
+    const scope = scopeRows(
+      scopeInto(scopeRest, line.scope as OldScope | undefined, privateUser, iface, ctx.dmPlace, ctx.dmOfMember)
+    );
     attitude.forEach((entry, index) => {
-      const part = split(entry, ATTITUDE_SPEC, iface);
+      const part = split(entry, attitudeSpec(ctx), iface);
       put(rows, 'affinity_events', {
         id: `aff:${asText(line.id)}:${index}`,
         ...part.cols,
@@ -122,7 +129,7 @@ export function toRows(rel: string, line: Row, ctx: MapContext = {}): Rows {
     );
   }
   const { cols, rest } = split(body, DAY_SPEC);
-  const scope = scopeInto(rest, line.scope as OldScope | undefined, privateUser, iface, ctx.dmPlace);
+  const scope = scopeInto(rest, line.scope as OldScope | undefined, privateUser, iface, ctx.dmPlace, ctx.dmOfMember);
   const placeId = scope.place_id;
   const scoped = scopeRows(scope);
   put(rows, 'day', {
@@ -166,7 +173,7 @@ export function fromRows(rows: Rows, ctx: MapContext = {}): Row {
     delete rest.$has;
     const line = join(decision, rest, DECISION_SPEC);
     if (attitudeRows) {
-      line.attitude = attitudeRows.map((row) => join(row, row.extra, ATTITUDE_SPEC));
+      line.attitude = attitudeRows.map((row) => join(row, row.extra, attitudeSpec(ctx)));
     }
     return line;
   }

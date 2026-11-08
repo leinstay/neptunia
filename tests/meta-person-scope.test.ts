@@ -111,7 +111,8 @@ test("an attitude toward a member is the member's meta-person's and its line com
       attitude: [{ accountId: '700', delta: 2, applied: 1, reason: 'synthetic' }],
     };
     const rows = mapper.toRows('j', line, { position: 0 });
-    assert.equal(rows.affinity_events?.[0]?.person_id, personOf(db, 'discord:700'));
+    const [event] = rows.affinity_events ?? [];
+    assert.equal(event?.person_id, personOf(db, 'discord:700'));
     assert.deepEqual(mapper.fromRows(rows), line);
   });
 });

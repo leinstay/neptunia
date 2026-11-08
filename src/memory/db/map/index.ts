@@ -9,6 +9,7 @@ import * as gifs from './gifs.ts';
 import type { MapContext } from './common.ts';
 import type { Db, Row, Rows } from '../types.ts';
 import { dmPartnerOfPlace, nativeOfAny, personId } from '../ids.ts';
+import { dmOfAccount, dmOfPlatformId, personOfPlatformId } from '../meta-person.ts';
 import { ensureAccountPerson, linkedProfileUnit } from '../person-links.ts';
 import { accountCollection, storageId } from '../storage-keys.ts';
 import type { StorageKey } from '../storage-keys.ts';
@@ -44,6 +45,7 @@ export type Mapper = {
       iface?: string;
       privateAccountId?: string | null;
       dmPlace?: MapContext['dmPlace'];
+      dmOfMember?: MapContext['dmOfMember'];
     }
   ): Rows | null;
 };
@@ -109,18 +111,6 @@ function identityOf(
   };
 }
 
-/** The DM place an account's chat is stored under, the most recently seen when it holds several. */
-function dmPlaceOfAccount(db: Db, accountId: string): MapContext['dmPlace'] {
-  const place = db
-    .prepare(
-      `SELECT id, partner_person FROM places WHERE partner_account = ? AND (kind = 'dm' OR chat = 'dm')
-       AND retired_at IS NULL ORDER BY COALESCE(seen_to_at, '') DESC, id LIMIT 1`
-    )
-    .get(accountId);
-  if (typeof place?.id !== 'string') return null;
-  return { id: place.id, partnerPerson: typeof place.partner_person === 'string' ? place.partner_person : null };
-}
-
 /** A DM place subject as the mappers scope by it; one no row holds yet names its partner by its spelled id. */
 function dmPlaceOfSubject(id: string, place: Row | undefined): NonNullable<MapContext['dmPlace']> {
   const stored = place?.partner_person;
@@ -154,6 +144,7 @@ export function storageContext(db: Db, key: StorageKey): MapContext {
       collection: key.selector?.collection,
       versionKind: key.selector?.versionKind,
       itemId: key.selector?.itemId,
+      ...memberReads(db),
     };
   const subject = identityOf(db, key.subject.id, TABLE_OF_SUBJECT[key.subject.type]);
   const partner = key.subject.type === 'place' ? partnerNativeOf(db, key.subject.id, subject.row) : null;
@@ -167,16 +158,23 @@ export function storageContext(db: Db, key: StorageKey): MapContext {
     versionKind: key.selector?.versionKind,
     itemId: key.selector?.itemId,
     privateAccountId: key.subject.type === 'account' && key.kind !== 'user' ? subject.native : partner,
+    ...memberReads(db),
     ...(key.subject.type === 'place' && partner !== null
       ? { dmPlaceId: key.subject.id, dmPlace: dmPlaceOfSubject(key.subject.id, subject.row) }
       : {}),
-    ...(key.kind === 'private' && key.subject.type === 'account'
-      ? { dmPlace: dmPlaceOfAccount(db, key.subject.id) }
-      : {}),
+    ...(key.kind === 'private' && key.subject.type === 'account' ? { dmPlace: dmOfAccount(db, key.subject.id) } : {}),
     ...(key.kind === 'user' && key.subject.type === 'account' ? { membership: membershipOf(db, key.subject.id) } : {}),
     ...(key.kind === 'versions' && key.subject.type === 'account' && key.selector?.versionKind === 'users'
       ? profilePersonOf(db, key.subject.id)
       : {}),
+  };
+}
+
+/** How the mappers reach a member's stored person and direct chat from the platform id a file names. */
+function memberReads(db: Db): Pick<MapContext, 'personOfMember' | 'dmOfMember'> {
+  return {
+    personOfMember: (iface, platformId) => personOfPlatformId(db, iface, platformId),
+    dmOfMember: (iface, platformId) => dmOfPlatformId(db, iface, platformId),
   };
 }
 
@@ -285,6 +283,7 @@ export function storageMapper(
                 iface: base.iface,
                 privateAccountId: base.privateAccountId,
                 dmPlace: base.dmPlace,
+                dmOfMember: base.dmOfMember,
               });
               return rows ? ownedRows(db, rows, id, undefined, legacyOwner) : null;
             },
