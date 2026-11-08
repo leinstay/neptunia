@@ -93,10 +93,13 @@
 //   - every row written here is projected into the graph in the same transaction (graph.ts#projectRow).
 //   { kind: 'semantic-embedding', documentKey, model, vector, now }
 //       One embedding of a semantic search document (semantic-search.ts#applySemanticEmbedding).
+//   { kind: 'object-embedding', model, now, items }
+//       The vectors of claims, descriptions, episodes and name sets (object-vectors.ts#applyObjectEmbedding).
 // Schema v31: every new claim version the session writes is sealed by its `semantic_assertion_versions` snapshot (`text`,
 // polarity `unknown`), with the audience the meet of the run and its sources on audience ids.
 // Counts and codes only, never a text.
 
+import { applyObjectEmbedding } from './object-vectors.ts';
 import { applyPersonLinkWrite } from './person-links.ts';
 import { applyPersonMergeWrite } from './person-merge.ts';
 import { applyPersonBindWrite } from './person-bind.ts';
@@ -977,6 +980,7 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ],
   ['mirror', applyMirrorWrite],
   ['semantic-embedding', applySemanticEmbedding],
+  ['object-embedding', applyObjectEmbedding],
   ['media-english', applyMediaEnglish],
   [
     'roots',
