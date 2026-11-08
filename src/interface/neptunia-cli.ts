@@ -33,6 +33,8 @@ import fs from 'node:fs';
 import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { createChatTurns } from './chat-turns.ts';
+// The reading of a line's links, wired by the composition root with the intake.
+export { lineLinksOf } from './cli-line-links.ts';
 import { COMMANDS } from './commands/table.ts';
 import { createDialogBroker } from './commands/dialogs.ts';
 import type { DialogBroker, Question } from './commands/dialogs.ts';

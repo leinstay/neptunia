@@ -1,8 +1,8 @@
-// The link items of a line the owner types in the command line. The Discord interface makes a link item of every URL
-// and a message reference of every message link before a line reaches the core. The command line sends its lines
+// The link items of a line the owner types in the command line. A chat platform's interface makes a link item of every
+// URL and a message reference of every message link before a line reaches the core. The command line sends its lines
 // bare, so the core fills them in here: a message link becomes the reference the served interface reads it as
 // (`parseLinks`), and every other URL becomes a link item. The media prefill and the turn then watch a video, read a
-// page and number a linked message from them as they do for a Discord line. The core knows no address grammar: only
+// page and number a linked message from them as they do for an interface's line. The core knows no address grammar: only
 // the interface's read says which URL names a message.
 
 import { siteOf } from '../media/classify.ts';
@@ -11,7 +11,7 @@ import { URL_PATTERN } from '../memory/mentions.ts';
 import type { MessageRef } from '../protocol/adapter.ts';
 import type { Message, MessageReference } from '../protocol/events.ts';
 
-/** The most URLs of one line that become items, as many as the embeds Discord shows under one message. */
+/** The most URLs of one line that become items, as many as the embeds a chat platform shows under one message. */
 const MAX_LINE_URLS = 10;
 // A full stop, comma or closing bracket after a URL ends the sentence, not the address (src/media/video-sites.ts).
 const TRAILING_PUNCTUATION = /[).,]+$/;
@@ -25,7 +25,7 @@ export type LineLinkDeps = {
   parseLinks(texts: ReadonlyArray<string>): Promise<{ refs: Array<MessageRef | null> } | null>;
 };
 
-/** One link item, in the shape the Discord interface gives a URL typed in a message's text. */
+/** One link item, in the shape an interface gives a URL typed in a message's text (src/media/classify.ts reads it). */
 type LinkItem = {
   id: string;
   kind: 'link';
@@ -38,6 +38,21 @@ type LinkItem = {
 
 /** A URL of the text, and the span that writes it: with its angle brackets when both enclose it. */
 type Written = { url: string; text: string };
+
+/**
+ * The intake's reading of a line (src/interface/neptunia-cli.ts#createCommandIntake): the settings read at each line,
+ * the message links read by the served interface. The intake validated the event, so its message is a `Message`.
+ */
+export function lineLinksOf(deps: {
+  hot: { readonly config: unknown };
+  parseLinks: LineLinkDeps['parseLinks'];
+}): (message: Record<string, unknown>) => Promise<Record<string, unknown>> {
+  return (message) =>
+    withLineLinks(message as unknown as LineMessage, {
+      videoSites: videoSitesOf(deps.hot.config),
+      parseLinks: deps.parseLinks,
+    });
+}
 
 /** The video sites of the settings (`media.video.sites`), the strings of the list alone. */
 export function videoSitesOf(config: unknown): Array<string> {
@@ -60,7 +75,7 @@ function urlsOf(text: string): Array<Written> {
   return found;
 }
 
-/** The link item of `url`: a video site's URL keyed by its video cache key, as the Discord interface keys it. */
+/** The link item of `url`: a video site's URL keyed by its video cache key, as an interface keys it. */
 function linkItem(messageId: string, url: string, index: number, videoSites: ReadonlyArray<string>): LinkItem {
   const id = videoSiteFor(url, videoSites) === null ? `${messageId}#l${index}` : videoUrlCacheKey(url);
   return { id, kind: 'link', site: siteOf(url), title: '', text: '', thumbnailUrl: null, url };
