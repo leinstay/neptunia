@@ -48,7 +48,7 @@ Only the owner speaks on the command line (`iface: 'cli'`), so its account belon
 
 ## Filling the audience of old entries
 
-`/memory selfreflection audience fill [--dry-run]` gives the selfreflection entries written before she could choose an audience the explicit `{ kind: 'unrestricted' }`. It goes through the writer as `applyMemoryWrite` kind `selfreflection-audience-fill` (`src/memory/db/selfreflection-audience-fill.ts`, `MemoryDbService.selfreflectionAudienceFill`), and only the owner runs it (`OWNER_ONLY`). The value is merged into the entry's `extra`, so its other keys and a saved `publicationBoundary` stay. An entry is left alone when it has any audience, is retired, is not a group entry, or has an `extra` that cannot be read as an object. The answer counts the entries written. A second run writes nothing, and `--dry-run` counts the same set without writing. The memory service tells the running store of a fill that wrote (`onSelfreflectionFill`), and the store takes the filled audience into its cached entries, so the write of the next entry keeps it.
+`/memory selfreflection audience fill [--dry-run]` gives the selfreflection entries written before she could choose an audience the explicit `{ kind: 'unrestricted' }`. It goes through the writer as `applyMemoryWrite` kind `selfreflection-audience-fill` (`src/memory/db/selfreflection-audience-fill.ts`, `MemoryDbService.selfreflectionAudienceFill`), and only the owner runs it (`OWNER_ONLY`). The value is merged into the entry's `extra`, so its other keys and a saved `publicationBoundary` stay. An entry is left alone when it has any audience, is retired, is not a group entry, or has an `extra` that cannot be read as an object. The answer counts the entries written. A second run writes nothing, and `--dry-run` counts the same set without writing. The memory service tells the running store of a fill that wrote (`onSelfreflectionFill`), and the store's unit cache in `src/memory/unit-cache.ts` takes the filled audience into its cached entries, so the write of the next entry keeps it.
 
 ## Places and context
 
@@ -99,6 +99,12 @@ Searches wait in `src/memory/db/reader-client.ts`, and one runs at a time. An ab
 The memory prefetch searches under `recall.prefetch.deadlineMs` and the persona's own search under `recall.timeoutMs`. Each aborts its signal at that deadline and goes on with what it has. A failure logs `recall: prefetch failed` or `recall: failed` with its `code`. A memory that offers only `database()` is searched synchronously.
 
 The daily backup runs on the writer thread, and `pruneBackups` in `src/memory/db/backup.ts` deletes old backups through the asynchronous `fs`. The owner's `/memory backup` runs `backupInWorker`, which opens a read-only connection on a thread of its own (`src/memory/db/backup-worker.ts`).
+
+## The store's cache of units
+
+`src/memory/store.ts` reads and changes memory units through one cache, `createUnitCache` in `src/memory/unit-cache.ts`. The cache loads a unit from the database on its first read, and the store marks a changed value dirty. A flush hands the whole value to the unit outbox in `src/memory/db/unit-outbox.ts`. The cached value stays the truth until the outbox no longer holds the unit, and a failed write waits there for the next flush. `/nep pause` drops every cached unit except `state.json` and those the outbox still holds.
+
+The database has two other writers of the same units, and the cache subscribes to both when it is built. After her session moves a person's attitude, the service calls `onAffinityMoves`, and the cache drops every cached profile of that person. A profile with unflushed changes, or one whose write is still under way, is marked stale instead. The cache reads it again once its write has landed, and that write keeps the session's score and reason (`sessionHold` in `src/memory/db/session-rows.ts`). An owner's fill of old selfreflection entries calls `onSelfreflectionFill`. A clean cached selfreflection is dropped. A dirty or pending one copies the filled `plan` and `publicationAudience` from the database into each entry that lacks them, and is written again.
 
 ## Pending writes and their quarantine
 
