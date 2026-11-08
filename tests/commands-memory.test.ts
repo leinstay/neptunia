@@ -17,7 +17,7 @@ import { internalContext } from '../src/memory/db/scope.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle, Row } from '../src/memory/db/types.ts';
 import { addDescription, addPlace, databaseDigest } from './fixtures/memory-db/browser-world.ts';
-import { ANNA, BORIS, addAccount, seedOpaqueWorld } from './fixtures/memory-db/opaque-people.ts';
+import { ANNA, addAccount, seedOpaqueWorld } from './fixtures/memory-db/opaque-people.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
@@ -144,7 +144,6 @@ const LINES = [
   ['/memory users relationship person:x', 'memory.users.relationship'],
   ['/memory users private person:x', 'memory.users.private'],
   ['/memory users link person:x account:y', 'memory.users.link'],
-  ['/memory users unlink person:x account:y', 'memory.users.unlink'],
   ['/memory places list --interface zeta --authority zeta/one --roots --limit 5 --cursor c1', 'memory.places.list'],
   ['/memory places tree place:x --limit 5', 'memory.places.tree'],
   ['/memory places show place:x --include-children', 'memory.places.show'],
@@ -164,7 +163,6 @@ for (const [line, name] of LINES) {
 const RETIRED = [
   ['/memory profile u1', '/memory users show'],
   ['/memory accounts discord n1', '/memory users accounts'],
-  ['/memory unbind discord n1', '/memory users unlink'],
   ['/memory aliases list u1', '/memory users names'],
   ['/memory affinity u1', '/memory users relationship'],
   ['/memory private u1', '/memory users private'],
@@ -293,15 +291,11 @@ test('linking goes through the one writer, by typed ids', async () => {
   });
 });
 
-test('unlinking goes through the one writer, for an account of that person only', async () => {
-  // Bug: `/memory users unlink <person> <account>` ignores the person, and a typo unlinks someone else.
-  await withRig(async (one) => {
-    assert.equal((await one.say(`/memory users unlink ${ANNA} account:a11`)).status, 'ok');
-    assert.deepEqual(one.writes, [{ op: 'unbind', accountId: 'account:a11' }]);
-    const wrong = await one.say(`/memory users unlink ${BORIS} account:a12`);
-    assert.equal(wrong.status, 'invalid');
-    assert.equal(one.writes.length, 1);
-  });
+test('no command unlinks an account', () => {
+  // Bug: an unlink survives the owner's decision of 2026-11-08 that accounts are bound and never unbound
+  // (plan 2026-11-08-meta-person), so an account leaves its meta-person with a copy of the person that lies.
+  for (const line of ['/memory users unlink person:x account:y', '/memory unbind discord n1'])
+    assert.equal(parseCommandLine(line).ok, false, line);
 });
 
 test('linking an account nobody stored answers invalid and writes nothing', async () => {

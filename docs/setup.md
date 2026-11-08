@@ -50,7 +50,7 @@ With `NEPTUNIA_PLAIN_CHAT=1` and no terminal, a gap prints `setup-required` with
 
 ## The owner's person
 
-Setup names no owner person. The owner's first line in the chat makes one. The core mints a person, and one write links the chat's account and the accounts `bot.owners` lists on the home interface to it. Then the core writes `bot.ownerPerson` to `config/config.json` of the data folder (`src/pipeline/observe.ts`). An install that already has `bot.ownerPerson` links the chat to that person. `/memory bind <iface> <account> owner` names another person later, as [Owner identity](memory.md#owner-identity) describes.
+Setup names no owner person. The owner's first line in the chat makes one. The core mints a person, and one write links the chat's account and the accounts `bot.owners` lists on the home interface to it. Then the core writes `bot.ownerPerson` to `config/config.json` of the data folder (`src/pipeline/observe.ts`). An install that already has `bot.ownerPerson` links the chat to that person. `/memory bind <iface> <account> owner` binds another account to that person later, as [Owner identity](memory.md#owner-identity) describes.
 
 ## Services
 

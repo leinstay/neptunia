@@ -3,7 +3,7 @@
 // panel see the same typed ids. A read goes straight to its reader with the owner's internal context: it runs no
 // operation, asks no model, changes no setting and writes no row, and what it answers never reaches her memory or a
 // request. Only the `cli` principal reaches this module (src/interface/neptunia-cli.ts), and no operation of hers names
-// it. A refusal has a status other than `ok` and a stable `code`. Linking, unlinking and `/memory pending replay` go
+// it. A refusal has a status other than `ok` and a stable `code`. Linking and `/memory pending replay` go
 // through the one writer. `/memory inspect` reads through a snapshot the core holds for the owner: a command without
 // `--snapshot` opens one and names it in its answer, and `--snapshot` goes on reading that moment.
 
@@ -160,7 +160,7 @@ function usersRead(db: Db, name: string, args: Args, bounds: InspectionBounds): 
   return ok(leaf === 'names' ? { names: view.names } : { affinity: view.affinity });
 }
 
-/** `/memory users link` and `unlink`: typed ids checked on the read connection, the write through the one writer. */
+/** `/memory users link`: typed ids checked on the read connection, the write through the one writer. */
 async function usersWrite(memoryDb: unknown, db: Db, name: string, args: Args): Promise<Answer> {
   const person = word(args, 'person');
   const account = word(args, 'account');
@@ -168,15 +168,13 @@ async function usersWrite(memoryDb: unknown, db: Db, name: string, args: Args): 
   if (!view.found) return refused(name, view.code, 'nobody stored that person');
   const known = db.prepare('SELECT 1 AS ok FROM accounts WHERE id = ?').get(account) !== undefined;
   if (!known) return refused(name, 'ACCOUNT_NOT_FOUND', 'nobody stored that account');
-  const linking = name === 'memory.users.link';
-  if (!linking && !view.accounts.some((one) => one.id === account))
-    return refused(name, 'ACCOUNT_NOT_LINKED', 'that account is not linked to that person');
-  const update = linking
-    ? { op: 'bind', accountId: account, target: { personId: person } }
-    : { op: 'unbind', accountId: account };
   try {
-    await (callMethod(memoryDb, 'personLink', update) as Promise<unknown>);
-    return ok({ accountId: account, personId: person, linked: linking });
+    await (callMethod(memoryDb, 'personLink', {
+      op: 'bind',
+      accountId: account,
+      target: { personId: person },
+    }) as Promise<unknown>);
+    return ok({ accountId: account, personId: person, linked: true });
   } catch {
     return { text: `/${name.replaceAll('.', ' ')}: the link could not be written`, status: 'failed' };
   }
@@ -565,7 +563,7 @@ export async function memoryBrowserCommand(
     if (name === 'memory.pending.list' || name === 'memory.pending.replay') return pendingCommand(memoryDb, name);
     const db = callMethod(memoryDb, 'database') as Db | null | undefined;
     if (db == null) return closedDatabase(name);
-    if (name === 'memory.users.link' || name === 'memory.users.unlink') return usersWrite(memoryDb, db, name, args);
+    if (name === 'memory.users.link') return usersWrite(memoryDb, db, name, args);
     if (name === 'memory.users.merge') return usersMerge(memoryDb, db, name, args);
     const bounds = boundsOf(hot);
     return (

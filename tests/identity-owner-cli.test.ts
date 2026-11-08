@@ -13,16 +13,7 @@ import { accountNodeOf } from '../src/memory/db/person-links.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { nativeAuthorityOf } from '../src/protocol/identity.ts';
 import { isOwnerId } from '../src/tools/operations/grants.ts';
-import {
-  mention,
-  query,
-  runCli,
-  spawnCli,
-  startUnitsCore,
-  startedUnit,
-  until,
-  withRig,
-} from './fixtures/core-units.ts';
+import { query, runCli, spawnCli, startUnitsCore, until, withRig } from './fixtures/core-units.ts';
 import type { Dirs, Rig } from './fixtures/core-units.ts';
 import { addAccount } from './fixtures/memory-db/opaque-people.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -92,33 +83,6 @@ test('with an owner person set, the first line of the command line joins it and 
   });
 });
 
-test('a person named owner later takes the command line with them, and the person the install made merges into theirs', async () => {
-  // Bug: `/memory bind <iface> <account> owner` repoints the setting and leaves the command line on the old person, so
-  // the owner holds two people and his chat has no owner rights.
-  await withRig({}, async ({ dirs, llm, units, clis, cores }) => {
-    cores.push(await startUnitsCore(dirs, llm));
-    await firstLine({ dirs, clis });
-    const made = cliAccount(dirs)?.person_id;
-    assert.match(String(made), /^person:/, 'the install made a person for the command line');
-
-    const unit = await startedUnit(dirs);
-    units.push(unit);
-    await unit.emit(mention('m1', 'hello'));
-    await until(() => query(dirs, "SELECT 1 FROM accounts WHERE native_key = 'u1'").length > 0, 'her first sight');
-    const bound = await runCli(dirs, ['-p', '/memory bind fake u1 owner']);
-    assert.equal(bound.code, 0, bound.stdout + bound.stderr.slice(-2000));
-
-    const [named] = query(dirs, "SELECT person_id FROM accounts WHERE native_key = 'u1'");
-    assert.equal(configOf(dirs).bot.ownerPerson, named?.person_id);
-    assert.equal(cliAccount(dirs)?.person_id, named?.person_id);
-    assert.deepEqual(query(dirs, 'SELECT from_person, into_person, by FROM people_merges'), [
-      { from_person: made, into_person: named?.person_id, by: 'owner' },
-    ]);
-    assert.equal(ownerOn('cli', 'owner', configOf(dirs)), true);
-    assert.equal(ownerOn('fake', 'u1', configOf(dirs)), true);
-  });
-});
-
 test('a proposal of hers for the command line resolves to the owner at the next line', async () => {
   // Bug: an install that already ran has the tracked person she made for the owner, and that proposal stands for good.
   await withRig({ config: { bot: { ownerPerson: OWNER } } }, async ({ dirs, llm, clis, cores }) => {
@@ -159,18 +123,14 @@ test('a proposal of hers for the command line resolves to the owner at the next 
 test('/memory bind names the account of the command line by its native words', async () => {
   // Bug: the observation stores the chat under `cli/global` and the console looks under `cli/local`, so every bind that
   // names the chat answers that she has not met it.
-  await withRig({}, async ({ dirs, llm, units, clis, cores }) => {
+  await withRig({}, async ({ dirs, llm, clis, cores }) => {
     cores.push(await startUnitsCore(dirs, llm));
     await firstLine({ dirs, clis });
-    const unit = await startedUnit(dirs);
-    units.push(unit);
-    await unit.emit(mention('m1', 'hello'));
-    await until(() => query(dirs, "SELECT 1 FROM accounts WHERE native_key = 'u1'").length > 0, 'her first sight');
-    const bound = await runCli(dirs, ['-p', '/memory bind fake u1 cli owner']);
+    // The bind names an account by interface and platform id and binds it to a person: here the chat's own account to
+    // the owner, which it already belongs to, so only the lookup under `cli/local` is at stake.
+    const bound = await runCli(dirs, ['-p', '/memory bind cli owner owner']);
     assert.equal(bound.code, 0, bound.stdout + bound.stderr.slice(-2000));
-    assert.deepEqual(query(dirs, "SELECT person_id FROM accounts WHERE native_key = 'u1'"), [
-      { person_id: cliAccount(dirs)?.person_id },
-    ]);
+    assert.equal(cliAccount(dirs)?.person_id, configOf(dirs).bot.ownerPerson);
   });
 });
 
