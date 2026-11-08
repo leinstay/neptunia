@@ -9,7 +9,7 @@ import { serveAdapter } from '../src/protocol/serve.ts';
 import type { Hello } from '../src/protocol/serve.ts';
 import type { Capabilities, Delivery } from '../src/protocol/adapter.ts';
 import type { PortResult } from '../src/protocol/actions.ts';
-import { openAdapterLink } from '../src/interface/link.ts';
+import { createIfaceRouter, openAdapterLink } from '../src/interface/link.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 
@@ -419,4 +419,18 @@ test('an ack envelope the link never asked for does not disturb it', async () =>
   await until(() => handled.length === 1);
   assert.deepEqual(handled, ['e1']);
   link.close();
+});
+
+test('the router answers what the interface of a reference declares, and nothing for one no adapter answers', () => {
+  // Bug: a place of the command line, or of an interface not connected, was told the served interface could react.
+  const served = createFakeAdapter({ iface: 'discord' });
+  const cli = createFakeAdapter({ iface: 'cli', operations: ['message.send'] });
+  const router = createIfaceRouter(
+    served,
+    (iface) => (iface === 'cli' ? cli : null),
+    () => [cli]
+  );
+  assert.deepEqual(router.capabilitiesOf({ iface: 'cli' }).operations, ['message.send']);
+  assert.ok(router.capabilitiesOf({ iface: 'discord' }).operations.includes('message.react.add'));
+  assert.deepEqual(router.capabilitiesOf({ iface: 'elsewhere' }).operations, []);
 });

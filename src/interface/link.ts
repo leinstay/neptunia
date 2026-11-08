@@ -561,22 +561,30 @@ export function createLinkSwitch(first: AdapterLink | null): {
   };
 }
 
+/** The router's port: an adapter that also answers what the interface of one reference declares. */
+export type RoutedAdapter = Adapter & {
+  capabilitiesOf(ref: { iface?: unknown } | null | undefined): Capabilities;
+};
+
 /** An adapter that answers every call as a link that dropped (`link-closed`): where a call goes when its link is gone. */
 export const closedAdapter = (): Adapter => closedLink().adapter;
 
 /**
  * One adapter over the served interface and the interfaces of other namespaces: a call whose reference names an
  * `iface` that `routeOf` answers goes to that adapter, every other call to `served`. The core sends the persona's
- * reply in the owner's command line (`iface: 'cli'`) this way, while its modules hold one port. Its capabilities are
+ * reply in the owner's command line (`iface: 'cli'`) this way, while its modules hold one port. Its `capabilities()` are
  * the served interface's, with the reads of every adapter `routed()` lists added, so a read of a routed chat
- * is asked at all (src/interface/reads.ts asks only a declared read).
+ * is asked at all (src/interface/reads.ts asks only a declared read). `capabilitiesOf(ref)` answers what the interface
+ * of `ref` declares: the served one's for its own `iface` or none named, the routed adapter's for another, and nothing
+ * (`NO_CAPABILITIES`) for an interface no adapter answers. A question about a turn's place asks it
+ * (src/interface/capabilities.ts#portAt).
  */
 export function createIfaceRouter(
   served: Adapter,
   routeOf: (iface: string) => Adapter | null,
   routed: () => ReadonlyArray<Adapter>,
   routeOfRoot: (placeId: string) => Adapter | null = () => null
-): Adapter {
+): RoutedAdapter {
   const by = (ref: { iface?: unknown } | null | undefined): Adapter => {
     const iface = ref?.iface;
     if (typeof iface !== 'string' || iface === '' || iface === served.iface) return served;
@@ -596,6 +604,11 @@ export function createIfaceRouter(
       const own = served.capabilities();
       const extra = routed().flatMap((adapter) => adapter.capabilities().reads ?? []);
       return extra.length === 0 ? own : { ...own, reads: [...new Set([...(own.reads ?? []), ...extra])] };
+    },
+    capabilitiesOf(ref: { iface?: unknown } | null | undefined): Capabilities {
+      const iface = ref?.iface;
+      if (typeof iface !== 'string' || iface === '' || iface === served.iface) return served.capabilities();
+      return routeOf(iface)?.capabilities() ?? NO_CAPABILITIES;
     },
     send: (...args: Parameters<Adapter['send']>) => by(args[0]).send(...args),
     edit: (...args: Parameters<Adapter['edit']>) => by(args[0]).edit(...args),

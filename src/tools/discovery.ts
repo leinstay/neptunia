@@ -107,6 +107,23 @@ export function exposedSkillNames({
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
+/**
+ * The members of `names` the interface of a turn's place can carry out: a skill that needs a port operation
+ * (`interfaceCapability`) stays only when `operations`, what that interface declares, lists it. An interface that
+ * declares no operation at all (a link that has not said hello) leaves every name in.
+ */
+export function placeSkillNames(
+  names: ReadonlyArray<string>,
+  registry: ReadonlyMap<string, Skill>,
+  operations: ReadonlyArray<string>
+): Array<string> {
+  if (operations.length === 0) return [...names];
+  return names.filter((name) => {
+    const needed = registry.get(name)?.interfaceCapability ?? null;
+    return needed === null || operations.includes(needed);
+  });
+}
+
 /** No `skills:` line at all: what an answer without one means (none). */
 export const NO_SKILLS: SkillsLines = Object.freeze({ state: 'missing', inventory: false, names: Object.freeze([]) });
 

@@ -15,11 +15,11 @@ import { toolsBlockText } from '../../../llm/tool-text.ts';
 import { estimateTools } from '../../../llm/tokens.ts';
 import { log } from '../../../log.ts';
 import { PERSONA_ID } from '../../../memory/db/storage-keys.ts';
-import { exposedSkillNames } from '../../../tools/discovery.ts';
+import { exposedSkillNames, placeSkillNames } from '../../../tools/discovery.ts';
 import { buildTools } from '../../../tools/tools-json.ts';
 import { objOf } from '../../../tools/types.ts';
 import { defaultSkills } from '../../calls.ts';
-import { portMediaPick } from '../../../interface/capabilities.ts';
+import { portAt, portCustomEmoji, portMediaPick, portOperations } from '../../../interface/capabilities.ts';
 import type { Draft } from '../../draft.ts';
 import { droppedSections } from '../../journal.ts';
 import { pickOtherProfiles } from '../../mentions.ts';
@@ -667,9 +667,15 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
   // and the carried-over ones, as native tool definitions (or `<tools>` text), then one entry per active skill she can
   // use. The array is the same for every turn kind, so every turn shares one cached prefix: a wake refuses a call outside
   // its own set when the call is made (src/tools/wake-tools.ts#wakeRefusalCode). A selfreflection post has the same
-  // tools; only `draw.create` runs there (runSteps).
+  // tools; only `draw.create` runs there (runSteps). A tool the interface of the turn's place cannot carry out (a reaction
+  // in the owner's command line) is left out, so a turn of another interface has a prefix of its own.
   const registry = skills ?? defaultSkills();
-  const toolNames = exposedSkillNames({ config, selfId, registry });
+  const placePort = portAt(ctx.iface, ctx.chatOf(channel));
+  const toolNames = placeSkillNames(
+    exposedSkillNames({ config, selfId, registry }),
+    registry,
+    portOperations(placePort)
+  );
   const wake = draft.inner?.wake;
   const wakeKind = wake?.kind ?? null;
   // The wake as its words read it (src/behavior/wake.ts): the drain's WakeInfo.
@@ -740,9 +746,9 @@ export function buildTurnRequest(ctx: PhaseContext, params: PhaseParams, draft: 
     // The search of the server's own history: the value the lookup stage used.
     recallAvailable: serverOn,
     drawOn,
-    // The custom emoji the interface offers, and what it declares for them in the turn.
-    customEmoji: emoji ? (emoji.list() ?? []) : [],
-    mediaPickText: portMediaPick(ctx.iface)?.text ?? null,
+    // The custom emoji the interface of the place offers, and what it declares for them in the turn.
+    customEmoji: emoji && portCustomEmoji(placePort) ? (emoji.list() ?? []) : [],
+    mediaPickText: portMediaPick(placePort)?.text ?? null,
     // The transcript's GIF handles: the shared library.
     gifs: typeof store.getGifs === 'function' ? (store.getGifs() ?? null) : null,
     // The cached captions of a custom emoji and of a library GIF in the transcript.

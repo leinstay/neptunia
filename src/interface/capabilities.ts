@@ -14,6 +14,33 @@ const capabilitiesOf = (port: unknown): Record<string, unknown> => {
   return declared !== null && typeof declared === 'object' ? (declared as Record<string, unknown>) : {};
 };
 
+/** A port as one interface answers it: the namespace of its ids and what it declares. */
+export type PortView = { iface: string; capabilities(): unknown };
+
+/**
+ * The port as the interface of `ref` answers it: `port` itself when it routes nothing (no `capabilitiesOf`) or `ref`
+ * names its own interface or none, else a view whose `iface` is the reference's and whose capabilities are what the
+ * router answers for it (src/interface/link.ts#createIfaceRouter). The reads below then speak of the place's interface.
+ */
+export function portAt(port: unknown, ref: { iface?: unknown } | null | undefined): unknown {
+  const ask = (port as { capabilitiesOf?: unknown } | null | undefined)?.capabilitiesOf;
+  const iface = ref?.iface;
+  if (typeof ask !== 'function' || typeof iface !== 'string' || iface === '' || iface === portIface(port)) return port;
+  const view: PortView = { iface, capabilities: () => (ask as (given: unknown) => unknown).call(port, { iface }) };
+  return view;
+}
+
+/** False when the port declares it has no custom emoji (`customEmoji: false`), true otherwise. */
+export function portCustomEmoji(port: unknown): boolean {
+  return capabilitiesOf(port).customEmoji !== false;
+}
+
+/** The capability names of the operations the port declares (`operations`), empty when it declares none. */
+export function portOperations(port: unknown): Array<string> {
+  const declared = capabilitiesOf(port).operations;
+  return Array.isArray(declared) ? declared.filter((name): name is string => typeof name === 'string') : [];
+}
+
 /** The interface a port names its ids with, '' when it names none. */
 export function portIface(port: unknown): string {
   const iface = (port as Port | null | undefined)?.iface;
