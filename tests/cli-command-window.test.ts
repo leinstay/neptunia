@@ -114,6 +114,29 @@ test('the next command reopens the window with the earlier results above, each u
   });
 });
 
+test("the window pads its commands' numbers to the widest one, so each command line keeps one column", async () => {
+  // Bug: the tenth command's `[#10]` is a cell wider than `[#9]`, and the command lines stop lining up.
+  const { env } = commandEnv({ '/status': 'answer' });
+  await withChat(
+    env,
+    async (rig) => {
+      for (let count = 1; count <= 10; count += 1) {
+        const pattern = new RegExp(`\\[#0?${count}\\] /status$`);
+        await press(rig, '/status', shows(rig, '> /status'));
+        await press(rig, KEY.enter, () => rig.screen().some((line) => pattern.test(line)));
+        await press(rig, KEY.escape, () => ruleRow(rig) === -1);
+      }
+      await press(rig, '/status', shows(rig, '> /status'));
+      await press(rig, KEY.enter, shows(rig, '[#11] /status'));
+      const lines = rig.screen().filter((line) => line.endsWith('] /status'));
+      assert.ok(lines.includes('[1970-01-01 00:00] [#01] /status'), lines.join('\n'));
+      assert.ok(lines.includes('[1970-01-01 00:00] [#11] /status'), lines.join('\n'));
+      assert.deepEqual(new Set(lines.map((line) => line.length)), new Set([32]));
+    },
+    { rows: 120 }
+  );
+});
+
 /** The rows that hold `prefix` followed by a number, as numbers. */
 const numbered = (rig: Rig, prefix: string): Array<number> =>
   rig.screen().flatMap((line) => {
