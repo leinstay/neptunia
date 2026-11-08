@@ -540,6 +540,13 @@ export function createTurnRunner({
         ? (name: string) => frameReads.placesNamed?.(context, name) ?? []
         : null;
     },
+    // The places the memory graph ranks for words of hers that name no place, read under the turn's memory context.
+    placesFoundFor: (draft, channel) => {
+      const context = turnContextOf(draft, channel) as Context | null;
+      return frameReads?.placesFound && context
+        ? (words: string) => frameReads.placesFound?.(context, words) ?? []
+        : null;
+    },
     // A #handle she carries names a channel of any interface the memory holds.
     knownPlaces: () => frameReads?.chatPlaceIds?.() ?? [],
     skills,

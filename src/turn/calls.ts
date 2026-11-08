@@ -138,7 +138,7 @@ function callChannelHandles(
  * member handles (`memberHandles`: handle -> member id, her `@handle` in a member argument) and the skill registry
  * (`skills`: a skill's options are resolved by its dispatch), `places` (the channels a read call may name, from the
  * snapshot by the pull rail with `partnerId` as the reader of a private chat or the command line; left out without a
- * `config` or a snapshot), `stem` (the loaded stemmer, `stem` as given), `placesNamed` (the name index of the memory under the turn's context), `searchRefs` (the turn's quoted lines
+ * `config` or a snapshot), `stem` (the loaded stemmer, `stem` as given), `placesNamed` (the name index of the memory under the turn's context), `placesFound` (the places the memory graph ranks for words that name no place, under the turn's context), `searchRefs` (the turn's quoted lines
  * of a memory.search, searchHandles), and `fileOf` (a file handle
  * of one of her errands -> the file, null when this chat may not use it), and `triggerText` (the
  * trigger message's text: a channel it names may take an errand's file). Reads `store` only. Exported
@@ -167,6 +167,7 @@ export function callViewOf({
   config = null,
   stem = null,
   placesNamed = null,
+  placesFound = null,
   knownPlaces = null,
 }: {
   // The interface's description of the chat: a private chat (`rootId` null) lists no channels.
@@ -191,6 +192,7 @@ export function callViewOf({
   config?: Record<string, unknown> | null;
   stem?: ((word: string) => string) | null;
   placesNamed?: CallView['placesNamed'];
+  placesFound?: CallView['placesFound'];
   // The place ids of the memory's channels and threads on every interface (frame-reads.ts#chatPlaceIdsOf).
   knownPlaces?: ReadonlyArray<string> | null;
 }): CallView & { currentChatId: string } {
@@ -234,6 +236,7 @@ export function callViewOf({
     ...(places ? { places } : {}),
     ...(stem ? { stem } : {}),
     ...(placesNamed ? { placesNamed } : {}),
+    ...(placesFound ? { placesFound } : {}),
     channelHandles: shownChannels
       ? callChannelHandles(
           shownChannels,

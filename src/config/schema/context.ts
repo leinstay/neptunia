@@ -52,6 +52,14 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
       'The graph reader (`mindOf`): the lines of the window that seed it, her last lines over the rooms of every group that a service shows in `<meanwhile>` and seeds `<memory>` from (`serviceMessages`, read by `src/turn/request/meanwhile.ts`), the counted hops, the rows read, the token budget and its shares per kind of entry, the part kept for the person she answers, the candidates of an ambiguous word, the word that names too many entries, and the rows read per path. Each key is described in `docs/memory.md`, "How a turn remembers". A missing or broken key counts as its default',
   },
   {
+    'key': 'context.find',
+    'types': ['map'],
+    'reader': 'src/memory/db/graph-find.ts',
+    'default': { 'candidates': 5, 'lines': 100 },
+    'text':
+      'The finder of a place or a person named in words that name none (`placesFound`, `peopleFound`): how many candidates a tool result lists at most, and how many of a place\'s last lines are read for its people and its words. Described in `docs/memory.md`, "Finding a place or a person". A missing or broken key counts as its default',
+  },
+  {
     'key': 'context.meanwhile.messages',
     'types': ['number'],
     'reader': 'src/turn/request/meanwhile.ts',
