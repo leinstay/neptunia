@@ -165,7 +165,7 @@ function opsEnv(rig: InspectionRig) {
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     board: null,
     watcher: createReportReader(rig.reportsDir),
   });
@@ -176,7 +176,7 @@ async function watcherRead(rig: InspectionRig, args: Record<string, unknown>) {
     runOpPrechecked('watcher.read', args, {
       env: opsEnv(rig),
       placeId: 'g1',
-      conversationId: 'c1',
+      chatId: 'c1',
       accountId: null,
       roleIds: [],
       actor: 'persona',

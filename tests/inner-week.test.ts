@@ -788,7 +788,7 @@ test('inner-week: in live mode every writable fixture channel is the real channe
   assert.equal(byKey.unwritable.destination, 'c-news');
   assert.ok(run.turns.length > 0);
   // Slice 5 (plan 5 (a)): the unwritable intention is no longer dropped no-channel; its turn runs nowhere (no
-  // conversation), and every other turn lands in the real channel.
+  // chat), and every other turn lands in the real channel.
   const unwritableId = String(byKey.unwritable.id);
   const nowhere = (turn: Record<string, Untyped>) =>
     (turn.items as Array<{ intentionIds: Array<string> }>).some((item) => item.intentionIds.includes(unwritableId));

@@ -14,7 +14,7 @@ import type { RowBlock, TranscriptRow } from './transcript.ts';
 const GALAXY_MS = 200;
 const GALAXY_ROWS = 5;
 const GALAXY_GAP_ROWS = 1;
-/** Below these sizes the galaxy leaves its rows to the conversation (measured: docs/cli.md, "Measured geometry"). */
+/** Below these sizes the galaxy leaves its rows to the chat (measured: docs/cli.md, "Measured geometry"). */
 const FULL_HEADER_MIN_ROWS = 16;
 const FULL_HEADER_MIN_COLUMNS = 40;
 /** Below this height the header goes altogether, and the input and the footer keep what is left. */

@@ -100,7 +100,7 @@ function buildGifBackfill({
    * persona are skipped. Resetting, counting and stamping happen together
    * after every channel is read; the describing comes after, and only while
    * not paused. Skips (never throws) when paused, when already stamped (no `force`), while another run is in flight, or
-   * when the interface lists no readable conversation of the community; an unexpected error is thrown.
+   * when the interface lists no readable chat of the root; an unexpected error is thrown.
    */
   async function run(
     placeId: string,

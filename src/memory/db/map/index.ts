@@ -108,11 +108,11 @@ function identityOf(
   };
 }
 
-/** The DM place an account's conversation is stored under, the most recently seen when it holds several. */
+/** The DM place an account's chat is stored under, the most recently seen when it holds several. */
 function dmPlaceOfAccount(db: Db, accountId: string): MapContext['dmPlace'] {
   const place = db
     .prepare(
-      `SELECT id, partner_person FROM places WHERE partner_account = ? AND (kind = 'dm' OR conversation = 'dm')
+      `SELECT id, partner_person FROM places WHERE partner_account = ? AND (kind = 'dm' OR chat = 'dm')
        AND retired_at IS NULL ORDER BY COALESCE(seen_to_at, '') DESC, id LIMIT 1`
     )
     .get(accountId);
@@ -131,7 +131,7 @@ function dmPlaceOfSubject(id: string, place: Row | undefined): NonNullable<MapCo
 function partnerNativeOf(db: Db, id: string, place: Row | undefined): string | null {
   // A DM place no row holds yet (a kept write of an older release): its spelled id names the partner.
   if (!place) return /^[^:]+:dm:(.+)$/.exec(id)?.[1] ?? null;
-  if (place.kind !== 'dm' && place.conversation !== 'dm') return null;
+  if (place.kind !== 'dm' && place.chat !== 'dm') return null;
   const account = place.partner_account;
   if (typeof account === 'string') {
     const stored = db.prepare('SELECT native_id FROM accounts WHERE id = ?').get(account)?.native_id;

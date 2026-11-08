@@ -2,7 +2,7 @@
 // turns the token of `hello` into a principal, and the principal, never what `hello` claims, decides what the
 // connection may do. An interface principal sends events of its own `iface` only and never a command; only a `cli`
 // principal reaches commands. The tests also cover what the link does with the `seq` an interface numbers its events
-// with (one conversation's events in order, a contiguous acknowledgement), the idempotency key a caller gives an
+// with (one chat's events in order, a contiguous acknowledgement), the idempotency key a caller gives an
 // effect, and an effect's cancellation. The interface end is driven by hand over the loopback where a well-behaved
 // interface would never send what the test sends, and is the real serveAdapter over the fake adapter elsewhere.
 import { test } from 'node:test';
@@ -26,7 +26,7 @@ type Log = {
 };
 
 const quiet: Log = { info() {}, warn() {}, error() {} };
-const CONVERSATION = { iface: 'fake', conversationId: 'c1' };
+const CHAT = { iface: 'fake', chatId: 'c1' };
 const CAPABILITIES: Capabilities = {
   operations: ['message.send'],
   maxChars: 2000,
@@ -43,7 +43,7 @@ const CAPABILITIES: Capabilities = {
   search: false,
 };
 const SELF = { id: 'bot-1', name: 'Nova' };
-const HELLO: Hello = { iface: 'fake', self: SELF, community: null, capabilities: CAPABILITIES, resume: null };
+const HELLO: Hello = { iface: 'fake', self: SELF, root: null, capabilities: CAPABILITIES, resume: null };
 
 const FAKE: Principal = { name: 'fake', kind: 'interface', iface: 'fake', permissions: [] };
 const OWNER: Principal = { name: 'owner', kind: 'cli', iface: 'cli', permissions: [] };
@@ -58,13 +58,13 @@ const TOKENS: Record<string, Principal> = {
 };
 const principalOf = (token: string): Principal | null => TOKENS[token] ?? null;
 
-function reaction(id: string, conversationId = 'c1', iface = 'fake'): Record<string, unknown> {
+function reaction(id: string, chatId = 'c1', iface = 'fake'): Record<string, unknown> {
   return {
     kind: 'reaction.changed',
     iface,
     at: 1,
     id,
-    conversation: { id: conversationId, kind: 'channel' },
+    chat: { id: chatId, kind: 'channel' },
     messageId: 'm1',
     emoji: { name: 'x' },
     accountId: 'u1',
@@ -78,7 +78,7 @@ function command(id: string, iface: string): Record<string, unknown> {
     iface,
     at: 1,
     id,
-    conversation: { id: 'c1', kind: 'channel' },
+    chat: { id: 'c1', kind: 'channel' },
     name: 'pause',
     args: {},
     replyRef: 'r1',
@@ -278,7 +278,7 @@ test('the ack of an event carries the contiguous watermark: a later event done f
   rig.link.close();
 });
 
-test("a conversation's next event waits for the one before it, while another conversation's event goes on", async () => {
+test("a chat's next event waits for the one before it, while another chat's event goes on", async () => {
   const rig = core(['e1']);
   rig.hello('fake-token');
   await within(rig.link.hello);
@@ -304,8 +304,8 @@ async function pair(adapter = createFakeAdapter()) {
 test('a send carries the idempotency key its caller gives, and a retry under the same key posts once', async () => {
   const { link, served, fake } = await pair();
   const key = 'turn-1:0:c1';
-  const first = await link.adapter.send(CONVERSATION, { text: 'once' }, { idempotencyKey: key });
-  const retry = await link.adapter.send(CONVERSATION, { text: 'once' }, { idempotencyKey: key });
+  const first = await link.adapter.send(CHAT, { text: 'once' }, { idempotencyKey: key });
+  const retry = await link.adapter.send(CHAT, { text: 'once' }, { idempotencyKey: key });
   assert.equal(fake.messagesIn('c1').length, 1);
   assert.equal(retry.ref?.messageId, first.ref?.messageId);
   assert.equal(retry.idempotencyKey, key);
@@ -336,7 +336,7 @@ test('a send whose signal is aborted before the call is cancelled and never sent
   const { link, actions } = await handDriven();
   const controller = new AbortController();
   controller.abort();
-  const delivery = await link.adapter.send(CONVERSATION, { text: 'never' }, { signal: controller.signal });
+  const delivery = await link.adapter.send(CHAT, { text: 'never' }, { signal: controller.signal });
   assert.equal(delivery.status, 'cancelled');
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(actions, []);
@@ -346,14 +346,14 @@ test('a send whose signal is aborted before the call is cancelled and never sent
 test('an abort after the action went out sends a cancel naming it, and the result that arrives later stands', async () => {
   const { link, client, actions, cancels } = await handDriven();
   const controller = new AbortController();
-  const pending = link.adapter.send(CONVERSATION, { text: 'in flight' }, { signal: controller.signal });
+  const pending = link.adapter.send(CHAT, { text: 'in flight' }, { signal: controller.signal });
   await until(() => actions.length === 1);
   const [action] = actions;
   if (action === undefined) throw new Error('no action');
   controller.abort();
   await until(() => cancels.length === 1);
   assert.equal(cancels[0]?.replyTo, action.id);
-  const ref = { ...CONVERSATION, messageId: 'p1' };
+  const ref = { ...CHAT, messageId: 'p1' };
   const result = { status: 'ok', ref, parts: [ref], at: 5, idempotencyKey: 'k', error: null };
   client.send(envelope('action_result', result, { id: `result:${action.id}`, replyTo: action.id }));
   const delivery = await pending;
@@ -393,7 +393,7 @@ test("an agent principal's message event is refused and never reaches the door",
     iface: 'agent',
     at: 1,
     id: 'm1',
-    conversation: { id: 'agent:hand', kind: 'dm' },
+    chat: { id: 'agent:hand', kind: 'dm' },
     message: {
       id: 'm1',
       author: { id: 'hand', name: 'hand', self: false, bot: false },
@@ -411,7 +411,7 @@ test("an agent principal's message event is refused and never reaches the door",
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
   };
   rig.client.send(envelope('event', message, { id: 'm1' }));
   assert.equal((await answered(rig, 'm1')).status, 'invalid');
@@ -425,7 +425,7 @@ function ordinaryMessage(id: string, iface = 'cli'): Record<string, unknown> {
     iface,
     at: 1,
     id,
-    conversation: { id: `${iface}:dm:owner`, kind: 'dm' },
+    chat: { id: `${iface}:dm:owner`, kind: 'dm' },
     message: {
       id,
       author: { id: 'owner', name: 'Owner', self: false, bot: false },
@@ -441,7 +441,7 @@ function ordinaryMessage(id: string, iface = 'cli'): Record<string, unknown> {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
   };
 }
 
@@ -459,7 +459,7 @@ test('an authenticated CLI message reaches the handler with verified sender, ing
       seq: 1,
       eventId: 'cli-message',
       kind: 'message.received',
-      conversation: 'cli:dm:owner',
+      chat: 'cli:dm:owner',
     });
     assert.deepEqual(rig.committed, [rig.contexts[0]?.ingest]);
     assert.equal('authenticated' in (rig.events[0] ?? {}), false, 'trusted sender stays outside the wire event');

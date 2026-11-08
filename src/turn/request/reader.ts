@@ -58,7 +58,7 @@ export type ReaderInput = {
   selfFacts: Array<string>;
   surroundings: SurroundingsInput | null;
   mind: Mind;
-  /** The conversation ids of the places her selfreflection is mirrored to, marked in `<memory>`. */
+  /** The chat ids of the places her selfreflection is mirrored to, marked in `<memory>`. */
   selfreflectionIds?: ReadonlySet<string>;
   /** The stored facts the prefetch found, shown in `<found>` after the mind's excerpts. */
   facts?: ReadonlyArray<StoredFact>;
@@ -75,7 +75,7 @@ export type ReaderInput = {
   live: LiveOf | null;
   /** The handles the chat was rendered with, by platform id: they keep their form whatever joins them. */
   chatHandles: Map<string, string> | null;
-  /** The conversation id of the turn's place: it gets a channel handle with the places memory and meanwhile show. */
+  /** The chat id of the turn's place: it gets a channel handle with the places memory and meanwhile show. */
   currentChannelId: string | null;
 };
 
@@ -86,7 +86,7 @@ export type ReaderResult = {
   fit: Fit;
   keptChat: Array<TranscriptItem>;
   handleById: Map<string, string> | null;
-  /** Conversation id -> channel handle: the current place and the places `<memory>` and `<meanwhile>` kept. */
+  /** Chat id -> channel handle: the current place and the places `<memory>` and `<meanwhile>` kept. */
   channelHandleById: Map<string, string>;
   memberNames: Map<string, Array<string>>;
   peopleShown: Array<{ id: string; names: Array<string> }>;

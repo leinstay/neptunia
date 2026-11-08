@@ -276,7 +276,7 @@ test('a normalized DM place hides its name independently of an allowed source au
           iface: 'discord',
           kind: 'dm',
           native_id: BOB,
-          conversation: 'dm',
+          chat: 'dm',
           name: 'Private normalized place',
         },
       ],

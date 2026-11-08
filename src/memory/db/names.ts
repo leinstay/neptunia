@@ -116,13 +116,13 @@ function accountNode(db: Db, accountId: string): string {
 /** A place's own audience, as the graph gives it (graph.ts#placeAudience), from its stored row. */
 function audienceOfPlace(place: Row | undefined): string {
   if (!place) return AUD_INTERNAL;
-  if (place.conversation === 'dm' || place.kind === 'dm') return dmAudienceId(place.id);
+  if (place.chat === 'dm' || place.kind === 'dm') return dmAudienceId(place.id);
   if (filled(place.iface)) return groupAudienceId(place.iface);
   return AUD_INTERNAL;
 }
 
 function placeRows(db: Db, id: string): Array<NameRow> {
-  const place = db.prepare('SELECT id, iface, kind, conversation, name, retired_at FROM places WHERE id = ?').get(id);
+  const place = db.prepare('SELECT id, iface, kind, chat, name, retired_at FROM places WHERE id = ?').get(id);
   if (!place || place.retired_at !== null || !filled(place.name)) return [];
   return [{ label: place.name, kind: 'place', nodeId: nodeOf('place', id), audienceId: audienceOfPlace(place) }];
 }
@@ -162,7 +162,7 @@ function membershipRows(db: Db, id: string): Array<NameRow> {
   if (!membership || membership.retired_at !== null || membership.valid_to_at !== null) return [];
   if (!filled(membership.nick) || !filled(membership.account_id)) return [];
   const place = filled(membership.place_id)
-    ? db.prepare('SELECT id, iface, kind, conversation FROM places WHERE id = ?').get(membership.place_id)
+    ? db.prepare('SELECT id, iface, kind, chat FROM places WHERE id = ?').get(membership.place_id)
     : undefined;
   return [
     {

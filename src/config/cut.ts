@@ -528,9 +528,9 @@ const DISCORD_KEYS: ReadonlyArray<string> = [
   'media.embedTextChars',
 ];
 
-/** The two privacy switches, kept as keys under `private`. */
+/** The two privacy switches, kept as `dm.enabled` and `private.likeServer`. */
 const RENAMES: ReadonlyArray<[string, string]> = [
-  ['features.privateMessages', 'private.enabled'],
+  ['features.privateMessages', 'dm.enabled'],
   ['features.privateLikeServer', 'private.likeServer'],
   // The media pick took over the GIF pick's one setting (plan 2026-11-04-cli-and-memory B7).
   ['gifs.pick.maxOutputTokens', 'media.pick.maxOutputTokens'],

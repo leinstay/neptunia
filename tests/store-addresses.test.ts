@@ -22,7 +22,7 @@ function storeOver(): ReturnType<typeof createStore> {
   const db = dbOf(seed);
   addAuthority(db, 'one', 'one/global');
   db.prepare(
-    "INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, scope_kind) VALUES ('one:guild:g1', 'one', 'server', 'g1', 'guild:g1', 'one/global', 1, 'group')"
+    "INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, scope_kind) VALUES ('one:root:g1', 'one', 'server', 'g1', 'root:g1', 'one/global', 1, 'group')"
   ).run();
   addAccount(db, { id: 'account:u1', iface: 'one', authority: 'one/global', native: 'u1', person: 'person:opaque' });
   seed.close();
@@ -38,10 +38,10 @@ function storeOver(): ReturnType<typeof createStore> {
   return createStore({ dataDir, memoryDb });
 }
 
-test('a community and an account resolve to their stored rows, under any spelling of the row id', () => {
+test('a root and an account resolve to their stored rows, under any spelling of the row id', () => {
   // Bug: the core spells a new id for a server a shipped database holds, and she forgets the server after the conversion.
   const store = storeOver();
-  assert.equal(store.placeOfCommunity('g1', 'one'), 'one:guild:g1');
+  assert.equal(store.placeOfRoot('g1', 'one'), 'one:root:g1');
   assert.equal(store.accountOf('u1', 'one'), 'account:u1');
   assert.equal(store.personOfAccount('account:u1'), 'person:opaque');
 });
@@ -49,16 +49,16 @@ test('a community and an account resolve to their stored rows, under any spellin
 test('what no row holds yet gets the spelling the observation gives', () => {
   // Bug: a turn before the first observed line writes under an id no later row answers.
   const store = storeOver();
-  assert.equal(store.placeOfCommunity('g2', 'one'), 'one:server:g2');
-  assert.equal(store.placeOfConversation({ id: 'c9' }, 'one'), 'one:channel:c9');
-  assert.equal(store.placeOfConversation({ kind: 'dm', partnerId: 'u9' }, 'one'), 'one:dm:u9');
+  assert.equal(store.placeOfRoot('g2', 'one'), 'one:server:g2');
+  assert.equal(store.placeOfChat({ id: 'c9' }, 'one'), 'one:channel:c9');
+  assert.equal(store.placeOfChat({ kind: 'dm', partnerId: 'u9' }, 'one'), 'one:dm:u9');
   assert.equal(store.accountOf('u9', 'one'), 'one:u9');
 });
 
-test('a read of the interface names a community natively and never a DM', () => {
-  // Bug: a canonical id reaches the platform, or a DM place asks a community read that has no answer.
+test('a read of the interface names a root natively and never a DM', () => {
+  // Bug: a canonical id reaches the platform, or a DM place asks a root read that has no answer.
   const store = storeOver();
-  assert.equal(store.nativeCommunityOf('one:guild:g1'), 'g1');
-  assert.equal(store.nativeCommunityOf('one:server:g2'), 'g2');
-  assert.equal(store.nativeCommunityOf('g3'), 'g3');
+  assert.equal(store.nativeRootOf('one:root:g1'), 'g1');
+  assert.equal(store.nativeRootOf('one:server:g2'), 'g2');
+  assert.equal(store.nativeRootOf('g3'), 'g3');
 });

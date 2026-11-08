@@ -1,4 +1,4 @@
-// The ninth step of a turn's request: what was kept for her in this conversation (the addressed turns that failed
+// The ninth step of a turn's request: what was kept for her in this chat (the addressed turns that failed
 // earlier, a send that may have gone out, the other facts), the task input with what the turn does not answer, the
 // follow-up prompt's check, her time away and skills discovery. The request phase (src/turn/phases/request.ts) runs
 // it after the gather step.
@@ -42,18 +42,18 @@ export async function tellFacts(
   pulled: Pulled,
   gathered: Gathered
 ): Promise<Told> {
-  const { store, iface, facts, privateChannels, promptState, offPeriodsFor, skillIndex } = ctx;
+  const { store, iface, facts, dmChannels, promptState, offPeriodsFor, skillIndex } = ctx;
   const { mode, trigger = null, triggerKind = null, part = null, queued = null, added = null } = params;
   const { missed = null } = params;
-  const { channel, placeId, reading, isPrivate } = opened;
+  const { channel, placeId, reading, isDm } = opened;
   const { config, now, memoryOn, selfId } = setup;
   const { finalMode } = pulled;
   const { history, prompts } = gathered;
   // A part of a split message, the author's other calls still queued, the messages folded into this one.
   // Addressed turns of this channel that failed earlier, told once (first part only); cleared at the turn's end unless it fails too.
   const addressedHere = mode === 'reply' && askedFor(trigger, triggerKind) && (!part || part.index === 1);
-  if (isPrivate) privateChannels.add(String(channel.id));
-  const factScope = { placeId: String(channel.id), privateChat: isPrivate };
+  if (isDm) dmChannels.add(String(channel.id));
+  const factScope = { placeId: String(channel.id), dmChat: isDm };
   let pendingFacts = addressedHere ? facts().pending(factScope) : [];
   // A send of hers that may have gone out is looked for in the channel's lines first: found, the fact is dropped; not, it is told as unclear.
   if (pendingFacts.some((fact) => fact.kind === 'sendFailed' && fact.unknown === true)) {
@@ -77,7 +77,7 @@ export async function tellFacts(
       store.getUser?.(accountOf(store, String(fact.authorId)))?.names?.[0] ??
       '',
     messageId: fact.messageId,
-    link: messageLinkOf(iface, isPrivate ? null : placeId, channel.id, fact.messageId),
+    link: messageLinkOf(iface, isDm ? null : placeId, channel.id, fact.messageId),
     at: fact.at,
     code: fact.code,
   }));
@@ -118,7 +118,7 @@ export async function tellFacts(
       mode: finalMode,
       triggerKind,
       taggedCall,
-      privateChat: isPrivate,
+      dmChat: isDm,
     })
   ) {
     const followUpPrompt = prompts?.['follow-up'];

@@ -1,7 +1,7 @@
 // The scene of tests/selfreflection-mirror-awareness.test.ts: one ordinary reply turn of the real turn runner over a real store
-// and memory database, on a community of the fake interface with `general` (c1), `journal` (d1) and `notes` (d2), and a
+// and memory database, on a root of the fake interface with `general` (c1), `journal` (d1) and `notes` (d2), and a
 // scripted model. Synthetic text only.
-import { placeOfCommunity, placeOfConversation } from '../../src/memory/addresses.ts';
+import { placeOfRoot, placeOfChat } from '../../src/memory/addresses.ts';
 import { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../../src/memory/store.ts';
@@ -15,7 +15,7 @@ import { worldTurnRunner } from './world-runner.ts';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 const MINUTE = 60_000;
-export const GUILD = 'g1';
+export const ROOT = 'g1';
 
 /** The memory databases the scenes opened, closed when the file is done. */
 const OPEN: Array<{ close(): unknown }> = [];
@@ -34,7 +34,7 @@ function ownLine(id: string, placeId: string): Record<string, unknown> {
 }
 
 /**
- * One ordinary reply turn to Alice in `here`, on a community with `general` (c1), `journal` (d1) and `notes` (d2),
+ * One ordinary reply turn to Alice in `here`, on a root with `general` (c1), `journal` (d1) and `notes` (d2),
  * each with notes in memory and her line ten minutes ago in d1 and d2, stored too. Memory holds the `selfreflection`
  * mirrors on `mirrors`; the config sets `diary.placeId` only when `selfreflectionChannelId` is given.
  */
@@ -52,8 +52,8 @@ export async function replyTurn({
   const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
   const names = { c1: 'general', d1: 'journal', d2: 'notes' } as const;
   for (const [id, name] of Object.entries(names)) {
-    store.touchChannel(placeOfConversation(store, { id, iface: 'fake' }), { name }, NOW - 5 * MINUTE);
-    store.updateChannel(placeOfConversation(store, { id, iface: 'fake' }), { purpose: `${name} purpose` });
+    store.touchChannel(placeOfChat(store, { id, iface: 'fake' }), { name }, NOW - 5 * MINUTE);
+    store.updateChannel(placeOfChat(store, { id, iface: 'fake' }), { purpose: `${name} purpose` });
   }
   store.flush();
   await store.flushSettled({});
@@ -62,18 +62,18 @@ export async function replyTurn({
   const db = dbOf(memory.memoryDb);
   const hasMirrors = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").all();
   if (hasMirrors.length > 0)
-    for (const id of mirrors) seedMirror(memory.memoryDb, { iface: 'fake', conversationId: id, name: names[id], at: NOW });
+    for (const id of mirrors) seedMirror(memory.memoryDb, { iface: 'fake', chatId: id, name: names[id], at: NOW });
   // Her channels sit under the server, as the observation of their first lines leaves them.
-  const server = placeOfCommunity(store, GUILD, 'fake');
+  const server = placeOfRoot(store, ROOT, 'fake');
   db.prepare("INSERT OR IGNORE INTO places (id, iface, kind) VALUES (?, 'fake', 'server')").run(server);
   for (const id of Object.keys(names))
-    db.prepare('UPDATE places SET parent_id = ? WHERE id = ?').run(server, placeOfConversation(store, { id, iface: 'fake' }));
+    db.prepare('UPDATE places SET parent_id = ? WHERE id = ?').run(server, placeOfChat(store, { id, iface: 'fake' }));
   // Her lines in d1 and d2 are stored too, so a reply's `<memory>` brings both places to mind as hers (slice 4).
   for (const id of ['d1', 'd2'] as const)
     addLine(db, {
       id: `src:fake:p-${id}:1:said`,
       iface: 'fake',
-      place: placeOfConversation(store, { id, iface: 'fake' }),
+      place: placeOfChat(store, { id, iface: 'fake' }),
       author: 'self',
       text: 'σημείωμα',
       at: new Date(NOW - 10 * MINUTE).toISOString(),
@@ -82,9 +82,9 @@ export async function replyTurn({
   const trigger = rawMessage({ id: 'm1', ts: NOW - 1000, content: 'γεια σου' });
   for (const id of ['d1', 'd2'] as const) {
     const lines = id === here ? [ownLine(`p-${id}`, id), { ...trigger, placeId: id }] : [ownLine(`p-${id}`, id)];
-    world().channel({ id, name: names[id], placeId: GUILD, historyMessages: lines, lastMessageAt: NOW - 10 * MINUTE });
+    world().channel({ id, name: names[id], placeId: ROOT, historyMessages: lines, lastMessageAt: NOW - 10 * MINUTE });
   }
-  if (here === 'c1') world().channel({ id: 'c1', name: names.c1, placeId: GUILD, historyMessages: [trigger] });
+  if (here === 'c1') world().channel({ id: 'c1', name: names.c1, placeId: ROOT, historyMessages: [trigger] });
   const llm = sequenceLlm(['<msg>γεια</msg>']);
   const turns = worldTurnRunner({
     hot: hotWith({

@@ -291,14 +291,14 @@ test('a triggerless private inner turn writes its completed turn only to its par
     const privateTurn = privateTurns[0];
     assert.ok('mode' in privateTurn && 'scope' in privateTurn);
     assert.equal(privateTurn.mode, 'inner');
-    // Its place says it is private; the scope of a record is the conversation it happened in.
+    // Its place says it is private; the scope of a record is the chat it happened in.
     assert.deepEqual(privateTurn.scope, { channel: 'private-room' });
   } finally {
     await memory.close();
   }
 });
 
-test('automatic prefetch receives the turn conversation identity', async () => {
+test('automatic prefetch receives the turn chat identity', async () => {
   const reads: Array<unknown> = [];
   const recall = {
     available: () => true,
@@ -311,6 +311,6 @@ test('automatic prefetch receives the turn conversation identity', async () => {
   assert.ok(reads.length > 0, 'the turn must perform prefetch');
   assert.deepEqual(
     reads,
-    reads.map(() => ({ iface: 'discord', conversationId: 'c1' }))
+    reads.map(() => ({ iface: 'discord', chatId: 'c1' }))
   );
 });

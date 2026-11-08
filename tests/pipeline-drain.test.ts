@@ -45,7 +45,7 @@ for (const privileged of [true, false]) {
     const config = {
       bot: { timezone: 'UTC' },
       mention: { neverIgnore: [], repeatWindowMinutes: 0, pendingMinutes: 10 },
-      private: { enabled: true },
+      dm: { enabled: true },
     };
     const { drainPending } = createDrain({
       hot: { config },
@@ -61,7 +61,7 @@ for (const privileged of [true, false]) {
       queuedFor: () => () => [],
       requeueBusy: () => false,
       currentOf: (current) => Promise.resolve(current),
-      refOf: (current) => ({ iface: 'cli', conversationId: current.id }),
+      refOf: (current) => ({ iface: 'cli', chatId: current.id }),
       heldCallState: () => Promise.resolve(true),
       afterCallTurn: () => Promise.resolve(),
       checkPrivateGate: () => Promise.resolve({ gate: { ok: true }, isOwner: true }),
@@ -74,7 +74,7 @@ for (const privileged of [true, false]) {
     assert.deepEqual(pending.list, []);
     assert.equal(requests.length, privileged ? 1 : 0);
     if (privileged) {
-      assert.deepEqual(requests[0]?.conversation, { iface: 'cli', conversationId: 'cli:dm:owner' });
+      assert.deepEqual(requests[0]?.chat, { iface: 'cli', chatId: 'cli:dm:owner' });
       assert.equal(requests[0]?.memoryContext, memoryContext);
     }
   });

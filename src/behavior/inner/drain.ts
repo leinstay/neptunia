@@ -1,5 +1,5 @@
 // The drain and the turn it opens: one inner turn for the queue's first coalesced group, once the attention is free
-// and no cap holds it. The drain picks the conversation, builds the `<wake>` facts, records the wake run, runs the
+// and no cap holds it. The drain picks the chat, builds the `<wake>` facts, records the wake run, runs the
 // turn through the turn runner (src/behavior/turn.ts, mode `inner`), then marks the wakes handled or retries them,
 // keeps the turn's feedback facts and queues the feedback wake. The turn's wakes are claimed in the memory database
 // before the turn asks the model and completed or released after it (wake-store.ts); a live turn's posts are held
@@ -17,7 +17,7 @@ import { errorCodeOf } from '../../llm/openrouter.ts';
 import { CODE } from '../../tools/codes.ts';
 import { WAKE_POLICY_VERSION } from '../../tools/access.ts';
 import { errorCode as codeOf, isFiniteNumber, listOf, objOf } from '../../tools/types.ts';
-import type { ConversationInfo } from '../../protocol/adapter.ts';
+import type { ChatInfo } from '../../protocol/adapter.ts';
 import { deliveriesOf, holdFor, sendDeliveries } from './deliveries.ts';
 import { asText, factPayload, feedbackFacts, idOrNull, markFactsTold, pendingFactsOf } from './facts.ts';
 import { logHeartbeatOutcome } from './heartbeat.ts';
@@ -98,7 +98,7 @@ export function currentChannelOf(group: ReadonlyArray<Wake>, records: ReadonlyAr
     case 'intention_due': {
       const first = asText(listOf(cause.intentionIds)[0]);
       const record = objOf(listOf(records).find((item) => item && asText(objOf(item).id) === first));
-      return pick(cause.placeId, record.destination && !cause.privateChat ? 'destination' : 'asked');
+      return pick(cause.placeId, record.destination && !cause.dmChat ? 'destination' : 'asked');
     }
     case 'attend':
       return pick(cause.placeId, 'attend');
@@ -234,26 +234,26 @@ export function createCostMeter({
 }
 
 /**
- * Where a turn runs. `channel` is its conversation, null when it runs nowhere: a heartbeat, a selfimprovement wake, an
+ * Where a turn runs. `channel` is its chat, null when it runs nowhere: a heartbeat, a selfimprovement wake, an
  * intention or a feedback wake with no place, and a due intention whose place cannot be reached, with that place's code
  * in `placeFailure`. `drop` with `why` when the wakes cannot run at all: an attention whose place is gone.
  */
-export type ConversationFound = {
-  channel: ConversationInfo | null;
+export type ChatFound = {
+  channel: ChatInfo | null;
   why: string | null;
   drop: boolean;
   placeFailure: string | null;
 };
 
 /**
- * The conversation an inner turn of `group` runs in, chosen by the cause of the wake (currentChannelOf). An attend
+ * The chat an inner turn of `group` runs in, chosen by the cause of the wake (currentChannelOf). An attend
  * wake's place may be one she can only read: she listens there and posts, if at all, through a call elsewhere. Any
- * other place must be one she may write in, and a direct chat only while `private.enabled` is true. A place a due
+ * other place must be one she may write in, and a direct chat only while `dm.enabled` is true. A place a due
  * intention named that fails does not lose the intention and picks no other room: the turn runs nowhere with the code.
  */
-export async function conversationFor(life: InnerContext, group: ReadonlyArray<Wake>): Promise<ConversationFound> {
+export async function chatFor(life: InnerContext, group: ReadonlyArray<Wake>): Promise<ChatFound> {
   const { hot, reads, iface } = life;
-  const nowhere = (placeFailure: string | null = null): ConversationFound => ({
+  const nowhere = (placeFailure: string | null = null): ChatFound => ({
     channel: null,
     why: null,
     drop: false,
@@ -263,14 +263,14 @@ export async function conversationFor(life: InnerContext, group: ReadonlyArray<W
   const placeId = currentChannelOf(group).placeId;
   if (!anchor || !placeId) return nowhere();
   const readOnlyOk = anchor.kind === 'attend';
-  const failed = (code: string): ConversationFound =>
+  const failed = (code: string): ChatFound =>
     readOnlyOk ? { channel: null, why: code, drop: true, placeFailure: null } : nowhere(code);
-  // The conversation as the interface describes it now: unknown to it, it is unavailable.
-  const found = reads ? await reads.conversationInfo({ iface: iface(), conversationId: placeId }) : null;
-  const channel = found?.conversation ?? null;
+  // The chat as the interface describes it now: unknown to it, it is unavailable.
+  const found = reads ? await reads.chatInfo({ iface: iface(), chatId: placeId }) : null;
+  const channel = found?.chat ?? null;
   if (!channel) return failed(CODE.UNAVAILABLE);
-  // A private chat only while private chats are on (private.enabled, read now).
-  if (channel.rootId === null && objOf(objOf(hot.config).private).enabled !== true) return failed(CODE.DM_OFF);
+  // A private chat only while private chats are on (dm.enabled, read now).
+  if (channel.rootId === null && objOf(objOf(hot.config).dm).enabled !== true) return failed(CODE.DM_OFF);
   if (channel.rootId !== null && !readOnlyOk && !channel.permissions.send) return failed(CODE.NOT_WRITABLE);
   return { channel, why: null, drop: false, placeFailure: null };
 }
@@ -473,11 +473,11 @@ function endWakeRun(life: InnerContext, turnKey: string, actions: Array<unknown>
 async function beginTurn(
   life: InnerContext,
   group: ReadonlyArray<Wake>,
-  { at, channel, kind }: { at: number; channel: ConversationInfo | null; kind: string }
+  { at, channel, kind }: { at: number; channel: ChatInfo | null; kind: string }
 ): Promise<TurnClaim | null> {
   const where = {
     placeId: channel ? String(channel.id) : null,
-    privateChat: channel?.rootId === null,
+    dmChat: channel?.rootId === null,
     privateAccountId: channel && channel.rootId === null ? idOrNull(channel.partnerId) : null,
     iface: channel?.iface ?? life.iface(),
   };
@@ -515,7 +515,7 @@ function dropSpentFeedback(life: InnerContext, state: InnerState, at: number): n
   return spent.length;
 }
 
-/** Retire only this community's wakes whose intentions have ended. */
+/** Retire only this root's wakes whose intentions have ended. */
 function dropStale(life: InnerContext, state: InnerState, at: number): number {
   const { intentions } = life;
   const openOf = (id: string) => openRecordOf(life, id);
@@ -622,7 +622,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   const eligible = state.queue.filter((wake) => inScope(life, wake) && isEligible(wake, { held, at }));
   if (eligible.length === 0) {
     if (held.length === 0) return { deferred: 'retry' };
-    // No turn is coming to carry the new holds of an intention's wake: a feedback wake in its conversation tells her.
+    // No turn is coming to carry the new holds of an intention's wake: a feedback wake in its chat tells her.
     for (const { wake, fact } of freshHolds) {
       if (!['intention_due', 'errand_deadline'].includes(wake.kind) || !wake.placeId) continue;
       await enqueue(life, {
@@ -633,7 +633,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
         chainId: wake.chainId,
         dueAt: at,
         placeId: String(wake.placeId),
-        privateChat: wake.privateChat === true,
+        dmChat: wake.dmChat === true,
         here: String(wake.placeId),
         turnId: null,
         facts: [factPayload(fact)],
@@ -647,17 +647,17 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   const anchor = group.find((wake) => !channelless(wake)) ?? group[0];
   const chainId = anchor.chainId;
 
-  const { channel, why: noChannelWhy, drop, placeFailure } = await conversationFor(life, group);
+  const { channel, why: noChannelWhy, drop, placeFailure } = await chatFor(life, group);
   if (drop) {
     markHandled(life, state, group, 'no-channel', at, { why: noChannelWhy });
     save(life);
-    log.info('inner: no conversation', { wakes: group.length });
+    log.info('inner: no chat', { wakes: group.length });
     for (const wake of group) note(life, { event: 'no-channel', wake: wakeFields(wake) });
     return { dropped: group.length };
   }
-  // Where the turn is: its conversation's id and whether it is a private chat; none for a turn that is nowhere.
+  // Where the turn is: its chat's id and whether it is a private chat; none for a turn that is nowhere.
   const where = channel ? String(channel.id) : null;
-  const privateChat = channel?.rootId === null;
+  const dmChat = channel?.rootId === null;
 
   const records = [...new Set(group.flatMap((wake) => wake.intentionIds))]
     .map(openOf)
@@ -672,12 +672,12 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   const shadow = settings.mode !== 'live';
   const hold = holdFor(life, shadow);
   const current = currentChannelOf(group, records);
-  // The facts a feedback wake carries, and the other facts this conversation may be shown (not told yet).
+  // The facts a feedback wake carries, and the other facts this chat may be shown (not told yet).
   const ownFactIds = new Set(group.filter((wake) => wake.kind === 'feedback').flatMap((wake) => listOf(wake.factIds)));
   const shownFacts = pendingFactsOf(state, {
     ...contextOf(life, where),
     placeId: where,
-    privateChat,
+    dmChat,
     anywhere: true,
   })
     .filter((fact) => !ownFactIds.has(fact.id))
@@ -706,7 +706,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   try {
     measured = await costs.run(() =>
       turns.runTurn({
-        conversation: channel ? { iface: channel.iface, conversationId: channel.id } : null,
+        chat: channel ? { iface: channel.iface, chatId: channel.id } : null,
         ...restrictedBy(records),
         mode: 'inner',
         triggerKind: 'inner',
@@ -834,7 +834,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     }
   }
   // What did not go through (feedbackFacts), and a failed turn itself: kept as facts. A feedback turn's own
-  // misses queue no second wake; any other turn's queue one feedback wake in its chain and conversation, due at
+  // misses queue no second wake; any other turn's queue one feedback wake in its chain and chat, due at
   // the next tick, unless its own wakes come back and carry them.
   const isFeedback = anchor.kind === 'feedback';
   const failure: Array<FactPayload> =
@@ -852,7 +852,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
     addFact(life, after, {
       at: ended,
       placeId: where,
-      privateChat,
+      dmChat,
       ...fact,
     })
   );
@@ -871,7 +871,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
       chainId,
       dueAt: ended,
       placeId: where,
-      privateChat,
+      dmChat,
       here: channel ? current.placeId : null,
       turnId: turnId ? asText(turnId) : null,
       facts: feedback,
@@ -893,7 +893,7 @@ export async function drain(life: InnerContext): Promise<DrainAnswer> {
   });
   note(life, {
     event: 'turn',
-    placeId: privateChat ? null : where,
+    placeId: dmChat ? null : where,
     outcome,
     reason: result.reason ?? null,
     shadow,

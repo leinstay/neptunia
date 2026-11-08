@@ -8,7 +8,7 @@ import type { StorageKey } from '../../memory/db/storage-keys.ts';
 import type { Obj } from '../../tools/types.ts';
 import type { Due, Intention } from '../../intentions/types.ts';
 import type { Reads } from '../../interface/reads.ts';
-import type { Adapter, ConversationRef } from '../../protocol/adapter.ts';
+import type { Adapter, ChatRef } from '../../protocol/adapter.ts';
 import type { SendHold } from '../../tools/send-hold.ts';
 import type { WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
 import type { Landed } from '../../selfimprovement/landed.ts';
@@ -38,7 +38,7 @@ export type AttendInfo = {
  */
 export type Wake = {
   scopePlaceId?: string | null;
-  conversation?: ConversationRef | null;
+  chat?: ChatRef | null;
   id: string;
   kind: string;
   reason: string;
@@ -46,7 +46,7 @@ export type Wake = {
   chainId: string;
   dueAt: number;
   placeId: string | null;
-  privateChat: boolean;
+  dmChat: boolean;
   /** `errand_deadline`: the errand she waits for. */
   errandId?: string;
   /** `attend`: the place and its lines. */
@@ -86,10 +86,10 @@ export type FactPayload = Obj & {
 /** A fact as the state keeps it: the payload, its id, where it may be shown, when it happened and when she was told. */
 export type Fact = FactPayload & {
   scopePlaceId?: string | null;
-  conversation?: ConversationRef | null;
+  chat?: ChatRef | null;
   id: string;
   placeId: string | null;
-  privateChat: boolean;
+  dmChat: boolean;
   at: number;
   told: false | number;
 };
@@ -97,19 +97,19 @@ export type Fact = FactPayload & {
 /** What a caller hands in to keep a fact: its kind, its payload and where it may be shown. */
 export type FactInput = Obj & {
   scopePlaceId?: string | null;
-  conversation?: ConversationRef | null;
+  chat?: ChatRef | null;
   kind: string;
   placeId?: unknown;
-  privateChat?: unknown;
+  dmChat?: unknown;
   at?: unknown;
 };
 
-/** Where a fact may be shown: the conversation, whether it is a private chat, and whether any server place will do. */
+/** Where a fact may be shown: the chat, whether it is a private chat, and whether any server place will do. */
 export type FactScope = {
   scopePlaceId?: string | null;
-  conversation?: ConversationRef | null;
+  chat?: ChatRef | null;
   placeId?: unknown;
-  privateChat?: boolean;
+  dmChat?: boolean;
   anywhere?: boolean;
 };
 
@@ -127,7 +127,7 @@ export type Handled = { at: number; outcome: string; place?: string | null };
 /** One inner turn that ran, as the state keeps it for the day's counts. */
 export type TurnRecord = {
   scopePlaceId?: string | null;
-  conversation?: ConversationRef | null;
+  chat?: ChatRef | null;
   at: number;
   chainId: string;
   usd: number;
@@ -140,15 +140,15 @@ export type TurnRecord = {
 /** The mark of a turn in flight: what a restart finds when the process died in it. */
 export type Inflight = {
   scopePlaceId?: string | null;
-  conversation?: ConversationRef | null;
+  chat?: ChatRef | null;
   turnId: string;
   wakeIds: Array<string>;
   kind: string;
   startedAt: number;
   placeId: string | null;
-  privateChat: boolean;
+  dmChat: boolean;
   privateAccountId: string | null;
-  /** The interface the turn's conversation belongs to; absent in a mark written before it was recorded. */
+  /** The interface the turn's chat belongs to; absent in a mark written before it was recorded. */
   iface?: string;
 };
 
@@ -336,9 +336,9 @@ export type WakeItem = {
 /** How many turns a chain had on the local day and how many are left under its cap. */
 export type ChainBudget = { used: number; cap: number; left: number };
 
-/** What the drain asks the turn runner for: the conversation of the turn, null for a turn that runs nowhere. */
+/** What the drain asks the turn runner for: the chat of the turn, null for a turn that runs nowhere. */
 export type InnerTurnParams = {
-  conversation?: ConversationRef | null;
+  chat?: ChatRef | null;
 
   mode: 'inner';
   triggerKind: 'inner';
@@ -360,7 +360,7 @@ export type InnerPort = Pick<Adapter, 'send' | 'capabilities' | 'fetchMessages'>
 export type InnerTurns = {
   runTurn(params: InnerTurnParams): Promise<unknown>;
   isAnyBusy?(): boolean;
-  isBusy?(conversationId: string): boolean;
+  isBusy?(chatId: string): boolean;
 };
 
 /** One call of an inner turn as its result lists it (src/behavior/turn.ts#runTurn's `inner.actions`). */
@@ -408,9 +408,9 @@ export type InnerContext = {
   placesOf: (() => unknown) | null;
   nameOf: ((accountId: string) => unknown) | null;
   journal: InnerJournal | null;
-  reads: (Pick<Reads, 'conversationInfo'> & { offers?(wire: string): boolean }) | null;
+  reads: (Pick<Reads, 'chatInfo'> & { offers?(wire: string): boolean }) | null;
   iface: () => string;
-  conversationName: (conversationId: string) => string | null;
+  chatName: (chatId: string) => string | null;
   submit: ((event: InnerWakeEvent) => Promise<unknown>) | null;
   store: InnerStore | null;
 

@@ -4,7 +4,7 @@ export type MessageLocator = Readonly<{
   v: 1;
   origin: 'protocol-message' | 'record-v1';
   iface: string;
-  conversationId: string;
+  chatId: string;
   messageId: string;
 }>;
 
@@ -16,13 +16,15 @@ export function messageLocator(value: unknown, iface: unknown): MessageLocator |
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   // The object and array guard permits property reads while every value remains unknown.
   const entry = value as Record<string, unknown>;
+  // Rows stored before the chat rename carry `conversationId`; rows written since carry `chatId`.
+  const chatId = entry.chatId ?? entry.conversationId;
   if (
     entry.v !== 1 ||
     (entry.origin !== 'protocol-message' && entry.origin !== 'record-v1') ||
     !locatorText(entry.iface) ||
     entry.iface.includes('/') ||
     entry.iface !== iface ||
-    !locatorText(entry.conversationId) ||
+    !locatorText(chatId) ||
     !locatorText(entry.messageId)
   )
     return null;
@@ -30,7 +32,7 @@ export function messageLocator(value: unknown, iface: unknown): MessageLocator |
     v: 1,
     origin: entry.origin,
     iface: entry.iface,
-    conversationId: entry.conversationId,
+    chatId,
     messageId: entry.messageId,
   };
 }

@@ -10,7 +10,7 @@
 // queued direct pings. A pause that comes back during the replay stops it, and what is left waits for the next resume.
 //
 // It also holds the rule of the owner's command line in the private-chat gate: a direct chat of `iface: 'cli'` is the
-// owner's own, so it passes whatever private.enabled and bot.owners say (`privateChatsOff`, `CLI_GATE`).
+// owner's own, so it passes whatever dm.enabled and bot.owners say (`dmChatsOff`, `CLI_GATE`).
 
 import type { AcceptedMessageEvent } from '../pipeline/types.ts';
 import type { HeldEvent } from '../memory/db/ingest.ts';
@@ -21,7 +21,7 @@ const looseOf = (value: unknown): Loose => (value !== null && typeof value === '
 /** The namespace of the owner's command line, which only the `cli` principal may name (src/interface/link.ts). */
 export const CLI_IFACE = 'cli';
 
-/** The partner of the owner's own chat: nobody a community's interface knows. */
+/** The partner of the owner's own chat: nobody a root's interface knows. */
 export const isCliOwner = (iface: unknown, accountId: unknown): boolean => iface === CLI_IFACE && accountId === 'owner';
 
 /**
@@ -30,9 +30,9 @@ export const isCliOwner = (iface: unknown, accountId: unknown): boolean => iface
  */
 export const CLI_GATE = Object.freeze({ gate: Object.freeze({ ok: true }), isOwner: true });
 
-/** Whether direct chats are off for `event`: `private.enabled` is not on and the chat is not the owner's. */
-export const privateChatsOff = (config: unknown, event: unknown): boolean =>
-  looseOf(looseOf(config).private).enabled !== true && looseOf(event).iface !== CLI_IFACE;
+/** Whether direct chats are off for `event`: `dm.enabled` is not on and the chat is not the owner's. */
+export const dmChatsOff = (config: unknown, event: unknown): boolean =>
+  looseOf(looseOf(config).dm).enabled !== true && looseOf(event).iface !== CLI_IFACE;
 
 /** The event without the platform handles an in-process interface attaches: what the hold stores. */
 export function heldEventOf(event: unknown): Loose {
@@ -61,14 +61,12 @@ export function holdIfPaused(event: unknown, context: unknown, store: unknown): 
 type PausedPlace = {
   selfId: string;
   isServed: (placeId: string | null | undefined) => boolean;
-  sharedPlaceOf?: (conversation: never, iface: string) => string;
+  sharedPlaceOf?: (chat: never, iface: string) => string;
 };
 
 /** The place of a paused line's record, as the store names it; the native id with no store at hand. */
-function placeOf(place: PausedPlace, conversation: Record<string, unknown>, iface: unknown): string {
-  return place.sharedPlaceOf
-    ? place.sharedPlaceOf(conversation as never, String(iface))
-    : String(conversation.rootId ?? conversation.id);
+function placeOf(place: PausedPlace, chat: Record<string, unknown>, iface: unknown): string {
+  return place.sharedPlaceOf ? place.sharedPlaceOf(chat as never, String(iface)) : String(chat.rootId ?? chat.id);
 }
 
 /**
@@ -84,18 +82,18 @@ function pausedObservation(
   const fields = looseOf(event);
   const message = looseOf(fields.message);
   const author = looseOf(message.author);
-  const conversation = looseOf(fields.conversation);
+  const chat = looseOf(fields.chat);
   if (fields.edit === true || fields.deleted === true || message.system === true) return null;
-  if (conversation.rootId === null || conversation.rootId === undefined) {
+  if (chat.rootId === null || chat.rootId === undefined) {
     if (fields.iface !== CLI_IFACE || author.self === true || typeof author.id !== 'string') return null;
-    if (conversation.partnerId === undefined || conversation.partnerId === null) return null;
-    return { direct: true, where: { placeId: placeOf(place, conversation, fields.iface) } };
+    if (chat.partnerId === undefined || chat.partnerId === null) return null;
+    return { direct: true, where: { placeId: placeOf(place, chat, fields.iface) } };
   }
-  if (!place.isServed(conversation.rootId as string | null | undefined)) return null;
+  if (!place.isServed(chat.rootId as string | null | undefined)) return null;
   if (author.bot === true && author.id !== place.selfId) return null;
   return {
     direct: looseOf(fields.addressing).mentioned === true,
-    where: { placeId: placeOf(place, conversation, fields.iface) },
+    where: { placeId: placeOf(place, chat, fields.iface) },
   };
 }
 
@@ -103,7 +101,7 @@ function pausedObservation(
 export type PausedDeps = {
   hot: unknown;
   isServed: (placeId: string | null | undefined) => boolean;
-  sharedPlaceOf?: (conversation: never, iface: string) => string;
+  sharedPlaceOf?: (chat: never, iface: string) => string;
   selfIdOf: () => unknown;
   observeLine: (
     event: never,
@@ -156,7 +154,7 @@ export async function resumeHeld(deps: ResumeDeps): Promise<number> {
   let replayed = 0;
   for (const held of deps.ingest.held()) {
     if (isPaused()) break;
-    if (looseOf(held.event.conversation).rootId !== null)
+    if (looseOf(held.event.chat).rootId !== null)
       await callOn(deps.handler, 'catchUp', [held.event, { trigger: false }]);
     await deps.ingest.release(held.principal, held.eventId);
     replayed += 1;

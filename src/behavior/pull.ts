@@ -1,5 +1,5 @@
-// The pure rules of a read of another conversation: the `context.pull` settings (`sameAudience`) with the age limit of
-// a conversation one may read, and which pictures of a span of lines may get a fresh caption and which only a cached
+// The pure rules of a read of another chat: the `context.pull` settings (`sameAudience`) with the age limit of
+// a chat one may read, and which pictures of a span of lines may get a fresh caption and which only a cached
 // one. No I/O, no platform SDK: callers pass plain normalized messages and the clock.
 
 import { collectEmojiItems, collectPictures, isDescribable } from '../media/classify.ts';

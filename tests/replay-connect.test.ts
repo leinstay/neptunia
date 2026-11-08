@@ -1,5 +1,5 @@
 // Tests for scripts/replay.ts `connectDiscord`: the REST-only connection every replay mode (the inner
-// heartbeat among them) opens, resolving the served community through the Discord interface's `resolveGuild`.
+// heartbeat among them) opens, resolving the served root through the Discord interface's `resolveGuild`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { connectDiscord } from '../scripts/replay.ts';

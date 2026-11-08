@@ -86,7 +86,7 @@ test('a quarantine notice made before the core can tell her waits, and one made 
   time = NOW + 1000;
   notices.tellWith((notice) => told.push(notice));
   notices.hold({ count: 1, code: 'memory-pending-quarantined', cause: 'UNIT_BAD_OP' });
-  const fact = { kind: 'pendingQuarantined', placeId: null, privateChat: false };
+  const fact = { kind: 'pendingQuarantined', placeId: null, dmChat: false };
   assert.deepEqual(told, [
     { ...fact, waiting: 2, code: 'UNIT_UNMAPPED', at: NOW },
     { ...fact, waiting: 1, code: 'UNIT_BAD_OP', at: NOW + 1000 },

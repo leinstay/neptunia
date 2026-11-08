@@ -279,7 +279,7 @@ for (const service of ['thinker', 'dev', 'scout', 'server', 'watcher']) {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const HELP_WITH = '  --resume <session-id>  Resume\n  --session-id <uuid>    Use a specific session ID';
-const HELP_WITHOUT = '  --resume <session-id>  Resume a conversation by its session-id';
+const HELP_WITHOUT = '  --resume <session-id>  Resume a chat by its session-id';
 
 function installed(help: string | null, subharness: Record<string, unknown> = {}) {
   const privateDir = tempDir('nep-session-');

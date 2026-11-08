@@ -5,7 +5,7 @@
 // the `selfreflection: planned` journal line. Synthetic data only.
 import { createSelfreflection } from '../../src/turn/selfreflection.ts';
 import type { SelfreflectionPrepared } from '../../src/turn/selfreflection.ts';
-import type { ConversationInfo } from '../../src/protocol/adapter.ts';
+import type { ChatInfo } from '../../src/protocol/adapter.ts';
 import { NO_OP } from '../../src/turn/journal.ts';
 import { withCapturedLogs } from './capture-logs.ts';
 import type { LogEntry } from './capture-logs.ts';
@@ -40,8 +40,8 @@ export function postsOf(kinds: ReadonlyArray<string>): Array<PastPost> {
   }));
 }
 
-/** The diary's conversation: a channel of no community where she may attach files. */
-const CHANNEL: ConversationInfo = {
+/** The diary's chat: a channel of no root where she may attach files. */
+const CHANNEL: ChatInfo = {
   id: 'd1',
   kind: 'channel',
   rootId: null,

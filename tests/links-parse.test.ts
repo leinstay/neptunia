@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { rig } from './fixtures/reads-rig.ts';
 import { messageRefOf } from '../src/tools/impl/shared.ts';
 
-const COMMUNITY_LINK = 'https://discord.com/channels/g1/c42/m77';
+const ROOT_LINK = 'https://discord.com/channels/g1/c42/m77';
 const DIRECT_LINK = 'https://discord.com/channels/@me/dm9/m5';
 
 test('takes a bare id as it is and asks the interface nothing', async () => {
@@ -17,11 +17,11 @@ test('takes a bare id as it is and asks the interface nothing', async () => {
   assert.deepEqual(asked('parseLinks'), []);
 });
 
-test('reads a pasted link through the interface into its conversation and message', async () => {
+test('reads a pasted link through the interface into its chat and message', async () => {
   const { reads, asked } = rig();
-  const ref = await messageRefOf(COMMUNITY_LINK, reads);
+  const ref = await messageRefOf(ROOT_LINK, reads);
   assert.deepEqual(ref, { placeId: 'c42', messageId: 'm77' });
-  assert.deepEqual(asked('parseLinks'), [[COMMUNITY_LINK]]);
+  assert.deepEqual(asked('parseLinks'), [[ROOT_LINK]]);
 });
 
 test('reads the link of a private chat the same way', async () => {
@@ -31,9 +31,9 @@ test('reads the link of a private chat the same way', async () => {
 
 test('strips the angle brackets and the spaces around a link before asking', async () => {
   const { reads, asked } = rig();
-  const ref = await messageRefOf(`  <${COMMUNITY_LINK}>  `, reads);
+  const ref = await messageRefOf(`  <${ROOT_LINK}>  `, reads);
   assert.deepEqual(ref, { placeId: 'c42', messageId: 'm77' });
-  assert.deepEqual(asked('parseLinks'), [[COMMUNITY_LINK]]);
+  assert.deepEqual(asked('parseLinks'), [[ROOT_LINK]]);
 });
 
 test('refuses a link of another platform as an unknown message', async () => {
@@ -55,12 +55,12 @@ test('refuses text that is neither an id nor a link without asking the interface
 
 test('refuses a link when the interface cannot read links, and still takes a bare id', async () => {
   const { reads } = rig({ reads: ['messages.fetch'] });
-  await assert.rejects(messageRefOf(COMMUNITY_LINK, reads), { status: 'invalid', code: 'unknown-message' });
+  await assert.rejects(messageRefOf(ROOT_LINK, reads), { status: 'invalid', code: 'unknown-message' });
   assert.deepEqual(await messageRefOf('m77', reads), { placeId: null, messageId: 'm77' });
 });
 
 test('refuses a link when there are no reads at all, and still takes a bare id', async () => {
-  await assert.rejects(messageRefOf(COMMUNITY_LINK, null), { status: 'invalid', code: 'unknown-message' });
+  await assert.rejects(messageRefOf(ROOT_LINK, null), { status: 'invalid', code: 'unknown-message' });
   assert.deepEqual(await messageRefOf('m77', null), { placeId: null, messageId: 'm77' });
 });
 

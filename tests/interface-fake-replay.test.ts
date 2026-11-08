@@ -55,7 +55,7 @@ test('replayFixture: the events enter the door in order, a redelivery is a dupli
   assert.deepEqual(
     port.messagesIn('c1').map((m) => [m.ref.messageId, m.authorId, m.text]),
     [['m1', 'u1', 'καλημέρα']],
-    'the message is in the fake conversation'
+    'the message is in the fake chat'
   );
 });
 
@@ -66,10 +66,10 @@ test('replayFixture: a handler sees a message whose origin says an answer is exp
       'message.received': async (event: MessageReceived) => {
         if (event.deleted || originOf(event).replyExpected !== true) return;
         await port.send(
-          { iface: 'fake', conversationId: event.conversation.id },
+          { iface: 'fake', chatId: event.chat.id },
           {
             text: 'γεια!',
-            replyTo: { iface: 'fake', conversationId: event.conversation.id, messageId: event.message.id },
+            replyTo: { iface: 'fake', chatId: event.chat.id, messageId: event.message.id },
           }
         );
       },

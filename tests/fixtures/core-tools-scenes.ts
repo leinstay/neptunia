@@ -3,7 +3,7 @@
 // import of `path` from the repository root) so it can run over another checkout's src/. Fakes only: no
 // network, no data/, no prompts.local/.
 
-import type { ConversationInfo } from '../../src/protocol/adapter.ts';
+import type { ChatInfo } from '../../src/protocol/adapter.ts';
 import type { MessageEvent } from '../../src/pipeline/edits.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import { createFakeAdapter } from '../../src/interface/fake.ts';
@@ -13,8 +13,8 @@ import { completionOf } from './tool-answers.ts';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 
-/** The conversation #general (c1) as the fake interface reports it: everything allowed, public. */
-function generalInfo(iface: string): ConversationInfo {
+/** The chat #general (c1) as the fake interface reports it: everything allowed, public. */
+function generalInfo(iface: string): ChatInfo {
   return {
     id: 'c1',
     kind: 'channel',
@@ -41,7 +41,7 @@ function messageEvent(iface: string, { id, authorId = 'u1', authorName = 'Alice'
     iface,
     at: ts,
     id: `${iface}:message:${id}`,
-    conversation: { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' },
+    chat: { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' },
     message: {
       id,
       author: { id: authorId, name: authorName, self: false, bot: false },
@@ -59,7 +59,7 @@ function messageEvent(iface: string, { id, authorId = 'u1', authorName = 'Alice'
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
   };
 }
 
@@ -113,7 +113,7 @@ function sceneHot({ coreTools, access = {} }: { coreTools?: boolean; access?: ob
       'character-card': 'You are friendly and terse.',
       format: 'Use <msg> and <react> tags.',
       reply: 'Someone called you: {{author}}.',
-      interject: 'Jump into the conversation.',
+      interject: 'Jump into the chat.',
       initiate: 'Start a topic.',
       'query-builder': 'Decide whether {{name}} needs to look something up.\n{{skills}}',
       labels,
@@ -172,7 +172,7 @@ export async function singleScene(
   const discord = createDiscordInterface().capabilities;
   const client = { user: { id: 'self-id', username: 'Bot' }, channels: { cache: new Map() } };
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
-  port.seedConversation(generalInfo(port.iface));
+  port.seedChat(generalInfo(port.iface));
   const history = [
     { id: 'm0', ts: NOW - 5000, authorId: 'u2', authorName: 'Zoë', content: 'καλημέρα' },
     { id: 'm1', ts: NOW - 1000, content },
@@ -182,15 +182,15 @@ export async function singleScene(
   const hot = sceneHot({ coreTools: true, access });
   const store = fakeStore();
   const llm = sceneLlm({ classifier, answers });
-  const admin = createAdmin({ discord, hot, store, client, isServedCommunity: (id: unknown) => id === 'g1', reads, port });
+  const admin = createAdmin({ discord, hot, store, client, isServedRoot: (id: unknown) => id === 'g1', reads, port });
   const turns = createTurnRunner({
     hot, store, llm, calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} }, port, reads, selfId: () => 'self-id', getSelfName: () => 'Bot',
-    memberOf: () => null, membersOf: () => [], conversationName: (id: string) => (id === 'c1' ? 'general' : null),
+    memberOf: () => null, membersOf: () => [], chatName: (id: string) => (id === 'c1' ? 'general' : null),
     lookup: fakeLookup(), recall: fakeRecall(), images, imageFetcher: { fetchAsDataUrl: async () => ({ dataUrl: 'data:image/png;base64,AAAA', bytes: 3, contentType: 'image/png' }) },
     skills: skillRegistry(), runOp: admin.runSkillOp, runOwnOp: admin.runOwnSkillOp, now: () => NOW,
   });
   const { result } = await turns
-    .runTurn({ conversation: { iface: port.iface, conversationId: 'c1' }, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' })
+    .runTurn({ chat: { iface: port.iface, chatId: 'c1' }, mode: 'reply', trigger: normalizedTrigger(history[1]), triggerKind: 'mention' })
     .then((result: unknown) => ({ result }));
   return { requests: JSON.parse(JSON.stringify(llm.requests)) as Array<Array<{ content: string }>>, result };
 }

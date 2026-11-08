@@ -5,21 +5,21 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { placeOfCommunity } from '../src/memory/addresses.ts';
+import { placeOfRoot } from '../src/memory/addresses.ts';
 import { createStore } from '../src/memory/store.ts';
 import { memDataDir, readRaw, settle, tmpDataDir, writeRaw } from './fixtures/store-kit.ts';
 
 test('getPings: null for a member who never set a state', () => {
   // Bug: an unset member reads as `on` or `off`, and nobody follows the interface switch any more.
   const store = createStore({ dataDir: tmpDataDir() });
-  assert.equal(store.getPings(placeOfCommunity(store, 'g1'), 'u1'), null);
-  assert.equal(store.isPingsOff(placeOfCommunity(store, 'g1'), 'u1'), false);
+  assert.equal(store.getPings(placeOfRoot(store, 'g1'), 'u1'), null);
+  assert.equal(store.isPingsOff(placeOfRoot(store, 'g1'), 'u1'), false);
 });
 
 test('setPings: on, off and null are each kept, replace the earlier state and return the new one', () => {
   // Bug: `on` is stored as the absence of `off`, so a member who chose `on` cannot be told from one who never chose.
   const store = createStore({ dataDir: tmpDataDir() });
-  const place = placeOfCommunity(store, 'g1');
+  const place = placeOfRoot(store, 'g1');
   assert.equal(store.setPings(place, 'u1', 'on'), 'on');
   assert.equal(store.getPings(place, 'u1'), 'on');
   assert.equal(store.isPingsOff(place, 'u1'), false);
@@ -35,34 +35,34 @@ test('setPings: on, off and null are each kept, replace the earlier state and re
 test('setPings: the state is per member and per place', () => {
   // Bug: one member's `on` is read for the whole place, or for the same account in another server.
   const store = createStore({ dataDir: tmpDataDir() });
-  store.setPings(placeOfCommunity(store, 'g1'), 'u1', 'on');
-  assert.equal(store.getPings(placeOfCommunity(store, 'g1'), 'u2'), null);
-  assert.equal(store.getPings(placeOfCommunity(store, 'g2'), 'u1'), null);
+  store.setPings(placeOfRoot(store, 'g1'), 'u1', 'on');
+  assert.equal(store.getPings(placeOfRoot(store, 'g1'), 'u2'), null);
+  assert.equal(store.getPings(placeOfRoot(store, 'g2'), 'u1'), null);
 });
 
 test('setPings: both states survive a flush and a reload', async () => {
   // Bug: `on` lives only in memory, and a restart sends every member back to the switch.
   const { dir, memoryDb } = memDataDir();
   const store = createStore({ dataDir: dir, memoryDb });
-  store.setPings(placeOfCommunity(store, 'g1'), 'u1', 'on');
-  store.setPings(placeOfCommunity(store, 'g1'), 'u2', 'off');
+  store.setPings(placeOfRoot(store, 'g1'), 'u1', 'on');
+  store.setPings(placeOfRoot(store, 'g1'), 'u2', 'off');
   store.flush();
   await store.flushSettled({});
   const again = createStore({ dataDir: dir, memoryDb });
-  assert.equal(again.getPings(placeOfCommunity(again, 'g1'), 'u1'), 'on');
-  assert.equal(again.getPings(placeOfCommunity(again, 'g1'), 'u2'), 'off');
-  assert.equal(again.getPings(placeOfCommunity(again, 'g1'), 'u3'), null);
+  assert.equal(again.getPings(placeOfRoot(again, 'g1'), 'u1'), 'on');
+  assert.equal(again.getPings(placeOfRoot(again, 'g1'), 'u2'), 'off');
+  assert.equal(again.getPings(placeOfRoot(again, 'g1'), 'u3'), null);
 });
 
 test('setPings: a change is written at once and survives dropped caches', async () => {
   // Bug: a member's own switch waits for the next flush, and a crash in between loses it.
   const { dir, memoryDb } = memDataDir();
   const store = createStore({ dataDir: dir, memoryDb });
-  store.setPings(placeOfCommunity(store, 'g1'), 'u1', 'on');
+  store.setPings(placeOfRoot(store, 'g1'), 'u1', 'on');
   await settle();
   assert.match(readRaw(path.join(dir, 'guilds', 'g1', 'guild.json')), /"u1"/);
   store.dropCaches();
-  assert.equal(store.getPings(placeOfCommunity(store, 'g1'), 'u1'), 'on');
+  assert.equal(store.getPings(placeOfRoot(store, 'g1'), 'u1'), 'on');
 });
 
 test('an off stored by the earlier switch reads as off', () => {
@@ -80,7 +80,7 @@ test('an off stored by the earlier switch reads as off', () => {
 test('updatePlace from the analyzer never overwrites a ping state', () => {
   // Bug: the analyzer writes the place back whole and clears the members' own switches.
   const store = createStore({ dataDir: tmpDataDir() });
-  const place = placeOfCommunity(store, 'g1');
+  const place = placeOfRoot(store, 'g1');
   store.setPings(place, 'u1', 'on');
   store.setPings(place, 'u2', 'off');
   store.updatePlace(place, { patterns: 'x', pingsOff: [], pings: {} });

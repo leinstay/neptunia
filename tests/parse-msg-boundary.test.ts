@@ -186,7 +186,7 @@ test('another tag whose name starts with msg is plain text and no opening', () =
   assert.deepEqual(parseOutput(raw).diagnostics, []);
 });
 
-/** The text and the conversation of everything the fake adapter was asked to send in a turn answering `answer`. */
+/** The text and the chat of everything the fake adapter was asked to send in a turn answering `answer`. */
 async function sentBy(answer: string, inner: Record<string, unknown> | null = null) {
   const run = await coreTurn({
     answers: [answer, '<skip/>'],

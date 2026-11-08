@@ -1,14 +1,14 @@
-// postingConversation (src/tools/impl/shared.ts): where an operation that acts as the persona may post. The conversation
-// comes from the interface's conversation info (`reads.conversationInfo`), and what she may do there from its
-// `permissions` (read, send, attach, react). The current conversation passes as it is; any other, of any community,
+// postingChat (src/tools/impl/shared.ts): where an operation that acts as the persona may post. The chat
+// comes from the interface's chat info (`reads.chatInfo`), and what she may do there from its
+// `permissions` (read, send, attach, react). The current chat passes as it is; any other, of any root,
 // must not be a private chat while private chats are off, and must grant the permissions the need names: `send` needs send,
 // `reply` needs send and read, `attach` needs send and attach, `read` needs read, `react` needs react. The call's place
-// is `context.placeId` alone (plan 2026-11-05 T.4): a call made at the community passes the community.
+// is `context.placeId` alone (plan 2026-11-05 T.4): a call made at the root passes the root.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Permissions } from '../src/protocol/adapter.ts';
-import { COMMUNITY, IFACE, channel, rig } from './fixtures/reads-rig.ts';
-import { postingConversation } from '../src/tools/impl/shared.ts';
+import { ROOT, IFACE, channel, rig } from './fixtures/reads-rig.ts';
+import { postingChat } from '../src/tools/impl/shared.ts';
 
 type Need = 'send' | 'reply' | 'attach' | 'read' | 'react';
 /** The permissions each need requires, as the keys that must all be true. */
@@ -35,17 +35,17 @@ function combinations(): Array<Permissions> {
 const describe = (permissions: Permissions): string => KEYS.filter((key) => permissions[key]).join('+') || 'none';
 
 for (const need of Object.keys(REQUIRES) as Array<Need>) {
-  test(`lets a ${need} reach another conversation exactly when the permissions it needs are all true`, async () => {
+  test(`lets a ${need} reach another chat exactly when the permissions it needs are all true`, async () => {
     const outcome: Record<string, boolean> = {};
     for (const permissions of combinations()) {
       const { reads, fake } = rig();
-      fake.seedConversation(channel('c2', { permissions }));
-      const allowed = await postingConversation({
+      fake.seedChat(channel('c2', { permissions }));
+      const allowed = await postingChat({
         reads,
         store: null,
         iface: IFACE,
-        conversationId: 'c2',
-        context: { placeId: COMMUNITY },
+        chatId: 'c2',
+        context: { placeId: ROOT },
         need,
       })
         .then(() => true)
@@ -62,31 +62,31 @@ for (const need of Object.keys(REQUIRES) as Array<Need>) {
   });
 }
 
-test('returns the id of the conversation it runs in without asking the interface', async () => {
+test('returns the id of the chat it runs in without asking the interface', async () => {
   const { reads, asked } = rig();
-  const id = await postingConversation({
+  const id = await postingChat({
     reads,
     store: null,
     iface: IFACE,
-    conversationId: null,
+    chatId: null,
     context: { placeId: 'c1' },
     need: 'attach',
   });
   assert.equal(id, 'c1');
-  assert.deepEqual(asked('conversationInfo'), []);
+  assert.deepEqual(asked('chatInfo'), []);
 });
 
-// Slice 5 (plan 5 (i)): the tree check is gone, so a conversation of another community where she may send is a
+// Slice 5 (plan 5 (i)): the tree check is gone, so a chat of another root where she may send is a
 // destination like any other.
-test('accepts a conversation of another community where she may send', async () => {
+test('accepts a chat of another root where she may send', async () => {
   const { reads, fake } = rig();
-  fake.seedConversation(channel('c2', { rootId: 'g2' }));
-  const id = await postingConversation({
+  fake.seedChat(channel('c2', { rootId: 'g2' }));
+  const id = await postingChat({
     reads,
     store: null,
     iface: IFACE,
-    conversationId: 'c2',
-    context: { placeId: COMMUNITY },
+    chatId: 'c2',
+    context: { placeId: ROOT },
     need: 'send',
   });
   assert.equal(id, 'c2');
@@ -94,14 +94,14 @@ test('accepts a conversation of another community where she may send', async () 
 
 test('refuses a private chat even with every permission', async () => {
   const { reads, fake } = rig();
-  fake.seedConversation(channel('dm2', { kind: 'dm', rootId: COMMUNITY, chatType: 'dm', partnerId: 'u9' }));
+  fake.seedChat(channel('dm2', { kind: 'dm', rootId: ROOT, chatType: 'dm', partnerId: 'u9' }));
   await assert.rejects(
-    postingConversation({
+    postingChat({
       reads,
       store: null,
       iface: IFACE,
-      conversationId: 'dm2',
-      context: { placeId: COMMUNITY },
+      chatId: 'dm2',
+      context: { placeId: ROOT },
       need: 'send',
     }),
     // Slice 7: a post to a direct chat while private chats are off is refused with its own code, dm-disabled.
@@ -109,44 +109,44 @@ test('refuses a private chat even with every permission', async () => {
   );
 });
 
-test('refuses a conversation the interface does not know', async () => {
+test('refuses a chat the interface does not know', async () => {
   const { reads } = rig();
   await assert.rejects(
-    postingConversation({
+    postingChat({
       reads,
       store: null,
       iface: IFACE,
-      conversationId: 'gone',
-      context: { placeId: COMMUNITY },
+      chatId: 'gone',
+      context: { placeId: ROOT },
       need: 'send',
     }),
     { status: 'denied', code: 'channel-no-permission' }
   );
 });
 
-test('refuses another conversation when the interface cannot describe conversations', async () => {
+test('refuses another chat when the interface cannot describe chats', async () => {
   const { reads } = rig({ reads: ['messages.fetch'] });
   await assert.rejects(
-    postingConversation({
+    postingChat({
       reads,
       store: null,
       iface: IFACE,
-      conversationId: 'c2',
-      context: { placeId: COMMUNITY },
+      chatId: 'c2',
+      context: { placeId: ROOT },
       need: 'send',
     }),
     { status: 'denied', code: 'channel-no-permission' }
   );
 });
 
-test('refuses a call with neither a target nor a current conversation', async () => {
+test('refuses a call with neither a target nor a current chat', async () => {
   const { reads } = rig();
   await assert.rejects(
-    postingConversation({
+    postingChat({
       reads,
       store: null,
       iface: IFACE,
-      conversationId: undefined,
+      chatId: undefined,
       context: {},
       need: 'send',
     }),

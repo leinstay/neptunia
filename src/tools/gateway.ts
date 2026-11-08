@@ -1,5 +1,5 @@
 // The rights gateway every persona skill call passes before it may run. The persona is her own
-// principal; the requester (the member whose message led to the call), the current conversation
+// principal; the requester (the member whose message led to the call), the current chat
 // and the audience come from the server, never from the model's arguments. A grant is not a
 // blanket pass: after access, the arguments, the requester's own right and the budget are
 // checked, in that order, right before execution (the operation then applies its own rules when
@@ -44,8 +44,8 @@ export type Refusal = {
 /** The member whose message led to a call. */
 export type Requester = { id?: string | null; roleIds?: ReadonlyArray<string> };
 
-/** Where a call is made: the current conversation and who is in it. */
-export type Audience = { conversationId?: string | null; accountIds?: ReadonlyArray<string> };
+/** Where a call is made: the current chat and who is in it. */
+export type Audience = { chatId?: string | null; accountIds?: ReadonlyArray<string> };
 
 /** What a budget answers: whether a cap is spent, and which one when it is not the drawing's. */
 type Budget = { spent?: boolean; userSpent?: boolean; code?: string; key?: string };
@@ -74,10 +74,10 @@ function refused(code: string, reason: string): Refusal {
   return { ok: false, code, reason };
 }
 
-/** The conversation a call aims at: its `place` argument (an id the interface resolved), else the current one. */
-function targetConversation(args: unknown, audience: Audience | null): string | null {
+/** The chat a call aims at: its `place` argument (an id the interface resolved), else the current one. */
+function targetChat(args: unknown, audience: Audience | null): string | null {
   const given = isObj(args) ? args.place : undefined;
-  return given === undefined || given === null ? (audience?.conversationId ?? null) : idText(given);
+  return given === undefined || given === null ? (audience?.chatId ?? null) : idText(given);
 }
 
 /**
@@ -104,7 +104,7 @@ const isSelfOwned = (op: string | null): boolean => op !== null && SELF_OWNED_OP
  * requester's right -- hers alone decides -- but not the two rules on who asked: no write for
  * several people, only a read for nobody. Any other shared-state skill checks a requester's right
  * on its operation; with none the persona acts on her own. A carried-over skill aimed at the current
- * conversation (`carriedOver`) runs with no requester too, as the reply tags did.
+ * chat (`carriedOver`) runs with no requester too, as the reply tags did.
  */
 function requesterRefusal(
   skill: Skill,
@@ -120,7 +120,7 @@ function requesterRefusal(
   // Her own initiative (an inner turn, src/behavior/inner.ts: nobody asked, the owner let her act
   // unasked): her grants, checked before this, alone decide.
   if (!requester && context?.ownInitiative === true) return null;
-  // A carried-over skill in the current conversation (her reply tags of old) runs unasked as it always did.
+  // A carried-over skill in the current chat (her reply tags of old) runs unasked as it always did.
   if (!requester && carriedOver) return null;
   const unasked = owners && !requester ? noRequesterRefusal(skill) : null;
   if (unasked) return unasked;
@@ -183,7 +183,7 @@ function budgetRefusal(skill: Skill, requester: Requester | null, context: GateC
  * Whether the persona may make one skill call now. Checks, in order: the principal is the
  * persona; `features.tools` is on (off: everything refused); the registry has the skill; she
  * may use it (src/tools/access.ts#skillAccess: a carried-over skill aimed at the current
- * conversation -- no `channel` argument, or the current one -- else a grant to her user id, never
+ * chat -- no `channel` argument, or the current one -- else a grant to her user id, never
  * in safe mode); the arguments match its schema; the requester's own right (requesterRefusal:
  * every operation only for a requester who may run it, with no requester only a read open to
  * everyone, no write when the turn answers several people, `context.mixedRequesters`); a
@@ -217,8 +217,8 @@ export function checkSkill({
     skill,
     selfId: context.selfId ?? null,
     config: context.config,
-    conversationId: targetConversation(args, null),
-    currentConversationId: audience?.conversationId ?? null,
+    chatId: targetChat(args, null),
+    currentChatId: audience?.chatId ?? null,
     // An inner turn's wake envelope (src/tools/access.ts#wakeEnvelopeRefusal): its kind and the turn's calls so far.
     wakeKind: context.ownInitiative === true && typeof context.wakeKind === 'string' ? context.wakeKind : null,
     wakeActions: Array.isArray(context.wakeActions) ? context.wakeActions : null,
@@ -252,7 +252,7 @@ export function checkSkill({
 /**
  * Whether one effect of the persona's ordinary reply may happen now -- a `<msg>` or `<gif>`
  * (`message.create`), a `<react>` (`message.react.add`), a `draw.create` call, always in the
- * current conversation: carried over without a grant (src/tools/access.ts#CARRIED_OVER), even in
+ * current chat: carried over without a grant (src/tools/access.ts#CARRIED_OVER), even in
  * safe mode. Never throws.
  */
 export function checkReplyEffect({
@@ -268,7 +268,7 @@ export function checkReplyEffect({
 }
 
 /**
- * The catalogue as the persona would see it for `requester` in `audience`'s conversation (the
+ * The catalogue as the persona would see it for `requester` in `audience`'s chat (the
  * discovery step: what she can do is what is granted to her): one row per registry skill whose
  * feature switch is on (src/tools/access.ts#skillFeatureOn), in order, `{ name, title,
  * whenToUse, allowed, reason }`, the texts from the skills layer (`texts`: `hot.prompts.tools`,
@@ -298,13 +298,13 @@ export function listSkills({
   const rows: Array<ListedSkill> = [];
   for (const skill of registry.values()) {
     const { title, whenToUse } = describeSkill(skill, texts);
-    const current = audience?.conversationId ?? null;
+    const current = audience?.chatId ?? null;
     let { allowed, reason } = skillAccess({
       skill,
       config,
       selfId,
-      conversationId: current,
-      currentConversationId: current,
+      chatId: current,
+      currentChatId: current,
     });
     if (allowed && requesterRefusal(skill, requester, { config, ...(getOp ? { getOp } : {}) })) {
       allowed = false;

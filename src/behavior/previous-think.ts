@@ -3,7 +3,7 @@
 // latest finished turn tied to the same place within a window. This module holds the choice and the
 // escaping; the wording lives in labels.json, the request layout in prompt.js, the wiring in turn.js.
 //
-// A place is interface + conversation: a native conversation id is unique on its interface, so the key needs no top of
+// A place is interface + chat: a native chat id is unique on its interface, so the key needs no top of
 // its tree. A turn is tied to the place it ran in
 // and to each place where a message of hers was delivered; an inner turn (heartbeat, intention,
 // review) is tied only to the places it posted into and never imports a think. The store keeps the
@@ -18,15 +18,9 @@ import type { Untyped } from '../tools/types.ts';
 /** The most places the store keeps an entry for (the least recently written go first). */
 export const PLACES_MAX = 200;
 
-/** The key of a place: the interface it is on (empty when one interface is served) and the conversation. */
-export function placeKey({
-  interfaceId = '',
-  conversationId,
-}: {
-  interfaceId?: string;
-  conversationId: string | number;
-}): string {
-  return `${interfaceId}:${String(conversationId)}`;
+/** The key of a place: the interface it is on (empty when one interface is served) and the chat. */
+export function placeKey({ interfaceId = '', chatId }: { interfaceId?: string; chatId: string | number }): string {
+  return `${interfaceId}:${String(chatId)}`;
 }
 
 /**
@@ -48,18 +42,18 @@ export type ThinkStore = {
     at: number;
     think?: Untyped;
     failed?: boolean;
-    isPrivate?: boolean;
+    isDm?: boolean;
     inner?: boolean;
     ran?: Untyped;
     delivered?: Array<Untyped>;
   }) => void;
   select: (
     place: string,
-    options: { now: number; minutes: number; isPrivate?: boolean }
+    options: { now: number; minutes: number; isDm?: boolean }
   ) =>
     | { think: null; why: string; turnId?: Untyped }
     | { think: Untyped; source: { turnId: Untyped; relation: string; ageMs: number } };
-  seed: (records: ReadonlyArray<unknown>, options: { isPrivate: boolean }) => void;
+  seed: (records: ReadonlyArray<unknown>, options: { isDm: boolean }) => void;
   size: () => number;
 };
 
@@ -76,7 +70,7 @@ export function createThinkStore({ maxPlaces = PLACES_MAX }: { maxPlaces?: numbe
   /**
    * One turn ended. `ran`: the place key it ran in (null for none); `delivered`: the place keys where
    * a message of hers went out; `think`: its final think (null: none); `failed`: it ended in error or
-   * was refused; `isPrivate`: it ran in a private chat; `inner`: an inner turn (tied to the places it
+   * was refused; `isDm`: it ran in a private chat; `inner`: an inner turn (tied to the places it
    * posted into only).
    */
   function record({
@@ -84,7 +78,7 @@ export function createThinkStore({ maxPlaces = PLACES_MAX }: { maxPlaces?: numbe
     at,
     think = null,
     failed = false,
-    isPrivate = false,
+    isDm = false,
     inner = false,
     ran = null,
     delivered = [],
@@ -93,7 +87,7 @@ export function createThinkStore({ maxPlaces = PLACES_MAX }: { maxPlaces?: numbe
     at: number;
     think?: Untyped;
     failed?: boolean;
-    isPrivate?: boolean;
+    isDm?: boolean;
     inner?: boolean;
     ran?: Untyped;
     delivered?: Array<Untyped>;
@@ -105,7 +99,7 @@ export function createThinkStore({ maxPlaces = PLACES_MAX }: { maxPlaces?: numbe
       at,
       think: typeof think === 'string' && think.trim() ? think : null,
       failed: failed === true,
-      private: isPrivate === true,
+      private: isDm === true,
     };
     for (const key of places as Set<string>) {
       entries.delete(key);
@@ -118,15 +112,12 @@ export function createThinkStore({ maxPlaces = PLACES_MAX }: { maxPlaces?: numbe
    * What a new turn in `place` carries: `{ think, source: { turnId, relation: 'earlier', ageMs } }`, or
    * `{ think: null, why }` with why `none-in-window`, `failed`, `private` or `no-think`.
    */
-  function select(
-    place: string,
-    { now, minutes, isPrivate = false }: { now: number; minutes: number; isPrivate?: boolean }
-  ) {
+  function select(place: string, { now, minutes, isDm = false }: { now: number; minutes: number; isDm?: boolean }) {
     const entry = entries.get(place);
     const window = Number.isFinite(minutes) ? minutes * MINUTE_MS : 0;
     if (!entry || window <= 0 || now - entry.at > window) return { think: null, why: 'none-in-window' };
     if (entry.failed) return { think: null, why: 'failed', turnId: entry.turnId };
-    if (entry.private && !isPrivate) return { think: null, why: 'private', turnId: entry.turnId };
+    if (entry.private && !isDm) return { think: null, why: 'private', turnId: entry.turnId };
     if (!entry.think) return { think: null, why: 'no-think', turnId: entry.turnId };
     return {
       think: entry.think,
@@ -139,9 +130,9 @@ export function createThinkStore({ maxPlaces = PLACES_MAX }: { maxPlaces?: numbe
    * finished turn of the place in its `scope.channel` (else its `placeId`) at its `occurredAt`, with its think, failed
    * when it ended in error or was refused. An inner turn (`mode` `inner`) is left out, since a record does not say
    * where it posted; so is a record of another kind, without a place or a time, or with another outcome. An entry
-   * already held for a place at the same time or later stays. `isPrivate`: the records come from a private journal.
+   * already held for a place at the same time or later stays. `isDm`: the records come from a private journal.
    */
-  function seed(records: ReadonlyArray<unknown>, { isPrivate }: { isPrivate: boolean }) {
+  function seed(records: ReadonlyArray<unknown>, { isDm }: { isDm: boolean }) {
     for (const item of Array.isArray(records) ? records : []) {
       const one = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
       if (one.kind !== 'turn' || one.mode === 'inner' || !ENTRY_OUTCOMES.has(one.outcome)) continue;
@@ -149,14 +140,14 @@ export function createThinkStore({ maxPlaces = PLACES_MAX }: { maxPlaces?: numbe
       const channel = typeof scope.channel === 'string' && scope.channel ? scope.channel : one.placeId;
       const at = Date.parse(String(one.occurredAt));
       if (typeof channel !== 'string' || !channel || !Number.isFinite(at)) continue;
-      const ran = placeKey({ conversationId: channel });
+      const ran = placeKey({ chatId: channel });
       if ((entries.get(ran)?.at ?? -Infinity) >= at) continue;
       record({
         turnId: one.turnId ?? null,
         at,
         think: one.think ?? null,
         failed: FAILED_OUTCOMES.has(one.outcome),
-        isPrivate,
+        isDm,
         ran,
       });
     }

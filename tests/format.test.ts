@@ -1640,7 +1640,7 @@ const channelNames = new Map([
   ['c9', 'νέα'],
 ]);
 const nameOf = (id: string) => channelNames.get(id) ?? null;
-/** A call that names no message and no conversation. */
+/** A call that names no message and no chat. */
 const NO_TARGET = { messageId: null, placeId: null };
 const call = (overrides = {}) => ({
   placeId: 'c1',

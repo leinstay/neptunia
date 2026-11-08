@@ -84,7 +84,7 @@ import type { Untyped } from '../src/tools/types.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
-// The conversation of the tools' history read is held by a fake interface named `fake`.
+// The chat of the tools' history read is held by a fake interface named `fake`.
 useIface('fake');
 
 const OWNER = '100000000000000042';
@@ -223,7 +223,7 @@ async function loopRun(
       config: cfg,
       selfId: SELF,
       requester,
-      conversationId: HERE,
+      chatId: HERE,
       now: NOW,
       tasks,
       images: { quota: () => ({ spent: false, userSpent: false }) },
@@ -924,7 +924,7 @@ test('createReplayTools: web.search and web.read through the lookup and memory.s
     linkOfMessage,
     discord: {},
     // The interface describes nothing: the recall scope falls back to the replay's own channel and has no listing.
-    reads: { conversationInfo: () => Promise.resolve(null), conversations: () => Promise.resolve(null) },
+    reads: { chatInfo: () => Promise.resolve(null), chats: () => Promise.resolve(null) },
     mediaCache,
   });
   assert.equal(tools.recallAvailable(), true);
@@ -1247,7 +1247,7 @@ test('createReplayTools.prefetch: the live lanes of the trigger, run as of the m
       runWebSearch,
       runMemorySearch,
       discord: {},
-      reads: { conversationInfo: () => Promise.resolve(null), conversations: () => Promise.resolve(null) },
+      reads: { chatInfo: () => Promise.resolve(null), chats: () => Promise.resolve(null) },
       prefetchLanes,
       prefetchOn,
       recallSettings,
@@ -1463,13 +1463,13 @@ test('--pair-transport: the native side as A, the text side as B, a blind sheet 
 });
 
 test('createReplayTools: conversation.read runs the live reader over the REST history, its handles continuing the request numbering; no tool fails silently', async () => {
-  const conversationLabels = {
+  const chatLabels = {
     ...labels,
     tools: {
       ...labels.tools,
       tools: {
         ...labels.tools.tools,
-        conversation: {
+        chat: {
           source: 'from #{channel}',
           handles: 'numbered lines',
           none: 'no messages',
@@ -1499,7 +1499,7 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
     emojis: [],
     reactions: [],
   });
-  // The conversation's history is held by the fake interface; the reads it answers are what the tool asked for.
+  // The chat's history is held by the fake interface; the reads it answers are what the tool asked for.
   world().channel({ id: HERE, name: 'γενικά', placeId: GUILD });
   for (const entry of [line('m1', 3, 'πρώτο'), line('m2', 2, 'δεύτερο')])
     world().port.seedEvent({
@@ -1507,7 +1507,7 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
       iface: 'fake',
       at: entry.ts,
       id: `fake:message:${entry.id}`,
-      conversation: { id: HERE, kind: 'channel', rootId: GUILD, name: 'γενικά' },
+      chat: { id: HERE, kind: 'channel', rootId: GUILD, name: 'γενικά' },
       message: {
         id: entry.id,
         author: { id: entry.authorId, name: entry.authorName, self: false, bot: false },
@@ -1525,7 +1525,7 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
         emojis: [],
         reactions: [],
       },
-      addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+      addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
     });
   const discord = { checkPull: () => ({ skip: null }) };
   const store = { state: { data: {} }, listUserProfiles: () => [], getLore: () => [], getPlace: () => ({}) };
@@ -1533,7 +1533,7 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
   const channel = fakeChannel();
   const config = toolConfig();
   const tools = createReplayTools({
-    hot: { config, prompts: { labels: conversationLabels } },
+    hot: { config, prompts: { labels: chatLabels } },
     store,
     guild: channel.guild,
     placeId: GUILD,
@@ -1549,7 +1549,7 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
     reads: world().reads,
     iface: world().port.iface,
     recallSettings,
-    conversation: { runConversationRead, fetchSpan, recordMessages, searchHandles, pullPictures },
+    chat: { runConversationRead, fetchSpan, recordMessages, searchHandles, pullPictures },
     log: { warn: (...a: Array<unknown>) => warnings.push(a) },
   });
   const idByIndex = new Map([
@@ -1570,7 +1570,7 @@ test('createReplayTools: conversation.read runs the live reader over the REST hi
     world()
       .port.calls.filter((call) => call.op === 'history')
       .map((call) => call.args),
-    [[{ iface: 'fake', conversationId: HERE }, { limit: 30 }]]
+    [[{ iface: 'fake', chatId: HERE }, { limit: 30 }]]
   );
   assert.ok(
     present(read.result.data).text.includes('πρώτο') && present(read.result.data).text.includes('δεύτερο'),

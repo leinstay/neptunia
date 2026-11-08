@@ -1268,6 +1268,10 @@
       "deep": 2,
       "repeated": 0
     },
+    "tests/turn-chat-ref.test.ts": {
+      "deep": 4,
+      "repeated": 0
+    },
     "tests/turn-control.test.ts": {
       "deep": 5,
       "repeated": 0
@@ -1275,10 +1279,6 @@
     "tests/turn-conversation-read.test.ts": {
       "deep": 17,
       "repeated": 1
-    },
-    "tests/turn-conversation-ref.test.ts": {
-      "deep": 4,
-      "repeated": 0
     },
     "tests/turn-core-tools.test.ts": {
       "deep": 31,
@@ -1401,7 +1401,7 @@
     "src/behavior/recall.ts": 2357,
     "tests/openrouter.test.ts": 3557,
     "tests/prompt.test.ts": 2812,
-    "tests/recall.test.ts": 2387
+    "tests/recall.test.ts": 2379
   },
   "functions": {
     "interfaces/discord/collect.ts": {
@@ -1512,7 +1512,7 @@
       },
       "runInner": {
         "complexity": 54,
-        "function-length": 329
+        "function-length": 326
       },
       "runMain": {
         "complexity": 152
@@ -1703,7 +1703,7 @@
     },
     "src/intentions/service.ts": {
       "createIntentionService": {
-        "function-length": 540
+        "function-length": 531
       },
       "createIntentionService>set": {
         "complexity": 24
@@ -1876,7 +1876,7 @@
       }
     },
     "src/tools/conversation-read.ts": {
-      "conversationText": {
+      "chatText": {
         "complexity": 27
       },
       "readSelection": {
@@ -1920,7 +1920,7 @@
     },
     "src/tools/impl/memory.ts": {
       "<anonymous>": {
-        "function-length": 452
+        "function-length": 450
       },
       "<anonymous>>cmdMemoryShow": {
         "complexity": 22

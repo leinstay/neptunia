@@ -1,7 +1,7 @@
 // Tests for the diary channel's mark in the server map: src/memory/channels.ts#renderChannel
 // (`selfreflection` option, `labels.server.selfreflection`) and the persona's own lines counting as a writer of
 // that one channel (src/memory/update.ts#touchMemory).
-import { placeOfConversation } from '../src/memory/addresses.ts';
+import { placeOfChat } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,7 +13,7 @@ import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { seedMirror } from './fixtures/selfreflection-mirror.ts';
-import { selfreflectionConversationIds } from '../src/behavior/mirror.ts';
+import { selfreflectionChatIds } from '../src/behavior/mirror.ts';
 
 const channel = { id: 'c1', name: 'journal', category: null, topic: null, purpose: '', topics: '', tone: '' };
 
@@ -64,23 +64,23 @@ const own = (placeId: string) => ({
 });
 
 // Stage 3 design, section 5: the diary's places are its mirrors in memory, no longer `diary.placeId`; the caller
-// passes them as `selfreflectionChannelIds` (src/behavior/mirror.ts#selfreflectionConversationIds).
+// passes them as `selfreflectionChannelIds` (src/behavior/mirror.ts#selfreflectionChatIds).
 test("touchMemory: the persona's lines count as a writer only in the diary channel", async () => {
   const memory = await openTestMemory();
   try {
-    seedMirror(memory.memoryDb, { iface: 'fake', conversationId: 'selfreflection', at: Date.UTC(2026, 8, 20) });
-    const selfreflectionChannelIds = selfreflectionConversationIds(memory.memoryDb);
+    seedMirror(memory.memoryDb, { iface: 'fake', chatId: 'selfreflection', at: Date.UTC(2026, 8, 20) });
+    const selfreflectionChannelIds = selfreflectionChatIds(memory.memoryDb);
     withStore((store) => {
       touchMemory(store, 'g1', own('selfreflection'), { selfreflectionChannelIds });
       touchMemory(store, 'g1', own('other'), { selfreflectionChannelIds });
       touchMemory(store, 'g1', own('nowhere'), {});
-      assert.deepEqual(store.getChannel(placeOfConversation(store, { id: 'selfreflection' }))?.topWriters, [
+      assert.deepEqual(store.getChannel(placeOfChat(store, { id: 'selfreflection' }))?.topWriters, [
         { id: 'self1', count: 1 },
       ]);
-      assert.deepEqual(store.getChannel(placeOfConversation(store, { id: 'other' }))?.topWriters, []);
-      assert.deepEqual(store.getChannel(placeOfConversation(store, { id: 'nowhere' }))?.topWriters, []);
+      assert.deepEqual(store.getChannel(placeOfChat(store, { id: 'other' }))?.topWriters, []);
+      assert.deepEqual(store.getChannel(placeOfChat(store, { id: 'nowhere' }))?.topWriters, []);
       assert.equal(
-        store.getChannel(placeOfConversation(store, { id: 'selfreflection' }))?.days['2026-09-20'],
+        store.getChannel(placeOfChat(store, { id: 'selfreflection' }))?.days['2026-09-20'],
         1,
         'the day tally counts the post'
       );
@@ -98,6 +98,6 @@ test('touchMemory: other bots never count, even in the diary channel', () => {
       { ...own('selfreflection'), self: false, bot: true, authorId: 'b2' },
       { selfreflectionChannelId: 'selfreflection' }
     );
-    assert.deepEqual(store.getChannel(placeOfConversation(store, { id: 'selfreflection' }))?.topWriters, []);
+    assert.deepEqual(store.getChannel(placeOfChat(store, { id: 'selfreflection' }))?.topWriters, []);
   });
 });

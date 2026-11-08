@@ -828,14 +828,14 @@ test('store: a malformed diary value reads as the empty default', async () => {
 // createSelfreflection: the scheduler's edge, with a fake store, client and turn runner.
 
 type Rec = Record<string, Untyped>;
-// The plan the scheduler stored for guild g1 in the harness's state.
+// The plan the scheduler stored for root g1 in the harness's state.
 const planOf = (h: { store: { state: { data: unknown } } }): Rec =>
   (loose(h.store.state.data).selfreflection as Rec).persona as Rec;
 
 const D_NOW = Date.UTC(2026, 9, 6, 19, 0, 0); // 19:00 UTC, before the evening slot
 const SLOT = Date.UTC(2026, 9, 6, 21, 30, 0); // 18 + 0.5 * 7 h with rng 0.5
 
-/** A diary channel of guild g1 as the harness holds it; `attach: false` may not attach files, `send: false` not send. */
+/** A diary channel of root g1 as the harness holds it; `attach: false` may not attach files, `send: false` not send. */
 function selfreflectionChannelFake({
   send = true,
   attach = true,
@@ -879,7 +879,7 @@ function selfreflectionHarness({
   let clock = D_NOW;
   /** The turns the scheduler asked for: the arguments, and the plan's done slots when it asked. */
   const turnCalls: Array<{
-    params: { mode?: unknown; conversation?: unknown; placeId?: unknown; selfreflection?: unknown };
+    params: { mode?: unknown; chat?: unknown; placeId?: unknown; selfreflection?: unknown };
     done: Array<number>;
   }> = [];
   const hot = {
@@ -891,7 +891,7 @@ function selfreflectionHarness({
   };
   const memory = openTestMemorySync({ now: () => D_NOW });
   OPENED.push(memory);
-  if (mirror) seedMirror(memory.memoryDb, { iface: 'fake', conversationId: 'd1', name: 'journal', at: D_NOW });
+  if (mirror) seedMirror(memory.memoryDb, { iface: 'fake', chatId: 'd1', name: 'journal', at: D_NOW });
   const store = {
     state: { data: { ...data }, markDirty() {} },
     getSelfreflection: () => ({ posts, updatedAt: 0 }),
@@ -899,7 +899,7 @@ function selfreflectionHarness({
     // The service's handle is untyped JS; its `db` is the node:sqlite connection the read takes.
     readMemory: (read: (db: unknown) => unknown) => read(memory.memoryDb.readHandle()?.db),
   };
-  // The diary channel is a conversation of the fake interface (none when the test gives none).
+  // The diary channel is a chat of the fake interface (none when the test gives none).
   if (channel)
     world().channel({
       id: 'd1',
@@ -926,7 +926,7 @@ function selfreflectionHarness({
     reads: world().reads,
     iface: () => 'fake',
     turns,
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     backfill,
     rng: () => 0.5,
     now: () => clock,
@@ -1012,9 +1012,9 @@ test('tick: fires the due slot through runTurn with mode diary and marks it done
   assert.equal(h.turnCalls.length, 1);
   const { params, done } = h.turnCalls[0];
   assert.equal(params.mode, 'selfreflection');
-  // Stage 3 design, section 3 item 2: the post is the selfreflection wake, with no conversation, for the served guild.
-  assert.equal(params.conversation, undefined);
-  // The post names no conversation and no place: it is the persona's.
+  // Stage 3 design, section 3 item 2: the post is the selfreflection wake, with no chat, for the served root.
+  assert.equal(params.chat, undefined);
+  // The post names no chat and no place: it is the persona's.
   assert.equal('placeId' in params, false);
   assert.deepEqual(params.selfreflection, { kind: null, forced: false });
   assert.deepEqual(done, [SLOT], 'marked before the turn ran');
@@ -1136,9 +1136,9 @@ test('tick: backfills an empty history before the first post', async () => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].turns, 0, 'before the post');
   assert.equal('placeId' in calls[0].args, false);
-  // Changed with the contract: the backfill gets the conversation and the reads, not a channel object and her id.
-  // Stage 3 design, section 5: that conversation is the place of the diary's mirror.
-  assert.equal(calls[0].args.conversation.conversationId, 'd1');
+  // Changed with the contract: the backfill gets the chat and the reads, not a channel object and her id.
+  // Stage 3 design, section 5: that chat is the place of the diary's mirror.
+  assert.equal(calls[0].args.chat.chatId, 'd1');
   assert.equal(calls[0].args.labels, labels);
   assert.ok(logs.some((l) => l.msg === 'selfreflection: backfill' && l.count === 4));
   await h.selfreflection.force({});
@@ -1223,7 +1223,7 @@ test('stop: no tick after stop', async () => {
 test('status: the channel, the day plan and the history size', async () => {
   const h = selfreflectionHarness({ posts: [{}, {}] });
   await h.selfreflection.tick();
-  // Stage 3 design, section 5: `placeId` is the conversation of the diary's first mirror.
+  // Stage 3 design, section 5: `placeId` is the chat of the diary's first mirror.
   assert.deepEqual(h.selfreflection.status(), {
     placeId: 'd1',
     day: '2026-10-06',

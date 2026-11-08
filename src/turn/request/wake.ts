@@ -7,7 +7,7 @@ import { fill, formatDate, formatDuration } from '../../format.ts';
 import { inertThink } from '../../behavior/previous-think.ts';
 import type { Labels, RequestInput } from './types.ts';
 
-/** Her one previous think (src/behavior/previous-think.ts), and whether it was this conversation's last request. */
+/** Her one previous think (src/behavior/previous-think.ts), and whether it was this chat's last request. */
 export type PreviousThink = { readonly text: string; readonly relation: 'same' | 'earlier'; readonly ageMs?: number };
 
 /**

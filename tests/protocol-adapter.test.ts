@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { deliveryOf } from '../src/protocol/adapter.ts';
 
-type Ref = { iface: string; conversationId: string; messageId: string };
+type Ref = { iface: string; chatId: string; messageId: string };
 type Part = {
   status: 'ok' | 'failed' | 'unknown' | 'unsupported' | 'forbidden';
   ref?: Ref;
@@ -10,7 +10,7 @@ type Part = {
   error?: { code: string; retryable: boolean };
 };
 
-const ref = (messageId: string): Ref => ({ iface: 'test', conversationId: 'c1', messageId });
+const ref = (messageId: string): Ref => ({ iface: 'test', chatId: 'c1', messageId });
 const posted = (messageId: string, at: number): Part => ({ status: 'ok', ref: ref(messageId), at });
 
 test('reports ok with the first ref and every ref when all parts are ok', () => {

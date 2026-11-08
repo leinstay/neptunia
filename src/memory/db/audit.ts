@@ -101,7 +101,7 @@ function placeChecks(db: Db): { placeExists: number; scopeMatchesPlace: number }
     scopeMatchesPlace += countOf(
       db,
       `SELECT COUNT(*) AS n FROM "${table}" t JOIN places p ON p.id = t.place_id
-       WHERE ${live} AND (COALESCE(p.conversation = 'dm', 0) OR p.kind = 'dm') <> (t.scope_kind IS 'dm')`
+       WHERE ${live} AND (COALESCE(p.chat = 'dm', 0) OR p.kind = 'dm') <> (t.scope_kind IS 'dm')`
     );
   }
   return { placeExists, scopeMatchesPlace };
@@ -240,8 +240,8 @@ function deadMediaLinks(db: Db): number {
   );
 }
 
-/** A place is a direct chat by its conversation or its kind. */
-const IS_DM = "(COALESCE(p.conversation = 'dm', 0) OR p.kind = 'dm')";
+/** A place is a direct chat by its chat or its kind. */
+const IS_DM = "(COALESCE(p.chat = 'dm', 0) OR p.kind = 'dm')";
 
 function placeUnnamed(db: Db): number {
   return countOf(

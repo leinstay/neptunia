@@ -1,4 +1,4 @@
-// The first phase of a turn attempt: the pause and the attention taken, the conversation as the interface describes
+// The first phase of a turn attempt: the pause and the attention taken, the chat as the interface describes
 // it now, the journal's start and the wait for the trigger's author to finish writing. runTurnOnce
 // (src/behavior/turn.ts) calls it before every other phase; what it opens, the later phases use and the attempt's
 // end closes.
@@ -10,24 +10,24 @@ import { currentRequestMeta } from '../../llm/archive.ts';
 import { createPrepLedger } from '../../behavior/turn-parts.ts';
 import type { Ledger } from '../../behavior/turn-parts.ts';
 import { log } from '../../log.ts';
-import type { ConversationInfo, ConversationRef } from '../../protocol/adapter.ts';
+import type { ChatInfo, ChatRef } from '../../protocol/adapter.ts';
 import type { Draft } from '../draft.ts';
 import { journalStartOf } from '../journal.ts';
 import type { JournalStep } from '../lookup.ts';
-import { inCommunity } from '../routing.ts';
+import { inRoot } from '../routing.ts';
 import { takeAttention } from '../triggers.ts';
 import type { Ended, Life, PhaseContext, PhaseParams } from './context.ts';
 
-/** What the preflight opened: the conversation, the community it is served for and the attempt's lifecycle. */
+/** What the preflight opened: the chat, the root it is served for and the attempt's lifecycle. */
 export type Opened = {
   ended: null;
   prep: Ledger;
   prepStep: JournalStep;
-  channel: ConversationInfo;
+  channel: ChatInfo;
   placeId: string;
   reading: ReadonlyArray<string>;
   libraryPlace: string;
-  isPrivate: boolean;
+  isDm: boolean;
   settledMs: number;
   life: Life;
 };
@@ -40,18 +40,18 @@ function placesRead(
   store: { topPlaces?: (iface?: string) => Array<string> },
   iface: string,
   placeId: string,
-  isPrivate: boolean
+  isDm: boolean
 ): ReadonlyArray<string> {
-  if (isPrivate) return store.topPlaces?.(iface) ?? [];
+  if (isDm) return store.topPlaces?.(iface) ?? [];
   return placeId === PERSONA_ID ? (store.topPlaces?.() ?? []) : [placeId];
 }
 
 /**
- * The conversation a turn with none runs in: no interface's, under her own place, so the journal keeps the turn under
+ * The chat a turn with none runs in: no interface's, under her own place, so the journal keeps the turn under
  * herself and the frame finds no place. It is read by nothing: the turn reads no history and a tool that takes a place
  * needs it named.
  */
-function nowhereOf(iface: string): ConversationInfo {
+function nowhereOf(iface: string): ChatInfo {
   return {
     iface,
     id: PERSONA_ID,
@@ -67,21 +67,21 @@ function nowhereOf(iface: string): ConversationInfo {
   };
 }
 
-/** The conversation of a turn as the interface describes it now: a wake's own stand-in, nowhere with none, or null. */
-async function conversationNow(
+/** The chat of a turn as the interface describes it now: a wake's own stand-in, nowhere with none, or null. */
+async function chatNow(
   reads: PhaseContext['ifaceReads'],
-  conversation: ConversationRef | null,
-  standIn: ConversationInfo | null
-): Promise<{ conversation: ConversationInfo } | null> {
-  if (standIn) return { conversation: standIn };
-  if (conversation === null) return { conversation: nowhereOf(currentIface() ?? '') };
-  return reads.conversationInfo(conversation, { audience: true, viewers: [] });
+  chat: ChatRef | null,
+  standIn: ChatInfo | null
+): Promise<{ chat: ChatInfo } | null> {
+  if (standIn) return { chat: standIn };
+  if (chat === null) return { chat: nowhereOf(currentIface() ?? '') };
+  return reads.chatInfo(chat, { audience: true, viewers: [] });
 }
 
 export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: Draft): Promise<Ended | Opened> {
   const { store, busy, ifaceReads, journal, journalOp, journalOn, notifyIdle, settleAuthor, clock } = ctx;
   const {
-    conversation,
+    chat,
     mode,
     trigger = null,
     triggerKind = null,
@@ -113,8 +113,8 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
   const stateData = store.state.data;
   if (stateData.paused) return { ended: { outcome: 'paused' } };
   // A chain's turn runs under the attention it holds; taken before anything is awaited, so two turns cannot both take it.
-  const attentionId = conversation?.conversationId ?? PERSONA_ID;
-  draft.nowhere = conversation === null;
+  const attentionId = chat?.chatId ?? PERSONA_ID;
+  draft.nowhere = chat === null;
   draft.mode = mode;
   if (!owned && !takeAttention(busy, attentionId)) return { ended: { outcome: 'busy' } };
   const letGo = () => {
@@ -122,22 +122,22 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
     busy.delete(attentionId);
     notifyIdle();
   };
-  // The conversation as the interface describes it now (a wake's own, `standIn`); one it no longer knows ends the turn.
-  const found = await conversationNow(ifaceReads, conversation, standIn);
+  // The chat as the interface describes it now (a wake's own, `standIn`); one it no longer knows ends the turn.
+  const found = await chatNow(ifaceReads, chat, standIn);
   if (found === null) {
     letGo();
-    log.warn('turn: conversation unavailable', { channel: attentionId });
+    log.warn('turn: chat unavailable', { channel: attentionId });
     return { ended: { outcome: 'unavailable' } };
   }
-  const channel = found.conversation;
+  const channel = found.chat;
   draft.info = channel;
-  // What the conversation shares with its tree lives at the top of it; a private chat is its own place.
+  // What the chat shares with its tree lives at the top of it; a private chat is its own place.
   const placeId = sharedPlaceOf(store, channel);
-  const isPrivate = !inCommunity(channel);
-  const reading = placesRead(store, channel.iface, placeId, isPrivate);
+  const isDm = !inRoot(channel);
+  const reading = placesRead(store, channel.iface, placeId, isDm);
   // What one place can hold for the turn (its library, its media cache): the one it reads, else its own.
   const libraryPlace = reading.length === 1 ? (reading[0] ?? placeId) : placeId;
-  draft.privateAccountId = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
+  draft.privateAccountId = isDm ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
   // The journal: the turn starts here, past the pause and
   // attention rails; a later attempt of the same turn (journalTurn) keeps its id.
   if (journalOn()) {
@@ -168,5 +168,5 @@ export async function preflight(ctx: PhaseContext, params: PhaseParams, draft: D
     turnStartedAt: clock(),
     turnMode: mode,
   };
-  return { ended: null, prep, prepStep, channel, placeId, reading, libraryPlace, isPrivate, settledMs, life };
+  return { ended: null, prep, prepStep, channel, placeId, reading, libraryPlace, isDm, settledMs, life };
 }

@@ -26,7 +26,7 @@ export async function toolRoundPhase(
   const requesterParam = params.requester ?? null;
   const { opened, setup, pulled: pulledStep, staged, gathered, request, sentMessages, first, readAnswer } = acting;
   const { idByIndex, pulledIds, lines, routing, setShort } = acting;
-  const { channel, placeId, isPrivate, prep } = opened;
+  const { channel, placeId, isDm, prep } = opened;
   const { transport, memoryOn, selfId, selfName, startedAt, servedSnapshot, partner } = setup;
   const { finalMode } = pulledStep;
   const { videoStage, videoCandidates, captions, captionCandidates } = staged;
@@ -34,7 +34,7 @@ export async function toolRoundPhase(
   const { knownNames, directory, handles, channelHandles, plain } = routing;
   const { parsed } = acting;
   // Every call of the attempt: its turn (the journal's turn, else one id per attempt) and its index over every step.
-  // Its key is the effect's record, `<turnId>:<effectIndex>:<target>` (the conversation it names, else the turn's),
+  // Its key is the effect's record, `<turnId>:<effectIndex>:<target>` (the chat it names, else the turn's),
   // with no attempt in it, so a later attempt of the turn carries the key a first one would have carried.
   const turnKey = (draft.turnKey ??= { turnId: draft.started?.turnId ?? randomUUID() });
   const envelopeOf = (call: { skill?: string; args?: Record<string, unknown> }) => {
@@ -60,7 +60,7 @@ export async function toolRoundPhase(
   const actArgs = {
     channel,
     placeId,
-    privateChat: isPrivate,
+    dmChat: isDm,
     parsed,
     idByIndex,
     history,
@@ -71,7 +71,7 @@ export async function toolRoundPhase(
     selfName,
     ...routing,
     mediaPicks: !selfreflectionPrep,
-    participation: isPrivate ? null : { descriptions: descriptions ?? null },
+    participation: isDm ? null : { descriptions: descriptions ?? null },
     draft,
   };
   // The calls of the reply and of every later step, run in the turn's context (runCall's).
@@ -80,7 +80,7 @@ export async function toolRoundPhase(
     trigger,
     placeId,
     draft,
-    privateChat: isPrivate,
+    dmChat: isDm,
     idByIndex,
     pulledIds,
     lines,
@@ -92,7 +92,7 @@ export async function toolRoundPhase(
       channel,
       snapshot: servedSnapshot,
       placeId,
-      partner: isPrivate ? partner : null,
+      partner: isDm ? partner : null,
       selfId,
       selfName,
       history,

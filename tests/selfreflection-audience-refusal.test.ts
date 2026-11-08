@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../src/memory/store.ts';
-import { GUILD, sceneRunner } from './fixtures/selfreflection-requests-recorded.ts';
+import { ROOT, sceneRunner } from './fixtures/selfreflection-requests-recorded.ts';
 import { selfreflectionRows, entryOf, seedMirror } from './fixtures/selfreflection-mirror.ts';
 import { labels } from './fixtures/labels.ts';
 import { T0, mirrorScene } from './fixtures/mirror-scene.ts';
@@ -16,13 +16,13 @@ const TEXT = 'ήσυχο βράδυ στο λιμάνι';
 const D1 = 'fake:channel:d1';
 const OTHER_D1 = 'other:channel:d1';
 const BAD = `<audience>place:fake:channel:nowhere</audience><msg>${TEXT}</msg>`;
-const BOUNDARY = { kind: 'internal-turn', origin: { iface: 'fake', conversationId: 'd1' } } as const;
+const BOUNDARY = { kind: 'internal-turn', origin: { iface: 'fake', chatId: 'd1' } } as const;
 
 /** Two interfaces with one mirror each, and one store over their memory. */
 async function setting() {
   const scene = await mirrorScene({ ifaces: ['fake', 'other'] });
-  seedMirror(scene.memory.memoryDb, { iface: 'fake', conversationId: 'd1', at: T0 });
-  seedMirror(scene.memory.memoryDb, { iface: 'other', conversationId: 'd1', at: T0 });
+  seedMirror(scene.memory.memoryDb, { iface: 'fake', chatId: 'd1', at: T0 });
+  seedMirror(scene.memory.memoryDb, { iface: 'other', chatId: 'd1', at: T0 });
   return { scene, store: createStore({ dataDir: scene.memory.dataDir, memoryDb: scene.memory.memoryDb }) };
 }
 
@@ -31,7 +31,7 @@ type Setting = { scene: Scene; store: ReturnType<typeof createStore> };
 /** One diary turn in which her writer answers `answer`, or fails when it is null: the result and the writer's request. */
 async function turn({ store }: Setting, answer: string | null, extra: Record<string, unknown> = {}) {
   freshWorld();
-  world().channel({ id: 'd1', name: 'journal', placeId: GUILD });
+  world().channel({ id: 'd1', name: 'journal', placeId: ROOT });
   const calls: Array<unknown> = [];
   const model = {
     calls,
@@ -49,7 +49,7 @@ async function turn({ store }: Setting, answer: string | null, extra: Record<str
   const result = await sceneRunner(model, store).runTurn({
     mode: 'selfreflection',
     selfreflection: { kind: 'status', forced: true },
-    placeId: GUILD,
+    placeId: ROOT,
     ...extra,
   });
   await store.flushSettled({});

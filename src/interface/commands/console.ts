@@ -116,8 +116,8 @@ export type ConsoleDeps = {
   mediaEnglish?: OwnerRun | null;
   /** The owner's run that reconstructs the plans of old selfreflection entries (src/memory/db/selfreflection-plan-fill.ts). */
   planFill?: OwnerRun | null;
-  /** A conversation's newest stored lines, oldest first. */
-  conversationLines(conversationId: string, count: number): ReadonlyArray<{ author: string; text: string }>;
+  /** A chat's newest stored lines, oldest first. */
+  chatLines(chatId: string, count: number): ReadonlyArray<{ author: string; text: string }>;
   now(): number;
   /** Her skills (src/skills/port.ts); `/skills` fails while there is none. */
   skills?: SkillsAccess | null;
@@ -325,7 +325,7 @@ const isSubharnessCommand = (name: string): boolean => name.startsWith(SUBHARNES
 const SIMULATION_PREFIX = 'simulation.';
 
 /** How many stored lines `/memory conversation` prints. */
-const CONVERSATION_LINES = 30;
+const CHAT_LINES = 30;
 
 /** The window of `/doctor memory`: people who spoke within it and about whom nothing was written in it. */
 const HEALTH_DAYS = 7;
@@ -763,8 +763,8 @@ export function createConsole(deps: ConsoleDeps): {
     };
   }
 
-  function memoryConversation(args: Record<string, unknown>): Answer {
-    const lines = deps.conversationLines(text(args.conversation), CONVERSATION_LINES);
+  function memoryChat(args: Record<string, unknown>): Answer {
+    const lines = deps.chatLines(text(args.conversation), CHAT_LINES);
     if (lines.length === 0) return { text: 'no stored line in that conversation', status: 'ok' };
     return { text: lines.map((line) => `${line.author || '?'}: ${line.text}`).join('\n'), status: 'ok' };
   }
@@ -879,7 +879,7 @@ export function createConsole(deps: ConsoleDeps): {
       case 'memory.backup':
         return memoryBackup(name, args);
       case 'memory.conversation':
-        return memoryConversation(args);
+        return memoryChat(args);
       case 'memory.lessons.list':
         return ownerRead(name, args, () => deps.ownerReads.lessons(ownerContext(requester, args)));
       case 'tools.list':

@@ -15,20 +15,20 @@ import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
 useIface('fake');
-const GUILD = 'g1';
+const ROOT = 'g1';
 const MINUTE = 60_000;
 const START = Date.parse('2026-10-26T12:00:00Z');
 const ERRAND = 't0000000a';
 const SILENT = { info() {}, warn() {}, error() {} };
 
 type TurnParams = {
-  conversation?: { conversationId: string } | null;
+  chat?: { chatId: string } | null;
   inner: { wake: { kind: string; items: Array<Record<string, unknown>> }; currentChannel?: string | null };
 };
 
 function setup() {
   const clock = { t: START };
-  world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
+  world().channel({ id: 'c1', name: 'chan-c1', placeId: ROOT, permissions: { send: true } });
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
@@ -77,7 +77,7 @@ function setup() {
     journal: { inner: (fields: Record<string, unknown>) => Promise.resolve(journal.push(fields)) },
     reads: world().reads,
     iface: () => 'fake',
-    conversationName: (id: string) => `chan-${id}`,
+    chatName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
@@ -126,11 +126,11 @@ test('the wake item names the errand as errandId and the intention channel is th
   const wake = run.calls[0]?.inner.wake;
   assert.equal(wake?.items[0]?.errandId, ERRAND);
   assert.equal(Object.hasOwn(wake?.items[0] ?? {}, 'taskId'), false);
-  // Slice 5: the wake's `here` line left with `<wake>`; the intention's channel is the turn's conversation and current
+  // Slice 5: the wake's `here` line left with `<wake>`; the intention's channel is the turn's chat and current
   // channel.
   const [turn] = run.calls;
   assert.equal(turn?.inner.currentChannel, 'c1');
-  assert.equal(turn?.conversation?.conversationId, 'c1');
+  assert.equal(turn?.chat?.chatId, 'c1');
 });
 
 test('deadlineWakes over a record the reconciliation moved to pending gives the id the wait itself gave', () => {

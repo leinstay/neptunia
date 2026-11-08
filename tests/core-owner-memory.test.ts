@@ -37,7 +37,7 @@ function seed(dirs: Dirs) {
   );
   const handle = openMemoryDb(join(dirs.dataDir, 'memory.db'));
   try {
-    for (const [id, person, conversation, text, minute] of [
+    for (const [id, person, chat, text, minute] of [
       ['target-before', 'benoit', 'dm', `κουνέλι κήπο ${NEIGHBOR}`, 0],
       ['target-anchor', 'benoit', 'dm', `κουνέλι κήπο ${PRIVATE}`, 1],
       ['target-old', 'benoit', 'dm', 'κουνέλι old-date-evidence-608', -14400],
@@ -52,7 +52,7 @@ function seed(dirs: Dirs) {
           authority: 'telegram/global',
           connection: 'conn:test',
           native: { kind: 'message', key: id, revision: 0 },
-          place: { authority: 'telegram/global', key: `chat:${person}`, kind: 'room', conversation, title: person },
+          place: { authority: 'telegram/global', key: `chat:${person}`, kind: 'room', chat, title: person },
           author: { kind: 'account', key: person, display: person },
           occurredAt: new Date(Date.parse('2026-10-23T10:00:00Z') + minute * 60_000).toISOString(),
           observedAt: new Date(NOW).toISOString(),
@@ -128,7 +128,8 @@ const CONFIG = {
     placeId: 'g1',
     access: { 'memory.search': { everyone: true, roles: [], users: [] } },
   },
-  private: { enabled: true, likeServer: true, minAffinity: 0 },
+  dm: { enabled: true },
+  private: { likeServer: true, minAffinity: 0 },
   split: { minChars: 20, maxTasks: 2, contextMessages: 2, maxOutputTokens: 200 },
   tools: { loop: { maxSteps: 5, timeBudgetMs: 20000, maxCallsPerStep: 1 } },
   recall: {
@@ -145,7 +146,7 @@ const CONFIG = {
   gifs: { backfillMessages: 0 },
 };
 
-test('authenticated CLI search and window read a foreign private conversation and reply only in CLI', async () => {
+test('authenticated CLI search and window read a foreign private chat and reply only in CLI', async () => {
   await withRig({ config: CONFIG }, async ({ dirs, cores, clis, units }) => {
     seed(dirs);
     const llm = script([
@@ -191,7 +192,7 @@ test('authenticated CLI prefetch includes foreign private evidence in the first 
     cores.push(await startUnitsCore(dirs, llm, () => NOW));
     const chat = spawnCli(dirs, []);
     clis.push(chat);
-    chat.type('Find the private conversation about "κουνέλι κήπο".');
+    chat.type('Find the private chat about "κουνέλι κήπο".');
     await until(
       () => chat.stdout().includes(ANSWER),
       () => chat.stderr()
@@ -205,7 +206,7 @@ test('authenticated CLI prefetch includes foreign private evidence in the first 
 });
 
 for (const kind of ['group', 'dm'] as const) {
-  test(`an ordinary ${kind} cannot search another private conversation through forged tool authority`, async () => {
+  test(`an ordinary ${kind} cannot search another private chat through forged tool authority`, async () => {
     await withRig({ config: CONFIG }, async ({ dirs, cores, units }) => {
       seed(dirs);
       const llm = script([
@@ -229,19 +230,19 @@ for (const kind of ['group', 'dm'] as const) {
       if (kind === 'dm')
         await unit.ask(
           {
-            op: 'seed-conversation',
+            op: 'seed-chat',
             info: channelInfo(id, { kind: 'dm', rootId: null, partnerId: 'u1', audience: null }),
           },
           'done'
         );
       const event = lineEvent({
         id: `ordinary-${kind}`,
-        conversationId: id,
+        chatId: id,
         text: 'θυμάσαι το κουνέλι;',
         at: NOW,
         mention: true,
       });
-      if (kind === 'dm') event.conversation = { id, kind: 'dm', rootId: null, name: 'other DM' };
+      if (kind === 'dm') event.chat = { id, kind: 'dm', rootId: null, name: 'other DM' };
       assert.equal(await (await unit.emit(event)).acked, 'ok');
       await until(() => llm.requests.length === 3, 'the ordinary search and window results');
       assert.ok(toolText(llm.requests[1]).includes('public-evidence-275'));
@@ -284,7 +285,7 @@ for (const sender of ['absent', 'interface', 'agent'] as const) {
       const event = lineEvent({ id: 'bare-cli', text: 'θυμάσαι το κουνέλι;', at: NOW, authorId: 'owner' });
       event.iface = 'cli';
       event.id = 'cli:message:bare-cli';
-      event.conversation = { id: 'cli:dm:owner', kind: 'dm', rootId: null, name: 'console' };
+      event.chat = { id: 'cli:dm:owner', kind: 'dm', rootId: null, name: 'console' };
       const from =
         sender === 'absent' ? undefined : { principal: 'owner', authenticated: { name: 'owner', kind: sender } };
       assert.equal((await core.door.submit(event, from)).status, 'ok');
@@ -312,7 +313,7 @@ test('split CLI parts each search private evidence and send only to the CLI dest
       JSON.stringify({
         parts: [
           'Explain what Benoit said about the rabbit on the requested date.',
-          'Explain the neighboring private line from the same conversation.',
+          'Explain the neighboring private line from the same chat.',
         ],
       })
     );
@@ -323,7 +324,7 @@ test('split CLI parts each search private evidence and send only to the CLI dest
     const chat = spawnCli(dirs, []);
     clis.push(chat);
     chat.type(
-      'First, find what Benoit said about κουνέλι on 2026-10-23. Then, explain the neighboring private line from the same conversation.'
+      'First, find what Benoit said about κουνέλι on 2026-10-23. Then, explain the neighboring private line from the same chat.'
     );
     await until(
       () => chat.stdout().includes('second-owner-part-497'),
@@ -425,7 +426,7 @@ test('an internal CLI turn retains its private answer and refuses a generated gr
     cores.push(await startUnitsCore(dirs, llm, () => NOW));
     const unit = await startedUnit(dirs);
     units.push(unit);
-    await unit.ask({ op: 'seed-conversation', info: channelInfo('555') }, 'done');
+    await unit.ask({ op: 'seed-chat', info: channelInfo('555') }, 'done');
     await grantSearch(dirs);
     const granted = await runCli(dirs, ['-p', '/tools grant message.create']);
     assert.equal(granted.code, 0, granted.stdout + granted.stderr);

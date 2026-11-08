@@ -124,7 +124,7 @@ const handlers = perEnv((env) => {
     return id !== null && what?.accountId != null && idText(what.accountId) === id;
   }
 
-  /** The ids of the groups the persona holds in the served community (the interface's member info), [] when unknown. */
+  /** The ids of the groups the persona holds in the served root (the interface's member info), [] when unknown. */
   async function personaRoleIds(context: OpContext): Promise<Array<string>> {
     const placeId = env.resolvedPlaceId(context);
     const self = personaId();

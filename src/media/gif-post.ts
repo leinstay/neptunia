@@ -9,7 +9,7 @@ import { objOf } from '../tools/types.ts';
  * A fresh URL of an attached GIF: its original message is read again (attachment URLs of a platform expire)
  * through the interface's `fetchMessages` and the attachment found by id, in the message itself or in a forwarded
  * message. Null when the entry has no message or anything fails (`onError` told the error).
- * @param input `channel`: the reference of the conversation the turn is in, where an entry of no other conversation is read.
+ * @param input `channel`: the reference of the chat the turn is in, where an entry of no other chat is read.
  */
 export async function freshAttachmentUrl({
   reads,
@@ -18,16 +18,13 @@ export async function freshAttachmentUrl({
   onError = () => {},
 }: {
   reads: Reads;
-  channel: { iface: string; conversationId: string };
+  channel: { iface: string; chatId: string };
   entry: { messageId?: string; placeId?: string; itemId?: string };
   onError?: (err: unknown) => void;
 }): Promise<string | null> {
   if (!entry.messageId) return null;
   try {
-    const ref =
-      entry.placeId && entry.placeId !== channel.conversationId
-        ? { ...channel, conversationId: entry.placeId }
-        : channel;
+    const ref = entry.placeId && entry.placeId !== channel.chatId ? { ...channel, chatId: entry.placeId } : channel;
     const found = await reads.fetchMessages(ref, [entry.messageId]);
     // A message the interface cannot give (the read failed, the message is gone) is a failed lookup.
     const fetched = found?.messages[0];

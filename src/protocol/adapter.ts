@@ -3,13 +3,13 @@
 // for any platform fits. `deliveryOf` folds the results of a split send into one `Delivery`.
 
 import type { Content, PortResult } from './actions.ts';
-import type { Conversation, Message, MessageReceived } from './events.ts';
+import type { Chat, Message, MessageReceived } from './events.ts';
 
-export type ConversationRef = { iface: string; conversationId: string };
+export type ChatRef = { iface: string; chatId: string };
 
 export type MessageRef = {
   iface: string;
-  conversationId: string;
+  chatId: string;
   messageId: string;
   accountId?: string;
 };
@@ -34,9 +34,9 @@ export type Delivery = {
 
 /**
  * How an interface writes the address of a message, when its platform has one: a template for a message of a
- * community and one for a message of a private chat, each with `{community}`, `{conversation}` and `{message}`.
+ * root and one for a message of a private chat, each with `{root}`, `{chat}` and `{message}`.
  */
-export type MessageUrlTemplate = { community: string; direct: string };
+export type MessageUrlTemplate = { root: string; direct: string };
 
 /**
  * What an interface declares for the media pick (docs/interfaces.md, "Media pick"): the forms it posts a library GIF in,
@@ -91,13 +91,13 @@ export type FetchOptions = { idempotencyKey?: string };
 export type ReadResult<T> =
   ({ status: 'ok' } & T) | { status: 'failed' | 'unsupported' | 'forbidden'; error: PortError };
 
-/** What the persona may do in a conversation: read its history, send, attach files, react. */
+/** What the persona may do in a chat: read its history, send, attach files, react. */
 export type Permissions = { read: boolean; send: boolean; attach: boolean; react: boolean };
 
 /**
- * Who can see a conversation, in the shape the audience rail compares (src/behavior/elsewhere.ts#audienceCovers):
- * `groups` are the member groups of the platform (the roles of a community), as ids. The sets of the rail are arrays on the wire.
- * `everyone`: all members of the community can view it. `groups`: the groups that can view it, each on its own.
+ * Who can see a chat, in the shape the audience rail compares (src/behavior/elsewhere.ts#audienceCovers):
+ * `groups` are the member groups of the platform (the roles of a root), as ids. The sets of the rail are arrays on the wire.
+ * `everyone`: all members of the root can view it. `groups`: the groups that can view it, each on its own.
  * `groupAllow`, `groupDeny`: the groups whose own rule allows or denies viewing. `memberAllow`, `memberDeny`: the
  * members with a rule of their own. `memberGroups`: the groups of each member a rule names, where known.
  */
@@ -112,12 +112,12 @@ export type Audience = {
 };
 
 /**
- * A conversation with what the core reads about it: the record of events.ts plus the interface it belongs to, what the
+ * A chat with what the core reads about it: the record of events.ts plus the interface it belongs to, what the
  * persona may do there, its owner (a member id, null when the platform has none), the time of its newest message,
- * whether it is a voice room, whether everyone in the community may view it, and, when asked for, its audience and
+ * whether it is a voice room, whether everyone in the root may view it, and, when asked for, its audience and
  * which of the named viewers can see it.
  */
-export type ConversationInfo = Conversation & {
+export type ChatInfo = Chat & {
   iface: string;
   permissions: Permissions;
   owner: string | null;
@@ -128,7 +128,7 @@ export type ConversationInfo = Conversation & {
   viewers?: Record<string, boolean>;
 };
 
-/** The groups of a community: an id and the name members see. */
+/** The groups of a root: an id and the name members see. */
 export type GroupInfo = { id: string; name: string };
 
 /**
@@ -167,7 +167,7 @@ export type MemberHit = {
   bot: boolean;
 };
 
-/** A custom emoji of a community with the address of its picture. */
+/** A custom emoji of a root with the address of its picture. */
 export type EmojiInfo = { id: string; name: string; animated: boolean; url: string };
 
 /** How a history read is anchored: at most one of `before`, `after` and `around`, a floor `since` in ms. */
@@ -201,33 +201,26 @@ export type FetchedMessages = ReadResult<{ messages: ReadonlyArray<FetchedMessag
 
 export type Adapter = {
   iface: string;
-  send(conversation: ConversationRef, content: Content, options?: SendOptions): Promise<Delivery>;
+  send(chat: ChatRef, content: Content, options?: SendOptions): Promise<Delivery>;
   edit(message: MessageRef, content: Content): Promise<PortResult>;
   delete(message: MessageRef): Promise<PortResult>;
   react(message: MessageRef, emoji: string): Promise<PortResult>;
   unreact(message: MessageRef, emoji: string): Promise<PortResult>;
-  typing(conversation: ConversationRef, lease: { untilMs: number }): Promise<PortResult>;
-  fetchMessages(
-    conversation: ConversationRef,
-    messageIds: ReadonlyArray<string>,
-    options?: FetchOptions
-  ): Promise<FetchedMessages>;
-  conversationInfo(
-    conversation: ConversationRef,
+  typing(chat: ChatRef, lease: { untilMs: number }): Promise<PortResult>;
+  fetchMessages(chat: ChatRef, messageIds: ReadonlyArray<string>, options?: FetchOptions): Promise<FetchedMessages>;
+  chatInfo(
+    chat: ChatRef,
     options?: { audience?: boolean; viewers?: ReadonlyArray<string> }
-  ): Promise<ReadResult<{ conversation: ConversationInfo }>>;
-  conversations(scope: {
+  ): Promise<ReadResult<{ chat: ChatInfo }>>;
+  chats(scope: {
     placeId: string;
     audience?: boolean;
     viewers?: ReadonlyArray<string>;
-  }): Promise<ReadResult<{ conversations: Array<ConversationInfo>; groups: Array<GroupInfo> }>>;
-  history(
-    conversation: ConversationRef,
-    query: HistoryQuery
-  ): Promise<ReadResult<{ events: Array<MessageEvent>; complete: boolean }>>;
+  }): Promise<ReadResult<{ chats: Array<ChatInfo>; groups: Array<GroupInfo> }>>;
+  history(chat: ChatRef, query: HistoryQuery): Promise<ReadResult<{ events: Array<MessageEvent>; complete: boolean }>>;
   memberInfo(member: { placeId: string | null; accountId: string }): Promise<ReadResult<{ member: MemberInfo | null }>>;
-  /** The private conversation with an account, opened on the platform if need be, with no message sent. Asking twice answers the same id. */
-  dmConversationOf(partner: { iface: string; accountId: string }): Promise<ReadResult<{ conversationId: string }>>;
+  /** The private chat with an account, opened on the platform if need be, with no message sent. Asking twice answers the same id. */
+  dmChatOf(partner: { iface: string; accountId: string }): Promise<ReadResult<{ chatId: string }>>;
   searchMessages(
     scope: { placeId: string },
     query: { text?: string; authorId?: string; after?: number; before?: number; offset?: number }

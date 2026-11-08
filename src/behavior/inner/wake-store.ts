@@ -1,5 +1,5 @@
-// The persona wake view is loaded once from the memory database. Each queued wake retains its community and
-// native conversation. Saves synchronize the selected community without changing another community's queued work.
+// The persona wake view is loaded once from the memory database. Each queued wake retains its root and
+// native chat. Saves synchronize the selected root without changing another root's queued work.
 // Claims and completions use fenced leases and the same writer chain as persona state. Standalone callers use
 // one in-memory database per data directory with the existing legacy queue import.
 

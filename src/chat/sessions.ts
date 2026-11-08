@@ -1,9 +1,9 @@
-// Durable conversation sessions: a named view over the stored lines of one place, with a lineage. The lines stay where memory
+// Durable chat sessions: a named view over the stored lines of one place, with a lineage. The lines stay where memory
 // keeps them, and a session holds only their source ids and the times it was selected, so it copies, edits or deletes nothing.
 // The root of a place shows its lines but those written while a branch was selected. A branch shows its parent's view up to
 // the boundary, then the lines written while it was selected. Branching changes which lines the chat shows and sends as
 // context, while memory stays continuous: what she learned after the boundary stays known. Names come from the owner's own
-// first line, with no model. src/conversation/store.ts is the real store, src/interface/commands/chat-state.ts the commands.
+// first line, with no model. src/chat/store.ts is the real store, src/interface/commands/chat-state.ts the commands.
 
 /** A stored line as memory holds it. `nativeId` is the interface's message id, when it has one. */
 export type SourceLine = {
@@ -30,7 +30,7 @@ export type SessionRow = {
   spans: ReadonlyArray<SessionSpan>;
 };
 
-export type ConversationStore = {
+export type ChatStore = {
   /** The place's stored lines, oldest first. Read only. */
   lines(placeId: string): ReadonlyArray<SourceLine>;
   sessions(): ReadonlyArray<SessionRow>;
@@ -54,7 +54,7 @@ export type OpenSession = {
   memory: 'continuous';
 };
 
-export type ConversationSessions = {
+export type ChatSessions = {
   list(): Array<SessionSummary>;
   /** The root session of a place, made once. */
   open(request: { placeId: string }): OpenSession;
@@ -71,19 +71,19 @@ export type ConversationSessions = {
 
 /** How much of the first line names a session. */
 const NAME_CHARS = 60;
-const EMPTY_NAME = 'Empty conversation';
+const EMPTY_NAME = 'Empty chat';
 
 const inSpan = (span: SessionSpan, at: number): boolean => at >= span.from && (span.to === null || at < span.to);
 
-export function createConversationSessions({
+export function createChatSessions({
   store,
   now,
   newId,
 }: {
-  store: ConversationStore;
+  store: ChatStore;
   now: () => number;
   newId: () => string;
-}): ConversationSessions {
+}): ChatSessions {
   const rowOf = (id: string): SessionRow | null => store.sessions().find((row) => row.id === id) ?? null;
 
   /** The lines `row` shows: see the head of this file. */

@@ -79,7 +79,7 @@ function setup() {
     hot,
     store,
     client: {},
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     llm,
     errands,
     usage,

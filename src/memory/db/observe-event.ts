@@ -1,16 +1,16 @@
 // The observation of a message event (stage 8a of spec 2026-10-24-memory-schema-v7): the core maps an interface's
 // normalised `message.received` event (src/protocol/events.ts) to the envelope observe.ts writes. Nothing here knows a
-// platform: the interface is the event's `iface`, its namespace the authority the conversation declares or the
+// platform: the interface is the event's `iface`, its namespace the authority the chat declares or the
 // interface's native one (src/protocol/identity.ts#nativeAuthorityOf), and every id is the opaque string the adapter
 // gave. Pure, no I/O.
 //
 //   native    the message id, kind `message`, subtype the record's kind of the line (`said` for her own new line,
 //             `seen` for anyone else's and for every edit, hers too, as the record writes them); revision 1 for a new
 //             line, none for an edit (`edited: true`: observe takes it from the database);
-//   place     `channel:<id>` (a channel), `thread:<id>` (a thread), `group_dm:<id>` (a group chat) with conversation
+//   place     `channel:<id>` (a channel), `thread:<id>` (a thread), `group_dm:<id>` (a group chat) with chat
 //             `group`, each with the place that contains it as `<parentKind>:<parentId>` when it declares one (a thread
 //             with no declared kind sits in `channel:<parentId>`); `dm:<partner id>` for a direct chat with its partner, with
-//             conversation `dm` (a direct chat whose partner the event does not name is not observed);
+//             chat `dm` (a direct chat whose partner the event does not name is not observed);
 //   author    the account of the author's id, of kind `bot` when the event says bot; her own line is author `self`
 //             with her account (kind `self`);
 //   relations `replies_to` the replied message, `mentions` each mentioned member (by user id);
@@ -23,25 +23,21 @@ import type { MessageDeletion } from './message-families.ts';
 import { messageLocator } from './message-locator.ts';
 import { mediaItemsOf } from './media-store.ts';
 import { OBSERVATION_VERSION } from './observe.ts';
-import type { Envelope, MessageConversation } from './observe.ts';
+import type { Envelope, MessageChat } from './observe.ts';
 import { isFiniteNumber } from './types.ts';
 import type { Row } from './types.ts';
 
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
 const isoOf = (ms: unknown): string | null => (isFiniteNumber(ms) ? new Date(ms).toISOString() : null);
 
-/** Retains protocol conversation identity independently of the mapped partner place. */
-function messageConversationOf(
-  id: string,
-  place: Envelope['place'],
-  conversation?: EventConversation
-): MessageConversation {
+/** Retains protocol chat identity independently of the mapped partner place. */
+function messageChatOf(id: string, place: Envelope['place'], chat?: EventChat): MessageChat {
   return {
     id,
-    // placeOf accepts exactly the four normalized conversation kinds.
-    chatType: place.kind as MessageConversation['chatType'],
-    ...(filled(conversation?.partnerId) ? { partnerId: conversation.partnerId } : {}),
-    ...(filled(conversation?.parentId) ? { parentId: conversation.parentId } : {}),
+    // placeOf accepts exactly the four normalized chat kinds.
+    chatType: place.kind as MessageChat['chatType'],
+    ...(filled(chat?.partnerId) ? { partnerId: chat.partnerId } : {}),
+    ...(filled(chat?.parentId) ? { parentId: chat.parentId } : {}),
   };
 }
 
@@ -56,8 +52,8 @@ type EventMessage = {
   links?: unknown;
   stickers?: unknown;
 };
-/** The conversation of the event. */
-type EventConversation = {
+/** The chat of the event. */
+type EventChat = {
   id?: unknown;
   chatType?: unknown;
   kind?: unknown;
@@ -69,50 +65,41 @@ type EventConversation = {
   authorityId?: unknown;
 };
 
-/** The authority an event's place is observed under: the one its conversation declares, or the interface's native one. */
-const authorityOf = (iface: string, conversation: EventConversation | undefined): string =>
-  filled(conversation?.authorityId) ? conversation.authorityId : nativeAuthorityOf(iface);
+/** The authority an event's place is observed under: the one its chat declares, or the interface's native one. */
+const authorityOf = (iface: string, chat: EventChat | undefined): string =>
+  filled(chat?.authorityId) ? chat.authorityId : nativeAuthorityOf(iface);
 
-/** The native place key of a conversation, the one the observation stores it under. */
-export function conversationPlaceKey(conversation: {
-  id?: unknown;
-  kind?: unknown;
-  chatType?: unknown;
-  partnerId?: unknown;
-}): string {
-  const chatType =
-    conversation.chatType ??
-    (conversation.kind === 'thread' ? 'thread' : conversation.kind === 'dm' ? 'dm' : 'channel');
-  if (chatType === 'dm') return `dm:${String(conversation.partnerId ?? conversation.id)}`;
-  if (chatType === 'group_dm') return `group_dm:${String(conversation.id)}`;
-  if (chatType === 'thread') return `thread:${String(conversation.id)}`;
-  return `channel:${String(conversation.id)}`;
+/** The native place key of a chat, the one the observation stores it under. */
+export function chatPlaceKey(chat: { id?: unknown; kind?: unknown; chatType?: unknown; partnerId?: unknown }): string {
+  const chatType = chat.chatType ?? (chat.kind === 'thread' ? 'thread' : chat.kind === 'dm' ? 'dm' : 'channel');
+  if (chatType === 'dm') return `dm:${String(chat.partnerId ?? chat.id)}`;
+  if (chatType === 'group_dm') return `group_dm:${String(chat.id)}`;
+  if (chatType === 'thread') return `thread:${String(chat.id)}`;
+  return `channel:${String(chat.id)}`;
 }
 
-/** The place key of what contains a conversation: `<parentKind>:<parentId>`; with no declared kind it sits in a channel. */
-function parentField(conversation: EventConversation): { parent?: string; top?: string } {
-  const top = filled(conversation.rootId) ? `server:${conversation.rootId}` : null;
-  if (!filled(conversation.parentId)) return top === null ? {} : { parent: top };
-  const kind = filled(conversation.parentKind) ? conversation.parentKind : 'channel';
-  return { parent: `${kind}:${conversation.parentId}`, ...(top === null ? {} : { top }) };
+/** The place key of what contains a chat: `<parentKind>:<parentId>`; with no declared kind it sits in a channel. */
+function parentField(chat: EventChat): { parent?: string; top?: string } {
+  const top = filled(chat.rootId) ? `server:${chat.rootId}` : null;
+  if (!filled(chat.parentId)) return top === null ? {} : { parent: top };
+  const kind = filled(chat.parentKind) ? chat.parentKind : 'channel';
+  return { parent: `${kind}:${chat.parentId}`, ...(top === null ? {} : { top }) };
 }
 
-/** The place part of an envelope from the event's conversation, or null when it cannot be keyed. */
-function placeOf(conversation: EventConversation | undefined, authority: string): Envelope['place'] | null {
-  const id = conversation?.id;
-  if (!conversation || !filled(id)) return null;
-  const chatType =
-    conversation.chatType ??
-    (conversation.kind === 'thread' ? 'thread' : conversation.kind === 'dm' ? 'dm' : 'channel');
-  const title = typeof conversation.name === 'string' && conversation.name ? conversation.name : null;
+/** The place part of an envelope from the event's chat, or null when it cannot be keyed. */
+function placeOf(chat: EventChat | undefined, authority: string): Envelope['place'] | null {
+  const id = chat?.id;
+  if (!chat || !filled(id)) return null;
+  const chatType = chat.chatType ?? (chat.kind === 'thread' ? 'thread' : chat.kind === 'dm' ? 'dm' : 'channel');
+  const title = typeof chat.name === 'string' && chat.name ? chat.name : null;
   if (chatType === 'dm') {
-    if (!filled(conversation.partnerId)) return null;
+    if (!filled(chat.partnerId)) return null;
     return {
       authority,
-      key: `dm:${conversation.partnerId}`,
+      key: `dm:${chat.partnerId}`,
       kind: 'dm',
-      conversation: 'dm',
-      partner: { key: conversation.partnerId },
+      chat: 'dm',
+      partner: { key: chat.partnerId },
     };
   }
   if (chatType === 'group_dm')
@@ -120,18 +107,18 @@ function placeOf(conversation: EventConversation | undefined, authority: string)
       authority,
       key: `group_dm:${id}`,
       kind: 'group_dm',
-      conversation: 'group',
+      chat: 'group',
       ...(title ? { title } : {}),
-      ...parentField(conversation),
+      ...parentField(chat),
     };
   if (chatType === 'thread') {
     return {
       authority,
       key: `thread:${id}`,
       kind: 'thread',
-      conversation: 'group',
+      chat: 'group',
       ...(title ? { title } : {}),
-      ...parentField(conversation),
+      ...parentField(chat),
     };
   }
   if (chatType === 'channel')
@@ -139,9 +126,9 @@ function placeOf(conversation: EventConversation | undefined, authority: string)
       authority,
       key: `channel:${id}`,
       kind: 'channel',
-      conversation: 'group',
+      chat: 'group',
       ...(title ? { title } : {}),
-      ...parentField(conversation),
+      ...parentField(chat),
     };
   return null;
 }
@@ -178,7 +165,7 @@ function replyDescriptor(
     ? {
         messageReply: {
           iface: locator.iface,
-          conversationId: locator.conversationId,
+          chatId: locator.chatId,
           messageId: message.replyToId,
         },
       }
@@ -211,10 +198,10 @@ export function observationOf(
     !filled(message.author.id)
   )
     return null;
-  // The protocol conversation is narrowed by placeOf before its descriptor is emitted.
-  const conversation = event.conversation as EventConversation | undefined;
-  const authority = authorityOf(iface, conversation);
-  const place = placeOf(conversation, authority);
+  // The protocol chat is narrowed by placeOf before its descriptor is emitted.
+  const chat = event.chat as EventChat | undefined;
+  const authority = authorityOf(iface, chat);
+  const place = placeOf(chat, authority);
   const occurredAt = isoOf(message.at);
   if (!place || !occurredAt || typeof message.content !== 'string') return null;
   const locator = messageLocator(
@@ -222,7 +209,7 @@ export function observationOf(
       v: 1,
       origin: 'protocol-message',
       iface,
-      conversationId: (event.conversation as EventConversation).id,
+      chatId: (event.chat as EventChat).id,
       messageId: message.id,
     },
     iface
@@ -253,7 +240,7 @@ export function observationOf(
     authority,
     messageLocator: locator,
     ...replyDescriptor(message, locator),
-    messageConversation: messageConversationOf(locator.conversationId, place, conversation),
+    messageChat: messageChatOf(locator.chatId, place, chat),
     ...(filled(connection) ? { connection } : {}),
     native: {
       kind: 'message',
@@ -279,13 +266,13 @@ export function deletionOf(event: Row): MessageDeletion | null {
   const iface = event.iface;
   const message = event.message as EventMessage | undefined;
   if (!filled(iface) || iface.includes('/') || !message || event.deleted !== true) return null;
-  const conversation = event.conversation as EventConversation | undefined;
+  const chat = event.chat as EventChat | undefined;
   const locator = messageLocator(
-    { v: 1, origin: 'protocol-message', iface, conversationId: conversation?.id, messageId: message.id },
+    { v: 1, origin: 'protocol-message', iface, chatId: chat?.id, messageId: message.id },
     iface
   );
-  const authority = authorityOf(iface, conversation);
-  const place = placeOf(conversation, authority);
+  const authority = authorityOf(iface, chat);
+  const place = placeOf(chat, authority);
   const observedAt = isoOf(event.at);
   if (!locator || !place || !observedAt) return null;
   return {
@@ -293,7 +280,7 @@ export function deletionOf(event: Row): MessageDeletion | null {
     iface,
     authority,
     messageLocator: locator,
-    messageConversation: messageConversationOf(locator.conversationId, place, conversation),
+    messageChat: messageChatOf(locator.chatId, place, chat),
     occurredAt: isoOf(message.at) ?? observedAt,
     observedAt,
   };

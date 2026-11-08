@@ -44,7 +44,7 @@ import type { Snapshot } from '../behavior/snapshot.ts';
 import { DailyCapError, TokenLimitError, hedgeSettings, railReason, roleRequestOptions } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
 import { log } from '../log.ts';
-import type { ConversationInfo } from '../protocol/adapter.ts';
+import type { ChatInfo } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import type { JournalNotes } from './journal-notes.ts';
 
@@ -128,7 +128,7 @@ export type Selfreflection = {
   prepareSelfreflection: (args: {
     config: SelfreflectionConfig;
 
-    channel: ConversationInfo;
+    channel: ChatInfo;
     now: number;
     params: SelfreflectionParams;
     memoryOn: boolean;
@@ -141,7 +141,7 @@ export type Selfreflection = {
         })
       | null;
   }) => Promise<SelfreflectionPrepared>;
-  selfreflectionPictureGate: (config: SelfreflectionConfig, channel: ConversationInfo, now: number) => PictureGate;
+  selfreflectionPictureGate: (config: SelfreflectionConfig, channel: ChatInfo, now: number) => PictureGate;
 };
 
 /** The completion's text, when the client answered with one. */
@@ -405,11 +405,7 @@ export function createSelfreflection(ctx: SelfreflectionContext): Selfreflection
   }
 
   /** Whether a selfreflection post in `channel` may carry a picture now (src/behavior/selfreflection-turn.ts#pictureGate). */
-  function selfreflectionPictureGate(
-    config: SelfreflectionConfig,
-    channel: ConversationInfo,
-    now: number
-  ): PictureGate {
+  function selfreflectionPictureGate(config: SelfreflectionConfig, channel: ChatInfo, now: number): PictureGate {
     return pictureGate({
       config,
       attach: channel.permissions.attach,

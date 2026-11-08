@@ -1,8 +1,8 @@
 // The effect ledger and the live-core rig of the fault run (scripts/fault-run.ts, tests/fault-run.test.ts).
 //
 // `createLedger` counts every side effect by its effect key. A key names one thing that must happen once, whatever the
-// number of events, retries, restarts and reconnects around it: `send:<conversation>:<text>` for a message she posts,
-// `react:<conversation>/<message>/<emoji>` for a reaction, `wake:<id>` for a wake that ran, `delivery:<key>` for the
+// number of events, retries, restarts and reconnects around it: `send:<chat>:<text>` for a message she posts,
+// `react:<chat>/<message>/<emoji>` for a reaction, `wake:<id>` for a wake that ran, `delivery:<key>` for the
 // post a completed wake left, `board:<title>` for a task on the board. A run passes when no key repeats and each
 // expected key happened once. `observe` hangs the ledger on a fake adapter, so every call that reaches the interface is
 // counted at the place a platform would see it, below the link's own dedupe by idempotency key.
@@ -21,7 +21,7 @@ import { createFakeAdapter } from '../../src/interface/fake.ts';
 import { openMemoryDb } from '../../src/memory/db/open.ts';
 import { start as startFake } from '../../src/interface/fake-interface.ts';
 import type { FakeInterface } from '../../src/interface/fake-interface.ts';
-import type { ConversationInfo, MessageEvent } from '../../src/protocol/adapter.ts';
+import type { ChatInfo, MessageEvent } from '../../src/protocol/adapter.ts';
 import { apiNameOf } from '../../src/tools/definitions.ts';
 import { effectsLookup, weekOf } from '../inner-week.ts';
 import { loadFixtures } from './inner-week.ts';
@@ -54,18 +54,18 @@ export function createLedger(): Ledger {
 type Adapter = ReturnType<typeof createFakeAdapter>;
 
 /**
- * Counts what reaches `adapter`: each send under `send:<conversation>:<text>` and each reaction under its message.
+ * Counts what reaches `adapter`: each send under `send:<chat>:<text>` and each reaction under its message.
  * The adapter keeps working as before.
  */
 export function observe(adapter: Adapter, ledger: Ledger): void {
   const send = adapter.send.bind(adapter);
-  adapter.send = (conversation, content, options) => {
-    ledger.record('send', `${conversation.conversationId}:${content.text ?? ''}`);
-    return send(conversation, content, options);
+  adapter.send = (chat, content, options) => {
+    ledger.record('send', `${chat.chatId}:${content.text ?? ''}`);
+    return send(chat, content, options);
   };
   const react = adapter.react.bind(adapter);
   adapter.react = (ref, emoji) => {
-    ledger.record('react', `${ref.conversationId}/${ref.messageId}/${emoji}`);
+    ledger.record('react', `${ref.chatId}/${ref.messageId}/${emoji}`);
     return react(ref, emoji);
   };
 }
@@ -74,8 +74,8 @@ export function observe(adapter: Adapter, ledger: Ledger): void {
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const SELF = { id: 'self-id', name: 'Nova' };
-const COMMUNITY = { id: 'g1', name: 'Alpha' };
-/** The conversation of the run. */
+const SERVED_ROOT = { id: 'g1', name: 'Alpha' };
+/** The chat of the run. */
 const ROOM = 'c1';
 
 type Settings = Record<string, unknown>;
@@ -116,12 +116,12 @@ export function directiveOf(json: string, afterTools: boolean): Directive | null
   return chat?.[1] === undefined || chat[2] === undefined ? null : directiveIn(chat[2], Number(chat[1]));
 }
 
-/** A conversation as the fake reports it: a public channel she may read, post in and react in. */
-function conversationInfo(id: string): ConversationInfo {
+/** A chat as the fake reports it: a public channel she may read, post in and react in. */
+function chatInfo(id: string): ChatInfo {
   return {
     id,
     kind: 'channel',
-    rootId: COMMUNITY.id,
+    rootId: SERVED_ROOT.id,
     name: `room-${id}`,
     topic: null,
     iface: 'fake',
@@ -155,7 +155,7 @@ function messageEvent(
     iface: 'fake',
     at,
     id: `fake:message:${id}${how.edit === true ? `:edit:${at}` : how.deleted === true ? ':deleted' : ''}`,
-    conversation: { id: ROOM, kind: 'channel', rootId: COMMUNITY.id, name: `room-${ROOM}` },
+    chat: { id: ROOM, kind: 'channel', rootId: SERVED_ROOT.id, name: `room-${ROOM}` },
     ...(how.edit === true ? { edit: true } : {}),
     ...(how.deleted === true ? { deleted: true } : {}),
     message: {
@@ -179,13 +179,13 @@ function messageEvent(
       mentioned: mention,
       replyToSelf: false,
       mentionedAccountIds: mention ? [SELF.id] : [],
-      mentionedConversationIds: [],
+      mentionedChatIds: [],
     },
   };
 }
 
 const BASE_CONFIG: Settings = {
-  bot: { timezone: 'UTC', owners: [], placeId: COMMUNITY.id },
+  bot: { timezone: 'UTC', owners: [], placeId: SERVED_ROOT.id },
   // No video role, so the start sends no canary probe to YouTube.
   models: { base: { video: false } },
   pace: { settleMs: 0, settleMaxMs: 0 },
@@ -253,7 +253,7 @@ async function withLiveCore<T>(options: LiveOptions, body: (live: Live) => Promi
   writeFileSync(join(privateDir, 'config', 'config.json'), JSON.stringify(merged(BASE_CONFIG, options.config ?? {})));
   const ledger = options.ledger ?? createLedger();
   const adapter = createFakeAdapter({ selfId: SELF.id });
-  adapter.seedConversation(conversationInfo(ROOM));
+  adapter.seedChat(chatInfo(ROOM));
   observe(adapter, ledger);
   const requests: Array<string> = [];
   const llm = {
@@ -289,7 +289,7 @@ async function withLiveCore<T>(options: LiveOptions, body: (live: Live) => Promi
         {
           name: 'fake',
           start: async (host) => {
-            running = await startFake(host, { adapter, self: SELF, community: COMMUNITY });
+            running = await startFake(host, { adapter, self: SELF, root: SERVED_ROOT });
             return running;
           },
         },

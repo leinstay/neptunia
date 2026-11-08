@@ -20,7 +20,7 @@ export function heartbeatWake(at: number): Wake {
     chainId: `heartbeat:${at}`,
     dueAt: at,
     placeId: null,
-    privateChat: false,
+    dmChat: false,
   };
 }
 

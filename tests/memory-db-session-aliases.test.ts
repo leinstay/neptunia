@@ -37,7 +37,7 @@ const DM_ADA_KEY = 'dm:discord:person:discord:u-ada';
 function dmChat(env: ReturnType<typeof fixture>): void {
   env.db
     .prepare(
-      "INSERT INTO places (id, iface, kind, native_id, conversation, scope_kind, partner_account, partner_person) VALUES (?, 'discord', 'dm', ?, 'dm', 'dm', ?, ?)"
+      "INSERT INTO places (id, iface, kind, native_id, chat, scope_kind, partner_account, partner_person) VALUES (?, 'discord', 'dm', ?, 'dm', 'dm', ?, ?)"
     )
     .run(dmPlaceOf(ADA), ADA, `discord:${ADA}`, personOf(ADA));
   env.say({

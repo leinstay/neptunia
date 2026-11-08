@@ -47,7 +47,7 @@ test('a turn goes accepted, running and committed, with one rising sequence over
 });
 
 test('input during a running turn queues in order, and the next starts only when the first ended', async () => {
-  // Bug: two turns run at once over one conversation, or the second line overtakes the first.
+  // Bug: two turns run at once over one chat, or the second line overtakes the first.
   const { control, runs, typesOf } = rig();
   accepted(control.submit({ requestId: 'r1', text: 'one', attachments: [] }));
   const second = accepted(control.submit({ requestId: 'r2', text: 'two', attachments: [] }));
@@ -194,7 +194,7 @@ test('a failed turn ends failed, and the queued one runs once with nothing rerun
 });
 
 test('a run that throws ends failed instead of stalling the queue', async () => {
-  // Bug: one thrown error leaves the conversation queued forever.
+  // Bug: one thrown error leaves the chat queued forever.
   const events: Array<TurnEvent> = [];
   let calls = 0;
   const control = createTurnControl({

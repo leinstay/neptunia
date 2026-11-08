@@ -186,7 +186,7 @@ function seededDataDir(): string {
     chainId: 'intention:i-wait',
     dueAt: NOW - MINUTE,
     placeId: 'c1',
-    privateChat: false,
+    dmChat: false,
     taskId: 't0000000c',
   };
   fs.mkdirSync(path.join(dataDir, 'guilds', GUILD), { recursive: true });
@@ -493,7 +493,7 @@ async function tick(dataDir: string) {
     intentions: run.intentions,
     reads: world().reads,
     iface: () => 'fake',
-    conversationName: (id: string) => `chan-${id}`,
+    chatName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },

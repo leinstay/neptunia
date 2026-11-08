@@ -4,7 +4,7 @@
 // src/behavior/turn.ts calls them for every answer; the replay's skill scenarios (scripts/replay.ts) and the tests read
 // the exported ones through its re-exports.
 
-import type { Conversation } from '../protocol/events.ts';
+import type { Chat } from '../protocol/events.ts';
 import { randomUUID } from 'node:crypto';
 import type { StoredSourceRef } from '../memory/db/recall.ts';
 
@@ -14,7 +14,7 @@ import { thinkLeakOf } from '../llm/parse.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { readablePlaces } from '../behavior/readable-places.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
-import type { ConversationInfo } from '../protocol/adapter.ts';
+import type { ChatInfo } from '../protocol/adapter.ts';
 import type { CallView } from '../tools/executors.ts';
 import { skillRegistry } from '../tools/registry.ts';
 import { normalizeCalls } from '../tools/tool-calls.ts';
@@ -99,18 +99,18 @@ type ViewStore = {
 
 /**
  * What a `<call>` of the persona is resolved against (src/tools/executors.ts#resolveCall), read
- * now: the turn's channel as the current conversation, the channels she can name (the conversations of the
+ * now: the turn's channel as the current chat, the channels she can name (the chats of the
  * turn's `snapshot`, then the stored channel notes, the turn's own channel; where she may act is the
- * operation's rule, src/tools/impl/shared.ts#postingConversation), this turn's transcript numbers (`idByIndex`;
+ * operation's rule, src/tools/impl/shared.ts#postingChat), this turn's transcript numbers (`idByIndex`;
  * a pulled line lives in its own channel, `pulledIds`; its author from `lines`), the stored
- * profiles (only with memory on), her own id (`selfId`), the community's groups, the request's channel
+ * profiles (only with memory on), her own id (`selfId`), the root's groups, the request's channel
  * handles (`channelHandles`: handle -> channel id, a `#handle` resolved exactly before any name), the request's
  * member handles (`memberHandles`: handle -> member id, her `@handle` in a member argument) and the skill registry
  * (`skills`: a skill's options are resolved by its dispatch), `places` (the channels a read call may name, from the
  * snapshot by the pull rail with `partnerId` as the reader of a private chat or the command line; left out without a
  * `config` or a snapshot), `stem` (the loaded stemmer, `stem` as given), `placesNamed` (the name index of the memory under the turn's context), `searchRefs` (the turn's quoted lines
  * of a memory.search, searchHandles), and `fileOf` (a file handle
- * of one of her errands -> the file, null when this conversation may not use it), and `triggerText` (the
+ * of one of her errands -> the file, null when this chat may not use it), and `triggerText` (the
  * trigger message's text: a channel it names may take an errand's file). Reads `store` only. Exported
  * for the replay's skill scenarios, which resolve a call exactly as a live turn does.
  */
@@ -138,8 +138,8 @@ export function callViewOf({
   stem = null,
   placesNamed = null,
 }: {
-  // The interface's description of the conversation: a private chat (`rootId` null) lists no channels.
-  channel: Pick<Conversation, 'rootId'> & { id: string | number; name?: unknown };
+  // The interface's description of the chat: a private chat (`rootId` null) lists no channels.
+  channel: Pick<Chat, 'rootId'> & { id: string | number; name?: unknown };
   currentIface?: string;
   snapshot?: Snapshot | null;
   placeId?: string | null;
@@ -160,20 +160,19 @@ export function callViewOf({
   config?: Record<string, unknown> | null;
   stem?: ((word: string) => string) | null;
   placesNamed?: CallView['placesNamed'];
-}): CallView & { currentConversationId: string } {
-  const conversations: Array<{ id: string; name: string }> = [];
-  // A private chat shows no channel of the community: only the turn's own.
+}): CallView & { currentChatId: string } {
+  const chats: Array<{ id: string; name: string }> = [];
+  // A private chat shows no channel of the root: only the turn's own.
   const listing = channel?.rootId === null ? null : snapshot;
-  for (const entry of listing?.conversations ?? []) {
-    if (entry.id && typeof entry.name === 'string') conversations.push({ id: String(entry.id), name: entry.name });
+  for (const entry of listing?.chats ?? []) {
+    if (entry.id && typeof entry.name === 'string') chats.push({ id: String(entry.id), name: entry.name });
   }
   if (placeId && typeof store?.listChannels === 'function') {
     for (const note of store.listChannels(placeId) ?? [])
-      if (note?.id && typeof note.name === 'string') conversations.push({ id: String(note.id), name: note.name });
+      if (note?.id && typeof note.name === 'string') chats.push({ id: String(note.id), name: note.name });
   }
-  if (typeof channel.name === 'string' && channel.name)
-    conversations.push({ id: String(channel.id), name: channel.name });
-  // The community's groups a skill's role option may name.
+  if (typeof channel.name === 'string' && channel.name) chats.push({ id: String(channel.id), name: channel.name });
+  // The root's groups a skill's role option may name.
   const roles: Array<{ id: string; name: string }> = [];
   for (const group of listing?.groups ?? []) {
     if (group.id && typeof group.name === 'string') roles.push({ id: String(group.id), name: group.name });
@@ -183,7 +182,7 @@ export function callViewOf({
     config && snapshot
       ? readablePlaces({
           snapshot,
-          destination: channel as ConversationInfo,
+          destination: channel as ChatInfo,
           partnerId,
           config,
           handles: channelHandles instanceof Map ? (channelHandles as Map<string, string>) : null,
@@ -191,9 +190,9 @@ export function callViewOf({
       : null;
   // The request's handle maps and the record's deleted ids hold strings: handle -> id, and message ids.
   return {
-    currentConversationId: String(channel.id),
+    currentChatId: String(channel.id),
     currentIface,
-    conversations,
+    chats,
     ...(places ? { places } : {}),
     ...(stem ? { stem } : {}),
     ...(placesNamed ? { placesNamed } : {}),
@@ -212,11 +211,11 @@ export function callViewOf({
             (!found.stored && currentIface
               ? {
                   iface: currentIface,
-                  conversationId: String(found.placeId ?? channel.id),
+                  chatId: String(found.placeId ?? channel.id),
                   messageId: String(found.id),
                 }
               : undefined),
-          conversationId: storedNative?.conversationId ?? String(found.placeId ?? channel.id),
+          chatId: storedNative?.chatId ?? String(found.placeId ?? channel.id),
           authorId: found.authorId ?? null,
           self: found.self === true,
           ...(found.deleted === true ? { deleted: true } : {}),
@@ -227,9 +226,9 @@ export function callViewOf({
       return {
         id: String(id),
         native: currentIface
-          ? { iface: currentIface, conversationId: String(pulledIds?.get(id) ?? channel.id), messageId: String(id) }
+          ? { iface: currentIface, chatId: String(pulledIds?.get(id) ?? channel.id), messageId: String(id) }
           : undefined,
-        conversationId: String(pulledIds?.get(id) ?? channel.id),
+        chatId: String(pulledIds?.get(id) ?? channel.id),
         authorId: line?.authorId ?? null,
         self: line?.self === true,
         ...(line?.deleted === true ? { deleted: true } : {}),
@@ -242,7 +241,7 @@ export function callViewOf({
     skills,
     // Messages the record holds as deleted that the history lacks (their ids or links are refused as deleted).
     ...(deletedIds instanceof Set && deletedIds.size > 0 ? { deletedIds: deletedIds as Set<string> } : {}),
-    // A file handle of one of her errands (`file:<task id>/<name>`), resolved for this conversation.
+    // A file handle of one of her errands (`file:<task id>/<name>`), resolved for this chat.
     ...(typeof fileOf === 'function' ? { fileOf } : {}),
     // The trigger message's text: a channel it names may take an errand's file.
     ...(typeof triggerText === 'string' && triggerText ? { triggerText } : {}),
@@ -336,7 +335,7 @@ export type CallEnvelope = Readonly<{
  * lines and its operation carry. The follow-up pass inherits it; a tool's output never adds a
  * requester.
  * `turnId` (the journal's turn, else one id per attempt) and `idempotencyKey` (that turn, the call's
- * index and the conversation it acts in, no attempt) go with every call: an errand records the turn, and the
+ * index and the chat it acts in, no attempt) go with every call: an errand records the turn, and the
  * same call made twice queues one errand (src/errands/store.ts#add).
  */
 export function callEnvelope({
@@ -507,7 +506,7 @@ export function callTextOf(
 }
 
 /**
- * `{ iface }` naming the interface of the conversation the attempt answers (`draft.info`, set by its preflight), for
+ * `{ iface }` naming the interface of the chat the attempt answers (`draft.info`, set by its preflight), for
  * the usage line's interface; nothing before the preflight read it. Never part of the request body.
  */
 export function ifaceOption(draft: { info?: { iface?: string } | null }): { iface?: string } {

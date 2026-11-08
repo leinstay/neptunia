@@ -2,7 +2,7 @@
 // expiry, dedupe, caps and remove; the live view; the purge of a member; the
 // fold) and src/memory/mentions.ts#tokenIds, plus the store's read path where a
 // rule is about "on read" versus "at the next write".
-import { placeOfCommunity } from '../src/memory/addresses.ts';
+import { placeOfRoot } from '../src/memory/addresses.ts';
 import { after, test } from 'node:test';
 import { keyOfRel, unitText } from './fixtures/store-kit.ts';
 import assert from 'node:assert/strict';
@@ -273,24 +273,24 @@ test('recent: lines older than recentHours go at the next write, never on read',
   const raw = readRaw(file);
   const store = createStore({ dataDir: dir, memoryDb: memoryOf(dir) });
   assert.deepEqual(
-    store.getRecent(placeOfCommunity(store, 'g1')).lines.map((l) => l.id),
+    store.getRecent(placeOfRoot(store, 'g1')).lines.map((l) => l.id),
     [1, 2, 3]
   );
   assert.deepEqual(
-    liveRecent(store.getRecent(placeOfCommunity(store, 'g1')).lines, { now: NOW, hours: 24 }).map((l) => l.id),
+    liveRecent(store.getRecent(placeOfRoot(store, 'g1')).lines, { now: NOW, hours: 24 }).map((l) => l.id),
     [3]
   );
   store.flush();
   await settle();
   assert.equal(readRaw(file), raw, 'a read rewrites nothing');
 
-  const counts = store.applyRecentOps(placeOfCommunity(store, 'g1'), [], { now: NOW, hours: 72 });
+  const counts = store.applyRecentOps(placeOfRoot(store, 'g1'), [], { now: NOW, hours: 72 });
   assert.equal(counts.expired, 1);
   store.flush();
   await settle();
   assert.deepEqual(
     createStore({ dataDir: dir, memoryDb: memoryOf(dir) })
-      .getRecent(placeOfCommunity(store, 'g1'))
+      .getRecent(placeOfRoot(store, 'g1'))
       .lines.map((l) => l.id),
     [2, 3]
   );
@@ -446,7 +446,7 @@ test('recent: a hand-edited unit with a broken line is healed on read and not re
   const raw = readRaw(file);
 
   const store = createStore({ dataDir: dir, memoryDb: memoryOf(dir) });
-  const value = store.getRecent(placeOfCommunity(store, 'g1'));
+  const value = store.getRecent(placeOfRoot(store, 'g1'));
   assert.deepEqual(value, {
     nextId: 9,
     lines: [
@@ -505,9 +505,9 @@ test('store: lines a hand edit broke are logged once as a count on load, never b
   const store = createStore({ dataDir: dir, memoryDb: memoryOf(dir) });
 
   const { result, logs } = await withCapturedLogs(() => [
-    store.getRecent(placeOfCommunity(store, 'g1')),
-    store.getRecent(placeOfCommunity(store, 'g1')),
-    store.applyRecentOps(placeOfCommunity(store, 'g1'), [], { now: NOW }),
+    store.getRecent(placeOfRoot(store, 'g1')),
+    store.getRecent(placeOfRoot(store, 'g1')),
+    store.applyRecentOps(placeOfRoot(store, 'g1'), [], { now: NOW }),
   ]);
   assert.deepEqual(
     (result[0] as { lines: Array<{ text: string }> }).lines.map((l) => l.text),
@@ -521,7 +521,7 @@ test('store: lines a hand edit broke are logged once as a count on load, never b
   assert.ok(!JSON.stringify(logs).includes('λέξεις') && !JSON.stringify(logs).includes('μένει'), 'counts only');
 
   const { logs: more } = await withCapturedLogs(() =>
-    ['g2', 'g3', 'g4', 'g5'].map((placeId) => store.getRecent(placeOfCommunity(store, placeId)))
+    ['g2', 'g3', 'g4', 'g5'].map((placeId) => store.getRecent(placeOfRoot(store, placeId)))
   );
   assert.deepEqual(
     more

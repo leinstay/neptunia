@@ -3,8 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chatPanel } from '../bin/chat-panels.ts';
-import { createConversationSessions } from '../src/conversation/sessions.ts';
-import type { ConversationStore, SessionRow, SourceLine } from '../src/conversation/sessions.ts';
+import { createChatSessions } from '../src/chat/sessions.ts';
+import type { ChatStore, SessionRow, SourceLine } from '../src/chat/sessions.ts';
 import type { CheckpointDesk } from '../src/development/checkpoint-desk.ts';
 import { createChatState } from '../src/interface/commands/chat-state.ts';
 
@@ -22,7 +22,7 @@ const noCheckpoints: CheckpointDesk = {
 
 function rig() {
   const rows: Array<SessionRow> = [];
-  const store: ConversationStore = {
+  const store: ChatStore = {
     lines: (placeId) => LINES.filter((line) => line.placeId === placeId),
     sessions: () => rows,
     saveSession(row) {
@@ -33,7 +33,7 @@ function rig() {
   };
   let serial = 0;
   const state = createChatState({
-    sessions: createConversationSessions({ store, now: () => 100, newId: () => `id${(serial += 1)}` }),
+    sessions: createChatSessions({ store, now: () => 100, newId: () => `id${(serial += 1)}` }),
     checkpoints: noCheckpoints,
     approvals: {
       gates: () => Promise.resolve([]),
@@ -70,7 +70,7 @@ test('/sessions lists the root, and its row shows the stored lines in the chat',
 });
 
 test('/branch cuts the current session at a line, and the chat then shows the lines up to it', async () => {
-  // Bug: the branch is written but the chat stays on the whole conversation, or the next branch cuts the old one.
+  // Bug: the branch is written but the chat stays on the whole chat, or the next branch cuts the old one.
   const { run, view, shown } = rig();
   await run({ name: 'session.open', args: {} });
   const panel = await chatPanel('/branch', run, [], view);

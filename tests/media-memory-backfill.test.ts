@@ -39,7 +39,7 @@ import type { Row } from '../src/memory/db/types.ts';
 const IMAGE = KINDS[0];
 const MINUTE = 60_000;
 const OTHER = channelPlaceId('discord', 'c2');
-const CONVERSATION = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' };
+const CHAT = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' };
 const IN_OTHER = { id: 'c2', kind: 'channel', rootId: 'g1' };
 const named = (name: string) => KINDS.find((kind) => kind.name === name) as Kind;
 
@@ -100,12 +100,12 @@ function oldRow(
 
 /** An interface whose history holds these events: reads by `around`, `after`, `before` and `since`, and notes each read. */
 function fakeInterface(events: Array<Row>) {
-  const reads: Array<{ conversationId: string; query: HistoryQuery }> = [];
+  const reads: Array<{ chatId: string; query: HistoryQuery }> = [];
   const order = (id: unknown) => BigInt(String(id).replace(/\D/g, '') || '0');
-  const read = (conversationId: string, query: HistoryQuery) => {
-    reads.push({ conversationId, query });
+  const read = (chatId: string, query: HistoryQuery) => {
+    reads.push({ chatId, query });
     const held = events
-      .filter((event) => (event.conversation as Row).id === conversationId)
+      .filter((event) => (event.chat as Row).id === chatId)
       .sort((a, b) => Number(order((a.message as Row).id) - order((b.message as Row).id)));
     const idOf = (event: Row) => order((event.message as Row).id);
     let page = held;
@@ -127,8 +127,7 @@ function fakeInterface(events: Array<Row>) {
 }
 
 /** The message of an old row as the interface reads it today. */
-const imageEvent = (native: string, at = AT, conversation: Row = CONVERSATION) =>
-  eventOf(IMAGE, native, [true, true], { at, conversation });
+const imageEvent = (native: string, at = AT, chat: Row = CHAT) => eventOf(IMAGE, native, [true, true], { at, chat });
 
 function run(env: Env, read: ReturnType<typeof fakeInterface>['read'], over: Row = {}) {
   const described: Array<Row> = [];
@@ -226,7 +225,7 @@ for (const kind of KINDS.filter((one) => !one.self)) {
       const held = rowsOf(env, observeLine(env, kind, 'absent', { native: '1000' }));
       assert.ok(held.length > 0);
       const source = oldRow(env, { native: '1002', kinds: held.map((row) => String(row.kind)) });
-      await run(env, fakeInterface([eventOf(kind, '1002', [false, false], { conversation: CONVERSATION })]).read);
+      await run(env, fakeInterface([eventOf(kind, '1002', [false, false], { chat: CHAT })]).read);
       assert.deepEqual(neutralRows(rowsOf(env, source)), neutralRows(held));
     }));
 }
@@ -242,16 +241,16 @@ test('messages read in one go: five lines close together take one read of the hi
     assert.equal(report.reads, 1);
   }));
 
-test("a message is matched by its id in the line's own conversation, never by the same id in another", () =>
+test("a message is matched by its id in the line's own chat, never by the same id in another", () =>
   withEnv(async (env) => {
     oldRow(env, { native: '1201', kinds: ['image', 'image'] });
     const other = oldRow(env, { native: '1202', place: OTHER, at: AT + MINUTE, kinds: ['image', 'image'] });
     const { read, reads } = fakeInterface([
       imageEvent('1201'),
-      eventOf(IMAGE, '1201', [true, true], { conversation: IN_OTHER }),
+      eventOf(IMAGE, '1201', [true, true], { chat: IN_OTHER }),
     ]);
     const { report } = await run(env, read);
-    assert.deepEqual([...new Set(reads.map((one) => one.conversationId))].sort(), ['c1', 'c2']);
+    assert.deepEqual([...new Set(reads.map((one) => one.chatId))].sort(), ['c1', 'c2']);
     assert.deepEqual([report.linked, report.gone], [1, 1], 'the other id in c2 is not 1202');
     assert.equal(rowsOf(env, other)[0].nativeRef, null);
   }));
@@ -344,14 +343,11 @@ test('a failed read of one place is counted and the next run finishes it without
   withEnv(async (env) => {
     oldRow(env, { native: '1601', kinds: ['image', 'image'] });
     const later = oldRow(env, { native: '1602', place: OTHER, at: AT + MINUTE, kinds: ['image', 'image'] });
-    const healthy = fakeInterface([
-      imageEvent('1601'),
-      eventOf(IMAGE, '1602', [true, true], { conversation: IN_OTHER }),
-    ]);
-    const flaky = (conversationId: string, query: HistoryQuery) =>
-      conversationId === 'c2'
+    const healthy = fakeInterface([imageEvent('1601'), eventOf(IMAGE, '1602', [true, true], { chat: IN_OTHER })]);
+    const flaky = (chatId: string, query: HistoryQuery) =>
+      chatId === 'c2'
         ? Promise.resolve({ status: 'failed' as const, events: [], complete: false })
-        : healthy.read(conversationId, query);
+        : healthy.read(chatId, query);
     const first = await run(env, flaky as typeof healthy.read);
     assert.deepEqual([first.report.linked, first.report.failedPlaces, first.report.gone], [1, 1, 0]);
     assert.equal(rowsOf(env, later)[0].availability, 'unknown', 'a failed read is no deleted message');
@@ -359,7 +355,7 @@ test('a failed read of one place is counted and the next run finishes it without
     const second = await run(env, healthy.read);
     assert.deepEqual([second.report.linked, second.report.failedPlaces], [1, 0]);
     assert.deepEqual(
-      healthy.reads.map((one) => one.conversationId),
+      healthy.reads.map((one) => one.chatId),
       ['c2']
     );
   }));
@@ -371,12 +367,12 @@ test('an aborted run stops between reads and the next run takes up what is left'
     oldRow(env, { native: '1702', place: OTHER, at: AT - far, kinds: ['image', 'image'] });
     const { read } = fakeInterface([
       imageEvent('1701'),
-      eventOf(IMAGE, '1702', [true, true], { at: AT - far, conversation: IN_OTHER }),
+      eventOf(IMAGE, '1702', [true, true], { at: AT - far, chat: IN_OTHER }),
     ]);
     const controller = new AbortController();
-    const stopping = ((conversationId: string, query: HistoryQuery) => {
+    const stopping = ((chatId: string, query: HistoryQuery) => {
       controller.abort();
-      return read(conversationId, query);
+      return read(chatId, query);
     }) as typeof read;
     const first = await run(env, stopping, { signal: controller.signal });
     assert.deepEqual([first.report.linked, first.report.stopped], [1, true]);
@@ -410,7 +406,7 @@ test('a missing text form goes through the describe path once, with the fresh ad
 test('a kind no model can read costs no describe call', () =>
   withEnv(async (env) => {
     oldRow(env, { native: '1807', kinds: ['file'] });
-    const event = eventOf(IMAGE, '1807', [false, false], { conversation: CONVERSATION });
+    const event = eventOf(IMAGE, '1807', [false, false], { chat: CHAT });
     (event.message as Row).attachments = [{ id: 'z1', kind: 'file', name: 'n.zip', url: 'https://x.invalid/n' }];
     const { described } = await run(env, fakeInterface([event]).read);
     assert.deepEqual(described, []);
@@ -420,7 +416,7 @@ for (const name of ['voice received', 'audio']) {
   test(`an old ${name} goes through the describe path, and its transcript then finds the line`, () =>
     withEnv(async (env) => {
       const kind = named(name);
-      const event = eventOf(kind, '1803', [false, false], { conversation: CONVERSATION });
+      const event = eventOf(kind, '1803', [false, false], { chat: CHAT });
       const attachments = (event.message as { attachments: Array<Row> }).attachments;
       attachments.length = 1;
       oldRow(env, { native: '1803', kinds: [String(attachments[0].kind)] });
@@ -443,7 +439,7 @@ for (const name of ['voice received', 'audio']) {
 test('her own old voice message goes through the describe path, since its words are stored nowhere', () =>
   withEnv(async (env) => {
     oldRow(env, { native: '1804', kinds: ['voice'], author: HER });
-    const event = eventOf(named('voice said'), '1804', [false, false], { conversation: CONVERSATION });
+    const event = eventOf(named('voice said'), '1804', [false, false], { chat: CHAT });
     (event.message as { attachments: Array<Row> }).attachments = [
       { id: 'v9', kind: 'voice', name: 'voice.ogg', durationSec: 9, url: 'https://cdn.example.invalid/v9.ogg' },
     ];
@@ -489,7 +485,7 @@ test('a line with no text form queues nothing and costs no embedding', () =>
 
 // ---------- audience ----------
 
-test("a DM's old picture, read through its stored conversation, stays in the DM on every stream", () =>
+test("a DM's old picture, read through its stored chat, stays in the DM on every stream", () =>
   withEnv(async (env) => {
     const dm = dmPlaceId('discord', BOB);
     oldRow(env, {
@@ -501,8 +497,8 @@ test("a DM's old picture, read through its stored conversation, stays in the DM 
       extra: { dmChannel: 'dm-bob' },
     });
     heldItem(env, '2001-a', 'a lighthouse only he saw');
-    const conversation = { id: 'dm-bob', kind: 'dm', chatType: 'dm', partnerId: BOB };
-    await run(env, fakeInterface([imageEvent('2001', AT, conversation)]).read);
+    const chat = { id: 'dm-bob', kind: 'dm', chatType: 'dm', partnerId: BOB };
+    await run(env, fakeInterface([imageEvent('2001', AT, chat)]).read);
     fillStems(env.db);
     await embedLines(env);
     assert.deepEqual(mediaFinds(env, 'lighthouse', dmContext(BOB_PERSON, 'discord')), ['2001']);
@@ -511,12 +507,12 @@ test("a DM's old picture, read through its stored conversation, stays in the DM 
     assert.deepEqual(search(env.db, { ctx: group, ...byMeaning('маяк') }).mediaHits, []);
   }));
 
-test('a DM line whose conversation is not stored stays bare, counted with its reason, and is not read by its partner id', () =>
+test('a DM line whose chat is not stored stays bare, counted with its reason, and is not read by its partner id', () =>
   withEnv(async (env) => {
     oldRow(env, { native: '2002', place: dmPlaceId('discord', BOB), author: BOB, scope: BOB_SCOPE });
     const { read, reads } = fakeInterface([]);
     const { report } = await run(env, read);
-    assert.deepEqual([report.bare, report.gone, report.classes['no-conversation']], [1, 0, 1]);
+    assert.deepEqual([report.bare, report.gone, report.classes['no-chat']], [1, 0, 1]);
     assert.deepEqual(reads, []);
   }));
 

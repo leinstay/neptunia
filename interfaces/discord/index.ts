@@ -1,7 +1,7 @@
 // @neptunia/interface-discord: everything of the engine that speaks discord.js. The outbound
 // adapter of the interface port (port.ts), message normalization and the inbound protocol events
 // with the history and permission reads (collect.ts), searching other channels
-// (search.ts), the audience rule of a pull for the recall runner (pull-fetch.ts), the conversation reads the core's
+// (search.ts), the audience rule of a pull for the recall runner (pull-fetch.ts), the chat reads the core's
 // adapter answers (reads.ts), the live voice and presence
 // event builders (around.ts), the served guild (guild.ts), member
 // cache warming (audience-warm.ts), plus the factory the
@@ -64,7 +64,7 @@ export function createDiscordInterface({
 } {
   const port = createDiscordAdapter({ client, ...adapterOptions });
   const capabilities = Object.freeze({
-    // What a conversation allows and holds (collect.ts).
+    // What a chat allows and holds (collect.ts).
     canRead,
     canSend,
     canAttach,
@@ -82,7 +82,7 @@ export function createDiscordInterface({
     normalizeMessage,
     normalizeOptions,
     PAGE,
-    // Pulling and searching other conversations (pull-fetch.ts, search.ts).
+    // Pulling and searching other chats (pull-fetch.ts, search.ts).
     audienceAllows,
     checkPull,
     searchMessages,

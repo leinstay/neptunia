@@ -4,7 +4,7 @@
 
 import type { Reads } from '../interface/reads.ts';
 import { fill } from '../format.ts';
-import type { ConversationInfo } from '../protocol/adapter.ts';
+import type { ChatInfo } from '../protocol/adapter.ts';
 
 /** Display name of the author of `messageId` in `history`, or null when the message is not there. */
 export function authorNameFor(
@@ -47,21 +47,18 @@ export function replyTarget(
  */
 export async function reactionChannel(
   reads: Reads,
-  channel: ConversationInfo,
+  channel: ChatInfo,
   targetId: string,
   pulledIds: ReadonlyMap<string, string>
 ): Promise<{
-  target: ConversationInfo | null;
+  target: ChatInfo | null;
   source: string | null;
   reason: 'not-found' | 'cannot-react' | null;
 }> {
   const source = pulledIds.get(targetId) ?? null;
   if (!source) return { target: channel, source: null, reason: null };
-  const live =
-    channel.rootId === null
-      ? null
-      : await reads.conversationInfo({ iface: channel.iface, conversationId: String(source) });
-  const target = live?.conversation ?? null;
+  const live = channel.rootId === null ? null : await reads.chatInfo({ iface: channel.iface, chatId: String(source) });
+  const target = live?.chat ?? null;
   if (!target) return { target: null, source, reason: 'not-found' };
   return target.permissions.react ? { target, source, reason: null } : { target: null, source, reason: 'cannot-react' };
 }

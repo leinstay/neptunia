@@ -44,7 +44,7 @@ export type BuildRequestInput = {
   taggedCall?: boolean | null;
   placeMemory: RequestInput['placeMemory'];
   interlocutor: RequestInput['interlocutor'];
-  privateChat?: { accountId: string } | null;
+  dmChat?: { accountId: string } | null;
   privateProfile?: RequestInput['privateProfile'];
   otherProfiles: Array<Untyped>;
   candidateProfiles?: Array<Untyped>;

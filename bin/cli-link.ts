@@ -1,18 +1,11 @@
-// The owner client's link to the core: the `cli` interface's hello and adapter on one transport, the conversation of the
+// The owner client's link to the core: the `cli` interface's hello and adapter on one transport, the chat of the
 // chat, and the commands with their answers by `replyRef`. `openLinkOver` serves any transport, so the question bridge is
 // tested over the real protocol without a socket. A question a command asks reaches `answers` with its prompt, whether it
 // is secret and its choices, and the answer goes back once, as a dialog answer and never as an argument. bin/neptunia.ts
 // opens it on the core's socket.
 
 import { randomUUID } from 'node:crypto';
-import type {
-  Adapter,
-  Capabilities,
-  ConversationInfo,
-  Delivery,
-  HistoryQuery,
-  MessageEvent,
-} from '../src/protocol/adapter.ts';
+import type { Adapter, Capabilities, ChatInfo, Delivery, HistoryQuery, MessageEvent } from '../src/protocol/adapter.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
 import type { CommandResult, Logger } from '../src/protocol/serve.ts';
 import { TURN_EVENT_STATUS, readTurnEvent } from '../src/protocol/turn-control.ts';
@@ -22,7 +15,7 @@ import { classifyAttachment } from '../src/media/classify.ts';
 import type { Attachment } from '../src/protocol/actions.ts';
 import { UnansweredQuestion, unansweredText } from './neptunia-request.ts';
 
-/** The owner's command line: its client, its namespace and its one conversation. */
+/** The owner's command line: its client, its namespace and its one chat. */
 export const CLI_CLIENT = 'cli';
 /** What the command line is called, for `hello.names`: one place, the owner's chat, and no kinds of place. */
 const CLI_NAMES = { interface: 'command line', nouns: {}, dm: 'chat' };
@@ -51,9 +44,9 @@ export type LinkAnswers = {
 /** A staged image going with a line: `reference` is what the core's readers open (src/media/staging.ts). */
 export type LineImage = { id: string; name: string; contentType: string; reference: string; size?: number };
 
-/** What the command line declares to the core: it sends text, keeps images and answers who its one conversation is. */
+/** What the command line declares to the core: it sends text, keeps images and answers who its one chat is. */
 const CLI_CAPABILITIES: Capabilities = {
-  operations: ['message.send', 'conversation.typing'],
+  operations: ['message.send', 'chat.typing'],
   maxChars: 100_000,
   maxFiles: 10,
   // One file of the socket's frame, as src/protocol/wire.ts sizes it.
@@ -67,17 +60,17 @@ const CLI_CAPABILITIES: Capabilities = {
   voiceFormats: [],
   publish: [],
   search: false,
-  reads: ['conversation.info', 'messages.history', 'messages.fetch'],
+  reads: ['chat.info', 'messages.history', 'messages.fetch'],
 };
 
 /** How many lines of this session the chat keeps to answer the core's history reads. */
 const TRANSCRIPT_LINES = 200;
 
-/** The one conversation of the command line: the direct chat between the owner and the persona. */
-const CHAT_CONVERSATION = { id: CHAT_ID, kind: 'dm', rootId: null, name: OWNER_ID, partnerId: OWNER_ID } as const;
+/** The one chat of the command line: the direct chat between the owner and the persona. */
+const CHAT_RECORD = { id: CHAT_ID, kind: 'dm', rootId: null, name: OWNER_ID, partnerId: OWNER_ID } as const;
 
-const CHAT_INFO: ConversationInfo = {
-  ...CHAT_CONVERSATION,
+const CHAT_INFO: ChatInfo = {
+  ...CHAT_RECORD,
   iface: CLI_IFACE,
   permissions: { read: true, send: true, attach: true, react: false },
   owner: null,
@@ -94,7 +87,7 @@ const unsupported = (): Promise<{
 
 /**
  * The command line's adapter: a send of the chat prints its text with `print` and hands its files to `deliver` (none
- * when the client takes no replies), the conversation it answers is the chat, and the chat's history is `transcript`, the
+ * when the client takes no replies), the chat it answers is the chat, and the chat's history is `transcript`, the
  * lines of this session. Everything else is unsupported.
  */
 function cliAdapter(
@@ -102,20 +95,20 @@ function cliAdapter(
   deliver: ((file: Attachment) => Promise<void>) | null,
   transcript: Array<MessageEvent>
 ): Adapter {
-  const inChat = (conversation: { conversationId: string }): boolean => conversation.conversationId === CHAT_ID;
+  const inChat = (chat: { chatId: string }): boolean => chat.chatId === CHAT_ID;
   const effectRefused = { status: 'unsupported' as const, error: { code: 'unsupported', retryable: false } };
   return {
     iface: CLI_IFACE,
     capabilities: () => CLI_CAPABILITIES,
-    async send(conversation, content, options = {}): Promise<Delivery> {
+    async send(chat, content, options = {}): Promise<Delivery> {
       const idempotencyKey = options.idempotencyKey ?? randomUUID();
       const files = isObject(content) && Array.isArray(content.attachments) ? content.attachments : [];
-      if (print === null || conversation.conversationId !== CHAT_ID || (files.length > 0 && deliver === null)) {
+      if (print === null || chat.chatId !== CHAT_ID || (files.length > 0 && deliver === null)) {
         const error = { code: 'unsupported', retryable: false, retryAfterMs: null };
         return { status: 'unsupported', ref: null, parts: [], at: null, idempotencyKey, error };
       }
       const text: unknown = isObject(content) ? content.text : null;
-      const ref = { iface: CLI_IFACE, conversationId: CHAT_ID, messageId: randomUUID() };
+      const ref = { iface: CLI_IFACE, chatId: CHAT_ID, messageId: randomUUID() };
       const at = Date.now();
       if (typeof text === 'string' && text !== '') {
         print(text);
@@ -129,8 +122,8 @@ function cliAdapter(
     react: () => Promise.resolve(effectRefused),
     unreact: () => Promise.resolve(effectRefused),
     typing: () => Promise.resolve({ status: 'ok' }),
-    fetchMessages: (conversation, messageIds) =>
-      inChat(conversation)
+    fetchMessages: (chat, messageIds) =>
+      inChat(chat)
         ? Promise.resolve({
             status: 'ok',
             messages: messageIds.map((messageId) => {
@@ -141,15 +134,14 @@ function cliAdapter(
             }),
           })
         : unsupported(),
-    conversationInfo: (conversation) =>
-      inChat(conversation) ? Promise.resolve({ status: 'ok', conversation: CHAT_INFO }) : unsupported(),
-    conversations: unsupported,
-    history: (conversation, query) =>
-      inChat(conversation)
+    chatInfo: (chat) => (inChat(chat) ? Promise.resolve({ status: 'ok', chat: CHAT_INFO }) : unsupported()),
+    chats: unsupported,
+    history: (chat, query) =>
+      inChat(chat)
         ? Promise.resolve({ status: 'ok', events: historyOf(transcript, query), complete: true })
         : unsupported(),
     memberInfo: unsupported,
-    dmConversationOf: unsupported,
+    dmChatOf: unsupported,
     searchMessages: unsupported,
     searchMembers: unsupported,
     emoji: unsupported,
@@ -184,7 +176,7 @@ function lineEvent(
     iface: CLI_IFACE,
     at,
     id: `${CLI_IFACE}:message:${id}`,
-    conversation: CHAT_CONVERSATION,
+    chat: CHAT_RECORD,
     message: {
       id,
       author: self
@@ -215,7 +207,7 @@ function lineEvent(
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
   };
 }
 
@@ -232,7 +224,7 @@ function commandEvent(
     iface: CLI_IFACE,
     at: Date.now(),
     id: `${CLI_IFACE}:command:${replyRef}`,
-    conversation: CHAT_CONVERSATION,
+    chat: CHAT_RECORD,
     name: command.name,
     args: command.args,
     requester: { id: OWNER_ID, name: OWNER_ID, roles: [], owner: true },
@@ -247,7 +239,7 @@ export type CliLink = {
   say(text: string, images?: ReadonlyArray<LineImage>): Promise<string>;
   /** Sends a line and waits for the end of the turn over it. */
   turn(text: string, images?: ReadonlyArray<LineImage>): Promise<Answer>;
-  /** Replaces the lines the core's history reads answer from, with those of a resumed or branched conversation. */
+  /** Replaces the lines the core's history reads answer from, with those of a resumed or branched chat. */
   showLines(lines: ReadonlyArray<{ id: string; at: number; who: string; text: string; nativeId?: string }>): void;
   /** Sends a command; a question it asks goes to `answers`, and without them the command is refused. */
   ask(command: Command, answers?: LinkAnswers): Promise<Answer>;
@@ -300,7 +292,7 @@ export function openLinkOver(
     hello: {
       iface: CLI_IFACE,
       self: { id: OWNER_ID, name: OWNER_ID },
-      community: null,
+      root: null,
       names: CLI_NAMES,
       capabilities: CLI_CAPABILITIES,
       resume: null,

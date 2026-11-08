@@ -28,8 +28,8 @@ The modules:
 
 | File | What |
 |---|---|
-| `port.ts` | The Discord adapter of the interface port: send, edit, delete, react, unreact, typing, and the conversation reads it takes from `reads.ts`. Maps discord.js errors to result statuses. |
-| `reads.ts` | The reads of the adapter over discord.js: the conversations of a community with their permissions, audiences and viewers, the history, messages by id, members, search, emoji, links and reactors. |
+| `port.ts` | The Discord adapter of the interface port: send, edit, delete, react, unreact, typing, and the chat reads it takes from `reads.ts`. Maps discord.js errors to result statuses. |
+| `reads.ts` | The reads of the adapter over discord.js: the chats of a root with their permissions, audiences and viewers, the history, messages by id, members, search, emoji, links and reactors. |
 | `collect.ts` | Turns discord.js messages into normalised plain objects. Builds `message.received` and `reaction.changed` protocol events (`toEvent`, `reactionEvent`). Permission checks, audience. |
 | `session.ts` | `start(host)`: the client, the login, the guild, the link and every gateway event as a protocol event, held until `open()`. |
 | `members.ts` | A member as the avatar queue sees it (`memberView`, `avatarHashOf`) and the `membership.changed` event. |

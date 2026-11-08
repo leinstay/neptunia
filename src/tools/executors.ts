@@ -31,14 +31,14 @@ import type { Refusal } from './gateway.ts';
 import { indexedPlace, matchPlace } from './place-names.ts';
 import type { PlaceCandidate, PlaceMatch } from './place-names.ts';
 import type { Reads } from '../interface/reads.ts';
-import type { ConversationRef } from '../protocol/adapter.ts';
+import type { ChatRef } from '../protocol/adapter.ts';
 
 /** A message of this turn's transcript as the view finds it by its number. */
 export type ViewLine = {
   stored?: StoredSourceRef;
   native?: NativeMessageLocator;
   id: string;
-  conversationId: string;
+  chatId: string;
   authorId?: string | null;
   self?: boolean;
   deleted?: boolean;
@@ -48,8 +48,8 @@ export type ViewLine = {
 export type CallView = {
   currentIface?: string;
   skills?: SkillMap;
-  conversations?: ReadonlyArray<{ id: unknown; name?: unknown }>;
-  /** The places a read call may name (src/behavior/readable-places.ts); without it a read names `conversations`. */
+  chats?: ReadonlyArray<{ id: unknown; name?: unknown }>;
+  /** The places a read call may name (src/behavior/readable-places.ts); without it a read names `chats`. */
   places?: ReadonlyArray<PlaceCandidate>;
   /** The stemmer a place name is compared with, when one is loaded. */
   stem?: ((word: string) => string) | null;
@@ -57,7 +57,7 @@ export type CallView = {
   placesNamed?: ((name: string) => ReadonlyArray<{ id: string; name: string }>) | null;
   channelHandles?: ReadonlyMap<string, string> | null;
   memberHandles?: ReadonlyMap<string, string> | null;
-  links?: ReadonlyMap<string, { conversationId: string; messageId: string } | null> | null;
+  links?: ReadonlyMap<string, { chatId: string; messageId: string } | null> | null;
   messageAt?: (n: number) => ViewLine | null;
   members?: ReadonlyArray<{ id: unknown; names?: ReadonlyArray<unknown>; aliases?: ReadonlyArray<{ name?: unknown }> }>;
   roles?: ReadonlyArray<{ id: unknown; name?: unknown }>;
@@ -127,7 +127,7 @@ export function linkKey(text: unknown): string {
 export async function linksOfCalls(
   reads: Reads | null | undefined,
   calls: unknown
-): Promise<Map<string, { conversationId: string; messageId: string } | null> | null> {
+): Promise<Map<string, { chatId: string; messageId: string } | null> | null> {
   const found = new Set<string>();
   for (const call of listOf(calls))
     for (const value of Object.values(objOf(objOf(call).args))) {
@@ -143,7 +143,7 @@ export async function linksOfCalls(
 /** The message a pasted link names, from the view's `links` (the interface read it), or null. */
 function linkedMessage(view: CallView | undefined, text: string): { placeId: string; messageId: string } | null {
   const ref = view?.links instanceof Map ? (view.links.get(linkKey(text)) ?? null) : null;
-  return ref ? { placeId: idText(ref.conversationId), messageId: idText(ref.messageId) } : null;
+  return ref ? { placeId: idText(ref.chatId), messageId: idText(ref.messageId) } : null;
 }
 
 /** Whether `option` of `skill` given as `text` names a message (a transcript number or a link). */
@@ -155,7 +155,7 @@ function namesMessage(skill: string, option: string, text: string, view: CallVie
 /** The option of message.create that names a message of hers whose attachment is posted again. */
 const MEDIA_OPTION = 'media';
 
-/** The core's own form of a message in a conversation, carrying the channel with the id (src/tools/impl/shared.ts#messageRefOf reads it). */
+/** The core's own form of a message in a chat, carrying the channel with the id (src/tools/impl/shared.ts#messageRefOf reads it). */
 function mediaRef(placeId: string, messageId: string): string {
   return `ref:${placeId}/${messageId}`;
 }
@@ -225,15 +225,15 @@ function channelIdOf(reference: string): string | null {
 }
 
 /**
- * The conversation id a channel reference (`#handle`, `#name`, `name`, `<#id>`, an id) names among
- * `conversations` (`{ id, name }`, one entry per id): a handle of `channelHandles` (the request's
+ * The chat id a channel reference (`#handle`, `#name`, `name`, `<#id>`, an id) names among
+ * `chats` (`{ id, name }`, one entry per id): a handle of `channelHandles` (the request's
  * channel handle without `#` -> channel id; with or without its `#`, exactly) first, else a name by
  * src/memory/mentions.ts#matchChannel (the exact name, else the one channel with the same core:
  * other or no leading emoji, any case and accents). `'ambiguous'` when several share it, null when none.
  */
-function conversationIdOf(
+function chatIdOf(
   reference: unknown,
-  conversations: CallView['conversations'],
+  chats: CallView['chats'],
   channelHandles: CallView['channelHandles'] = null
 ): string | null {
   const given = argText(reference).trim();
@@ -243,7 +243,7 @@ function conversationIdOf(
   const byHandle = channelHandles instanceof Map ? channelHandles.get(given.replace(/^#/, '')) : undefined;
   if (byHandle !== undefined && byHandle !== null && idText(byHandle) !== '') return idText(byHandle);
   const unique = new Map<string, { id: string; name: string }>();
-  for (const c of conversations ?? [])
+  for (const c of chats ?? [])
     if (c && c.id !== undefined && c.id !== null && !unique.has(idText(c.id)))
       unique.set(idText(c.id), { id: idText(c.id), name: textOf(c.name) });
   const match = matchChannel(given.replace(/^#/, ''), unique.values());
@@ -259,7 +259,7 @@ function placeRefusal(match: Exclude<PlaceMatch, { kind: 'one' }>, given: string
   return {
     ...refused(
       several ? CODE.TARGET_AMBIGUOUS : CODE.INVALID_ARGS,
-      several ? 'conversation' : `args.${option}:unknown-channel`
+      several ? 'chat' : `args.${option}:unknown-channel`
     ),
     choices: match.choices,
     place: { match, given },
@@ -274,12 +274,12 @@ function indexedOf(given: string, view: CallView | undefined): PlaceMatch | null
 }
 
 /**
- * The place a read call names: an id (of digits, or of a conversation of the view) or mention and a handle of the request go through as before (the operation's
+ * The place a read call names: an id (of digits, or of a chat of the view) or mention and a handle of the request go through as before (the operation's
  * rails still judge the place), any other name is matched among `view.places` (src/tools/place-names.ts#matchPlace),
  * then in the name index, and one that is not one place is refused with the places she may read as `choices`.
  */
 function placeOf(given: string, option: string, view: CallView): { id: string } | Refusal {
-  const id = channelIdOf(given) ?? ((view.conversations ?? []).some((c) => idText(c.id) === given) ? given : null);
+  const id = channelIdOf(given) ?? ((view.chats ?? []).some((c) => idText(c.id) === given) ? given : null);
   if (id) return { id };
   const byHandle = view.channelHandles?.get(given.replace(/^#/, ''));
   if (byHandle !== undefined && idText(byHandle) !== '') return { id: idText(byHandle) };
@@ -290,15 +290,15 @@ function placeOf(given: string, option: string, view: CallView): { id: string } 
 
 /**
  * The place a `place` option names: a place id of any interface for the calls that take one, among the places she may
- * read for the read skills, else among the conversations of the view, and last in the name index of the memory, which
+ * read for the read skills, else among the chats of the view, and last in the name index of the memory, which
  * holds the places of every interface by their stored names and aliases.
  */
 function channelOf(skill: string, given: string, option: string, view: CallView | undefined): { id: string } | Refusal {
   // A place id names a place on any interface; the operation asks that interface whether she may act there.
   if (placeIdParts(given.trim()) !== null) return { id: given.trim() };
   if (READ_PLACE_SKILLS.includes(skill) && view?.places) return placeOf(given, option, view);
-  const id = conversationIdOf(given, view?.conversations, view?.channelHandles);
-  if (id === 'ambiguous') return refused(CODE.TARGET_AMBIGUOUS, 'conversation');
+  const id = chatIdOf(given, view?.chats, view?.channelHandles);
+  if (id === 'ambiguous') return refused(CODE.TARGET_AMBIGUOUS, 'chat');
   if (id) return { id };
   const indexed = indexedOf(given, view);
   if (indexed === null) return refused(CODE.INVALID_ARGS, `args.${option}:unknown-channel`);
@@ -379,12 +379,12 @@ function namesChannel(
  * Whether a file of the errand `task` may be posted to `placeId`: the errand's origin channel
  * (`task.origin.placeId`; any channel when it has none), else a channel the errand's goal or the
  * trigger message of the turn (`view.triggerText`) names by its mention, a handle of
- * `view.channelHandles` or a name of `view.conversations`.
+ * `view.channelHandles` or a name of `view.chats`.
  */
 function fileMayGo(task: Obj, placeId: string, view: CallView | undefined): boolean {
   const origin = objOf(task.origin).placeId;
   if (origin === undefined || origin === null || origin === '' || idText(origin) === placeId) return true;
-  const names = (view?.conversations ?? [])
+  const names = (view?.chats ?? [])
     .filter((c) => idText(c.id) === placeId && typeof c.name === 'string' && c.name)
     .map((c) => textOf(c.name));
   const handles =
@@ -407,7 +407,7 @@ function referenceOf(
       (view?.currentIface
         ? {
             iface: view.currentIface,
-            conversationId: line.conversationId,
+            chatId: line.chatId,
             messageId: line.id,
           }
         : undefined));
@@ -440,7 +440,7 @@ function transcriptReference({
   const identity = referenceOf(name, option, line, view);
   if (!identity) return refused(CODE.UNKNOWN_MESSAGE, option);
   const native = line.stored?.native;
-  if (native) line = { ...line, id: native.messageId, conversationId: native.conversationId };
+  if (native) line = { ...line, id: native.messageId, chatId: native.chatId };
   if (line.deleted === true) return refused(CODE.UNKNOWN_MESSAGE, CODE.MESSAGE_DELETED);
   return { line, identity };
 }
@@ -455,7 +455,7 @@ function transcriptReference({
  * name, or several), `unknown-message` (a `#N` not in this turn's transcript, a message the record holds as deleted -- reason `message-deleted` -- or in another
  * channel than the one named), `not-own-message` (`message.edit` / `message.delete` of a line that
  * is not hers), `unknown-file` (a `file` handle that names no file of an errand of hers this
- * conversation may see, `view.fileOf`), `file-expired` (the handle of a task whose files the runner has deleted), `file-elsewhere` (an errand's file bound for a channel
+ * chat may see, `view.fileOf`), `file-expired` (the handle of a task whose files the runner has deleted), `file-elsewhere` (an errand's file bound for a channel
  * other than the one the errand was asked in that neither its goal nor the turn's trigger message,
  * `view.triggerText`, names: fileMayGo; a call without a channel posts here as ever). A `#N` of a `message` or `reply` option becomes the line's message id and, when
  * the command has a `channel` option the call left out, its channel; a reply records the replied
@@ -535,7 +535,7 @@ export function resolveCall(
           args[option] = ids.join(',');
           break;
         }
-        // A file handle must name a file of one of her errands this conversation may see.
+        // A file handle must name a file of one of her errands this chat may see.
         if (FILE_OPTIONS.includes(option)) {
           const file = typeof view?.fileOf === 'function' ? view.fileOf(text) : null;
           if (file?.expired) return refused(CODE.FILE_EXPIRED, option);
@@ -558,9 +558,9 @@ export function resolveCall(
             option,
             {
               id: link.messageId,
-              conversationId: link.placeId,
+              chatId: link.placeId,
               native: view?.currentIface
-                ? { iface: view.currentIface, conversationId: link.placeId, messageId: link.messageId }
+                ? { iface: view.currentIface, chatId: link.placeId, messageId: link.messageId }
                 : undefined,
             },
             view
@@ -588,7 +588,7 @@ export function resolveCall(
           // A picture of hers to post again: its own channel is where to fetch it, never where it goes.
           if (name === 'message.create' && !isOwnLine(line, view?.selfId))
             return refused(CODE.NOT_OWN_MESSAGE, 'author');
-          args[option] = mediaRef(line.conversationId, line.id);
+          args[option] = mediaRef(line.chatId, line.id);
           break;
         }
         lines[option] = line;
@@ -606,11 +606,11 @@ export function resolveCall(
   let repliedAuthorId: string | null = null;
   let channelFixed = false;
   for (const [option, line] of Object.entries(lines)) {
-    const at = idText(line.conversationId);
+    const at = idText(line.chatId);
     if (byName.has('place')) {
       if (args.place === undefined) args.place = at;
       else if (idText(args.place) !== at) {
-        if (!messageChannelWins(name, option)) return refused(CODE.UNKNOWN_MESSAGE, 'conversation');
+        if (!messageChannelWins(name, option)) return refused(CODE.UNKNOWN_MESSAGE, 'chat');
         args.place = at;
         channelFixed = true;
       }
@@ -626,7 +626,7 @@ export function resolveCall(
     if (args.place === undefined) args.place = at;
     else if (idText(args.place) !== at) {
       if (!Object.keys(linked).every((option) => messageChannelWins(name, option)))
-        return refused(CODE.UNKNOWN_MESSAGE, 'conversation');
+        return refused(CODE.UNKNOWN_MESSAGE, 'chat');
       args.place = at;
       channelFixed = true;
     }
@@ -721,12 +721,12 @@ function inTurnCallOf(deps: ExecuteDeps, resolved: Resolved): InTurnCall {
       ? { messageRef: resolved.messageRef }
       : {}),
     requester: asked === null ? null : { id: asked.id ?? null, roleIds: [...(asked.roleIds ?? [])] },
-    conversationId: deps.here?.conversationId ?? null,
+    chatId: deps.here?.chatId ?? null,
     idempotencyKey: deps.envelope?.idempotencyKey ?? deps.envelope?.invocationId ?? null,
   };
 }
 
-/** A line of this conversation her text named by its identity is the reply of a post here that names none. */
+/** A line of this chat her text named by its identity is the reply of a post here that names none. */
 function replyNamed(skill: string, args: Record<string, unknown>, named: unknown): void {
   if (skill === 'message.create' && typeof named === 'string' && named !== '' && !args.place && !args.reply)
     args.reply = named;
@@ -815,7 +815,7 @@ async function postReturnedFiles(
  * whatever the status -- the reply text, a card's fields, or the error or refusal the owner would
  * read -- with its code when it is not `ok`, `ref` when a message went out, and `taskId` when it
  * queued an errand (`errand.run`). Files it answers
- * with (`/nep draw` without a channel) are posted to the current conversation through
+ * with (`/nep draw` without a channel) are posted to the current chat through
  * `deps.port` (`deps.here`), as the owner's command shows them to the owner: the call is then
  * that post's result, never generated again. A skill `deps.inTurn` holds (the turn's in-turn
  * tools: name -> `(args) => result`) runs there instead, on the operation's
@@ -1007,7 +1007,7 @@ export function outcomeDetail(
     return of(code);
   }
   if (code === CODE.UNKNOWN_MESSAGE) {
-    if (reason === 'conversation') return of('message-elsewhere');
+    if (reason === 'chat') return of('message-elsewhere');
     if (reason === CODE.MESSAGE_DELETED) return of(CODE.MESSAGE_DELETED);
     return MESSAGE_OPTIONS.includes(reason) ? of(code, reason) : of(code);
   }
@@ -1068,7 +1068,7 @@ export type InTurnCall = {
   memoryAnchor?: ResolvedRecallAnchor;
   messageRef?: ResolvedMessageRef;
   requester: { id: string | null; roleIds: Array<string> } | null;
-  conversationId: string | null;
+  chatId: string | null;
   idempotencyKey: string | null;
 };
 
@@ -1088,7 +1088,7 @@ export type ExecuteDeps = {
   opContext?: Obj & { placeId?: unknown; publicationBoundary?: PublicationBoundary };
   timeoutMs?: number;
   port: { send(ref: unknown, body: unknown): Promise<unknown> };
-  /** The conversation the turn speaks in, as its interface names it. */
-  here?: ConversationRef;
-  refOf(conversationId: unknown): ConversationRef;
+  /** The chat the turn speaks in, as its interface names it. */
+  here?: ChatRef;
+  refOf(chatId: unknown): ChatRef;
 };

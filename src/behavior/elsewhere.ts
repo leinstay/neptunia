@@ -320,28 +320,28 @@ export function audienceCovers(dest: unknown, source: unknown): boolean {
 // ---- the link of a message ----------------------------------------------------------------
 
 /** A message as the interface named it: where it is, and `url`, its address on the platform when it has one. */
-export type MessageReference = { iface: string; conversationId: string; messageId: string; url?: string | null };
+export type MessageReference = { iface: string; chatId: string; messageId: string; url?: string | null };
 
 /**
  * The reference of a message with the address the interface's template gives it, from the values of its three slots
- * (`url` null when the interface declared no template, or an id is missing). A message with no `community` (null) is
+ * (`url` null when the interface declared no template, or an id is missing). A message with no `root` (null) is
  * in a private chat.
  */
 export function messageReference(
   iface: string,
   template: MessageUrlTemplate | null | undefined,
-  slots: { community: unknown; conversation: unknown; message: unknown }
+  slots: { root: unknown; chat: unknown; message: unknown }
 ): MessageReference {
-  const ids = [idOf(slots.conversation), idOf(slots.message)];
-  const community = slots.community === null ? null : idOf(slots.community);
+  const ids = [idOf(slots.chat), idOf(slots.message)];
+  const root = slots.root === null ? null : idOf(slots.root);
   let url: string | null = null;
-  if (template && ids[0] && ids[1] && (slots.community === null || community !== null)) {
-    url = (slots.community === null ? template.direct : template.community)
-      .replaceAll('{community}', community ?? '')
-      .replaceAll('{conversation}', ids[0])
+  if (template && ids[0] && ids[1] && (slots.root === null || root !== null)) {
+    url = (slots.root === null ? template.direct : template.root)
+      .replaceAll('{root}', root ?? '')
+      .replaceAll('{chat}', ids[0])
       .replaceAll('{message}', ids[1]);
   }
-  return { iface, conversationId: ids[0] ?? '', messageId: ids[1] ?? '', url };
+  return { iface, chatId: ids[0] ?? '', messageId: ids[1] ?? '', url };
 }
 
 /**
@@ -350,21 +350,16 @@ export function messageReference(
  * missing.
  */
 export function messageLink(ref: MessageReference | null | undefined): string | null {
-  if (!ref || idOf(ref.conversationId) === null || idOf(ref.messageId) === null) return null;
+  if (!ref || idOf(ref.chatId) === null || idOf(ref.messageId) === null) return null;
   return typeof ref.url === 'string' && ref.url !== '' ? ref.url : null;
 }
 
 /**
  * The link to a message in the address form of `port` (its `capabilities().messageUrl`) from the values of the
- * template's slots, null when the port gives none. A message with no `community` (null) is in a private chat.
+ * template's slots, null when the port gives none. A message with no `root` (null) is in a private chat.
  */
-export function messageLinkOf(
-  port: unknown,
-  community: unknown,
-  conversation: unknown,
-  message: unknown
-): string | null {
-  return messageLink(messageReference(portIface(port), portMessageUrl(port), { community, conversation, message }));
+export function messageLinkOf(port: unknown, root: unknown, chat: unknown, message: unknown): string | null {
+  return messageLink(messageReference(portIface(port), portMessageUrl(port), { root, chat, message }));
 }
 
 /** A message a post may link to: the channel it is in and its id. */

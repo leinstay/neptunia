@@ -10,7 +10,7 @@
 //   [14:35] self: [called marker]                 (a call of a turn that posted nothing here)
 //   --- {duration} passed ---
 // Time gaps and date changes are spelled out because the model must tell a
-// live conversation from a dead chat that somebody has just poked.
+// live chat from a dead chat that somebody has just poked.
 
 import { reasonText } from './tools/codes.ts';
 import { objOf } from './tools/types.ts';

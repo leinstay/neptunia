@@ -55,7 +55,7 @@ function qualifiedSource(db: Db, episode: Row, reference: string, schema: Source
     .get(iface, episode.place_id, message)?.id;
 }
 
-/** Keeps captured revisions and resolves new evidence by its episode conversation and interface. */
+/** Keeps captured revisions and resolves new evidence by its episode chat and interface. */
 export function resolveParticipationSources(db: Db, mapping: Rows): void {
   const links = mapping.episode_sources ?? [];
   if (!links.length) return;

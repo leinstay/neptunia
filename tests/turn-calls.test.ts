@@ -78,7 +78,7 @@ test('a cut stored quote creates no resolvable handle while transcript numbers r
   assert.equal(current.messageAt?.(base + 1), null);
   assert.deepEqual(current.messageAt?.(1)?.native, {
     iface: 'primary',
-    conversationId: 'current-room',
+    chatId: 'current-room',
     messageId: 'transcript-one',
   });
 });

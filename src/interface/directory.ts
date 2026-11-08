@@ -1,69 +1,67 @@
-// The conversations an interface reported through `conversation.changed`, by id, kept as whole `Conversation` records:
-// the core reads the name of a conversation here (the inner life names the places it shows her), the community of a
+// The chats an interface reported through `chat.changed`, by id, kept as whole `Chat` records:
+// the core reads the name of a chat here (the inner life names the places it shows her), the root of a
 // task or an intention, and the direct chat of a member, never a platform object. A direct chat is learned from the
-// messages seen in it (`observe`): the interface announces no change for one. `dmConversationOf(partnerId)` answers the
+// messages seen in it (`observe`): the interface announces no change for one. `dmChatOf(partnerId)` answers the
 // one-to-one chat with that member, the newest when two were seen.
 
-import type { Conversation, ConversationChanged, MessageReceived } from '../protocol/events.ts';
+import type { Chat, ChatChanged, MessageReceived } from '../protocol/events.ts';
 
-export function createConversationDirectory(): {
-  apply(event: ConversationChanged): void;
+export function createChatDirectory(): {
+  apply(event: ChatChanged): void;
   observe(event: MessageReceived): void;
-  nameOf(conversationId: string): string | null;
-  get(conversationId: string): Conversation | null;
-  conversations(): ReadonlyArray<Conversation>;
-  dmConversationOf(partnerId: string): string | null;
-  /** The member a direct chat is with, null for any other conversation. */
-  partnerOf(conversationId: string): string | null;
-  /** Whether the conversation is a direct chat (one-to-one or group) the interface showed. */
-  isPrivate(conversationId: string): boolean;
+  nameOf(chatId: string): string | null;
+  get(chatId: string): Chat | null;
+  chats(): ReadonlyArray<Chat>;
+  dmChatOf(partnerId: string): string | null;
+  /** The member a direct chat is with, null for any other chat. */
+  partnerOf(chatId: string): string | null;
+  /** Whether the chat is a direct chat (one-to-one or group) the interface showed. */
+  isDm(chatId: string): boolean;
   ids(): ReadonlyArray<string>;
 } {
-  const records = new Map<string, Conversation>();
+  const records = new Map<string, Chat>();
   // partner member id -> the id of the one-to-one chat with that member.
   const direct = new Map<string, string>();
-  // conversation id of a direct chat -> its partner.
+  // chat id of a direct chat -> its partner.
   const partners = new Map<string, string>();
   // the ids of every direct chat shown, a group chat included.
-  const privateChats = new Set<string>();
+  const dmChats = new Set<string>();
 
-  // The partner of a one-to-one chat; a group chat and a conversation of a community have none.
-  const partnerOf = (conversation: Conversation): string | null =>
-    conversation.kind === 'dm' && conversation.chatType !== 'group_dm' && typeof conversation.partnerId === 'string'
-      ? conversation.partnerId
-      : null;
+  // The partner of a one-to-one chat; a group chat and a chat of a root have none.
+  const partnerOf = (chat: Chat): string | null =>
+    chat.kind === 'dm' && chat.chatType !== 'group_dm' && typeof chat.partnerId === 'string' ? chat.partnerId : null;
 
-  function learnDirect(conversation: Conversation): void {
-    if (conversation.kind === 'dm') privateChats.add(conversation.id);
-    const partner = partnerOf(conversation);
+  function learnDirect(chat: Chat): void {
+    if (chat.kind === 'dm') dmChats.add(chat.id);
+    const partner = partnerOf(chat);
     if (partner === null) return;
-    direct.set(partner, conversation.id);
-    partners.set(conversation.id, partner);
+    direct.set(partner, chat.id);
+    partners.set(chat.id, partner);
   }
 
   return {
     apply(event) {
-      const { conversation } = event;
+      const { chat } = event;
       if (event.change === 'deleted') {
-        records.delete(conversation.id);
-        const partner = partnerOf(conversation);
-        if (partner !== null && direct.get(partner) === conversation.id) direct.delete(partner);
-        partners.delete(conversation.id);
-        privateChats.delete(conversation.id);
+        records.delete(chat.id);
+        const partner = partnerOf(chat);
+        if (partner !== null && direct.get(partner) === chat.id) direct.delete(partner);
+        partners.delete(chat.id);
+        dmChats.delete(chat.id);
         return;
       }
-      if (conversation.kind === 'dm') learnDirect(conversation);
-      else records.set(conversation.id, conversation);
+      if (chat.kind === 'dm') learnDirect(chat);
+      else records.set(chat.id, chat);
     },
     observe(event) {
-      learnDirect(event.conversation);
+      learnDirect(event.chat);
     },
-    nameOf: (conversationId) => records.get(conversationId)?.name ?? null,
-    get: (conversationId) => records.get(conversationId) ?? null,
-    conversations: () => [...records.values()],
-    dmConversationOf: (partnerId) => direct.get(partnerId) ?? null,
-    partnerOf: (conversationId) => partners.get(conversationId) ?? null,
-    isPrivate: (conversationId) => privateChats.has(conversationId),
+    nameOf: (chatId) => records.get(chatId)?.name ?? null,
+    get: (chatId) => records.get(chatId) ?? null,
+    chats: () => [...records.values()],
+    dmChatOf: (partnerId) => direct.get(partnerId) ?? null,
+    partnerOf: (chatId) => partners.get(chatId) ?? null,
+    isDm: (chatId) => dmChats.has(chatId),
     ids: () => [...records.keys()],
   };
 }

@@ -2,7 +2,7 @@
 // the persona included. Only the owner's `/memory bind` command writes here, through the memory writer, with `by` set
 // to `owner`: no model proposal, name match or claimed id creates a link. `personMembers` follows merges and verified
 // links to the accounts of one person. `linkedDmScopes` tells a DM context the stored DM places of those accounts, so a
-// DM reads the person's history while each row keeps the scope of the conversation it came from. A merge written by the
+// DM reads the person's history while each row keeps the scope of the chat it came from. A merge written by the
 // owner widens a DM context and a merge written by anyone else never does. One `people` row carries the shared affinity
 // score. `createOwnerAccounts` answers the owner check over the same links (src/tools/impl/grants.ts#isOwnerId): the live
 // row of `account_person_links` is the one source of truth, and the account's `link` and `linked_by` columns are its copy
@@ -176,7 +176,7 @@ export function accountLinks(
 /**
  * The profile unit of the person an account is linked to, when another account's unit holds it: the unit that owns the
  * person's `people` row. Null for an account with no person, a person whose row no unit owns, and a row its own account
- * owns in another community. What a linked account writes through its own unit stays account-specific (map/user.ts).
+ * owns in another root. What a linked account writes through its own unit stays account-specific (map/user.ts).
  */
 export function linkedProfileUnit(db: Db, accountId: string): { id: string; key: StorageKey } | null {
   const person = db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(accountId)?.person_id;
@@ -238,7 +238,7 @@ export function dmPlacesOfAccounts(db: Db, accountIds: ReadonlyArray<unknown>): 
   return db
     .prepare(
       `SELECT * FROM places WHERE partner_account IN (${placeholders(accountIds)})
-       AND (kind = 'dm' OR conversation = 'dm') AND retired_at IS NULL ORDER BY iface, id`
+       AND (kind = 'dm' OR chat = 'dm') AND retired_at IS NULL ORDER BY iface, id`
     )
     .all(...accountIds);
 }

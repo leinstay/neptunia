@@ -145,12 +145,12 @@ function usableAudience(db: Db, id: unknown): string {
   return value;
 }
 
-/** A place's own audience: its conversation's (a container: the group of its interface; anything else internal). */
+/** A place's own audience: its chat's (a container: the group of its interface; anything else internal). */
 export function placeAudience(place: Row | null | undefined): string {
   if (!place) return AUD_INTERNAL;
-  if (place.conversation === 'dm') return dmAudienceId(place.id);
-  if (place.conversation === 'group' && filled(place.iface)) return groupAudienceId(place.iface);
-  if (place.conversation == null && CONTAINERS.has(String(place.kind)) && filled(place.iface))
+  if (place.chat === 'dm') return dmAudienceId(place.id);
+  if (place.chat === 'group' && filled(place.iface)) return groupAudienceId(place.iface);
+  if (place.chat == null && CONTAINERS.has(String(place.kind)) && filled(place.iface))
     return groupAudienceId(place.iface);
   return AUD_INTERNAL;
 }
@@ -278,7 +278,7 @@ const PRODUCERS: Record<string, (db: Db, id: string) => Produced> = {
     if (row) out.nodes.push(node('participant', row));
     const scope =
       row && filled(row.scope_place_id)
-        ? one(db, 'SELECT id, iface, kind, conversation FROM places WHERE id = ?', row.scope_place_id)
+        ? one(db, 'SELECT id, iface, kind, chat FROM places WHERE id = ?', row.scope_place_id)
         : null;
     const fallback = scope ? placeAudience(scope) : AUD_INTERNAL;
     for (const link of all(db, 'SELECT * FROM participant_links WHERE participant_id = ? ORDER BY id', id)) {
@@ -319,7 +319,7 @@ const PRODUCERS: Record<string, (db: Db, id: string) => Produced> = {
     if (!row) return out;
     out.nodes.push(node('membership', row));
     const place = filled(row.place_id)
-      ? one(db, 'SELECT id, iface, kind, conversation FROM places WHERE id = ?', row.place_id)
+      ? one(db, 'SELECT id, iface, kind, chat FROM places WHERE id = ?', row.place_id)
       : null;
     const fields = {
       audience: placeAudience(place),
@@ -603,9 +603,7 @@ function semanticEdges(db: Db, version: Row, later: ReadonlyArray<Row>, parentRe
 function publicationAudience(db: Db, row: Row) {
   if (row.status !== 'sent') return AUD_INTERNAL;
   if (filled(row.destination_place_id))
-    return placeAudience(
-      one(db, 'SELECT id, iface, kind, conversation FROM places WHERE id = ?', row.destination_place_id)
-    );
+    return placeAudience(one(db, 'SELECT id, iface, kind, chat FROM places WHERE id = ?', row.destination_place_id));
   if (row.row_kind === 'selfreflection' && filled(row.row_id)) {
     const entry = one(db, 'SELECT audience_id FROM selfreflection WHERE id = ?', row.row_id);
     if (entry && filled(entry.audience_id)) return entry.audience_id;

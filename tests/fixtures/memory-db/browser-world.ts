@@ -64,7 +64,7 @@ export type PlaceSeed = {
   parent?: string | null;
   continues?: string | null;
   kind?: string;
-  conversation?: 'group' | 'dm';
+  chat?: 'group' | 'dm';
   name?: string | null;
   retiredAt?: string | null;
 };
@@ -72,9 +72,9 @@ export type PlaceSeed = {
 /** One place of any shape. An orphan's parent is written inside `withoutForeignKeys`. */
 export function addPlace(db: Db, seed: PlaceSeed): void {
   addAuthority(db, seed.iface, seed.authority);
-  const conversation = seed.conversation ?? 'group';
+  const chat = seed.chat ?? 'group';
   db.prepare(
-    `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, conversation, scope_kind,
+    `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, chat, scope_kind,
        parent_id, continues_place_id, name, retired_at, seen_from_at)
      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
@@ -84,15 +84,15 @@ export function addPlace(db: Db, seed: PlaceSeed): void {
     seed.nativeKey ?? seed.id,
     seed.nativeKey ?? seed.id,
     seed.authority,
-    conversation,
-    conversation,
+    chat,
+    chat,
     seed.parent ?? null,
     seed.continues ?? null,
     seed.name ?? null,
     seed.retiredAt ?? null,
     AT
   );
-  if (conversation === 'dm')
+  if (chat === 'dm')
     db.prepare("INSERT OR IGNORE INTO audiences (id, kind, iface, place_id) VALUES (?, 'dm', ?, ?)").run(
       `aud:dm:${seed.id}`,
       seed.iface,

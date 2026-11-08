@@ -1,5 +1,5 @@
 // A memory session of a DM whose partner is an opaque person (src/memory/db/session-write.ts, session.ts#scopesOf): the
-// triple of such a DM spells no conversation, so the sweep finds the DM by its stored audience and the writer narrows on
+// triple of such a DM spells no chat, so the sweep finds the DM by its stored audience and the writer narrows on
 // audience ids. A fact learned there stays that partner's and no one else's. Synthetic content only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

@@ -5,7 +5,7 @@
 // writer has no chat any more. Synthetic data only.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { GUILD, NOW, sceneLlm } from './fixtures/selfreflection-requests-recorded.ts';
+import { ROOT, NOW, sceneLlm } from './fixtures/selfreflection-requests-recorded.ts';
 import {
   GISTS,
   PICTURE,
@@ -33,7 +33,7 @@ async function writerEntries(port: ReturnType<typeof createFakeAdapter> | null =
   const result = await historyRunner(llm, scene, port).runTurn({
     mode: 'selfreflection',
     selfreflection: { kind: null, forced: false },
-    placeId: GUILD,
+    placeId: ROOT,
   });
   assert.equal((result as { outcome?: unknown }).outcome, 'spoke', 'the scene records an entry');
   return entriesPart(llm);

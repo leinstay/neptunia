@@ -117,7 +117,7 @@ test('the console writes the token file for interface.token.set over its private
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => 0,
   };
   const answer = await createConsole(deps).run(

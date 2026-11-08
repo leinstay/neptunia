@@ -136,7 +136,7 @@ test('an account linked after its first lines does not fork the DM: every row of
           kind: 'message.received',
           iface: 'cli',
           at,
-          conversation: { id: CLI_PLACE, kind: 'dm', chatType: 'dm', partnerId: 'owner' },
+          chat: { id: CLI_PLACE, kind: 'dm', chatType: 'dm', partnerId: 'owner' },
           message: { id: `line-${n}`, at, content: 'a synthetic line', author: { id: 'owner', name: 'owner' } },
         },
         { connection: 'conn:cli', direct: true }

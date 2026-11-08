@@ -14,7 +14,7 @@ import { tempDir } from './tmp.ts';
 import { useIface, world } from './turn-world.ts';
 
 useIface('fake');
-const GUILD = 'g1';
+const ROOT = 'g1';
 const SILENT = { info() {}, warn() {}, error() {}, debug() {} };
 
 export type WakeCall = {
@@ -46,7 +46,7 @@ export function wakeLife(
   }
 ): WakeLife {
   const clock = { t: start };
-  world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
+  world().channel({ id: 'c1', name: 'chan-c1', placeId: ROOT, permissions: { send: true } });
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
@@ -98,7 +98,7 @@ export function wakeLife(
     journal,
     reads: world().reads,
     iface: () => 'fake',
-    conversationName: (id: string) => `chan-${id}`,
+    chatName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },

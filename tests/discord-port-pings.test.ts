@@ -38,8 +38,8 @@ function portOver(sent: Array<Payload>, config: () => object) {
   });
 }
 
-const conversation = { iface: 'discord', conversationId: 'c1' };
-const replyTo = { iface: 'discord', conversationId: 'c1', messageId: 'm0' };
+const chat = { iface: 'discord', chatId: 'c1' };
+const replyTo = { iface: 'discord', chatId: 'c1', messageId: 'm0' };
 const silent = () => ({ discord: { silent: true } });
 const loud = () => ({ discord: { silent: false } });
 // The flag is "set" when the suppress bit is among the flags; a payload with no flags has none.
@@ -54,7 +54,7 @@ test('silent mode: a reply to a member with on pings them and carries no suppres
     notify: true,
     asked: { users: [], repliedUser: true },
   };
-  await portOver(sent, silent).send(conversation, { text: 'yes', replyTo, mentions });
+  await portOver(sent, silent).send(chat, { text: 'yes', replyTo, mentions });
   assert.equal(suppressed(sent[0]), false);
   assert.equal(mentionsOfFirst(sent)?.repliedUser, true);
   assert.deepEqual(sent[0]?.reply, { messageReference: 'm0', failIfNotExists: false });
@@ -62,7 +62,7 @@ test('silent mode: a reply to a member with on pings them and carries no suppres
 
 test('silent mode: a named member with on is in the allowed users and the message is not suppressed', async () => {
   const sent: Array<Payload> = [];
-  await portOver(sent, silent).send(conversation, {
+  await portOver(sent, silent).send(chat, {
     text: 'hey <@42>',
     mentions: { users: ['42'], repliedUser: false, notify: true, asked: { users: ['42'], repliedUser: false } },
   });
@@ -74,7 +74,7 @@ test('silent mode: a named member with on is in the allowed users and the messag
 test('silent mode: a voice message keeps its voice flag and nothing else', async () => {
   // Bug: the flags are replaced or extended, and a voice message arrives as a file with no waveform.
   const sent: Array<Payload> = [];
-  await portOver(sent, silent).send(conversation, {
+  await portOver(sent, silent).send(chat, {
     attachments: [{ name: 'v.ogg', data: Buffer.from('x'), voice: { durationSecs: 1, waveform: 'AA==' } }],
     mentions: { users: ['42'], repliedUser: false, notify: true, asked: { users: ['42'], repliedUser: false } },
   });
@@ -84,7 +84,7 @@ test('silent mode: a voice message keeps its voice flag and nothing else', async
 test('silent mode: a member named without a state is neither pinged nor does the message get the flag', async () => {
   // Bug: any mention at all pings, or the port falls back to the suppress flag for a member who never chose.
   const sent: Array<Payload> = [];
-  await portOver(sent, silent).send(conversation, {
+  await portOver(sent, silent).send(chat, {
     text: 'hey <@42>',
     replyTo,
     mentions: { users: ['42'], repliedUser: true, asked: { users: [], repliedUser: false } },
@@ -97,7 +97,7 @@ test('silent mode: a member named without a state is neither pinged nor does the
 test('silent mode: a mixed message pings the member with on and not the one with no state', async () => {
   // Bug: a mixed message pings both because one of them said yes, or neither because one of them did not.
   const sent: Array<Payload> = [];
-  await portOver(sent, silent).send(conversation, {
+  await portOver(sent, silent).send(chat, {
     text: 'hi <@42> <@43>',
     replyTo,
     mentions: { users: ['42', '43'], repliedUser: true, asked: { users: ['42'], repliedUser: false } },
@@ -108,7 +108,7 @@ test('silent mode: a mixed message pings the member with on and not the one with
 
 test('silent mode: a message with no mentions pings nobody and is not suppressed', async () => {
   const sent: Array<Payload> = [];
-  await portOver(sent, silent).send(conversation, { text: 'hi' });
+  await portOver(sent, silent).send(chat, { text: 'hi' });
   assert.equal(suppressed(sent[0]), false);
   assert.equal(mentionsOfFirst(sent)?.repliedUser, false);
 });
@@ -116,7 +116,7 @@ test('silent mode: a message with no mentions pings nobody and is not suppressed
 test('silent mode: a stray notify with nobody to notify pings nobody', async () => {
   // Bug: a stray notify with no users and no replied author is believed, and an empty ping list is sent as everyone.
   const sent: Array<Payload> = [];
-  await portOver(sent, silent).send(conversation, {
+  await portOver(sent, silent).send(chat, {
     text: 'hi',
     mentions: { users: [], repliedUser: false, notify: true },
   });
@@ -128,7 +128,7 @@ test('silent mode: a stray notify with nobody to notify pings nobody', async () 
 test('loud mode: asked is ignored, the mentions go out as given', async () => {
   // Bug: the new field leaks into the default path and alters the payload of every server that is not silent.
   const sent: Array<Payload> = [];
-  await portOver(sent, loud).send(conversation, {
+  await portOver(sent, loud).send(chat, {
     text: 'hey <@42> <@43>',
     replyTo,
     mentions: { users: ['42', '43'], repliedUser: true, asked: { users: ['42'], repliedUser: false } },
@@ -140,7 +140,7 @@ test('loud mode: asked is ignored, the mentions go out as given', async () => {
 test('loud mode: notify changes nothing, the mentions go out as given', async () => {
   // Bug: the new field leaks into the default path and alters the payload of every server that is not silent.
   const sent: Array<Payload> = [];
-  await portOver(sent, loud).send(conversation, {
+  await portOver(sent, loud).send(chat, {
     text: 'hey <@42>',
     replyTo,
     mentions: { users: ['42'], repliedUser: true, notify: true },

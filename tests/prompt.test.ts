@@ -162,7 +162,7 @@ test('buildRequest: a follow-up in a private chat keeps reply.md', () => {
       history: [trigger],
       trigger,
       triggerKind: 'followUp',
-      privateChat: { accountId: 'author-1' },
+      dmChat: { accountId: 'author-1' },
     })
   );
   const user = contentText(request.messages[1].content);
@@ -196,7 +196,7 @@ test('usesFollowUpTask: a follow-up or an untagged reply in reply mode, never pr
   assert.equal(usesFollowUpTask({ mode: 'reply', triggerKind: 'reply', taggedCall: null }), false);
   assert.equal(usesFollowUpTask({ mode: 'reply', triggerKind: 'mention', taggedCall: false }), false);
   assert.equal(usesFollowUpTask({ mode: 'reply', triggerKind: 'overheard' }), false);
-  assert.equal(usesFollowUpTask({ mode: 'reply', triggerKind: 'followUp', privateChat: true }), false);
+  assert.equal(usesFollowUpTask({ mode: 'reply', triggerKind: 'followUp', dmChat: true }), false);
   assert.equal(usesFollowUpTask({ mode: 'interject', triggerKind: 'followUp' }), false);
 });
 
@@ -441,7 +441,7 @@ function cacheScene({
   ...overrides
 }: { triggerFields?: Record<string, unknown>; [key: string]: unknown } = {}) {
   return segmentScene({
-    config: fakeConfig({ private: { enabled: true } }),
+    config: fakeConfig({ dm: { enabled: true } }),
     triggerFields: { content: 'ωραίο :pog:', emojis: [{ id: '9', name: 'pog' }], ...triggerFields },
     placeMemory: {
       patterns: 'talks fast',
@@ -1899,7 +1899,7 @@ test('renderSenses: an older labels set without senses.draw shows no draw line',
   assert.equal(senses[senses.length - 1], labels.senses.files);
 });
 
-// --- private chat (privateChat) ------------------------------------------------
+// --- private chat (dmChat) ------------------------------------------------
 
 function privateScene(overrides: Record<string, unknown> = {}) {
   const trigger = makeMessage(1, NOW - MIN, { authorId: 'u1', authorName: 'Alice' });
@@ -1908,7 +1908,7 @@ function privateScene(overrides: Record<string, unknown> = {}) {
     trigger,
     triggerKind: 'private',
     prompts: fakePrompts({ private: 'PRIVATE_TASK for {{name}} with {{author}}' }),
-    privateChat: { accountId: 'u1' },
+    dmChat: { accountId: 'u1' },
     interlocutor: {
       id: 'u1',
       names: ['Alice'],
@@ -1928,7 +1928,7 @@ function privateScene(overrides: Record<string, unknown> = {}) {
   });
 }
 
-test('buildRequest: privateChat appends the filled prompts.private after the mode prompt', () => {
+test('buildRequest: dmChat appends the filled prompts.private after the mode prompt', () => {
   const user = contentText(buildRequest(privateScene()).messages[1].content);
   const task = user.slice(user.indexOf('<task>'));
   assert.ok(
@@ -1939,35 +1939,35 @@ test('buildRequest: privateChat appends the filled prompts.private after the mod
   assert.ok(task.indexOf('Called by Alice') < task.indexOf('PRIVATE_TASK'));
 });
 
-test('buildRequest: without privateChat prompts.private is never appended', () => {
-  const user = contentText(buildRequest(privateScene({ privateChat: null })).messages[1].content);
+test('buildRequest: without dmChat prompts.private is never appended', () => {
+  const user = contentText(buildRequest(privateScene({ dmChat: null })).messages[1].content);
   assert.ok(!user.includes('PRIVATE_TASK'));
 });
 
-test('buildRequest: privateChat with no prompts.private leaves the task as the mode prompt alone', () => {
+test('buildRequest: dmChat with no prompts.private leaves the task as the mode prompt alone', () => {
   const prompts = fakePrompts();
   const user = contentText(buildRequest(privateScene({ prompts })).messages[1].content);
   const task = /<task>\n([\s\S]*?)\n<\/task>/.exec(user)![1];
   assert.equal(task, `Called by Alice, they ${labels.triggers.private}. Answer #1 as Nept. Target: #1.`);
 });
 
-test('buildRequest: <senses> carries senses.privateChat in a private chat, never senses.privateAware', () => {
+test('buildRequest: <senses> carries senses.dmChat in a private chat, never senses.privateAware', () => {
   for (const enabled of [true, false, undefined]) {
-    const config = fakeConfig({ private: { enabled } });
+    const config = fakeConfig({ dm: { enabled } });
     const senses = sensesOf(buildRequest(privateScene({ config })));
-    assert.ok(senses!.includes(labels.senses.privateChat));
+    assert.ok(senses!.includes(labels.senses.dmChat));
     assert.ok(!senses!.includes(labels.senses.privateAware));
   }
 });
 
-test('buildRequest: <senses> carries senses.privateAware outside a private chat only when private.enabled is true', () => {
-  const on = sensesOf(buildRequest(baseInput({ config: fakeConfig({ private: { enabled: true } }) })));
+test('buildRequest: <senses> carries senses.privateAware outside a private chat only when dm.enabled is true', () => {
+  const on = sensesOf(buildRequest(baseInput({ config: fakeConfig({ dm: { enabled: true } }) })));
   assert.ok(on!.includes(labels.senses.privateAware));
-  assert.ok(!on!.includes(labels.senses.privateChat));
+  assert.ok(!on!.includes(labels.senses.dmChat));
   for (const enabled of [false, undefined, 'yes']) {
-    const senses = sensesOf(buildRequest(baseInput({ config: fakeConfig({ private: { enabled } }) })));
+    const senses = sensesOf(buildRequest(baseInput({ config: fakeConfig({ dm: { enabled } }) })));
     assert.ok(!senses!.includes(labels.senses.privateAware));
-    assert.ok(!senses!.includes(labels.senses.privateChat));
+    assert.ok(!senses!.includes(labels.senses.dmChat));
   }
 });
 
@@ -1977,7 +1977,7 @@ test('buildRequest: an older labels.json without the private senses keys renders
     ...labels,
     senses: {
       ...labels.senses,
-      privateChat: undefined,
+      dmChat: undefined,
       privateAware: undefined,
       channels: undefined,
       elsewhere: undefined,

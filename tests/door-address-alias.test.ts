@@ -39,7 +39,7 @@ function door(
   } = {}
 ) {
   const fake = createFakeAdapter({ iface: 'alpha', selfId: SELF });
-  for (const spot of [GROUP, DM]) fake.seedConversation(channelOf(spot.place.id, { iface: spot.iface, ...spot.place }));
+  for (const spot of [GROUP, DM]) fake.seedChat(channelOf(spot.place.id, { iface: spot.iface, ...spot.place }));
   const reads = createReads(fake, { info() {}, warn() {}, error() {} });
   const calls: Array<{ purpose?: string }> = [];
   const started: Array<{ triggerKind: string | null }> = [];
@@ -48,7 +48,8 @@ function door(
       hot: {
         config: baseConfig({
           bot: { timezone: 'UTC', nameTriggers: [] },
-          private: { enabled: true, minAffinity: 0 },
+          dm: { enabled: true },
+          private: { minAffinity: 0 },
           address: { attentionMinutes: 30, maxTurnsPerAuthor: options.maxTurnsPerAuthor ?? 100 },
         }),
         prompts: { address: 'Is it said to {{name}}?', labels },
@@ -70,8 +71,8 @@ function door(
       },
       memory: { observe() {} },
       tagHistory: createTagHistory(),
-      isServedCommunity: () => true,
-      communitiesOf: () => [],
+      isServedRoot: () => true,
+      rootsOf: () => [],
       llm: {
         complete: (_messages: unknown, request: { purpose?: string }) => {
           calls.push(request);
@@ -103,7 +104,7 @@ function door(
       at: NOW,
       id: `${spot.iface}:message:${id}`,
       // Type fix (plan B1 amendment, approved): the place carries its own `id`, so it is not written twice.
-      conversation: { kind: 'channel', name: spot.place.id, ...spot.place },
+      chat: { kind: 'channel', name: spot.place.id, ...spot.place },
       message: {
         id,
         author: { id: 'u1', name: 'Eleni', self: false, bot: false },
@@ -121,7 +122,7 @@ function door(
         emojis: [],
         reactions: [],
       },
-      addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+      addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
     };
     await handler(wrongly<MessageReceived>(event));
     for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));

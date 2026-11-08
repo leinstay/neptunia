@@ -135,7 +135,7 @@ function consoleOver(dir: string, subharness: ConsoleDeps['subharness']) {
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => 0,
     ...(subharness === undefined ? {} : { subharness }),
   };
@@ -202,7 +202,7 @@ function deskOver() {
 const eventOf = (name: string, args: Record<string, unknown>): CommandEvent => ({
   name,
   args,
-  conversation: { id: 'c1' },
+  chat: { id: 'c1' },
   requester: { id: 'someone', roles: [] },
 });
 

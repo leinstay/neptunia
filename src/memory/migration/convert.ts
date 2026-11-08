@@ -21,7 +21,7 @@ import { monthChecksum } from '../vectors.ts';
 import { convertConfig } from './convert-config.ts';
 import type { ConfigReport } from './convert-config.ts';
 import { neutralJson, neutralKey, neutralScope, personaDayPlan } from './convert-map.ts';
-import { planDmRepair } from './dm-repair.ts';
+import { chatColumnOf, planDmRepair } from './dm-repair.ts';
 import type { DmRepair } from './dm-repair.ts';
 
 type Row = Record<string, unknown>;
@@ -163,7 +163,7 @@ function newUnitKey(plan: UnitPlan, oldId: string): StorageKey | undefined {
 function planUnits(source: Db): UnitPlan {
   const plan: UnitPlan = { newId: new Map(), newKey: new Map(), groups: new Map(), failures: [] };
   const dmRows = source
-    .prepare("SELECT id, partner_account FROM places WHERE kind = 'dm' OR conversation = 'dm' ORDER BY id")
+    .prepare(`SELECT id, partner_account FROM places WHERE kind = 'dm' OR ${chatColumnOf(source)} = 'dm' ORDER BY id`)
     .all() as Array<Row>;
   const dmOf = new Map<string, string>();
   for (const row of dmRows)
@@ -286,7 +286,12 @@ function carried(table: string, row: Row, ctx: Context): Row {
 /** The stored words of one row that the neutral schema spells otherwise. */
 function renamedFields(table: string, row: Row, ctx: Context): Row {
   const unit = (id: unknown): unknown => (typeof id === 'string' ? (newUnitId(ctx.plan, id) ?? id) : id);
-  if (table === 'places') return row.kind === 'guild' ? { kind: 'server' } : {};
+  // The source is a v28 database, which names the kind of chat `conversation`; the output names it `chat`.
+  if (table === 'places')
+    return {
+      ...('conversation' in row ? { chat: row.conversation ?? null } : {}),
+      ...(row.kind === 'guild' ? { kind: 'server' } : {}),
+    };
   if (table === 'operational')
     return {
       kind: row.kind === 'guild' ? 'place' : row.kind,
@@ -522,7 +527,7 @@ function copyRows(
   failures: Array<Failure>
 ): Record<string, Counts> {
   const dmRows = source
-    .prepare("SELECT id, partner_account FROM places WHERE kind = 'dm' OR conversation = 'dm'")
+    .prepare(`SELECT id, partner_account FROM places WHERE kind = 'dm' OR ${chatColumnOf(source)} = 'dm'`)
     .all() as Array<Row>;
   const dmOf = new Map(dmRows.map((row) => [String(row.partner_account), String(row.id)]));
   const ifaceRow = source

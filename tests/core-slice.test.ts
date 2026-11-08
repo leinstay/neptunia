@@ -1,5 +1,5 @@
 // The slice end to end: `startCore` (src/core.ts) over temporary data and private directories, the tracked prompts, a
-// scripted model and the fake interface (src/interface/fake-interface.ts), which holds the conversation and answers the
+// scripted model and the fake interface (src/interface/fake-interface.ts), which holds the chat and answers the
 // core's reads. One member message that names the persona goes through the link, the event door, the
 // pipeline, a turn and the memory database, and her `<msg>` text comes back over the link to the fake adapter. The model
 // is a function that records its requests, so nothing calls a provider, and the settings that would add helper requests
@@ -113,7 +113,7 @@ async function withCore(
   if (running === null) throw new Error('the core never started the fake interface');
   const live: Running = running;
   const dbPath = join(dirs.dataDir, 'memory.db');
-  live.adapter.seedConversation(channelInfo('c1'));
+  live.adapter.seedChat(channelInfo('c1'));
   const ctx: Context = {
     ...dirs,
     dbPath,

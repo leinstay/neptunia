@@ -139,7 +139,7 @@ test('the prompt is filled with her name, the day and the skills', async () => {
 });
 
 test('a caller with no chat around it, as a heartbeat, still gets a plan and sends no transcript', async () => {
-  // Bug: the builder assumes a conversation, so a wake or the planner cannot call it.
+  // Bug: the builder assumes a chat, so a wake or the planner cannot call it.
   const { build, calls } = builder();
   const plan = await build({ selfName: 'Nova', question: QUESTION });
   assert.equal(plan.reason, 'ok');

@@ -1,8 +1,8 @@
 // The inbound half of the protocol: what an interface tells the core. Twelve kinds, each a plain
 // serialisable object -- no platform object survives into it, every id is an opaque string the
 // adapter alone knows how to build -- with `kind`, `iface` (the adapter's namespace), `at` (ms
-// since the epoch), `id` (an opaque event id for dedup) and, for what happens in a conversation,
-// `conversation`. A direct chat is a conversation of kind `dm`, never a separate event; a mention
+// since the epoch), `id` (an opaque event id for dedup) and, for what happens in a chat,
+// `chat`. A direct chat is a chat of kind `dm`, never a separate event; a mention
 // of the persona is the `addressing` of a message, never a second event. `scheduler.tick`,
 // `errand.done` and `inner.wake` are the core's own (its clock, its errands and its inner-life
 // scheduler): an adapter never sends them.
@@ -14,16 +14,16 @@ export const MESSAGE_RECEIVED = 'message.received';
 export const REACTION_CHANGED = 'reaction.changed';
 /** An owner command asked through the interface; answered by a `command.result` action. */
 export const COMMAND_REQUESTED = 'command.requested';
-/** A member joined, left or changed in a community. */
+/** A member joined, left or changed in a root. */
 export const MEMBERSHIP_CHANGED = 'membership.changed';
-/** A member's voice state changed (joined, left or moved a voice conversation, muted, ...). */
+/** A member's voice state changed (joined, left or moved a voice chat, muted, ...). */
 export const VOICE_CHANGED = 'voice.changed';
 /** A member's presence changed: their status or what they are doing. */
 export const PRESENCE_CHANGED = 'presence.changed';
 /** Everyone's voice state and presence at one moment, sent to seed or replace what the core holds. */
 export const PRESENCE_SNAPSHOT = 'presence.snapshot';
-/** A conversation was created, updated or deleted. */
-export const CONVERSATION_CHANGED = 'conversation.changed';
+/** A chat was created, updated or deleted. */
+export const CHAT_CHANGED = 'chat.changed';
 /** The interface lost its connection to the platform, or got it back. */
 export const CONNECTION_CHANGED = 'connection.changed';
 /** The core's own clock. */
@@ -45,23 +45,23 @@ export const EVENT_KINDS = Object.freeze([
   INNER_WAKE,
   PRESENCE_CHANGED,
   PRESENCE_SNAPSHOT,
-  CONVERSATION_CHANGED,
+  CHAT_CHANGED,
   CONNECTION_CHANGED,
 ]);
 
 /** The kinds the core emits itself; every other kind comes from an interface. */
 export const CORE_KINDS = Object.freeze([SCHEDULER_TICK, ERRAND_DONE, INNER_WAKE]);
 
-/** Every conversation kind. */
-export const CONVERSATION_KINDS = Object.freeze(['channel', 'dm', 'thread']);
+/** Every chat kind. */
+export const CHAT_KINDS = Object.freeze(['channel', 'dm', 'thread']);
 
 /**
- * The chat types of a conversation (`conversation.chatType`): a one-to-one chat, a group chat outside a community,
- * a channel of a community, a thread.
+ * The chat types of a chat (`chat.chatType`): a one-to-one chat, a group chat outside a root,
+ * a channel of a root, a thread.
  */
-export const CONVERSATION_CHAT_TYPES = Object.freeze(['dm', 'group_dm', 'channel', 'thread']);
+export const CHAT_CHAT_TYPES = Object.freeze(['dm', 'group_dm', 'channel', 'thread']);
 
-/** The chat types of an origin record: a direct chat, a small group, a channel of a community, a thread. */
+/** The chat types of an origin record: a direct chat, a small group, a channel of a root, a thread. */
 export const CHAT_TYPES = Object.freeze(['dm', 'group', 'channel', 'thread']);
 
 /** What happened to a member (`membership.changed`). */
@@ -73,22 +73,22 @@ export const PRESENCE_STATUSES = ['online', 'idle', 'dnd', 'offline', 'unknown']
 /** The kinds of activity a presence lists. */
 export const ACTIVITY_KINDS = ['playing', 'streaming', 'listening', 'watching', 'competing', 'other'] as const;
 
-/** What happened to a conversation (`conversation.changed`). */
-export const CONVERSATION_CHANGES = Object.freeze(['created', 'updated', 'deleted']);
+/** What happened to a chat (`chat.changed`). */
+export const CHAT_CHANGES = Object.freeze(['created', 'updated', 'deleted']);
 
 /** The states of an interface's connection (`connection.changed`). */
 export const CONNECTION_STATES = Object.freeze(['lost', 'resumed']);
 
 /**
- * Where an event happened. `rootId`: the native id of the place at the top of the conversation's tree (none for a
+ * Where an event happened. `rootId`: the native id of the place at the top of the chat's tree (none for a
  * direct chat); `name`, `topic`: what the people in it see, null when unknown.
  * `parentId`, `parentKind`: the place that contains this one, of any kind and at any depth (a server, a channel); a
  * thread with no declared kind sits in a channel. A grouping of rooms in a platform's sidebar is no place and is never
- * declared. `authorityId`: the authority that issued this conversation's id, the interface's native one when absent.
- * `chatType` (optional, CONVERSATION_CHAT_TYPES): a one-to-one chat, a group chat, a channel or a
+ * declared. `authorityId`: the authority that issued this chat's id, the interface's native one when absent.
+ * `chatType` (optional, CHAT_CHAT_TYPES): a one-to-one chat, a group chat, a channel or a
  * thread; `partnerId` (optional): the other person of a one-to-one chat, null when unknown.
  */
-export type Conversation = {
+export type Chat = {
   id: string;
   kind: 'channel' | 'dm' | 'thread';
   rootId?: string | null;
@@ -105,13 +105,13 @@ export type Conversation = {
 export type Avatar = { hash: string | null; url: string | null };
 
 /**
- * A message the text of another message links to: where it is (`iface`, `conversationId`, `messageId`), `url` (the
+ * A message the text of another message links to: where it is (`iface`, `chatId`, `messageId`), `url` (the
  * address of the message on its platform, null when it has none) and `text`, the span of the text that names it as
  * written, so the core can replace exactly that span.
  */
 export type MessageReference = {
   iface: string;
-  conversationId: string;
+  chatId: string;
   messageId: string;
   url: string | null;
   text: string;
@@ -129,7 +129,7 @@ export type Author = { id: string; name: string | null; self: boolean; bot: bool
  * core's `<@id>` grammar, which edit detection and the journal's reconciliation compare. `system` (optional, false when
  * absent): the platform's own message (a member joined, a webhook post), never a person's. `at`: when it was written. `replyToId`: the message it
  * replies to (a forward replies to nothing); `replyPingAccountId`: the replied-to author when only
- * the reply notified them; `forwardedFrom`: the name of the conversation a forward came from.
+ * the reply notified them; `forwardedFrom`: the name of the chat a forward came from.
  * `attachments`, `links`, `forwarded`, `stickers`, `emojis`, `reactions` keep the shapes the
  * core's media module reads (src/media/classify.ts). `messageRefs` (optional): the messages the text links to, as
  * `MessageReference`s, in the order they are written.
@@ -157,7 +157,7 @@ export type Message = {
 /**
  * How a message addresses others: whether it mentions the persona (`mentioned`) or replies to
  * one of her messages (`replyToSelf`, as far as the adapter knows without asking the platform
- * again), and every member and conversation it mentions. `mentionedUsers` (optional): the name
+ * again), and every member and chat it mentions. `mentionedUsers` (optional): the name
  * the message's text reads for each mentioned member (`{ id, name }`).
  */
 export type Addressing = {
@@ -165,13 +165,13 @@ export type Addressing = {
   replyToSelf: boolean;
   mentionedAccountIds: Array<string>;
   mentionedUsers?: Array<{ id: string; name: string }>;
-  mentionedConversationIds: Array<string>;
+  mentionedChatIds: Array<string>;
 };
 
 /**
  * Where a message came from and whether it expects an answer: the record the mind routes by,
  * the field list of a gateway's session source. `chatType`: the kind of chat; `place`: its
- * conversation id; `parent`: the conversation a thread sits in; `thread`: the thread's id when
+ * chat id; `parent`: the chat a thread sits in; `thread`: the thread's id when
  * the message is in one; `replyToAuthorId`: the author of the message it replies to;
  * `replyExpected`: true when it was meant for the persona, false when it was meant for someone
  * else, null when the adapter cannot tell. An adapter may send it with the event; the core reads
@@ -197,7 +197,7 @@ export type MessageReceived = {
   iface: string;
   at: number;
   id: string;
-  conversation: Conversation;
+  chat: Chat;
   message: Message | { id: string; at?: number; author?: Author };
   addressing?: Addressing;
   origin?: Origin;
@@ -219,7 +219,7 @@ export type ReactionChanged = {
   iface: string;
   at: number;
   id: string;
-  conversation: Conversation;
+  chat: Chat;
   messageId: string;
   emoji: { name: string | null; id?: string } | null;
   accountId: string | null;
@@ -240,7 +240,7 @@ export type CommandRequested = {
   iface: string;
   at: number;
   id: string;
-  conversation: Conversation;
+  chat: Chat;
   name: string;
   args: object;
   requester: { id: string; name: string | null; roles: Array<string>; owner: boolean };
@@ -250,7 +250,7 @@ export type CommandRequested = {
 };
 
 /**
- * `membership.changed`: `change` says what happened to the member `accountId` of the community
+ * `membership.changed`: `change` says what happened to the member `accountId` of the root
  * `placeId`; `member` is who they are now (absent when they left and the adapter no longer knows).
  */
 export type MembershipChanged = {
@@ -265,7 +265,7 @@ export type MembershipChanged = {
 };
 
 /**
- * `voice.changed`: `conversationId` is the voice conversation the member is in now (null: none),
+ * `voice.changed`: `chatId` is the voice chat the member is in now (null: none),
  * `previousId` the one they were in (null: none); the flags are what the adapter knows.
  * `name` (optional): the name people see for the member, null when unknown; `camera` (optional): whether their camera is on.
  */
@@ -277,7 +277,7 @@ export type VoiceChanged = {
   placeId: string;
   accountId: string;
   name?: string | null;
-  conversationId: string | null;
+  chatId: string | null;
   previousId: string | null;
   muted?: boolean;
   deafened?: boolean;
@@ -317,13 +317,13 @@ export type PresenceSnapshot = {
   presence: Array<PresenceState>;
 };
 
-/** `conversation.changed`: `conversation` as it is now (as it was, for a deletion). */
-export type ConversationChanged = {
-  kind: 'conversation.changed';
+/** `chat.changed`: `chat` as it is now (as it was, for a deletion). */
+export type ChatChanged = {
+  kind: 'chat.changed';
   iface: string;
   at: number;
   id: string;
-  conversation: Conversation;
+  chat: Chat;
   change: 'created' | 'updated' | 'deleted';
 };
 
@@ -376,5 +376,5 @@ export type InboundEvent =
   | InnerWake
   | PresenceChanged
   | PresenceSnapshot
-  | ConversationChanged
+  | ChatChanged
   | ConnectionChanged;

@@ -5,7 +5,7 @@
 // fake fetchers. Synthetic text only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { placeOfCommunity } from '../src/memory/addresses.ts';
+import { placeOfRoot } from '../src/memory/addresses.ts';
 import { createDescriber } from '../src/memory/describe.ts';
 import { createStore } from '../src/memory/store.ts';
 import { fakeImageFetcher, fakeLlm, fakeState, fakeVideoFetcher } from './fixtures/describe-fakes.ts';
@@ -46,7 +46,7 @@ function rig(answers: ReadonlyArray<string>) {
     state: fakeState(),
   });
   const entryOf = (key: string): Entry | undefined =>
-    (store.getMediaCache(placeOfCommunity(store, 'g1')) as Record<string, Entry | undefined>)[key];
+    (store.getMediaCache(placeOfRoot(store, 'g1')) as Record<string, Entry | undefined>)[key];
   return { describer, llm, entryOf };
 }
 
@@ -124,7 +124,7 @@ test('a second request that fails keeps the first description, marked', async ()
     state: fakeState(),
   });
   await describer.describe('g1', PICTURE);
-  const entry = (store.getMediaCache(placeOfCommunity(store, 'g1')) as Record<string, Entry>).a1;
+  const entry = (store.getMediaCache(placeOfRoot(store, 'g1')) as Record<string, Entry>).a1;
   assert.equal(entry.text, GREEK);
   assert.equal(entry.offScript, true);
 });

@@ -11,7 +11,7 @@ import { labels } from './fixtures/labels.ts';
 
 type Flags = { muted?: boolean; deafened?: boolean; streaming?: boolean; camera?: boolean };
 
-const voice = (accountId: string, conversationId: string | null, at: number, flags: Flags = {}) => ({
+const voice = (accountId: string, chatId: string | null, at: number, flags: Flags = {}) => ({
   kind: 'voice.changed' as const,
   iface: 'discord',
   at,
@@ -19,7 +19,7 @@ const voice = (accountId: string, conversationId: string | null, at: number, fla
   placeId: 'g1',
   accountId,
   name: null,
-  conversationId,
+  chatId,
   previousId: null,
   ...flags,
 });
@@ -107,8 +107,8 @@ test('a snapshot replaces both maps and its voice records carry no joinedAt', ()
     at: 5000,
     id: 'presence.snapshot:5000',
     voice: [
-      { placeId: 'g1', accountId: 'u2', conversationId: 'v2', previousId: null },
-      { placeId: 'g1', accountId: 'u3', conversationId: 'v2', previousId: null, muted: true },
+      { placeId: 'g1', accountId: 'u2', chatId: 'v2', previousId: null },
+      { placeId: 'g1', accountId: 'u3', chatId: 'v2', previousId: null, muted: true },
     ],
     presence: [{ accountId: 'u3', name: null, status: 'dnd', activities: [] }],
   });
@@ -139,7 +139,7 @@ test('a flag change after a snapshot does not invent a joinedAt, a move does', (
     iface: 'discord',
     at: 5000,
     id: 'presence.snapshot:5000',
-    voice: [{ placeId: 'g1', accountId: 'u2', conversationId: 'v2', previousId: null }],
+    voice: [{ placeId: 'g1', accountId: 'u2', chatId: 'v2', previousId: null }],
     presence: [],
   });
   store.voiceChanged(voice('u2', 'v2', 6000, { deafened: true }));
@@ -186,15 +186,15 @@ test('a voice state with selfMute builds an event with muted true and the member
   );
   assert.equal(validateEvent(event).ok, true);
   assert.deepEqual(
-    [event.kind, event.accountId, event.conversationId, event.muted, event.deafened, event.name, event.at],
+    [event.kind, event.accountId, event.chatId, event.muted, event.deafened, event.name, event.at],
     ['voice.changed', 'u1', 'v1', true, false, 'Ana', 1000]
   );
 });
 
-test('a voice state in no channel builds an event with conversationId null', () => {
+test('a voice state in no channel builds an event with chatId null', () => {
   const event = voiceEvent({ id: 'u1', guild: GUILD, channelId: null }, 1000);
   assert.equal(validateEvent(event).ok, true);
-  assert.equal(event.conversationId, null);
+  assert.equal(event.chatId, null);
 });
 
 test('the id of a voice event comes from the member and the time, so a repeat is a duplicate', () => {

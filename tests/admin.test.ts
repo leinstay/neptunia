@@ -1,6 +1,6 @@
 // health: allow file-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
 // PR 7b: `admin.run` takes the operation's name (`status.show`, `config.set`, ...); every expectation is as it was.
-import { accountOf, placeOfCommunity } from '../src/memory/addresses.ts';
+import { accountOf, placeOfRoot } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
@@ -900,7 +900,7 @@ test('migrateAccess: once per guild, the old command-key grants re-expanded unde
   const journal = fakeJournal();
   const store = makeStore();
   store.updatePlace = (placeId: string, fields: Record<string, unknown>) =>
-    store.guilds.set(placeId, { ...store.getPlace(placeOfCommunity(store, placeId)), ...fields });
+    store.guilds.set(placeId, { ...store.getPlace(placeOfRoot(store, placeId)), ...fields });
   const { admin } = makeAdmin(rootDir, { hot, journal, store });
   const open = { everyone: true, roles: [], users: [] };
   fs.writeFileSync(
@@ -939,7 +939,7 @@ test('migrateAccess: once per guild, the old command-key grants re-expanded unde
   ]) {
     assert.equal(Object.hasOwn(access, key), false, key);
   }
-  assert.equal(store.getPlace(placeOfCommunity(store, 'g1')).accessMigrated, 1);
+  assert.equal(store.getPlace(placeOfRoot(store, 'g1')).accessMigrated, 1);
   const records = journal.calls.filter(([kind]) => kind === 'system') as Array<
     [string, { event: string; note: string }]
   >;
@@ -1277,8 +1277,7 @@ test('run: memory.show respects a custom limit, capping a list section', async (
 // The real store hands its records back as plain objects; these read their fields through Untyped.
 const userOf = (store: { getUser: (accountId: string) => object | null }, accountId: string): Untyped =>
   store.getUser(accountOf(store, accountId));
-const guildOf = (store: { getPlace: (placeId: string) => object }): Untyped =>
-  store.getPlace(placeOfCommunity(store, 'g1'));
+const guildOf = (store: { getPlace: (placeId: string) => object }): Untyped => store.getPlace(placeOfRoot(store, 'g1'));
 
 function makeRealStoreAdmin(rootDir: string, extra: AdminExtra = {}) {
   const dataDir = tempDir('nep-admin-alias-');
@@ -1428,7 +1427,7 @@ test('run: learned.add confirms an existing unconfirmed item in place (same id a
   const rootDir = makeRoot();
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
-    store.applyLearnedOps(placeOfCommunity(store, 'g1'), { add: ['Ο Φάρος'] }, { seenAt: LEARNED_DAY('2026-09-01') });
+    store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['Ο Φάρος'] }, { seenAt: LEARNED_DAY('2026-09-01') });
     await admin.run('learning.add', { text: 'ο φάρος' }, { placeId: 'g1' });
     const learned = guildOf(store).learned;
     assert.equal(learned.length, 1);
@@ -1446,12 +1445,12 @@ test('run: a repeat learned.add of a confirmed item is one ordinary sighting, ne
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
     store.applyLearnedOps(
-      placeOfCommunity(store, 'g1'),
+      placeOfRoot(store, 'g1'),
       { add: ['première'] },
       { ...MEMORY_LIMITS, seenAt: LEARNED_DAY('2026-09-01') }
     );
     store.applyLearnedOps(
-      placeOfCommunity(store, 'g1'),
+      placeOfRoot(store, 'g1'),
       { add: ['première'] },
       { ...MEMORY_LIMITS, seenAt: LEARNED_DAY('2026-09-02') }
     );
@@ -1476,7 +1475,7 @@ test('run: learned.remove deletes the item by id and reports it', async () => {
   const { admin, store, dataDir } = makeRealStoreAdmin(rootDir);
   try {
     store.applyLearnedOps(
-      placeOfCommunity(store, 'g1'),
+      placeOfRoot(store, 'g1'),
       { add: ['première', 'δεύτερο'] },
       { seenAt: LEARNED_DAY('2026-09-01') }
     );
@@ -1517,7 +1516,7 @@ test('run: lore.add saves an owner entry, splitting comma-separated keys', async
   );
 
   assert.ok(result.includes('Founders Day'));
-  const [entry] = store.getLore(placeOfCommunity(store, 'g1'));
+  const [entry] = store.getLore(placeOfRoot(store, 'g1'));
   assert.equal(entry.title, 'Founders Day');
   assert.deepEqual(entry.keys, ['founders', 'founding day']);
   assert.equal(entry.source, 'owner');
@@ -1526,7 +1525,7 @@ test('run: lore.add saves an owner entry, splitting comma-separated keys', async
 test('run: lore.add overwrites an existing analyzer entry and it becomes an owner entry', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
-  store.setLore(placeOfCommunity(store, 'g1'), [{ title: 'Founders Day', keys: ['founders'], text: 'analyzer text' }], {
+  store.setLore(placeOfRoot(store, 'g1'), [{ title: 'Founders Day', keys: ['founders'], text: 'analyzer text' }], {
     source: 'analyzer',
     now: 1000,
   });
@@ -1537,7 +1536,7 @@ test('run: lore.add overwrites an existing analyzer entry and it becomes an owne
     { placeId: 'g1' }
   );
 
-  const [entry] = store.getLore(placeOfCommunity(store, 'g1'));
+  const [entry] = store.getLore(placeOfRoot(store, 'g1'));
   assert.equal(entry.text, 'owner text');
   assert.equal(entry.source, 'owner');
   assert.equal(entry.always, true);
@@ -1546,15 +1545,15 @@ test('run: lore.add overwrites an existing analyzer entry and it becomes an owne
 test('run: lore.remove deletes an entry by id and reports its title', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
-  store.setLore(placeOfCommunity(store, 'g1'), [{ title: 'The Flood', keys: ['flood'], text: 'It flooded.' }], {
+  store.setLore(placeOfRoot(store, 'g1'), [{ title: 'The Flood', keys: ['flood'], text: 'It flooded.' }], {
     source: 'analyzer',
     now: 1000,
   });
-  const [{ id }] = store.getLore(placeOfCommunity(store, 'g1'));
+  const [{ id }] = store.getLore(placeOfRoot(store, 'g1'));
 
   const result = await admin.run('lore.remove', { id }, { placeId: 'g1' });
   assert.ok(result.includes('The Flood'));
-  assert.deepEqual(store.getLore(placeOfCommunity(store, 'g1')), []);
+  assert.deepEqual(store.getLore(placeOfRoot(store, 'g1')), []);
 });
 
 // ---------------------------------------------------------------------------
@@ -2502,7 +2501,7 @@ test('/nep pause: no timer-driven writer (store.flush) writes memory while pause
     const realStore = createStore({ dataDir: mem.dataDir, memoryDb });
     const placeId = 'g1';
     realStore.touchUser(accountOf(realStore, 'u1'), 'Alice', 1000);
-    realStore.updatePlace(placeOfCommunity(realStore, placeId), { patterns: 'x' });
+    realStore.updatePlace(placeOfRoot(realStore, placeId), { patterns: 'x' });
     realStore.flush();
     await realStore.flushSettled({});
     const before = writes.length;
@@ -2574,8 +2573,8 @@ test('run: every command that writes data/ is refused while paused, with a hint 
   const client = clientWithGuild('g1', 'The Server');
   const { admin, store } = makeAdmin(rootDir, { client });
   store.profiles.set('123', { id: '123', character: 'chatty' });
-  store.setLore(placeOfCommunity(store, 'g1'), [{ title: 'X', keys: ['xx'], text: 'y' }], { source: 'owner', now: 1 });
-  const [{ id: loreId }] = store.getLore(placeOfCommunity(store, 'g1'));
+  store.setLore(placeOfRoot(store, 'g1'), [{ title: 'X', keys: ['xx'], text: 'y' }], { source: 'owner', now: 1 });
+  const [{ id: loreId }] = store.getLore(placeOfRoot(store, 'g1'));
 
   await admin.run('bot.pause', {}, {});
 
@@ -2598,7 +2597,7 @@ test('run: read-only and config commands keep working while paused', async () =>
   const client = clientWithGuild('g1', 'The Server');
   const { admin, store } = makeAdmin(rootDir, { client });
   store.profiles.set('123', { id: '123', character: 'chatty' });
-  store.setLore(placeOfCommunity(store, 'g1'), [{ title: 'X', keys: ['xx'], text: 'y' }], { source: 'owner', now: 1 });
+  store.setLore(placeOfRoot(store, 'g1'), [{ title: 'X', keys: ['xx'], text: 'y' }], { source: 'owner', now: 1 });
 
   await admin.run('bot.pause', {}, {});
 
@@ -2617,8 +2616,8 @@ test('run: memory.show/lore.list/lore.show drop caches first while paused, so a 
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
   store.profiles.set('123', { id: '123', character: 'chatty' });
-  store.setLore(placeOfCommunity(store, 'g1'), [{ title: 'X', keys: ['xx'], text: 'y' }], { source: 'owner', now: 1 });
-  const [{ id: loreId }] = store.getLore(placeOfCommunity(store, 'g1'));
+  store.setLore(placeOfRoot(store, 'g1'), [{ title: 'X', keys: ['xx'], text: 'y' }], { source: 'owner', now: 1 });
+  const [{ id: loreId }] = store.getLore(placeOfRoot(store, 'g1'));
 
   await admin.run('bot.pause', {}, {});
   const dropsAfterPause = store.dropCachesCalls;

@@ -273,7 +273,7 @@ test('an errand.done delivered twice opens one result turn and leaves one closin
   store.finish(id, DONE);
   await settle(store);
   const { fake, reads } = rig();
-  fake.seedConversation(channel('c1'));
+  fake.seedChat(channel('c1'));
   let turns = 0;
   const errandTurns = createErrandTurns({
     hot,

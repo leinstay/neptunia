@@ -67,7 +67,7 @@ function consoleOver(dir: string, deps: EnableDeps, keys?: NonNullable<ConsoleDe
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => 0,
     keys: keys ?? { enabled: () => true, run: () => Promise.resolve({ text: 'keys answered', status: 'ok' }) },
     subharness: {

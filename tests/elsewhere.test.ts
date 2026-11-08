@@ -571,24 +571,18 @@ test('audienceCovers: a missing or malformed audience never covers', () => {
 // The tests of `resolveDestination` and `pickDestinationId` went with the main channel (owner, 2026-11-05).
 
 test('messageLink: the url the adapter put on the reference, and nothing built by the core', () => {
-  const ref = { iface: 'discord', conversationId: '200', messageId: '300', url: 'https://chat.example/200/300' };
+  const ref = { iface: 'discord', chatId: '200', messageId: '300', url: 'https://chat.example/200/300' };
   assert.equal(messageLink(ref), 'https://chat.example/200/300');
 });
 
 test('messageLink: a reference without a url has no link, whatever its interface', () => {
-  assert.equal(messageLink({ iface: 'discord', conversationId: '200', messageId: '300' }), null);
-  assert.equal(messageLink({ iface: 'fake', conversationId: 'c1', messageId: 'm1', url: null }), null);
+  assert.equal(messageLink({ iface: 'discord', chatId: '200', messageId: '300' }), null);
+  assert.equal(messageLink({ iface: 'fake', chatId: 'c1', messageId: 'm1', url: null }), null);
 });
 
 test('messageLink: a reference with a missing id has no link', () => {
-  assert.equal(
-    messageLink({ iface: 'fake', conversationId: '', messageId: 'm1', url: 'https://chat.example/x' }),
-    null
-  );
-  assert.equal(
-    messageLink({ iface: 'fake', conversationId: 'c1', messageId: '', url: 'https://chat.example/x' }),
-    null
-  );
+  assert.equal(messageLink({ iface: 'fake', chatId: '', messageId: 'm1', url: 'https://chat.example/x' }), null);
+  assert.equal(messageLink({ iface: 'fake', chatId: 'c1', messageId: '', url: 'https://chat.example/x' }), null);
   assert.equal(messageLink(null), null);
 });
 

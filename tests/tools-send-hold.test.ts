@@ -8,14 +8,14 @@ import { bindPublicationPort, type PublicationBoundary } from '../src/tools/publ
 
 const publicationBoundary: PublicationBoundary = {
   kind: 'internal-turn',
-  origin: { iface: 'fake', conversationId: 'origin' },
+  origin: { iface: 'fake', chatId: 'origin' },
 };
 
 test('a held port refuses a foreign publication before keeping it', async () => {
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self', now: () => 1000 });
   const hold = createSendHold();
   const held = heldPort(bindPublicationPort(port, publicationBoundary), { hold, publicationBoundary });
-  const result = await held.send({ iface: 'fake', conversationId: 'group' }, { text: 'restricted body' });
+  const result = await held.send({ iface: 'fake', chatId: 'group' }, { text: 'restricted body' });
   assert.deepEqual([result.status, result.error?.code], ['failed', 'not-allowed']);
   assert.deepEqual(hold.sends, []);
   assert.deepEqual(port.messagesIn('group'), []);

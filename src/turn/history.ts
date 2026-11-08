@@ -7,7 +7,7 @@
 import { fetchReplyParents } from '../behavior/reply-parents.ts';
 import type { CallMark, Line } from '../behavior/lines.ts';
 import type { Reads } from '../interface/reads.ts';
-import type { ConversationInfo } from '../protocol/adapter.ts';
+import type { ChatInfo } from '../protocol/adapter.ts';
 
 /** The parent lines placed before the window per turn. Production value, config cut of 2026-10-31. */
 const REPLY_PARENTS_MAX = 4;
@@ -21,12 +21,12 @@ const REPLY_PARENTS_MAX = 4;
  */
 export async function withReplyParents(
   reads: Reads,
-  channel: ConversationInfo,
+  channel: ChatInfo,
   history: Array<Line>,
   { trigger }: { trigger: { id?: string; placeId?: string | null; replyToId?: string | null } | null }
 ): Promise<Array<Line>> {
   const own = trigger && (!trigger.placeId || trigger.placeId === channel.id) ? trigger : null;
-  const parents = await fetchReplyParents(reads, { iface: channel.iface, conversationId: channel.id }, history, {
+  const parents = await fetchReplyParents(reads, { iface: channel.iface, chatId: channel.id }, history, {
     trigger: own,
     recent: history.length,
     max: REPLY_PARENTS_MAX,

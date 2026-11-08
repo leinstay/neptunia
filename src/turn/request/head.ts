@@ -36,7 +36,7 @@ import { RELATIONSHIP_LIMITS } from '../../memory/text-limits.ts';
 /** What the rest of the request is built on: the labels, the switches, the handles, the transcript and the chat. */
 export type Base = {
   labels: Labels;
-  privateChat: boolean;
+  dmChat: boolean;
   interlocutor: Profile | null | undefined;
   nameOf: NameOf;
   timezone: string;
@@ -107,7 +107,7 @@ function authorsOf(history: ReadonlyArray<Message>): Array<string> {
 export function requestHead(given: RequestInput): Base {
   const { config, prompts, mode, now, selfName, history, descriptions, videos, imageAnswers, reads } = given;
   const labels = requireLabels(prompts);
-  const privateChat = Boolean(given.privateChat);
+  const dmChat = Boolean(given.dmChat);
   // mergeProfiles lays the private layer over the public profile: the partner's profile, as stored. A partner known only
   // from this DM has no public profile, and the trigger gives the merged one its id and heading.
   const framed = given.frame ?? null;
@@ -120,7 +120,7 @@ export function requestHead(given: RequestInput): Base {
       given.interlocutor ?? privateOnly,
       given.privateProfile as object | null | undefined
     ) as Profile | null;
-  const interlocutor = privateChat ? merged() : given.interlocutor;
+  const interlocutor = dmChat ? merged() : given.interlocutor;
   // The caller's resolver of a member id to a name.
   const nameOf: NameOf = typeof given.nameOf === 'function' ? (given.nameOf as NameOf) : () => null;
   const { timezone } = config.bot;
@@ -139,7 +139,7 @@ export function requestHead(given: RequestInput): Base {
   const aroundInput = given.around as
     { snapshot?: AroundSnapshot | null; channelNameOf?: (placeId: string) => string | null } | null | undefined;
   const liveOn =
-    !privateChat &&
+    !dmChat &&
     mode !== 'selfreflection' &&
     isPlainObject(aroundInput) &&
     Boolean(aroundInput?.snapshot) &&
@@ -229,7 +229,7 @@ export function requestHead(given: RequestInput): Base {
   const idByIndex = new Map(chatItems.map((item) => [item.index, item.id]));
   return {
     labels,
-    privateChat,
+    dmChat,
     interlocutor,
     nameOf,
     timezone,

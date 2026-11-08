@@ -1,4 +1,4 @@
-// Private lookup by a concrete account, independent of any community and of the ambient interface. Over the real store and
+// Private lookup by a concrete account, independent of any root and of the ambient interface. Over the real store and
 // the real memory service, so a read goes through the same writer and cache a turn does.
 // Contract, plan 2026-11-04-cli-and-memory task 5:
 //   store.getPrivate(accountId: string): object | null
@@ -82,7 +82,7 @@ const groupLine = (key: string): Envelope => ({
     authority: 'discord/global',
     key: 'channel:unrelated',
     kind: 'channel',
-    conversation: 'group',
+    chat: 'group',
     parent: 'server:unrelated',
   },
   author: { kind: 'account', key: 'n1', authority: 'discord/global' },
@@ -92,7 +92,7 @@ const groupLine = (key: string): Envelope => ({
 });
 
 test('an account resolves to one private collection before and after an unrelated group is observed', async () => {
-  // Bug: the first community the person is seen in becomes the scope, so the DM moves when a group appears.
+  // Bug: the first root the person is seen in becomes the scope, so the DM moves when a group appears.
   const { store, memoryDb, read } = rig();
   await note(store, 'account:a11', 'keeps a private note');
   const before = listUnits(read(), { kind: 'private' }).map((unit) => unit.id);
@@ -106,8 +106,8 @@ test('an account resolves to one private collection before and after an unrelate
   );
 });
 
-test('a private collection names its account and no community', async () => {
-  // Bug: `communityKey` puts `<iface>:guild:<id>` into the key, so two communities split one account's memory.
+test('a private collection names its account and no root', async () => {
+  // Bug: `rootKey` puts `<iface>:root:<id>` into the key, so two roots split one account's memory.
   const { store, read } = rig();
   await note(store, 'account:a21', 'keeps a private note');
   const [unit] = listUnits(read(), { kind: 'private' });

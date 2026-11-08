@@ -1,9 +1,9 @@
-// The lines of a conversation as a turn reads them: the interface's `history` events turned into lines (`lineOf`), and
+// The lines of a chat as a turn reads them: the interface's `history` events turned into lines (`lineOf`), and
 // for the persona's own lines the members who reacted to them. The reactor store (src/behavior/reactor-store.ts) is
 // fed by `reaction.changed`; what it lacks for a reaction on her line is read once through `reactors`, within a time
 // budget, and the reactors are named from the member directory, else through `memberInfo` (once per member).
 
-import type { ConversationRef } from '../protocol/adapter.ts';
+import type { ChatRef } from '../protocol/adapter.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { Logger } from '../protocol/serve.ts';
 import { lineOf } from './line-of.ts';
@@ -65,7 +65,7 @@ export type ReactorNames = {
 /** The lines of up to `limit` newest messages of `ref`, oldest first; throws when the interface cannot read them. */
 export async function historyLines(
   reads: Reads,
-  ref: ConversationRef,
+  ref: ChatRef,
   { limit, before, names = null }: { limit: number; before?: string; names?: ReactorNames | null }
 ): Promise<Array<Line>> {
   const page = await reads.history(ref, before === undefined ? { limit } : { limit, before });
@@ -77,7 +77,7 @@ export async function historyLines(
 /** The lines with the reactors of her lines read, once each, and named. */
 async function withReactorNames(
   reads: Reads,
-  ref: ConversationRef,
+  ref: ChatRef,
   lines: Array<Line>,
   names: ReactorNames
 ): Promise<Array<Line>> {
@@ -91,7 +91,7 @@ async function withReactorNames(
         (await reads.reactors({ ...ref, messageId: item.messageId }, item.emoji, names.fetchUsers))?.accountIds ?? null,
       { budgetMs: names.budgetMs, selfId: names.selfId }
     );
-    names.log.info('reactors: backfill', { channel: ref.conversationId, ...stats });
+    names.log.info('reactors: backfill', { channel: ref.chatId, ...stats });
   }
   await resolveMissing(reads, lines, names);
   return withReactors(lines, store, (id) => names.known(id) ?? names.cache.get(id) ?? null) as unknown as Array<Line>;

@@ -130,7 +130,8 @@ export type Caps = { readonly [section: string]: number | undefined };
 export type RequestConfig = {
   readonly bot: { readonly timezone: string };
   readonly spatial?: { readonly notes?: unknown };
-  readonly private?: { readonly enabled?: unknown; readonly likeServer?: unknown };
+  readonly dm?: { readonly enabled?: unknown };
+  readonly private?: { readonly likeServer?: unknown };
   readonly context: {
     readonly caps: Caps;
     readonly customEmoji?: EmojiConfig;
@@ -316,7 +317,7 @@ export type RequestInput = {
   readonly taggedCall?: boolean | null;
   readonly placeMemory?: PlaceMemory | null;
   readonly interlocutor?: Profile | null;
-  readonly privateChat?: unknown;
+  readonly dmChat?: unknown;
   readonly privateProfile?: unknown;
   readonly otherProfiles?: unknown;
   readonly candidateProfiles?: unknown;

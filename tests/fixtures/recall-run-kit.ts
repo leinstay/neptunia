@@ -5,8 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { line, rawHit } from './recall-lines.ts';
 
-export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const SHIPPED_CONFIG = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8')) as Record<
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const SHIPPED_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'config', 'config.json'), 'utf8')) as Record<
   string,
   Record<string, unknown>
 >;
@@ -15,7 +15,7 @@ export const MINUTE = 60_000;
 export const HOUR = 60 * MINUTE;
 export const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 export const RABBIT = Date.UTC(2026, 9, 1, 18, 44);
-export const GUILD = 'g1';
+export const ROOT = 'g1';
 export const PROMPT = 'You are {{name}}; {{answerChars}}.';
 
 // The recall settings the runner tests rely on, pinned here instead of read from the shipped defaults.

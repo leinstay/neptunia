@@ -1,5 +1,5 @@
 // Tests for scripts/replay.ts: the read-only store the message mode wraps around the real one, and the channel reads
-// that look a conversation up by its own id inside the served guild.
+// that look a chat up by its own id inside the served guild.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readOnlyStore, readableChannel, readMoment } from '../scripts/replay.ts';
@@ -9,8 +9,8 @@ import { tempDir } from './fixtures/tmp.ts';
 
 type Store = ReturnType<typeof createStore>;
 type Reads = {
-  placeOfCommunity(id: string): string;
-  placeOfConversation(id: string): string;
+  placeOfRoot(id: string): string;
+  placeOfChat(id: string): string;
   accountOf(id: string): string;
   personOfAccount(id: string): string;
   topPlaces(): Array<string>;
@@ -25,8 +25,8 @@ function stores() {
 
 test('the read-only store answers the address reads as the real store does, instead of refusing them', () => {
   const { real, wrapped } = stores();
-  assert.equal(wrapped.placeOfCommunity('guild-7'), real.placeOfCommunity('guild-7'));
-  assert.equal(wrapped.placeOfConversation('chan-9'), real.placeOfConversation('chan-9'));
+  assert.equal(wrapped.placeOfRoot('guild-7'), real.placeOfRoot('guild-7'));
+  assert.equal(wrapped.placeOfChat('chan-9'), real.placeOfChat('chan-9'));
   assert.equal(wrapped.accountOf('user-3'), real.accountOf('user-3'));
   assert.equal(wrapped.personOfAccount('user-3'), real.personOfAccount('user-3'));
   assert.deepEqual(wrapped.topPlaces(), real.topPlaces());
@@ -47,14 +47,14 @@ function guildWith(id: string, channels: Array<ReturnType<typeof channelOf>>) {
 
 const noClient = { channels: { fetch: () => Promise.reject(new Error('Unknown Channel')) } };
 
-test('readableChannel looks the channel up by the conversation id, not the guild id', async () => {
+test('readableChannel looks the channel up by the chat id, not the guild id', async () => {
   const chat = channelOf('chan-21', 'guild-5');
   const guild = guildWith('guild-5', [chat]);
   const found: unknown = await readableChannel({
     client: noClient,
     guild,
     placeId: 'guild-5',
-    conversationId: 'chan-21',
+    chatId: 'chan-21',
   });
   assert.equal(found, chat);
 });
@@ -64,12 +64,12 @@ test('readableChannel refuses a channel of another guild', async () => {
   const client = { channels: { fetch: () => Promise.resolve(foreign) } };
   const guild = guildWith('guild-5', []);
   await assert.rejects(
-    readableChannel({ client, guild, placeId: 'guild-5', conversationId: 'chan-22' }),
+    readableChannel({ client, guild, placeId: 'guild-5', chatId: 'chan-22' }),
     /not in the served guild/
   );
 });
 
-test('readMoment reads the chat of the conversation it is handed, not of the guild', async () => {
+test('readMoment reads the chat of the chat it is handed, not of the guild', async () => {
   const chat = channelOf('chan-31', 'guild-8');
   const guild = guildWith('guild-8', [chat]);
   const fetched: Array<unknown> = [];
@@ -79,7 +79,7 @@ test('readMoment reads the chat of the conversation it is handed, not of the gui
       guild,
       placeId: 'guild-8',
       self: { id: 'bot-1' },
-      conversationId: 'chan-31',
+      chatId: 'chan-31',
       triggerId: 'msg-1',
       before: 5,
       config: {},

@@ -19,7 +19,7 @@ import type { Reads } from '../src/interface/reads.ts';
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
 
 const NOW = Date.UTC(2026, 9, 15, 12, 0, 0);
-const GUILD = 'g1';
+const ROOT = 'g1';
 const SELF = 'self-1';
 const PROMPT = 'Describe the avatar in at most {{maxChars}} characters.';
 // The fake holds only the part of the real object that the code under test reads, so it is cast once, here.
@@ -174,8 +174,8 @@ function setup({
     state,
     now,
     log,
-    isServedCommunity: (id: unknown) => id === GUILD,
-    servedPlaces: () => [GUILD],
+    isServedRoot: (id: unknown) => id === ROOT,
+    servedPlaces: () => [ROOT],
     selfId: () => SELF,
     paused: () => paused,
     reads: readsOf(members),
@@ -229,26 +229,26 @@ test('isAvatarDue: nothing stored or another hash is due; the same hash or the d
 
 // ---- offer: who is queued ---------------------------------------------------------------
 
-test('offer: only a profiled member of the served guild, never a bot or the persona, and only on a hash change', () => {
+test('offer: only a profiled member of the served root, never a bot or the persona, and only on a hash change', () => {
   const { queue, store } = setup({
     profiles: { u1: {}, u2: { avatar: { hash: 'h2', text: 'cat', describedAt: null } }, [SELF]: {}, b1: {} },
   });
-  assert.equal(queue.offer(GUILD, view('u1', 'h1')), 'queued');
-  assert.equal(queue.offer(GUILD, view('u1', 'h1')), 'queued', 'the same offer again keeps one item');
-  assert.equal(queue.offer(GUILD, view('u2', 'h2')), 'current');
-  assert.equal(queue.offer(GUILD, view('u2', 'h3')), 'queued');
-  assert.equal(queue.offer(GUILD, view('nobody', 'h4')), 'no-profile');
-  assert.equal(queue.offer(GUILD, view(SELF, 'h5')), 'self');
-  assert.equal(queue.offer(GUILD, view('b1', 'h6', { bot: true })), 'bot');
+  assert.equal(queue.offer(ROOT, view('u1', 'h1')), 'queued');
+  assert.equal(queue.offer(ROOT, view('u1', 'h1')), 'queued', 'the same offer again keeps one item');
+  assert.equal(queue.offer(ROOT, view('u2', 'h2')), 'current');
+  assert.equal(queue.offer(ROOT, view('u2', 'h3')), 'queued');
+  assert.equal(queue.offer(ROOT, view('nobody', 'h4')), 'no-profile');
+  assert.equal(queue.offer(ROOT, view(SELF, 'h5')), 'self');
+  assert.equal(queue.offer(ROOT, view('b1', 'h6', { bot: true })), 'bot');
   assert.equal(queue.offer('other', view('u1', 'h1')), 'other-place');
-  assert.equal(queue.offer(GUILD, null), 'invalid');
+  assert.equal(queue.offer(ROOT, null), 'invalid');
   assert.deepEqual(queue.pending(), ['u1', 'u2']);
   assert.equal(store.writes.length, 0, 'an offer never writes');
 });
 
 test('offer: with the prompt missing nothing is queued', () => {
   const { queue } = setup({ hot: fakeHot({ prompts: { avatar: '' } }) });
-  assert.equal(queue.offer(GUILD, view('u1', 'h1')), 'off');
+  assert.equal(queue.offer(ROOT, view('u1', 'h1')), 'off');
   assert.deepEqual(queue.pending(), []);
 });
 
@@ -257,14 +257,14 @@ test('offer: a store that throws never escapes into the gateway handler', () => 
   store.getUser = () => {
     throw new Error('disk');
   };
-  assert.equal(queue.offer(GUILD, view('u1', 'h1')), 'error');
+  assert.equal(queue.offer(ROOT, view('u1', 'h1')), 'error');
 });
 
 // ---- tick: the default avatar, the request, the throttle --------------------------------
 
 test('tick: a default avatar is stored without any request or download', async () => {
   const { queue, store, llm, imageFetcher, log } = setup();
-  queue.offer(GUILD, view('u1', null));
+  queue.offer(ROOT, view('u1', null));
   assert.equal(await queue.tick(), 'idle');
   assert.deepEqual(profileOf(store, 'u1').avatar, { hash: null, default: true });
   assert.equal(llm.calls.length, 0);
@@ -275,7 +275,7 @@ test('tick: a default avatar is stored without any request or download', async (
 test('tick: one vision request on purpose avatar, the prompt filled, one clamped line stored', async () => {
   const long = `a fox in a red scarf ${'and more '.repeat(40)}\nsecond line`;
   const { queue, store, llm, imageFetcher, log } = setup({ llm: fakeLlm(long) });
-  queue.offer(GUILD, view('u1', 'h1'));
+  queue.offer(ROOT, view('u1', 'h1'));
   assert.equal(await queue.tick(), 'described');
   assert.equal(imageFetcher.calls.length, 1);
   assert.deepEqual(imageFetcher.calls[0].options, { maxBytes: VISION_MAX_BYTES, timeoutMs: 500 });
@@ -303,7 +303,7 @@ test('tick: one vision request on purpose avatar, the prompt filled, one clamped
 test('tick: one request at a time, 20 s apart on the injected clock', async () => {
   const now = clock();
   const { queue, llm } = setup({ profiles: { u1: {}, u2: {}, u3: {} }, now });
-  for (const id of ['u1', 'u2', 'u3']) queue.offer(GUILD, view(id, `h-${id}`));
+  for (const id of ['u1', 'u2', 'u3']) queue.offer(ROOT, view(id, `h-${id}`));
   assert.equal(await queue.tick(), 'described');
   assert.equal(await queue.tick(), 'wait');
   now.advance(19_999);
@@ -324,8 +324,8 @@ test('tick: a second tick while a request runs does not start another', async ()
     return { text: 'a fox', usage: null, estimated: 0 };
   };
   const { queue } = setup({ profiles: { u1: {}, u2: {} }, llm });
-  queue.offer(GUILD, view('u1', 'h1'));
-  queue.offer(GUILD, view('u2', 'h2'));
+  queue.offer(ROOT, view('u1', 'h1'));
+  queue.offer(ROOT, view('u2', 'h2'));
   const first = queue.tick();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(await queue.tick(), 'busy');
@@ -338,7 +338,7 @@ test('tick: with llm.maxRequestsPerDay spent nothing is downloaded or sent', asy
   const llm = fakeLlm();
   llm.capLeft = () => 0;
   const { queue, imageFetcher } = setup({ llm });
-  queue.offer(GUILD, view('u1', 'h1'));
+  queue.offer(ROOT, view('u1', 'h1'));
   assert.equal(await queue.tick(), 'daily-cap');
   assert.equal(imageFetcher.calls.length, 0);
   assert.equal(llm.calls.length, 0);
@@ -353,17 +353,17 @@ test('tick: a failed one is dropped and offered again only after the next scan, 
     members,
     llm: fakeLlm(new Error('provider down')),
   });
-  queue.offer(GUILD, view('u1', 'h1'));
+  queue.offer(ROOT, view('u1', 'h1'));
   assert.equal(await queue.tick(), 'failed');
   assert.ok(log.entries.some((entry) => entry.msg === 'avatars: skipped' && entry.reason === 'llm-error'));
   assert.equal(profileOf(store, 'u1').avatar, undefined);
-  assert.equal(queue.offer(GUILD, view('u1', 'h1')), 'failed', 'a message from the member does not retry it');
+  assert.equal(queue.offer(ROOT, view('u1', 'h1')), 'failed', 'a message from the member does not retry it');
   assert.equal(await queue.tick(), 'idle');
   assert.equal(llm.calls.length, 1);
   // A new avatar is a new version: offered at once.
-  assert.equal(queue.offer(GUILD, view('u1', 'h9')), 'queued');
+  assert.equal(queue.offer(ROOT, view('u1', 'h9')), 'queued');
   // The next scan retries the failed version (the member's avatar is h1 again by then).
-  await queue.scan(GUILD);
+  await queue.scan(ROOT);
   assert.deepEqual(queue.pending(), ['u1']);
   now.advance(20_000);
   assert.equal(await queue.tick(), 'failed');
@@ -372,7 +372,7 @@ test('tick: a failed one is dropped and offered again only after the next scan, 
 
 test('tick: a failed download is no request', async () => {
   const { queue, llm, log } = setup({ imageFetcher: fakeFetcher(null) });
-  queue.offer(GUILD, view('u1', 'h1'));
+  queue.offer(ROOT, view('u1', 'h1'));
   assert.equal(await queue.tick(), 'failed');
   assert.equal(llm.calls.length, 0);
   assert.ok(log.entries.some((entry) => entry.msg === 'avatars: skipped' && entry.reason === 'download'));
@@ -380,8 +380,8 @@ test('tick: a failed download is no request', async () => {
 
 test('tick: an item whose profile went or whose avatar is current by now is dropped without a request', async () => {
   const { queue, store, llm } = setup({ profiles: { u1: {}, u2: {} } });
-  queue.offer(GUILD, view('u1', 'h1'));
-  queue.offer(GUILD, view('u2', 'h2'));
+  queue.offer(ROOT, view('u1', 'h1'));
+  queue.offer(ROOT, view('u2', 'h2'));
   store.users.delete('u1');
   profileOf(store, 'u2').avatar = { hash: 'h2', text: 'cat', describedAt: null };
   assert.equal(await queue.tick(), 'idle');
@@ -391,7 +391,7 @@ test('tick: an item whose profile went or whose avatar is current by now is drop
 
 test('tick: paused it does nothing', async () => {
   const paused = setup({ paused: true });
-  paused.queue.offer(GUILD, view('u1', 'h1'));
+  paused.queue.offer(ROOT, view('u1', 'h1'));
   assert.equal(await paused.queue.tick(), 'paused');
   assert.equal(paused.llm.calls.length, 0);
 });
@@ -417,7 +417,7 @@ test('scan: every profiled member whose avatar differs is queued; bots, the pers
     },
     members,
   });
-  const counts = await queue.scan(GUILD);
+  const counts = await queue.scan(ROOT);
   assert.deepEqual(queue.pending(), ['u1', 'u3']);
   assert.deepEqual(counts, { profiles: 6, queued: 2, gone: 1 });
   assert.ok(log.entries.some((entry) => entry.msg === 'avatars: scanned' && entry.queued === 2));
@@ -451,13 +451,13 @@ test('scan: a member whose read fails is counted gone and does not stop the othe
     state: fakeState(),
     now: clock(),
     log: fakeLog(),
-    isServedCommunity: (id: unknown) => id === GUILD,
-    servedPlaces: () => [GUILD],
+    isServedRoot: (id: unknown) => id === ROOT,
+    servedPlaces: () => [ROOT],
     selfId: () => SELF,
     paused: () => false,
     reads: readsOf({ u1: 'failed', u2: view('u2', 'h2') }, resolved),
   });
-  const counts = await failing.scan(GUILD);
+  const counts = await failing.scan(ROOT);
   assert.deepEqual(resolved, ['u1', 'u2']);
   assert.deepEqual(failing.pending(), ['u2']);
   assert.equal(counts.gone, 1);
@@ -495,7 +495,7 @@ test('store.setAvatar: writes the current avatar only into an existing profile, 
   store.flush();
   await store.flushSettled({});
   // A hand-broken field is dropped on read; an absent one stays absent.
-  const owner = `guilds/${GUILD}/users/u1.json`;
+  const owner = `guilds/${ROOT}/users/u1.json`;
   // @ts-expect-error: unitFile is null only for a file that was never written, and the test wrote this one
   const raw = JSON.parse(unitFile(memoryDb, owner));
   await memoryDb.writeUnit({ op: 'value', owner, value: { ...raw, avatar: { hash: 'h3' } } });

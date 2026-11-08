@@ -1,4 +1,4 @@
-// The conversation reads of the Discord adapter (`createDiscordAdapter({ client, config })`) over a stub discord.js
+// The chat reads of the Discord adapter (`createDiscordAdapter({ client, config })`) over a stub discord.js
 // client: each read answers what the old function of interfaces/discord did with the same stub. The history read gives
 // events whose `lineOf` (src/behavior/line-of.ts) equals the lines `fetchHistory` and its siblings return. Discord
 // objects are plain stubs shaped just enough for the code to read.
@@ -22,7 +22,7 @@ import { present } from './fixtures/loose-types.ts';
 type Raw = Record<string, unknown>;
 type Channel = Parameters<typeof fetchHistory>[0];
 
-const CHANNEL = { iface: 'discord', conversationId: 'c1' };
+const CHANNEL = { iface: 'discord', chatId: 'c1' };
 const SELF = 'self-id';
 const EPOCH = 1420070400000n;
 // The stub is shaped for the code that reads it, not for discord.js's own types.
@@ -166,34 +166,34 @@ function eventsOf(result: { status: string; events?: ReadonlyArray<MessageEvent>
 
 const options = { selfId: SELF, ...normalizeOptions({}) };
 
-test('reports a server channel with its name, topic and community, and no owner', async () => {
+test('reports a server channel with its name, topic and root, and no owner', async () => {
   // A category is no place, the owner's word of 2026-11-06.
   const { adapter } = world();
-  const result = await adapter.conversationInfo(CHANNEL);
+  const result = await adapter.chatInfo(CHANNEL);
   if (result.status !== 'ok') throw new Error(result.status);
-  const { conversation } = result;
-  assert.equal(conversation.kind, 'channel');
-  assert.equal(conversation.rootId, 'g1');
-  assert.equal(conversation.name, 'general');
-  assert.equal(conversation.topic, 'daily talk');
-  assert.equal('category' in conversation, false);
-  assert.equal(conversation.iface, 'discord');
-  assert.equal(conversation.owner, null);
-  assert.equal(conversation.voice, false);
+  const { chat } = result;
+  assert.equal(chat.kind, 'channel');
+  assert.equal(chat.rootId, 'g1');
+  assert.equal(chat.name, 'general');
+  assert.equal(chat.topic, 'daily talk');
+  assert.equal('category' in chat, false);
+  assert.equal(chat.iface, 'discord');
+  assert.equal(chat.owner, null);
+  assert.equal(chat.voice, false);
 });
 
 test('reports the time of the newest message from its snowflake, like lastActivity', async () => {
   const { adapter, channel } = world();
   const stamped = { ...channel, lastMessageId: snowflakeOf(1_700_000_000_000) };
   const client = clientOf(guildOf([stamped]), [stamped]);
-  const result = await createDiscordAdapter({ client, config: () => ({}) }).conversationInfo(CHANNEL);
+  const result = await createDiscordAdapter({ client, config: () => ({}) }).chatInfo(CHANNEL);
   if (result.status !== 'ok') throw new Error(result.status);
-  assert.equal(result.conversation.lastMessageAt, lastActivity(asChannel(stamped)));
-  const none = await adapter.conversationInfo({ iface: 'discord', conversationId: 'c1' });
+  assert.equal(result.chat.lastMessageAt, lastActivity(asChannel(stamped)));
+  const none = await adapter.chatInfo({ iface: 'discord', chatId: 'c1' });
   assert.equal(none.status, 'ok');
 });
 
-test('reports a private chat as a direct conversation with its partner and no community', async () => {
+test('reports a private chat as a direct chat with its partner and no root', async () => {
   const direct = {
     ...textChannel([]),
     guildId: null,
@@ -206,11 +206,11 @@ test('reports a private chat as a direct conversation with its partner and no co
     isDMBased: () => true,
   };
   const client = clientOf(guildOf([]), [direct]);
-  const result = await createDiscordAdapter({ client, config: () => ({}) }).conversationInfo(CHANNEL);
+  const result = await createDiscordAdapter({ client, config: () => ({}) }).chatInfo(CHANNEL);
   if (result.status !== 'ok') throw new Error(result.status);
-  assert.equal(result.conversation.kind, 'dm');
-  assert.equal(result.conversation.rootId, null);
-  assert.equal(result.conversation.partnerId, 'u1');
+  assert.equal(result.chat.kind, 'dm');
+  assert.equal(result.chat.rootId, null);
+  assert.equal(result.chat.partnerId, 'u1');
 });
 
 test('reports a thread with its parent channel', async () => {
@@ -222,13 +222,13 @@ test('reports a thread with its parent channel', async () => {
     name: 'side talk',
   };
   const client = clientOf(guildOf([thread]), [thread]);
-  const result = await createDiscordAdapter({ client, config: () => ({}) }).conversationInfo(CHANNEL);
+  const result = await createDiscordAdapter({ client, config: () => ({}) }).chatInfo(CHANNEL);
   if (result.status !== 'ok') throw new Error(result.status);
-  assert.equal(result.conversation.kind, 'thread');
-  assert.equal(result.conversation.parentId, 'c0');
+  assert.equal(result.chat.kind, 'thread');
+  assert.equal(result.chat.parentId, 'c0');
 });
 
-test('lists text channels, threads and voice rooms of a community with its groups, and no category', async () => {
+test('lists text channels, threads and voice rooms of a root with its groups, and no category', async () => {
   const text = textChannel([], { id: 't1', name: 'text' });
   const thread = textChannel([], { id: 't2', name: 'thread', isThread: () => true, type: ChannelType.PublicThread });
   const voice = textChannel([], { id: 'v1', name: 'lounge', isVoiceBased: () => true, type: ChannelType.GuildVoice });
@@ -243,10 +243,10 @@ test('lists text channels, threads and voice rooms of a community with its group
     client: clientOf(guild, [text, thread, voice, category]),
     config: () => ({}),
   });
-  const result = await adapter.conversations({ placeId: 'g1' });
+  const result = await adapter.chats({ placeId: 'g1' });
   if (result.status !== 'ok') throw new Error(result.status);
-  assert.deepEqual(result.conversations.map((entry) => entry.id).sort(), ['t1', 't2', 'v1']);
-  assert.equal(result.conversations.find((entry) => entry.id === 'v1')?.voice, true);
+  assert.deepEqual(result.chats.map((entry) => entry.id).sort(), ['t1', 't2', 'v1']);
+  assert.equal(result.chats.find((entry) => entry.id === 'v1')?.voice, true);
   assert.deepEqual(
     result.groups.find((group) => group.id === 'r1'),
     { id: 'r1', name: 'mods' }
@@ -305,7 +305,7 @@ test('returns a fetched message with its whole event and keeps a deleted one mis
   if (result.status !== 'ok') throw new Error(result.status);
   const [found, gone] = result.messages;
   assert.equal(found?.event?.message.content, 'two');
-  assert.equal(found?.event?.conversation.id, 'c1');
+  assert.equal(found?.event?.chat.id, 'c1');
   assert.equal(gone?.missing, true);
 });
 
@@ -387,7 +387,7 @@ test('searches messages by text and author with the time bounds turned into snow
   );
   if (result.status !== 'ok') throw new Error(result.status);
   assert.equal(result.total, 41);
-  assert.deepEqual(result.hits[0]?.ref, { iface: 'discord', conversationId: 'c1', messageId: '55' });
+  assert.deepEqual(result.hits[0]?.ref, { iface: 'discord', chatId: 'c1', messageId: '55' });
   assert.equal(result.hits[0]?.at, Date.parse('2026-10-10T10:00:00.000Z'));
   assert.equal(result.hits[0]?.text, 'pasta');
   assert.deepEqual(result.hits[0]?.author, { id: 'u1', handle: 'eleni', displayName: 'Eleni', bot: false });
@@ -400,7 +400,7 @@ test('searches messages by text and author with the time bounds turned into snow
   assert.equal(query?.get('offset'), '25');
 });
 
-test('fails a message search when Discord has not indexed the community yet', async () => {
+test('fails a message search when Discord has not indexed the root yet', async () => {
   const { client } = restWith({ message: 'Index not yet available' });
   const { adapter } = world({ client: { rest: client.rest } });
   assert.equal((await adapter.searchMessages({ placeId: 'g1' }, { text: 'x' })).status, 'failed');
@@ -442,8 +442,8 @@ test('turns message links into references and every other text into null', async
   ]);
   if (result.status !== 'ok') throw new Error(result.status);
   assert.deepEqual(result.refs, [
-    { iface: 'discord', conversationId: '222', messageId: '333' },
-    { iface: 'discord', conversationId: '444', messageId: '555' },
+    { iface: 'discord', chatId: '222', messageId: '333' },
+    { iface: 'discord', chatId: '444', messageId: '555' },
     null,
     null,
   ]);

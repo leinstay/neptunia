@@ -178,7 +178,7 @@ function consoleOver(ran: Array<string> = []): { dir: string; run: (line: string
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => Date.parse('2026-11-04T12:00:00Z'),
   };
   const desk = createConsole(deps);
@@ -255,7 +255,7 @@ test('a failed setup in the chat writes nothing', async () => {
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => 0,
   });
   const answer = await desk.run('services.watcher.setup', { at: '25:00' }, { id: 'owner-1' });

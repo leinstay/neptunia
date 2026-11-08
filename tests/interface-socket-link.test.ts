@@ -42,7 +42,7 @@ const CAPABILITIES: Capabilities = {
 const HELLO: Hello = {
   iface: 'fake',
   self: { id: 'bot-1', name: 'Νέπτυν' },
-  community: { id: 'g1', name: 'Alpha' },
+  root: { id: 'g1', name: 'Alpha' },
   capabilities: CAPABILITIES,
   resume: null,
 };
@@ -97,7 +97,7 @@ test('carries one event in and one send out over the socket', async () => {
       iface: 'fake',
       at: 1,
       id: 'e1',
-      conversation: { id: 'c1', kind: 'channel' },
+      chat: { id: 'c1', kind: 'channel' },
       messageId: 'm1',
       emoji: { name: 'x' },
       accountId: 'u1',
@@ -105,7 +105,7 @@ test('carries one event in and one send out over the socket', async () => {
     });
     assert.equal(status, 'ok');
     assert.deepEqual(r.handled, ['e1']);
-    const delivery = await r.link.adapter.send({ iface: 'fake', conversationId: 'c1' }, { text: 'over the socket' });
+    const delivery = await r.link.adapter.send({ iface: 'fake', chatId: 'c1' }, { text: 'over the socket' });
     assert.equal(delivery.status, 'ok');
     assert.equal(r.fake.messagesIn('c1')[0]?.text, 'over the socket');
   } finally {

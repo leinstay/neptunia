@@ -172,14 +172,14 @@ function dispatchOf(privateDir: string | undefined, agent: string, log: Logger):
  */
 function recentLinesOf(
   { memory, log }: { memory: ErrandServiceOptions['memory']; log: Logger },
-  conversationId: string | null,
+  chatId: string | null,
   scope: ErrandScope
 ): RunContext['recent'] {
-  if (scope === 'dm' || !conversationId || typeof memory?.recentLines !== 'function') return [];
+  if (scope === 'dm' || !chatId || typeof memory?.recentLines !== 'function') return [];
   const count = Math.min(MAX_RECENT_ENTRIES, DEFAULT_RECENT_LINES);
   let lines: Array<{ author?: unknown; text?: unknown }>;
   try {
-    lines = memory.recentLines(conversationId, count);
+    lines = memory.recentLines(chatId, count);
   } catch (err) {
     log.warn('errands: recent lines unreadable', { code: errorCode(err) });
     return [];
@@ -326,8 +326,8 @@ export function createErrandService({
   }
 
   const limitsOf = (agent: string): Limits => limitsFor(agent, hot.config, agentPaths);
-  const recentOf = (conversationId: string | null, scope: ErrandScope): RunContext['recent'] =>
-    recentLinesOf({ memory, log }, conversationId, scope);
+  const recentOf = (chatId: string | null, scope: ErrandScope): RunContext['recent'] =>
+    recentLinesOf({ memory, log }, chatId, scope);
 
   /** One queued errand sent to its runner and closed with its end. Never throws. */
   async function runErrand(store: ErrandStore, id: string): Promise<ErrandRecord | null> {
@@ -431,46 +431,41 @@ export function createErrandService({
    * The errands the persona sees in a turn's `<errands>` block: the open ones, then the finished ones
    * she has not read nor closed (`readAt`, `resolvedAt`; whether a result turn ran does not hide
    * one), oldest first. In a server channel only the `group` ones; in a private
-   * chat (`privateChannelId`) also the `dm` ones asked in that chat.
+   * chat (`dmChatId`) also the `dm` ones asked in that chat.
    */
-  function view({ privateChannelId = null }: { privateChannelId?: string | null } = {}): Array<ErrandRecord> {
+  function view({ dmChatId = null }: { dmChatId?: string | null } = {}): Array<ErrandRecord> {
     const store = storeOf();
     if (!store) return [];
     const visible = (errand: ErrandRecord): boolean =>
-      errand.scope !== 'dm' || (privateChannelId !== null && errand.origin?.placeId === String(privateChannelId));
+      errand.scope !== 'dm' || (dmChatId !== null && errand.origin?.placeId === String(dmChatId));
     return [...store.open(), ...store.unread()].filter(visible);
   }
 
-  /** `{ expired: true, errand }` for the expired file `handle` of an errand this conversation may see, else null. */
-  function expiredFile(store: ErrandStore, handle: string, privateChannelId: string | null): ExpiredFileRef | null {
+  /** `{ expired: true, errand }` for the expired file `handle` of an errand this chat may see, else null. */
+  function expiredFile(store: ErrandStore, handle: string, dmChatId: string | null): ExpiredFileRef | null {
     const errand = store.get(
       idText(handle)
         .replace(/^file:/, '')
         .split('/')[0]
     );
-    if (
-      !errand ||
-      (errand.scope === 'dm' && (privateChannelId === null || errand.origin?.placeId !== String(privateChannelId)))
-    )
+    if (!errand || (errand.scope === 'dm' && (dmChatId === null || errand.origin?.placeId !== String(dmChatId))))
       return null;
     return { expired: true, errand };
   }
 
   /**
    * The file a handle `file:<errand id>/<name>` names (src/errands/store.ts#fileOf), for a
-   * conversation that may see its errand (view's rule: a private chat's errand only in that chat);
+   * chat that may see its errand (view's rule: a private chat's errand only in that chat);
    * null otherwise.
    */
-  function fileOf({ handle, privateChannelId = null }: { handle?: unknown; privateChannelId?: string | null } = {}):
+  function fileOf({ handle, dmChatId = null }: { handle?: unknown; dmChatId?: string | null } = {}):
     ErrandFileRef | ExpiredFileRef | null {
     const store = storeOf();
     const file = store ? store.fileOf(handle) : null;
     // Files the runner has deleted: a marker the callers refuse as `file-expired`, never a path.
-    if (!file)
-      return store?.fileExpired?.(handle) === true ? expiredFile(store, idText(handle), privateChannelId) : null;
+    if (!file) return store?.fileExpired?.(handle) === true ? expiredFile(store, idText(handle), dmChatId) : null;
     const { errand } = file;
-    if (errand.scope === 'dm' && (privateChannelId === null || errand.origin?.placeId !== String(privateChannelId)))
-      return null;
+    if (errand.scope === 'dm' && (dmChatId === null || errand.origin?.placeId !== String(dmChatId))) return null;
     return file;
   }
 

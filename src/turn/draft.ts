@@ -6,7 +6,7 @@
 import type { PostRefs } from './sends.ts';
 import type { MemoryPage } from '../memory/db/semantic-types.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
-import type { ConversationInfo } from '../protocol/adapter.ts';
+import type { ChatInfo } from '../protocol/adapter.ts';
 import type { Act } from './act.ts';
 import type { DrawGif } from './draw-gif.ts';
 import type { InTurnDraft } from './in-turn-tools.ts';
@@ -61,9 +61,9 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'selfref
   inner?: InnerTurn | null;
   // A turn a finished errand of her own opened: her grants alone decide her calls.
   ownInitiative?: boolean;
-  // The conversation as the interface described it when the attempt began.
-  info?: ConversationInfo;
-  /** A turn run with no conversation (a service, an intention without a place): she is nowhere. */
+  // The chat as the interface described it when the attempt began.
+  info?: ChatInfo;
+  /** A turn run with no chat (a service, an intention without a place): she is nowhere. */
   nowhere?: boolean;
   privateAccountId?: string | null;
   /** A restriction this turn inherited from deferred work, read by `turnBoundary` (src/tools/publication.ts). */
@@ -107,7 +107,7 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'selfref
   innerIntentIds?: Iterable<string>;
   /** The turn's one handle registry (src/turn/handles.ts): every `#n` its requests issued, to the line it names. */
   handles?: Handles;
-  /** The place a framed request was built for, by its conversation id and its path: where her lookups are kept. */
+  /** The place a framed request was built for, by its chat id and its path: where her lookups are kept. */
   framePlace?: { id: string; path: Array<string> } | null;
   /** How a line's identity in her posted words is read back on a framed request (src/turn/sends.ts#renderPost). */
   frameRefs?: PostRefs | null;

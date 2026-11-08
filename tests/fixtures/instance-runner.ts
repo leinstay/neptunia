@@ -37,7 +37,7 @@ const core = await startCore({
     {
       name: 'fake',
       start: async (host) => {
-        running = await fake.start(host, { self: { id: 'self-id', name: 'Nova' }, community: { id: 'g1', name: 'Alpha' } });
+        running = await fake.start(host, { self: { id: 'self-id', name: 'Nova' }, root: { id: 'g1', name: 'Alpha' } });
         return running;
       },
     },
@@ -63,7 +63,7 @@ async function serve(request: InstanceRequest): Promise<unknown> {
   switch (request.kind) {
     case 'seed': {
       // The fake adapter's seeders take the protocol's objects as the parent built them.
-      live().adapter.seedConversation(request.info as Parameters<Running['adapter']['seedConversation']>[0]);
+      live().adapter.seedChat(request.info as Parameters<Running['adapter']['seedChat']>[0]);
       live().adapter.seedEvent(request.event as Parameters<Running['adapter']['seedEvent']>[0]);
       return null;
     }
@@ -71,7 +71,7 @@ async function serve(request: InstanceRequest): Promise<unknown> {
       return live().emit(request.event);
     case 'posted':
       return live()
-        .adapter.messagesIn(request.conversationId)
+        .adapter.messagesIn(request.chatId)
         .filter((message) => message.authorId === 'self-id')
         .map((message) => message.text);
     case 'requests':

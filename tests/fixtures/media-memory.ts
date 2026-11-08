@@ -259,14 +259,14 @@ export function eventOf(
     at = AT,
     iface = 'discord',
     shape = SAME,
-    conversation = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' },
+    chat = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' },
     author = kind.self ? { id: HER, self: true, name: 'Self' } : { id: ALICE, name: 'Alice' },
-  }: { at?: number; iface?: string; shape?: Shape; conversation?: Row; author?: Row } = {}
+  }: { at?: number; iface?: string; shape?: Shape; chat?: Row; author?: Row } = {}
 ): Row {
   return {
     iface,
     at,
-    conversation,
+    chat,
     message: {
       id: native,
       at,
@@ -296,16 +296,16 @@ export function observeLine(
     at = AT,
     iface = 'discord',
     shape = SAME,
-    conversation,
+    chat,
     author,
-  }: { native?: string; at?: number; iface?: string; shape?: Shape; conversation?: Row; author?: Row } = {}
+  }: { native?: string; at?: number; iface?: string; shape?: Shape; chat?: Row; author?: Row } = {}
 ): string {
   const told: [boolean, boolean] = [presence !== 'absent', presence === 'full' && !kind.self];
   const event = eventOf(kind, native, told, {
     at,
     iface,
     shape,
-    ...(conversation ? { conversation } : {}),
+    ...(chat ? { chat } : {}),
     ...(author ? { author } : {}),
   });
   const envelope = observationOf(event, { selfId: HER });
@@ -325,7 +325,7 @@ export function observeDmLine(env: Env, kind: Kind, presence: Presence = 'full',
   const source = observeLine(env, kind, presence, {
     native,
     author: kind.self ? { id: HER, self: true, name: 'Self' } : { id: BOB, name: 'Bob' },
-    conversation: { id: 'dm-bob', kind: 'dm', chatType: 'dm', partnerId: BOB },
+    chat: { id: 'dm-bob', kind: 'dm', chatType: 'dm', partnerId: BOB },
   });
   env.db.prepare('UPDATE sources SET scope_dm = ?, audience_id = NULL WHERE id = ?').run(BOB_PERSON, source);
   fillEnvAudiences(env);
@@ -384,7 +384,7 @@ export function recallRig(env: Env): RecallRig {
     { log: { info() {}, debug() {}, warn() {}, error() {} } }
   );
   const channel = channelInfo('c1', { name: 'general' });
-  const snapshot = snapshotOf('g1', { conversations: [channel], groups: [] });
+  const snapshot = snapshotOf('g1', { chats: [channel], groups: [] });
   const config = {
     ...shipped,
     bot: { ...shipped.bot, timezone: 'UTC' },

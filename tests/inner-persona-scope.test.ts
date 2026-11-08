@@ -1,6 +1,6 @@
-// The inner life belongs to one persona, with no home community: the heartbeat, the wakes and the kill switch run on a core
+// The inner life belongs to one persona, with no home root: the heartbeat, the wakes and the kill switch run on a core
 // that has none, each record naming its own optional destination place.
-// Contract, plan 2026-11-04-cli-and-memory task 5: `createInnerLife` takes no `getGuildId`; `inner.tick()`, `inner.drain()`,
+// Contract, plan 2026-11-04-cli-and-memory task 5: `createInnerLife` takes no `getRootId`; `inner.tick()`, `inner.drain()`,
 // `inner.stop(options?)`, `inner.start(options?)`, `inner.status()`, `inner.places(options?)`, `inner.state()`,
 // `inner.mayAct()`. Missed-wake and disable policies stay as they are.
 // Appendix entries: src/behavior/inner.ts, src/behavior/inner/{status,places,queue,drain,deliveries,recovery,review,
@@ -54,7 +54,7 @@ function life({
     places: () => [{ id: 'c1', name: 'general', writable: true }],
     reads: fakeClient().reads,
     iface: () => 'fake',
-    conversationName: (id) => `chan-${id}`,
+    chatName: (id) => `chan-${id}`,
     submit: (event) => door.submit(event),
     store: { state: { data: {} } },
     meter: { run: async (fn) => ({ result: await fn(), usd: 0, requests: 1, voice: 1 }) },
@@ -68,27 +68,27 @@ function life({
 
 const settle = (): Promise<unknown> => new Promise((resolve) => setImmediate(resolve));
 
-test('a tick runs on a core with no community', async () => {
-  // Bug: `tick` answers `no-guild` first, so a core with only DMs never wakes her at all.
+test('a tick runs on a core with no root', async () => {
+  // Bug: `tick` answers `no-root` first, so a core with only DMs never wakes her at all.
   const { inner } = life();
   const answer = await inner.tick();
   assert.equal(answer.reason, undefined);
   assert.equal(answer.ran, true);
 });
 
-test('a due intention opens one inner turn, and the turn asks no community', async () => {
-  // Bug: the wake carries the home community into the turn, and its memory lands under that server.
+test('a due intention opens one inner turn, and the turn asks no root', async () => {
+  // Bug: the wake carries the home root into the turn, and its memory lands under that server.
   const { inner, turns } = life({ records: [intention('i1')] });
   await inner.tick();
   await settle();
   await inner.tick();
   await settle();
   assert.equal(turns.calls.length, 1);
-  assert.equal('guildId' in (turns.calls[0] ?? {}), false);
+  assert.equal('rootId' in (turns.calls[0] ?? {}), false);
 });
 
 test('a heartbeat falls due and is listed with no destination', async () => {
-  // Bug: the heartbeat's due time lives in a per-community state, so with no community it is never drawn.
+  // Bug: the heartbeat's due time lives in a per-root state, so with no root it is never drawn.
   const { inner, memory } = life({ hot: hotWith({ heartbeat: { enabled: true, everyHours: 3, jitterHours: 0 } }) });
   await inner.tick();
   clock.t += 2 * DAY_MS;
@@ -98,8 +98,8 @@ test('a heartbeat falls due and is listed with no destination', async () => {
   assert.ok(kinds.includes('heartbeat'), kinds.join(','));
 });
 
-test('the kill switch stops and starts with no community named', () => {
-  // Bug: `stop` refuses with `NO_GUILD`, so the owner cannot stop a core that has only DMs.
+test('the kill switch stops and starts with no root named', () => {
+  // Bug: `stop` refuses with `NO_ROOT`, so the owner cannot stop a core that has only DMs.
   const { inner } = life();
   assert.equal(inner.stop({ by: 'owner' }).ok, true);
   assert.equal(inner.status().stopped, true);
@@ -108,7 +108,7 @@ test('the kill switch stops and starts with no community named', () => {
 });
 
 test('a stopped persona stays stopped across a restart', async () => {
-  // Bug: the switch is saved under a community key that the next process, with no community yet, does not read.
+  // Bug: the switch is saved under a root key that the next process, with no root yet, does not read.
   const dataDir = tempDir('nep-inner-restart-');
   const memory = wakeMemory(dataDir, () => clock.t);
   life({ dataDir, memory }).inner.stop({ by: 'owner' });
@@ -117,8 +117,8 @@ test('a stopped persona stays stopped across a restart', async () => {
   assert.equal(answer.reason, 'stopped');
 });
 
-test('the places of her attention come back with no community named', () => {
-  // Bug: `places` returns an empty page without a community, so the heartbeat of a DM-only core sees no place.
+test('the places of her attention come back with no root named', () => {
+  // Bug: `places` returns an empty page without a root, so the heartbeat of a DM-only core sees no place.
   const { inner } = life();
   const page = inner.places();
   assert.deepEqual(
@@ -127,8 +127,8 @@ test('the places of her attention come back with no community named', () => {
   );
 });
 
-test('she may act with no community named', () => {
-  // Bug: `mayAct` answers false for a persona without a home community, so her own calls are refused in a DM.
+test('she may act with no root named', () => {
+  // Bug: `mayAct` answers false for a persona without a home root, so her own calls are refused in a DM.
   const { inner } = life();
   assert.equal(inner.mayAct(), true);
   inner.stop({ by: 'owner' });

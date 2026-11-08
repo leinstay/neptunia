@@ -1,16 +1,16 @@
-// What the owner's chat reads and changes beside her turns: `session.*` over the conversation sessions, `checkpoint.*` over the
+// What the owner's chat reads and changes beside her turns: `session.*` over the chat sessions, `checkpoint.*` over the
 // development checkpoints, `approval.*` over the board's gates and `context.read`. They are not rows of the command table, because only the chat's panels use them (bin/chat-panels.ts),
 // and each answer is JSON for a panel to read. Only the `cli` principal reaches this (src/interface/neptunia-cli.ts), so the
 // session authority stays here: the owner's command line holds the right to every session, and nothing else can ask.
 
-import type { ConversationSessions, OpenSession } from '../../conversation/sessions.ts';
+import type { ChatSessions, OpenSession } from '../../chat/sessions.ts';
 import type { ApprovalAnswer, ApprovalGate, ApprovalResult } from '../../board/approval-view.ts';
 import type { CheckpointDesk } from '../../development/checkpoint-desk.ts';
 import { createApprovalRelay } from '../../tools/approvals.ts';
 
 export type ChatStateAnswer = { text: string; status: string; code?: string };
 
-/** The one conversation of the owner's command line, as memory places it (src/memory/db/ids.ts#dmPlaceId). */
+/** The one chat of the owner's command line, as memory places it (src/memory/db/ids.ts#dmPlaceId). */
 const CLI_PLACE = 'cli:dm:owner';
 
 const textOf = (value: unknown): string => (typeof value === 'string' ? value : '');
@@ -49,7 +49,7 @@ export function createChatState({
   approvals,
   context,
 }: {
-  sessions: ConversationSessions;
+  sessions: ChatSessions;
   checkpoints: CheckpointDesk;
   approvals: ApprovalBoard;
   /** What the core knows of a request: a number it does not hold is null. */

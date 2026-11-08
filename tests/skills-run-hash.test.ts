@@ -85,7 +85,7 @@ async function runOf(port: SkillsPort, dataDir: string): Promise<{ result: Resul
       client: { channels: { cache: new Map() } },
       spontaneous: {},
       calibrator: { ratio: 1 },
-      isServedCommunity: (id: unknown) => id === 'g1',
+      isServedRoot: (id: unknown) => id === 'g1',
       board: null,
       skills: port,
     }),
@@ -95,7 +95,7 @@ async function runOf(port: SkillsPort, dataDir: string): Promise<{ result: Resul
     runOpPrechecked(
       'skill.run',
       { name: NAME, script: 'say.cjs' },
-      { env, placeId: 'g1', conversationId: 'c1', accountId: null, roleIds: [], actor: 'persona' }
+      { env, placeId: 'g1', chatId: 'c1', accountId: null, roleIds: [], actor: 'persona' }
     )
   );
   return { result: result, logs };

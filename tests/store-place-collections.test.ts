@@ -7,7 +7,7 @@
 //   store.getMediaCache(placeId), store.getRecent(placeId), store.getParticipation(placeId)
 //   store.listChildren(placeId): the stored child places of a place, one level of `places.parent_id` down
 //   store.rootPlaceOf(placeId): the top of its tree, the place itself when it has no parent, null for an unknown id
-// A function takes `placeId` alone: there is no `guildId` and no `rootPlaceId` argument. A whole-server operation passes
+// A function takes `placeId` alone: there is no `rootId` and no `rootPlaceId` argument. A whole-server operation passes
 // the server's own id, and code that needs the top of a tree asks `rootPlaceOf`.
 // Appendix entries: src/memory/store.ts (public collections), src/memory/lore.ts, src/memory/recent.ts,
 // src/memory/participation.ts, src/memory/gifs.ts, src/turn/request/server.ts, src/behavior/prompt.ts.
@@ -85,7 +85,7 @@ const titles = (entries: ReadonlyArray<object>): Array<unknown> =>
   entries.map((one): unknown => Reflect.get(one, 'title'));
 
 test('lore belongs to the place it was written for, under the id as given', async () => {
-  // Bug: `communityKey` wraps the id in `<iface>:guild:`, and the catalog holds a place nobody can look up.
+  // Bug: `rootKey` wraps the id in `<iface>:root:`, and the catalog holds a place nobody can look up.
   const { store, read } = rig();
   store.setLore(A, [loreEntry('of room one')], LORE_OPTIONS);
   await save(store);
@@ -106,12 +106,12 @@ test('two places read two sets of lore whatever interface is ambient', async () 
 });
 
 test('the notes of a place are read and written by its id', async () => {
-  // Bug: `getGuild` and `updateGuild` remain the only way to the notes, so a Telegram group has none.
+  // Bug: `getRoot` and `updateRoot` remain the only way to the notes, so a Telegram group has none.
   const { store, read } = rig();
   store.updatePlace(A, { patterns: 'short lines at night' });
   await save(store);
   assert.equal(Reflect.get(store.getPlace(A), 'patterns'), 'short lines at night');
-  assert.deepEqual(listUnits(read(), { kind: 'guild' }), []);
+  assert.deepEqual(listUnits(read(), { kind: 'root' }), []);
   assert.equal(Reflect.get(store.getPlace(B), 'patterns'), '');
 });
 
@@ -130,7 +130,7 @@ test('a place with nothing stored answers empty and writes no collection', () =>
 });
 
 test('an unnamed place is refused rather than stored under an empty id', () => {
-  // Bug: `one:guild:` holds whatever a caller without a place wrote, shared by every such caller.
+  // Bug: `one:root:` holds whatever a caller without a place wrote, shared by every such caller.
   const { store } = rig();
   assert.throws(
     () => store.setLore('', [loreEntry('of nowhere')], LORE_OPTIONS),
@@ -157,7 +157,7 @@ test('the children of a place come from stored parents at any depth, for any pla
 });
 
 test('the root of a place is the top of its stored tree at any depth', () => {
-  // Bug: a caller passes a separate community id beside the place, and the two disagree after a move.
+  // Bug: a caller passes a separate root id beside the place, and the two disagree after a move.
   const { store, write } = rig();
   write((db) => {
     addGroupPlace(db, 'place:server', 'discord', 'discord/global');

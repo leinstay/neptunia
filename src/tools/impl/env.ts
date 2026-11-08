@@ -5,7 +5,7 @@
 // file (under `hot.privateDir`, the deployment's private directory). Built once per admin; an operation reads it as `ctx.env`. Hot
 // values are read at the moment of use, through `hot`, never copied.
 
-import { accountOf, conversationOfPlace, topPlaceOf } from '../../memory/addresses.ts';
+import { accountOf, chatOfPlace, topPlaceOf } from '../../memory/addresses.ts';
 import path from 'node:path';
 import { moveConfigKeys } from '../../config-moves.ts';
 import { localConfigPath } from '../../config/files.ts';
@@ -33,14 +33,14 @@ export type OpsDeps = {
   reads?: Reads | null;
   /** The persona's own member id, null before the interface has said it. */
   selfId?: () => string | null;
-  /** The name the persona goes by in a community. */
+  /** The name the persona goes by in a root. */
   getSelfName?: (placeId: string | null) => string;
   /** A member's name in the member directory. */
   memberNameOf?: (placeId: string, accountId: string) => string | null;
-  /** The conversations the interface reported, and the direct chat it saw with a member. */
+  /** The chats the interface reported, and the direct chat it saw with a member. */
   directory?: {
-    isPrivate: (conversationId: string) => boolean;
-    dmConversationOf?: (partnerId: string) => string | null;
+    isDm: (chatId: string) => boolean;
+    dmChatOf?: (partnerId: string) => string | null;
   };
   /** When the interface's link to its platform last came back (the core fills it from `connection.changed`). */
   connection?: { lastReconnectAt: number | null };
@@ -73,7 +73,7 @@ function buildEnv({
   selfId = () => null,
   getSelfName = () => '',
   memberNameOf = () => null,
-  directory = { isPrivate: () => false },
+  directory = { isDm: () => false },
   connection = { lastReconnectAt: null },
   calibrator,
   turns,
@@ -173,12 +173,12 @@ function buildEnv({
   }
 
   /**
-   * The native conversation of the place an operation runs in, for a call that speaks to the interface
-   * (src/memory/addresses.ts#conversationOfPlace, a DM's chat from the directory); null with no place.
+   * The native chat of the place an operation runs in, for a call that speaks to the interface
+   * (src/memory/addresses.ts#chatOfPlace, a DM's chat from the directory); null with no place.
    */
-  function conversationOf(context: { placeId?: string | null } | null | undefined): string | null {
+  function chatOf(context: { placeId?: string | null } | null | undefined): string | null {
     const placeId = context?.placeId ?? null;
-    return placeId ? conversationOfPlace(store, placeId, directory.dmConversationOf ?? null) : null;
+    return placeId ? chatOfPlace(store, placeId, directory.dmChatOf ?? null) : null;
   }
 
   /** The place the operation addresses, or an Error with none. */
@@ -271,9 +271,9 @@ function buildEnv({
     selfId,
     getSelfName,
     memberNameOf,
-    // The conversations the interface reported (`directory.isPrivate`).
+    // The chats the interface reported (`directory.isDm`).
     directory,
-    // The core's reads of the interface (src/interface/reads.ts): the conversation an operation posts in, a message's event.
+    // The core's reads of the interface (src/interface/reads.ts): the chat an operation posts in, a message's event.
     reads,
     calibrator,
     turns,
@@ -335,7 +335,7 @@ function buildEnv({
     assertNotPaused,
     freshenIfPaused,
     resolvedPlaceId,
-    conversationOf,
+    chatOf,
     requirePlaceId,
     tokenResolver,
     journalSystem,

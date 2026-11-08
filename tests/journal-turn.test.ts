@@ -182,7 +182,7 @@ function makeAdmin(journal: Record<string, Untyped>) {
       Promise.resolve({
         refs: texts.map((text: string) => {
           const found = /^https:\/\/discord\.com\/channels\/\d+\/(\d+)\/(\d+)$/.exec(text);
-          return found ? { iface: 'fake', conversationId: found[1], messageId: found[2] } : null;
+          return found ? { iface: 'fake', chatId: found[1], messageId: found[2] } : null;
         }),
       }),
     fetchMessages: (ref: Record<string, Untyped>, ids: Record<string, Untyped>) =>
@@ -199,7 +199,7 @@ function makeAdmin(journal: Record<string, Untyped>) {
     reads: wrongly(reads),
     port: { iface: 'fake' },
     selfId: () => SELF,
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     journal,
   });
 }
@@ -313,7 +313,7 @@ test('findTurn: a turn that crossed midnight -- the record of the next day, the 
   assert.equal(await journal.findTurn('g1', { messageId: lateId, at: latePost + 2 * 86_400_000 }), null);
 });
 
-// A bare id is dated by reading the message in the conversation the command runs in (`placeId`), a link names its own.
+// A bare id is dated by reading the message in the chat the command runs in (`placeId`), a link names its own.
 // PR 7b: admin.run takes the operation's name, the command key map is gone; the expectations are as they were.
 test('memory.journal.read: by message id or link, the turn record whole; not hers or no record is not-found', async () => {
   const clock = { ms: D };
@@ -366,7 +366,7 @@ test('memory.journal.read: the persona names her line #N; it resolves to the mes
   const postedId = idAt(D + 3000);
   await writeTurn(journal, clock, { startMs: D, postMs: D + 3000, endMs: D + 5000, triggerId: 'm-t', postedId });
   const admin = makeAdmin(journal);
-  const lines = new Map([[2, { id: postedId, conversationId: 'c1', authorId: SELF, self: true }]]);
+  const lines = new Map([[2, { id: postedId, chatId: 'c1', authorId: SELF, self: true }]]);
 
   const resolved = resolveCall(wrongly({ skill: 'memory.journal.read', args: { message: '#2' }, body: '' }), {
     skills: skillRegistry(),

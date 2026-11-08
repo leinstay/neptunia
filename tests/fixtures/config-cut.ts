@@ -61,7 +61,7 @@ export const CUT: ReadonlyArray<CutRow> = [
   { key: 'features.embedIndex', group: 'features', becomes: 'code', production: true },
   { key: 'features.imageGeneration', group: 'features', becomes: 'code', production: true },
   { key: 'features.speech', group: 'features', becomes: 'code', production: true },
-  { key: 'features.privateMessages', group: 'features', becomes: 'rename', production: true, to: 'private.enabled' },
+  { key: 'features.privateMessages', group: 'features', becomes: 'rename', production: true, to: 'dm.enabled' },
   { key: 'features.privateLikeServer', group: 'features', becomes: 'rename', production: true, to: 'private.likeServer' },
   { key: 'features.gifPicker', group: 'features', becomes: 'code', production: true },
   { key: 'features.versions', group: 'features', becomes: 'code', production: true },

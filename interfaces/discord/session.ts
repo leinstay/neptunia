@@ -3,7 +3,7 @@
 // Discord adapter over it, then carries every gateway event the core uses as a protocol event. Events that arrive
 // before `open()` are held (at most 1,000, the oldest dropped) until the core's door has its handlers.
 //
-// The conversation reads, the reactions and the direct chats of the turn, the message pipeline and the tools are
+// The chat reads, the reactions and the direct chats of the turn, the message pipeline and the tools are
 // answered over the link by the adapter (reads.ts) and the events. The interface registers no slash command. On its
 // first connect it deletes every application command its bot still has on the guild and logs how many, and an
 // interaction that still arrives gets a short ephemeral refusal and never reaches the core.
@@ -21,7 +21,7 @@ import { createAudienceWarmer } from './audience-warm.ts';
 import { connectionEvent, presenceEvent, presenceSnapshotEvent, voiceEvent } from './around.ts';
 import {
   canRead,
-  conversationOfChannel,
+  chatOfChannel,
   isReadableChannel,
   normalizeOptions,
   reactionClearAllEvent,
@@ -73,18 +73,13 @@ const obj = (value: unknown): Obj => (value !== null && typeof value === 'object
 const isThreadChannel = (channel: Obj): boolean =>
   typeof channel.isThread === 'function' && (channel as { isThread(): boolean }).isThread();
 
-function conversationChangedEvent(
-  change: 'created' | 'updated' | 'deleted',
-  channel: Obj,
-  guildId: string,
-  at: number
-) {
+function chatChangedEvent(change: 'created' | 'updated' | 'deleted', channel: Obj, guildId: string, at: number) {
   return {
-    kind: 'conversation.changed',
+    kind: 'chat.changed',
     iface: DISCORD_IFACE,
     at,
-    id: `${DISCORD_IFACE}:conversation:${String(channel.id)}:${change}:${at}`,
-    conversation: conversationOfChannel(channel, guildId),
+    id: `${DISCORD_IFACE}:chat:${String(channel.id)}:${change}:${at}`,
+    chat: chatOfChannel(channel, guildId),
     change,
   };
 }
@@ -180,7 +175,7 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   const guildById = (id: string): Obj | null => guildCache.get(id) ?? null;
   // The first server names the persona in `hello`; her name in the others comes with each of their events.
   const guildNow = (): Obj | null => guildById(guildIds[0] ?? '');
-  const communityOf = (id: string) => ({ id, name: guilds.find((guild) => guild.id === id)?.name ?? '' });
+  const rootOf = (id: string) => ({ id, name: guilds.find((guild) => guild.id === id)?.name ?? '' });
   const selfId = (): string | null => client.user?.id ?? null;
 
   const discord = createDiscordInterface({ client, config });
@@ -194,8 +189,8 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
       hello: {
         iface: discord.port.iface,
         self: { id: selfId() ?? '', name: displayNameIn(guildNow(), client.user) },
-        community: communityOf(guildIds[0] ?? ''),
-        communities: guildIds.map(communityOf),
+        root: rootOf(guildIds[0] ?? ''),
+        roots: guildIds.map(rootOf),
         names: DISCORD_NAMES,
         // What the gateway reports depends on the intents it was asked for: presences only with that intent.
         capabilities: { ...discord.port.capabilities(), presence: intents.presences === true },
@@ -246,7 +241,7 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   }
 
   // The live snapshot (`<people_now>`) follows the gateway: a fresh session delivers the guild's state again, so
-  // it is announced again together with the names of the conversations the client holds.
+  // it is announced again together with the names of the chats the client holds.
   function announceGuild(id: string): void {
     const guild = guildById(id);
     if (guild === null) return;
@@ -256,7 +251,7 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
     for (const channel of channelCache.values()) {
       if (obj(channel.guild).id !== id) continue;
       const readable = isThreadChannel(channel) ? canRead(channel) : isReadableChannel(channel);
-      if (readable) inbound('conversation.changed', () => conversationChangedEvent('updated', channel, id, at));
+      if (readable) inbound('chat.changed', () => chatChangedEvent('updated', channel, id, at));
     }
   }
   function announceGuilds(): void {
@@ -284,9 +279,7 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   const channelChanged = (change: 'created' | 'updated' | 'deleted', channel: Obj): void => {
     if (!inGuild(channel)) return;
     if (change !== 'deleted') warmAudiences({ quiet: true });
-    inbound('conversation.changed', () =>
-      conversationChangedEvent(change, channel, String(obj(channel.guild).id), Date.now())
-    );
+    inbound('chat.changed', () => chatChangedEvent(change, channel, String(obj(channel.guild).id), Date.now()));
   };
   on(Events.ChannelCreate, (channel: Obj) => channelChanged('created', channel));
   on(Events.ChannelUpdate, (_old: Obj, channel: Obj) => channelChanged('updated', channel));

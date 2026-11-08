@@ -16,7 +16,7 @@
 //   - each account of hers (`kind` `self`) is linked to `person:self`;
 //   - the `link`, `linked_by` and `linked_at` columns of every account are copied again from its live verified link,
 //     the one source of truth (an older profile write reset them).
-// No row changes its audience: a line, a fact or a feeling stays in the conversation it came from.
+// No row changes its audience: a line, a fact or a feeling stays in the chat it came from.
 
 import {
   adoptNativeAuthority,

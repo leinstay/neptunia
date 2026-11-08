@@ -499,7 +499,7 @@ function agentAdapter(): Adapter {
   return {
     iface: AGENT_IFACE,
     capabilities: () => AGENT_CAPABILITIES,
-    send: (_conversation, _content, options = {}) =>
+    send: (_chat, _content, options = {}) =>
       Promise.resolve({
         status: 'unsupported',
         ref: null,
@@ -514,11 +514,11 @@ function agentAdapter(): Adapter {
     unreact: effect,
     typing: () => Promise.resolve({ status: 'ok' }),
     fetchMessages: read,
-    conversationInfo: read,
-    conversations: read,
+    chatInfo: read,
+    chats: read,
     history: read,
     memberInfo: read,
-    dmConversationOf: read,
+    dmChatOf: read,
     searchMessages: read,
     searchMembers: read,
     emoji: read,
@@ -558,7 +558,7 @@ async function connect(socketPath: string, name: string, token: string): Promise
     hello: {
       iface: AGENT_IFACE,
       self: { id: name, name },
-      community: null,
+      root: null,
       capabilities: AGENT_CAPABILITIES,
       resume: null,
     },
@@ -580,7 +580,7 @@ async function connect(socketPath: string, name: string, token: string): Promise
         iface: AGENT_IFACE,
         at: Date.now(),
         id: `${AGENT_IFACE}:command:${replyRef}`,
-        conversation: { id: `${AGENT_IFACE}:${name}`, kind: 'dm' },
+        chat: { id: `${AGENT_IFACE}:${name}`, kind: 'dm' },
         name: request.name,
         args: request.args,
         requester: { id: name, name, roles: [], owner: false },

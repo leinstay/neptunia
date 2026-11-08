@@ -20,7 +20,7 @@ import { idText, isObj, listOf, objOf } from './types.ts';
 import type { SearchRef } from '../turn/calls.ts';
 import type { Obj } from './types.ts';
 import type { Reads } from '../interface/reads.ts';
-import type { ConversationRef, HistoryQuery } from '../protocol/adapter.ts';
+import type { ChatRef, HistoryQuery } from '../protocol/adapter.ts';
 
 /** One message of a channel as the transcript renders it: the record's or the interface's line. */
 export type ReadMessage = { id: unknown; ts: number; [key: string]: unknown };
@@ -195,7 +195,7 @@ export async function recordMessages(
   record: { iterate?: (placeId: string, query: Obj) => AsyncIterable<unknown> } | null | undefined,
   placeId: string,
   {
-    placeId: conversationId,
+    placeId: chatId,
     from,
     nameOf = null,
     selfName = '',
@@ -214,7 +214,7 @@ export async function recordMessages(
   try {
     for await (const entry of record.iterate(placeId, {
       from: new Date(from).toISOString(),
-      placeIds: [idText(conversationId)],
+      placeIds: [idText(chatId)],
     })) {
       const line = objOf(entry);
       const id = str(line.messageId);
@@ -242,7 +242,7 @@ export async function recordMessages(
     const recordedAt = Date.parse(str(line.recordedAt));
     return {
       id: line.messageId,
-      placeId: idText(conversationId),
+      placeId: idText(chatId),
       authorId: by,
       authorName: name || '-',
       self,
@@ -287,7 +287,7 @@ export async function recordMessages(
     const name = by && typeof nameOf === 'function' ? oneLine(nameOf(by) ?? '') : '';
     out.push({
       id,
-      placeId: idText(conversationId),
+      placeId: idText(chatId),
       authorId: by,
       authorName: name || '-',
       self: false,
@@ -319,7 +319,7 @@ export async function recordMessages(
  * lines that stayed in the text are registered (`{ n, id, placeId, authorId, self, deleted,
  * message }`); a line cut away never is. Otherwise pure.
  */
-export function conversationText(
+export function chatText(
   slice: ReadonlyArray<ReadMessage>,
   {
     labels,
@@ -404,12 +404,12 @@ export function conversationText(
 
 /**
  * The interface's history for one selection (`reads`: the core's reads of the interface, src/interface/reads.ts;
- * `ref`: the conversation's reference): the newest `limit` lines, the ones around / before / after `anchor`, or the
+ * `ref`: the chat's reference): the newest `limit` lines, the ones around / before / after `anchor`, or the
  * lines since `minTs`, as lines, oldest first; null when `ref` is missing or the read failed. Never throws.
  */
 export async function fetchSpan(
   reads: Reads,
-  ref: ConversationRef | null | undefined,
+  ref: ChatRef | null | undefined,
   { mode, anchor, limit, minTs }: { mode?: string; anchor?: string; limit?: number; minTs?: number }
 ): Promise<Array<ReadMessage> | null> {
   if (!ref) return null;
@@ -448,7 +448,7 @@ function askedLines(selection: ReadSelection): number {
  * the interface's lines join it. `invalid` (`invalid-args`) for arguments that do not fit;
  * `invalid` (`unknown-message`) when the anchor is not in the channel; `denied`
  * (`channel-not-visible`) for a hidden channel; `failed` when nothing could be read at all;
- * else `ok` with conversationText. Never throws.
+ * else `ok` with chatText. Never throws.
  */
 export async function runConversationRead({
   args,
@@ -533,7 +533,7 @@ export async function runConversationRead({
       selection.mode === 'around' ||
       selection.mode === 'before' ||
       ((selection.mode === 'since' || selection.mode === 'after') && truncated);
-    const textOut = conversationText(picked.slice, {
+    const textOut = chatText(picked.slice, {
       labels,
       placeId: target,
       channelName: typeof channelNameOf === 'function' ? (channelNameOf(target) ?? '') : '',

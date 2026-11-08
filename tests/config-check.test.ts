@@ -130,7 +130,7 @@ function desk(privateDir: string, config: Record<string, unknown>): ReturnType<t
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => T0,
   };
   return createConsole(deps);

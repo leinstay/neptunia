@@ -2,7 +2,7 @@
 // `:name:` (the way it reads them in the transcript); the interface only shows a
 // custom emoji as `<:name:id>` / `<a:name:id>`. The pure functions below turn
 // one into the other through a `lookup(name)`; src/behavior/emoji-index.ts#createEmojiIndex
-// is the core's index over the interface's list of the community's emoji that backs that lookup.
+// is the core's index over the interface's list of the root's emoji that backs that lookup.
 
 import type { Untyped } from '../tools/types.ts';
 

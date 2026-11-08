@@ -16,13 +16,13 @@ function accepted(eventId: string, text: string, edit = false, room = 'room-a', 
     iface: 'synthetic',
     at: NOW,
     edit,
-    conversation: { id: room, kind: 'channel', chatType: 'channel' },
+    chat: { id: room, kind: 'channel', chatType: 'channel' },
     message: { id: 'same-message', at: NOW - 60000, content: text, author: { id: 'member' } },
   });
   if (!envelope) throw new Error('synthetic observation rejected');
   return {
     ...envelope,
-    ingest: { row: { principal, seq: null, eventId, kind: 'message.received', conversation: room }, keepDays: 7 },
+    ingest: { row: { principal, seq: null, eventId, kind: 'message.received', chat: room }, keepDays: 7 },
   };
 }
 
@@ -51,7 +51,7 @@ test('replaying an earlier accepted edit returns that exact source after another
   }
 });
 
-test('each accepted receipt records its own source when different conversations share a native ID', () => {
+test('each accepted receipt records its own source when different chats share a native ID', () => {
   const handle = openMemoryDb(':memory:');
   try {
     const a = source(observeMessage(handle, accepted('same-event', 'Alpha', false, 'room-a', 'adapter-a'), options));
@@ -89,7 +89,7 @@ test('a refused accepted observation commits neither source nor receipt associat
   }
 });
 
-test('a reply reserves its parent in the same conversation before the parent arrives', () => {
+test('a reply reserves its parent in the same chat before the parent arrives', () => {
   const handle = openMemoryDb(':memory:');
   try {
     const child = accepted('child-event', 'Child text');
@@ -98,7 +98,7 @@ test('a reply reserves its parent in the same conversation before the parent arr
         handle,
         {
           ...child,
-          messageReply: { iface: 'synthetic', conversationId: 'room-a', messageId: 'parent' },
+          messageReply: { iface: 'synthetic', chatId: 'room-a', messageId: 'parent' },
         },
         options
       )
@@ -115,7 +115,7 @@ test('a reply reserves its parent in the same conversation before the parent arr
             v: 1,
             origin: 'protocol-message',
             iface: 'synthetic',
-            conversationId: 'room-a',
+            chatId: 'room-a',
             messageId: 'parent',
           },
         },
@@ -133,7 +133,7 @@ test('a reply reserves its parent in the same conversation before the parent arr
             v: 1,
             origin: 'protocol-message',
             iface: 'synthetic',
-            conversationId: 'room-b',
+            chatId: 'room-b',
             messageId: 'parent',
           },
         },
@@ -167,7 +167,7 @@ test('the receipt source migration retains older standalone receipts without inv
     const db = dbOf(handle);
     insertIngest(
       db,
-      { principal: 'adapter', seq: 1, eventId: 'old-event', kind: 'message.received', conversation: 'room-a' },
+      { principal: 'adapter', seq: 1, eventId: 'old-event', kind: 'message.received', chat: 'room-a' },
       { at: NOW, keepDays: 7 }
     );
     migrate(db);

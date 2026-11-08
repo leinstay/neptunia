@@ -47,7 +47,7 @@ export async function gatherRequest(
   waited: Waited
 ): Promise<Gathered> {
   const { hot, store, clock, record, images } = ctx;
-  const { channel, placeId, isPrivate, prep } = opened;
+  const { channel, placeId, isDm, prep } = opened;
   const { memoryOn, selfId, selfName, prefetching, selfreflectionPending } = setup;
   const { beforeBar } = setup;
   const { previewed, captions, captionCandidates, videoStage, videoCandidates } = staged;
@@ -62,8 +62,8 @@ export async function gatherRequest(
   // channel, each the history lacks put back as a placeholder at its own place (never in a
   // private chat); its read takes `timings.record`.
   timings.record = null;
-  if (!isPrivate && record && typeof record.iterate === 'function') {
-    // The record holds the conversation's lines under the top of its tree, each marked with its channel.
+  if (!isDm && record && typeof record.iterate === 'function') {
+    // The record holds the chat's lines under the top of its tree, each marked with its channel.
     const iterate = record.iterate as (
       top: string,
       range: { from: string; placeIds: Array<string> }

@@ -1,6 +1,6 @@
 # CLI
 
-Run `neptunia` at a terminal to open the owner's chat. Plain text becomes a conversation with the persona. A slash command changes or inspects the installation without becoming a conversational memory.
+Run `neptunia` at a terminal to open the owner's chat. Plain text becomes a chat with the persona. A slash command changes or inspects the installation without becoming a conversational memory.
 
 ```bash
 neptunia
@@ -13,7 +13,7 @@ neptunia doctor live
 
 ## Access
 
-The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. This trusted owner connection can inspect stored memory across interfaces and private conversations. Talking to the owner in a Discord group does not give that conversation the CLI's memory access.
+The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. This trusted owner connection can inspect stored memory across interfaces and private chats. Talking to the owner in a Discord group does not give that chat the CLI's memory access.
 
 ## Chat controls
 
@@ -117,7 +117,7 @@ These states live in the core's process and do not survive a restart. A lost lin
 
 ## Sessions and checkpoints
 
-A conversation session is a named view over the lines memory already stores for the owner's chat, in the `sources` table under the place `cli:dm:owner`. Those records are the durable conversation, so `src/conversation/sessions.ts` copies none of them and keeps only ids and times, in `<private>/cli/sessions.json` (`src/conversation/store.ts`). The file is not memory: nothing she recalls reads it. A session's name is the start of the owner's first line, with no model. The input history in `data/cli/history` and the transcript on the screen are separate from both.
+A chat session is a named view over the lines memory already stores for the owner's chat, in the `sources` table under the place `cli:dm:owner`. Those records are the durable chat, so `src/chat/sessions.ts` copies none of them and keeps only ids and times, in `<private>/cli/sessions.json` (`src/chat/store.ts`). The file is not memory: nothing she recalls reads it. A session's name is the start of the owner's first line, with no model. The input history in `data/cli/history` and the transcript on the screen are separate from both.
 
 `/sessions` lists them, and Enter on a row resumes one. `/resume <id>` does the same by id. Bare `/resume` stays the command that ends a pause. `/branch` lists the lines of the current session with their exact stored text, and Enter on a line continues from there. `/branch <id>` cuts another session. Opening any of these panels only reads, and the same boundary of the same session is always the same branch.
 
@@ -125,7 +125,7 @@ Resuming or branching replaces the transcript on the screen and the lines the co
 
 When the chat opens it draws the newest `context.channelMessages` stored lines of `cli:dm:owner` as the current session shows them, through the core's `session.page` command in `src/interface/commands/chat-state.ts`. Page Up at the top of the transcript asks for the page that ends before the oldest stored line shown and draws it above. A resumed or branched view shows its own lines whole. Each line carries the time the chat process stamped on it when it was sent (`bin/cli-link.ts`), on the machine the core runs on, and `<chat>` renders that time in `bot.timezone`. No command deletes these lines: `clear` clears the terminal, and `/branch` and `/resume` change only the view kept in `<private>/cli/sessions.json`.
 
-`/checkpoints` previews and restores the files of a development task's worktree (`src/development/checkpoints.ts`). The board decides what counts: an open task whose `metadata.development.worktree` lies under `selfimprovement.checkout`'s `.worktrees` folder (`src/development/checkpoint-desk.ts`). With no such task the panel says why and offers no row. `/checkpoints take <task>` copies the worktree to `<private>/development/checkpoints/<task>/`. A row shows the affected paths, and Enter on it restores them. Every restore first takes a checkpoint of what it replaces, reported as its undo. A symlink leading out of the worktree refuses the restore, and a partial failure reports `failed` with the undo. `.git`, `.env`, `.secrets`, `data`, `config.local`, `prompts.local`, `node_modules`, `.agents`, `.claude` and `.worktrees` are neither captured nor restored. Nothing takes a checkpoint by itself. Rewinding a conversation is `/branch`, and it changes no file.
+`/checkpoints` previews and restores the files of a development task's worktree (`src/development/checkpoints.ts`). The board decides what counts: an open task whose `metadata.development.worktree` lies under `selfimprovement.checkout`'s `.worktrees` folder (`src/development/checkpoint-desk.ts`). With no such task the panel says why and offers no row. `/checkpoints take <task>` copies the worktree to `<private>/development/checkpoints/<task>/`. A row shows the affected paths, and Enter on it restores them. Every restore first takes a checkpoint of what it replaces, reported as its undo. A symlink leading out of the worktree refuses the restore, and a partial failure reports `failed` with the undo. `.git`, `.env`, `.secrets`, `data`, `config.local`, `prompts.local`, `node_modules`, `.agents`, `.claude` and `.worktrees` are neither captured nor restored. Nothing takes a checkpoint by itself. Rewinding a chat is `/branch`, and it changes no file.
 
 ## Approvals and capability menus
 
@@ -170,7 +170,7 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Schedule, switch and inspect the four scheduled mechanics | `/services` |
 | Read a watcher report | `/logs watcher` |
 | Cancel the turn over a waiting line, in the chat only | `/queue` |
-| Resume or branch a conversation, in the chat only | `/sessions`, `/resume <id>`, `/branch` |
+| Resume or branch a chat, in the chat only | `/sessions`, `/resume <id>`, `/branch` |
 | Restore a development task's files, in the chat only | `/checkpoints` |
 | Answer what waits on the task board, in the chat only | `/approvals` |
 | See the request limit, route and model, in the chat only | `/context` |

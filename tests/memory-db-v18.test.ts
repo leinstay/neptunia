@@ -59,7 +59,7 @@ function innerState(): Record<string, unknown> {
       kind: 'intention_due',
       startedAt: STARTED,
       placeId: 'c1',
-      privateChat: false,
+      dmChat: false,
       privateAccountId: null,
     },
   };

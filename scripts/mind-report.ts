@@ -96,7 +96,7 @@ function seedMessages(db: Db, place: Row, ids: Array<string>): Array<SeedMessage
 function contextOf(place: Row): Context {
   const iface = String(place.iface);
   if (iface === 'cli') return internalContext();
-  if (place.conversation === 'dm' || place.kind === 'dm')
+  if (place.chat === 'dm' || place.kind === 'dm')
     return dmContext(dmContextPerson(text(place.partner_person), iface, String(place.id)), iface, String(place.id));
   return groupContext(iface);
 }
@@ -138,7 +138,7 @@ function main(argv: ReadonlyArray<string>): number {
     const db = dbOf(handle);
     for (const turn of replyTurns(db, turns)) {
       const place = db
-        .prepare('SELECT id, iface, kind, conversation, partner_person FROM places WHERE id = ?')
+        .prepare('SELECT id, iface, kind, chat, partner_person FROM places WHERE id = ?')
         .get(turn.place_id);
       if (!place) continue;
       const messages = seedMessages(db, place, listOf(turn.ids));

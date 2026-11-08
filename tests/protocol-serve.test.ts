@@ -19,7 +19,7 @@ type Log = {
 type Sent = { id: string; type: string; replyTo: string | null; body: Record<string, unknown> };
 
 const quiet: Log = { info() {}, warn() {}, error() {} };
-const CONVERSATION = { iface: 'fake', conversationId: 'c1' };
+const CHAT = { iface: 'fake', chatId: 'c1' };
 const CAPABILITIES: Capabilities = {
   operations: ['message.send', 'message.edit'],
   maxChars: 2000,
@@ -38,7 +38,7 @@ const CAPABILITIES: Capabilities = {
 const HELLO: Hello = {
   iface: 'fake',
   self: { id: 'bot-1', name: 'Νέπτυν' },
-  community: { id: 'g1', name: 'Alpha' },
+  root: { id: 'g1', name: 'Alpha' },
   capabilities: CAPABILITIES,
   resume: null,
 };
@@ -49,7 +49,7 @@ function reaction(id: string): Record<string, unknown> {
     iface: 'fake',
     at: 1,
     id,
-    conversation: { id: 'c1', kind: 'channel' },
+    chat: { id: 'c1', kind: 'channel' },
     messageId: 'm1',
     emoji: { name: 'x' },
     accountId: 'u1',
@@ -117,13 +117,13 @@ function rig(adapter = createFakeAdapter()) {
   };
 }
 
-test('sends hello first, with the iface, the persona, the community, the capabilities, resume and the token', () => {
+test('sends hello first, with the iface, the persona, the root, the capabilities, resume and the token', () => {
   const r = rig();
   assert.equal(r.sent[0]?.type, 'hello');
   assert.deepEqual(r.sent[0]?.body, {
     iface: 'fake',
     self: { id: 'bot-1', name: 'Νέπτυν' },
-    community: { id: 'g1', name: 'Alpha' },
+    root: { id: 'g1', name: 'Alpha' },
     capabilities: CAPABILITIES,
     resume: null,
     token: 'tok',
@@ -208,7 +208,7 @@ test('close closes the transport and fails the events still waiting for an ack',
 test('runs a send on the adapter and answers with the delivery and its parts, replyTo the action id', async () => {
   const r = rig();
   const long = 'a'.repeat(2500);
-  const body = await r.run(portAction('send', [CONVERSATION, { text: long }]), 'send-1');
+  const body = await r.run(portAction('send', [CHAT, { text: long }]), 'send-1');
   assert.equal(body.status, 'ok');
   assert.equal((body.parts as Array<unknown>).length, 2);
   assert.equal(r.adapter.messagesIn('c1').length, 2);
@@ -217,8 +217,8 @@ test('runs a send on the adapter and answers with the delivery and its parts, re
 
 test('runs an edit, a delete, a react, an unreact and a typing on the adapter and returns its results', async () => {
   const r = rig();
-  const sent = await r.run(portAction('send', [CONVERSATION, { text: 'hi' }]), 'a-send');
-  const ref = sent.ref as { iface: string; conversationId: string; messageId: string };
+  const sent = await r.run(portAction('send', [CHAT, { text: 'hi' }]), 'a-send');
+  const ref = sent.ref as { iface: string; chatId: string; messageId: string };
   const message = r.adapter.messagesIn('c1')[0] as { text: string; reactions: Set<string> };
 
   const edited = await r.run(portAction('edit', [ref, { text: 'changed' }]), 'a-edit');
@@ -233,7 +233,7 @@ test('runs an edit, a delete, a react, an unreact and a typing on the adapter an
   assert.equal(unreacted.status, 'ok');
   assert.deepEqual([...message.reactions], []);
 
-  const typed = await r.run(portAction('typing', [CONVERSATION]), 'a-typing');
+  const typed = await r.run(portAction('typing', [CHAT]), 'a-typing');
   assert.equal(typed.status, 'ok');
   assert.deepEqual(r.adapter.typings, ['c1']);
 
@@ -245,12 +245,9 @@ test('runs an edit, a delete, a react, an unreact and a typing on the adapter an
 
 test('runs messages.fetch on the adapter and answers the messages it found and the ids it did not', async () => {
   const r = rig();
-  const sent = await r.run(portAction('send', [CONVERSATION, { text: 'findable' }]), 'a-send');
+  const sent = await r.run(portAction('send', [CHAT, { text: 'findable' }]), 'a-send');
   const messageId = (sent.ref as { messageId: string }).messageId;
-  const body = await r.run(
-    { action: 'messages.fetch', conversation: CONVERSATION, messageIds: [messageId, 'nope'] },
-    'a-fetch'
-  );
+  const body = await r.run({ action: 'messages.fetch', chat: CHAT, messageIds: [messageId, 'nope'] }, 'a-fetch');
   assert.equal(body.status, 'ok');
   // Each message found also carries its whole event (stage 3: a read returns events), which the fake builds from what
   // it stores; the expectation names the fields this test is about and checks the event is there.
@@ -270,7 +267,7 @@ test('keeps the platform error out of the result so a cause that cannot be encod
   const cause: Record<string, unknown> = {};
   cause.self = cause;
   r.adapter.failNext('react', { status: 'failed', error: { code: 'http-500', retryable: true, cause } });
-  const ref = { ...CONVERSATION, messageId: 'm1' };
+  const ref = { ...CHAT, messageId: 'm1' };
   const body = await r.run(portAction('react', [ref, 'x']), 'a-react');
   assert.deepEqual(body, { status: 'failed', error: { code: 'http-500', retryable: true } });
   r.served.close();
@@ -278,7 +275,7 @@ test('keeps the platform error out of the result so a cause that cannot be encod
 
 test('answers an action without content as failed with invalid-action and runs nothing', async () => {
   const r = rig();
-  const body = await r.run({ action: 'message.send', conversation: CONVERSATION }, 'a-bad');
+  const body = await r.run({ action: 'message.send', chat: CHAT }, 'a-bad');
   assert.deepEqual(body, { status: 'failed', error: { code: 'invalid-action', retryable: false } });
   assert.deepEqual(r.adapter.calls, []);
   r.served.close();
@@ -286,14 +283,14 @@ test('answers an action without content as failed with invalid-action and runs n
 
 test('answers an action of an unknown name as failed with invalid-action', async () => {
   const r = rig();
-  const body = await r.run({ action: 'message.explode', conversation: CONVERSATION }, 'a-unknown');
+  const body = await r.run({ action: 'message.explode', chat: CHAT }, 'a-unknown');
   assert.deepEqual(body, { status: 'failed', error: { code: 'invalid-action', retryable: false } });
   r.served.close();
 });
 
 test('posts once when the same idempotency key arrives twice and answers the second with the first result', async () => {
   const r = rig();
-  const action = { ...portAction('send', [CONVERSATION, { text: 'once' }]), idempotencyKey: 'k1' };
+  const action = { ...portAction('send', [CHAT, { text: 'once' }]), idempotencyKey: 'k1' };
   const first = await r.run(action, 'a1');
   const second = await r.run(action, 'a2');
   assert.deepEqual(second, first);
@@ -304,7 +301,7 @@ test('posts once when the same idempotency key arrives twice and answers the sec
 
 async function sendKeys(r: ReturnType<typeof rig>, from: number, to: number): Promise<void> {
   for (let index = from; index < to; index += 1) {
-    const action = { ...portAction('send', [CONVERSATION, { text: `m${index}` }]), idempotencyKey: `k${index}` };
+    const action = { ...portAction('send', [CHAT, { text: `m${index}` }]), idempotencyKey: `k${index}` };
     await r.run(action, `a${index}`);
   }
 }
@@ -314,7 +311,7 @@ const sends = (r: ReturnType<typeof rig>): number => r.adapter.calls.filter((cal
 test('still knows the first of 1000 idempotency keys: a repeat of it is not posted again', async () => {
   const r = rig();
   await sendKeys(r, 0, 1000);
-  await r.run({ ...portAction('send', [CONVERSATION, { text: 'again' }]), idempotencyKey: 'k0' }, 'repeat');
+  await r.run({ ...portAction('send', [CHAT, { text: 'again' }]), idempotencyKey: 'k0' }, 'repeat');
   assert.equal(sends(r), 1000);
   r.served.close();
 });
@@ -322,7 +319,7 @@ test('still knows the first of 1000 idempotency keys: a repeat of it is not post
 test('forgets the oldest idempotency key after 1000 newer ones: a repeat of it is posted again', async () => {
   const r = rig();
   await sendKeys(r, 0, 1001);
-  await r.run({ ...portAction('send', [CONVERSATION, { text: 'again' }]), idempotencyKey: 'k0' }, 'repeat');
+  await r.run({ ...portAction('send', [CHAT, { text: 'again' }]), idempotencyKey: 'k0' }, 'repeat');
   assert.equal(sends(r), 1002);
   r.served.close();
 });

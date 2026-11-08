@@ -65,7 +65,7 @@ export function actPhase(ctx: PhaseContext, params: PhaseParams, draft: Draft, a
   // Behind those, every member of the served place the bot knows (built once, on the first `@`).
   const directory = handles ? null : turnDirectory({ placeId, memoryOn });
   const linkFor = createLinker({
-    linkOf: (conversationId, messageId) => messageLinkOf(iface, placeId, conversationId, messageId),
+    linkOf: (chatId, messageId) => messageLinkOf(iface, placeId, chatId, messageId),
     pulledIds,
     sourceTarget: null,
   });

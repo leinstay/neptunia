@@ -306,7 +306,7 @@ test('draw parity: /nep draw with self', async () => {
     getSelfName: () => 'Bot',
     spontaneous: {},
     calibrator: { ratio: 1 },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     images,
     imageFetcher: imageFetcher(),
     now: () => NOW,

@@ -24,7 +24,7 @@ function reaction(extra: Partial<ReactionChanged> = {}): ReactionChanged {
     iface: 'fake',
     at: 1,
     id: 'fake:reaction:1',
-    conversation: { id: 'c1', kind: 'channel', rootId: 'g1' },
+    chat: { id: 'c1', kind: 'channel', rootId: 'g1' },
     messageId: 'her1',
     emoji: { name: '😂' },
     accountId: 'u1',
@@ -70,11 +70,11 @@ test('names a custom emoji by its name between colons', () => {
   assert.deepEqual(store.reactors('her1', ':kek:'), ['u1']);
 });
 
-test('ignores her own reaction, a message of someone else and an event of another community', () => {
+test('ignores her own reaction, a message of someone else and an event of another root', () => {
   const store = createReactorStore();
   assert.equal(applyReactionChanged(store, reaction({ accountId: 'self-id' }), served), 'ignored');
   assert.equal(applyReactionChanged(store, reaction({ authorId: 'u5', messageId: 'theirs' }), served), 'ignored');
-  const elsewhere = reaction({ conversation: { id: 'c9', kind: 'channel', rootId: 'g2' } });
+  const elsewhere = reaction({ chat: { id: 'c9', kind: 'channel', rootId: 'g2' } });
   assert.equal(applyReactionChanged(store, elsewhere, served), 'ignored');
   assert.deepEqual(store.counts(), { messages: 0, reactors: 0 });
 });
@@ -123,7 +123,7 @@ test('attaches the known reactors to the reactions of her lines by the names the
 const CONFIG = { context: { reactions: { maxMessages: 500, maxNames: 5, fetchUsers: 3, fetchTimeoutMs: 1000 } } };
 
 function seedHerLine(fake: Fake): void {
-  fake.seedConversation(channelInfo('c1', { name: 'general' }));
+  fake.seedChat(channelInfo('c1', { name: 'general' }));
   fake.seedMember('g1', {
     id: 'u9',
     name: 'Dora',
@@ -156,14 +156,14 @@ test('names a reactor she heard of through reaction.changed without reading the 
 
 test('reads the reactors of her reaction through the adapter at most fetchUsers names, once, when no event told it', async () => {
   await withFakeCore({ config: CONFIG, seed: seedHerLine }, async (rig) => {
-    rig.fake.seedReactors({ iface: 'fake', conversationId: 'c1', messageId: 'her1' }, '🔥', ['u9']);
+    rig.fake.seedReactors({ iface: 'fake', chatId: 'c1', messageId: 'her1' }, '🔥', ['u9']);
     await rig.emit(deliver(rig.fake, { id: 'm1', text: 'hello', at: NOW - 500, mention: true }));
     await until(() => rig.requests.length > 0);
     const asked = rig.fake.calls.filter((call) => call.op === 'reactors');
     assert.deepEqual(
       asked.map((call) => call.args),
       // PR 7d: context.reactions.fetchUsers is the constant 10.
-      [[{ iface: 'fake', conversationId: 'c1', messageId: 'her1' }, '🔥', 10]]
+      [[{ iface: 'fake', chatId: 'c1', messageId: 'her1' }, '🔥', 10]]
     );
     assert.equal(rig.requestText(0).includes('Dora'), true);
   });
@@ -183,6 +183,6 @@ test('keeps the reactions of every place an interface serves, not only of the fi
   const store = createReactorStore();
   store.markOwn('her1');
   const both = { isServed: (placeId: string) => placeId === 'g1' || placeId === 'g2', selfId: 'self-id' };
-  const there = reaction({ conversation: { id: 'c9', kind: 'channel', rootId: 'g2' }, accountId: 'u7' });
+  const there = reaction({ chat: { id: 'c9', kind: 'channel', rootId: 'g2' }, accountId: 'u7' });
   assert.equal(applyReactionChanged(store, there, both), 'applied');
 });

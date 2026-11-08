@@ -29,7 +29,7 @@ function desk(skills: SkillsPort | null) {
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => SKILLS_T0,
     skills,
   };

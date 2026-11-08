@@ -233,11 +233,11 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
     if (kind === 'interface' || ctx.internal === true) return true;
     if (kind === 'place') {
       const place = db
-        .prepare('SELECT id, iface, kind, conversation, retired_at FROM places WHERE id = ?')
+        .prepare('SELECT id, iface, kind, chat, retired_at FROM places WHERE id = ?')
         .get(rowIdOf(nodeId, 'place'));
       if (!place || place.retired_at !== null) return false;
       const own =
-        place.conversation === 'dm' || place.kind === 'dm'
+        place.chat === 'dm' || place.kind === 'dm'
           ? dmAudienceId(place.id)
           : text(place.iface) === null
             ? AUD_INTERNAL
@@ -370,7 +370,7 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
     return all(
       'roots',
       `SELECT id FROM places WHERE iface = ? AND parent_id IS NULL AND retired_at IS NULL
-         AND COALESCE(conversation, '') <> 'dm' AND kind <> 'dm' ORDER BY id LIMIT ?`,
+         AND COALESCE(chat, '') <> 'dm' AND kind <> 'dm' ORDER BY id LIMIT ?`,
       [iface, settings.maxNodesRead]
     ).map((row) => node('place', String(row.id)));
   }
@@ -814,12 +814,12 @@ function placeOf(
 ): Built | null {
   const placeId = rowIdOf(raised.nodeId, 'place');
   const place = db
-    .prepare('SELECT id, iface, kind, native_id, name, conversation, retired_at FROM places WHERE id = ?')
+    .prepare('SELECT id, iface, kind, native_id, name, chat, retired_at FROM places WHERE id = ?')
     .get(placeId);
   if (!place || place.retired_at !== null) return null;
   const face = db.prepare('SELECT name, extra FROM interfaces WHERE id = ?').get(place.iface);
   const ifaceName = text(face?.name) ?? text(place.iface) ?? '';
-  const dm = place.conversation === 'dm' || place.kind === 'dm';
+  const dm = place.chat === 'dm' || place.kind === 'dm';
   const dmWord = text(
     (() => {
       try {

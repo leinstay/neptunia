@@ -41,7 +41,7 @@ import { createErrandService } from '../src/errands/service.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { onWorld, useIface, world } from './fixtures/turn-world.ts';
 
-// The conversation is held by a fake interface named `fake`.
+// The chat is held by a fake interface named `fake`.
 useIface('fake');
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
@@ -100,7 +100,7 @@ function rawMessage({
   };
 }
 
-/** The channel c1 of the community over `historyMessages`, in the test's world. */
+/** The channel c1 of the root over `historyMessages`, in the test's world. */
 function fakeChannel(historyMessages: Array<Record<string, Untyped>>) {
   return world().channel({ id: 'c1', name: 'general', placeId: 'g1', historyMessages });
 }
@@ -150,7 +150,7 @@ function hotWith({
       'character-card': 'You are friendly and terse.',
       format: 'Use <msg> and <react> tags.',
       reply: 'Someone called you: {{author}}.',
-      interject: 'Jump into the conversation.',
+      interject: 'Jump into the chat.',
       initiate: 'Start a topic.',
       inner: INNER_TASK,
       labels,
@@ -284,7 +284,7 @@ async function innerTurn({
     hot,
     store,
     client,
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     port,
     reads: world().adopt(port),
     ...(errands ? { errands } : {}),
@@ -327,7 +327,7 @@ async function innerTurn({
   );
   const sends = port.calls
     .filter((call) => call.op === 'send')
-    .map((call: Record<string, Untyped>) => ({ to: call.args[0].conversationId, ...call.args[1] }));
+    .map((call: Record<string, Untyped>) => ({ to: call.args[0].chatId, ...call.args[1] }));
   return {
     result: wrongly<InnerResult>(result),
     logs,
@@ -576,7 +576,7 @@ test('gateway: with nobody asking only a read runs, unless the turn is her own i
     args: { title: 'x', keys: 'x', text: 'y' },
     principal: { kind: 'persona' },
     requester: null,
-    audience: { conversationId: 'c1' },
+    audience: { chatId: 'c1' },
   };
   const unasked = checkSkill({ ...call, context: { config, selfId: 'self-id', registry: skillRegistry() } });
   assert.equal(unasked.ok, false);

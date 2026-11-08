@@ -1,21 +1,14 @@
-// The conversation reads of the adapter contract (src/protocol/adapter.ts), each one round-tripped over the link: the
+// The chat reads of the adapter contract (src/protocol/adapter.ts), each one round-tripped over the link: the
 // fake adapter served by serveAdapter on one end of the loopback, the core's link (src/interface/link.ts) on the other.
 // A read answers `{ status: 'ok', ...body }` or a status and an error, never a throw. The fake keeps what a test seeds
-// (`seedConversation`, `seedGroups`, `seedMember`, `seedEmoji`, `seedEvent`, `seedReactors`) and records each read in
+// (`seedChat`, `seedGroups`, `seedMember`, `seedEmoji`, `seedEvent`, `seedReactors`) and records each read in
 // `calls` under its method name.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLoopback } from '../src/protocol/index.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
 import type { Hello } from '../src/protocol/serve.ts';
-import type {
-  Adapter,
-  ConversationInfo,
-  MemberInfo,
-  MessageEvent,
-  Permissions,
-  ReadResult,
-} from '../src/protocol/adapter.ts';
+import type { Adapter, ChatInfo, MemberInfo, MessageEvent, Permissions, ReadResult } from '../src/protocol/adapter.ts';
 import { openAdapterLink } from '../src/interface/link.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
@@ -28,11 +21,11 @@ type Log = {
 
 const quiet: Log = { info() {}, warn() {}, error() {} };
 const SELF = { id: 'self-id', name: 'Νέπτυν' };
-const COMMUNITY = { id: 'g1', name: 'Alpha' };
-const GENERAL = { iface: 'fake', conversationId: 'c1' };
+const ROOT = { id: 'g1', name: 'Alpha' };
+const GENERAL = { iface: 'fake', chatId: 'c1' };
 const ALL: Permissions = { read: true, send: true, attach: true, react: true };
 
-function info(id: string, extra: Partial<ConversationInfo> = {}): ConversationInfo {
+function info(id: string, extra: Partial<ChatInfo> = {}): ChatInfo {
   return {
     id,
     kind: 'channel',
@@ -49,13 +42,13 @@ function info(id: string, extra: Partial<ConversationInfo> = {}): ConversationIn
   };
 }
 
-function eventOf(conversation: ConversationInfo, id: string, at: number, text: string, authorId = 'u1'): MessageEvent {
+function eventOf(chat: ChatInfo, id: string, at: number, text: string, authorId = 'u1'): MessageEvent {
   return {
     kind: 'message.received',
     iface: 'fake',
     at,
     id: `fake:message:${id}`,
-    conversation: { id: conversation.id, kind: conversation.kind, rootId: conversation.rootId },
+    chat: { id: chat.id, kind: chat.kind, rootId: chat.rootId },
     message: {
       id,
       author: { id: authorId, name: 'Eleni', self: authorId === SELF.id, bot: false },
@@ -73,7 +66,7 @@ function eventOf(conversation: ConversationInfo, id: string, at: number, text: s
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
   };
 }
 
@@ -94,7 +87,7 @@ async function rig(adapter: ReturnType<typeof createFakeAdapter> = createFakeAda
   const hello: Hello = {
     iface: 'fake',
     self: SELF,
-    community: COMMUNITY,
+    root: ROOT,
     capabilities: adapter.capabilities(),
     resume: null,
   };
@@ -103,9 +96,9 @@ async function rig(adapter: ReturnType<typeof createFakeAdapter> = createFakeAda
   return { link, fake: adapter, reads: link.adapter };
 }
 
-test('answers a conversation with its permissions, owner and flags as seeded', async () => {
+test('answers a chat with its permissions, owner and flags as seeded', async () => {
   const { reads, fake } = await rig();
-  fake.seedConversation(
+  fake.seedChat(
     info('c1', {
       permissions: { read: true, send: false, attach: false, react: true },
       lastMessageAt: 1700,
@@ -113,25 +106,25 @@ test('answers a conversation with its permissions, owner and flags as seeded', a
       public: false,
     })
   );
-  const { conversation } = okBody(await reads.conversationInfo(GENERAL));
-  assert.equal(conversation.id, 'c1');
-  assert.deepEqual(conversation.permissions, { read: true, send: false, attach: false, react: true });
-  assert.equal(conversation.lastMessageAt, 1700);
-  assert.equal(conversation.voice, true);
-  assert.equal(conversation.public, false);
+  const { chat } = okBody(await reads.chatInfo(GENERAL));
+  assert.equal(chat.id, 'c1');
+  assert.deepEqual(chat.permissions, { read: true, send: false, attach: false, react: true });
+  assert.equal(chat.lastMessageAt, 1700);
+  assert.equal(chat.voice, true);
+  assert.equal(chat.public, false);
 });
 
-test('carries the owner of a conversation across the link, and null when it has none', async () => {
+test('carries the owner of a chat across the link, and null when it has none', async () => {
   const { reads, fake } = await rig();
-  fake.seedConversation(info('c1', { owner: 'owner-1' }));
-  fake.seedConversation(info('c2'));
-  assert.equal(okBody(await reads.conversationInfo(GENERAL)).conversation.owner, 'owner-1');
-  assert.equal(okBody(await reads.conversationInfo({ iface: 'fake', conversationId: 'c2' })).conversation.owner, null);
+  fake.seedChat(info('c1', { owner: 'owner-1' }));
+  fake.seedChat(info('c2'));
+  assert.equal(okBody(await reads.chatInfo(GENERAL)).chat.owner, 'owner-1');
+  assert.equal(okBody(await reads.chatInfo({ iface: 'fake', chatId: 'c2' })).chat.owner, null);
 });
 
 test('answers the audience as arrays and the viewers asked for, only when asked', async () => {
   const { reads, fake } = await rig();
-  fake.seedConversation(
+  fake.seedChat(
     info('c1', {
       audience: {
         everyone: false,
@@ -145,34 +138,34 @@ test('answers the audience as arrays and the viewers asked for, only when asked'
       viewers: { u1: true, u2: false },
     })
   );
-  const asked = okBody(await reads.conversationInfo(GENERAL, { audience: true, viewers: ['u1', 'u2'] }));
-  assert.deepEqual(asked.conversation.audience?.groups, ['g-a', 'g-b']);
-  assert.deepEqual(asked.conversation.audience?.memberGroups, { u7: ['g-a'] });
-  assert.deepEqual(asked.conversation.viewers, { u1: true, u2: false });
-  const plain = okBody(await reads.conversationInfo(GENERAL));
-  assert.equal(plain.conversation.audience, undefined);
-  assert.equal(plain.conversation.viewers, undefined);
+  const asked = okBody(await reads.chatInfo(GENERAL, { audience: true, viewers: ['u1', 'u2'] }));
+  assert.deepEqual(asked.chat.audience?.groups, ['g-a', 'g-b']);
+  assert.deepEqual(asked.chat.audience?.memberGroups, { u7: ['g-a'] });
+  assert.deepEqual(asked.chat.viewers, { u1: true, u2: false });
+  const plain = okBody(await reads.chatInfo(GENERAL));
+  assert.equal(plain.chat.audience, undefined);
+  assert.equal(plain.chat.viewers, undefined);
 });
 
-test('fails a conversation the adapter does not know with the code unknown-conversation', async () => {
+test('fails a chat the adapter does not know with the code unknown-conversation', async () => {
   const { reads } = await rig();
-  const result = await reads.conversationInfo({ iface: 'fake', conversationId: 'nowhere' });
+  const result = await reads.chatInfo({ iface: 'fake', chatId: 'nowhere' });
   assert.equal(result.status, 'failed');
   assert.equal('error' in result ? result.error.code : null, 'unknown-conversation');
 });
 
-test('lists the conversations of one community with its groups, and none of another', async () => {
+test('lists the chats of one root with its groups, and none of another', async () => {
   const { reads, fake } = await rig();
-  fake.seedConversation(info('c1'));
-  fake.seedConversation(info('c2', { kind: 'thread', parentId: 'c1' }));
-  fake.seedConversation(info('c3', { rootId: 'g2' }));
+  fake.seedChat(info('c1'));
+  fake.seedChat(info('c2', { kind: 'thread', parentId: 'c1' }));
+  fake.seedChat(info('c3', { rootId: 'g2' }));
   fake.seedGroups('g1', [{ id: 'r1', name: 'mods' }]);
-  const listing = okBody(await reads.conversations({ placeId: 'g1' }));
-  assert.deepEqual(listing.conversations.map((entry) => entry.id).sort(), ['c1', 'c2']);
+  const listing = okBody(await reads.chats({ placeId: 'g1' }));
+  assert.deepEqual(listing.chats.map((entry) => entry.id).sort(), ['c1', 'c2']);
   assert.deepEqual(listing.groups, [{ id: 'r1', name: 'mods' }]);
 });
 
-test('lists the audience of each conversation when asked', async () => {
+test('lists the audience of each chat when asked', async () => {
   const { reads, fake } = await rig();
   const audience = {
     everyone: true,
@@ -183,15 +176,15 @@ test('lists the audience of each conversation when asked', async () => {
     memberDeny: [],
     memberGroups: {},
   };
-  fake.seedConversation(info('c1', { audience }));
-  const listing = okBody(await reads.conversations({ placeId: 'g1', audience: true }));
-  assert.deepEqual(listing.conversations[0]?.audience?.groups, ['g-a']);
+  fake.seedChat(info('c1', { audience }));
+  const listing = okBody(await reads.chats({ placeId: 'g1', audience: true }));
+  assert.deepEqual(listing.chats[0]?.audience?.groups, ['g-a']);
 });
 
 function seedLine(fake: ReturnType<typeof createFakeAdapter>, count: number): void {
-  const conversation = info('c1');
-  fake.seedConversation(conversation);
-  for (let n = 1; n <= count; n += 1) fake.seedEvent(eventOf(conversation, `m${n}`, 1000 * n, `line ${n}`));
+  const chat = info('c1');
+  fake.seedChat(chat);
+  for (let n = 1; n <= count; n += 1) fake.seedEvent(eventOf(chat, `m${n}`, 1000 * n, `line ${n}`));
 }
 
 const idsOf = (events: ReadonlyArray<MessageEvent>): Array<string> => events.map((event) => event.message.id);
@@ -236,7 +229,7 @@ test('returns a message fetched by id with its whole event, and marks a gone one
   const fetched = okBody(await reads.fetchMessages(GENERAL, ['m2', 'gone']));
   const [found, gone] = fetched.messages;
   assert.equal(found?.event?.message.content, 'line 2');
-  assert.equal(found?.event?.conversation.id, 'c1');
+  assert.equal(found?.event?.chat.id, 'c1');
   assert.equal(gone?.missing, true);
 });
 
@@ -258,11 +251,11 @@ test('answers a member with groups and the large avatar, and null for someone wh
 
 test('finds messages by a case-insensitive piece of text and counts all of them', async () => {
   const { reads, fake } = await rig();
-  const conversation = info('c1');
-  fake.seedConversation(conversation);
-  fake.seedEvent(eventOf(conversation, 'm1', 1000, 'Pasta tonight'));
-  fake.seedEvent(eventOf(conversation, 'm2', 2000, 'nothing here'));
-  fake.seedEvent(eventOf(conversation, 'm3', 3000, 'more PASTA'));
+  const chat = info('c1');
+  fake.seedChat(chat);
+  fake.seedEvent(eventOf(chat, 'm1', 1000, 'Pasta tonight'));
+  fake.seedEvent(eventOf(chat, 'm2', 2000, 'nothing here'));
+  fake.seedEvent(eventOf(chat, 'm3', 3000, 'more PASTA'));
   const found = okBody(await reads.searchMessages({ placeId: 'g1' }, { text: 'pasta' }));
   assert.equal(found.total, 2);
   assert.deepEqual(found.hits.map((hit) => hit.ref.messageId).sort(), ['m1', 'm3']);
@@ -270,11 +263,11 @@ test('finds messages by a case-insensitive piece of text and counts all of them'
 
 test('narrows a message search to one author and to a time window', async () => {
   const { reads, fake } = await rig();
-  const conversation = info('c1');
-  fake.seedConversation(conversation);
-  fake.seedEvent(eventOf(conversation, 'm1', 1000, 'hello', 'u1'));
-  fake.seedEvent(eventOf(conversation, 'm2', 2000, 'hello', 'u2'));
-  fake.seedEvent(eventOf(conversation, 'm3', 3000, 'hello', 'u2'));
+  const chat = info('c1');
+  fake.seedChat(chat);
+  fake.seedEvent(eventOf(chat, 'm1', 1000, 'hello', 'u1'));
+  fake.seedEvent(eventOf(chat, 'm2', 2000, 'hello', 'u2'));
+  fake.seedEvent(eventOf(chat, 'm3', 3000, 'hello', 'u2'));
   const byAuthor = okBody(await reads.searchMessages({ placeId: 'g1' }, { text: 'hello', authorId: 'u2' }));
   assert.deepEqual(byAuthor.hits.map((hit) => hit.ref.messageId).sort(), ['m2', 'm3']);
   const windowed = okBody(await reads.searchMessages({ placeId: 'g1' }, { text: 'hello', after: 1500, before: 2500 }));
@@ -294,7 +287,7 @@ test('finds members by the start of a name, at most the limit', async () => {
   assert.equal(found.members[0]?.displayName?.toLowerCase().startsWith('el'), true);
 });
 
-test('lists the custom emoji of a community', async () => {
+test('lists the custom emoji of a root', async () => {
   const { reads, fake } = await rig();
   fake.seedEmoji('g1', [{ id: 'e1', name: 'kek', animated: false, url: 'https://x/e1.png' }]);
   const listing = okBody(await reads.emoji({ placeId: 'g1' }));
@@ -303,12 +296,12 @@ test('lists the custom emoji of a community', async () => {
 
 test('turns the message addresses of the fake into references and everything else into null', async () => {
   const { reads } = await rig();
-  const inCommunity = 'https://discord.com/channels/g1/c1/m1';
+  const inRoot = 'https://discord.com/channels/g1/c1/m1';
   const direct = 'https://discord.com/channels/@me/d1/m2';
-  const parsed = okBody(await reads.parseLinks([inCommunity, direct, 'https://example.com/x', 'no link here']));
+  const parsed = okBody(await reads.parseLinks([inRoot, direct, 'https://example.com/x', 'no link here']));
   assert.deepEqual(parsed.refs, [
-    { iface: 'fake', conversationId: 'c1', messageId: 'm1' },
-    { iface: 'fake', conversationId: 'd1', messageId: 'm2' },
+    { iface: 'fake', chatId: 'c1', messageId: 'm1' },
+    { iface: 'fake', chatId: 'd1', messageId: 'm2' },
     null,
     null,
   ]);
@@ -316,7 +309,7 @@ test('turns the message addresses of the fake into references and everything els
 
 test('lists the members who put an emoji on a message, at most the limit', async () => {
   const { reads, fake } = await rig();
-  const ref = { iface: 'fake', conversationId: 'c1', messageId: 'm1' };
+  const ref = { iface: 'fake', chatId: 'c1', messageId: 'm1' };
   fake.seedReactors(ref, '🔥', ['u1', 'u2', 'u3']);
   const listed = okBody(await reads.reactors(ref, '🔥', 2));
   assert.deepEqual(listed.accountIds, ['u1', 'u2']);
@@ -333,12 +326,12 @@ test('answers failed with the queued error once and the real answer after it', a
 });
 
 test('answers unsupported for a read the fake does not offer and lists the ones it does', async () => {
-  const fake = createFakeAdapter({ reads: ['conversation.info'] });
+  const fake = createFakeAdapter({ reads: ['chat.info'] });
   const { reads } = await rig(fake);
-  fake.seedConversation(info('c1'));
-  assert.deepEqual(fake.capabilities().reads, ['conversation.info']);
+  fake.seedChat(info('c1'));
+  assert.deepEqual(fake.capabilities().reads, ['chat.info']);
   assert.equal((await reads.history(GENERAL, { limit: 1 })).status, 'unsupported');
-  assert.equal((await reads.conversationInfo(GENERAL)).status, 'ok');
+  assert.equal((await reads.chatInfo(GENERAL)).status, 'ok');
 });
 
 test('answers failed with adapter-threw when the adapter throws in a read', async () => {

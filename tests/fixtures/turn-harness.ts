@@ -26,7 +26,7 @@ import type { CreateTurnRunnerInput } from '../../src/behavior/turn-types.ts';
 import type { RunOutcome, RunRequest } from '../../src/errands/types.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 
-// The turn's conversations are held by a fake interface of the world of the test, named `fake`.
+// The turn's chats are held by a fake interface of the world of the test, named `fake`.
 useIface('fake');
 /** `createTurnRunner` over the world: `runTurn` takes a channel of the world; an adapter the test brings holds what the world holds. */
 export const createTurnRunner = onWorld((options) => createRealTurnRunner(options as CreateTurnRunnerInput));
@@ -177,7 +177,7 @@ export function hotWith({
       'character-card': 'You are friendly and terse.',
       format: 'Use <msg> and <react> tags.',
       reply: 'Someone called you: {{author}}.',
-      interject: 'Jump into the conversation.',
+      interject: 'Jump into the chat.',
       initiate: 'Start a topic.',
       'query-builder': 'Decide whether {{name}} needs to look something up.',
       labels,
@@ -278,7 +278,7 @@ type CoreTurnSpec = {
   config?: Record<string, unknown>;
   firstAttachments?: Map<string, unknown>;
   prompts?: Record<string, unknown>;
-  seeds?: Array<{ conversationId: string; authorId: string; text?: string; messageId?: string }>;
+  seeds?: Array<{ chatId: string; authorId: string; text?: string; messageId?: string }>;
   triggerKind?: string;
   neighbours?: Array<{ id: string; name: string }>;
   clientExtra?: Record<string, unknown>;
@@ -342,10 +342,10 @@ export async function coreTurn({
   // #jardin (c2): a neighbour of the same guild where the bot may do anything (a message quoted from it can be edited).
   world().channel({ id: 'c2', name: 'jardin' });
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
-  for (const seed of seeds) port.seed(seed.conversationId, seed);
+  for (const seed of seeds) port.seed(seed.chatId, seed);
   if (setup) setup(port);
   const client = { user: { id: 'self-id', username: 'Bot' }, ...clientExtra };
-  const admin = createAdmin({ discord: DISCORD, hot, store, client, isServedCommunity: (id: unknown) => id === 'g1', reads: world().adopt(port), port, ...adminExtra });
+  const admin = createAdmin({ discord: DISCORD, hot, store, client, isServedRoot: (id: unknown) => id === 'g1', reads: world().adopt(port), port, ...adminExtra });
   const runOp = wrapCommand ? wrapCommand(admin.runSkillOp) : admin.runSkillOp;
   const llm = sequenceLlm(answers, classifier, onAnswer ? (n) => onAnswer(n, history, port) : null);
   const calibrator = { ratio: 1, apply: (value: number) => value, observe: () => {} };
@@ -357,7 +357,7 @@ export async function coreTurn({
     ? () => turns.runTurn({ ...params, channel, placeId: 'g1', mode: 'inner', triggerKind: 'inner', inner: { wake: inner, shadow: false, mayAct: () => true } })
     : () => turns.runTurn({ ...params, channel, mode: 'reply', trigger: normalizedTrigger(history[history.length - 1]), triggerKind });
   const { result, logs } = await withCapturedLogs(again);
-  const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: (call.args[0] as { conversationId: string }).conversationId, ...(call.args[1] as object) }));
+  const sends = port.calls.filter((call) => call.op === 'send').map((call) => ({ to: (call.args[0] as { chatId: string }).chatId, ...(call.args[1] as object) }));
   return { result, logs, llm, sends, hot, admin, again, port, turns };
 }
 

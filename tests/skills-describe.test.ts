@@ -38,7 +38,7 @@ function envOf(grants: Record<string, unknown> = {}) {
     hot,
     store,
     selfId: () => 'self-id',
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
   });
 }
 

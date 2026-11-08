@@ -1,10 +1,10 @@
-// What a turn reads around its request: the port references of a conversation and a message, the gateway's check of
+// What a turn reads around its request: the port references of a chat and a message, the gateway's check of
 // one effect of her reply, the memory context of an attempt's reads, the stable
 // freezes per place, and the request's `errands`, `<intentions>` and `<places>` inputs. createTurnRunner
 // (src/behavior/turn.ts) builds it once per runner with createInputs; the attempt and the other topic modules call its
 // functions.
 
-import type { Conversation } from '../protocol/events.ts';
+import type { Chat } from '../protocol/events.ts';
 import { accountOf } from '../memory/addresses.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { placesBlockText } from '../behavior/wake.ts';
@@ -13,14 +13,14 @@ import { DEFAULT_RESULT_MAX_CHARS, errandResultText, errandsBlockText } from '..
 import type { ErrandRecord } from '../errands/types.ts';
 import { portIface } from '../interface/capabilities.ts';
 import { channelPlaceId } from '../memory/db/ids.ts';
-import { personOfMember, placeOfConversation } from '../memory/addresses.ts';
+import { personOfMember, placeOfChat } from '../memory/addresses.ts';
 import { DEFAULT_INTENTIONS_CAP, intentionsBlockText } from '../intentions/blocks.ts';
 import { intentionSettings } from '../intentions/model.ts';
 import { log } from '../log.ts';
-import type { ConversationRef, MessageRef } from '../protocol/adapter.ts';
+import type { ChatRef, MessageRef } from '../protocol/adapter.ts';
 import { checkReplyEffect } from '../tools/gateway.ts';
 import { PERSONA } from './calls.ts';
-import { inCommunity } from './routing.ts';
+import { inRoot } from './routing.ts';
 
 /** Whether an addressed turn's request carries `<places>`. Production value, config cut of 2026-10-31: off. */
 const ADDRESSED_PLACES: boolean = false;
@@ -44,7 +44,7 @@ type MemorySpec =
 
 /** The errands service (src/errands/service.ts), as far as `<errands>` lists from it. */
 type InputsErrands = {
-  view?: (args: { privateChannelId: string | null }) => unknown;
+  view?: (args: { dmChatId: string | null }) => unknown;
 } | null;
 
 /** One errand as `<errands>` tells it from the one a result turn brings. */
@@ -55,7 +55,7 @@ const isTaskList = (value: unknown): value is ReadonlyArray<ListedTask> => Array
 
 /** The intentions service (src/intentions/service.ts), as far as `<intentions>` lists from it. */
 type InputsIntentions = {
-  view: (options: { privateChannelId: string | null }) => unknown;
+  view: (options: { dmChatId: string | null }) => unknown;
 } | null;
 
 /** The inner life's places view (src/behavior/inner.ts#places). */
@@ -86,7 +86,7 @@ type EffectVerdict = ReturnType<typeof checkReplyEffect>;
 type InputArgs = {
   placeId: string;
   channel: { id: string };
-  isPrivate: boolean;
+  isDm: boolean;
   config: InputsConfig;
   labels: InputsLabels;
   now: number;
@@ -95,10 +95,10 @@ type InputArgs = {
 export type Inputs = {
   turnContextOf: (
     draft: InputsDraft | null | undefined,
-    channel: Partial<Pick<Conversation, 'id' | 'rootId'>> | null | undefined
+    channel: Partial<Pick<Chat, 'id' | 'rootId'>> | null | undefined
   ) => unknown;
   stableFreezeOf: (placeId: string | null | undefined) => Map<string, unknown>;
-  conversationOf: (channel: { id: string }) => ConversationRef;
+  chatOf: (channel: { id: string }) => ChatRef;
   messageOf: (channel: { id: string }, messageId: string) => MessageRef;
   checkEffect: (skill: string, args: unknown, at: { channel: { id: string } }) => EffectVerdict;
   errandsInputFor: (
@@ -122,7 +122,7 @@ export function createInputs(ctx: InputsContext): Inputs {
    */
   function turnContextOf(
     draft: InputsDraft | null | undefined,
-    channel: Partial<Pick<Conversation, 'id' | 'rootId'>> | null | undefined
+    channel: Partial<Pick<Chat, 'id' | 'rootId'>> | null | undefined
   ): unknown {
     if (!draft) return null;
     if (draft.memoryContext !== undefined) return draft.memoryContext;
@@ -136,17 +136,17 @@ export function createInputs(ctx: InputsContext): Inputs {
         draft.memoryContext = ctx;
         return ctx;
       }
-      const isPrivate = !inCommunity(channel);
+      const isDm = !inRoot(channel);
       const channelIface = portIface(channel) || portIface(port);
-      const partner = isPrivate ? (draft.privateAccountId ?? null) : null;
-      if (!isPrivate || partner) {
+      const partner = isDm ? (draft.privateAccountId ?? null) : null;
+      if (!isDm || partner) {
         ctx =
           memoryContext(
-            isPrivate
+            isDm
               ? {
                   kind: 'dm',
                   person: personOfMember(store, String(partner), channelIface),
-                  place: placeOfConversation(store, { kind: 'dm', partnerId: String(partner) }, channelIface),
+                  place: placeOfChat(store, { kind: 'dm', partnerId: String(partner) }, channelIface),
                 }
               : { kind: 'group', destination: channel?.id ? channelPlaceId(channelIface, channel.id) : null }
           ) ?? null;
@@ -171,23 +171,23 @@ export function createInputs(ctx: InputsContext): Inputs {
   };
 
   /**
-   * The port reference of a conversation (its info, a snapshot entry, anything with an `id`), in the iface it names.
+   * The port reference of a chat (its info, a snapshot entry, anything with an `id`), in the iface it names.
    */
-  function conversationOf(channel: { id: string }): ConversationRef {
-    return { iface: portIface(channel) || port.iface, conversationId: String(channel.id) };
+  function chatOf(channel: { id: string }): ChatRef {
+    return { iface: portIface(channel) || port.iface, chatId: String(channel.id) };
   }
 
   /**
    * The port reference of message `messageId` in `channel`.
    */
   function messageOf(channel: { id: string }, messageId: string): MessageRef {
-    return { ...conversationOf(channel), messageId: String(messageId) };
+    return { ...chatOf(channel), messageId: String(messageId) };
   }
 
   /**
    * The gateway's verdict on one effect of the persona's reply in `channel`
    * (src/tools/gateway.ts#checkReplyEffect, the live config read now): carried over in the
-   * current conversation, refused only under the full stop. `args` and `trigger` name the effect
+   * current chat, refused only under the full stop. `args` and `trigger` name the effect
    * for the reader; the check needs neither. A refusal logs `skill: refused`.
    */
   function checkEffect(skill: string, _args: unknown, { channel }: { channel: { id: string } }): EffectVerdict {
@@ -202,20 +202,17 @@ export function createInputs(ctx: InputsContext): Inputs {
    */
   function listedTasks({
     channel,
-    isPrivate,
+    isDm,
     taskResult,
   }: {
     placeId: string;
     channel: { id: string };
-    isPrivate: boolean;
+    isDm: boolean;
     taskResult: ErrandRecord | null | undefined;
   }): Array<ListedTask> {
     let shown: unknown = [];
     try {
-      shown =
-        typeof errands?.view === 'function'
-          ? errands.view({ privateChannelId: isPrivate ? String(channel.id) : null })
-          : [];
+      shown = typeof errands?.view === 'function' ? errands.view({ dmChatId: isDm ? String(channel.id) : null }) : [];
     } catch (err) {
       log.warn('turn: tasks view failed', { channel: channel.id, error: err });
     }
@@ -233,13 +230,13 @@ export function createInputs(ctx: InputsContext): Inputs {
   function errandsInputFor({
     placeId,
     channel,
-    isPrivate,
+    isDm,
     taskResult,
     config,
     labels,
     now,
   }: Parameters<Inputs['errandsInputFor']>[0]): { list: string; result: string } | null {
-    const listed = listedTasks({ placeId, channel, isPrivate, taskResult });
+    const listed = listedTasks({ placeId, channel, isDm, taskResult });
     const list = errandsBlockText(listed, labels, { now });
     const result = taskResult
       ? errandResultText(taskResult, labels, { maxChars: config.errands?.resultMaxChars ?? DEFAULT_RESULT_MAX_CHARS })
@@ -255,7 +252,7 @@ export function createInputs(ctx: InputsContext): Inputs {
   function intentionsInputFor({
     channel,
     snapshot = null,
-    isPrivate,
+    isDm,
     config,
     labels,
     now,
@@ -264,12 +261,12 @@ export function createInputs(ctx: InputsContext): Inputs {
     if (!intentions) return '';
     let shown: unknown = [];
     try {
-      shown = intentions.view({ privateChannelId: isPrivate ? String(channel.id) : null });
+      shown = intentions.view({ dmChatId: isDm ? String(channel.id) : null });
     } catch (err) {
       log.warn('turn: intentions view failed', { channel: channel.id, error: err });
       return '';
     }
-    const channelNameOf = (id: string): string | null => (isPrivate ? null : (snapshot?.get(String(id))?.name ?? null));
+    const channelNameOf = (id: string): string | null => (isDm ? null : (snapshot?.get(String(id))?.name ?? null));
     const nameOf = (id: string): string | null =>
       typeof store?.getUser === 'function' ? (store.getUser(accountOf(store, String(id)))?.names?.[0] ?? null) : null;
     const contextCaps = config.context?.caps;
@@ -293,7 +290,7 @@ export function createInputs(ctx: InputsContext): Inputs {
   function intentionRefsFor(): { texts: Array<string>; places: Array<string> } {
     let shown: unknown = [];
     try {
-      shown = intentions?.view({ privateChannelId: null }) ?? [];
+      shown = intentions?.view({ dmChatId: null }) ?? [];
     } catch (err) {
       log.warn('turn: intentions view failed', { channel: null, error: err });
     }
@@ -326,7 +323,7 @@ export function createInputs(ctx: InputsContext): Inputs {
   return {
     turnContextOf,
     stableFreezeOf,
-    conversationOf,
+    chatOf,
     messageOf,
     checkEffect,
     errandsInputFor,

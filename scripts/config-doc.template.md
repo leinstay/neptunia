@@ -154,6 +154,10 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 
 <!-- settings: mirrors -->
 
+## dm
+
+<!-- settings: dm -->
+
 ## private
 
 <!-- settings: private -->

@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import type { DatabaseSync as DatabaseSyncClass } from 'node:sqlite';
-import { MIGRATIONS, finishSelfreflectionDestination, finishSelfreflectionMirror } from './schema.ts';
+import { MIGRATIONS, finishSelfreflectionDestination, finishSelfreflectionMirror, renameChatColumn } from './schema.ts';
 import { moveSelfreflectionMedia } from '../migration/selfreflection-names.ts';
 import type { Migration, MigrationContext } from './schema.ts';
 import { ALIVE_LEASE, leaseOf } from './wake-queue.ts';
@@ -145,12 +145,14 @@ export function migrate(
   inTransaction(db, () => {
     db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');
     let version = schemaVersion(db);
+    if (version < migrations.length) renameChatColumn(db);
     while (version < migrations.length) {
       const step = migrations[version];
       if (typeof step === 'function') step(db, context);
       else db.exec(step);
       version += 1;
       db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(version);
+      renameChatColumn(db);
     }
     if (migrations === MIGRATIONS && schemaVersion(db) >= MIGRATIONS.length) {
       finishSelfreflectionDestination(db, context);

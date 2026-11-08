@@ -316,9 +316,9 @@ test('runMemorySearch: her arguments become the server part (no helper), recall 
       };
     },
   };
-  const guild = { id: 'g1' };
-  // The conversation is the interface's info now: a conversation of a community says which.
-  const channel = { id: 'c1', rootId: 'g1', guild };
+  const root = { id: 'g1' };
+  // The chat is the interface's info now: a chat of a root says which.
+  const channel = { id: 'c1', rootId: 'g1', root };
   const history = [{ id: 'h1' }];
   const decorate = (lines: unknown) => lines;
   const store = { listUserProfiles: () => [{ id: 'u3', names: ['Éloïse'], aliases: [] }] };
@@ -328,8 +328,8 @@ test('runMemorySearch: her arguments become the server part (no helper), recall 
     store,
     config,
     labels,
-    // @ts-expect-error: the scene passes a guild key the options type does not name
-    guild,
+    // @ts-expect-error: the scene passes a root key the options type does not name
+    root,
     placeId: 'g1',
     channel,
     selfId: 'self',
@@ -355,8 +355,8 @@ test('runMemorySearch: her arguments become the server part (no helper), recall 
       store,
       config,
       labels,
-      // @ts-expect-error: the scene passes a guild key the options type does not name
-      guild,
+      // @ts-expect-error: the scene passes a root key the options type does not name
+      root,
       placeId: 'g1',
       channel,
       args: { question: 'τι;' },
@@ -371,10 +371,7 @@ test('runMemorySearch: her arguments become the server part (no helper), recall 
     'not_configured',
     'not-configured',
   ]);
-  assert.deepEqual(await status({ guild: null, channel: { id: 'dm1', guild: null } }), [
-    'not_configured',
-    'unsupported',
-  ]);
+  assert.deepEqual(await status({ root: null, channel: { id: 'dm1', root: null } }), ['not_configured', 'unsupported']);
 });
 
 test('firstLinkIn: the first http(s) link written in a text, up to a space or an angle bracket; null without one', () => {
@@ -771,15 +768,15 @@ function recallAnswering(answer: unknown) {
 }
 
 async function memoryWith(answer: unknown, args = { question: 'τι είπε η Zoë;', terms: 'λαγός' }) {
-  const guild = { id: 'g1' };
+  const root = { id: 'g1' };
   return runMemorySearch({
     recall: recallAnswering(answer),
     store: { listUserProfiles: () => [] },
     config: { bot: { timezone: 'UTC' }, features: { recall: true }, recall: { maxForms: 4 } },
     labels,
-    guild,
+    root,
     placeId: 'g1',
-    channel: { id: 'c1', rootId: 'g1', guild },
+    channel: { id: 'c1', rootId: 'g1', root },
     args,
     now: NOW,
   } as unknown as Parameters<typeof runMemorySearch>[0]);

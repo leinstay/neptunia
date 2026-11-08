@@ -29,7 +29,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
-// The conversations are held by a fake interface named `fake`.
+// The chats are held by a fake interface named `fake`.
 useIface('fake');
 
 type Candidate = Parameters<typeof resolvedInHistory>[0];
@@ -40,7 +40,7 @@ type TurnCall = {
   trigger: { id: string };
   missed: Array<unknown>;
   stillDue: () => boolean;
-  conversation: { conversationId: string };
+  chat: { chatId: string };
   placeId: string;
 };
 type LlmCall = { messages: Array<{ content: string }>; options: { purpose: string; role: string } };
@@ -97,7 +97,7 @@ function eventOfLine(line: ReturnType<typeof msg>) {
     iface: 'fake',
     at: line.ts,
     id: `fake:message:${line.id}`,
-    conversation: { id: line.placeId, kind: 'channel', rootId: 'g1', name: line.placeId },
+    chat: { id: line.placeId, kind: 'channel', rootId: 'g1', name: line.placeId },
     message: {
       id: line.id,
       author: { id: line.authorId, name: line.authorName, self: line.self, bot: line.bot },
@@ -115,7 +115,7 @@ function eventOfLine(line: ReturnType<typeof msg>) {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
   };
 }
 
@@ -278,7 +278,7 @@ function scene({
   const timers = handTimers(clock);
   const log = fakeLog();
   const store = { state: { data: { paused } } };
-  // #general (c1) of the community, and the other conversations the test names (a private chat: `recipientId`).
+  // #general (c1) of the root, and the other chats the test names (a private chat: `recipientId`).
   const channel = world().channel({ id: 'c1', placeId: 'g1', permissions: { send: canSend({ id: 'c1' }) } });
   const partners = new Map<string, string>();
   const others = channels;
@@ -287,7 +287,7 @@ function scene({
     partners.set(extra.id, extra.recipientId);
   }
   const hot = { config, prompts };
-  // What every conversation's history holds: the lines of the test, seeded as events when they are set.
+  // What every chat's history holds: the lines of the test, seeded as events when they are set.
   const fetched = {
     set history(lines: Array<ReturnType<typeof msg>>) {
       for (const line of lines) {
@@ -656,7 +656,7 @@ test('createMissed: every fact source makes the right candidate, journaled with 
   missed.noteFact(fact('replaced-deferred', msg({ id: 'm3' }), { replacedBy: 'm4' }));
   const trigger = (id: string) => ({ id, authorId: 'u1', placeId: 'c1', ts: T0, content: 'ναι' });
   missed.onTurnEnd({
-    conversationId: 'c1',
+    chatId: 'c1',
     trigger: trigger('m5'),
     triggerKind: 'mention',
     outcome: 'error',
@@ -664,13 +664,13 @@ test('createMissed: every fact source makes the right candidate, journaled with 
     turnId: 't-5',
   });
   missed.onTurnEnd({
-    conversationId: 'c1',
+    chatId: 'c1',
     trigger: trigger('m6'),
     triggerKind: 'followUp',
     outcome: 'error',
     reason: 'too-slow',
   });
-  missed.onTurnEnd({ conversationId: 'c1', trigger: trigger('m7'), triggerKind: 'reply', outcome: 'not-now' });
+  missed.onTurnEnd({ chatId: 'c1', trigger: trigger('m7'), triggerKind: 'reply', outcome: 'not-now' });
   const byId = Object.fromEntries(missed.candidates().map((c) => [c.messageId, c]));
   assert.deepEqual(
     Object.values(byId).map((c) => [c.messageId, c.reason, c.state]),
@@ -704,19 +704,19 @@ test('createMissed: every fact source makes the right candidate, journaled with 
 test('createMissed: a skip, a refusal, an overheard line, a routed call and a recovery turn never make a candidate', () => {
   const { missed } = scene();
   const trigger = { id: 'm1', authorId: 'u1', placeId: 'c1', ts: T0, content: '' };
-  missed.onTurnEnd({ conversationId: 'c1', trigger, triggerKind: 'mention', outcome: 'skip' });
-  missed.onTurnEnd({ conversationId: 'c1', trigger, triggerKind: 'mention', outcome: 'refused' });
-  missed.onTurnEnd({ conversationId: 'c1', trigger, triggerKind: 'mention', outcome: 'busy' });
-  missed.onTurnEnd({ conversationId: 'c1', trigger, triggerKind: 'overheard', outcome: 'error' });
-  missed.onTurnEnd({ conversationId: 'c1', trigger, triggerKind: 'mention', outcome: 'error', routed: true });
+  missed.onTurnEnd({ chatId: 'c1', trigger, triggerKind: 'mention', outcome: 'skip' });
+  missed.onTurnEnd({ chatId: 'c1', trigger, triggerKind: 'mention', outcome: 'refused' });
+  missed.onTurnEnd({ chatId: 'c1', trigger, triggerKind: 'mention', outcome: 'busy' });
+  missed.onTurnEnd({ chatId: 'c1', trigger, triggerKind: 'overheard', outcome: 'error' });
+  missed.onTurnEnd({ chatId: 'c1', trigger, triggerKind: 'mention', outcome: 'error', routed: true });
   missed.onTurnEnd({
-    conversationId: 'c1',
+    chatId: 'c1',
     trigger,
     triggerKind: 'missed',
     outcome: 'not-now',
     reason: 'answered-meanwhile',
   });
-  missed.onTurnEnd({ conversationId: 'c1', trigger: null, mode: 'auto', outcome: 'not-now' });
+  missed.onTurnEnd({ chatId: 'c1', trigger: null, mode: 'auto', outcome: 'not-now' });
   assert.deepEqual(missed.candidates(), []);
 });
 
@@ -725,7 +725,7 @@ test('createMissed: a later turn of hers resolves the candidate, journaled resol
   missed.noteFact(fact('gate-failed', msg({ id: 'm1', ts: T0 })));
   missed.noteFact(fact('gate-failed', msg({ id: 'm2', authorId: 'u2', ts: T0 })));
   missed.onTurnEnd({
-    conversationId: 'c1',
+    chatId: 'c1',
     trigger: { id: 'm3', authorId: 'u1', ts: T0 + 1000 },
     triggerKind: 'mention',
     outcome: 'spoke',
@@ -744,7 +744,7 @@ test('createMissed: a later turn of hers resolves the candidate, journaled resol
 
 test('createMissed: the registry is written atomically to data/places/<id>/missed.json', async () => {
   const { missed, dataDir } = scene();
-  // Plan 2026-11-04-cli-and-memory B2: a candidate lands under its own place, the conversation it was written in.
+  // Plan 2026-11-04-cli-and-memory B2: a candidate lands under its own place, the chat it was written in.
   await missed.start('c1');
   missed.noteFact(fact('gate-failed', msg({ id: 'm1' })));
   await missed.save();
@@ -973,7 +973,7 @@ test('createMissed: the pre-post check fails once she spoke in the channel or an
       checks.push(params.stillDue());
       // Another turn of hers answers the message while the recovery prepares.
       missed.onTurnEnd({
-        conversationId: 'c1',
+        chatId: 'c1',
         trigger: { id: 'm1', authorId: 'u1', ts: T0 },
         triggerKind: 'mention',
         outcome: 'spoke',
@@ -1073,7 +1073,7 @@ test("createMissed: a private chat's fact goes to that person's private journal 
   allowed.missed.noteFact(fact('pending-expired', history[0]));
   await allowed.timers.fireAll();
   assert.equal(allowed.turns.calls.length, 1);
-  assert.equal(allowed.turns.calls[0].conversation.conversationId, 'd1');
+  assert.equal(allowed.turns.calls[0].chat.chatId, 'd1');
   assert.equal('placeId' in allowed.turns.calls[0], false, 'a private chat is served on behalf of no other place');
   assert.deepEqual(seen, [
     ['allow', 'd1', 'm1'],
@@ -1233,7 +1233,7 @@ test("createMissed: a turn that ended in an error keeps its reason as the fact's
   const { missed, journal } = scene();
   const trigger = (id: string) => ({ id, authorId: 'u1', placeId: 'c1', ts: T0, content: 'ναι' });
   missed.onTurnEnd({
-    conversationId: 'c1',
+    chatId: 'c1',
     trigger: trigger('m1'),
     triggerKind: 'mention',
     outcome: 'error',
@@ -1241,7 +1241,7 @@ test("createMissed: a turn that ended in an error keeps its reason as the fact's
     turnId: 't-1',
   });
   missed.onTurnEnd({
-    conversationId: 'c1',
+    chatId: 'c1',
     trigger: trigger('m2'),
     triggerKind: 'reply',
     outcome: 'error',
@@ -1269,18 +1269,18 @@ test("createMissed: a failed turn opened by a finished errand (task) is a candid
   const { missed } = scene();
   const trigger = (id: string) => ({ id, authorId: 'u1', placeId: 'c1', ts: T0, content: 'ναι' });
   missed.onTurnEnd({
-    conversationId: 'c1',
+    chatId: 'c1',
     trigger: trigger('m1'),
     triggerKind: 'errand',
     outcome: 'error',
     reason: 'cut-off',
   });
   missed.onTurnEnd({
-    conversationId: 'd1',
+    chatId: 'd1',
     trigger: { ...trigger('m2'), placeId: 'd1' },
     triggerKind: 'private',
     outcome: 'error',
-    privateChat: true,
+    dmChat: true,
   });
   assert.deepEqual(
     missed.candidates().map((c) => [c.messageId, c.reason, c.placeId]),

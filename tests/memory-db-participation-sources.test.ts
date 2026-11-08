@@ -18,14 +18,14 @@ import { baseConfig, memoryBlock, prompts } from './fixtures/memory-db/session-r
 const NOW = Date.parse('2026-10-24T12:00:00Z');
 const AT = NOW - 60 * 60_000;
 const NATIVE = 'same-evidence-message';
-const locator = (room: string) => ({ iface: 'discord', conversationId: room, messageId: NATIVE });
+const locator = (room: string) => ({ iface: 'discord', chatId: room, messageId: NATIVE });
 
 function envelope(room: string, text: string, edit = false) {
   const value = observationOf({
     iface: 'discord',
     at: NOW,
     edit,
-    conversation: { id: room, kind: 'channel', chatType: 'channel', rootId: 'community' },
+    chat: { id: room, kind: 'channel', chatType: 'channel', rootId: 'root' },
     message: { id: NATIVE, at: AT, content: text, author: { id: 'member', name: 'Member' } },
   });
   if (!value) throw new Error('synthetic normalized message was refused');
@@ -63,13 +63,13 @@ async function evidence() {
         revision: 2,
         occurredAt: new Date(AT).toISOString(),
         recordedAt: new Date(NOW).toISOString(),
-        placeId: 'community',
+        placeId: 'root',
         scope: { channel: 'room-a' },
         by: 'member',
         text: 'Edited canonical evidence',
         origin: 'live',
       };
-      await record.append('community', [line], {
+      await record.append('root', [line], {
         messages: [{ lineId: line.id, locator: locator('room-a'), observedSourceId: edited }],
       });
       return edited;
@@ -77,7 +77,7 @@ async function evidence() {
   };
 }
 
-test('participation links the edited conversation source after observation and record adoption', async () => {
+test('participation links the edited chat source after observation and record adoption', async () => {
   const env = await evidence();
   try {
     const edited = await env.edit();
@@ -107,7 +107,7 @@ test('participation links the edited conversation source after observation and r
         },
       ],
     };
-    await env.memoryDb.writeUnit({ op: 'value', owner: 'guilds/community/participation.json', value: state });
+    await env.memoryDb.writeUnit({ op: 'value', owner: 'guilds/root/participation.json', value: state });
     const links = env.db
       .prepare('SELECT source_id FROM episode_sources WHERE episode_id = ? ORDER BY position')
       .all('episode-exact-source')
@@ -230,8 +230,7 @@ test('an unchanged participation flush retains its captured source after a later
         .prepare('SELECT source_id FROM episode_sources WHERE episode_id = ? ORDER BY position')
         .all('episode-preserved-source')
         .map((row) => row.source_id);
-    const write = () =>
-      env.memoryDb.writeUnit({ op: 'value', owner: 'guilds/community/participation.json', value: state });
+    const write = () => env.memoryDb.writeUnit({ op: 'value', owner: 'guilds/root/participation.json', value: state });
     await write();
     const captured = links();
     const edited = await env.edit();

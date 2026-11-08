@@ -24,7 +24,7 @@ test('the door refuses a wake of kind review', () => {
     chainId: 'review:2026-10-19',
     dueAt: NOW - MINUTE_MS,
     placeId: null,
-    privateChat: false,
+    dmChat: false,
   };
   assert.deepEqual(run.inner.onWake({ kind: 'inner.wake', at: NOW, id: wake.id, wake }), { status: 'invalid' });
 });

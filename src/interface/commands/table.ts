@@ -747,7 +747,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
     ],
   },
   { name: 'help', help: 'Browse commands and their descriptions', args: [], subcommands: [] },
-  { name: 'clear', help: 'Clear the conversation display without deleting stored memory', args: [], subcommands: [] },
+  { name: 'clear', help: 'Clear the chat display without deleting stored memory', args: [], subcommands: [] },
 ];
 
 const refuse = (reason: string): Parsed => ({ ok: false, reason });

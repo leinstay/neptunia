@@ -3,11 +3,11 @@
 // treats the configured channel. A reply's `<memory>` marks every mirrored place it shows with
 // `labels.memory.selfreflection`, and a turn in it keeps no participation. Real turn runner, real store over a memory
 // database, fake interface, scripted model. Synthetic text only.
-import { placeOfCommunity } from '../src/memory/addresses.ts';
+import { placeOfRoot } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { userText } from '../src/behavior/prompt.ts';
-import { GUILD, replyTurn } from './fixtures/selfreflection-awareness.ts';
+import { ROOT, replyTurn } from './fixtures/selfreflection-awareness.ts';
 import { labels } from './fixtures/labels.ts';
 
 /** The entry of the place named `name` in `<memory>`'s `<places>`: from its heading to the next blank line. */
@@ -36,7 +36,7 @@ test('a turn in the mirrored place keeps no participation there', async () => {
   const { store } = await replyTurn({ here: 'd1', mirrors: ['d1'] });
   // The store is JS; its participation unit holds the episodes of every channel.
   const episodes = (
-    store.getParticipation(placeOfCommunity(store, GUILD, 'fake')) as { episodes: Array<{ placeId: string }> }
+    store.getParticipation(placeOfRoot(store, ROOT, 'fake')) as { episodes: Array<{ placeId: string }> }
   ).episodes;
   assert.deepEqual(
     episodes.filter((episode) => episode.placeId === 'd1'),

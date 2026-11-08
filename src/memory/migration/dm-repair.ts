@@ -16,6 +16,12 @@ type Db = InstanceType<typeof DatabaseSync>;
 /** One DM as a moved row names it. */
 type DmHome = { place: string; iface: string; person: string | null; account: string | null; native: string | null };
 
+/** The column of `places` that says what kind of chat a place is: `conversation` in a v28 database, `chat` since. */
+export function chatColumnOf(db: Db): string {
+  const columns = (db.prepare('PRAGMA table_info(places)').all() as Array<Row>).map((row) => String(row.name));
+  return columns.includes('chat') ? 'chat' : 'conversation';
+}
+
 const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
 
 /** The DM places of a database with the partner their rows name. */
@@ -23,7 +29,7 @@ function dmHomes(source: Db): Map<string, DmHome> {
   const rows = source
     .prepare(
       `SELECT p.id, p.iface, p.partner_person, p.partner_account, a.native_id AS native FROM places p
-       LEFT JOIN accounts a ON a.id = p.partner_account WHERE p.kind = 'dm' OR p.conversation = 'dm' ORDER BY p.id`
+       LEFT JOIN accounts a ON a.id = p.partner_account WHERE p.kind = 'dm' OR p.${chatColumnOf(source)} = 'dm' ORDER BY p.id`
     )
     .all() as Array<Row>;
   return new Map(

@@ -93,7 +93,7 @@ function reaction(id: string): Record<string, unknown> {
     iface: 'fake',
     at: 1,
     id,
-    conversation: { id: 'c1', kind: 'channel' },
+    chat: { id: 'c1', kind: 'channel' },
     messageId: 'm1',
     emoji: { name: 'x' },
     accountId: 'u1',
@@ -125,7 +125,7 @@ async function liveLink(privateDir: string) {
   const hello = {
     iface: 'fake',
     self: { id: 'self-id', name: 'Nova' },
-    community: null,
+    root: null,
     capabilities: adapter.capabilities(),
     resume: null,
   };

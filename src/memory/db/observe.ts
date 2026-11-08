@@ -3,7 +3,7 @@
 // (`OBSERVATION_VERSION`); the core resolves everything else itself, so a new interface is an adapter, not a schema.
 //
 //   { v, iface, authority, connection?, native: { kind, key, generation?, revision, subtype? }, edited?,
-//     place: { authority, key, kind, conversation: 'dm' | 'group' | undefined, parent?, title?, partner? },
+//     place: { authority, key, kind, chat: 'dm' | 'group' | undefined, parent?, title?, partner? },
 //     author: { kind: 'account' | 'participant' | 'self', authority?, key?, token_kind?, scope_place?, display?, generation?, account_kind? },
 //     occurredAt, observedAt, text, media?, mentions?, direct?, relations?: [{ predicate, target }],
 //     capture?: { bundle?, role, reason?, coverage? }, extra?, consoleOwner?: { person, listed: [{ iface, native }] } }
@@ -12,7 +12,7 @@
 // observe(handle, envelope) checks the envelope, then in ONE transaction resolves or creates the authority, the place,
 // the account or participant (a person only for her own account and the owner's command line; anyone else becomes one
 // through her session's `people:add`), writes the source with its
-// audience (the place's conversation: `group` -> `aud:group:<iface>`, `dm` -> `aud:dm:<place>`, anything else ->
+// audience (the place's chat: `group` -> `aud:group:<iface>`, `dm` -> `aud:dm:<place>`, anything else ->
 // `aud:internal`), its relations and its bundle membership. Idempotent on the native tuple: the source id is the hash of
 // (authority, native kind, key, generation, revision, subtype), and a replay writes nothing. A malformed envelope is
 // refused with a code (`{ ok: false, code }`) and writes nothing; a refusal found while writing rolls the whole
@@ -213,12 +213,12 @@ type Refused = { ok: false; code: string };
 /** The answer of opening a bundle: its id, whether this call created it and the event it wrote. */
 type OpenResult = { ok: true; bundleId: string; created: boolean; event?: number };
 
-/** One place an envelope names: its authority and key, its kind and conversation and, for a DM, the partner. */
+/** One place an envelope names: its authority and key, its kind and chat and, for a DM, the partner. */
 type PlaceRef = {
   authority: string;
   key: string;
   kind: string;
-  conversation?: string | null;
+  chat?: string | null;
   title?: string | null;
   parent?: string | null;
   /** The top of the tree, when a parent of its own may not know it yet. */
@@ -250,7 +250,7 @@ type RelationTarget = {
   revision?: number;
 };
 
-export type MessageConversation = Readonly<{
+export type MessageChat = Readonly<{
   id: string;
   chatType: 'channel' | 'thread' | 'group_dm' | 'dm';
   partnerId?: string;
@@ -277,7 +277,7 @@ export type Envelope = {
   capture?: CaptureRef | null;
   extra?: Row | null;
   messageLocator?: MessageLocator;
-  messageConversation?: MessageConversation;
+  messageChat?: MessageChat;
   messageReply?: NativeMessageLocator;
   consoleOwner?: ConsoleOwner | null;
 };
@@ -589,7 +589,7 @@ export type ObservationPlaceInput = Pick<Envelope, 'iface' | 'authority' | 'plac
 /** The partner account of a DM envelope (created when missing) and the person it is linked to. */
 function partnerOf(db: Db, envelope: ObservationPlaceInput, at: string): { account: string; person: unknown } | null {
   const p = envelope.place;
-  if (p.conversation !== 'dm' || !isObject(p.partner)) return null;
+  if (p.chat !== 'dm' || !isObject(p.partner)) return null;
   const account = accountOf(
     db,
     envelope.iface,
@@ -680,27 +680,26 @@ function keepDmOne(db: Db, stored: Row, partnerPerson: unknown): void {
     rescopeDmPlace(db, String(stored.id), partnerPerson);
 }
 
-/** The place of an envelope, created when missing; its conversation filled or checked. Returns its row. */
+/** The place of an envelope, created when missing; its chat filled or checked. Returns its row. */
 function placeOf(
   db: Db,
   envelope: ObservationPlaceInput,
   at: string
-): { id: string; conversation: string | null; partner_person: unknown } {
+): { id: string; chat: string | null; partner_person: unknown } {
   const p = envelope.place;
-  const declared = p.conversation === 'dm' || p.conversation === 'group' ? p.conversation : null;
+  const declared = p.chat === 'dm' || p.chat === 'group' ? p.chat : null;
   const id = storedPlaceOf(db, envelope, at);
   const existing = id
     ? db
         .prepare(
-          'SELECT id, conversation, partner_person, partner_account, parent_id, name, seen_from_at, seen_to_at FROM places WHERE id = ?'
+          'SELECT id, chat, partner_person, partner_account, parent_id, name, seen_from_at, seen_to_at FROM places WHERE id = ?'
         )
         .get(id)
     : null;
   const parent = parentPlaceOf(db, envelope, at);
   if (existing) {
-    if (declared && existing.conversation && existing.conversation !== declared)
-      throw refusal(OBSERVE_CODES.CONVERSATION_CONFLICT);
-    const conversation = existing.conversation ?? declared;
+    if (declared && existing.chat && existing.chat !== declared) throw refusal(OBSERVE_CODES.CONVERSATION_CONFLICT);
+    const chat = existing.chat ?? declared;
     const from =
       existing.seen_from_at && existing.seen_from_at <= envelope.occurredAt
         ? existing.seen_from_at
@@ -709,15 +708,13 @@ function placeOf(
       existing.seen_to_at && existing.seen_to_at >= envelope.occurredAt ? existing.seen_to_at : envelope.occurredAt;
     // A stored DM place without its partner gets it; a partner already stored is never replaced.
     const partner =
-      conversation === 'dm' && (!existing.partner_person || !existing.partner_account)
-        ? partnerOf(db, envelope, at)
-        : null;
+      chat === 'dm' && (!existing.partner_person || !existing.partner_account) ? partnerOf(db, envelope, at) : null;
     const partnerPerson = existing.partner_person ?? partner?.person ?? null;
     const partnerAccount = existing.partner_account ?? partner?.account ?? null;
     const parentId = existing.parent_id ?? parent ?? null;
     fillTitle(db, existing, p.title, at);
     if (
-      conversation !== existing.conversation ||
+      chat !== existing.chat ||
       from !== existing.seen_from_at ||
       to !== existing.seen_to_at ||
       partnerPerson !== (existing.partner_person ?? null) ||
@@ -725,12 +722,12 @@ function placeOf(
       parentId !== (existing.parent_id ?? null)
     ) {
       db.prepare(
-        'UPDATE places SET conversation = ?, scope_kind = COALESCE(scope_kind, ?), seen_from_at = ?, seen_to_at = ?, partner_person = ?, partner_account = ?, parent_id = ? WHERE id = ?'
-      ).run(conversation, conversation, from, to, partnerPerson, partnerAccount, parentId, existing.id);
+        'UPDATE places SET chat = ?, scope_kind = COALESCE(scope_kind, ?), seen_from_at = ?, seen_to_at = ?, partner_person = ?, partner_account = ?, parent_id = ? WHERE id = ?'
+      ).run(chat, chat, from, to, partnerPerson, partnerAccount, parentId, existing.id);
       keepDmOne(db, existing, partnerPerson);
       projectRow(db, 'places', { id: existing.id }, { at });
     }
-    return { id: existing.id as string, conversation: conversation as string | null, partner_person: partnerPerson };
+    return { id: existing.id as string, chat: chat as string | null, partner_person: partnerPerson };
   }
   const partner = declared === 'dm' ? partnerOf(db, envelope, at) : null;
   const legacy = legacyPlaceOf(p.authority, p.key, 1);
@@ -750,7 +747,7 @@ function placeOf(
       authority_id: p.authority,
       native_key: p.key,
       generation: 1,
-      conversation: declared,
+      chat: declared,
       partner_person: partner?.person ?? null,
       partner_account: partner?.account ?? null,
       seen_from_at: envelope.occurredAt,
@@ -764,7 +761,7 @@ function placeOf(
   addKey(db, p.authority, 'place', p.key, placeId, { generation: 1, at });
   if (legacy) addKey(db, LEGACY_AUTHORITY, 'place', placeId, placeId, { at });
   projectRow(db, 'places', { id: placeId }, { at });
-  return { id: placeId, conversation: declared, partner_person: row.partner_person };
+  return { id: placeId, chat: declared, partner_person: row.partner_person };
 }
 
 /** Resolves the same validated place for message observations and authorless deletions. */
@@ -772,7 +769,7 @@ export function resolveObservationPlace(
   db: Db,
   envelope: ObservationPlaceInput,
   at: string
-): { id: string; conversation: string | null; partner_person: unknown } {
+): { id: string; chat: string | null; partner_person: unknown } {
   return placeOf(db, envelope, at);
 }
 
@@ -878,13 +875,13 @@ function authorOf(
   return { kind: 'self', account, participant: null };
 }
 
-/** The scope triple and audience of a line in a place: the place's conversation, else internal (fail closed). */
+/** The scope triple and audience of a line in a place: the place's chat, else internal (fail closed). */
 export function observationAudience(
   iface: string,
-  place: { id: string; conversation: string | null; partner_person: unknown }
+  place: { id: string; chat: string | null; partner_person: unknown }
 ): { scope: Scope; audience: string } {
-  if (place.conversation === 'group') return { scope: groupScope(iface), audience: groupAudienceId(iface) };
-  if (place.conversation === 'dm')
+  if (place.chat === 'group') return { scope: groupScope(iface), audience: groupAudienceId(iface) };
+  if (place.chat === 'dm')
     return {
       scope: {
         scope_kind: 'dm',

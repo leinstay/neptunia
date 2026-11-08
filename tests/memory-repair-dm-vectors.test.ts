@@ -29,7 +29,7 @@ const observed = (iface: string, key: string, kind: 'dm' | 'channel', native: st
   iface,
   authority: `${iface}/global`,
   native: { kind: 'message', key: native, revision: 1 },
-  place: { authority: `${iface}/global`, key, kind, conversation: kind === 'dm' ? 'dm' : 'group' },
+  place: { authority: `${iface}/global`, key, kind, chat: kind === 'dm' ? 'dm' : 'group' },
   author: { kind: 'account', key: 'owner' },
   occurredAt: '2026-11-03T09:00:00.000Z',
   observedAt: '2026-11-03T09:00:01.000Z',

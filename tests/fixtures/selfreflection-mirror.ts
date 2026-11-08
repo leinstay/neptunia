@@ -36,17 +36,17 @@ export function dbOf(memoryDb: MemoryService): Db {
   return handle.db;
 }
 
-/** A group conversation of `iface` as a place named `name`. Returns the place's id. */
+/** A group chat of `iface` as a place named `name`. Returns the place's id. */
 export function seedPlace(
   memoryDb: MemoryService,
-  { iface, conversationId, name = conversationId, at }: { iface: string; conversationId: string; name?: string; at: number }
+  { iface, chatId, name = chatId, at }: { iface: string; chatId: string; name?: string; at: number }
 ): string {
-  const placeId = channelPlaceId(iface, conversationId);
+  const placeId = channelPlaceId(iface, chatId);
   insertRows(
     dbOf(memoryDb),
     {
       places: [
-        { id: placeId, iface, kind: 'channel', native_id: conversationId, parent_id: null, scope_kind: 'group', name },
+        { id: placeId, iface, kind: 'channel', native_id: chatId, parent_id: null, scope_kind: 'group', name },
       ],
     },
     { at: new Date(at).toISOString() }
@@ -55,20 +55,20 @@ export function seedPlace(
 }
 
 /**
- * A group conversation of `iface` as a place, and a `selfreflection` mirror on it set up by the owner. Returns the mirror's id
+ * A group chat of `iface` as a place, and a `selfreflection` mirror on it set up by the owner. Returns the mirror's id
  * and the place's id.
  */
 export function seedMirror(
   memoryDb: MemoryService,
   {
     iface,
-    conversationId,
-    name = conversationId,
+    chatId,
+    name = chatId,
     enabled = true,
     at,
-  }: { iface: string; conversationId: string; name?: string; enabled?: boolean; at: number }
+  }: { iface: string; chatId: string; name?: string; enabled?: boolean; at: number }
 ): { id: string; placeId: string } {
-  const placeId = seedPlace(memoryDb, { iface, conversationId, name, at });
+  const placeId = seedPlace(memoryDb, { iface, chatId, name, at });
   const id = `mirror:test:${placeId}`;
   dbOf(memoryDb)
     .prepare(
@@ -145,7 +145,7 @@ after(async () => {
 });
 
 /**
- * Publishes the entry of a diary turn's `result` to the mirror on `conversationId` of `port`: a memory database with
+ * Publishes the entry of a diary turn's `result` to the mirror on `chatId` of `port`: a memory database with
  * that one enabled mirror, and the publisher of src/behavior/mirror.ts over it. Returns what `publishEntry` answered.
  * The module is imported when the first publication runs, so tests/diary-turn.test.ts, whose other cases test the turn
  * alone, loads without it.
@@ -153,11 +153,11 @@ after(async () => {
 export async function publishTo(
   result: unknown,
   port: Fake,
-  { conversationId = 'd1', now }: { conversationId?: string; now: number }
+  { chatId = 'd1', now }: { chatId?: string; now: number }
 ): Promise<Array<PublishOutcome>> {
   const memory = await openTestMemory({ now: () => now });
   OPENED.push(memory);
-  seedMirror(memory.memoryDb, { iface: port.iface, conversationId, at: now });
+  seedMirror(memory.memoryDb, { iface: port.iface, chatId, at: now });
   const specifier = '../../src/behavior/mirror.ts';
   const loaded: unknown = await import(specifier);
   const mirror = loaded as MirrorModule; // the module's own types are checked by tests/mirror.test.ts

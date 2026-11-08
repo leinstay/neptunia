@@ -111,7 +111,7 @@ export function linesAroundOf(db: Db, ctx: Context, placeId: string, at: number,
 
 /** Whether the context reads the stored place `placeId`, retired or live: a gone room keeps its read handle. */
 export function placeReadableOf(db: Db, ctx: Context, placeId: string): boolean {
-  const place = db.prepare('SELECT id, iface, kind, conversation FROM places WHERE id = ?').get(placeId);
+  const place = db.prepare('SELECT id, iface, kind, chat FROM places WHERE id = ?').get(placeId);
   return place !== undefined && allowedAudience({ audience_id: placeAudience(place) }, ctx);
 }
 

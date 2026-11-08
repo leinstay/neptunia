@@ -4,7 +4,7 @@
 //
 // sweep(ctx) -> { status, code?, runs[] }
 //   A sweep is one pass over the scopes with new lines: the public channels of an interface together (`group:<iface>`),
-//   each private conversation alone (`dm:<iface>:<person>`). Each scope has a cursor in `meta`
+//   each private chat alone (`dm:<iface>:<person>`). Each scope has a cursor in `meta`
 //   (`memory_session.cursor.<mode>.<scope>`, a `sources.rowid`), so a line is read once. At most `sweepsPerScopePerDay`
 //   sweeps of one scope a UTC day (stage W3; the old `sweepsPerDay` is read when the new key is missing); a sweep whose
 //   every scope with work is at its cap is refused (`sweep_cap`). A quiet scope's media pass counts toward its own

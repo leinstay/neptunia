@@ -168,10 +168,10 @@ async function sendNotice({
 }): Promise<'sent' | 'failed'> {
   try {
     const replyId = asReply ? (trigger?.id ?? null) : null;
-    const conversation = { iface: port.iface, conversationId: channel.id };
-    const delivery = await port.send(conversation, {
+    const chat = { iface: port.iface, chatId: channel.id };
+    const delivery = await port.send(chat, {
       text,
-      ...(replyId ? { replyTo: { ...conversation, messageId: replyId } } : {}),
+      ...(replyId ? { replyTo: { ...chat, messageId: replyId } } : {}),
       mentions: { users: [], repliedUser: false },
     });
     if (delivery.status !== 'ok') {

@@ -1,5 +1,5 @@
 // One core in the test process with its interfaces as units, and any number of fake interfaces connected in the order
-// a test chooses, each with the communities it names (none at all when the list is empty). Temporary folders, a scripted
+// a test chooses, each with the roots it names (none at all when the list is empty). Temporary folders, a scripted
 // model, no provider and no platform. The native ids of the interfaces may collide: that is what these tests are for.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -12,7 +12,7 @@ import { createFakeAdapter } from '../../src/interface/fake.ts';
 import { start as startFake } from '../../src/interface/fake-interface.ts';
 import { createKeyStore } from '../../src/keys/store.ts';
 import { openMemoryDb } from '../../src/memory/db/open.ts';
-import type { ConversationInfo, MemberInfo, MessageEvent } from '../../src/protocol/adapter.ts';
+import type { ChatInfo, MemberInfo, MessageEvent } from '../../src/protocol/adapter.ts';
 import { connectSocket } from '../../src/protocol/wire.ts';
 import { withCapturedLogs } from './capture-logs.ts';
 import { channelInfo, lineEvent } from './core-over-fake.ts';
@@ -26,7 +26,7 @@ export type Named = { id: string; name: string };
 /** What an interface says of itself in `hello.names`: its name, its nouns per kind of place, its word for a direct chat. */
 export type InterfaceNames = { interface: string; nouns: Record<string, string>; dm: string };
 export type Rig = {
-  connect: (name: string, communities: ReadonlyArray<Named>, names?: InterfaceNames) => Promise<Running>;
+  connect: (name: string, roots: ReadonlyArray<Named>, names?: InterfaceNames) => Promise<Running>;
   requests: Array<unknown>;
   dataDir: string;
   /** `sql` over the memory database, through a read-only connection. */
@@ -48,7 +48,7 @@ export async function withFakes(
         owners: settings.owners ?? [],
 
       },
-      private: { enabled: true, minAffinity: 0 },
+      dm: { enabled: true }, private: { minAffinity: 0 },
       models: { base: { video: false } },
       interfaces: { mode: 'units', drainMs: 2000 },
       pace: { settleMs: 0, settleMaxMs: 0 },
@@ -82,7 +82,7 @@ export async function withFakes(
     const started: Array<Running> = [];
     const connect = async (
       name: string,
-      communities: ReadonlyArray<Named>,
+      roots: ReadonlyArray<Named>,
       names?: InterfaceNames
     ): Promise<Running> => {
       const log = { info() {}, warn() {}, error() {}, debug() {} };
@@ -99,8 +99,8 @@ export async function withFakes(
         {
           adapter: createFakeAdapter({ iface: name, selfId: SELF.id }),
           self: SELF,
-          communities,
-          community: communities[0] ?? null,
+          roots,
+          root: roots[0] ?? null,
           ...(names === undefined ? {} : { names }),
         }
       );
@@ -138,31 +138,31 @@ export async function waitFor(check: () => boolean, what: string, ms = 6000): Pr
   }
 }
 
-/** What the persona posted in a conversation of this interface. */
-export const postedIn = (running: Running, conversation: string): Array<unknown> =>
+/** What the persona posted in a chat of this interface. */
+export const postedIn = (running: Running, chat: string): Array<unknown> =>
   running.adapter
-    .messagesIn(conversation)
+    .messagesIn(chat)
     .filter((message) => message.authorId === SELF.id)
     .map((message) => message.text);
 
-/** Every read of this interface that named community `id`, by method. */
+/** Every read of this interface that named root `id`, by method. */
 export const readsOf = (running: Running, id: string): Array<string> =>
   running.adapter.calls
     .filter((call) => call.args[0] === id || (call.args[0] as { placeId?: unknown } | null)?.placeId === id)
     .map((call) => call.op);
 
-export function seedRoom(running: Running, conversation: string, placeId: string): void {
-  running.adapter.seedConversation(channelInfo(conversation, { rootId: placeId, iface: running.iface }));
+export function seedRoom(running: Running, chat: string, placeId: string): void {
+  running.adapter.seedChat(channelInfo(chat, { rootId: placeId, iface: running.iface }));
 }
 
-export function seedDm(running: Running, conversation: string, partner: string): void {
-  const info: ConversationInfo = channelInfo(conversation, {
+export function seedDm(running: Running, chat: string, partner: string): void {
+  const info: ChatInfo = channelInfo(chat, {
     kind: 'dm',
     rootId: null,
     partnerId: partner,
     iface: running.iface,
   });
-  running.adapter.seedConversation(info);
+  running.adapter.seedChat(info);
 }
 
 export function seedPerson(running: Running, placeId: string, id: string, name: string): void {
@@ -179,29 +179,29 @@ export function seedPerson(running: Running, placeId: string, id: string, name: 
 /** A mention of the persona in a room of this interface, seeded into its history and emitted. */
 export async function mentionIn(
   running: Running,
-  conversation: string,
+  chat: string,
   placeId: string,
   id: string
 ): Promise<void> {
-  const line = lineEvent({ conversationId: conversation, id, text: 'Nova, hello', at: Date.now(), mention: true });
+  const line = lineEvent({ chatId: chat, id, text: 'Nova, hello', at: Date.now(), mention: true });
   const event: MessageEvent = {
     ...line,
     iface: running.iface,
     id: `${running.iface}:message:${id}`,
-    conversation: { ...line.conversation, rootId: placeId },
+    chat: { ...line.chat, rootId: placeId },
   };
   running.adapter.seedEvent(event);
   assert.equal(await running.emit(event), 'ok');
 }
 
 /** A direct message of `author` to the persona on this interface, seeded into its history and emitted. */
-export async function directIn(running: Running, conversation: string, author: string, id: string): Promise<void> {
-  const line = lineEvent({ conversationId: conversation, id, text: 'hello', at: Date.now(), authorId: author });
+export async function directIn(running: Running, chat: string, author: string, id: string): Promise<void> {
+  const line = lineEvent({ chatId: chat, id, text: 'hello', at: Date.now(), authorId: author });
   const event: MessageEvent = {
     ...line,
     iface: running.iface,
     id: `${running.iface}:message:${id}`,
-    conversation: { id: conversation, kind: 'dm', rootId: null, partnerId: author, name: 'Eleni' },
+    chat: { id: chat, kind: 'dm', rootId: null, partnerId: author, name: 'Eleni' },
   };
   running.adapter.seedEvent(event);
   assert.equal(await running.emit(event), 'ok');

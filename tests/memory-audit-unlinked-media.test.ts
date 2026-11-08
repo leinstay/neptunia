@@ -14,7 +14,7 @@ import { ALICE, AT, HER, fixture } from './fixtures/media-memory.ts';
 import type { Env } from './fixtures/media-memory.ts';
 import type { Row } from '../src/memory/db/types.ts';
 
-const CONVERSATION = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' };
+const CHAT = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' };
 const POSTED = 'https://tenor.example.invalid/view/spinning-cat';
 const TOLD = 'a grey cat spinning on a kitchen table';
 
@@ -33,7 +33,7 @@ function observed(env: Env, native: string, links: Array<Row>, edit = false): vo
   const event = {
     iface: 'discord',
     at: AT,
-    conversation: CONVERSATION,
+    chat: CHAT,
     ...(edit ? { edit: true } : {}),
     message: {
       id: native,

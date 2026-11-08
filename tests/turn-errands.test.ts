@@ -1,7 +1,7 @@
 // Tests for the persona's view of her errands in a turn (src/errands/blocks.ts, src/behavior/turn.ts)
 // and the turn an errand's end opens (src/errands/turns.ts): the `<errands>` block is in the
 // request's tail while she has an open or newly finished errand and gone when she has none; a
-// finished errand opens her own turn in the conversation it was asked in, with `<errand_result>`
+// finished errand opens her own turn in the chat it was asked in, with `<errand_result>`
 // (its text, its sources numbered, its files as handles), through the fake interface
 // (src/interface/fake.ts); a turn held back by the attention is tried again later.
 import { test } from 'node:test';
@@ -21,7 +21,7 @@ import { asRecord } from './fixtures/records.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
-// The conversations are held by a fake interface named `fake`.
+// The chats are held by a fake interface named `fake`.
 useIface('fake');
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
@@ -121,7 +121,7 @@ function fakeHot() {
       'character-card': 'You are friendly and terse.',
       format: 'Use <msg> and <react> tags.',
       reply: 'Someone called you: {{author}}.',
-      interject: 'Jump into the conversation.',
+      interject: 'Jump into the chat.',
       initiate: 'Start a topic.',
       labels,
     },
@@ -404,7 +404,7 @@ test('task turns: a finished errand opens her turn where it was asked, with <err
     turns,
     // @ts-expect-error: the fake errand service carries the few members a turn reads
     errands,
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     now: () => NOW,
   });
   const { result } = await withCapturedLogs(() =>
@@ -429,7 +429,7 @@ test('task turns: a finished errand opens her turn where it was asked, with <err
   assert.equal(asRecord(sends[0].args[1]).text, 'βρήκα κάτι');
   assert.deepEqual(
     asRecord(sends[0].args[1]).replyTo,
-    { iface: 'fake', conversationId: 'c1', messageId: 'm1' },
+    { iface: 'fake', chatId: 'c1', messageId: 'm1' },
     'her answer replies to the message that asked'
   );
   assert.deepEqual(errands.seen.at(-1), { ids: ['tab02'] });

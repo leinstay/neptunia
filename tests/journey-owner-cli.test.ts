@@ -99,7 +99,7 @@ before(async () => {
     journal: { inner: () => Promise.resolve(), read: () => [] },
     reads: turnWorld().reads,
     iface: () => 'fake',
-    conversationName: (id: string) => `chan-${id}`,
+    chatName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
@@ -128,7 +128,7 @@ before(async () => {
     memoryDb: memory.memoryDb,
     usage: null,
     metrics: { samples: () => [] },
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => clock.t,
     serviceManager: () => Promise.resolve({ code: 0, stdout: '', stderr: '' }),
     wakeClock: (name) =>

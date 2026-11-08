@@ -43,7 +43,7 @@ const REQUEST_TEXT = 'the system text, stored whole: ζωή';
 function seedDomains(db: Db): void {
   addAuthority(db, 'zeta', 'zeta/one');
   addPlace(db, { id: 'place:room', iface: 'zeta', authority: 'zeta/one' });
-  addPlace(db, { id: 'place:dm', iface: 'zeta', authority: 'zeta/one', conversation: 'dm', kind: 'dm' });
+  addPlace(db, { id: 'place:dm', iface: 'zeta', authority: 'zeta/one', chat: 'dm', kind: 'dm' });
   const line = { place: 'place:room', iface: 'zeta', audience: 'aud:group:zeta', nativeId: 'native-1' };
   addSource(db, { ...line, id: 'source:r0', revision: 0, text: 'first words' });
   addSource(db, { ...line, id: 'source:r1', revision: 1, text: 'edited words' });

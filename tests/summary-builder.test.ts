@@ -19,7 +19,7 @@ import { wrongly } from './fixtures/loose-types.ts';
 import { channel as channelInfo } from './fixtures/reads-rig.ts';
 import { eventOfLine, neutralSearch } from './fixtures/recall-lines.ts';
 import {
-  GUILD,
+  ROOT,
   NOW,
   PROMPT,
   RABBIT_LINES,
@@ -280,9 +280,9 @@ test('a recall whose summary answers none finds nothing', async () => {
   const { result } = await withCapturedLogs(() =>
     recaller.run(
       wrongly({
-        placeId: GUILD,
+        placeId: ROOT,
         channel: channelInfo('c9', { name: 'other', viewers: {} }),
-        snapshot: snapshotOf(GUILD, { conversations: [info], groups: [] }),
+        snapshot: snapshotOf(ROOT, { chats: [info], groups: [] }),
         partnerId: null,
         selfId: 'self',
         selfName: 'Zoë',

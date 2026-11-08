@@ -245,7 +245,7 @@ for (const [who, pick] of [
 }
 
 test('the DM partner reads their own private fact beside the public one', async () => {
-  // Bug: an over-tight filter hides a person's own memory in their own conversation.
+  // Bug: an over-tight filter hides a person's own memory in their own chat.
   const { world, lumen, pub, dm } = hubWithPrivateFacts();
   const page = await retrieve(world, world.contexts.alex, query('lumen', { anchors: [entityAnchor(lumen.entityId)] }));
   assert.ok(versionsOf(page).includes(pub.versionId));

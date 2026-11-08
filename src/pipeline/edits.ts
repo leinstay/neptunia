@@ -48,8 +48,8 @@ export type EditsContext = {
     recordGifs: (placeId: string, messages: Array<object>, opts: unknown) => number;
   } | null;
   reads: Reads;
-  /** A community some connected interface serves. */
-  isServedCommunity: (placeId: string | null | undefined) => boolean;
+  /** A root some connected interface serves. */
+  isServedRoot: (placeId: string | null | undefined) => boolean;
   selfIdOf: () => string;
   record: EditsRecord | null;
   now: () => number;
@@ -106,7 +106,7 @@ const codeOf = (err: unknown): unknown => (err as { code?: unknown } | null | un
 export function createEdits({
   store,
   reads,
-  isServedCommunity,
+  isServedRoot,
   selfIdOf,
   record,
   now,
@@ -131,7 +131,7 @@ export function createEdits({
    * (warmMediaCache). Nothing else: no trigger, no turn, no counters, no channel map,
    * no affinity. Without the earlier message (the interface did not hold it) what it carried is unknown: an
    * accepted miss, logged with counts only. Off with features.embedUpdates (a missing key counts as
-   * on), with features.memory off and while paused. Only the served community, a conversation outside threads
+   * on), with features.memory off and while paused. Only the served root, a chat outside threads
    * and a human author's message with media. Config read now. Never throws.
    * The edit event, a partial one read whole here.
    */
@@ -142,19 +142,17 @@ export function createEdits({
     try {
       const stateData = store?.state?.data;
       if (stateData?.paused) return;
-      const community = event.conversation.rootId ?? null;
-      if (!community || !isServedCommunity(community)) return;
-      const placeId = sharedPlaceOf(store, event.conversation, event.iface);
+      const root = event.chat.rootId ?? null;
+      if (!root || !isServedRoot(root)) return;
+      const placeId = sharedPlaceOf(store, event.chat, event.iface);
       let edited = event as MessageEvent;
       if (event.partial) {
-        const fetched = await reads.fetchMessages({ iface: event.iface, conversationId: event.conversation.id }, [
-          event.message.id,
-        ]);
+        const fetched = await reads.fetchMessages({ iface: event.iface, chatId: event.chat.id }, [event.message.id]);
         const message = fetched?.messages[0];
         const whole = message?.event;
         if (!whole) return;
         // The interface's event of the message, fetched whole.
-        edited = { ...(whole as MessageEvent), conversation: event.conversation, previous: event.previous ?? null };
+        edited = { ...(whole as MessageEvent), chat: event.chat, previous: event.previous ?? null };
       }
       const message = edited.message;
       if (message.system === true) return;
@@ -186,13 +184,13 @@ export function createEdits({
   }
 
   /**
-   * Whether the message of `event` may enter the record: a record injected, the served community, no system or other
-   * bot's message, a conversation outside threads.
+   * Whether the message of `event` may enter the record: a record injected, the served root, no system or other
+   * bot's message, a chat outside threads.
    */
   function recordable(event: MessageReceived): boolean {
     if (!record) return false;
-    const community = event.conversation?.rootId ?? null;
-    if (!community || !isServedCommunity(community)) return false;
+    const root = event.chat?.rootId ?? null;
+    if (!root || !isServedRoot(root)) return false;
     const message = event.message;
     if ('system' in message && message.system === true) return false;
     if (message?.author?.bot && message.author.self !== true) return false;
@@ -220,8 +218,8 @@ export function createEdits({
   async function recordEdit(event: MessageEvent, options?: MessageReadOptions): Promise<void> {
     try {
       if (event.partial || !recordable(event)) return;
-      // recordable holds only for the served community.
-      const placeId = sharedPlaceOf(store, event.conversation, event.iface);
+      // recordable holds only for the served root.
+      const placeId = sharedPlaceOf(store, event.chat, event.iface);
       if (event.previous && sourceTextOf(event.previous) === sourceTextOf(event.message)) {
         if (bringsMedia(event, event.previous)) await observeLine(event, false, { placeId }, options?.acceptedEvent);
         return;
@@ -233,7 +231,7 @@ export function createEdits({
         revisions.clear();
         revisionsDay = day;
       }
-      const key = JSON.stringify([event.iface, event.conversation.id, normalized.id]);
+      const key = JSON.stringify([event.iface, event.chat.id, normalized.id]);
       const revision = (revisions.get(key) ?? 1) + 1;
       revisions.set(key, revision);
       const slim = slimMessage(normalized, false);
@@ -251,7 +249,7 @@ export function createEdits({
             messages: [
               {
                 lineId: line.id,
-                locator: { iface: event.iface, conversationId: event.conversation.id, messageId: normalized.id },
+                locator: { iface: event.iface, chatId: event.chat.id, messageId: normalized.id },
                 observedSourceId: done.sourceId,
               },
             ],
@@ -287,12 +285,12 @@ export function createEdits({
       const message = event?.message;
       const id = message?.id;
       if (!id || !recordable(event)) return;
-      // recordable holds only for the served community.
-      const placeId = sharedPlaceOf(store, event.conversation, event.iface);
+      // recordable holds only for the served root.
+      const placeId = sharedPlaceOf(store, event.chat, event.iface);
       const line = toRecordLine(
         {
           id: String(id),
-          placeId: event.conversation.id,
+          placeId: event.chat.id,
           authorId: message.author?.id ?? null,
           ts: typeof message.at === 'number' && Number.isFinite(message.at) && message.at > 0 ? message.at : now(),
         },
@@ -310,7 +308,7 @@ export function createEdits({
               messages: [
                 {
                   lineId: line.id,
-                  locator: { iface: event.iface, conversationId: event.conversation.id, messageId: String(id) },
+                  locator: { iface: event.iface, chatId: event.chat.id, messageId: String(id) },
                   observedSourceId: done.sourceId,
                 },
               ],

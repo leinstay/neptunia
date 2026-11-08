@@ -227,7 +227,7 @@ test('record: append writes to the day of occurredAt under the month directory a
   const day1 = unitLines(memoryDb, 'guilds/g1/record/2026-10/2026-10-11.jsonl');
   assert.equal(day1.length, 1);
   assert.equal(day1[0].messageId, 'm1');
-  // The line no longer spells its community: the unit's key names the place.
+  // The line no longer spells its root: the unit's key names the place.
   assert.deepEqual(
     unitLines(memoryDb, 'guilds/g1/record/2026-10/2026-10-12.jsonl').map((l) => l.messageId),
     ['m2']

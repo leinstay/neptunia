@@ -305,7 +305,7 @@ test('keeps the two privacy switches under private and one budget entry per fiel
     'a renamed or wildcard key is missing'
   );
   const file = tracked();
-  assert.equal(at(file, 'private.enabled'), false, 'private chat stays off in the tracked defaults');
+  assert.equal(at(file, 'dm.enabled'), false, 'private chat stays off in the tracked defaults');
   assert.equal(at(file, 'private.likeServer'), true);
 });
 

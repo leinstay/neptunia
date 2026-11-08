@@ -244,7 +244,7 @@ test('querySupport: the terms and phrases of a query found in texts, by key', ()
   assert.deepEqual(querySupport(index, ['dog'], null), { terms: 0, phrases: 0 });
 });
 
-test('recordIndexOf: built once per record and guild, refreshed in the background from before its last check, rebuilt whole later', async () => {
+test('recordIndexOf: built once per record and root, refreshed in the background from before its last check, rebuilt whole later', async () => {
   const lines = [line('a1', 1, 'first words')];
   const queries: Array<{ from?: string }> = [];
   const record = {
@@ -279,7 +279,7 @@ test('recordIndexOf: built once per record and guild, refreshed in the backgroun
   );
   assert.equal(first.alive, 2, 'the new line folded in');
   const other = await recordIndexOf(record, 'g2', { now });
-  assert.notEqual(other, first, 'one index per guild');
+  assert.notEqual(other, first, 'one index per root');
   // A private chat's record is its own place's, so it has an index of its own.
   const owner = await recordIndexOf(record, 'dm-u5', { now });
   assert.notEqual(owner, first);

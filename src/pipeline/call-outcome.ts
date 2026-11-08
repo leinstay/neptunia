@@ -7,7 +7,7 @@
 
 import { postLimitNotice } from '../behavior/limits.ts';
 import type { Reads } from '../interface/reads.ts';
-import type { ConversationRef } from './conversations.ts';
+import type { ChatRef } from './chats.ts';
 import type { Conv, Line, PipelineHot, TriggerKind, TurnResult } from './types.ts';
 
 /** A rail's limit as the notice quotes it (src/behavior/limits.ts#postLimitNotice). */
@@ -16,11 +16,11 @@ export type NoticeLimit = Parameters<typeof postLimitNotice>[0]['limit'];
 /** What became of a held call while it waited (heldCallState). */
 export type HeldState = true | 'gone' | 'error';
 
-/** What createCallOutcome reads: the dependencies of createMessageHandler and the conversation reference. */
+/** What createCallOutcome reads: the dependencies of createMessageHandler and the chat reference. */
 export type CallOutcomeContext = {
   hot: PipelineHot;
   reads: Reads;
-  refOf: (channel: Conv) => ConversationRef;
+  refOf: (channel: Conv) => ChatRef;
   port: Parameters<typeof postLimitNotice>[0]['port'];
 };
 

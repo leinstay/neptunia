@@ -40,7 +40,7 @@ function envOf(skills: SkillsPort | null) {
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     board: null,
     skills,
   });
@@ -53,7 +53,7 @@ async function callOf(skills: SkillsPort | null, name: string, args: Record<stri
     runOpPrechecked(name, args, {
       env,
       placeId: 'g1',
-      conversationId: 'c1',
+      chatId: 'c1',
       accountId: null,
       roleIds: [],
       actor: 'persona',
@@ -166,7 +166,7 @@ test('skill.run runs the activated version only, with the credentials its script
       runOpPrechecked('skill.run', args, {
         env,
         placeId: 'g1',
-        conversationId: 'c1',
+        chatId: 'c1',
         accountId: null,
         roleIds: [],
         actor: 'persona',

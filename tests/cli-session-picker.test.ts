@@ -116,7 +116,7 @@ test('the mounted picker keeps the draft, and Enter on its row resumes without a
   // Bug: `/sessions` goes to her as a message, or closing the picker loses the draft.
   const { client, calls } = clientOf();
   const { env, sent } = chatEnv({
-    commands: [{ name: 'sessions', help: 'conversations' }],
+    commands: [{ name: 'sessions', help: 'chats' }],
     panelOf: async (line) => (line === '/sessions' ? sessionsPanel(client) : null),
   });
   await withChat(env, async (rig) => {

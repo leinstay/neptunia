@@ -116,7 +116,7 @@ function fakeHot(configOverrides: Record<string, unknown> = {}) {
       'character-card': 'You are friendly and terse.',
       format: 'Use <msg> and <react> tags.',
       reply: 'Someone called you: {{author}}.',
-      interject: 'Jump into the conversation.',
+      interject: 'Jump into the chat.',
       initiate: 'Start a topic.',
       memory: 'Summarize what happened.',
       labels,

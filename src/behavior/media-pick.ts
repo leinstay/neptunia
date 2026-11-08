@@ -304,7 +304,7 @@ type PickLlm = {
 
 /** What one pick reads of the turn. */
 export type MediaPickArgs = {
-  /** The conversation the reply goes to, by the id the interface gives it. */
+  /** The chat the reply goes to, by the id the interface gives it. */
   placeId: string;
   /** What the interface declares (src/interface/capabilities.ts#portMediaPick); a form it does not know is never offered. */
   capability: {
@@ -374,12 +374,12 @@ export function createMediaPick({
   embedQuery?: ((text: string) => Promise<ArrayLike<number> | null>) | null;
 }): MediaPick {
   /** The vector of the search's query; a failure leaves the words alone. */
-  async function queryVector(text: string, conversationId: string): Promise<ArrayLike<number> | null> {
+  async function queryVector(text: string, chatId: string): Promise<ArrayLike<number> | null> {
     if (!embedQuery) return null;
     try {
       return await embedQuery(text);
     } catch (err) {
-      log.info('media-pick: no vector', { channel: conversationId, reason: railReason(err) });
+      log.info('media-pick: no vector', { channel: chatId, reason: railReason(err) });
       return null;
     }
   }
@@ -446,7 +446,7 @@ export function createMediaPick({
     system: string,
     user: string,
     settings: MediaPickSettings,
-    conversationId: string,
+    chatId: string,
     offer: MediaPickOffer
   ) {
     const config = hot.config;
@@ -469,7 +469,7 @@ export function createMediaPick({
       return textOf(completion);
     } catch (err) {
       log.warn('media-pick: failed', {
-        channel: conversationId,
+        channel: chatId,
         reason: railReason(err),
         // A thrown value is anything; an HTTP error of the client carries its status.
         status: (err as { statusCode?: unknown } | null)?.statusCode ?? null,

@@ -1,14 +1,14 @@
-// The pieces the tools-on-the-reads tests share: the fake adapter (src/interface/fake.ts) seeded with a community, the
-// core's wrapper over its reads (src/interface/reads.ts), and builders for the conversations and the whole
+// The pieces the tools-on-the-reads tests share: the fake adapter (src/interface/fake.ts) seeded with a root, the
+// core's wrapper over its reads (src/interface/reads.ts), and builders for the chats and the whole
 // `message.received` events a read returns. A test seeds what it needs, runs the code under test on `reads`, and
 // reads what reached the adapter from `fake.calls` (one entry per read, under the method's name).
-import type { ConversationInfo, MemberInfo, MessageEvent, Permissions } from '../../src/protocol/adapter.ts';
+import type { ChatInfo, MemberInfo, MessageEvent, Permissions } from '../../src/protocol/adapter.ts';
 import { createReads } from '../../src/interface/reads.ts';
 import { createFakeAdapter } from '../../src/interface/fake.ts';
 
 export const IFACE = 'fake';
 export const SELF_ID = 'self-id';
-export const COMMUNITY = 'g1';
+export const ROOT = 'g1';
 export const ALL_PERMISSIONS: Permissions = { read: true, send: true, attach: true, react: true };
 
 type Fake = ReturnType<typeof createFakeAdapter>;
@@ -45,12 +45,12 @@ export function rig(options: { reads?: ReadonlyArray<string>; selfId?: string } 
   };
 }
 
-/** A channel of the community the persona can read, write in, attach to and react in; everyone can view it. */
-export function channel(id: string, extra: Partial<ConversationInfo> & { communityId?: string } = {}): ConversationInfo {
+/** A channel of the root the persona can read, write in, attach to and react in; everyone can view it. */
+export function channel(id: string, extra: Partial<ChatInfo> = {}): ChatInfo {
   return {
     id,
     kind: 'channel',
-    rootId: COMMUNITY,
+    rootId: ROOT,
     name: `room-${id}`,
     topic: null,
     iface: IFACE,
@@ -72,8 +72,8 @@ export function channel(id: string, extra: Partial<ConversationInfo> & { communi
   };
 }
 
-/** A channel only the named members can view, nobody else of the community. */
-export function privateChannel(id: string, accountIds: Array<string>): ConversationInfo {
+/** A channel only the named members can view, nobody else of the root. */
+export function privateChannel(id: string, accountIds: Array<string>): ChatInfo {
   return channel(id, {
     public: false,
     audience: {
@@ -88,17 +88,17 @@ export function privateChannel(id: string, accountIds: Array<string>): Conversat
   });
 }
 
-/** One member of the community, as `memberInfo` answers it. */
+/** One member of the root, as `memberInfo` answers it. */
 export function member(id: string, name: string, extra: Partial<MemberInfo> = {}): MemberInfo {
   return { id, name, bot: false, groupIds: [], avatar: { hash: null, url: null, largeUrl: null }, ...extra };
 }
 
 /**
- * The `message.received` event of a message in `conversation`. `text` is what the chat shows (`content`),
+ * The `message.received` event of a message in `chat`. `text` is what the chat shows (`content`),
  * `sourceText` the text as written in the core's grammar, which defaults to `text`.
  */
 export function message(
-  conversation: ConversationInfo,
+  chat: ChatInfo,
   id: string,
   at: number,
   text: string,
@@ -110,11 +110,11 @@ export function message(
     iface: IFACE,
     at,
     id: `${IFACE}:message:${id}`,
-    conversation: {
-      id: conversation.id,
-      kind: conversation.kind,
-      rootId: conversation.rootId,
-      name: conversation.name,
+    chat: {
+      id: chat.id,
+      kind: chat.kind,
+      rootId: chat.rootId,
+      name: chat.name,
     },
     message: {
       id,
@@ -133,6 +133,6 @@ export function message(
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
   };
 }

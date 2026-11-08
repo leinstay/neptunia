@@ -416,8 +416,7 @@ test('ten mirrors pace independently, one blocked or offline holding back none o
   scene.place({ iface: 'gone', native: 'd9' });
   for (let i = 1; i <= 2; i += 1) scene.entry({ id: `e${i}`, at: T0 - (3 - i) * HOUR, position: i });
   scene.disconnect('gone');
-  scene.transport().behave = (attempt) =>
-    attempt.conversationId === 'd3' ? { refuse: 'channel-no-permission' } : 'deliver';
+  scene.transport().behave = (attempt) => (attempt.chatId === 'd3' ? { refuse: 'channel-no-permission' } : 'deliver');
   const mirrors = scene.publisher();
   for (let i = 0; i < 9; i += 1)
     await mirrors.addMirror({

@@ -16,7 +16,7 @@ import { createFakeAdapter } from '../../src/interface/fake.ts';
 import { channelPlaceId, } from '../../src/memory/db/ids.ts';
 import { insertRows } from '../../src/memory/db/rows.ts';
 import type { Content } from '../../src/protocol/actions.ts';
-import type { ConversationRef, Delivery, SendOptions } from '../../src/protocol/adapter.ts';
+import type { ChatRef, Delivery, SendOptions } from '../../src/protocol/adapter.ts';
 import { dbOf } from './selfreflection-mirror.ts';
 import { openTestMemory } from './memory-db/service.ts';
 
@@ -42,7 +42,7 @@ export type Behaviour =
   | { refuse: string; retryable?: boolean };
 
 /** One send the publisher asked for, whatever came of it. */
-export type Attempt = { conversationId: string; text: string; files: number; key: string | undefined };
+export type Attempt = { chatId: string; text: string; files: number; key: string | undefined };
 
 const delivery = (status: Delivery['status'], code: string, retryable = false): Delivery => ({
   status,
@@ -71,8 +71,8 @@ export function createTransport(iface: string, { now, reconcile = false }: { now
     onDelivered: () => {},
     /** Called as a send starts, before anything reaches the platform. */
     onSend: (() => {}) as (attempt: Attempt) => void,
-    /** What reached the platform in `conversationId`, in order. */
-    posted: (conversationId: string): Array<string> => fake.messagesIn(conversationId).map((message) => message.text),
+    /** What reached the platform in `chatId`, in order. */
+    posted: (chatId: string): Array<string> => fake.messagesIn(chatId).map((message) => message.text),
     /** Makes every send wait until the answered function is called. */
     hold(): () => void {
       const gate = Promise.withResolvers<void>();
@@ -84,9 +84,9 @@ export function createTransport(iface: string, { now, reconcile = false }: { now
     },
     capabilities: () => fake.capabilities(),
     fetchMessages: fake.fetchMessages.bind(fake),
-    async send(conversation: ConversationRef, content: Content, options?: SendOptions): Promise<Delivery> {
+    async send(chat: ChatRef, content: Content, options?: SendOptions): Promise<Delivery> {
       const attempt: Attempt = {
-        conversationId: conversation.conversationId,
+        chatId: chat.chatId,
         text: content.text ?? '',
         files: content.attachments?.length ?? 0,
         key: options?.idempotencyKey,
@@ -99,7 +99,7 @@ export function createTransport(iface: string, { now, reconcile = false }: { now
       if (behaviour === 'throw') throw Object.assign(new Error('link dropped'), { code: 'LINK_DROPPED' });
       if (behaviour === 'never-sent') return delivery('unknown', 'timeout');
       if (typeof behaviour === 'object') return delivery('failed', behaviour.refuse, behaviour.retryable ?? false);
-      const sent = await fake.send(conversation, content, options);
+      const sent = await fake.send(chat, content, options);
       transport.onDelivered();
       if (behaviour === 'lost-answer') return delivery('unknown', 'timeout');
       if (behaviour === 'hang-after-delivery') return new Promise<Delivery>(() => {});
@@ -113,8 +113,8 @@ export function createTransport(iface: string, { now, reconcile = false }: { now
 
 export type Transport = ReturnType<typeof createTransport>;
 
-/** A place of the scene: a channel or a guild of an interface, under a parent place when it has one. */
-export type PlaceSpec = { iface: string; native: string; kind?: 'channel' | 'guild' | 'dm'; parent?: string | null };
+/** A place of the scene: a channel or a root of an interface, under a parent place when it has one. */
+export type PlaceSpec = { iface: string; native: string; kind?: 'channel' | 'root' | 'dm'; parent?: string | null };
 
 /** A diary row of the scene. `legacy` leaves the audience out, as a row from before the audience has none. */
 export type EntrySpec = {
@@ -184,7 +184,7 @@ export async function mirrorScene({
 
   /** One place row; answers its id. */
   function place({ iface, native, kind = 'channel', parent = null }: PlaceSpec): string {
-    const id = kind === 'guild' ? legacyServerPlaceId(iface, native) : kind === 'dm' ? `${iface}:dm:${native}` : channelPlaceId(iface, native);
+    const id = kind === 'root' ? legacyServerPlaceId(iface, native) : kind === 'dm' ? `${iface}:dm:${native}` : channelPlaceId(iface, native);
     const scope_kind = kind === 'dm' ? 'dm' : 'group';
     insertRows(
       db,
@@ -264,7 +264,7 @@ export async function mirrorScene({
       memoryDb: memory.memoryDb,
       usage: null,
       metrics: null,
-      conversationLines: () => [],
+      chatLines: () => [],
       now,
       mirrors,
     };

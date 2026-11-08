@@ -300,7 +300,7 @@ async function branchPanel(line: string, client: SessionClient, run: Run): Promi
   const current = await run({ name: 'session.current', args: {} });
   const session = current.status === 'ok' ? (JSON.parse(current.text) as { id: string } | null) : null;
   return session === null
-    ? { title: 'Branch', lines: ['No conversation is stored yet.'], rows: [] }
+    ? { title: 'Branch', lines: ['No chat is stored yet.'], rows: [] }
     : boundaryPanel(client, session.id);
 }
 

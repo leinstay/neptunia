@@ -45,7 +45,7 @@ const META_KEY = /^memory_session\.(cursor|pending)\.([^.]+)\.(.+)$/;
 const countOf = (db: Db, from: string): number => Number(db.prepare(`SELECT COUNT(*) AS n ${from}`).get()?.n);
 
 const dmPlaces = (db: Db): Array<Row> =>
-  db.prepare("SELECT id, iface, partner_person FROM places WHERE conversation = 'dm' OR kind = 'dm' ORDER BY id").all();
+  db.prepare("SELECT id, iface, partner_person FROM places WHERE chat = 'dm' OR kind = 'dm' ORDER BY id").all();
 
 /** The rows of a DM place whose `scope_dm` is not the partner it names. */
 function strayRows(db: Db, place: Row): number {

@@ -671,8 +671,8 @@ async function runInkChat(
       { name: 'attach open', help: 'Open the newest image she sent' },
       { name: 'attach save', help: 'Save the newest image she sent to a file' },
       { name: 'queue', help: 'Cancel the turn over a line that still waits' },
-      { name: 'sessions', help: 'List stored conversations and resume one' },
-      { name: 'branch', help: 'Continue this conversation from an earlier line' },
+      { name: 'sessions', help: 'List stored chats and resume one' },
+      { name: 'branch', help: 'Continue this chat from an earlier line' },
       { name: 'checkpoints', help: "Preview and restore a development task's files" },
       { name: 'approvals', help: 'Approve or reject what waits on the task board' },
       { name: 'context', help: 'The route, the model and the request limit of her turns' },
@@ -716,7 +716,7 @@ async function runInkChat(
       coreRestarted = listeners.coreRestarted;
       showView = listeners.view;
       void followTurns();
-      // The conversation starts as its root: a new process holds no branch's lines.
+      // The chat starts as its root: a new process holds no branch's lines.
       void link.ask({ name: 'session.open', args: {} });
     },
     saveHistory(_lines, added) {

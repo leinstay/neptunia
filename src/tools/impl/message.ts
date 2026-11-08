@@ -7,9 +7,9 @@
 // only the members it mentions (`context.mentionAccountIds`) are notified, under each one's ping
 // state as a turn's messages are (src/turn/mentions.ts#mentionsUnderPings). Edit,
 // delete and react go through the interface too. The rules live here, for every caller: a post,
-// an edit, a deletion or a reaction in the conversation the command runs in, or in any text
+// an edit, a deletion or a reaction in the chat the command runs in, or in any text
 // channel of the served place where the bot holds the platform permissions it needs
-// (src/tools/impl/shared.ts#postingConversation; a person may ask for her turn in any channel); edit and
+// (src/tools/impl/shared.ts#postingChat; a person may ask for her turn in any channel); edit and
 // delete reach only her own messages (the port refuses anyone else's). A message is named by its
 // id or its link; for an edit or a deletion also by `last`, her own most recent message in that
 // channel. A port answer that may have taken effect is `failed` with `data.unknown` true:
@@ -28,40 +28,40 @@
 import { skillOutputFile } from '../../skills/run.ts';
 import fsp from 'node:fs/promises';
 import { bindPublicationPort, publicationRefusal } from '../publication.ts';
-import { messageRefOf, portAnswer, postingConversation, postingRef } from './shared.ts';
+import { messageRefOf, portAnswer, postingChat, postingRef } from './shared.ts';
 import { heldPort } from '../send-hold.ts';
 import { defineOp, perEnv, invalid, denied } from './registry.ts';
 import { freshAttachmentUrl, gifPostUrl } from '../../media/gif-post.ts';
 import { CODE } from '../codes.ts';
 import { idText, objOf, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
-import type { Adapter, ConversationRef } from '../../protocol/adapter.ts';
+import type { Adapter, ChatRef } from '../../protocol/adapter.ts';
 import type { Content } from '../../protocol/actions.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { Env } from './env.ts';
 import { mentionsUnderPings } from '../../turn/mentions.ts';
 import type { PingState } from '../../memory/pings.ts';
 
-/** The conversation `conversationId` names, checked for what `need` asks there (src/tools/impl/shared.ts#postingConversation). */
-function checkedConversation(
+/** The chat `chatId` names, checked for what `need` asks there (src/tools/impl/shared.ts#postingChat). */
+function checkedChat(
   env: Env,
   p: Adapter,
   context: OpContext,
-  conversationId: string | null,
-  need: Parameters<typeof postingConversation>[0]['need']
+  chatId: string | null,
+  need: Parameters<typeof postingChat>[0]['need']
 ): Promise<string> {
-  return postingConversation({
+  return postingChat({
     reads: env.reads,
     store: env.store,
     iface: p.iface,
-    conversationId,
+    chatId,
     context,
     need,
   });
 }
 
 /**
- * The conversation `placeId` names (a conversation of the persona's interface or a place id of any interface), checked
+ * The chat `placeId` names (a chat of the persona's interface or a place id of any interface), checked
  * for what a post (a reply when `reply`) needs there.
  */
 function postTarget(
@@ -70,9 +70,9 @@ function postTarget(
   context: OpContext,
   placeId: string | null,
   reply: boolean
-): Promise<ConversationRef> {
+): Promise<ChatRef> {
   const need = reply ? 'reply' : 'send';
-  return postingRef({ reads: env.reads, store: env.store, iface: p.iface, conversationId: placeId, context, need });
+  return postingRef({ reads: env.reads, store: env.store, iface: p.iface, chatId: placeId, context, need });
 }
 
 /**
@@ -109,14 +109,14 @@ function isLast(value: unknown): boolean {
 /** A file a post carries, read for upload. */
 type Upload = { name: string; data: Uint8Array; contentType?: string };
 
-/** What the bot needs to be allowed in the conversation an operation acts in (src/tools/impl/shared.ts#CHANNEL_NEEDS). */
-type Need = Parameters<typeof postingConversation>[0]['need'];
+/** What the bot needs to be allowed in the chat an operation acts in (src/tools/impl/shared.ts#CHANNEL_NEEDS). */
+type Need = Parameters<typeof postingChat>[0]['need'];
 
-/** The message an operation acts on and the conversation it is in. */
+/** The message an operation acts on and the chat it is in. */
 type Target = {
   placeId: string;
   messageId: string;
-  ref: { iface: string; conversationId: string; messageId: string };
+  ref: { iface: string; chatId: string; messageId: string };
 };
 
 /** The core's reads of the interface, or an Error naming what is missing. */
@@ -143,7 +143,7 @@ async function errandFile(
   const file = skillFile
     ? skillFile
     : typeof env.errands?.fileOf === 'function'
-      ? env.errands.fileOf({ placeId: env.resolvedPlaceId(context), handle, privateChannelId: placeId })
+      ? env.errands.fileOf({ placeId: env.resolvedPlaceId(context), handle, dmChatId: placeId })
       : null;
   if (file?.expired) throw invalid(`files of ${handle} have expired`, CODE.FILE_EXPIRED);
   if (!file) throw invalid(`no file ${handle}`, CODE.UNKNOWN_FILE);
@@ -203,8 +203,8 @@ const handlers = perEnv((env) => {
     if (textOf(args.file).trim() || textOf(args.gif).trim())
       throw invalid('one attachment per post', CODE.INVALID_ARGS);
     const ref = await messageRefOf(raw, reads);
-    const sourceId = await checkedConversation(env, p, context, ref.placeId, 'read');
-    const found = await needReads(reads).fetchMessages({ iface: p.iface, conversationId: sourceId }, [ref.messageId]);
+    const sourceId = await checkedChat(env, p, context, ref.placeId, 'read');
+    const found = await needReads(reads).fetchMessages({ iface: p.iface, chatId: sourceId }, [ref.messageId]);
     const message = found?.messages[0] ?? null;
     if (message?.missing === true) throw invalid(`message ${ref.messageId} was deleted`, CODE.MESSAGE_DELETED);
     if (!message?.event) throw invalid(`no message ${ref.messageId} in ${sourceId}`, CODE.UNKNOWN_MESSAGE);
@@ -259,7 +259,7 @@ const handlers = perEnv((env) => {
     if (given && reply?.placeId && given !== reply.placeId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const to = await postTarget(env, p, context, given ?? reply?.placeId ?? null, reply !== null);
-    const { conversationId } = to;
+    const { chatId } = to;
     const mentions = mentionsUnderPings({
       users: mentionedUsers(context),
       repliedAuthorId: context?.repliedAuthorId ? idText(context.repliedAuthorId) : null,
@@ -267,7 +267,7 @@ const handlers = perEnv((env) => {
       stateOf: pingStates(env, context),
     });
     const entry = gifEntry(env, args);
-    const attachment = (await errandFile(env, args, context, conversationId, p)) ?? (await mediaFile(args, context, p));
+    const attachment = (await errandFile(env, args, context, chatId, p)) ?? (await mediaFile(args, context, p));
     const content: Content = {
       text,
       ...(attachment ? { attachments: [attachment] } : {}),
@@ -278,11 +278,7 @@ const handlers = perEnv((env) => {
     if (text || attachment) {
       result = await p.send(to, content);
       if (result?.status !== 'ok' || !entry)
-        return portAnswer(
-          'message.create',
-          result,
-          `sent in ${conversationId} (message ${result?.ref?.messageId ?? '?'})`
-        );
+        return portAnswer('message.create', result, `sent in ${chatId} (message ${result?.ref?.messageId ?? '?'})`);
     }
     const sent = await postGif(p, to, entry, text || attachment ? null : content);
     if (sent?.status !== 'ok')
@@ -300,7 +296,7 @@ const handlers = perEnv((env) => {
         : portAnswer('message.create', sent, '');
     const ref = result?.ref ?? sent.ref;
     return {
-      text: `sent in ${conversationId} (message ${ref?.messageId ?? '?'})${text || attachment ? ' and a GIF' : ''}`,
+      text: `sent in ${chatId} (message ${ref?.messageId ?? '?'})${text || attachment ? ' and a GIF' : ''}`,
       ref: ref ?? null,
       at: (result ?? sent).at,
     };
@@ -311,7 +307,7 @@ const handlers = perEnv((env) => {
    * attachment. Counted once sent and stamped on its entry. A GIF-only post carries the reply
    * and mentions (`lead`); one after a text carries none.
    */
-  async function postGif(p: Adapter, to: ConversationRef, entry: Untyped, lead: Content | null): Promise<Untyped> {
+  async function postGif(p: Adapter, to: ChatRef, entry: Untyped, lead: Content | null): Promise<Untyped> {
     const fresh =
       entry.kind === 'attachment'
         ? await freshAttachmentUrl({
@@ -325,8 +321,7 @@ const handlers = perEnv((env) => {
       : { text: gifPostUrl(entry as { url: string }, fresh), mentions: { users: [], repliedUser: false } };
     const sent = await p.send(to, content);
     if (sent?.status === 'ok') {
-      if (entry.key && typeof store.recordOwnGif === 'function')
-        store.recordOwnGif(to.conversationId, entry.key, clock());
+      if (entry.key && typeof store.recordOwnGif === 'function') store.recordOwnGif(to.chatId, entry.key, clock());
     }
     return sent;
   }
@@ -346,7 +341,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * The message `args.messageId` names, in the conversation it may be acted on in -- the bot
+   * The message `args.messageId` names, in the chat it may be acted on in -- the bot
    * holding there the permissions `need` names (src/tools/impl/shared.ts#CHANNEL_NEEDS): `{ placeId, ref }`.
    */
   async function target(
@@ -361,23 +356,23 @@ const handlers = perEnv((env) => {
     const given = args.placeId ? idText(args.placeId) : null;
     if (given && message.placeId && given !== message.placeId)
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
-    const placeId = await checkedConversation(env, p, context, given ?? message.placeId, need);
+    const placeId = await checkedChat(env, p, context, given ?? message.placeId, need);
     return {
       placeId,
       messageId: message.messageId,
-      ref: { iface: p.iface, conversationId: placeId, messageId: message.messageId },
+      ref: { iface: p.iface, chatId: placeId, messageId: message.messageId },
     };
   }
 
   /**
    * `last`'s target: the persona's own most recent message among the last LAST_LOOKBACK of the
-   * conversation (`args.placeId`, else the one the command runs in), read through the interface;
+   * chat (`args.placeId`, else the one the command runs in), read through the interface;
    * none of hers there is `invalid` with `no-own-message`.
    */
   async function lastTarget(args: Obj, context: OpContext, need: Need): Promise<Target> {
     const p = requirePort();
-    const placeId = await checkedConversation(env, p, context, args.placeId ? idText(args.placeId) : null, need);
-    const page = await needReads(reads).history({ iface: p.iface, conversationId: placeId }, { limit: LAST_LOOKBACK });
+    const placeId = await checkedChat(env, p, context, args.placeId ? idText(args.placeId) : null, need);
+    const page = await needReads(reads).history({ iface: p.iface, chatId: placeId }, { limit: LAST_LOOKBACK });
     let newest: NonNullable<typeof page>['events'][number] | null = null;
     for (const event of page?.events ?? []) {
       const { message } = event;
@@ -387,7 +382,7 @@ const handlers = perEnv((env) => {
     if (!newest)
       throw invalid(`no message of the persona among the last ${LAST_LOOKBACK} in ${placeId}`, CODE.NO_OWN_MESSAGE);
     const messageId = idText(newest.message?.id);
-    return { placeId, messageId, ref: { iface: p.iface, conversationId: placeId, messageId } };
+    return { placeId, messageId, ref: { iface: p.iface, chatId: placeId, messageId } };
   }
 
   /** `/nep message edit`: one of the persona's own messages gets `text`. */

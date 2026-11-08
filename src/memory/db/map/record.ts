@@ -65,7 +65,7 @@ export function toRows(rel: string, line: Row, ctx: MapContext = {}): Rows {
         origin: 'record-v1',
         iface,
         messageId: line.messageId,
-        conversationId: (line.scope as OldScope | undefined)?.channel,
+        chatId: (line.scope as OldScope | undefined)?.channel,
       },
       iface
     );

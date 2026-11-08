@@ -4,28 +4,28 @@
 // The test that spawned the runner drives it over the child's IPC channel, so no platform is involved anywhere.
 //
 // Requests from the test carry an `id` and an `op`:
-// - `seed-conversation` stores a conversation the core may read (`info`), answered `{ id, op: 'done' }`;
+// - `seed-chat` stores a chat the core may read (`info`), answered `{ id, op: 'done' }`;
 // - `emit` stores the message of a `message.received` event in the fake's history and emits the event; it is
 //   answered `{ id, op: 'queued' }` as soon as the emit call returned, and `{ id, op: 'acked', status }` when the
 //   core's ack arrives;
-// - `posted` answers `{ id, op: 'posted', texts }`, what the persona sent to a conversation, in order;
+// - `posted` answers `{ id, op: 'posted', texts }`, what the persona sent to a chat, in order;
 // - `hold` makes every later send wait, and `release` lets the waiting ones go; a send that starts waiting is told
 //   as `{ op: 'held' }`.
 // Once `start` resolved, the fixture tells `{ op: 'started' }`.
 
-import type { ConversationInfo, MessageEvent, MemberInfo } from '../../../../src/protocol/adapter.ts';
+import type { ChatInfo, MessageEvent, MemberInfo } from '../../../../src/protocol/adapter.ts';
 import type { InterfaceHost, RunningInterface } from '../../../../src/protocol/host.ts';
 import { start as startFake } from '../../../../src/interface/fake-interface.ts';
 
-/** The persona and the community of tests/fixtures/core-over-fake.ts, so its events name her. */
+/** The persona and the root of tests/fixtures/core-over-fake.ts, so its events name her. */
 const SELF = { id: 'self-id', name: 'Nova' };
-const COMMUNITY = { id: 'g1', name: 'Alpha' };
+const ROOT = { id: 'g1', name: 'Alpha' };
 
 type Request =
-  | { id: number; op: 'seed-conversation'; info: ConversationInfo }
+  | { id: number; op: 'seed-chat'; info: ChatInfo }
   | { id: number; op: 'seed-member'; rootId: string; member: MemberInfo }
   | { id: number; op: 'emit'; event: MessageEvent }
-  | { id: number; op: 'posted'; conversationId: string }
+  | { id: number; op: 'posted'; chatId: string }
   | { id: number; op: 'hold' }
   | { id: number; op: 'release' };
 
@@ -43,7 +43,7 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
   if (tell === undefined) {
     throw new Error('the fake unit fixture runs only as a child process with an IPC channel; spawn it with "ipc"');
   }
-  const running = await startFake(host, { self: SELF, community: COMMUNITY });
+  const running = await startFake(host, { self: SELF, root: ROOT });
   const fake = running.adapter;
 
   // The gate of `hold`: every send that starts while it is set waits for `release`.
@@ -62,8 +62,8 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
     const request = requestOf(raw);
     if (request === null) return;
     switch (request.op) {
-      case 'seed-conversation':
-        fake.seedConversation(request.info);
+      case 'seed-chat':
+        fake.seedChat(request.info);
         tell({ id: request.id, op: 'done' });
         return;
       case 'seed-member':
@@ -79,7 +79,7 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
       }
       case 'posted': {
         const texts = fake
-          .messagesIn(request.conversationId)
+          .messagesIn(request.chatId)
           .filter((message) => message.authorId === SELF.id)
           .map((message) => message.text);
         tell({ id: request.id, op: 'posted', texts });

@@ -1,4 +1,4 @@
-// The facts kept for her next request in a conversation: the inner life keeps them in its state when it is on
+// The facts kept for her next request in a chat: the inner life keeps them in its state when it is on
 // (src/behavior/inner.ts, `setFactsSource`), else they are kept in process. An addressed reply turn that ended `error`
 // or `refused` (`failedTurn`: `{ messageId, authorId, code }`, kept `FAILED_TURN_KEEP_MS` and at most
 // `FAILED_TURNS_KEPT` of src/turn/journal-notes.ts, told by `labels.task.failedEarlier`) and what a turn lost

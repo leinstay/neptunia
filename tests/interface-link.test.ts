@@ -21,7 +21,7 @@ type Log = {
 type FakeAdapter = ReturnType<typeof createFakeAdapter>;
 
 const quiet: Log = { info() {}, warn() {}, error() {} };
-const CONVERSATION = { iface: 'fake', conversationId: 'c1' };
+const CHAT = { iface: 'fake', chatId: 'c1' };
 const CAPABILITIES: Capabilities = {
   operations: ['message.send', 'message.edit', 'message.delete'],
   maxChars: 1234,
@@ -38,8 +38,8 @@ const CAPABILITIES: Capabilities = {
   search: false,
 };
 const SELF = { id: 'bot-1', name: 'Νέπτυν' };
-const COMMUNITY = { id: 'g1', name: 'Alpha' };
-const HELLO: Hello = { iface: 'fake', self: SELF, community: COMMUNITY, capabilities: CAPABILITIES, resume: 'r1' };
+const ROOT = { id: 'g1', name: 'Alpha' };
+const HELLO: Hello = { iface: 'fake', self: SELF, root: ROOT, capabilities: CAPABILITIES, resume: 'r1' };
 
 function reaction(id: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -47,7 +47,7 @@ function reaction(id: string, extra: Record<string, unknown> = {}): Record<strin
     iface: 'fake',
     at: 1,
     id,
-    conversation: { id: 'c1', kind: 'channel' },
+    chat: { id: 'c1', kind: 'channel' },
     messageId: 'm1',
     emoji: { name: 'x' },
     accountId: 'u1',
@@ -100,19 +100,19 @@ function gated() {
   };
   const adapter: FakeAdapter = {
     ...fake,
-    async send(conversation, content) {
+    async send(chat, content) {
       await hold();
-      return fake.send(conversation, content);
+      return fake.send(chat, content);
     },
-    async fetchMessages(conversation, ids) {
+    async fetchMessages(chat, ids) {
       await hold();
-      return fake.fetchMessages(conversation, ids);
+      return fake.fetchMessages(chat, ids);
     },
   };
   return { adapter, state, release: (count = waiting.length) => waiting.splice(0, count).forEach((go) => go()) };
 }
 
-test('hello resolves with the iface, the persona, the community, the capabilities and resume of the interface', async () => {
+test('hello resolves with the iface, the persona, the root, the capabilities and resume of the interface', async () => {
   const { link, served } = await pair();
   assert.deepEqual(await link.hello, HELLO);
   served.close();
@@ -123,21 +123,21 @@ test('hello gives the persona id and name of the interface as the core keeps the
   const { link, served } = await pair();
   const hello = await link.hello;
   assert.deepEqual(hello.self, { id: 'bot-1', name: 'Νέπτυν' });
-  assert.deepEqual(hello.community, { id: 'g1', name: 'Alpha' });
+  assert.deepEqual(hello.root, { id: 'g1', name: 'Alpha' });
   served.close();
   link.close();
 });
 
-test('hello of an interface that serves no community resolves with community null', async () => {
+test('hello of an interface that serves no root resolves with root null', async () => {
   const { link, client } = core();
   const served = serveAdapter({
     transport: client,
-    hello: { ...HELLO, community: null },
+    hello: { ...HELLO, root: null },
     token: 'tok',
     adapter: createFakeAdapter(),
     log: quiet,
   });
-  assert.equal((await link.hello).community, null);
+  assert.equal((await link.hello).root, null);
   served.close();
   link.close();
 });
@@ -240,7 +240,7 @@ test('handles two events at once: both handlers start before either ack comes ba
 
 test('a send returns the delivery of the fake with every part of a long text', async () => {
   const { link, served, fake } = await pair();
-  const delivery = await link.adapter.send(CONVERSATION, { text: 'a'.repeat(2500) });
+  const delivery = await link.adapter.send(CHAT, { text: 'a'.repeat(2500) });
   assert.equal(delivery.status, 'ok');
   assert.equal(delivery.parts.length, 2);
   assert.equal(delivery.ref?.messageId, fake.messagesIn('c1')[0]?.ref.messageId);
@@ -252,7 +252,7 @@ test('an attachment arrives at the fake with equal bytes', async () => {
   const { link, served, fake } = await pair();
   const bytes = new Uint8Array(3000);
   for (let index = 0; index < bytes.length; index += 1) bytes[index] = (index * 31) % 251;
-  const delivery = await link.adapter.send(CONVERSATION, { attachments: [{ name: 'f.bin', data: bytes }] });
+  const delivery = await link.adapter.send(CHAT, { attachments: [{ name: 'f.bin', data: bytes }] });
   assert.equal(delivery.status, 'ok');
   const stored = fake.messagesIn('c1')[0] as { attachments: Array<{ data: Uint8Array }> };
   assert.equal(Buffer.compare(Buffer.from(stored.attachments[0]?.data ?? new Uint8Array(0)), Buffer.from(bytes)), 0);
@@ -262,7 +262,7 @@ test('an attachment arrives at the fake with equal bytes', async () => {
 
 test('edit, react, unreact, typing and delete reach the fake and return its ok', async () => {
   const { link, served, fake } = await pair();
-  const delivery = await link.adapter.send(CONVERSATION, { text: 'hi' });
+  const delivery = await link.adapter.send(CHAT, { text: 'hi' });
   const ref = delivery.ref as NonNullable<Delivery['ref']>;
   const message = fake.messagesIn('c1')[0] as { text: string; reactions: Set<string> };
 
@@ -272,7 +272,7 @@ test('edit, react, unreact, typing and delete reach the fake and return its ok',
   assert.deepEqual([...message.reactions], ['👍']);
   assert.equal((await link.adapter.unreact(ref, '👍')).status, 'ok');
   assert.deepEqual([...message.reactions], []);
-  assert.equal((await link.adapter.typing(CONVERSATION, { untilMs: 1 })).status, 'ok');
+  assert.equal((await link.adapter.typing(CHAT, { untilMs: 1 })).status, 'ok');
   assert.deepEqual(fake.typings, ['c1']);
   assert.equal((await link.adapter.delete(ref)).status, 'ok');
   assert.equal(fake.messagesIn('c1').length, 0);
@@ -282,7 +282,7 @@ test('edit, react, unreact, typing and delete reach the fake and return its ok',
 
 test('a refusal of the fake comes back as its result: editing a message that is not there fails', async () => {
   const { link, served } = await pair();
-  const result: PortResult = await link.adapter.edit({ ...CONVERSATION, messageId: 'ghost' }, { text: 'x' });
+  const result: PortResult = await link.adapter.edit({ ...CHAT, messageId: 'ghost' }, { text: 'x' });
   assert.equal(result.status, 'failed');
   assert.equal(result.error?.code, 'unknown-message');
   served.close();
@@ -291,10 +291,10 @@ test('a refusal of the fake comes back as its result: editing a message that is 
 
 test('fetchMessages returns the messages the fake holds and marks the ones it does not', async () => {
   const { link, served, fake } = await pair();
-  const delivery = await link.adapter.send(CONVERSATION, { text: 'findable' });
+  const delivery = await link.adapter.send(CHAT, { text: 'findable' });
   const messageId = delivery.ref?.messageId as string;
-  const expected = await fake.fetchMessages(CONVERSATION, [messageId, 'nope']);
-  const got = await link.adapter.fetchMessages(CONVERSATION, [messageId, 'nope']);
+  const expected = await fake.fetchMessages(CHAT, [messageId, 'nope']);
+  const got = await link.adapter.fetchMessages(CHAT, [messageId, 'nope']);
   assert.deepEqual(got, expected);
   assert.deepEqual((got as unknown as { messages: Array<unknown> }).messages[1], { messageId: 'nope', missing: true });
   served.close();
@@ -310,13 +310,13 @@ test('every send carries its own idempotency key', async () => {
   client.send(
     envelope(
       'hello',
-      { iface: 'fake', self: SELF, community: COMMUNITY, capabilities: CAPABILITIES, resume: null, token: 'tok' },
+      { iface: 'fake', self: SELF, root: ROOT, capabilities: CAPABILITIES, resume: null, token: 'tok' },
       { id: 'h1' }
     )
   );
   await link.hello;
-  void link.adapter.send(CONVERSATION, { text: 'one' });
-  void link.adapter.send(CONVERSATION, { text: 'two' });
+  void link.adapter.send(CHAT, { text: 'one' });
+  void link.adapter.send(CHAT, { text: 'two' });
   await until(() => keys.length === 2);
   assert.match(keys[0] ?? '', /^.+$/);
   assert.notEqual(keys[0], keys[1]);
@@ -326,7 +326,7 @@ test('every send carries its own idempotency key', async () => {
 test('resolves the pending send as unknown with link-closed when the interface closes', async () => {
   const g = gated();
   const { link, served, client } = await pair(g.adapter);
-  const pending = link.adapter.send(CONVERSATION, { text: 'in flight' });
+  const pending = link.adapter.send(CHAT, { text: 'in flight' });
   await until(() => g.state.arrived === 1);
   client.close();
   const delivery = await pending;
@@ -338,7 +338,7 @@ test('resolves the pending send as unknown with link-closed when the interface c
 test('resolves the pending send as unknown with link-closed when the core closes the link', async () => {
   const g = gated();
   const { link, served } = await pair(g.adapter);
-  const pending = link.adapter.send(CONVERSATION, { text: 'in flight' });
+  const pending = link.adapter.send(CHAT, { text: 'in flight' });
   await until(() => g.state.arrived === 1);
   link.close();
   const delivery = await pending;
@@ -350,7 +350,7 @@ test('resolves the pending send as unknown with link-closed when the core closes
 test('resolves a pending fetchMessages as failed with link-closed, not unknown', async () => {
   const g = gated();
   const { link, served } = await pair(g.adapter);
-  const pending = link.adapter.fetchMessages(CONVERSATION, ['m1']);
+  const pending = link.adapter.fetchMessages(CHAT, ['m1']);
   await until(() => g.state.arrived === 1);
   link.close();
   const result = (await pending) as unknown as PortResult;
@@ -362,9 +362,9 @@ test('resolves a pending fetchMessages as failed with link-closed, not unknown',
 test('calls after close answer at once: an effect is unknown, a read is failed, both link-closed', async () => {
   const { link, served } = await pair();
   link.close();
-  const react = await link.adapter.react({ ...CONVERSATION, messageId: 'm1' }, 'x');
-  const send = await link.adapter.send(CONVERSATION, { text: 'late' });
-  const fetched = (await link.adapter.fetchMessages(CONVERSATION, ['m1'])) as unknown as PortResult;
+  const react = await link.adapter.react({ ...CHAT, messageId: 'm1' }, 'x');
+  const send = await link.adapter.send(CHAT, { text: 'late' });
+  const fetched = (await link.adapter.fetchMessages(CHAT, ['m1'])) as unknown as PortResult;
   assert.deepEqual([react.status, react.error?.code], ['unknown', 'link-closed']);
   assert.deepEqual([send.status, send.error?.code], ['unknown', 'link-closed']);
   assert.deepEqual([fetched.status, fetched.error?.code], ['failed', 'link-closed']);
@@ -375,8 +375,8 @@ test('refuses the 257th pending action with a retryable link-busy and keeps the 
   const g = gated();
   const { link, served } = await pair(g.adapter);
   const pending: Array<Promise<Delivery>> = [];
-  for (let index = 0; index < 256; index += 1) pending.push(link.adapter.send(CONVERSATION, { text: `m${index}` }));
-  const refused = await link.adapter.send(CONVERSATION, { text: 'one too many' });
+  for (let index = 0; index < 256; index += 1) pending.push(link.adapter.send(CHAT, { text: `m${index}` }));
+  const refused = await link.adapter.send(CHAT, { text: 'one too many' });
   assert.equal(refused.status, 'failed');
   assert.equal(refused.error?.code, 'link-busy');
   assert.equal(refused.error?.retryable, true);
@@ -393,11 +393,11 @@ test('accepts a new action once an answer has freed a slot', async () => {
   const g = gated();
   const { link, served } = await pair(g.adapter);
   const pending: Array<Promise<Delivery>> = [];
-  for (let index = 0; index < 256; index += 1) pending.push(link.adapter.send(CONVERSATION, { text: `m${index}` }));
+  for (let index = 0; index < 256; index += 1) pending.push(link.adapter.send(CHAT, { text: `m${index}` }));
   await until(() => g.state.arrived >= 1);
   g.release(1);
   assert.equal((await pending[0])?.status, 'ok');
-  const next = link.adapter.send(CONVERSATION, { text: 'fits now' });
+  const next = link.adapter.send(CHAT, { text: 'fits now' });
   link.close();
   assert.notEqual((await next).error?.code, 'link-busy');
   await Promise.all(pending);
@@ -409,7 +409,7 @@ test('an ack envelope the link never asked for does not disturb it', async () =>
   client.send(
     envelope(
       'hello',
-      { iface: 'fake', self: SELF, community: COMMUNITY, capabilities: CAPABILITIES, resume: null, token: 'tok' },
+      { iface: 'fake', self: SELF, root: ROOT, capabilities: CAPABILITIES, resume: null, token: 'tok' },
       { id: 'h1' }
     )
   );

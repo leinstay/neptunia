@@ -45,10 +45,10 @@ type SubmittedEvent = {
   errandId?: unknown;
   status?: unknown;
   at?: unknown;
-  conversation?: { id?: unknown };
+  chat?: { id?: unknown };
 };
 
-/** The ingestion row of an event: who sent it, the number it was sent under, its id, kind and conversation. */
+/** The ingestion row of an event: who sent it, the number it was sent under, its id, kind and chat. */
 export type { IngestRow } from '../memory/db/ingest.ts';
 
 export type ObservationCommit = { ok: true; sourceId: string; revision?: number } | { ok: false; code?: string };
@@ -165,10 +165,10 @@ export function createEventDoor({
   /** The ingestion row of `event` from `from`, or null: the core's own events, and the live state kinds, have none. */
   function rowOf(event: SubmittedEvent, id: string, from: From): IngestRow | null {
     if (!ingest || typeof from?.principal !== 'string' || DEDUP_IN_MEMORY.has(event.kind)) return null;
-    const given = event.conversation?.id;
-    const conversation = typeof given === 'string' ? given : null;
+    const given = event.chat?.id;
+    const chat = typeof given === 'string' ? given : null;
     const seq = typeof from.seq === 'number' && Number.isInteger(from.seq) ? from.seq : null;
-    return { principal: from.principal, seq, eventId: id, kind: event.kind, conversation };
+    return { principal: from.principal, seq, eventId: id, kind: event.kind, chat };
   }
 
   function duplicateOf({ key, row, id }: { key: string; row: IngestRow | null; id: string }): SubmitResult | null {

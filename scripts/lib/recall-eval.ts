@@ -571,7 +571,7 @@ export function localGuild({
   return guild;
 }
 
-/** A conversation of the local guild as the interface describes it: readable, writable and viewable by everyone. */
+/** A chat of the local guild as the interface describes it: readable, writable and viewable by everyone. */
 function localInfo(placeId: string, id: string, name: string) {
   return {
     id,
@@ -599,7 +599,7 @@ function localInfo(placeId: string, id: string, name: string) {
 }
 
 /**
- * The reads of the local stages, with no interface behind them (the counterpart of `localGuild`): every conversation
+ * The reads of the local stages, with no interface behind them (the counterpart of `localGuild`): every chat
  * resolves to a channel everyone may view, the searches answer nothing and a history cannot be read, so the search stage
  * of a run finds no hit and reads no window.
  */
@@ -614,12 +614,12 @@ export function localReads({
   return {
     offers: () => true,
     answer: () => Promise.resolve({ status: 'unsupported' as const, code: 'not-offered' }),
-    conversationInfo: (ref: { conversationId: string }) => Promise.resolve({ conversation: info(ref.conversationId) }),
-    conversations: () => Promise.resolve({ conversations: [], groups: [] }),
+    chatInfo: (ref: { chatId: string }) => Promise.resolve({ chat: info(ref.chatId) }),
+    chats: () => Promise.resolve({ chats: [], groups: [] }),
     fetchMessages: () => Promise.resolve(null),
     history: () => Promise.resolve(null),
     memberInfo: () => Promise.resolve(null),
-    dmConversationOf: () => Promise.resolve(null),
+    dmChatOf: () => Promise.resolve(null),
     searchMessages: () => Promise.resolve({ total: 0, hits: [] }),
     searchMembers: () => Promise.resolve({ members: [] }),
     emoji: () => Promise.resolve({ emoji: [] }),
@@ -630,23 +630,23 @@ export function localReads({
 
 /**
  * The scope a recall run is handed in the local guild (`channel` and `snapshot`): any channel id is a readable channel
- * everyone views, so the audience rail passes every conversation.
+ * everyone views, so the audience rail passes every chat.
  */
 export function localScope({
   placeId,
-  conversationId,
+  chatId,
   channelNameOf = () => null,
 }: {
   placeId: string;
-  conversationId: string;
+  chatId: string;
   channelNameOf?: (id: string) => string | null;
 }): { channel: Untyped; snapshot: Untyped } {
   const info = (id: string) => localInfo(placeId, id, channelNameOf(id) ?? id);
   return {
-    channel: info(conversationId),
+    channel: info(chatId),
     snapshot: {
       placeId,
-      conversations: [],
+      chats: [],
       groups: [],
       get: (id: string) => (typeof id === 'string' && id !== '' ? info(id) : null),
     },

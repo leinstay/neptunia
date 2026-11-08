@@ -16,7 +16,7 @@
 // link takes the audience of its evidence source when it has one, else the audience of the account's place (an
 // account lives in its interface: the group of that interface; a participant lives in its scope place), else internal;
 // a membership takes the audience of its place; a publication (schema v10) once sent takes the audience of its
-// destination place (the selfreflection entry's when it names none), and before that is internal. A place's own audience is its conversation's (`dm` -> its DM audience,
+// destination place (the selfreflection entry's when it names none), and before that is internal. A place's own audience is its chat's (`dm` -> its DM audience,
 // `group` -> the group of its interface, a container such as a server -> the group of its interface, anything else
 // internal). `node_access` holds one witness per (node, audience, evidence): a node with its own audience (a source, a
 // claim, ...) witnesses itself; every live edge witnesses both of its ends with its own audience.

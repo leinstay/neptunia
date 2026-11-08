@@ -24,16 +24,11 @@ export const COST_CLASSES: ReadonlyArray<string> = Object.freeze(['free', 'paid'
 
 /**
  * Whose things a skill may touch: `self-messages` (only the persona's own messages, in a
- * conversation she may act in), `allowed-conversations` (the current conversation or a text
+ * chat she may act in), `allowed-chats` (the current chat or a text
  * channel of the served place where the bot holds the platform permissions the operation needs,
- * src/tools/impl/shared.ts#postingConversation), `any`, or null (no target).
+ * src/tools/impl/shared.ts#postingChat), `any`, or null (no target).
  */
-export const TARGETS: ReadonlyArray<string | null> = Object.freeze([
-  'self-messages',
-  'allowed-conversations',
-  'any',
-  null,
-]);
+export const TARGETS: ReadonlyArray<string | null> = Object.freeze(['self-messages', 'allowed-chats', 'any', null]);
 
 /** What `loadSkills` takes of a definition: the table's, or a test's stand-in with fewer fields. */
 export type SkillInput = Partial<Omit<Definition, 'dispatch'>> & {

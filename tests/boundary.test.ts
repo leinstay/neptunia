@@ -83,8 +83,8 @@ describe('inner turns with no interface', () => {
     );
   });
 
-  // Stage 3, item "The inner life and the diary": with no interface to describe a conversation, the heartbeat runs its
-  // turn with no conversation, in the served community, the way the selfreflection wake does.
+  // Stage 3, item "The inner life and the diary": with no interface to describe a chat, the heartbeat runs its
+  // turn with no chat, in the served root, the way the selfreflection wake does.
   test('a heartbeat turn runs to the end with no interface connected and its run is in memory', async () => {
     const core = await rig({ interface: false });
     await core.beat();
@@ -96,7 +96,7 @@ describe('inner turns with no interface', () => {
     );
   });
 
-  // Stage 3, same item: the diary is the `selfreflection` wake. The turn runs with no conversation and records the entry
+  // Stage 3, same item: the diary is the `selfreflection` wake. The turn runs with no chat and records the entry
   // in memory before anything is published: a `selfreflection` row with her full text. No mirror is set up and no reads of an
   // interface are given to the scheduler, so nothing is sent anywhere, and no `diary.placeId` is set.
   test('a selfreflection turn leaves its entry in memory with no interface connected', async () => {
@@ -145,7 +145,7 @@ describe('inner turns with no interface', () => {
       // @ts-expect-error: createSelfreflection takes no `iface` dependency, so the key is ignored
       iface: () => 'fake',
       turns: runnerOver({ port, hot, llm, store }),
-      isServedCommunity: (id: unknown) => id === GUILD,
+      isServedRoot: (id: unknown) => id === GUILD,
       now: () => START,
     });
     await selfreflection.force({ kind: 'status' });
@@ -256,12 +256,12 @@ describe('a duplicate wake', () => {
 });
 
 describe('a replay after a reconnect', () => {
-  const conversation = { id: 'c1', kind: 'channel', placeId: 'g1', name: 'general', topic: null, category: null };
+  const chat = { id: 'c1', kind: 'channel', placeId: 'g1', name: 'general', topic: null, category: null };
   const received = (id: string, text: string, redeliver: number) => ({
     kind: 'message.received',
     at: START,
     id: `fake:message:${id}`,
-    conversation,
+    chat,
     message: {
       id,
       author: { id: 'u1', name: 'Alice', self: false, bot: false },
@@ -277,7 +277,7 @@ describe('a replay after a reconnect', () => {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: true, replyToSelf: false, mentionedAccountIds: ['self-id'], mentionedConversationIds: [] },
+    addressing: { mentioned: true, replyToSelf: false, mentionedAccountIds: ['self-id'], mentionedChatIds: [] },
     origin: {
       chatType: 'channel',
       place: 'c1',
@@ -332,7 +332,7 @@ describe('an adapter that claims the owner', () => {
     const store = Object.assign(fakeStore(), { flush: () => Promise.resolve() });
     const hot = hotWith({ config: { bot: { timezone: 'UTC', owners: [OWNER], access: {} } } });
     const client = { user: { id: 'self-id' }, channels: { cache: new Map() } };
-    const admin = createAdmin({ hot, store, client, isServedCommunity: (id: unknown) => id === GUILD });
+    const admin = createAdmin({ hot, store, client, isServedRoot: (id: unknown) => id === GUILD });
     const ran: Array<string> = [];
     const door = createEventDoor({
       handlers: {
@@ -364,7 +364,7 @@ describe('an adapter that claims the owner', () => {
           {
             iface,
             self: { id: 'self-id', name: 'Nova' },
-            community: null,
+            root: null,
             kind: 'cli',
             owner: true,
             ownerId: OWNER,
@@ -378,7 +378,7 @@ describe('an adapter that claims the owner', () => {
       iface,
       at: START,
       id: `command:${iface}`,
-      conversation: { id: 'c1', kind: 'channel' },
+      chat: { id: 'c1', kind: 'channel' },
       name: 'pause',
       args: {},
       replyRef: 'r1',
@@ -427,8 +427,8 @@ describe('a delivery that changes no character', () => {
   test('the fake interface stores what it is sent byte for byte', async () => {
     const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => START });
     const text = `${GENERATED}   \n `;
-    const sent = await port.send({ iface: 'fake', conversationId: 'c1' }, { text });
-    const fetched = await port.fetchMessages({ iface: 'fake', conversationId: 'c1' }, [sent.ref?.messageId ?? '']);
+    const sent = await port.send({ iface: 'fake', chatId: 'c1' }, { text });
+    const fetched = await port.fetchMessages({ iface: 'fake', chatId: 'c1' }, [sent.ref?.messageId ?? '']);
     const [stored] = fetched.status === 'ok' ? fetched.messages : [];
     assert.equal(stored?.text, text);
   });
@@ -438,7 +438,7 @@ describe('a delivery that changes no character', () => {
   });
 
   // One `send` call posts several parts when the text outgrows the interface, so counting calls says nothing.
-  // The test reads the parts the interface stored: her messages of the conversation, in the order they landed.
+  // The test reads the parts the interface stored: her messages of the chat, in the order they landed.
   test('a text longer than the interface limit arrives as parts that join to the original', async () => {
     const limit = 60;
     const port = await runDelivery(GENERATED, { maxChars: limit });

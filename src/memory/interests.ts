@@ -13,7 +13,7 @@
 // and `seen` are each a SIGHTING; a sighting raises the weight by 1 only when
 // the person's messages that produced it (`opts.seenAt`) are at least
 // `opts.confirmGapHours` away from the item's stored `lastSeen` (a null
-// `lastSeen` counts as far away) -- so one conversation split across several
+// `lastSeen` counts as far away) -- so one chat split across several
 // analyzer batches counts once. At most one bump per item per call,
 // regardless of how many ops in that call target it. `sure: false` on an
 // EXISTING item changes nothing at all, not even the note or the dates.
@@ -132,7 +132,7 @@ export function maxIso(a: string | null | undefined, b: string | null | undefine
 
 /**
  * Whether a sighting at `seenAt` (ms) is far enough from `priorLastSeenIso`
- * to count as a NEW occasion rather than the same conversation continuing: a
+ * to count as a NEW occasion rather than the same chat continuing: a
  * missing or unparsable stored date counts as far away (nothing to compare
  * against, so it can only heal an item stuck at its starting weight).
  */

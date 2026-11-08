@@ -1,5 +1,5 @@
 // Unit writes preserve primary and shared ownership through catalog owner keys. A row shared across semantic
-// community scopes keeps its original owner until retirement hands it to a surviving co-owner. Session-owned rows
+// root scopes keeps its original owner until retirement hands it to a surviving co-owner. Session-owned rows
 // and child links have no owner key and remain protected. Derived identity, graph projection, publication state and
 // session-held fields are updated within the caller's writer transaction. Historical imports retain their original
 // column contract and frozen path provenance through the explicit compatibility adapter.
@@ -406,7 +406,7 @@ export function hotClaimIds(db: Db): Set<string> {
   return ids;
 }
 
-/** The families of protocol message ids, by message id: several when conversations of an interface reuse an id. */
+/** The families of protocol message ids, by message id: several when chats of an interface reuse an id. */
 function familiesOf(db: Db, messageIds: ReadonlyArray<string>): Map<string, Array<Row>> {
   const out = new Map<string, Array<Row>>();
   if (messageIds.length === 0 || !hasMessageFamilies(db)) return out;

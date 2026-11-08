@@ -18,7 +18,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
 useIface('fake');
-const GUILD = 'g1';
+const ROOT = 'g1';
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const START = Date.parse('2026-11-01T12:00:00Z');
@@ -133,7 +133,7 @@ function failed(turnId: string, at: number): Array<Record_> {
 
 function setup() {
   const clock = { t: START };
-  world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
+  world().channel({ id: 'c1', name: 'chan-c1', placeId: ROOT, permissions: { send: true } });
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
@@ -187,7 +187,7 @@ function setup() {
     journal,
     reads: world().reads,
     iface: () => 'fake',
-    conversationName: (id: string) => `chan-${id}`,
+    chatName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },

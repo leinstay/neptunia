@@ -3,7 +3,7 @@
 // createTurnRunner (src/behavior/turn.ts) builds it once per runner with createSends; the act, her calls and the
 // attempt call its functions.
 
-import type { Conversation } from '../protocol/events.ts';
+import type { Chat } from '../protocol/events.ts';
 import { settleWait } from '../behavior/activity.ts';
 import { messageLinkOf } from '../behavior/elsewhere.ts';
 import type { IndexedEmoji } from '../behavior/emoji-index.ts';
@@ -15,7 +15,7 @@ import { log } from '../log.ts';
 import { nativeOfAny } from '../memory/db/ids.ts';
 import { linkChannels, linkMessageNumbers } from '../memory/mentions.ts';
 import { resolveMentions } from './mentions.ts';
-import { inCommunity } from './routing.ts';
+import { inRoot } from './routing.ts';
 import { SETTLE_STEP_MS, paceSettings } from './settings.ts';
 import { withLink } from './targets.ts';
 import { outgoingRefs } from './request/refs.ts';
@@ -35,22 +35,22 @@ export type SendsContext = {
   hot: { readonly config: SendsConfig; readonly prompts: { labels?: SendsLabels } | null | undefined };
   store: unknown;
   emoji: { byName: (name: string) => IndexedEmoji | null } | null | undefined;
-  conversationName: (id: string) => string | null | undefined;
+  chatName: (id: string) => string | null | undefined;
   clock: () => number;
   schedule: (run: () => void, ms: number) => unknown;
   activity: { lastAt: (placeId: string, authorId: string) => number | null } | null;
   iface: MirrorPort;
 };
 
-/** The channel a post is rendered for, as the interface described it: its id, and its community for a link. */
-type PostChannel = Pick<Conversation, 'id' | 'rootId'>;
+/** The channel a post is rendered for, as the interface described it: its id, and its root for a link. */
+type PostChannel = Pick<Chat, 'id' | 'rootId'>;
 
 /** How a post's `#n` numbers and mentions are resolved. */
 type RenderArgs = {
   channel: PostChannel;
   snapshot?: Snapshot | null;
   placeId: string | null;
-  privateChat: boolean;
+  dmChat: boolean;
   idByIndex: ReadonlyMap<number, string> | null | undefined;
   pulledIds?: ReadonlyMap<string, string> | null;
   lines?: Parameters<typeof resolveMentions>[1] | null;
@@ -92,39 +92,39 @@ export type Sends = {
 };
 
 export function createSends(ctx: SendsContext): Sends {
-  const { hot, store, emoji, conversationName, clock, schedule, activity, iface } = ctx;
+  const { hot, store, emoji, chatName, clock, schedule, activity, iface } = ctx;
 
   /**
    * `text` with every transcript number `#n` of this turn's numbering (`idByIndex`, chat and
    * pulled lines) turned into the jump link of that message (src/memory/mentions.ts#linkMessageNumbers):
    * features.messageLinks on (read now; a missing key counts as on). A pulled line links in its own
-   * channel (`pulledIds`), any other in `conversation`; `community` and `conversation` are the values of the address
-   * template's slots (src/behavior/elsewhere.ts#messageLinkOf), and a private chat has no community.
+   * channel (`pulledIds`), any other in `chat`; `root` and `chat` are the values of the address
+   * template's slots (src/behavior/elsewhere.ts#messageLinkOf), and a private chat has no root.
    */
   function withMessageLinks(
     text: string,
     slots: {
-      community: string | null;
-      conversation: string;
-      privateChat: boolean;
+      root: string | null;
+      chat: string;
+      dmChat: boolean;
       idByIndex: ReadonlyMap<number, string> | null | undefined;
       pulledIds?: ReadonlyMap<string, string> | null;
     }
   ): string {
-    const { conversation, privateChat, idByIndex, pulledIds } = slots;
+    const { chat, dmChat, idByIndex, pulledIds } = slots;
     if (!idByIndex) return text;
-    const community = privateChat || !slots.community ? null : slots.community;
+    const root = dmChat || !slots.root ? null : slots.root;
     return linkMessageNumbers(text, (n) => {
       const messageId = idByIndex.get(n);
       if (!messageId) return null;
-      return messageLinkOf(iface, community, pulledIds?.get(messageId) ?? conversation, messageId);
+      return messageLinkOf(iface, root, pulledIds?.get(messageId) ?? chat, messageId);
     });
   }
 
   /**
    * `text` with every `#handle` of `channelHandles` (the request's handle -> channel id) and, with
    * features.channelLinks on (read now; a missing key counts as on), every `#name` of one of the
-   * community's text channels (the turn's snapshot) turned into its `<#id>` link (src/memory/mentions.ts#linkChannels; a
+   * root's text channels (the turn's snapshot) turned into its `<#id>` link (src/memory/mentions.ts#linkChannels; a
    * handle first, exactly). A private chat has no place: only its handles, if any, are linked.
    */
   function withChannelLinks(
@@ -135,8 +135,8 @@ export function createSends(ctx: SendsContext): Sends {
   ): string {
     // A Map of the request is handle -> channel id (src/behavior/prompt.ts).
     const handles = channelHandles instanceof Map ? (channelHandles as Map<string, string>) : null;
-    if (!snapshot || !inCommunity(channel)) return handles ? linkChannels(text, [], handles) : text;
-    const channels = snapshot.conversations.map((entry) => ({ id: entry.id, name: entry.name }));
+    if (!snapshot || !inRoot(channel)) return handles ? linkChannels(text, [], handles) : text;
+    const channels = snapshot.chats.map((entry) => ({ id: entry.id, name: entry.name }));
     return linkChannels(text, channels, handles);
   }
 
@@ -153,9 +153,9 @@ export function createSends(ctx: SendsContext): Sends {
       placeId: refs.placeId,
       lineOf: refs.lineOf,
       linkOf: (line) => {
-        const conversation = line.dm ? null : nativeOfAny(line.placeId);
-        if (!conversation || !line.placeId.startsWith(`${here}:`)) return null;
-        return messageLinkOf(iface, communityOfPlace(line.placeId), conversation, line.messageId);
+        const chat = line.dm ? null : nativeOfAny(line.placeId);
+        if (!chat || !line.placeId.startsWith(`${here}:`)) return null;
+        return messageLinkOf(iface, rootOfPlace(line.placeId), chat, line.messageId);
       },
       labels,
       timezone: refs.timezone,
@@ -163,10 +163,10 @@ export function createSends(ctx: SendsContext): Sends {
   }
 
   /** The native id of the top place above `placeId` (`store.rootPlaceOf`), null when it is its own top or has none. */
-  function communityOfPlace(placeId: string): string | null {
-    const known = store as { rootPlaceOf?(id: string): string | null; nativeCommunityOf?(id: string): string | null };
+  function rootOfPlace(placeId: string): string | null {
+    const known = store as { rootPlaceOf?(id: string): string | null; nativeRootOf?(id: string): string | null };
     const top = known.rootPlaceOf?.(placeId) ?? null;
-    return top === null || top === placeId ? null : (known.nativeCommunityOf?.(top) ?? null);
+    return top === null || top === placeId ? null : (known.nativeRootOf?.(top) ?? null);
   }
 
   /** The custom emoji lookup, or null when there is no index or features.customEmoji is off (read now). */
@@ -193,7 +193,7 @@ export function createSends(ctx: SendsContext): Sends {
     {
       channel,
       snapshot = null,
-      privateChat,
+      dmChat,
       idByIndex,
       pulledIds,
       lines,
@@ -223,9 +223,9 @@ export function createSends(ctx: SendsContext): Sends {
       withChannelLinks(
         channel,
         withMessageLinks(spoken, {
-          community: channel.rootId ?? null,
-          conversation: channel.id,
-          privateChat,
+          root: channel.rootId ?? null,
+          chat: channel.id,
+          dmChat,
           idByIndex,
           pulledIds,
         }),
@@ -277,7 +277,7 @@ export function createSends(ctx: SendsContext): Sends {
   }
 
   /**
-   * The bare name of her selfreflection's place for `<senses>`: a selfreflection turn's own conversation (`own`), else the first of
+   * The bare name of her selfreflection's place for `<senses>`: a selfreflection turn's own chat (`own`), else the first of
    * mirror.ts#selfreflectionPlaces, as the snapshot, the directory or memory names it; null with none or `features.selfreflection` off.
    */
   function selfreflectionChannelName(
@@ -286,12 +286,10 @@ export function createSends(ctx: SendsContext): Sends {
     snapshot: Snapshot | null = null,
     own: { id: string; name?: string | null } | null = null
   ): string | null {
-    const found = own
-      ? { conversationId: String(own.id), name: own.name }
-      : readMirrors(store, selfreflectionPlaces, [])[0];
+    const found = own ? { chatId: String(own.id), name: own.name } : readMirrors(store, selfreflectionPlaces, [])[0];
     const place = found ?? null;
     if (!place) return null;
-    const name = snapshot?.get(place.conversationId)?.name ?? conversationName(place.conversationId) ?? place.name;
+    const name = snapshot?.get(place.chatId)?.name ?? chatName(place.chatId) ?? place.name;
     return typeof name === 'string' && name ? name : null;
   }
 

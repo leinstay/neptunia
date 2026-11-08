@@ -8,7 +8,7 @@ import type { Row } from './types.ts';
 /** Catalog record routes and historic provenance require the mapper's retained version and actual channel. */
 export function nativeLocatorOf(row: Row, extra: Row): NativeMessageLocator | undefined {
   const marker = messageLocator(extra.$messageLocator, row.iface);
-  if (marker) return { iface: marker.iface, conversationId: marker.conversationId, messageId: marker.messageId };
+  if (marker) return { iface: marker.iface, chatId: marker.chatId, messageId: marker.messageId };
   if (Object.hasOwn(extra, '$messageLocator')) return undefined;
   if (
     (row.storage_kind !== 'record' &&
@@ -27,5 +27,5 @@ export function nativeLocatorOf(row: Row, extra: Row): NativeMessageLocator | un
   const scope = line.scope;
   if (!scope || typeof scope !== 'object' || Array.isArray(scope)) return undefined;
   const channel = (scope as Row).channel;
-  return locatorText(channel) ? { iface: row.iface, conversationId: channel, messageId: row.native_id } : undefined;
+  return locatorText(channel) ? { iface: row.iface, chatId: channel, messageId: row.native_id } : undefined;
 }

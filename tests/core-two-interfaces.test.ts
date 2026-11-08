@@ -1,5 +1,5 @@
-// Two interfaces connected to one core at once, as units: the same native conversation, member and community ids on
-// both, and several communities on one. Nothing calls a provider: the model is a function that answers every request.
+// Two interfaces connected to one core at once, as units: the same native chat, member and root ids on
+// both, and several roots on one. Nothing calls a provider: the model is a function that answers every request.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -32,7 +32,8 @@ async function withTwoInterfaces(
     join(dataDir, 'config', 'config.json'),
     JSON.stringify({
       bot: { timezone: 'UTC', owners: ['u1'], placeId: 'g1' },
-      private: { enabled: true, minAffinity: 0 },
+      dm: { enabled: true },
+      private: { minAffinity: 0 },
       models: { base: { video: false } },
       interfaces: { mode: 'units', drainMs: 2000 },
       pace: { settleMs: 0, settleMaxMs: 0 },
@@ -63,7 +64,7 @@ async function withTwoInterfaces(
     embedder: { embed: () => Promise.resolve([]) },
   });
   const started: Array<Running> = [];
-  const connect = async (name: string, communities: ReadonlyArray<{ id: string; name: string }>) => {
+  const connect = async (name: string, roots: ReadonlyArray<{ id: string; name: string }>) => {
     const log = { info() {}, warn() {}, error() {}, debug() {} };
     const running = await startFake(
       {
@@ -75,7 +76,7 @@ async function withTwoInterfaces(
         onConfigChange: () => () => {},
         log,
       },
-      { adapter: createFakeAdapter({ iface: name, selfId: SELF.id }), self: SELF, communities }
+      { adapter: createFakeAdapter({ iface: name, selfId: SELF.id }), self: SELF, roots }
     );
     started.push(running);
     return running;
@@ -94,29 +95,29 @@ async function withTwoInterfaces(
   }
 }
 
-test('each message is answered on its own interface and community when their native ids collide', async () => {
+test('each message is answered on its own interface and root when their native ids collide', async () => {
   // Bug: every effect goes to the first interface that connected, or a second interface's events are dropped.
   await withCapturedLogs(async () => {
     await withTwoInterfaces(async ({ fake, other, dataDir }) => {
-      fake.adapter.seedConversation(channelInfo('c1'));
-      fake.adapter.seedConversation({ ...channelInfo('c2'), rootId: 'g2' });
-      other.adapter.seedConversation({ ...channelInfo('c1'), rootId: 'g3', iface: 'other' });
-      const postedIn = (running: Running, conversation: string) =>
-        running.adapter.messagesIn(conversation).filter((message) => message.authorId === SELF.id);
+      fake.adapter.seedChat(channelInfo('c1'));
+      fake.adapter.seedChat({ ...channelInfo('c2'), rootId: 'g2' });
+      other.adapter.seedChat({ ...channelInfo('c1'), rootId: 'g3', iface: 'other' });
+      const postedIn = (running: Running, chat: string) =>
+        running.adapter.messagesIn(chat).filter((message) => message.authorId === SELF.id);
 
       const onOther = deliver(other.adapter, { id: 'm1', text: 'Nova, hello', at: Date.now(), mention: true });
-      await other.emit({ ...onOther, iface: 'other', conversation: { ...onOther.conversation, rootId: 'g3' } });
+      await other.emit({ ...onOther, iface: 'other', chat: { ...onOther.chat, rootId: 'g3' } });
       await until(() => postedIn(other, 'c1').length > 0);
       assert.equal(postedIn(fake, 'c1').length, 0);
 
       const inSecond = deliver(fake.adapter, {
-        conversationId: 'c2',
+        chatId: 'c2',
         id: 'm1',
         text: 'Nova, hello',
         at: Date.now(),
         mention: true,
       });
-      await fake.emit({ ...inSecond, conversation: { ...inSecond.conversation, rootId: 'g2' } });
+      await fake.emit({ ...inSecond, chat: { ...inSecond.chat, rootId: 'g2' } });
       await until(() => postedIn(fake, 'c2').length > 0);
       assert.deepEqual(
         postedIn(fake, 'c2').map((message) => message.text),
@@ -141,20 +142,20 @@ test('each message is answered on its own interface and community when their nat
   });
 });
 
-test('a read of a community goes to the interface that serves it', async () => {
-  // Bug: a member or emoji read of the second interface's community is asked of the first and answers nothing.
+test('a read of a root goes to the interface that serves it', async () => {
+  // Bug: a member or emoji read of the second interface's root is asked of the first and answers nothing.
   await withCapturedLogs(async () => {
     await withTwoInterfaces(async ({ fake, other }) => {
-      other.adapter.seedConversation({ ...channelInfo('c1'), rootId: 'g3', iface: 'other' });
+      other.adapter.seedChat({ ...channelInfo('c1'), rootId: 'g3', iface: 'other' });
       const event = deliver(other.adapter, { id: 'm1', text: 'Nova, hello', at: Date.now(), mention: true });
-      await other.emit({ ...event, iface: 'other', conversation: { ...event.conversation, rootId: 'g3' } });
+      await other.emit({ ...event, iface: 'other', chat: { ...event.chat, rootId: 'g3' } });
       await until(() => other.adapter.messagesIn('c1').some((message) => message.authorId === SELF.id));
-      const communityReads = (running: Running) =>
+      const rootReads = (running: Running) =>
         running.adapter.calls.filter(
           (call) => call.args[0] === 'g3' || (call.args[0] as { placeId?: string })?.placeId === 'g3'
         );
-      assert.notEqual(communityReads(other).length, 0);
-      assert.equal(communityReads(fake).length, 0);
+      assert.notEqual(rootReads(other).length, 0);
+      assert.equal(rootReads(fake).length, 0);
     });
   });
 });
@@ -163,24 +164,24 @@ test('a DM on the second interface is answered there and kept in that account ow
   // Bug: the turn's memory context names the home interface, so the DM lands in a person nobody can read it back as.
   await withCapturedLogs(async () => {
     await withTwoInterfaces(async ({ other, dataDir }) => {
-      other.adapter.seedConversation({ ...channelInfo('c1'), rootId: 'g3', iface: 'other' });
+      other.adapter.seedChat({ ...channelInfo('c1'), rootId: 'g3', iface: 'other' });
       other.adapter.seedMember('g3', { id: 'u1', name: 'Eleni' } as Parameters<Running['adapter']['seedMember']>[1]);
       const first = deliver(other.adapter, { id: 'm1', text: 'Nova, hello', at: Date.now(), mention: true });
-      await other.emit({ ...first, iface: 'other', conversation: { ...first.conversation, rootId: 'g3' } });
+      await other.emit({ ...first, iface: 'other', chat: { ...first.chat, rootId: 'g3' } });
       await until(() => other.adapter.messagesIn('c1').some((message) => message.authorId === SELF.id));
 
-      other.adapter.seedConversation({
+      other.adapter.seedChat({
         ...channelInfo('d1'),
         kind: 'dm',
         rootId: null,
         partnerId: 'u1',
         iface: 'other',
       });
-      const direct = deliver(other.adapter, { conversationId: 'd1', id: 'm2', text: 'hello', at: Date.now() });
+      const direct = deliver(other.adapter, { chatId: 'd1', id: 'm2', text: 'hello', at: Date.now() });
       await other.emit({
         ...direct,
         iface: 'other',
-        conversation: { id: 'd1', kind: 'dm', rootId: null, partnerId: 'u1', name: 'Eleni' },
+        chat: { id: 'd1', kind: 'dm', rootId: null, partnerId: 'u1', name: 'Eleni' },
       });
       await until(() => other.adapter.messagesIn('d1').some((message) => message.authorId === SELF.id));
       const handle = openMemoryDb(join(dataDir, 'memory.db'), { readOnly: true });

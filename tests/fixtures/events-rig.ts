@@ -68,7 +68,7 @@ export type FakeChannel = {
   [field: string]: Untyped;
 };
 
-/** A discord.js-shaped channel for `toEvent`, and the same conversation in the fake interface. */
+/** A discord.js-shaped channel for `toEvent`, and the same chat in the fake interface. */
 export function fakeChannel(id: string, guild: unknown, overrides: Rec = {}): FakeChannel {
   const channel: FakeChannel = {
     id,
@@ -223,7 +223,7 @@ export function fakeDescriber(): {
 
 /** The notices a handler's fake adapter holds (`handler.port`). */
 export type Notice = { text: string; replyTo: { messageId: string } | null; mentions: object };
-type WithPort = { port: { messagesIn(conversationId: string): Array<Notice> } };
+type WithPort = { port: { messagesIn(chatId: string): Array<Notice> } };
 export function noticesOf(handler: object, id: string): Array<Notice> {
   return wrongly<WithPort>(handler)
     .port.messagesIn(id).map(({ text, replyTo, mentions }) => ({ text, replyTo, mentions }));
@@ -233,12 +233,12 @@ export function textsOf(handler: object, id: string): Array<string> {
 }
 export function lineOf(
   text: string,
-  conversationId = '',
+  chatId = '',
   messageId = ''
-): { text: string; replyTo: { iface: string; conversationId: string; messageId: string } | null; mentions: Rec } {
+): { text: string; replyTo: { iface: string; chatId: string; messageId: string } | null; mentions: Rec } {
   return {
     text,
-    replyTo: messageId ? { iface: 'fake', conversationId, messageId } : null,
+    replyTo: messageId ? { iface: 'fake', chatId, messageId } : null,
     mentions: { users: [], repliedUser: false },
   };
 }
@@ -313,8 +313,8 @@ export function makeHandler({
       spontaneous: spontaneous ?? fakeSpontaneous(),
       memory: memory ?? fakeMemory(),
       tagHistory: tagHistory ?? createTagHistory(),
-      isServedCommunity: (id: unknown) => id === (placeIdOfHome ?? (() => 'g1'))(),
-      communitiesOf: () => [(placeIdOfHome ?? (() => 'g1'))()].filter((id): id is string => id !== null),
+      isServedRoot: (id: unknown) => id === (placeIdOfHome ?? (() => 'g1'))(),
+      rootsOf: () => [(placeIdOfHome ?? (() => 'g1'))()].filter((id): id is string => id !== null),
       describer,
       llm,
       lookup,

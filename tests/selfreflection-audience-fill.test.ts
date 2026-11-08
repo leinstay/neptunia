@@ -253,7 +253,7 @@ function consoleRig(): {
     },
     usage: null,
     metrics: { samples: () => [] },
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => NOW,
   };
   const desk = createConsole(deps);

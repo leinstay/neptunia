@@ -168,7 +168,7 @@ function config() {
 // PR 7d: `features.intentions` is code, so the intent skills are hers once granted; the off half went with the switch.
 test('skills: the intent skills are hers once granted', () => {
   const registry = skillRegistry();
-  const audience = { conversationId: 'c1' };
+  const audience = { chatId: 'c1' };
   const call = (cfg: Record<string, Untyped>) =>
     checkSkill({
       skill: 'intention.set',

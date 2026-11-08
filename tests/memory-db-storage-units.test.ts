@@ -20,7 +20,7 @@ import { fixture, NOW } from './fixtures/memory-db/session-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { a, profile } from './fixtures/memory-db/storage-ownership.ts';
 
-// A second collection of the same account: its scope by community is gone, so a partition keeps the two owners apart.
+// A second collection of the same account: its scope by root is gone, so a partition keeps the two owners apart.
 const b: StorageKey = { ...a, partition: 'second' };
 const day: StorageKey = {
   kind: 'record',

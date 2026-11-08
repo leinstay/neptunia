@@ -42,25 +42,25 @@ const handlers = perEnv((env) => {
   const { hot, store, resolvedPlaceId, now = Date.now } = env;
   const { reads } = env;
 
-  /** The interface's name for a native conversation. */
-  const refOf = (conversationId: string): { iface: string; conversationId: string } => ({
+  /** The interface's name for a native chat. */
+  const refOf = (chatId: string): { iface: string; chatId: string } => ({
     iface: (env.port?.iface as string | undefined) ?? '',
-    conversationId,
+    chatId,
   });
 
-  /** The whole `message.received` event of message `messageId` in a native conversation, or null. */
-  async function eventOf(messageId: unknown, conversationId: string | null): Promise<Untyped> {
-    if (!conversationId || !reads) return null;
-    const found = await reads.fetchMessages(refOf(conversationId), [idText(messageId)]);
+  /** The whole `message.received` event of message `messageId` in a native chat, or null. */
+  async function eventOf(messageId: unknown, chatId: string | null): Promise<Untyped> {
+    if (!chatId || !reads) return null;
+    const found = await reads.fetchMessages(refOf(chatId), [idText(messageId)]);
     const message = found?.messages[0];
     return message?.event ?? null;
   }
 
-  /** The conversation the command came from as the interface describes it, or null. */
+  /** The chat the command came from as the interface describes it, or null. */
   async function infoOf(context: OpContext) {
-    const here = env.conversationOf(context);
+    const here = env.chatOf(context);
     if (!here || !reads) return null;
-    return (await reads.conversationInfo(refOf(here)))?.conversation ?? null;
+    return (await reads.chatInfo(refOf(here)))?.chat ?? null;
   }
 
   /** `/nep task search query [goal]`. */
@@ -76,11 +76,11 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * The first http(s) link of the message `messageId` in the conversation the command or call came
+   * The first http(s) link of the message `messageId` in the chat the command or call came
    * from (its text, then its embeds), or null: what web.read reads when given a message.
    */
   async function linkOfMessage(messageId: string, context: OpContext): Promise<string | null> {
-    const message = (await eventOf(messageId, env.conversationOf(context)))?.message;
+    const message = (await eventOf(messageId, env.chatOf(context)))?.message;
     if (!message) return null;
     const links: Array<Untyped> = Array.isArray(message.links) ? message.links : [];
     return (
@@ -104,7 +104,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * The message `reference` names in the conversation the command came from (an id, or a message
+   * The message `reference` names in the chat the command came from (an id, or a message
    * link), as the line a turn sees (the interface's event through `lineOf`), or null.
    */
   async function normalizedMessage(reference: unknown, context: OpContext): Promise<unknown> {
@@ -114,7 +114,7 @@ const handlers = perEnv((env) => {
     } catch {
       return null;
     }
-    const event = await eventOf(ref.messageId, ref.placeId ?? env.conversationOf(context));
+    const event = await eventOf(ref.messageId, ref.placeId ?? env.chatOf(context));
     return event ? lineOf(event) : null;
   }
 
@@ -167,7 +167,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `conversation.read` outside a turn (a command key `task.conversation`, never in the command tree): a
+   * `conversation.read` outside a turn (a command key `task.chat`, never in the command tree): a
    * channel read in order (src/tools/conversation-read.ts), the lines rendered like the chat, without
    * handles (no turn to number them in). The channel the call came from by default; another must pass
    * the pull rail.
@@ -195,14 +195,14 @@ const handlers = perEnv((env) => {
       allowed: (id) =>
         String(id) === String(here.id) ||
         checkPull({ snapshot, placeId: String(id), destination: here, config, now: now() }).skip === null,
-      readRecord: ({ placeId: conversationId, from }) =>
+      readRecord: ({ placeId: chatId, from }) =>
         env.record && placeId
-          ? recordMessages(env.record, placeId, { placeId: conversationId, from, nameOf, selfName })
+          ? recordMessages(env.record, placeId, { placeId: chatId, from, nameOf, selfName })
           : Promise.resolve([]),
       fetchLive: (request) =>
         fetchSpan(
           reads,
-          { iface: (env.port?.iface as string | undefined) ?? '', conversationId: request.placeId },
+          { iface: (env.port?.iface as string | undefined) ?? '', chatId: request.placeId },
           {
             mode: request.mode,
             limit: request.limit,

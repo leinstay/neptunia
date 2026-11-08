@@ -277,11 +277,11 @@ const PLACE_TOOLS: ReadonlyArray<string> = [
 ];
 
 /** A platform's noun as a word of its own, in either number. A tool's own name is taken out before the match. */
-const PLATFORM_WORD = /\b(?:channel|server|guild|discord)s?\b/i;
+const PLATFORM_WORD = /\b(?:channel|server|root|discord)s?\b/i;
 
 /** A non-platform word spelled the same, where a tool means it: the errand agent named `server` and the machine she runs on. */
 const MACHINE_SERVER: ReadonlySet<string> = new Set(['errand_run', 'watcher_read']);
-const NOT_A_MACHINE = /\b(?:channel|guild|discord)s?\b/i;
+const NOT_A_MACHINE = /\b(?:channel|root|discord)s?\b/i;
 
 /** `text` without the names of the tools it refers to (`memory.server.read`, `memory_server_read`) and its `{{fill}}`s. */
 function withoutToolNames(text: string): string {

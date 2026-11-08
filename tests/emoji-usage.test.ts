@@ -2,7 +2,7 @@
 // guild.json (src/memory/store.ts, a memory unit in the database) and the live
 // observer that feeds it (src/memory/update.ts).
 
-import { placeOfCommunity } from '../src/memory/addresses.ts';
+import { placeOfRoot } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -149,31 +149,31 @@ test('normalizeEmojiUsage: a missing or broken field reads as empty, bad entries
 
 test('store.getPlace: emojiUsage is normalised on read, missing -> {}', async () => {
   await withStore(async (store: Untyped, memoryDb: Untyped) => {
-    assert.deepEqual(store.getPlace(placeOfCommunity(store, 'g1')).emojiUsage, {});
+    assert.deepEqual(store.getPlace(placeOfRoot(store, 'g1')).emojiUsage, {});
     await memoryDb.writeUnit({
       op: 'value',
       owner: 'guilds/g2/guild.json',
       value: { patterns: 'p', emojiUsage: { 7: { name: 'ή', count: 4, last: 9 }, 8: 'junk' } },
     });
-    assert.deepEqual(store.getPlace(placeOfCommunity(store, 'g2')).emojiUsage, { 7: { name: 'ή', count: 4, last: 9 } });
-    assert.equal(store.getPlace(placeOfCommunity(store, 'g2')).patterns, 'p');
+    assert.deepEqual(store.getPlace(placeOfRoot(store, 'g2')).emojiUsage, { 7: { name: 'ή', count: 4, last: 9 } });
+    assert.equal(store.getPlace(placeOfRoot(store, 'g2')).patterns, 'p');
   });
 });
 
 test('store.recordEmojiUsage: persists counts; updatePlace never overwrites them', async () => {
   await withStore(async (store: Untyped, memoryDb: Untyped, dataDir: Untyped) => {
     const counted = store.recordEmojiUsage(
-      placeOfCommunity(store, 'g1'),
+      placeOfRoot(store, 'g1'),
       [msg({ ts: T0, emojis: [{ id: '10', name: 'kappa' }] })],
       {
         storeMax: 200,
       }
     );
     assert.equal(counted, 1);
-    store.updatePlace(placeOfCommunity(store, 'g1'), { patterns: 'friendly', emojiUsage: {} });
+    store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'friendly', emojiUsage: {} });
     store.flush();
     await store.flushSettled({});
-    const stored = createStore({ dataDir, memoryDb }).getPlace(placeOfCommunity(store, 'g1'));
+    const stored = createStore({ dataDir, memoryDb }).getPlace(placeOfRoot(store, 'g1'));
     assert.deepEqual(loose(stored).emojiUsage, { 10: { name: 'kappa', count: 1, last: T0 } });
     assert.equal(loose(stored).patterns, 'friendly');
   });
@@ -185,16 +185,16 @@ function hotFor() {
   return { config: { bot: { timezone: 'UTC' } } };
 }
 
-test("observe: a member's message adds its emoji to guild.emojiUsage; her own adds nothing", async () => {
+test("observe: a member's message adds its emoji to root.emojiUsage; her own adds nothing", async () => {
   await withStore(async (store: Untyped) => {
     const updater = createMemoryUpdater({ hot: hotFor(), store });
-    updater.observe(placeOfCommunity(store, 'g1'), msg({ id: 'a', ts: T0, emojis: [{ id: '10', name: 'kappa' }] }));
+    updater.observe(placeOfRoot(store, 'g1'), msg({ id: 'a', ts: T0, emojis: [{ id: '10', name: 'kappa' }] }));
     updater.observe(
-      placeOfCommunity(store, 'g1'),
+      placeOfRoot(store, 'g1'),
       msg({ id: 'b', ts: T0 + 1, self: true, emojis: [{ id: '10', name: 'kappa' }] })
     );
     updater.observe(
-      placeOfCommunity(store, 'g1'),
+      placeOfRoot(store, 'g1'),
       msg({
         id: 'c',
         ts: T0 + 2,
@@ -204,7 +204,7 @@ test("observe: a member's message adds its emoji to guild.emojiUsage; her own ad
         ],
       })
     );
-    assert.deepEqual(store.getPlace(placeOfCommunity(store, 'g1')).emojiUsage, {
+    assert.deepEqual(store.getPlace(placeOfRoot(store, 'g1')).emojiUsage, {
       10: { name: 'kappa', count: 2, last: T0 + 2 },
       20: { name: 'omega', count: 1, last: T0 + 2 },
     });
@@ -215,13 +215,13 @@ test("observe: a member's message adds its emoji to guild.emojiUsage; her own ad
 test('observe: context.customEmoji.storeMax caps the stored entries', async () => {
   await withStore(async (store: Untyped) => {
     const updater = createMemoryUpdater({ hot: hotFor(), store });
-    updater.observe(placeOfCommunity(store, 'g1'), msg({ id: 'a', ts: T0, emojis: [{ id: '0', name: 'alpha' }] }));
+    updater.observe(placeOfRoot(store, 'g1'), msg({ id: 'a', ts: T0, emojis: [{ id: '0', name: 'alpha' }] }));
     for (let n = 1; n <= EMOJI_STORE_MAX; n += 1)
       updater.observe(
-        placeOfCommunity(store, 'g1'),
+        placeOfRoot(store, 'g1'),
         msg({ id: `m${n}`, ts: T0 + DAY + n, emojis: [{ id: String(n), name: `e${n}` }] })
       );
-    const kept = Object.keys(store.getPlace(placeOfCommunity(store, 'g1')).emojiUsage);
+    const kept = Object.keys(store.getPlace(placeOfRoot(store, 'g1')).emojiUsage);
     assert.deepEqual([kept.length, kept.includes('0')], [EMOJI_STORE_MAX, false]);
   });
 });

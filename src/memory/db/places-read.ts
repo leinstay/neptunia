@@ -17,7 +17,7 @@ export type PlaceListing = {
   nativeKey: string | null;
   generation: number | null;
   kind: string | null;
-  conversation: string | null;
+  chat: string | null;
   name: string | null;
   parentId: string | null;
   parentState: 'none' | 'stored' | 'missing';
@@ -53,7 +53,7 @@ export function placeVisibleWhere(context: Context, alias: string): { sql: strin
   const dm = audienceWhere(context, 'seen');
   if (context.internal === true) return { sql: '1 = 1', params: [] };
   return {
-    sql: `((${alias}.kind <> 'dm' AND ${alias}.conversation IS NOT 'dm') OR EXISTS
+    sql: `((${alias}.kind <> 'dm' AND ${alias}.chat IS NOT 'dm') OR EXISTS
       (SELECT 1 FROM (SELECT 'aud:dm:' || ${alias}.id AS audience_id) seen WHERE ${dm.sql}))`,
     params: dm.params,
   };
@@ -77,7 +77,7 @@ function listingOf(row: Row): PlaceListing {
     nativeKey: textOrNull(row.native_key) ?? textOrNull(row.native_id),
     generation: typeof row.generation === 'number' ? row.generation : null,
     kind: textOrNull(row.kind),
-    conversation: textOrNull(row.conversation),
+    chat: textOrNull(row.chat),
     name: textOrNull(row.name),
     parentId,
     parentState: parentId === null ? 'none' : row.parent_stored === 1 ? 'stored' : 'missing',

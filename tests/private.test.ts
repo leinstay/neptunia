@@ -6,9 +6,9 @@ import { privateGate, effectiveAffinity, mergeProfiles } from '../src/behavior/p
 
 const TODAY = '2026-09-29';
 
-// PR 7d: the switch is `private.enabled` (it was `features.privateMessages`) and the daily reply caps are gone.
+// PR 7d: the switch is `dm.enabled` (it was `features.privateMessages`) and the daily reply caps are gone.
 function config({ enabled = true, minAffinity = 5 } = {}) {
-  return { private: { enabled, minAffinity } };
+  return { dm: { enabled }, private: { minAffinity } };
 }
 
 function profile(score = 10) {
@@ -42,7 +42,7 @@ test('privateGate: membership and the attitude decide the verdict, owners skippi
   }
 });
 
-test('privateGate: off unless private.enabled is exactly true', () => {
+test('privateGate: off unless dm.enabled is exactly true', () => {
   assert.deepEqual(gate({ config: config({ enabled: false }) }), { ok: false, reason: 'off' });
   const missing = { private: { minAffinity: 5 } };
   assert.deepEqual(gate({ config: missing }), { ok: false, reason: 'off' });
@@ -82,7 +82,7 @@ test('privateGate: owners still need membership and a profile', () => {
 
 // PR 7d: with the caps gone only the threshold can fail closed; an owner passes it.
 test('privateGate: a missing private.minAffinity fails closed', () => {
-  const bare = { private: { enabled: true } };
+  const bare = { dm: { enabled: true } };
   assert.deepEqual(gate({ config: bare }), { ok: false, reason: 'affinity' });
   assert.deepEqual(gate({ config: bare, isOwner: true }), { ok: true });
 });
@@ -300,19 +300,20 @@ test('mergeProfiles: tolerates missing lists on either side', () => {
 
 // PR 7d: privateRepliesToday went with the per-person daily caps, and its two tests with it.
 
-// PR 7d: the per-person daily caps are gone. The switch lives at `private.enabled`; `features.privateMessages` and the
+// PR 7d: the per-person daily caps are gone. The switch lives at `dm.enabled`; `features.privateMessages` and the
 // stale caps are what a local layer not yet cut still holds.
 test('privateGate: a member and an owner far past the old daily counts still get their turn', () => {
   const stale = {
     features: { privateMessages: true },
-    private: { enabled: true, minAffinity: 5, maxPerUserPerDay: 20, maxPerOwnerPerDay: 200 },
+    dm: { enabled: true },
+    private: { minAffinity: 5, maxPerUserPerDay: 20, maxPerOwnerPerDay: 200 },
   };
   const member = gate({ config: stale, replies: { day: TODAY, count: 50 } });
   const owner = gate({ config: stale, isOwner: true, replies: { day: TODAY, count: 500 } });
   assert.deepEqual([member.ok, owner.ok], [true, true]);
 });
 
-test('privateGate: the private.enabled switch off refuses a DM', () => {
-  const off = { private: { enabled: false, minAffinity: 5 }, features: { privateMessages: true } };
+test('privateGate: the dm.enabled switch off refuses a DM', () => {
+  const off = { dm: { enabled: false }, private: { minAffinity: 5 }, features: { privateMessages: true } };
   assert.deepEqual(gate({ config: off }), { ok: false, reason: 'off' });
 });

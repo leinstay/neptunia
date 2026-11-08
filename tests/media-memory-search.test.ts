@@ -159,7 +159,7 @@ test('a text form told after the line was observed is found at once, by a word a
   }));
 
 /** One line more that shows the same item: another message with the same native reference. */
-function reuse(env: Env, native: string, at: number, ref: string, conversation?: Row, author?: Row): void {
+function reuse(env: Env, native: string, at: number, ref: string, chat?: Row, author?: Row): void {
   const kind: Kind = {
     ...IMAGE,
     message: () => ({ attachments: [{ id: ref, kind: 'image', name: 'p.png', url: 'https://x.invalid/p.png' }] }),
@@ -167,7 +167,7 @@ function reuse(env: Env, native: string, at: number, ref: string, conversation?:
   observeLine(env, kind, 'absent', {
     native,
     at,
-    ...(conversation ? { conversation } : {}),
+    ...(chat ? { chat } : {}),
     ...(author ? { author } : {}),
   });
 }
@@ -380,7 +380,7 @@ test('the same reference on two interfaces is two items', () =>
         }),
       },
       'absent',
-      { native: 'm2', iface: 'plainchat', conversation: { id: 'room', kind: 'channel', rootId: 'space' } }
+      { native: 'm2', iface: 'plainchat', chat: { id: 'room', kind: 'channel', rootId: 'space' } }
     );
     assert.equal(env.db.prepare("SELECT COUNT(*) AS n FROM media WHERE native_ref = 'same'").get()?.n, 2);
   }));

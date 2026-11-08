@@ -193,7 +193,7 @@ function rig({ answer = '{"pick":"none","name":null}', pickConfig = {}, gifs = {
 }
 
 const args = (fields: object = {}) => ({
-  // The conversation by its place alone (plan 2026-11-05 T.4).
+  // The chat by its place alone (plan 2026-11-05 T.4).
   placeId: PLACE,
   capability: EMOJI_CAPABILITY,
   messages: [{ text: 'ναι, φυσικά, έλα', replyTo: 2 }],

@@ -71,7 +71,7 @@ export function outcomePhase(ctx: PhaseContext, params: PhaseParams, draft: Draf
     selfreflectionPrep && held.length > 0
       ? {
           selfreflection: recordEntry({
-            publicationBoundary: turnBoundary(draft, ctx.conversationOf(channel)),
+            publicationBoundary: turnBoundary(draft, ctx.chatOf(channel)),
             audience: audienceOfTurn(store, draft),
             ...(draft.started?.turnId ? { turnId: draft.started.turnId } : {}),
             store,

@@ -1,5 +1,5 @@
 // src/memory/db/storage-keys.ts: the neutral constructors of a storage collection. A collection belongs to an account, a
-// person or a place, and its key holds that id as given: no interface read from the air, no community, no parsing.
+// person or a place, and its key holds that id as given: no interface read from the air, no root, no parsing.
 // Contract, plan 2026-11-04-cli-and-memory task 5:
 //   accountCollection(kind, accountId, options?): StorageKey     subject { type: 'account', id }
 //   personCollection(kind, personId, options?): StorageKey       subject { type: 'person', id }
@@ -30,8 +30,8 @@ import { dbOf } from '../src/memory/db/types.ts';
 import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
 import { seedOpaqueWorld } from './fixtures/memory-db/opaque-people.ts';
 
-test('each constructor names its subject with the id as given and no community scope', () => {
-  // Bug: a constructor reads the ambient interface or wraps the id in `<iface>:guild:`.
+test('each constructor names its subject with the id as given and no root scope', () => {
+  // Bug: a constructor reads the ambient interface or wraps the id in `<iface>:root:`.
   assert.deepEqual(accountCollection('private', 'account:a11'), {
     kind: 'private',
     subject: { type: 'account', id: 'account:a11' },
@@ -68,7 +68,7 @@ test('the same id gives the same storage id, and different kinds of subject neve
 });
 
 test('an empty id is refused with a code', () => {
-  // Bug: `''` makes one shared collection for everyone whose id failed to resolve (`one:guild:` today).
+  // Bug: `''` makes one shared collection for everyone whose id failed to resolve (`one:root:` today).
   for (const build of [accountCollection, personCollection, placeCollection]) {
     assert.throws(
       () => build('lore', ''),
@@ -82,7 +82,7 @@ test('an empty id is refused with a code', () => {
 });
 
 test('the journal of a day belongs to its place, an errand to the persona, vectors to a place', () => {
-  // Bug: the three keyed helpers keep asking a service for its namespace and a community for its scope.
+  // Bug: the three keyed helpers keep asking a service for its namespace and a root for its scope.
   assert.deepEqual(journalKey('place:dm-a11', '2026-11-01'), {
     kind: 'journal',
     subject: { type: 'place', id: 'place:dm-a11' },
@@ -96,9 +96,9 @@ test('the journal of a day belongs to its place, an errand to the persona, vecto
   assert.equal(key.scopePlaceId, undefined);
 });
 
-test('no constructor that takes a community remains', () => {
-  // Bug: a caller keeps building the community partition next to the neutral one, and two collections drift apart.
-  assert.equal('communityKey' in keys, false);
+test('no constructor that takes a root remains', () => {
+  // Bug: a caller keeps building the root partition next to the neutral one, and two collections drift apart.
+  assert.equal('rootKey' in keys, false);
 });
 
 test('the catalog registers, finds and lists a person collection like any other', () => {
@@ -120,7 +120,7 @@ test('the catalog registers, finds and lists a person collection like any other'
 });
 
 test('a place collection and an account collection write and read back through the writer', () => {
-  // Bug: `applyUnitWrite` maps a unit by its community scope, so a key without one is refused as unmapped.
+  // Bug: `applyUnitWrite` maps a unit by its root scope, so a key without one is refused as unmapped.
   const handle = openMemoryDb(':memory:');
   try {
     const db = dbOf(handle);

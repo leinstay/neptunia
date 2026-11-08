@@ -1,9 +1,9 @@
 // A synthetic world for the name index (src/memory/db/names.ts) and the graph reader (src/memory/db/mind-read.ts):
 // interfaces with their names, roots and rooms, people with their accounts, memberships, aliases and claims, and lines.
 // Every row goes in through `insertRows`, the path the unit writers take, so the graph and the name index are what the
-// writers leave. The interfaces and their roots come in through `noteCommunities`, the writer a `hello` reaches.
+// writers leave. The interfaces and their roots come in through `noteRoots`, the writer a `hello` reaches.
 // Names are invented, in Greek and accented Latin.
-import { noteCommunities } from '../../../src/memory/db/communities.ts';
+import { noteRoots } from '../../../src/memory/db/roots.ts';
 import { graphNodeId, projectRow } from '../../../src/memory/db/graph.ts';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
 import { addRelation, insertRows } from '../../../src/memory/db/rows.ts';
@@ -33,7 +33,7 @@ export function noteInterface(
   roots: ReadonlyArray<{ id: string; name: string }>,
   names?: InterfaceNames
 ): void {
-  noteCommunities(world.handle, { iface, communities: roots, at: AT, ...(names === undefined ? {} : { names }) });
+  noteRoots(world.handle, { iface, roots: roots, at: AT, ...(names === undefined ? {} : { names }) });
 }
 
 export const rootId = (iface: string, native: string): string => `${iface}:server:${native}`;

@@ -24,7 +24,7 @@
 // `<gifs>` block's do.
 
 import { factStateWords } from '../memory/retrieval-input.ts';
-import type { ConversationRef } from '../protocol/adapter.ts';
+import type { ChatRef } from '../protocol/adapter.ts';
 import type { ResolvedRecallAnchor, StoredSourceRef } from '../memory/db/recall.ts';
 import type { SearchRef } from '../turn/calls.ts';
 import type { CreateRecallResult } from '../behavior/recall-run-types.ts';
@@ -303,7 +303,7 @@ const sampledLine = (l: ToolLabels, sampled: boolean | undefined): Array<string>
  * With `sampled` (the search answered with a sample across the time and place it named) `.sampled` follows the source
  * line, only when a stretch is shown.
  *
- * With `hidden` (the search found that a better match exists only in a private conversation this one may not open) a
+ * With `hidden` (the search found that a better match exists only in a private chat this one may not open) a
  * last line, `.hidden`, says so: no text, no count. Shown with or without stretches.
  *
  * With `refs` (`{ next(): number, take(shown): void }`, the turn's handle registry) and a stretch's
@@ -681,7 +681,7 @@ export async function runMemorySearch({
   asker?: string | null;
   memoryContext?: unknown;
   resolvedAnchor?: ResolvedRecallAnchor;
-  historyRef?: ConversationRef;
+  historyRef?: ChatRef;
 }): Promise<ToolResult> {
   try {
     if (!recall || typeof recall.run !== 'function' || (typeof recall.available === 'function' && !recall.available()))

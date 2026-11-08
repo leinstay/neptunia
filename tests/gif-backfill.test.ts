@@ -4,7 +4,7 @@
 // store on a temp dir, the fake interface's reads, a fake describer. The messages
 // are Discord-shaped and read into events as the Discord package does.
 
-import { placeOfCommunity } from '../src/memory/addresses.ts';
+import { placeOfRoot } from '../src/memory/addresses.ts';
 import { personaKey } from '../src/memory/db/storage-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
@@ -91,7 +91,7 @@ function rawMessage(
 }
 
 /**
- * A conversation holding `historyAsc` (raw messages, oldest first), read into the events the interface would deliver.
+ * A chat holding `historyAsc` (raw messages, oldest first), read into the events the interface would deliver.
  */
 function fakeChannel(
   id: string,
@@ -116,7 +116,7 @@ function fakeChannel(
 function fakeClient(rooms: Array<Record<string, Untyped>>) {
   const world = rig();
   for (const { info, events } of rooms) {
-    world.fake.seedConversation(info);
+    world.fake.seedChat(info);
     for (const event of events) world.fake.seedEvent(event);
   }
   return world;
@@ -190,14 +190,14 @@ test("gif backfill run: counts members' gifs over every readable channel, bots a
     const world = fakeClient([...standardChannels(), hidden]);
     const backfill = createGifBackfill(wrongly({ ...depsOf(world), hot: fakeHot(), store, log }));
 
-    const result = await backfill.run(placeOfCommunity(backfill, 'g1'));
+    const result = await backfill.run(placeOfRoot(backfill, 'g1'));
     assert.deepEqual(result, { ok: true, channels: 2, messages: 7, gifs: 7, described: 0 });
     assert.deepEqual(countsByUrl(store), { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2 });
     assert.equal(store.getGifs().entries['1001#e0'].count, 3, 'the first embed id keeps counting');
     assert.equal(
-      world.asked('history').some((ref: Untyped) => ref.conversationId === 'c3'),
+      world.asked('history').some((ref: Untyped) => ref.chatId === 'c3'),
       false,
-      'a conversation the persona may not read is never read'
+      'a chat the persona may not read is never read'
     );
 
     const stamp = present(store.getGifs().backfill);
@@ -216,9 +216,9 @@ test('gif backfill run: a second run without force is a no-op and never double-c
     const world = fakeClient(standardChannels());
     const backfill = createGifBackfill(wrongly({ ...depsOf(world), hot: fakeHot(), store, log }));
 
-    await backfill.run(placeOfCommunity(backfill, 'g1'));
+    await backfill.run(placeOfRoot(backfill, 'g1'));
     const fetches = world.asked('history').length;
-    assert.deepEqual(await backfill.run(placeOfCommunity(backfill, 'g1')), { ok: false, reason: 'done' });
+    assert.deepEqual(await backfill.run(placeOfRoot(backfill, 'g1')), { ok: false, reason: 'done' });
     assert.deepEqual(countsByUrl(store), { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2 });
     assert.equal(world.asked('history').length, fetches, 'no history read on the no-op');
     assert.deepEqual(log.entries.find((e) => e.message === 'gif-backfill: skipped').fields, { reason: 'done' });
@@ -228,7 +228,7 @@ test('gif backfill run: a second run without force is a no-op and never double-c
 test('gif backfill run: the first run resets what was recorded on arrival, never counting it twice', async () => {
   await withStore(async (store: GifStore) => {
     // Recorded on arrival: a message the history window also holds, and one gone from it.
-    store.recordGifs(placeOfCommunity(store, 'g1'), [
+    store.recordGifs(placeOfRoot(store, 'g1'), [
       { id: '1001', ts: T0 + 1000, placeId: 'c1', links: [{ id: '1001#e0', kind: 'gif', url: TENOR_A }] },
       {
         id: 'old',
@@ -246,7 +246,7 @@ test('gif backfill run: the first run resets what was recorded on arrival, never
       })
     );
 
-    await backfill.startIfNeeded(placeOfCommunity(backfill, 'g1'));
+    await backfill.startIfNeeded(placeOfRoot(backfill, 'g1'));
     assert.deepEqual(countsByUrl(store), { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2, 'https://tenor.com/view/gone-9': 0 });
     assert.equal(store.getGifs().entries['1001#e0'].id, 'g1', 'the arrival handle is kept');
     assert.equal(store.getGifs().entries['old#e0'].id, 'g2');
@@ -260,11 +260,11 @@ test('gif backfill run: keep handles across a rescan', async () => {
       wrongly({ ...depsOf(fakeClient(standardChannels())), hot, store, log: fakeLog() })
     );
 
-    await backfill.run(placeOfCommunity(backfill, 'g1'));
+    await backfill.run(placeOfRoot(backfill, 'g1'));
     const firstHandles = Object.fromEntries(
       Object.entries(store.getGifs().entries).map(([key, entry]: [string, Untyped]) => [key, entry.id])
     );
-    store.recordGifs(placeOfCommunity(store, 'g1'), [
+    store.recordGifs(placeOfRoot(store, 'g1'), [
       {
         id: 'x',
         ts: T0,
@@ -275,7 +275,7 @@ test('gif backfill run: keep handles across a rescan', async () => {
     const staleHandle = store.getGifs().entries['999'].id;
     const nextId = store.getGifs().nextId;
 
-    const result = await backfill.run(placeOfCommunity(backfill, 'g1'), { force: true });
+    const result = await backfill.run(placeOfRoot(backfill, 'g1'), { force: true });
     assert.equal(result.ok, true);
     assert.equal(result.gifs, 7);
     assert.deepEqual(
@@ -291,7 +291,7 @@ test('gif backfill run: keep handles across a rescan', async () => {
     // PR 7d: `gifs.storeMax` is the constant 300, so 297 more GIFs, recorded as the live observer records them, fill the
     // library past it.
     store.recordGifs(
-      placeOfCommunity(store, 'g1'),
+      placeOfRoot(store, 'g1'),
       Array.from({ length: 297 }, (_, n) => ({
         id: `y${n}`,
         ts: T0 + n,
@@ -312,7 +312,7 @@ test('gif backfill run: describes the top backfillDescribe entries without a cac
     const describer: Record<string, Untyped> = fakeDescriber();
     const hot = fakeHot();
     // The most used gif already has a caption (its first embed id): it is skipped, not re-described.
-    wrongly<Record<string, unknown>>(store.getMediaCache(placeOfCommunity(store, 'g1')))['1001#e0'] = {
+    wrongly<Record<string, unknown>>(store.getMediaCache(placeOfRoot(store, 'g1')))['1001#e0'] = {
       text: 'a cat dancing',
       ts: T0,
     };
@@ -326,7 +326,7 @@ test('gif backfill run: describes the top backfillDescribe entries without a cac
       })
     );
 
-    const result: Record<string, Untyped> = await backfill.run(placeOfCommunity(backfill, 'g1'));
+    const result: Record<string, Untyped> = await backfill.run(placeOfRoot(backfill, 'g1'));
     assert.equal(result.described, 2);
     assert.equal(describer.calls.length, 1);
     const [call] = describer.calls;
@@ -364,7 +364,7 @@ test("gif backfill run: the describer gets each GIF's whole picture item, so a l
       })
     );
 
-    await backfill.run(placeOfCommunity(backfill, 'g1'));
+    await backfill.run(placeOfRoot(backfill, 'g1'));
     const byId: Record<string, Untyped> = new Map(
       describer.calls[0].items.map((item: Record<string, Untyped>) => [item.itemId, item])
     );
@@ -386,10 +386,7 @@ test('gif backfill run: no describer describes nothing', async () => {
         log: fakeLog(),
       })
     );
-    assert.equal(
-      wrongly<{ described: number }>(await none.run(placeOfCommunity(none, 'g1'), { force: true })).described,
-      0
-    );
+    assert.equal(wrongly<{ described: number }>(await none.run(placeOfRoot(none, 'g1'), { force: true })).described, 0);
   });
 });
 
@@ -406,7 +403,7 @@ test('gif backfill run: backfillMessages caps the messages read per channel', as
       wrongly({ ...depsOf(fakeClient(rooms)), hot: fakeHot(), store, log: fakeLog() })
     );
 
-    const result = await backfill.run(placeOfCommunity(backfill, 'g1'));
+    const result = await backfill.run(placeOfRoot(backfill, 'g1'));
     assert.deepEqual(result, { ok: true, channels: 1, messages: 500, gifs: 500, described: 0 });
     assert.deepEqual(countsByUrl(store), { [TENOR_B]: 500 });
   });
@@ -424,12 +421,12 @@ test('gif backfill run: refused while paused and while another run is in flight'
     );
 
     store.state.data.paused = true;
-    assert.deepEqual(await backfill.run(placeOfCommunity(backfill, 'g1')), { ok: false, reason: 'paused' });
+    assert.deepEqual(await backfill.run(placeOfRoot(backfill, 'g1')), { ok: false, reason: 'paused' });
     store.state.data.paused = false;
 
-    const first = backfill.run(placeOfCommunity(backfill, 'g1'));
+    const first = backfill.run(placeOfRoot(backfill, 'g1'));
     assert.equal(backfill.isRunning(), true);
-    assert.deepEqual(await backfill.run(placeOfCommunity(backfill, 'g1'), { force: true }), {
+    assert.deepEqual(await backfill.run(placeOfRoot(backfill, 'g1'), { force: true }), {
       ok: false,
       reason: 'running',
     });
@@ -457,10 +454,10 @@ test('gif backfill startIfNeeded: runs once when the feature is on and nothing i
     const world = fakeClient(standardChannels());
     const backfill = createGifBackfill(wrongly({ ...depsOf(world), hot: fakeHot(), store, log: fakeLog() }));
 
-    await backfill.startIfNeeded(placeOfCommunity(backfill, 'g1'));
+    await backfill.startIfNeeded(placeOfRoot(backfill, 'g1'));
     assert.equal(Object.keys(store.getGifs().entries).length, 3);
     const fetches = world.asked('history').length;
-    await backfill.startIfNeeded(placeOfCommunity(backfill, 'g1'));
+    await backfill.startIfNeeded(placeOfRoot(backfill, 'g1'));
     assert.equal(world.asked('history').length, fetches, 'stamped: never again at startup');
   });
 });
@@ -469,11 +466,11 @@ test('gif backfill startIfNeeded: an error is logged, never thrown', async () =>
   await withStore(async (store: GifStore) => {
     const log = fakeLog();
     const reads = {
-      conversations: () => Promise.reject(new Error('boom')),
+      chats: () => Promise.reject(new Error('boom')),
     };
     const backfill = createGifBackfill(wrongly({ reads, iface: () => IFACE, hot: fakeHot(), store, log }));
 
-    await backfill.startIfNeeded(placeOfCommunity(backfill, 'g1'));
+    await backfill.startIfNeeded(placeOfRoot(backfill, 'g1'));
     assert.ok(log.entries.some((e) => e.level === 'error' && e.message === 'gif-backfill: failed'));
     assert.equal(backfill.isRunning(), false);
   });
@@ -482,11 +479,11 @@ test('gif backfill startIfNeeded: an error is logged, never thrown', async () =>
 test('store setGifBackfill / resetGifCounts: the stamp is normalised and persisted, a reset keeps entries and handles', async () => {
   const { dir: memoryDir } = memDataDir();
   await (async (store: GifStore, dir: string) => {
-    store.recordGifs(placeOfCommunity(store, 'g1'), [
+    store.recordGifs(placeOfRoot(store, 'g1'), [
       { id: 'm', ts: T0, placeId: 'c1', links: [{ id: 'm#e0', kind: 'gif', url: TENOR_A }] },
     ]);
     assert.deepEqual(
-      store.setGifBackfill(placeOfCommunity(store, 'g1'), {
+      store.setGifBackfill(placeOfRoot(store, 'g1'), {
         at: '2026-09-30T00:00:00.000Z',
         channels: 2.7,
         messages: -1,
@@ -497,7 +494,7 @@ test('store setGifBackfill / resetGifCounts: the stamp is normalised and persist
         messages: 0,
       }
     );
-    assert.equal(store.setGifBackfill(placeOfCommunity(store, 'g2'), wrongly({ at: 5 })), null);
+    assert.equal(store.setGifBackfill(placeOfRoot(store, 'g2'), wrongly({ at: 5 })), null);
 
     // B7: a counter's place is the channel the message was in, and a reset is of one place.
     store.resetGifCounts('c1');

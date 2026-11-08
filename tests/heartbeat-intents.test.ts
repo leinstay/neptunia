@@ -22,7 +22,7 @@ import { onWorld, useIface, world } from './fixtures/turn-world.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
 
-// The conversation is held by a fake interface named `fake`.
+// The chat is held by a fake interface named `fake`.
 useIface('fake');
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 
@@ -98,7 +98,7 @@ function hotWith({ access = {}, wakes = {} } = {}) {
       'character-card': 'You are friendly and terse.',
       format: 'Use <msg> and <react> tags.',
       reply: 'Someone called you: {{author}}.',
-      interject: 'Jump into the conversation.',
+      interject: 'Jump into the chat.',
       initiate: 'Start a topic.',
       inner: INNER_TASK,
       labels,
@@ -187,7 +187,7 @@ async function liveTurn({
     hot,
     store,
     client,
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     port,
     reads,
     intentions,
@@ -389,7 +389,7 @@ for (const transport of ['native', 'text']) {
       lore: [{ id: 'l1', title: 'Weekend tournament', keys: ['tournament'], text: 'A shared game', always: false }],
       answers: [
         answer(THINK, [call('lore.list')]),
-        answer(THINK, [call('intention.set', { due: '1h', text: 'ask about the remembered conversation' })]),
+        answer(THINK, [call('intention.set', { due: '1h', text: 'ask about the remembered chat' })]),
         answer(THINK, [call('lore.list')]),
       ],
     });
@@ -431,7 +431,7 @@ test('heartbeat: a failed memory read is returned to the model and can end in a 
   assert.deepEqual(run.list(), []);
 });
 
-test('heartbeat: conversation inspection returns real lines before creating a targeted intention', async () => {
+test('heartbeat: chat inspection returns real lines before creating a targeted intention', async () => {
   const run = await liveTurn({
     answers: [
       toolAnswer(THINK, [call('conversation.read', { place: '#general', last: 1 })]),
@@ -439,7 +439,7 @@ test('heartbeat: conversation inspection returns real lines before creating a ta
     ],
   });
   assert.deepEqual(actionsOf(run), ['conversation.read:executed:ok', 'intention.set:executed:ok']);
-  assert.ok(readOf(run, 1).includes('πρώτο'), 'the continuation sees the actual conversation line');
+  assert.ok(readOf(run, 1).includes('πρώτο'), 'the continuation sees the actual chat line');
   assert.equal(run.llm.calls.length, 2);
   assert.deepEqual(run.sends, []);
 });

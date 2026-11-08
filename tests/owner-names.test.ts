@@ -29,7 +29,7 @@ function consoleOver(memoryDb: unknown) {
     memoryDb,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => Date.now(),
   });
   return async (line: string) => {

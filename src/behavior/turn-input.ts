@@ -24,7 +24,7 @@ export const TURN_INPUT_KEYS: ReadonlyArray<string> = Object.freeze([
   'taggedCall',
   'placeMemory',
   'interlocutor',
-  'privateChat',
+  'dmChat',
   'privateProfile',
   'otherProfiles',
   'candidateProfiles',

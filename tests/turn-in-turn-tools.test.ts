@@ -36,19 +36,19 @@ function cacheScene() {
     clock: () => NOW,
     ifaceReads: io.reads,
     lookup: {
-      readPage: (_guildId, url) => {
+      readPage: (_rootId, url) => {
         pages.push(url);
         return Promise.resolve({ ok: true, url, title: 'stored page', text: `page:${url}` });
       },
     },
     describer: {
-      relookImage: (_guildId, item, question) => {
+      relookImage: (_rootId, item, question) => {
         images.push(item.itemId);
         return Promise.resolve({ question, text: `image:${String(item.itemId)}` });
       },
     },
     memberOf: () => null,
-    conversationOf: (current) => ({ iface: 'fake', conversationId: current.id }),
+    chatOf: (current) => ({ iface: 'fake', chatId: current.id }),
     turnContextOf: () => groupContext('fake'),
     linkCalls: (lines) => lines,
     drawTool: () => Promise.reject(new Error('drawing is outside this fixture')),
@@ -128,9 +128,9 @@ async function cachedCall(scene: ReturnType<typeof cacheScene>, skill: 'web.read
   return executeCall(resolved, {
     inTurn: scene.handlers,
     port: { send: () => Promise.reject(new Error('cached reads never send')) },
-    refOf: () => ({ iface: 'fake', conversationId: 'room' }),
-    // The turn's own conversation reaches an in-turn tool as `here` (plan T.4).
-    here: { iface: 'fake', conversationId: 'room' },
+    refOf: () => ({ iface: 'fake', chatId: 'room' }),
+    // The turn's own chat reaches an in-turn tool as `here` (plan T.4).
+    here: { iface: 'fake', chatId: 'room' },
     opContext: { placeId: 'g1' },
   });
 }
@@ -156,7 +156,7 @@ for (const skill of ['web.read', 'media.look'] as const) {
     const scene = cacheScene();
     const call: InTurnCall = {
       requester: null,
-      conversationId: 'room',
+      chatId: 'room',
       idempotencyKey: null,
       messageRef: { kind: 'stored', stored: { sourceId: 'missing-source', placeId: 'missing-place', iface: 'other' } },
     };
@@ -168,13 +168,13 @@ for (const skill of ['web.read', 'media.look'] as const) {
   });
 }
 
-test('a native cached link reference matches its current conversation without borrowing a foreign route', async () => {
+test('a native cached link reference matches its current chat without borrowing a foreign route', async () => {
   const scene = cacheScene();
   const call: InTurnCall = {
     requester: null,
-    conversationId: 'room',
+    chatId: 'room',
     idempotencyKey: null,
-    messageRef: { kind: 'native', native: { iface: 'fake', conversationId: 'room', messageId: 'same-native' } },
+    messageRef: { kind: 'native', native: { iface: 'fake', chatId: 'room', messageId: 'same-native' } },
   };
   await scene.handlers['web.read']({ message: 'same-native' }, call);
   assert.deepEqual(scene.pages, ['https://local.example/wrong']);
@@ -185,9 +185,9 @@ test('a foreign native cache reference cannot select the same native ID from cur
   const scene = cacheScene();
   const call: InTurnCall = {
     requester: null,
-    conversationId: 'room',
+    chatId: 'room',
     idempotencyKey: null,
-    messageRef: { kind: 'native', native: { iface: 'other', conversationId: 'room', messageId: 'same-native' } },
+    messageRef: { kind: 'native', native: { iface: 'other', chatId: 'room', messageId: 'same-native' } },
   };
   await scene.handlers['web.read']({ message: 'same-native' }, call);
   assert.deepEqual(scene.pages, []);
@@ -196,12 +196,12 @@ test('a foreign native cache reference cannot select the same native ID from cur
 
 test('an ambiguous qualified native cache reference cannot choose between distinct stored sources', async () => {
   const scene = cacheScene();
-  const native = { iface: 'fake', conversationId: 'room', messageId: 'same-native' };
+  const native = { iface: 'fake', chatId: 'room', messageId: 'same-native' };
   registerCached(scene, 'first', native);
   registerCached(scene, 'second', native);
   const call: InTurnCall = {
     requester: null,
-    conversationId: 'room',
+    chatId: 'room',
     idempotencyKey: null,
     messageRef: { kind: 'native', native },
   };
@@ -226,7 +226,7 @@ test('repeating one source-free native quote keeps its original handle usable fo
         message: {
           id: 'same-native',
           placeId: 'quoted-room',
-          native: { iface: 'fake', conversationId: 'quoted-room', messageId: 'same-native' },
+          native: { iface: 'fake', chatId: 'quoted-room', messageId: 'same-native' },
           content: 'https://repeat.example/original',
           attachments: [],
           links: [],

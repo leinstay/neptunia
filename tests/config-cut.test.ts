@@ -55,11 +55,11 @@ test('drops a daily cap without reporting it as a difference', () => {
   assert.deepEqual([config, cut, differs], [{ image: { timeoutMs: 9000 } }, ['image.maxPerDay'], []]);
 });
 
-test('writes the two privacy switches under private, a false one included', () => {
+test('writes the two privacy switches, a false one included, under dm and private', () => {
   const { config, renamed } = cutConfigKeys({ features: { privateMessages: false, privateLikeServer: false } });
-  assert.deepEqual(config, { private: { enabled: false, likeServer: false } });
+  assert.deepEqual(config, { dm: { enabled: false }, private: { likeServer: false } });
   assert.deepEqual(renamed, [
-    { from: 'features.privateMessages', to: 'private.enabled' },
+    { from: 'features.privateMessages', to: 'dm.enabled' },
     { from: 'features.privateLikeServer', to: 'private.likeServer' },
   ]);
 });

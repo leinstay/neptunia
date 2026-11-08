@@ -12,12 +12,13 @@ import type { Frame } from '../../src/turn/request/frame.ts';
 import type { Built, RequestInput } from './built-request.ts';
 import { DM_CHAIN, ROOM_CHAIN, frameInput } from './frame-input.ts';
 
-type ConfigOverrides = { context?: object; llm?: object; memory?: object; private?: object; features?: object };
+type ConfigOverrides = { context?: object; llm?: object; memory?: object; dm?: object; private?: object; features?: object };
 type FakeConfig = {
   bot: { timezone: string };
   context: { caps: Record<string, number> } & Record<string, unknown>;
   llm: { maxRequestTokens: number } & Record<string, unknown>;
   memory?: object;
+  dm?: object;
   private?: object;
 };
 /** A stored chat line as these tests write it: the fields a case reads, and whatever `overrides` add. */
@@ -56,6 +57,7 @@ export function fakeConfig(overrides: ConfigOverrides = {}): FakeConfig {
     },
     llm: { maxRequestTokens: 50000, ...overrides.llm },
     ...(overrides.memory ? { memory: overrides.memory } : {}),
+    ...(overrides.dm ? { dm: overrides.dm } : {}),
     ...(overrides.private ? { private: overrides.private } : {}),
   };
 }
@@ -81,7 +83,7 @@ export function makeMessage(id: number | string, ts: number, overrides: Record<s
 
 /**
  * The turn frame of a loose input (src/turn/request/frame.ts): its kind read off `mode`, `triggerKind` and `wakeKind`,
- * in the fixture's room or, with `privateChat`, in a one-to-one chat, answering the trigger's author.
+ * in the fixture's room or, with `dmChat`, in a one-to-one chat, answering the trigger's author.
  */
 export function frameOfInput(input: Record<string, unknown>): Frame {
   const text = (value: unknown): string | null => (typeof value === 'string' ? value : null);
@@ -91,7 +93,7 @@ export function frameOfInput(input: Record<string, unknown>): Frame {
   const author = trigger
     ? { personId: `person:${authorId}`, accountId: authorId, name: text(trigger.authorName) }
     : null;
-  const dm = Boolean(input.privateChat);
+  const dm = Boolean(input.dmChat);
   return frameOf(
     frameInput({
       mode: text(input.mode) ?? 'reply',

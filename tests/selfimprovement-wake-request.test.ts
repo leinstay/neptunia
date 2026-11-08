@@ -57,7 +57,7 @@ test('the wake request is framed by the selfimprovement prompt with her characte
   assert.ok(!text.includes(PROMPT_MARK.brief), 'no executor brief');
 });
 
-test('the transport anchor is not her current conversation on this wake', async () => {
+test('the transport anchor is not her current chat on this wake', async () => {
   // Bug: the anchor channel's chat reads as a room she should answer, as it did on a heartbeat before it was cut.
   const run = await wakeTurn({
     wake: wakeOfKind('selfimprovement', 'selfimprovement:1'),

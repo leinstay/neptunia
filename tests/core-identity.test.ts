@@ -1,5 +1,5 @@
 // Who the persona is and which interface a row belongs to, end to end (the harness of tests/core-slice.test.ts):
-// `startCore` over the fake interface, whose `hello` names the persona and the community. The persona's name in every
+// `startCore` over the fake interface, whose `hello` names the persona and the root. The persona's name in every
 // request is the one of `hello`, a nickname change that arrives as `membership.changed` changes it for the next
 // request, and the rows her turn writes carry the interface of the event, not a fixed one.
 import { test } from 'node:test';
@@ -97,7 +97,7 @@ async function withIdentityCore(body: (ctx: Context) => Promise<void>) {
         start: async (host) => {
           running = await start(host, {
             self: { id: SELF_ID, name: SELF_NAME },
-            community: { id: 'g1', name: 'Alpha' },
+            root: { id: 'g1', name: 'Alpha' },
           });
           return running;
         },
@@ -109,7 +109,7 @@ async function withIdentityCore(body: (ctx: Context) => Promise<void>) {
   if (running === null) throw new Error('the core never started the fake interface');
   const live: Running = running;
   const dbPath = join(dirs.dataDir, 'memory.db');
-  live.adapter.seedConversation(channelInfo('c1'));
+  live.adapter.seedChat(channelInfo('c1'));
   const ctx: Context = {
     ...dirs,
     dbPath,

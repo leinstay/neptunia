@@ -12,7 +12,7 @@ import { personaKey } from '../src/memory/db/storage-keys.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
 import { startUnitsCore, until, withRig } from './fixtures/core-units.ts';
-import { clock, GUILD, NOW, setup } from './fixtures/inner-rig.ts';
+import { clock, ROOT, NOW, setup } from './fixtures/inner-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const STOPPED = { stopped: true, stoppedAt: NOW - 1000, stoppedBy: 'owner' };
@@ -51,7 +51,7 @@ test('releaseStoredStop with no stored stop answers false and writes nothing', (
 
 test('the core clears a stored stop on its own tick, with no command', async () => {
   // Catches: the method exists and the core never calls it, so the flag in memory.db still holds the wakes off.
-  await withRig({ config: { bot: { placeId: GUILD }, wakes: { tickSeconds: 1 } } }, async ({ dirs, llm, cores }) => {
+  await withRig({ config: { bot: { placeId: ROOT }, wakes: { tickSeconds: 1 } } }, async ({ dirs, llm, cores }) => {
     const file = path.join(dirs.dataDir, 'memory.db');
     const seed = openMemoryDb(file);
     applyUnitWrite(seed, { op: 'value', key: personaKey('inner'), value: { ...emptyState(), ...STOPPED } });

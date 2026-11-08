@@ -1,5 +1,5 @@
-// Tests for the member directory of the core (src/interface/members.ts): the names of the members of a community as
-// the interface reported them through `membership.changed`, by community and member. The persona's display name and
+// Tests for the member directory of the core (src/interface/members.ts): the names of the members of a root as
+// the interface reported them through `membership.changed`, by root and member. The persona's display name and
 // every member name a request or a job reads come from here, and a nickname change reaches them at once.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -45,7 +45,7 @@ test('names a member not seen before when the first event is an update', () => {
   assert.equal(directory.nameOf('g1', 'u2'), 'Zoé');
 });
 
-test('keeps the name of the same member apart in two communities', () => {
+test('keeps the name of the same member apart in two roots', () => {
   const directory = createMemberDirectory();
   directory.apply(changed('joined', 'g1', 'u1', 'Ελένη'));
   directory.apply(changed('joined', 'g2', 'u1', 'Helen'));
@@ -61,7 +61,7 @@ test('forgets a member once the leave is applied', () => {
   assert.equal(directory.nameOf('g1', 'u1'), null);
 });
 
-test('answers null for a member or a community it was never told about', () => {
+test('answers null for a member or a root it was never told about', () => {
   const directory = createMemberDirectory();
   directory.apply(changed('joined', 'g1', 'u1', 'Ελένη'));
   assert.equal(directory.nameOf('g1', 'u9'), null);

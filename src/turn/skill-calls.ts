@@ -3,10 +3,10 @@
 // planned calls made in segments. createTurnRunner (src/behavior/turn.ts) builds it once per runner with
 // createSkillCalls; the tool round and the attempt call its functions.
 
-import type { Conversation } from '../protocol/events.ts';
+import type { Chat } from '../protocol/events.ts';
 import { turnBoundary } from '../tools/publication.ts';
-import type { ConversationRef } from '../protocol/adapter.ts';
-import { placeOfConversation } from '../memory/addresses.ts';
+import type { ChatRef } from '../protocol/adapter.ts';
+import { placeOfChat } from '../memory/addresses.ts';
 import type { Context } from '../memory/db/scope.ts';
 import { DESTINATION_REQUIRED } from '../behavior/inner-output.ts';
 import { POSTING_SKILLS } from '../behavior/inner.ts';
@@ -42,7 +42,7 @@ import { journalResultOf, portError, postedOf } from './journal.ts';
 import type { JournalOp } from './journal.ts';
 import type { CallMark, JournalNotes, NotesDraft } from './journal-notes.ts';
 import { untaggedNote } from './mentions.ts';
-import { inCommunity, snapshotOfDraft } from './routing.ts';
+import { inRoot, snapshotOfDraft } from './routing.ts';
 import type { PostRefs, RenderedPost, Sends } from './sends.ts';
 import type { Handles } from './handles.ts';
 import { wakeRefusalCode } from '../tools/wake-tools.ts';
@@ -61,7 +61,7 @@ type CallsErrands = {
   fileOf?: (args: {
     placeId: string | null;
     handle: string;
-    privateChannelId: string | null;
+    dmChatId: string | null;
   }) => ReturnType<NonNullable<CallView['fileOf']>>;
   budget: (args: { agent: unknown }) => unknown;
 } | null;
@@ -78,7 +78,7 @@ export type SkillCallsContext = {
   selfIdOf: () => string;
   clock: () => number;
   iface: CallsPort;
-  conversationOf: (channel: { id: string }) => ConversationRef;
+  chatOf: (channel: { id: string }) => ChatRef;
   images: GateContext['images'] | undefined;
   speech: GateContext['speech'] | null;
   errands: CallsErrands;
@@ -152,7 +152,7 @@ export type InnerAction = {
 };
 
 /** What an attempt's draft holds that the calls read and write. */
-/** The calls that act in the turn's own conversation when their `channel` is left out. */
+/** The calls that act in the turn's own chat when their `channel` is left out. */
 const HERE_SKILLS: ReadonlySet<string> = new Set([
   'conversation.read',
   'memory.channel.read',
@@ -205,7 +205,7 @@ function quotedSince(draft: CallsDraft | null | undefined, before: ReadonlySet<n
 const wakeOf = (draft: CallsDraft | null | undefined) => draft?.inner?.wake;
 
 /** The channel a call is made from, as the interface described it. */
-type CallChannel = Pick<Conversation, 'id' | 'rootId'> & { name?: unknown };
+type CallChannel = Pick<Chat, 'id' | 'rootId'> & { name?: unknown };
 
 type ViewArgs = Parameters<typeof callViewOf>[0];
 
@@ -220,7 +220,7 @@ export type CallPlan = {
 
 /** What a call's result carries beside its status, as the turn reads it. */
 type CallAnswer = CallResult & {
-  ref?: { conversationId?: string; messageId?: string } | null;
+  ref?: { chatId?: string; messageId?: string } | null;
   values?: unknown;
   voice?: { text: unknown; durationSecs: unknown } | null;
   intentionId?: unknown;
@@ -239,7 +239,7 @@ export type CallContext = {
   trigger: { id?: string; authorId?: string | null } | null | undefined;
   placeId: string;
   draft: CallsDraft | null;
-  privateChat?: boolean;
+  dmChat?: boolean;
   idByIndex?: ReadonlyMap<number, string> | null;
   pulledIds?: ReadonlyMap<string, string> | null;
   lines?: RenderArgs['lines'];
@@ -299,7 +299,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     selfIdOf,
     clock,
     iface: port,
-    conversationOf,
+    chatOf,
     images,
     speech,
     errands,
@@ -375,7 +375,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       typeof errands?.fileOf === 'function'
         ? (handle: string) =>
             // Checked just above; the closure cannot see the check.
-            errands.fileOf!({ placeId, handle, privateChannelId: inCommunity(channel) ? null : String(channel.id) })
+            errands.fileOf!({ placeId, handle, dmChatId: inRoot(channel) ? null : String(channel.id) })
         : null;
     return callViewOf({
       currentIface: port.iface,
@@ -419,7 +419,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       args: resolved.args,
       principal: PERSONA,
       requester: envelope.requester,
-      audience: { conversationId: String(channel.id) },
+      audience: { chatId: String(channel.id) },
       context: {
         config: hot.config,
         selfId: selfIdOf() || null,
@@ -599,7 +599,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
   function heldNoteOf(
     skill: string,
     resolved: Resolved,
-    { privateChat, rendered }: { privateChat: boolean; rendered: RenderedPost | null }
+    { dmChat, rendered }: { dmChat: boolean; rendered: RenderedPost | null }
   ): HeldNote {
     const args: Obj = resolved.args ?? {};
     const said =
@@ -612,7 +612,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
             accountIds: (rendered?.accountIds ?? []).filter((id): id is string => typeof id === 'string' && id !== ''),
           }
         : null;
-    return { skill, privateChat, said };
+    return { skill, dmChat, said };
   }
 
   /**
@@ -654,8 +654,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       return { refusal: { code: CODE.HELD_MESSAGE, reason: 'held' } };
     if (typeof inner.mayAct === 'function' && !inner.mayAct())
       return { refusal: { code: CODE.INNER_STOPPED, reason: 'wakes' } };
-    const isPublic =
-      POSTING_SKILLS.includes(String(skill)) && (inCommunity(channel) || typeof args?.place === 'string');
+    const isPublic = POSTING_SKILLS.includes(String(skill)) && (inRoot(channel) || typeof args?.place === 'string');
     return { public: isPublic };
   }
 
@@ -669,7 +668,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
    * `message.edit`) is rendered first exactly as a `<msg>` of this turn (renderPost over the
    * turn's `handles`, or `lines`, `knownNames`, `directory`, and `idByIndex`, `pulledIds`), its mentions the only members
    * notified. The operation closes `succeeded` (with the
-   * message id), `unknown` (never retried) or `failed` with the code. A message or picture that reached another conversation
+   * message id), `unknown` (never retried) or `failed` with the code. A message or picture that reached another chat
    * stamps its lastPostAt, links its trigger, and a message is a `said` line of the record.
    * Logged `skills: called` (`skill`, `status`, `code`). Resolves the result with `skill`. Never throws.
    */
@@ -681,7 +680,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       trigger,
       placeId,
       draft,
-      privateChat = false,
+      dmChat = false,
       idByIndex = null,
       pulledIds = null,
       lines = [],
@@ -705,7 +704,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         channel,
         snapshot: snapshotOfDraft(draft),
         placeId,
-        privateChat,
+        dmChat,
         idByIndex,
         pulledIds,
         lines,
@@ -749,7 +748,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         // A destructive call counts from its dispatch, whatever comes back.
         if (resolvedCall.dispatch && (skills ?? defaultSkills()).get(skill)?.effects === 'destructive')
           destructiveRuns.set(`${skill}:${envelope.originChannelId}`, clock());
-        const publicationBoundary = turnBoundary(draft, conversationOf(channel));
+        const publicationBoundary = turnBoundary(draft, chatOf(channel));
         // An intention's text is stored: a `#n` in it becomes the identity of the line it named (src/turn/handles.ts).
         const text = resolvedCall.args?.text;
         const executed =
@@ -759,8 +758,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         result = await executeCall(executed, {
           publicationBoundary,
           port,
-          here: conversationOf(channel),
-          refOf: (conversationId) => conversationOf({ id: String(conversationId) }),
+          here: chatOf(channel),
+          refOf: (chatId) => chatOf({ id: String(chatId) }),
           renderText,
           envelope,
           ...(runOp ? { runOp } : {}),
@@ -770,8 +769,8 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
             publicationBoundary,
             // The place the call runs in (none for a turn that is nowhere); an operation on what the tree shares asks for
             // its top.
-            placeId: draft?.nowhere === true ? null : placeOfConversation(store, channel),
-            ...(privateChat ? { privateChat: true } : {}),
+            placeId: draft?.nowhere === true ? null : placeOfChat(store, channel),
+            ...(dmChat ? { dmChat: true } : {}),
             // A live wake turn's posts wait in its hold (src/tools/send-hold.ts).
             ...(inner?.hold ? { hold: inner.hold } : {}),
           },
@@ -787,7 +786,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         // A post the hold kept goes out when the wake completes: she is told so, and it has no message yet.
         const key = envelope.idempotencyKey;
         if (result.status === 'ok' && inner?.hold && key && inner.hold.countUnder(key) > 0) {
-          inner.hold.note(key, heldNoteOf(skill, resolvedCall, { privateChat, rendered }));
+          inner.hold.note(key, heldNoteOf(skill, resolvedCall, { dmChat, rendered }));
           result = { status: 'ok', code: CODE.HELD, data: { text: heldUntilEnd() } };
         }
       }
@@ -847,7 +846,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     const turnPosts = draft ? (draft.ownPosts ??= []) : [];
     // A resolved call's `place` is an id the interface resolved (src/tools/executors.ts#resolveCall).
     const namedChannel = args.place as string | null | undefined;
-    const where = posted ? String(result.ref?.conversationId ?? namedChannel ?? channel.id) : null;
+    const where = posted ? String(result.ref?.chatId ?? namedChannel ?? channel.id) : null;
     if (posted && where !== null) {
       lastPostAt.set(where, clock());
       noteTrigger(posted.id, trigger?.id);
@@ -862,7 +861,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         recordSaid({
           placeId,
           channel: { id: where },
-          privateChat: false,
+          dmChat: false,
           trigger,
           draft,
           op,
@@ -878,7 +877,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
         recordSaid({
           placeId,
           channel: { id: where },
-          privateChat: false,
+          dmChat: false,
           trigger,
           draft,
           op,

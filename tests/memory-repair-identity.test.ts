@@ -56,7 +56,7 @@ function seedInstall(db: Db): void {
   link.run('link:9001:migration', 'discord:9001', OWNER, 'verified', 'migration', null, AT, AT, AT);
   link.run('link:9001:owner', 'discord:9001', OWNER, 'verified', 'owner', null, AT, null, AT);
   const place = db.prepare(
-    `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, conversation, scope_kind, partner_account, partner_person)
+    `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, chat, scope_kind, partner_account, partner_person)
      VALUES (?, ?, 'dm', ?, ?, ?, 1, 'dm', 'dm', ?, ?)`
   );
   place.run('cli:dm:owner', 'cli', 'owner', 'dm:owner', 'cli/global', 'cli:owner', null);
@@ -235,7 +235,7 @@ test('after the repair her account is hers, and the stranger under her name is n
   });
 });
 
-test('the repair moves no row out of the conversation it was said in', () => {
+test('the repair moves no row out of the chat it was said in', () => {
   // Bug: a repair that rewrites scopes moves the feelings kept in his DM, or her lines in his chat, into a wider audience.
   const file = install();
   const before = read(file, audienceMap);
@@ -256,7 +256,7 @@ test('after the repair a new line of the command line lands on the same account 
         kind: 'message.received',
         iface: 'cli',
         at,
-        conversation: { id: 'cli:dm:owner', kind: 'dm', chatType: 'dm', partnerId: 'owner' },
+        chat: { id: 'cli:dm:owner', kind: 'dm', chatType: 'dm', partnerId: 'owner' },
         message: { id: 'line-after', at, content: 'synthetic', author: { id: 'owner', name: 'owner' } },
       },
       { connection: 'conn:cli', direct: true }

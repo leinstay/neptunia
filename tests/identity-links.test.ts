@@ -40,7 +40,7 @@ test('a line of the command line is stored when her proposal for it was merged i
         kind: 'message.received',
         iface: 'cli',
         at: AT,
-        conversation: { id: 'cli:dm:owner', kind: 'dm', chatType: 'dm', partnerId: 'owner' },
+        chat: { id: 'cli:dm:owner', kind: 'dm', chatType: 'dm', partnerId: 'owner' },
         message: { id: 'line-1', at: AT, content: 'a synthetic line', author: { id: 'owner', name: 'owner' } },
       },
       { connection: 'conn:cli', direct: true }

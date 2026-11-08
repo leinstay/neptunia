@@ -1,10 +1,10 @@
 // What an adapter declares about a place beyond its id: the authority it belongs to and the place that contains it, of
-// any kind and at any depth. `kind` says what sort of conversation it is and containment says where it sits: a channel in
+// any kind and at any depth. `kind` says what sort of chat it is and containment says where it sits: a channel in
 // a category stays a channel. Discord's objects end inside its adapter (interfaces/discord/collect.ts).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ChannelType } from 'discord.js';
-import { conversationOfChannel } from './fixtures/sdk-shaped.ts';
+import { chatOfChannel } from './fixtures/sdk-shaped.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
 import { observe } from '../src/memory/db/observe.ts';
@@ -13,13 +13,13 @@ import { validateEvent } from '../src/protocol/index.ts';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 
-function eventIn(conversation: Record<string, unknown>, id = 'm1'): Record<string, unknown> {
+function eventIn(chat: Record<string, unknown>, id = 'm1'): Record<string, unknown> {
   return {
     kind: 'message.received',
     iface: 'other',
     at: NOW,
     id: `other:message:${id}`,
-    conversation,
+    chat,
     message: {
       id,
       author: { id: 'u1', name: 'Eleni', self: false, bot: false },
@@ -35,11 +35,11 @@ function eventIn(conversation: Record<string, unknown>, id = 'm1'): Record<strin
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
   };
 }
 
-const placeOf = (conversation: Record<string, unknown>) => observationOf(eventIn(conversation))?.place;
+const placeOf = (chat: Record<string, unknown>) => observationOf(eventIn(chat))?.place;
 
 test('the door refuses a parent kind or an authority that is not a name', () => {
   // Bug: a malformed declaration crosses the door and is stored as a place key.
@@ -62,7 +62,7 @@ test('a channel declares the place that contains it and stays a channel', () => 
   // Bug: only a thread may have a parent, so a server, a category or a workspace above a channel is lost.
   const place = placeOf({ id: 'c1', kind: 'channel', chatType: 'channel', parentId: 'cat1', parentKind: 'category' });
   assert.equal(place?.kind, 'channel');
-  assert.equal(place?.conversation, 'group');
+  assert.equal(place?.chat, 'group');
   assert.equal(place?.parent, 'category:cat1');
 });
 
@@ -75,7 +75,7 @@ test('a thread may sit in any kind of place, and one with no declared kind sits 
 });
 
 test('a group chat may declare a containing place and keeps its kind', () => {
-  // Bug: containment is read from the conversation kind, so a group inside a workspace is taken for a free-standing one.
+  // Bug: containment is read from the chat kind, so a group inside a workspace is taken for a free-standing one.
   const place = placeOf({ id: 'g1', kind: 'dm', chatType: 'group_dm', parentId: 's1', parentKind: 'workspace' });
   assert.equal(place?.kind, 'group_dm');
   assert.equal(place?.parent, 'workspace:s1');
@@ -87,8 +87,8 @@ test('a chain of parents is stored place by place, whatever order they are seen 
   const handle = openMemoryDb(':memory:');
   try {
     const quiet = { info() {}, warn() {}, error() {} };
-    const stored = (conversation: Record<string, unknown>, id: string): void => {
-      const envelope = observationOf(eventIn(conversation, id));
+    const stored = (chat: Record<string, unknown>, id: string): void => {
+      const envelope = observationOf(eventIn(chat, id));
       const result = observe(handle, envelope, { now: () => NOW, log: quiet });
       assert.equal(result.ok, true, JSON.stringify(result));
     };
@@ -112,8 +112,8 @@ test('a chain of parents is stored place by place, whatever order they are seen 
   }
 });
 
-test('a DM observed with no community stores no community place', () => {
-  // Bug: a home community is made up for a DM, and it appears as a parent or a guild row in memory.
+test('a DM observed with no root stores no root place', () => {
+  // Bug: a home root is made up for a DM, and it appears as a parent or a guild row in memory.
   const handle = openMemoryDb(':memory:');
   try {
     const envelope = observationOf(
@@ -132,7 +132,7 @@ test('a DM observed with no community stores no community place', () => {
   }
 });
 
-test('the Discord adapter declares the community as the parent of a channel in a category, and none for a DM', () => {
+test('the Discord adapter declares the root as the parent of a channel in a category, and none for a DM', () => {
   // A category is no place, the owner's word of 2026-11-06.
   // Bug: a Discord object crosses the door, or a channel in a category reports the category as its parent.
   const inCategory = {
@@ -145,13 +145,13 @@ test('the Discord adapter declares the community as the parent of a channel in a
     parent: { id: 'cat1', name: 'Rooms', type: ChannelType.GuildCategory },
     isThread: () => false,
   };
-  const room = conversationOfChannel(inCategory);
+  const room = chatOfChannel(inCategory);
   assert.equal(room.kind, 'channel');
   assert.equal(room.parentId, 'g1');
   assert.deepEqual(room, JSON.parse(JSON.stringify(room)));
   assert.equal((room as { parentKind?: unknown }).parentKind, 'server');
 
-  const direct = conversationOfChannel({ id: 'd1', type: ChannelType.DM, recipientId: 'u1', isThread: () => false });
+  const direct = chatOfChannel({ id: 'd1', type: ChannelType.DM, recipientId: 'u1', isThread: () => false });
   assert.equal(direct.kind, 'dm');
   assert.equal(direct.rootId, null);
   assert.equal(direct.parentId, undefined);

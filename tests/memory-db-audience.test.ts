@@ -95,8 +95,8 @@ test('audienceOf: each kind of triple, the DM place of the partner, malformed is
   }
   assert.equal(audienceOf(undefined).audience_id, AUD_INTERNAL);
   assert.equal(
-    audienceOf(SCOPES.dmAlice, { dmPlace: 'discord:dm:conversation-2' }).audience_id,
-    'aud:dm:discord:dm:conversation-2',
+    audienceOf(SCOPES.dmAlice, { dmPlace: 'discord:dm:chat-2' }).audience_id,
+    'aud:dm:discord:dm:chat-2',
     'a writer that knows the DM place names it'
   );
   assert.equal(

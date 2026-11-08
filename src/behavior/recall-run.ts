@@ -8,11 +8,11 @@
 // name forms point at (stored profiles, the interface's member search for a Latin
 // form), the queries one after another (the interface may serialise its search
 // route, so sending them together would only queue them there), the hits filtered
-// (other bots, conversations the pull rail refuses for this destination, the
+// (other bots, chats the pull rail refuses for this destination, the
 // turn's own chat), clustered, the windows around the clusters read
 // together (one history read each), each followed past its last
-// line while its conversation goes on (one more history read, cut by
-// recall.js followConversation: `recall.followMessages` lines at most, up to
+// line while its chat goes on (one more history read, cut by
+// recall.js followChat: `recall.followMessages` lines at most, up to
 // the first silence longer than `recall.followGapMinutes`), captioned from
 // the media cache only, then the summary. Rails: `features.recall`, server turns and
 // private chats run on behalf of their partner (the pull rail then keeps what
@@ -89,7 +89,7 @@ import {
   cutStretch,
   dropChatHits,
   fallbackWindow,
-  followConversation,
+  followChat,
   isRecentCue,
   matchMemory,
   matchRecord,
@@ -121,7 +121,7 @@ import {
   historyExclusions,
   recallDatabase,
   hitFrom,
-  inCommunity,
+  inRoot,
   linesOf,
   searchQueryOf,
   summaryFailure,
@@ -130,7 +130,7 @@ import {
 } from './recall-reads.ts';
 import { isFiniteNumber, objOf } from '../tools/types.ts';
 import { untracked } from '../loop-watch.ts';
-import type { ConversationInfo } from '../protocol/adapter.ts';
+import type { ChatInfo } from '../protocol/adapter.ts';
 import type { Untyped } from '../tools/types.ts';
 import type {
   EmptyStatsResult,
@@ -218,17 +218,17 @@ function asksServer(server: Untyped, retrieval: Untyped = null) {
   return some(server.forms) || some(server.who) || Number.isFinite(server.from) || Number.isFinite(server.to) || named;
 }
 
-/** What a sample's place rule reads: the turn's live view and its conversation. */
+/** What a sample's place rule reads: the turn's live view and its chat. */
 type SamplePlaceInput = {
-  snapshot: { get: (id: string) => ConversationInfo | undefined } | null;
-  channel: ConversationInfo;
+  snapshot: { get: (id: string) => ChatInfo | undefined } | null;
+  channel: ChatInfo;
   partnerId: string | null;
   config: object;
 };
 
 /**
  * Which places a sample of the persona's own search may read: a sample hands her a stretch of a channel with no word of
- * hers behind it, so it keeps to the conversations the turn's live view allows (readable, the audience rule of
+ * hers behind it, so it keeps to the chats the turn's live view allows (readable, the audience rule of
  * `context.pull.sameAudience`). A stored place the view does not hold, her DM among them, stays with the read context.
  */
 function samplePlaceRule(given: Record<keyof SamplePlaceInput, unknown>) {
@@ -567,9 +567,9 @@ export function createRecall({
     if (!settings || typeof store.getRecent !== 'function') return [];
     const lines: Array<Untyped> = liveRecent(store.getRecent(placeId)?.lines, { now: now(), hours: settings.hours });
     if (lines.length === 0) return [];
-    const here = inCommunity(channel) ? railAudience(channel.audience) : null;
+    const here = inRoot(channel) ? railAudience(channel.audience) : null;
     const covers = (source: Untyped) =>
-      inCommunity(channel)
+      inRoot(channel)
         ? audienceCovers(here, railAudience(source?.audience))
         : audienceAllows(channel, source, config, {
             partnerId,
@@ -932,7 +932,7 @@ export function createRecall({
       }
       return judged.get(id);
     };
-    const privateAccountId = !inCommunity(channel) && typeof partnerId === 'string' && partnerId ? partnerId : null;
+    const privateAccountId = !inRoot(channel) && typeof partnerId === 'string' && partnerId ? partnerId : null;
     const allowScope = (scope: Untyped) => {
       // A private item is its partner's: named by their id, or by the DM place this private turn stands in.
       if (scope?.private === true)
@@ -1294,7 +1294,7 @@ export function createRecall({
     decorate = null,
     memoryContext = null,
   }: RecallWithInput) {
-    const conversationId = channel.id;
+    const chatId = channel.id;
     const searchUntil = started + settings.timeoutMs * SEARCH_SHARE;
     const result = (extra = {}) => ({
       text: null,
@@ -1312,7 +1312,7 @@ export function createRecall({
     const locator = locatorOf(server, settings);
     // The turn's own chat: its lines are dropped by id from every source (a private chat is not part of
     // the server: it drops nothing).
-    const own = inCommunity(channel) && Array.isArray(history) ? history.filter((m) => m?.id) : [];
+    const own = inRoot(channel) && Array.isArray(history) ? history.filter((m) => m?.id) : [];
     const ownIds = new Set(own.map((m) => m.id));
 
     // 0a. Meaning: one embedding, the vector index; a failure leaves words only.
@@ -1419,7 +1419,7 @@ export function createRecall({
     const recordTrace = new Map(recordWindows.map((window) => [window, traceRecordWindow(window)]));
     if (trace) trace.record = [...recordTrace.values()];
     if (plan.length === 0 && memory.items.length === 0 && recordWindows.length === 0) {
-      log.info('recall: skipped', { channel: conversationId, reason: 'no-query' });
+      log.info('recall: skipped', { channel: chatId, reason: 'no-query' });
       if (trace) trace.skipped = 'no-query';
       return result({ people: peopleOut() });
     }
@@ -1505,7 +1505,7 @@ export function createRecall({
 
     // 5. Clusters (a form whose search totals at most `recall.rareHits` is rare): `recall.selfExtra`
     // more than will be kept, 6. a window around each, followed past its last line while the
-    // conversation goes on (`recall.followMessages`, `recall.followGapMinutes`; a failed fetch keeps
+    // chat goes on (`recall.followMessages`, `recall.followGapMinutes`; a failed fetch keeps
     // the window as it was; other bots and the turn's own chat left out; a window that reached into
     // the chat is marked `overlapsChat`, one holding the persona's own line `self`), 7. the final
     // `recall.maxClusters` re-ranked with `recall.selfBonus` for `self`.
@@ -1516,13 +1516,13 @@ export function createRecall({
       rareForms: rareFormKeys(totals, settings.rareHits),
       locator,
     });
-    // The lines after a window's last one that continue its conversation; none when the follow is off,
+    // The lines after a window's last one that continue its chat; none when the follow is off,
     // the window already ends in the turn's own chat (what follows is that chat) or the fetch fails.
     const followOf = async (source: Untyped, messages: Untyped) => {
       const last = messages[messages.length - 1];
       if (settings.followMessages <= 0 || !last || ownIds.has(last.id)) return [];
       const after = await linesOf(reads, source, { after: last.id, limit: settings.followMessages });
-      return after ? followConversation(last.ts, after, settings) : [];
+      return after ? followChat(last.ts, after, settings) : [];
     };
     const fetched = await Promise.all(
       candidates.map(async (cluster) => {
@@ -1597,7 +1597,7 @@ export function createRecall({
     const descriptions = cachedCaptions(config, placeId, windows);
     for (const window of windows) window.descriptions = descriptions;
     log.info('recall: searched', {
-      channel: conversationId,
+      channel: chatId,
       memory: stats.memory,
       archived: stats.archived,
       record: stats.record,
@@ -1669,7 +1669,7 @@ export function createRecall({
           })
         : null;
     if (!messages) {
-      log.info('recall: skipped', { channel: conversationId, reason: 'no-hits' });
+      log.info('recall: skipped', { channel: chatId, reason: 'no-hits' });
       if (trace) trace.skipped = 'no-hits';
       return result({ people: peopleOut() });
     }
@@ -1688,7 +1688,7 @@ export function createRecall({
           note: null,
         };
       log.info('recall: summary', {
-        channel: conversationId,
+        channel: chatId,
         ms: asked === null ? 0 : now() - asked,
         totalMs: now() - started,
         answer: 'fallback',
@@ -1718,7 +1718,7 @@ export function createRecall({
     if (signal.aborted) return null;
     if (answer.status === 'failed') {
       log.warn('recall: failed', {
-        channel: conversationId,
+        channel: chatId,
         reason: answer.reason,
         status: objOf(answer.error).statusCode ?? null,
         ...failureFields(answer.error),
@@ -1735,7 +1735,7 @@ export function createRecall({
         note: answer.raw ?? null,
       };
     log.info('recall: summary', {
-      channel: conversationId,
+      channel: chatId,
       ms: now() - asked,
       totalMs: now() - started,
       answer: answer.text ? 'text' : 'nothing',
@@ -1745,8 +1745,8 @@ export function createRecall({
   }
 
   /** The persona's own search past `recall.timeoutMs`: a warning, the journal's failure and the outcome she reads. */
-  async function quotesTimedOut(conversationId: unknown, op: Untyped, empty: (extra: object) => Untyped) {
-    log.warn('recall: failed', { channel: conversationId, reason: 'timeout', status: null, name: null, code: null });
+  async function quotesTimedOut(chatId: unknown, op: Untyped, empty: (extra: object) => Untyped) {
+    log.warn('recall: failed', { channel: chatId, reason: 'timeout', status: null, name: null, code: null });
     if (op) await op.failed(CODE.TIMEOUT);
     return empty({ outcome: { kind: 'timeout' } });
   }
@@ -1771,7 +1771,7 @@ export function createRecall({
     retrieval = null,
   }: RunInput) {
     const started = now();
-    const conversationId = channel?.id ?? null;
+    const chatId = channel?.id ?? null;
     const stats = emptyStats();
     const empty = (extra = {}) => ({
       text: null,
@@ -1783,7 +1783,7 @@ export function createRecall({
     let trace: Untyped = null;
     let traceMaxLines: Untyped = null;
     const skip = (reason: string) => {
-      log.info('recall: skipped', { channel: conversationId, reason });
+      log.info('recall: skipped', { channel: chatId, reason });
       if (trace) trace.skipped = reason;
       // The daily limits are named to the persona's own search (`outcome`); other gates are no news to her.
       return finish(empty(reason === 'daily-cap' || reason === 'daily' ? { outcome: { kind: 'daily-cap' } } : {}));
@@ -1808,7 +1808,7 @@ export function createRecall({
       const settings = recallSettings(config);
       if (!settings) return empty();
       // Every run past the switch is traced, one skipped by a gate below included (its reason in `skipped`).
-      trace = newTrace({ started, placeId: conversationId, candidate, server });
+      trace = newTrace({ started, placeId: chatId, candidate, server });
       traceMaxLines = settings.traceMaxLines;
       if (!hasRecallContext({ channel, partnerId, memoryContext })) return skip('private-chat');
       if (!asksServer(server, retrieval)) return skip('no-query');
@@ -1842,7 +1842,7 @@ export function createRecall({
           memoryContext,
           retrieval,
         });
-        if (found === null) return finish(await quotesTimedOut(conversationId, op, empty));
+        if (found === null) return finish(await quotesTimedOut(chatId, op, empty));
         if (trace) trace.summary = { answer: 'quotes', stretch: null, text: null, note: null };
         if (op) await op.succeeded(opResult(found, 'ok'));
         return finish(found);
@@ -1890,7 +1890,7 @@ export function createRecall({
       if (outcome === TIMEOUT) {
         controller.abort();
         log.warn('recall: failed', {
-          channel: conversationId,
+          channel: chatId,
           reason: 'timeout',
           status: null,
           name: null,
@@ -1906,7 +1906,7 @@ export function createRecall({
     } catch (err) {
       controller?.abort();
       log.warn('recall: failed', {
-        channel: conversationId,
+        channel: chatId,
         reason: 'error',
         status: null,
         ...failureFields(err),
@@ -2050,12 +2050,12 @@ export function createRecall({
     const started = now();
     const list = Array.isArray(lanes) ? lanes.filter((lane) => lane && typeof lane.kind === 'string') : [];
     const basis = list.map((lane) => lane.kind);
-    const conversationId = channel?.id ?? null;
+    const chatId = channel?.id ?? null;
     let timer = null;
     const finish = (status: Untyped, extra: Record<string, unknown> = {}) => {
       const out: PrefetchOutcome = { status, basis, excerpts: [], ms: now() - started, ...extra };
       log.info('recall: prefetched', {
-        channel: conversationId,
+        channel: chatId,
         status,
         lanes: basis.length,
         excerpts: out.excerpts.length,
@@ -2126,7 +2126,7 @@ export function createRecall({
             stats.failed += 1;
             if (!signal.aborted)
               log.warn('recall: prefetch failed', {
-                channel: conversationId,
+                channel: chatId,
                 stage: name,
                 ...failureFields(err),
               });
@@ -2310,7 +2310,7 @@ export function createRecall({
       if (stats.failed >= stats.searches) return finish('unavailable', { ...extra, reason: 'failed' });
       return finish('none', extra);
     } catch (err) {
-      log.warn('recall: prefetch failed', { channel: conversationId, stage: 'run', ...failureFields(err) });
+      log.warn('recall: prefetch failed', { channel: chatId, stage: 'run', ...failureFields(err) });
       return finish('unavailable', { reason: 'error' });
     } finally {
       if (timer !== null) timers.clear(timer);

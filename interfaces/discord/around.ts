@@ -81,7 +81,7 @@ function voiceFields(state: VoiceStateLike, guild: GuildLike | null, previousId:
     placeId: requiredId(idOf(state?.guild?.id) ?? idOf(guild?.id)),
     accountId: requiredId(idOf(state?.id) ?? idOf(state?.member?.id)),
     name: nameFrom(state?.member),
-    conversationId: idOf(state?.channelId),
+    chatId: idOf(state?.channelId),
     previousId,
     muted: state?.selfMute === true || state?.serverMute === true,
     deafened: state?.selfDeaf === true || state?.serverDeaf === true,
@@ -113,7 +113,7 @@ function presenceFields(presence: PresenceLike) {
 
 /**
  * The `voice.changed` event of a discord.js `VoiceState` (or any object with the same fields). A member in no
- * channel gives `conversationId: null`. `previous`, when given, is the state before and gives `previousId`.
+ * channel gives `chatId: null`. `previous`, when given, is the state before and gives `previousId`.
  * @param at When the change was seen (ms).
  */
 export function voiceEvent(
@@ -155,7 +155,7 @@ export function presenceSnapshotEvent(guild: GuildLike, at: number): PresenceSna
   const voiceStates = guild?.voiceStates?.cache;
   for (const state of voiceStates?.values() ?? []) {
     const fields = voiceFields(state, guild);
-    if (fields.conversationId !== null) voice.push(fields);
+    if (fields.chatId !== null) voice.push(fields);
   }
   const presences = guild?.presences?.cache;
   const presence = [...(presences?.values() ?? [])].map(presenceFields);

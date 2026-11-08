@@ -77,9 +77,9 @@ const tweet = (key: string, over = {}) => ({
   native: { kind: 'tweet', key, revision: 0 },
   place: {
     authority: 'twitter/global',
-    key: 'conversation:9001',
+    key: 'chat:9001',
     kind: 'discussion',
-    conversation: 'group',
+    chat: 'group',
     title: 'a thread',
   },
   author: { kind: 'self', key: 'her-handle', display: 'Her' },
@@ -187,12 +187,12 @@ test('twitter: her post opens a bundle, replies join it, a mention of her opens 
     // A quote tweet by a stranger: the adapter does not pass it, so nothing of it exists.
     assert.equal(count(db, "SELECT COUNT(*) AS n FROM sources WHERE native_id = '9003'"), 0);
 
-    // A mention of her in another conversation: captured, with its own bundle; the mention of her handle stays an
+    // A mention of her in another chat: captured, with its own bundle; the mention of her handle stays an
     // unresolved relation (an account is never a source).
     const mention = observe(
       handle,
       tweet('9100', {
-        place: { authority: 'twitter/global', key: 'conversation:9100', kind: 'discussion', conversation: 'group' },
+        place: { authority: 'twitter/global', key: 'chat:9100', kind: 'discussion', chat: 'group' },
         author: { kind: 'account', key: 'u-88' },
         occurredAt: at(30),
         observedAt: at(31),
@@ -239,7 +239,7 @@ const post = (key: string, author: Record<string, Untyped>, over = {}) => ({
     authority: SITE,
     key: 'thread:100',
     kind: 'thread',
-    conversation: 'group',
+    chat: 'group',
     title: 'a thread',
     parent: 'board:b',
   },
@@ -249,7 +249,7 @@ const post = (key: string, author: Record<string, Untyped>, over = {}) => ({
   text: `post ${key}`,
   ...over,
 });
-const threadB = { authority: SITE, key: 'thread:200', kind: 'thread', conversation: 'group' };
+const threadB = { authority: SITE, key: 'thread:200', kind: 'thread', chat: 'group' };
 
 test('imageboard: thread tokens stay in their thread, post numbers and display names are one participant per post, a site id is an account, a reset token is a new generation', () => {
   const handle = fresh();
@@ -375,15 +375,13 @@ test('imageboard: thread tokens stay in their thread, post numbers and display n
     // `parent_id` and `extra` stays empty; this test first pinned the parent kept by key in `extra`.
     const board = db.prepare("SELECT id FROM places WHERE native_key = 'board:b'").get() as { id: string };
     const place = db
-      .prepare(
-        'SELECT kind, conversation, parent_id, extra, seen_from_at, seen_to_at, owner_file FROM places WHERE id = ?'
-      )
+      .prepare('SELECT kind, chat, parent_id, extra, seen_from_at, seen_to_at, owner_file FROM places WHERE id = ?')
       .get(a1.placeId);
     assert.deepEqual(
       { ...place },
       {
         kind: 'thread',
-        conversation: 'group',
+        chat: 'group',
         parent_id: board.id,
         extra: null,
         seen_from_at: at(1),
@@ -412,7 +410,7 @@ const message = (key: string, place: Record<string, Untyped>, author: Record<str
   ...over,
 });
 
-test("telegram: a DM is its own audience, a group is the interface's, an unknown conversation is internal", () => {
+test("telegram: a DM is its own audience, a group is the interface's, an unknown chat is internal", () => {
   const handle = fresh();
   const db = sqlOf(handle);
   try {
@@ -420,16 +418,14 @@ test("telegram: a DM is its own audience, a group is the interface's, an unknown
       authority: 'telegram/global',
       key: 'chat:555',
       kind: 'dm',
-      conversation: 'dm',
+      chat: 'dm',
       partner: { key: '555', display: 'Ilse' },
     };
     const dm = observed(handle, message('555:1', dmPlace, { kind: 'account', key: '555', display: 'Ilse' }), opts);
     assert.equal(dm.ok, true, JSON.stringify(dm));
     assert.equal(dm.audienceId, `aud:dm:${dm.placeId}`);
-    const place = db
-      .prepare('SELECT conversation, partner_account, partner_person FROM places WHERE id = ?')
-      .get(dm.placeId);
-    assert.deepEqual({ ...place }, { conversation: 'dm', partner_account: dm.author.account, partner_person: null });
+    const place = db.prepare('SELECT chat, partner_account, partner_person FROM places WHERE id = ?').get(dm.placeId);
+    assert.deepEqual({ ...place }, { chat: 'dm', partner_account: dm.author.account, partner_person: null });
     assert.deepEqual(
       { ...db.prepare('SELECT kind, iface, place_id FROM audiences WHERE id = ?').get(dm.audienceId) },
       { kind: 'dm', iface: 'telegram', place_id: dm.placeId }
@@ -438,7 +434,7 @@ test("telegram: a DM is its own audience, a group is the interface's, an unknown
       handle,
       message(
         '-100:7',
-        { authority: 'telegram/global', key: 'chat:-100', kind: 'room', conversation: 'group', title: 'a group' },
+        { authority: 'telegram/global', key: 'chat:-100', kind: 'room', chat: 'group', title: 'a group' },
         { kind: 'account', key: '777' }
       ),
       opts
@@ -448,13 +444,13 @@ test("telegram: a DM is its own audience, a group is the interface's, an unknown
       handle,
       message(
         '-200:1',
-        { authority: 'telegram/global', key: 'chat:-200', kind: 'room', conversation: 'channel' },
+        { authority: 'telegram/global', key: 'chat:-200', kind: 'room', chat: 'channel' },
         { kind: 'account', key: '777' }
       ),
       opts
     );
-    assert.equal(unknown.audienceId, 'aud:internal', 'an unknown conversation fails closed');
-    assert.equal(db.prepare('SELECT conversation FROM places WHERE id = ?').get(unknown.placeId).conversation, null);
+    assert.equal(unknown.audienceId, 'aud:internal', 'an unknown chat fails closed');
+    assert.equal(db.prepare('SELECT chat FROM places WHERE id = ?').get(unknown.placeId).chat, null);
 
     const visible = (ctx: Record<string, Untyped>) => {
       const where = audienceWhere(ctx, 's');
@@ -473,7 +469,7 @@ test("telegram: a DM is its own audience, a group is the interface's, an unknown
     // The place declared a DM stays one: a later envelope that says otherwise is refused, and writes nothing.
     const before = sizes(db);
     assert.deepEqual(
-      observe(handle, message('555:2', { ...dmPlace, conversation: 'group' }, { kind: 'account', key: '555' }), opts),
+      observe(handle, message('555:2', { ...dmPlace, chat: 'group' }, { kind: 'account', key: '555' }), opts),
       { ok: false, code: 'CONVERSATION_CONFLICT' }
     );
     assert.deepEqual(sizes(db), before);

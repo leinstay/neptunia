@@ -56,7 +56,7 @@ test('a context issued for an opaque person carries the actual DM places of ever
 });
 
 test('the scope columns of a linked DM on another interface pass the same context', () => {
-  // Bug: the triple check knows only the conversation's interface, so the audience and the triple disagree.
+  // Bug: the triple check knows only the chat's interface, so the audience and the triple disagree.
   const ctx = hersIn(worldService());
   assert.equal(allowed({ scope_kind: 'dm', scope_iface: 'telegram', scope_dm: ANNA }, ctx), true);
   assert.equal(allowed({ scope_kind: 'dm', scope_iface: 'telegram', scope_dm: BORIS }, ctx), false);

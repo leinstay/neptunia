@@ -31,7 +31,7 @@ const observed = (key: string, kind: 'dm' | 'channel', native: string) => ({
     authority: 'discord/global',
     key,
     kind,
-    conversation: kind === 'dm' ? 'dm' : 'group',
+    chat: kind === 'dm' ? 'dm' : 'group',
     // Slice 3 (9 d): the audit counts an unnamed room, so the room carries its title as a live one does.
     ...(kind === 'dm' ? {} : { title: 'αίθουσα' }),
   },

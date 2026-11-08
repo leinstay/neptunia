@@ -126,14 +126,14 @@ export function usesFollowUpTask({
   mode,
   triggerKind,
   taggedCall = null,
-  privateChat = false,
+  dmChat = false,
 }: {
   mode: string;
   triggerKind: string | null | undefined;
   taggedCall?: boolean | null;
-  privateChat?: boolean;
+  dmChat?: boolean;
 }): boolean {
-  if (mode !== 'reply' || privateChat) return false;
+  if (mode !== 'reply' || dmChat) return false;
   return triggerKind === 'followUp' || (triggerKind === 'reply' && taggedCall === false);
 }
 
@@ -150,7 +150,7 @@ export type Task = {
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.ts in stage 5d, a pure split
 export function taskOf(given: RequestInput & Base): Task {
   const { prompts, mode, now, selfName, trigger, triggerKind } = given;
-  const { labels, privateChat, chatItems } = given;
+  const { labels, dmChat, chatItems } = given;
   const chatTrigger = trigger ? (chatItems.find((item) => item.id === trigger.id) ?? null) : null;
   // A follow-up (triggerKind: 'followUp') falls back to labels.triggers.reply
   // when an older labels.json has no dedicated label yet -- see prompt-contract.md.
@@ -181,7 +181,7 @@ export function taskOf(given: RequestInput & Base): Task {
   // reply.md; without it (missing or blank) reply.md frames it, as before the file existed.
   const followUpPrompt = prompts['follow-up'];
   const followUpTask =
-    usesFollowUpTask({ mode, triggerKind, taggedCall: given.taggedCall, privateChat }) &&
+    usesFollowUpTask({ mode, triggerKind, taggedCall: given.taggedCall, dmChat }) &&
     typeof followUpPrompt === 'string' &&
     followUpPrompt.trim()
       ? followUpPrompt
@@ -201,7 +201,7 @@ export function taskOf(given: RequestInput & Base): Task {
   );
   // Private chat: prompts.private follows the mode prompt; a missing file adds nothing.
   const privateText =
-    privateChat && typeof prompts.private === 'string' && prompts.private.trim()
+    dmChat && typeof prompts.private === 'string' && prompts.private.trim()
       ? fillPromptTemplate(prompts.private, taskValues)
       : '';
   return { overheard, fittedTask: [baseTask, tasksText, privateText].filter(Boolean).join('\n\n') };

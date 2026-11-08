@@ -1,6 +1,6 @@
 # Core
 
-The core is the process that owns one persona's turns, memory and work. Interfaces translate platform activity into its protocol, and a platform's own words stop there: a core function takes a `placeId`, never a server beside it, and the core serves whatever communities its interfaces say hello with, or none. The owner CLI and agent clients connect to the same Unix socket with separate authenticated identities.
+The core is the process that owns one persona's turns, memory and work. Interfaces translate platform activity into its protocol, and a platform's own words stop there: a core function takes a `placeId`, never a server beside it, and the core serves whatever roots its interfaces say hello with, or none. The owner CLI and agent clients connect to the same Unix socket with separate authenticated identities.
 
 ```mermaid
 flowchart LR
@@ -17,7 +17,7 @@ flowchart LR
 
 ## A turn
 
-The interface supplies a message and its conversation, author and audience. The event door validates the event and rejects duplicates. The pipeline decides whether it calls for a reply and collects nearby messages, relevant memory and available abilities.
+The interface supplies a message and its chat, author and audience. The event door validates the event and rejects duplicates. The pipeline decides whether it calls for a reply and collects nearby messages, relevant memory and available abilities.
 
 The request builder combines that context with the persona's prompts. The model can call tools before answering. Tool results return to the same turn; final output tags describe messages, reactions or silence. The interface executes supported actions and reports what happened.
 
@@ -50,7 +50,7 @@ A heartbeat or completed errand can also cause a turn. It uses the same persona 
 | `wakeKind` | The wake beside `awake`, null on any other turn. |
 | `blocks` | The tags of the kind from `blocksOf`, listed in [the prompt contract](prompt-contract.md#blocks-per-kind). |
 
-`reply` and `interject` make a `reply`, and a trigger of kind `errand` makes an `errand_result`. An inner turn takes its wake's kind, with `intention_due`, `attend` and `errand_deadline` making an `intention` and a `feedback` wake a `feedback`. A `heartbeat`, a `selfimprovement` and both `selfreflection` kinds are nowhere, and so is a turn the drain runs with `conversation: null`. The path of a place runs from the interface down by names, and a one-to-one chat's path is the interface, the interface's word for the chat and the partner's native id, with no name. `frameOf` throws `FrameError` with the code `PLACE_REQUIRED` for a `reply` with no place.
+`reply` and `interject` make a `reply`, and a trigger of kind `errand` makes an `errand_result`. An inner turn takes its wake's kind, with `intention_due`, `attend` and `errand_deadline` making an `intention` and a `feedback` wake a `feedback`. A `heartbeat`, a `selfimprovement` and both `selfreflection` kinds are nowhere, and so is a turn the drain runs with `chat: null`. The path of a place runs from the interface down by names, and a one-to-one chat's path is the interface, the interface's word for the chat and the partner's native id, with no name. `frameOf` throws `FrameError` with the code `PLACE_REQUIRED` for a `reply` with no place.
 
 ## The request on the frame
 
@@ -66,7 +66,7 @@ A `reply` and an `errand_result` are built on the frame by `framedBuild` in `src
 
 `buildTurnRequest` reads all of it under the turn's memory context, so a group turn reads no private chat. The budget fits the blocks in this order: the fixed part, the person she answers, the shares of `<memory>` under `context.memory.budgetTokens`, `<recall>`, `<chat>`, `<meanwhile>` and `<inner>`. Mention handles are given after the fit, to the authors of `<chat>` and to the people `<memory>` and `<meanwhile>` kept, so a person the budget dropped has none. Channel handles go the same way to the current place and to the places `<memory>` and `<meanwhile>` kept, and the request's `channelHandles` maps them back for her tools. A line's identity in a stored text renders through `refResolverOf` in `src/turn/request/refs.ts`, its own lines in `<chat>` included. A lookup whose quoted lines are all retired leaves `<recall>`.
 
-A call of a read tool is a lookup. `src/turn/skill-calls.ts` keeps it in the ring of the conversation it was made in, with the result's text cut to `context.recall.extractChars` (default `1200`) and the source ids of the stored lines the call quoted, and writes it into the operation's closing line in the journal. At start `callMarksOf` in `src/memory/journal.ts` gives the journal's lookups of yesterday and today back to the ring with the call marks. A place keeps at most `context.recall.maxItems` lookups (default `6`), one per tool and arguments. A lookup leaves once none of its anchors, the trigger of its turn and the lines she posted in answer, is in the window, and a line that replies to an anchor becomes an anchor itself.
+A call of a read tool is a lookup. `src/turn/skill-calls.ts` keeps it in the ring of the chat it was made in, with the result's text cut to `context.recall.extractChars` (default `1200`) and the source ids of the stored lines the call quoted, and writes it into the operation's closing line in the journal. At start `callMarksOf` in `src/memory/journal.ts` gives the journal's lookups of yesterday and today back to the ring with the call marks. A place keeps at most `context.recall.maxItems` lookups (default `6`), one per tool and arguments. A lookup leaves once none of its anchors, the trigger of its turn and the lines she posted in answer, is in the window, and a line that replies to an anchor becomes an anchor itself.
 
 ## The door
 
@@ -82,19 +82,19 @@ The classifier answers the JSON object `{ "answer": ... }` by the strict schema 
 
 `split` (`src/behavior/split.ts`) runs for every started turn with a line of a person, on any interface and in a DM: a mention, a reply, a follow-up, an overheard line or a private message. A `missed` turn never runs it. `merge` (`src/pipeline/merge.ts`) works on the pending queue and stays in the pipeline. The splitter, the merge classifier and the missed-answer check answer a JSON object by a strict schema, `SPLIT_FORMAT`, `MERGE_FORMAT` and `MISSED_FORMAT`, and an answer that is not that object counts as one they could not read: one request, a new call, every candidate `uncertain`.
 
-The missed-answer registry in `src/behavior/missed.ts` covers every group place and every DM. `noteFact` takes the line's `iface` and the candidate keeps it, so its sweep reads its conversation on that interface and its recovery turn runs there. Each candidate is stored in the unit `missed` of its own place, and `src/core.ts` starts the registry of every place that holds one (`start(placeId)` adds to those already started).
+The missed-answer registry in `src/behavior/missed.ts` covers every group place and every DM. `noteFact` takes the line's `iface` and the candidate keeps it, so its sweep reads its chat on that interface and its recovery turn runs there. Each candidate is stored in the unit `missed` of its own place, and `src/core.ts` starts the registry of every place that holds one (`start(placeId)` adds to those already started).
 
 ## Places in tool calls
 
 A tool names where it acts by its argument `place`, the same word on every interface and for a service with none. She writes a handle of `<memory>` or `<meanwhile>`, a place id of any interface, or a name. `resolveCall` in `src/tools/executors.ts` matches a name among the places of the turn's snapshot first and then in the name index of the memory, read by `placesNamed` in `src/memory/db/names.ts` under the turn's context. A stored name or alias of a place on another interface therefore resolves to its place id.
 
-A handle to read a place and a way to write there are two facts. `conversation.read` of a place outside the turn's snapshot reads the stored lines the turn's context may read and the interface's own history through the router, so a room that is gone keeps its read. A write asks the place's interface. `postingRef` in `src/tools/impl/shared.ts` refuses a room whose `conversationInfo` grants no `send` with `channel-no-permission`, and a post to a direct chat while `private.enabled` is false with `dm-disabled`.
+A handle to read a place and a way to write there are two facts. `conversation.read` of a place outside the turn's snapshot reads the stored lines the turn's context may read and the interface's own history through the router, so a room that is gone keeps its read. A write asks the place's interface. `postingRef` in `src/tools/impl/shared.ts` refuses a room whose `chatInfo` grants no `send` with `channel-no-permission`, and a post to a direct chat while `dm.enabled` is false with `dm-disabled`.
 
 ## Boundaries
 
 The core writes memory through one writer. Interfaces neither open the database nor decide what the persona remembers. Stored recall and fetching live platform history are separate operations with separate access checks.
 
-A conversation session of the owner's CLI (`src/conversation/`) is a view over stored lines, kept in its own file, and memory never reads it. Selecting one changes what the next turn's history shows, and memory stays continuous. [CLI](cli.md#sessions-and-checkpoints) explains them.
+A chat session of the owner's CLI (`src/chat/`) is a view over stored lines, kept in its own file, and memory never reads it. Selecting one changes what the next turn's history shows, and memory stays continuous. [CLI](cli.md#sessions-and-checkpoints) explains them.
 
 An approval from the owner's CLI goes through the board's own `task.approve` (`src/board/approval-view.ts`), and an agent's mode is set before its run, so no tool call waits on a person. [CLI](cli.md#approvals-and-capability-menus) explains what that panel shows.
 

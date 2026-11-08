@@ -7,11 +7,11 @@
 // keeps them: each entry's row with its text and its messages, her lines in the record of `d1`, the picture's and the
 // voice's media rows with their attachment ids, the picture's description in the media cache, and Alice's line in the
 // record. The diary's one enabled mirror is on `d1`. Synthetic text only.
-import { placeOfCommunity, placeOfConversation } from '../../src/memory/addresses.ts';
+import { placeOfRoot, placeOfChat } from '../../src/memory/addresses.ts';
 import { placeCollection } from '../../src/memory/db/storage-keys.ts';
 import { createStore } from '../../src/memory/store.ts';
 import { dbOf, seedMirror } from './selfreflection-mirror.ts';
-import { GUILD, NOW, sceneHot } from './selfreflection-requests-recorded.ts';
+import { ROOT, NOW, sceneHot } from './selfreflection-requests-recorded.ts';
 import type { sceneLlm } from './selfreflection-requests-recorded.ts';
 import { openTestMemory } from './memory-db/service.ts';
 import { world } from './turn-world.ts';
@@ -123,7 +123,7 @@ function stub(
 }
 
 /**
- * The world of the scene: the community's other conversation and the diary channel. With `history`, `d1` holds her
+ * The world of the scene: the root's other chat and the diary channel. With `history`, `d1` holds her
  * seven messages, and Alice's line too when `alice`; without it `d1` is empty, so a history can only come from memory.
  */
 export function historyWorld({
@@ -133,7 +133,7 @@ export function historyWorld({
   deleted = false,
   reacted = false,
 }: { history: boolean; alice?: boolean } & Changes): void {
-  world().channel({ id: 'c1', name: 'general', placeId: GUILD });
+  world().channel({ id: 'c1', name: 'general', placeId: ROOT });
   // The channel shows what the platform holds now: an edited message's newest text, no deleted message.
   const own = ENTRIES.flatMap((entry) => entry.posts)
     .filter((post) => !(deleted && post.id === DELETED.id))
@@ -145,7 +145,7 @@ export function historyWorld({
     )
     .map((post) => stub(post, true));
   const lines = alice ? [...own, stub(ALICE, false)].sort((a, b) => a.createdTimestamp - b.createdTimestamp) : own;
-  world().channel({ id: 'd1', name: 'journal', placeId: GUILD, historyMessages: history ? lines : [] });
+  world().channel({ id: 'd1', name: 'journal', placeId: ROOT, historyMessages: history ? lines : [] });
 }
 
 /** The scene's settings: the requests scene's, with the writer seeing `CHANNEL_MESSAGES` messages of a channel. */
@@ -177,7 +177,7 @@ function recordLine(post: { id: string; at: number; text: string; attachments?: 
     revision: 1,
     occurredAt,
     recordedAt: occurredAt,
-    placeId: GUILD,
+    placeId: ROOT,
     scope: { channel: 'd1' },
     ...(self ? {} : { by: 'u1' }),
     text: post.text,
@@ -194,13 +194,13 @@ export type HistoryMemory = {
 
 /**
  * Memory as her diary keeps it (see the head of this file). The mirror is seeded only once the `mirrors` table exists,
- * so before schema v15 the scene fails where the turn needs its conversation.
+ * so before schema v15 the scene fails where the turn needs its chat.
  */
 export async function historyMemory({ edited = false, deleted = false }: Changes = {}): Promise<HistoryMemory> {
   const memory = await openTestMemory({ now: () => NOW, iface: () => 'fake' });
   const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
-  store.touchChannel(placeOfConversation(store, { id: 'd1', iface: 'fake' }), { name: 'journal' }, NOW - DAY);
-  store.touchChannel(placeOfConversation(store, { id: 'c1', iface: 'fake' }), { name: 'general' }, NOW - DAY);
+  store.touchChannel(placeOfChat(store, { id: 'd1', iface: 'fake' }), { name: 'journal' }, NOW - DAY);
+  store.touchChannel(placeOfChat(store, { id: 'c1', iface: 'fake' }), { name: 'general' }, NOW - DAY);
   for (const entry of ENTRIES) {
     const [first] = entry.posts;
     if (!first) continue;
@@ -218,9 +218,9 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
     store.appendSelfreflectionPost(entryPost as Parameters<typeof store.appendSelfreflectionPost>[0], { max: 40 });
   }
   // The describer's cache: what she saw in the picture, by its attachment id.
-  const cache = store.getMediaCache(placeOfCommunity(store, GUILD, 'fake')) as Record<string, unknown>;
+  const cache = store.getMediaCache(placeOfRoot(store, ROOT, 'fake')) as Record<string, unknown>;
   cache[PICTURE.id] = { text: PICTURE.description, ts: NOW - 2 * DAY + 5000 };
-  store.markMediaCacheDirty(placeOfCommunity(store, GUILD, 'fake'));
+  store.markMediaCacheDirty(placeOfRoot(store, ROOT, 'fake'));
   store.flush();
   await store.flushSettled({});
   for (const post of [...ENTRIES.flatMap((entry) => entry.posts).map((one) => ({ post: one, self: true })), { post: ALICE, self: false }]) {
@@ -228,7 +228,7 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
     await memory.memoryDb.writeUnit({
       kind: 'unit',
       op: 'lines',
-      key: placeCollection('record', placeOfCommunity(store, GUILD, 'fake'), { partition: day }),
+      key: placeCollection('record', placeOfRoot(store, ROOT, 'fake'), { partition: day }),
       lines: [recordLine(post.post, post.self)],
     });
   }
@@ -238,7 +238,7 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
     return memory.memoryDb.writeUnit({
       kind: 'unit',
       op: 'lines',
-      key: placeCollection('record', placeOfCommunity(store, GUILD, 'fake'), { partition: day }),
+      key: placeCollection('record', placeOfRoot(store, ROOT, 'fake'), { partition: day }),
       lines: [line],
     });
   };
@@ -259,7 +259,7 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
       kind: 'deleted',
       messageId: DELETED.id,
       occurredAt: new Date(DELETED.at).toISOString(),
-      placeId: GUILD,
+      placeId: ROOT,
       scope: { channel: 'd1' },
     });
   const db = dbOf(memory.memoryDb);
@@ -311,13 +311,13 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
     link.run(fourth.id, 1, `media:diary:${String(fourth.id)}-2`);
   }
   const hasMirrors = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").all();
-  if (hasMirrors.length > 0) seedMirror(memory.memoryDb, { iface: 'fake', conversationId: 'd1', name: 'journal', at: NOW });
+  if (hasMirrors.length > 0) seedMirror(memory.memoryDb, { iface: 'fake', chatId: 'd1', name: 'journal', at: NOW });
   db.prepare("INSERT OR IGNORE INTO places (id, iface, kind) VALUES (?, 'fake', 'server')").run(
-    placeOfCommunity(store, GUILD, 'fake')
+    placeOfRoot(store, ROOT, 'fake')
   );
   db.prepare('UPDATE places SET parent_id = ? WHERE id = ?').run(
-    placeOfCommunity(store, GUILD, 'fake'),
-    placeOfConversation(store, { id: 'd1', iface: 'fake' })
+    placeOfRoot(store, ROOT, 'fake'),
+    placeOfChat(store, { id: 'd1', iface: 'fake' })
   );
   return { memory, store };
 }

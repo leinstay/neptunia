@@ -112,7 +112,7 @@ function herCalls(board: Board | null, rig: SkillsRig) {
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     board,
     skills: rig.port,
     now: () => NOW,
@@ -122,7 +122,7 @@ function herCalls(board: Board | null, rig: SkillsRig) {
       runOpPrechecked(name, args, {
         env,
         placeId: 'g1',
-        conversationId: 'c1',
+        chatId: 'c1',
         accountId: null,
         roleIds: [],
         actor: 'persona',
@@ -145,7 +145,7 @@ function ownerConsole(rig: SkillsRig) {
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => NOW,
     skills: rig.port,
   };

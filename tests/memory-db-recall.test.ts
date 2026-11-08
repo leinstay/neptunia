@@ -315,7 +315,7 @@ test('people: a member named by the plan locates their lines; a name that is no 
   }
 });
 
-test("stretches: reply chain, neighbours and the followed conversation come with a hit, and the turn's own lines stay out", () => {
+test("stretches: reply chain, neighbours and the followed chat come with a hit, and the turn's own lines stay out", () => {
   const env = fixture();
   try {
     const minute = (n: number) => NOW - 3 * DAY + n * 60000;
@@ -343,7 +343,7 @@ test("stretches: reply chain, neighbours and the followed conversation come with
     );
     assert.deepEqual([...one.hitIds], ['s6']);
     assert.equal(one.overlapsChat, true);
-    assert.ok(!one.messages.some((message) => message.id === 'later'), 'a long silence ends the followed conversation');
+    assert.ok(!one.messages.some((message) => message.id === 'later'), 'a long silence ends the followed chat');
     assert.equal(one.placeId, 'main');
   } finally {
     env.done();
@@ -656,10 +656,10 @@ function runner(
     },
     history: () => Promise.resolve({ events: [], complete: true }),
   };
-  // #general (c1) and #secret (c4), which the community's everyone cannot view; Bob's private chat is the partner's.
+  // #general (c1) and #secret (c4), which the root's everyone cannot view; Bob's private chat is the partner's.
   const channel = channelInfo('c1', { name: 'general' });
   const secret = { ...privateChannel('c4', []), name: 'secret' };
-  const snapshot = snapshotOf('g1', { conversations: [channel, secret], groups: [] });
+  const snapshot = snapshotOf('g1', { chats: [channel, secret], groups: [] });
   const dm = channelInfo('dm-bob', { kind: 'dm', rootId: null, chatType: 'dm', partnerId: BOB, audience: null });
   const config = structuredClone(SHIPPED);
   config.bot = { ...config.bot, timezone: 'UTC' };
@@ -1071,7 +1071,7 @@ test('memory.search: the hidden marker is one label line, with or without stretc
     config: { ...SHIPPED, bot: { ...SHIPPED.bot, timezone: 'UTC' } },
     labels: withHidden,
     placeId: 'g1',
-    // Changed with the contract: the channel is the conversation's info (a community conversation has `rootId`).
+    // Changed with the contract: the channel is the chat's info (a root chat has `rootId`).
     channel: { rootId: 'g1' },
     now: NOW,
   };
@@ -1554,7 +1554,7 @@ test('an issued internal context reads another DM through search and window with
   }
 });
 
-test('an ordinary DM retains its own evidence and public groups while another private conversation stays excluded', async () => {
+test('an ordinary DM retains its own evidence and public groups while another private chat stays excluded', async () => {
   const env = fixture();
   try {
     env.account(BOB, ['Benoit']);

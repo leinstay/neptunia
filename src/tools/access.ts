@@ -6,7 +6,7 @@
 // own rights. For her a grant may open an owner-only operation (it still runs only when an owner
 // asks: src/tools/gateway.ts), except the irreversible and administrative ones no grant opens
 // for her yet (NOT_GRANTABLE_TO_PERSONA). Her reply tags of today are carried over without a grant, in the
-// current conversation only, so nothing she does now is blocked (the skills design, "carry
+// current chat only, so nothing she does now is blocked (the skills design, "carry
 // permissions over"): `<msg>` and `<gif>` are `message.create`, `<react>` is `message.react.add`,
 // a picture is `draw.create` -- the operations the owner's `/nep message` and `/nep draw` run. One switch, read by the caller from the live config:
 // `tools.safeMode` true lets only the carried-over tags pass.
@@ -26,7 +26,7 @@ import { SKILL_DEFINITIONS } from './definitions.ts';
 import { idText, isObj, objOf } from './types.ts';
 import type { Obj, SkillVerdict } from './types.ts';
 
-/** The skills behind the persona's current reply tags, allowed in the current conversation without a grant. */
+/** The skills behind the persona's current reply tags, allowed in the current chat without a grant. */
 export const CARRIED_OVER: ReadonlyArray<string> = Object.freeze([
   'message.create',
   'message.react.add',
@@ -60,7 +60,7 @@ export const WAKE_POLICY_VERSION = 1;
 /**
  * The capabilities a skill reaches inside its own operation, as the skills that stand for them: a picture and a voice
  * message are posts (`message.create`). Checked against a wake's envelope before the operation runs and again where
- * it posts (src/tools/executors.ts, src/tools/impl/shared.ts#postingConversation).
+ * it posts (src/tools/executors.ts, src/tools/impl/shared.ts#postingChat).
  */
 export const NESTED_CAPABILITIES: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
   'draw.create': Object.freeze(['message.create']),
@@ -213,8 +213,8 @@ export function grantedToPersona(config: unknown, selfId: string | null | undefi
 /**
  * Whether the persona may use `skill` now, before its arguments and targets are looked at:
  * `{ allowed, reason }` with, in order, `carried-over` (a
- * current tag aimed at the current conversation: `conversationId` absent or equal to
- * `currentConversationId`), `safe-mode` (tools.safeMode: nothing else passes), `not-grantable`
+ * current tag aimed at the current chat: `chatId` absent or equal to
+ * `currentChatId`), `safe-mode` (tools.safeMode: nothing else passes), `not-grantable`
  * (NOT_GRANTABLE_TO_PERSONA, whatever is stored), `allowed` (a
  * grant to her user id under its name, grantedToPersona), else `not-allowed`. An
  * owner-only skill is granted like any other: who may have it run is the requester's right
@@ -225,26 +225,24 @@ export function skillAccess({
   skill,
   config,
   selfId = null,
-  conversationId = null,
-  currentConversationId = null,
+  chatId = null,
+  currentChatId = null,
   wakeKind = null,
   wakeActions = null,
 }: {
   skill: { name: string };
   config: unknown;
   selfId?: string | null;
-  conversationId?: string | null;
-  currentConversationId?: string | null;
+  chatId?: string | null;
+  currentChatId?: string | null;
   wakeKind?: string | null;
   wakeActions?: ReadonlyArray<WakeAction> | null;
 }): SkillVerdict {
   const envelope = wakeEnvelopeRefusal({ config, wakeKind, skill: skill.name, actions: wakeActions });
   if (envelope) return envelope;
-  const target = conversationId ?? currentConversationId;
+  const target = chatId ?? currentChatId;
   const here =
-    target === null || target === undefined
-      ? currentConversationId == null
-      : idText(target) === idText(currentConversationId);
+    target === null || target === undefined ? currentChatId == null : idText(target) === idText(currentChatId);
   if (CARRIED_OVER.includes(skill.name) && here) return { allowed: true, reason: 'carried-over' };
   if (safeModeOn(config)) return { allowed: false, reason: CODE.SAFE_MODE };
   if (NOT_GRANTABLE_TO_PERSONA.includes(skill.name)) return { allowed: false, reason: CODE.NOT_GRANTABLE };

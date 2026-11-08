@@ -25,7 +25,7 @@
 // audience she chose (src/memory/db/selfreflection-audience.ts). A mirror an entry's audience leaves out gets no row, and a row
 // queued before a narrowing ends `failed` with `audience-excluded`.
 //
-// The reads of the mirrors (`mirrorPlaces`, `selfreflectionPlaces`, `isMirrorPlace`, `selfreflectionConversationIds`) live with the memory
+// The reads of the mirrors (`mirrorPlaces`, `selfreflectionPlaces`, `isMirrorPlace`, `selfreflectionChatIds`) live with the memory
 // database (src/memory/db/mirrors.ts) and are passed on from here to the behaviour modules. A mirror place is not hers
 // to write in (the owner, 2026-10-27): `guardMirrorPort` is the core's outbound port, which refuses every send
 // there with the code `selfreflection-mirror`, and the message handler opens no turn for an event there (src/behavior/
@@ -41,7 +41,7 @@ import { storedSelfreflectionPublicationRefusal, recheck } from '../memory/db/pu
 import { NO_PLACES, publicationPlaces } from '../memory/db/selfreflection-audience.ts';
 import { setSettings } from './selfreflection.ts';
 import {
-  selfreflectionConversationIds,
+  selfreflectionChatIds,
   selfreflectionPlaces,
   isMirrorPlace,
   mirrorPlaces,
@@ -55,7 +55,7 @@ import type { MirrorDesk } from './mirror-desk.ts';
 import { createMirrorDrain } from './mirror-drain.ts';
 import { errorCode } from './mirror-stored.ts';
 import type { Attachment, Content } from '../protocol/actions.ts';
-import type { Adapter, ConversationRef, Delivery, SendOptions } from '../protocol/adapter.ts';
+import type { Adapter, ChatRef, Delivery, SendOptions } from '../protocol/adapter.ts';
 import type { Context } from '../memory/db/scope.ts';
 import type { Db, Row } from '../memory/db/types.ts';
 import type { StoredDelivery } from '../memory/db/publication-delivery.ts';
@@ -115,7 +115,7 @@ export type EntrySent = {
 /** The part of an interface port the publisher uses. */
 export type MirrorPort = {
   iface: string;
-  send(conversation: ConversationRef, content: Content, options?: SendOptions): Promise<Delivery>;
+  send(chat: ChatRef, content: Content, options?: SendOptions): Promise<Delivery>;
   /** What the adapter offers; `reconcile` says `fetchMessages` finds a send by its idempotency key. */
   capabilities?: Adapter['capabilities'];
   fetchMessages?: Adapter['fetchMessages'];
@@ -289,14 +289,14 @@ const unknownDelivery = (code: string): Delivery => ({
 /** One send under its key. A send that throws or hangs past `timeoutMs` answers `unknown`. */
 async function attempt(
   port: MirrorPort,
-  conversation: ConversationRef,
+  chat: ChatRef,
   content: Content,
   key: string | undefined,
   timeoutMs: number | undefined
 ): Promise<Delivery> {
   let timer: ReturnType<typeof setTimeout> | null = null;
   try {
-    const sending = port.send(conversation, content, key === undefined ? undefined : { idempotencyKey: key });
+    const sending = port.send(chat, content, key === undefined ? undefined : { idempotencyKey: key });
     if (timeoutMs === undefined) return await sending;
     const hung = new Promise<Delivery>((resolve) => {
       timer = setTimeout(() => resolve(unknownDelivery('send-timeout')), timeoutMs);
@@ -319,14 +319,14 @@ async function attempt(
  */
 export async function sendPlan(
   port: MirrorPort,
-  conversation: ConversationRef,
+  chat: ChatRef,
   plan: ReadonlyArray<EntrySegment>,
   hooks: PlanHooks = {}
 ): Promise<EntrySent> {
   const out: EntrySent = { status: 'sent', code: null, messageIds: [], attachmentIds: [], posted: [] };
   for (const [segment, { content, items }] of plan.entries()) {
     if (hooks.done?.(segment) === true) continue;
-    const sent = await attempt(port, conversation, content, hooks.keyOf?.(segment), hooks.timeoutMs);
+    const sent = await attempt(port, chat, content, hooks.keyOf?.(segment), hooks.timeoutMs);
     const ids = (sent.parts.length > 0 ? sent.parts : sent.ref ? [sent.ref] : []).map((part) => part.messageId);
     out.messageIds.push(...ids);
     if (sent.status !== 'ok')
@@ -347,16 +347,16 @@ export async function sendPlan(
   return out;
 }
 
-/** Sends `entry` to `conversation` through `port`, unless its restriction refuses the place (`entryPlan`, `sendPlan`). */
+/** Sends `entry` to `chat` through `port`, unless its restriction refuses the place (`entryPlan`, `sendPlan`). */
 export async function sendEntry(
   port: MirrorPort,
-  conversation: ConversationRef,
+  chat: ChatRef,
   entry: SelfreflectionEntry,
   { maxMessageBytes, now }: { maxMessageBytes: number; now: () => number }
 ): Promise<EntrySent> {
-  if (selfreflectionPublicationRefusal(entry.publicationBoundary, conversation))
+  if (selfreflectionPublicationRefusal(entry.publicationBoundary, chat))
     return { status: 'failed', code: 'not-allowed', messageIds: [], attachmentIds: [], posted: [] };
-  return sendPlan(port, conversation, entryPlan(port, entry, { maxMessageBytes, now }));
+  return sendPlan(port, chat, entryPlan(port, entry, { maxMessageBytes, now }));
 }
 
 /** One send of an entry as posted: its message, its time, its text and the entry's files with the ids the port named. */
@@ -379,7 +379,7 @@ export function viewSelfreflectionIds(view: unknown): Array<string> {
 
 export {
   NO_PLACES,
-  selfreflectionConversationIds,
+  selfreflectionChatIds,
   selfreflectionPlaces,
   isMirrorPlace,
   mirrorPlaces,
@@ -394,10 +394,9 @@ export type { SelfreflectionPlace };
  * holds the interface's own port, writes there. Everything else passes through.
  */
 export function guardMirrorPort<TPort extends MirrorPort>(port: TPort, { memoryDb }: { memoryDb: unknown }): TPort {
-  async function send(conversation: ConversationRef, content: Content, options?: SendOptions): Promise<Delivery> {
+  async function send(chat: ChatRef, content: Content, options?: SendOptions): Promise<Delivery> {
     // The options pass through: the idempotency key of a send is what a reconcile finds it by.
-    if (!isMirrorPlace(memoryDb, conversation.iface, conversation.conversationId))
-      return port.send(conversation, content, options);
+    if (!isMirrorPlace(memoryDb, chat.iface, chat.chatId)) return port.send(chat, content, options);
     log.info('mirror: send refused', { code: CODE.SELFREFLECTION_MIRROR });
     return {
       status: 'failed',
@@ -552,7 +551,7 @@ export function createMirrors({
     claimant: string,
     delivery: StoredDelivery
   ): Promise<PublishOutcome> {
-    const sent = await sendPlan(connected, { iface: place.iface, conversationId: place.conversationId }, plan, {
+    const sent = await sendPlan(connected, { iface: place.iface, chatId: place.chatId }, plan, {
       done: (segment) => segmentOf(delivery, segment)?.status === 'sent',
       keyOf: (segment) => segmentOf(delivery, segment)?.key ?? `${publication.id}:${segment}`,
       timeoutMs: mirrorSettings(config()).sendTimeoutMs,
@@ -603,7 +602,7 @@ export function createMirrors({
     { paced = false, missing = false }: { paced?: boolean; missing?: boolean } = {}
   ): Promise<PublishOutcome> {
     const db = database();
-    const destination = { iface: place.iface, conversationId: place.conversationId };
+    const destination = { iface: place.iface, chatId: place.chatId };
     const context = issueContext({ kind: 'group', iface: place.iface, destination: place.placeId, now });
     const refusal = selfreflectionPublicationRefusal(entry.publicationBoundary, destination);
     const checked = db ? recheck(db, publication.id, context) : { ok: false };
@@ -645,7 +644,7 @@ export function createMirrors({
   ): Promise<Prepared> {
     const carried = selfreflectionPublicationRefusal(entry.publicationBoundary, {
       iface: place.iface,
-      conversationId: place.conversationId,
+      chatId: place.chatId,
     });
     const refusal = carried?.code ?? storedSelfreflectionPublicationRefusal(db, entry.id, place.placeId);
     if (refusal) return { ok: false, code: refusal };

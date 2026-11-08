@@ -204,7 +204,7 @@ test('a text message with no media has no links', () =>
       {
         iface: 'discord',
         at: AT,
-        conversation: { id: 'c1', kind: 'channel', rootId: 'g1' },
+        chat: { id: 'c1', kind: 'channel', rootId: 'g1' },
         message: { id: 'm1', at: AT, content: 'hello', author: { id: 'u1' }, attachments: [], links: [], stickers: [] },
       },
       { selfId: HER }
@@ -303,7 +303,7 @@ test("a linked item is never trimmed by the cache's cap", () =>
 const MEMORY_NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const SENT = MEMORY_NOW - 60_000;
 const IFACE = 'synthetic';
-const TOP = topPlaceSpelled(IFACE, 'community');
+const TOP = topPlaceSpelled(IFACE, 'root');
 const VOICED = '[sighs] "собор на закате"';
 
 type Memory = Awaited<ReturnType<typeof openTestMemory>>;
@@ -312,7 +312,7 @@ async function echoVoice(memory: Memory) {
   const event = eventOf(named('voice said'), 'sent-1', [true, false], {
     at: SENT,
     iface: IFACE,
-    conversation: { id: 'room-a', kind: 'channel', chatType: 'channel', rootId: 'community' },
+    chat: { id: 'room-a', kind: 'channel', chatType: 'channel', rootId: 'root' },
     author: { id: HER, self: true },
   });
   (event.message as Row).attachments = [{ id: 'v1', kind: 'voice', name: 'v.ogg', durationSec: 9 }];
@@ -739,7 +739,7 @@ for (const shape of OTHER_SHAPES) {
             iface: OTHER,
             shape,
             native: 'pic-2',
-            conversation: { id: 'room', kind: 'channel', rootId: 'space', name: 'general' },
+            chat: { id: 'room', kind: 'channel', rootId: 'space', name: 'general' },
           });
           const ours = rowsOf(env, here);
           const theirs = rowsOf(env, there);

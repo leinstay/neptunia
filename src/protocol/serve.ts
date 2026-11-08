@@ -1,5 +1,5 @@
 // The serving side of the link: what an interface runs to talk to the core over a Transport. It says `hello`
-// with who the persona is on it, the community it serves, its capabilities and the token it was started with, sends
+// with who the persona is on it, the root it serves, its capabilities and the token it was started with, sends
 // each inbound event as an `event` envelope and resolves with the status of the `ack` that answers it, and runs each
 // `action` envelope of the core on its adapter, answering with an `action_result`. It holds no core state and no
 // platform object: a value that cannot cross the wire (a platform error in `error.cause`, the `raw` handles of an
@@ -37,13 +37,13 @@ export type Named = { id: string; name: string };
 /** An interface's own names: `interface` its name, `nouns` its word per kind of place, `dm` its word for a direct chat. */
 export type InterfaceNames = { interface: string; nouns: Readonly<Record<string, string>>; dm: string };
 
-/** `self` is the persona's account on the interface, `community` the community it serves (null when it serves none). */
+/** `self` is the persona's account on the interface, `root` the root it serves (null when it serves none). */
 export type Hello = {
   iface: string;
   self: Named;
-  community: Named | null;
-  /** Every community an interface serving several serves, `community` among them. */
-  communities?: ReadonlyArray<Named>;
+  root: Named | null;
+  /** Every root an interface serving several serves, `root` among them. */
+  roots?: ReadonlyArray<Named>;
   /** What the interface calls itself, its noun for each kind of place and its word for a direct chat. */
   names?: InterfaceNames;
   capabilities: Capabilities;
@@ -87,12 +87,12 @@ const refusal = (status: string, code: string, retryable = false): Result => ({
 
 // The adapter method each read action runs, by the method's name; an adapter without it answers `unsupported`.
 const READ_METHODS: Record<string, string> = {
-  'conversation.info': 'conversationInfo',
-  'conversations.list': 'conversations',
+  'chat.info': 'chatInfo',
+  'chats.list': 'chats',
   [MESSAGES_FETCH]: 'fetchMessages',
   'messages.history': 'history',
   'member.info': 'memberInfo',
-  'dm.conversation': 'dmConversationOf',
+  'dm.chat': 'dmChatOf',
   'messages.search': 'searchMessages',
   'members.search': 'searchMembers',
   'emoji.list': 'emoji',
@@ -106,26 +106,26 @@ const pick = (body: Record<string, unknown>, keys: ReadonlyArray<string>): Recor
 
 // The arguments a read action carries, in the argument order of the adapter's method.
 function readArguments(body: Record<string, unknown>): Array<unknown> {
-  const community = pick(body, ['placeId']);
+  const root = pick(body, ['placeId']);
   switch (body.action) {
-    case 'conversation.info':
-      return [body.conversation, pick(body, ['audience', 'viewers'])];
-    case 'conversations.list':
+    case 'chat.info':
+      return [body.chat, pick(body, ['audience', 'viewers'])];
+    case 'chats.list':
       return [pick(body, ['placeId', 'audience', 'viewers'])];
     case MESSAGES_FETCH:
-      return [body.conversation, body.messageIds, pick(body, ['idempotencyKey'])];
+      return [body.chat, body.messageIds, pick(body, ['idempotencyKey'])];
     case 'messages.history':
-      return [body.conversation, pick(body, ['limit', 'before', 'after', 'around', 'since'])];
+      return [body.chat, pick(body, ['limit', 'before', 'after', 'around', 'since'])];
     case 'member.info':
       return [pick(body, ['placeId', 'accountId'])];
-    case 'dm.conversation':
+    case 'dm.chat':
       return [pick(body, ['iface', 'accountId'])];
     case 'messages.search':
-      return [community, pick(body, ['text', 'authorId', 'after', 'before', 'offset'])];
+      return [root, pick(body, ['text', 'authorId', 'after', 'before', 'offset'])];
     case 'members.search':
-      return [community, pick(body, ['prefix', 'limit'])];
+      return [root, pick(body, ['prefix', 'limit'])];
     case 'emoji.list':
-      return [community];
+      return [root];
     case 'links.parse':
       return [body.texts];
     default:
@@ -185,13 +185,13 @@ function createActions(
   }
 
   async function run(body: Record<string, unknown>): Promise<Result> {
-    const conversation = body.conversation as Parameters<Adapter['send']>[0];
+    const chat = body.chat as Parameters<Adapter['send']>[0];
     const message = body.message as Parameters<Adapter['edit']>[0];
     const content = body.content as Parameters<Adapter['send']>[1];
     if (isReadAction(body.action)) return await runRead(body);
     switch (body.action) {
       case 'message.send':
-        return await adapter.send(conversation, content, pick(body, ['idempotencyKey', 'deadlineAt']));
+        return await adapter.send(chat, content, pick(body, ['idempotencyKey', 'deadlineAt']));
       case 'message.edit':
         return await adapter.edit(message, content);
       case 'message.delete':
@@ -201,8 +201,8 @@ function createActions(
       case 'message.react.remove':
         return await adapter.unreact(message, body.emoji as string);
       // The action carries no lease: the platform's typing indicator ends by itself.
-      case 'conversation.typing':
-        return await adapter.typing(conversation, { untilMs: 0 });
+      case 'chat.typing':
+        return await adapter.typing(chat, { untilMs: 0 });
       case 'command.result':
         if (onCommandResult === null) return refusal('unsupported', 'unsupported');
         await onCommandResult({
@@ -353,8 +353,8 @@ export function serveAdapter(options: {
       {
         iface: hello.iface,
         self: hello.self,
-        community: hello.community,
-        ...(hello.communities === undefined ? {} : { communities: hello.communities }),
+        root: hello.root,
+        ...(hello.roots === undefined ? {} : { roots: hello.roots }),
         ...(hello.names === undefined ? {} : { names: hello.names }),
         capabilities: hello.capabilities,
         resume: hello.resume,

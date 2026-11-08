@@ -96,7 +96,7 @@ test('a draft with an unresolved paste is not sent and the failure shows while t
 });
 
 test('a paste into a secret question reaches only that question, and the interrupted draft comes back', async () => {
-  // Bug: a pasted key lands in the conversation draft, in the paste store or in the history file.
+  // Bug: a pasted key lands in the chat draft, in the paste store or in the history file.
   const secret = 'synthetic-secret-for-test';
   let clock = 1000;
   const { env, sent, saved, question } = chatEnv({ composer: LIMITS, now: () => clock });

@@ -82,7 +82,7 @@ function acceptedObservation({
       !mapped ||
       accepted.eventId !== accepted.receipt.eventId ||
       mapped.iface !== accepted.locator.iface ||
-      mapped.conversationId !== accepted.locator.conversationId ||
+      mapped.chatId !== accepted.locator.chatId ||
       mapped.messageId !== accepted.locator.messageId
     )
       return { ok: false, code: 'BAD_NATIVE' };

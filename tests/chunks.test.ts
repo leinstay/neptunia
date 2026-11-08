@@ -155,7 +155,7 @@ test('recordChunks: context stays inside one channel and one layer; targets pick
   assert.equal(chunkKey(picked[0].meta), 'record:m4:1');
 });
 
-test('layerChannelKey: the guild and each private layer keep apart', () => {
+test('layerChannelKey: the root and each private layer keep apart', () => {
   assert.notEqual(layerChannelKey(null, 'c1'), layerChannelKey(ELENI, 'c1'));
   assert.equal(layerChannelKey(null, 'c1'), layerChannelKey('', 'c1'));
 });

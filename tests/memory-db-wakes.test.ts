@@ -29,7 +29,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 
-// The conversation she wakes in is held by a fake interface named `fake`.
+// The chat she wakes in is held by a fake interface named `fake`.
 useIface('fake');
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');

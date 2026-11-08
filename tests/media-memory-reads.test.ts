@@ -1,12 +1,12 @@
 // She sees any attachment the same way in recent messages and in memory: the kind marker and the text form, from one read
 // (src/memory/db/media-store.ts#lineMedia). The memory prefetch (src/behavior/recall-run.ts#prefetch), window reads (#window),
 // the memory session's source batch (src/memory/db/session.ts#buildSessionRequest), the turn's chat rendering
-// (src/format.ts#formatTranscript), the stored lines a task and a conversation read (src/memory/db/conversation-lines.ts) and
+// (src/format.ts#formatTranscript), the stored lines a task and a chat read (src/memory/db/chat-lines.ts) and
 // the owner's browser (src/memory/db/domain-read.ts#domainDetail). Audience holds in each. Synthetic content; no model.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatTranscript } from '../src/format.ts';
-import { conversationLines, recentGroupLines } from '../src/memory/db/conversation-lines.ts';
+import { chatLines, recentGroupLines } from '../src/memory/db/chat-lines.ts';
 import { domainDetail } from '../src/memory/db/domain-read.ts';
 import { dmContext, internalContext } from '../src/memory/db/scope.ts';
 import { batchOf, buildSessionRequest, scopesOf } from '../src/memory/db/session.ts';
@@ -301,9 +301,9 @@ for (const [kindName, attachmentKind, name, durationSec] of [
   });
 }
 
-test('conversation lines keep a line with no text, with its text form', () =>
+test('chat lines keep a line with no text, with its text form', () =>
   withLine(KINDS[0], 'full', (env) => {
-    const lines = conversationLines(env.db, GENERAL) as Array<{ media?: Array<{ description: string | null }> }>;
+    const lines = chatLines(env.db, GENERAL) as Array<{ media?: Array<{ description: string | null }> }>;
     assert.equal(lines.length, 1);
     assert.ok(JSON.stringify(lines[0].media).includes(KINDS[0].first.word));
   }));

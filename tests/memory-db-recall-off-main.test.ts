@@ -371,7 +371,7 @@ test('a line the writer committed after the reader opened is found by the next s
         iface: 'discord',
         authority: 'discord/global',
         native: { kind: 'message', key: '600000000000000001', subtype: 'seen', revision: 1 },
-        place: { authority: 'discord/global', key: 'channel:main', kind: 'channel', conversation: 'group' },
+        place: { authority: 'discord/global', key: 'channel:main', kind: 'channel', chat: 'group' },
         author: { kind: 'account', key: 'u-carol', account_kind: 'user' },
         occurredAt: new Date(NOW - 30_000).toISOString(),
         observedAt: new Date(NOW - 30_000).toISOString(),

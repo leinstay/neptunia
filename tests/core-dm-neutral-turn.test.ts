@@ -1,8 +1,8 @@
 // A direct chat from the door to the request, over the real link with fake interfaces, a scripted model and temporary
-// folders: a DM has no community, nothing manufactures one, and the partner's person is read from the stored account.
+// folders: a DM has no root, nothing manufactures one, and the partner's person is read from the stored account.
 // Black box on purpose: what is asserted is what the database and the request hold after the turn.
 // Plan 2026-11-04-cli-and-memory task 5, routing and queues, turn preflight and context.
-// Appendix entries: src/core.ts, src/pipeline/{handle-message,observe,conversations,private-gate}.ts,
+// Appendix entries: src/core.ts, src/pipeline/{handle-message,observe,chats,private-gate}.ts,
 // src/behavior/{core-pause,pipeline,turn,turn-input}.ts, src/turn/inputs.ts, src/turn/phases/{preflight,context}.ts,
 // src/turn/phases/request/{build,setup,gather,facts}.ts.
 import { test } from 'node:test';
@@ -33,10 +33,10 @@ const unitsOf = (rig: Rig): Array<Unit> =>
     .rows('SELECT kind, subject_type, subject_id, scope_place_id FROM storage_units')
     .map((row) => row as unknown as Unit);
 
-async function dmTurn(running: Running, conversation: string, author: string, id: string): Promise<void> {
-  seedDm(running, conversation, author);
-  await directIn(running, conversation, author, id);
-  await waitFor(() => postedIn(running, conversation).length > 0, `the answer on ${running.iface}`);
+async function dmTurn(running: Running, chat: string, author: string, id: string): Promise<void> {
+  seedDm(running, chat, author);
+  await directIn(running, chat, author, id);
+  await waitFor(() => postedIn(running, chat).length > 0, `the answer on ${running.iface}`);
 }
 
 /**
@@ -52,8 +52,8 @@ function seedOver(rig: Rig, body: (db: Db) => void): void {
   }
 }
 
-test('a DM on a core with no community stores nothing under a community scope', async () => {
-  // Bug: the turn preflight falls back to `no-community`, a scope that names no place and collides across interfaces.
+test('a DM on a core with no root stores nothing under a root scope', async () => {
+  // Bug: the turn preflight falls back to `no-root`, a scope that names no place and collides across interfaces.
   await withFakes({ owners: ['u1'], names: ['one'] }, async (rig) => {
     const one = await rig.connect('one', []);
     await dmTurn(one, 'dm-1', 'u1', 'm1');
@@ -63,20 +63,20 @@ test('a DM on a core with no community stores nothing under a community scope', 
       []
     );
     assert.equal(
-      unitsOf(rig).some((unit) => unit.subject_id.includes('no-community')),
+      unitsOf(rig).some((unit) => unit.subject_id.includes('no-root')),
       false
     );
   });
 });
 
 test('the journal of a DM turn is a collection of its actual DM place', async () => {
-  // Bug: a DM's journal day sits under a fabricated community, so the place browser cannot reach it.
+  // Bug: a DM's journal day sits under a fabricated root, so the place browser cannot reach it.
   await withFakes({ owners: ['u1'], names: ['one'] }, async (rig) => {
     const one = await rig.connect('one', []);
     await dmTurn(one, 'dm-1', 'u1', 'm1');
-    const places = rig.rows("SELECT id FROM places WHERE conversation = 'dm'").map((row) => row.id);
+    const places = rig.rows("SELECT id FROM places WHERE chat = 'dm'").map((row) => row.id);
     assert.equal(places.length, 1);
-    // The engine's own system lines have no conversation: they belong to the persona.
+    // The engine's own system lines have no chat: they belong to the persona.
     const journal = unitsOf(rig).filter((unit) => unit.kind === 'journal' && unit.subject_type !== 'persona');
     assert.ok(journal.length > 0);
     for (const unit of journal) {
@@ -87,7 +87,7 @@ test('the journal of a DM turn is a collection of its actual DM place', async ()
 });
 
 test('equal native ids on two interfaces keep two places and two sets of public units', async () => {
-  // Bug: the collection key holds the native community id, and only the ambient interface keeps the two apart.
+  // Bug: the collection key holds the native root id, and only the ambient interface keeps the two apart.
   await withFakes({ owners: ['u1'], names: ['one', 'two'] }, async (rig) => {
     const same = [{ id: 'same', name: 'Same id' }];
     const one = await rig.connect('one', same);
@@ -105,8 +105,8 @@ test('equal native ids on two interfaces keep two places and two sets of public 
   });
 });
 
-test('a DM on the interface that serves the configured community takes nothing of that community', async () => {
-  // Bug: `dmCommunityOf` answers the home community, so the private units of a DM are scoped to a server.
+test('a DM on the interface that serves the configured root takes nothing of that root', async () => {
+  // Bug: `dmRootOf` answers the home root, so the private units of a DM are scoped to a server.
   await withFakes({ owners: ['u1'], names: ['one'] }, async (rig) => {
     const one = await rig.connect('one', [{ id: 'home', name: 'Home' }]);
     seedPerson(one, 'home', 'u1', 'Eleni');
@@ -124,8 +124,8 @@ test('a DM on the interface that serves the configured community takes nothing o
   });
 });
 
-test('a group turn stores its public collections under the place of its community, a real place row', async () => {
-  // Bug: the scope is a spelled `<iface>:guild:<id>` string that no `places` row answers.
+test('a group turn stores its public collections under the place of its root, a real place row', async () => {
+  // Bug: the scope is a spelled `<iface>:root:<id>` string that no `places` row answers.
   await withFakes({ owners: ['u1'], names: ['one'] }, async (rig) => {
     const one = await rig.connect('one', [{ id: 'g1', name: 'Alpha' }]);
     seedRoom(one, 'r1', 'g1');
@@ -136,7 +136,7 @@ test('a group turn stores its public collections under the place of its communit
     assert.ok(subjects.length > 0);
     for (const unit of subjects) assert.ok(known.has(unit.subject_id), `${unit.kind} ${unit.subject_id}`);
     assert.deepEqual(
-      unitsOf(rig).filter((unit) => /:guild:/.test(unit.subject_id) || /:guild:/.test(unit.scope_place_id ?? '')),
+      unitsOf(rig).filter((unit) => /:root:/.test(unit.subject_id) || /:root:/.test(unit.scope_place_id ?? '')),
       []
     );
   });
@@ -157,7 +157,7 @@ test('a DM turn issues its context for the person stored on the account, not one
 });
 
 test('what the person said in a linked DM on another interface reaches the request, and a stranger DM does not', async () => {
-  // Bug: the request reads one community's unit of one account, so a private-only person arrives with empty memory.
+  // Bug: the request reads one root's unit of one account, so a private-only person arrives with empty memory.
   await withFakes({ owners: ['u1'], names: ['one'] }, async (rig) => {
     const one = await rig.connect('one', []);
     seedOver(rig, (db) => {

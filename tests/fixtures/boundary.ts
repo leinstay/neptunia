@@ -53,7 +53,7 @@ export type Rig = Share & {
 
 /**
  * One core on the fake interface. `answers` are the scripted model's answers (the last one repeats); `interface: false`
- * leaves no client at all, so no conversation can be fetched and nothing is connected; `share` is what a restarted core
+ * leaves no client at all, so no chat can be fetched and nothing is connected; `share` is what a restarted core
  * keeps; `wakes` overrides the `wakes` settings and `heartbeat` replaces the `heartbeat` settings.
  */
 export async function innerRig({
@@ -115,7 +115,7 @@ export async function innerRig({
     dataDir,
     turns,
     record: spokeInC1(clock),
-    // With no interface connected there is nothing to ask about a conversation.
+    // With no interface connected there is nothing to ask about a chat.
     reads: connected ? world().adopt(port) : null,
     iface: () => 'fake',
     submit: (event) => door.submit(event),

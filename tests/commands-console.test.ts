@@ -377,7 +377,7 @@ test('/memory restore of an id no archive holds exits 1', async () => {
   });
 });
 
-test('/memory conversation prints a line of that conversation', async () => {
+test('/memory conversation prints a line of that chat', async () => {
   await withRig({}, async ({ dirs, llm, cores, units }) => {
     cores.push(await startUnitsCore(dirs, llm, () => T0));
     const unit = await startedUnit(dirs);
@@ -594,7 +594,7 @@ function placeConsole(places: Array<string>) {
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => T0,
   });
   const run = (line: string) => {
@@ -650,7 +650,7 @@ test('every operation no grant opens to her runs from a command of the chat', as
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => T0,
     // `/services watcher enable` and `disable` are lines of the table: without this they move the server's real timer.
     serviceManager: (command, args) => {

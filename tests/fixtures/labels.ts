@@ -135,7 +135,7 @@ export const labels = {
     files: 'files show only their name, or a short preview for plain text ones',
     time: 'Times and ages test line.',
     draw: 'you can draw by calling draw.create; the picture is posted before your words',
-    privateChat: 'this is a private chat with one person, it stays here',
+    dmChat: 'this is a private chat with one person, it stays here',
     privateAware: 'some people write to you privately; never repeat any of it here',
     customEmoji: 'this server has its own emoji, listed in <emoji>; write one as :name:',
     gifs: 'you can post one gif per turn from <gifs> by its handle',
@@ -153,8 +153,8 @@ export const labels = {
     sinceOwn: 'you last wrote here: {duration} ago',
     ownUnanswered: 'the last message in the channel is yours, nobody answered it',
     verdict: 'verdict: {verdict}',
-    verdictLive: 'a live conversation is happening right now',
-    verdictSlow: 'a slow conversation, people write rarely',
+    verdictLive: 'a live chat is happening right now',
+    verdictSlow: 'a slow chat, people write rarely',
     verdictDead: 'a dead chat',
   },
   profile: {
@@ -247,7 +247,7 @@ export const labels = {
   },
   aboutChat: {
     patterns: 'how people talk here: {text}',
-    starters: 'how people start conversations and cut in: {text}',
+    starters: 'how people start chats and cut in: {text}',
     injokes: 'local in-jokes: {text}',
     learned: 'Things people taught you: {text}',
     learnedItem: '{text} (from {who})',
@@ -272,7 +272,7 @@ export const labels = {
   triggers: {
     mention: 'tagged you',
     reply: 'replied to your message',
-    followUp: 'continued the conversation with you without tagging you',
+    followUp: 'continued the chat with you without tagging you',
     overheard: 'talked about you to someone else, not to you',
     private: 'wrote to you privately',
     missed: 'wrote to you earlier, unanswered',
@@ -439,7 +439,7 @@ export const labels = {
     private: 'SPATIAL-PRIVATE',
     note: 'SPATIAL-NOTE {note}',
     cli: 'SPATIAL-CLI AT {when}',
-    // Stage AC, the owner's word of 2026-11-06: a wake with no conversation place is on her own server, a
+    // Stage AC, the owner's word of 2026-11-06: a wake with no chat place is on her own server, a
     // selfreflection post in her own world; no turn is "nowhere".
     server: 'SPATIAL-SERVER AT {when}',
     world: 'SPATIAL-WORLD AT {when}',

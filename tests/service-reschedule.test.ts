@@ -97,7 +97,7 @@ function lifeWith(selfimprovement: Record<string, unknown>, start: number) {
     journal: { inner: () => Promise.resolve(), read: () => [] },
     reads: world().reads,
     iface: () => 'fake',
-    conversationName: (id: string) => `chan-${id}`,
+    chatName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },

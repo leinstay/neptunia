@@ -1,5 +1,5 @@
 // A fake that offers only some reads (`reads` option, wire names): the core makes no call for a read the interface did
-// not declare, and a block that needs it is left out of the request. `conversation.info`, `messages.history` and
+// not declare, and a block that needs it is left out of the request. `chat.info`, `messages.history` and
 // `messages.fetch` stay on, since a turn cannot run without them.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,16 +7,16 @@ import { channelInfo, deliver, until, withFakeCore } from './fixtures/core-over-
 import type { Fake } from './fixtures/core-over-fake.ts';
 
 const NOW = Date.now();
-const NEEDED = ['conversation.info', 'messages.history', 'messages.fetch'];
+const NEEDED = ['chat.info', 'messages.history', 'messages.fetch'];
 const CONFIG = {
   context: { neighborMessages: 5, neighborMaxAgeMinutes: 60, neighborMaxChannels: 8, pull: { sameAudience: false } },
   features: { channelPull: true },
 };
 
 function seed(fake: Fake): void {
-  fake.seedConversation(channelInfo('c1', { name: 'general', lastMessageAt: NOW - 1000 }));
-  fake.seedConversation(channelInfo('c2', { name: 'garden', lastMessageAt: NOW - 120_000 }));
-  deliver(fake, { id: 'g1', conversationId: 'c2', text: 'tomatoes are ripe', at: NOW - 120_000, authorId: 'u2' });
+  fake.seedChat(channelInfo('c1', { name: 'general', lastMessageAt: NOW - 1000 }));
+  fake.seedChat(channelInfo('c2', { name: 'garden', lastMessageAt: NOW - 120_000 }));
+  deliver(fake, { id: 'g1', chatId: 'c2', text: 'tomatoes are ripe', at: NOW - 120_000, authorId: 'u2' });
 }
 
 async function turnWith(reads: ReadonlyArray<string> | undefined) {
@@ -27,13 +27,13 @@ async function turnWith(reads: ReadonlyArray<string> | undefined) {
   });
 }
 
-// Slice 4: "shows the other channels block when the interface offers the conversations read" left this file. A reply
+// Slice 4: "shows the other channels block when the interface offers the chats read" left this file. A reply
 // on the frame shows no `<other_channels>` and no `<channel_view>` whatever the interface offers, and only a routed or
 // noticed turn keeps them, which no caller in src/ starts through the core.
 
 test('makes no call of a read the interface did not declare', async () => {
   const { result } = await turnWith(NEEDED);
-  const asked = ['conversations', 'searchMessages', 'searchMembers', 'emoji', 'parseLinks', 'reactors', 'memberInfo'];
+  const asked = ['chats', 'searchMessages', 'searchMembers', 'emoji', 'parseLinks', 'reactors', 'memberInfo'];
   assert.deepEqual(
     result.ops.filter((op) => asked.includes(op)),
     []

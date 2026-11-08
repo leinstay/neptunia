@@ -1,5 +1,5 @@
 // Her attention as leases in the memory database (src/memory/db/wake-queue.ts): the turn runner's set of the
-// conversations a turn runs in (src/behavior/turn.ts, `attention`), each entry mirrored by the lease `attention:*`
+// chats a turn runs in (src/behavior/turn.ts, `attention`), each entry mirrored by the lease `attention:*`
 // (one turn anywhere at a time). A lease lasts
 // `context.turnLeaseMs` and is renewed while the turn runs, at a third of that; the turn's end lets it go. The set in
 // process stays what decides whether a turn may start, because a turn takes the attention before anything is awaited;
@@ -47,16 +47,16 @@ class LeasedAttention extends Set<string> {
     this.#options = options;
   }
 
-  add(conversationId: string): this {
-    if (this.has(conversationId)) return this;
-    super.add(conversationId);
-    this.#take(conversationId);
+  add(chatId: string): this {
+    if (this.has(chatId)) return this;
+    super.add(chatId);
+    this.#take(chatId);
     return this;
   }
 
-  delete(conversationId: string): boolean {
-    const removed = super.delete(conversationId);
-    if (removed) this.#letGo(conversationId);
+  delete(chatId: string): boolean {
+    const removed = super.delete(chatId);
+    if (removed) this.#letGo(chatId);
     return removed;
   }
 
@@ -87,7 +87,7 @@ class LeasedAttention extends Set<string> {
       });
   }
 
-  #take(conversationId: string): void {
+  #take(chatId: string): void {
     const { ttlMs } = this.#settings();
     // One turn at a time anywhere: `mention.oneAtATime` was on in production, config cut of 2026-10-31.
     const name = 'attention:*';
@@ -100,7 +100,7 @@ class LeasedAttention extends Set<string> {
       }, ttlMs / 3),
     };
     held.timer.unref();
-    this.#held.set(conversationId, held);
+    this.#held.set(chatId, held);
     const { holder } = this.#options;
     void this.#write({ kind: 'wake-queue', op: 'lease-acquire', name, holder, now: this.#now(), ttlMs }).then(
       (answer) => {
@@ -108,15 +108,15 @@ class LeasedAttention extends Set<string> {
         if (grant.ok === true && typeof grant.token === 'number') held.token = grant.token;
         else if (answer !== null) this.#warn('attention: lease held elsewhere', { name });
         // The turn ended before the grant came back: the lease goes at once.
-        if (!this.#held.has(conversationId) && held.token !== null) this.#release(held);
+        if (!this.#held.has(chatId) && held.token !== null) this.#release(held);
       }
     );
   }
 
-  #letGo(conversationId: string): void {
-    const held = this.#held.get(conversationId);
+  #letGo(chatId: string): void {
+    const held = this.#held.get(chatId);
     if (!held) return;
-    this.#held.delete(conversationId);
+    this.#held.delete(chatId);
     clearInterval(held.timer);
     if (held.token !== null) this.#release(held);
   }

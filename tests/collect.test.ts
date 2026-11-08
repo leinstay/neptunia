@@ -1584,7 +1584,7 @@ function guildMessage(overrides = {}) {
   });
 }
 
-test('toEvent: the conversation of a channel in a category carries the guild as parent and no category field', () => {
+test('toEvent: the chat of a channel in a category carries the guild as parent and no category field', () => {
   // Bug: the sidebar grouping crosses the door again, as a parent place or as a text, and she is in a place nobody named.
   const channel = {
     id: 'c1',
@@ -1594,10 +1594,10 @@ test('toEvent: the conversation of a channel in a category carries the guild as 
     isThread: () => false,
     messages: { cache: new Map() },
   };
-  const { conversation } = toEvent(guildMessage({ channel }), 'self');
-  assert.equal(conversation.parentId, 'g1');
-  assert.equal(conversation.parentKind, 'server');
-  assert.equal('category' in conversation, false);
+  const { chat } = toEvent(guildMessage({ channel }), 'self');
+  assert.equal(chat.parentId, 'g1');
+  assert.equal(chat.parentKind, 'server');
+  assert.equal('category' in chat, false);
 });
 
 test('toEvent: a message becomes a valid message.received event, field for field', () => {
@@ -1609,7 +1609,7 @@ test('toEvent: a message becomes a valid message.received event, field for field
   assert.equal(event.iface, 'discord');
   assert.equal(event.id, 'discord:message:m1');
   assert.equal(event.at, 1000);
-  assert.deepEqual(event.conversation, {
+  assert.deepEqual(event.chat, {
     id: 'c1',
     kind: 'channel',
     rootId: 'g1',
@@ -1628,17 +1628,17 @@ test('toEvent: a message becomes a valid message.received event, field for field
     replyToSelf: false,
     mentionedAccountIds: ['self', 'u2'],
     mentionedUsers: [],
-    mentionedConversationIds: ['222222222222222222'],
+    mentionedChatIds: ['222222222222222222'],
   });
   assert.equal(event.raw, raw, 'the discord.js message rides along for the Discord side only');
   for (const key of ['channelId', 'authorId', 'authorName', 'ts', 'channelName', 'mentionedAccountIds'])
     assert.ok(!(key in event.message), key);
 });
 
-test('toEvent: a direct chat is a dm conversation, a thread a thread', () => {
+test('toEvent: a direct chat is a dm chat, a thread a thread', () => {
   // A category is no place, the owner's word of 2026-11-06.
   const dm = toEvent(rawMessage({ guild: null, channel: { id: 'd1' }, channelId: 'd1' }), 'self');
-  assert.deepEqual(dm.conversation, {
+  assert.deepEqual(dm.chat, {
     id: 'd1',
     kind: 'dm',
     rootId: null,
@@ -1652,7 +1652,7 @@ test('toEvent: a direct chat is a dm conversation, a thread a thread', () => {
     guildMessage({ channel: { id: 't1', name: 'νήμα', isThread: () => true }, channelId: 't1' }),
     'self'
   );
-  assert.equal(thread.conversation.kind, 'thread');
+  assert.equal(thread.chat.kind, 'thread');
 });
 
 test('toEvent: a one-to-one chat names its partner, a group chat is group_dm, a thread names its channel', () => {
@@ -1660,33 +1660,30 @@ test('toEvent: a one-to-one chat names its partner, a group chat is group_dm, a 
     rawMessage({ guild: null, channel: { id: 'd1', type: ChannelType.DM, recipientId: 'u1' }, channelId: 'd1' }),
     'self'
   );
-  assert.deepEqual([dm.conversation.chatType, dm.conversation.partnerId], ['dm', 'u1']);
+  assert.deepEqual([dm.chat.chatType, dm.chat.partnerId], ['dm', 'u1']);
   assert.equal(
-    toEvent(rawMessage({ guild: null, channel: { id: 'd2', recipient: { id: 'u2' } }, channelId: 'd2' }), 'self')
-      .conversation.partnerId,
+    toEvent(rawMessage({ guild: null, channel: { id: 'd2', recipient: { id: 'u2' } }, channelId: 'd2' }), 'self').chat
+      .partnerId,
     'u2'
   );
   const group = toEvent(
     rawMessage({ guild: null, channel: { id: 'g9', name: 'φίλοι', type: ChannelType.GroupDM }, channelId: 'g9' }),
     'self'
   );
-  assert.deepEqual(
-    [group.conversation.kind, group.conversation.chatType, 'partnerId' in group.conversation],
-    ['dm', 'group_dm', false]
-  );
+  assert.deepEqual([group.chat.kind, group.chat.chatType, 'partnerId' in group.chat], ['dm', 'group_dm', false]);
   const thread = toEvent(
     guildMessage({ channel: { id: 't1', name: 'νήμα', isThread: () => true, parentId: 'c1' }, channelId: 't1' }),
     'self'
   );
-  assert.deepEqual([thread.conversation.chatType, thread.conversation.parentId], ['thread', 'c1']);
+  assert.deepEqual([thread.chat.chatType, thread.chat.parentId], ['thread', 'c1']);
   for (const event of [dm, group, thread]) assert.deepEqual(validateEvent(event), { ok: true });
-  assert.deepEqual(validateEvent({ ...dm, conversation: { ...dm.conversation, chatType: 'room' } }), {
+  assert.deepEqual(validateEvent({ ...dm, chat: { ...dm.chat, chatType: 'room' } }), {
     ok: false,
-    reason: 'conversation.chatType:unknown',
+    reason: 'chat.chatType:unknown',
   });
-  assert.deepEqual(validateEvent({ ...dm, conversation: { ...dm.conversation, partnerId: 7 } }), {
+  assert.deepEqual(validateEvent({ ...dm, chat: { ...dm.chat, partnerId: 7 } }), {
     ok: false,
-    reason: 'conversation.partnerId:type',
+    reason: 'chat.partnerId:type',
   });
 });
 
@@ -1758,7 +1755,7 @@ test('toEvent: an edit of a partial message carries only its id, and a deletion 
     [deleted.message, deleted.deleted, deleted.at, deleted.id],
     [{ id: 'm1' }, true, 8000, 'discord:delete:m1']
   );
-  assert.deepEqual(deleted.conversation, {
+  assert.deepEqual(deleted.chat, {
     id: 'c1',
     kind: 'channel',
     rootId: 'g1',
@@ -1785,7 +1782,7 @@ test('reactionEvent: a reaction becomes a valid reaction.changed event, its part
     {
       kind: event.kind,
       at: event.at,
-      conversation: event.conversation.id,
+      chat: event.chat.id,
       messageId: event.messageId,
       emoji: event.emoji,
       accountId: event.accountId,
@@ -1794,7 +1791,7 @@ test('reactionEvent: a reaction becomes a valid reaction.changed event, its part
     {
       kind: 'reaction.changed',
       at: 3000,
-      conversation: 'c1',
+      chat: 'c1',
       messageId: 'm1',
       emoji: { name: '\u{1F389}' },
       accountId: 'u2',

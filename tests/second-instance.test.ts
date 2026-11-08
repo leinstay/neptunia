@@ -237,7 +237,7 @@ before(async () => {
   world.alpha = alpha;
   world.beta = beta;
   const both = [alpha, beta];
-  // The same conversation and message id in both instances; only the text differs.
+  // The same chat and message id in both instances; only the text differs.
   for (const one of both) {
     const event = lineEvent({ id: 'm1', text: textOf(one.name), at: Date.now(), mention: true });
     await ask(pending, one, { kind: 'seed', info: channelInfo('c1'), event });
@@ -250,7 +250,7 @@ before(async () => {
     })
   );
   const postedOf = async (one: Instance): Promise<Array<string>> =>
-    (await ask(pending, one, { kind: 'posted', conversationId: 'c1' })) as Array<string>;
+    (await ask(pending, one, { kind: 'posted', chatId: 'c1' })) as Array<string>;
   await until(async () => (await postedOf(alpha)).length === 1 && (await postedOf(beta)).length === 1);
   await until(() => Promise.resolve(sourceTexts(alpha).length >= 2 && sourceTexts(beta).length >= 2));
   world.posted = { alpha: await postedOf(alpha), beta: await postedOf(beta) };

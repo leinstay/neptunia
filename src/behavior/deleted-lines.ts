@@ -9,9 +9,9 @@
 export const DELETED_LINES_MAX = 10;
 
 /**
- * The deletions of the window's conversation over the span of `history` (from its oldest line that is not a
+ * The deletions of the window's chat over the span of `history` (from its oldest line that is not a
  * reply parent) that the history does not hold, read through `readSince` (the caller's read of that one
- * conversation's record from a time on): `{ placeholders, deletedIds, ms }`. A placeholder
+ * chat's record from a time on): `{ placeholders, deletedIds, ms }`. A placeholder
  * is a message shaped like a normalized one with `deleted: true`, empty `content` and no media,
  * its author named by the history, else `nameOf(id)`, else the id; its time is the original
  * message's (the `seen` line of the same scan), else the `deleted` line's own `occurredAt`, which

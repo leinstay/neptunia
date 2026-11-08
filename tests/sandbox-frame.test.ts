@@ -29,7 +29,7 @@ test('a replayed reply is placed in the stored chain of the channel, with the au
   // the turn alone.
   const { frame, whereabouts } = replayFrame(
     turn({
-      placeOfConversation: () => 'p-c1',
+      placeOfChat: () => 'p-c1',
       placeChainOf: (id) => (id === 'p-c1' ? chain : []),
       accountOf: () => 'a-u1',
       personOfAccount: () => 'person-1',

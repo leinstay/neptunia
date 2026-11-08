@@ -71,7 +71,7 @@ export function normalizedTrigger(raw: Omit<ReturnType<typeof rawMessage>, 'refe
   };
 }
 
-/** `dm: true` is a private (DM) channel: no community, no name. `attachFiles: false` takes the permission to attach away. */
+/** `dm: true` is a private (DM) channel: no root, no name. `attachFiles: false` takes the permission to attach away. */
 export function fakeTurnChannel({
   id = 'c1',
   name = 'general',
@@ -193,7 +193,7 @@ export function fakeHot(
       'character-card': 'You are friendly and terse.',
       format: 'Use <msg> and <react> tags.',
       reply: 'Someone called you: {{author}}.',
-      interject: 'Jump into the conversation.',
+      interject: 'Jump into the chat.',
       initiate: 'Start a topic.',
       memory: 'Summarize what happened.',
       labels,

@@ -26,7 +26,7 @@ async function statusOf(config: unknown, now: number): Promise<Map<string, strin
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => now,
     wakeClock: () => null,
   });

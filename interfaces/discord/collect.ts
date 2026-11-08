@@ -25,7 +25,7 @@ import { MESSAGE_RECEIVED, REACTION_CHANGED } from '../../src/protocol/index.ts'
 import { memberView } from './members.ts';
 import { DISCORD_IFACE } from './port.ts';
 
-import type { Conversation, MessageReceived, ReactionChanged } from '../../src/protocol/index.ts';
+import type { Chat, MessageReceived, ReactionChanged } from '../../src/protocol/index.ts';
 import type { Message, TextBasedChannel } from 'discord.js';
 import type {
   AttachmentLike,
@@ -84,20 +84,20 @@ const MESSAGE_LINK_IN_TEXT_RE =
   /(?<![\w/])(<?)(https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/(\d+)\/(\d+)\/?)(>?)(?![\w/?#&=%~+-])/gi;
 
 /**
- * The messages a text links to, as neutral references in the order they are written: `{ iface, conversationId,
+ * The messages a text links to, as neutral references in the order they are written: `{ iface, chatId,
  * messageId, url, text }`. `text` is the span as written (a link in angle brackets with both brackets, a lone
  * bracket left out), `url` the link itself. The core turns a reference to a message of its window into that
  * message's `#n` and never reads a Discord address.
  */
 export function messageRefsOf(
   text: unknown
-): Array<{ iface: string; conversationId: string; messageId: string; url: string; text: string }> {
+): Array<{ iface: string; chatId: string; messageId: string; url: string; text: string }> {
   if (typeof text !== 'string' || text === '') return [];
   return [...text.matchAll(MESSAGE_LINK_IN_TEXT_RE)].map((match) => {
-    const [, open, link, conversationId, messageId, close] = match;
+    const [, open, link, chatId, messageId, close] = match;
     return {
       iface: DISCORD_IFACE,
-      conversationId,
+      chatId,
       messageId,
       url: link,
       text: open && close ? `<${link}>` : link,
@@ -642,7 +642,7 @@ export function normalizeOptions(
 }
 
 /**
- * The protocol conversation of a discord.js message: its channel id as Discord gives it, `dm`
+ * The protocol chat of a discord.js message: its channel id as Discord gives it, `dm`
  * outside a guild, `thread` for a thread, else `channel`; the channel's name and topic read exactly
  * as normalizeMessage reads them. `chatType` tells a one-to-one chat (`dm`) from a
  * group chat (`group_dm`, Discord's `GroupDM` channel type), a `thread` and a `channel`; a
@@ -650,12 +650,12 @@ export function normalizeOptions(
  * not say), a thread the channel it sits in (`parentId`), a channel its guild (`parentId`, `parentKind`),
  * whatever sidebar grouping Discord shows it under.
  */
-function conversationOf(
+function chatOf(
   message:
     | { channel?: ChannelLike | null; channelId?: string; guild?: GuildLike | null; guildId?: string | null }
     | null
     | undefined
-): Conversation {
+): Chat {
   const channel = message?.channel ?? null;
   const guildId = message?.guild?.id ?? message?.guildId ?? null;
   const kind = guildId === null ? 'dm' : channel?.isThread?.() ? 'thread' : 'channel';
@@ -675,13 +675,13 @@ function conversationOf(
 }
 
 /**
- * The protocol conversation of a discord.js channel: the record `conversationOf` builds for a message in it.
+ * The protocol chat of a discord.js channel: the record `chatOf` builds for a message in it.
  * @param channel A discord.js channel.
- * @param guildId The community when the caller knows it apart from the channel object.
+ * @param guildId The root when the caller knows it apart from the channel object.
  */
-export function conversationOfChannel(given: object, guildId?: string): Conversation {
+export function chatOfChannel(given: object, guildId?: string): Chat {
   const channel = asChannel(given);
-  return conversationOf({
+  return chatOf({
     channel,
     channelId: channel?.id,
     guild: channel?.guild ?? null,
@@ -712,7 +712,7 @@ function cachedReplyToSelf(message: MessageLike, replyToId: string | null, selfI
 function deletionEvent(
   message: MessageLike,
   selfId: string,
-  conversation: Conversation,
+  chat: Chat,
   at: number
 ): MessageReceived & { raw: object } {
   const created = message?.createdTimestamp;
@@ -730,7 +730,7 @@ function deletionEvent(
     iface: DISCORD_IFACE,
     at,
     id: `${DISCORD_IFACE}:delete:${message?.id}`,
-    conversation,
+    chat,
     // A deletion without a message id has none: validateEvent refuses the event at the door.
     message: {
       id: message?.id,
@@ -744,7 +744,7 @@ function deletionEvent(
 
 /**
  * The `message.received` event of a discord.js message, built from normalizeMessage's result
- * field for field: the channel becomes the event's `conversation`, the author `message.author`,
+ * field for field: the channel becomes the event's `chat`, the author `message.author`,
  * `ts` `message.at`, the mentions `addressing` (`mentioned`: the persona is among the mentioned
  * users, as Discord reports them; `replyToSelf`: see cachedReplyToSelf). `options` are
  * normalizeMessage's plus `edit: true` (a `messageUpdate`; `previous` is the old message, kept
@@ -768,9 +768,9 @@ export function toEvent(
 ): MessageReceived & { raw: object; rawPrevious?: object | null } {
   const message = asMessage(given);
   const now = options.now ?? Date.now;
-  const conversation = conversationOf(message);
+  const chat = chatOf(message);
   const base = { kind: MESSAGE_RECEIVED, iface: DISCORD_IFACE } as const;
-  if (options.deleted === true) return deletionEvent(message, selfId, conversation, now());
+  if (options.deleted === true) return deletionEvent(message, selfId, chat, now());
   const edit = options.edit === true;
   const receivedAt = now();
   const edited = message?.editedTimestamp;
@@ -792,7 +792,7 @@ export function toEvent(
       ...base,
       at: editAt,
       id: editId(message.id),
-      conversation,
+      chat,
       message: { id: message.id },
       ...editPart,
       partial: true,
@@ -808,7 +808,7 @@ export function toEvent(
     ...base,
     at: edit ? editAt : normalized.ts,
     id: edit ? editId(normalized.id) : `${DISCORD_IFACE}:message:${normalized.id}`,
-    conversation,
+    chat,
     message: {
       id: normalized.id,
       author: {
@@ -841,7 +841,7 @@ export function toEvent(
       replyToSelf: cachedReplyToSelf(message, normalized.replyToId, selfId),
       mentionedAccountIds: normalized.mentionedAccountIds,
       mentionedUsers: normalized.mentionedUsers,
-      mentionedConversationIds: normalized.mentionedChannelIds,
+      mentionedChatIds: normalized.mentionedChannelIds,
     },
     ...editPart,
     ...(edit ? { previous: previousOf() } : {}),
@@ -852,7 +852,7 @@ export function toEvent(
 
 /**
  * The `reaction.changed` event of a gateway reaction (`MessageReactionAdd` with `added` true,
- * `MessageReactionRemove` with false): the message's conversation and id, the emoji (`name`: a
+ * `MessageReactionRemove` with false): the message's chat and id, the emoji (`name`: a
  * unicode emoji itself or a custom emoji's name; `id`: a custom emoji's), who reacted, and `raw`
  * `{ reaction, user }`, and `authorId`, the message's author when the message is whole (a partial
  * one gives null). Never throws: an emoji that cannot be read
@@ -878,7 +878,7 @@ export function reactionEvent(
     iface: DISCORD_IFACE,
     at,
     id: `${DISCORD_IFACE}:reaction:${messageId}:${userId}:${emojiId ?? name}:${added ? 'add' : 'remove'}:${at}`,
-    conversation: conversationOf(message),
+    chat: chatOf(message),
     messageId,
     authorId: authorIdOf(message),
     emoji: { name, ...(emojiId ? { id: emojiId } : {}) },
@@ -908,7 +908,7 @@ export function reactionClearAllEvent(given: object, { now = Date.now }: { now?:
     iface: DISCORD_IFACE,
     at,
     id: `${DISCORD_IFACE}:reaction:${messageId}:clear:all:${at}`,
-    conversation: conversationOf(message),
+    chat: chatOf(message),
     messageId,
     authorId: authorIdOf(message),
     emoji: null,
@@ -939,7 +939,7 @@ export function reactionClearEmojiEvent(
     iface: DISCORD_IFACE,
     at,
     id: `${DISCORD_IFACE}:reaction:${messageId}:clear:${emojiId ?? name}:${at}`,
-    conversation: conversationOf(message),
+    chat: chatOf(message),
     messageId,
     authorId: authorIdOf(message),
     emoji: { name, ...(emojiId ? { id: emojiId } : {}) },

@@ -29,7 +29,7 @@ const lineWith = (ids: ReadonlyArray<string>) => ({
   iface: 'discord',
   authority: 'discord/global',
   native: { kind: 'message', key: 'line-with-pictures', revision: 1 },
-  place: { authority: 'discord/global', key: 'channel:room', kind: 'channel', conversation: 'group' },
+  place: { authority: 'discord/global', key: 'channel:room', kind: 'channel', chat: 'group' },
   author: { kind: 'account', key: 'owner' },
   occurredAt: '2026-11-03T09:00:00.000Z',
   observedAt: '2026-11-03T09:00:01.000Z',

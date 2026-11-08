@@ -5,7 +5,7 @@
 // read-only leaves no memory file and writes every kind of unit. Synthetic data only (Greek or accented Latin for
 // non-ASCII); the ids are made up.
 import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
-import { accountOf, placeOfCommunity, placeOfConversation } from '../src/memory/addresses.ts';
+import { accountOf, placeOfRoot, placeOfChat } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -241,7 +241,7 @@ async function day(m: Awaited<ReturnType<typeof modules>>) {
   m.store.touchPrivateSeen(accountOf(m.store, MEMBER), at(5));
   m.store.decayAffinities(NOW + 3 * DAY_MS, { decayPerDay: 0.04, decayPower: 1 });
   m.store.setLore(
-    placeOfCommunity(m.store, GUILD),
+    placeOfRoot(m.store, GUILD),
     [{ title: 'Η πλατεία', keys: ['πλατεία'], text: 'The square by the sea.' }],
     {
       source: 'owner',
@@ -249,7 +249,7 @@ async function day(m: Awaited<ReturnType<typeof modules>>) {
     }
   );
   m.store.applyLearnedOps(
-    placeOfCommunity(m.store, GUILD),
+    placeOfRoot(m.store, GUILD),
     { add: ['the café opens at nine'] },
     {
       maxLearned: 20,
@@ -260,13 +260,7 @@ async function day(m: Awaited<ReturnType<typeof modules>>) {
       seenAt: NOW,
     }
   );
-  m.store.touchChannel(
-    placeOfConversation(m.store, { id: CHANNEL }),
-    { name: 'γενικά', topic: 'café' },
-    at(6),
-    MEMBER,
-    {}
-  );
+  m.store.touchChannel(placeOfChat(m.store, { id: CHANNEL }), { name: 'γενικά', topic: 'café' }, at(6), MEMBER, {});
   const intentions = m.intentions();
   const added = intentions.add({
     id: 'i2',
@@ -431,9 +425,9 @@ test('reads: the store, the intentions and the tasks load the database values wi
   try {
     await dm.service.tick();
     assert.equal((dm.store.getUser(accountOf(dm.store, MEMBER)) as Profile | null)?.id, MEMBER);
-    assert.ok(dm.store.getPlace(placeOfCommunity(dm.store, GUILD)), 'the guild');
-    assert.equal(dm.store.getChannel(placeOfConversation(dm.store, { id: CHANNEL }))?.id, CHANNEL);
-    assert.ok(dm.store.getLore(placeOfCommunity(dm.store, GUILD)).length > 0, 'the lore');
+    assert.ok(dm.store.getPlace(placeOfRoot(dm.store, GUILD)), 'the guild');
+    assert.equal(dm.store.getChannel(placeOfChat(dm.store, { id: CHANNEL }))?.id, CHANNEL);
+    assert.ok(dm.store.getLore(placeOfRoot(dm.store, GUILD)).length > 0, 'the lore');
     assert.deepEqual(dm.store.listPrivate(), [`discord:${MEMBER}`]);
     assert.equal(
       dm.store.getUser(accountOf(dm.store, '100000000000000077')),
@@ -493,14 +487,10 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
     };
     const m = await modules(data, { log, memoryDb: down });
     const before = moves(service.readHandle()!);
-    m.store.setLore(
-      placeOfCommunity(m.store, GUILD),
-      [{ title: 'Η αποβάθρα', keys: ['αποβάθρα'], text: 'The old pier.' }],
-      {
-        source: 'owner',
-        now: NOW,
-      }
-    );
+    m.store.setLore(placeOfRoot(m.store, GUILD), [{ title: 'Η αποβάθρα', keys: ['αποβάθρα'], text: 'The old pier.' }], {
+      source: 'owner',
+      now: NOW,
+    });
     m.store.appendSelfreflectionPost(
       // @ts-expect-error a post without a picture is null, the shape the diary writes before one is drawn
       { at: NOW, kind: 'day', gist: 'une journée de pluie', picture: null, messageIds: [], search: null },
@@ -810,7 +800,7 @@ test('root state and participation, GIF and media caches persist through the wri
     run.store.state.data.paused = true;
     run.store.state.markDirty();
     run.store.setParticipation(
-      placeOfCommunity(run.store, GUILD),
+      placeOfRoot(run.store, GUILD),
       {
         nextId: 10,
         episodes: [
@@ -828,10 +818,10 @@ test('root state and participation, GIF and media caches persist through the wri
       },
       { now: NOW }
     );
-    run.store.getMediaCache(placeOfCommunity(run.store, GUILD)).photo = { text: 'a café terrace', ts: NOW };
-    run.store.markMediaCacheDirty(placeOfCommunity(run.store, GUILD));
+    run.store.getMediaCache(placeOfRoot(run.store, GUILD)).photo = { text: 'a café terrace', ts: NOW };
+    run.store.markMediaCacheDirty(placeOfRoot(run.store, GUILD));
     assert.equal(
-      run.store.recordGifs(placeOfCommunity(run.store, GUILD), [
+      run.store.recordGifs(placeOfRoot(run.store, GUILD), [
         {
           id: 'native-gif',
           placeId: CHANNEL,
@@ -844,7 +834,7 @@ test('root state and participation, GIF and media caches persist through the wri
       ]),
       1
     );
-    const participation = run.store.getParticipation(placeOfCommunity(run.store, GUILD));
+    const participation = run.store.getParticipation(placeOfRoot(run.store, GUILD));
     const gifs = structuredClone(run.store.getGifs());
     await run.store.flushSettled({ final: true });
     assert.deepEqual(
@@ -862,9 +852,9 @@ test('root state and participation, GIF and media caches persist through the wri
     await run.service.tick();
     assert.equal(run.store.state.data.paused, true);
     assert.equal(run.store.state.data.afterReload, 'persisted after reload');
-    assert.deepEqual(run.store.getParticipation(placeOfCommunity(run.store, GUILD)), participation);
+    assert.deepEqual(run.store.getParticipation(placeOfRoot(run.store, GUILD)), participation);
     assert.deepEqual(run.store.getGifs(), gifs);
-    assert.deepEqual(run.store.getMediaCache(placeOfCommunity(run.store, GUILD)).photo, {
+    assert.deepEqual(run.store.getMediaCache(placeOfRoot(run.store, GUILD)).photo, {
       text: 'a café terrace',
       ts: NOW,
     });

@@ -30,11 +30,11 @@ export { listRules, appendRule, removeRule, setPath, unsetPath, buildProfileSumm
 /**
  * `hot`, `store` — see src/hot.ts, src/memory/store.js.
  * `selfId` — the persona's own member id (null before the interface has said it), `getSelfName` — the name she goes
- *   by in a community, `memberNameOf` — a member's name in the member directory, `directory` — the
- *   conversations the interface reported (`isPrivate`), `connection` — `{ lastReconnectAt }`, filled from
+ *   by in a root, `memberNameOf` — a member's name in the member directory, `directory` — the
+ *   chats the interface reported (`isDm`), `connection` — `{ lastReconnectAt }`, filled from
  *   `connection.changed`. The operations read them as `env.selfId()` and the like.
  * `reads` — the core's reads of the interface (src/interface/reads.ts): the permission checks of an operation
- *   posting in another conversation (src/tools/impl/shared.ts#postingRef). The operations read it as `env.reads`.
+ *   posting in another chat (src/tools/impl/shared.ts#postingRef). The operations read it as `env.reads`.
  * `calibrator` — token calibrator (src/llm/tokens.ts), read for `.ratio`.
  * `turns` — from createTurnRunner() (src/behavior/turn.ts), optional: `waitIdle()`, used by
  *   `bot.pause` to wait out a turn already in flight. Absent -> the wait is simply skipped.

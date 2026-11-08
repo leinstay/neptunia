@@ -51,7 +51,7 @@ async function rig() {
     memoryDb: memory.memoryDb,
     usage: null,
     metrics: { samples: () => [] },
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => NOW,
     track: (name, fn) => {
       tracked.push(name);

@@ -1,8 +1,8 @@
 // The turn an errand's end opens: when an errand of the persona's finishes (src/errands/service.ts
-// calls `onFinished`), she gets a turn of her own in the conversation it was asked in, the way
+// calls `onFinished`), she gets a turn of her own in the chat it was asked in, the way
 // the missed-answer recovery opens one (src/behavior/missed.ts): through the turn runner's one
 // attention (a turn running anywhere holds it back; mention.oneAtATime), a cooldown per
-// conversation between two such turns (`DEFAULT_COOLDOWN_SECONDS`), and she may answer with
+// chat between two such turns (`DEFAULT_COOLDOWN_SECONDS`), and she may answer with
 // silence. The turn's trigger is the message the errand was asked in (her answer replies to it),
 // else -- a slash command, or a message gone since -- an interjection; its kind is `errand`, its
 // requester the person who asked, and its request carries the `<errand_result>` block
@@ -27,7 +27,7 @@
 import { log as defaultLog } from '../log.ts';
 import { lineOf } from '../behavior/line-of.ts';
 import type { Untyped } from '../tools/types.ts';
-import type { ConversationRef } from '../protocol/adapter.ts';
+import type { ChatRef } from '../protocol/adapter.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { ErrandRecord, ErrandService, ErrorLogger } from './types.ts';
 
@@ -55,7 +55,7 @@ type TimerHandle = ReturnType<typeof setTimeout>;
 
 /** `errands.resultRetrySeconds` when missing (config.json carries the same). */
 export const DEFAULT_RETRY_SECONDS = 30;
-/** The least time between two result turns in one conversation. Production value, config cut of 2026-10-31. */
+/** The least time between two result turns in one chat. Production value, config cut of 2026-10-31. */
 export const DEFAULT_COOLDOWN_SECONDS = 60;
 /** How many times a result turn is tried before the errand is left to the `<errands>` block. */
 export const RESULT_ATTEMPTS = 20;
@@ -81,8 +81,8 @@ const HELD = new Set(['busy', 'paused']);
 const DONE = new Set(['spoke', 'skip']);
 
 /**
- * `reads` are the core's reads of the interface: the conversation a result answers in and the message it was asked
- * in. `iface` names the interface the conversations belong to (from `hello`). `intentions` is the intention
+ * `reads` are the core's reads of the interface: the chat a result answers in and the message it was asked
+ * in. `iface` names the interface the chats belong to (from `hello`). `intentions` is the intention
  * service: an errand's end moves the intentions waiting on it first (idempotent, never throws).
  */
 export function createErrandTurns({
@@ -111,7 +111,7 @@ export function createErrandTurns({
   onEvent: (event: ErrandDoneEvent) => Promise<TurnResult>;
   stop: () => void;
 } {
-  // conversation id -> when its last result turn started
+  // chat id -> when its last result turn started
   const lastAt = new Map<string, number>();
   // errand id -> pending timer, while a result waits for its turn
   const waiting = new Map<string, TimerHandle>();
@@ -155,7 +155,7 @@ export function createErrandTurns({
   }
 
   /** The message the errand was asked in, as a line (a turn's trigger), or null. */
-  async function originMessage(ref: ConversationRef, errand: ErrandRecord): Promise<Record<string, unknown> | null> {
+  async function originMessage(ref: ChatRef, errand: ErrandRecord): Promise<Record<string, unknown> | null> {
     const messageId = errand.origin?.messageId;
     if (!messageId) return null;
     const found = await reads.fetchMessages(ref, [messageId]);
@@ -184,42 +184,42 @@ export function createErrandTurns({
     }
   }
 
-  /** The result turn of `errand`, or the retry when the conversation's cooldown or the attention holds it back. */
+  /** The result turn of `errand`, or the retry when the chat's cooldown or the attention holds it back. */
   async function attemptTurn(errand: ErrandRecord, attempt: number): Promise<TurnResult> {
-    const conversationId = errand.origin?.placeId;
-    if (!conversationId) {
-      log.info('errands: result without a conversation', { id: errand.id });
+    const chatId = errand.origin?.placeId;
+    if (!chatId) {
+      log.info('errands: result without a chat', { id: errand.id });
       return null;
     }
     const cooldownMs = DEFAULT_COOLDOWN_SECONDS * 1000;
-    const last = lastAt.get(conversationId);
+    const last = lastAt.get(chatId);
     if (typeof last === 'number' && Number.isFinite(last) && now() - last < cooldownMs) {
       later(errand, attempt, last + cooldownMs - now());
       return null;
     }
     const retryMs = seconds('resultRetrySeconds', DEFAULT_RETRY_SECONDS) * 1000;
-    if (attentionTaken(conversationId)) {
+    if (attentionTaken(chatId)) {
       later(errand, attempt, retryMs);
       return null;
     }
     // A restricted errand names its exact origin, which may be on another interface than the home one.
     const boundary = errand.origin?.publicationBoundary;
-    const conversation = {
+    const chat = {
       iface: boundary?.origin.iface ?? iface(),
-      conversationId: String(conversationId),
+      chatId: String(chatId),
     };
-    const known = await reads.conversationInfo(conversation);
+    const known = await reads.chatInfo(chat);
     if (known === null) {
-      log.warn('errands: result conversation unavailable', { id: errand.id, placeId: conversationId });
+      log.warn('errands: result chat unavailable', { id: errand.id, placeId: chatId });
       return null;
     }
-    const trigger = await originMessage(conversation, errand);
+    const trigger = await originMessage(chat, errand);
     const requester = errand.requester?.accountId ? { id: errand.requester.accountId } : null;
-    lastAt.set(conversationId, now());
+    lastAt.set(chatId, now());
     let result: TurnResult;
     try {
       result = await turns.runTurn({
-        conversation,
+        chat,
         mode: trigger ? 'reply' : 'interject',
         trigger,
         triggerKind: 'errand',
@@ -228,23 +228,23 @@ export function createErrandTurns({
         ...(requester ? { requester } : {}),
       });
     } catch (err) {
-      log.error('errands: result turn failed', { id: errand.id, placeId: conversationId, error: err });
+      log.error('errands: result turn failed', { id: errand.id, placeId: chatId, error: err });
       result = { outcome: 'error' };
     }
     const outcome = result?.outcome ?? 'error';
     if (!DONE.has(outcome)) {
       // Held back, or failed on its own: the result is still unread, so the turn is tried again.
-      lastAt.delete(conversationId);
+      lastAt.delete(chatId);
       later(errand, attempt, retryMs);
       if (!HELD.has(outcome))
-        log.warn('errands: result turn not completed', { id: errand.id, placeId: conversationId, outcome });
+        log.warn('errands: result turn not completed', { id: errand.id, placeId: chatId, outcome });
       return result;
     }
     errands?.markSeen?.({ ids: [errand.id] });
     errands?.markRead?.({ ids: [errand.id] });
     log.info('errands: result turn', {
       id: errand.id,
-      placeId: conversationId,
+      placeId: chatId,
       outcome,
       ...(trigger ? {} : { interject: true }),
     });

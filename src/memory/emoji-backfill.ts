@@ -25,10 +25,10 @@ const CHUNK = 500;
 const BACKFILL_MESSAGES = 500;
 
 /**
- * The newest `limit` messages of every readable conversation of the community `placeId`, read one conversation
+ * The newest `limit` messages of every readable chat of the root `placeId`, read one chat
  * after another through the interface's `history` (it pages), as lines, without the persona's and other bots'
- * messages. A conversation whose read fails is logged (`<prefix>: channel read failed`) and skipped. The history read
- * of both backfills (this one and src/memory/gif-backfill.ts). Null when the interface lists no conversation of the community
+ * messages. A chat whose read fails is logged (`<prefix>: channel read failed`) and skipped. The history read
+ * of both backfills (this one and src/memory/gif-backfill.ts). Null when the interface lists no chat of the root
  * the persona may read: a backfill clears and recounts, so it never runs over nothing.
  * @returns `messages` as lines, in read order.
  */
@@ -38,13 +38,13 @@ export async function readMemberHistory(
   limit: number,
   { iface, log = defaultLog, prefix }: { iface: string; log?: Log; prefix: string }
 ): Promise<{ channels: number; messages: Array<StoredRecord> } | null> {
-  const listing = await reads.conversations({ placeId });
+  const listing = await reads.chats({ placeId });
   if (listing === null) return null;
-  const channels = listing.conversations.filter((entry) => isReadable(entry));
+  const channels = listing.chats.filter((entry) => isReadable(entry));
   if (channels.length === 0) return null;
   const messages: Array<StoredRecord> = [];
   for (const channel of channels) {
-    const found = await reads.history({ iface, conversationId: channel.id }, { limit });
+    const found = await reads.history({ iface, chatId: channel.id }, { limit });
     if (found === null) {
       log.warn(`${prefix}: channel read failed`, { placeId: channel.id });
       continue;
@@ -94,7 +94,7 @@ function buildEmojiBackfill({
    * still in the analyzer buffer (the analyzer counts them when it consumes
    * them). Clearing, counting and stamping happen together after every
    * channel is read. Skips (never throws) when paused, when already stamped (no `force`), while another
-   * run is in flight, or when the interface lists no readable conversation of the community; an
+   * run is in flight, or when the interface lists no readable chat of the root; an
    * unexpected error is thrown.
    */
   async function run(

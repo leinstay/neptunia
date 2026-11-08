@@ -134,13 +134,13 @@ function noticeChannel({ id = 'c1', name = 'general' } = {}) {
 }
 
 /**
- * The messages the fake adapter holds for one conversation.
+ * The messages the fake adapter holds for one chat.
  */
 function noticesIn(
   port: ReturnType<typeof createFakeAdapter>,
-  conversationId = 'c1'
+  chatId = 'c1'
 ): Array<{ text: string; replyTo: unknown; mentions: unknown }> {
-  return port.messagesIn(conversationId);
+  return port.messagesIn(chatId);
 }
 
 const LIMIT = { key: 'llm.maxRequestsPerDay', used: 300, cap: 300 };
@@ -170,7 +170,7 @@ test('postLimitNotice: one send on the adapter, replying to the trigger, mention
   );
   const [notice] = noticesIn(port);
   assert.equal(notice.text, 'limit hit: llm.maxRequestsPerDay 300/300');
-  assert.deepEqual(notice.replyTo, { iface: 'fake', conversationId: 'c1', messageId: 'm1' });
+  assert.deepEqual(notice.replyTo, { iface: 'fake', chatId: 'c1', messageId: 'm1' });
   assert.deepEqual(notice.mentions, NO_MENTIONS);
   assert.ok(logs.some((l) => l.msg === 'limits: notice sent' && l.key === 'llm.maxRequestsPerDay'));
 });
@@ -241,8 +241,8 @@ test('postLimitNotice: an adapter that throws answers failed and does not throw'
   const attempts: Array<Untyped> = [];
   const port = {
     ...createFakeAdapter(),
-    send: async (conversation: { conversationId: string }) => {
-      attempts.push(conversation.conversationId);
+    send: async (chat: { chatId: string }) => {
+      attempts.push(chat.chatId);
       throw new Error('socket closed');
     },
   };
@@ -278,7 +278,7 @@ test('postPauseNotice: one send of the pause label, replying to the trigger, men
   assert.equal(result, 'sent');
   const [notice] = noticesIn(port);
   assert.equal(notice.text, labels.limits.paused);
-  assert.deepEqual(notice.replyTo, { iface: 'fake', conversationId: 'c1', messageId: 'm1' });
+  assert.deepEqual(notice.replyTo, { iface: 'fake', chatId: 'c1', messageId: 'm1' });
   assert.deepEqual(notice.mentions, NO_MENTIONS);
   const line = logs.find((l) => l.msg === 'limits: pause notice');
   assert.deepEqual([present(line).channel, present(line).kind], ['c1', 'mention']);

@@ -56,7 +56,7 @@ type Report = { findings: number; checks: Record<Check, number> };
 function cliLine(db: DatabaseSync, origin: string): void {
   db.exec(`
     UPDATE interfaces SET name = 'command line' WHERE id = 'cli';
-    INSERT INTO places (id, iface, kind, native_id, scope_kind, conversation, authority_id, native_key, generation)
+    INSERT INTO places (id, iface, kind, native_id, scope_kind, chat, authority_id, native_key, generation)
       VALUES ('cli:dm:owner', 'cli', 'dm', 'owner', 'dm', 'dm', 'cli/local', 'dm:owner', 1);`);
   db.prepare(
     `INSERT INTO sources (id, kind, iface, place_id, text, scope_kind, scope_iface, scope_dm, audience_id, origin, retired_at)
@@ -420,7 +420,7 @@ test('nothing of a row reaches the output, on a clean run or a damaged one', asy
 /** A named room of the group with `lines` live lines and the `fields` of its description. */
 function describedRoom(lines: number, fields: ReadonlyArray<string>): (db: DatabaseSync) => void {
   return (db) => {
-    db.exec(`INSERT INTO places (id, iface, kind, native_id, scope_kind, conversation, name, authority_id, native_key, generation)
+    db.exec(`INSERT INTO places (id, iface, kind, native_id, scope_kind, chat, name, authority_id, native_key, generation)
       VALUES ('discord:channel:quiet', 'discord', 'channel', 'quiet', 'group', 'group', 'ήσυχη', 'discord/global', 'channel:quiet', 1)`);
     const line = db.prepare(
       `INSERT INTO sources (id, kind, iface, place_id, text, scope_kind, scope_iface, scope_dm, audience_id)

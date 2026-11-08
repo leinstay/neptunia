@@ -241,9 +241,9 @@ test("errands service: a task carries context.recent, the origin channel's last 
   ];
   // The channel's newest lines with text, oldest first, as src/index.ts reads them from the memory database.
   const memory = {
-    recentLines: (conversationId: string, count: number) =>
+    recentLines: (chatId: string, count: number) =>
       buffer
-        .filter((line) => line.placeId === conversationId && line.content)
+        .filter((line) => line.placeId === chatId && line.content)
         .map((line) => ({ author: line.authorName, text: line.content }))
         .slice(-count),
   };
@@ -496,11 +496,11 @@ test("errands service: a private chat's unread result is in the view only in tha
       [group]
     );
     assert.deepEqual(
-      errands.view({ privateChannelId: 'dm1' }).map((task) => task.id),
+      errands.view({ dmChatId: 'dm1' }).map((task) => task.id),
       [dm, group]
     );
     assert.deepEqual(
-      errands.view({ privateChannelId: 'dm2' }).map((task) => task.id),
+      errands.view({ dmChatId: 'dm2' }).map((task) => task.id),
       [group]
     );
     await present(stores.get()).flush();
@@ -569,7 +569,7 @@ test('errands service: at start the finished errands whose result turn never ran
       [running, unseen].sort(),
       'the restart-failed task and the unseen one'
     );
-    // The callback takes no community since places: each reopened task names the place it was asked in.
+    // The callback takes no root since places: each reopened task names the place it was asked in.
     assert.equal(
       reopened.every(([, placeId]) => placeId === 'c1'),
       true
@@ -611,7 +611,7 @@ test("errands service: the file of an expired task is a marker, not a path; a pr
     assert.equal(loose(found).path, undefined);
     assert.equal(errands.fileOf({ handle: `file:${group}/other.png` }), null, 'a name the result does not list');
     assert.equal(errands.fileOf({ handle: `file:${dm}/b.png` }), null, "a private chat's file elsewhere");
-    assert.equal(loose(errands.fileOf({ handle: `file:${dm}/b.png`, privateChannelId: 'dm1' }))?.expired, true);
+    assert.equal(loose(errands.fileOf({ handle: `file:${dm}/b.png`, dmChatId: 'dm1' }))?.expired, true);
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }

@@ -18,11 +18,11 @@ function logger() {
   };
 }
 
-const REF = { iface: 'fake', conversationId: 'c1' };
+const REF = { iface: 'fake', chatId: 'c1' };
 
 function fakeWith(reads?: ReadonlyArray<string>) {
   const fake = createFakeAdapter({ iface: 'fake', selfId: 'self', ...(reads === undefined ? {} : { reads }) });
-  fake.seedConversation({
+  fake.seedChat({
     id: 'c1',
     kind: 'channel',
     rootId: 'g1',
@@ -43,23 +43,23 @@ function fakeWith(reads?: ReadonlyArray<string>) {
 test('createReads gives the body of an ok answer without its status', async () => {
   const { log } = logger();
   const reads = createReads(fakeWith(), log);
-  const found = await reads.conversationInfo(REF);
-  assert.equal(found?.conversation.id, 'c1');
+  const found = await reads.chatInfo(REF);
+  assert.equal(found?.chat.id, 'c1');
   assert.equal('status' in (found ?? {}), false);
 });
 
 test('createReads gives null for a failed answer and logs it once for each read and code, with the code only', async () => {
   const { log, warnings } = logger();
   const reads = createReads(fakeWith(), log);
-  assert.equal(await reads.conversationInfo({ iface: 'fake', conversationId: 'gone' }), null);
-  assert.equal(await reads.conversationInfo({ iface: 'fake', conversationId: 'gone' }), null);
+  assert.equal(await reads.chatInfo({ iface: 'fake', chatId: 'gone' }), null);
+  assert.equal(await reads.chatInfo({ iface: 'fake', chatId: 'gone' }), null);
   assert.equal(warnings.length, 1);
-  assert.deepEqual(warnings[0]?.fields, { read: 'conversation.info', code: 'unknown-conversation' });
+  assert.deepEqual(warnings[0]?.fields, { read: 'chat.info', code: 'unknown-conversation' });
 });
 
 test('createReads makes no call for a read the adapter does not declare', async () => {
   const { log } = logger();
-  const fake = fakeWith(['conversation.info']);
+  const fake = fakeWith(['chat.info']);
   const reads = createReads(fake, log);
   assert.equal(reads.offers('messages.history'), false);
   assert.equal(await reads.history(REF, { limit: 5 }), null);
@@ -69,10 +69,10 @@ test('createReads makes no call for a read the adapter does not declare', async 
 test('createReads gives null instead of throwing when the adapter throws', async () => {
   const { log, warnings } = logger();
   const broken = {
-    capabilities: () => ({ operations: [], reads: ['conversation.info'] }),
-    conversationInfo: () => Promise.reject(new TypeError('socket closed')),
+    capabilities: () => ({ operations: [], reads: ['chat.info'] }),
+    chatInfo: () => Promise.reject(new TypeError('socket closed')),
   } as unknown as Adapter;
   const reads = createReads(broken, log);
-  assert.equal(await reads.conversationInfo(REF), null);
-  assert.deepEqual(warnings[0]?.fields, { read: 'conversation.info', code: 'TypeError' });
+  assert.equal(await reads.chatInfo(REF), null);
+  assert.deepEqual(warnings[0]?.fields, { read: 'chat.info', code: 'TypeError' });
 });

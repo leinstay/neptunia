@@ -1,5 +1,5 @@
 // The interface the current event or turn belongs to, carried through its awaits. The memory store addresses a member
-// by community and native id, which do not name an interface, so one event's work reads and writes under the interface
+// by root and native id, which do not name an interface, so one event's work reads and writes under the interface
 // that event came from. Set by the core's event door and at the head of each turn. Outside them, on a wake or a
 // startup step, the home interface applies.
 

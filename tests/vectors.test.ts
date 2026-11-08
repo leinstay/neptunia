@@ -180,16 +180,16 @@ test('vectors: rewrite writes a new generation, switches the manifest and remove
   assert.deepEqual(hits.map((h) => (h.meta as { row: number }).row).sort(), [0, 1]);
 });
 
-test('vectors: a private layer is kept apart from the guild index and from other private layers', async () => {
+test('vectors: a private layer is kept apart from the root index and from other private layers', async () => {
   const { memoryDb, vectors } = await scene();
   const rng = seeded(9);
   const q = randomVector(rng, 16);
-  await vectors.append('g1', [{ meta: meta('guild'), vector: near(q, rng, 0.1) }]);
+  await vectors.append('g1', [{ meta: meta('root'), vector: near(q, rng, 0.1) }]);
   // A private chat is its own place, so its index is that place's.
   await vectors.append('dm-u3', [{ meta: meta('dm-a'), vector: near(q, rng, 0.1) }]);
   await vectors.append('dm-u4', [{ meta: meta('dm-b'), vector: near(q, rng, 0.1) }]);
   assert.equal(manifestOf(memoryDb, '2026-10', 'dm-u3').rows, 1);
-  assert.deepEqual(ids(await vectors.search('g1', q, { k: 10 })), ['guild']);
+  assert.deepEqual(ids(await vectors.search('g1', q, { k: 10 })), ['root']);
   assert.deepEqual(ids(await vectors.search('dm-u3', q, { k: 10 })), ['dm-a']);
   assert.deepEqual(ids(await vectors.search('dm-u4', q, { k: 10 })), ['dm-b']);
   assert.equal((await vectors.stats('dm-u4')).rows, 1);
@@ -289,7 +289,7 @@ test('vectors: has lists the kind, id and revision of every row of a month, kept
   assert.equal(
     (await vectors.has('g1', '2026-10')).has('record:p:1'),
     false,
-    'a private row stays out of the guild month'
+    'a private row stays out of the root month'
   );
   await assert.rejects(vectors.has('g1', 'october'), TypeError);
 });

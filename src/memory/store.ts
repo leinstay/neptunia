@@ -46,7 +46,7 @@ import type { StorageKey, StorageKind, StorageSelector } from './db/storage-keys
 import { isMediaDescriptionEntry, mediaDescriptionOf } from './db/export.ts';
 import { entryPictureDescriptions, linkedAttachmentIds } from './db/media-store.ts';
 import type { MediaDescriptionEntry } from './db/export.ts';
-import type { InterfaceNames } from './db/communities.ts';
+import type { InterfaceNames } from './db/roots.ts';
 
 import { listUnits } from './db/storage-units.ts';
 import type { UnitQuery } from './db/storage-units.ts';
@@ -3110,25 +3110,21 @@ function buildStore({
     },
 
     /**
-     * The communities an interface's hello named, written as their server places through the one writer, with the
-     * names the hello says of the interface itself (src/memory/db/communities.ts). A failed write is logged; the next
+     * The roots an interface's hello named, written as their server places through the one writer, with the
+     * names the hello says of the interface itself (src/memory/db/roots.ts). A failed write is logged; the next
      * hello writes them again.
      */
-    noteCommunities(
-      iface: string,
-      communities: ReadonlyArray<{ id: string; name: string }>,
-      names?: InterfaceNames
-    ): void {
+    noteRoots(iface: string, roots: ReadonlyArray<{ id: string; name: string }>, names?: InterfaceNames): void {
       if (typeof memoryDb?.memoryWrite !== 'function') return;
       void Promise.resolve(
         memoryDb.memoryWrite({
-          kind: 'communities',
+          kind: 'roots',
           iface,
-          communities,
+          roots,
           at: new Date().toISOString(),
           ...(names === undefined ? {} : { names }),
         })
-      ).catch((error: unknown) => log.warn('store: communities write failed', { error }));
+      ).catch((error: unknown) => log.warn('store: roots write failed', { error }));
     },
 
     /** The caption vectors of the library's entries by item id, those of `model` alone when it is named. */

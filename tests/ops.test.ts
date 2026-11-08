@@ -148,7 +148,7 @@ function makeEnv({
     client: {},
     spontaneous: {},
     calibrator: { ratio: 1 },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     emojiBackfill,
   });
 }
@@ -297,7 +297,7 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
     hot,
     store,
     client: {},
-    isServedCommunity: (id: unknown) => id === null,
+    isServedRoot: (id: unknown) => id === null,
     llm,
     simKey: 'sim-test-key',
     managementKey: 'mgmt-test',
@@ -367,7 +367,7 @@ test('status keys: a role on the simulator key (here the vision role) is shown o
     hot,
     store,
     client: {},
-    isServedCommunity: (id: unknown) => id === null,
+    isServedRoot: (id: unknown) => id === null,
     llm,
     simKey: 'sim-test-key',
   });
@@ -388,7 +388,7 @@ test('status keys: a role on the simulator key (here the vision role) is shown o
     hot,
     store,
     client: {},
-    isServedCommunity: (id: unknown) => id === null,
+    isServedRoot: (id: unknown) => id === null,
     llm,
   });
   const without = await runOp(
@@ -470,7 +470,7 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
     hot,
     store,
     client: {},
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     llm,
     errands,
   });
@@ -503,7 +503,7 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
     hot,
     store,
     client: {},
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     llm,
   });
   const [empty] = fieldsOf(
@@ -570,7 +570,7 @@ async function developmentField(seed: (db: BoardDb) => void): Promise<Array<stri
       hot,
       store,
       client: {},
-      isServedCommunity: (id: unknown) => id === 'g1',
+      isServedRoot: (id: unknown) => id === 'g1',
       board,
       now: () => now,
     });

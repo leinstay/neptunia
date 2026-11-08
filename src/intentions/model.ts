@@ -126,7 +126,7 @@ export const CONDITION_CHARS = 300;
 export const CHAIN_CHARS = 64;
 /** The history entries a record keeps (the oldest dropped). */
 export const HISTORY_MAX = 20;
-/** The members of the conversation a record's provenance keeps. */
+/** The members of the chat a record's provenance keeps. */
 export const PARTICIPANTS_MAX = 20;
 /** A name shorter than this (in letters and digits) is never matched by a forget. */
 const MIN_FORGET_NAME = 3;
@@ -636,7 +636,7 @@ function withHistory(record: Intention, entry: HistoryEntry): Intention {
  * Her own (`provenance.kind` `self`) is `pending`; a candidate is `proposed` and expires after
  * `candidateExpiresHours` unless `expiresAt` says otherwise; her own after `expiresDays`, or
  * after `recurringExpiresDays` with `every` set (parseEvery's shape, pinned by the caller).
- * `provenance.participants` (member ids) names the members of the conversation it came from: who
+ * `provenance.participants` (member ids) names the members of the chat it came from: who
  * asked, who was answered or mentioned, the other authors of a candidate's channel (concernsMember).
  */
 /** The publication restriction of an intention's provenance, as a field to spread. */
@@ -1005,7 +1005,7 @@ export function dueList(records: unknown, now: number, jitterMinutes = 0): Array
 /**
  * Whether `record` concerns member `accountId` (src/memory/db/session.ts, the intentions her memory session shows): it is
  * meant for them (`destination`), an attention names them (`attend.people`), it came from a
- * conversation with them (`provenance.participants`),
+ * chat with them (`provenance.participants`),
  * or its words -- the purpose, the quoted span, the completion condition, the chain, an errand's
  * error -- carry their id (their `<@id>` token included) or one of `names` as a whole word
  * (accents folded; a name under three letters or digits is never matched).

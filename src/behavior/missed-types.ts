@@ -63,7 +63,7 @@ export type CreateMissedInput = {
   llm?: { complete: (...args: Array<Untyped>) => Untyped } | null;
   turns: Untyped;
   reads: Reads;
-  partnerOf?: (conversationId: string) => string | null;
+  partnerOf?: (chatId: string) => string | null;
   getSelfName?: (placeId: string) => string;
   dataDir: string;
   memoryDb?: Pick<MemoryDbService, 'readHandle' | 'writeUnit'> & Partial<Pick<MemoryDbService, 'namespace'>>;
@@ -104,7 +104,7 @@ export type ClassifyContext = { channel: Untyped; history: Untyped; config: Unty
 export type Candidate = {
   messageId: string;
   placeId: string;
-  /** The interface the conversation is on (absent only on a candidate stored before it was kept). */
+  /** The interface the chat is on (absent only on a candidate stored before it was kept). */
   iface?: string;
   authorId: string | null;
   at: number;

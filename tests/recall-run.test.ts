@@ -1,4 +1,4 @@
-// Tests for src/behavior/recall-run.js: the recall runner over the interface's reads (a fake guild whose search and
+// Tests for src/behavior/recall-run.js: the recall runner over the interface's reads (a fake root whose search and
 // history answer the way Discord's REST does, read into the neutral hits and events the runner takes), a fake store, a fake
 // LLM and a fake describer. No network, no real data.
 import { test } from 'node:test';
@@ -17,12 +17,12 @@ import { tempDir } from './fixtures/tmp.ts';
 import { channel as channelInfo, privateChannel } from './fixtures/reads-rig.ts';
 import { eventOfLine, line, neutralMembers, neutralSearch, rawHit, snowflakeAt } from './fixtures/recall-lines.ts';
 import type { Untyped } from '../src/tools/types.ts';
-import type { ConversationInfo } from '../src/protocol/adapter.ts';
+import type { ChatInfo } from '../src/protocol/adapter.ts';
 import { asRecord } from './fixtures/records.ts';
 import {
   BUDGET,
   GARDEN_LINES,
-  GUILD,
+  ROOT,
   HOUR,
   MINUTE,
   NOW,
@@ -42,8 +42,8 @@ import {
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
 /**
- * A scene: a community with #general (c1, the turn's conversation), #garden (c2) and #private (c4, which the community's
- * everyone cannot view, so the audience rail refuses it here); `lines` per conversation id; `answers(route, query)` gives
+ * A scene: a root with #general (c1, the turn's chat), #garden (c2) and #private (c4, which the root's
+ * everyone cannot view, so the audience rail refuses it here); `lines` per chat id; `answers(route, query)` gives
  * the REST body the interface would read a search from (the neutral query is shown to it the way Discord's REST takes
  * it: `content`, `author_id`, `min_id`, `max_id`, `offset`).
  */
@@ -70,14 +70,14 @@ function scene({
   let maxInFlight = 0;
   const fetches: Array<{ channel: Untyped; around: Untyped; limit: Untyped }> = [];
   const follows: Array<{ channel: Untyped; after: Untyped; limit: Untyped }> = [];
-  // The conversations of the community: the partner u5 views #general and #garden, not #private.
-  const infos: Record<string, ConversationInfo> = {
+  // The chats of the root: the partner u5 views #general and #garden, not #private.
+  const infos: Record<string, ChatInfo> = {
     c1: channelInfo('c1', { name: 'general', viewers: { u5: true } }),
     c2: channelInfo('c2', { name: 'garden', viewers: { u5: true } }),
     c4: { ...privateChannel('c4', []), name: 'private', viewers: { u5: false } },
   };
-  const snapshot = snapshotOf(GUILD, { conversations: Object.values(infos), groups: [] });
-  // The history reads of a conversation, which a test may break (`broken`).
+  const snapshot = snapshotOf(ROOT, { chats: Object.values(infos), groups: [] });
+  // The history reads of a chat, which a test may break (`broken`).
   const broken = new Set();
   const reads = {
     searchMessages: async (scope: Untyped, query: Untyped) => {
@@ -119,26 +119,26 @@ function scene({
     },
     history: async (ref: Untyped, query: Untyped) => {
       await Promise.resolve();
-      const stored = lines[ref.conversationId] ?? [];
-      const info = infos[ref.conversationId];
-      if (!info || broken.has(ref.conversationId)) return null;
+      const stored = lines[ref.chatId] ?? [];
+      const info = infos[ref.chatId];
+      if (!info || broken.has(ref.chatId)) return null;
       const events = (rows: Untyped) => rows.map((l: Untyped) => eventOfLine(info, l));
       if (query.after !== undefined) {
-        follows.push({ channel: ref.conversationId, after: query.after, limit: query.limit });
+        follows.push({ channel: ref.chatId, after: query.after, limit: query.limit });
         const from = stored.findIndex((l: Untyped) => l.id === query.after) + 1;
         return { events: events(stored.slice(from, from + query.limit)), complete: true };
       }
-      fetches.push({ channel: ref.conversationId, around: query.around, limit: query.limit });
+      fetches.push({ channel: ref.chatId, around: query.around, limit: query.limit });
       const at = stored.findIndex((l: Untyped) => l.id === query.around);
       const from = Math.max(0, at - Math.floor(query.limit / 2));
       return { events: events(stored.slice(from, from + query.limit)), complete: true };
     },
   };
-  const guild = {
+  const root = {
     reads,
-    /** Makes every history read of conversation `id` fail. */
+    /** Makes every history read of chat `id` fail. */
     breakHistory: (id: string) => broken.add(id),
-    /** Replaces the history read of the conversation (`replace(query)`). */
+    /** Replaces the history read of the chat (`replace(query)`). */
     history: (replace: Untyped) => {
       const original = reads.history;
       reads.history = async (ref, query) => replace(ref, query, () => original(ref, query));
@@ -207,10 +207,10 @@ function scene({
       content: 'ποιος σκότωσε το κουνέλι;',
     },
   ];
-  // A private chat with the member u5, as the interface describes it (no community, no audience).
+  // A private chat with the member u5, as the interface describes it (no root, no audience).
   const dm = channelInfo('dm1', { kind: 'dm', rootId: null, chatType: 'dm', partnerId: 'u5', audience: null });
   const args = {
-    placeId: GUILD,
+    placeId: ROOT,
     channel: infos.c1,
     snapshot,
     partnerId: null,
@@ -223,7 +223,7 @@ function scene({
     recaller,
     args,
     dm,
-    guild,
+    root,
     calls,
     fetches,
     follows,
@@ -560,7 +560,7 @@ test('recall: the windows of the kept clusters are fetched together', async () =
   const s = scene({ lines: { c1: RABBIT_LINES, c2: GARDEN_LINES }, answers: rabbitAnswers });
   let inFlight = 0;
   let most = 0;
-  s.guild.history(async (ref: Untyped, query: Untyped, original: Untyped) => {
+  s.root.history(async (ref: Untyped, query: Untyped, original: Untyped) => {
     inFlight += 1;
     most = Math.max(most, inFlight);
     await new Promise((resolve) => setImmediate(resolve));
@@ -665,7 +665,7 @@ test('recall: the run budget running out before the windows are read abandons it
   const timers = manualTimers();
   const reading = deferred();
   const s = scene({ lines: RANKED_LINES, answers: rankedAnswers, recall: BUDGET, timers });
-  s.guild.history(() => {
+  s.root.history(() => {
     reading.resolve?.();
     return new Promise(() => {});
   });
@@ -887,7 +887,7 @@ test('recall: a recent line from a channel the audience cannot see is left out; 
   assert.equal(privateReads, 0);
 });
 
-// ---- the current conversation, the persona's own stretches, the context, the trace ------------
+// ---- the current chat, the persona's own stretches, the context, the trace ------------
 
 /** #general holds the turn's chat (h1, h2) and, just before it, an older hit x1; #garden a stretch with the persona's line. */
 const CHAT_LINES = {
@@ -966,11 +966,11 @@ test('recall: the summary reads the last six chat lines as <context> right befor
   );
 });
 
-/** A real store in a fresh temporary directory (never data/), and its trace file of guild g1. */
+/** A real store in a fresh temporary directory (never data/), and its trace file of root g1. */
 function tempStore() {
   const dataDir = tempDir('recall-trace-');
   const store = createStore({ dataDir });
-  const file = path.join(dataDir, 'places', GUILD, 'recall-trace.jsonl');
+  const file = path.join(dataDir, 'places', ROOT, 'recall-trace.jsonl');
   const lines = () =>
     fs.existsSync(file)
       ? fs
@@ -1065,13 +1065,13 @@ test('recall: one trace line holds every source -- stored memory, record windows
   const t = tempStore();
   try {
     const record = fakeSource({
-      guild: [
+      root: [
         recLine('g1', GARDEN_LINES[0].ts, 'ένα κουνέλι στον κήπο'),
         recLine('r-c2', NOW - 2 * HOUR, 'κουνέλι στον κήπο σήμερα'),
       ],
     });
     const archive = fakeSource({
-      guild: [
+      root: [
         archEntry(
           'rc-2',
           'recent',
@@ -1249,18 +1249,18 @@ function archEntry(itemId: string, itemKind: string, text: string, scope: string
     text,
     stored: {},
     recordedAt: '2026-10-05T00:00:00.000Z',
-    placeId: GUILD,
+    placeId: ROOT,
   };
 }
 
-/** A fake archive or record: `iterate` streams the list of the base it is asked for (the guild's, or a private owner's). */
+/** A fake archive or record: `iterate` streams the list of the base it is asked for (the root's, or a private owner's). */
 function fakeSource(byBase: Untyped) {
   const queries: Array<Record<string, Untyped>> = [];
   return {
     queries,
     async *iterate(placeId: string, query: Record<string, Untyped> = {}) {
       queries.push(query);
-      yield* byBase[query.privateAccountId ?? 'guild'] ?? [];
+      yield* byBase[query.privateAccountId ?? 'root'] ?? [];
     },
   };
 }
@@ -1269,13 +1269,13 @@ const RECENT_SERVER = { forms: ['κουνέλι'], who: [], from: null, to: null
 
 test('recall-run: a channel the member cannot read is skipped before matching', async () => {
   const record = fakeSource({
-    guild: [
+    root: [
       recLine('r-c2', NOW - 2 * HOUR, 'κουνέλι στον κήπο σήμερα'),
       recLine('r-c4', NOW - HOUR, 'μυστικό κουνέλι', { placeId: 'c4' }),
     ],
   });
   const archive = fakeSource({
-    guild: [
+    root: [
       archEntry(
         'rc-2',
         'recent',
@@ -1304,7 +1304,7 @@ test('recall-run: a channel the member cannot read is skipped before matching', 
 });
 
 test('recall-run: a dateless question with no recent cue reads the record too, recordDays 0 reads none', async () => {
-  const lines = () => fakeSource({ guild: [recLine('r-old', NOW - 2 * 24 * HOUR, 'κουνέλι στον κήπο τότε')] });
+  const lines = () => fakeSource({ root: [recLine('r-old', NOW - 2 * 24 * HOUR, 'κουνέλι στον κήπο τότε')] });
   const record = lines();
   const s = scene({ profiles: MEMORY_PROFILES, record });
   const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: RABBIT_SERVER }));
@@ -1322,7 +1322,7 @@ test('recall-run: a dateless question with no recent cue reads the record too, r
 test('recall-run: private entries match only for their owner', async () => {
   const sources = () => ({
     archive: fakeSource({
-      guild: [
+      root: [
         archEntry(
           'ep-g',
           'episode',
@@ -1407,7 +1407,7 @@ test('recall-run: private entries match only for their owner', async () => {
   );
 });
 
-// ---- a window follows its conversation -------------------------------------------------------
+// ---- a window follows its chat -------------------------------------------------------
 
 /** #garden: a name question (n2) answered minutes after a short window around it, then a long silence. */
 const NAME_LINES = [
@@ -1441,7 +1441,7 @@ function foundIds(s: Untyped) {
 test('recall-run: a failing follow fetch keeps the window as it was', async () => {
   const s = scene({ lines: { c2: NAME_LINES }, answers: nameAnswers });
   // The read that follows the window fails: the interface answers nothing for it (and its own log says so).
-  s.guild.history(async (ref: Untyped, query: Untyped, original: Untyped) =>
+  s.root.history(async (ref: Untyped, query: Untyped, original: Untyped) =>
     query.after !== undefined ? null : original()
   );
   const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: NAME_SERVER }));
@@ -1546,7 +1546,7 @@ test('recall-run: nothing planned skips with reason no-query', async () => {
 });
 
 test('recall-run: a who form equal to a stored alias (folded) finds the member when the member search finds nobody; the record is read by author', async () => {
-  const record = fakeSource({ guild: [recLine('r-elo', NOW - 2 * HOUR, 'καλημέρα κήπε', { by: ELO_ID })] });
+  const record = fakeSource({ root: [recLine('r-elo', NOW - 2 * HOUR, 'καλημέρα κήπε', { by: ELO_ID })] });
   const s = scene({
     profiles: [{ id: ELO_ID, names: ['Éloïse'], aliases: [{ name: 'Lulú' }], episodes: [] }],
     answers: (route: Untyped) => (route.endsWith('/members/search') ? [] : { total_results: 0, messages: [] }),
@@ -1593,7 +1593,7 @@ function rangedSource(byBase: Untyped) {
       queries.push(query);
       const from = query.from ? Date.parse(query.from) : -Infinity;
       const to = query.to ? Date.parse(query.to) : Infinity;
-      for (const line of byBase[query.privateAccountId ?? 'guild'] ?? []) {
+      for (const line of byBase[query.privateAccountId ?? 'root'] ?? []) {
         const at = Date.parse(line.occurredAt);
         if (at < from || at > to) continue;
         if (Array.isArray(query.placeIds) && !query.placeIds.includes(line.scope?.channel)) continue;
@@ -1633,7 +1633,7 @@ function fakeVectors(byBase: Untyped, { fail = null }: Record<string, Untyped> =
     async search(placeId: string, query: unknown, opts: Record<string, Untyped> = {}) {
       calls.push({ placeId, query, opts });
       if (fail) throw fail;
-      const rows = (byBase[opts.privateAccountId ?? 'guild'] ?? []).filter(
+      const rows = (byBase[opts.privateAccountId ?? 'root'] ?? []).filter(
         (row: Untyped) => typeof opts.filter !== 'function' || opts.filter(row.meta)
       );
       return [...rows].sort((a, b) => b.score - a.score).slice(0, opts.k);
@@ -1655,7 +1655,7 @@ function fakeEmbed(impl: ((texts: Untyped, opts: Untyped) => unknown) | null = n
 
 /** The record of the meaning tests: two word hits of today, an old exchange only meaning finds, one line @everyone cannot see. */
 const MEANING_RECORD = {
-  guild: [
+  root: [
     recLine('m-ctx', MEANT_AT - MINUTE, 'who invented it?', { by: ELO_ID }),
     recLine('m-old', MEANT_AT, 'he made the whole story up'),
     recLine('m-hidden', MEANT_AT - 5 * DAY, 'secret meaning', { placeId: 'c4' }),
@@ -1665,7 +1665,7 @@ const MEANING_RECORD = {
 };
 /** The index rows: the old line twice (two revisions), the hidden channel's, the visible chat's, an archived episode. */
 const MEANING_ROWS = {
-  guild: [
+  root: [
     vrow('m-old', MEANT_AT, 0.85, { sourceIds: ['m-ctx', 'm-old'] }),
     vrow('m-old', MEANT_AT, 0.8, { revision: 2, sourceIds: ['m-ctx', 'm-old'] }),
     vrow('m-hidden', MEANT_AT - 5 * DAY, 0.9, { placeId: 'c4' }),
@@ -1674,7 +1674,7 @@ const MEANING_ROWS = {
   ],
 };
 const MEANING_ARCHIVE = {
-  guild: [
+  root: [
     archEntry(
       'ep-meant',
       'episode',
@@ -1714,10 +1714,10 @@ test('recall-run: one embedding of the question; meaning rows fused ahead of a w
     assert.equal(s.embed.calls.length, 1);
     assert.deepEqual(s.embed.calls[0].texts, ['ποιος σκότωσε το κουνέλι;']);
     assert.equal(s.embed.calls[0].opts.purpose, 'recall-query');
-    assert.equal(s.vectors.calls.length, 1, 'the guild index only on a server turn');
+    assert.equal(s.vectors.calls.length, 1, 'the root index only on a server turn');
     assert.deepEqual(
       [s.vectors.calls[0].placeId, s.vectors.calls[0].opts.from, s.vectors.calls[0].opts.to, s.vectors.calls[0].opts.k],
-      [GUILD, null, null, 80],
+      [ROOT, null, null, 80],
       'no range asked: every month'
     );
 
@@ -1784,7 +1784,7 @@ test('recall-run: a failed embedding or search logs a warn and the run goes on w
   }
 });
 
-test("recall-run: a private turn searches its partner's private layer and the guild index", async () => {
+test("recall-run: a private turn searches its partner's private layer and the root index", async () => {
   const record = rangedSource({
     ...MEANING_RECORD,
     u5: [recLine('d-old', MEANT_AT, 'the dm memory', { placeId: 'dm1', by: 'u5', owner: 'u5' })],
@@ -1853,7 +1853,7 @@ function cueAnswers(route: Untyped, query: Untyped) {
 
 /** A scene for the locator runs: maxClusters 2, one more window fetched, one-line windows, the locator numbers set here. */
 function cueScene({ recall = {}, features = {}, memory = {}, archive = null }: Record<string, Untyped> = {}) {
-  const record = fakeSource({ guild: [] });
+  const record = fakeSource({ root: [] });
   const s = scene({
     lines: { c1: [CUE_D2], c2: [...CUE_EVENT, CUE_D1] },
     answers: cueAnswers,
@@ -1879,7 +1879,7 @@ function cueScene({ recall = {}, features = {}, memory = {}, archive = null }: R
 const CUE_SERVER = { forms: ['κουνέλι'], who: [], ...CUE_DAY };
 
 test('recall-run: a locator whose record reaches past the decay margin sends no broad page; the local sources read past the date', async () => {
-  const archive = fakeSource({ guild: [] });
+  const archive = fakeSource({ root: [] });
   const s = cueScene({ recall: { recordDays: 10, archiveMonths: 6 }, archive });
   await withCapturedLogs(() => s.recaller.run({ ...s.args, server: { ...CUE_SERVER, locator: true } }));
   assert.equal(searches(s.calls).length, 1, 'the record covers everything the date could point near');

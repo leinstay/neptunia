@@ -15,7 +15,7 @@ import { useIface, world } from './fixtures/turn-world.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
 
-// The conversation she wakes in is held by a fake interface named `fake`.
+// The chat she wakes in is held by a fake interface named `fake`.
 useIface('fake');
 
 const T0 = Date.parse('2026-10-24T10:00:00Z');

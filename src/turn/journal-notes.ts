@@ -4,7 +4,7 @@
 // createTurnRunner (src/behavior/turn.js) builds it once per runner with createJournalNotes over the runner's state;
 // the attempt, the calls, the act and the pulls call its functions.
 
-import type { Conversation } from '../protocol/events.ts';
+import type { Chat } from '../protocol/events.ts';
 import type { FactInput, FactsApi, Fact } from '../behavior/inner.ts';
 import { placeKey } from '../behavior/previous-think.ts';
 import { callMarksFor, withPostedFrom, withTriggers } from '../format.ts';
@@ -16,14 +16,14 @@ import { CALL_MARKS_MAX, POSTED_FROM_MAX, TRIGGER_LINKS_MAX } from './calls.ts';
 import { FAILED_TURN_KEEP_MS, NO_OP, journalTurnRecord } from './journal.ts';
 import type { JournalDraft, JournalOp } from './journal.ts';
 import type { Handles } from './handles.ts';
-import { inCommunity } from './routing.ts';
+import { inRoot } from './routing.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 
 /** The config keys the notes read, at the moment of use. */
 export type NotesConfig = Record<string, unknown>;
 
 // Production values, config cut of 2026-10-31.
-/** The failed turns told per conversation, the newest. */
+/** The failed turns told per chat, the newest. */
 const FAILED_TURNS_KEPT = 3;
 /** How old her previous think may be, in minutes, to be carried into a new turn. */
 const PREVIOUS_THINK_MINUTES = 30;
@@ -56,12 +56,12 @@ export type ThinkStore = {
     at: number;
     think: unknown;
     failed: boolean;
-    isPrivate: boolean;
+    isDm: boolean;
     inner: boolean;
     ran: string;
     delivered: Array<string>;
   }) => void;
-  select: (place: string, at: { now: number; minutes: number; isPrivate: boolean }) => ThinkPick;
+  select: (place: string, at: { now: number; minutes: number; isDm: boolean }) => ThinkPick;
 };
 
 /** A skill call of hers as the notes remember it (src/format.ts#callMarksFor reads it). */
@@ -77,7 +77,7 @@ type TurnIds = {
 export type NotesDraft = TurnIds & {
   privateAccountId?: string | null;
   inner?: { wake?: { chainId?: string | null } | null } | null;
-  /** The conversation as the interface described it when the attempt began. */
+  /** The chat as the interface described it when the attempt began. */
   info?: NotesChannel | null;
   deliveredIn?: Iterable<string> | null;
   finalThink?: unknown;
@@ -86,14 +86,14 @@ export type NotesDraft = TurnIds & {
   handles?: Handles | null;
 };
 
-/** A channel the notes name, as the interface described it: its id, and whether it is in a community (`rootId`). */
-type NotesChannel = Pick<Conversation, 'id' | 'rootId'>;
+/** A channel the notes name, as the interface described it: its id, and whether it is in a root (`rootId`). */
+type NotesChannel = Pick<Chat, 'id' | 'rootId'>;
 
 /** One of her posted messages as a `said` line takes it. */
 type SaidArgs = {
   placeId: string;
   channel: NotesChannel & { partnerId?: string | null };
-  privateChat: boolean;
+  dmChat: boolean;
   trigger?: { authorId?: string | null } | null;
   draft?: (NotesDraft & { started?: { turnId: string } | null }) | null;
   op?: { opId?: string | null } | null;
@@ -126,7 +126,7 @@ export type JournalNotesContext = {
   ) => (placeId: string) => string | null;
 };
 
-type FactScopeOf = { placeId: string | null; privateChat?: boolean };
+type FactScopeOf = { placeId: string | null; dmChat?: boolean };
 
 export type JournalNotes = {
   factsOfKind: (scope: FactScopeOf, kind: string, at: number) => Array<Fact>;
@@ -135,7 +135,7 @@ export type JournalNotes = {
   linkTriggers: (lines: Array<object>) => Array<object>;
   earlierThinkFor: (args: {
     channel: NotesChannel;
-    isPrivate: boolean;
+    isDm: boolean;
     draft: NotesDraft;
     mode: string | null | undefined;
   }) => { text: string; relation: 'earlier'; ageMs: number } | null;
@@ -199,13 +199,13 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     liveChannelName,
   } = ctx;
 
-  /** The facts of `kind` of the conversation `scope` still in their window, oldest first. */
+  /** The facts of `kind` of the chat `scope` still in their window, oldest first. */
   function factsOfKind(scope: FactScopeOf, kind: string, at: number): Array<Fact> {
     return facts()
       .pending(scope)
       .filter((fact) => fact.kind === kind && fact.placeId === scope.placeId && at - fact.at < FAILED_TURN_KEEP_MS);
   }
-  /** A fact of `kind` kept (at most `FAILED_TURNS_KEPT` of the kind per conversation, the newest; one per message). */
+  /** A fact of `kind` kept (at most `FAILED_TURNS_KEPT` of the kind per chat, the newest; one per message). */
   function keepFact(scope: FactScopeOf, kind: string, payload: Record<string, unknown>, at: number): void {
     const kept = FAILED_TURNS_KEPT;
     if (kept <= 0) return;
@@ -248,9 +248,9 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     return withTriggers(lines, triggerLinks);
   }
 
-  /** The key of the place a channel is (interface + conversation). */
+  /** The key of the place a channel is (interface + chat). */
   function placeOf(channel: NotesChannel): string {
-    return placeKey({ conversationId: channel.id });
+    return placeKey({ chatId: channel.id });
   }
 
   /**
@@ -260,12 +260,12 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
    */
   function earlierThinkFor({
     channel,
-    isPrivate,
+    isDm,
     draft,
     mode,
   }: {
     channel: NotesChannel;
-    isPrivate: boolean;
+    isDm: boolean;
     draft: NotesDraft;
     mode: string | null | undefined;
   }): { text: string; relation: 'earlier'; ageMs: number } | null {
@@ -273,7 +273,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     const picked = thinks.select(placeOf(channel), {
       now: clock(),
       minutes: PREVIOUS_THINK_MINUTES,
-      isPrivate,
+      isDm,
     });
     if (!picked.think) {
       log.info('turn: previous think', {
@@ -304,13 +304,13 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
       if (!channel) return;
       const failed = outcome === 'error' || outcome === 'refused';
       if (!failed && outcome !== 'spoke' && outcome !== 'skip') return;
-      const delivered = [...(draft.deliveredIn ?? [])].map((id) => placeKey({ conversationId: id }));
+      const delivered = [...(draft.deliveredIn ?? [])].map((id) => placeKey({ chatId: id }));
       thinks.record({
         turnId: draft.started?.turnId ?? draft.turnKey?.turnId ?? null,
         at: clock(),
         think: draft.finalThink ?? null,
         failed,
-        isPrivate: !inCommunity(channel),
+        isDm: !inRoot(channel),
         inner: Boolean(args.inner),
         ran: placeOf(channel),
         delivered,
@@ -406,7 +406,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   function recordSaid({
     placeId,
     channel,
-    privateChat,
+    dmChat,
     trigger,
     draft,
     op,
@@ -419,10 +419,10 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   }: SaidArgs): void {
     if (!record) return;
     if (typeof posted?.id !== 'string' || !posted.id) return;
-    const privateAccountId = privateChat
+    const privateAccountId = dmChat
       ? (draft?.privateAccountId ?? trigger?.authorId ?? channel.partnerId ?? null)
       : null;
-    if (privateChat && !privateAccountId) return;
+    if (dmChat && !privateAccountId) return;
     // A `#n` in her words is stored as the identity of the line it named (src/turn/handles.ts).
     const handles = draft?.handles;
     const line = toRecordLine(

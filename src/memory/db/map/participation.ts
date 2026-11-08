@@ -4,7 +4,7 @@
 //
 // An episode's id is its `itemId` (a derived id, marked `$derived`, when it has none). The channel is the place,
 // startAt / lastAt are start_ms / last_ms. `episode_sources` has one row per message id, pointing at the record by
-// `src:discord:<messageId>` (the writer resolves new links by conversation and keeps captured revisions). The message objects
+// `src:discord:<messageId>` (the writer resolves new links by chat and keeps captured revisions). The message objects
 // (name, caption, reply, her own flag, text) are kept verbatim in `extra.messages` ALWAYS: the record does not hold
 // a caption, and an episode must come back exactly even when a message is no longer in the record.
 //

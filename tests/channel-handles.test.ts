@@ -84,7 +84,7 @@ test('linkChannels: an exact #handle links its channel first; a name still links
 test('resolveCall: a #handle in a channel argument resolves exactly; the name stays the fallback', () => {
   const view = {
     skills: skillRegistry(),
-    conversations: CHANNELS.map(({ id, name }) => ({ id, name })),
+    chats: CHANNELS.map(({ id, name }) => ({ id, name })),
     channelHandles: new Map([['c1a2b', KITCHEN]]),
   };
   const read = (channel: Untyped) =>

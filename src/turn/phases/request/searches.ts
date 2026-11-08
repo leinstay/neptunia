@@ -19,11 +19,11 @@ export type Planned = {
  */
 export function planRequest(ctx: PhaseContext, opened: Opened, setup: Setup): Planned {
   const { lookup, recallAvailable } = ctx;
-  const { isPrivate } = opened;
+  const { isDm } = opened;
   const { config, likeServer } = setup;
   const webLookupOn = Boolean(lookup);
   const quickSearch = config.web?.quickSearch;
   const webSearchOn = webLookupOn && quickSearch?.enabled !== false && typeof lookup?.search === 'function';
-  const serverOn = (!isPrivate || likeServer) && recallAvailable();
+  const serverOn = (!isDm || likeServer) && recallAvailable();
   return { webLookupOn, webSearchOn, serverOn };
 }

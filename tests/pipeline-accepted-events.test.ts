@@ -17,8 +17,8 @@ function message(id: string, room: string, content: string, edit = false): Messa
     id,
     at: NOW,
     edit,
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
-    conversation: { id: room, kind: 'channel', chatType: 'channel', rootId: 'community' },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
+    chat: { id: room, kind: 'channel', chatType: 'channel', rootId: 'root' },
     message: {
       id: 'same-message',
       at: NOW - 60000,
@@ -38,7 +38,7 @@ function message(id: string, room: string, content: string, edit = false): Messa
 }
 
 for (const sameFamily of [false, true]) {
-  test(`overlapping accepted ${sameFamily ? 'edits of one family' : 'messages in separate conversations'} keep their own receipts`, async () => {
+  test(`overlapping accepted ${sameFamily ? 'edits of one family' : 'messages in separate chats'} keep their own receipts`, async () => {
     const memory = await openTestMemory({ now: () => NOW });
     try {
       const ingest = createIngestRecord({ memoryDb: memory.memoryDb, hot: memory.hot, now: () => NOW });
@@ -70,11 +70,11 @@ for (const sameFamily of [false, true]) {
             await observed.observeLine(
               event,
               false,
-              { placeId: 'community' },
+              { placeId: 'root' },
               context.receipt
                 ? {
                     eventId: context.receipt.eventId,
-                    locator: { iface: event.iface, conversationId: event.conversation.id, messageId: event.message.id },
+                    locator: { iface: event.iface, chatId: event.chat.id, messageId: event.message.id },
                     receipt: context.receipt,
                   }
                 : undefined
@@ -148,11 +148,11 @@ test('an observation timeout is unacknowledged until its late writer commit beco
           await observed.observeLine(
             event,
             false,
-            { placeId: 'community' },
+            { placeId: 'root' },
             context.receipt
               ? {
                   eventId: context.receipt.eventId,
-                  locator: { iface: event.iface, conversationId: event.conversation.id, messageId: event.message.id },
+                  locator: { iface: event.iface, chatId: event.chat.id, messageId: event.message.id },
                   receipt: context.receipt,
                 }
               : undefined

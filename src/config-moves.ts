@@ -2,7 +2,8 @@
 // `features.skillsDiscovery`, the owner's grants on the tools that were renamed (`skills.describe`, the six `task.*` and
 // the four `intent.*`), the nine settings of `agents` that every errand reads (they live under `errands`),
 // `agents.<name>.search.provider` (now `searchProvider`), the analyzer timeout `llm.helperTimeoutMs` (now
-// `llm.analyzerTimeoutMs`), the switch `features.innerLife` (now `features.wakes`), and the sections of the wakes and
+// `llm.analyzerTimeoutMs`), the switch `features.innerLife` (now `features.wakes`), the switch of the direct chats
+// `private.enabled` (now `dm.enabled`), and the sections of the wakes and
 // the three ticking mechanics (MECHANIC_MOVES): `innerLife.heartbeat.*` and `innerLife.wakes.heartbeat.*` under
 // `heartbeat`, `diary.*` under `selfreflection`, `web.search.*` under `web.quickSearch`, the pin `models.byPurpose.diary-plan` under `selfreflection-planner`, `selfdev.*` and `innerLife.wakes.selfimprovement.*` under
 // `selfimprovement`, the other `innerLife.wakes.<kind>.*` under `wakes.kinds`, and the rest of `innerLife.*` under
@@ -92,6 +93,16 @@ function moveSection(config: Config, report: MovedConfig): void {
   for (const key of moving)
     place(old, target, { from: key, to: key }, { from: `skills.${key}`, to: `tools.${key}` }, report);
   if (Object.keys(old).length === 0) delete config.skills;
+}
+
+/** `private.enabled`, the switch of the direct chats, written as `dm.enabled`; the other `private` keys stay. */
+function moveDmSwitch(config: Config, report: MovedConfig): void {
+  const old = sectionOf(config, 'private', false);
+  if (old === null || !Object.hasOwn(old, 'enabled')) return;
+  const target = sectionOf(config, 'dm', true);
+  if (target === null) return;
+  place(old, target, { from: 'enabled', to: 'enabled' }, { from: 'private.enabled', to: 'dm.enabled' }, report);
+  if (Object.keys(old).length === 0) delete config.private;
 }
 
 /** One key of the section `at` of `config` renamed. */
@@ -377,6 +388,7 @@ export function moveConfigKeys(
   movePlannerPin(report.config, report);
   renameKey(report.config, 'llm', 'helperTimeoutMs', 'analyzerTimeoutMs', report);
   renameKey(report.config, 'features', 'innerLife', 'wakes', report);
+  moveDmSwitch(report.config, report);
   dropKeys(report.config, report);
   moveMechanics(report.config, report);
   moveSchedules(report.config, report);

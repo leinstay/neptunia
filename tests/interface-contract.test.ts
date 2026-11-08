@@ -1,7 +1,7 @@
 // Contract tests of the interface port (src/interface/port.ts): the SAME suite runs against the
 // in-memory adapter (src/interface/fake.ts) and the Discord adapter (interfaces/discord/port.ts)
 // over a fake discord.js client, proving the engine can swap one for the other. Each harness
-// gives the suite a port and a neutral view of what reached its conversations.
+// gives the suite a port and a neutral view of what reached its chats.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CAPABILITIES, STATUSES } from '../src/interface/port.ts';
@@ -25,7 +25,7 @@ const ROOM = 'c1';
 function fakeHarness({ operations = null }: { operations?: Untyped } = {}) {
   const port = createFakeAdapter({ iface: 'fake', selfId: SELF, operations, now: () => 1000 });
   const view = (ref: Record<string, Untyped>) => {
-    const message = port.messages.get(`${ref.conversationId}/${ref.messageId}`);
+    const message = port.messages.get(`${ref.chatId}/${ref.messageId}`);
     if (!message || message.deleted) return null;
     return { text: message.text, authorId: message.authorId, reactions: [...message.reactions] };
   };
@@ -117,7 +117,7 @@ function discordHarness({ operations = null }: { operations?: Untyped } = {}) {
     port,
     payloads,
     client,
-    foreign: () => ({ iface: 'discord', conversationId: ROOM, messageId: makeMessage(OTHER, 'καλημέρα').id }),
+    foreign: () => ({ iface: 'discord', chatId: ROOM, messageId: makeMessage(OTHER, 'καλημέρα').id }),
     view(ref: Record<string, Untyped>) {
       const message = store.get(ref.messageId);
       if (!message || message.deleted) return null;
@@ -156,7 +156,7 @@ for (const [name, makeAny] of table([
   ['fake', fakeHarness],
   ['discord', discordHarness],
 ])) {
-  const room = (port: Adapter) => ({ iface: port.iface, conversationId: ROOM });
+  const room = (port: Adapter) => ({ iface: port.iface, chatId: ROOM });
   // The same harness `make` builds, typed for the split tests (the pair of harnesses is a union the checker cannot call).
   const make = wrongly<(options?: { operations?: Untyped }) => Harness>(makeAny);
   const build = make;
@@ -167,7 +167,7 @@ for (const [name, makeAny] of table([
     const result = await port.send(room(port), { text: 'γεια σας' });
     assert.equal(result.status, 'ok');
     assert.equal(present(result.ref).iface, port.iface);
-    assert.equal(present(result.ref).conversationId, ROOM);
+    assert.equal(present(result.ref).chatId, ROOM);
     assert.equal(typeof present(result.ref).messageId, 'string');
     assert.deepEqual(harness.view(present(result.ref)), { text: 'γεια σας', authorId: SELF, reactions: [] });
   });
@@ -277,7 +277,7 @@ for (const [name, makeAny] of table([
   test(`port contract (${name}): a reference of another interface or empty content fails without an effect`, async () => {
     const h = make();
     const before = h.effects();
-    const foreign = await h.port.send({ iface: 'elsewhere', conversationId: ROOM }, { text: 'όχι' });
+    const foreign = await h.port.send({ iface: 'elsewhere', chatId: ROOM }, { text: 'όχι' });
     assert.deepEqual([foreign.status, present(foreign.error).code], ['failed', 'foreign-reference']);
     const empty = await h.port.send(room(h.port), { text: '' });
     assert.deepEqual([empty.status, present(empty.error).code], ['failed', 'empty-content']);
@@ -291,7 +291,7 @@ for (const [name, makeAny] of table([
     const limit = h.port.capabilities().maxChars;
     const text = 'α'.repeat(limit + 1);
     const before = h.effects();
-    const delivery = await h.port.send({ iface: h.port.iface, conversationId: ROOM }, { text });
+    const delivery = await h.port.send({ iface: h.port.iface, chatId: ROOM }, { text });
     assert.equal(delivery.status, 'ok');
     assert.equal(delivery.parts.length, 2);
     assert.equal(h.effects(), before + 2);
@@ -303,7 +303,7 @@ for (const [name, makeAny] of table([
 
   test(`port contract (${String(name)}): an edit over the limit is still refused as text-too-long`, async () => {
     const h = build();
-    const own = present((await h.port.send({ iface: h.port.iface, conversationId: ROOM }, { text: 'μένει' })).ref);
+    const own = present((await h.port.send({ iface: h.port.iface, chatId: ROOM }, { text: 'μένει' })).ref);
     assert.ok(own);
     const result = await h.port.edit(own, { text: 'α'.repeat(h.port.capabilities().maxChars + 1) });
     assert.deepEqual([result.status, result.error?.code], ['failed', 'text-too-long']);
@@ -316,7 +316,7 @@ for (const [name, makeAny] of table([
       () => port.send(wrongly(null), wrongly(null)),
       () => port.edit(wrongly({}), {}),
       () => port.delete(wrongly(undefined)),
-      () => port.react(wrongly({ iface: port.iface, conversationId: ROOM }), ''),
+      () => port.react(wrongly({ iface: port.iface, chatId: ROOM }), ''),
       () => port.unreact(wrongly(null), wrongly(null)),
       () => port.typing(wrongly({}), noLease),
     ]) {
@@ -332,12 +332,9 @@ for (const [name, makeAny] of table([
 
 test('discord adapter: absent mentions are allowedMentions { parse: [] }, given ones name exactly their members', async () => {
   const h = discordHarness();
-  await h.port.send({ iface: 'discord', conversationId: ROOM }, { text: 'α' });
+  await h.port.send({ iface: 'discord', chatId: ROOM }, { text: 'α' });
   assert.deepEqual(h.payloads[0], { content: 'α', reply: undefined, allowedMentions: { parse: [] } });
-  await h.port.send(
-    { iface: 'discord', conversationId: ROOM },
-    { text: 'β', mentions: { users: ['u1'], repliedUser: false } }
-  );
+  await h.port.send({ iface: 'discord', chatId: ROOM }, { text: 'β', mentions: { users: ['u1'], repliedUser: false } });
   assert.deepEqual(h.payloads[1].allowedMentions, { parse: [], users: ['u1'], repliedUser: false });
 });
 
@@ -351,10 +348,10 @@ test('discord adapter: a channel the caller holds is used before the client', as
     client: { user: { id: SELF } },
     lookupChannel: wrongly((id: string) => (id === 'c9' ? held : null)),
   });
-  const result = await port.send({ iface: 'discord', conversationId: 'c9' }, { text: 'ναι' });
+  const result = await port.send({ iface: 'discord', chatId: 'c9' }, { text: 'ναι' });
   // A send answers a Delivery (it also carries `parts` and an idempotency key), so the fields that matter are read.
   assert.equal(result.status, 'ok');
-  assert.deepEqual(result.ref, { iface: 'discord', conversationId: 'c9', messageId: 'x1', accountId: SELF });
+  assert.deepEqual(result.ref, { iface: 'discord', chatId: 'c9', messageId: 'x1', accountId: SELF });
   assert.equal(result.at, 42);
   assert.deepEqual(result.parts, [result.ref]);
   assert.equal(sent.length, 1);
@@ -364,8 +361,8 @@ test('discord adapter: a text over the limit posts one message per part, replyin
   const h = discordHarness();
   const limit = h.port.capabilities().maxChars;
   const text = 'α'.repeat(limit + 1);
-  const replyTo = { iface: 'discord', conversationId: ROOM, messageId: 'target-1' };
-  const delivery = await h.port.send({ iface: 'discord', conversationId: ROOM }, { text, replyTo });
+  const replyTo = { iface: 'discord', chatId: ROOM, messageId: 'target-1' };
+  const delivery = await h.port.send({ iface: 'discord', chatId: ROOM }, { text, replyTo });
   assert.equal(delivery.status, 'ok');
   const payloads = h.payloads;
   assert.equal(payloads.length, 2, 'one channel.send per part');
@@ -394,7 +391,7 @@ test('discord adapter: a failure on the second part is unknown and keeps the fir
     lookupChannel: wrongly((id: string) => (id === 'c9' ? held : null)),
   });
   const delivery = await port.send(
-    { iface: 'discord', conversationId: 'c9' },
+    { iface: 'discord', chatId: 'c9' },
     { text: 'α'.repeat(port.capabilities().maxChars + 1) }
   );
   assert.equal(delivery.status, 'unknown');
@@ -407,7 +404,7 @@ test('discord adapter: a failure on the second part is unknown and keeps the fir
 
 test('discord adapter: an unknown channel fails without a send', async () => {
   const h = discordHarness();
-  const result = await h.port.send({ iface: 'discord', conversationId: 'gone' }, { text: 'α' });
+  const result = await h.port.send({ iface: 'discord', chatId: 'gone' }, { text: 'α' });
   assert.deepEqual([result.status, result.error?.code], ['failed', 'http-404']);
   assert.equal(h.payloads.length, 0);
 });
@@ -423,9 +420,9 @@ test('createDiscordInterface: the port is the Discord adapter over the given cli
   assert.deepEqual(Object.keys(built), ['port', 'capabilities', 'client']);
   assert.equal(built.client, client);
   assert.equal(built.port.iface, 'discord');
-  const result = await built.port.send({ iface: 'discord', conversationId: 'c9' }, { text: 'ναι' });
+  const result = await built.port.send({ iface: 'discord', chatId: 'c9' }, { text: 'ναι' });
   assert.equal(result.status, 'ok');
-  assert.deepEqual(result.ref, { iface: 'discord', conversationId: 'c9', messageId: 'x1', accountId: SELF });
+  assert.deepEqual(result.ref, { iface: 'discord', chatId: 'c9', messageId: 'x1', accountId: SELF });
   assert.deepEqual(sent, [{ content: 'ναι', reply: undefined, allowedMentions: { parse: [] } }]);
 });
 
@@ -512,8 +509,8 @@ test('fake adapter: a malformed action is refused as failed invalid-action, reco
   const target = h.foreign();
   for (const [op, call] of table([
     ['send', () => h.port.send(wrongly({ iface: 'fake' }), { text: 'όχι' })],
-    ['send', () => h.port.send({ iface: 'fake', conversationId: ROOM }, wrongly('όχι'))],
-    ['edit', () => h.port.edit(wrongly({ iface: 'fake', conversationId: ROOM }), { text: 'όχι' })],
+    ['send', () => h.port.send({ iface: 'fake', chatId: ROOM }, wrongly('όχι'))],
+    ['edit', () => h.port.edit(wrongly({ iface: 'fake', chatId: ROOM }), { text: 'όχι' })],
     ['delete', () => h.port.delete({ ...target, messageId: wrongly(7) })],
     ['react', () => h.port.react(target, wrongly(null))],
     ['typing', () => h.port.typing(wrongly(null), noLease)],
@@ -533,7 +530,7 @@ test('fake adapter: a malformed action is refused as failed invalid-action, reco
 
 test("fake adapter: a well-formed action keeps the port's own refusal codes", async () => {
   const h = fakeHarness();
-  const foreign = await h.port.send({ iface: 'elsewhere', conversationId: ROOM }, { text: 'όχι' });
+  const foreign = await h.port.send({ iface: 'elsewhere', chatId: ROOM }, { text: 'όχι' });
   assert.equal(foreign.error?.code, 'foreign-reference');
   const emptyEmoji = await h.port.react(h.foreign(), '');
   assert.equal(present(emptyEmoji.error).code, 'invalid-emoji');

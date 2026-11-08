@@ -189,7 +189,7 @@ test('buildRequest: no diary blocks outside diary mode, none without posts or a 
 });
 
 // The writer on the turn frame (plan 2026-11-06-turn-frame, slice 6, with the owner's answers of 2026-11-07): the turn
-// runs with `conversation: null`, its request holds the selfreflection list of the frame, `<virtual_world>` is the
+// runs with `chat: null`, its request holds the selfreflection list of the frame, `<virtual_world>` is the
 // `world.md` text whenever the file is non-empty (`selfreflection.world` is gone), and `<publication_places>` is a part of
 // `<inner>` that lists the mirrors when there are two or more. tests/fixtures/selfreflection-frame.ts holds the scene.
 

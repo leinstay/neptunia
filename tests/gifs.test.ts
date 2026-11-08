@@ -3,7 +3,7 @@
 // (src/memory/update.ts#observe), the <gif> tag (src/llm/parse.ts) and the
 // poster (src/behavior/turn.js).
 
-import { placeOfCommunity } from '../src/memory/addresses.ts';
+import { placeOfRoot } from '../src/memory/addresses.ts';
 import { personaKey } from '../src/memory/db/storage-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
@@ -422,7 +422,7 @@ function libraryUnit(memoryDb: Untyped): Untyped {
 test('store.recordGifs: persists its unit; getGifs/findGif read it back after a restart', async () => {
   const { dir, memoryDb } = memDataDir();
   const store = createStore({ dataDir: dir, memoryDb });
-  const g1 = placeOfCommunity(store, 'g1');
+  const g1 = placeOfRoot(store, 'g1');
   assert.deepEqual(store.getGifs(), { nextId: 1, entries: {}, backfill: null, backfills: {} });
   assert.equal(store.recordGifs(g1, [msg({ self: true, links: [gifLink('m1#e0')] })], { storeMax: 300 }), 0);
   store.flush();
@@ -496,7 +496,7 @@ test("normalizeGifs: ownLast/ownUses survive a member's use and a recount; bad v
 test('store.recordOwnGif: persists the stamp; an unknown key writes nothing', async () => {
   const { dir, memoryDb } = memDataDir();
   const store = createStore({ dataDir: dir, memoryDb });
-  const g1 = placeOfCommunity(store, 'g1');
+  const g1 = placeOfRoot(store, 'g1');
   assert.equal(store.recordOwnGif(g1, 'm1#e0', T0), false);
   store.flush();
   await store.flushSettled({});
@@ -521,7 +521,7 @@ test("observe: a member's gif joins the library with its url", async () => {
   await withStore(async (store: Untyped) => {
     const updater = createMemoryUpdater({ hot: hotFor(), store });
     const { logs } = await withCapturedLogs(() =>
-      updater.observe(placeOfCommunity(updater, 'g1'), msg({ links: [gifLink('m1#e0')] }))
+      updater.observe(placeOfRoot(updater, 'g1'), msg({ links: [gifLink('m1#e0')] }))
     );
     assert.equal(store.findGif('g1').url, TENOR);
     const line = logs.find((l) => l.msg === 'memory: gifs recorded');
@@ -533,10 +533,10 @@ test("observe: a member's gif joins the library with its url", async () => {
 test('observe: a private chat, the persona and paused never feed the library', () => {
   withStore((store: Untyped) => {
     const on = createMemoryUpdater({ hot: hotFor(), store });
-    on.observe(placeOfCommunity(on, 'g1'), msg({ id: 'm2', links: [gifLink('m2#e0')] }), { private: wrongly('1') });
-    on.observe(placeOfCommunity(on, 'g1'), msg({ id: 'm3', self: true, links: [gifLink('m3#e0')] }));
+    on.observe(placeOfRoot(on, 'g1'), msg({ id: 'm2', links: [gifLink('m2#e0')] }), { private: wrongly('1') });
+    on.observe(placeOfRoot(on, 'g1'), msg({ id: 'm3', self: true, links: [gifLink('m3#e0')] }));
     store.state.data.paused = true;
-    on.observe(placeOfCommunity(on, 'g1'), msg({ id: 'm4', links: [gifLink('m4#e0')] }));
+    on.observe(placeOfRoot(on, 'g1'), msg({ id: 'm4', links: [gifLink('m4#e0')] }));
     assert.deepEqual(store.getGifs().entries, {});
   });
 });
@@ -545,10 +545,10 @@ test('observe: a private chat, the persona and paused never feed the library', (
 test('observe: gifs.storeMax caps the library', () => {
   withStore((store: Untyped) => {
     const updater = createMemoryUpdater({ hot: hotFor(), store });
-    updater.observe(placeOfCommunity(updater, 'g1'), msg({ id: 'm0', ts: T0, attachments: [gifAttachment('a0')] }));
+    updater.observe(placeOfRoot(updater, 'g1'), msg({ id: 'm0', ts: T0, attachments: [gifAttachment('a0')] }));
     for (let n = 1; n <= GIF_STORE_MAX; n += 1)
       updater.observe(
-        placeOfCommunity(updater, 'g1'),
+        placeOfRoot(updater, 'g1'),
         msg({ id: `m${n}`, ts: T0 + DAY + n, attachments: [gifAttachment(`a${n}`)] })
       );
     const kept = Object.keys(store.getGifs().entries);
@@ -606,7 +606,7 @@ function fakeChannel({
 }: { id?: string; historyMessages?: Array<Untyped>; fetchFails?: boolean } = {}) {
   const fetched: Array<Untyped> = [];
   world().tap('fetchMessages', ([ref, ids]: Untyped) => {
-    if (ref.conversationId === id) fetched.push(...ids);
+    if (ref.chatId === id) fetched.push(...ids);
   });
   const channel = world().channel({ id, name: 'general', placeId: 'g1', historyMessages });
   if (fetchFails) world().failRead('fetchMessages', id);
@@ -640,7 +640,7 @@ function calibrator() {
 
 /** A real store seeded with one link gif (g1, from m-old in c1) and one attached gif (g2, from m-att in c2). */
 function seedLibrary(store: Record<string, Untyped>) {
-  store.recordGifs(placeOfCommunity(store, 'g1'), [
+  store.recordGifs(placeOfRoot(store, 'g1'), [
     msg({ id: 'm-old', placeId: 'c1', ts: NOW - DAY, links: [gifLink('m-old#e0')] }),
     msg({ id: 'm-att', placeId: 'c2', ts: NOW - DAY, attachments: [gifAttachment('att1')] }),
   ]);
@@ -788,7 +788,7 @@ test('the pick: an unknown handle posts the text as written', async () => {
 test('turn request: the library does not reach her request', async () => {
   const on = await withStore(async (store: Record<string, Untyped>) => {
     seedLibrary(store);
-    store.getMediaCache(placeOfCommunity(store, 'g1'))['m-old#e0'] = { text: 'a cat dancing', ts: NOW };
+    store.getMediaCache(placeOfRoot(store, 'g1'))['m-old#e0'] = { text: 'a cat dancing', ts: NOW };
     const raw = rawMessage('m1');
     const channel = fakeChannel({ historyMessages: [raw] });
     const seen: Array<Untyped> = [];

@@ -88,7 +88,7 @@ import { toolsBlockText } from '../llm/tool-text.ts';
 import { requestTokenLimit } from '../llm/budget.ts';
 import { estimateMessages, estimateTools } from '../llm/tokens.ts';
 import { isPlainObject } from '../config.ts';
-import { selfreflectionConversationIds, viewSelfreflectionIds } from './mirror.ts';
+import { selfreflectionChatIds, viewSelfreflectionIds } from './mirror.ts';
 import { utcDay } from '../time.ts';
 import { DEFAULT_RESULT_MAX_CHARS, errandResultText } from '../errands/blocks.ts';
 import { CODE } from '../tools/codes.ts';
@@ -169,15 +169,15 @@ export const SANDBOX_STORE_READS = Object.freeze([
   'getMediaCache',
   // The addresses of src/memory/store-addresses.ts: each reads a row or spells an id, and writes nothing.
   'dmHomeOf',
-  'placeOfConversation',
-  'placeOfCommunity',
-  'holdsSharedConversation',
+  'placeOfChat',
+  'placeOfRoot',
+  'holdsSharedChat',
   'sharedPlaceOf',
   'accountOf',
   'personOfAccount',
-  'nativeCommunityOf',
+  'nativeRootOf',
   'placeChainOf',
-  'conversationOfPlace',
+  'chatOfPlace',
   'listChildren',
   'topPlaces',
   'placesHolding',
@@ -191,7 +191,7 @@ export const SANDBOX_STORE_READS = Object.freeze([
  */
 export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   mediaPickText: 'no interface runs here: nothing declares its text',
-  privateChat: 'never a private chat: the private layer is out of bounds',
+  dmChat: 'never a private chat: the private layer is out of bounds',
   privateProfile: 'never a private chat: the private layer is out of bounds',
   reads: 'no web lookup: no link is read',
   prefetch:
@@ -586,7 +586,7 @@ export function liveView({ hot, store, placeId, calibrator }: LiveViewInput): Li
       listChannels: () => store.listChannels(placeId),
       getLore: () => store.getLore(placeId),
       getRecent: () => (typeof store.getRecent === 'function' ? store.getRecent(placeId) : null),
-      selfreflectionChannelIds: () => [...selfreflectionConversationIds(store)],
+      selfreflectionChannelIds: () => [...selfreflectionChatIds(store)],
     },
   };
 }
@@ -783,7 +783,7 @@ export function sandboxRequestInput({
         ? { name: elsewhereDestination.name }
         : null,
     // SANDBOX_OMITS, as buildRequest reads them absent.
-    privateChat: null,
+    dmChat: null,
     privateProfile: null,
     reads: null,
     // Absent (SANDBOX_OMITS) but with her tool loop (`coreTools.prefetch`): the memory prefetch a live turn would show.
@@ -1062,7 +1062,7 @@ export function personaGrantsConfig(
 
 /**
  * The `<skills>` rows of a skill scenario, built as a live turn's skills discovery builds them
- * (src/behavior/turn.ts#discoverSkills) for `requester` in `conversationId`: the catalogue
+ * (src/behavior/turn.ts#discoverSkills) for `requester` in `chatId`: the catalogue
  * (src/tools/gateway.ts#listSkills over `config`, `selfId`, the skills layer `texts`) whole
  * when the search classifier would have answered `skills: inventory` (`discovery`
  * `'inventory'`), the rows of the skills it would have named (`discovery` a list of names:
@@ -1073,7 +1073,7 @@ export function scenarioInventory({
   selfId,
   texts,
   requester,
-  conversationId,
+  chatId,
   registry,
   discovery = 'inventory',
   getOp,
@@ -1084,7 +1084,7 @@ export function scenarioInventory({
     selfId,
     texts,
     requester,
-    audience: { conversationId: String(conversationId) },
+    audience: { chatId: String(chatId) },
     registry,
     ...(getOp ? { getOp } : {}),
   });
@@ -1101,7 +1101,7 @@ export function simulateCall({
   config,
   selfId,
   requester,
-  conversationId,
+  chatId,
   now,
   images = null,
   tasks = null,
@@ -1121,7 +1121,7 @@ export function simulateCall({
     args: resolved.args,
     principal: PERSONA,
     requester,
-    audience: { conversationId: String(conversationId) },
+    audience: { chatId: String(chatId) },
     context: {
       config,
       selfId,

@@ -1,8 +1,8 @@
 // Her intentions belong to one persona, each with its own optional destination: an intention born in a DM keeps that DM
-// through a restart, and no list depends on a home community.
-// Contract, plan 2026-11-04-cli-and-memory task 5: `createIntentionStore({ memoryDb, log })` takes no `guildId` and its
-// collection is `personaKey('intentions')`; `createIntentionService` takes no `getGuildId` and `service.list(options?)`,
-// `service.due()` and `service.reconcile()` take no community.
+// through a restart, and no list depends on a home root.
+// Contract, plan 2026-11-04-cli-and-memory task 5: `createIntentionStore({ memoryDb, log })` takes no `rootId` and its
+// collection is `personaKey('intentions')`; `createIntentionService` takes no `getRootId` and `service.list(options?)`,
+// `service.due()` and `service.reconcile()` take no root.
 // Appendix entries: src/intentions/{service,store,types}.ts, src/memory/db/readers/intentions.ts, src/tools/impl/intention.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,7 +34,7 @@ function made(id: string): Intention {
 }
 
 test('the intentions are one persona collection, and an intention born in a DM keeps its destination across a restart', async () => {
-  // Bug: the list sits under the community the core resolved first, and a DM's intention acquires that server.
+  // Bug: the list sits under the root the core resolved first, and a DM's intention acquires that server.
   const mem = await openTestMemory();
   try {
     const store = createIntentionStore({ memoryDb: mem.memoryDb, log: silent });
@@ -52,8 +52,8 @@ test('the intentions are one persona collection, and an intention born in a DM k
   }
 });
 
-test('the service lists and answers what is due with no community named', () => {
-  // Bug: `storeOf` answers null without a community, so a core with only DMs forgets every promise.
+test('the service lists and answers what is due with no root named', () => {
+  // Bug: `storeOf` answers null without a root, so a core with only DMs forgets every promise.
   const stores = createIntentionStores({ now: () => NOW, log: silent });
   const service = createIntentionService({ stores, hot: hotWith(), now: () => NOW, log: silent });
   present(stores.get()).add(made('i2'));

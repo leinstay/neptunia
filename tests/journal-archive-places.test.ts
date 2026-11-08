@@ -1,4 +1,4 @@
-// The journal, the record and the archive address a canonical place and hold no community or private-member split: a DM's
+// The journal, the record and the archive address a canonical place and hold no root or private-member split: a DM's
 // lines belong to its DM place, and the engine's own lines to the persona. Retries run from the key chosen at the write, so
 // they need no ambient interface.
 // Contract, plan 2026-11-04-cli-and-memory task 5:
@@ -29,8 +29,8 @@ const OTHER = 'place:room-1';
 
 const slim = (id: string) => ({
   id,
-  placeId: 'native-conversation',
-  placeName: 'a conversation',
+  placeId: 'native-chat',
+  placeName: 'a chat',
   authorId: 'u1',
   authorName: 'Zoé',
   self: false,
@@ -52,7 +52,7 @@ async function scene() {
 }
 
 test('a journal line of a DM goes to a collection of its DM place, and a private flag changes nothing', async () => {
-  // Bug: `communityKey` wraps the id, and `privateAccountId` moves the line to an account's collection, away from its place.
+  // Bug: `rootKey` wraps the id, and `privateAccountId` moves the line to an account's collection, away from its place.
   const { mem } = await scene();
   try {
     const journal = createJournal({ dataDir: mem.dataDir, memoryDb: mem.memoryDb, now: () => NOW, log: quiet });
@@ -66,7 +66,7 @@ test('a journal line of a DM goes to a collection of its DM place, and a private
 });
 
 test('the engine lines of the journal belong to the persona', async () => {
-  // Bug: a start line with no community is written under `<iface>:guild:`, an address shared by nobody and everybody.
+  // Bug: a start line with no root is written under `<iface>:guild:`, an address shared by nobody and everybody.
   const { mem, read } = await scene();
   try {
     const journal = createJournal({ dataDir: mem.dataDir, memoryDb: mem.memoryDb, now: () => NOW, log: quiet });
@@ -104,7 +104,7 @@ test('the record of a place is written and read by its id, whatever interface is
 });
 
 test('an archive entry evicted from a DM lands under the DM place and is read back there', async () => {
-  // Bug: a private entry goes to `scope: { user }` under a community, so the person view and the place view miss it.
+  // Bug: a private entry goes to `scope: { user }` under a root, so the person view and the place view miss it.
   const { mem, read } = await scene();
   try {
     const appendStore = createAppendStore({ fsyncMs: 0, log: quiet });

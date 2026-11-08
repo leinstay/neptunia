@@ -3,15 +3,15 @@
 // and answered in its own turn; the same gate for a queued direct message and for a recovery turn in a DM. createMessageHandler (src/behavior/pipeline.ts) builds it once with
 // createPrivateGate; the live path, the drain of the pending queue and the replay of a held chat call it.
 
-import { accountOf, placeOfConversation } from '../memory/addresses.ts';
+import { accountOf, placeOfChat } from '../memory/addresses.ts';
 import type { ObserveLine } from './observe.ts';
 import { lineOf } from '../behavior/line-of.ts';
 import { isLimitNotice } from '../behavior/limits.ts';
-import { CLI_GATE, CLI_IFACE, privateChatsOff } from '../behavior/core-pause.ts';
+import { CLI_GATE, CLI_IFACE, dmChatsOff } from '../behavior/core-pause.ts';
 import { privateGate } from '../behavior/private.ts';
 import type { Reads } from '../interface/reads.ts';
 import { log } from '../log.ts';
-import type { ConversationInfo, ConversationRef } from '../protocol/adapter.ts';
+import type { ChatInfo, ChatRef } from '../protocol/adapter.ts';
 import { isOwnerId } from '../tools/impl/grants.ts';
 import { withIface } from '../memory/db/current-iface.ts';
 import type { TurnParams } from '../turn/outcome.ts';
@@ -35,7 +35,7 @@ type TurnResultOf = { outcome?: string; limit?: object | null } | undefined;
 export type GateCheck = { gate: { ok: boolean; reason?: string }; isOwner: boolean };
 
 /** The live config, as far as the private chat reads it (privateGate reads the rest). */
-type PrivateConfig = { readonly private?: { readonly enabled?: unknown } } & object;
+type PrivateConfig = { readonly dm?: { readonly enabled?: unknown } } & object;
 
 /** What createPrivateGate reads: the dependencies of createMessageHandler and the functions of its other parts. */
 export type PrivateContext = {
@@ -45,8 +45,8 @@ export type PrivateContext = {
   };
   reads: Reads;
   now: () => number;
-  /** Every community the interface `name` serves. */
-  communitiesOf?: (name: string) => ReadonlyArray<string>;
+  /** Every root the interface `name` serves. */
+  rootsOf?: (name: string) => ReadonlyArray<string>;
   selfIdOf: () => string;
   activity: { note: (placeId: string, authorId: string, at: number) => void } | null;
   turns: {
@@ -55,14 +55,14 @@ export type PrivateContext = {
   };
   memory: { observe: (placeId: string, line: object, options: object) => void };
   missed: { setPrivateRecovery?: (recovery: object) => void } | null;
-  refOf: (channel: ConversationInfo) => ConversationRef;
-  infoNow: (iface: string, conversationId: string) => Promise<ConversationInfo | null>;
+  refOf: (channel: ChatInfo) => ChatRef;
+  infoNow: (iface: string, chatId: string) => Promise<ChatInfo | null>;
   observeLine: ObserveLine;
   turnBlocked: (placeId: string, config: object) => boolean;
-  holdCall: (channel: ConversationInfo, trigger: PrivateLine, kind: string, options?: MessageReadOptions) => void;
+  holdCall: (channel: ChatInfo, trigger: PrivateLine, kind: string, options?: MessageReadOptions) => void;
   queuedFor: (placeId: string, trigger: PrivateLine) => unknown;
   announceRefusal: (
-    channel: ConversationInfo,
+    channel: ChatInfo,
     trigger: PrivateLine,
     result: TurnResultOf,
     triggerKind: string
@@ -70,7 +70,7 @@ export type PrivateContext = {
 };
 
 export type PrivateGate = {
-  afterPrivateTurn: (channel: ConversationInfo, trigger: PrivateLine, result: TurnResultOf) => Promise<void>;
+  afterPrivateTurn: (channel: ChatInfo, trigger: PrivateLine, result: TurnResultOf) => Promise<void>;
   checkPrivateGate: (config: PrivateConfig, authorId: string, iface?: string) => Promise<GateCheck>;
   dropPrivate: (check: GateCheck) => void;
   onPrivateMessage: (event: MessageEvent, config: PrivateConfig, options?: MessageReadOptions) => Promise<void>;
@@ -80,7 +80,7 @@ export function createPrivateGate({
   hot,
   store,
   reads,
-  communitiesOf,
+  rootsOf,
   selfIdOf,
   activity,
   turns,
@@ -95,11 +95,7 @@ export function createPrivateGate({
   announceRefusal,
 }: PrivateContext): PrivateGate {
   /** After a private turn: a refusal is announced. */
-  async function afterPrivateTurn(
-    channel: ConversationInfo,
-    trigger: PrivateLine,
-    result: TurnResultOf
-  ): Promise<void> {
+  async function afterPrivateTurn(channel: ChatInfo, trigger: PrivateLine, result: TurnResultOf): Promise<void> {
     await announceRefusal(channel, trigger, result, 'private');
   }
 
@@ -118,8 +114,8 @@ export function createPrivateGate({
 
     const free = privateGate({ ...input, isMember: true });
     if (!free.ok) return { gate: free, isOwner };
-    // A member of any community served through this person's interface; with none, membership is not a question.
-    const served = communitiesOf?.(iface) ?? [];
+    // A member of any root served through this person's interface; with none, membership is not a question.
+    const served = rootsOf?.(iface) ?? [];
     if (served.length === 0) return { gate: privateGate({ ...input, isMember: true }), isOwner };
     let isMember = false;
     for (const placeId of served) {
@@ -134,11 +130,11 @@ export function createPrivateGate({
 
   // A recovery turn of the missed-answer registry in a DM passes the same gate.
   missed?.setPrivateRecovery?.({
-    allow: async (channel: ConversationInfo, trigger: PrivateLine) => {
-      if (hot.config.private?.enabled !== true) return false;
+    allow: async (channel: ChatInfo, trigger: PrivateLine) => {
+      if (hot.config.dm?.enabled !== true) return false;
       return (await checkPrivateGate(hot.config, trigger.authorId, channel.iface)).gate.ok === true;
     },
-    after: (channel: ConversationInfo, trigger: PrivateLine, result: TurnResultOf) =>
+    after: (channel: ChatInfo, trigger: PrivateLine, result: TurnResultOf) =>
       afterPrivateTurn(channel, trigger, result),
   });
 
@@ -159,18 +155,14 @@ export function createPrivateGate({
     options?: MessageReadOptions
   ): Promise<void> {
     const author = event.message.author;
-    if (privateChatsOff(config, event)) return;
+    if (dmChatsOff(config, event)) return;
     const selfId = selfIdOf();
     if (author.bot && author.id !== selfId) return;
     // When the partner last wrote here (pace.settleMs); the persona's own messages never count.
-    if (author.id !== selfId) activity?.note(event.conversation.id, author.id, event.message.at);
+    if (author.id !== selfId) activity?.note(event.chat.id, author.id, event.message.at);
 
-    const partner = String(author.id === selfId ? (event.conversation?.partnerId ?? '') : author.id);
-    const placeId = placeOfConversation(
-      store,
-      { ...event.conversation, partnerId: event.conversation?.partnerId ?? partner },
-      event.iface
-    );
+    const partner = String(author.id === selfId ? (event.chat?.partnerId ?? '') : author.id);
+    const placeId = placeOfChat(store, { ...event.chat, partnerId: event.chat?.partnerId ?? partner }, event.iface);
     // lineOf gives the normalized line of a message event.
     const normalized = lineOf(event) as PrivateLine;
 
@@ -179,8 +171,8 @@ export function createPrivateGate({
     // the persona's speech), only the post is noted.
     if (normalized.self) {
       turns.notePost(normalized.placeId, normalized.ts);
-      // The partner of the private chat, as the event's conversation names it.
-      const partnerId = event.conversation?.partnerId ?? null;
+      // The partner of the private chat, as the event's chat names it.
+      const partnerId = event.chat?.partnerId ?? null;
       if (!partnerId || String(partnerId) === String(selfId)) return;
       // isLimitNotice reads the labels it is given, a missing labels file as none.
       if (isLimitNotice(hot.prompts?.labels as object, normalized.content)) return;
@@ -191,7 +183,7 @@ export function createPrivateGate({
     }
 
     const authorId = author.id;
-    const channel = await infoNow(event.iface, event.conversation.id);
+    const channel = await infoNow(event.iface, event.chat.id);
     if (!channel) return;
     const check = await checkPrivateGate(config, authorId, event.iface);
     if (!check.gate.ok) {
@@ -203,7 +195,7 @@ export function createPrivateGate({
     memory.observe(placeId, normalized, { direct: true, private: authorId });
     // A DM without a named partner is deliberately unobserved by the message mapper.
     const observing =
-      event.conversation.partnerId != null ? observeLine(event, true, { placeId }, options?.acceptedEvent) : null;
+      event.chat.partnerId != null ? observeLine(event, true, { placeId }, options?.acceptedEvent) : null;
     if (observing) await observing;
 
     // One turn at a time: busy anywhere (or, with oneAtATime off, in this very
@@ -215,7 +207,7 @@ export function createPrivateGate({
 
     turns
       .runTurn({
-        conversation: refOf(channel),
+        chat: refOf(channel),
         mode: 'reply',
         trigger: normalized,
         triggerKind: 'private',

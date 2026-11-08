@@ -8,13 +8,13 @@ import type { MessageEvent } from '../protocol/adapter.ts';
  * The line of a whole `message.received` event. A deletion, a partial edit or an event without a message has no line.
  */
 export function lineOf(event: MessageEvent): Record<string, unknown> {
-  const { conversation, message, addressing } = event;
+  const { chat, message, addressing } = event;
   const author = message.author;
   return {
     id: message.id,
-    placeId: conversation.id,
-    channelName: conversation.name,
-    channelTopic: conversation.topic,
+    placeId: chat.id,
+    channelName: chat.name,
+    channelTopic: chat.topic,
     authorId: author?.id,
     authorName: author?.name,
     self: author?.self,
@@ -24,7 +24,7 @@ export function lineOf(event: MessageEvent): Record<string, unknown> {
     editedAt: message.editedAt ?? null,
     mentionedAccountIds: addressing?.mentionedAccountIds,
     mentionedUsers: addressing?.mentionedUsers ?? [],
-    mentionedChannelIds: addressing?.mentionedConversationIds,
+    mentionedChannelIds: addressing?.mentionedChatIds,
     replyToId: message.replyToId,
     replyPingAccountId: message.replyPingAccountId,
     forwardedFrom: message.forwardedFrom,

@@ -47,7 +47,7 @@ function deployment(local: Settings) {
       return true;
     },
   };
-  const admin = createAdmin({ hot, store: {}, selfId: () => SELF, isServedCommunity: (id: unknown) => id === 'g1' });
+  const admin = createAdmin({ hot, store: {}, selfId: () => SELF, isServedRoot: (id: unknown) => id === 'g1' });
   const written = () => JSON.parse(fs.readFileSync(file, 'utf8')) as Settings;
   return { admin, hot, written };
 }

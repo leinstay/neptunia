@@ -4,7 +4,7 @@
 
 import { internalContext } from '../../memory/db/scope.ts';
 import type { MemoryDbService } from '../../memory/db/service.ts';
-import { accountOf, placeOfConversation } from '../../memory/addresses.ts';
+import { accountOf, placeOfChat } from '../../memory/addresses.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -233,10 +233,10 @@ const handlers = perEnv((env) => {
     const now = Date.now();
     const { nameOf, resolve } = tokenResolver();
 
-    const conversationId = idText(args.placeId);
-    if (conversationId) {
-      const channel = store.getChannel(placeOfConversation(store, { id: conversationId }));
-      if (!channel) throw invalid(`no channel entry for ${conversationId}`, CODE.NOT_FOUND);
+    const chatId = idText(args.placeId);
+    if (chatId) {
+      const channel = store.getChannel(placeOfChat(store, { id: chatId }));
+      if (!channel) throw invalid(`no channel entry for ${chatId}`, CODE.NOT_FOUND);
 
       const activity = channelActivity(channel, now);
       const writers = channelTopWritersText(channel.topWriters, nameOf);
@@ -313,9 +313,9 @@ const handlers = perEnv((env) => {
 
     const timezone = hot.config?.bot?.timezone || 'UTC';
     const { resolve } = tokenResolver();
-    const channelText = (conversationId: string): string => {
-      const name = store.getChannel(placeOfConversation(store, { id: conversationId }))?.name;
-      return name ? `#${name}` : String(conversationId);
+    const channelText = (chatId: string): string => {
+      const name = store.getChannel(placeOfChat(store, { id: chatId }))?.name;
+      return name ? `#${name}` : String(chatId);
     };
     const lines = [...live]
       .sort((a, b) => b.at - a.at || (Number(b.id) || 0) - (Number(a.id) || 0))
@@ -411,11 +411,9 @@ const handlers = perEnv((env) => {
   async function turnOfMessage(placeId: string, reference: unknown, context: OpContext): Promise<string> {
     const ref = await messageRefOf(reference, reads);
     const { messageId } = ref;
-    const conversationId = ref.placeId ?? env.conversationOf(context);
+    const chatId = ref.placeId ?? env.chatOf(context);
     const fetched =
-      conversationId !== null && reads && port
-        ? await reads.fetchMessages({ iface: port.iface, conversationId }, [messageId])
-        : null;
+      chatId !== null && reads && port ? await reads.fetchMessages({ iface: port.iface, chatId }, [messageId]) : null;
     const at = fetched?.messages.at(0)?.event?.message.at ?? null;
     if (at === null) throw invalid(`no message ${messageId} to date its turn by`, CODE.UNKNOWN_MESSAGE);
     const found = typeof journal.findTurn === 'function' ? await journal.findTurn(placeId, { messageId, at }) : null;

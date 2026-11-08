@@ -1,4 +1,4 @@
-// Scoped exclusions preserve independent SQLite evidence across native message collisions and conversation contexts.
+// Scoped exclusions preserve independent SQLite evidence across native message collisions and chat contexts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -85,7 +85,7 @@ function runner(env: ReturnType<typeof fixture>) {
   config.models = { ...models, base: { ...objectOf(models.base ?? {}), embedding: 'test/embedder' } };
   const channel = channelInfo('c1', { name: 'general' });
   const secret = { ...privateChannel('c4', []), name: 'secret' };
-  const snapshot = snapshotOf('g1', { conversations: [channel, secret], groups: [] });
+  const snapshot = snapshotOf('g1', { chats: [channel, secret], groups: [] });
   const hot = {
     config,
     prompts: {
@@ -155,7 +155,7 @@ function storedObservation(
       authority,
       key: room,
       kind: privatePlace ? 'dm' : 'room',
-      conversation: privatePlace ? 'dm' : 'group',
+      chat: privatePlace ? 'dm' : 'group',
       ...(privatePlace ? { partner: { key: 'private-partner' } } : {}),
     },
     author: { kind: 'account', key: 'author-42' },
@@ -185,13 +185,13 @@ function exclusionSource(
 ) {
   const event = lineEvent({
     id,
-    conversationId: room,
+    chatId: room,
     authorId: 'owner-42',
     text: `το κουνέλι ${marker}`,
     at: NOW - DAY - offset,
   });
   event.iface = iface;
-  event.conversation = dm
+  event.chat = dm
     ? { id: room, kind: 'dm', rootId: null, partnerId: 'owner-42' }
     : { id: room, kind: 'channel', rootId: 'g1', name: room };
   const envelope = observationOf(event);
@@ -206,12 +206,12 @@ function exclusionSource(
     sourceId: result.sourceId,
     placeId: result.placeId,
     iface,
-    native: { iface, conversationId: room, messageId: id },
+    native: { iface, chatId: room, messageId: id },
   };
 }
 
 for (const reader of ['run', 'window', 'prefetch'] as const) {
-  test(`scoped history exclusions in ${reader} retain foreign and other-conversation native-ID collisions`, async () => {
+  test(`scoped history exclusions in ${reader} retain foreign and other-chat native-ID collisions`, async () => {
     const env = fixture();
     try {
       const own = exclusionSource(env, { room: 'current-room', marker: 'own-visible-731' });
@@ -222,7 +222,7 @@ for (const reader of ['run', 'window', 'prefetch'] as const) {
       const args = {
         ...s.args,
         channel: channelInfo('current-room'),
-        historyRef: { iface: 'fake', conversationId: 'current-room' },
+        historyRef: { iface: 'fake', chatId: 'current-room' },
         history: [{ id: 'shared-visible', placeId: 'current-room', content: 'το κουνέλι own-visible-731' }],
         memoryContext: issuedContext({
           kind: 'group',
@@ -239,7 +239,7 @@ for (const reader of ['run', 'window', 'prefetch'] as const) {
         ] as const) {
           const anchor = exclusionSource(env, {
             iface: source.iface,
-            room: source.native.conversationId,
+            room: source.native.chatId,
             id: 'window-anchor',
             marker: 'anchor',
             offset: 0,
@@ -275,7 +275,7 @@ for (const reader of ['run', 'window', 'prefetch'] as const) {
   });
 }
 
-test('a scoped native exclusion removes only its verified conversation from low-level search', () => {
+test('a scoped native exclusion removes only its verified chat from low-level search', () => {
   const env = fixture();
   try {
     const own = exclusionSource(env, { room: 'current-room', marker: 'own' });
@@ -326,7 +326,7 @@ test('a legacy native exclusion is limited to the unique source in the reader in
   }
 });
 
-test('an ambiguous legacy native exclusion retains both same-interface conversations', () => {
+test('an ambiguous legacy native exclusion retains both same-interface chats', () => {
   const env = fixture();
   try {
     const first = exclusionSource(env, { room: 'first-room', marker: 'first' });
@@ -390,7 +390,7 @@ test('trusted ordinary DM history excludes its own visible line without widening
       ...s.args,
       channel: channelInfo('own-dm', { kind: 'dm', rootId: null, partnerId: 'owner-42', audience: null }),
       partnerId: 'owner-42',
-      historyRef: { iface: 'discord', conversationId: 'own-dm' },
+      historyRef: { iface: 'discord', chatId: 'own-dm' },
       history: [{ id: 'shared-visible', placeId: 'own-dm', content: 'το κουνέλι own-dm-visible-731' }],
       memoryContext: issuedContext({
         kind: 'dm',
@@ -427,7 +427,7 @@ for (const reader of ['prefetch', 'tool'] as const) {
         placeId: null,
         snapshot: null,
         channel: channelInfo('cli:dm:owner', { kind: 'dm', rootId: null, partnerId: 'owner-42', audience: null }),
-        historyRef: { iface: 'cli', conversationId: 'cli:dm:owner' },
+        historyRef: { iface: 'cli', chatId: 'cli:dm:owner' },
         history: [{ id: 'shared-visible', placeId: 'cli:dm:owner', content: 'το κουνέλι own-cli-visible-731' }],
         memoryContext: issuedContext({ kind: 'internal', newId: () => `ctx:exclude-cli-${reader}`, now: () => NOW }),
       };
@@ -462,7 +462,7 @@ test('malformed stored history identity does not fall back to excluding its nati
     const found = await s.recaller.run({
       ...s.args,
       channel: channelInfo('current-room'),
-      historyRef: { iface: 'fake', conversationId: 'current-room' },
+      historyRef: { iface: 'fake', chatId: 'current-room' },
       history: [
         {
           id: 'shared-visible',
@@ -486,7 +486,7 @@ test('malformed stored history identity does not fall back to excluding its nati
   }
 });
 
-test('ordinary history without an explicit reference uses its validated interface and actual conversation', async () => {
+test('ordinary history without an explicit reference uses its validated interface and actual chat', async () => {
   const env = fixture();
   try {
     exclusionSource(env, { room: 'current-room', marker: 'ordinary-own-731' });
@@ -531,7 +531,7 @@ test('an ambiguous qualified native exclusion retains distinct current stored so
   }
 });
 
-test('the in-turn memory tool derives CLI history scope from its trusted conversation reference', async () => {
+test('the in-turn memory tool derives CLI history scope from its trusted chat reference', async () => {
   const env = fixture();
   try {
     const { createInTurnTools } = await import('../src/turn/in-turn-tools.ts');
@@ -554,7 +554,7 @@ test('the in-turn memory tool derives CLI history scope from its trusted convers
       clock: () => NOW,
       ifaceReads: rig().reads,
       memberOf: () => null,
-      conversationOf: (channel) => ({ iface: 'cli', conversationId: channel.id }),
+      chatOf: (channel) => ({ iface: 'cli', chatId: channel.id }),
       turnContextOf: () => memoryContext,
       linkCalls: (lines) => lines,
       drawTool: () => Promise.reject(new Error('memory reads do not draw')),
@@ -612,7 +612,7 @@ test('lookup prefetch forwards trusted CLI history identity into the real SQLite
       selfId: 'self',
       selfName: 'Synthetic persona',
       memoryContext,
-      historyRef: { iface: 'cli', conversationId: 'cli:dm:owner' },
+      historyRef: { iface: 'cli', chatId: 'cli:dm:owner' },
     });
     if (!pending) throw new Error('valid internal CLI prefetch did not start');
     const found = await pending.pending;

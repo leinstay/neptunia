@@ -1,6 +1,6 @@
 // health: allow file-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
 // Tests for the memory store's database collections and standalone file backend.
-import { accountOf, placeOfCommunity, placeOfConversation } from '../src/memory/addresses.ts';
+import { accountOf, placeOfRoot, placeOfChat } from '../src/memory/addresses.ts';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -163,7 +163,7 @@ test('getPlace: an old guild.json without learned loads it as empty, every other
   const raw = readRaw(file);
 
   const store = createStore({ dataDir: dir, memoryDb });
-  const guild = store.getPlace(placeOfCommunity(store, 'g1'));
+  const guild = store.getPlace(placeOfRoot(store, 'g1'));
   assert.deepEqual(guild, {
     ...old,
     learned: [],
@@ -199,7 +199,7 @@ test('getPlace: the keys of the removed variety pass are dropped on read, every 
   writeRaw(file, { ...kept, ...stale });
 
   const store = createStore({ dataDir: dir, memoryDb });
-  const guild = store.getPlace(placeOfCommunity(store, 'g1'));
+  const guild = store.getPlace(placeOfRoot(store, 'g1'));
   for (const key of Object.keys(stale)) assert.equal(key in guild, false, key);
   assert.equal(asRecord(guild).patterns, 'μιμίδια');
   assert.deepEqual(asRecord(guild).self, ['likes tea']);
@@ -207,7 +207,7 @@ test('getPlace: the keys of the removed variety pass are dropped on read, every 
   // The owner's word of 2026-11-06: the earlier `pingsOff` list is kept as the state `off` in the map `pings`.
   assert.deepEqual(asRecord(guild).pings, { u1: 'off' });
 
-  store.updatePlace(placeOfCommunity(store, 'g1'), { starters: 'γεια' });
+  store.updatePlace(placeOfRoot(store, 'g1'), { starters: 'γεια' });
   store.flush();
   await store.flushSettled({});
   const onDisk = JSON.parse(readRaw(file));
@@ -279,7 +279,7 @@ test('applyLearnedOps: adds items with per-guild ids, from kept, returns the new
   const { dir, memoryDb } = memDataDir();
   const store = createStore({ dataDir: dir, memoryDb, newId: counterIds() });
   const learned = store.applyLearnedOps(
-    placeOfCommunity(store, 'g1'),
+    placeOfRoot(store, 'g1'),
     { add: [{ text: 'Café closes at nine', from: '<@322222222222222222>' }, 'Friday is τυρόπιτα day'] },
     { ...LEARNED_CFG, seenAt: TEACH_AT }
   );
@@ -302,7 +302,7 @@ test('applyLearnedOps: adds items with per-guild ids, from kept, returns the new
       itemId: 'ln-u2',
     },
   ]);
-  assert.equal(asRecord(store.getPlace(placeOfCommunity(store, 'g1'))).learnedNextId, 3);
+  assert.equal(asRecord(store.getPlace(placeOfRoot(store, 'g1'))).learnedNextId, 3);
   store.flush();
   await store.flushSettled({});
 
@@ -313,18 +313,14 @@ test('applyLearnedOps: adds items with per-guild ids, from kept, returns the new
 
 test('applyLearnedOps: ids are never reused after a remove; seen bumps past the gap; sure:false starts at 0', () => {
   const store = createStore({ dataDir: tmpDataDir() });
+  store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['a fact', 'b fact'] }, { ...LEARNED_CFG, seenAt: TEACH_AT });
   store.applyLearnedOps(
-    placeOfCommunity(store, 'g1'),
-    { add: ['a fact', 'b fact'] },
-    { ...LEARNED_CFG, seenAt: TEACH_AT }
-  );
-  store.applyLearnedOps(
-    placeOfCommunity(store, 'g1'),
+    placeOfRoot(store, 'g1'),
     { remove: [2], seen: [1] },
     { ...LEARNED_CFG, seenAt: TEACH_AT + 24 * 3_600_000 }
   );
   const learned = store.applyLearnedOps(
-    placeOfCommunity(store, 'g1'),
+    placeOfRoot(store, 'g1'),
     { add: [{ text: 'c fact', sure: false }] },
     { ...LEARNED_CFG, seenAt: TEACH_AT }
   );
@@ -342,7 +338,7 @@ test('applyLearnedOps: text is clamped to learnedChars, storage capped at max(ma
   const long = 'ω'.repeat(400);
   const cfg = { ...LEARNED_CFG, learnedChars: 10, clampTolerance: 1, maxLearned: 2, maxLearnedStored: 3 };
   const learned = store.applyLearnedOps(
-    placeOfCommunity(store, 'g1'),
+    placeOfRoot(store, 'g1'),
     { add: [long, 'f1', 'f2', 'f3', 'f4'] },
     { ...cfg, seenAt: TEACH_AT }
   );
@@ -352,7 +348,7 @@ test('applyLearnedOps: text is clamped to learnedChars, storage capped at max(ma
 
 test('applyLearnedOps: garbage ops never throw and change nothing', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  store.applyLearnedOps(placeOfCommunity(store, 'g1'), { add: ['kept fact'] }, { ...LEARNED_CFG, seenAt: TEACH_AT });
+  store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['kept fact'] }, { ...LEARNED_CFG, seenAt: TEACH_AT });
   for (const garbage of [
     null,
     undefined,
@@ -365,7 +361,7 @@ test('applyLearnedOps: garbage ops never throw and change nothing', () => {
     { remove: [{}] },
   ]) {
     const learned = store.applyLearnedOps(
-      placeOfCommunity(store, 'g1'),
+      placeOfRoot(store, 'g1'),
       garbage as unknown as Parameters<typeof store.applyLearnedOps>[1],
       {
         ...LEARNED_CFG,
@@ -382,18 +378,18 @@ test('applyLearnedOps: garbage ops never throw and change nothing', () => {
 
 test('applyLearnedOps: leaves every other guild field alone', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  store.updatePlace(placeOfCommunity(store, 'g1'), { patterns: 'μιμίδια', injokes: ['ο βράχος'] });
-  store.applyLearnedOps(placeOfCommunity(store, 'g1'), { add: ['a fact'] }, { ...LEARNED_CFG, seenAt: TEACH_AT });
-  const guild = store.getPlace(placeOfCommunity(store, 'g1'));
+  store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'μιμίδια', injokes: ['ο βράχος'] });
+  store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['a fact'] }, { ...LEARNED_CFG, seenAt: TEACH_AT });
+  const guild = store.getPlace(placeOfRoot(store, 'g1'));
   assert.equal(asRecord(guild).patterns, 'μιμίδια');
   assert.deepEqual(asRecord(guild).injokes, ['ο βράχος']);
 });
 
 test('updatePlace: can never overwrite learned or learnedNextId wholesale', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  store.applyLearnedOps(placeOfCommunity(store, 'g1'), { add: ['a fact'] }, { ...LEARNED_CFG, seenAt: TEACH_AT });
-  store.updatePlace(placeOfCommunity(store, 'g1'), { patterns: 'p', learned: [], learnedNextId: 99 });
-  const guild = store.getPlace(placeOfCommunity(store, 'g1'));
+  store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['a fact'] }, { ...LEARNED_CFG, seenAt: TEACH_AT });
+  store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'p', learned: [], learnedNextId: 99 });
+  const guild = store.getPlace(placeOfRoot(store, 'g1'));
   assert.deepEqual(
     asRecord(guild).learned.map((i: Untyped) => i.text),
     ['a fact']
@@ -406,21 +402,21 @@ test('updatePlace: a re-send identical to what is stored leaves updatedAt alone;
   const store = createStore({ dataDir: tmpDataDir() });
   const earlier = '2000-01-01T00:00:00.000Z';
   asRecord(
-    store.updatePlace(placeOfCommunity(store, 'g1'), { patterns: 'μιμίδια', injokes: ['ο βράχος', 'café'] })
+    store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'μιμίδια', injokes: ['ο βράχος', 'café'] })
   ).updatedAt = earlier;
 
   assert.equal(
-    asRecord(store.updatePlace(placeOfCommunity(store, 'g1'), { patterns: 'μιμίδια', injokes: ['ο βράχος', 'café'] }))
+    asRecord(store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'μιμίδια', injokes: ['ο βράχος', 'café'] }))
       .updatedAt,
     earlier
   );
   assert.equal(
-    asRecord(store.updatePlace(placeOfCommunity(store, 'g1'), { learned: [], learnedNextId: 99 })).updatedAt,
+    asRecord(store.updatePlace(placeOfRoot(store, 'g1'), { learned: [], learnedNextId: 99 })).updatedAt,
     earlier,
     'stripped fields alone are no change'
   );
 
-  const guild = store.updatePlace(placeOfCommunity(store, 'g1'), {
+  const guild = store.updatePlace(placeOfRoot(store, 'g1'), {
     patterns: 'μιμίδια',
     injokes: ['café', 'ο βράχος'],
   });
@@ -435,19 +431,19 @@ const NOTES_EARLIER = '2000-01-01T00:00:00.000Z';
 test('updatePlace: notesUpdatedAt moves for patterns, starters or injokes only', () => {
   const store = createStore({ dataDir: tmpDataDir() });
   const rewind = () =>
-    Object.assign(store.getPlace(placeOfCommunity(store, 'g1')), {
+    Object.assign(store.getPlace(placeOfRoot(store, 'g1')), {
       updatedAt: NOTES_EARLIER,
       notesUpdatedAt: NOTES_EARLIER,
     });
-  store.updatePlace(placeOfCommunity(store, 'g1'), {
+  store.updatePlace(placeOfRoot(store, 'g1'), {
     patterns: 'μιμίδια',
     starters: 'καλημέρα',
     injokes: ['ο βράχος'],
     self: ['πίνω τσάι'],
   });
   assert.equal(
-    asRecord(store.getPlace(placeOfCommunity(store, 'g1'))).notesUpdatedAt,
-    asRecord(store.getPlace(placeOfCommunity(store, 'g1'))).updatedAt,
+    asRecord(store.getPlace(placeOfRoot(store, 'g1'))).notesUpdatedAt,
+    asRecord(store.getPlace(placeOfRoot(store, 'g1'))).updatedAt,
     'the first notes are stamped with the write'
   );
 
@@ -458,18 +454,18 @@ test('updatePlace: notesUpdatedAt moves for patterns, starters or injokes only',
     { self: ['παίζω κιθάρα'], patterns: 'σκύλοι' },
   ]) {
     rewind();
-    const guild = store.updatePlace(placeOfCommunity(store, 'g1'), fields);
+    const guild = store.updatePlace(placeOfRoot(store, 'g1'), fields);
     assert.notEqual(asRecord(guild).notesUpdatedAt, NOTES_EARLIER, `${Object.keys(fields)} moves the notes stamp`);
     assert.equal(asRecord(guild).notesUpdatedAt, asRecord(guild).updatedAt, 'one instant for both stamps');
   }
 
   rewind();
-  const selfOnly = store.updatePlace(placeOfCommunity(store, 'g1'), { self: ['φοβάμαι τις αράχνες'] });
+  const selfOnly = store.updatePlace(placeOfRoot(store, 'g1'), { self: ['φοβάμαι τις αράχνες'] });
   assert.notEqual(asRecord(selfOnly).updatedAt, NOTES_EARLIER, 'a self fact is a change of the guild');
   assert.equal(asRecord(selfOnly).notesUpdatedAt, NOTES_EARLIER, 'self alone never moves the notes stamp');
 
   rewind();
-  const sameNotes = store.updatePlace(placeOfCommunity(store, 'g1'), {
+  const sameNotes = store.updatePlace(placeOfRoot(store, 'g1'), {
     self: ['μισώ τη βροχή'],
     patterns: 'σκύλοι',
     starters: 'καληνύχτα',
@@ -483,7 +479,7 @@ test('updatePlace: notesUpdatedAt moves for patterns, starters or injokes only',
   );
 
   rewind();
-  const resent = store.updatePlace(placeOfCommunity(store, 'g1'), {
+  const resent = store.updatePlace(placeOfRoot(store, 'g1'), {
     patterns: 'σκύλοι',
     starters: 'καληνύχτα',
     injokes: ['ο βράχος', 'café'],
@@ -497,13 +493,13 @@ test('updatePlace: notesUpdatedAt moves for patterns, starters or injokes only',
 
 test('updatePlace: the notes stamps can never be set through the fields', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  store.updatePlace(placeOfCommunity(store, 'g1'), { patterns: 'μιμίδια' });
-  Object.assign(store.getPlace(placeOfCommunity(store, 'g1')), {
+  store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'μιμίδια' });
+  Object.assign(store.getPlace(placeOfRoot(store, 'g1')), {
     updatedAt: NOTES_EARLIER,
     notesUpdatedAt: NOTES_EARLIER,
   });
 
-  const guild = store.updatePlace(placeOfCommunity(store, 'g1'), {
+  const guild = store.updatePlace(placeOfRoot(store, 'g1'), {
     notesUpdatedAt: '2030-01-01T00:00:00.000Z',
     notesCheckedAt: '2030-01-01T00:00:00.000Z',
   });
@@ -515,64 +511,58 @@ test('updatePlace: the notes stamps can never be set through the fields', () => 
 
 test('applyLearnedOps: a lesson never moves notesUpdatedAt', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  store.updatePlace(placeOfCommunity(store, 'g1'), { patterns: 'μιμίδια' });
-  Object.assign(store.getPlace(placeOfCommunity(store, 'g1')), {
+  store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'μιμίδια' });
+  Object.assign(store.getPlace(placeOfRoot(store, 'g1')), {
     updatedAt: NOTES_EARLIER,
     notesUpdatedAt: NOTES_EARLIER,
   });
 
   store.applyLearnedOps(
-    placeOfCommunity(store, 'g1'),
+    placeOfRoot(store, 'g1'),
     { add: ['Café closes at nine'] },
     { ...LEARNED_CFG, seenAt: TEACH_AT }
   );
-  const guild = store.getPlace(placeOfCommunity(store, 'g1'));
+  const guild = store.getPlace(placeOfRoot(store, 'g1'));
   assert.notEqual(asRecord(guild).updatedAt, NOTES_EARLIER);
   assert.equal(asRecord(guild).notesUpdatedAt, NOTES_EARLIER);
 });
 
 test('markNotesFlagged: stamps notesFlaggedAt on existing channels and the guild only', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  store.updateChannel(placeOfConversation(store, { id: 'c1' }), { purpose: 'alpha' });
+  store.updateChannel(placeOfChat(store, { id: 'c1' }), { purpose: 'alpha' });
   const r = store.markNotesFlagged(
-    placeOfCommunity(store, 'g1'),
+    placeOfRoot(store, 'g1'),
     { channels: ['c1', 'ghost'], place: true },
     Date.UTC(2026, 9, 7)
   );
   assert.deepEqual(r, { channels: 1, place: true });
-  assert.equal(store.getChannel(placeOfConversation(store, { id: 'c1' }))?.notesFlaggedAt, '2026-10-07T00:00:00.000Z');
-  assert.equal(store.getChannel(placeOfConversation(store, { id: 'ghost' })), null);
-  assert.equal(asRecord(store.getPlace(placeOfCommunity(store, 'g1'))).notesFlaggedAt, '2026-10-07T00:00:00.000Z');
+  assert.equal(store.getChannel(placeOfChat(store, { id: 'c1' }))?.notesFlaggedAt, '2026-10-07T00:00:00.000Z');
+  assert.equal(store.getChannel(placeOfChat(store, { id: 'ghost' })), null);
+  assert.equal(asRecord(store.getPlace(placeOfRoot(store, 'g1'))).notesFlaggedAt, '2026-10-07T00:00:00.000Z');
 });
 
 test('markNotesSampled: reviewed clears the attempt, attempt leaves the review stamp alone', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  store.updateChannel(placeOfConversation(store, { id: 'c1' }), { purpose: 'alpha' });
+  store.updateChannel(placeOfChat(store, { id: 'c1' }), { purpose: 'alpha' });
   assert.equal(
-    store.markNotesSampled(placeOfCommunity(store, 'g1'), 'c1', Date.UTC(2026, 9, 7), { outcome: 'attempt' }),
+    store.markNotesSampled(placeOfRoot(store, 'g1'), 'c1', Date.UTC(2026, 9, 7), { outcome: 'attempt' }),
     true
   );
-  assert.equal(store.getChannel(placeOfConversation(store, { id: 'c1' }))?.notesAttemptAt, '2026-10-07T00:00:00.000Z');
-  assert.equal(store.getChannel(placeOfConversation(store, { id: 'c1' }))?.notesSampleReviewedAt, null);
+  assert.equal(store.getChannel(placeOfChat(store, { id: 'c1' }))?.notesAttemptAt, '2026-10-07T00:00:00.000Z');
+  assert.equal(store.getChannel(placeOfChat(store, { id: 'c1' }))?.notesSampleReviewedAt, null);
   assert.equal(
-    store.markNotesSampled(placeOfCommunity(store, 'g1'), 'c1', Date.UTC(2026, 9, 8), { outcome: 'reviewed' }),
+    store.markNotesSampled(placeOfRoot(store, 'g1'), 'c1', Date.UTC(2026, 9, 8), { outcome: 'reviewed' }),
     true
   );
+  assert.equal(store.getChannel(placeOfChat(store, { id: 'c1' }))?.notesSampleReviewedAt, '2026-10-08T00:00:00.000Z');
+  assert.equal(store.getChannel(placeOfChat(store, { id: 'c1' }))?.notesAttemptAt, null);
   assert.equal(
-    store.getChannel(placeOfConversation(store, { id: 'c1' }))?.notesSampleReviewedAt,
-    '2026-10-08T00:00:00.000Z'
-  );
-  assert.equal(store.getChannel(placeOfConversation(store, { id: 'c1' }))?.notesAttemptAt, null);
-  assert.equal(
-    store.markNotesSampled(placeOfCommunity(store, 'g1'), 'place', Date.UTC(2026, 9, 8), { outcome: 'reviewed' }),
+    store.markNotesSampled(placeOfRoot(store, 'g1'), 'place', Date.UTC(2026, 9, 8), { outcome: 'reviewed' }),
     true
   );
+  assert.equal(asRecord(store.getPlace(placeOfRoot(store, 'g1'))).notesSampleReviewedAt, '2026-10-08T00:00:00.000Z');
   assert.equal(
-    asRecord(store.getPlace(placeOfCommunity(store, 'g1'))).notesSampleReviewedAt,
-    '2026-10-08T00:00:00.000Z'
-  );
-  assert.equal(
-    store.markNotesSampled(placeOfCommunity(store, 'g1'), 'ghost', Date.UTC(2026, 9, 8), { outcome: 'attempt' }),
+    store.markNotesSampled(placeOfRoot(store, 'g1'), 'ghost', Date.UTC(2026, 9, 8), { outcome: 'attempt' }),
     false,
     'an unknown channel writes nothing'
   );
@@ -585,8 +575,8 @@ test('store: files without the notes stamps read back with nulls', async () => {
   writeRaw(path.join(base, 'channels', 'c1.json'), { id: 'c1', purpose: 'alpha', notesFlaggedAt: 'yesterday' });
   writeRaw(path.join(base, 'guild.json'), { patterns: 'x' });
   const store = createStore({ dataDir: dir, memoryDb });
-  const channel = store.getChannel(placeOfConversation(store, { id: 'c1' }));
-  const guild = store.getPlace(placeOfCommunity(store, 'g1'));
+  const channel = store.getChannel(placeOfChat(store, { id: 'c1' }));
+  const guild = store.getPlace(placeOfRoot(store, 'g1'));
   for (const item of [channel, guild]) {
     assert.deepEqual(
       [asRecord(item).notesFlaggedAt, asRecord(item).notesSampleReviewedAt, asRecord(item).notesAttemptAt],
@@ -636,7 +626,7 @@ test('flush + a new store instance over the same database: profiles and guild me
     const storeA = createStore({ dataDir: mem.dataDir, memoryDb: mem.memoryDb });
     storeA.touchUser(accountOf(storeA, 'u1'), 'Alice', 1000);
     storeA.updateUser(accountOf(storeA, 'u1'), { character: 'τολμηρή' });
-    storeA.updatePlace(placeOfCommunity(storeA, 'g1'), { patterns: 'μιμίδια' });
+    storeA.updatePlace(placeOfRoot(storeA, 'g1'), { patterns: 'μιμίδια' });
     storeA.flush();
     await storeA.flushSettled({});
 
@@ -644,7 +634,7 @@ test('flush + a new store instance over the same database: profiles and guild me
     const profile = storeB.getUser(accountOf(storeB, 'u1'));
     assert.equal(asRecord(profile).character, 'τολμηρή');
     assert.deepEqual(asRecord(profile).names, ['Alice']);
-    assert.equal(asRecord(storeB.getPlace(placeOfCommunity(storeB, 'g1'))).patterns, 'μιμίδια');
+    assert.equal(asRecord(storeB.getPlace(placeOfRoot(storeB, 'g1'))).patterns, 'μιμίδια');
     assert.equal(
       fs.existsSync(path.join(mem.dataDir, 'guilds', 'g1', 'users', 'u1.json')),
       false,
@@ -750,8 +740,8 @@ test('touchChannel: repeated calls the same UTC day increment the same bucket', 
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
   const facts = { name: 'general', topic: null };
-  store.touchChannel(placeOfConversation(store, { id: 'c1' }), facts, Date.UTC(2026, 8, 20, 1, 0, 0));
-  const channel = store.touchChannel(placeOfConversation(store, { id: 'c1' }), facts, Date.UTC(2026, 8, 20, 23, 0, 0));
+  store.touchChannel(placeOfChat(store, { id: 'c1' }), facts, Date.UTC(2026, 8, 20, 1, 0, 0));
+  const channel = store.touchChannel(placeOfChat(store, { id: 'c1' }), facts, Date.UTC(2026, 8, 20, 23, 0, 0));
   assert.equal(asRecord(channel).messageCount, 2);
   assert.deepEqual(asRecord(channel).days, { '2026-09-20': 2 });
 });
@@ -760,8 +750,8 @@ test('touchChannel: lastMessageAt keeps the maximum timestamp seen, even out of 
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
   const facts = { name: 'general', topic: null };
-  store.touchChannel(placeOfConversation(store, { id: 'c1' }), facts, 5000);
-  const channel = store.touchChannel(placeOfConversation(store, { id: 'c1' }), facts, 1000); // arrives "late", out of order
+  store.touchChannel(placeOfChat(store, { id: 'c1' }), facts, 5000);
+  const channel = store.touchChannel(placeOfChat(store, { id: 'c1' }), facts, 1000); // arrives "late", out of order
   assert.equal(asRecord(channel).lastMessageAt, 5000);
 });
 
@@ -771,7 +761,7 @@ test('touchChannel: trims the day histogram to the newest 30 dates', () => {
   const facts = { name: 'general', topic: null };
   let channel;
   for (let day = 0; day < 35; day += 1) {
-    channel = store.touchChannel(placeOfConversation(store, { id: 'c1' }), facts, Date.UTC(2026, 0, 1 + day, 12, 0, 0));
+    channel = store.touchChannel(placeOfChat(store, { id: 'c1' }), facts, Date.UTC(2026, 0, 1 + day, 12, 0, 0));
   }
   const keys = Object.keys(asRecord(channel).days).sort();
   assert.equal(keys.length, 30);
@@ -783,9 +773,9 @@ test('touchChannel: bumps the author into topWriters and adds up repeated visits
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
   const facts = { name: 'general', topic: null };
-  store.touchChannel(placeOfConversation(store, { id: 'c1' }), facts, 1000, 'alice');
-  store.touchChannel(placeOfConversation(store, { id: 'c1' }), facts, 2000, 'alice');
-  const channel = store.touchChannel(placeOfConversation(store, { id: 'c1' }), facts, 3000, 'bob');
+  store.touchChannel(placeOfChat(store, { id: 'c1' }), facts, 1000, 'alice');
+  store.touchChannel(placeOfChat(store, { id: 'c1' }), facts, 2000, 'alice');
+  const channel = store.touchChannel(placeOfChat(store, { id: 'c1' }), facts, 3000, 'bob');
   assert.deepEqual(asRecord(channel).topWriters, [
     { id: 'alice', count: 2 },
     { id: 'bob', count: 1 },
@@ -795,15 +785,15 @@ test('touchChannel: bumps the author into topWriters and adds up repeated visits
 test('updateChannel: the analyzer cannot overwrite counters or Discord facts', () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
-  store.touchChannel(placeOfConversation(store, { id: 'c1' }), { name: 'general', topic: 'chat' }, 1000);
-  store.updateChannel(placeOfConversation(store, { id: 'c1' }), {
+  store.touchChannel(placeOfChat(store, { id: 'c1' }), { name: 'general', topic: 'chat' }, 1000);
+  store.updateChannel(placeOfChat(store, { id: 'c1' }), {
     purpose: 'chatter',
     name: 'hacked-name',
     messageCount: 999,
     lastMessageAt: 1,
     days: { '2000-01-01': 999 },
   });
-  const channel = store.getChannel(placeOfConversation(store, { id: 'c1' }));
+  const channel = store.getChannel(placeOfChat(store, { id: 'c1' }));
   assert.equal(channel?.purpose, 'chatter');
   assert.equal(channel?.name, 'general', 'name must survive an updateChannel call untouched');
   assert.equal(channel?.messageCount, 1, 'messageCount must survive an updateChannel call untouched');
@@ -815,19 +805,19 @@ const EARLIER_STAMP = '2000-01-01T00:00:00.000Z';
 
 test('updateChannel: a re-send identical to what is stored leaves updatedAt alone', () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  store.touchChannel(placeOfConversation(store, { id: 'c1' }), { name: 'general', topic: null }, 1000);
+  store.touchChannel(placeOfChat(store, { id: 'c1' }), { name: 'general', topic: null }, 1000);
   asRecord(
-    store.updateChannel(placeOfConversation(store, { id: 'c1' }), {
+    store.updateChannel(placeOfChat(store, { id: 'c1' }), {
       purpose: 'chatter',
       topics: 'games',
       tone: 'casual',
     })
   ).updatedAt = EARLIER_STAMP;
 
-  const channel = store.updateChannel(placeOfConversation(store, { id: 'c1' }), { purpose: 'chatter', tone: 'casual' });
+  const channel = store.updateChannel(placeOfChat(store, { id: 'c1' }), { purpose: 'chatter', tone: 'casual' });
   assert.equal(asRecord(channel).updatedAt, EARLIER_STAMP);
   assert.equal(
-    asRecord(store.updateChannel(placeOfConversation(store, { id: 'c1' }), {})).updatedAt,
+    asRecord(store.updateChannel(placeOfChat(store, { id: 'c1' }), {})).updatedAt,
     EARLIER_STAMP,
     'no field at all is no change either'
   );
@@ -836,13 +826,13 @@ test('updateChannel: a re-send identical to what is stored leaves updatedAt alon
 test('flush + a new store instance: channels survive a "restart"', async () => {
   const { dir, memoryDb } = memDataDir();
   const storeA = createStore({ dataDir: dir, memoryDb });
-  storeA.touchChannel(placeOfConversation(storeA, { id: 'c1' }), { name: 'general', topic: 'chat' }, 1000);
-  storeA.updateChannel(placeOfConversation(storeA, { id: 'c1' }), { purpose: 'chatter' });
+  storeA.touchChannel(placeOfChat(storeA, { id: 'c1' }), { name: 'general', topic: 'chat' }, 1000);
+  storeA.updateChannel(placeOfChat(storeA, { id: 'c1' }), { purpose: 'chatter' });
   storeA.flush();
   await storeA.flushSettled({});
 
   const storeB = createStore({ dataDir: dir, memoryDb });
-  const channel = storeB.getChannel(placeOfConversation(storeB, { id: 'c1' }));
+  const channel = storeB.getChannel(placeOfChat(storeB, { id: 'c1' }));
   assert.equal(channel?.name, 'general');
   assert.equal(channel?.purpose, 'chatter');
   assert.deepEqual(channel?.days, { '1970-01-01': 1 });
@@ -894,7 +884,7 @@ test('touchChannel: a writer silent for 90 days falls below a steady newcomer', 
     'three half-lives of silence outweigh the count'
   );
   assert.deepEqual(
-    store.getChannel(placeOfConversation(store, { id: 'c2' }))?.writers['παλιός'],
+    store.getChannel(placeOfChat(store, { id: 'c2' }))?.writers['παλιός'],
     { count: 8, last: WRITERS_T0 + 7 },
     'ranked lower, not forgotten'
   );
@@ -929,9 +919,7 @@ test('touchChannel: the tally keeps channelWritersStored writers, 20 unless told
   const stored = (placeId: string, opts?: Parameters<typeof writeLines>[5]) => {
     for (let n = 0; n < 25; n += 1)
       writeLines(store, placeId, `γράφων-${String(n).padStart(2, '0')}`, 1, WRITERS_T0 + n, opts);
-    return Object.keys(
-      asRecord(store.getChannel(placeOfConversation(store, { id: placeId }))).writers as object
-    ).sort();
+    return Object.keys(asRecord(store.getChannel(placeOfChat(store, { id: placeId }))).writers as object).sort();
   };
   const newest = (count: number) =>
     Array.from({ length: count }, (_, i) => `γράφων-${String(25 - count + i).padStart(2, '0')}`);
@@ -941,7 +929,7 @@ test('touchChannel: the tally keeps channelWritersStored writers, 20 unless told
   assert.deepEqual(stored('c3', { channelWritersStored: 0 }), newest(5));
   // @ts-expect-error: the test hands a text where a count belongs, as a hand-edited config may
   assert.deepEqual(stored('c4', { channelWritersStored: 'πολλοί' }), newest(20), 'not a number: the 20 of config.json');
-  assert.equal(store.getChannel(placeOfConversation(store, { id: 'c2' }))?.topWriters.length, 5);
+  assert.equal(store.getChannel(placeOfChat(store, { id: 'c2' }))?.topWriters.length, 5);
 });
 
 test('touchChannel: a writer below the five shown comes back with the count they gathered', () => {
@@ -967,9 +955,9 @@ test("touchChannel: a line that arrives late is counted and never moves the writ
 test('touchChannel: a message without an author leaves the tally and topWriters as they are', () => {
   const store = createStore({ dataDir: tmpDataDir() });
   writeLines(store, 'c1', 'άλφα', 2, WRITERS_T0);
-  const before = structuredClone(store.getChannel(placeOfConversation(store, { id: 'c1' })));
+  const before = structuredClone(store.getChannel(placeOfChat(store, { id: 'c1' })));
 
-  const channel = store.touchChannel(placeOfConversation(store, { id: 'c1' }), AGORA_FACTS, WRITERS_T0 + 10);
+  const channel = store.touchChannel(placeOfChat(store, { id: 'c1' }), AGORA_FACTS, WRITERS_T0 + 10);
   assert.deepEqual([asRecord(channel).writers, asRecord(channel).topWriters], [before?.writers, before?.topWriters]);
   assert.equal(asRecord(channel).messageCount, asRecord(before).messageCount + 1);
 });
@@ -977,10 +965,10 @@ test('touchChannel: a message without an author leaves the tally and topWriters 
 test('touchChannel: counters never stamp updatedAt, only a change of the notes does', () => {
   const store = createStore({ dataDir: tmpDataDir() });
   writeLines(store, 'c1', 'άλφα', 3, WRITERS_T0);
-  assert.equal(store.getChannel(placeOfConversation(store, { id: 'c1' }))?.updatedAt, null);
-  assert.equal(store.getChannel(placeOfConversation(store, { id: 'c1' }))?.notesCheckedAt, null);
+  assert.equal(store.getChannel(placeOfChat(store, { id: 'c1' }))?.updatedAt, null);
+  assert.equal(store.getChannel(placeOfChat(store, { id: 'c1' }))?.notesCheckedAt, null);
 
-  assert.ok(asRecord(store.updateChannel(placeOfConversation(store, { id: 'c1' }), { tone: 'ήρεμος' })).updatedAt);
+  assert.ok(asRecord(store.updateChannel(placeOfChat(store, { id: 'c1' }), { tone: 'ήρεμος' })).updatedAt);
 });
 
 test('getChannel: an old channel file without a tally seeds it from the stored topWriters, the file untouched', async () => {
@@ -988,7 +976,7 @@ test('getChannel: an old channel file without a tally seeds it from the stored t
   const { file, old, raw } = writeOldChannelFile(dir, 'c1');
   const store = createStore({ dataDir: dir, memoryDb });
 
-  const channel = store.getChannel(placeOfConversation(store, { id: 'c1' }));
+  const channel = store.getChannel(placeOfChat(store, { id: 'c1' }));
   const last = old.lastMessageAt;
   assert.deepEqual(channel, {
     ...old,
@@ -1004,8 +992,8 @@ test('getChannel: an old channel file without a tally seeds it from the stored t
       έψιλον: { count: 1, last },
     },
   });
-  underTop(memoryDb, placeOfCommunity(store, 'g1'), placeOfConversation(store, { id: 'c1' }));
-  assert.deepEqual(store.listChannels(placeOfCommunity(store, 'g1')), [channel]);
+  underTop(memoryDb, placeOfRoot(store, 'g1'), placeOfChat(store, { id: 'c1' }));
+  assert.deepEqual(store.listChannels(placeOfRoot(store, 'g1')), [channel]);
   store.flush();
   await store.flushSettled({});
   assert.equal(readRaw(file), raw, 'reading alone never rewrites the file');
@@ -1040,10 +1028,10 @@ test('touchChannel: a sixth writer enters the frozen top five of an old channel 
 
   store.flush();
   await store.flushSettled({});
-  const reloaded = createStore({ dataDir: dir, memoryDb }).getChannel(placeOfConversation(store, { id: 'c1' }));
+  const reloaded = createStore({ dataDir: dir, memoryDb }).getChannel(placeOfChat(store, { id: 'c1' }));
   assert.deepEqual(
     reloaded?.writers,
-    store.getChannel(placeOfConversation(store, { id: 'c1' }))?.writers,
+    store.getChannel(placeOfChat(store, { id: 'c1' }))?.writers,
     'the tally is stored with the next write'
   );
 });
@@ -1066,7 +1054,7 @@ test('getChannel: a tally or a check stamp a hand edit broke is made safe to rea
   });
   const store = createStore({ dataDir: dir, memoryDb });
 
-  const channel = store.getChannel(placeOfConversation(store, { id: 'c1' }));
+  const channel = store.getChannel(placeOfChat(store, { id: 'c1' }));
   assert.equal(channel?.notesCheckedAt, null);
   assert.deepEqual(channel?.writers, {
     άλφα: { count: 3, last: WRITERS_T0 },
@@ -1074,7 +1062,7 @@ test('getChannel: a tally or a check stamp a hand edit broke is made safe to rea
     έψιλον: { count: 4, last: 0 },
   });
   assert.deepEqual(
-    store.getChannel(placeOfConversation(store, { id: 'c2' }))?.writers,
+    store.getChannel(placeOfChat(store, { id: 'c2' }))?.writers,
     { άλφα: { count: 2, last: WRITERS_T0 + 5000 } },
     'not a tally: seeded from the usable part of topWriters'
   );
@@ -1086,22 +1074,22 @@ test('getChannel: a tally or a check stamp a hand edit broke is made safe to rea
 test('getMediaCache: the same live object is returned on every call, mutation-friendly', () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
-  const cache = store.getMediaCache(placeOfCommunity(store, 'g1'));
+  const cache = store.getMediaCache(placeOfRoot(store, 'g1'));
   asRecord(cache).a1 = { text: 'a cat', ts: 1000 };
-  assert.deepEqual(store.getMediaCache(placeOfCommunity(store, 'g1')), { a1: { text: 'a cat', ts: 1000 } });
+  assert.deepEqual(store.getMediaCache(placeOfRoot(store, 'g1')), { a1: { text: 'a cat', ts: 1000 } });
 });
 
 test('media cache: persists across store instances', async () => {
   const { dir, memoryDb } = memDataDir();
   const storeA = createStore({ dataDir: dir, memoryDb });
-  const cache = storeA.getMediaCache(placeOfCommunity(storeA, 'g1'));
+  const cache = storeA.getMediaCache(placeOfRoot(storeA, 'g1'));
   asRecord(cache).a1 = { text: 'a dog', ts: 2000 };
-  storeA.markMediaCacheDirty(placeOfCommunity(storeA, 'g1'));
+  storeA.markMediaCacheDirty(placeOfRoot(storeA, 'g1'));
   storeA.flush();
   await storeA.flushSettled({});
 
   const storeB = createStore({ dataDir: dir, memoryDb });
-  assert.deepEqual(storeB.getMediaCache(placeOfCommunity(storeB, 'g1')), { a1: { text: 'a dog', ts: 2000 } });
+  assert.deepEqual(storeB.getMediaCache(placeOfRoot(storeB, 'g1')), { a1: { text: 'a dog', ts: 2000 } });
 });
 
 test('adjustAffinity: persists across store instances', async () => {
@@ -1502,7 +1490,7 @@ test('setLore: an owner entry is never overwritten by a later analyzer update', 
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
   store.setLore(
-    placeOfCommunity(store, 'g1'),
+    placeOfRoot(store, 'g1'),
     [{ title: 'Founders Day', keys: ['founders'], text: 'owner text', always: true }],
     {
       source: 'owner',
@@ -1511,7 +1499,7 @@ test('setLore: an owner entry is never overwritten by a later analyzer update', 
   );
 
   store.setLore(
-    placeOfCommunity(store, 'g1'),
+    placeOfRoot(store, 'g1'),
     [{ title: 'Founders Day', keys: ['founders'], text: 'analyzer tries to change this' }],
     {
       source: 'analyzer',
@@ -1519,7 +1507,7 @@ test('setLore: an owner entry is never overwritten by a later analyzer update', 
     }
   );
 
-  const entries = store.getLore(placeOfCommunity(store, 'g1'));
+  const entries = store.getLore(placeOfRoot(store, 'g1'));
   assert.equal(entries.length, 1);
   assert.equal(asRecord(entries[0]).text, 'owner text');
   assert.equal(asRecord(entries[0]).source, 'owner');
@@ -1528,25 +1516,25 @@ test('setLore: an owner entry is never overwritten by a later analyzer update', 
 test('setLore: an identical analyzer re-send returns 0 and keeps updatedAt; a changed text returns 1', () => {
   const store = createStore({ dataDir: tmpDataDir() });
   const flood = { title: 'The Flood', keys: ['flood'], text: 'It flooded once.' };
-  store.setLore(placeOfCommunity(store, 'g1'), [flood], { source: 'analyzer', now: 1000 });
+  store.setLore(placeOfRoot(store, 'g1'), [flood], { source: 'analyzer', now: 1000 });
 
-  assert.equal(store.setLore(placeOfCommunity(store, 'g1'), [flood], { source: 'analyzer', now: 2000 }), 0);
-  assert.equal(asRecord(store.getLore(placeOfCommunity(store, 'g1'))[0]).updatedAt, new Date(1000).toISOString());
+  assert.equal(store.setLore(placeOfRoot(store, 'g1'), [flood], { source: 'analyzer', now: 2000 }), 0);
+  assert.equal(asRecord(store.getLore(placeOfRoot(store, 'g1'))[0]).updatedAt, new Date(1000).toISOString());
 
   assert.equal(
-    store.setLore(placeOfCommunity(store, 'g1'), [{ ...flood, text: 'It flooded twice.' }], {
+    store.setLore(placeOfRoot(store, 'g1'), [{ ...flood, text: 'It flooded twice.' }], {
       source: 'analyzer',
       now: 3000,
     }),
     1
   );
-  assert.equal(asRecord(store.getLore(placeOfCommunity(store, 'g1'))[0]).updatedAt, new Date(3000).toISOString());
+  assert.equal(asRecord(store.getLore(placeOfRoot(store, 'g1'))[0]).updatedAt, new Date(3000).toISOString());
 });
 
 test('lore: persists across store instances', async () => {
   const { dir, memoryDb } = memDataDir();
   const storeA = createStore({ dataDir: dir, memoryDb });
-  storeA.setLore(placeOfCommunity(storeA, 'g1'), [{ title: 'The Flood', keys: ['flood'], text: 'It flooded once.' }], {
+  storeA.setLore(placeOfRoot(storeA, 'g1'), [{ title: 'The Flood', keys: ['flood'], text: 'It flooded once.' }], {
     source: 'analyzer',
     now: 1000,
   });
@@ -1554,7 +1542,7 @@ test('lore: persists across store instances', async () => {
   await storeA.flushSettled({});
 
   const storeB = createStore({ dataDir: dir, memoryDb });
-  const entries = storeB.getLore(placeOfCommunity(storeB, 'g1'));
+  const entries = storeB.getLore(placeOfRoot(storeB, 'g1'));
   assert.equal(entries.length, 1);
   assert.equal(asRecord(entries[0]).title, 'The Flood');
 });
@@ -1564,27 +1552,27 @@ test('lore: persists across store instances', async () => {
 function seedGuild(store: Untyped) {
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
   store.touchUser(accountOf(store, 'u2'), 'Bob', 1000);
-  store.updatePlace(placeOfCommunity(store, 'g1'), { patterns: 'μιμίδια' });
-  store.applyLearnedOps(placeOfCommunity(store, 'g1'), { add: ['Café closes at nine'] }, { seenAt: 1000 });
-  store.touchChannel(placeOfConversation(store, { id: 'c1' }), { name: 'general', topic: null }, 1000);
-  store.touchChannel(placeOfConversation(store, { id: 'c2' }), { name: 'random', category: null, topic: null }, 1000);
-  store.pushBuffer(placeOfCommunity(store, 'g1'), { text: 'hi' }, 100);
-  store.pushBuffer(placeOfCommunity(store, 'g1'), { text: 'there' }, 100);
-  store.setLore(placeOfCommunity(store, 'g1'), [{ title: 'The Flood', keys: ['flood'], text: 'It flooded once.' }], {
+  store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'μιμίδια' });
+  store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['Café closes at nine'] }, { seenAt: 1000 });
+  store.touchChannel(placeOfChat(store, { id: 'c1' }), { name: 'general', topic: null }, 1000);
+  store.touchChannel(placeOfChat(store, { id: 'c2' }), { name: 'random', category: null, topic: null }, 1000);
+  store.pushBuffer(placeOfRoot(store, 'g1'), { text: 'hi' }, 100);
+  store.pushBuffer(placeOfRoot(store, 'g1'), { text: 'there' }, 100);
+  store.setLore(placeOfRoot(store, 'g1'), [{ title: 'The Flood', keys: ['flood'], text: 'It flooded once.' }], {
     source: 'analyzer',
     now: 1000,
   });
   store.setLore(
-    placeOfCommunity(store, 'g1'),
+    placeOfRoot(store, 'g1'),
     [{ title: 'Founders Day', keys: ['founders'], text: 'Owner text.', always: true }],
     {
       source: 'owner',
       now: 1000,
     }
   );
-  const cache = store.getMediaCache(placeOfCommunity(store, 'g1'));
+  const cache = store.getMediaCache(placeOfRoot(store, 'g1'));
   cache.a1 = { text: 'a cat', ts: 1000 };
-  store.markMediaCacheDirty(placeOfCommunity(store, 'g1'));
+  store.markMediaCacheDirty(placeOfRoot(store, 'g1'));
   store.state.data.job = { done: false, channels: { c1: { batchesDone: 2 } } };
   store.state.data.llmDay = '2026-09-20';
   store.state.data.llmCount = 7;
@@ -1692,7 +1680,7 @@ test('dropCaches: forgets every cached unit except state.json, so the next read 
   const { dir, memoryDb } = memDataDir();
   const store = createStore({ dataDir: dir, memoryDb });
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-  store.updatePlace(placeOfCommunity(store, 'g1'), { patterns: 'x' });
+  store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'x' });
   store.state.data.llmCount = 3;
   store.state.markDirty();
   store.flush();
@@ -2289,7 +2277,7 @@ function recentAdd(text: string, fields = {}) {
 }
 
 const recentTexts = (store: Untyped, placeId: string) =>
-  store.getRecent(placeOfCommunity(store, placeId)).lines.map((line: Untyped) => line.text);
+  store.getRecent(placeOfRoot(store, placeId)).lines.map((line: Untyped) => line.text);
 
 /** applyRecentOps' counts: zero for every reason unless `fields` says otherwise; `dropped` their sum. */
 function recentCounts(fields = {}) {
@@ -2311,14 +2299,14 @@ function recentCounts(fields = {}) {
 test('store: getRecent on a fresh guild creates no file, nor does a write that changes nothing', () => {
   const dir = tmpDataDir();
   const store = createStore({ dataDir: dir });
-  assert.deepEqual(store.getRecent(placeOfCommunity(store, 'g1')), { nextId: 1, lines: [] });
-  assert.deepEqual(store.applyRecentOps(placeOfCommunity(store, 'g1'), [], { now: RECENT_NOW }), recentCounts());
+  assert.deepEqual(store.getRecent(placeOfRoot(store, 'g1')), { nextId: 1, lines: [] });
+  assert.deepEqual(store.applyRecentOps(placeOfRoot(store, 'g1'), [], { now: RECENT_NOW }), recentCounts());
   assert.deepEqual(
-    store.applyRecentOps(placeOfCommunity(store, 'g1'), [{ text: 'χωρίς κανάλι' }], { now: RECENT_NOW }),
+    store.applyRecentOps(placeOfRoot(store, 'g1'), [{ text: 'χωρίς κανάλι' }], { now: RECENT_NOW }),
     recentCounts({ noChannel: 1 })
   );
   assert.deepEqual(
-    store.applyRecentOps(placeOfCommunity(store, 'g1'), [recentAdd('δεν χωρά')], { now: RECENT_NOW, maxStored: 0 }),
+    store.applyRecentOps(placeOfRoot(store, 'g1'), [recentAdd('δεν χωρά')], { now: RECENT_NOW, maxStored: 0 }),
     recentCounts({ overCap: 1 })
   );
   store.flush();
@@ -2329,7 +2317,7 @@ test('store: recent lines survive a restart and read back normalised', async () 
   const { dir, memoryDb } = memDataDir();
   const store = createStore({ dataDir: dir, memoryDb, newId: counterIds() });
   const counts = store.applyRecentOps(
-    placeOfCommunity(store, 'g1'),
+    placeOfRoot(store, 'g1'),
     [recentAdd(`<@${ELENI}> έφερε σύκα`, { weight: 3 }), recentAdd('βράδυ με βροχή')],
     { now: RECENT_NOW }
   );
@@ -2339,7 +2327,7 @@ test('store: recent lines survive a restart and read back normalised', async () 
 
   const file = recentFileOf(dir, 'g1');
   const restarted = createStore({ dataDir: dir, memoryDb });
-  assert.deepEqual(restarted.getRecent(placeOfCommunity(restarted, 'g1')), {
+  assert.deepEqual(restarted.getRecent(placeOfRoot(restarted, 'g1')), {
     nextId: 3,
     lines: [
       {
@@ -2364,20 +2352,20 @@ test('store: recent lines survive a restart and read back normalised', async () 
       },
     ],
   });
-  assert.deepEqual(JSON.parse(readRaw(file)), restarted.getRecent(placeOfCommunity(restarted, 'g1')));
+  assert.deepEqual(JSON.parse(readRaw(file)), restarted.getRecent(placeOfRoot(restarted, 'g1')));
 });
 
 test('store: applyRecentOps marks the file dirty only when a line was added, removed or expired', async () => {
   const { dir, memoryDb } = memDataDir();
   const store = createStore({ dataDir: dir, memoryDb });
-  store.applyRecentOps(placeOfCommunity(store, 'g1'), [recentAdd('μία'), recentAdd('δύο')], { now: RECENT_NOW });
+  store.applyRecentOps(placeOfRoot(store, 'g1'), [recentAdd('μία'), recentAdd('δύο')], { now: RECENT_NOW });
   store.flush();
   await store.flushSettled({});
   const file = recentFileOf(dir, 'g1');
   const raw = readRaw(file);
 
   assert.deepEqual(
-    store.applyRecentOps(placeOfCommunity(store, 'g1'), [recentAdd('ΜΙΑ'), recentAdd('τρία', { placeId: null })], {
+    store.applyRecentOps(placeOfRoot(store, 'g1'), [recentAdd('ΜΙΑ'), recentAdd('τρία', { placeId: null })], {
       now: RECENT_NOW,
       removeIds: [7],
     }),
@@ -2387,17 +2375,17 @@ test('store: applyRecentOps marks the file dirty only when a line was added, rem
   await store.flushSettled({});
   assert.equal(readRaw(file), raw);
 
-  assert.equal(store.applyRecentOps(placeOfCommunity(store, 'g1'), [], { now: RECENT_NOW, removeIds: [1] }).removed, 1);
+  assert.equal(store.applyRecentOps(placeOfRoot(store, 'g1'), [], { now: RECENT_NOW, removeIds: [1] }).removed, 1);
   store.flush();
   await store.flushSettled({});
   assert.deepEqual(recentTexts(createStore({ dataDir: dir, memoryDb }), 'g1'), ['δύο']);
 
   // a lowered cap and a new line it takes at once: nothing added, yet stored lines were evicted
-  store.applyRecentOps(placeOfCommunity(store, 'g1'), [recentAdd('τρία'), recentAdd('τέσσερα')], { now: RECENT_NOW });
+  store.applyRecentOps(placeOfRoot(store, 'g1'), [recentAdd('τρία'), recentAdd('τέσσερα')], { now: RECENT_NOW });
   store.flush();
   await store.flushSettled({});
   assert.deepEqual(
-    store.applyRecentOps(placeOfCommunity(store, 'g1'), [recentAdd('ελαφριά', { weight: 1 })], {
+    store.applyRecentOps(placeOfRoot(store, 'g1'), [recentAdd('ελαφριά', { weight: 1 })], {
       now: RECENT_NOW,
       maxStored: 1,
     }),
@@ -2421,23 +2409,22 @@ function withStore(fn: Untyped) {
 
 test('store: a prose rewrite records the previous text with who wrote and a sentence diff; a first write records nothing', () =>
   withStore((store: Untyped) => {
-    store.updateChannel(placeOfConversation(store, { id: 'c1' }), { purpose: 'Ένα. Δύο.' }, { by: 'owner' });
+    store.updateChannel(placeOfChat(store, { id: 'c1' }), { purpose: 'Ένα. Δύο.' }, { by: 'owner' });
     assert.deepEqual(
-      store.listVersions(placeOfCommunity(store, 'g1'), 'channels', placeOfConversation(store, { id: 'c1' })),
+      store.listVersions(placeOfRoot(store, 'g1'), 'channels', placeOfChat(store, { id: 'c1' })),
       {},
       'first write'
     );
-    store.updateChannel(placeOfConversation(store, { id: 'c1' }), { purpose: 'Δύο. Τρία.' }, { by: 'analyzer' });
-    const v = store.listVersions(placeOfCommunity(store, 'g1'), 'channels', placeOfConversation(store, { id: 'c1' }));
+    store.updateChannel(placeOfChat(store, { id: 'c1' }), { purpose: 'Δύο. Τρία.' }, { by: 'analyzer' });
+    const v = store.listVersions(placeOfRoot(store, 'g1'), 'channels', placeOfChat(store, { id: 'c1' }));
     assert.equal(v.purpose.length, 1);
     assert.equal(v.purpose[0].text, 'Ένα. Δύο.');
     assert.equal(v.purpose[0].by, 'analyzer');
     assert.deepEqual([v.purpose[0].kept, v.purpose[0].removed, v.purpose[0].added], [1, 1, 1]);
     assert.ok(/^\d{4}-\d{2}-\d{2}T/.test(v.purpose[0].at));
-    store.updateChannel(placeOfConversation(store, { id: 'c1' }), { purpose: 'Δύο. Τρία.' }, { by: 'analyzer' });
+    store.updateChannel(placeOfChat(store, { id: 'c1' }), { purpose: 'Δύο. Τρία.' }, { by: 'analyzer' });
     assert.equal(
-      store.listVersions(placeOfCommunity(store, 'g1'), 'channels', placeOfConversation(store, { id: 'c1' })).purpose
-        .length,
+      store.listVersions(placeOfRoot(store, 'g1'), 'channels', placeOfChat(store, { id: 'c1' })).purpose.length,
       1,
       'an identical write records nothing'
     );
@@ -2445,10 +2432,10 @@ test('store: a prose rewrite records the previous text with who wrote and a sent
 
 test('store: versions are capped per field at versions.kept, oldest dropped; a caller without by records unknown', () =>
   withStore((store: Untyped) => {
-    store.updatePlace(placeOfCommunity(store, 'g1'), { patterns: 'v0' });
+    store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'v0' });
     for (let i = 1; i <= 5; i++)
-      store.updatePlace(placeOfCommunity(store, 'g1'), { patterns: `v${i}` }, { versions: { enabled: true, kept: 3 } });
-    const v = store.listVersions(placeOfCommunity(store, 'g1'), 'place', 'place').patterns;
+      store.updatePlace(placeOfRoot(store, 'g1'), { patterns: `v${i}` }, { versions: { enabled: true, kept: 3 } });
+    const v = store.listVersions(placeOfRoot(store, 'g1'), 'place', 'place').patterns;
     assert.deepEqual(
       v.map((x: Untyped) => x.text),
       ['v2', 'v3', 'v4']
@@ -2463,17 +2450,13 @@ test('store: applyProfileOps and setLore record user and lore versions; versions
       { character: 'Calme. Précis.', relationship: 'Amical.' },
       { fieldChars: 1000, by: 'analyzer' }
     );
-    assert.deepEqual(
-      store.listVersions(placeOfCommunity(store, 'g1'), 'users', accountOf(store, 'u1')),
-      {},
-      'first write'
-    );
+    assert.deepEqual(store.listVersions(placeOfRoot(store, 'g1'), 'users', accountOf(store, 'u1')), {}, 'first write');
     store.applyProfileOps(
       accountOf(store, 'u1'),
       { character: 'Calme. Bavard.', relationship: 'Très amical.' },
       { fieldChars: 1000, by: 'voice' }
     );
-    const user = store.listVersions(placeOfCommunity(store, 'g1'), 'users', accountOf(store, 'u1'));
+    const user = store.listVersions(placeOfRoot(store, 'g1'), 'users', accountOf(store, 'u1'));
     assert.deepEqual(Object.keys(user).sort(), ['character', 'relationship']);
     assert.equal(user.character[0].text, 'Calme. Précis.');
     assert.equal(user.character[0].by, 'voice');
@@ -2491,15 +2474,15 @@ test('store: applyProfileOps and setLore record user and lore versions; versions
     assert.equal(user.relationship[0].text, 'Amical.');
 
     const lore = (text: string) => [{ title: 'Ο Κήπος', keys: ['κήπος'], text }];
-    store.setLore(placeOfCommunity(store, 'g1'), lore('Πρώτο.'), { source: 'analyzer', now: 1000, by: 'analyzer' });
-    assert.deepEqual(store.listVersions(placeOfCommunity(store, 'g1'), 'lore', 'Ο Κήπος'), {}, 'first lore write');
-    store.setLore(placeOfCommunity(store, 'g1'), lore('Δεύτερο.'), { source: 'owner', now: 2000, by: 'owner' });
-    const loreVersions = store.listVersions(placeOfCommunity(store, 'g1'), 'lore', 'Ο Κήπος');
+    store.setLore(placeOfRoot(store, 'g1'), lore('Πρώτο.'), { source: 'analyzer', now: 1000, by: 'analyzer' });
+    assert.deepEqual(store.listVersions(placeOfRoot(store, 'g1'), 'lore', 'Ο Κήπος'), {}, 'first lore write');
+    store.setLore(placeOfRoot(store, 'g1'), lore('Δεύτερο.'), { source: 'owner', now: 2000, by: 'owner' });
+    const loreVersions = store.listVersions(placeOfRoot(store, 'g1'), 'lore', 'Ο Κήπος');
     assert.equal(loreVersions.text.length, 1);
     assert.equal(loreVersions.text[0].text, 'Πρώτο.');
     assert.equal(loreVersions.text[0].by, 'owner');
     assert.deepEqual(
-      store.listVersions(placeOfCommunity(store, 'g1'), 'lore', ' ο κήπος '),
+      store.listVersions(placeOfRoot(store, 'g1'), 'lore', ' ο κήπος '),
       loreVersions,
       'the title is matched as the lorebook matches it'
     );
@@ -2511,27 +2494,21 @@ test('store: applyProfileOps and setLore record user and lore versions; versions
       { character: 'Autre.', style: 'Long.', relationship: 'Froid.' },
       { fieldChars: 1000, versions: off }
     );
-    store.setLore(placeOfCommunity(store, 'g1'), lore('Τρίτο.'), { source: 'owner', now: 3000, versions: off });
-    store.updateChannel(placeOfConversation(store, { id: 'c1' }), { tone: 'a' });
-    store.updateChannel(placeOfConversation(store, { id: 'c1' }), { tone: 'b' }, { versions: off });
-    store.updatePlace(placeOfCommunity(store, 'g1'), { starters: 'a' });
-    store.updatePlace(placeOfCommunity(store, 'g1'), { starters: 'b' }, { versions: off });
+    store.setLore(placeOfRoot(store, 'g1'), lore('Τρίτο.'), { source: 'owner', now: 3000, versions: off });
+    store.updateChannel(placeOfChat(store, { id: 'c1' }), { tone: 'a' });
+    store.updateChannel(placeOfChat(store, { id: 'c1' }), { tone: 'b' }, { versions: off });
+    store.updatePlace(placeOfRoot(store, 'g1'), { starters: 'a' });
+    store.updatePlace(placeOfRoot(store, 'g1'), { starters: 'b' }, { versions: off });
     store.updateUser(accountOf(store, 'u1'), { style: 'Court.' }, { versions: off });
-    assert.equal(
-      store.listVersions(placeOfCommunity(store, 'g1'), 'users', accountOf(store, 'u1')).character.length,
-      1
-    );
-    assert.equal(store.listVersions(placeOfCommunity(store, 'g1'), 'users', accountOf(store, 'u1')).style, undefined);
-    assert.equal(store.listVersions(placeOfCommunity(store, 'g1'), 'lore', 'Ο Κήπος').text.length, 1);
-    assert.deepEqual(
-      store.listVersions(placeOfCommunity(store, 'g1'), 'channels', placeOfConversation(store, { id: 'c1' })),
-      {}
-    );
-    assert.deepEqual(store.listVersions(placeOfCommunity(store, 'g1'), 'place', 'place'), {});
+    assert.equal(store.listVersions(placeOfRoot(store, 'g1'), 'users', accountOf(store, 'u1')).character.length, 1);
+    assert.equal(store.listVersions(placeOfRoot(store, 'g1'), 'users', accountOf(store, 'u1')).style, undefined);
+    assert.equal(store.listVersions(placeOfRoot(store, 'g1'), 'lore', 'Ο Κήπος').text.length, 1);
+    assert.deepEqual(store.listVersions(placeOfRoot(store, 'g1'), 'channels', placeOfChat(store, { id: 'c1' })), {});
+    assert.deepEqual(store.listVersions(placeOfRoot(store, 'g1'), 'place', 'place'), {});
 
     store.updateUser(accountOf(store, 'u1'), { style: 'Court et net.' }, { by: 'owner' });
     assert.equal(
-      store.listVersions(placeOfCommunity(store, 'g1'), 'users', accountOf(store, 'u1')).style[0].text,
+      store.listVersions(placeOfRoot(store, 'g1'), 'users', accountOf(store, 'u1')).style[0].text,
       'Court.',
       'updateUser records too'
     );
@@ -2540,7 +2517,7 @@ test('store: applyProfileOps and setLore record user and lore versions; versions
     await store.flushSettled({});
     const fresh = createStore({ dataDir: dir, memoryDb });
     assert.equal(
-      asRecord(fresh.listVersions(placeOfCommunity(fresh, 'g1'), 'users', accountOf(fresh, 'u1'))).character[0].text,
+      asRecord(fresh.listVersions(placeOfRoot(fresh, 'g1'), 'users', accountOf(fresh, 'u1'))).character[0].text,
       'Calme. Précis.',
       'versions survive a restart'
     );
@@ -2550,21 +2527,17 @@ test('store: version files are not mistaken for channel or user ids', () =>
   withStore(async (store: Untyped, dir: Untyped, memoryDb: Untyped) => {
     for (const text of ['Un.', 'Deux.']) {
       store.applyProfileOps(accountOf(store, 'u1'), { character: text }, { fieldChars: 1000 });
-      store.updateChannel(placeOfConversation(store, { id: 'c1' }), { purpose: text });
-      store.updatePlace(placeOfCommunity(store, 'g1'), { patterns: text });
-      store.setLore(placeOfCommunity(store, 'g1'), [{ title: 'T', keys: ['tt'], text }], { source: 'owner' });
+      store.updateChannel(placeOfChat(store, { id: 'c1' }), { purpose: text });
+      store.updatePlace(placeOfRoot(store, 'g1'), { patterns: text });
+      store.setLore(placeOfRoot(store, 'g1'), [{ title: 'T', keys: ['tt'], text }], { source: 'owner' });
     }
     assert.ok(
-      Object.keys(
-        store.listVersions(placeOfCommunity(store, 'g1'), 'channels', placeOfConversation(store, { id: 'c1' }))
-      ).length > 0
+      Object.keys(store.listVersions(placeOfRoot(store, 'g1'), 'channels', placeOfChat(store, { id: 'c1' }))).length > 0
     );
-    assert.ok(
-      Object.keys(store.listVersions(placeOfCommunity(store, 'g1'), 'users', accountOf(store, 'u1'))).length > 0
-    );
+    assert.ok(Object.keys(store.listVersions(placeOfRoot(store, 'g1'), 'users', accountOf(store, 'u1'))).length > 0);
     const check = (s: Untyped) => {
       assert.deepEqual(
-        s.listChannels(placeOfCommunity(s, 'g1')).map((c: Untyped) => c.id),
+        s.listChannels(placeOfRoot(s, 'g1')).map((c: Untyped) => c.id),
         ['c1']
       );
       assert.deepEqual(
@@ -2574,7 +2547,7 @@ test('store: version files are not mistaken for channel or user ids', () =>
     };
     store.flush();
     await store.flushSettled({});
-    underTop(memoryDb, placeOfCommunity(store, 'g1'), placeOfConversation(store, { id: 'c1' }));
+    underTop(memoryDb, placeOfRoot(store, 'g1'), placeOfChat(store, { id: 'c1' }));
     check(store);
     check(createStore({ dataDir: dir, memoryDb }));
   }));
@@ -2615,21 +2588,21 @@ test('store: participation round trip, a copy on read, nothing created by readin
   const { dir, memoryDb } = memDataDir();
   const store = createStore({ dataDir: dir, memoryDb, newId: counterIds() });
   const file = path.join(dir, 'guilds', 'g1', 'participation.json');
-  assert.deepEqual(store.getParticipation(placeOfCommunity(store, 'g1')), { episodes: [], nextId: 1 });
+  assert.deepEqual(store.getParticipation(placeOfRoot(store, 'g1')), { episodes: [], nextId: 1 });
   store.flush();
   await store.flushSettled({});
   assert.equal(existsRaw(file), false);
 
   const state = partState(emptyParticipation(), { placeId: 'c1', minute: 0 });
-  store.setParticipation(placeOfCommunity(store, 'g1'), state, { settings: PARTICIPATION_DEFAULTS, now: PART_AT });
-  const copy = store.getParticipation(placeOfCommunity(store, 'g1'));
+  store.setParticipation(placeOfRoot(store, 'g1'), state, { settings: PARTICIPATION_DEFAULTS, now: PART_AT });
+  const copy = store.getParticipation(placeOfRoot(store, 'g1'));
   const stored = { ...state, episodes: state.episodes.map((ep) => ({ ...ep, itemId: 'pt-u1' })) };
   assert.deepEqual(copy, stored);
   copy.episodes.length = 0;
-  assert.equal(store.getParticipation(placeOfCommunity(store, 'g1')).episodes.length, 1);
+  assert.equal(store.getParticipation(placeOfRoot(store, 'g1')).episodes.length, 1);
   store.flush();
   await store.flushSettled({});
-  assert.deepEqual(createStore({ dataDir: dir, memoryDb }).getParticipation(placeOfCommunity(store, 'g1')), stored);
+  assert.deepEqual(createStore({ dataDir: dir, memoryDb }).getParticipation(placeOfRoot(store, 'g1')), stored);
 });
 
 test('store: participation expires on every write', () => {
@@ -2637,20 +2610,20 @@ test('store: participation expires on every write', () => {
   let state = partState(emptyParticipation(), { placeId: 'c1', minute: 0 });
   state = partState(state, { placeId: 'c2', minute: 120 });
   state = partState(state, { placeId: 'c3', minute: 240 });
-  store.setParticipation(placeOfCommunity(store, 'g1'), state, {
+  store.setParticipation(placeOfRoot(store, 'g1'), state, {
     settings: { ...PARTICIPATION_DEFAULTS, hours: 3 },
     now: PART_AT + 5 * 60 * PART_MIN,
   });
   assert.deepEqual(
-    store.getParticipation(placeOfCommunity(store, 'g1')).episodes.map((ep) => asRecord(ep).placeId),
+    store.getParticipation(placeOfRoot(store, 'g1')).episodes.map((ep) => asRecord(ep).placeId),
     ['c2', 'c3']
   );
-  store.setParticipation(placeOfCommunity(store, 'g1'), state, {
+  store.setParticipation(placeOfRoot(store, 'g1'), state, {
     settings: { ...PARTICIPATION_DEFAULTS, maxStored: 1 },
     now: PART_AT + 5 * 60 * PART_MIN,
   });
   assert.deepEqual(
-    store.getParticipation(placeOfCommunity(store, 'g1')).episodes.map((ep) => asRecord(ep).placeId),
+    store.getParticipation(placeOfRoot(store, 'g1')).episodes.map((ep) => asRecord(ep).placeId),
     ['c3']
   );
 });
@@ -2666,10 +2639,10 @@ test('store: a broken participation file reads as a store and is logged once', a
   await writeRaw(path.join(guildDir('g2'), 'participation.json'), { episodes: 'κανένα' });
   const store = createStore({ dataDir: dir, memoryDb });
   const { result, logs } = await withCapturedLogs(() => [
-    store.getParticipation(placeOfCommunity(store, 'g1')),
-    store.getParticipation(placeOfCommunity(store, 'g1')),
-    store.getParticipation(placeOfCommunity(store, 'g2')),
-    store.getParticipation(placeOfCommunity(store, 'g3')),
+    store.getParticipation(placeOfRoot(store, 'g1')),
+    store.getParticipation(placeOfRoot(store, 'g1')),
+    store.getParticipation(placeOfRoot(store, 'g2')),
+    store.getParticipation(placeOfRoot(store, 'g3')),
   ]);
   assert.deepEqual(result[0], good);
   assert.deepEqual(result[2], { episodes: [], nextId: 1 });
@@ -2810,8 +2783,8 @@ test('store: an item without itemId gets one on write and old items load unchang
   store.adjustAffinity(accountOf(store, 'u1'), 2, 'σκάκι', { maxDelta: 5, historySize: 5, now: ID_NOW });
   store.updateUser(accountOf(store, 'u1'), { character: 'πρώτο' });
   store.updateUser(accountOf(store, 'u1'), { character: 'δεύτερο' });
-  store.applyLearnedOps(placeOfCommunity(store, 'g1'), { add: ['το café είναι πικρό'] }, { seenAt: ID_NOW });
-  store.applyRecentOps(placeOfCommunity(store, 'g1'), [{ text: 'γραμμή', at: ID_NOW, placeId: '900000000000000001' }], {
+  store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['το café είναι πικρό'] }, { seenAt: ID_NOW });
+  store.applyRecentOps(placeOfRoot(store, 'g1'), [{ text: 'γραμμή', at: ID_NOW, placeId: '900000000000000001' }], {
     now: ID_NOW,
   });
   store.appendSelfreflectionPost(
@@ -2820,7 +2793,7 @@ test('store: an item without itemId gets one on write and old items load unchang
   );
   const ownLine = { id: 'o1', ts: ID_NOW, authorId: 'bot', name: 'persona', self: true, text: 'γεια' };
   const part = recordOwnLine(emptyParticipation(), { placeId: 'c1', own: ownLine }, PARTICIPATION_DEFAULTS, ID_NOW);
-  store.setParticipation(placeOfCommunity(store, 'g1'), part, { settings: PARTICIPATION_DEFAULTS, now: ID_NOW });
+  store.setParticipation(placeOfRoot(store, 'g1'), part, { settings: PARTICIPATION_DEFAULTS, now: ID_NOW });
   store.flush();
   await store.flushSettled({});
 
@@ -2839,15 +2812,12 @@ test('store: an item without itemId gets one on write and old items load unchang
   assert.ok(every(asRecord(profile).affinity.history, 'mv-u'));
   assert.equal(asRecord(profile).affinity.score, 3);
   assert.ok(
-    every(
-      asRecord(reread.listVersions(placeOfCommunity(reread, 'g1'), 'users', accountOf(reread, 'u1'))).character,
-      'vs-u'
-    )
+    every(asRecord(reread.listVersions(placeOfRoot(reread, 'g1'), 'users', accountOf(reread, 'u1'))).character, 'vs-u')
   );
-  assert.ok(every(asRecord(reread.getPlace(placeOfCommunity(reread, 'g1'))).learned, 'ln-u'));
-  assert.ok(every(reread.getRecent(placeOfCommunity(reread, 'g1')).lines, 'rc-u'));
+  assert.ok(every(asRecord(reread.getPlace(placeOfRoot(reread, 'g1'))).learned, 'ln-u'));
+  assert.ok(every(reread.getRecent(placeOfRoot(reread, 'g1')).lines, 'rc-u'));
   assert.ok(every(reread.getSelfreflection().posts, 'dy-u'));
-  assert.ok(every(reread.getParticipation(placeOfCommunity(reread, 'g1')).episodes, 'pt-u'));
+  assert.ok(every(reread.getParticipation(placeOfRoot(reread, 'g1')).episodes, 'pt-u'));
   const all = [
     asRecord(profile).interests,
     asRecord(profile).details,
@@ -2863,9 +2833,9 @@ test('store: eviction returns the dropped items with their itemId', () => {
   const store = createStore({ dataDir: dir, newId: counterIds() });
 
   let onDropped = null;
-  store.updatePlace(placeOfCommunity(store, 'g1'), { injokes: ['ο café', 'η γάτα'] });
+  store.updatePlace(placeOfRoot(store, 'g1'), { injokes: ['ο café', 'η γάτα'] });
   store.updatePlace(
-    placeOfCommunity(store, 'g1'),
+    placeOfRoot(store, 'g1'),
     { injokes: ['η γάτα', 'το σκάκι'] },
     { onDropped: (d) => (onDropped = d) }
   );
@@ -2893,23 +2863,23 @@ test('store: eviction returns the dropped items with their itemId', () => {
   );
   assert.ok(firstPostId.startsWith('dy-u'));
 
-  store.applyLearnedOps(placeOfCommunity(store, 'g1'), { add: ['πρώτο', 'δεύτερο'] }, { seenAt: ID_NOW });
-  const firstLessonId = asRecord(store.getPlace(placeOfCommunity(store, 'g1'))).learned[0].itemId;
-  const learned = store.applyLearnedOps(placeOfCommunity(store, 'g1'), { remove: [1] }, { seenAt: ID_NOW });
+  store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['πρώτο', 'δεύτερο'] }, { seenAt: ID_NOW });
+  const firstLessonId = asRecord(store.getPlace(placeOfRoot(store, 'g1'))).learned[0].itemId;
+  const learned = store.applyLearnedOps(placeOfRoot(store, 'g1'), { remove: [1] }, { seenAt: ID_NOW });
   assert.deepEqual(
     asRecord(learned).dropped.map((l: Untyped) => [l.text, l.itemId]),
     [['πρώτο', firstLessonId]]
   );
 
   store.applyRecentOps(
-    placeOfCommunity(store, 'g1'),
+    placeOfRoot(store, 'g1'),
     [{ text: 'παλιό', at: ID_NOW - 1000, placeId: '900000000000000001' }],
     {
       now: ID_NOW - 1000,
     }
   );
-  const lineId = asRecord(store.getRecent(placeOfCommunity(store, 'g1')).lines[0]).itemId;
-  const recent = store.applyRecentOps(placeOfCommunity(store, 'g1'), [], { now: ID_NOW, hours: 0 });
+  const lineId = asRecord(store.getRecent(placeOfRoot(store, 'g1')).lines[0]).itemId;
+  const recent = store.applyRecentOps(placeOfRoot(store, 'g1'), [], { now: ID_NOW, hours: 0 });
   assert.equal(recent.expired, 1);
   assert.deepEqual(
     asRecord(recent).droppedLines.map((l: Untyped) => l.itemId),
@@ -2937,15 +2907,15 @@ test('store: eviction returns the dropped items with their itemId', () => {
     PARTICIPATION_DEFAULTS,
     ID_NOW
   );
-  store.setParticipation(placeOfCommunity(store, 'g1'), part, { settings: PARTICIPATION_DEFAULTS, now: ID_NOW });
-  const episodeId = asRecord(store.getParticipation(placeOfCommunity(store, 'g1')).episodes[0]).itemId;
+  store.setParticipation(placeOfRoot(store, 'g1'), part, { settings: PARTICIPATION_DEFAULTS, now: ID_NOW });
+  const episodeId = asRecord(store.getParticipation(placeOfRoot(store, 'g1')).episodes[0]).itemId;
   part = recordOwnLine(
-    store.getParticipation(placeOfCommunity(store, 'g1')),
+    store.getParticipation(placeOfRoot(store, 'g1')),
     { placeId: 'c2', own: own('o2', ID_NOW + 1000) },
     PARTICIPATION_DEFAULTS,
     ID_NOW + 1000
   );
-  const { dropped } = store.setParticipation(placeOfCommunity(store, 'g1'), part, {
+  const { dropped } = store.setParticipation(placeOfRoot(store, 'g1'), part, {
     settings: { ...PARTICIPATION_DEFAULTS, maxStored: 1 },
     now: ID_NOW + 1000,
   });

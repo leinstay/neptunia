@@ -9,8 +9,8 @@
 // principal that may not send one are answered `invalid`, and the link stays open.
 //
 // Each `event` goes through the door with the principal and its `seq`, and its ack goes back. Un-numbered events run
-// concurrently. Numbered ones (an interface with an outbox) run one at a time per conversation in `seq` order, the
-// conversations side by side, and their acks carry the contiguous watermark of the events taken, which is written
+// concurrently. Numbered ones (an interface with an outbox) run one at a time per chat in `seq` order, the
+// chats side by side, and their acks carry the contiguous watermark of the events taken, which is written
 // with `ingest.ack` before the ack goes out. An event that `failed` holds the watermark back, so it goes again.
 //
 // A link opened with `admit` asks it about the principal of a good `hello`: a reason it answers refuses the hello with
@@ -156,23 +156,20 @@ const SKILL_FILING = 'skill.pending';
 /** Whether `principal` may send `command.requested`: the owner's command line or an agent, never an interface. */
 export const mayCommand = (principal: Principal): boolean => principal.kind === 'cli' || principal.kind === 'agent';
 
-/** The prefix of the owner's command-line conversations: `cli:dm:owner`, whose history and replies are the command line's. */
-const CLI_CONVERSATION_PREFIX = `${CLI_IFACE}:`;
+/** The prefix of the owner's command-line chats: `cli:dm:owner`, whose history and replies are the command line's. */
+const CLI_CHAT_PREFIX = `${CLI_IFACE}:`;
 
-/** Whether an event places itself in a conversation of the command line, by any of the two fields that name one. */
-function namesCliConversation(body: Record<string, unknown>): boolean {
-  const { conversation, conversationId } = body;
-  const named =
-    conversation !== null && typeof conversation === 'object'
-      ? (conversation as Record<string, unknown>).id
-      : conversationId;
-  return typeof named === 'string' && named.startsWith(CLI_CONVERSATION_PREFIX);
+/** Whether an event places itself in a chat of the command line, by any of the two fields that name one. */
+function namesCliChat(body: Record<string, unknown>): boolean {
+  const { chat, chatId } = body;
+  const named = chat !== null && typeof chat === 'object' ? (chat as Record<string, unknown>).id : chatId;
+  return typeof named === 'string' && named.startsWith(CLI_CHAT_PREFIX);
 }
 
 /** Why the authenticated sender of `body` may not send it, or null. */
 function eventRefusal(body: Record<string, unknown>, iface: string, principal: Principal): string | null {
   if (body.iface !== iface) return 'body.iface:foreign';
-  if (principal.kind !== 'cli' && namesCliConversation(body)) return 'conversation:foreign';
+  if (principal.kind !== 'cli' && namesCliChat(body)) return 'chat:foreign';
   if (principal.kind === 'agent') {
     if (body.kind !== 'command.requested') return 'body.kind:not-allowed';
     if (typeof body.name !== 'string') return 'body.name:not-allowed';
@@ -278,8 +275,8 @@ export function openAdapterLink(options: {
     greeting = {
       iface: body.iface as string,
       self: body.self as Named,
-      community: (body.community ?? null) as Named | null,
-      ...(Array.isArray(body.communities) ? { communities: body.communities as Array<Named> } : {}),
+      root: (body.root ?? null) as Named | null,
+      ...(Array.isArray(body.roots) ? { roots: body.roots as Array<Named> } : {}),
       ...(body.names === undefined ? {} : { names: body.names as InterfaceNames }),
       capabilities: (body.capabilities ?? NO_CAPABILITIES) as Capabilities,
       resume: typeof body.resume === 'string' ? body.resume : null,
@@ -330,9 +327,9 @@ export function openAdapterLink(options: {
       return;
     }
     watermark.see(value.seq);
-    // One conversation's numbered events wait for each other; other conversations go on.
-    const conversation = body.conversation as { id?: unknown } | undefined;
-    const lane = typeof conversation?.id === 'string' ? conversation.id : '';
+    // One chat's numbered events wait for each other; other chats go on.
+    const chat = body.chat as { id?: unknown } | undefined;
+    const lane = typeof chat?.id === 'string' ? chat.id : '';
     const next = (lanes.get(lane) ?? Promise.resolve()).then(() => take(value, who));
     lanes.set(lane, next);
     void next.finally(() => {
@@ -412,7 +409,7 @@ export function openAdapterLink(options: {
     ((...args: Array<unknown>) => read(operation, args)) as unknown as Adapter[K];
 
   function send(
-    conversation: Parameters<Adapter['send']>[0],
+    chat: Parameters<Adapter['send']>[0],
     content: Parameters<Adapter['send']>[1],
     given: SendOptions = {}
   ): Promise<Delivery> {
@@ -425,7 +422,7 @@ export function openAdapterLink(options: {
       given.deadlineAt === undefined ? { idempotencyKey } : { idempotencyKey, deadlineAt: given.deadlineAt };
     // The result is the interface's Delivery, as it crossed the wire.
     return call(
-      { ...portAction('send', [conversation, content]), ...extra },
+      { ...portAction('send', [chat, content]), ...extra },
       'effect',
       given.signal
     ) as unknown as Promise<Delivery>;
@@ -446,14 +443,13 @@ export function openAdapterLink(options: {
       effect('react', [message, emoji]) as ReturnType<Adapter['react']>,
     unreact: (message: Parameters<Adapter['unreact']>[0], emoji: string) =>
       effect('unreact', [message, emoji]) as ReturnType<Adapter['unreact']>,
-    typing: (conversation: Parameters<Adapter['typing']>[0]) =>
-      effect('typing', [conversation]) as ReturnType<Adapter['typing']>,
+    typing: (chat: Parameters<Adapter['typing']>[0]) => effect('typing', [chat]) as ReturnType<Adapter['typing']>,
     fetchMessages: reading('fetchMessages'),
-    conversationInfo: reading('conversationInfo'),
-    conversations: reading('conversations'),
+    chatInfo: reading('chatInfo'),
+    chats: reading('chats'),
     history: reading('history'),
     memberInfo: reading('memberInfo'),
-    dmConversationOf: reading('dmConversationOf'),
+    dmChatOf: reading('dmChatOf'),
     searchMessages: reading('searchMessages'),
     searchMembers: reading('searchMembers'),
     emoji: reading('emoji'),
@@ -536,11 +532,11 @@ export function createLinkSwitch(first: AdapterLink | null): {
     unreact: (...args: Parameters<Adapter['unreact']>) => now().unreact(...args),
     typing: (...args: Parameters<Adapter['typing']>) => now().typing(...args),
     fetchMessages: (...args: Parameters<Adapter['fetchMessages']>) => now().fetchMessages(...args),
-    conversationInfo: (...args: Parameters<Adapter['conversationInfo']>) => now().conversationInfo(...args),
-    conversations: (...args: Parameters<Adapter['conversations']>) => now().conversations(...args),
+    chatInfo: (...args: Parameters<Adapter['chatInfo']>) => now().chatInfo(...args),
+    chats: (...args: Parameters<Adapter['chats']>) => now().chats(...args),
     history: (...args: Parameters<Adapter['history']>) => now().history(...args),
     memberInfo: (...args: Parameters<Adapter['memberInfo']>) => now().memberInfo(...args),
-    dmConversationOf: (...args: Parameters<Adapter['dmConversationOf']>) => now().dmConversationOf(...args),
+    dmChatOf: (...args: Parameters<Adapter['dmChatOf']>) => now().dmChatOf(...args),
     searchMessages: (...args: Parameters<Adapter['searchMessages']>) => now().searchMessages(...args),
     searchMembers: (...args: Parameters<Adapter['searchMembers']>) => now().searchMembers(...args),
     emoji: (...args: Parameters<Adapter['emoji']>) => now().emoji(...args),
@@ -572,24 +568,24 @@ export const closedAdapter = (): Adapter => closedLink().adapter;
  * One adapter over the served interface and the interfaces of other namespaces: a call whose reference names an
  * `iface` that `routeOf` answers goes to that adapter, every other call to `served`. The core sends the persona's
  * reply in the owner's command line (`iface: 'cli'`) this way, while its modules hold one port. Its capabilities are
- * the served interface's, with the reads of every adapter `routed()` lists added, so a read of a routed conversation
+ * the served interface's, with the reads of every adapter `routed()` lists added, so a read of a routed chat
  * is asked at all (src/interface/reads.ts asks only a declared read).
  */
 export function createIfaceRouter(
   served: Adapter,
   routeOf: (iface: string) => Adapter | null,
   routed: () => ReadonlyArray<Adapter>,
-  routeOfCommunity: (placeId: string) => Adapter | null = () => null
+  routeOfRoot: (placeId: string) => Adapter | null = () => null
 ): Adapter {
   const by = (ref: { iface?: unknown } | null | undefined): Adapter => {
     const iface = ref?.iface;
     if (typeof iface !== 'string' || iface === '' || iface === served.iface) return served;
     return routeOf(iface) ?? served;
   };
-  // A read of a community has no reference to route by, only the community's id. Its first argument names it.
-  const byCommunity = (scope: unknown): Adapter => {
+  // A read of a root has no reference to route by, only the root's id. Its first argument names it.
+  const byRoot = (scope: unknown): Adapter => {
     const id = typeof scope === 'string' ? scope : (scope as { placeId?: unknown } | null)?.placeId;
-    return typeof id === 'string' ? (routeOfCommunity(id) ?? served) : served;
+    return typeof id === 'string' ? (routeOfRoot(id) ?? served) : served;
   };
   return {
     ...declaredHooks(),
@@ -608,14 +604,14 @@ export function createIfaceRouter(
     unreact: (...args: Parameters<Adapter['unreact']>) => by(args[0]).unreact(...args),
     typing: (...args: Parameters<Adapter['typing']>) => by(args[0]).typing(...args),
     fetchMessages: (...args: Parameters<Adapter['fetchMessages']>) => by(args[0]).fetchMessages(...args),
-    conversationInfo: (...args: Parameters<Adapter['conversationInfo']>) => by(args[0]).conversationInfo(...args),
-    conversations: (...args: Parameters<Adapter['conversations']>) => byCommunity(args[0]).conversations(...args),
+    chatInfo: (...args: Parameters<Adapter['chatInfo']>) => by(args[0]).chatInfo(...args),
+    chats: (...args: Parameters<Adapter['chats']>) => byRoot(args[0]).chats(...args),
     history: (...args: Parameters<Adapter['history']>) => by(args[0]).history(...args),
-    memberInfo: (...args: Parameters<Adapter['memberInfo']>) => byCommunity(args[0]).memberInfo(...args),
-    dmConversationOf: (...args: Parameters<Adapter['dmConversationOf']>) => by(args[0]).dmConversationOf(...args),
-    searchMessages: (...args: Parameters<Adapter['searchMessages']>) => byCommunity(args[0]).searchMessages(...args),
-    searchMembers: (...args: Parameters<Adapter['searchMembers']>) => byCommunity(args[0]).searchMembers(...args),
-    emoji: (...args: Parameters<Adapter['emoji']>) => byCommunity(args[0]).emoji(...args),
+    memberInfo: (...args: Parameters<Adapter['memberInfo']>) => byRoot(args[0]).memberInfo(...args),
+    dmChatOf: (...args: Parameters<Adapter['dmChatOf']>) => by(args[0]).dmChatOf(...args),
+    searchMessages: (...args: Parameters<Adapter['searchMessages']>) => byRoot(args[0]).searchMessages(...args),
+    searchMembers: (...args: Parameters<Adapter['searchMembers']>) => byRoot(args[0]).searchMembers(...args),
+    emoji: (...args: Parameters<Adapter['emoji']>) => byRoot(args[0]).emoji(...args),
     parseLinks: (...args: Parameters<Adapter['parseLinks']>) => served.parseLinks(...args),
     reactors: (...args: Parameters<Adapter['reactors']>) => by(args[0]).reactors(...args),
   };

@@ -1,7 +1,7 @@
 // The missed-answer check runs for every group place and every DM on every interface, each with a registry of its own.
 // Contract, plan 2026-11-04-cli-and-memory B2:
 //   `createMissed` takes no `iface`; `noteFact({ reason, message, iface })` names the line's interface and the candidate
-//   keeps it, so its sweep reads its conversation there and its recovery turn runs there
+//   keeps it, so its sweep reads its chat there and its recovery turn runs there
 //   `start(placeId)` adds the stored registry of that place to the ones already started; `save()` writes each candidate
 //   under the unit `missed` of its own place
 import { test } from 'node:test';
@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { createMissed } from '../src/behavior/missed.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createReads } from '../src/interface/reads.ts';
-import type { ConversationInfo } from '../src/protocol/adapter.ts';
+import type { ChatInfo } from '../src/protocol/adapter.ts';
 import { labels } from './fixtures/labels.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
@@ -19,7 +19,7 @@ import { tempDir } from './fixtures/tmp.ts';
 const T0 = Date.parse('2026-11-05T12:00:00Z');
 const MINUTE = 60_000;
 
-type Spot = { iface: string; place: Partial<ConversationInfo> & { id: string } };
+type Spot = { iface: string; place: Partial<ChatInfo> & { id: string } };
 
 const GROUP_A: Spot = { iface: 'alpha', place: { id: 'c1', kind: 'channel', rootId: 'g1' } };
 const GROUP_B: Spot = { iface: 'beta', place: { id: 'r1', kind: 'channel', rootId: 'r1' } };
@@ -28,7 +28,7 @@ const DM_B: Spot = { iface: 'beta', place: { id: 'd1', kind: 'dm', chatType: 'dm
 const TWIN: Spot = { iface: 'beta', place: { id: 'c1', kind: 'channel', rootId: 'r9' } };
 
 type LlmCall = { user: string; options: { purpose?: string } };
-type TurnCall = { conversation: { iface: string; conversationId: string }; triggerKind: string };
+type TurnCall = { chat: { iface: string; chatId: string }; triggerKind: string };
 
 function memberLine(spot: Spot, id: string, at: number) {
   return {
@@ -51,7 +51,7 @@ function eventOf(spot: Spot, line: ReturnType<typeof memberLine>) {
     at: line.ts,
     id: `${spot.iface}:message:${line.id}`,
     // Type fix (plan B1 amendment, approved): the place carries its own `id`, so it is not written twice.
-    conversation: { kind: 'channel', name: spot.place.id, ...spot.place },
+    chat: { kind: 'channel', name: spot.place.id, ...spot.place },
     message: {
       id: line.id,
       author: { id: line.authorId, name: line.authorName, self: false, bot: false },
@@ -69,7 +69,7 @@ function eventOf(spot: Spot, line: ReturnType<typeof memberLine>) {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
   };
 }
 
@@ -99,7 +99,7 @@ function scene({
     return fake;
   };
   for (const spot of spots)
-    adapterOf(spot.iface).seedConversation(channelOf(spot.place.id, { iface: spot.iface, ...spot.place }));
+    adapterOf(spot.iface).seedChat(channelOf(spot.place.id, { iface: spot.iface, ...spot.place }));
   const reads = new Proxy(
     {},
     {
@@ -177,7 +177,7 @@ function scene({
 }
 
 test('a candidate on a second interface is checked in its own place', async () => {
-  // Bug: `iface()` answers one interface, so the sweep finds no conversation and the owed line is lost.
+  // Bug: `iface()` answers one interface, so the sweep finds no chat and the owed line is lost.
   const run = scene({ spots: [GROUP_A, GROUP_B] });
   await run.missed.start('r1');
   run.failGate(GROUP_B, 'm1');
@@ -215,7 +215,7 @@ test('an owed line on a second interface gets its recovery turn there', async ()
   run.failGate(GROUP_B, 'm1');
   await run.sweep();
   assert.equal(run.turnCalls.length, 1);
-  assert.deepEqual(run.turnCalls[0]?.conversation, { iface: 'beta', conversationId: 'r1' });
+  assert.deepEqual(run.turnCalls[0]?.chat, { iface: 'beta', chatId: 'r1' });
   assert.equal(run.turnCalls[0]?.triggerKind, 'missed');
 });
 

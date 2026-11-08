@@ -2,7 +2,7 @@
 // src/memory/clamp.ts#stripUrls, and every write point of every memory store that
 // runs it (profiles, the private layer, guild notes, lessons and self facts,
 // channel notes, the lorebook, recent notes, the archive, and the owner's ops).
-import { accountOf, placeOfCommunity, placeOfConversation } from '../src/memory/addresses.ts';
+import { accountOf, placeOfRoot, placeOfChat } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -207,14 +207,14 @@ test('private layer: relationship, items, episodes and reasons are stored withou
 
 test('updatePlace: patterns, starters, in-jokes and self facts are stored without links', () => {
   const store = tmpStore();
-  store.updatePlace(placeOfCommunity(store, 'g1'), {
+  store.updatePlace(placeOfRoot(store, 'g1'), {
     patterns: `Μιλούν για μιμίδια ${URL}`,
     starters: `«καλημέρα» ${URL}`,
     injokes: [`ο βράχος ${URL}`, URL],
     self: [`μου αρέσει το τσάι ${URL}`, URL],
   });
-  store.updatePlace(placeOfCommunity(store, 'g1'), { starters: URL });
-  const guild = store.getPlace(placeOfCommunity(store, 'g1'));
+  store.updatePlace(placeOfRoot(store, 'g1'), { starters: URL });
+  const guild = store.getPlace(placeOfRoot(store, 'g1'));
   assert.equal(asRecord(guild).patterns, 'Μιλούν για μιμίδια');
   assert.equal(asRecord(guild).starters, '«καλημέρα»', 'a link alone never blanks the stored notes');
   assert.deepEqual(asRecord(guild).injokes, ['ο βράχος']);
@@ -224,7 +224,7 @@ test('updatePlace: patterns, starters, in-jokes and self facts are stored withou
 test('applyLearnedOps: lessons are stored without links; a link alone adds nothing', () => {
   const store = tmpStore();
   const learned = store.applyLearnedOps(
-    placeOfCommunity(store, 'g1'),
+    placeOfRoot(store, 'g1'),
     { add: [{ text: `το café ανοίγει στις 8 ${URL}` }, URL] },
     { seenAt: 1000 }
   );
@@ -232,19 +232,19 @@ test('applyLearnedOps: lessons are stored without links; a link alone adds nothi
     learned.map((item) => asRecord(item).text),
     ['το café ανοίγει στις 8']
   );
-  noUrl(store.getPlace(placeOfCommunity(store, 'g1')));
+  noUrl(store.getPlace(placeOfRoot(store, 'g1')));
 });
 
 // ---- channel notes ----
 
 test('updateChannel: purpose, topics and tone are stored without links; a link alone writes nothing', () => {
   const store = tmpStore();
-  store.updateChannel(placeOfConversation(store, { id: 'c1' }), {
+  store.updateChannel(placeOfChat(store, { id: 'c1' }), {
     purpose: `Μουσική ${URL}`,
     topics: URL,
     tone: 'χαλαρός',
   });
-  const channel = store.updateChannel(placeOfConversation(store, { id: 'c1' }), { purpose: URL });
+  const channel = store.updateChannel(placeOfChat(store, { id: 'c1' }), { purpose: URL });
   assert.equal(asRecord(channel).purpose, 'Μουσική');
   assert.equal(asRecord(channel).topics ?? '', '');
   assert.equal(asRecord(channel).tone, 'χαλαρός');
@@ -255,7 +255,7 @@ test('updateChannel: purpose, topics and tone are stored without links; a link a
 test('setLore: title, keys and text are stored without links; a text that is only a link is no entry', () => {
   const store = tmpStore();
   const upserted = store.setLore(
-    placeOfCommunity(store, 'g1'),
+    placeOfRoot(store, 'g1'),
     [
       { title: `Ο βράχος ${URL}`, keys: ['βράχος', URL], text: `Ένα αστείο του server ${URL}.` },
       { title: 'Κενό', keys: ['κενό'], text: URL },
@@ -263,7 +263,7 @@ test('setLore: title, keys and text are stored without links; a text that is onl
     { source: 'analyzer', now: 1000 }
   );
   assert.equal(upserted, 1);
-  const [entry] = store.getLore(placeOfCommunity(store, 'g1'));
+  const [entry] = store.getLore(placeOfRoot(store, 'g1'));
   assert.equal(asRecord(entry).title, 'Ο βράχος');
   assert.deepEqual(asRecord(entry).keys, ['βράχος']);
   assert.equal(asRecord(entry).text, 'Ένα αστείο του server.');
@@ -285,7 +285,7 @@ test('applyRecentOps: a recent line is stored without links; one that is only a 
   assert.equal(counts.added, 1);
   assert.equal(counts.invalid, 1);
   assert.deepEqual(
-    store.getRecent(placeOfCommunity(store, 'g1')).lines.map((line) => line.text),
+    store.getRecent(placeOfRoot(store, 'g1')).lines.map((line) => line.text),
     ['Ανέβηκε νέο τραγούδι']
   );
 });
@@ -310,13 +310,13 @@ test('restoreArchived: an item restored from an old archive line comes back with
     stored: { id: 9, firstSeen: '2026-10-01T00:00:00.000Z' },
     weight: 1,
   };
-  const result = store.restoreArchived(placeOfCommunity(store, 'g1'), entry);
+  const result = store.restoreArchived(placeOfRoot(store, 'g1'), entry);
   assert.equal(result.restored, true);
   assert.equal(
     asRecord(store.getUser(accountOf(store, 'u1'))).details.find((d: Untyped) => d.itemId === 'dt-9').text,
     'παίζει πιάνο'
   );
-  const self = store.restoreArchived(placeOfCommunity(store, 'g1'), {
+  const self = store.restoreArchived(placeOfRoot(store, 'g1'), {
     itemKind: 'selfFact',
     itemId: 'sf-1',
     scope: { guild: true },
@@ -351,7 +351,7 @@ function opsEnv(store: ReturnType<typeof tmpStore>) {
     client: {},
     spontaneous: {},
     calibrator: { ratio: 1 },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
   });
 }
 
@@ -362,13 +362,13 @@ test('ops lore.add / learning.add / alias.add: what they store holds no link', a
   await runOp('lore.add', { title: `Ο βράχος ${URL}`, keys: `βράχος, ${URL}`, text: `Το αστείο ${URL}` }, ctx);
   await runOp('learning.add', { text: `το café κλείνει νωρίς ${URL}` }, ctx);
   await runOp('alias.add', { accountId: '7', name: `Λένα ${URL}` }, ctx);
-  const [entry] = store.getLore(placeOfCommunity(store, 'g1'));
+  const [entry] = store.getLore(placeOfRoot(store, 'g1'));
   assert.deepEqual(
     [asRecord(entry).title, asRecord(entry).keys, asRecord(entry).text],
     ['Ο βράχος', ['βράχος'], 'Το αστείο']
   );
   assert.deepEqual(
-    asRecord(store.getPlace(placeOfCommunity(store, 'g1'))).learned.map((item: Untyped) => item.text),
+    asRecord(store.getPlace(placeOfRoot(store, 'g1'))).learned.map((item: Untyped) => item.text),
     ['το café κλείνει νωρίς']
   );
   assert.deepEqual(
@@ -382,5 +382,5 @@ test('ops lore.add: a text that is only a link is refused and stores nothing', a
   const ctx = { env: opsEnv(store), placeId: 'g1', accountId: '42', roleIds: [] };
   const result = await runOp('lore.add', { title: 'Κενό', keys: 'κενό', text: URL }, ctx);
   assert.notEqual(asRecord(result).ok, true);
-  assert.deepEqual(store.getLore(placeOfCommunity(store, 'g1')), []);
+  assert.deepEqual(store.getLore(placeOfRoot(store, 'g1')), []);
 });

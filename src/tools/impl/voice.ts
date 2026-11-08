@@ -2,13 +2,13 @@
 // hers only, no owner command. The pipeline (preparation, synthesis, conversion) is src/speech/;
 // this operation resolves where it goes, runs it, posts one attachment with no text through her
 // interface (`env.port`) and tells her what happened, stage by stage. A reply and a channel
-// resolve as `draw.create` resolves them (src/tools/impl/shared.ts#postingConversation, need `attach`). The voice is
+// resolve as `draw.create` resolves them (src/tools/impl/shared.ts#postingChat, need `attach`). The voice is
 // made on the speech role's route (src/tools/gateway.ts#callOnRoute over `env.roleHealth`): with the role down it is
 // made on the core model when the core declares `audioOut`, else the call answers `ability-unavailable`.
 
 import { SpeechError } from '../../speech/index.ts';
 import { voiceAttachment } from '../../behavior/mirror.ts';
-import { messageRefOf, postingConversation } from './shared.ts';
+import { messageRefOf, postingChat } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { heldPort } from '../send-hold.ts';
@@ -116,11 +116,11 @@ const handlers = perEnv((env) => {
       throw invalid('the message is not in that channel', CODE.UNKNOWN_MESSAGE);
     const target = inChannel ?? reply?.placeId ?? null;
     // Checked before anything is made or paid for.
-    const postTo = await postingConversation({
+    const postTo = await postingChat({
       reads,
       store: env.store,
       iface: port.iface,
-      conversationId: target,
+      chatId: target,
       context,
       need: 'attach',
     });
@@ -138,12 +138,12 @@ const handlers = perEnv((env) => {
 
     // A wake turn's voice message is held for its end (src/tools/send-hold.ts).
     const sent = await heldPort(port, context).send(
-      { iface: port.iface, conversationId: postTo },
+      { iface: port.iface, chatId: postTo },
       {
         attachments: [
           voiceAttachment({ ogg: made.ogg, durationSecs: made.durationSecs, waveform: made.waveform }, Date.now()),
         ],
-        ...(reply ? { replyTo: { iface: port.iface, conversationId: postTo, messageId: reply.messageId } } : {}),
+        ...(reply ? { replyTo: { iface: port.iface, chatId: postTo, messageId: reply.messageId } } : {}),
       }
     );
     if (sent?.status !== 'ok') {

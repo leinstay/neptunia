@@ -1,6 +1,6 @@
 // Tests for scripts/lib/recall-eval.ts: the pure part of scripts/recall-eval.ts (the questions
 // file, hit@k scoring, false confident recalls, the spend stop, the candidate sample) and the
-// offline guild the local stages run against, through the real recall runner with fakes; and
+// offline root the local stages run against, through the real recall runner with fakes; and
 // the `--web` readiness of scripts/recall-eval.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -303,7 +303,7 @@ test('recall-eval: the sample keeps substantive lines of members only, outside t
   }
 });
 
-test('recall-eval: the local guild runs the record stage of the real recall, surfaces its window and searches no Discord', async () => {
+test('recall-eval: the local root runs the record stage of the real recall, surfaces its window and searches no Discord', async () => {
   const record = {
     async *iterate() {
       yield recLine(1, NOW - DAY, 'το κουνέλι κρύφτηκε στον κήπο');
@@ -311,10 +311,10 @@ test('recall-eval: the local guild runs the record stage of the real recall, sur
       yield recLine(3, NOW - DAY + 120_000, 'άσχετο', { placeId: C2 });
     },
   };
-  const guild = localGuild({ placeId: 'g1', selfId: SELF, channelNameOf: (cid) => (cid === C1 ? 'garden' : null) });
-  const channel = asRecord(guild).channels.cache.get(C1);
+  const root = localGuild({ placeId: 'g1', selfId: SELF, channelNameOf: (cid) => (cid === C1 ? 'garden' : null) });
+  const channel = asRecord(root).channels.cache.get(C1);
   assert.equal(channel.name, 'garden');
-  assert.equal(asRecord(guild).channels.cache.get(C2).name, C2);
+  assert.equal(asRecord(root).channels.cache.get(C2).name, C2);
   const traces: Array<Untyped> = [];
   const store = {
     state: { data: {}, markDirty() {} },
@@ -353,7 +353,7 @@ test('recall-eval: the local guild runs the record stage of the real recall, sur
   const { result: out } = await withCapturedLogs(() =>
     recall.run({
       placeId: 'g1',
-      ...localScope({ placeId: 'g1', conversationId: C1, channelNameOf }),
+      ...localScope({ placeId: 'g1', chatId: C1, channelNameOf }),
       selfId: SELF,
       selfName: 'Zoë',
       history: [candidate],
@@ -380,7 +380,7 @@ test('recall-eval: the local guild runs the record stage of the real recall, sur
   assert.deepEqual(
     traces[0].plan.map((p: Untyped) => p.sent),
     [true],
-    'the Discord search was sent to the local guild'
+    'the Discord search was sent to the local root'
   );
   assert.deepEqual([traces[0].hits, traces[0].clusters.length], [0, 0], 'and found nothing');
   const score = scoreQuestion(question({ expected: [id(1)] }), {

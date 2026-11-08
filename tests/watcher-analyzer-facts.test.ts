@@ -94,7 +94,7 @@ function line(
   where: { room: string } | { partner: string },
   self = false
 ): void {
-  const conversation =
+  const chat =
     'room' in where
       ? { id: where.room, kind: 'channel', chatType: 'channel' }
       : { id: `dm-${where.partner}`, kind: 'dm', chatType: 'dm', partnerId: where.partner };
@@ -102,7 +102,7 @@ function line(
     {
       iface: 'synthetic',
       at,
-      conversation,
+      chat,
       message: { id, at, content: 'μια γραμμή', author: { id: self ? 'self-account' : 'member-a', self } },
     },
     { selfId: 'self-account' }

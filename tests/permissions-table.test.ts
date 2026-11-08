@@ -1,4 +1,4 @@
-// The four permission booleans of a conversation as the Discord adapter reports them (`conversationInfo`), against
+// The four permission booleans of a chat as the Discord adapter reports them (`chatInfo`), against
 // the old `canRead`, `canSend`, `canAttach` and `canReact` of interfaces/discord/collect.ts over every branch: a
 // channel without a guild, an unviewable one, no member `me`, no resolved permissions, and each flag alone and together.
 // A false boolean makes the persona go quiet, so each row also names the literal answer.
@@ -146,20 +146,20 @@ function adapterOver(channel: Raw) {
 
 for (const row of ROWS) {
   test(`reports the permissions of ${row.name} as the old checks do`, async () => {
-    const result = await adapterOver(row.channel).conversationInfo({ iface: 'discord', conversationId: 'c1' });
-    if (result.status !== 'ok') throw new Error(`conversationInfo answered ${result.status}`);
+    const result = await adapterOver(row.channel).chatInfo({ iface: 'discord', chatId: 'c1' });
+    if (result.status !== 'ok') throw new Error(`chatInfo answered ${result.status}`);
     const old = {
       read: canRead(row.channel),
       send: canSend(row.channel),
       attach: canAttach(row.channel),
       react: canReact(row.channel),
     };
-    assert.deepEqual(result.conversation.permissions, old);
-    assert.deepEqual(result.conversation.permissions, row.expected);
+    assert.deepEqual(result.chat.permissions, old);
+    assert.deepEqual(result.chat.permissions, row.expected);
   });
 }
 
 test('fails a channel the client does not know instead of reporting permissions', async () => {
-  const result = await adapterOver(directChannel()).conversationInfo({ iface: 'discord', conversationId: 'c404' });
+  const result = await adapterOver(directChannel()).chatInfo({ iface: 'discord', chatId: 'c404' });
   assert.equal(result.status, 'failed');
 });

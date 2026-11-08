@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { ConversationInfo, MessageEvent } from '../src/protocol/adapter.ts';
+import type { ChatInfo, MessageEvent } from '../src/protocol/adapter.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 
-function info(id: string, over: Partial<ConversationInfo> = {}): ConversationInfo {
+function info(id: string, over: Partial<ChatInfo> = {}): ChatInfo {
   return {
     id,
     kind: 'channel',
@@ -30,13 +30,13 @@ function info(id: string, over: Partial<ConversationInfo> = {}): ConversationInf
   };
 }
 
-function eventAt(id: string, at: number, conversationId = 'c1'): MessageEvent {
+function eventAt(id: string, at: number, chatId = 'c1'): MessageEvent {
   return {
     kind: 'message.received',
     iface: 'fake',
     at,
     id: `fake:message:${id}`,
-    conversation: { id: conversationId, kind: 'channel', rootId: 'g1', name: conversationId },
+    chat: { id: chatId, kind: 'channel', rootId: 'g1', name: chatId },
     message: {
       id,
       author: { id: 'u1', name: 'Alice', self: false, bot: false },
@@ -52,15 +52,15 @@ function eventAt(id: string, at: number, conversationId = 'c1'): MessageEvent {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
   };
 }
 
-const REF = { iface: 'fake', conversationId: 'c1' };
+const REF = { iface: 'fake', chatId: 'c1' };
 
 function chat() {
   const fake = createFakeAdapter({ iface: 'fake', selfId: 'self' });
-  fake.seedConversation(info('c1'));
+  fake.seedChat(info('c1'));
   for (const [id, at] of [
     ['m1', 1000],
     ['m2', 2000],
@@ -96,11 +96,11 @@ test('history reads before, after and around a message and since a time', async 
   assert.deepEqual(await ids(fake.history(REF, { limit: 10, since: 3500 })), ['m4', 'm5']);
 });
 
-test('history fails for a message it does not hold as an anchor and for a conversation it does not know', async () => {
+test('history fails for a message it does not hold as an anchor and for a chat it does not know', async () => {
   const fake = chat();
   const lost = await fake.history(REF, { limit: 2, before: 'nope' });
   assert.equal(lost.status, 'failed');
-  const unknown = await fake.history({ iface: 'fake', conversationId: 'c9' }, { limit: 2 });
+  const unknown = await fake.history({ iface: 'fake', chatId: 'c9' }, { limit: 2 });
   assert.equal(unknown.status === 'failed' && unknown.error.code, 'unknown-conversation');
 });
 
@@ -113,22 +113,22 @@ test('a read answers a queued failure in place of the answer and the next one as
 });
 
 test('a read the fake does not declare answers unsupported and a malformed one fails as an invalid action', async () => {
-  const fake = createFakeAdapter({ iface: 'fake', selfId: 'self', reads: ['conversation.info'] });
-  fake.seedConversation(info('c1'));
+  const fake = createFakeAdapter({ iface: 'fake', selfId: 'self', reads: ['chat.info'] });
+  fake.seedChat(info('c1'));
   assert.equal((await fake.history(REF, { limit: 1 })).status, 'unsupported');
-  assert.equal((await fake.conversationInfo(REF)).status, 'ok');
-  const malformed = await fake.conversationInfo({ iface: 'fake', conversationId: '' });
+  assert.equal((await fake.chatInfo(REF)).status, 'ok');
+  const malformed = await fake.chatInfo({ iface: 'fake', chatId: '' });
   assert.equal(malformed.status, 'failed');
 });
 
-test('conversationInfo gives the audience and the viewers only when asked for them', async () => {
+test('chatInfo gives the audience and the viewers only when asked for them', async () => {
   const fake = createFakeAdapter({ iface: 'fake', selfId: 'self' });
-  fake.seedConversation(info('c1', { viewers: { u1: false } }));
-  const bare = await fake.conversationInfo(REF);
-  assert.equal(bare.status === 'ok' && bare.conversation.audience, undefined);
-  const asked = await fake.conversationInfo(REF, { audience: true, viewers: ['u1', 'u2'] });
-  assert.equal(asked.status === 'ok' && asked.conversation.audience?.everyone, true);
-  assert.deepEqual(asked.status === 'ok' && asked.conversation.viewers, { u1: false, u2: true });
+  fake.seedChat(info('c1', { viewers: { u1: false } }));
+  const bare = await fake.chatInfo(REF);
+  assert.equal(bare.status === 'ok' && bare.chat.audience, undefined);
+  const asked = await fake.chatInfo(REF, { audience: true, viewers: ['u1', 'u2'] });
+  assert.equal(asked.status === 'ok' && asked.chat.audience?.everyone, true);
+  assert.deepEqual(asked.status === 'ok' && asked.chat.viewers, { u1: false, u2: true });
 });
 
 test('the persona own sends stay out of the history unless the fake is told to show them', async () => {

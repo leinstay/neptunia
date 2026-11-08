@@ -5,7 +5,7 @@
 // cannot reconcile, leaves the send `unknown`.
 // TODO(core extraction stage 4, PR B): the journal's reconciliation of her unknown sends calls it.
 
-import type { Adapter, ConversationRef, Delivery, MessageRef } from '../protocol/adapter.ts';
+import type { Adapter, ChatRef, Delivery, MessageRef } from '../protocol/adapter.ts';
 
 const outcome = (
   status: Delivery['status'],
@@ -23,17 +23,17 @@ const outcome = (
 
 export async function reconcileUnknown(
   adapter: Pick<Adapter, 'capabilities' | 'fetchMessages'>,
-  options: { conversation: ConversationRef; idempotencyKey: string }
+  options: { chat: ChatRef; idempotencyKey: string }
 ): Promise<Delivery> {
-  const { conversation, idempotencyKey } = options;
+  const { chat, idempotencyKey } = options;
   if (adapter.capabilities().reconcile !== true) return outcome('unknown', idempotencyKey, 'not-reconcilable');
-  const found = await adapter.fetchMessages(conversation, [], { idempotencyKey });
+  const found = await adapter.fetchMessages(chat, [], { idempotencyKey });
   if (found.status !== 'ok') return outcome('unknown', idempotencyKey, found.error.code);
   const parts = found.messages
     .filter((message) => message.missing !== true)
     .map((message) => ({
-      iface: conversation.iface,
-      conversationId: conversation.conversationId,
+      iface: chat.iface,
+      chatId: chat.chatId,
       messageId: message.messageId,
     }));
   if (parts.length === 0) return outcome('failed', idempotencyKey, 'not-sent');

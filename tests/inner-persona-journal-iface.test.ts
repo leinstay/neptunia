@@ -10,8 +10,7 @@ import { wrongly } from './fixtures/loose-types.ts';
 
 /** A store whose DM place is `<iface>:dm:<partner>`; an absent interface is the home interface, `discord`. */
 const store = {
-  placeOfConversation: (conversation: { kind?: string; partnerId?: string }, iface = 'discord') =>
-    `${iface}:dm:${conversation.partnerId}`,
+  placeOfChat: (chat: { kind?: string; partnerId?: string }, iface = 'discord') => `${iface}:dm:${chat.partnerId}`,
 };
 
 function journalHolding(place: string) {

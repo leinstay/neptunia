@@ -75,7 +75,7 @@ function rig(memoryClosed = false): Rig {
     memoryDb: { database: () => (memoryClosed ? null : dbOf(reader)) },
     usage: null,
     metrics: { samples: () => [] },
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => 0,
   });
   return {

@@ -1,5 +1,5 @@
 // Tests for the inbound event kinds added in stage 2 PR 4 (src/protocol/events.ts, validate.js):
-// presence.changed, presence.snapshot, conversation.changed and connection.changed, and the optional
+// presence.changed, presence.snapshot, chat.changed and connection.changed, and the optional
 // fields added to voice.changed, Author and membership.changed.member. Everything is checked through
 // the public validateEvent and EVENT_KINDS.
 import { test } from 'node:test';
@@ -8,7 +8,7 @@ import { CORE_KINDS, EVENT_KINDS, validateEvent } from '../src/protocol/index.ts
 
 type Json = Record<string, unknown>;
 
-const conversation = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general', topic: null, category: null };
+const chat = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general', topic: null, category: null };
 
 const activity = { kind: 'playing', name: 'Chess', details: 'Endgame', state: 'Winning' };
 
@@ -23,7 +23,7 @@ const voice = {
   placeId: 'g1',
   accountId: 'u1',
   name: 'Eleni',
-  conversationId: 'v1',
+  chatId: 'v1',
   previousId: null,
   muted: false,
   deafened: false,
@@ -48,12 +48,12 @@ const presenceSnapshot: Json = {
   presence: [presence],
 };
 
-const conversationChanged: Json = {
-  kind: 'conversation.changed',
+const chatChanged: Json = {
+  kind: 'chat.changed',
   iface: 'discord',
   at: 1000,
-  id: 'discord:conversation:c1:created:1000',
-  conversation,
+  id: 'discord:chat:c1:created:1000',
+  chat,
   change: 'created',
 };
 
@@ -77,7 +77,7 @@ test('lists the four new kinds after the existing eight, and sends none of them 
   assert.deepEqual([...EVENT_KINDS].slice(8), [
     'presence.changed',
     'presence.snapshot',
-    'conversation.changed',
+    'chat.changed',
     'connection.changed',
   ]);
   assert.deepEqual([...CORE_KINDS], ['scheduler.tick', 'errand.done', 'inner.wake']);
@@ -174,25 +174,22 @@ test('refuses a snapshot voice entry missing its user, with its index', () => {
   );
 });
 
-test('accepts a conversation.changed event for each change', () => {
+test('accepts a chat.changed event for each change', () => {
   for (const change of ['created', 'updated', 'deleted'])
-    assert.deepEqual(validateEvent({ ...conversationChanged, change }), { ok: true }, change);
+    assert.deepEqual(validateEvent({ ...chatChanged, change }), { ok: true }, change);
 });
 
-test('refuses a conversation.changed event missing a required field, naming the field', () => {
-  for (const key of ['iface', 'id', 'conversation', 'change'])
-    assert.deepEqual(validateEvent(without(conversationChanged, key)), refusal(`${key}:required`), key);
+test('refuses a chat.changed event missing a required field, naming the field', () => {
+  for (const key of ['iface', 'id', 'chat', 'change'])
+    assert.deepEqual(validateEvent(without(chatChanged, key)), refusal(`${key}:required`), key);
 });
 
-test('refuses a conversation.changed event with an unknown change', () => {
-  assert.deepEqual(validateEvent({ ...conversationChanged, change: 'archived' }), refusal('change:unknown'));
+test('refuses a chat.changed event with an unknown change', () => {
+  assert.deepEqual(validateEvent({ ...chatChanged, change: 'archived' }), refusal('change:unknown'));
 });
 
-test('checks the conversation of a conversation.changed event like any other conversation', () => {
-  assert.deepEqual(
-    validateEvent({ ...conversationChanged, conversation: { ...conversation, kind: 'forum' } }),
-    refusal('conversation.kind:unknown')
-  );
+test('checks the chat of a chat.changed event like any other chat', () => {
+  assert.deepEqual(validateEvent({ ...chatChanged, chat: { ...chat, kind: 'forum' } }), refusal('chat.kind:unknown'));
 });
 
 test('accepts a connection.changed event for each state', () => {
@@ -222,7 +219,7 @@ const voiceChanged: Json = {
   id: 'discord:voice:g1:u1:1000',
   placeId: 'g1',
   accountId: 'u1',
-  conversationId: 'v1',
+  chatId: 'v1',
   previousId: null,
 };
 
@@ -245,7 +242,7 @@ function messageWithAuthor(extra: Json): Json {
     iface: 'discord',
     at: 1000,
     id: 'discord:message:m1',
-    conversation,
+    chat,
     message: {
       id: 'm1',
       author: { ...author, ...extra },
@@ -261,7 +258,7 @@ function messageWithAuthor(extra: Json): Json {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
   };
 }
 

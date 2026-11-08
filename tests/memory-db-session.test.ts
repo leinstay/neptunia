@@ -583,7 +583,7 @@ test('a scope with too few lines waits; lines still settling are left; a deleted
   }
 });
 
-test('private conversations are scopes of their own: one request each, the partner only, its cursor apart from the group', async () => {
+test('private chats are scopes of their own: one request each, the partner only, its cursor apart from the group', async () => {
   const env = fixture();
   try {
     chat(env);

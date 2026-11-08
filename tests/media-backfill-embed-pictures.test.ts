@@ -13,7 +13,7 @@ import type { Env } from './fixtures/media-memory.ts';
 import type { HistoryQuery } from '../src/protocol/adapter.ts';
 import type { Row } from '../src/memory/db/types.ts';
 
-const CONVERSATION = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' };
+const CHAT = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' };
 const POSTED = 'https://tenor.example.invalid/view/spinning-cat';
 const SPUN = 'a grey cat spinning on a kitchen table';
 
@@ -51,7 +51,7 @@ function unfurledEvent(native: string): Row {
   return {
     iface: 'discord',
     at: AT,
-    conversation: CONVERSATION,
+    chat: CHAT,
     message: {
       id: native,
       at: AT,
@@ -64,12 +64,12 @@ function unfurledEvent(native: string): Row {
   };
 }
 
-/** An interface whose history of each conversation is `events`, whatever the query; it notes each read. */
+/** An interface whose history of each chat is `events`, whatever the query; it notes each read. */
 function fakeInterface(events: Array<Row>) {
-  const reads: Array<{ conversationId: string; query: HistoryQuery }> = [];
-  const read = (conversationId: string, query: HistoryQuery) => {
-    reads.push({ conversationId, query });
-    const page = events.filter((event) => (event.conversation as Row).id === conversationId);
+  const reads: Array<{ chatId: string; query: HistoryQuery }> = [];
+  const read = (chatId: string, query: HistoryQuery) => {
+    reads.push({ chatId, query });
+    const page = events.filter((event) => (event.chat as Row).id === chatId);
     return Promise.resolve({ status: 'ok' as const, events: page, complete: true });
   };
   return { read, reads };

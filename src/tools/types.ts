@@ -111,8 +111,8 @@ export type OpContext = {
   env: Env;
   /**
    * The place the operation runs in: a channel, a thread, a group or a DM, or a server for an operation of a whole
-   * server. A shared collection is read under its top (`env.resolvedPlaceId`), a post goes to its native conversation
-   * (`env.conversationOf`).
+   * server. A shared collection is read under its top (`env.resolvedPlaceId`), a post goes to its native chat
+   * (`env.chatOf`).
    */
   placeId?: string | null;
   accountId?: string | null;
@@ -122,7 +122,7 @@ export type OpContext = {
   /** The owner's console: set by the command desk for the `cli` principal alone, it passes as an owner whatever
    * `bot.owners` says (src/tools/impl/grants.ts#isOwnerCaller). */
   asOwner?: boolean;
-  privateChat?: boolean;
+  dmChat?: boolean;
   mentionAccountIds?: ReadonlyArray<string>;
   ownInitiative?: boolean;
   wakeKind?: string;

@@ -1,22 +1,22 @@
 // The recall runner (src/behavior/recall-run.ts) over the interface's reads. A search is `searchMessages` with the
-// community and a neutral query (text, author, a time range as `after` and `before` in ms); a hit is neutral too (a
+// root and a neutral query (text, author, a time range as `after` and `before` in ms); a hit is neutral too (a
 // reference, a time, a text and its author). The windows around the hits are `history` reads, anchored `around` a
-// message and followed `after` the last line; a member name is `searchMembers`. Which conversations a hit may come
+// message and followed `after` the last line; a member name is `searchMembers`. Which chats a hit may come
 // from is decided by the core's pull rail over the turn's snapshot (src/behavior/snapshot.ts), toward the turn's
-// conversation or, in a private chat, toward its partner (`partnerId`). Nothing here knows a snowflake or a platform
+// chat or, in a private chat, toward its partner (`partnerId`). Nothing here knows a snowflake or a platform
 // object. The interface is the fake adapter; the model, the store and the clock are fakes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ConversationInfo } from '../src/protocol/adapter.ts';
+import type { ChatInfo } from '../src/protocol/adapter.ts';
 import type { Reads } from '../src/interface/reads.ts';
 import { takeSnapshot } from '../src/behavior/snapshot.ts';
 import type { Snapshot } from '../src/behavior/snapshot.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { labels } from './fixtures/labels.ts';
-import { COMMUNITY, SELF_ID, channel, member, message, privateChannel, rig } from './fixtures/reads-rig.ts';
+import { ROOT, SELF_ID, channel, member, message, privateChannel, rig } from './fixtures/reads-rig.ts';
 import { createRecall } from '../src/behavior/recall-run.ts';
 import * as recall from '../src/behavior/recall.ts';
 import { searchPlan } from '../src/behavior/recall.ts';
@@ -33,7 +33,7 @@ type Line = {
 type Server = { forms: Array<string>; who: Array<string>; from: number | null; to: number | null };
 type RunArgs = {
   placeId: string;
-  channel: ConversationInfo;
+  channel: ChatInfo;
   partnerId: string | null;
   snapshot: Snapshot | null;
   selfId: string;
@@ -42,9 +42,12 @@ type RunArgs = {
   candidate: Line;
   server: Server;
 };
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // PR 7c: the shipped settings live in config/config.json.
-const SHIPPED = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8')) as Record<string, object>;
+const SHIPPED = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'config', 'config.json'), 'utf8')) as Record<
+  string,
+  object
+>;
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
@@ -79,8 +82,8 @@ const RECALL = {
 type Scene = { reads?: ReadonlyArray<string>; profiles?: Array<object>; botIds?: Array<string> };
 
 /**
- * A community with #general (c1, the turn's), #garden (c2) and #private (c4, only member u9 views it), the rabbit
- * conversation seeded in them, and a recall runner over the fake's reads.
+ * A root with #general (c1, the turn's), #garden (c2) and #private (c4, only member u9 views it), the rabbit
+ * chat seeded in them, and a recall runner over the fake's reads.
  */
 async function scene(options: Scene = {}) {
   const world = rig(options.reads === undefined ? {} : { reads: options.reads });
@@ -88,11 +91,11 @@ async function scene(options: Scene = {}) {
   const general = channel('c1', { name: 'general' });
   const garden = channel('c2', { name: 'garden' });
   const secret = privateChannel('c4', ['u9']);
-  for (const info of [general, garden, secret]) fake.seedConversation(info);
-  fake.seedMember(COMMUNITY, member('u1', 'Ana'));
-  fake.seedMember(COMMUNITY, member('u2', 'Βασίλης'));
-  fake.seedMember(COMMUNITY, member('u3', 'Éloïse'));
-  fake.seedMember(COMMUNITY, member('bot1', 'Birthdays', { bot: true }));
+  for (const info of [general, garden, secret]) fake.seedChat(info);
+  fake.seedMember(ROOT, member('u1', 'Ana'));
+  fake.seedMember(ROOT, member('u2', 'Βασίλης'));
+  fake.seedMember(ROOT, member('u3', 'Éloïse'));
+  fake.seedMember(ROOT, member('bot1', 'Birthdays', { bot: true }));
   fake.seedEvent(message(general, 'r0', RABBIT - 6 * MINUTE, 'πάμε κυνήγι', { authorId: 'u2', authorName: 'Βασίλης' }));
   fake.seedEvent(message(general, 'r2', RABBIT, 'το κουνέλι πέθανε', { authorId: 'u2', authorName: 'Βασίλης' }));
   fake.seedEvent(
@@ -148,7 +151,7 @@ async function scene(options: Scene = {}) {
     describer: null,
     now: () => NOW,
   });
-  const snapshot = await takeSnapshot(reads, COMMUNITY, ['u5']);
+  const snapshot = await takeSnapshot(reads, ROOT, ['u5']);
   const history: Array<Line> = [
     {
       id: 'h1',
@@ -170,7 +173,7 @@ async function scene(options: Scene = {}) {
     },
   ];
   const args: RunArgs = {
-    placeId: COMMUNITY,
+    placeId: ROOT,
     channel: general,
     partnerId: null,
     snapshot,
@@ -185,24 +188,24 @@ async function scene(options: Scene = {}) {
     fake.calls
       .filter((call) => call.op === 'searchMessages')
       .map((call) => call.args as [object, Record<string, unknown>]);
-  const windows = (): Array<{ conversationId: string; around?: string; after?: string; limit?: number }> =>
+  const windows = (): Array<{ chatId: string; around?: string; after?: string; limit?: number }> =>
     fake.calls
       .filter((call) => call.op === 'history')
       .map((call) => ({
-        ...(call.args[0] as { conversationId: string }),
+        ...(call.args[0] as { chatId: string }),
         ...(call.args[1] as { around?: string; after?: string; limit?: number }),
       }));
   return { ...world, fake, args, run, searches, windows, prompts, snapshot };
 }
 
-test('searches each form over the whole community, one after another and in order', async () => {
+test('searches each form over the whole root, one after another and in order', async () => {
   const s = await scene();
   await s.run();
   assert.deepEqual(
     s.searches().map(([scope, query]) => [scope, query.text]),
     [
-      [{ placeId: COMMUNITY }, 'κουνέλι'],
-      [{ placeId: COMMUNITY }, 'κουνελιού'],
+      [{ placeId: ROOT }, 'κουνέλι'],
+      [{ placeId: ROOT }, 'κουνελιού'],
     ]
   );
   assert.equal(
@@ -212,14 +215,14 @@ test('searches each form over the whole community, one after another and in orde
   );
 });
 
-test('reads a window around the hits of each conversation, follows it, and the summary names the stretch', async () => {
+test('reads a window around the hits of each chat, follows it, and the summary names the stretch', async () => {
   const s = await scene();
   const { result } = await s.run();
   assert.equal(result.text, 'Ana did it on October 1.');
   assert.equal(result.stretch?.placeId, 'c1');
   assert.equal(result.stretch?.channelName, 'general');
   const around = s.windows().filter((read) => read.around !== undefined);
-  assert.deepEqual(around.map((read) => read.conversationId).sort(), ['c1', 'c2']);
+  assert.deepEqual(around.map((read) => read.chatId).sort(), ['c1', 'c2']);
   assert.equal(
     around.every((read) => read.limit === RECALL.windowMessages),
     true
@@ -229,9 +232,9 @@ test('reads a window around the hits of each conversation, follows it, and the s
   assert.equal(s.prompts.length, 1);
 });
 
-test("leaves out a conversation the audience rail refuses, an automated author and keeps the persona's own line", async () => {
+test("leaves out a chat the audience rail refuses, an automated author and keeps the persona's own line", async () => {
   const s = await scene();
-  s.fake.seedMember(COMMUNITY, member(SELF_ID, 'Zoë'));
+  s.fake.seedMember(ROOT, member(SELF_ID, 'Zoë'));
   s.fake.seedEvent(
     message(channel('c1', { name: 'general' }), 'r5', RABBIT + 5 * MINUTE, 'κουνέλι, αντίο', {
       authorId: SELF_ID,
@@ -240,7 +243,7 @@ test("leaves out a conversation the audience rail refuses, an automated author a
   );
   await s.run({ server: { ...RABBIT_SERVER, forms: ['κουνέλι'] } });
   assert.equal(
-    s.windows().some((read) => read.conversationId === 'c4'),
+    s.windows().some((read) => read.chatId === 'c4'),
     false
   );
   const user = s.prompts[0]?.[1]?.content ?? '';
@@ -265,7 +268,7 @@ test("drops the hits that are lines of the turn's own chat before reading window
 
 test('finds a person by a Latin name form through the member search and then searches their messages', async () => {
   const s = await scene();
-  s.fake.seedMember(COMMUNITY, member('u7', 'Kitezu'));
+  s.fake.seedMember(ROOT, member('u7', 'Kitezu'));
   s.fake.seedEvent(
     message(channel('c1', { name: 'general' }), 'k1', RABBIT - 300 * HOUR, 'γεια', {
       authorId: 'u7',
@@ -275,7 +278,7 @@ test('finds a person by a Latin name form through the member search and then sea
   const { result } = await s.run({ server: { forms: [], who: ['kitezu'], from: null, to: null } });
   assert.deepEqual(
     s.fake.calls.filter((call) => call.op === 'searchMembers').map((call) => call.args),
-    [[{ placeId: COMMUNITY }, { prefix: 'kitezu', limit: RECALL.maxPeople }]]
+    [[{ placeId: ROOT }, { prefix: 'kitezu', limit: RECALL.maxPeople }]]
   );
   assert.deepEqual(
     s.searches().map(([, query]) => query.text ?? query.authorId),
@@ -320,29 +323,29 @@ test('searches nothing in a private chat that has no partner', async () => {
   assert.deepEqual(s.searches(), []);
 });
 
-test('in a private chat searches the community and keeps only what the partner can view', async () => {
+test('in a private chat searches the root and keeps only what the partner can view', async () => {
   const s = await scene();
-  s.fake.seedConversation(
+  s.fake.seedChat(
     channel('c4', { public: false, viewers: { u5: false }, audience: privateChannel('c4', ['u9']).audience ?? null })
   );
   const dm = channel('dm1', { kind: 'dm', rootId: null, chatType: 'dm', partnerId: 'u5', audience: null });
-  const snapshot = await takeSnapshot(s.reads, COMMUNITY, ['u5']);
+  const snapshot = await takeSnapshot(s.reads, ROOT, ['u5']);
   await s.run({ channel: dm, partnerId: 'u5', snapshot });
   assert.equal(s.searches().length > 0, true);
-  const read = new Set(s.windows().map((window) => window.conversationId));
+  const read = new Set(s.windows().map((window) => window.chatId));
   assert.equal(read.has('c2'), true);
   assert.equal(read.has('c4'), false);
 });
 
 test('returns nothing, and asks the model nothing, when the interface cannot search', async () => {
-  const s = await scene({ reads: ['conversation.info', 'conversations.list', 'messages.history'] });
+  const s = await scene({ reads: ['chat.info', 'chats.list', 'messages.history'] });
   const { result } = await s.run();
   assert.deepEqual([result.text, result.stretch], [null, null]);
   assert.equal(s.prompts.length, 0);
 });
 
 test('returns nothing when hits are found but the interface cannot read their windows', async () => {
-  const s = await scene({ reads: ['conversation.info', 'conversations.list', 'messages.search'] });
+  const s = await scene({ reads: ['chat.info', 'chats.list', 'messages.search'] });
   const { result } = await s.run();
   assert.deepEqual([result.text, result.stretch], [null, null]);
 });

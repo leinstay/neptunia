@@ -2,7 +2,7 @@
 // an addressed turn keeps for her next request, the end hook and the idle notifications. createTurnRunner (src/behavior/turn.ts) builds it once per runner with createOutcome over its attempt
 // (runTurnOnce); the runner's facade hands out runTurn and the chain and idle functions.
 
-import type { Conversation } from '../protocol/events.ts';
+import type { Chat } from '../protocol/events.ts';
 import type { PublicationBoundary } from '../tools/publication.ts';
 import type { Context } from '../memory/db/scope.ts';
 import type { FactInput } from '../behavior/inner.ts';
@@ -10,16 +10,16 @@ import { currentRequestMeta, turnOutcome, turnService, withRequestMeta } from '.
 import { withIface } from '../memory/db/current-iface.ts';
 import { errorCodeOf } from '../llm/openrouter.ts';
 import { log } from '../log.ts';
-import type { ConversationRef } from '../protocol/adapter.ts';
+import type { ChatRef } from '../protocol/adapter.ts';
 import type { Facts } from './facts.ts';
 import { untoldDiagnostics } from './journal.ts';
 import type { JournalNotes } from './journal-notes.ts';
-import { inCommunity } from './routing.ts';
+import { inRoot } from './routing.ts';
 import { askedFor } from './triggers.ts';
 import type { TriggerKind } from './triggers.ts';
 
-/** The conversation a turn ran in, as the interface described it: its id, and whether it is in a community. */
-type EndChannel = Pick<Conversation, 'id' | 'rootId'>;
+/** The chat a turn ran in, as the interface described it: its id, and whether it is in a root. */
+type EndChannel = Pick<Chat, 'id' | 'rootId'>;
 
 /** The trigger of a turn, as its end reads it; the attempt reads the rest. */
 type EndTrigger = {
@@ -39,15 +39,15 @@ export type TurnParams = {
   memoryContext?: Context;
   /** A restriction inherited from deferred work: the turn may publish only to its origin. */
   publicationBoundary?: PublicationBoundary;
-  /** The conversation of the turn; null or absent for a turn that runs nowhere (a service, a selfreflection post). */
-  conversation?: ConversationRef | null;
+  /** The chat of the turn; null or absent for a turn that runs nowhere (a service, a selfreflection post). */
+  chat?: ChatRef | null;
   placeId?: string | null;
   mode?: TurnMode | null;
   trigger?: EndTrigger;
   triggerKind?: TriggerKind | null;
   source?: unknown;
   added?: ReadonlyArray<unknown> | null;
-  /** No turn is forced: she starts a conversation through her own `message.create`. */
+  /** No turn is forced: she starts a chat through her own `message.create`. */
   forced?: never;
   [key: string]: unknown;
 };
@@ -75,8 +75,8 @@ type Ends = {
 /** How a turn ended, as the end hook hears it (src/behavior/missed.ts). */
 export type TurnEnd = {
   iface?: string;
-  conversationId: string | null;
-  privateChat: boolean;
+  chatId: string | null;
+  dmChat: boolean;
   routed: boolean;
   mode: string | null;
   trigger: {
@@ -170,11 +170,11 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
 
   /**
    * @param {object} params
-   * @param {import('../protocol/adapter.ts').ConversationRef|null} [params.conversation]  null for a turn that runs
+   * @param {import('../protocol/adapter.ts').ChatRef|null} [params.chat]  null for a turn that runs
    *   nowhere (a service, an intention without a place, a selfreflection post, for which absent means null too): no
    *   history, the journal's turn under herself, a tool that takes a place needs it named
    * @param {{ turnId: string, attemptId?: number }|null} [params.journalTurn]  The journal's turn and attempt (runTurn passes them on).
-   * @param {string} [params.placeId]  The community of a private chat; a server channel uses its own; a private chat with neither has none.
+   * @param {string} [params.placeId]  The root of a private chat; a server channel uses its own; a private chat with neither has none.
    * @param {'reply'|'interject'|'selfreflection'|'inner'} params.mode  'inner' is an inner turn
    *   (with `params.inner`).
    * @param {{ wake: import('./inner/types.ts').TurnWake, shadow: boolean, mayAct?: () => boolean, currentChannel?: string|null }|null} [params.inner]  An inner turn (src/behavior/inner.ts,
@@ -268,8 +268,8 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    *   one but a routed turn's own call, which the caller stamps by this outcome.
    */
   function runTurn(params: TurnParams): Promise<TurnResult> {
-    // A turn taken from a queue runs under the interface of its own conversation, whatever event woke the queue.
-    return withIface(params?.conversation?.iface, () =>
+    // A turn taken from a queue runs under the interface of its own chat, whatever event woke the queue.
+    return withIface(params?.chat?.iface, () =>
       withRequestMeta(() => {
         const wake = (params?.inner as { wake?: { kind?: unknown } } | undefined)?.wake;
         Object.assign(currentRequestMeta() ?? {}, { service: turnService(params?.mode, wake?.kind) });
@@ -283,8 +283,8 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
     const attempts: Array<unknown> = [];
     // What every attempt posted in reply to and why it ended (runTurnOnce), for the end hook.
     const ends: Ends = { replyTargets: [], reasons: [], factsShown: null, info: null };
-    // A selfreflection post is nowhere: one called with no conversation rides in none.
-    const nowhere = params?.mode === 'selfreflection' && !params.conversation ? { conversation: null } : {};
+    // A selfreflection post is nowhere: one called with no chat rides in none.
+    const nowhere = params?.mode === 'selfreflection' && !params.chat ? { chat: null } : {};
     const tracked = { ...params, ...nowhere, journalAttempts: attempts, turnEnds: ends };
     let result: TurnResult | undefined;
     let thrown: unknown = null;
@@ -317,7 +317,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
       const { trigger = null, triggerKind = null, mode = null } = params ?? {};
       const channel = ends.info;
       if (!channel || mode !== 'reply' || !askedFor(trigger, triggerKind) || !trigger?.id) return;
-      const scope = { placeId: String(channel.id), privateChat: !inCommunity(channel) };
+      const scope = { placeId: String(channel.id), dmChat: !inRoot(channel) };
       const at = clock();
       const outcome = result?.outcome ?? 'error';
       if (outcome !== 'error' && outcome !== 'busy' && outcome !== 'paused' && outcome !== 'cancelled') {
@@ -343,7 +343,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
   }
 
   /**
-   * What an addressed turn lost, as facts for her next request in the conversation: a message that did
+   * What an addressed turn lost, as facts for her next request in the chat: a message that did
    * not go out (`sendFailed`), calls the loop dropped (`loopCut`) and failed calls she never read the
    * result of (`callFailed`). Never throws.
    */
@@ -366,8 +366,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
         entries.push({ kind: 'diagnostic', diagnostic: kind, ...rest });
       if (entries.length === 0) return;
       const at = clock();
-      for (const entry of entries)
-        facts().add({ ...entry, placeId: String(channel.id), privateChat: !inCommunity(channel), at });
+      for (const entry of entries) facts().add({ ...entry, placeId: String(channel.id), dmChat: !inRoot(channel), at });
     } catch (err) {
       log.warn('turn: facts not kept', { error: err });
     }
@@ -385,7 +384,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
     if (typeof onTurnEnd !== 'function') return;
     const { trigger = null, triggerKind = null, mode = null, source = null } = params ?? {};
     const channel = ends.info;
-    const placeId = channel?.id ?? params?.conversation?.conversationId ?? null;
+    const placeId = channel?.id ?? params?.chat?.chatId ?? null;
     const outcome = result?.outcome ?? 'error';
     const reason =
       typeof result?.reason === 'string'
@@ -394,9 +393,9 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
           ? 'too-slow'
           : null;
     const end: TurnEnd = {
-      iface: params?.conversation?.iface,
-      conversationId: placeId,
-      privateChat: channel ? !inCommunity(channel) : false,
+      iface: params?.chat?.iface,
+      chatId: placeId,
+      dmChat: channel ? !inRoot(channel) : false,
       routed: Boolean(source),
       mode,
       trigger: trigger
@@ -449,9 +448,9 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
    */
   async function runChain(params: TurnParams, { parts, history }: TurnResult): Promise<TurnResult> {
     const { trigger } = params;
-    // A message that split holds its parts, and its turn its conversation.
+    // A message that split holds its parts, and its turn its chat.
     const allParts = parts as Array<string>;
-    const channel = { id: (params.conversation as ConversationRef).conversationId };
+    const channel = { id: (params.chat as ChatRef).chatId };
     const total = allParts.length;
     const chain: Chain = {
       memoryContext: params.memoryContext,

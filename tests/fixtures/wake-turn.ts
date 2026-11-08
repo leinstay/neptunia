@@ -195,7 +195,7 @@ export async function wakeTurn({
     hot,
     store,
     client: { user: { id: 'self-id', username: 'Bot' } },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     port,
     reads,
     intentions,

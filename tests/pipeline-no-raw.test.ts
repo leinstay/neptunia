@@ -13,7 +13,7 @@ const TENOR = 'https://tenor.com/view/dancing-cat-123';
 const GIF = { id: 'm5#e0', kind: 'gif', url: TENOR, site: 'tenor', title: 'dancing cat' };
 
 function seed(fake: Fake): void {
-  fake.seedConversation(channelInfo('c1', { name: 'general' }));
+  fake.seedChat(channelInfo('c1', { name: 'general' }));
 }
 
 /** The edit event of message `m5`: a bare link as written, then the same message with the gif Discord attached. */
@@ -93,7 +93,7 @@ test('asks the adapter for the whole message of a partial edit', async () => {
       return rig.fake.calls.filter((call) => call.op === 'fetchMessages').map((call) => call.args);
     }
   );
-  assert.deepEqual(result, [[{ iface: 'fake', conversationId: 'c1' }, ['m5']]]);
+  assert.deepEqual(result, [[{ iface: 'fake', chatId: 'c1' }, ['m5']]]);
 });
 
 test('dates a deletion by the time of the message and not by the time of the deletion', async () => {

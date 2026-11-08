@@ -37,7 +37,7 @@ export const dmPlaceId = (iface: unknown, nativeId: unknown): string => `${text(
 const PLACE_ID_RE = /^([a-z][\w-]*):(channel|dm|thread):(.+)$/;
 
 /**
- * The interface, the kind and the native id of a spelled conversation place (`<iface>:channel:<id>`,
+ * The interface, the kind and the native id of a spelled chat place (`<iface>:channel:<id>`,
  * `<iface>:dm:<partner>`, `<iface>:thread:<id>`), null for any other shape: a root, a hashed id, a bare id.
  */
 export function placeIdParts(id: string): { iface: string; kind: 'channel' | 'dm' | 'thread'; native: string } | null {

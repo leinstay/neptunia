@@ -208,12 +208,12 @@ export type UpdatePatch = {
   turnId?: string | null;
   by?: string;
   /** Where the caller is: a private chat's own intentions only there, or every one with `all`. */
-  privateChannelId?: string | null;
+  dmChatId?: string | null;
   all?: boolean;
 };
 
 /** Who may see a record: where the caller is. */
-export type Where = { privateChannelId?: string | null; all?: boolean };
+export type Where = { dmChatId?: string | null; all?: boolean };
 
 /** The counts of a reconciliation. */
 export type ReconcileCounts = { arrived: number; missing: number; deadline: number; expired: number };
@@ -224,7 +224,7 @@ export type IntentionService = {
   update: (id: unknown, patch?: UpdatePatch) => Moved;
   cancel: (id: unknown, options?: { by?: string } & Where) => Moved;
   list: (options?: { closed?: boolean } & Where) => Array<Intention>;
-  view: (options?: { privateChannelId?: string | null }) => Array<Intention>;
+  view: (options?: { dmChatId?: string | null }) => Array<Intention>;
   linkTurnErrand: (link: { turnId: unknown; errandId: unknown }) => number;
   onErrandFinished: (errand: ErrandRecord) => number;
   reconcile: () => ReconcileCounts;

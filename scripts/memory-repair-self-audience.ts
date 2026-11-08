@@ -24,7 +24,7 @@ type Move = { id: string; to: 'group' | 'dm' | 'internal'; scope: Row };
 /** The scope a self fact takes from the notes of `place`: internal with no place to read it from. */
 function scopeOfPlace(place: Row | undefined): Pick<Move, 'to' | 'scope'> {
   if (place === undefined) return { to: 'internal', scope: audienceOf(SCOPE_INTERNAL) };
-  if (place.conversation === 'dm' || place.kind === 'dm')
+  if (place.chat === 'dm' || place.kind === 'dm')
     return {
       to: 'dm',
       scope: {
@@ -47,7 +47,7 @@ function plan(db: Db): { moves: Array<Move>; kept: number } {
        WHERE c.kind = 'self_fact' AND c.retired_at IS NULL AND c.audience_id = 'aud:none' ORDER BY c.id`
     )
     .all(AUDIENCE_NONE_KEPT);
-  const placeOf = db.prepare('SELECT id, iface, kind, conversation, partner_person FROM places WHERE id = ?');
+  const placeOf = db.prepare('SELECT id, iface, kind, chat, partner_person FROM places WHERE id = ?');
   const moves: Array<Move> = [];
   let kept = 0;
   for (const row of rows) {
