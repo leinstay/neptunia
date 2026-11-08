@@ -83,6 +83,7 @@ export type Sends = {
     placeId: string,
     trigger: { authorId?: string | null; ts?: unknown } | null | undefined
   ) => Promise<number>;
+  settles: (trigger: { authorId?: string | null } | null | undefined) => boolean;
   selfreflectionChannelName: (
     placeId: string,
     config: SendsConfig,
@@ -293,6 +294,11 @@ export function createSends(ctx: SendsContext): Sends {
     return clock() - settleStartedAt;
   }
 
+  /** Whether a turn answering `trigger` waits for its author (settleAuthor): a tracker, an author, pace.settleMs on. */
+  function settles(trigger: { authorId?: string | null } | null | undefined): boolean {
+    return Boolean(activity && trigger?.authorId) && paceSettings(hot.config).settleMs > 0;
+  }
+
   /**
    * The bare name of her selfreflection's place for `<senses>`: a selfreflection turn's own chat (`own`), else the first of
    * mirror.ts#selfreflectionPlaces, as the snapshot, the directory or memory names it; null with none or `features.selfreflection` off.
@@ -310,5 +316,5 @@ export function createSends(ctx: SendsContext): Sends {
     return typeof name === 'string' && name ? name : null;
   }
 
-  return { emojiLookup, renderPost, settleAuthor, selfreflectionChannelName };
+  return { emojiLookup, renderPost, settleAuthor, settles, selfreflectionChannelName };
 }

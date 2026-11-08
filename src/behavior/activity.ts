@@ -77,3 +77,33 @@ export function settleWait({
   const until = Math.min(latest + settleMs, (anchor ?? latest) + cap);
   return Math.max(0, until - now);
 }
+
+/**
+ * The lines a turn's settle wait read as part of its call: the trigger author's lines after the trigger in `lines`
+ * (oldest first), each written within `settleMs` of the author's line before it, none later than `settleMaxMs` after
+ * the trigger (0 or a non-number: one `settleMs`). The run ends at the first line past either bound. Empty with the
+ * settle off, no trigger author or the trigger not among the lines.
+ * @returns the ids of those lines, the trigger's not among them
+ */
+export function settledBurst(
+  lines: ReadonlyArray<{ id: string; authorId?: string | null; ts?: number | null }>,
+  trigger: { id?: string | null; authorId?: string | null; ts?: number | null } | null,
+  { settleMs, settleMaxMs }: { settleMs: unknown; settleMaxMs: unknown }
+): Set<string> {
+  const burst = new Set<string>();
+  if (typeof settleMs !== 'number' || !Number.isFinite(settleMs) || settleMs <= 0) return burst;
+  const start = trigger?.authorId ? lines.findIndex((line) => line.id === trigger.id) : -1;
+  const triggerAt = trigger?.ts;
+  if (start === -1 || typeof triggerAt !== 'number' || !Number.isFinite(triggerAt)) return burst;
+  const cap =
+    typeof settleMaxMs === 'number' && Number.isFinite(settleMaxMs) && settleMaxMs > 0 ? settleMaxMs : settleMs;
+  let previous = triggerAt;
+  for (const line of lines.slice(start + 1)) {
+    if (line.authorId !== trigger?.authorId) continue;
+    const at = line.ts;
+    if (typeof at !== 'number' || at - previous > settleMs || at - triggerAt > cap) break;
+    burst.add(line.id);
+    previous = at;
+  }
+  return burst;
+}

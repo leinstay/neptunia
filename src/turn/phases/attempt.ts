@@ -60,6 +60,7 @@ export async function runAttempt(ctx: AttemptContext, args: TurnParams): Promise
     if (turnEnds) {
       if (draft.info) turnEnds.info = draft.info;
       turnEnds.replyTargets.push(...(draft.replyTargets ?? []));
+      turnEnds.folded.push(...(draft.folded ?? []));
       if (typeof draft.reason === 'string') turnEnds.reasons.push(draft.reason);
       if (draft.factsShown) turnEnds.factsShown = draft.factsShown;
     }

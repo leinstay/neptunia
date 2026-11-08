@@ -67,6 +67,7 @@ export type TurnResult = {
 /** What every attempt of a turn posted in reply to and why it ended, for the end hook. */
 type Ends = {
   replyTargets: Array<string>;
+  folded: Array<string>;
   reasons: Array<string>;
   factsShown: Array<string> | null;
   info: EndChannel | null;
@@ -90,6 +91,8 @@ export type TurnEnd = {
   outcome: string;
   reason: string | null;
   replyTargets: Array<string>;
+  /** The trigger author's lines its settle wait read as part of the call and answered with it. */
+  folded?: Array<string>;
   turnId: unknown;
 };
 
@@ -282,7 +285,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
     // Every attempt that started in the journal (runTurnOnce), closed here, at the one exit.
     const attempts: Array<unknown> = [];
     // What every attempt posted in reply to and why it ended (runTurnOnce), for the end hook.
-    const ends: Ends = { replyTargets: [], reasons: [], factsShown: null, info: null };
+    const ends: Ends = { replyTargets: [], folded: [], reasons: [], factsShown: null, info: null };
     // A selfreflection post is nowhere: one called with no chat rides in none.
     const nowhere = params?.mode === 'selfreflection' && !params.chat ? { chat: null } : {};
     const tracked = { ...params, ...nowhere, journalAttempts: attempts, turnEnds: ends };
@@ -411,6 +414,7 @@ export function createOutcome(ctx: OutcomeContext): Outcome {
       outcome,
       reason,
       replyTargets: [...new Set(ends.replyTargets)],
+      folded: [...new Set(ends.folded)],
       turnId: result?.turnId ?? null,
     };
     Promise.resolve()

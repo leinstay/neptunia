@@ -495,7 +495,7 @@ export function createTurnRunner({
     selfreflectionPictureGate: (config, channel, now) =>
       selfreflectionPictureGate(config as Parameters<typeof selfreflectionPictureGate>[0], channel, now),
   });
-  const { emojiLookup, renderPost, settleAuthor, selfreflectionChannelName } = createSends({
+  const { emojiLookup, renderPost, settleAuthor, settles, selfreflectionChannelName } = createSends({
     hot,
     store,
     emoji,
@@ -657,6 +657,7 @@ export function createTurnRunner({
     selfreflectionPictureGate,
     emojiLookup,
     settleAuthor,
+    settles,
     selfreflectionChannelName,
     noteSpokeSaw,
     readHistory,
