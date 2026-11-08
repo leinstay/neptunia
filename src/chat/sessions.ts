@@ -5,7 +5,9 @@
 // context, while memory stays continuous: what she learned after the boundary stays known. Names come from the owner's own
 // first line, with no model. src/chat/store.ts is the real store, src/interface/commands/chat-state.ts the commands.
 
-/** A stored line as memory holds it. `nativeId` is the interface's message id, when it has one. */
+import type { MediaRow } from '../memory/db/media-store.ts';
+
+/** A stored line as memory holds it. `nativeId` is the interface's message id, when it has one; `media` its items. */
 export type SourceLine = {
   id: string;
   placeId: string;
@@ -13,6 +15,7 @@ export type SourceLine = {
   who: 'owner' | 'her';
   text: string;
   nativeId?: string;
+  media?: ReadonlyArray<MediaRow>;
 };
 
 /** When a branch was the selected session: lines written from `from` until `to` are its own. */
