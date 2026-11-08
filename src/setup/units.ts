@@ -49,6 +49,13 @@ export const UNIT_FILES: ReadonlyArray<string> = [
  */
 export const DEVELOPMENT_UNIT_FILES: ReadonlyArray<string> = ['neptunia-development.service'];
 
+/**
+ * Node's compile cache of every service: a folder systemd makes and keeps writable for the unit under its sandbox,
+ * `/var/cache/neptunia-compile` for a system unit and `~/.cache/neptunia-compile` for a user unit (`%C`), so a start
+ * reuses the compiled engine modules instead of stripping their types again.
+ */
+const COMPILE_CACHE_LINES = ['CacheDirectory=neptunia-compile', 'Environment=NODE_COMPILE_CACHE=%C/neptunia-compile'];
+
 /** The `Unit=` line of the watcher's timer. */
 const WATCHER_TIMER = /^Unit=neptunia-watcher\.service$/m;
 
@@ -205,6 +212,7 @@ function renderedLines(line: string, key: string | null, rules: LineRules): Arra
     return [
       line,
       ...(rules.scope === 'user' ? [`Environment=${UNIT_SCOPE_ENV}=user`] : []),
+      ...COMPILE_CACHE_LINES,
       ...(rules.hidden === null ? [] : [rules.hidden]),
       ...(rules.gh === null ? [] : [rules.gh]),
     ];

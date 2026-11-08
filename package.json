@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "neptunia": "bin/neptunia.ts"
+    "neptunia": "bin/neptunia-launch.ts"
   },
   "engines": {
     "node": ">=26.13 <27"
