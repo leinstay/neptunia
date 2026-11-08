@@ -891,15 +891,13 @@ test('sandboxRequestInput: a skill scenario passes its inventory and her tools s
   assert.deepEqual([bare.toolsGranted, bare.toolsBlock, bare.toolsTokens], [null, null, null]);
 });
 
-test('answerSkillScenario: native -- the tools ride on every request; a data result is read in a second step that appends to the first messages; an effect covers the speech and its result returns to her; nothing real runs', async () => {
+test('answerSkillScenario: native -- the tools ride on every request; a data result is read in a second step that appends to the first messages; an effect covers the speech; nothing real runs', async () => {
   const { answerSkillScenario } = sandbox;
   const view = grantedView(['rule.add', 'web.search']);
   const llm = fakeToolLlm([
     toolAnswer('<think>a</think><msg>μια στιγμή</msg>', [call('web.search', { query: 'chess' }, { id: 'w1' })]),
     '<think>b</think><msg>έγινε</msg>',
     toolAnswer('<think>c</think><msg>σημειώθηκε</msg>', [call('rule.add', { text: 'όχι spoilers' })]),
-    // The owner's decision of 2026-11-08: the added rule's result returns to her in a next request; she says nothing more.
-    '<think>c2</think>',
     toolAnswer('<think>d</think><msg>πάω</msg>', [call('nope.skill', {})]),
     '<think>e</think><msg>δεν υπάρχει</msg>',
   ]);
@@ -919,7 +917,7 @@ test('answerSkillScenario: native -- the tools ride on every request; a data res
       return given.skill === 'web.search' ? OK_DATA('web.search', 'RESULT_MARKER') : OK_DATA(given.skill);
     },
   });
-  assert.equal(llm.calls.length, 6, 'run 1: two requests, run 2: two, run 3: two');
+  assert.equal(llm.calls.length, 5, 'run 1: two requests, run 2: one, run 3: two');
   for (const { options } of llm.calls) {
     assert.deepEqual(
       [options.origin, options.countAgainstDailyCap, options.skipCalibration, options.purpose, options.toolChoice],
@@ -962,9 +960,8 @@ test('answerSkillScenario: native -- the tools ride on every request; a data res
   );
   assert.equal(one.followUp.extraCall, false);
   assert.deepEqual([one.call.skill, one.outcome.result.status], ['web.search', 'ok']);
-  // Run 2: an effect covers the speech; by the owner's decision of 2026-11-08 its result returns to her in a second request.
-  const twoFollowUp = two.followUp as { answer: { messages: Array<unknown> } };
-  assert.deepEqual([two.loop?.steps.length, two.loop?.steps[0].held, twoFollowUp.answer.messages], [2, false, []]);
+  // Run 2: an effect covers the speech, nothing is read, no second request.
+  assert.deepEqual([two.loop?.steps.length, two.loop?.steps[0].held, two.followUp], [1, false, null]);
   // Run 3: an unknown skill is refused with a result she reads; onCall never saw it.
   assert.equal(seen.length, 2);
   assert.equal(three.loop?.steps[0].calls[0].outcome.result.code, 'unknown-skill');

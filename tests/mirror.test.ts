@@ -228,9 +228,7 @@ function setAndVoiceLlm() {
               call('draw.create', { text: 'scene 2' }),
               call('voice.say', { text: WALK }),
             ])
-          : // The owner's decision of 2026-11-08: the staged pictures and the voice return to her in a next request; she
-            // says nothing more there.
-            { text: '', usage: {}, estimated: 5 }
+          : { text: `<msg>${WALK}</msg>`, usage: {}, estimated: 5 }
       );
     },
   };

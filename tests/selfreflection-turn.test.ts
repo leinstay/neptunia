@@ -885,11 +885,10 @@ test('selfreflection: a single picture is staged while the post is composed, the
   const images = fakeSetImages([10], events);
   const store = fakeStore();
   const channel = eventChannel(events);
-  // The owner's decision of 2026-11-08: the staged picture's result returns to her in a next request; she says nothing more.
-  const llm = fakeLlm({ kind: 'selfPicture', brief: 'a pier', search: '', picture: true }, [
-    drawAnswer('<msg>un quai</msg>', 1, true),
-    '',
-  ]);
+  const llm = fakeLlm(
+    { kind: 'selfPicture', brief: 'a pier', search: '', picture: true },
+    drawAnswer('<msg>un quai</msg>', 1, true)
+  );
   const { result, logs } = await withCapturedLogs(() =>
     runner({ llm, store, images }).runTurn({
       channel,
@@ -902,8 +901,7 @@ test('selfreflection: a single picture is staged while the post is composed, the
   await published(result, channel);
   assert.deepEqual(events, ['generate 1', 'msg', 'files 1'], 'generated first, posted after the message');
   assert.deepEqual(calledOf(logs), ['draw.create:ok/staged']);
-  assert.equal(llm.calls.length, 3, 'the plan, the post request and the one that returned its result');
-  assert.equal(logs.filter((l) => l.msg === 'turn: drew').length, 1, 'the staged picture is held once');
+  assert.equal(llm.calls.length, 2, 'the plan and one post request');
   assert.equal(loose(channel.sent.at(-1)).files.length, 1);
   // Stage 3 design, section 3 item 6: the outcome names the entry it recorded; the entry itself is checked by its publication.
   assert.deepEqual(loose(result).selfreflection, {
@@ -926,8 +924,7 @@ test('diary set: six draw.create calls in one answer are generated before anythi
   const images = fakeSetImages([3_200_000, 3_200_000, 3_200_000, 7_200_000, 800_000, 400_000], events);
   const store = fakeStore();
   const channel = eventChannel(events);
-  // The owner's decision of 2026-11-08: the staged pictures' results return to her in a next request; she says nothing more.
-  const llm = fakeLlm(TOUR_PLAN, [withDraws('<msg>une promenade</msg><msg>au port</msg>', 6, true), '']);
+  const llm = fakeLlm(TOUR_PLAN, withDraws('<msg>une promenade</msg><msg>au port</msg>', 6, true));
   const { result, logs } = await withCapturedLogs(() =>
     runner({ llm, store, images }).runTurn({
       channel,
@@ -936,7 +933,7 @@ test('diary set: six draw.create calls in one answer are generated before anythi
     })
   );
   assert.equal(loose(result).outcome, 'spoke');
-  assert.equal(llm.calls.length, 3, 'one post request and the one that returned its results');
+  assert.equal(llm.calls.length, 2, 'one post request');
   // Stage 3: the turn sends nothing; the expectation below is what the mirror's publication of the entry sends.
   await published(result, channel);
   assert.deepEqual(events, [
