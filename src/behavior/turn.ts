@@ -118,6 +118,9 @@ export {
 // The server search on a question's own words lives with the recall planning (src/behavior/recall.ts).
 export { fallbackLookupPlan };
 
+// Whether the work of the moment is an unrecorded turn (src/turn/unrecorded.ts), for the core's end-of-turn hook.
+export { isUnrecorded } from '../turn/unrecorded.ts';
+
 // The re-watch classifier's answer parser lives with the re-watch (src/turn/rewatch.ts).
 
 /**

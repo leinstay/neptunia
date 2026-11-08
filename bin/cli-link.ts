@@ -6,6 +6,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type { Adapter, Capabilities, ChatInfo, Delivery, HistoryQuery, MessageEvent } from '../src/protocol/adapter.ts';
+import { SERVICE_PRINCIPAL } from '../src/interface/principals.ts';
 import { serveAdapter } from '../src/protocol/serve.ts';
 import type { CommandResult, Logger } from '../src/protocol/serve.ts';
 import { TURN_EVENT_STATUS, readTurnEvent } from '../src/protocol/turn-control.ts';
@@ -17,6 +18,19 @@ import { UnansweredQuestion, unansweredText } from './neptunia-request.ts';
 
 /** The owner's command line: its client, its namespace and its one chat. */
 export const CLI_CLIENT = 'cli';
+/**
+ * The clients the command line connects as: the owner's, and `service`, which the lead, the development agents and
+ * scripts check the persona as. A line of `service` gets her turn and leaves no trace in her memory (docs/cli.md).
+ */
+export const CLI_CLIENTS = [CLI_CLIENT, SERVICE_PRINCIPAL] as const;
+export type CliClient = (typeof CLI_CLIENTS)[number];
+
+/** The client `NEPTUNIA_CLIENT` names, the owner's when it is unset or empty, and null for a name of no such client. */
+export function cliClientOf(env: Readonly<Record<string, string | undefined>>): CliClient | null {
+  const named = env.NEPTUNIA_CLIENT ?? '';
+  if (named === '') return CLI_CLIENT;
+  return CLI_CLIENTS.find((client) => client === named) ?? null;
+}
 /** What the command line is called, for `hello.names`: one place, the owner's chat, and no kinds of place. */
 const CLI_NAMES = { interface: 'command line', nouns: {}, dm: 'chat' };
 

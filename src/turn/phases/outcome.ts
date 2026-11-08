@@ -18,6 +18,7 @@ import type { Draft } from '../draft.ts';
 import { SKIP_NOTHING_TO_DO, untoldDiagnostics } from '../journal.ts';
 import { NO_LOOP } from '../settings.ts';
 import { TOO_SLOW, TURN_CANCELLED } from '../timers.ts';
+import { isUnrecorded } from '../unrecorded.ts';
 import type { AttemptResult, PhaseContext, PhaseParams } from './context.ts';
 import type { Opened } from './preflight.ts';
 import type { Rounded } from './tool-round.ts';
@@ -93,7 +94,7 @@ export function outcomePhase(ctx: PhaseContext, draft: Draft, turn: OutcomeNeeds
         }
       : {};
   // The use of her skills this turn: what her request showed and what her calls did with it.
-  if (recordSkillUses != null && (draft.skillsIndexed?.length ?? 0) > 0) {
+  if (recordSkillUses != null && (draft.skillsIndexed?.length ?? 0) > 0 && !isUnrecorded()) {
     const uses = skillUsesOfTurn({
       turnId: draft.started?.turnId ?? `turn:${now}`,
       at: now,

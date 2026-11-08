@@ -6,7 +6,7 @@
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CLIENTS_FILE } from '../interface/principals.ts';
+import { CLIENTS_FILE, SERVICE_PRINCIPAL } from '../interface/principals.ts';
 
 /** One entry of `clients.json` as it is written. */
 export type ClientRecord = {
@@ -96,6 +96,9 @@ export function addClient(
 
 /** The owner's command line, the client a chat and a direct command connect as (bin/neptunia.ts). */
 export const CLI_CLIENT = { name: 'cli', kind: 'cli', boardRoles: null };
+
+/** The command line's client of the lead, the agents and scripts: its lines leave no trace in memory (docs/cli.md). */
+export const SERVICE_CLIENT = { name: SERVICE_PRINCIPAL, kind: 'cli', boardRoles: null };
 
 /** The owner on the task board from a shell: `neptunia tasks` with no client named connects as it (bin/neptunia-task.ts). */
 export const OWNER_CLIENT = { name: 'owner', kind: 'agent', boardRoles: ['owner'] };

@@ -1,6 +1,7 @@
 // What a turn notes about itself as it runs: the facts kept for her next request, the outside text an attempt has seen
 // and where her lines came from, the trigger marks on her own lines and her call marks (seeded from the journal at start), her previous think per place, and the
-// journal's and the record's lines (the request dumps, the turn records, the `said` lines, the operations).
+// journal's and the record's lines (the request dumps, the turn records, the `said` lines, the operations). An
+// unrecorded turn (src/turn/unrecorded.ts) writes none of them and keeps no fact and no think.
 // createTurnRunner (src/behavior/turn.js) builds it once per runner with createJournalNotes over the runner's state;
 // the attempt, the calls, the act and the pulls call its functions.
 
@@ -18,6 +19,7 @@ import type { JournalDraft, JournalOp } from './journal.ts';
 import type { Handles } from './handles.ts';
 import { inRoot } from './routing.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
+import { isUnrecorded } from './unrecorded.ts';
 
 /** The config keys the notes read, at the moment of use. */
 export type NotesConfig = Record<string, unknown>;
@@ -208,7 +210,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
   /** A fact of `kind` kept (at most `FAILED_TURNS_KEPT` of the kind per chat, the newest; one per message). */
   function keepFact(scope: FactScopeOf, kind: string, payload: Record<string, unknown>, at: number): void {
     const kept = FAILED_TURNS_KEPT;
-    if (kept <= 0) return;
+    if (kept <= 0 || isUnrecorded()) return;
     const store = facts();
     if (payload.messageId)
       store.markTold(
@@ -298,6 +300,8 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     draft: NotesDraft,
     result: { outcome?: string } | null | undefined
   ): void {
+    // An unrecorded turn leaves no think for the owner's next turn to carry.
+    if (isUnrecorded()) return;
     try {
       const channel = draft.info;
       const outcome = result?.outcome ?? 'error';
@@ -370,7 +374,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
 
   /** Whether the journal is written now: one injected and features.journal exactly true (read now). */
   function journalOn(): boolean {
-    return Boolean(journal);
+    return Boolean(journal) && !isUnrecorded();
   }
 
   /**
@@ -417,7 +421,7 @@ export function createJournalNotes(ctx: JournalNotesContext): JournalNotes {
     accountIds,
     voiced,
   }: SaidArgs): void {
-    if (!record) return;
+    if (!record || isUnrecorded()) return;
     if (typeof posted?.id !== 'string' || !posted.id) return;
     const privateAccountId = dmChat
       ? (draft?.privateAccountId ?? trigger?.authorId ?? channel.partnerId ?? null)

@@ -134,7 +134,8 @@ export function createHandleMessage({
       // (core-pause.ts), so it is not noted as live; a direct call also gets the pause notice (maybePauseNotice).
       const stateData = store?.state?.data;
       if (stateData?.paused) {
-        if (!catchUp)
+        // An unrecorded line is not held, so it is neither observed nor handed back at the resume.
+        if (!catchUp && options?.unrecorded !== true)
           await Promise.all([maybePauseNotice(event), observeWhilePaused(event, pausedDeps, options?.acceptedEvent)]);
         return 'ignored';
       }
