@@ -33,18 +33,25 @@ import type { Context } from './scope.ts';
 import { loadStemmer } from './stems.ts';
 import type { Db, Row } from './types.ts';
 
-/** A place that fits a request: its id, its stored name, its purpose when one is stored, and its score. */
-export type FoundPlace = { id: string; name: string; about: string | null; score: number };
-/** A person who fits a request: their id, their first name, their character when one is stored, and their score. */
-export type FoundPerson = { id: string; name: string; about: string | null; score: number };
+/**
+ * A place that fits a request: its id, its stored name, its purpose when one is stored, its score, and whether its
+ * fields hold every word of the request.
+ */
+export type FoundPlace = { id: string; name: string; about: string | null; score: number; hasEveryWord: boolean };
+/** A person who fits a request: their id, their first name, their character when one is stored, their score and fit. */
+export type FoundPerson = { id: string; name: string; about: string | null; score: number; hasEveryWord: boolean };
 /** The request's embedding and its model; null for both when the caller has none. */
 export type FindMeaning = { vector: ArrayLike<number> | null; model: string | null };
 const NO_MEANING: FindMeaning = Object.freeze({ vector: null, model: null });
 /** How many candidates come back at most, and how many of a place's last lines are read. */
-export type FindSettings = { candidates: number; lines: number };
+export type FindSettings = { candidates: number; lines: number; deadlineMs: number };
 
 /** The shipped values of `context.find` in config/config.json, for a key the live settings lack. */
-export const FIND_DEFAULTS: Readonly<FindSettings> = Object.freeze({ candidates: 5, lines: 100 });
+export const FIND_DEFAULTS: Readonly<FindSettings> = Object.freeze({
+  candidates: 5,
+  lines: 100,
+  deadlineMs: 1000,
+});
 
 /** The shortest beginning two words share for a partial match, and the credit of one. */
 const MIN_SHARED = 4;
@@ -84,6 +91,7 @@ export function findSettingsOf(config: unknown): FindSettings {
   return {
     candidates: count(find.candidates, FIND_DEFAULTS.candidates),
     lines: count(find.lines, FIND_DEFAULTS.lines),
+    deadlineMs: count(find.deadlineMs, FIND_DEFAULTS.deadlineMs),
   };
 }
 
@@ -220,6 +228,83 @@ function rank(words: { ranked: Ranked; full: Set<string> }, meant: ReadonlyArray
   return [...first, ...rest].map((id) => ({ id, score: scoreOf.get(id) ?? 0 }));
 }
 
+/** The first `candidates` of the ranking, with what each shows and whether it fits every word. */
+function found(
+  words: { ranked: Ranked; full: Set<string> },
+  meant: ReadonlyArray<string>,
+  shown: ReadonlyMap<string, { name: string; about: string | null }>,
+  candidates: number
+): Array<FoundPlace> {
+  return rank(words, meant)
+    .slice(0, candidates)
+    .map(({ id, score }) => ({
+      id,
+      name: shown.get(id)?.name ?? id,
+      about: shown.get(id)?.about ?? null,
+      score,
+      hasEveryWord: words.full.has(id),
+    }));
+}
+
+/** One embedding of the finder's memo: the request's vector once it came back, null while out or after a failure. */
+export type FindMemoEntry = { pending: Promise<ArrayLike<number> | null>; vector: ArrayLike<number> | null };
+/** The embeddings for the finder: the one already made for a text, and one made now within the deadline. */
+export type FindMeaningSource = {
+  known: (text: string) => FindMeaning | null;
+  fetch: (text: string) => Promise<FindMeaning | null>;
+};
+
+/**
+ * The finder's embeddings over one memo, keyed by the exact text: a text embeds once, and a caller waits for it at most
+ * `deadlineMs`, after which it answers with the words alone while the vector may still land in the memo for a later
+ * call. A failure or an empty answer leaves no vector. No model, no embedding.
+ */
+export function createFindMeaning({
+  embed,
+  model,
+  deadlineMs,
+  memo,
+}: {
+  embed: (text: string) => Promise<ArrayLike<number> | null | undefined>;
+  model: string | null;
+  deadlineMs: number;
+  memo: Map<string, FindMemoEntry>;
+}): FindMeaningSource {
+  const meaningOf = (vector: ArrayLike<number> | null): FindMeaning | null =>
+    vector !== null && model !== null ? { vector, model } : null;
+  return {
+    known: (text) => meaningOf(memo.get(text)?.vector ?? null),
+    async fetch(text) {
+      if (model === null || text.trim() === '') return null;
+      let entry = memo.get(text);
+      if (!entry) {
+        const made: FindMemoEntry = { pending: Promise.resolve(null), vector: null };
+        made.pending = Promise.resolve()
+          .then(() => embed(text))
+          .then(
+            (vector) => {
+              made.vector = vector && vector.length > 0 ? vector : null;
+              return made.vector;
+            },
+            () => null
+          );
+        memo.set(text, made);
+        entry = made;
+      }
+      let timer: NodeJS.Timeout | undefined;
+      const late = new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), deadlineMs);
+        timer.unref?.();
+      });
+      try {
+        return meaningOf(await Promise.race([entry.pending, late]));
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  };
+}
+
 /** A stored text clipped to ABOUT_CHARS. */
 const aboutOf = (value: string | null): string | null =>
   value === null
@@ -320,10 +405,12 @@ export function placesFound(
     shown.set(id, { name, about: aboutOf(purpose) });
     return doc;
   });
-  const meant = byMeaning(db, ctx, meaning, 'place', new Set(shown.keys()));
-  return rank(byWords(docs, request, loadStemmer(db).stem), meant)
-    .slice(0, candidates)
-    .map(({ id, score }) => ({ id, name: shown.get(id)?.name ?? id, about: shown.get(id)?.about ?? null, score }));
+  return found(
+    byWords(docs, request, loadStemmer(db).stem),
+    byMeaning(db, ctx, meaning, 'place', new Set(shown.keys())),
+    shown,
+    candidates
+  );
 }
 
 /** The people that fit `request` under the context, best first, at most `settings.candidates`; never herself. */
@@ -364,8 +451,10 @@ export function peopleFound(
     shown.set(id, { name: labels[0] ?? id, about: aboutOf(character) });
     return doc;
   });
-  const meant = byMeaning(db, ctx, meaning, 'person', new Set(people));
-  return rank(byWords(docs, request, loadStemmer(db).stem), meant)
-    .slice(0, candidates)
-    .map(({ id, score }) => ({ id, name: shown.get(id)?.name ?? id, about: shown.get(id)?.about ?? null, score }));
+  return found(
+    byWords(docs, request, loadStemmer(db).stem),
+    byMeaning(db, ctx, meaning, 'person', new Set(people)),
+    shown,
+    candidates
+  );
 }
