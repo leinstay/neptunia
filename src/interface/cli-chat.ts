@@ -1,5 +1,5 @@
 // The core's side of the owner's command line chat, `cli:dm:owner`. The chat exists whether a chat client is open or
-// not, as a Discord direct chat exists while its partner is away. `createCliChat` sends every call to the client that
+// not, as a platform's direct chat exists while its partner is away. `createCliChat` sends every call to the client that
 // `live()` names at that moment (src/interface/neptunia-cli.ts: the client that sent the last line while it is
 // connected, else the newest open chat). With none open it answers for the chat itself: `chatInfo` describes it, so a
 // wake, an errand result and a post find it, and a text post answers `ok` with a message id of its own and
