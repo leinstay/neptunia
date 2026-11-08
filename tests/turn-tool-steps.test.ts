@@ -112,34 +112,27 @@ test('draw failure with held speech: nothing is posted in step 1, step 2 sees th
   assert.deepEqual(run.sends.filter((send) => asRecord(send.attachments)?.length).length, 0, 'no picture posted');
 });
 
-test('a picture that went out with no speech returns to her in a next request, and her answer there goes out after it', async () => {
-  // The owner's decision of 2026-11-08: every call's result returns to her, an effect that worked as much as a read, so the
-  // posted picture is followed by a request in which she answers in words or stays silent.
+test('all-quiet completion: draw.create ok with no speech is one request, the picture is posted and the turn ends', async () => {
   const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.ts');
   const images = fakeImages();
   const run = await drawTurn({
-    answers: [toolAnswer('<think>x</think>', [call('draw.create', { text: 'ένας φάρος' })]), '<msg>ορίστε</msg>'],
+    answers: [toolAnswer('<think>x</think>', [call('draw.create', { text: 'ένας φάρος' })]), '<msg>ποτέ</msg>'],
     images,
   });
-  assert.equal(run.llm.calls.length, 2, 'the result came back to her');
-  assert.ok(toolResults(run.llm, 1)[0]?.includes(labels.tools.result.ok), toolResults(run.llm, 1).join('\n'));
-  assert.equal(images.calls.length, 1, 'drawn once');
-  const order = run.sends.map((send) => (asRecord(send.attachments)?.length ? 'picture' : send.text));
-  assert.deepEqual(order, ['picture', 'ορίστε']);
+  assert.equal(run.llm.calls.length, 1, 'no request follows');
+  assert.equal(images.calls.length, 1);
+  assert.equal(run.sends.filter((send) => asRecord(send.attachments)?.length === 1).length, 1);
   assert.equal(asRecord(run.result).delivered, true);
 });
 
 test('a picture and its announcement in one answer: the picture result covers the speech, the speech goes out after the picture', async () => {
   const { drawTurn } = await import('./fixtures/turn-draws.ts');
   const run = await drawTurn({
-    answers: [
-      toolAnswer('<think>x</think><msg>ορίστε</msg>', [call('draw.create', { text: 'ένας φάρος' })]),
-      // The owner's decision of 2026-11-08: the picture's result returns to her; she says nothing more.
-      '<think>y</think>',
-    ],
+    answers: [toolAnswer('<think>x</think><msg>ορίστε</msg>', [call('draw.create', { text: 'ένας φάρος' })])],
   });
+  assert.equal(run.llm.calls.length, 1);
   const order = run.sends.map((send) => (asRecord(send.attachments)?.length ? 'picture' : send.text));
-  assert.deepEqual(order, ['picture', 'ορίστε'], 'calls run before her speech, and neither is posted again');
+  assert.deepEqual(order, ['picture', 'ορίστε'], 'calls run before her speech');
 });
 
 test('dependent diary announcement: a failed picture and a post to the diary channel in one batch both run in order, the post goes through, the speech is held and step 2 sees both', async () => {
@@ -187,7 +180,7 @@ test('dependent diary announcement: a failed picture and a post to the diary cha
   assert.ok(noteText(run.llm, 1).includes(labels.task.step.held));
 });
 
-test('an accepted background job covers the speech: errand.run ok, the speech goes out after it, and its result returns to her', async () => {
+test('an accepted background job covers the speech: errand.run ok, the speech goes out after it, no extra request', async () => {
   const hot = hotWith({ config: { ...WEB_CONFIG, ...AGENTS } });
   const { service, runs } = errandService(hot);
   const run = await coreTurn({
@@ -195,17 +188,16 @@ test('an accepted background job covers the speech: errand.run ok, the speech go
       toolAnswer('<think>x</think><msg>το στέλνω να ψάξει</msg>', [
         call('errand.run', { agent: 'scout', goal: 'βρες κάτι' }),
       ]),
-      '<think>y</think>',
+      '<msg>ποτέ</msg>',
     ],
     allowed: ['errand.run'],
     config: { ...WEB_CONFIG, ...AGENTS },
     runner: { errands: service },
     adminExtra: { errands: service },
   });
-  // The owner's decision of 2026-11-08: the accepted job returns to her in a next request; she stays silent there.
-  assert.equal(run.llm.calls.length, 2, 'the acceptance came back to her');
-  assert.deepEqual(texts(run), ['το στέλνω να ψάξει'], 'her speech went out once');
-  assert.equal(runs.length, 1, 'queued once');
+  assert.equal(run.llm.calls.length, 1, 'accepted is the end of it here');
+  assert.deepEqual(texts(run), ['το στέλνω να ψάξει']);
+  assert.equal(runs.length, 1);
   assert.equal(asRecord(run.result).delivered, true);
 });
 
@@ -421,8 +413,7 @@ test('carried over: draw.create in the current chat runs on a spontaneous turn w
   const here = await drawTurn({
     spontaneous: 'initiate',
     allowed: [],
-    // The owner's decision of 2026-11-08: the picture's result returns to her; she says nothing more.
-    answers: [toolAnswer('<think>x</think>', [call('draw.create', { text: 'ένας φάρος' })]), '<think>y</think>'],
+    answers: [toolAnswer('<think>x</think>', [call('draw.create', { text: 'ένας φάρος' })])],
   });
   assert.deepEqual(called(here), ['draw.create:ok']);
   assert.equal(here.sends.filter((send) => asRecord(send.attachments)?.length === 1).length, 1);
@@ -454,8 +445,7 @@ test('carried over: message.create in the current chat also runs on a spontaneou
   const run = await coreTurn({
     spontaneous: 'initiate',
     allowed: [],
-    // The owner's decision of 2026-11-08: the post's result returns to her; she says nothing more.
-    answers: [toolAnswer('<think>x</think>', [call('message.create', { text: 'καλησπέρα' })]), '<think>y</think>'],
+    answers: [toolAnswer('<think>x</think>', [call('message.create', { text: 'καλησπέρα' })])],
   });
   assert.deepEqual(called(run), ['message.create:ok']);
   assert.deepEqual(texts(run), ['καλησπέρα']);

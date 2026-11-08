@@ -1228,8 +1228,8 @@ function channelNamesOf(view: Untyped, channel: Untyped): (id: string) => string
  * the speech parsed and shaped as a real turn's, and every call goes to
  * `onCall(call, { idByIndex, history, channelHandles, timeoutMs })` (the caller's simulateCall: the
  * real resolution and gateway, nothing real run), reads together, every other call alone in her
- * order; the speech is kept only when every call worked and its result is an effect or a job, else held; a
- * step with calls, whatever they were, is followed by one more request that appends her
+ * order; the speech is kept only when every call worked and needs no reading, else held; a call that
+ * left something to read (a data result, a refusal) is followed by one more request that appends her
  * answer, one result per call and a note to the messages of the first (nothing rebuilt), up to
  * `loop.settings.maxSteps`, the last of them final. A failed follow-up ends the turn with its error
  * name, never thrown; a failed first request throws (as answerReply). An aborted `signal` stops the
@@ -1479,8 +1479,8 @@ function preRefusal(
  * step's cap or in the final answer: a `loop-cap` result), repaired (coerceArgs) and given to
  * `onCall`; reads run together, every other call alone in her order (segments). The speech of the
  * step stands only when every call worked and its definition's result is an effect or an accepted
- * errand (stepVerdict); otherwise it is held (`held`) and never posted later. A step with calls is
- * followed, with room left (roomLeft, `settings`), by one request: the first
+ * errand (stepVerdict); otherwise it is held (`held`) and never posted later. A step that left
+ * something to read is followed, with room left (roomLeft, `settings`), by one request: the first
  * messages untouched, her whole text and her calls, one result per call in call order, a note (the
  * held-speech notice, the last-step notice, the parser's diagnostics) -- appendStep over both
  * transports. The last request allowed is final; its calls get `loop-cap` results, its speech is
@@ -1638,7 +1638,7 @@ async function runSkillLoop({
     }
     const results = outcomes.map(({ outcome }) => outcome.result);
 
-    // 2. Her speech: out after the calls when every one worked and its result is an effect or a job, else held (a final answer's with calls always).
+    // 2. Her speech: out after the calls when every one worked and needs no reading, else held (a final answer's with calls always).
     const verdict = stepVerdict(
       results.map((result) => ({ name: result.skill, result })),
       { definitionOf }
@@ -1646,7 +1646,7 @@ async function runSkillLoop({
     const speak = isFinal ? false : verdict.speak;
     current.held = !speak && speechItems > 0;
 
-    // 3. What follows: after a step with calls, a request that returns every result to her when room is left.
+    // 3. What follows: a request when something is left to read and room is left.
     const after = roomLeft({
       step,
       maxSteps: settings.maxSteps,

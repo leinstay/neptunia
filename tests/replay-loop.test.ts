@@ -557,8 +557,6 @@ test('the step engine: reads run together, a data result holds her speech, the n
           { id: 't1' }
         ),
       ]),
-      // The owner's decision of 2026-11-08: the accepted errand's result returns to her; she says nothing more.
-      THINK,
     ],
     { tool: (skill: unknown) => (skill === 'web.search' ? okTool('Η Ana κέρδισε.') : okTool('Élodie: το είδα', 0)) }
   );
@@ -566,7 +564,7 @@ test('the step engine: reads run together, a data result holds her speech, the n
   assert.deepEqual(toolCalls.map((c) => c.skill).sort(), ['memory.search', 'web.search']);
   assert.equal(toolCalls.find((c) => c.skill === 'web.search')?.args.query, 'τελικός 2026');
   assert.ok(toolCalls.every((c) => c.timeoutMs >= 2000 && c.timeoutMs <= 20000));
-  assert.equal(llm.calls.length, 3, 'an accepted errand covers her speech, and its result came back to her');
+  assert.equal(llm.calls.length, 2, 'an accepted errand covers her speech: no request after it');
   // Every request carries her tools; the second only appends to the first messages.
   for (const recorded of llm.calls)
     assert.ok(
@@ -599,7 +597,7 @@ test('the step engine: reads run together, a data result holds her speech, the n
     ['call', 'web.search'],
     'the single-call fields keep the first call'
   );
-  assert.equal(asRecord(record).loop.steps.length, 3);
+  assert.equal(asRecord(record).loop.steps.length, 2);
   assert.deepEqual(
     asRecord(record).loop.calls.map((c: Untyped) => [c.step, c.skill, c.status]),
     [
@@ -630,13 +628,12 @@ test('the step engine: reads run together, a data result holds her speech, the n
       asRecord(record).loop.requests,
       asRecord(record).loop.turnRequests,
     ],
-    // The owner's decision of 2026-11-08: her turn makes a third request, for the errand's result.
-    [1, 0, 5, 3],
+    [1, 0, 4, 2],
     "the tools' two requests are counted apart from her turn's"
   );
-  // Her three requests and the tools' own: tokens and cost together.
-  assert.deepEqual([asRecord(record).tokens.prompt, asRecord(record).tokens.completion], [400, 40]);
-  assert.ok(Math.abs(asRecord(record).cost - 0.032) < 1e-9);
+  // Her two requests and the tools' own: tokens and cost together.
+  assert.deepEqual([asRecord(record).tokens.prompt, asRecord(record).tokens.completion], [300, 30]);
+  assert.ok(Math.abs(asRecord(record).cost - 0.022) < 1e-9);
   assert.equal(scenarioSummary([record]).followUps, 1);
   // The report: the calls in order, the held speech, the final messages, the turn's time and cost, the errand recorded.
   const report = renderSkillsReport([
@@ -650,7 +647,7 @@ test('the step engine: reads run together, a data result holds her speech, the n
   assert.ok(report.includes('calls in order: 0:web.search ok; 0:memory.search ok; 1:errand.run ok'));
   assert.ok(report.includes('errand recorded (step 1, not dispatched): scout: Βρες τον πλήρη'));
   assert.ok(report.includes('speech held (not posted):'));
-  assert.ok(report.includes('cost: 0.0320'));
+  assert.ok(report.includes('cost: 0.0220'));
 });
 
 test('the step engine: her tools are in every request and the server search line says she calls it; no <tool_catalogue> list', async () => {
@@ -861,11 +858,9 @@ test('a write and a paid effect are answered canned: draw.create is recorded as 
     }
   );
   const record = runRecord('s', 0, run);
-  // The owner's decision of 2026-11-08: a finished picture covers her speech, and its result returns to her in a next
-  // request, where she answers in words.
-  assert.equal(llm.calls.length, 2, 'a finished picture is an effect: it covers her speech and comes back to her');
+  assert.equal(llm.calls.length, 1, 'a finished picture is an effect: it covers her speech');
   assert.deepEqual(asRecord(record).loop.drawings, [{ step: 0, text: 'a cat on a roof', self: true, channel: null }]);
-  assert.deepEqual(asRecord(record).loop.messages, ['ορίστε', 'δεύτερο']);
+  assert.deepEqual(asRecord(record).loop.messages, ['ορίστε']);
 });
 
 test('createReplayTools: web.search and web.read through the lookup and memory.search through the recall runner, metered; the store and its counters untouched', async () => {

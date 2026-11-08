@@ -4252,8 +4252,7 @@ function addCost(a: Untyped, b: Untyped) {
  * its latency (`ms`), tokens (with the cache reads and writes) and cost; then the calls of the whole
  * turn in order (`calls`), the errands, the pictures she asked for (`drawings`), the texts her message
  * calls posted (`posts`), every message of the turn that was posted -- a held step's are not --
- * (`messages`), those of the last posted step that said something (`final`: a silent answer to the results
- * of her last calls leaves the words before it), the turn's counts (`requests`, `held`, `thinkMissing`,
+ * (`messages`), the last posted step's (`final`), the turn's counts (`requests`, `held`, `thinkMissing`,
  * `coerced`, `capped`, `malformed`) and latency (`ms`), and its tokens and cost (her requests and the
  * tools' together). Pure.
  */
@@ -4306,7 +4305,7 @@ export function loopRecord(loop: { steps: Array<Rec>; ms: number }): LoopRecord 
   const toolCost = tools.reduce((total, x) => addCost(total, Number.isFinite(x.cost) ? x.cost : null), null);
   const ownCost = steps.reduce((total, step) => addCost(total, step.cost), null);
   const posted = steps.filter((step) => step.answer && !step.held);
-  const lastPosted = posted.findLast(({ answer }) => answer!.messages.length > 0);
+  const lastPosted = posted[posted.length - 1];
   const okCalls = steps.flatMap(({ step: stepNumber, calls }) =>
     calls.filter((c) => c.result?.status === 'ok' && c.verdict?.ok !== false).map((c) => ({ step: stepNumber, ...c }))
   );
