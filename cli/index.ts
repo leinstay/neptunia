@@ -9,7 +9,7 @@ import { mouseFilter } from './mouse.ts';
 
 export { reducedMotion } from './galaxy.ts';
 export { mouseAvailable } from './mouse.ts';
-export type { ChatEntry, ChatEnv, ChatImages, Panel, Question, StageResult } from './app.ts';
+export type { ChatEntry, ChatEnv, ChatImages, LineFile, LineFiles, Panel, Question, StageResult } from './app.ts';
 export type { ChatAttachment, Draft, DraftPart, PasteLimits } from './composer.ts';
 export type { KeyBinding } from './keymap.ts';
 export type { StatusBrief } from './state.ts';

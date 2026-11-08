@@ -1,7 +1,11 @@
 // What the owner can do with an image the persona sent: save it, open it with the platform's viewer, read its text
-// alternative. A received name is data: it reaches no shell, and the temporary file of `open` carries none of it. Reads and
-// writes come from the caller (bin/chat-images.ts), and cli/app.ts runs these for `/attach open` and `/attach save`.
+// alternative. The same opener and a copy reach any kept file of a numbered line, for `/attach open #N` and
+// `/attach save #N`. A received name is data: it reaches no shell, the temporary file of `open` carries none of it, and a
+// saved file takes only its last path segment. Reads and writes come from the caller (bin/chat-images.ts), and
+// cli/chat-controller.ts runs these for the `/attach` commands.
 import { randomUUID } from 'node:crypto';
+import { constants } from 'node:fs';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { ProcessRun } from './clipboard.ts';
 import type { ChatAttachment } from './composer.ts';
@@ -13,6 +17,10 @@ export type AttachmentActions = {
   save(attachment: ChatAttachment, destination: string): Promise<AttachmentOutcome>;
   open(attachment: ChatAttachment): Promise<AttachmentOutcome>;
   alternative(attachment: ChatAttachment): string;
+  /** Opens the file at `file`, an absolute path on this machine, with the platform's opener. */
+  openFile(file: string): Promise<AttachmentOutcome>;
+  /** Copies the file at `file` into `directory` under `name`, never over a file already there. */
+  saveFile(file: string, directory: string, name: string): Promise<AttachmentOutcome>;
 };
 
 const OPENERS: Readonly<Record<string, string>> = { linux: 'xdg-open', darwin: 'open' };
@@ -32,19 +40,40 @@ export function alternativeText(attachment: ChatAttachment): string {
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : 'unknown error');
 
+/** A copy that refuses to replace a file already at `to`. */
+const copyOnce = (from: string, to: string): Promise<void> => fs.copyFile(from, to, constants.COPYFILE_EXCL);
+
+/** A received name as one file name: its last segment, with nothing that climbs out of the folder. */
+function fileNameOf(name: string, file: string): string {
+  const last = name.split(/[\\/]/).at(-1) ?? '';
+  return last === '' || last === '.' || last === '..' ? path.basename(file) : last;
+}
+
 export function createAttachmentActions({
   read,
   writeFile,
   run,
   platform,
   tempDir,
+  copyFile = copyOnce,
 }: {
   read: (attachment: ChatAttachment) => Promise<Uint8Array | null>;
   writeFile: (file: string, bytes: Uint8Array) => Promise<void>;
   run: ProcessRun;
   platform: string;
   tempDir: string;
+  /** Copies a kept file to where the owner saves it; the default refuses to replace a file. */
+  copyFile?: (from: string, to: string) => Promise<void>;
 }): AttachmentActions {
+  /** Runs the platform's opener on `file`. */
+  async function openWith(file: string): Promise<AttachmentOutcome> {
+    const opener = OPENERS[platform];
+    if (opener === undefined) return { status: 'failed', retry: false, reason: `no viewer known for ${platform}` };
+    const result = await run([opener, file]);
+    if (result.code === 0) return { status: 'opened' };
+    const reason = result.missing === true ? `${opener} is not installed` : `${opener} exited with ${result.code}`;
+    return { status: 'failed', retry: false, reason };
+  }
   return {
     async save(attachment, destination) {
       const bytes = await read(attachment);
@@ -57,22 +86,34 @@ export function createAttachmentActions({
       }
     },
     async open(attachment) {
-      const opener = OPENERS[platform];
-      if (opener === undefined) return { status: 'failed', retry: false, reason: `no viewer known for ${platform}` };
+      if (OPENERS[platform] === undefined) return openWith('');
       const bytes = await read(attachment);
       if (bytes === null) return GONE;
       const extension = EXTENSIONS[attachment.contentType] ?? 'bin';
       const file = path.join(tempDir, `open-${randomUUID()}.${extension}`);
       try {
         await writeFile(file, bytes);
-        const result = await run([opener, file]);
-        if (result.code === 0) return { status: 'opened' };
-        const reason = result.missing === true ? `${opener} is not installed` : `${opener} exited with ${result.code}`;
-        return { status: 'failed', retry: false, reason };
+        return await openWith(file);
       } catch (error) {
         return { status: 'failed', retry: true, reason: messageOf(error) };
       }
     },
     alternative: alternativeText,
+    async openFile(file) {
+      try {
+        return await openWith(file);
+      } catch (error) {
+        return { status: 'failed', retry: true, reason: messageOf(error) };
+      }
+    },
+    async saveFile(file, directory, name) {
+      const destination = path.join(directory, fileNameOf(name, file));
+      try {
+        await copyFile(file, destination);
+        return { status: 'saved', file: destination };
+      } catch (error) {
+        return { status: 'failed', retry: true, reason: messageOf(error) };
+      }
+    },
   };
 }

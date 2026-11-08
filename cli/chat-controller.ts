@@ -72,7 +72,13 @@ export type ChatEntry = {
   attachments?: ReadonlyArray<ChatAttachment>;
   /** When the line was sent, in ms since the epoch: a stored line keeps its own, a new one takes the chat's clock. */
   at?: number;
+  /** The line's place in the chat's whole stored history, the oldest being 1, as the core numbers it. */
+  number?: number;
 };
+/** A file of a numbered line: its absolute path on this machine, null when the core did not keep it. */
+export type LineFile = { name: string; kind: string; path: string | null };
+/** The files of a numbered line, or why there are none to name. */
+export type LineFiles = { ok: true; files: ReadonlyArray<LineFile> } | { ok: false; reason: string };
 /** Why an image was not staged, for the line the owner reads. */
 export type StageResult = { ok: true; staged: ChatAttachment } | { ok: false; code: string };
 /** Acquiring and staging an image on this machine. Nothing reaches the core until the draft is sent. */
@@ -148,6 +154,8 @@ export type ChatEnv = {
    * ends just before the stored line `before`. Absent: the chat shows the lines of this process only.
    */
   storedPage?: (before: string | null) => Promise<ReadonlyArray<ChatEntry & { id: string }>>;
+  /** The files of the stored line with that number, for `/attach open #N` and `/attach save #N`. */
+  lineFiles?: (number: number) => Promise<LineFiles>;
 };
 
 /** The rows a question's selector draws at most; the input it replaces stays out of the way of the panel above it. */
@@ -173,6 +181,10 @@ type ShownEntry = {
   attachments: ReadonlyArray<ChatAttachment>;
   /** when the line was sent, for the owner's lines and hers */
   at?: number;
+  /** the stored number of the line, absent on a line the chat has not matched to its stored line yet */
+  number?: number;
+  /** the id of the stored line it is */
+  storedId?: string;
 };
 
 /** The id of the blank row between her line and the owner's line after it. */
@@ -443,8 +455,9 @@ export class ChatController {
   gaps = new WeakMap<ShownEntry, TranscriptEntry>();
 
   /**
-   * The transcript as it is drawn: each line of the owner or of hers under `[time] [#N] `, N counting the lines of the
-   * chat from the oldest shown, and one blank row after her line when the owner's line follows it, nowhere else.
+   * The transcript as it is drawn: each line of the owner or of hers under `[time] [#N] `, and one blank row after her
+   * line when the owner's line follows it, nowhere else. N is the line's stored number. A line without one takes the
+   * number after the line before it, and a file of hers that follows her words takes theirs, since both are one line.
    */
   shownEntries(): Array<TranscriptEntry> {
     const { entries } = this.model;
@@ -452,12 +465,15 @@ export class ChatController {
     const list: Array<TranscriptEntry> = [];
     let number = 0;
     let before: ShownEntry | undefined;
+    let lastLine: ShownEntry | undefined;
     for (const entry of entries) {
       if (entry.who === 'owner' && before?.who === 'her') list.push(this.gapOf(entry));
       if (entry.who === 'system') list.push(entry);
       else {
-        number += 1;
+        const isHerFile = entry.who === 'her' && lastLine?.who === 'her' && entry.original === '';
+        number = entry.number ?? (isHerFile ? number : number + 1);
         list.push(this.ledOf(entry, number));
+        lastLine = entry;
       }
       before = entry;
     }
@@ -490,6 +506,7 @@ export class ChatController {
       original: entry.text,
       attachments: entry.attachments ?? [],
       ...this.timeOf(entry),
+      ...(entry.number === undefined ? {} : { number: entry.number }),
     };
     this.update({ entries: [...this.model.entries, shown] });
   }
@@ -544,6 +561,8 @@ export class ChatController {
           original: entry.text,
           attachments: entry.attachments ?? [],
           ...this.timeOf(entry),
+          ...(entry.number === undefined ? {} : { number: entry.number }),
+          storedId: entry.id,
         }));
         this.update({ entries: [...shown, ...this.model.entries] });
       })
@@ -551,6 +570,38 @@ export class ChatController {
         stored.loading = false;
         this.say('The stored lines of this chat could not be read.');
       });
+  }
+
+  /**
+   * Gives the lines said since the newest stored line on the screen the numbers of their stored lines: the newest stored
+   * page, read again, matched in order by who said each line and its text. A stored line the screen lacks, such as one
+   * from another client, is passed over, and a line not yet stored keeps the number after the line before it.
+   */
+  renumberLive(): void {
+    const { storedPage } = this.env;
+    if (storedPage === undefined) return;
+    storedPage(null)
+      .then((page) => {
+        const { entries } = this.model;
+        const known = new Set(entries.map((one) => one.storedId));
+        const lastStored = entries.findLastIndex((one) => one.storedId !== undefined);
+        const live = entries.slice(lastStored + 1).filter((one) => one.who !== 'system' && one.number === undefined);
+        const matched = new Map<string, { number: number; storedId: string }>();
+        let from = 0;
+        for (const line of page) {
+          if (known.has(line.id) || line.number === undefined) continue;
+          const at = live.findIndex(
+            (one, index) => index >= from && one.who === line.who && one.original === line.text
+          );
+          if (at < 0) continue;
+          matched.set(live[at].id, { number: line.number, storedId: line.id });
+          from = at + 1;
+        }
+        if (matched.size === 0) return;
+        const now = this.model.entries;
+        this.update({ entries: now.map((one) => ({ ...one, ...matched.get(one.id) })) });
+      })
+      .catch(() => {});
   }
 
   /** Registers with the core's link, once, and draws the newest stored lines. */
@@ -576,6 +627,8 @@ export class ChatController {
 
   /** The core's word about a turn. A failure or a cancel leaves a line, and a streamed text shows until the end of its turn. */
   onTurnEvent(event: ClientTurnEvent): void {
+    // Her turn is over: its lines are on their way to the store, and the lines before it are there.
+    if (event.type === 'committed' || event.type === 'failed' || event.type === 'cancelled') this.renumberLive();
     const before = turnOf(this.model.turns, event.turnId);
     const turns = reduceTurns(this.model.turns, event);
     const turn = turnOf(turns, event.turnId);
@@ -962,8 +1015,21 @@ export class ChatController {
     this.update({ draft: attachToDraft(this.model.draft, result.staged), notice: null });
   }
 
-  /** `/attach <file>`, `/attach open`, `/attach save <file>`: handled here, so a path never reaches the core as text. */
+  /**
+   * `/attach <file>`, `/attach open`, `/attach save <file>`, `/attach open #N [k]` and `/attach save #N [k] [dir]`:
+   * handled here, so a path never reaches the core as text.
+   */
   runAttach(argument: string): void {
+    const numbered = /^(open|save)\s+#(\d+)(?:\s+(\d+))?(?:\s+(.+))?$/.exec(argument);
+    if (numbered !== null && (numbered[1] === 'save' || numbered[4] === undefined)) {
+      const [, verb = 'open', line = '0', index, directory] = numbered;
+      this.runLineFile(verb === 'save', Number(line), index === undefined ? null : Number(index), directory ?? '.');
+      return;
+    }
+    if (/^(open|save)\s+#/.test(argument)) {
+      this.update({ notice: 'Usage: /attach open #N [file number] or /attach save #N [file number] [dir]' });
+      return;
+    }
     if (argument === 'open' || argument === 'save' || argument.startsWith('save ')) {
       this.runReceived(argument);
       return;
@@ -1006,6 +1072,42 @@ export class ChatController {
           notice: done.status === 'saved' ? `Saved ${image.name} to ${done.file}.` : `Opened ${image.name}.`,
         });
     });
+  }
+
+  /**
+   * Opens or saves a file of the stored line with that number. A line with several files and no `index` lists them
+   * numbered from 1 instead. A file the opener cannot open leaves its path on the notice row.
+   */
+  runLineFile(save: boolean, number: number, index: number | null, directory: string): void {
+    const { lineFiles, received } = this.env;
+    if (lineFiles === undefined || received === undefined) {
+      this.update({ notice: 'The files of a line are not available in this chat.' });
+      return;
+    }
+    const command = `/attach ${save ? 'save' : 'open'} #${number}`;
+    lineFiles(number)
+      .then((answer) => {
+        if (!answer.ok) return this.update({ notice: answer.reason });
+        const { files } = answer;
+        if (files.length === 0) return this.update({ notice: `Line #${number} holds no file.` });
+        if (index === null && files.length > 1) {
+          const rows = files.map((file, at) => `${at + 1}. ${file.name} (${file.kind})`);
+          return this.say(
+            [`Line #${number} holds ${files.length} files:`, ...rows, `${command} <n> takes one.`].join('\n')
+          );
+        }
+        const file = files[(index ?? 1) - 1];
+        if (file === undefined) return this.update({ notice: `Line #${number} holds no file ${index}.` });
+        const { path } = file;
+        if (path === null) return this.update({ notice: `${file.name} was not kept, so it cannot be opened.` });
+        const outcome = save ? received.saveFile(path, directory, file.name) : received.openFile(path);
+        return outcome.then((done) => {
+          if (done.status === 'saved') this.update({ notice: `Saved ${file.name} to ${done.file}.` });
+          else if (done.status === 'opened') this.update({ notice: `Opened ${file.name}.` });
+          else this.update({ notice: `${file.name}: ${done.reason}. Its path: ${path}` });
+        });
+      })
+      .catch(() => this.update({ notice: `The files of line #${number} could not be read.` }));
   }
 
   /** Ctrl+V: a picture from this machine's clipboard. A read that ends after the draft changed hands attaches nothing. */

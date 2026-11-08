@@ -106,6 +106,16 @@ test('a line both stored and held by the chat client appears once, with the atta
   );
 });
 
+test("a stored line's number in the owner's chat never reaches the history her turn reads", async () => {
+  // Bug: the `#N` the owner's chat draws goes into her request, where she reads it as part of the line or repeats it.
+  const lines = [{ ...stored(1, 'owner', 10), number: 1333 }];
+  const adapter = withStoredHistory(freshClient([]), () => lines);
+  const read = await adapter.history(CHAT, { limit: 100 });
+  assert.equal(read.status, 'ok');
+  assert.equal(JSON.stringify(read).includes('1333'), false);
+  assert.deepEqual(await chatOf(adapter, 100), [{ id: 'n1', content: 'stored 1', self: false }]);
+});
+
 test('the history keeps the newest lines up to the limit the turn asks for', async () => {
   // Bug: the whole stored chat goes into the request past `context.channelMessages`.
   const lines = [1, 2, 3, 4, 5].map((n) => stored(n, n % 2 === 0 ? 'her' : 'owner', n * 10));

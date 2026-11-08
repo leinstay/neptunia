@@ -7,7 +7,10 @@
 
 import type { MediaRow } from '../memory/db/media-store.ts';
 
-/** A stored line as memory holds it. `nativeId` is the interface's message id, when it has one; `media` its items. */
+/**
+ * A stored line as memory holds it. `nativeId` is the interface's message id, when it has one; `media` its items;
+ * `number` its place among all the stored lines of its place, the oldest being 1 (src/memory/db/chat-lines.ts).
+ */
 export type SourceLine = {
   id: string;
   placeId: string;
@@ -16,6 +19,7 @@ export type SourceLine = {
   text: string;
   nativeId?: string;
   media?: ReadonlyArray<MediaRow>;
+  number?: number;
 };
 
 /** When a branch was the selected session: lines written from `from` until `to` are its own. */
@@ -72,6 +76,8 @@ export type ChatSessions = {
   shown(placeId: string): ReadonlyArray<SourceLine>;
   /** Makes `id` the session new lines of its place belong to. */
   select(id: string): OpenSession | Refusal;
+  /** The stored line of `placeId` with that number, whichever session shows it, or null. Writes nothing. */
+  line(placeId: string, number: number): SourceLine | null;
 };
 
 /** How much of the first line names a session. */
@@ -195,6 +201,7 @@ export function createChatSessions({
       const row = currentRow(placeId);
       return row === null ? store.lines(placeId) : viewOf(row);
     },
+    line: (placeId, number) => store.lines(placeId).find((one) => one.number === number) ?? null,
     select(id) {
       const chosen = rowOf(id);
       if (chosen === null) return { ok: false, code: 'unknown-session' };

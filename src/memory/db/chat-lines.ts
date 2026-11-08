@@ -1,6 +1,7 @@
 // The stored lines of one place, oldest first, for the owner's chat sessions (src/chat/): the current
-// revision of each message, with deleted ones left out, as recall reads them. Read only, and through the owner's own command,
-// so this reader applies no audience: only the `cli` principal reaches it.
+// revision of each message, with deleted ones left out, as recall reads them. Each line carries its number, its place among
+// all these lines of the place, the oldest being 1, which the owner's chat draws as `#N` and nothing sends to her. Read only,
+// and through the owner's own command, so this reader applies no audience: only the `cli` principal reaches it.
 
 import { LINE_HOLDS_MEDIA, lineMedia } from './media-store.ts';
 import type { MediaRow } from './media-store.ts';
@@ -20,11 +21,16 @@ export type ChatLine = {
   text: string;
   nativeId?: string;
   media?: Array<MediaRow>;
+  /** The line's place among all the stored lines of its place, in the order of this read, the oldest being 1. */
+  number: number;
 };
 
 const HOLDS_SOMETHING = `(length(COALESCE(s.text, '')) > 0 OR ${LINE_HOLDS_MEDIA})`;
 
 export function chatLines(db: Db, placeId: string): Array<ChatLine> {
+  const counted = db
+    .prepare(`SELECT COUNT(*) AS n FROM sources s WHERE s.place_id = ? AND ${CURRENT_SOURCE} AND ${HOLDS_SOMETHING}`)
+    .get(placeId);
   const rows = db
     .prepare(
       `SELECT s.id, s.kind, s.text, s.occurred_at, s.native_id FROM sources s
@@ -37,7 +43,9 @@ export function chatLines(db: Db, placeId: string): Array<ChatLine> {
     rows.map((row) => asText(row.id)),
     internalContext()
   );
-  return rows.toReversed().map((row) => ({
+  // A read past LINES_MAX starts after the lines it leaves out, so the numbers stay those of the whole place.
+  const skipped = Number(counted?.n ?? rows.length) - rows.length;
+  return rows.toReversed().map((row, index) => ({
     id: asText(row.id),
     placeId,
     at: Date.parse(asText(row.occurred_at)),
@@ -45,6 +53,7 @@ export function chatLines(db: Db, placeId: string): Array<ChatLine> {
     text: asText(row.text),
     ...(typeof row.native_id === 'string' ? { nativeId: row.native_id } : {}),
     ...(media.has(asText(row.id)) ? { media: media.get(asText(row.id)) } : {}),
+    number: skipped + index + 1,
   }));
 }
 

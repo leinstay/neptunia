@@ -12,7 +12,7 @@ import { ChatController } from './chat-controller.ts';
 import { osc52 } from './clipboard.ts';
 import { CommandWindow } from './command-window.ts';
 import type { ChatEnv, ChatFrame } from './chat-controller.ts';
-export type { ChatEntry, ChatEnv, ChatImages, Question, StageResult } from './chat-controller.ts';
+export type { ChatEntry, ChatEnv, ChatImages, LineFile, LineFiles, Question, StageResult } from './chat-controller.ts';
 import { ModelPicker } from './model-picker.ts';
 import type { MouseSource } from './mouse.ts';
 import { PanelView } from './panel-view.ts';

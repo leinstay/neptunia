@@ -1,8 +1,9 @@
 // Images in the mounted chat with fake acquisition and staging: what reaches `send`, what stays, what is released.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createAttachmentActions } from '../cli/attachment-actions.ts';
 import type { ClipboardResult } from '../cli/clipboard.ts';
-import type { ChatAttachment, ChatImages, StageResult } from '../cli/index.ts';
+import type { ChatAttachment, ChatImages, LineFile, LineFiles, StageResult } from '../cli/index.ts';
 import { KEY, chatEnv, pause, press, shows, until, withChat } from './fixtures/chat-rig.ts';
 import { syntheticPng } from './fixtures/synthetic-png.ts';
 
@@ -174,4 +175,113 @@ test('a received image shows its name and text alternative in the transcript', a
     assert.match(shown, /out\.png/);
     assert.match(shown, /A grey square/);
   });
+});
+
+// The files of a numbered line, from the specifier's shape: `ChatEnv.lineFiles(number)` asks the core for the files of
+// the line with that number (`session.line`), each with its absolute path on this machine, null when it was not kept.
+// `/attach open #N [k]` opens one with `AttachmentActions.openFile` and `/attach save #N [k] [dir]` copies one with
+// `saveFile`; a line with several files and no `k` lists them numbered.
+const VIDEO: LineFile = { name: 'clip.mp4', kind: 'video', path: '/data/media/cli/v1.mp4' };
+const VOICE: LineFile = { name: 'note.ogg', kind: 'voice', path: '/data/media/cli/v2.ogg' };
+const LOST: LineFile = { name: 'lost.pdf', kind: 'file', path: null };
+
+function lineRig(lines: Readonly<Record<number, ReadonlyArray<LineFile>>>, code = 0) {
+  const runs: Array<ReadonlyArray<string>> = [];
+  const copies: Array<[string, string]> = [];
+  const asked: Array<number> = [];
+  const received = createAttachmentActions({
+    read: () => Promise.resolve(null),
+    writeFile: () => Promise.resolve(),
+    run: (argv) => {
+      runs.push(argv);
+      return Promise.resolve({ code, stdout: new Uint8Array(), missing: code === 127 });
+    },
+    platform: 'linux',
+    tempDir: '/tmp/unused',
+    copyFile: (from, to) => {
+      copies.push([from, to]);
+      return Promise.resolve();
+    },
+  });
+  const lineFiles = (number: number): Promise<LineFiles> => {
+    asked.push(number);
+    const files = lines[number];
+    return Promise.resolve(
+      files === undefined ? { ok: false, reason: `No line #${number} in this chat.` } : { ok: true, files }
+    );
+  };
+  const turns: Array<string> = [];
+  const { env } = chatEnv({ received, lineFiles, send: (line) => void turns.push(line) });
+  return { env, runs, copies, asked, turns };
+}
+
+test('/attach open #N opens the kept file of that line with the system opener, whatever its kind', async () => {
+  // Bug: only an image she sent can be opened, or the command goes to her as a chat line.
+  const { env, runs, asked, turns } = lineRig({ 1333: [VIDEO] });
+  await withChat(env, async (rig) => {
+    await press(rig, '/attach open #1333', shows(rig, '> /attach open #1333'));
+    await press(rig, KEY.enter, shows(rig, 'Opened clip.mp4.'));
+    assert.ok(shows(rig, 'Opened clip.mp4.')(), rig.screen().join('\n'));
+  });
+  assert.deepEqual(asked, [1333]);
+  assert.deepEqual(runs, [['xdg-open', '/data/media/cli/v1.mp4']]);
+  assert.deepEqual(turns, []);
+});
+
+test('/attach open with an unknown #N answers a clear refusal and opens nothing', async () => {
+  // Bug: an unknown number opens the newest file, or fails without a word.
+  const { env, runs } = lineRig({ 1333: [VIDEO] });
+  await withChat(env, async (rig) => {
+    await press(rig, '/attach open #9999', shows(rig, '> /attach open #9999'));
+    await press(rig, KEY.enter, shows(rig, 'No line #9999 in this chat.'));
+    assert.ok(shows(rig, 'No line #9999 in this chat.')(), rig.screen().join('\n'));
+  });
+  assert.deepEqual(runs, []);
+});
+
+test('a line with several files lists them numbered, and a second number opens that one', async () => {
+  // Bug: the first file opens whatever the owner meant, or the list numbers from zero.
+  const { env, runs } = lineRig({ 1334: [VIDEO, VOICE] });
+  await withChat(env, async (rig) => {
+    await press(rig, '/attach open #1334', shows(rig, '> /attach open #1334'));
+    await press(rig, KEY.enter, () => shows(rig, '1. clip.mp4')() && shows(rig, '2. note.ogg')());
+    assert.ok(shows(rig, '1. clip.mp4')() && shows(rig, '2. note.ogg')(), rig.screen().join('\n'));
+    assert.deepEqual(runs, []);
+    await press(rig, '/attach open #1334 2', shows(rig, '> /attach open #1334 2'));
+    await press(rig, KEY.enter, shows(rig, 'Opened note.ogg.'));
+    assert.ok(shows(rig, 'Opened note.ogg.')(), rig.screen().join('\n'));
+  });
+  assert.deepEqual(runs, [['xdg-open', '/data/media/cli/v2.ogg']]);
+});
+
+test('a file the opener cannot open prints its path', async () => {
+  // Bug: a server with no `xdg-open` leaves the owner with no way to reach the file.
+  const { env } = lineRig({ 1333: [VOICE] }, 127);
+  await withChat(env, async (rig) => {
+    await press(rig, '/attach open #1333', shows(rig, '> /attach open #1333'));
+    await press(rig, KEY.enter, shows(rig, '/data/media/cli/v2.ogg'));
+    assert.ok(shows(rig, '/data/media/cli/v2.ogg')(), rig.screen().join('\n'));
+  });
+});
+
+test('a file that was not kept says so and opens nothing', async () => {
+  // Bug: a line from before files were kept runs the opener on nothing.
+  const { env, runs } = lineRig({ 1333: [LOST] });
+  await withChat(env, async (rig) => {
+    await press(rig, '/attach open #1333', shows(rig, '> /attach open #1333'));
+    await press(rig, KEY.enter, shows(rig, 'lost.pdf was not kept'));
+    assert.ok(shows(rig, 'lost.pdf was not kept')(), rig.screen().join('\n'));
+  });
+  assert.deepEqual(runs, []);
+});
+
+test('/attach save #N k dir copies that file into the directory under its own name', async () => {
+  // Bug: the save writes over the directory, or under the kept file's id instead of its name.
+  const { env, copies } = lineRig({ 1334: [VIDEO, VOICE] });
+  await withChat(env, async (rig) => {
+    await press(rig, '/attach save #1334 1 /home/owner/out', shows(rig, '> /attach save #1334 1 /home/owner/out'));
+    await press(rig, KEY.enter, shows(rig, 'Saved clip.mp4'));
+    assert.ok(shows(rig, 'Saved clip.mp4')(), rig.screen().join('\n'));
+  });
+  assert.deepEqual(copies, [['/data/media/cli/v1.mp4', '/home/owner/out/clip.mp4']]);
 });

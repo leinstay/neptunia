@@ -31,6 +31,7 @@ test('lines come oldest first, with who said them and their source and message i
   const { db, add } = rig(t);
   add('s2', 'said', 'n2', '2026-11-05T00:00:02.000Z', 'answer');
   add('s1', 'seen', 'n1', '2026-11-05T00:00:01.000Z', 'question');
+  // Each line also carries `number`, its place in the chat's whole stored history, which the owner's chat draws as `#N`.
   assert.deepEqual(chatLines(db, 'cli:dm:owner'), [
     {
       id: 's1',
@@ -39,6 +40,7 @@ test('lines come oldest first, with who said them and their source and message i
       who: 'owner',
       text: 'question',
       nativeId: 'n1',
+      number: 1,
     },
     {
       id: 's2',
@@ -47,6 +49,7 @@ test('lines come oldest first, with who said them and their source and message i
       who: 'her',
       text: 'answer',
       nativeId: 'n2',
+      number: 2,
     },
   ]);
 });
@@ -69,4 +72,33 @@ test('another place, an older revision, a deleted message and an empty line stay
 test('a place with no lines gives none', (t) => {
   // Bug: an empty place throws where the picker reads it.
   assert.deepEqual(chatLines(rig(t).db, 'cli:dm:owner'), []);
+});
+
+test('each line is numbered by its place in the whole stored chat, the oldest line first, ties by row', (t) => {
+  // Bug: the number counts from the oldest line of a read, so the same line shows another number on another page.
+  const { db, add } = rig(t);
+  add('b', 'said', 'n2', '2026-11-05T00:00:01.000Z', 'second row of the same time');
+  add('c', 'seen', 'n3', '2026-11-05T00:00:02.000Z', 'third');
+  add('a', 'seen', 'n1', '2026-11-05T00:00:00.000Z', 'first');
+  assert.deepEqual(
+    chatLines(db, 'cli:dm:owner').map((line) => [line.id, line.number]),
+    [
+      ['a', 1],
+      ['b', 2],
+      ['c', 3],
+    ]
+  );
+});
+
+test('a chat longer than one read keeps the numbers of its whole history on the newest lines', (t) => {
+  // Bug: past the bound of one read the oldest line read becomes #1, and every number shifts as the chat grows.
+  const { db, add } = rig(t);
+  const total = 5003;
+  for (let n = 1; n <= total; n += 1)
+    add(`s${n}`, 'seen', `n${n}`, new Date(Date.UTC(2026, 0, 1) + n * 1000).toISOString(), `line ${n}`);
+  const lines = chatLines(db, 'cli:dm:owner');
+  assert.equal(lines.at(-1)?.number, total);
+  assert.equal(lines.at(-1)?.id, `s${total}`);
+  const oldest = lines[0];
+  assert.equal(oldest?.number, Number(oldest?.id.slice(1)));
 });
