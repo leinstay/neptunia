@@ -226,3 +226,20 @@ test('the generated fixtures with every key path of the live journal round trip'
     assertRoundTrip(mapper, REL, plain(line), {}, `generated journal ${index} (${line.kind})`);
   }
 });
+
+test("her answer in a direct chat whose id spells another person carries the place's stored partner", () => {
+  // Bug: the mapper spelled the partner from the place id, so her lines in a chat whose stored partner is another person
+  // named a person with no row, and the person's own lines and hers split between two people.
+  const ctx = {
+    iface: 'fake',
+    privateAccountId: 'owner',
+    dmPlace: { id: 'fake:dm:owner', partnerPerson: 'person:0wner-synthetic' },
+  };
+  const line = turn();
+  line.scope = {};
+  const { rows, back } = roundTrip(mapper, 'private/owner/journal/2026-10-20.jsonl', line, ctx);
+  const [answer] = rows.sources;
+  assert.equal(answer.scope_dm, 'person:0wner-synthetic');
+  assert.equal(answer.audience_id, 'aud:dm:fake:dm:owner');
+  assert.deepEqual(back, line);
+});
