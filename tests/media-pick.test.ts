@@ -313,3 +313,21 @@ test('a failed embedding leaves the search by words', async () => {
   });
   assert.equal((await pick.pick(args())).kind, 'gif');
 });
+
+// Bug (production 2026-11-08): Anthropic refuses a strict schema whose field has a type array and an enum ("Enum value
+// does not match declared type ['string', 'null']"), so every media-pick on Sonnet 5.5 failed with 400. A nullable
+// choice is an enum that holds null, with no type array; Sol and Sonnet both accept it (raw requests, 2026-11-08).
+test('the analyzer schemas name a nullable choice as an enum holding null, never a type array with an enum', async () => {
+  const { mediaPickFormat } = await import('../src/behavior/media-pick.ts');
+  const { QUERY_PLAN_FORMAT } = await import('../src/behavior/query-builder.ts');
+  const fields = (schema: unknown): Array<Record<string, unknown>> =>
+    Object.values((schema as { properties: Record<string, Record<string, unknown>> }).properties);
+  const all = [
+    ...fields(mediaPickFormat({ gifs: ['wave'], emoji: ['shrug'], actions: [] }).schema),
+    ...fields(QUERY_PLAN_FORMAT.schema),
+  ];
+  const mixed = all.filter((field) => Array.isArray(field.type) && Array.isArray(field.enum));
+  assert.deepEqual(mixed, []);
+  const pickName = fields(mediaPickFormat({ gifs: ['wave'], emoji: [], actions: [] }).schema)[1];
+  assert.deepEqual(pickName.enum, ['wave', null], 'null stays a choice');
+});
