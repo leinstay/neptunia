@@ -285,6 +285,7 @@ export const labels = {
     privateChannel: 'direct chat',
     redaction: 'someone',
     selfreflection: 'her diary',
+    placeUnwritten: '[{handle}] UNWRITTEN {fields}',
   },
   status: {
     probe: 'Reply with one word: pong',
