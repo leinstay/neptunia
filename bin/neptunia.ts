@@ -29,7 +29,8 @@
 // does (src/paths.ts). A usage error exits 2.
 //
 // The chat is the `cli` interface. It connects to the core's socket `<data>/run/core.sock` with the token of the
-// client `cli` (`<private>/clients/cli.token`, scripts/client-token.ts writes it) and says hello as `iface: 'cli'`. Each
+// client `cli` (`<private>/clients/cli.token`, scripts/client-token.ts writes it) and says hello as `iface: 'cli'`.
+// `NEPTUNIA_CLIENT=service` connects as the client `service` instead, whose lines leave no trace in her memory. Each
 // line typed is a `message.received` event in the direct chat `cli:dm:owner` between the owner and the persona, and
 // her reply arrives as a send action and is printed. A line starting with `/` is parsed by the command table
 // (src/interface/commands/table.ts), which prints the reason of a line it refuses, and becomes a `command.requested`
@@ -145,7 +146,7 @@ import { classifyAttachment } from '../src/media/classify.ts';
 import { chatImages, draftEditor, keepReceived, lineFilesOf, receivedActions, stageForPrompt } from './chat-images.ts';
 import { addToHistory, readHistory, writeHistory } from './cli-history.ts';
 import type { HistoryRecord } from './cli-history.ts';
-import { CLI_CLIENT, openLinkOver } from './cli-link.ts';
+import { CLI_CLIENTS, cliClientOf, openLinkOver } from './cli-link.ts';
 import type { Answer, CliLink, Command, LineImage, LinkAnswers } from './cli-link.ts';
 import { runDevelopment } from './development.ts';
 import { readTurnEvent } from '../src/protocol/turn-control.ts';
@@ -298,14 +299,22 @@ function readObject(file: string): Settings | null {
 // The chat and -p: the `cli` interface.
 // ---------------------------------------------------------------------------------------------------------------
 
-/** Connects as the `cli` client; rejects when no core listens. `print` takes her replies, null for none. */
+/** The client `NEPTUNIA_CLIENT` names; another name exits 2 before anything connects. */
+function cliClient(): string {
+  const client = cliClientOf(process.env);
+  if (client === null)
+    refuseSyntax(`NEPTUNIA_CLIENT names no client of the command line; use ${CLI_CLIENTS.join(' or ')}`);
+  return client;
+}
+
+/** Connects as the client `NEPTUNIA_CLIENT` names; rejects when no core listens. `print` takes her replies, null for none. */
 async function openCliLink(
   print: ((text: string) => void) | null,
   deliver?: (file: Attachment) => Promise<void>,
   chat: { onTurnEvent: (event: TurnEvent) => void; transcript: Array<ChatLine> } | null = null
 ): Promise<CliLink> {
   const where = paths();
-  const token = readToken(where.privateDir, CLI_CLIENT);
+  const token = readToken(where.privateDir, cliClient());
   const transport = await connectSocket({ path: coreSocketPath(where.dataDir), maxFrameBytes: MAX_FRAME_BYTES });
   return openLinkOver(transport, { token, print, deliver: deliver ?? printedFile(print), ...(chat ?? {}) });
 }
@@ -523,9 +532,9 @@ function openQuestions(): { answers: Answers; close(): void } {
   return { answers, close: () => input.close() };
 }
 
-/** The `cli` client's link when its token is there and a core listens, else null. */
+/** The command line client's link when its token is there and a core listens, else null. */
 async function tryCliLink(): Promise<CliLink | null> {
-  if (!fs.existsSync(path.join(paths().privateDir, 'clients', `${CLI_CLIENT}.token`))) return null;
+  if (!fs.existsSync(path.join(paths().privateDir, 'clients', `${cliClient()}.token`))) return null;
   try {
     return await openCliLink(null);
   } catch {

@@ -6,6 +6,7 @@ import { isExpired, popOldest } from '../behavior/pending.ts';
 import { between } from '../behavior/random.ts';
 import { log } from '../log.ts';
 import { CODE } from '../tools/codes.ts';
+import { runUnrecorded } from '../turn/unrecorded.ts';
 import type { Answer } from './answer.ts';
 import type { CallOutcome } from './call-outcome.ts';
 import { missingReason } from './call-outcome.ts';
@@ -134,7 +135,9 @@ export function createDrain({
           logPending(ping, 'dropped', { reason: 'cannot-send' });
           continue;
         }
-        const held = await heldCallState(ping.channel, ping.trigger.id);
+        // An unrecorded line lives in its own client's chat alone, which only unrecorded work reads (src/turn/unrecorded.ts).
+        const unrecorded = ping.readOptions?.unrecorded === true;
+        const held = await runUnrecorded(unrecorded, () => heldCallState(ping.channel, ping.trigger.id));
         if (held !== true) {
           logPending(ping, 'dropped', { reason: missingReason(held) });
           continue;
@@ -168,6 +171,7 @@ export function createDrain({
               trigger: ping.trigger,
               triggerKind: 'private',
               memoryContext: ping.readOptions?.memoryContext,
+              unrecorded,
               queued: queuedFor(ping.placeId, ping.trigger),
               added: ping.added ?? null,
             });

@@ -1,4 +1,6 @@
-// Carries the door receipt beside the protocol event into every live message producer.
+// Carries the door receipt beside the protocol event into every live message producer. A line of the `service` client,
+// and any line that reaches the door inside an unrecorded turn, is unrecorded: it is neither held while paused nor
+// observed into memory (src/turn/unrecorded.ts).
 
 import { holdIfPaused } from './core-pause.ts';
 import type { MessageHandler } from './pipeline.ts';
@@ -6,6 +8,8 @@ import type { EventHandlerContext } from '../interface/door.ts';
 import type { Context } from '../memory/db/scope.ts';
 import type { MessageReceived } from '../protocol/events.ts';
 import type { MessageReadOptions } from '../pipeline/types.ts';
+import { isServiceSender } from '../interface/principals.ts';
+import { isUnrecorded } from '../turn/unrecorded.ts';
 
 type ProducerDeps = {
   store: unknown;
@@ -19,9 +23,11 @@ export function createMessageProducers(
   deps: ProducerDeps
 ): (event: MessageReceived, context: EventHandlerContext) => Promise<void> {
   return async (event: MessageReceived, context: EventHandlerContext): Promise<void> => {
-    holdIfPaused(event, context, deps.store);
     const sender = context.authenticated;
+    const unrecorded = isServiceSender(sender) || isUnrecorded();
+    if (!unrecorded) holdIfPaused(event, context, deps.store);
     const options: MessageReadOptions = {
+      unrecorded,
       memoryContext:
         sender?.kind === 'cli' && (!context.ingest || context.ingest.principal === sender.name)
           ? deps.issueInternalContext()

@@ -1,6 +1,6 @@
 // The private chat: a direct message checked locally with zero tokens (the switch, other bots, the served place,
 // membership, a stored profile and the public attitude), dropped silently when refused, observed like a direct call
-// and answered in its own turn; the same gate for a queued direct message and for a recovery turn in a DM. createMessageHandler (src/behavior/pipeline.ts) builds it once with
+// and answered in its own turn (an unrecorded line of the `service` client is answered and never observed); the same gate for a queued direct message and for a recovery turn in a DM. createMessageHandler (src/behavior/pipeline.ts) builds it once with
 // createPrivateGate; the live path, the drain of the pending queue and the replay of a held chat call it.
 
 import { accountOf, placeOfChat } from '../memory/addresses.ts';
@@ -143,6 +143,20 @@ export function createPrivateGate({
     log.info('private: dropped', { reason: gate.reason });
   }
 
+  /** A member's direct message observed like a direct call; one without a named partner the mapper leaves unobserved. */
+  async function observeCall(
+    event: MessageEvent,
+    placeId: string,
+    normalized: PrivateLine,
+    options: MessageReadOptions | undefined
+  ): Promise<void> {
+    const { author } = event.message;
+    memory.observe(placeId, normalized, { direct: true, private: author.id });
+    const observing =
+      event.chat.partnerId != null ? observeLine(event, true, { placeId }, options?.acceptedEvent) : null;
+    if (observing) await observing;
+  }
+
   /**
    * A direct message (private chat). Checked locally with zero tokens: the
    * switch, other bots, the served place, membership, a stored profile and the
@@ -171,6 +185,7 @@ export function createPrivateGate({
     // the persona's speech), only the post is noted.
     if (normalized.self) {
       turns.notePost(normalized.placeId, normalized.ts);
+      if (options?.unrecorded === true) return;
       // The partner of the private chat, as the event's chat names it.
       const partnerId = event.chat?.partnerId ?? null;
       if (!partnerId || String(partnerId) === String(selfId)) return;
@@ -191,12 +206,9 @@ export function createPrivateGate({
       return;
     }
 
-    // Observed like a direct call.
-    memory.observe(placeId, normalized, { direct: true, private: authorId });
-    // A DM without a named partner is deliberately unobserved by the message mapper.
-    const observing =
-      event.chat.partnerId != null ? observeLine(event, true, { placeId }, options?.acceptedEvent) : null;
-    if (observing) await observing;
+    // Observed like a direct call, unless the line is unrecorded: it then reaches her turn alone.
+    const unrecorded = options?.unrecorded === true;
+    if (!unrecorded) await observeCall(event, placeId, normalized, options);
 
     // One turn at a time: busy anywhere (or, with oneAtATime off, in this very
     // chat) -> pending, answered by drainPending once the turn frees up.
@@ -212,6 +224,7 @@ export function createPrivateGate({
         trigger: normalized,
         triggerKind: 'private',
         memoryContext: options?.memoryContext,
+        unrecorded,
         queued: queuedFor(channel.id, normalized),
       })
       .then((result) => afterPrivateTurn(channel, normalized, result))

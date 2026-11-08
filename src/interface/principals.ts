@@ -39,6 +39,16 @@ export type BootPrincipal = { token: string; principal: Principal };
 /** The file of the clients under the private directory. */
 export const CLIENTS_FILE = 'clients.json';
 
+/**
+ * The `cli` principal the lead, the development agents and scripts check the persona as. Its lines get her turn and
+ * leave no trace in her memory (docs/cli.md, "The service client").
+ */
+export const SERVICE_PRINCIPAL = 'service';
+
+/** Whether an authenticated sender is the `service` client of the command line. */
+export const isServiceSender = (sender: AuthenticatedSender | null | undefined): boolean =>
+  sender?.kind === 'cli' && sender.name === SERVICE_PRINCIPAL;
+
 const isObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 

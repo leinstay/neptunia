@@ -1,6 +1,7 @@
 // The core's side of the commands over the link: what answers a `command.requested` event. src/core.ts hands each one
 // here before the event door sees it, so a command never reaches her memory, her turns or her requests. The link
-// (link.ts) lets a command through only from the `cli` principal (the `neptunia` chat and `neptunia -p`, the owner) or
+// (link.ts) lets a command through only from a `cli` principal (the `neptunia` chat and `neptunia -p`: the owner, or the
+// `service` client the lead and the agents check her as) or
 // from an `agent` principal (a development agent of the task board, `neptunia tasks`).
 //
 // A command of an `agent` principal, and a `task.*` command of the `cli` principal, is a board command: it runs as
@@ -20,7 +21,9 @@
 // every other envelope goes through the door. It also remembers the link of the owner's chat that sent the last line,
 // where the core sends her replies in `cli:dm:owner` (`chat()`). With that link gone, `chat()` names the newest open
 // chat, a client that asked for the turn events with `turn.replay`, and null with none: a client that only runs commands
-// takes no post. src/interface/cli-chat.ts keeps a post while `chat()` is null.
+// takes no post. src/interface/cli-chat.ts keeps a post while `chat()` is null. The `service` client is kept apart: inside
+// an unrecorded turn (src/turn/unrecorded.ts) `chat()` names the service link that sent the last line, or null once it
+// closed, and outside one it never names a service link, so her history reads and replies never cross between the two.
 //
 // `neptunia -p` with text waits for the end of the turn over its line, which the link has no event for. The intake
 // keeps the link of each line of the command line, and `turnEnded` answers it with a `command.result` whose `replyRef`
@@ -49,6 +52,8 @@ import type { Envelope } from '../protocol/wire.ts';
 import type { TaskAnswer } from '../board/commands.ts';
 import type { AdapterLink, From, LinkDoor } from './link.ts';
 import type { Principal } from './principals.ts';
+import { SERVICE_PRINCIPAL } from './principals.ts';
+import { isUnrecorded } from '../turn/unrecorded.ts';
 import { SKILL_COMMAND_PREFIX, skillCommandOf } from '../skills/agent-commands.ts';
 import type { BoardCaller } from '../tools/operations/board.ts';
 import type { SkillsAccess } from '../skills/port.ts';
@@ -418,6 +423,9 @@ export function createCommandIntake(deps: {
     log: deps.log,
   });
   let chatLink: AdapterLink | null = null;
+  // The link of the `service` client that sent its last line: the chat of the unrecorded turns, and of no other.
+  let serviceLink: AdapterLink | null = null;
+  const isService = (link: AdapterLink): boolean => link.principal()?.name === SERVICE_PRINCIPAL;
   const lines = new Map<string, AdapterLink>();
   // The lines' link reads one after another, so a line without links never overtakes an earlier one.
   let linkTail: Promise<unknown> = Promise.resolve();
@@ -467,6 +475,7 @@ export function createCommandIntake(deps: {
       id,
       value: linked as Envelope,
       message,
+      unrecorded: isService(link),
       ...(from === undefined ? {} : { from }),
       onHeld: () => answerLine(id, 'paused', 'the core is paused: the line waits for /resume'),
       onNoTurn: () => answerLine(id, 'failed', 'no turn of its own followed this line'),
@@ -502,7 +511,8 @@ export function createCommandIntake(deps: {
           const body = envelope.type === 'event' ? looseOf(envelope.body) : {};
           const current = link();
           if (body.kind === 'message.received' && current.principal()?.kind === 'cli') {
-            chatLink = current;
+            if (isService(current)) serviceLink = current;
+            else chatLink = current;
             return takeLine(current, value, body, from);
           }
           // The link hands the door only envelopes it parsed and authenticated.
@@ -512,8 +522,14 @@ export function createCommandIntake(deps: {
       };
     },
     chat() {
+      if (isUnrecorded()) return serviceLink !== null && !serviceLink.isClosed() ? serviceLink.adapter : null;
       if (chatLink !== null && !chatLink.isClosed()) return chatLink.adapter;
-      return turns.chats().at(-1)?.adapter ?? null;
+      return (
+        turns
+          .chats()
+          .filter((link) => !isService(link))
+          .at(-1)?.adapter ?? null
+      );
     },
     cancelOf: (triggerId) => turns.cancelOf(triggerId),
     noteProgress: (triggerId, step) => turns.noteProgress(triggerId, step),

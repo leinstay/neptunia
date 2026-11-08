@@ -40,7 +40,7 @@ import { assertPersonaLayout } from '../config/files.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { emptyKeys, writeKeys } from '../keys/file.ts';
 import type { GhRunner } from '../selfimprovement/repository.ts';
-import { CLI_CLIENT, OWNER_CLIENT, provisionClients } from './clients.ts';
+import { CLI_CLIENT, OWNER_CLIENT, SERVICE_CLIENT, provisionClients } from './clients.ts';
 import { offerDevelopment } from './development.ts';
 import type { GhInstall } from './development.ts';
 import { interfacesStep } from './interfaces.ts';
@@ -230,8 +230,8 @@ async function unitsStep(options: SetupOptions, deps: SetupDeps): Promise<Outcom
     clients = provisionClients(
       options.privateDir,
       hasDevelopment
-        ? [CLI_CLIENT, OWNER_CLIENT, DEVELOPMENT_CLIENT, WATCHER_CLIENT]
-        : [CLI_CLIENT, OWNER_CLIENT, WATCHER_CLIENT]
+        ? [CLI_CLIENT, SERVICE_CLIENT, OWNER_CLIENT, DEVELOPMENT_CLIENT, WATCHER_CLIENT]
+        : [CLI_CLIENT, SERVICE_CLIENT, OWNER_CLIENT, WATCHER_CLIENT]
     );
   } catch (err) {
     return failed(`the clients cannot be written: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`);
