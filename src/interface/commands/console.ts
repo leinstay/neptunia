@@ -1,8 +1,9 @@
 // The owner's console in the core: what runs a command of the `cli` principal once bin/neptunia.ts parsed it by the
 // table (src/interface/commands/table.ts). src/interface/neptunia-cli.ts hands it every command of that principal
-// but `status`, `header` and the interface switches, which it answers itself. A command that maps onto an operation
-// runs it through `runOp` with the owner's context (`asOwner`, src/tools/types.ts#OpContext), so the rights check
-// passes it as the owner even while `bot.owners` is empty, and the operation's own owner checks do too. The rest read
+// but `status`, `header` and the interface switches, which it answers itself. A command whose leaf in the table
+// declares an operation (`operationOf`) runs it through `runOp` with the owner's context (`asOwner`,
+// src/tools/types.ts#OpContext), so the rights check passes it as the owner even while `bot.owners` is empty, and the
+// operation's own owner checks do too. The rest read
 // what the core holds: the live config, the usage accumulator, the memory database's read connection and the reply
 // metric. The console asks no model and calls no `fetch`, except the key limits of `/usage`, the probes of
 // `/doctor live`, which are the status card's own reads, and the checks of the key commands (src/keys/commands.ts).
@@ -41,6 +42,7 @@ import type { ConsoleSubharness } from './subharness.ts';
 import { coreSelection, readCoreCheck } from '../../setup/model-check.ts';
 import type { CoreReadiness } from '../../setup/readiness.ts';
 import { mirrorCommand } from './mirror.ts';
+import { operationOf } from './table.ts';
 import type { MirrorDesk } from '../../behavior/mirror-desk.ts';
 import { searchCommand } from './search.ts';
 import { skillsCommand } from './skills.ts';
@@ -390,9 +392,6 @@ function cardSections(data: unknown, replace: Readonly<Record<string, string>>):
 
 /** The probe lines of the status card (src/tools/operations/status.ts#probeLine) mark a failed probe so. */
 const FAILED_PROBE = '· failed';
-
-/** A route's role as the owner typed it: `any`, or none, is a route of every role. */
-const anyRole = (role: unknown): unknown => (role === 'any' ? undefined : role);
 
 /** `/config show`: the private settings file as it is on disk (src/config/files.ts#localConfigPath). */
 function configShow(privateDir: string): Answer {
@@ -816,50 +815,6 @@ export function createConsole(deps: ConsoleDeps): {
     return line === undefined ? refused(name, args, 'no open intention has that id') : { text: line, status: 'ok' };
   }
 
-  /** The operation and its arguments each command of the table runs. */
-  const OPERATIONS: Readonly<Record<string, (args: Record<string, unknown>) => [string, Record<string, unknown>]>> = {
-    'errands.list': () => ['errand.list', {}],
-    'errands.show': (args) => ['errand.status', { id: args.id }],
-    'errands.cancel': (args) => ['errand.cancel', { id: args.id }],
-    'intentions.list': () => ['intention.list', {}],
-    'intentions.cancel': (args) => ['intention.cancel', { id: args.id }],
-    pause: () => ['bot.pause', {}],
-    resume: () => ['bot.resume', {}],
-    'config.set': (args) => ['config.set', { path: args.path, value: args.value }],
-    'config.unset': (args) => ['config.unset', { path: args.path }],
-    'model.show': () => ['model.show', {}],
-    'model.set': (args) => ['model.set', { role: args.role, id: args.model }],
-    'routes.list': () => ['route.list', {}],
-    'routes.set': (args) => [
-      'route.set',
-      {
-        model: args.model,
-        providers: args.providers,
-        role: anyRole(args.role),
-        fallbacks: args.fallbacks === undefined ? undefined : args.fallbacks === 'true',
-        byok: args.byok,
-      },
-    ],
-    'routes.remove': (args) => ['route.remove', { model: args.model, role: anyRole(args.role) }],
-    'memory.recent': () => ['memory.recent.read', {}],
-    'memory.search': (args) => ['memory.search', { question: args.query }],
-    'memory.restore': (args) => ['memory.restore', { itemId: args.id }],
-    'memory.journal': (args) => ['memory.journal.read', args.day === undefined ? {} : { day: args.day }],
-    'memory.archive': (args) => ['memory.archive.read', args.kind === undefined ? {} : { kind: args.kind }],
-    'memory.places.lore.add': (args) => ['lore.add', { title: args.title, keys: args.keys, text: args.text }],
-    'memory.places.lore.list': (args) => ['lore.list', { query: args.query }],
-    'memory.places.lore.show': (args) => ['lore.show', { id: args.id }],
-    'memory.places.lore.remove': (args) => ['lore.remove', { id: args.id }],
-    'memory.users.names.add': (args) => ['alias.add', { accountId: args.user, name: args.name }],
-    'memory.users.names.remove': (args) => ['alias.remove', { accountId: args.user, name: args.name }],
-    'memory.lessons.add': (args) => ['learning.add', { text: args.text }],
-    'memory.lessons.remove': (args) => ['learning.remove', { id: Number(args.id) }],
-    'rules.add': (args) => ['rule.add', { text: args.text }],
-    'rules.list': () => ['rule.list', {}],
-    'rules.remove': (args) => ['rule.remove', { number: Number(args.number) }],
-    'tools.describe': (args) => ['tools.describe', { name: args.tool }],
-  };
-
   async function run(name: string, args: Record<string, unknown>, requester: { id: string }): Promise<Answer> {
     const part = DOCTOR_PARTS[name];
     if (part !== undefined) return health(part);
@@ -895,10 +850,9 @@ export function createConsole(deps: ConsoleDeps): {
       default: {
         const read = LOCAL_CONFIG_READS[name];
         if (read !== undefined) return read(deps.privateDir);
-        const operation = OPERATIONS[name];
-        if (operation === undefined) return refused(name, args, 'no such command; type /help');
-        const [opName, opArgs] = operation(args);
-        return op(name, opName, opArgs, args, requester);
+        const operation = operationOf(name, args);
+        if (operation === null) return refused(name, args, 'no such command; type /help');
+        return op(name, operation.op, operation.args, args, requester);
       }
     }
   }
