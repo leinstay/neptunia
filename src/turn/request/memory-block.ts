@@ -67,10 +67,27 @@ function nativeIds(accounts: ReadonlyArray<string>, iface: string): Array<string
 const readsOf = (entry: { sources: ReadonlyArray<{ table: string; id: string }> }): Array<MemoryRead> =>
   entry.sources.map((source) => ({ kind: source.table, id: source.id, block: 'memory' }));
 
+/**
+ * The accounts of a person with more than one, each `memory.account` (`{iface}`, `{id}`) or `memory.accountNamed` with
+ * its display name, joined in `memory.accounts`; '' for one account or none, or with a label missing.
+ */
+function accountsLine(w: Words, person: PersonEntry): string {
+  const { accounts: template, account, accountNamed } = w.l;
+  if (person.profileAccounts.length < 2 || typeof template !== 'string' || typeof account !== 'string') return '';
+  const each = person.profileAccounts.map((one) => {
+    const values = { iface: escapeStored(one.iface), id: escapeStored(one.platformId) };
+    return one.displayName && typeof accountNamed === 'string'
+      ? fill(accountNamed, { ...values, name: escapeStored(one.displayName) })
+      : fill(account, values);
+  });
+  return fill(template, { value: each.join('; ') });
+}
+
 function personText(w: Words, person: PersonEntry, counterpart: boolean, live: string | null): string {
   const origin = counterpart ? (w.l.counterpart ?? '') : (w.origin[person.evidence] ?? '');
   const lines = [heading(w, person.name ?? person.accounts[0] ?? person.personId, origin, person.candidate)];
   const detail = counterpart && person.detail === 'name' ? 'compact' : person.detail;
+  lines.push(accountsLine(w, person));
   if (detail !== 'name') lines.push(valueLine(w.l.relation, person.relation));
   if (detail === 'whole') {
     lines.push(valueLine(w.l.realName, person.realName));

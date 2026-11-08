@@ -3,12 +3,33 @@
 // offline migration fills that table and the writers write it, most accounts still reach their person through the old
 // copy in `accounts.person_id` with `link` `verified` (src/memory/db/person-links.ts). Both readers here answer from
 // `person_accounts` first and from those old links after, so the readers of the engine move to the new rows one by one.
-// A row of `person_accounts` wins over the old link of the same account. Pure reads over the connection given.
+// A row of `person_accounts` wins over the old link of the same account. `profileOfAccount` assembles what she reads of a
+// person seen on one account (plan slice 7): the meta-person's own fields, every account of the person with that
+// account's own fields, and the seen account among them. Pure reads over the connection given.
 
-import type { Db } from './types.ts';
+import { survivorOf } from './ids.ts';
+import { namesIn } from './names.ts';
+import type { Db, Row } from './types.ts';
 
 /** One account of a person: its node id, its interface and its id on that platform. */
 export type PersonAccount = { id: string; iface: string; platformId: string };
+
+/** An account with the fields that belong to it alone; the avatar is the stored JSON text. */
+export type ProfileAccount = PersonAccount & {
+  handle: string | null;
+  displayName: string | null;
+  avatar: string | null;
+  profileText: string | null;
+};
+
+/** A person as seen on one account: the meta-person's fields, every account of the person, and the seen account. */
+export type AssembledProfile = {
+  personId: string;
+  realName: string | null;
+  affinity: number | null;
+  accounts: Array<ProfileAccount>;
+  seen: ProfileAccount | null;
+};
 
 /** The person of an account: its meta-person in `person_accounts`, else its verified old link, else null. */
 export function personOfAccount(db: Db, accountId: string): string | null {
@@ -25,15 +46,52 @@ export function personOfAccount(db: Db, accountId: string): string | null {
  * verified old link names it, each account once. An account that `person_accounts` puts under another person is left out.
  */
 export function accountsOfPerson(db: Db, personId: string): Array<PersonAccount> {
+  return profileAccountsOf(db, personId).map(({ id, iface, platformId }) => ({ id, iface, platformId }));
+}
+
+const textOrNull = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
+
+/** The accounts of a person as `accountsOfPerson` lists them, each with its own fields; a missing display name is the account's newest name. */
+export function profileAccountsOf(db: Db, personId: string): Array<ProfileAccount> {
   const rows = db
     .prepare(
-      `SELECT id, iface, platform_id AS platformId FROM person_accounts WHERE person_id = ?
+      `SELECT m.id, m.iface, m.platform_id AS platformId, m.handle, m.display_name AS displayName, a.names,
+         COALESCE(m.avatar, a.avatar) AS avatar, m.profile_text AS profileText
+       FROM person_accounts m LEFT JOIN accounts a ON a.id = m.id WHERE m.person_id = ?
        UNION
-       SELECT a.id, a.iface, COALESCE(a.native_key, a.native_id) AS platformId FROM accounts a
+       SELECT a.id, a.iface, COALESCE(a.native_key, a.native_id) AS platformId, NULL, NULL, a.names, a.avatar, NULL
+       FROM accounts a
        WHERE a.person_id = ? AND a.link = 'verified' AND a.retired_at IS NULL
          AND NOT EXISTS (SELECT 1 FROM person_accounts m WHERE m.id = a.id)
        ORDER BY iface, id`
     )
     .all(personId, personId);
-  return rows.map((row) => ({ id: String(row.id), iface: String(row.iface), platformId: String(row.platformId) }));
+  return rows.map((row: Row) => ({
+    id: String(row.id),
+    iface: String(row.iface),
+    platformId: String(row.platformId),
+    handle: textOrNull(row.handle),
+    displayName: textOrNull(row.displayName) ?? namesIn(row.names)[0] ?? null,
+    avatar: textOrNull(row.avatar),
+    profileText: textOrNull(row.profileText),
+  }));
+}
+
+/**
+ * What she reads of the person behind `accountId`: the survivor of the account's person with its real name and
+ * affinity, every account of that person with its own fields, and the seen account. Null for an account with no person.
+ */
+export function profileOfAccount(db: Db, accountId: string): AssembledProfile | null {
+  const linked = personOfAccount(db, accountId);
+  if (linked === null) return null;
+  const personId = survivorOf(db, linked);
+  const person = db.prepare('SELECT real_name, affinity FROM people WHERE id = ?').get(personId);
+  const accounts = profileAccountsOf(db, personId);
+  return {
+    personId,
+    realName: namesIn(person?.real_name)[0] ?? null,
+    affinity: typeof person?.affinity === 'number' ? person.affinity : null,
+    accounts,
+    seen: accounts.find((account) => account.id === accountId) ?? null,
+  };
 }
