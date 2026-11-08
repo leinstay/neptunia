@@ -2073,7 +2073,6 @@
       "src/tools/operations/alias.ts",
       "src/tools/operations/catalog.ts",
       "src/tools/operations/draw.ts",
-      "src/tools/operations/effects.ts",
       "src/tools/operations/env.ts",
       "src/tools/operations/grants.ts",
       "src/tools/operations/index.ts",

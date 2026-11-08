@@ -1285,6 +1285,39 @@ test('afterScenarioTurn: a post the call left here is her line hosting the mark;
   assert.equal(plain.callMarks.length, 2);
 });
 
+test('afterScenarioTurn: a voice message that passed is a line of hers in the chat, its mark naming it as posted', () => {
+  // Catches: the replay's own list of posting skills missing `voice.say`, so the next step's chat lacks her voice message.
+  const here = { id: HERE, name: 'γενικά' };
+  const trigger = { id: '300000000000000001', placeId: HERE, ts: NOW, authorId: MEMBER, content: 'Πες κάτι' };
+  const outcome = {
+    verdict: { stage: 'gateway', ok: true },
+    executed: { skill: 'voice.say', args: { text: 'καλημέρα' } },
+    result: { skill: 'voice.say', status: 'ok', data: { text: '' } },
+  };
+  const out = afterScenarioTurn({
+    transcript: [trigger],
+    callMarks: [],
+    run: {
+      answer: null,
+      call: { skill: 'voice.say', args: { text: 'καλημέρα' }, body: '' },
+      followUp: null,
+      outcome,
+      refs: { idByIndex: new Map(), handles: null, followUpIdByIndex: null },
+    },
+    at: NOW,
+    selfId: SELF,
+    selfName: 'Persona',
+    channel: here,
+    triggerId: trigger.id,
+    config: {},
+  } as unknown as Parameters<typeof afterScenarioTurn>[0]);
+  const voiced = out.transcript.find((line) => line?.authorId === SELF);
+  const attachments = (voiced?.attachments ?? []) as Array<{ kind?: unknown }>;
+  assert.equal(attachments[0]?.kind, 'voice');
+  const [mark] = out.callMarks;
+  assert.equal(mark?.postedId, voiced?.id);
+});
+
 test("sequenceSummary: each run's calls per step as letters, its first decline, whether she called again after it; the report's sequence table", () => {
   const step = (run: number, n: number, decision: string) => ({
     scenario: 'seq',

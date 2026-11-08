@@ -26,7 +26,6 @@ const SAMPLES: Readonly<Record<string, ReadonlyArray<string>>> = {
     'src/tools/operations/access.ts',
     'src/tools/operations/grants.ts',
     'src/tools/operations/rights.ts',
-    'src/tools/operations/effects.ts',
     'src/interface/principals.ts',
     'src/agent-runner/policy.ts',
     'agents/thinker/profile.json',

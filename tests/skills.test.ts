@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { runOp } from '../src/tools/operations/index.ts';
 import { listOps } from '../src/tools/operations/registry.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
-import { EFFECT_CLASSES, OP_EFFECTS, SELF_OWNED_OPS } from '../src/tools/operations/effects.ts';
+import { EFFECT_CLASSES, SKILL_DEFINITIONS, toolsWith } from '../src/tools/definitions.ts';
 import { PERSONA_GOVERNED_CONFIG, governsPersona } from '../src/tools/operations/rights.ts';
 import { RENAMED_OPS, renameGrants } from '../src/tools/operations/access.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
@@ -177,17 +177,22 @@ test('skills registry: one skill per operation, of the same name, kind and owner
 });
 
 test('skills effects: one effect class per operation, by its actual effect, in one table', () => {
-  for (const op of listOps()) assert.ok(EFFECT_CLASSES.includes(OP_EFFECTS[op.name]), `${op.name} has no effect class`);
+  // Changed: the effect class is read from each tool's definition, the one place it is declared; the classes are the same.
+  const effectOf = (name: string) => SKILL_DEFINITIONS.find((definition) => definition.name === name)?.effects;
+  for (const op of listOps()) {
+    const effect = effectOf(op.name);
+    assert.ok(effect !== undefined && EFFECT_CLASSES.includes(effect), `${op.name} has no effect class`);
+  }
   assert.deepEqual(
-    Object.keys(OP_EFFECTS).sort(),
+    SKILL_DEFINITIONS.map((definition) => definition.name).sort(),
     listOps()
       .map((op) => op.name)
       .sort(),
     'no row for an operation that does not exist'
   );
   const of = (effect: string) =>
-    Object.keys(OP_EFFECTS)
-      .filter((name) => OP_EFFECTS[name] === effect)
+    SKILL_DEFINITIONS.filter((definition) => definition.effects === effect)
+      .map((definition) => definition.name)
       .sort();
   assert.deepEqual(of('destructive'), [
     'alias.remove',
@@ -208,9 +213,9 @@ test('skills effects: one effect class per operation, by its actual effect, in o
     'bot.pause',
     'bot.resume',
   ])
-    assert.equal(OP_EFFECTS[name], 'administrative', name);
+    assert.equal(effectOf(name), 'administrative', name);
   assert.deepEqual(of('paid'), ['draw.create', 'errand.run', 'voice.say']);
-  for (const op of listOps()) if (op.rights.kind === 'read') assert.equal(OP_EFFECTS[op.name], 'read', op.name);
+  for (const op of listOps()) if (op.rights.kind === 'read') assert.equal(effectOf(op.name), 'read', op.name);
   // a skill carries its operation's class
   assert.equal(skillRegistry().get('memory.restore')?.effects, 'destructive');
 });
@@ -498,7 +503,8 @@ test('skills access: her reply tags are carried over in the current chat, withou
 });
 
 test('skills gateway: her own expressive operations need only her grant, whoever asked; the rules on who asked still hold', () => {
-  assert.deepEqual([...SELF_OWNED_OPS].sort(), [
+  // Changed: her own operations are the tools with the trait `self`, read where they are declared; the list is the same.
+  assert.deepEqual([...toolsWith('self')].sort(), [
     'draw.create',
     'intention.cancel',
     'intention.list',
@@ -515,7 +521,7 @@ test('skills gateway: her own expressive operations need only her grant, whoever
     'skill.run',
     'voice.say',
   ]);
-  for (const name of SELF_OWNED_OPS) assert.ok(skillRegistry().has(name), name);
+  for (const name of toolsWith('self')) assert.ok(skillRegistry().has(name), name);
   const member = { id: MEMBER };
   // a member with no right of their own on them: hers alone decides
   assert.deepEqual(

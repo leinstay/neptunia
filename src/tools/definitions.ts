@@ -958,14 +958,14 @@ const BY_API: ReadonlyMap<string, string> = new Map(
   SKILL_DEFINITIONS.map((definition) => [definition.api, definition.name])
 );
 
-/** The API name of every skill, by its name, worked out from the definitions. */
-export const API_NAMES: Readonly<Record<string, string>> = Object.freeze(
-  Object.fromEntries(SKILL_DEFINITIONS.map((definition) => [definition.name, definition.api]))
-);
-
 /** The API name of skill `name`, or null. */
 export function apiNameOf(name: string): string | null {
   return BY_NAME.get(name)?.api ?? null;
+}
+
+/** The effect class skill `name` declares, or null. */
+export function effectsOf(name: string): EffectClass | null {
+  return BY_NAME.get(name)?.effects ?? null;
 }
 
 /** The names of the tools with `trait`, in the table's order. */

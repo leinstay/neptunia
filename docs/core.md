@@ -103,13 +103,13 @@ A handle to read a place and a way to write there are two facts. `conversation.r
 | `self` | it is her own message, drawing, voice message, intention or skill, run on her grant alone whoever asked | `src/tools/gateway.ts`, `src/tools/executors.ts`, `src/admin.ts` |
 | `carried` | it stands behind one of her reply tags and runs in the current chat without a grant | `CARRIED_OVER` in `src/tools/access.ts` |
 | `ungrantable` | it is irreversible or administrative, so no grant opens it for her | `NOT_GRANTABLE_TO_PERSONA` in `src/tools/access.ts` |
-| `posts` | it leaves a line of hers where people read | `src/turn/skill-calls.ts`, `src/behavior/sandbox.ts`, `POSTING_SKILLS` |
+| `posts` | it leaves a line of hers where people read | `src/turn/skill-calls.ts`, `src/behavior/sandbox.ts`, `POSTING_SKILLS`, `DELIVERY_SKILLS` |
 | `attaches` | it posts a file, so a wake's envelope checks it as `message.create` too | `NESTED_CAPABILITIES` in `src/tools/access.ts`, `src/turn/skill-calls.ts` |
 | `here` | it acts in the turn's own chat when its `place` is left out | `src/turn/skill-calls.ts` |
 | `written` | its `text` is her writing, rendered as a `<msg>` of hers | `src/tools/executors.ts`, `WRITTEN_SKILLS` |
 | `publishes` | the turn's publication boundary may refuse it | `src/tools/executors.ts` |
 
-`OP_EFFECTS` and `SELF_OWNED_OPS` in `src/tools/operations/effects.ts` and `API_NAMES` are maps derived from the same rows. A change to a tool's traits changes who may run it, so `src/development/risk.ts` counts `src/tools/definitions.ts` among the `permissions` paths.
+`effectsOf(name)` reads a tool's effect class from its row, and the turn's outcome in `src/turn/phases/outcome.ts` counts an executed `read` call as one that changed nothing. A change to a tool's traits changes who may run it, so `src/development/risk.ts` counts `src/tools/definitions.ts` among the `permissions` paths.
 
 ## Boundaries
 

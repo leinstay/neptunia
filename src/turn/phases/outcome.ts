@@ -11,7 +11,7 @@ import { limitOf } from '../../behavior/limits.ts';
 import { DailyCapError, TokenLimitError, errorCodeOf, railReason } from '../../llm/openrouter.ts';
 import { log } from '../../log.ts';
 import { skillUsesOfTurn } from '../../skills/uses.ts';
-import { OP_EFFECTS } from '../../tools/operations/effects.ts';
+import { effectsOf } from '../../tools/definitions.ts';
 import type { AudienceChoice } from '../../tools/publication.ts';
 import type { HeldSpeech } from '../act.ts';
 import type { Draft } from '../draft.ts';
@@ -32,7 +32,7 @@ function audienceOfTurn(store: unknown, draft: Draft): AudienceChoice {
 /** A call that changed nothing: refused, failed, or a read. A proposal in shadow mode is what the turn did, so it is none. */
 function changedNothing(action: { skill?: unknown; status?: unknown }): boolean {
   if (action.status === 'refused' || action.status === 'failed') return true;
-  return action.status === 'executed' && OP_EFFECTS[String(action.skill)] === 'read';
+  return action.status === 'executed' && effectsOf(String(action.skill)) === 'read';
 }
 
 /** An inner turn that said nothing, reacted to nothing, changed nothing and answered skip last: it skipped, whatever it read. */
