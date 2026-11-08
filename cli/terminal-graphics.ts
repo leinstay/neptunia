@@ -102,44 +102,58 @@ function unfilter(raw: Buffer, height: number, rowBytes: number, step: number): 
   return out;
 }
 
+/** Whether the chat reads a PNG of this header: not interlaced, a known colour type and depth, not too large. */
+function isReadable(header: Header): boolean {
+  const { width, height, depth, colour } = header;
+  if (CHANNELS[colour] === undefined || header.interlaced || width === 0 || height === 0) return false;
+  if (width * height > MAX_PIXELS) return false;
+  return colour === 3 ? [1, 2, 4, 8].includes(depth) : depth === 8 || depth === 16;
+}
+
+/** Writes pixel `x` of row `y` as RGBA at `out`, from the unfiltered rows of a PNG of `header`. */
+function writePixel(
+  rgba: Uint8Array,
+  out: number,
+  rows: Uint8Array,
+  at: { x: number; y: number; rowBytes: number },
+  png: { header: Header; palette: Uint8Array; alpha: Uint8Array }
+): void {
+  const { depth, colour } = png.header;
+  const { x, y, rowBytes } = at;
+  if (colour === 3) {
+    const bit = x * depth;
+    const index = (rows[y * rowBytes + (bit >> 3)] >> (8 - depth - (bit & 7))) & ((1 << depth) - 1);
+    rgba.set([png.palette[index * 3] ?? 0, png.palette[index * 3 + 1] ?? 0, png.palette[index * 3 + 2] ?? 0], out);
+    rgba[out + 3] = png.alpha[index] ?? 255;
+    return;
+  }
+  const channels = CHANNELS[colour] ?? 1;
+  const sampleBytes = depth === 16 ? 2 : 1;
+  const start = y * rowBytes + x * channels * sampleBytes;
+  const sample = (n: number): number => rows[start + n * sampleBytes];
+  const grey = colour === 0 || colour === 4;
+  rgba[out] = sample(0);
+  rgba[out + 1] = grey ? sample(0) : sample(1);
+  rgba[out + 2] = grey ? sample(0) : sample(2);
+  rgba[out + 3] = colour === 4 ? sample(1) : colour === 6 ? sample(3) : 255;
+}
+
 /** The pixels of a PNG as RGBA, null for anything it does not read: another format, an interlaced or damaged PNG. */
 export function decodePng(bytes: Uint8Array): Pixels | null {
   if (!isPng(bytes)) return null;
   try {
-    const chunks = chunksOf(bytes);
-    if (chunks === null) return null;
-    const { header, palette, alpha } = chunks;
-    const { width, height, depth, colour } = header;
-    const channels = CHANNELS[colour];
-    if (channels === undefined || header.interlaced || width * height > MAX_PIXELS || width === 0 || height === 0)
-      return null;
-    if (colour === 3 ? ![1, 2, 4, 8].includes(depth) : depth !== 8 && depth !== 16) return null;
+    const png = chunksOf(bytes);
+    if (png === null || !isReadable(png.header)) return null;
+    const { width, height, depth, colour } = png.header;
+    const channels = CHANNELS[colour] ?? 1;
     const rowBytes = Math.ceil((width * channels * depth) / 8);
-    const step = Math.max(1, (channels * depth) >> 3);
-    const raw = inflateSync(chunks.data);
+    const raw = inflateSync(png.data);
     if (raw.length < height * (rowBytes + 1)) return null;
-    const rows = unfilter(raw, height, rowBytes, step);
+    const rows = unfilter(raw, height, rowBytes, Math.max(1, (channels * depth) >> 3));
     if (rows === null) return null;
     const rgba = new Uint8Array(width * height * 4);
-    const sampleBytes = depth === 16 ? 2 : 1;
     for (let y = 0; y < height; y += 1)
-      for (let x = 0; x < width; x += 1) {
-        const out = (y * width + x) * 4;
-        if (colour === 3) {
-          const bit = x * depth;
-          const index = (rows[y * rowBytes + (bit >> 3)] >> (8 - depth - (bit & 7))) & ((1 << depth) - 1);
-          rgba.set([palette[index * 3] ?? 0, palette[index * 3 + 1] ?? 0, palette[index * 3 + 2] ?? 0], out);
-          rgba[out + 3] = alpha[index] ?? 255;
-          continue;
-        }
-        const at = y * rowBytes + x * channels * sampleBytes;
-        const sample = (n: number): number => rows[at + n * sampleBytes];
-        const grey = colour === 0 || colour === 4;
-        rgba[out] = sample(0);
-        rgba[out + 1] = grey ? sample(0) : sample(1);
-        rgba[out + 2] = grey ? sample(0) : sample(2);
-        rgba[out + 3] = colour === 4 ? sample(1) : colour === 6 ? sample(3) : 255;
-      }
+      for (let x = 0; x < width; x += 1) writePixel(rgba, (y * width + x) * 4, rows, { x, y, rowBytes }, png);
     return { width, height, rgba };
   } catch {
     return null;
