@@ -48,9 +48,9 @@ for (const { format, name, bytes } of FORMATS) {
     const { answer, graphic } = await open(name, await bytes(), 'kitty');
     assert.equal(graphic?.protocol, 'kitty', answer);
     if (graphic === null) return;
-    const { prepare } = placementOf(graphic, graphicBox(graphic, 4, 3), { row: 0, column: 0, key: 'k' });
-    assert.ok(prepare?.includes(`f=100,t=d,i=7`), prepare?.slice(0, 60));
-    assert.ok(prepare?.includes(`;${PNG_BASE64_SIGNATURE}`), prepare?.slice(0, 60));
+    const { prepare = '' } = placementOf(graphic, graphicBox(graphic, 4, 3), { row: 0, column: 0, key: 'k' });
+    assert.ok(prepare.includes(`f=100,t=d,i=7`), prepare.slice(0, 60));
+    assert.ok(prepare.includes(`;${PNG_BASE64_SIGNATURE}`), prepare.slice(0, 60));
   });
 }
 

@@ -4,10 +4,9 @@
 // cli/chat-controller.ts puts the answer in the window and places the picture.
 import type { KeptRead } from './attachment-actions.ts';
 import {
+  decodeImage,
+  encodePng,
   fitCells,
-  imageSize,
-  isPng,
-  decodePng,
   itermSequence,
   kittyPlace,
   kittyTransmit,
@@ -19,7 +18,7 @@ import type { GraphicsSupport, Placement } from './terminal-replies.ts';
 /** A file to show: its name, its kind in the names memory stores, and its stored description. */
 export type ViewedFile = { name: string; kind: string; description: string | null };
 
-/** A picture a result holds, for the window to place: its bytes, or its pixels for Sixel, and its size in pixels. */
+/** A picture a result holds, for the window to place: its PNG for kitty and iTerm2, its pixels for Sixel, its size. */
 export type ResultGraphic = {
   protocol: 'kitty' | 'iterm2' | 'sixel';
   bytes: Uint8Array;
@@ -60,17 +59,19 @@ function unshowable(path: string | null): string {
   return ['This file format cannot be shown here.', 'You can open it or download it from this path:', path].join('\n');
 }
 
-/** The picture of `bytes` in the protocol the terminal speaks, or null when it speaks none or cannot take this format. */
-function graphicOf(bytes: Uint8Array, name: string, support: GraphicsSupport, kittyId: number): ResultGraphic | null {
-  const size = imageSize(bytes);
-  const base = { bytes, size, name, cell: support.cell, kittyId };
-  if (support.protocol === 'kitty') return isPng(bytes) ? { ...base, protocol: 'kitty', pixels: null } : null;
-  if (support.protocol === 'iterm2') return size === null ? null : { ...base, protocol: 'iterm2', pixels: null };
-  if (support.protocol !== 'sixel') return null;
-  const pixels = decodePng(bytes);
-  return pixels === null
-    ? null
-    : { ...base, protocol: 'sixel', pixels, size: { width: pixels.width, height: pixels.height } };
+/** The picture of `bytes` in the protocol the terminal speaks, or null when it speaks none or the file cannot be read. */
+async function graphicOf(
+  bytes: Uint8Array,
+  name: string,
+  support: GraphicsSupport,
+  kittyId: number
+): Promise<ResultGraphic | null> {
+  if (support.protocol === 'none') return null;
+  const pixels = await decodeImage(bytes);
+  if (pixels === null) return null;
+  const base = { name, cell: support.cell, kittyId, size: { width: pixels.width, height: pixels.height } };
+  if (support.protocol === 'sixel') return { ...base, protocol: 'sixel', bytes, pixels };
+  return { ...base, protocol: support.protocol, bytes: await encodePng(pixels), pixels: null };
 }
 
 /** The text of a text file, its lines capped with a note that says how many more there are. */
@@ -115,7 +116,7 @@ export async function viewFile(
   const described = file.description === null ? [] : [file.description];
   if (!isPicture || kept.bytes === null)
     return { answer: [header, ...described, unshowable(path)].join('\n'), graphic: null };
-  const graphic = graphicOf(kept.bytes, file.name, await graphics(), kittyId);
+  const graphic = await graphicOf(kept.bytes, file.name, await graphics(), kittyId);
   if (graphic === null) return { answer: [header, ...described, unshowable(path)].join('\n'), graphic: null };
   return { answer: [header, ...described].join('\n'), graphic };
 }
