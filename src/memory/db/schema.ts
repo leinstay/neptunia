@@ -1525,21 +1525,36 @@ function createNames(db: Db): void {
 //  - `sources.author_person`: the meta-person of a line's author, null for a line with no account and until the
 //    offline migration fills it. It is indexed where it is set.
 const NOT_META = 'EXISTS (SELECT 1 FROM people WHERE id = NEW.person_id AND meta IS NOT 1)';
-const V40 = `
-ALTER TABLE people ADD COLUMN meta INTEGER DEFAULT 0 CHECK (meta IN (0, 1));
-CREATE TABLE person_accounts (
+const V40_TABLE = `
+CREATE TABLE IF NOT EXISTS person_accounts (
   id TEXT PRIMARY KEY, person_id TEXT NOT NULL REFERENCES people(id), iface TEXT NOT NULL, platform_id TEXT NOT NULL,
   generation INTEGER NOT NULL DEFAULT 1, handle TEXT, display_name TEXT, avatar JSON, profile_text TEXT,
   recorded_at TEXT NOT NULL, UNIQUE (iface, platform_id, generation)
 );
-CREATE INDEX person_accounts_person ON person_accounts(person_id);
-CREATE TRIGGER person_accounts_meta_insert BEFORE INSERT ON person_accounts WHEN ${NOT_META}
+CREATE INDEX IF NOT EXISTS person_accounts_person ON person_accounts(person_id);
+CREATE TRIGGER IF NOT EXISTS person_accounts_meta_insert BEFORE INSERT ON person_accounts WHEN ${NOT_META}
 BEGIN SELECT RAISE(ABORT, 'ACCOUNT_PARENT_NOT_META'); END;
-CREATE TRIGGER person_accounts_meta_update BEFORE UPDATE OF person_id ON person_accounts WHEN ${NOT_META}
+CREATE TRIGGER IF NOT EXISTS person_accounts_meta_update BEFORE UPDATE OF person_id ON person_accounts WHEN ${NOT_META}
 BEGIN SELECT RAISE(ABORT, 'ACCOUNT_PARENT_NOT_META'); END;
-ALTER TABLE sources ADD COLUMN author_person TEXT REFERENCES people(id);
-CREATE INDEX sources_author_person ON sources(author_person) WHERE author_person IS NOT NULL;
 `;
+
+const columnsOf = (db: Db, table: string): Array<string> =>
+  db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .map((column) => String(column.name));
+
+/** Version 40 as a step that a second run leaves as it is: each column is added only where it is missing. */
+function addMetaPerson(db: Db): void {
+  if (!columnsOf(db, 'people').includes('meta'))
+    db.exec('ALTER TABLE people ADD COLUMN meta INTEGER DEFAULT 0 CHECK (meta IN (0, 1));');
+  db.exec(V40_TABLE);
+  if (!columnsOf(db, 'sources').includes('author_person'))
+    db.exec('ALTER TABLE sources ADD COLUMN author_person TEXT REFERENCES people(id);');
+  db.exec(
+    'CREATE INDEX IF NOT EXISTS sources_author_person ON sources(author_person) WHERE author_person IS NOT NULL;'
+  );
+}
 
 export const MIGRATIONS: Array<Migration> = [
   V1,
@@ -1593,7 +1608,7 @@ export const MIGRATIONS: Array<Migration> = [
   // Version 39: `places.conversation` is `places.chat`, and stored JSON keys take the words chat and dm.
   renameChat,
   // Version 40: the meta-person, its accounts and the author person of a line (src/memory/db/meta-person.ts).
-  V40,
+  addMetaPerson,
 ];
 
 /** Every table schema v8 adds. */
