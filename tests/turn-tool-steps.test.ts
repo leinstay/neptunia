@@ -29,7 +29,7 @@ import { asRecord } from './fixtures/records.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
-const texts = (run: Untyped) => run.sends.map((send: Untyped) => send.text);
+const texts = (run: Untyped): Array<unknown> => run.sends.map((send: Untyped) => send.text);
 const called = (run: Untyped) =>
   run.logs
     .filter((entry: Untyped) => entry.msg === 'skills: called')
