@@ -140,3 +140,40 @@ export function adoptNativeAuthority(db: Db, iface: string): Record<string, numb
     );
   return moved;
 }
+
+/** A JSON list of names as stored, its strings alone. */
+function storedNames(value: unknown): Array<string> {
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((one): one is string => typeof one === 'string' && one !== '') : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The name the owner goes by on his command line: the first name of another verified account of the person the command
+ * line's account is linked to, else that person's real name. Null when the account links to nobody or the person has no
+ * stored name or no database is open. The command line's own `owner` is never his name.
+ */
+export function ownerConsoleName(db: Db | null): string | null {
+  if (db === null) return null;
+  const own = db
+    .prepare(
+      `SELECT person_id FROM accounts WHERE iface = ? AND native_id = 'owner' AND link = 'verified'
+       AND person_id IS NOT NULL LIMIT 1`
+    )
+    .get(OWNER_CONSOLE_IFACE);
+  const person = typeof own?.person_id === 'string' ? own.person_id : null;
+  if (person === null) return null;
+  const accounts = db
+    .prepare("SELECT names FROM accounts WHERE person_id = ? AND link = 'verified' AND iface <> ? ORDER BY id")
+    .all(person, OWNER_CONSOLE_IFACE);
+  for (const row of accounts) {
+    const [name] = storedNames(row.names);
+    if (name !== undefined) return name;
+  }
+  const real: unknown = db.prepare('SELECT real_name FROM people WHERE id = ?').get(person)?.real_name;
+  return typeof real === 'string' && real !== '' ? real : null;
+}

@@ -395,6 +395,8 @@ export function createCommandIntake(deps: {
   isAnyTurnRunning?(): boolean;
   /** The chat's other reads (src/interface/commands/chat-state.ts): an answer, or null for a name it does not own. */
   chatCommands?(name: string, args: Record<string, unknown>): Promise<Answer> | null;
+  /** The name of the owner's person (identity-links.ts#ownerConsoleName); absent or null, his line keeps its name. */
+  ownerName?(): string | null;
   /** The owner's line with the link items of its URLs (src/interface/cli-line-links.ts); absent, it goes on as sent. */
   lineLinks?: (message: Loose) => Promise<Loose>;
   log: Logger;
@@ -451,6 +453,17 @@ export function createCommandIntake(deps: {
   }
 
   /** One line of the command line through the door, its link kept for the end of its turn. */
+  /** The envelope of a line with the owner's person's name on its author and its chat, when one is known. */
+  function named(envelope: unknown): unknown {
+    const name = deps.ownerName?.() ?? null;
+    const outer = looseOf(envelope);
+    const body = looseOf(outer.body);
+    const message = looseOf(body.message);
+    if (name === null || looseOf(message.author).self === true) return envelope;
+    const author = { ...looseOf(message.author), name };
+    return { ...outer, body: { ...body, chat: { ...looseOf(body.chat), name }, message: { ...message, author } } };
+  }
+
   async function takeLine(link: AdapterLink, value: unknown, body: Loose, from?: From): Promise<Envelope> {
     const id = looseOf(body.message).id;
     if (typeof id !== 'string') return deps.door.receive(value, from);
@@ -462,7 +475,7 @@ export function createCommandIntake(deps: {
     const message = looseOf(body.message);
     // A malformed line goes to the door alone, which refuses it: it has no turn to track.
     if (!validateEvent(body).ok) return deps.door.receive(value, from);
-    const linked = await withLinks(value, body, message);
+    const linked = named(await withLinks(value, body, message));
     return turns.take({
       id,
       value: linked as Envelope,
