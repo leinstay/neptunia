@@ -128,6 +128,7 @@
   },
   "context": {
     "channelMessages": 100,
+    "chatSteps": [100, 60, 30, 10],
     "reactions": {
       "fetchTimeoutMs": 2000
     },

@@ -5,7 +5,7 @@
 
 import type { Track } from '../../loop-watch.ts';
 import type { SkillUse } from '../../memory/db/skills.ts';
-import type { IndexedSkill } from '../../skills/uses.ts';
+import type { ActiveSkill } from '../../skills/index-block.ts';
 import type { recordEntry } from '../../behavior/selfreflection-turn.ts';
 import type { refreshEmojiIfOn } from '../../behavior/emoji-index.ts';
 import type { Deadline } from '../../behavior/turn-parts.ts';
@@ -113,8 +113,8 @@ export type PhaseContext = {
   iface: unknown;
   ifaceReads: Reads;
   skills: SkillMap | null;
-  // Her skill index for a request and the sink of the use rows (src/skills/); absent: no skills are shown or counted.
-  skillIndex?: (() => Promise<{ text: string; indexed: Array<IndexedSkill> } | null>) | null;
+  // Her active skills for the tools array and the sink of the use rows (src/skills/); absent: none is offered or counted.
+  activeSkills?: (() => Promise<ReadonlyArray<ActiveSkill>>) | null;
   recordSkillUses?: ((uses: Array<SkillUse>) => Promise<unknown>) | null;
   memoryReads: ((args: Record<string, unknown>) => void) | null;
   /** What she did today under a turn's context (src/turn/request/my-day.ts#myDayOf over the memory); null: none. */

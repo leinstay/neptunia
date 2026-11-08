@@ -1019,8 +1019,8 @@ async function buildCore(
     journal,
     record,
     port: iface,
-    // The index of her active skills (`<skills>`) and the sink of the use rows (src/skills/uses.ts).
-    skillIndex: skillsWiring.index,
+    // Her active skills, each an entry of the tools array, and the sink of the use rows (src/skills/uses.ts).
+    activeSkills: skillsWiring.active,
     recordSkillUses: skillsWiring.record,
     // Her skills run by operation name, the requester's rights checked again
     // (src/admin.ts#runSkillOp); read at call time, the admin being created below.

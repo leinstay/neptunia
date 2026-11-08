@@ -200,6 +200,7 @@ export async function responsePhase(
       transport,
       step: number,
       registry: skills ?? defaultSkills(),
+      procedures: draft.offeredSkills ?? null,
     });
     // Every answer of a selfreflection turn counts: an audience said beside a draw call holds for the messages of the next answer.
     const spoken = selfreflectionPrep ? takeAudience(split.speechText) : { text: split.speechText, audience: [] };

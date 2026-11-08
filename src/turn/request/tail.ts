@@ -8,10 +8,10 @@ import { pulledMoment } from './text.ts';
 import type { LabelGroup, Labels, Message } from './types.ts';
 
 /** One text part of a request's user message, tagged with its cache segment but the tail. */
-export type UserPart = { type: 'text'; text: string; cacheSegment?: 'stable' | 'profiles' };
+export type UserPart = { type: 'text'; text: string; cacheSegment?: 'stable' | 'surroundings' };
 
 /** A cache segment of the user message by its name. */
-export type BlockSegment = 'stable' | 'profiles' | 'tail';
+export type BlockSegment = 'stable' | 'surroundings' | 'tail';
 
 /** One block of the user message as it goes out, empty when it has nothing. `section` is its budget section when it has one. */
 export type ListedBlock = {
@@ -77,9 +77,9 @@ export function nowBlock(now: number, timezone: string, labels: Labels, periods:
   return lines.length > 0 ? [clock, l.offLead, ...lines].filter(Boolean).join('\n') : clock;
 }
 
-/** The user message's text parts from its listed blocks, one part per cache segment in the order stable, profiles, tail. */
+/** The user message's text parts from its listed blocks, one part per cache segment in the order stable, surroundings, tail. */
 export function userParts(blocks: ReadonlyArray<ListedBlock>): Array<UserPart> {
-  const segments = (['stable', 'profiles', 'tail'] as const)
+  const segments = (['stable', 'surroundings', 'tail'] as const)
     .map((segment) => ({
       text: blocks
         .filter((one) => one.segment === segment)

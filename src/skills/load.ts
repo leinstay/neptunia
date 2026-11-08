@@ -1,9 +1,10 @@
 // Loads the skills from disk at the moment of use: `<trackedDir>/<name>/SKILL.md` for the tracked layer and
 // `<localDir>/<name>/SKILL.md` for the local one, each call reading the folders anew. A local skill replaces the
 // tracked skill of the same name whole. A folder without a `SKILL.md`, a README and any loose file are ignored; a
-// file that does not parse, one whose `name` differs from its folder, a package that cannot run or one holding a symbolic
-// link (package.ts) is a problem and no skill, and never stops the others. A folder that is itself a link is ignored. The
-// skills port (port.ts) is the caller.
+// file that does not parse, one whose `name` differs from its folder, one named like a tool (`toolNames`: a skill is an
+// entry of the same tools array, so two functions would share a name), a package that cannot run or one holding a
+// symbolic link (package.ts) is a problem and no skill, and never stops the others. A folder that is itself a link is
+// ignored. The skills port (port.ts) is the caller.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,14 +14,18 @@ import type { PackageCode } from './package.ts';
 import type { ParsedSkill, SkillFileCode } from './format.ts';
 
 export type LoadedSkill = ParsedSkill & { layer: 'tracked' | 'local'; dir: string };
-export type SkillProblem = { dir: string; code: SkillFileCode | PackageCode | 'name-mismatch' | 'unreadable' };
+export type SkillProblem = {
+  dir: string;
+  code: SkillFileCode | PackageCode | 'name-mismatch' | 'unreadable' | 'tool-name';
+};
 
 const FILE = 'SKILL.md';
 
 /** The skills and problems of one layer's folder; a missing folder holds nothing. */
 function readLayer(
   root: string,
-  layer: 'tracked' | 'local'
+  layer: 'tracked' | 'local',
+  toolNames: ReadonlySet<string>
 ): { skills: Array<LoadedSkill>; problems: Array<SkillProblem> } {
   const skills: Array<LoadedSkill> = [];
   const problems: Array<SkillProblem> = [];
@@ -49,6 +54,7 @@ function readLayer(
     const parsed = parseSkillFile(text);
     if (!parsed.ok) problems.push({ dir: entry.name, code: parsed.code });
     else if (parsed.skill.name !== entry.name) problems.push({ dir: entry.name, code: 'name-mismatch' });
+    else if (toolNames.has(parsed.skill.name)) problems.push({ dir: entry.name, code: 'tool-name' });
     else {
       const skillDir = path.join(root, entry.name);
       const incomplete = packageProblem(skillDir);
@@ -64,13 +70,16 @@ function readLayer(
   return { skills, problems };
 }
 
-export function loadSkills(folders: { trackedDir?: string; localDir: string }): {
+export function loadSkills(folders: { trackedDir?: string; localDir: string; toolNames?: ReadonlySet<string> }): {
   skills: Array<LoadedSkill>;
   problems: Array<SkillProblem>;
 } {
+  const toolNames = folders.toolNames ?? new Set<string>();
   const tracked =
-    folders.trackedDir === undefined ? { skills: [], problems: [] } : readLayer(folders.trackedDir, 'tracked');
-  const local = readLayer(folders.localDir, 'local');
+    folders.trackedDir === undefined
+      ? { skills: [], problems: [] }
+      : readLayer(folders.trackedDir, 'tracked', toolNames);
+  const local = readLayer(folders.localDir, 'local', toolNames);
   const byName = new Map<string, LoadedSkill>();
   for (const skill of [...tracked.skills, ...local.skills]) byName.set(skill.name, skill);
   const skills = [...byName.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));

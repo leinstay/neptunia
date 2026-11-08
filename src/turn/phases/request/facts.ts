@@ -1,6 +1,6 @@
 // The ninth step of a turn's request: what was kept for her in this chat (the addressed turns that failed
 // earlier, a send that may have gone out, the other facts), the task input with what the turn does not answer, the
-// follow-up prompt's check, her time away and skills discovery. The request phase (src/turn/phases/request.ts) runs
+// follow-up prompt's check, her time away and her active skills. The request phase (src/turn/phases/request.ts) runs
 // it after the gather step.
 
 import { selfreflectionPlaceNotes } from '../../selfreflection.ts';
@@ -11,6 +11,7 @@ import { isTaggedCall } from '../../../behavior/mention.ts';
 import { usesFollowUpTask } from '../../../behavior/prompt.ts';
 import { feedbackInTurnText } from '../../../behavior/wake.ts';
 import { log } from '../../../log.ts';
+import type { ActiveSkill } from '../../../skills/index-block.ts';
 import type { Draft } from '../../draft.ts';
 import { FAILED_TURN_KEEP_MS, settleUnknownSends } from '../../journal.ts';
 import { askedFor } from '../../triggers.ts';
@@ -29,7 +30,8 @@ export type Told = {
   placeMemory: unknown;
   taggedCall: boolean | null;
   offPeriods: unknown;
-  skillIndex: string | null;
+  /** Her active skills, read now; the request step offers those she can use as entries of the tools array. */
+  activeSkills: ReadonlyArray<ActiveSkill>;
 };
 
 // health: allow complexity until 2027-04-01 -- moved from runTurnAttempt in src/behavior/turn.ts in stage 5c, a pure split
@@ -42,7 +44,7 @@ export async function tellFacts(
   pulled: Pulled,
   gathered: Gathered
 ): Promise<Told> {
-  const { store, iface, facts, dmChannels, promptState, offPeriodsFor, skillIndex } = ctx;
+  const { store, iface, facts, dmChannels, promptState, offPeriodsFor, activeSkills } = ctx;
   const { mode, trigger = null, triggerKind = null, part = null, queued = null, added = null } = params;
   const { missed = null } = params;
   const { channel, placeId, reading, isDm } = opened;
@@ -129,9 +131,8 @@ export async function tellFacts(
   }
   // `<now>`: the persona's recent time away (the journal's pauses and stops).
   const offPeriods = await offPeriodsFor(placeId);
-  // The index of her active skills: every turn kind shows it, and the turn counts the skills it showed.
-  const index = skillIndex == null ? null : await skillIndex();
-  draft.skillsIndexed = index?.indexed ?? [];
+  // Her active skills: the request step offers them in the tools array of every turn kind.
+  const active = activeSkills == null ? [] : await activeSkills();
   return {
     factsText,
     tasks,
@@ -139,6 +140,6 @@ export async function tellFacts(
     placeMemory,
     taggedCall,
     offPeriods,
-    skillIndex: index?.text ? index.text : null,
+    activeSkills: active,
   };
 }

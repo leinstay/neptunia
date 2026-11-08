@@ -17,6 +17,7 @@ import { log } from '../../../log.ts';
 import { PERSONA_ID } from '../../../memory/db/storage-keys.ts';
 import { exposedSkillNames } from '../../../tools/discovery.ts';
 import { buildTools } from '../../../tools/tools-json.ts';
+import { objOf } from '../../../tools/types.ts';
 import { defaultSkills } from '../../calls.ts';
 import { portMediaPick } from '../../../interface/capabilities.ts';
 import type { Draft } from '../../draft.ts';
@@ -65,6 +66,15 @@ function privateProfileOf(store: PhaseContext['store'], accountId: string): obje
 }
 
 export type BuiltRequest = ReturnType<typeof buildRequest>;
+
+/** The tool a skill entry of the tools array is read through (src/tools/impl/skill.ts#cmdRead). */
+const READ_TOOL = 'skill.read';
+
+/** `labels.skills.procedure`, read now: the sentence after a skill's line that a call returns a procedure to follow. */
+function procedureSentence(labels: unknown): string {
+  const sentence = objOf(objOf(labels).skills).procedure;
+  return typeof sentence === 'string' ? sentence : '';
+}
 
 /** The wakes that run with no chat of their own (src/behavior/inner/queue.ts#channelless). */
 const OWN_SERVER_WAKES = new Set(['heartbeat', 'selfimprovement']);
@@ -332,6 +342,10 @@ function framedInputsOf(
       interfaceText: interfaceTextOf(reads.interfaceNames(frame.interface), turn.labels),
       root: frame.root ? reads.placeFields(memoryContext, frame.root.id) : null,
       place: reads.placeFields(memoryContext, place.id),
+      versions: [
+        ...(frame.root ? (reads.placeVersions?.(memoryContext, frame.root.id) ?? []) : []),
+        ...(reads.placeVersions?.(memoryContext, place.id) ?? []),
+      ],
     },
     refLineOf,
   };
@@ -574,7 +588,6 @@ export function plannerRequest(
       offPeriods: null,
       selfreflection: { entries: pastEntriesOf(ctx, draft, channel, config), ...parts },
       skillsInventory: null,
-      skillIndex: null,
       toolsGranted: null,
       toolsBlock: null,
       toolsTokens: 0,
@@ -632,22 +645,32 @@ export function buildTurnRequest(
   const { finalMode } = pulled;
   const { history, descriptions, videos, imageAnswers, reads } = gathered;
   const { prefetchResult, drawOn, selfreflectionPrep, prompts } = gathered;
-  const { factsText, tasks, placeMemory, taggedCall, offPeriods, skillIndex } = told;
+  const { factsText, tasks, placeMemory, taggedCall, offPeriods, activeSkills } = told;
   // Her tools, pinned for this turn (a grant removed meanwhile is still caught at each call): the skills granted to her
-  // and the carried-over ones, as native tool definitions (or `<tools>` text), within a wake's own set
-  // (src/tools/wake-tools.ts). `toolNames` feeds `<senses>` and stays the same for every turn kind, so a wake shares the
-  // stable part of the request. A selfreflection post has the same tools; only `draw.create` runs there (runSteps).
+  // and the carried-over ones, as native tool definitions (or `<tools>` text), then one entry per active skill she can
+  // use. The array is the same for every turn kind, so every turn shares one cached prefix: a wake refuses a call outside
+  // its own set when the call is made (src/tools/wake-tools.ts#wakeRefusalCode). A selfreflection post has the same
+  // tools; only `draw.create` runs there (runSteps).
   const registry = skills ?? defaultSkills();
   draft.toolNames = exposedSkillNames({ config, selfId, registry });
   const wake = draft.inner?.wake;
   const wakeKind = wake?.kind ?? null;
   // The wake as its words read it (src/behavior/wake.ts): the drain's WakeInfo.
   const wakeWords = (wake ?? null) as WakeBlockInput | null;
-  draft.tools = buildTools(exposedSkillNames({ config, selfId, registry, wakeKind }), {
-    registry,
-    texts: prompts?.tools,
-    fill: { drawChars: config.image?.maxPromptChars ?? 1600 },
-  });
+  // A skill entry is read through `skill.read`, so her grant of it decides whether her skills are offered at all.
+  const offered = draft.toolNames.includes(READ_TOOL) ? activeSkills.filter((skill) => skill.missing.length === 0) : [];
+  draft.offeredSkills = new Map(offered.map((skill) => [skill.name, skill.versionId]));
+  draft.skillsIndexed = offered.map(({ name, versionId, tools }) => ({ name, versionId, tools }));
+  draft.tools = buildTools(
+    draft.toolNames.filter((name) => name !== READ_TOOL),
+    {
+      registry,
+      texts: prompts?.tools,
+      fill: { drawChars: config.image?.maxPromptChars ?? 1600 },
+      skills: offered,
+      procedure: procedureSentence(prompts?.labels),
+    }
+  );
   const toolsBlock = transport === 'text' ? toolsBlockText(draft.tools, prompts?.labels) : null;
   const toolsTokens = transport === 'native' ? estimateTools(draft.tools) : 0;
   // Every input named (turnRequestInput throws on one left undefined); null marks an absent one.
@@ -725,8 +748,6 @@ export function buildTurnRequest(
     offPeriods,
     // The skills catalogue text is never filled by a turn: her tools are the native definitions below.
     skillsInventory: null,
-    // `<skills>`: the index of her active skills, the stable part of every request (null: no skill is active).
-    skillIndex,
     // Her tools this turn: the in-turn ones for `<senses>`, the text transport's `<tools>` body, and what the native
     // transport's `tools` field costs the request (the room the sections share).
     toolsGranted: draft.toolNames,

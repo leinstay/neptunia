@@ -1,7 +1,7 @@
-// What a heartbeat and a selfimprovement wake accept and offer (docs/inner-life.md "Heartbeat and selfimprovement"). Both
-// let her read her memory first and end in one decision: a heartbeat records one intention or a skip, a selfimprovement
-// wake files one task or a skip. A call outside the wake's set is refused with the wake's own code, and the model is
-// offered the same set. `task.cancel`, `task.comment`, `task.answer` and `task.unblock` belong to the selfimprovement wake alone, on
+// What a heartbeat and a selfimprovement wake accept (docs/inner-life.md "Heartbeat and selfimprovement"). Both let her
+// read her memory first and end in one decision: a heartbeat records one intention or a skip, a selfimprovement wake
+// files one task or a skip. Every turn offers the one tools array, her skills included, and a call outside the wake's
+// set is refused by name with the wake's own code. `task.cancel`, `task.comment`, `task.answer` and `task.unblock` belong to the selfimprovement wake alone, on
 // every other turn too. Pure: the kind comes from the turn, the names from the registry.
 
 import { CODE } from './codes.ts';

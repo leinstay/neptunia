@@ -8,6 +8,9 @@ import { freezePerBucket } from '../src/behavior/prompt.ts';
 import { cacheTtlMs } from '../src/llm/openrouter.ts';
 import { labels } from './fixtures/labels.ts';
 import { frameOfInput } from './fixtures/prompt-rig.ts';
+import { frameInput } from './fixtures/frame-input.ts';
+import { frameOf } from '../src/turn/request/frame.ts';
+import type { Frame } from '../src/turn/request/frame.ts';
 import { buildRequest, type Built } from './fixtures/built-request.ts';
 
 const HOUR = 3_600_000;
@@ -142,3 +145,86 @@ test('buildRequest: with llm.cache.ttl 5m the bucket is five minutes', () => {
 });
 
 // B7: the GIF list left the request, so the test of its order inside one bucket went with it.
+
+// --- slice 8 of the turn frame: `<surroundings>` is its own cached part, held per bucket by place and version --------
+
+const ROOT_LINK = { id: 'place:root', kind: 'server', name: 'Αγορά' };
+const ROOM = frameOf(frameInput({ chain: [{ id: 'place:room', kind: 'channel', name: 'γενικά' }, ROOT_LINK] }));
+const GARDEN = frameOf(frameInput({ chain: [{ id: 'place:garden', kind: 'channel', name: 'κήπος' }, ROOT_LINK] }));
+
+/** A reply in `frame` whose place has `purpose` under the description versions `versions`. */
+function placed(
+  frame: Frame,
+  {
+    purpose,
+    versions,
+    now,
+    self = ['likes tea'],
+  }: { purpose: string; versions: Array<string>; now: number; self?: Array<string> },
+  stableFreeze: Map<string, unknown>
+) {
+  return {
+    ...baseInput({ now, stableFreeze, placeMemory: { self } }),
+    surroundings: { interfaceText: 'IFACE_TEXT', root: null, place: { purpose }, versions },
+    frame,
+  };
+}
+
+/** The text of the part of `request` cached under `segment`. */
+function segmentText(request: Built, segment: string): string {
+  const [, user] = request.messages;
+  const part = user.content.find((entry) => entry.cacheSegment === segment);
+  assert.ok(part, `the request has a ${segment} part`);
+  return part.text;
+}
+
+test('buildRequest: two requests of one place within a bucket have byte-identical stable and surroundings parts', () => {
+  // Bug: a memory batch or a field edit under the same description version rewrites the cached prefix mid-bucket.
+  const stableFreeze = new Map<string, unknown>();
+  const first = buildRequest(
+    placed(ROOM, { purpose: 'μιλάμε για τσάι', versions: ['ver:1'], now: EDGE + 10 * MINUTE }, stableFreeze)
+  );
+  const second = buildRequest(
+    placed(
+      ROOM,
+      {
+        purpose: 'μιλάμε για καφέ',
+        versions: ['ver:1'],
+        now: EDGE + 50 * MINUTE,
+        self: ['likes tea', 'hates mornings'],
+      },
+      stableFreeze
+    )
+  );
+  assert.equal(segmentText(second, 'stable'), segmentText(first, 'stable'));
+  assert.equal(segmentText(second, 'surroundings'), segmentText(first, 'surroundings'));
+  assert.ok(segmentText(first, 'surroundings').includes('μιλάμε για τσάι'));
+});
+
+test('buildRequest: a new description version of the place changes the surroundings part within the bucket', () => {
+  // Bug: the freeze keyed by place alone keeps a stale description for up to an hour after the memory rewrote it.
+  const stableFreeze = new Map<string, unknown>();
+  buildRequest(
+    placed(ROOM, { purpose: 'μιλάμε για τσάι', versions: ['ver:1'], now: EDGE + 10 * MINUTE }, stableFreeze)
+  );
+  const renewed = buildRequest(
+    placed(ROOM, { purpose: 'μιλάμε για καφέ', versions: ['ver:2'], now: EDGE + 20 * MINUTE }, stableFreeze)
+  );
+  assert.ok(segmentText(renewed, 'surroundings').includes('μιλάμε για καφέ'));
+});
+
+test('buildRequest: a request of another place differs from the first only in the surroundings part of the cached prefix', () => {
+  // Bug: a place fact inside the stable part breaks the cache of `<self>` at every change of room.
+  const stableFreeze = new Map<string, unknown>();
+  const room = buildRequest(
+    placed(ROOM, { purpose: 'μιλάμε για τσάι', versions: ['ver:1'], now: EDGE + 10 * MINUTE }, stableFreeze)
+  );
+  const garden = buildRequest(
+    placed(GARDEN, { purpose: 'φυτεύουμε ντομάτες', versions: ['ver:9'], now: EDGE + 11 * MINUTE }, stableFreeze)
+  );
+  const [roomSystem] = room.messages;
+  const [gardenSystem] = garden.messages;
+  assert.equal(gardenSystem.content, roomSystem.content);
+  assert.equal(segmentText(garden, 'stable'), segmentText(room, 'stable'));
+  assert.notEqual(segmentText(garden, 'surroundings'), segmentText(room, 'surroundings'));
+});

@@ -49,7 +49,6 @@ export const TURN_INPUT_KEYS: ReadonlyArray<string> = Object.freeze([
   'elsewhereDestination',
   'offPeriods',
   'skillsInventory',
-  'skillIndex',
   'toolsGranted',
   'toolsBlock',
   'toolsTokens',

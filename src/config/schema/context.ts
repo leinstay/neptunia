@@ -11,6 +11,14 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
     'text': 'Messages of the current chat in the window',
   },
   {
+    'key': 'context.chatSteps',
+    'types': ['array'],
+    'reader': 'src/turn/request/reader.ts',
+    'default': [100, 60, 30, 10],
+    'text':
+      'The line counts `<chat>` may be cut to when the budget cannot keep the whole window: the largest step that fits, so two turns with nothing new between them send the same lines. Below the smallest step it keeps what fits. An empty list cuts to whatever fits',
+  },
+  {
     'key': 'context.reactions.fetchTimeoutMs',
     'types': ['number'],
     'reader': 'src/turn/tool-round.ts',

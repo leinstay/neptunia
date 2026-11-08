@@ -187,22 +187,21 @@ test('selfimprovement wake: a memory search and an answer on a task are accepted
   assert.equal(run.actions.at(-1), 'task.propose:executed:ok');
 });
 
-test('selfimprovement wake: the request offers her task operations and memory reads, and no way to act outward', async (t) => {
-  // Bug: she is offered tools every call of which is refused, and spends the wake on them.
+// Corrected in slice 8 of plan 2026-11-06-turn-frame: the tools array is the same for every turn kind and a wake refuses a
+// call outside its set at execution, so the halves asserting tools absent from a wake's array went. The refusals are
+// tested above ('posts, intentions, web searches and errands are refused') and below ('a filing or a skill run is refused').
+test('selfimprovement wake: the request offers her task operations and memory reads', async (t) => {
+  // Bug: the wake cannot file or answer a task because its operations are missing from the array.
   const world = selfimprovementWorld(t);
   const run = await wakeTurn({ wake: IMPROVE, answers: ['<skip/>'], board: world.caller });
   for (const name of ['task.propose', 'task.status', 'task.cancel', 'task.comment', 'task.answer', 'lore.list'])
     assert.ok(run.offered.includes(nameOf(name)), `${name} is offered`);
-  for (const name of ['message.create', 'intention.set', 'web.search', 'errand.run', 'skill.run', 'skill.disable'])
-    assert.ok(!run.offered.includes(nameOf(name)), `${name} is not offered`);
 });
 
-test('heartbeat: the request offers no skill or task route and carries no diary task', async (t) => {
-  // Bug: heartbeat turns back into the wake that files skills and writes the diary.
+test('heartbeat: the request carries no diary task', async (t) => {
+  // Bug: heartbeat turns back into the wake that writes the diary.
   const world = selfimprovementWorld(t);
   const run = await wakeTurn({ wake: BEAT, answers: ['<skip/>'], board: world.caller });
-  for (const name of ['task.propose', 'task.cancel', 'task.comment', 'task.answer', 'skill.run', 'skill.disable'])
-    assert.ok(!run.offered.includes(nameOf(name)), `${name} is not offered`);
   assert.ok(!run.offered.some((name) => name.startsWith('selfreflection')));
   assert.ok(!requestText(run.requests[0] ?? []).includes(PROMPT_MARK.selfreflection));
 });

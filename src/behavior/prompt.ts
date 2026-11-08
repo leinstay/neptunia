@@ -167,7 +167,6 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     selfreflection: input.selfreflection,
     offPeriods: input.offPeriods,
     skillsInventory: input.skillsInventory,
-    skillIndex: input.skillIndex,
     toolsGranted: input.toolsGranted,
     toolsBlock: input.toolsBlock,
     toolsTokens: input.toolsTokens,

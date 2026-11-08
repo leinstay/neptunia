@@ -1,9 +1,10 @@
 // The user message of a request built on the turn frame (docs/prompt-contract.md, "Blocks per kind"): every kind carries
-// the frame's tags in its order, filtered by `frame.blocks`. The stable segment holds `<self>` and `<surroundings>`; the
-// tail `<memory>` from the graph reader, `<recall>` from her lookups, `<inner>`, `<meanwhile>` from her lines elsewhere,
+// the frame's tags in its order, filtered by `frame.blocks`. The stable segment holds `<self>`, the surroundings segment
+// `<surroundings>`, each with its own cache marker (src/llm/openrouter.ts#withCacheMarker). The tail holds `<memory>`
+// from the graph reader, `<recall>` from her lookups, `<inner>`, `<meanwhile>` from her lines elsewhere,
 // a selfreflection request's `<virtual_world>`, `<spatial_awareness>` with the clock and her time away, `<chat>` and
 // `<task>`. The budget fits them in this priority: the fixed part, the person she answers, the memory shares, the
-// recall, the chat, the background, her own state, the world, her past entries. Mention handles are given after the
+// recall, the chat (cut to a step of `context.chatSteps`), the background, her own state, the world, her past entries. Mention handles are given after the
 // fit, to the authors of the chat and to the people `<memory>` and `<meanwhile>` kept, and to nobody else; a
 // selfreflection request gives none. buildRequest (src/behavior/prompt.ts) calls it. Pure.
 
@@ -24,7 +25,6 @@ import { recallBlockOf } from './recall-block.ts';
 import { refResolverOf } from './refs.ts';
 import type { LineOf } from './refs.ts';
 import type { Senses } from './senses.ts';
-import { surroundingsOf } from './surroundings.ts';
 import type { PlaceFields } from './surroundings.ts';
 import type { SelfreflectionFramed } from './selfreflection.ts';
 import { blockRecords, userParts } from './tail.ts';
@@ -37,6 +37,8 @@ export type SurroundingsInput = {
   readonly interfaceText: string;
   readonly root: PlaceFields | null;
   readonly place: PlaceFields | null;
+  /** The `current_version` ids of the descriptions `root` and `place` render. */
+  readonly versions?: ReadonlyArray<string>;
 };
 
 /** What the frame's request is built from, every text already rendered by the builders before it. */
@@ -54,9 +56,9 @@ export type ReaderInput = {
   awayText: string;
   senses: Senses;
   toolsText: string;
-  skillIndexText: string;
   selfFacts: Array<string>;
-  surroundings: SurroundingsInput | null;
+  /** The body of `<surroundings>`, rendered and held per cache bucket by the caller (src/turn/request/framed.ts). */
+  surroundingsText: string;
   mind: Mind;
   /** The chat ids of the places her selfreflection is mirrored to, marked in `<memory>`. */
   selfreflectionIds?: ReadonlySet<string>;
@@ -143,7 +145,6 @@ function sectionsOf(given: ReaderInput, offered: Offered): Array<Section> {
     given.senses.stable,
     given.senses.turn,
     given.toolsText,
-    given.skillIndexText,
     offered.surroundings,
     given.tempoText,
     given.errandResult,
@@ -162,13 +163,19 @@ function sectionsOf(given: ReaderInput, offered: Offered): Array<Section> {
       items: offered.memory.filter((one) => one.subtag === subtag && !one.counterpart).map((one) => one.text),
     })),
     { name: 'recall', items: [offered.recall].filter(Boolean) },
-    { name: 'chat', keep: 'newest', items: offered.chat.map((item) => item.text) },
+    { name: 'chat', keep: 'newest', steps: chatStepsOf(given.config), items: offered.chat.map((item) => item.text) },
     { name: 'meanwhile', keep: 'newest', items: offered.windowTexts },
     { name: 'inner', keep: 'first', items: offered.inner.map((one) => one.text) },
     { name: 'virtual_world', items: [given.selfreflection?.world ?? ''].filter(Boolean) },
     { name: 'selfreflection', keep: 'newest', items: given.selfreflection?.entries ?? [] },
   ];
 }
+
+/** `context.chatSteps`, read now: the line counts `<chat>` may be cut to, none when the setting is not a list. */
+const chatStepsOf = (config: RequestConfig): ReadonlyArray<number> => {
+  const steps: unknown = config.context.chatSteps;
+  return Array.isArray(steps) ? steps.filter((step): step is number => typeof step === 'number') : [];
+};
 
 /** The items of a section the budget kept, by identity of their text and in their own order. */
 function keptOf<T>(all: ReadonlyArray<T>, kept: ReadonlyArray<string> | undefined, text: (one: T) => string): Array<T> {
@@ -250,16 +257,9 @@ function offeredOf(given: ReaderInput): Offered {
   const windows = given.meanwhileReads
     ? meanwhileWindows(given.meanwhileReads, frame, meanwhileSettingsOf(given.config, frame))
     : [];
-  const stored = given.surroundings;
   return {
     spatial: [given.spatialText, answersLine(given), given.awayText].filter(Boolean).join('\n'),
-    surroundings: surroundingsOf(
-      frame,
-      stored?.interfaceText ?? '',
-      stored?.root ?? null,
-      stored?.place ?? null,
-      labels
-    ),
+    surroundings: given.surroundingsText,
     memory: [
       ...memoryItemsOf(mind, frame, labels, given.nameOf, given.live, given.selfreflectionIds),
       ...factItemsOf(given.facts ?? [], labels),
@@ -307,12 +307,11 @@ function selfreflectionInnerOf(given: SelfreflectionFramed | null, fit: Fit): st
     .join('\n');
 }
 
-/** The body of `<self>`: her senses, her tools in text, her skills and the facts about herself the budget kept. */
+/** The body of `<self>`: her senses, her tools in text and the facts about herself the budget kept. */
 const selfTextOf = (given: ReaderInput, fit: Fit): string =>
   [
     block('senses', [given.senses.stable, given.senses.turn].filter(Boolean).join('\n')),
     block('tools', given.toolsText),
-    block('skills', given.skillIndexText),
     block('self_facts', (fit.kept.self ?? []).join('\n')),
   ]
     .filter(Boolean)
@@ -334,7 +333,7 @@ function listedOf(given: ReaderInput, offered: Offered, fit: Fit, bodies: Bodies
     { name: 'self', segment: 'stable', source: 'self', text: block('self', selfTextOf(given, fit)) },
     {
       name: 'surroundings',
-      segment: 'stable',
+      segment: 'surroundings',
       source: 'surroundings',
       text: block('surroundings', offered.surroundings),
     },

@@ -333,7 +333,6 @@ export type SensesOf = {
   senses: Senses;
   toolsText: string;
   inventoryText: string;
-  skillIndexText: string;
 };
 
 /**
@@ -367,6 +366,5 @@ export function sensesOf(given: RequestInput & Base): SensesOf {
   const skillsShown = true;
   const toolsText = typeof given.toolsBlock === 'string' ? given.toolsBlock.trim() : '';
   const inventoryText = skillsShown ? skillsInventoryText(given.skillsInventory, labels) : '';
-  const skillIndexText = typeof given.skillIndex === 'string' ? given.skillIndex.trim() : '';
-  return { sensesOptions, senses, toolsText, inventoryText, skillIndexText };
+  return { sensesOptions, senses, toolsText, inventoryText };
 }

@@ -206,7 +206,6 @@ export const SANDBOX_OMITS: Readonly<Record<string, string>> = Object.freeze({
   selfreflection: 'never a selfreflection post: no <virtual_world>, <selfreflection>, <plan> or <found> block',
   offPeriods: 'a replay has no journal of downtime: <now> shows the time only',
   skillsInventory: 'no catalogue: a replay runs no classifier (a skill scenario hands one in: SKILL_SCENARIO_OMITS)',
-  skillIndex: 'no skill registry in a replay: no <skills> index of her active skills',
   around:
     'a replay has no live gateway: no voice channels or statuses, so <people_now> has no live fields (its fields from memory stay)',
   toolsGranted:
@@ -798,7 +797,6 @@ export function sandboxRequestInput({
     selfreflection: null,
     offPeriods: null,
     around: null,
-    skillIndex: null,
     // Absent but in a skill scenario: the catalogue rows it hands in.
     skillsInventory: Array.isArray(skillsInventory) && skillsInventory.length > 0 ? skillsInventory : null,
     // Absent but when the caller hands in her tools set (sandboxToolset): the names, the text transport's block, the native transport's tokens.

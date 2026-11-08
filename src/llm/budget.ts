@@ -28,6 +28,12 @@ export type Section = {
   cap?: number;
   /** Required sections are never trimmed; if they alone exceed the limit, fitSections throws. */
   required?: boolean;
+  /**
+   * Item counts the section may be cut to, in any order. A section that cannot keep all its items keeps the largest step
+   * not above what fits, so two turns with nothing new between them keep the same items; below the smallest step it keeps
+   * what fits.
+   */
+  steps?: ReadonlyArray<number>;
 };
 
 /**
@@ -70,10 +76,17 @@ export function sectionCost(calibrator: { apply: (rawEstimate: number) => number
   return (text) => calibrator.apply(estimateTokens(text)) + 2;
 }
 
+/** The largest of `steps` (whole counts above 0) not above `count`; null when there is none. */
+function stepBelow(steps: ReadonlyArray<number> | undefined, count: number): number | null {
+  const fitting = (steps ?? []).filter((step) => Number.isInteger(step) && step > 0 && step <= count);
+  return fitting.length > 0 ? Math.max(...fitting) : null;
+}
+
 /**
  * Fit `sections` into `limit` tokens. `cost(text)` returns the token price of
  * one item. Returns `{ kept, stats, used }` where `kept[name]` is the surviving
- * items in their original order. With `options.limits` (src/llm/limits.ts#createLimits),
+ * items in their original order. A section with `steps` that cannot keep all its items is cut to the
+ * largest step not above what fits. With `options.limits` (src/llm/limits.ts#createLimits),
  * every section that lost items is reported there as a `budget-drop` (`budgetDrops`).
  * @param sections In priority order.
  * @param limit A finite number >= 0.
@@ -128,6 +141,12 @@ export function fitSections(
       used += price;
     }
     if (section.keep === 'newest') taken.reverse();
+    const step = taken.length < section.items.length ? stepBelow(section.steps, taken.length) : null;
+    if (step !== null && step < taken.length) {
+      const cut = section.keep === 'newest' ? taken.slice(taken.length - step) : taken.slice(0, step);
+      taken.splice(0, taken.length, ...cut);
+      used = taken.reduce((sum, item) => sum + cost(item), 0);
+    }
     remaining -= used;
     kept[section.name] = taken;
     stats[section.name] = { used, kept: taken.length, dropped: section.items.length - taken.length };

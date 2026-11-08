@@ -9,6 +9,10 @@ import { skillRegistry, describeSkill, skillArgTexts } from './registry.ts';
 import { apiNameOf, skillNameOfApi } from './definitions.ts';
 import { idText, isObj, objOf } from './types.ts';
 import type { Obj, Skill, SkillMap } from './types.ts';
+import type { ActiveSkill } from '../skills/index-block.ts';
+
+/** What a skill entry of the tools array is made from: her active skill as the skills port gives it. */
+export type OfferedSkill = Pick<ActiveSkill, 'name' | 'description' | 'missing'>;
 
 /** `value` with every object's keys in sorted order (arrays keep theirs): one stable JSON per definition set. */
 export function canonicalJson(value: unknown): unknown {
@@ -72,16 +76,54 @@ function descriptionOf(skill: Skill, texts: unknown, fill: unknown): string {
   return filled([title, whenToUse, whenNotToUse].filter(Boolean).join('\n'), fill);
 }
 
+/** Code-unit order of two definitions by their function name. */
+const byName = (a: ToolDefinition, b: ToolDefinition): number =>
+  a.function.name < b.function.name ? -1 : a.function.name > b.function.name ? 1 : 0;
+
+/**
+ * The entries of her skills (docs/skills.md): one per skill whose tools are all registered and granted (`missing`
+ * empty), sorted by name, named by the skill's name, described by its `description` line and then `procedure` (the
+ * sentence that a call returns a procedure to follow), with no parameter.
+ */
+export function skillEntries(skills: ReadonlyArray<OfferedSkill>, procedure = ''): Array<ToolDefinition> {
+  return skills
+    .filter((skill) => skill.missing.length === 0 && typeof skill.name === 'string' && skill.name !== '')
+    .map(
+      (skill) =>
+        canonicalJson({
+          type: 'function',
+          function: {
+            name: skill.name,
+            description: [skill.description, procedure].filter(Boolean).join('\n'),
+            parameters: { type: 'object', properties: {} },
+          },
+        }) as ToolDefinition
+    )
+    .sort(byName);
+}
+
 /**
  * The `tools` array for the skills in `names`: `[{ type: 'function', function: { name, description,
- * parameters } }]` sorted by API name, keys in a fixed order. A name with no skill in `registry` or
- * no API name is left out. Same input, same bytes.
+ * parameters } }]` sorted by API name, keys in a fixed order, then the entries of her active `skills` (skillEntries,
+ * with `procedure`). A name with no skill in `registry` or no API name is left out. Same input, same bytes.
  * `names` are the dotted skill names granted to the persona. `texts` is `hot.prompts.tools`;
  * `fill` holds the values for the `{{key}}` placeholders of the texts (`{ drawChars }`).
  */
 export function buildTools(
   names: Iterable<string> | null | undefined,
-  { registry = skillRegistry(), texts, fill }: { registry?: SkillMap; texts?: unknown; fill?: unknown } = {}
+  {
+    registry = skillRegistry(),
+    texts,
+    fill,
+    skills = [],
+    procedure = '',
+  }: {
+    registry?: SkillMap;
+    texts?: unknown;
+    fill?: unknown;
+    skills?: ReadonlyArray<OfferedSkill>;
+    procedure?: string;
+  } = {}
 ): Array<ToolDefinition> {
   const tools: Array<ToolDefinition> = [];
   for (const name of new Set(names ?? [])) {
@@ -99,7 +141,7 @@ export function buildTools(
       }) as ToolDefinition
     );
   }
-  return tools.sort((a, b) => (a.function.name < b.function.name ? -1 : a.function.name > b.function.name ? 1 : 0));
+  return [...tools.sort(byName), ...skillEntries(skills, procedure)];
 }
 
 /** The dotted skill name of a tool call's API name, or null when no skill has it. */

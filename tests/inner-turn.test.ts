@@ -1526,11 +1526,14 @@ test("inner turn: a heartbeat turn and an addressed reply in the same channel sh
       'her tools are a request field, not a block'
     );
     assert.deepEqual(beat[0], reply[0], 'the same system message');
-    // Slice 4: a reply's stable segment is `<self>` and `<surroundings>`, and a heartbeat (slice 5) has no
-    // `<surroundings>`, so the two share the system message and the text of `<senses>`, not the whole segment.
+    // Slice 4: a reply's stable segment is `<self>`, and slice 8 gives `<surroundings>` a segment of its own; a heartbeat
+    // (slice 5) has no `<surroundings>`, so the two share the system message and the text of `<senses>`.
     const sensesOf = (text: string) => text.slice(text.indexOf('<senses>'), text.indexOf('</senses>'));
     const [beatStable, replyStable] = [String(a.stable), String(b.stable)];
-    assert.ok(replyStable.startsWith('<self>') && replyStable.includes('<surroundings>'), 'the reply is on the frame');
+    assert.ok(
+      replyStable.startsWith('<self>') && String(b.surroundings).startsWith('<surroundings>'),
+      'the reply is on the frame'
+    );
     assert.equal(sensesOf(beatStable), sensesOf(replyStable));
     // Slice 5: `<wake>` is gone; why she woke is the heartbeat's kind line in `<spatial_awareness>`, still in the tail.
     const awakeOf = (tail: string) =>

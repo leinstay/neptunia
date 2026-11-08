@@ -1988,9 +1988,11 @@ test('withCacheMarker: no more than four markers are sent', () => {
   );
 });
 
-// --- cache segments: the reply's stable user prefix and its profiles --------------------
+// --- cache segments: the request's stable `<self>` and its `<surroundings>` --------------------
+// Slice 8 of the turn frame: the `profiles` part and the third parameter of withCacheMarker are gone, and the second
+// cached part is `surroundings`, marked with the request's TTL. The tests below say so in their names.
 
-/** A reply whose user message is three text parts (stable, profiles, tail) and a picture, as buildRequest sends it. */
+/** A reply whose user message is three text parts (stable, surroundings, tail) and a picture, as buildRequest sends it. */
 function segmentedMessages() {
   return [
     { role: 'system', content: SYSTEM_TEXT },
@@ -1998,7 +2000,7 @@ function segmentedMessages() {
       role: 'user',
       content: [
         { type: 'text', text: '<self_facts>\n- aime le thé\n</self_facts>\n\n', cacheSegment: 'stable' },
-        { type: 'text', text: '<people>\n## Zoé\n</people>\n\n', cacheSegment: 'profiles' },
+        { type: 'text', text: '<surroundings>\nγενικά\n</surroundings>\n\n', cacheSegment: 'surroundings' },
         { type: 'text', text: USER_TEXT },
         { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
       ],
@@ -2011,47 +2013,33 @@ function anySegment(messages: Array<{ content: unknown }>) {
   return messages.some((m) => Array.isArray(m.content) && partsOf(m).some((p) => 'cacheSegment' in p));
 }
 
-test('withCacheMarker: cacheSegment stable takes the request ttl, profiles its own, and the tag is never sent', () => {
+test('withCacheMarker: cacheSegment stable and surroundings take the request ttl, and the tag is never sent', () => {
   const messages = segmentedMessages();
   const before = structuredClone(messages);
-  const sent = withCacheMarker(messages, '1h', '5m');
+  const sent = withCacheMarker(messages, '1h');
   assert.deepEqual(sent[0].content, [{ type: 'text', text: SYSTEM_TEXT, cache_control: MARK_1H }]);
   assert.deepEqual(sent[1].content, [
     { type: 'text', text: '<self_facts>\n- aime le thé\n</self_facts>\n\n', cache_control: MARK_1H },
-    { type: 'text', text: '<people>\n## Zoé\n</people>\n\n', cache_control: MARK_5M },
+    { type: 'text', text: '<surroundings>\nγενικά\n</surroundings>\n\n', cache_control: MARK_1H },
     { type: 'text', text: USER_TEXT },
     { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
   ]);
   assert.equal(sent[1].content[2], messages[1].content[2], 'an untagged part is passed on as it is');
   assert.equal(anySegment(sent), false);
   assert.deepEqual(messages, before, 'the caller keeps its tags');
-  const hourly = withCacheMarker(segmentedMessages(), '1h', '1h');
-  assert.deepEqual(
-    markedParts(hourly).map((p) => p.cache_control),
-    [MARK_1H, MARK_1H, MARK_1H]
-  );
 });
 
-test('withCacheMarker: a profiles ttl never outlasts a 5m request ttl; null leaves the profiles unmarked', () => {
-  const short = withCacheMarker(segmentedMessages(), '5m', '1h');
+test('withCacheMarker: under a 5m request ttl the system, stable and surroundings markers are all 5m', () => {
+  const short = withCacheMarker(segmentedMessages(), '5m');
   assert.deepEqual(
     markedParts(short).map((p) => p.cache_control),
     [MARK_5M, MARK_5M, MARK_5M]
   );
-  for (const profilesTtl of [null, undefined]) {
-    const sent = withCacheMarker(segmentedMessages(), '1h', profilesTtl);
-    assert.deepEqual(
-      markedParts(sent).map((p) => p.text),
-      [SYSTEM_TEXT, '<self_facts>\n- aime le thé\n</self_facts>\n\n'],
-      String(profilesTtl)
-    );
-    assert.equal(anySegment(sent), false);
-  }
 });
 
 test('withCacheMarker: without a ttl, or with an unknown segment, the tag is stripped and no marker placed', () => {
   for (const ttl of [null, undefined, '2h']) {
-    const sent = withCacheMarker(segmentedMessages(), ttl as Parameters<typeof withCacheMarker>[1], '5m');
+    const sent = withCacheMarker(segmentedMessages(), ttl as Parameters<typeof withCacheMarker>[1]);
     assert.deepEqual(markedParts(sent), [], String(ttl));
     assert.equal(anySegment(sent), false, String(ttl));
     assert.equal(sent[0].content, SYSTEM_TEXT, 'the system message stays a string');
@@ -2069,7 +2057,7 @@ test('withCacheMarker: without a ttl, or with an unknown segment, the tag is str
       ],
     },
   ];
-  assert.deepEqual(withCacheMarker(odd, '1h', '5m'), [
+  assert.deepEqual(withCacheMarker(odd, '1h'), [
     {
       role: 'user',
       content: [
@@ -2080,13 +2068,13 @@ test('withCacheMarker: without a ttl, or with an unknown segment, the tag is str
   ]);
 });
 
-test('withCacheMarker: system, stable and profiles are three of the four markers; a fifth is dropped', () => {
+test('withCacheMarker: system, stable and surroundings are three of the four markers; a fifth is dropped', () => {
   const messages = segmentedMessages();
   partsOf(messages[1]).push(
     { type: 'text', text: 'γ', cache_control: { type: 'ephemeral' } },
     { type: 'text', text: 'δ', cache_control: { type: 'ephemeral' } }
   );
-  const sent = withCacheMarker(messages, '1h', '5m');
+  const sent = withCacheMarker(messages, '1h');
   assert.equal(markedParts(sent).length, 4);
   assert.deepEqual(
     partsOf(sent[1]).map((p) => 'cache_control' in p),
@@ -2094,8 +2082,8 @@ test('withCacheMarker: system, stable and profiles are three of the four markers
   );
 });
 
-// PR 7d: `llm.cache.profilesTtl` is the constant 1h, so every marked reply carries the three markers.
-test('complete: a segmented reply is sent with the system, stable and profiles markers, never the tag; off or unlisted, with neither', async () => {
+// Every marked reply carries the three markers: system, stable and surroundings.
+test('complete: a segmented reply is sent with the system, stable and surroundings markers, never the tag; off or unlisted, with neither', async () => {
   let config = cachingConfig();
   const { llm, sent, bodies } = cachingLlm(() => config);
   await llm.complete(segmentedMessages(), { role: 'core' });
@@ -3448,25 +3436,25 @@ test('withCacheMarker: steps appended to the first two messages get a short-live
       ],
     },
   ];
-  const sent = withCacheMarker(withNote, '1h', '1h');
+  const sent = withCacheMarker(withNote, '1h');
   assert.deepEqual(
     markedParts(sent).map((p) => [p.text!.slice(0, 8), p.cache_control]),
     [
       [SYSTEM_TEXT.slice(0, 8), MARK_1H],
       ['<self_fa', MARK_1H],
-      ['<people>', MARK_1H],
+      ['<surroun', MARK_1H],
       ['note two', MARK_5M],
     ]
   );
   assert.equal(sent[3], withNote[3], 'the tool message before the note is passed on as it is');
   // Two messages only: no fourth marker. No ttl: none at all. Already four placed: no more.
-  assert.equal(markedParts(withCacheMarker(base, '1h', '1h')).length, 3);
+  assert.equal(markedParts(withCacheMarker(base, '1h')).length, 3);
   assert.deepEqual(markedParts(withCacheMarker(withNote, null)), []);
   const full = structuredClone(withNote);
   partsOf(full[1]).push({ type: 'text', text: 'δ', cache_control: { type: 'ephemeral' } });
-  assert.equal(markedParts(withCacheMarker(full, '1h', '1h')).length, 4);
+  assert.equal(markedParts(withCacheMarker(full, '1h')).length, 4);
   assert.equal(
-    (withCacheMarker(full, '1h', '1h')[4].content as Array<MarkedPart>).some((p) => 'cache_control' in p),
+    (withCacheMarker(full, '1h')[4].content as Array<MarkedPart>).some((p) => 'cache_control' in p),
     false
   );
 });

@@ -93,3 +93,17 @@ test('reads the disk at each call, so a file written after the first load shows 
   fs.rmSync(path.join(where.localDir, 'late-comer'), { recursive: true });
   assert.equal(loadSkills(where).skills.length, 0);
 });
+
+test('refuses a skill named like a tool and keeps the others', () => {
+  // Bug: a skill is an entry of the same tools array as the tools, so one named like a tool sends two functions of
+  // one name and the provider refuses every request of the turn.
+  const where = folders();
+  put(where.localDir, 'lookup', skillText('lookup', 'shadows a tool'));
+  put(where.localDir, 'fine-one', skillText('fine-one', 'd'));
+  const { skills, problems } = loadSkills({ ...where, toolNames: new Set(['lookup', 'web.search']) });
+  assert.deepEqual(
+    skills.map((skill) => skill.name),
+    ['fine-one']
+  );
+  assert.deepEqual(problems, [{ dir: 'lookup', code: 'tool-name' }]);
+});

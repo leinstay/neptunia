@@ -79,8 +79,12 @@ export type Draft = Omit<ModuleDrafts, 'inner' | 'limits' | 'started' | 'selfref
   deletedIds?: unknown;
   factsShown?: Array<string>;
   toolNames?: Array<string>;
-  // The skills her request indexed, and her tool calls of the attempt in order, for the use rows (src/skills/uses.ts).
+  // The skills her tools array offered, for the use rows (src/skills/uses.ts).
   skillsIndexed?: Array<IndexedSkill>;
+  /** Her skills the tools array offered, name to the version offered (src/turn/phases/request/build.ts). */
+  offeredSkills?: Map<string, string>;
+  /** The skills she read in this turn, each as first read: a second call answers from here (src/turn/skill-calls.ts). */
+  procedures?: Map<string, { text: string; versionId: string }>;
   seen?: {
     messageIds: Array<string>;
     parents: Array<unknown>;

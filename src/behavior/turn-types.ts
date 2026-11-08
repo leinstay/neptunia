@@ -2,6 +2,7 @@
 
 import type { Track } from '../loop-watch.ts';
 import type { Untyped } from '../tools/types.ts';
+import type { ActiveSkill } from '../skills/index-block.ts';
 import type { createEmojiIndex } from './emoji-index.ts';
 import type { scheduleTimer } from '../turn/timers.ts';
 import type { Reads } from '../interface/reads.ts';
@@ -52,7 +53,8 @@ export type CreateTurnRunnerInput = {
   record?: Untyped;
   port: Untyped;
   skills?: Untyped;
-  skillIndex?: Untyped;
+  /** Her active skills, each an entry of the tools array (src/skills/wiring.ts#active); null: none. */
+  activeSkills?: (() => Promise<ReadonlyArray<ActiveSkill>>) | null;
   recordSkillUses?: Untyped;
   runOp?: Untyped;
   runOwnOp?: Untyped;
