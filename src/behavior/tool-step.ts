@@ -34,27 +34,18 @@ export function segments(
 /**
  * What a step's calls mean for her speech and for the next request. `speak`: every call worked and
  * its definition's result is an effect or a job (src/tools/tool-calls.ts#coversSpeech), so her
- * speech goes out after them; with no calls it is true. `fresh`: some call returned something to
- * read (a `data` result) or did not work (or has no definition), or an inner turn still has an open follow-up, so a request
- * follows when there is room.
+ * speech goes out after them; with no calls it is true. `fresh`: the step made a call, so a request follows when there
+ * is room: every call's result returns to her, an action that worked as much as a read, and she then answers or stays
+ * silent.
  * @param outcomes  One per call, in order.
  */
 export function stepVerdict(
   outcomes: Array<{ name: string; result: { status?: string } }>,
-  {
-    definitionOf,
-    openFollowUp = false,
-  }: { definitionOf: (name: string) => { result?: Definition['result'] } | null | undefined; openFollowUp?: boolean }
+  { definitionOf }: { definitionOf: (name: string) => { result?: Definition['result'] } | null | undefined }
 ): { speak: boolean; fresh: boolean } {
   const list = Array.isArray(outcomes) ? outcomes : [];
   const speak = list.every((outcome) => coversSpeech(definitionOf(outcome.name), outcome.result));
-  const fresh =
-    openFollowUp === true ||
-    list.some(
-      (outcome) =>
-        outcome.result?.status !== 'ok' || !definitionOf(outcome.name) || definitionOf(outcome.name)?.result === 'data'
-    );
-  return { speak, fresh };
+  return { speak, fresh: list.length > 0 };
 }
 
 const textPart = (text: string) => ({ type: 'text', text });

@@ -221,6 +221,8 @@ test('diary set: the avatar is fetched once and goes with the first picture; the
       call('draw.create', { text: 'boats in the harbour' }),
       call('draw.create', { text: 'a café terrace' }),
     ]),
+    // The owner's decision of 2026-11-08: the staged pictures return to her in a next request; she says nothing more.
+    '',
   ];
   const target = channel('d1', 'journal');
   const { result }: Record<string, Untyped> = await withCapturedLogs(() =>

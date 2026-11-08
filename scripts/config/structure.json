@@ -955,7 +955,7 @@
     },
     {
       "path": "src/turn/tool-round.ts",
-      "purpose": "The steps of a turn: her calls planned and made, her speech posted or held, one more request while something is left to read, and the history read, the think kept and the transcript of a step's note. Tested through the turn, inner turn, heartbeat intents and selfreflection turn tests.",
+      "purpose": "The steps of a turn: her calls planned and made, her speech posted or held, one more request after every step with calls, and the history read, the think kept and the transcript of a step's note. Tested through the turn, inner turn, heartbeat intents and selfreflection turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
