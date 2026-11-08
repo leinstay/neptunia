@@ -198,7 +198,7 @@ export async function setupRequest(
   // On the command line the owner is nobody the root knows: his account on the root's interface is the reader whose
   // view of its channels decides which of them a read may name.
   const cliOwner = isCliOwner(channel.iface, partnerId);
-  const partnerHint = cliOwner ? (ctx.frameReads?.ownerAccount?.(reading[0] ?? placeId) ?? null) : partnerId;
+  const partnerHint = cliOwner ? ctx.ownerAccount(reading[0] ?? placeId) : partnerId;
   const snapshotPending = takeSnapshotOf(
     ifaceReads,
     reading.length > 0 ? reading : [placeId],
