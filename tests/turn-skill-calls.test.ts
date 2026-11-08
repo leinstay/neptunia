@@ -17,8 +17,10 @@ test('a message.create the interface kept for a closed chat is ok, and its resul
       port.send = async (...args: Parameters<typeof send>) => ({ ...(await send(...args)), deferred: true });
     },
   });
-  assert.equal(run.sends[0]?.text, 'good night');
+  const [first] = run.sends;
+  assert.equal(first?.text, 'good night');
   const result = contentText(appended(run.llm, 1).find((message) => message.role === 'tool')?.content);
-  assert.ok(result.startsWith(labels.tools.result.ok), 'the call is ok');
-  assert.ok(result.includes(labels.tools.result.storedUntilOpen), 'the result says the post waits for the chat');
+  const { result: words } = labels.tools;
+  assert.ok(result.startsWith(words.ok), 'the call is ok');
+  assert.ok(result.includes(words.storedUntilOpen), 'the result says the post waits for the chat');
 });

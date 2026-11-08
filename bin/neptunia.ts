@@ -176,6 +176,7 @@ import { MAX_FRAME_BYTES, connectSocket } from '../src/protocol/wire.ts';
 import type { Transport } from '../src/protocol/wire.ts';
 import type { Attachment } from '../src/protocol/actions.ts';
 import { stagingDir } from '../src/media/staging.ts';
+import { openableLine } from '../src/media/kept-files.ts';
 
 const USAGE = [
   'usage: neptunia                      the chat, at a terminal',
@@ -308,11 +309,13 @@ async function openCliLink(
   return openLinkOver(transport, { token, print, deliver: deliver ?? printedFile(print), ...(chat ?? {}) });
 }
 
-/** A file she sends to a chat with no screen of its own: kept in the staging folder, and one printed line says where. */
+/** A file she sends to a chat with no screen of its own: one printed line says where its kept copy lies. */
 function printedFile(print: ((text: string) => void) | null): ((file: Attachment) => Promise<void>) | null {
   if (print === null) return null;
   const { dataDir } = paths();
   return async (file) => {
+    const openable = openableLine(dataDir, file);
+    if (openable !== null) return print(openable);
     const kept = await keepReceived(dataDir, file);
     print(
       'note' in kept
@@ -687,7 +690,7 @@ async function runInkChat(
     initialInput: firstLine,
     commands: [
       { name: 'setup', help: 'Connect services, interfaces and skills' },
-      { name: 'attach', help: 'Attach an image file from this machine to the next message' },
+      { name: 'attach', help: 'Attach a file from this machine to the next message' },
       { name: 'attach open', help: 'Open the newest image she sent' },
       { name: 'attach save', help: 'Save the newest image she sent to a file' },
       { name: 'queue', help: 'Cancel the turn over a line that still waits' },

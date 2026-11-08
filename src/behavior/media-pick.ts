@@ -127,7 +127,8 @@ export function mediaPickFormat(offer: MediaPickOffer): { name: string; schema: 
       type: 'object',
       properties: {
         pick: { type: 'string', enum: ['none', 'gif', 'emoji', 'replace'] },
-        name: { type: ['string', 'null'], enum: [...names, null] },
+        // A nullable choice is an enum holding null: Anthropic refuses a type array with an enum.
+        name: { enum: [...names, null] },
       },
       required: ['pick', 'name'],
       additionalProperties: false,

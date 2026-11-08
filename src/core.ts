@@ -102,13 +102,15 @@ import {
   createLinkSwitch,
   openAdapterLink,
 } from './interface/link.ts';
-import { createCommandDesk, createCommandIntake, coreStatusFacts } from './interface/neptunia-cli.ts';
+import { createCommandDesk, createCommandIntake, coreStatusFacts, lineLinksOf } from './interface/neptunia-cli.ts';
 import { createCliChat } from './interface/cli-chat.ts';
 import { createChatState } from './interface/commands/chat-state.ts';
 import type { ChatState } from './interface/commands/chat-state.ts';
 import { createChatSessions } from './chat/sessions.ts';
 import { createChatStore } from './chat/store.ts';
 import { withStoredHistory } from './chat/stored-history.ts';
+import { echoThrough, keepLineFiles, withKeptSends } from './chat/kept-media.ts';
+import { createKeptFetch } from './media/kept-files.ts';
 import type { ApprovalGate, ApprovalResult } from './board/approval-view.ts';
 import { createCheckpointDesk } from './development/checkpoint-desk.ts';
 import { WORKTREE_FOLDER } from './development/edges.ts';
@@ -566,8 +568,10 @@ async function buildCore(
   // An image from the owner's terminal waits in the staging folder, and these readers open its reference like any address.
   const imageStaging = openImageStaging(paths.dataDir);
   void imageStaging.sweep();
-  const imageFetcher = createImageFetcher({ fetchImpl: imageStaging.fetch });
-  const videoFetcher = createVideoFetcher({ fetchImpl: imageStaging.fetch });
+  // A file of the owner's chat kept under media/cli/ (src/chat/kept-media.ts) is opened by its reference too.
+  const keptFetch = createKeptFetch({ dataDir, next: imageStaging.fetch });
+  const imageFetcher = createImageFetcher({ fetchImpl: keptFetch });
+  const videoFetcher = createVideoFetcher({ fetchImpl: keptFetch });
   // state: the daily video counter lives next to the LLM client's daily counter.
   // Its vision and video requests tell the role health how they went.
   const describerLlm = reportingLlm(llm, { health: roleHealth, hot, roles: ['vision', 'video'] });
@@ -712,18 +716,19 @@ async function buildCore(
   }
   // The owner's commands (src/interface/neptunia-cli.ts) are answered before the door: a command never reaches her
   // memory or a turn. The desk exists once the admin does, below; a command that arrives sooner waits for the door.
-  // The link of the owner's chat that sent the last line is where her replies in `cli:dm:owner` go.
   let commandDesk: ReturnType<typeof createCommandDesk> | null = null;
   let chatState: ChatState | null = null;
   const numberOrNull = (value: unknown): number | null => (typeof value === 'number' ? value : null);
   const stringOrNull = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
+  // A chat line keeps its staged files and gains its links. Her `cli:dm:owner` replies go to the last line's link.
   const intake = createCommandIntake({
-    door: linkDoor,
+    door: keepLineFiles(linkDoor, { dataDir, readStaged: (id) => imageStaging.read(id) }),
     ready: () => doorReady.promise,
     desk: () => commandDesk,
     linesHeld: () => isPausedIn(store),
     isAnyTurnRunning: () => turns.isAnyBusy(),
     chatCommands: (name: string, args: Record<string, unknown>) => chatState?.command(name, args) ?? null,
+    lineLinks: lineLinksOf({ hot, parseLinks: (texts) => reads.parseLinks(texts) }),
     log,
   });
   const linkServer = await listenSocket({
@@ -833,11 +838,14 @@ async function buildCore(
     now: clock,
     newId: randomUUID,
   });
-  // The owner's chat exists while no chat client is open (src/interface/cli-chat.ts): its info is answered and a text
-  // post is kept as her line, which the chat shows when it opens. Its history reads those stored lines too, since the
-  // chat client holds only the lines said since it started.
+  // The owner's chat exists while no client is open (src/interface/cli-chat.ts): a text post is kept as her line and
+  // shown when it opens; its history reads the stored lines; a file she sends is kept and echoed through the door.
   const cliChat = createCliChat({ live: () => intake.chat(), now: clock, newId: randomUUID });
-  const cliAdapter = () => withStoredHistory(cliChat, (placeId) => chatSessions.shown(placeId));
+  const cliAdapter = () =>
+    withKeptSends(
+      withStoredHistory(cliChat, (placeId) => chatSessions.shown(placeId)),
+      { dataDir, newId: randomUUID, echo: echoThrough(linkDoor) }
+    );
   // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
   // after the skill gateway (src/tools/gateway.ts) let the call pass. It is the guarded port: a send to a selfreflection
   // mirror's place goes nowhere (`selfreflection-mirror`); only the mirrors' publisher below holds the link's own adapter.
@@ -1000,6 +1008,7 @@ async function buildCore(
   const turns = createTurnRunner({
     track: loopWatch.track,
     dataDir,
+    fetchImpl: keptFetch,
     embedQuery: embedOne('media-pick'),
     // A cancel and the steps of a turn over a line of the owner's chat (src/interface/chat-turns.ts).
     cancelOf: (triggerId: string | null) => intake.cancelOf(triggerId),

@@ -11,6 +11,7 @@ import { assembleDraft, draftFromText } from '../cli/composer.ts';
 import { editExternally } from '../cli/editor-actions.ts';
 import type { ProcessRun } from '../cli/clipboard.ts';
 import type { ChatAttachment, ChatImages } from '../cli/index.ts';
+import { openableLine } from '../src/media/kept-files.ts';
 import { openImageStaging, stagedIdOf, stagingDir } from '../src/media/staging.ts';
 import type { StagedImage, StageRefusal } from '../src/media/staging.ts';
 import type { Attachment } from '../src/protocol/actions.ts';
@@ -49,7 +50,7 @@ export async function stageForPrompt(
   const staging = openImageStaging(dataDir);
   const staged: Array<StagedImage> = [];
   for (const file of files) {
-    const result = await staging.stageFile(homePath(file));
+    const result = await staging.stageAttachment(homePath(file));
     if (!result.ok) {
       for (const one of staged) await staging.release(one.id);
       return { ok: false, reason: `cannot attach ${path.basename(file)}: ${STAGE_REFUSALS[result.code]}` };
@@ -89,7 +90,7 @@ export function chatImages(dataDir: string): ChatImages {
     },
     stageFile: (file) => {
       swept();
-      return staging.stageFile(homePath(file));
+      return staging.stageAttachment(homePath(file));
     },
     release: (id) => staging.release(id),
   };
@@ -127,14 +128,18 @@ export function draftEditor(
   };
 }
 
-/** What a chat shows for a file the persona sent: a kept image, or a line saying what could not be kept. */
+/**
+ * What a chat shows for a file the persona sent: a kept image, or a line with the path of the copy the core kept in the
+ * data folder (src/chat/kept-media.ts) for a file the terminal cannot show, or a line saying what could not be kept.
+ */
 export async function keepReceived(
   dataDir: string,
   file: Attachment
 ): Promise<{ attachment: ChatAttachment } | { note: string }> {
-  if (file.data === undefined) return { note: `[file ${file.name}] ${file.url ?? ''}`.trim() };
+  const openable = openableLine(dataDir, file);
+  if (file.data === undefined) return { note: openable ?? `[file ${file.name}] ${file.url ?? ''}`.trim() };
   const staging = openImageStaging(dataDir, RECEIVED_FILE_BYTES);
   const kept = await staging.stageBytes(file.data, { name: file.name });
   if (kept.ok) return { attachment: kept.staged };
-  return { note: `[file ${file.name}] not kept: ${STAGE_REFUSALS[kept.code]}` };
+  return { note: openable ?? `[file ${file.name}] not kept: ${STAGE_REFUSALS[kept.code]}` };
 }

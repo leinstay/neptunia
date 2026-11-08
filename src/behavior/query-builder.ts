@@ -44,8 +44,9 @@ export const QUERY_PLAN_FORMAT = {
       history: nullableText,
       who: nullableText,
       when: nullableText,
-      when_role: { type: ['string', 'null'], enum: ['scope', 'locator', null] },
-      recent: { type: ['string', 'null'], enum: ['yes', 'no', null] },
+      // A nullable choice is an enum holding null: Anthropic refuses a type array with an enum.
+      when_role: { enum: ['scope', 'locator', null] },
+      recent: { enum: ['yes', 'no', null] },
       skills: nullableText,
     },
     required: ['web', 'history', 'who', 'when', 'when_role', 'recent', 'skills'],
