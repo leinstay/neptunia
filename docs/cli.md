@@ -32,16 +32,17 @@ The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. 
 | Ctrl+Z and Ctrl+Y | Undo and redo in the draft |
 | Ctrl+S | Stash the draft, or bring back the stashed draft on an empty input |
 | Ctrl+G | Edit the draft in `$VISUAL` or `$EDITOR` |
-| Ctrl+O | Expand or fold the newest folded answer on the screen, or show the text behind the chip before the caret |
-| Page Up and Page Down | Scroll the transcript |
+| Ctrl+O | Expand or fold the newest folded answer on the screen |
+| Page Up and Page Down, or the mouse wheel | Scroll the transcript |
 | Ctrl+V | Attach an image from the clipboard of this machine |
-| Ctrl+C, or Ctrl+D on an empty input | Exit the CLI |
+| Ctrl+C | Copy the mouse selection when there is one, otherwise exit the CLI |
+| Ctrl+D on an empty input | Exit the CLI |
 
-The Project Neptunia header shows separate lines for the core, memory and enabled interfaces. Missing reports show a check in progress, and old reports are marked outdated. A lost core connection leaves memory and interface states unknown. The input stays at the bottom as the terminal resizes. `/status` opens the detailed view. `NEPTUNIA_REDUCED_MOTION=1` stops the galaxy animation, and `NEPTUNIA_LINEAR=1` draws the plain column described under [Rendering](#rendering).
+The chat has no row of key hints. `/help` lists the commands. The Project Neptunia header shows separate lines for the core, memory and enabled interfaces. Missing reports show a check in progress, and old reports are marked outdated. A lost core connection leaves memory and interface states unknown. The input stays at the bottom as the terminal resizes. `/status` opens the detailed view. `NEPTUNIA_REDUCED_MOTION=1` stops the galaxy animation, and `NEPTUNIA_LINEAR=1` draws the plain column described under [Rendering](#rendering).
 
 ## Pastes and history
 
-`cli/composer.ts` keeps the draft as ordered parts with their own ids: text, pastes and attachments. A bracketed paste reaches the owner of the keys through Ink's `usePaste`, and nothing is sent until an explicit Enter. A paste of more lines than `cli.paste.collapseLines` (default `10`) or more characters than `cli.paste.collapseChars` (default `2000`) draws as one chip such as `[pasted 40 lines]`. A paste at either limit stays text in the input. The turn gets the exact text of every paste in its place, with newlines, tabs and trailing spaces. Backspace after a chip removes that paste alone, and Ctrl+O shows its text. A draft whose paste text is gone stays in the input with a message and is not sent until Backspace removes the chip.
+`cli/composer.ts` keeps the draft as ordered parts with their own ids: text, pastes and attachments. A bracketed paste reaches the owner of the keys through Ink's `usePaste`, and nothing is sent until an explicit Enter. A paste of more lines than `cli.paste.collapseLines` (default `10`) or more characters than `cli.paste.collapseChars` (default `2000`) draws as one chip such as `[pasted 40 lines]`. A paste at either limit stays text in the input. The turn gets the exact text of every paste in its place, with newlines, tabs and trailing spaces. Backspace after a chip removes that paste alone, and undo brings it back. A draft whose paste text is gone stays in the input with a message and is not sent until Backspace removes the chip.
 
 `bin/cli-history.ts` keeps `data/cli/history` as one record per draft, so Up recalls a multiline draft whole, its text collapsed by the same limits. Up sets the unfinished draft aside, and Down past the newest row brings it back. A file in the older format, one draft per line, is read as it is and rewritten as records on the next send. Each write goes through a temporary file and a rename, and the file is private to the owner.
 
@@ -55,9 +56,13 @@ An image the persona sends is kept the same way, up to 10 MiB, and the transcrip
 
 ## Rendering
 
-`cli/chat-controller.ts` gives the transcript what the other parts leave: the transcript budget is `max(0, R - F - C - O)` (`transcriptBudget` in `cli/layout.ts`), with `R` the terminal's rows, `F` the header, footer, notice and question rows, `C` the input with its borders, and `O` the slash menu or a panel. Everything is counted in cells by `cli/layout.ts`: Backspace and the caret cross a whole grapheme, wrapping never splits a wide glyph, and the caret stands on the next row when its row is full. The input grows to at most 8 rows, then scrolls inside its box with the caret's row in view and a row counting what is hidden. Deleting rows gives them back to the transcript.
+`runInteractive` in `cli/index.ts` draws the chat on the terminal's alternate screen, with Ink's `alternateScreen` option, so no frame reaches the terminal's scrollback and the shell's screen comes back as it was. The root box is exactly the terminal's height with its overflow hidden, so a frame never scrolls the screen. Ctrl+C, Ctrl+D, a SIGINT and a SIGTERM unmount the app, which leaves the alternate screen and turns mouse tracking off. A crash ends the process before the app unmounts, and a handler on the process's `exit` event writes the same sequences then. The linear mode stays inline, so a screen reader finds the column in the terminal's history.
 
-`cli/transcript.ts` wraps each entry to the width and draws only the rows that fit, however long the session. Following the tail and reading further up are separate views. Page Up anchors the view to an entry and a row inside it, so a new answer or a resize leaves the reader in place, and reaching the end follows the tail again. An answer folds to at most 20 lines, fewer when the terminal has less room, so it starts on the screen. Ctrl+O changes one entry, and an expanded last entry may go past the budget. The full text stays in the entry.
+The galaxy is drawn in a box of 13 by 5 cells that never shrinks, and a status line wider than the terminal is cut beside it. Every frame of the animation has the same size, so the title stays in its column.
+
+`cli/chat-controller.ts` gives the transcript what the other parts leave: the transcript budget is `max(0, R - F - C - O)` (`transcriptBudget` in `cli/layout.ts`), with `R` the terminal's rows, `F` the header, notice and question rows, `C` the input with its borders, and `O` the slash menu or a panel. Everything is counted in cells by `cli/layout.ts`: Backspace and the caret cross a whole grapheme, wrapping never splits a wide glyph, and the caret stands on the next row when its row is full. The input grows to at most 8 rows, then scrolls inside its box with the caret's row in view and a row counting what is hidden. Deleting rows gives them back to the transcript.
+
+`cli/transcript.ts` wraps each entry to the width and draws only the rows that fit, however long the session. Following the tail and reading further up are separate views. Page Up anchors the view to an entry and a row inside it, so a new answer or a resize leaves the reader in place, and reaching the end follows the tail again. An answer folds to at most 20 lines, fewer when the terminal has less room, so it starts on the screen. Ctrl+O changes one entry. An expanded last entry taller than the budget shows its newest rows, and Page Up reaches the rest. The full text stays in the entry.
 
 A stored control character is drawn as one visible character (`displaySafe`), so a line from memory can neither run an escape sequence nor vanish unseen. The owner's line starts with `> `, a command's answer with `· ` and her reply with no mark, so the kinds differ without colour. The selected row of the slash menu carries `›` beside its inverse video. Fenced code, quotes and headings get a style by their line, and their text stays as it arrived.
 
@@ -72,10 +77,9 @@ These rows were read from frames the chat wrote into the fake terminal of `tests
 | Element | 80 by 24 | 40 by 18 | 20 by 6 | Linear, 80 by 24 |
 |---|---|---|---|---|
 | Header | 5 rows and 1 blank | 5 rows and 1 blank | None | 1 row |
-| Transcript budget | 14 rows | 8 rows | 2 rows | 21 rows |
-| Input with one row of text | 3 rows, on rows 20 to 22 | 3 rows, on rows 14 to 16 | 3 rows, on rows 2 to 4 | 1 row |
+| Transcript budget | 15 rows | 9 rows | 3 rows | 22 rows |
+| Input with one row of text | 3 rows, on rows 21 to 23 | 3 rows, on rows 15 to 17 | 3 rows, on rows 3 to 5 | 1 row |
 | Text column of the input | 4 | 4 | 4 | 2 |
-| Footer | 1 row, cut with `…` | 1 row, cut with `…` | 1 row, cut with `…` | 1 row |
 | Blank rows above an owner line | 1 | 1 | 1 | 1 |
 | Blank rows between a reply and a command result | 0 | 0 | 0 | 0 |
 
@@ -83,7 +87,7 @@ The galaxy needs at least 16 rows and 40 columns. Below that the header is one l
 
 ## Editing and keys
 
-`buildKeymap` in `cli/keymap.ts` is the one registry of these keys, read by dispatch and by the footer. A key resolves against the focus context first: `composer`, `attachment` (the caret right after a chip), `menu`, `secret` (any open question), `search` or `panel`. The `secret` context binds no history, stash, undo, editor or clipboard action, so what is typed there reaches no store. The setting `cli.bindings` (default `[]`) overrides a key with entries such as `{ "context": "composer", "key": "ctrl+t", "action": "history.search" }`. An override that collides with a bound key, names an unknown action or names one its context does not allow is not bound, and the chat says so when it opens.
+`buildKeymap` in `cli/keymap.ts` is the one registry of these keys, read by dispatch and by help. A key resolves against the focus context first: `composer`, `attachment` (the caret right after a chip), `menu`, `secret` (any open question), `search` or `panel`. The `secret` context binds no history, stash, undo, editor or clipboard action, so what is typed there reaches no store. The setting `cli.bindings` (default `[]`) overrides a key with entries such as `{ "context": "composer", "key": "ctrl+t", "action": "history.search" }`. An override that collides with a bound key, names an unknown action or names one its context does not allow is not bound, and the chat says so when it opens.
 
 `cli/editor-actions.ts` works on the draft of `cli/composer.ts` and the transcript's entries. A search shows its match in the input and sends and stores nothing. Enter on a history match loads it into the draft, and the next Enter sends it. Esc restores the draft and the view exactly. The letters of one word undo together, up to 100 steps, and a send starts over. Undo cannot bring back an image whose chip was removed, because its staged bytes went with it. Stashed drafts keep their parts and last until the chat ends.
 
@@ -91,7 +95,9 @@ Ctrl+G hands the terminal to the editor with the draft in a private temporary fi
 
 Raw mode clears `IXON` and `ISIG` (checked with `stty -a` under a pseudo-terminal), so Ctrl+S and Ctrl+Z reach the chat instead of the terminal's flow control and job control.
 
-`cli.mouse` (default `false`) takes the terminal's SGR mouse reports for the wheel, which scrolls the transcript or the slash menu, and for a click in the input, which places the caret on a whole character. Tracking takes native text selection away, so it stays off until asked for, and `mouseAvailable` refuses it for `TERM=dumb` and the linear mode. With it off, Ink drops a stray report before it can reach the draft. Every mouse action has its key.
+`cli.mouse` (default `true`) takes the terminal's SGR mouse reports for buttons, the wheel and motion while a button is held (modes `1000`, `1002` and `1006`). `parseMouse` and `mouseFilter` in `cli/mouse.ts` take the reports out of the input before Ink sees them, and `ChatController.onMouse` in `cli/chat-controller.ts` acts on them. The wheel scrolls the transcript three rows a notch, or moves the slash menu while it is open. A click in the input places the caret on a whole character. `mouseAvailable` refuses tracking for `TERM=dumb` and the linear mode, and with it off Ink drops a stray report before it can reach the draft.
+
+Tracking takes the terminal's own selection away, so the chat selects transcript text itself. A drag over the transcript marks the cells it covers in inverse video, and releasing the button copies the text with an OSC 52 sequence (`osc52` in `cli/clipboard.ts`) and says `copied N chars to clipboard` on the notice row. The terminal does the copy, so it reaches the owner's own machine over SSH. A selection over several rows joins them with newlines, a click without a drag copies nothing, and Ctrl+C copies the selection again instead of leaving. The next key, click or wheel notch drops it. A terminal that ignores OSC 52 copies nothing, and tmux passes it on only with `set-clipboard on`. Shift with the mouse reaches the terminal's own selection in xterm, GNOME Terminal, Konsole, kitty, WezTerm and Windows Terminal, and Option does the same in iTerm2. Text is pasted with the terminal's own paste key, which arrives as a bracketed paste. Windows Terminal binds Ctrl+V to that paste, so Ctrl+V reaches the chat as an image attachment only in a terminal that leaves it unbound.
 
 ## Overlays and questions
 

@@ -1,6 +1,15 @@
 // Reading an image from the clipboard of the machine this process runs on, through the platform's own tool with literal
 // argv. Over SSH that machine is the server, so the clipboard is unavailable and no process starts: the owner's laptop is
 // out of reach and `/attach <file>` is the way in. bin/chat-images.ts gives it the runner; cli/app.ts calls it on Ctrl+V.
+// Copying goes the other way, through the terminal itself (`osc52`), so it works over SSH.
+
+/**
+ * The OSC 52 sequence that puts `text` on the clipboard of the terminal that draws the chat. The terminal does the copy,
+ * so it reaches the owner's own machine over SSH. A terminal that does not support it ignores the sequence.
+ */
+export function osc52(text: string): string {
+  return `\u001b]52;c;${Buffer.from(text, 'utf8').toString('base64')}\u0007`;
+}
 
 export type ProcessResult = { code: number; stdout: Uint8Array; missing?: boolean };
 export type ProcessRun = (argv: ReadonlyArray<string>) => Promise<ProcessResult>;

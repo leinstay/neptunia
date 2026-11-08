@@ -8,6 +8,7 @@ import type { ReactElement } from 'react';
 import { Box, Text, useApp, useInput, usePaste, useStdout } from 'ink';
 import { ComposerBox, Header, Menu, TranscriptRows } from './chat-view.ts';
 import { ChatController } from './chat-controller.ts';
+import { osc52 } from './clipboard.ts';
 import type { ChatEnv, ChatFrame } from './chat-controller.ts';
 export type { ChatEntry, ChatEnv, ChatImages, Question, StageResult } from './chat-controller.ts';
 import { ModelPicker } from './model-picker.ts';
@@ -35,10 +36,10 @@ function OpenPanel({ chat, frame, request }: { chat: ChatController; frame: Chat
   });
 }
 
-/** The question, the notice, the input or a closed question's selector, and the footer. */
+/** The question, the notice, and the input or a closed question's selector. */
 function Bottom({ chat, frame }: { chat: ChatController; frame: ChatFrame }) {
   const { question: pending, notice, selected } = chat.model;
-  const { items, menuHeight, hasChoices, choiceRows, layout, isLinear, owner, footer, turnRow } = frame;
+  const { items, menuHeight, hasChoices, choiceRows, layout, isLinear, owner, turnRow } = frame;
   return h(
     Box,
     { flexDirection: 'column', flexShrink: 0 },
@@ -55,8 +56,7 @@ function Bottom({ chat, frame }: { chat: ChatController; frame: ChatFrame }) {
           answer: (value: string) => chat.closeQuestion(value),
           cancel: () => chat.closeQuestion(''),
         })
-      : h(ComposerBox, { layout, isLinear, isActive: owner === 'input' }),
-    h(Text, { ...THEME.muted, wrap: 'truncate' }, footer)
+      : h(ComposerBox, { layout, isLinear, isActive: owner === 'input' })
   );
 }
 
@@ -76,7 +76,9 @@ export function ChatApp({ env, mouse = null }: { env: ChatEnv; mouse?: MouseSour
     };
   }, [stdout]);
   const [, paint] = useReducer((tick: number) => tick + 1, 0);
-  const [chat] = useState(() => new ChatController(env, { exit, suspendTerminal, paint }));
+  // A copy goes straight to the terminal: the sequence draws nothing, so Ink's frame stays as it is.
+  const copy = (text: string): void => void stdout.write(osc52(text));
+  const [chat] = useState(() => new ChatController(env, { exit, suspendTerminal, paint, copy }));
   const subscribed = useRef(false);
   useEffect(() => {
     if (subscribed.current) return;
@@ -97,12 +99,17 @@ export function ChatApp({ env, mouse = null }: { env: ChatEnv; mouse?: MouseSour
 
   return h(
     Box,
-    { flexDirection: 'column', ...(frame.isLinear ? {} : { minHeight: rows }) },
+    // The whole window and never a row more: a taller frame would scroll the screen and break the next redraw.
+    { flexDirection: 'column', ...(frame.isLinear ? {} : { height: rows, overflow: 'hidden' }) },
     h(Header, { mode: frame.mode, title: env.title, still: env.still, status: frame.status }),
     h(
       Box,
-      { flexDirection: 'column', flexGrow: 1 },
-      h(TranscriptRows, { rows: frame.transcript.rows, whoOf: (entryId: string) => chat.whoOf(entryId) }),
+      { flexDirection: 'column', flexGrow: 1, flexShrink: 1, overflow: 'hidden' },
+      h(TranscriptRows, {
+        rows: frame.transcript.rows,
+        marks: frame.marks,
+        whoOf: (entryId: string) => chat.whoOf(entryId),
+      }),
       frame.isOffTail
         ? h(Text, { ...THEME.muted, wrap: 'truncate' }, `↓ ${frame.transcript.hiddenBelow} rows below · Page Down`)
         : null,

@@ -22,9 +22,9 @@ export const CLI: ReadonlyArray<SchemaEntry> = [
     'key': 'cli.mouse',
     'types': ['boolean'],
     'reader': 'bin/neptunia.ts',
-    'default': false,
+    'default': true,
     'text':
-      'Whether the chat takes mouse reports for the wheel and for clicks in the input. Tracking takes native text selection away, so it is off until asked for. Read when the chat opens',
+      "Whether the chat takes mouse reports: the wheel scrolls the transcript, a drag selects transcript text and copies it to the terminal's clipboard, and a click places the caret in the input. Shift with the mouse still reaches the terminal's own selection in most terminals. Read when the chat opens",
   },
   {
     'key': 'cli.bindings',

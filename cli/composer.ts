@@ -201,20 +201,6 @@ export function restorePart(draft: Draft, partId: string): Draft {
   };
 }
 
-/** The whole content of a live part behind its chip, null when it is unknown or has none. */
-export function inspectPart(draft: Draft, partId: string): string | null {
-  const part = draft.parts.find((one) => one.id === partId);
-  if (part === undefined) return null;
-  switch (part.kind) {
-    case 'text':
-      return part.text;
-    case 'paste':
-      return part.payload;
-    case 'attachment':
-      return `${part.attachment.name} (${part.attachment.contentType})`;
-  }
-}
-
 /** The chip right before the caret: what Backspace would take. */
 export function chipBeforeCaret(draft: Draft): DraftPart | null {
   const span = spansOf(draft).find((one) => isChip(one.part) && one.end === draft.cursor);
