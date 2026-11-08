@@ -10,6 +10,7 @@ import path from 'node:path';
 import { createPersonLinks } from '../src/interface/person-link.ts';
 import type { PersonLinks } from '../src/interface/person-link.ts';
 import { hasCodeLine } from '../src/interface/owner-pairing.ts';
+import { handleOf } from '../src/behavior/handles.ts';
 import { onLog } from '../src/log.ts';
 import { personOfAccount } from '../src/memory/db/meta-person.ts';
 import { bindAccount } from '../src/memory/db/person-bind.ts';
@@ -145,7 +146,8 @@ test('the right code as the next message of the account merges its meta-person i
     assert.equal(links.isWithheld('chatnet', 'c1', 'm2'), false);
     assert.equal(personOfAccount(db, 'account:a1'), KNOWN);
     assert.equal(personOfAccount(db, 'account:b1'), KNOWN);
-    assert.equal(db.prepare('SELECT meta FROM people WHERE id = ?').get(KNOWN)?.meta, 1);
+    const known = db.prepare('SELECT meta FROM people WHERE id = ?').get(KNOWN);
+    assert.equal(known?.meta, 1);
   });
 });
 
@@ -153,7 +155,8 @@ test('after the merge the private layers join: the known person holds both accou
   await withLinks(async ({ links, sent, db }) => {
     await links.start(ASK);
     await links.screen(line('a1', 'm1', codeIn(sent)));
-    const accounts = personMembers(db, KNOWN, { ownerMergesOnly: true }).accounts.map((one) => one.id);
+    const members = personMembers(db, KNOWN, { ownerMergesOnly: true });
+    const accounts = members.accounts.map((one) => one.id);
     assert.deepEqual([...accounts].sort(), ['account:a1', 'account:b1']);
   });
 });
@@ -274,4 +277,15 @@ test('the code reaches no log line, and her line that carries it is told apart',
   } finally {
     stop();
   }
+});
+
+test('names the known person by the member handle of one of their accounts as well', async () => {
+  await withLinks(async ({ links, sent }) => {
+    const result = await links.start({ ...ASK, person: `@${handleOf('b1')}` });
+    assert.equal(result.status, 'ok');
+    assert.deepEqual(
+      sent.map((one) => one.chat.chatId),
+      ['dm-farnet-b1']
+    );
+  });
 });
