@@ -2057,7 +2057,6 @@
       "src/memory/db/unit-outbox.ts",
       "src/memory/db/unit-write.ts",
       "src/memory/db/upsert.ts",
-      "src/memory/db/writer-switch.ts",
       "src/memory/db/writer-worker.ts",
       "src/memory/index.ts",
       "src/memory/update.ts",

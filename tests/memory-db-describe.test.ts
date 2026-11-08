@@ -580,7 +580,9 @@ test('a direct chat with no claims about it is reviewed from its own lines', asy
     await reviewDescription(wrongly(chat.db), { kind: 'place', id: 'discord:dm:n1' }, 'purpose', {
       ctx: wrongly({ ...ctxOf(env, wrongly({ llm })), readCtx: chat.readCtx }),
     });
-    const draftUser = llm.calls[0].messages[1].content;
+    const [draft] = llm.calls;
+    const [, user] = draft.messages;
+    const draftUser = user.content;
     assert.match(draftUser, /2026-10-20 08:00: shall we test the drawing again/);
     assert.match(draftUser, /2026-10-20 08:01: Nep: send me the photo first/);
   } finally {
@@ -597,7 +599,9 @@ test('a direct chat review reads no line of another chat', async () => {
     await reviewDescription(wrongly(chat.db), { kind: 'place', id: 'discord:dm:n1' }, 'purpose', {
       ctx: wrongly({ ...ctxOf(env, wrongly({ llm })), readCtx: chat.readCtx }),
     });
-    const draftUser = llm.calls[0].messages[1].content;
+    const [draft] = llm.calls;
+    const [, user] = draft.messages;
+    const draftUser = user.content;
     assert.doesNotMatch(draftUser, /secret of the other chat|public room/);
   } finally {
     chat.done();
