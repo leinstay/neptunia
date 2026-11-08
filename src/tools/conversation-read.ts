@@ -437,6 +437,14 @@ function askedLines(selection: ReadSelection): number {
   return selection.mode === 'around' ? (selection.before ?? 0) + (selection.after ?? 0) + 1 : (selection.n ?? 0);
 }
 
+/** The platform ids of the other authors of the lines read, each once, for the memory of the read's people. */
+function authorsOf(slice: ReadonlyArray<ReadMessage>): Array<string> {
+  const ids = slice.flatMap((message) =>
+    message.self === true || typeof message.authorId !== 'string' || message.authorId === '' ? [] : [message.authorId]
+  );
+  return [...new Set(ids)];
+}
+
 /**
  * One conversation.read. `args`: `placeId` (default the caller's `placeId`), `around`, `before`,
  * `after` (message ids or counts), `since`, `last`. The caller supplies what only it knows:
@@ -448,7 +456,7 @@ function askedLines(selection: ReadSelection): number {
  * the interface's lines join it. `invalid` (`invalid-args`) for arguments that do not fit;
  * `invalid` (`unknown-message`) when the anchor is not in the channel; `denied`
  * (`channel-not-visible`) for a hidden channel; `failed` when nothing could be read at all;
- * else `ok` with chatText. Never throws.
+ * else `ok` with chatText and `authors`, the platform ids of the other authors of the lines read. Never throws.
  */
 export async function runConversationRead({
   args,
@@ -486,7 +494,7 @@ export async function runConversationRead({
   now?: number;
   timezone?: string;
   maxChars?: number;
-}): Promise<{ status: string; code?: string; reason?: string; data?: { text: string } }> {
+}): Promise<{ status: string; code?: string; reason?: string; data?: { text: string; authors?: Array<string> } }> {
   try {
     const target = text(objOf(args).placeId) || idText(placeId);
     if (!target) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.place:required' };
@@ -544,7 +552,7 @@ export async function runConversationRead({
       later,
       keep: selection.mode === 'last' || selection.mode === 'before' ? 'newest' : 'oldest',
     });
-    return { status: 'ok', data: { text: textOut } };
+    return { status: 'ok', data: { text: textOut, authors: authorsOf(picked.slice) } };
   } catch {
     return { status: 'failed', code: CODE.ERROR };
   }

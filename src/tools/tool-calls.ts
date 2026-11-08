@@ -173,7 +173,7 @@ export function coerceArgs(
 /**
  * What she reads for one call: the `labels.tools.result` line of its status (the status carried in
  * the words) with `{reason}` filled from `labels.tools.result.reasons[<code>]` (else `.other`, else
- * the code), then the call's data cut to `maxChars`; before them, one `labels.tools.result.coerced`
+ * the code), then the call's data cut to `maxChars`, then the call's `memory` whole; before them, one `labels.tools.result.coerced`
  * line (`{arg}`, `{value}`) per argument that was read in another type. '' for no result.
  * @param {{ status?: string, code?: string|null, reason?: string|null, values?: object|null, data?: { text?: string, rows?: object[] }|null }|null} result
  * @param {object} labels
@@ -237,9 +237,10 @@ export function toolResultText(
           })
         )
       : [];
-  // What the engine noticed about a call that went through (a tag that named nobody), after the result.
-  const note = typeof result.note === 'string' ? result.note : '';
-  return [...told, [lead, data, note].filter(Boolean).join('\n') || code].filter(Boolean).join('\n');
+  // What her memory holds of the people of a read (src/turn/in-turn-tools.ts), after the data and outside its cap:
+  // the graph reader cut it to the memory's budget already. What the engine noticed about a call comes last.
+  const tail = [result.memory, result.note].filter((part): part is string => typeof part === 'string');
+  return [...told, [lead, data, ...tail].filter(Boolean).join('\n') || code].filter(Boolean).join('\n');
 }
 
 /**

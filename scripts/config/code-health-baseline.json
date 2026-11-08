@@ -1970,7 +1970,7 @@
     },
     "src/tools/tool-calls.ts": {
       "toolResultText": {
-        "complexity": 27
+        "complexity": 26
       }
     },
     "src/tools/tools.ts": {
