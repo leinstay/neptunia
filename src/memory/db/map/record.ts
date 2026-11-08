@@ -77,7 +77,8 @@ export function toRows(rel: string, line: Row, ctx: MapContext = {}): Rows {
     line.scope as OldScope | undefined,
     ctx.privateAccountId ?? privateUserOf(rel),
     iface,
-    ctx.dmPlace
+    ctx.dmPlace,
+    ctx
   );
   Object.assign(rest, scopeRest);
   const identity = ctx.messageIdentity;
@@ -113,7 +114,13 @@ export function fromRows(rows: Rows, ctx: MapContext = {}): Row {
       : null;
   delete rest.$messageLocator;
   delete rest.$messageReply;
-  const scope = scopeFrom(row, rest, ctx.privateAccountId ?? privateUserOf(String(row.owner_file)), ifaceOf(row));
+  const scope = scopeFrom(
+    row,
+    rest,
+    ctx.privateAccountId ?? privateUserOf(String(row.owner_file)),
+    ifaceOf(row),
+    ctx.partnerOfDm
+  );
   const line = join(row, rest, SPEC);
   if (locator) line.messageId = locator.messageId;
   if (reply) line.replyTo = reply.messageId;

@@ -99,21 +99,26 @@ export const dmContext = <P extends string, T extends string>(
 export const internalContext = (): Context => ({ internal: true });
 /**
  * What a read's context is issued for: the DM of `privateAccountId`, else the group of `placeId`, on the channel's
- * interface. The person of a DM is the one `personOf` gives for the account's platform id on that interface.
+ * interface. The person of a DM is the one `personOf` gives for the account's platform id on that interface, and its
+ * place the one `placeOf` gives, since a meta-person spells no DM place.
  */
 export function readContextSpec(
   channelIface: unknown,
   home: unknown,
   placeId: unknown,
   privateAccountId: unknown,
-  personOf: (iface: string, platformId: string) => string
-): { iface: string; kind: 'dm'; person: string } | { iface: string; kind: 'group'; destination: string | null } {
+  personOf: (iface: string, platformId: string) => string,
+  placeOf: (iface: string, platformId: string) => string | null = () => null
+):
+  | { iface: string; kind: 'dm'; person: string; place?: string }
+  | { iface: string; kind: 'group'; destination: string | null } {
   const iface = String(typeof channelIface === 'string' && channelIface !== '' ? channelIface : home);
   const account =
     typeof privateAccountId === 'string' || typeof privateAccountId === 'number' ? String(privateAccountId) : '';
-  return privateAccountId && account
-    ? { iface, kind: 'dm' as const, person: personOf(iface, account) }
-    : { iface, kind: 'group' as const, destination: placeId ? channelPlaceId(iface, placeId) : null };
+  if (!privateAccountId || !account)
+    return { iface, kind: 'group' as const, destination: placeId ? channelPlaceId(iface, placeId) : null };
+  const place = placeOf(iface, account);
+  return { iface, kind: 'dm' as const, person: personOf(iface, account), ...(filled(place) ? { place } : {}) };
 }
 /** The context of the selfreflection's entry: `none` and the groups of every interface; no direct chat, nothing internal. */
 export const groupsContext = (): Context => ({ groups: true });
@@ -124,40 +129,57 @@ export type DmScope = Scope & { audience_id?: string };
 /**
  * The scope columns of a scope object (`{ channel }`, `{ place }`, `{ place, private }`, `{ user }`, `{}`).
  * A private layer of user U (`opts.privateUser`) or a scope naming a user is `dm` with that member: the scope `opts.dmOf`
- * gives for the member's platform id (the stored DM and its partner), else, for a DM no stored place holds, the partner
- * its platform id spells. A private place is `dm` with the partner its id names. A channel or a place is `group`, unless
- * it names a DM, carries the private mark or is marked `unresolved` (a chat no stored place holds): those are
- * `internal`, as is anything else (no scope, an empty or unknown one). An unknown legacy scope is never shown outward.
+ * gives for the member's platform id (the stored DM and its partner), `internal` when no stored DM holds the member.
+ * A private place is the stored DM place `opts.dmOfPlace` gives, `internal` when none is stored. Without these readers
+ * (the import of the legacy files, which has no database) the member and the private place are read from their old
+ * spellings. A channel or a place is `group`, unless it is a stored DM or spelled as one, carries the private mark or is
+ * marked `unresolved` (a chat no stored place holds): those are `internal`, as is anything else (no scope, an empty or
+ * unknown one). An unknown legacy scope is never shown outward.
  * `none` is only for a unit that is source-free on purpose (a self fact, her own unprompted line), which its mapper sets
  * itself with SCOPE_NONE. The columns name `opts.iface`, the legacy namespace when none is given.
  */
 export function scopeColumns(
   scope: unknown,
-  opts: { privateUser?: string | null; iface?: string; dmOf?: (platformId: string) => DmScope | null } = {}
+  opts: {
+    privateUser?: string | null;
+    iface?: string;
+    dmOf?: (platformId: string) => DmScope | null;
+    dmOfPlace?: (placeId: string) => DmScope | null;
+  } = {}
 ): DmScope {
   const oldScope = scope as
     { user?: unknown; channel?: unknown; place?: unknown; private?: unknown; unresolved?: unknown } | null | undefined;
   const user = opts.privateUser ?? (typeof oldScope?.user === 'string' && oldScope.user ? oldScope.user : null);
   const iface = opts.iface ?? LEGACY_IFACE;
-  if (user) return opts.dmOf?.(user) ?? dmScope(personId(iface, user), iface);
+  // The import of the legacy files has no database to read, so only it reads the old spellings (legacy-namespace.ts).
+  if (user) return opts.dmOf ? (opts.dmOf(user) ?? { ...SCOPE_INTERNAL }) : dmScope(personId(iface, user), iface);
   if (oldScope?.private === true) {
-    const partner = typeof oldScope.place === 'string' ? dmPartnerOfPlace(oldScope.place) : null;
+    const place = typeof oldScope.place === 'string' ? oldScope.place : null;
+    if (opts.dmOfPlace) return (place === null ? null : opts.dmOfPlace(place)) ?? { ...SCOPE_INTERNAL };
+    const partner = place === null ? null : dmPartnerOfPlace(place);
     return partner ? dmScope(partner.person, partner.iface) : { ...SCOPE_INTERNAL };
   }
   if (oldScope?.unresolved === true) return { ...SCOPE_INTERNAL };
   const named = [oldScope?.channel, oldScope?.place].filter((id) => typeof id === 'string');
-  if (named.length === 0 || named.some((id) => dmPartnerOfPlace(id) !== null)) return { ...SCOPE_INTERNAL };
+  // A named id that looks like a DM stays internal even when no stored place holds it: the check fails closed.
+  const isDm = (id: string): boolean => (opts.dmOfPlace?.(id) ?? null) !== null || dmPartnerOfPlace(id) !== null;
+  if (named.length === 0 || named.some(isDm)) return { ...SCOPE_INTERNAL };
   return groupScope(iface);
 }
 
 /**
- * The platform id of the DM partner a scope row names, or null: the one its DM audience's place spells
- * (`aud:dm:<iface>:dm:<platform id>`), else the one its legacy person id spells. A meta-person in `scope_dm` and a
- * stored place with an opaque id spell none.
+ * The platform id of the DM partner a scope row names, or null: the partner account of the stored DM place its audience
+ * names, as `partnerOfDm` reads it. A row whose DM no stored place holds names none. Without the reader (the import of
+ * the legacy files) the old spelling of its audience's place or of its person names it.
  */
-export function dmUserOf(row: unknown): string | null {
+export function dmUserOf(
+  row: unknown,
+  partnerOfDm: ((audienceId: string) => string | null) | undefined = undefined
+): string | null {
   const scope = row as (Partial3 & { audience_id?: unknown }) | null | undefined;
   const audience = typeof scope?.audience_id === 'string' ? scope.audience_id : '';
+  if (partnerOfDm) return audience === '' ? null : partnerOfDm(audience);
+  // The import of the legacy files has no database, so it reads the partner from the old spellings.
   const parts = audience.startsWith('aud:dm:') ? placeIdParts(audience.slice('aud:dm:'.length)) : null;
   return (parts?.kind === 'dm' ? parts.native : null) ?? legacyPersonNative(scope?.scope_dm)?.native ?? null;
 }

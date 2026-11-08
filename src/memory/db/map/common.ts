@@ -53,6 +53,10 @@ export type MapContext = {
   personOfMember?: (iface: string, platformId: string) => string | null;
   /** The stored direct chat of the account a platform id names on an interface, null when none is stored. */
   dmOfMember?: (iface: string, platformId: string) => { id: string; partnerPerson: string | null } | null;
+  /** A stored DM place by its id, with the partner person it names; null for a place that is no stored DM. */
+  dmPlaceOf?: (placeId: string) => { id: string; partnerPerson: string | null } | null;
+  /** The platform id of the partner account of the stored DM place an audience names, null when none is stored. */
+  partnerOfDm?: (audienceId: string) => string | null;
   collection?: string;
   versionKind?: string;
   itemId?: string;

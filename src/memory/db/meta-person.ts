@@ -7,7 +7,7 @@
 // person seen on one account (plan slice 7): the meta-person's own fields, every account of the person with that
 // account's own fields, and the seen account among them. Pure reads over the connection given.
 
-import { survivorOf } from './ids.ts';
+import { nativeAuthorityOf, survivorOf } from './ids.ts';
 import { namesIn } from './names.ts';
 import type { Db, Row } from './types.ts';
 
@@ -96,11 +96,17 @@ export function profileOfAccount(db: Db, accountId: string): AssembledProfile | 
   };
 }
 
-/** The stored account of a platform id on an interface, its newest generation first; null when none is stored. */
+/**
+ * The stored account of a platform id on an interface: the one under the interface's own authority first, since a unit
+ * names its members there, then the newest generation; null when none is stored.
+ */
 function accountOfPlatformId(db: Db, iface: string, platformId: string): string | null {
   const row = db
-    .prepare('SELECT id FROM accounts WHERE iface = ? AND native_id = ? ORDER BY generation DESC, id LIMIT 1')
-    .get(iface, platformId);
+    .prepare(
+      `SELECT id FROM accounts WHERE iface = ? AND native_id = ?
+       ORDER BY authority_id = ? DESC, generation DESC, id LIMIT 1`
+    )
+    .get(iface, platformId, nativeAuthorityOf(iface));
   return typeof row?.id === 'string' ? row.id : null;
 }
 
@@ -110,23 +116,58 @@ export function personOfPlatformId(db: Db, iface: string, platformId: string): s
   return account === null ? null : personOfAccount(db, account);
 }
 
-/** A stored direct chat: its place id and the partner person the place names, null for one nobody linked. */
+/**
+ * A stored direct chat: its place id and its partner person, the one the place names, else the person of its partner
+ * account (`partnerPersonOfPlace`); null for one nobody linked.
+ */
 export type StoredDm = { id: string; partnerPerson: string | null };
+
+/** The partner person of a stored DM place row: its `partner_person`, else the person of its `partner_account`. */
+export function partnerPersonOfPlace(db: Db, place: Row): string | null {
+  if (typeof place.partner_person === 'string' && place.partner_person !== '') return place.partner_person;
+  return typeof place.partner_account === 'string' ? personOfAccount(db, place.partner_account) : null;
+}
 
 /** The live direct chat stored with `accountId` as its partner, the most recently seen of several; null when none is. */
 export function dmOfAccount(db: Db, accountId: string): StoredDm | null {
   const place = db
     .prepare(
-      `SELECT id, partner_person FROM places WHERE partner_account = ? AND (kind = 'dm' OR chat = 'dm')
+      `SELECT id, partner_person, partner_account FROM places WHERE partner_account = ? AND (kind = 'dm' OR chat = 'dm')
        AND retired_at IS NULL ORDER BY COALESCE(seen_to_at, '') DESC, id LIMIT 1`
     )
     .get(accountId);
   if (typeof place?.id !== 'string') return null;
-  return { id: place.id, partnerPerson: typeof place.partner_person === 'string' ? place.partner_person : null };
+  return { id: place.id, partnerPerson: partnerPersonOfPlace(db, place) };
 }
 
 /** The live direct chat of the account a platform id names on an interface (`dmOfAccount`), null when none is stored. */
 export function dmOfPlatformId(db: Db, iface: string, platformId: string): StoredDm | null {
   const account = accountOfPlatformId(db, iface, platformId);
   return account === null ? null : dmOfAccount(db, account);
+}
+
+/** A live stored direct chat by its place id, with the partner person it names; null for any other place. */
+export function storedDmPlace(db: Db, placeId: string): StoredDm | null {
+  const place = db
+    .prepare(
+      `SELECT id, partner_person, partner_account FROM places WHERE id = ? AND (kind = 'dm' OR chat = 'dm')
+       AND retired_at IS NULL`
+    )
+    .get(placeId);
+  if (typeof place?.id !== 'string') return null;
+  return { id: place.id, partnerPerson: partnerPersonOfPlace(db, place) };
+}
+
+/**
+ * The platform id of the partner account of the stored direct chat a DM audience names, through `audiences.place_id`,
+ * `places.partner_account` and the account's row; null when any of them is not stored.
+ */
+export function partnerOfDmAudience(db: Db, audienceId: string): string | null {
+  const row = db
+    .prepare(
+      `SELECT a.native_id FROM audiences u JOIN places p ON p.id = u.place_id JOIN accounts a ON a.id = p.partner_account
+       WHERE u.id = ? AND u.kind = 'dm'`
+    )
+    .get(audienceId);
+  return typeof row?.native_id === 'string' ? row.native_id : null;
 }

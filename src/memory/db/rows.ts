@@ -46,6 +46,7 @@ import {
 import { AUD_INTERNAL, SCOPE_INTERNAL, audienceOf, audienceParts } from './scope.ts';
 import { SELF_SOURCE_KINDS } from './source-kinds.ts';
 import { projectRow } from './graph.ts';
+import { partnerPersonOfPlace } from './meta-person.ts';
 import { authorPersonOf, syncPersonAccount } from './meta-person-write.ts';
 import { deriveMirrorPublication, projectPublicationsNaming } from './publish.ts';
 import { asText, isWholeNumber } from './types.ts';
@@ -232,13 +233,17 @@ export function resolveRow(db: Db, row: Row): Row & { conflict: boolean } {
   const parts = given ? audienceParts(given) : null;
   let dmPlace: string | null = null;
   if (parts?.kind === 'dm' && scope.scope_kind === 'dm' && hasV7(db)) {
-    const place = prepared(db, 'SELECT iface, partner_person, chat FROM places WHERE id = ?').get(parts.place_id);
-    // A DM place with no known partner person (an observed DM) matches a triple with none (schema v8).
+    const place = prepared(db, 'SELECT iface, partner_person, partner_account, chat FROM places WHERE id = ?').get(
+      parts.place_id
+    );
+    // A DM place with no known partner person (an observed DM) matches a triple with none (schema v8), or with the
+    // person its partner account is linked to.
     if (
       place &&
       place.chat === 'dm' &&
       place.iface === scope.scope_iface &&
-      (place.partner_person ?? null) === (scope.scope_dm ?? null)
+      ((place.partner_person ?? null) === (scope.scope_dm ?? null) ||
+        (place.partner_person == null && scope.scope_dm != null && partnerPersonOfPlace(db, place) === scope.scope_dm))
     )
       dmPlace = parts.place_id;
   }

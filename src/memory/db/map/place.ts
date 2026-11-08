@@ -11,7 +11,7 @@
 // toRows(rel, value, ctx) -> { places, descriptions, description_versions, claims, operational }     ctx: { subjectId }
 // fromRows(rows, ctx) -> the file's value
 
-import { SELF_PERSON, nativeOfAny, personId } from '../ids.ts';
+import { SELF_PERSON, personId } from '../ids.ts';
 import { groupScope } from '../scope.ts';
 import { dmPlaceScope } from './scope-parts.ts';
 import { claimItems, claimRows } from './lists.ts';
@@ -23,9 +23,9 @@ import type { MapContext, Spec } from './common.ts';
 const FIELDS = ['purpose', 'tone', 'topics', 'patterns', 'starters'];
 
 /**
- * A lesson's columns. Its teacher, a mention `<@platform id>`, is the teacher's stored person on the place's interface,
- * else (an account no row holds) the person the mention spells; a person the mention cannot be read back from keeps
- * the mention beside it.
+ * A lesson's columns. Its teacher, a mention `<@platform id>`, is the stored person of the teacher's account on the
+ * place's interface, null when no stored account holds it. The mention stays beside the person, since no person gives
+ * it back.
  */
 const learnedSpec = (ctx: MapContext): Array<Spec> => [
   { col: 'text', key: 'text', type: 'text' },
@@ -37,11 +37,12 @@ const learnedSpec = (ctx: MapContext): Array<Spec> => [
     key: 'from',
     type: 'text',
     ok: (v: unknown) => /^<@\d+>$/.test(String(v)),
-    enc: (v: unknown, iface: string) => {
+    // The import of the legacy files has no database, so only it spells the person from the platform id.
+    enc: (v: unknown) => {
       const platformId = String(v).slice(2, -1);
-      return ctx.personOfMember?.(ifaceOf(ctx), platformId) ?? personId(iface, platformId);
+      return ctx.personOfMember ? ctx.personOfMember(ifaceOf(ctx), platformId) : personId(ifaceOf(ctx), platformId);
     },
-    dec: (id: unknown) => `<@${nativeOfAny(id)}>`,
+    dec: () => null,
     exact: true,
   },
 ];
