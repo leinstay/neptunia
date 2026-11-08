@@ -10,6 +10,9 @@
 // after it goes again, in order, before any new one. An emit on a closed link still goes into the outbox, for the
 // next connection to send, marked `replayed`, so the core keeps it as history and starts no turn. A full outbox evicts
 // nothing: the event is refused and lost, counted in a warning, and the interface reports `outbox-full` on `status()`.
+// An event of the outbox the core answers `failed` holds the core's watermark back, so it goes again, marked
+// `replayed`, after `RETRY_FIRST_MS`, the wait doubling with each `failed` up to `RETRY_MAX_MS`, until the core takes it
+// or the link closes. The core answers a retry whose first write landed late as a duplicate, and its watermark moves on.
 // Nothing reads a missed stretch back from the platform on its own (the owner's no-catch-up policy, 2026-11-02).
 //
 // An action carrying `deadlineAt` (ms since the epoch, by the injected `now`) that arrives after it is refused
@@ -64,6 +67,22 @@ const KEPT_KEYS = 1000;
 
 /** How many cancels of actions not seen yet are remembered. */
 const KEPT_CANCELS = 256;
+
+/** The wait before a failed event of the outbox goes again, and the longest it doubles to. */
+const RETRY_FIRST_MS = 5000;
+const RETRY_MAX_MS = 5 * 60_000;
+
+/** The timers of the retries (setTimeout and clearTimeout by default, unref'd so a retry keeps no process alive). */
+export type Timers = { set(fn: () => void, ms: number): unknown; clear(timer: unknown): void };
+
+const SYSTEM_TIMERS: Timers = {
+  set(fn, ms) {
+    const timer = setTimeout(fn, ms);
+    timer.unref();
+    return timer;
+  },
+  clear: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+};
 
 type Result = Record<string, unknown>;
 
@@ -281,6 +300,7 @@ export function serveAdapter(options: {
   log: Logger;
   outbox?: Outbox;
   now?: () => number;
+  timers?: Timers;
   onCommandResult?: (result: CommandResult) => unknown;
 }): { emit(event: unknown): Promise<AckStatus>; status(): ServeStatus; close(): void } {
   const { transport, hello, token, adapter, log } = options;
@@ -293,9 +313,14 @@ export function serveAdapter(options: {
   let welcomed = outbox === null;
   let lostKinds = 0;
   const backlog = new Set((outbox?.pending() ?? []).map((entry) => entry.seq));
+  const timers = options.timers ?? SYSTEM_TIMERS;
+  // The failed events of the outbox by id: the retry waiting (null while one is on the link) and its wait.
+  const retries = new Map<string, { timer: unknown; waitMs: number }>();
 
   function finish(): void {
     closed = true;
+    for (const retry of retries.values()) if (retry.timer !== null) timers.clear(retry.timer);
+    retries.clear();
     for (const resolvers of waiting.values()) for (const resolve of resolvers) resolve('failed');
     waiting.clear();
   }
@@ -314,10 +339,35 @@ export function serveAdapter(options: {
     });
   }
 
+  const waitingEntry = (id: string) => outbox?.pending().find((entry) => entry.event.id === id);
+
+  /** Sends the failed event `id` again once its retry is due, while the outbox still holds it. */
+  function resend(id: string): void {
+    const retry = retries.get(id);
+    if (retry !== undefined) retry.timer = null;
+    const entry = waitingEntry(id);
+    if (entry === undefined) retries.delete(id);
+    else if (!closed && welcomed) sendEvent({ ...entry.event, replayed: true }, entry.seq);
+  }
+
+  /** Follows the ack of the outbox's event `id`: a `failed` one is tried again later, any other ends its retries. */
+  function followUp(id: string, status: AckStatus): void {
+    const retry = retries.get(id);
+    if (status !== 'failed') {
+      if (retry?.timer != null) timers.clear(retry.timer);
+      retries.delete(id);
+      return;
+    }
+    if (closed || retry?.timer != null || waitingEntry(id) === undefined) return;
+    const waitMs = retry === undefined ? RETRY_FIRST_MS : Math.min(retry.waitMs * 2, RETRY_MAX_MS);
+    retries.set(id, { timer: timers.set(() => resend(id), waitMs), waitMs });
+  }
+
   function onAck(value: Envelope): void {
     if (!validateEnvelope(value).ok) return;
     const body = value.body as { status: AckStatus; ackedSeq?: number };
     if (outbox !== null && typeof body.ackedSeq === 'number') outbox.ack(body.ackedSeq);
+    if (outbox !== null && value.replyTo !== null && value.replyTo !== helloId) followUp(value.replyTo, body.status);
     if (value.replyTo === helloId && !welcomed) {
       welcomed = true;
       // Everything the core has not taken goes again, in order, before anything new.
