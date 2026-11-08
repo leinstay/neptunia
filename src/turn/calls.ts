@@ -16,6 +16,7 @@ import { readablePlaces } from '../behavior/readable-places.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { ChatInfo } from '../protocol/adapter.ts';
 import type { CallView } from '../tools/executors.ts';
+import { toolsWith } from '../tools/definitions.ts';
 import { skillRegistry } from '../tools/registry.ts';
 import { normalizeCalls } from '../tools/tool-calls.ts';
 import type { NormalCall } from '../tools/tool-calls.ts';
@@ -307,8 +308,8 @@ export function searchHandles(draft: {
   };
 }
 
-/** The skills whose text she writes: a post (`message.create`) or an edit (`message.edit`). */
-export const WRITTEN_SKILLS = Object.freeze(['message.create', 'message.edit']);
+/** The skills whose text she writes, a post or an edit: the trait `written` of their definitions. */
+export const WRITTEN_SKILLS = toolsWith('written');
 
 export type CallEnvelope = Readonly<{
   actor: 'persona';

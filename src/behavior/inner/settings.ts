@@ -5,6 +5,7 @@
 import { parseSchedule } from '../../service/schedule.ts';
 import type { ServiceSchedule } from '../../service/schedule.ts';
 import { isClockTime } from '../../time.ts';
+import { toolsWith } from '../../tools/definitions.ts';
 import { isPositive, objOf } from '../../tools/types.ts';
 import type { InnerSettings } from './types.ts';
 
@@ -54,8 +55,8 @@ export const INNER_DEFAULTS = Object.freeze({
   factsKeepDays: 7,
 });
 
-/** The skills that post where people read. */
-export const POSTING_SKILLS = Object.freeze(['message.create', 'draw.create', 'voice.say']);
+/** The skills that post where people read: the trait `posts` of their definitions. */
+export const POSTING_SKILLS = toolsWith('posts');
 /** The calls that deliver something out of an inner turn: a post, a picture, an errand. */
 export const DELIVERY_SKILLS = Object.freeze(['message.create', 'draw.create', 'voice.say', 'errand.run']);
 /** The kinds of feedback facts, as `labels.wake.feedback.<kind>` names them. */

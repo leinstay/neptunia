@@ -1025,7 +1025,7 @@ async function buildCore(
     // Her skills run by operation name, the requester's rights checked again
     // (src/admin.ts#runSkillOp); read at call time, the admin being created below.
     runOp: (op: Untyped, args: Untyped, context: Untyped) => admin.runSkillOp(op, args, context),
-    // Her own messages, drawings and selfreflection run on her grant alone (src/tools/operations/effects.ts#SELF_OWNED_OPS).
+    // Her own messages, drawings and selfreflection run on her grant alone (src/tools/definitions.ts, trait `self`).
     runOwnOp: (op: Untyped, args: Untyped, context: Untyped) => admin.runOwnSkillOp(op, args, context),
     // An inner turn's calls (her own initiative, nobody asked) run on her grant alone too.
     runInitiativeOp: (op: Untyped, args: Untyped, context: Untyped) => admin.runInitiativeSkillOp(op, args, context),

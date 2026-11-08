@@ -20,7 +20,7 @@ import { listOps } from './tools/operations/registry.ts';
 import { legacyGrantOps } from './config-moves.ts';
 import { listAliases } from './tools/operations/alias.ts';
 import { listLessons } from './tools/operations/learning.ts';
-import { SELF_OWNED_OPS } from './tools/operations/effects.ts';
+import { hasTrait } from './tools/definitions.ts';
 import { CODE } from './tools/codes.ts';
 import type { Untyped } from './tools/types.ts';
 import type { OpsDeps } from './tools/operations/env.ts';
@@ -156,7 +156,7 @@ export function createAdmin(deps: OpsDeps): Admin {
   }
 
   /**
-   * One of the persona's own expressive operations (src/tools/operations/effects.ts#SELF_OWNED_OPS) run for
+   * One of the persona's own expressive operations (src/tools/definitions.ts, trait `self`) run for
    * her by its name, WITHOUT the requester's rights check: her grant, checked by the skill
    * gateway, alone decides (src/tools/executors.ts). Any other operation is refused
    * (`not-self-owned`): it goes through `runSkillOp`. Never throws.
@@ -166,7 +166,7 @@ export function createAdmin(deps: OpsDeps): Admin {
     args = {},
     context = {}
   ): Promise<{ status: string; code: string; summary: string; data: unknown }> {
-    if (!SELF_OWNED_OPS.includes(op))
+    if (!hasTrait(op, 'self'))
       return { status: 'denied', code: CODE.NOT_SELF_OWNED, summary: `${op} is not the persona's own`, data: null };
     return runOpPrechecked(op, args, { ...context, env });
   }

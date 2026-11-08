@@ -92,6 +92,7 @@ import { selfreflectionChatIds, viewSelfreflectionIds } from './mirror.ts';
 import { utcDay } from '../time.ts';
 import { DEFAULT_RESULT_MAX_CHARS, errandResultText } from '../errands/blocks.ts';
 import { CODE } from '../tools/codes.ts';
+import { hasTrait } from '../tools/definitions.ts';
 import { MARK_TEXT_CHARS } from '../turn/calls.ts';
 import { isFiniteNumber, objOf } from '../tools/types.ts';
 import type { BuildRequestInput, RequestPart } from './prompt-types.ts';
@@ -1756,20 +1757,17 @@ async function runSkillLoop({
   return { stopped };
 }
 
-/** The operations that post into a channel: what a call that passed leaves there as a line of hers. */
-const POSTING_SKILLS: ReadonlyArray<unknown> = Object.freeze(['message.create', 'draw.create']);
-
 /** The id of the `seq`-th line of hers at `ts`: 19 digits that sort by moment, then by `seq` (the millisecond times a million, plus `seq`). */
 function ownLineId(ts: number, seq: number) {
   return (BigInt(Math.floor(ts)) * 1_000_000n + BigInt(seq)).toString();
 }
 
-/** A picture she posted, as an attachment of her line: no file behind it, never described. */
-function postedPicture(lineId: Untyped) {
+/** A picture or a voice message she posted, as an attachment of her line: no file behind it, never described. */
+function postedFile(lineId: Untyped, voice: boolean) {
   return {
-    id: `${lineId}-image`,
-    kind: 'image',
-    name: 'image.png',
+    id: `${lineId}-${voice ? 'voice' : 'image'}`,
+    kind: voice ? 'voice' : 'image',
+    name: voice ? 'voice.ogg' : 'image.png',
     url: null,
     size: null,
     durationSec: null,
@@ -1871,12 +1869,16 @@ export function afterScenarioTurn({
     const args = executed?.args ?? {};
     const here = !args.place || String(args.place) === placeId;
     let postedId = null;
-    if (executed && here && POSTING_SKILLS.includes(executed.skill)) {
+    // A call of a tool with the trait `posts` leaves a line of hers here.
+    if (executed && here && typeof executed.skill === 'string' && hasTrait(executed.skill, 'posts')) {
       const reply = typeof args.reply === 'string' && known(args.reply) ? args.reply : null;
       const line =
         executed.skill === 'message.create'
           ? addLine(callAt, () => ({ ...rendered(args.text ?? '', refs.handles), replyToId: reply }))
-          : addLine(callAt, (id: Untyped) => ({ replyToId: reply, attachments: [postedPicture(id)] }));
+          : addLine(callAt, (id: Untyped) => ({
+              replyToId: reply,
+              attachments: [postedFile(id, executed.skill === 'voice.say')],
+            }));
       postedId = line.id;
     }
     if (executed?.skill === 'message.react.add' && here)
