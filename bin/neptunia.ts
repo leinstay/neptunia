@@ -106,6 +106,7 @@ import type { RunResult } from '../src/setup/install.ts';
 import { installGhOfficially } from '../src/setup/development.ts';
 import { runSetupFlow, setupFlowSteps } from '../src/setup/flow.ts';
 import { decideLaunch, evaluateReadiness, gatherHealth, readinessText } from '../src/setup/readiness.ts';
+import { routeHealth } from '../src/setup/route-health.ts';
 import type { HealthLink, ReadinessHealth } from '../src/setup/readiness.ts';
 import { followsJournal, journalCall, readJournal } from '../src/service/journal.ts';
 import { unitFolder, unitScope } from '../src/service/manager.ts';
@@ -1228,6 +1229,22 @@ async function checkFeatures(where: { privateDir: string }): Promise<Check> {
   };
 }
 
+/**
+ * Every part checked for real on what it runs on, and every connection used by nothing (src/setup/route-health.ts). The
+ * owner's word of 2026-11-08: a doctor is a diagnosis he asked for, so it asks what a chat launch never does.
+ */
+async function checkRoutes(where: { rootDir: string; privateDir: string }): Promise<Check> {
+  try {
+    const config = readConfig(where.rootDir, { privateDir: where.privateDir });
+    return {
+      name: 'routes',
+      ...(await routeHealth({ privateDir: where.privateDir, config, fetch: globalThis.fetch })),
+    };
+  } catch (err) {
+    return { name: 'routes', status: 'warn', detail: `not checked: ${(err as Error).message}` };
+  }
+}
+
 /** What a chat launch would find: `fail` with the repairs while it would not open. Reads with no model request. */
 async function checkReadiness(where: { privateDir: string; dataDir: string }): Promise<Check> {
   const readiness = evaluateReadiness(await readHealth(where));
@@ -1250,6 +1267,7 @@ async function doctorChecks(
     checkRoles(where),
     checkTokens(where),
     await checkFeatures(where),
+    await checkRoutes(where),
     checkDatabase(where),
     await checkSocket(where),
   ];
