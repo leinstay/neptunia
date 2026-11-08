@@ -43,7 +43,10 @@ export type MemoryItem = {
 /** What is live about a person now (their status, their voice seat), one line; null when nothing is. */
 export type LiveOf = (accounts: ReadonlyArray<string>) => string | null;
 
-type Words = { l: LabelGroup; origin: LabelGroup; frame: Frame; nameOf: NameOf; locale: string | undefined };
+/** What of the frame an entry's words read: the interface of its handles, the clock of its dates, the person answered. */
+export type FrameView = Pick<Frame, 'interface' | 'timezone' | 'counterpart'>;
+
+type Words = { l: LabelGroup; origin: LabelGroup; frame: FrameView; nameOf: NameOf; locale: string | undefined };
 
 /** A labelled line of a stored value, '' when the value or the label is missing. */
 function valueLine(template: string | undefined, value: string | null | undefined): string {
@@ -143,7 +146,7 @@ export function channelIdOf(placeId: string, kind: string | null): string | null
 }
 
 /** Whether `person` is the one the frame answers: the same person, or one of their accounts. */
-function answers(frame: Frame, person: PersonEntry): boolean {
+function answers(frame: FrameView, person: PersonEntry): boolean {
   const them = frame.counterpart;
   return them !== null && (person.personId === them.personId || person.accounts.includes(them.accountId));
 }
@@ -273,4 +276,30 @@ export function memoryBlockOf(
 ): { text: string; reads: Array<MemoryRead> } {
   const items = memoryItemsOf(mind, frame, labels, nameOf, live);
   return { text: renderMemory(items, mind.leftOut, labels), reads: items.flatMap((one) => [...one.reads]) };
+}
+
+/**
+ * A `<memory>` of `people` alone, as a tool result carries it after the lines a read returned: each person at the
+ * detail the reader chose, none marked as the one she answers, with the count the budget left out at the foot. '' with
+ * nobody.
+ */
+export function peopleMemoryOf(
+  people: ReadonlyArray<PersonEntry>,
+  leftOut: number,
+  view: FrameView,
+  labels: Labels,
+  nameOf: NameOf
+): string {
+  const l = labels.memory ?? {};
+  const w: Words = { l, origin: l.origin ?? {}, frame: view, nameOf, locale: labels.locale };
+  const items: Array<MemoryItem> = people.map((person) => ({
+    subtag: 'people',
+    text: personText(w, person, false, null),
+    counterpart: false,
+    name: person.name,
+    handleIds: nativeIds(person.accounts, view.interface),
+    reads: readsOf(person),
+  }));
+  const body = renderMemory(items, leftOut > 0 ? { people: leftOut } : {}, labels);
+  return body === '' ? '' : block('memory', body);
 }
