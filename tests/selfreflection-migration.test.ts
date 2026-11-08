@@ -170,6 +170,9 @@ test('every other table has the rows it had, and the ones that said diary say se
       return kept;
     },
     legacy_unit_aliases: (row) => ({ ...row, unit_id: NEW_UNIT }),
+    // Schema v40 adds the meta-person's columns (plan 2026-11-08): no person is marked and no line names one.
+    people: (row) => ({ ...row, meta: 0 }),
+    sources: (row) => ({ ...row, author_person: null }),
     storage_units: (row) =>
       row.id === OLD_UNIT
         ? { ...row, id: NEW_UNIT, kind: 'selfreflection', key_json: keyJsonOf('selfreflection') }

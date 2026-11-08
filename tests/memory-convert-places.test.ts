@@ -262,7 +262,8 @@ const UNCHANGED: ReadonlyArray<[string, ReadonlyArray<string>]> = [
   ['authorities', []],
   ['interfaces', []],
   ['external_keys', []],
-  ['people', ['owner_key']],
+  // The meta flag of a person came with schema v40, after the old database was made.
+  ['people', ['owner_key', 'meta']],
   ['accounts', ['owner_key']],
   ['memberships', ['owner_key']],
   ['claims', ['owner_key']],

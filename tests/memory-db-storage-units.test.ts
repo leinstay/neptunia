@@ -42,6 +42,7 @@ function evidence(db: Db, id: unknown) {
     .map((row) => [row.source_id, row.position, row.retired_at]);
 }
 
+// Schema v40 adds `sources.author_person` for the meta-person (plan 2026-11-08), empty on purpose.
 function preserved(db: Db) {
   return Object.fromEntries(
     ['sources', 'claims', 'claim_sources', 'episodes', 'episode_sources', 'media'].map((table) => [
@@ -53,7 +54,9 @@ function preserved(db: Db) {
           Object.fromEntries(
             Object.entries(row).filter(
               ([key]) =>
-                !['media', 'stems', 'tier', 'availability'].includes(key) && key !== 'owner_file' && key !== 'owner_key'
+                !['media', 'stems', 'tier', 'availability', 'author_person'].includes(key) &&
+                key !== 'owner_file' &&
+                key !== 'owner_key'
             )
           )
         ),
