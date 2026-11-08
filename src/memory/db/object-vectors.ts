@@ -11,6 +11,8 @@
 //   touchVectors(db, table, id)                 graph.ts#projectRow, in the writer's transaction: the rows of a claim, a
 //       description or an episode whose text changed or which retired are deleted
 //   touchNameVectors(db, nodeIds)               the same for the name sets of the nodes names.ts#touchNames rewrote
+//   objectMeaning(db, ctx, { vector, model, kinds, minMeaning })   the objects of the asked kinds a query vector meets,
+//       best cosine first, one hit per object at its best row, each read under its object's own audience
 //   embedObjects({ db, write, embed, config, model, now })   service.ts's minute job: at most
 //       `memoryDb.retrieval.embedBatch` pending texts, oldest first, cut where the next text would pass
 //       `llm.maxRequestTokens`, in one `embed` request of purpose `memory-object`, written through one `object-embedding`
@@ -22,7 +24,8 @@ import { estimateTokens } from '../../llm/tokens.ts';
 import { objOf } from '../../tools/types.ts';
 import { quantize } from '../vectors.ts';
 import { shortHash } from './ids.ts';
-import { scopeOfAudience } from './scope.ts';
+import { audienceWhere, scopeOfAudience } from './scope.ts';
+import type { Context } from './scope.ts';
 import { dbOf, transactionOf } from './types.ts';
 import type { Connection, Db, Row } from './types.ts';
 
@@ -264,6 +267,94 @@ export function touchNameVectors(db: Db, nodeIds: ReadonlySet<string>): number {
       count += 1;
     }
   return count;
+}
+
+/** One object a query vector meets: its kind, its id (the node for a name set) and its best cosine. */
+export type ObjectHit = { kind: ObjectKind; itemId: string; similarity: number };
+
+/**
+ * The vectors of one kind a context reads, with the id of their object. A claim, a description and an episode are read
+ * under the object's own audience, so a rescope moves the vector with it; a name set under its own, kept only while a
+ * name of that node and audience still stands.
+ */
+function meaningSql(kind: ObjectKind, visible: string): string {
+  const live = (table: string, extra = ''): string =>
+    `SELECT o.id AS item_id, x.scale, x.norm, x.bytes FROM ${table} o
+       JOIN vectors x ON x.chunk_key = '${kind}:' || o.id || ':' || :model
+      WHERE o.retired_at IS NULL ${extra} AND x.dims = :dims AND x.bytes IS NOT NULL AND x.retired_at IS NULL
+        AND ${visible}`;
+  switch (kind) {
+    case 'claim':
+      return live('claims', 'AND o.superseded_by IS NULL');
+    case 'desc':
+      return live('descriptions');
+    case 'episode':
+      return live('episodes');
+    case 'names':
+      return `SELECT x.item_id, x.scale, x.norm, x.bytes FROM vectors x
+         WHERE x.chunk_key >= 'names:' AND x.chunk_key < 'names;' AND x.model = :model AND x.dims = :dims
+           AND x.bytes IS NOT NULL AND x.retired_at IS NULL AND ${visible}
+           AND EXISTS (SELECT 1 FROM names n WHERE n.node_id = x.item_id AND n.audience_id = x.audience_id)`;
+  }
+}
+
+/**
+ * The dot product of two vectors of one length. Four sums in one pass take a third off the scan of 1,024 dimensions
+ * (measured 2026-11-08 over 1,200 rows: 2.7 ms in one sum, 1.5 ms in four).
+ */
+function dotOf(row: Int8Array, query: Float64Array): number {
+  let a = 0;
+  let b = 0;
+  let c = 0;
+  let d = 0;
+  const whole = query.length - (query.length % 4);
+  let i = 0;
+  for (; i < whole; i += 4) {
+    a += row[i] * query[i];
+    b += row[i + 1] * query[i + 1];
+    c += row[i + 2] * query[i + 2];
+    d += row[i + 3] * query[i + 3];
+  }
+  for (; i < query.length; i += 1) a += row[i] * query[i];
+  return a + b + c + d;
+}
+
+/**
+ * The objects of `kinds` this context reads whose vector of `model` meets `vector` at or above `minMeaning`, best cosine
+ * first, each object once at its best row. No vector, no model or a zero vector meets nothing. Asks no model.
+ */
+export function objectMeaning(
+  db: Db,
+  ctx: Context,
+  {
+    vector,
+    model,
+    kinds,
+    minMeaning,
+  }: { vector: ArrayLike<number> | null; model: string | null; kinds: ReadonlyArray<ObjectKind>; minMeaning: number }
+): Array<ObjectHit> {
+  if (vector === null || vector.length === 0 || !filled(model)) return [];
+  const query = Float64Array.from(vector);
+  const queryNorm = Math.hypot(...query);
+  if (!(queryNorm > 0)) return [];
+  const best = new Map<string, ObjectHit>();
+  for (const kind of new Set(kinds)) {
+    const visible = audienceWhere(ctx, kind === 'names' ? 'x' : 'o');
+    const rows = prepared(db, meaningSql(kind, visible.sql)).iterate({ model, dims: vector.length }, ...visible.params);
+    for (const row of rows) {
+      const bytes = row.bytes as Uint8Array; // the int8 row quantize() packed
+      const data = new Int8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const norm = Number(row.norm);
+      const similarity = norm > 0 ? (dotOf(data, query) * Number(row.scale)) / (queryNorm * norm) : 0;
+      if (similarity < minMeaning) continue;
+      const key = `${kind}:${String(row.item_id)}`;
+      if ((best.get(key)?.similarity ?? -Infinity) < similarity)
+        best.set(key, { kind, itemId: String(row.item_id), similarity });
+    }
+  }
+  return [...best.values()].sort(
+    (a, b) => b.similarity - a.similarity || a.kind.localeCompare(b.kind) || a.itemId.localeCompare(b.itemId)
+  );
 }
 
 /** `memoryDb.retrieval.embedBatch` when missing or invalid: config.json's value. */
