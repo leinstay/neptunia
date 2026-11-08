@@ -8,7 +8,10 @@ import { resolveCall, executeCall, type InTurnCall } from '../src/tools/executor
 import { skillRegistry } from '../src/tools/registry.ts';
 import { turnRoutes } from '../src/behavior/turn-ability-route.ts';
 import type { NativeMessageLocator } from '../src/memory/db/recall.ts';
-import { groupContext } from '../src/memory/db/scope.ts';
+import { groupContext, internalContext } from '../src/memory/db/scope.ts';
+import { frameReadsOver } from '../src/memory/db/frame-reads.ts';
+import { addLine, addPerson, addRoom, noteInterface, openWorld, rootId } from './fixtures/memory-db/mind-world.ts';
+import type { World } from './fixtures/memory-db/mind-world.ts';
 import { rig, channel } from './fixtures/reads-rig.ts';
 import { labels } from './fixtures/labels.ts';
 
@@ -243,4 +246,152 @@ test('repeating one source-free native quote keeps its original handle usable fo
   assert.equal(repeatedRead.status, 'ok');
   assert.deepEqual(scene.pages, ['https://repeat.example/original', 'https://repeat.example/original']);
   assert.deepEqual(scene.io.fake.calls, []);
+});
+
+/** A turn on the `tele` interface whose in-turn tools read the stored places of every interface from `world`. */
+function crossReadScene(world: World, memberOf: (placeId: string, accountId: string) => { name: string } | null) {
+  const io = rig();
+  const hot = { config: { bot: { timezone: 'UTC' }, features: { coreTools: true } }, prompts: { labels } };
+  const tools = createInTurnTools({
+    hot,
+    store: { listUserProfiles: () => [] },
+    recall: null,
+    speech: null,
+    record: null,
+    routes: turnRoutes(hot, null),
+    clock: () => Date.parse('2026-11-02T10:00:00.000Z'),
+    ifaceReads: io.reads,
+    lookup: undefined,
+    describer: undefined,
+    memberOf,
+    chatOf: (current) => ({ iface: 'tele', chatId: current.id }),
+    turnContextOf: () => internalContext(),
+    placeReads: frameReadsOver(
+      () => world.db,
+      () => hot.config
+    ),
+    linkCalls: (lines) => lines,
+    drawTool: () => Promise.reject(new Error('drawing is outside this fixture')),
+  });
+  return tools.inTurnTools({
+    channel: channel('here'),
+    placeId: 'tele-root',
+    selfId: 'self',
+    selfName: 'Synthetic persona',
+    history: [],
+    draft: {},
+  });
+}
+
+/** A room of the `fake` interface with one line of each author, at the given times before the turn. */
+function roomOf(world: World): string {
+  noteInterface(world, 'fake', [{ id: 'g1', name: 'Agora' }]);
+  return addRoom(world.db, { iface: 'fake', native: 'c7', root: rootId('fake', 'g1'), name: 'garden' });
+}
+
+async function readText(handlers: ReturnType<typeof crossReadScene>, placeId: string): Promise<string> {
+  const read = (await handlers['conversation.read']({ placeId, last: 10 })) as {
+    status: string;
+    data?: { text: string };
+  };
+  assert.equal(read.status, 'ok', JSON.stringify(read));
+  return read.data?.text ?? '';
+}
+
+test("a read of another interface's place names each author from the store and her own line by her name", async () => {
+  // Bug: a place outside the turn's snapshot rendered every author but her as '-', so she read a channel and saw no one.
+  const world = openWorld();
+  try {
+    const room = roomOf(world);
+    addPerson(world.db, {
+      id: 'person:zoe',
+      accounts: [{ id: 'fake:5678', iface: 'fake', native: '5678', names: ['Zoe'] }],
+    });
+    world.db
+      .prepare(
+        "INSERT INTO accounts (id, iface, native_id, names, kind) VALUES ('fake:4444', 'fake', '4444', ?, 'user')"
+      )
+      .run(JSON.stringify(['Nikos']));
+    addLine(world.db, {
+      id: 'm1',
+      iface: 'fake',
+      place: room,
+      author: 'fake:5678',
+      text: 'line of zoe',
+      at: '2026-11-02T09:00:00.000Z',
+    });
+    addLine(world.db, {
+      id: 'm2',
+      iface: 'fake',
+      place: room,
+      author: 'fake:4444',
+      text: 'line of nikos',
+      at: '2026-11-02T09:01:00.000Z',
+    });
+    addLine(world.db, {
+      id: 'm3',
+      iface: 'fake',
+      place: room,
+      author: 'self',
+      text: 'line of hers',
+      at: '2026-11-02T09:02:00.000Z',
+    });
+    const text = await readText(
+      crossReadScene(world, () => null),
+      room
+    );
+    assert.match(text, /Zoe\b[^\n]*line of zoe/);
+    assert.match(text, /Nikos\b[^\n]*line of nikos/);
+    assert.match(text, /Synthetic persona\b[^\n]*line of hers/);
+  } finally {
+    world.close();
+  }
+});
+
+test("a read of another interface's place names a linked account by its person's profile and an unknown one by the member name", async () => {
+  // Bug: a second account of a person showed its own name instead of the person's, or an account the memory holds no
+  // name of showed '-' though the interface had told the core the member's name.
+  const world = openWorld();
+  try {
+    const room = roomOf(world);
+    addPerson(world.db, {
+      id: 'person:zoe',
+      accounts: [
+        { id: 'tele:9999', iface: 'tele', native: '9999', names: ['Zoe'] },
+        { id: 'fake:5678', iface: 'fake', native: '5678', names: ['zz-second'] },
+      ],
+    });
+    world.db
+      .prepare(
+        "INSERT INTO storage_units (id, kind, subject_type, subject_id, key_json) VALUES ('unit:zoe', 'user', 'account', 'tele:9999', '[\"user\",\"tele:9999\"]')"
+      )
+      .run();
+    world.db.prepare("UPDATE people SET owner_key = 'unit:zoe' WHERE id = 'person:zoe'").run();
+    world.db
+      .prepare("INSERT INTO accounts (id, iface, native_id, kind) VALUES ('fake:3333', 'fake', '3333', 'user')")
+      .run();
+    addLine(world.db, {
+      id: 'm1',
+      iface: 'fake',
+      place: room,
+      author: 'fake:5678',
+      text: 'line of zoe',
+      at: '2026-11-02T09:00:00.000Z',
+    });
+    addLine(world.db, {
+      id: 'm2',
+      iface: 'fake',
+      place: room,
+      author: 'fake:3333',
+      text: 'line of a guest',
+      at: '2026-11-02T09:01:00.000Z',
+    });
+    const members = (_placeId: string, accountId: string) => (accountId === '3333' ? { name: 'Guest' } : null);
+    const text = await readText(crossReadScene(world, members), room);
+    assert.match(text, /Zoe\b[^\n]*line of zoe/);
+    assert.doesNotMatch(text, /zz-second/);
+    assert.match(text, /Guest\b[^\n]*line of a guest/);
+  } finally {
+    world.close();
+  }
 });
