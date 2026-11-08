@@ -1,6 +1,7 @@
-// On a raw install the first line of the owner's command line writes `bot.ownerPerson`, and from that moment
-// `bot.owners` no longer counts. The accounts it lists join the new person in the same step, so the owner keeps his
-// rights on his home interface. The real core and the real `neptunia` command over fresh folders; synthetic ids only.
+// On a raw install the first line of the owner's command line writes `bot.ownerPerson`, and the command line's account
+// is the owner's first account. The retired `bot.owners` binds nobody and gives nobody the owner rights: another
+// account becomes the owner's only by pairing or `/memory bind`. The real core and the real `neptunia` command over
+// fresh folders; synthetic ids only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -32,9 +33,10 @@ async function firstLine({ dirs, clis }: Pick<Rig, 'dirs' | 'clis'>): Promise<vo
   await until(() => typeof configOf(dirs).bot.ownerPerson === 'string', 'bot.ownerPerson written');
 }
 
-test('an owner listed in bot.owners keeps his rights on his interface once the first line names the owner person', async () => {
-  // Bug: the first line writes `bot.ownerPerson`, the check stops reading `bot.owners`, and the owner's own account,
-  // bound to nobody, loses the owner commands and the private chat at once.
+test('an account listed in bot.owners stays a stranger once the first line names the owner person', async () => {
+  // Bug: the retired list of native ids still binds its accounts to the owner and hands them his rights.
+  // The expectation changed with plan 2026-11-08-meta-person slice 8: the owner's other accounts come by pairing
+  // (`/interfaces pair`) or `/memory bind`, never from `bot.owners`.
   await withRig({ config: { bot: { owners: ['u1'] } } }, async ({ dirs, llm, units, clis, cores }) => {
     cores.push(await startUnitsCore(dirs, llm));
     const unit = await startedUnit(dirs);
@@ -44,20 +46,8 @@ test('an owner listed in bot.owners keeps his rights on his interface once the f
     await firstLine({ dirs, clis });
     const owner = configOf(dirs).bot.ownerPerson;
     assert.equal(personOf(dirs, 'cli', 'owner'), owner);
-    assert.equal(personOf(dirs, 'fake', 'u1'), owner);
-    assert.equal(ownerOn('fake', 'u1', configOf(dirs)), true);
+    assert.notEqual(personOf(dirs, 'fake', 'u1'), owner);
+    assert.equal(ownerOn('fake', 'u1', configOf(dirs)), false);
     assert.equal(ownerOn('cli', 'owner', configOf(dirs)), true);
-  });
-});
-
-test('an owner listed in bot.owners whom she never met is bound before his first line', async () => {
-  // Bug: only an account she already stored can be linked, so an owner who speaks on his interface after the command
-  // line arrives as a stranger.
-  await withRig({ config: { bot: { owners: ['u1'] } } }, async ({ dirs, llm, units, clis, cores }) => {
-    cores.push(await startUnitsCore(dirs, llm));
-    units.push(await startedUnit(dirs));
-    await firstLine({ dirs, clis });
-    assert.equal(personOf(dirs, 'fake', 'u1'), configOf(dirs).bot.ownerPerson);
-    assert.equal(ownerOn('fake', 'u1', configOf(dirs)), true);
   });
 });
