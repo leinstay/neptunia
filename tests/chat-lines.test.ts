@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { chatLines } from '../src/memory/db/chat-lines.ts';
+import { chatLines, lineNumberOf } from '../src/memory/db/chat-lines.ts';
 import type { Db } from '../src/memory/db/types.ts';
 
 type Context = { after: (fn: () => void) => void };
@@ -101,4 +101,25 @@ test('a chat longer than one read keeps the numbers of its whole history on the 
   assert.equal(lines.at(-1)?.id, `s${total}`);
   const oldest = lines[0];
   assert.equal(oldest?.number, Number(oldest?.id.slice(1)));
+});
+
+test("a line's number by its message id is the number the session reads for it", (t) => {
+  // Bug: her `#N` in the owner's chat named another line than the one the chat draws with that number.
+  const { db, add } = rig(t);
+  add('s1', 'seen', 'n1', '2026-11-05T00:00:01.000Z', 'one');
+  add('s2', 'said', 'n2', '2026-11-05T00:00:02.000Z', 'two');
+  add('o1', 'seen', 'n9', '2026-11-05T00:00:01.500Z', 'elsewhere', 1, 'other:dm:x');
+  add('s3', 'seen', 'n3', '2026-11-05T00:00:03.000Z', 'three');
+  const numbers = chatLines(db, 'cli:dm:owner').map((line) => [line.nativeId, line.number]);
+  assert.deepEqual(
+    numbers.map(([native]) => [native, lineNumberOf(db, 'cli:dm:owner', String(native))]),
+    numbers
+  );
+});
+
+test('a message id the place does not hold has no number', (t) => {
+  const { db, add } = rig(t);
+  add('s1', 'seen', 'n1', '2026-11-05T00:00:01.000Z', 'one');
+  assert.equal(lineNumberOf(db, 'cli:dm:owner', 'missing'), null);
+  assert.equal(lineNumberOf(db, 'other:dm:x', 'n1'), null);
 });

@@ -236,3 +236,40 @@ test('her line the chat client still holds takes the stored files it lacks', asy
     [['f1', picture.url]]
   );
 });
+
+/** The name on the author of a line. */
+const authorOf = ({ message }: MessageEvent): unknown => message.author?.name;
+
+test("the owner's lines and his chat carry his person's name when one is known", async () => {
+  // Bug: her chat named the owner `owner`, the command line account's own name.
+  const lines = [stored(1, 'owner', 10), stored(2, 'her', 20)];
+  const adapter = withStoredHistory(
+    freshClient([clientLine('n3', 'the newest line', 30)]),
+    () => lines,
+    () => 'Robin'
+  );
+  const read = await adapter.history(CHAT, { limit: 100 });
+  assert.equal(read.status, 'ok');
+  const events = read.status === 'ok' ? read.events : [];
+  assert.deepEqual(
+    events.map((event) => [event.message.id, authorOf(event)]),
+    [
+      ['n1', 'Robin'],
+      ['n2', null],
+      ['n3', 'Robin'],
+    ]
+  );
+  const info = await adapter.chatInfo(CHAT);
+  assert.equal(info.status === 'ok' ? info.chat.name : null, 'Robin');
+});
+
+test("with no name known the owner's lines keep the name they came with", async () => {
+  const adapter = withStoredHistory(
+    freshClient([clientLine('n3', 'the newest line', 30)]),
+    () => [],
+    () => null
+  );
+  const read = await adapter.history(CHAT, { limit: 100 });
+  const [first] = read.status === 'ok' ? read.events : [];
+  assert.equal(first === undefined ? null : authorOf(first), 'owner');
+});
