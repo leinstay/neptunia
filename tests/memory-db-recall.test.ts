@@ -55,9 +55,7 @@ const OTHER = channelPlaceId('discord', 'other');
 const ALICE = 'u-alice';
 const BOB = 'u-bob';
 const CAROL = 'u-carol';
-/** The stored person of a fixture member's account, as the store answers it; no person is spelled from a member id. */
-const storedPersonOf = (account: string): string | null =>
-  [ALICE, BOB, CAROL].includes(account) ? personId('discord', account) : null;
+const storedPersonOf = (id: string) => ([ALICE, BOB, CAROL].includes(id) ? personId('discord', id) : null);
 const group = groupContext('discord');
 
 const plan = (forms: Array<string>, extra: Record<string, unknown> = {}) => ({
