@@ -9,7 +9,7 @@
 // (content forms round-robin, then authors, or a date range sampled when
 // nothing else is given); the hits are grouped into clusters by channel and
 // time, a window of messages around each is fetched and carried forward
-// along its conversation until it settles (followConversation: at most
+// along its chat until it settles (followChat: at most
 // `recall.followMessages` more lines, up to the first silence longer than
 // `recall.followGapMinutes`), and one analyzer request
 // (prompts/recall-summary.md) reads the windows and says what the history
@@ -1031,17 +1031,17 @@ export function recallContext(
 }
 
 /**
- * The lines that carry a window's conversation on past its last line (at
+ * The lines that carry a window's chat on past its last line (at
  * `lastTs`): of `after` (the same channel's lines following it, any order),
  * oldest first, each taken while no more than `followGapMinutes` passed
  * since the line before it (the window's last line for the first) and fewer
  * than `followMessages` are taken; the first longer silence ends the
- * conversation there. The caller filters what it shows (other bots, the
- * turn's own chat) afterwards, so such a line still keeps the conversation
+ * chat there. The caller filters what it shows (other bots, the
+ * turn's own chat) afterwards, so such a line still keeps the chat
  * going. `followMessages` 0 or a non-finite `lastTs` gives none.
  * @param [options]  RECALL_DEFAULTS when unusable.
  */
-export function followConversation(
+export function followChat(
   lastTs: number,
   after: Array<Record<string, Untyped>>,
   { followMessages, followGapMinutes }: { followMessages?: number; followGapMinutes?: number } = {}
@@ -1786,7 +1786,7 @@ const RECORD_HITS_PER_WINDOW = 4;
 const RECORD_NAME_WEIGHT = 0.5;
 /** How far before a meaning row's line the record is read for its reply chain and neighbours. */
 const MEANING_READ_BEFORE_MS = 6 * 60 * MINUTE_MS;
-/** How far after it: room for the neighbours and a whole followed conversation. */
+/** How far after it: room for the neighbours and a whole followed chat. */
 const MEANING_READ_AFTER_MS = 2 * 60 * MINUTE_MS;
 
 /**
@@ -1920,7 +1920,7 @@ export function recordMessage(
  * window, in its channel: its reply chain (`replyTo` within the scanned
  * days, at most REPLY_CHAIN_MAX parents), the `recordContext` lines before
  * and after it, and the hit, then followed past its last line along the
- * channel's lines read (followConversation with `followMessages` and
+ * channel's lines read (followChat with `followMessages` and
  * `followGapMinutes`, RECALL_DEFAULTS when missing); windows sharing a line are merged
  * (mergeWindows), every hit inside a window is in its `hitIds`. At most
  * `maxWindows` windows are kept: by their best score, then the newer last
@@ -2194,9 +2194,9 @@ export async function matchRecord(
       ...list.slice(at + 1, Math.min(run.last + 1, at + 1 + around)),
     ])
       chosen.set(neighbour.id, neighbour);
-    // Carried forward from its last line while the conversation goes on (the chat's lines left out below).
+    // Carried forward from its last line while the chat goes on (the chat's lines left out below).
     const last = Math.max(...[...chosen.keys()].filter((id) => runOf.get(id) === run).map((id) => position.get(id)));
-    for (const next of followConversation(
+    for (const next of followChat(
       list[last].ts,
       list.slice(last + 1, Math.min(run.last + 1, last + 1 + MAX_WINDOW_MESSAGES)),
       { followMessages, followGapMinutes }

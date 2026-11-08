@@ -1,7 +1,7 @@
 // The outbound half of the protocol: what the core asks an interface to do, and what the
 // interface answers. Every effect of the persona is one named action (`message.send`,
 // `message.edit`, `message.delete`, `message.react.add`, `message.react.remove`,
-// `conversation.typing`, and `command.result` for the answer to an owner command), and every
+// `chat.typing`, and `command.result` for the answer to an owner command), and every
 // action is answered by a result -- never by a throw -- whose `status` says honestly what
 // happened: `ok`, `failed` (known not to have taken effect), `unknown` (may have taken effect:
 // never retried blindly), `unsupported` (this interface cannot do it), `forbidden` (it may not,
@@ -13,13 +13,13 @@
 import { readAction } from './reads.ts';
 
 import type { Adapter, Delivery } from './adapter.ts';
-/** A conversation of one interface (a channel, a direct chat). */
-export type ConversationRef = { iface: string; conversationId: string };
+/** A chat of one interface (a channel, a direct chat). */
+export type ChatRef = { iface: string; chatId: string };
 
 export type { Delivery };
 
 /** A message of one interface. `accountId` is its author when the caller knows it. */
-export type MessageRef = { iface: string; conversationId: string; messageId?: string; accountId?: string };
+export type MessageRef = { iface: string; chatId: string; messageId?: string; accountId?: string };
 
 /** One attachment: its bytes (`data`) or where to take them (`url`). `voice` marks a voice message (its length and waveform). */
 export type Attachment = {
@@ -88,7 +88,7 @@ export type Port = Adapter & {
 
 /**
  * One action as a plain object, the port operation it names spelled out: the target
- * (`conversation` or `message`), the `content` of a send or an edit, the `emoji` of a reaction.
+ * (`chat` or `message`), the `content` of a send or an edit, the `emoji` of a reaction.
  * A command result answers the command whose `replyRef` it carries (the adapter alone knows what
  * the token stands for) with `text`, optional `files`, whether only the requester sees it and the command's `status`
  * (`ok` when it ran, another word when it did not), and a refused one may name why in `code`. The status `ask` is a question: it carries the `dialogId` to answer
@@ -97,12 +97,12 @@ export type Port = Adapter & {
  * `replyRef` the line's message id, when the turn over that line ended (src/interface/neptunia-cli.ts).
  */
 export type Action =
-  | { action: 'message.send'; conversation: ConversationRef; content: Content }
+  | { action: 'message.send'; chat: ChatRef; content: Content }
   | { action: 'message.edit'; message: MessageRef; content: Content }
   | { action: 'message.delete'; message: MessageRef }
   | { action: 'message.react.add' | 'message.react.remove'; message: MessageRef; emoji: string }
-  | { action: 'conversation.typing'; conversation: ConversationRef }
-  | { action: 'messages.fetch'; conversation: ConversationRef; messageIds: Array<string> }
+  | { action: 'chat.typing'; chat: ChatRef }
+  | { action: 'messages.fetch'; chat: ChatRef; messageIds: Array<string> }
   | {
       action: 'command.result';
       replyRef: string;
@@ -131,7 +131,7 @@ export const CAPABILITIES = Object.freeze({
   delete: 'message.delete',
   react: 'message.react.add',
   unreact: 'message.react.remove',
-  typing: 'conversation.typing',
+  typing: 'chat.typing',
 });
 
 // The read actions of the port (src/protocol/reads.ts): they change nothing, so none is a capability.
@@ -162,7 +162,7 @@ export function portAction(operation: string, args: Array<unknown>): Action {
   if (read !== null) return read as Action;
   switch (operation) {
     case 'send':
-      return { action: CAPABILITIES.send, conversation: target as ConversationRef, content: second as Content };
+      return { action: CAPABILITIES.send, chat: target as ChatRef, content: second as Content };
     case 'edit':
       return { action: CAPABILITIES.edit, message: target as MessageRef, content: second as Content };
     case 'delete':
@@ -171,7 +171,7 @@ export function portAction(operation: string, args: Array<unknown>): Action {
     case 'unreact':
       return { action: CAPABILITIES[operation], message: target as MessageRef, emoji: second as string };
     case 'typing':
-      return { action: CAPABILITIES.typing, conversation: target as ConversationRef };
+      return { action: CAPABILITIES.typing, chat: target as ChatRef };
     default:
       // An unknown operation gives an action without a known name, which validateAction refuses.
       return { action: String(operation) } as unknown as Action;
@@ -216,14 +216,14 @@ export function mentionsOf(content: { mentions?: Partial<Mentions> | null } | nu
   };
 }
 
-/** True when `ref` is a reference of `iface` with a non-empty `conversationId` (and `messageId` when `needMessage`). */
+/** True when `ref` is a reference of `iface` with a non-empty `chatId` (and `messageId` when `needMessage`). */
 export function isRefOf(
   ref: Partial<MessageRef> | null | undefined,
   iface: string,
   { needMessage = false }: { needMessage?: boolean } = {}
 ): boolean {
   if (!ref || typeof ref !== 'object' || ref.iface !== iface) return false;
-  if (typeof ref.conversationId !== 'string' || !ref.conversationId) return false;
+  if (typeof ref.chatId !== 'string' || !ref.chatId) return false;
   return !needMessage || (typeof ref.messageId === 'string' && ref.messageId !== '');
 }
 

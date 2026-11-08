@@ -1,7 +1,7 @@
 // The types of the signatures in ./recall-run.ts: the inputs and results that are too long to read inline.
 
 import type { RetrievalInput } from '../memory/retrieval-input.ts';
-import type { ConversationRef } from '../protocol/adapter.ts';
+import type { ChatRef } from '../protocol/adapter.ts';
 import type { ResolvedRecallAnchor } from '../memory/db/recall.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { recallSettings } from './recall.ts';
@@ -276,7 +276,7 @@ export type DbQuotesInput = {
 };
 
 export type RunDbQuotesInput = {
-  historyRef?: ConversationRef;
+  historyRef?: ChatRef;
   db: Untyped;
   config: Untyped;
   settings: RecallSettings;
@@ -295,7 +295,7 @@ export type RunDbQuotesInput = {
 };
 
 export type WindowInput = {
-  historyRef?: ConversationRef;
+  historyRef?: ChatRef;
   placeId?: string | null;
   snapshot?: Untyped;
   channel: Untyped;
@@ -399,7 +399,7 @@ export type RecallWithInput = {
  * fits the read (see dbReader), so the reads of one turn carry one context id.
  */
 export type RunInput = {
-  historyRef?: ConversationRef;
+  historyRef?: ChatRef;
   placeId?: string | null;
   snapshot?: Untyped;
   channel: Untyped;
@@ -451,7 +451,7 @@ export type RunInput = {
  * `recall: prefetched` (counts and codes only). Never rejects.
  */
 export type PrefetchInput = {
-  historyRef?: ConversationRef;
+  historyRef?: ChatRef;
   place?: Untyped;
   placeId?: string | null;
   snapshot?: Untyped;

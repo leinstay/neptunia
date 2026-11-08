@@ -1,4 +1,4 @@
-// Tests for src/behavior/pull.ts: the age rail of a read of another conversation and the pictures of its lines that may
+// Tests for src/behavior/pull.ts: the age rail of a read of another chat and the pictures of its lines that may
 // get a caption. No I/O: the clock is passed in.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

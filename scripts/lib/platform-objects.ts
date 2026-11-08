@@ -64,9 +64,9 @@ export function requesterOfChannel(requesterOf: unknown): (trigger: unknown, cha
     );
 }
 
-/** The channels and the roles of the guild of a discord.js `channel` as the conversations and groups of a listing (names only). */
+/** The channels and the roles of the guild of a discord.js `channel` as the chats and groups of a listing (names only). */
 export function guildListing(channel: unknown): {
-  conversations: Array<{ id: string; name: string }>;
+  chats: Array<{ id: string; name: string }>;
   groups: Array<{ id: string; name: string }>;
 } {
   const named = (cache: unknown): Array<{ id: string; name: string }> =>
@@ -75,11 +75,11 @@ export function guildListing(channel: unknown): {
       return typeof found.id === 'string' && typeof found.name === 'string' ? [{ id: found.id, name: found.name }] : [];
     });
   const held = obj(obj(channel).guild);
-  return { conversations: named(obj(held.channels).cache), groups: named(obj(held.roles).cache) };
+  return { chats: named(obj(held.channels).cache), groups: named(obj(held.roles).cache) };
 }
 
-/** The replay's channel as the conversation info a skill is handed (the community when it has a guild). */
-export function conversationOfChannel(
+/** The replay's channel as the chat info a skill is handed (the root when it has a guild). */
+export function chatOfChannel(
   channel: unknown,
   placeId: string
 ): { id: string; name: string | null; rootId: string | null } {
@@ -92,7 +92,7 @@ export function conversationOfChannel(
 }
 
 /**
- * The conversation this replay runs in as the interface describes it, and the community's listing taken once: what a
+ * The chat this replay runs in as the interface describes it, and the root's listing taken once: what a
  * live turn hands the recall runner (`channel` and `snapshot`).
  */
 export async function recallScope(
@@ -100,12 +100,12 @@ export async function recallScope(
   channel: unknown,
   placeId: string
 ): Promise<{ channel: unknown; snapshot: unknown }> {
-  const ref = conversationRef(channel);
+  const ref = chatRef(channel);
   const [found, snapshot] = await Promise.all([
-    reads.conversationInfo(ref, { audience: true }),
+    reads.chatInfo(ref, { audience: true }),
     takeSnapshot(reads, placeId, []),
   ]);
-  return { channel: found?.conversation ?? conversationOfChannel(channel, placeId), snapshot };
+  return { channel: found?.chat ?? chatOfChannel(channel, placeId), snapshot };
 }
 
 /** The scope of a recall run, asked of the interface at the first call and kept: `() => Promise<scope>`. */
@@ -118,7 +118,7 @@ export function lazyRecallScope(
   return () => (scope ??= recallScope(reads, channel, placeId));
 }
 
-/** The community's custom emoji as the turn lists them, read once through the interface. */
+/** The root's custom emoji as the turn lists them, read once through the interface. */
 export async function customEmojiOf(reads: Reads, placeId: string): Promise<Array<IndexedEmoji>> {
   const index = createEmojiIndex({ reads, now: Date.now });
   await index.refresh(placeId);
@@ -141,9 +141,9 @@ export function discordReads(client: unknown, config: () => unknown): { reads: R
   return { reads: createReads(port, quiet), iface: port.iface };
 }
 
-/** The conversation reference of a discord.js channel: where a turn of the replay runs. */
-export function conversationRef(channel: unknown): { iface: string; conversationId: string } {
-  return { iface: 'discord', conversationId: String(obj(channel).id) };
+/** The chat reference of a discord.js channel: where a turn of the replay runs. */
+export function chatRef(channel: unknown): { iface: string; chatId: string } {
+  return { iface: 'discord', chatId: String(obj(channel).id) };
 }
 
 type Hide = { any?: boolean; channels: Set<string>; messages: Set<string> };
@@ -156,17 +156,15 @@ type Hide = { any?: boolean; channels: Set<string>; messages: Set<string> };
  */
 export function hiddenReads<T extends Reads>(reads: T, hide: Hide): T {
   if (!hide.any) return reads;
-  const hiddenChannel = (ref: { conversationId: string }): boolean => hide.channels.has(String(ref.conversationId));
+  const hiddenChannel = (ref: { chatId: string }): boolean => hide.channels.has(String(ref.chatId));
   const keep = <E extends { message?: { id?: string } }>(events: ReadonlyArray<E>): Array<E> =>
     events.filter((event) => !hide.messages.has(String(event.message?.id)));
   const hidden: Reads = {
     ...reads,
-    conversationInfo: async (ref, ...rest) => (hiddenChannel(ref) ? null : reads.conversationInfo(ref, ...rest)),
-    conversations: async (...args) => {
-      const found = await reads.conversations(...args);
-      return found === null
-        ? null
-        : { ...found, conversations: found.conversations.filter((entry) => !hide.channels.has(entry.id)) };
+    chatInfo: async (ref, ...rest) => (hiddenChannel(ref) ? null : reads.chatInfo(ref, ...rest)),
+    chats: async (...args) => {
+      const found = await reads.chats(...args);
+      return found === null ? null : { ...found, chats: found.chats.filter((entry) => !hide.channels.has(entry.id)) };
     },
     history: async (ref, query) => {
       if (hiddenChannel(ref)) return { events: [], complete: true };
@@ -192,16 +190,16 @@ function arrayOf(json: unknown): Array<unknown> {
 /**
  * What her selfreflection posted, as the memory database `memoryDb` (scripts/lib/memory-read.ts) holds it: the ids of the
  * messages (an entry's `selfreflection_mirrors` ids, and the message receipts of its sent publication, where an `attachment`
- * receipt names a file) and the platform ids of the conversations her `said` lines of them are in. Both empty with no
+ * receipt names a file) and the platform ids of the chats her `said` lines of them are in. Both empty with no
  * database.
  */
-function selfreflectionPosts(memoryDb: unknown): { messages: Set<string>; conversations: Set<string> } {
+function selfreflectionPosts(memoryDb: unknown): { messages: Set<string>; chats: Set<string> } {
   const database = obj(memoryDb).database;
   const db = obj(typeof database === 'function' ? (database as () => unknown)() : null);
   const prepare = db.prepare as ((sql: string) => Rows) | undefined;
   const messages = new Set<string>();
-  const conversations = new Set<string>();
-  if (typeof prepare !== 'function') return { messages, conversations };
+  const chats = new Set<string>();
+  if (typeof prepare !== 'function') return { messages, chats };
   const rows = (sql: string, ...args: Array<unknown>): Array<Obj> => prepare.call(db, sql).all(...args);
   for (const row of rows('SELECT native_ids FROM selfreflection_mirrors WHERE retired_at IS NULL'))
     for (const id of arrayOf(row.native_ids)) if (typeof id === 'string' && id) messages.add(id);
@@ -213,19 +211,19 @@ function selfreflectionPosts(memoryDb: unknown): { messages: Set<string>; conver
   const placeOf = `SELECT DISTINCT p.native_id FROM sources s JOIN places p ON p.id = s.place_id
     WHERE s.native_id = ? AND s.kind = 'said'`;
   for (const id of messages)
-    for (const row of rows(placeOf, id)) if (typeof row.native_id === 'string') conversations.add(row.native_id);
-  return { messages, conversations };
+    for (const row of rows(placeOf, id)) if (typeof row.native_id === 'string') chats.add(row.native_id);
+  return { messages, chats };
 }
 
-// A page of a conversation's history holds at most this many messages on the platform.
+// A page of a chat's history holds at most this many messages on the platform.
 const HISTORY_PAGE = 100;
 
 /**
- * A wrapper of `reads` whose history of a conversation her selfreflection posted in, as `memoryDb` names it (selfreflectionPosts), keeps
+ * A wrapper of `reads` whose history of a chat her selfreflection posted in, as `memoryDb` names it (selfreflectionPosts), keeps
  * only her own messages: a page as large as the platform gives, hers of it, the newest `query.limit` of them. Schema
  * v15's step makes every message of hers there part of an entry (src/memory/db/selfreflection-past.ts), so this is what a selfreflection
  * turn of the code before the selfreflection wake would have read of her selfreflection channel had it held her selfreflection only
- * (scripts/replay.ts `--selfreflection-own-history`). Any other conversation reads as `reads` does.
+ * (scripts/replay.ts `--selfreflection-own-history`). Any other chat reads as `reads` does.
  */
 export function ownHistoryReads(memoryDb: unknown): <T extends Reads>(reads: T) => T {
   const posted = selfreflectionPosts(memoryDb);
@@ -234,12 +232,12 @@ export function ownHistoryReads(memoryDb: unknown): <T extends Reads>(reads: T) 
 
 function ownHistoryOf<T extends Reads>(
   reads: T,
-  posted: { messages: ReadonlySet<string>; conversations: ReadonlySet<string> }
+  posted: { messages: ReadonlySet<string>; chats: ReadonlySet<string> }
 ): T {
   const own: Reads = {
     ...reads,
     history: async (ref, query) => {
-      if (!posted.conversations.has(String(ref.conversationId))) return reads.history(ref, query);
+      if (!posted.chats.has(String(ref.chatId))) return reads.history(ref, query);
       const page = await reads.history(ref, { ...query, limit: Math.max(query.limit, HISTORY_PAGE) });
       if (page === null) return null;
       const mine = page.events.filter((event) => {
@@ -264,7 +262,7 @@ export function eventOfLine(line: unknown, iface: string): MessageEvent {
     iface,
     at,
     id: `${iface}:message:${String(found.id)}`,
-    conversation: {
+    chat: {
       id: found.placeId,
       kind: 'channel',
       placeId: null,
@@ -288,19 +286,19 @@ export function eventOfLine(line: unknown, iface: string): MessageEvent {
       emojis: found.emojis,
       reactions: found.reactions,
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
   };
   return event as unknown as MessageEvent;
 }
 
 /**
- * The reads with the history of a conversation replaced by a script: `lines(ref, limit)` gives the lines (the shape of
- * src/behavior/line-of.ts's output) the newest `limit` of the conversation holds, and the history read answers them as
+ * The reads with the history of a chat replaced by a script: `lines(ref, limit)` gives the lines (the shape of
+ * src/behavior/line-of.ts's output) the newest `limit` of the chat holds, and the history read answers them as
  * events.
  */
 export function scriptedReads<T extends Reads>(
   found: T,
-  lines: (ref: { iface: string; conversationId: string }, limit: number) => ReadonlyArray<unknown>
+  lines: (ref: { iface: string; chatId: string }, limit: number) => ReadonlyArray<unknown>
 ): T {
   const scripted: Reads = {
     ...found,
@@ -314,17 +312,17 @@ export function scriptedReads<T extends Reads>(
 }
 
 /**
- * The scripted chat of the conversation a week's turn runs in: the lines the week's `world.chat` holds for it and the
+ * The scripted chat of the chat a week's turn runs in: the lines the week's `world.chat` holds for it and the
  * name the fixture gives the channel.
  */
 export function scriptedChatOf(
   world: unknown,
   fixture: unknown,
-  conversation: unknown
+  chat: unknown
 ): { lines: Array<unknown>; name: string | null } {
-  const asked = String(obj(conversation).conversationId);
-  const chat: unknown = obj(world).chat;
-  const lines: unknown = chat instanceof Map ? (chat as Map<string, unknown>).get(asked) : undefined;
+  const asked = String(obj(chat).chatId);
+  const held: unknown = obj(world).chat;
+  const lines: unknown = held instanceof Map ? (held as Map<string, unknown>).get(asked) : undefined;
   const channels: unknown = obj(fixture).channels;
   const listed: Array<unknown> = Array.isArray(channels) ? (channels as Array<unknown>) : [];
   const channel = listed.find((entry) => obj(entry).id === asked);
@@ -332,7 +330,7 @@ export function scriptedChatOf(
   return { lines: Array.isArray(lines) ? lines : [], name: typeof name === 'string' ? name : null };
 }
 
-/** The inner week's interface: the fixture's channels as conversations, writable or not, and the reads over them. */
+/** The inner week's interface: the fixture's channels as chats, writable or not, and the reads over them. */
 export function weekReads(
   channels: ReadonlyArray<{ id: string; name: string; writable?: boolean }>,
   placeId: string,
@@ -343,7 +341,7 @@ export function weekReads(
   const rest = { topic: null, owner: null, lastMessageAt: null, voice: false, public: true } as const;
   for (const { id, name, writable } of channels) {
     const permissions = { read: true, send: writable !== false, attach: true, react: true };
-    adapter.seedConversation({ ...base, ...rest, audience: null, id, name, permissions });
+    adapter.seedChat({ ...base, ...rest, audience: null, id, name, permissions });
   }
   return { reads: createReads(adapter, log), iface: adapter.iface };
 }

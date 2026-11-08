@@ -4,7 +4,7 @@ import { messageLocator } from '../src/memory/db/message-locator.ts';
 
 test('messageLocator refuses an unsupported version instead of accepting its routing fields', () => {
   const result = messageLocator(
-    { v: 2, origin: 'protocol-message', iface: 'other', conversationId: 'room-42', messageId: 'message-73' },
+    { v: 2, origin: 'protocol-message', iface: 'other', chatId: 'room-42', messageId: 'message-73' },
     'other'
   );
   assert.equal(result, null);
@@ -15,7 +15,7 @@ test('messageLocator keeps its verified route when the caller later changes the 
     v: 1,
     origin: 'protocol-message',
     iface: 'other',
-    conversationId: 'room-42',
+    chatId: 'room-42',
     messageId: 'message-73',
     extra: 'untrusted',
   };
@@ -24,17 +24,17 @@ test('messageLocator keeps its verified route when the caller later changes the 
     v: 1,
     origin: 'protocol-message',
     iface: 'other',
-    conversationId: 'room-42',
+    chatId: 'room-42',
     messageId: 'message-73',
     extra: 'untrusted',
   });
-  input.conversationId = 'redirected-room';
+  input.chatId = 'redirected-room';
   input.messageId = 'redirected-message';
   assert.deepEqual(result, {
     v: 1,
     origin: 'protocol-message',
     iface: 'other',
-    conversationId: 'room-42',
+    chatId: 'room-42',
     messageId: 'message-73',
   });
 });

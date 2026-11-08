@@ -189,7 +189,7 @@ export async function toolDecisions(): Promise<DecisionTable> {
   }> = [
     {
       name: 'owner-here',
-      about: 'Every tool granted to her, the owner asked, in this conversation',
+      about: 'Every tool granted to her, the owner asked, in this chat',
       config: configOf(),
       requester: { id: OWNER },
       context: budgets.open,
@@ -210,7 +210,7 @@ export async function toolDecisions(): Promise<DecisionTable> {
     },
     {
       name: 'owner-there',
-      about: 'The owner asked, aimed at another conversation where the tool takes one',
+      about: 'The owner asked, aimed at another chat where the tool takes one',
       config: configOf(),
       requester: { id: OWNER },
       there: true,
@@ -218,7 +218,7 @@ export async function toolDecisions(): Promise<DecisionTable> {
     },
     {
       name: 'member-there',
-      about: 'A member asked, aimed at another conversation where the tool takes one',
+      about: 'A member asked, aimed at another chat where the tool takes one',
       config: configOf(),
       requester: { id: MEMBER },
       there: true,
@@ -331,7 +331,7 @@ export async function toolDecisions(): Promise<DecisionTable> {
           args: entry.there === true && hasChannel ? { ...args, channel: THERE } : args,
           principal: { kind: 'persona' },
           requester: entry.requester,
-          audience: { conversationId: HERE, accountIds: [MEMBER] },
+          audience: { chatId: HERE, accountIds: [MEMBER] },
           context: { config: entry.config, selfId: SELF, registry, ...(entry.context ?? {}) },
         })
       );
@@ -342,7 +342,7 @@ export async function toolDecisions(): Promise<DecisionTable> {
         args,
         principal: { kind: 'member' },
         requester: { id: OWNER },
-        audience: { conversationId: HERE },
+        audience: { chatId: HERE },
         context: { config: configOf(), selfId: SELF, registry },
       })
     );

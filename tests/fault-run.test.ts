@@ -30,9 +30,9 @@ test('the ledger names a key that happened twice and a key that never happened',
   assert.deepEqual(ledger.missing(['send:c1:a', 'send:c1:b', 'send:c1:c']), ['send:c1:a', 'send:c1:c']);
 });
 
-test('observe counts a send by conversation and text and a reaction by message, and the adapter still acts', async () => {
+test('observe counts a send by chat and text and a reaction by message, and the adapter still acts', async () => {
   const adapter = createFakeAdapter({ selfId: 'self-id' });
-  adapter.seedConversation({
+  adapter.seedChat({
     id: 'c1',
     kind: 'channel',
     rootId: 'g1',
@@ -48,7 +48,7 @@ test('observe counts a send by conversation and text and a reaction by message, 
   });
   const ledger = createLedger();
   observe(adapter, ledger);
-  const ref = { iface: 'fake', conversationId: 'c1' };
+  const ref = { iface: 'fake', chatId: 'c1' };
   const sent = await adapter.send(ref, { text: 'hello' });
   await adapter.send(ref, { text: 'hello' });
   const first = adapter.messagesIn('c1')[0];

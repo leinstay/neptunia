@@ -104,7 +104,7 @@ test("the link refuses an agent's skill.activate by name and lets its filing pas
   ends.client.send(
     envelope(
       'hello',
-      { iface: 'agent', self: { id: 'hand', name: 'hand' }, community: null, kind: 'agent', token: 'hand-token' },
+      { iface: 'agent', self: { id: 'hand', name: 'hand' }, root: null, kind: 'agent', token: 'hand-token' },
       { id: 'hello:hand' }
     )
   );
@@ -118,7 +118,7 @@ test("the link refuses an agent's skill.activate by name and lets its filing pas
           iface: 'agent',
           at: 1,
           id,
-          conversation: { id: 'c1', kind: 'channel' },
+          chat: { id: 'c1', kind: 'channel' },
           name,
           args: { name: 'say-it' },
           replyRef: 'r1',

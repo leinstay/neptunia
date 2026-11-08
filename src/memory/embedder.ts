@@ -114,7 +114,7 @@ type Job = {
   context?: Array<RecordLine> | null;
 };
 
-/** The latest lines of one conversation of a place, kept as the context of the next line there. */
+/** The latest lines of one chat of a place, kept as the context of the next line there. */
 type Ring = { lines: Array<RecordLine>; warmed: boolean };
 
 /** The span of record to read for the jobs of one place whose rings are not filled yet. */
@@ -215,7 +215,7 @@ export function createEmbedder({
 } {
   const seam = readSeamOf(memoryDb, log, 'embedder');
   let queue: Array<Job> = [];
-  const rings = new Map<string, Ring>(); // `${placeId}|${conversation}` -> { lines, warmed }
+  const rings = new Map<string, Ring>(); // `${placeId}|${chat}` -> { lines, warmed }
   const latest = new Map<string, number>(); // `${placeId}|${messageId}` -> newest revision queued
   let lastFlushAt = now();
   let flushing: Untyped = null;

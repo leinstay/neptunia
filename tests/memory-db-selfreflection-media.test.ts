@@ -432,7 +432,7 @@ test('the Discord adapter reads messages by id: text, attachments, and missing f
   const port = createDiscordAdapter({
     client: { channels: { cache: wrongly(new Map([['c1', channel]])) }, user: { id: 'me' } },
   });
-  const found = await port.fetchMessages({ iface: 'discord', conversationId: 'c1' }, ['m1', 'm2']);
+  const found = await port.fetchMessages({ iface: 'discord', chatId: 'c1' }, ['m1', 'm2']);
   assert.equal(found.status, 'ok');
   assert.deepEqual(
     found.messages.map((message) => {
@@ -449,9 +449,9 @@ test('the Discord adapter reads messages by id: text, attachments, and missing f
       { messageId: 'm2', missing: true },
     ]
   );
-  const failed = await port.fetchMessages({ iface: 'discord', conversationId: 'c1' }, ['m1', 'boom']);
+  const failed = await port.fetchMessages({ iface: 'discord', chatId: 'c1' }, ['m1', 'boom']);
   assert.notEqual(failed.status, 'ok');
-  const nowhere = await port.fetchMessages({ iface: 'discord', conversationId: 'c9' }, ['m1']);
+  const nowhere = await port.fetchMessages({ iface: 'discord', chatId: 'c9' }, ['m1']);
   assert.equal(nowhere.status, 'failed');
 });
 
@@ -629,7 +629,7 @@ test('the Discord adapter passes an attachment duration and waveform when Discor
   const port = createDiscordAdapter({
     client: { channels: { cache: wrongly(new Map([['c1', channel]])) }, user: { id: 'me' } },
   });
-  const found: Record<string, Untyped> = await port.fetchMessages({ iface: 'discord', conversationId: 'c1' }, ['m1']);
+  const found: Record<string, Untyped> = await port.fetchMessages({ iface: 'discord', chatId: 'c1' }, ['m1']);
   assert.deepEqual(found.messages[0].attachments[0], {
     url: 'https://cdn.example/v.ogg',
     name: 'v.ogg',
@@ -672,7 +672,7 @@ test('a link that is not up yet leaves the post for the next run and logs nothin
   }
 });
 
-test('a conversation the interface forbids is asked once in a start and logged once', async () => {
+test('a chat the interface forbids is asked once in a start and logged once', async () => {
   // Bug: a channel the persona may not read took one request and one warning per post at every start.
   const env = setup(wrongly({ posts: [post('d-1', ['x'])] })) as unknown as Scene;
   try {

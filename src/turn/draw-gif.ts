@@ -2,7 +2,7 @@
 // (src/behavior/media-pick.ts) and the grace its answer gets. createTurnRunner (src/behavior/turn.ts) builds it once per
 // runner with createDrawGif; the act and her calls call its functions.
 
-import { placeOfConversation } from '../memory/addresses.ts';
+import { placeOfChat } from '../memory/addresses.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { PublicationBoundary } from '../tools/publication.ts';
@@ -20,10 +20,10 @@ import { log } from '../log.ts';
 import { drawPicture } from '../media/draw.ts';
 import { freshAttachmentUrl as sharedFreshAttachmentUrl, gifPostForm, gifPostUrl } from '../media/gif-post.ts';
 import type { GifForm } from '../media/gif-post.ts';
-import type { ConversationInfo, ConversationRef, MessageRef } from '../protocol/adapter.ts';
+import type { ChatInfo, ChatRef, MessageRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import { refusalStatus } from '../tools/executors.ts';
-import { messageRefOf, postingConversation } from '../tools/impl/shared.ts';
+import { messageRefOf, postingChat } from '../tools/impl/shared.ts';
 import { NO_OP, closeResult, portError, postedOf } from './journal.ts';
 import type { JournalOp, PortResult } from './journal.ts';
 import { sendArgs, withLink } from './targets.ts';
@@ -66,13 +66,13 @@ type DrawGifImages = NonNullable<Parameters<typeof drawPicture>[0]>['images'];
 type Picture = { buffer?: Buffer; mediaType: string; cost: number | null; seconds: number };
 
 /** The interface port (src/interface/port.ts), as the pictures and GIFs post through it. */
-type DrawGifPort = { send: (ref: ConversationRef, payload: object) => Promise<PortResult> };
+type DrawGifPort = { send: (ref: ChatRef, payload: object) => Promise<PortResult> };
 
 /** The gateway's verdict on one effect of her reply. */
 type EffectVerdict = { ok: boolean; code?: string; reason?: string };
 
 /** A channel the pictures and GIFs post in: the turn's, or one named by its id. */
-type PostChannel = { id: string } & Partial<ConversationInfo>;
+type PostChannel = { id: string } & Partial<ChatInfo>;
 
 /** What a `draw.create` call answers her. */
 type DrawResult = {
@@ -110,11 +110,11 @@ export type DrawGifContext = {
   selfIdOf: () => string;
   clock: () => number;
   schedule: (run: () => void, ms: number) => () => void;
-  conversationOf: (channel: PostChannel) => ConversationRef;
+  chatOf: (channel: PostChannel) => ChatRef;
   messageOf: (channel: PostChannel, messageId: string) => MessageRef;
   checkEffect: (skill: string, args: unknown, at: { channel: PostChannel; trigger?: unknown }) => EffectVerdict;
   lastPostAt: Map<string, number>;
-  selfreflectionPictureGate: (config: DrawGifConfig, channel: ConversationInfo, now: number) => PictureGate;
+  selfreflectionPictureGate: (config: DrawGifConfig, channel: ChatInfo, now: number) => PictureGate;
 };
 
 /** The trigger of a turn, as a picture or a GIF reads it. */
@@ -124,7 +124,7 @@ export type DrawGif = {
   drawTool: (
     args: { self?: unknown; text?: unknown; placeId?: unknown; replyTo?: unknown } | null | undefined,
     at: {
-      channel: ConversationInfo;
+      channel: ChatInfo;
       placeId?: string | null;
       trigger?: DrawTrigger;
       triggerKind?: TriggerKind | null;
@@ -167,7 +167,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     selfIdOf,
     clock,
     schedule,
-    conversationOf,
+    chatOf,
     messageOf,
     checkEffect,
     lastPostAt,
@@ -220,7 +220,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
    * picture through makePicture, the scene verbatim, with the local time, then one upload through the port. It posts
    * where `message.create` would: the channel she names, else the replied message's (a link names it; a channel and a
    * reply that disagree are refused `unknown-message`), else this one, checked before anything is generated, on `model`
-   * (the core model's id when its route moved it, else null) (src/tools/impl/shared.ts#postingConversation, `attach`).
+   * (the core model's id when its route moved it, else null) (src/tools/impl/shared.ts#postingChat, `attach`).
    * A reply quotes the message in that channel. The picture is charged to the asking member's rail when the turn was
    * asked (askedFor), to nobody's otherwise. Every failure is a result she reads, never a limit notice: an image cap is
    * `image-cap-daily` or `image-cap-user-daily`, a generation failure `image-moderation`, `image-timeout` or
@@ -245,7 +245,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
     }: Parameters<DrawGif['drawTool']>[1],
     model: string | null = null
   ): Promise<DrawResult> {
-    const publicationBoundary = turnBoundary(draft, conversationOf(channel));
+    const publicationBoundary = turnBoundary(draft, chatOf(channel));
     const port = bindPublicationPort(iface, publicationBoundary);
     const none = { text: '' };
     const failed = (status: string, code: string | undefined, extra: object = {}): DrawResult => ({
@@ -271,7 +271,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
         return failed(refusalStatus(CODE.LOOP_CAP), CODE.LOOP_CAP, { reason: 'extra-call' });
     }
     try {
-      let conversationId = String(channel.id);
+      let chatId = String(channel.id);
       let replyId: string | null = null;
       if (!staging) {
         // A turn that quotes no chat line (a follow-up, an overheard line, a later part of a split message) posts its picture plain.
@@ -279,17 +279,17 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
         // eslint-disable-next-line @typescript-eslint/no-base-to-string -- the model's argument may be any JSON value, read as text
         const given = args?.placeId ? String(args.placeId) : null;
         if (given && reply?.placeId && given !== reply.placeId) return failed('invalid', CODE.UNKNOWN_MESSAGE);
-        conversationId = await postingConversation({
+        chatId = await postingChat({
           reads: ifaceReads,
           store,
           iface: channel.iface,
-          conversationId: given ?? reply?.placeId ?? null,
-          context: { placeId: placeOfConversation(store, channel), publicationBoundary },
+          chatId: given ?? reply?.placeId ?? null,
+          context: { placeId: placeOfChat(store, channel), publicationBoundary },
           need: 'attach',
         });
         replyId = reply?.messageId ?? null;
         // The current channel: where no file can be posted nothing is generated (or paid for).
-        if (conversationId === String(channel.id) && !channel.permissions.attach)
+        if (chatId === String(channel.id) && !channel.permissions.attach)
           return failed('failed', CODE.CHANNEL_NO_PERMISSION);
       }
       // Nothing is paid for a picture its publication may not have.
@@ -339,8 +339,8 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       const after = checkEffect('message.create', sendArgs({ media: name, replyId }), { channel, trigger });
       // A refusal carries its gateway code.
       if (!after.ok) return failed(refusalStatus(after.code!), after.code, { reason: after.reason });
-      const target = conversationId === String(channel.id) ? channel : { id: conversationId };
-      const result = await port.send(conversationOf(target), {
+      const target = chatId === String(channel.id) ? channel : { id: chatId };
+      const result = await port.send(chatOf(target), {
         attachments: [{ name, data: picture.buffer, contentType: picture.mediaType }],
         ...(replyId ? { replyTo: messageOf(target, replyId) } : {}),
       });
@@ -382,7 +382,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
   async function freshAttachmentUrl(channel: PostChannel, entry: GifEntry): Promise<string | null> {
     return sharedFreshAttachmentUrl({
       reads: ifaceReads,
-      channel: conversationOf(channel),
+      channel: chatOf(channel),
       entry,
       onError: (err: unknown) =>
         log.warn('turn: gif refetch failed', { channel: channel.id, gif: entry.id, error: err }),
@@ -446,7 +446,7 @@ export function createDrawGif(ctx: DrawGifContext): DrawGif {
       if (!checkEffect('message.create', sendArgs({ ...body.check, replyId }), { channel, trigger }).ok) return null;
       op = openOp();
       if (op.opId) await op.started();
-      const result = await bindPublicationPort(iface, publicationBoundary).send(conversationOf(channel), {
+      const result = await bindPublicationPort(iface, publicationBoundary).send(chatOf(channel), {
         ...body.content,
         ...(replyId ? { replyTo: messageOf(channel, replyId) } : {}),
       });

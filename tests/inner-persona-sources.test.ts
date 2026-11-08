@@ -5,7 +5,7 @@ import { personaJournal, personaRecord } from '../src/behavior/inner/persona-sou
 import type { Journal } from '../src/memory/journal.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 
-test('the record is read from every place and a line goes to the place of its conversation', async () => {
+test('the record is read from every place and a line goes to the place of its chat', async () => {
   // Bug: the inner life sees one server, or her own line lands under no place anyone reads.
   const appended: Array<[string, unknown]> = [];
   const record = {
@@ -44,7 +44,7 @@ test('a cut-off private turn is looked for in the place of its direct message', 
     turnOperations: (placeId: string) => Promise.resolve(placeId === 'dm:u1' ? ['op'] : []),
   });
   const store = {
-    placeOfConversation: (conversation: { partnerId?: string }) => `dm:${conversation.partnerId}`,
+    placeOfChat: (chat: { partnerId?: string }) => `dm:${chat.partnerId}`,
   };
   const source = personaJournal(journal, () => ['p1'], store);
   assert.deepEqual(await source.turnOperations?.({ turnId: 't', days: [], privateAccountId: 'u1' }), ['op']);

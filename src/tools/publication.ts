@@ -1,12 +1,12 @@
 // Trusted publication restrictions for a turn's adapter and publishing operations.
-import type { ConversationRef, Delivery } from '../protocol/adapter.ts';
+import type { ChatRef, Delivery } from '../protocol/adapter.ts';
 import { isIssuedInternalContext } from '../memory/db/scope.ts';
 import { locatorText } from '../memory/db/message-locator.ts';
 import { objOf } from './types.ts';
 
 export type PublicationBoundary = Readonly<{
   kind: 'internal-turn';
-  origin: Readonly<ConversationRef>;
+  origin: Readonly<ChatRef>;
 }>;
 export type PublicationRefusal = Readonly<{
   status: 'denied';
@@ -73,10 +73,10 @@ export function refusedAudience(stored: unknown): { reason: string; told: boolea
 export function isPublicationBoundary(value: unknown): value is PublicationBoundary {
   const boundary = objOf(value);
   const origin = objOf(boundary.origin);
-  return boundary.kind === 'internal-turn' && locatorText(origin.iface) && locatorText(origin.conversationId);
+  return boundary.kind === 'internal-turn' && locatorText(origin.iface) && locatorText(origin.chatId);
 }
 
-export function publicationBoundaryOf(context: unknown, origin: ConversationRef): PublicationBoundary | undefined {
+export function publicationBoundaryOf(context: unknown, origin: ChatRef): PublicationBoundary | undefined {
   if (!isIssuedInternalContext(context) || !locatorText(objOf(context).id)) return undefined;
   return { kind: 'internal-turn', origin: { ...origin } };
 }
@@ -92,7 +92,7 @@ export function turnBoundary(
     | { publicationBoundary?: unknown; memoryContext?: unknown; nowhere?: boolean; mode?: string | null }
     | null
     | undefined,
-  origin: ConversationRef
+  origin: ChatRef
 ): PublicationBoundary | undefined {
   if (isPublicationBoundary(draft?.publicationBoundary)) return draft.publicationBoundary;
   if (draft?.nowhere === true && draft.mode !== 'selfreflection') return undefined;
@@ -101,13 +101,13 @@ export function turnBoundary(
 
 export function publicationRefusal(
   boundary: PublicationBoundary | null | undefined,
-  destination: ConversationRef
+  destination: ChatRef
 ): PublicationRefusal | null {
   if (boundary == null) return null;
   if (
     isPublicationBoundary(boundary) &&
     boundary.origin.iface === destination.iface &&
-    boundary.origin.conversationId === destination.conversationId
+    boundary.origin.chatId === destination.chatId
   )
     return null;
   return { status: 'denied', code: 'not-allowed', reason: 'publication-boundary' };
@@ -139,7 +139,7 @@ export function bindPublicationPort<TPort extends object>(
           if (
             publicationRefusal(boundary, {
               iface: typeof ref.iface === 'string' ? ref.iface : '',
-              conversationId: typeof ref.conversationId === 'string' ? ref.conversationId : '',
+              chatId: typeof ref.chatId === 'string' ? ref.chatId : '',
             })
           )
             return Promise.resolve(refusedPublication());
@@ -167,10 +167,7 @@ export function selfreflectionRestricted(post: unknown): boolean {
   return objOf(post).publicationBoundary !== undefined;
 }
 
-export function selfreflectionPublicationRefusal(
-  value: unknown,
-  destination: ConversationRef
-): PublicationRefusal | null {
+export function selfreflectionPublicationRefusal(value: unknown, destination: ChatRef): PublicationRefusal | null {
   if (value === undefined) return null;
   if (isPublicationBoundary(value)) return publicationRefusal(value, destination);
   return { status: 'denied', code: 'not-allowed', reason: 'publication-boundary' };

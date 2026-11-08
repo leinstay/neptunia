@@ -139,7 +139,7 @@ test('an answer arriving while the reader is scrolled up leaves the screen where
 });
 
 test('a resize while scrolled up keeps the anchor entry in view and the draft unchanged', async () => {
-  // Bug: a narrower window jumps to another part of the conversation, or resets the input.
+  // Bug: a narrower window jumps to another part of the chat, or resets the input.
   const { env, entry, sent } = chatEnv();
   await withChat(env, async (rig) => {
     for (let index = 0; index < 100; index += 1) entry({ who: 'her', text: `entry-${index}` });

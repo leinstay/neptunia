@@ -48,7 +48,7 @@ const createWorldRunner = onWorld((options) =>
 );
 
 /**
- * A turn runner whose `runTurn` first opens the conversation a test gave as a diary channel (see selfreflectionChannel).
+ * A turn runner whose `runTurn` first opens the chat a test gave as a diary channel (see selfreflectionChannel).
  */
 function createTurnRunner(options: Parameters<typeof createWorldRunner>[0]) {
   const turns = createWorldRunner(options);
@@ -66,7 +66,7 @@ const DAY = 24 * 60 * 60 * 1000;
 const TZ = 'Europe/Athens';
 
 /**
- * A diary channel the persona owns: every permission, Attach Files only when `attachFiles`. The conversation is made in
+ * A diary channel the persona owns: every permission, Attach Files only when `attachFiles`. The chat is made in
  * the test's world when a turn runs in it (`open`), and `sent` and `reactCalls` read what the persona did there.
  */
 function selfreflectionChannel({
@@ -709,7 +709,7 @@ test('diary turn: a voice message is kept in the post: its id among messageIds a
     summary: 'voice message posted',
     data: {
       text: 'voice message posted',
-      ref: { conversationId: 'd1', messageId: 'voice-1' },
+      ref: { chatId: 'd1', messageId: 'voice-1' },
       voice: { text: voiced, durationSecs: 2.5 },
     },
   });
@@ -1248,7 +1248,7 @@ test('diary set: the compose request carries selfreflection.set.seedSets seeds f
 });
 
 // The selfreflection turn on the turn frame (plan 2026-11-06-turn-frame, slice 6, with the owner's answers of
-// 2026-11-07): `conversation: null`, `<selfreflection>` in `<inner>` read from the `selfreflection` table, newest
+// 2026-11-07): `chat: null`, `<selfreflection>` in `<inner>` read from the `selfreflection` table, newest
 // `selfreflection.entries` oldest first, `<meanwhile>` as in the service template, and the entry still reaching
 // every mirror. tests/fixtures/selfreflection-frame.ts holds the scene.
 
@@ -1310,8 +1310,8 @@ test('<meanwhile> of the writer holds her lines from the groups of two interface
   assert.ok(!meanwhile.includes(FRAME_TEXT.ownPrivate), 'no direct chat');
 });
 
-test('an entry recorded with conversation null reaches every mirror', async () => {
-  // Bug: with no conversation the turn records nothing, or the entry only goes to the place the turn used to run in.
+test('an entry recorded with chat null reaches every mirror', async () => {
+  // Bug: with no chat the turn records nothing, or the entry only goes to the place the turn used to run in.
   const scene = await mirrorScene({ ifaces: ['fake', 'tele'], start: FRAME_NOW });
   // No earlier entry, so the drain has only this one to send.
   const run = await frameTurn({ memory: scene.memory, mirrors: [JOURNAL, PAGES], entries: 0 });

@@ -15,7 +15,7 @@ type Handle = ReturnType<typeof openMemoryDb>;
 // A DM reads through its stored place, so the fixture holds one instead of relying on a fabricated id.
 const addDm = (db: ReturnType<typeof dbOf>, iface: string, native: string): void => {
   db.prepare(
-    `INSERT INTO places (id, iface, kind, conversation, scope_kind, partner_account, partner_person) VALUES (?, ?, 'dm', 'dm', 'dm', ?, ?)`
+    `INSERT INTO places (id, iface, kind, chat, scope_kind, partner_account, partner_person) VALUES (?, ?, 'dm', 'dm', 'dm', ?, ?)`
   ).run(`${iface}:dm:${native}`, iface, `${iface}:${native}`, `person:${iface}:${native}`);
 };
 

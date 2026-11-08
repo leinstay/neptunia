@@ -5,7 +5,7 @@
 //     rootsOnly: boolean }; limit: number; cursor: string | null }): Page<PlaceListing>
 //   placeChildren(db: Db, placeId: string, request: { context: Context; limit: number; cursor: string | null }): Page<PlaceListing>
 //   placeDetail(db: Db, placeId: string, request: { context: Context; includeChildren: boolean }): PlaceDetail
-//   PlaceListing = { id; interfaceId; authorityId; nativeKey; generation; kind; conversation; name; parentId;
+//   PlaceListing = { id; interfaceId; authorityId; nativeKey; generation; kind; chat; name; parentId;
 //     parentState: 'none' | 'stored' | 'missing'; continuesPlaceId; childCount; retiredAt }
 //   PlaceDetail = { found: true; place: PlaceListing; descriptions: Array<{ id; field; text; audienceId; placeId }>;
 //     descendants: Array<PlaceListing & { depth: number }>; cycles: Array<{ from; to }>; continuations: Array<string>;
@@ -65,7 +65,7 @@ function seed(db: Db): void {
   withoutForeignKeys(db, () => {
     addPlace(db, { id: 'place:orphan', ...zeta, parent: 'place:gone' });
   });
-  addPlace(db, { id: 'place:old-dm', iface: 'zeta', authority: 'zeta/one', conversation: 'dm', kind: 'dm' });
+  addPlace(db, { id: 'place:old-dm', iface: 'zeta', authority: 'zeta/one', chat: 'dm', kind: 'dm' });
   addPlace(db, { id: 'place:continued', ...zeta, continues: 'place:old-dm' });
   addPlace(db, { id: 'place:retired', ...zeta, parent: level(0), retiredAt: '2026-11-03T00:00:00.000Z' });
   addDescription(db, {
@@ -174,11 +174,11 @@ test('a listing says how its parent stands', () => {
   });
 });
 
-test('a listing keeps its authority, native key, generation and conversation', () => {
+test('a listing keeps its authority, native key, generation and chat', () => {
   withWorld((db) => {
     const dm = entry(db, 'place:old-dm');
     assert.deepEqual(
-      [dm?.interfaceId, dm?.authorityId, dm?.nativeKey, dm?.generation, dm?.conversation, dm?.kind],
+      [dm?.interfaceId, dm?.authorityId, dm?.nativeKey, dm?.generation, dm?.chat, dm?.kind],
       ['zeta', 'zeta/one', 'place:old-dm', 1, 'dm', 'dm']
     );
     assert.equal(entry(db, 'place:retired')?.retiredAt, '2026-11-03T00:00:00.000Z');
@@ -314,7 +314,7 @@ test('a place nobody stored is a named refusal, and so is expanding it', () => {
 // ---------- the context decides first ----------
 
 test('a group context neither lists nor counts a DM place', () => {
-  // Bug: the list is filtered after the total, and a preview shows how many private conversations exist.
+  // Bug: the list is filtered after the total, and a preview shows how many private chats exist.
   withWorld((db) => {
     const context = groupContext('zeta');
     const page = listPlaces(db, { context, filters: ALL, limit: 500, cursor: null });

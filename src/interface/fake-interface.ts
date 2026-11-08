@@ -3,15 +3,15 @@
 // with `host.connect()`, says hello with the fake's capabilities and serves the adapter over it, and resolves with
 // the running interface plus two handles for the test: `emit(event)` injects an inbound event as the interface would
 // deliver it and resolves with the core's ack status, and `adapter` is the fake adapter whose stored messages are what
-// the persona posted and whose seeded conversations, members and messages the core reads.
+// the persona posted and whose seeded chats, members and messages the core reads.
 //
 // `options.adapter` is a fake adapter the caller keeps: the interface serves it instead of making its own, so the chat
 // it holds outlives a restart of the core (a test starts the interface again over the same adapter).
 //
-// `options.communities` lists several communities in `hello`; `community` names the first. `options.names` is what the
+// `options.roots` lists several roots in `hello`; `root` names the first. `options.names` is what the
 // fake says of itself in `hello.names`: its name, its noun per kind of place and its word for a direct chat.
 //
-// `options.self` and `options.community` are what `hello` tells the core about the persona and the community it serves.
+// `options.self` and `options.root` are what `hello` tells the core about the persona and the root it serves.
 // `options.reads` limits the reads the fake offers (their wire names; all when absent).
 //
 // The fake holds no event back before `open()`: the core's end of the link makes an envelope wait for its door.
@@ -28,8 +28,8 @@ import type { AckStatus, InterfaceNames, Named } from '../protocol/serve.ts';
 import type { InterfaceHost, RunningInterface } from '../protocol/host.ts';
 import { createFakeAdapter } from './fake.ts';
 
-/** The community the fake serves when a test names none: the one fake guild of the legacy fixture. */
-const DEFAULT_COMMUNITY: Named = { id: 'g1', name: 'Fake community' };
+/** The root the fake serves when a test names none: the one fake root of the legacy fixture. */
+const DEFAULT_ROOT: Named = { id: 'g1', name: 'Fake root' };
 
 /** How many unacknowledged events the fake's outbox holds. */
 const OUTBOX_CAPACITY = 1000;
@@ -51,8 +51,8 @@ export async function start(
     adapter?: ReturnType<typeof createFakeAdapter>;
     selfId?: string;
     self?: Named;
-    community?: Named | null;
-    communities?: ReadonlyArray<Named>;
+    root?: Named | null;
+    roots?: ReadonlyArray<Named>;
     names?: InterfaceNames;
     reads?: ReadonlyArray<string>;
   } = {}
@@ -66,8 +66,7 @@ export async function start(
     });
   // The persona is `self` when given, else the account of `selfId` (the fake's own default) under a name the fake picks.
   const self = options.self ?? { id: options.selfId ?? 'self', name: 'Fake' };
-  const community =
-    options.community === undefined ? (options.communities?.[0] ?? DEFAULT_COMMUNITY) : options.community;
+  const root = options.root === undefined ? (options.roots?.[0] ?? DEFAULT_ROOT) : options.root;
   const outbox =
     host.dataDir === undefined
       ? undefined
@@ -78,8 +77,8 @@ export async function start(
       hello: {
         iface: adapter.iface,
         self,
-        community,
-        ...(options.communities === undefined ? {} : { communities: options.communities }),
+        root,
+        ...(options.roots === undefined ? {} : { roots: options.roots }),
         ...(options.names === undefined ? {} : { names: options.names }),
         capabilities: adapter.capabilities(),
         resume: null,

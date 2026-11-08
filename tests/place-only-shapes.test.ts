@@ -1,16 +1,16 @@
 // The gate of plan 2026-11-05 T.4 and B0.2: a function takes `placeId` alone. A channel, a thread and a DM are places, so
-// no core type and no signature carries the top of the tree beside the conversation: a channel has exactly one server,
+// no core type and no signature carries the top of the tree beside the chat: a channel has exactly one server,
 // and carrying both only lets them disagree. Code that needs the top calls `store.rootPlaceOf(placeId)` once inside.
 //
 // The scan parses every TypeScript file of the active tree with the compiler and reports a shape whose siblings name a
-// top and a conversation: an object type, an interface, a destructured parameter, or one parameter list. The top is
-// `placeId` or `rootId` beside `conversationId`, or `rootId` beside a conversation's own `id`. Native ids stay only at the
-// protocol boundary with the interfaces and in the modules that name a native conversation as a place. So `interfaces/`,
+// top and a chat: an object type, an interface, a destructured parameter, or one parameter list. The top is
+// `placeId` or `rootId` beside `chatId`, or `rootId` beside a chat's own `id`. Native ids stay only at the
+// protocol boundary with the interfaces and in the modules that name a native chat as a place. So `interfaces/`,
 // the shipped migrations and the entries of BOUNDARY are exempt; an entry is a whole file, or `file#Type` for one
 // declared type and the shapes nested in it. A new entry needs a reviewer to add it here, because the implementer of a
 // slice cannot edit this file.
 //
-// At `c0b071e0` the scan finds 25 shapes with a top beside a conversation id and 13 conversations that carry their top.
+// At `c0b071e0` the scan finds 25 shapes with a top beside a chat id and 13 chats that carry their top.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -21,24 +21,24 @@ import ts from 'typescript';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const ACTIVE_ROOTS = ['src', 'bin', 'cli', 'interfaces', 'agents'];
 
-/** A pair of sibling names the gate refuses: any of `top` beside any of `conversation`. */
-type Pair = { top: ReadonlyArray<string>; conversation: ReadonlyArray<string> };
-const TOP_BESIDE_CONVERSATION: Pair = { top: ['placeId', 'rootId'], conversation: ['conversationId'] };
-const CONVERSATION_WITH_ITS_TOP: Pair = { top: ['rootId'], conversation: ['id'] };
+/** A pair of sibling names the gate refuses: any of `top` beside any of `chat`. */
+type Pair = { top: ReadonlyArray<string>; chat: ReadonlyArray<string> };
+const TOP_BESIDE_CHAT: Pair = { top: ['placeId', 'rootId'], chat: ['chatId'] };
+const CHAT_WITH_ITS_TOP: Pair = { top: ['rootId'], chat: ['id'] };
 
 const BOUNDARY = [
-  // The conversation as the wire carries it from the interfaces.
-  'src/protocol/events.ts#Conversation',
+  // The chat as the wire carries it from the interfaces.
+  'src/protocol/events.ts#Chat',
   'src/interface/neptunia-cli.ts#CommandEvent',
-  // Where a native conversation becomes a place.
+  // Where a native chat becomes a place.
   'src/memory/addresses.ts',
   'src/memory/store-addresses.ts',
   'src/memory/db/observe-event.ts',
-  // A member's voice state as the wire carries it: the community and the native voice conversations (plan T.4).
+  // A member's voice state as the wire carries it: the root and the native voice chats (plan T.4).
   'src/protocol/events.ts#VoiceChanged',
-  // A mirror row maps one place to its own native conversation, the one its posts go to (plan T.4).
+  // A mirror row maps one place to its own native chat, the one its posts go to (plan T.4).
   'src/memory/db/mirror-config.ts#MirrorRow',
-  // A selfreflection place maps one place to its own native conversation (plan T.4).
+  // A selfreflection place maps one place to its own native chat (plan T.4).
   'src/memory/db/mirrors.ts#SelfreflectionPlace',
 ];
 
@@ -78,7 +78,7 @@ function declaredName(node: ts.Node): string | null {
 }
 
 const holds = (names: ReadonlyArray<string>, pair: Pair): boolean =>
-  pair.top.some((name) => names.includes(name)) && pair.conversation.some((name) => names.includes(name));
+  pair.top.some((name) => names.includes(name)) && pair.chat.some((name) => names.includes(name));
 
 /** Every shape of a source text that holds the pair, as `file:line Kind`, with the entries of BOUNDARY left out. */
 function shapesIn(file: string, text: string, pair: Pair, boundary: ReadonlyArray<string> = BOUNDARY): Array<string> {
@@ -108,38 +108,38 @@ function shapesInTree(pair: Pair): Array<string> {
   return out;
 }
 
-test('the scan sees a top beside a conversation in each kind of shape, and only as siblings', () => {
+test('the scan sees a top beside a chat in each kind of shape, and only as siblings', () => {
   // Bug: the gate goes green because its parser stopped seeing a kind of shape, not because the shapes are gone.
   const probe = [
-    'type A = { placeId: string; conversationId: string };',
-    'interface B { placeId?: string | null; conversationId: string }',
-    'function c({ placeId, conversationId }: Record<string, string>) {}',
-    'const d = (placeId: string, conversationId: string) => 0;',
-    'type E = { rootId: string; conversationId: string };',
-    'type F = { placeId: string; inner: { conversationId: string } };',
+    'type A = { placeId: string; chatId: string };',
+    'interface B { placeId?: string | null; chatId: string }',
+    'function c({ placeId, chatId }: Record<string, string>) {}',
+    'const d = (placeId: string, chatId: string) => 0;',
+    'type E = { rootId: string; chatId: string };',
+    'type F = { placeId: string; inner: { chatId: string } };',
   ].join('\n');
-  const lines = shapesIn('probe.ts', probe, TOP_BESIDE_CONVERSATION).map((hit) => Number(/:(\d+) /.exec(hit)?.[1]));
+  const lines = shapesIn('probe.ts', probe, TOP_BESIDE_CHAT).map((hit) => Number(/:(\d+) /.exec(hit)?.[1]));
   assert.deepEqual([...new Set(lines)], [1, 2, 3, 4, 5]);
 });
 
 test('a boundary entry of one type exempts that type and no other in its file', () => {
-  // Bug: `file#Type` exempts the whole file, and a new shape beside the protocol's conversation type passes unseen.
+  // Bug: `file#Type` exempts the whole file, and a new shape beside the protocol's chat type passes unseen.
   const probe = 'type Wire = { id: string; rootId: string };\ntype Core = { id: string; rootId: string };';
-  const hits = shapesIn('p.ts', probe, CONVERSATION_WITH_ITS_TOP, ['p.ts#Wire']);
+  const hits = shapesIn('p.ts', probe, CHAT_WITH_ITS_TOP, ['p.ts#Wire']);
   assert.deepEqual(hits, ['p.ts:2 TypeLiteral']);
 });
 
-test('no core type or signature carries a top place beside a conversation id', () => {
+test('no core type or signature carries a top place beside a chat id', () => {
   // Bug: a shape keeps the top place and the channel side by side, a caller fills one from another turn, and the lore,
   // the notes or the GIFs of one server are written or read under another.
-  const shapes = shapesInTree(TOP_BESIDE_CONVERSATION);
+  const shapes = shapesInTree(TOP_BESIDE_CHAT);
   assert.deepEqual(shapes, [], `${shapes.length} shapes:\n${shapes.join('\n')}`);
 });
 
-test('no core conversation carries the native id of its top', () => {
+test('no core chat carries the native id of its top', () => {
   // Bug: a native `{ id, rootId }` travels through the turn past the protocol, and code reads the server from `rootId`
   // instead of asking `rootPlaceOf`, so a thread or a DM answers with a top the store does not hold.
-  const shapes = shapesInTree(CONVERSATION_WITH_ITS_TOP);
+  const shapes = shapesInTree(CHAT_WITH_ITS_TOP);
   assert.deepEqual(shapes, [], `${shapes.length} shapes:\n${shapes.join('\n')}`);
 });
 
@@ -154,9 +154,7 @@ test('every boundary entry names a file that exists and still holds a shape', ()
       return true;
     }
     const others = BOUNDARY.filter((other) => other !== entry);
-    return [TOP_BESIDE_CONVERSATION, CONVERSATION_WITH_ITS_TOP].every(
-      (pair) => shapesIn(file, text, pair, others).length === 0
-    );
+    return [TOP_BESIDE_CHAT, CHAT_WITH_ITS_TOP].every((pair) => shapesIn(file, text, pair, others).length === 0);
   });
   assert.deepEqual(idle, [], `idle entries:\n${idle.join('\n')}`);
 });

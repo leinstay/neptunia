@@ -24,7 +24,7 @@ export function addCliPlace(db: DatabaseSync, partner: string | null = OWNER): v
     INSERT INTO accounts (id, iface, native_id, native_key, authority_id, generation, kind, person_id, link, linked_by, linked_at)
       VALUES ('cli:owner', 'cli', 'owner', 'owner', 'cli/local', 1, 'user', ${partner ? `'${partner}'` : 'NULL'},
         ${partner ? "'verified'" : 'NULL'}, 'owner', '2026-11-04T07:00:00.000Z');
-    INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, conversation, scope_kind, partner_account, partner_person)
+    INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, chat, scope_kind, partner_account, partner_person)
       VALUES ('${CLI_PLACE}', 'cli', 'dm', 'owner', 'dm:owner', 'cli/local', 1, 'dm', 'dm', 'cli:owner', ${partner ? `'${partner}'` : 'NULL'});
     INSERT INTO audiences (id, kind, iface, place_id) VALUES ('${CLI_AUDIENCE}', 'dm', 'cli', '${CLI_PLACE}');
   `);

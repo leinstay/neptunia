@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readConfig } from '../src/config.ts';
 import { localConfigPath } from '../src/config/files.ts';
-import { placeOfCommunity } from '../src/memory/addresses.ts';
+import { placeOfRoot } from '../src/memory/addresses.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { createDescriber } from '../src/memory/describe.ts';
@@ -123,7 +123,7 @@ test('a description described again and one kept and marked are readable, with n
       state: fakeState(),
       now: () => NOW,
     });
-    const place = placeOfCommunity(store, 'g1');
+    const place = placeOfRoot(store, 'g1');
     await describer.describe(place, { itemId: 'a1', kind: 'image', url: 'https://cdn.discordapp.com/x/1.png' });
     await describer.describe(place, { itemId: 'a2', kind: 'image', url: 'https://cdn.discordapp.com/x/2.png' });
     await store.flushSettled({ final: true });

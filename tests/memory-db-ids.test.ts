@@ -42,7 +42,7 @@ test('names a message source with its interface, message, revision and kind', ()
   assert.equal(messageSourceId('cli', 'm9', 1, 'said'), 'src:cli:m9:1:said');
 });
 
-// The community-local authority `guildAuthorityOf` spelled is gone with the partition by community (plan task 5).
+// The root-local authority `guildAuthorityOf` spelled is gone with the partition by root (plan task 5).
 
 test('keeps the legacy namespace as the stored discord spelling', () => {
   assert.equal(LEGACY_IFACE, 'discord');

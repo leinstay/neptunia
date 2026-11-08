@@ -138,7 +138,7 @@ const memory = () =>
     appliedRevision: 'r1',
     note: 'a batch',
     batch: { messageIds: ['400000000000000001'], consumed: 1 },
-    changed: { users: ['100000000000000001'], guild: false, channels: [], lore: 0 },
+    changed: { users: ['100000000000000001'], root: false, channels: [], lore: 0 },
     episodes: [{ accountId: '100000000000000001', itemId: null, key: 'k', what: 'w', weight: 1 }],
     attitude: [
       { accountId: '100000000000000001', delta: 3, applied: 2, reason: 'was kind' },
@@ -212,8 +212,8 @@ test('a private journal line is a DM row of that member, and its scope survives'
   }
 });
 
-test('lines with no scope, an empty scope or a guild scope come back as they were', () => {
-  for (const scope of [undefined, {}, { guild: true }]) {
+test('lines with no scope, an empty scope or a root scope come back as they were', () => {
+  for (const scope of [undefined, {}, { root: true }]) {
     const line = envelope('system', { event: 'stop' });
     if (scope === undefined) removeField(line, 'scope');
     else line.scope = scope;

@@ -11,15 +11,15 @@ import { dbOf, type Db } from '../src/memory/db/types.ts';
 const NOW = Date.parse('2026-11-03T12:00:00Z');
 const options = { now: () => NOW, log: { debug() {}, info() {}, warn() {}, error() {} } };
 
-function envelope(conversationId: string, messageId: string, text = 'Synthetic evidence'): Envelope {
+function envelope(chatId: string, messageId: string, text = 'Synthetic evidence'): Envelope {
   const value = observationOf({
     iface: 'synthetic',
     at: NOW,
-    conversation: { id: conversationId, kind: 'channel', chatType: 'channel' },
+    chat: { id: chatId, kind: 'channel', chatType: 'channel' },
     message: { id: messageId, at: NOW - 60000, content: text, author: { id: 'member' } },
   });
   assert.ok(value);
-  return { ...value, messageConversation: { id: conversationId, chatType: 'channel' } };
+  return { ...value, messageChat: { id: chatId, chatType: 'channel' } };
 }
 
 function sourceId(result: ObserveResult): string {
@@ -43,7 +43,7 @@ function snapshot(db: Db): Record<string, Array<Record<string, unknown>>> {
 }
 
 test('an unrelated ambiguous historical locator does not block a distinct new message family', () => {
-  // Catches a whole-history conflict scan refusing valid writes in unrelated conversations.
+  // Catches a whole-history conflict scan refusing valid writes in unrelated chats.
   const handle = openMemoryDb(':memory:');
   try {
     sourceId(observe(handle, envelope('old-room', 'old-message'), options));
@@ -71,7 +71,7 @@ test('an unrelated ambiguous historical locator does not block a distinct new me
 });
 
 for (const wrongRevision of [1, 2]) {
-  test(`adoption refuses a matched family whose retained revision ${wrongRevision} names another conversation`, () => {
+  test(`adoption refuses a matched family whose retained revision ${wrongRevision} names another chat`, () => {
     // Catches narrowing to locator-matching rows and omitting a conflicting revision of the same native family.
     const handle = openMemoryDb(':memory:');
     try {
@@ -82,7 +82,7 @@ for (const wrongRevision of [1, 2]) {
       const db = dbOf(handle);
       // A synthetic retained historical row disagrees with its sibling's verified locator.
       db.prepare(
-        "UPDATE sources SET extra = json_set(extra, '$.$messageLocator.conversationId', 'other-room'), retired_at = ? WHERE revision = ?"
+        "UPDATE sources SET extra = json_set(extra, '$.$messageLocator.chatId', 'other-room'), retired_at = ? WHERE revision = ?"
       ).run(new Date(NOW).toISOString(), wrongRevision);
       assert.equal(db.prepare('SELECT count(*) AS n FROM sources').get()?.n, 2);
       const before = snapshot(db);
@@ -94,7 +94,7 @@ for (const wrongRevision of [1, 2]) {
             seq: 7,
             eventId: 'adoption-event',
             kind: 'message.received',
-            conversation: 'target-room',
+            chat: 'target-room',
           },
           keepDays: 7,
         },
@@ -107,3 +107,23 @@ for (const wrongRevision of [1, 2]) {
     }
   });
 }
+
+test('a message stored before the chat rename, with its chatId key, is found again by its address', () => {
+  // Catches: the lookup of a retained family reading only `chatId`, so a replayed message of an old row becomes a second source.
+  const handle = openMemoryDb(':memory:');
+  try {
+    const first = sourceId(observe(handle, envelope('old-room', 'old-message'), options));
+    const db = dbOf(handle);
+    db.prepare(
+      `UPDATE sources SET extra = json_set(json_remove(extra, '$.$messageLocator.chatId'), '$.$messageLocator.conversationId', 'old-room') WHERE id = ?`
+    ).run(first);
+    const again = observeMessage(handle, envelope('old-room', 'old-message'), {
+      ...options,
+      newKey: () => 'must-not-reserve',
+    });
+    assert.equal(sourceId(again), first);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM sources').get()?.n, 1);
+  } finally {
+    handle.close();
+  }
+});

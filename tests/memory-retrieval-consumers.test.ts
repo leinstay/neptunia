@@ -107,7 +107,7 @@ const INPUTS: ReadonlyArray<[string, RetrievalInput, MemoryQuery['purpose']]> = 
     { purpose: 'session', batch: ['lumen shipped'], people: [ALEX], places: [ROOM], entities: [] },
     'session',
   ],
-  ['a task with no home community', { purpose: 'task', goal: 'finish lumen', refs: [] }, 'task'],
+  ['a task with no home root', { purpose: 'task', goal: 'finish lumen', refs: [] }, 'task'],
   ['a watcher diagnostic', { purpose: 'watcher', goal: 'failed runs', runIds: ['run:1'] }, 'watcher'],
 ];
 
@@ -192,7 +192,7 @@ test('a reflection reads its own interval and a recording cutoff at its end', ()
   assert.deepEqual(made.anchors, [person(ALEX)]);
 });
 
-test('a task carries its own refs and no community', () => {
+test('a task carries its own refs and no root', () => {
   // Bug: a task's read depends on a home server that a DM-only installation does not have.
   const made = memoryQueryFor({ purpose: 'task', goal: 'finish lumen', refs: [entity('ent:1')] }, BOUNDS);
   assert.deepEqual(made.anchors, [entity('ent:1')]);
@@ -258,7 +258,7 @@ test('the partner of a DM turn gets their private fact under the DM context', as
 });
 
 test('another partner naming a private DM place as an anchor gets nothing of it', async () => {
-  // Bug: a place anchor opens the conversation by id, past the audience of its rows.
+  // Bug: a place anchor opens the chat by id, past the audience of its rows.
   const { world, secret } = known();
   const made = memoryQueryFor({ purpose: 'turn', text: 'lumen', people: [], place: DM_ALEX, entities: [] }, BOUNDS);
   const whole = JSON.stringify(await retrieveMemory(world.db, world.contexts.mira, made, deps));
@@ -308,8 +308,8 @@ test('an improvement wake seeded by a failure finds the plain line about it', as
   world.handle.close();
 });
 
-test('an authorized task with no community retrieves from its goal', async () => {
-  // Bug: the read asks for a home guild and a task with none gets nothing.
+test('an authorized task with no root retrieves from its goal', async () => {
+  // Bug: the read asks for a home root and a task with none gets nothing.
   const { world, fact } = known();
   const made = memoryQueryFor({ purpose: 'task', goal: 'finish lumen', refs: [] }, BOUNDS);
   assert.ok(versions(await retrieveMemory(world.db, world.contexts.internal, made, deps)).includes(fact.versionId));
@@ -476,7 +476,7 @@ function recaller(world: World, change: Record<string, Record<string, unknown>> 
       iface: 'discord',
     })
   );
-  const room = channel('room', { communityId: 'community-1' });
+  const room = channel('room', { rootId: 'root-1' });
   const common = { selfId: 'self', selfName: 'Persona', history: [] };
   const lanes = [{ kind: 'message', text: 'how is lumen', words: 'how is lumen' }];
   return {

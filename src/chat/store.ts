@@ -1,11 +1,11 @@
-// The real store of the conversation sessions. Sessions are one private JSON file of their own, `<private>/cli/sessions.json`,
+// The real store of the chat sessions. Sessions are one private JSON file of their own, `<private>/cli/sessions.json`,
 // and never a row of memory: nothing she recalls reads them, and no memory write is involved. The lines come from
-// `readLines`, a read of the memory database's stored sources (src/memory/db/conversation-lines.ts). A write goes to a
+// `readLines`, a read of the memory database's stored sources (src/memory/db/chat-lines.ts). A write goes to a
 // temporary file and renames over the old one, so a crash leaves the old file or the new one.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ConversationStore, SessionRow, SourceLine } from './sessions.ts';
+import type { ChatStore, SessionRow, SourceLine } from './sessions.ts';
 
 const isRow = (value: unknown): value is SessionRow => {
   if (typeof value !== 'object' || value === null) return false;
@@ -32,13 +32,13 @@ function readRows(file: string): Array<SessionRow> {
   return parsed.filter(isRow);
 }
 
-export function createConversationStore({
+export function createChatStore({
   file,
   readLines,
 }: {
   file: string;
   readLines: (placeId: string) => ReadonlyArray<SourceLine>;
-}): ConversationStore {
+}): ChatStore {
   let rows: Array<SessionRow> | null = null;
   const loaded = (): Array<SessionRow> => (rows ??= readRows(file));
   return {

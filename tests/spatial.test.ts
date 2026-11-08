@@ -15,7 +15,7 @@
 //   export function whereaboutsOfFrame(frame: Frame, nouns?: Readonly<Record<string, string>>): Whereabouts;
 // `chain` runs from the place itself up to the top of its tree. `notes` is `config.spatial.notes`: stored place id ->
 // the owner's note.
-// Stage AC, the owner's word of 2026-11-06: a wake with no conversation place says she is at the command line of her own
+// Stage AC, the owner's word of 2026-11-06: a wake with no chat place says she is at the command line of her own
 // server, a selfreflection post that she is in her own world; `nowhere` is gone, and these tests follow.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -35,9 +35,9 @@ const BARE_CHANNEL: PlaceLink = { id: 'p-bare', kind: 'channel', name: 'off-topi
 const THREAD: PlaceLink = { id: 'p-thread', kind: 'thread', name: 'weekend plans' };
 const DM: PlaceLink = { id: 'p-dm', kind: 'dm', name: 'Robin' };
 
-function textOf(chain: ReadonlyArray<PlaceLink>, notes: unknown = {}, isPrivate = false): string {
+function textOf(chain: ReadonlyArray<PlaceLink>, notes: unknown = {}, isDm = false): string {
   return spatialAwarenessText({
-    whereabouts: { kind: 'place', iface: 'discord', private: isPrivate, chain },
+    whereabouts: { kind: 'place', iface: 'discord', private: isDm, chain },
     now: NOW,
     timezone: 'UTC',
     labels,
@@ -86,7 +86,7 @@ test('the command line says she is on the command line, with the time', () => {
   );
 });
 
-test('a turn with no conversation place is on her own server, with the time', () => {
+test('a turn with no chat place is on her own server, with the time', () => {
   // Bug: a heartbeat names the last channel she heard of as the place she is in.
   assert.equal(
     spatialAwarenessText({ whereabouts: { kind: 'server' }, now: NOW, timezone: 'UTC', labels, notes: {} }),

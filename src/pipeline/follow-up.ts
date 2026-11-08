@@ -10,7 +10,7 @@ import type { AddressAnswer, ClassifyAddress } from './address-classifier.ts';
 import type { AddressAttention, AddressGate } from './address-attention.ts';
 import type { Answer } from './answer.ts';
 import type { CallOutcome } from './call-outcome.ts';
-import type { ConversationRef } from './conversations.ts';
+import type { ChatRef } from './chats.ts';
 import type { PendingQueueOps } from './pending-queue.ts';
 import type { Conv, Line, PipelineConfig, PipelineHot, PipelineTurns } from './types.ts';
 
@@ -33,7 +33,7 @@ export type FollowUpContext = {
   addressGate: AddressAttention['addressGate'];
   followUpMuted: AddressAttention['followUpMuted'];
   currentOf: (channel: Conv) => Promise<Conv>;
-  refOf: (channel: Conv) => ConversationRef;
+  refOf: (channel: Conv) => ChatRef;
   classifyAddress: ClassifyAddress;
   turnBlocked: (placeId: string, config: PipelineConfig) => boolean;
   deferFollowUp: PendingQueueOps['deferFollowUp'];
@@ -276,7 +276,7 @@ export function createFollowUp({
     }
     if (!decideAndLog(channel, normalized, triggerKind, config).respond) return false;
     turns
-      .runTurn({ conversation: refOf(channel), mode: 'reply', trigger: normalized, triggerKind })
+      .runTurn({ chat: refOf(channel), mode: 'reply', trigger: normalized, triggerKind })
       .then((result) => {
         if (result?.outcome === 'busy') {
           deferFollowUp(channel, normalized, triggerKind);

@@ -1,6 +1,6 @@
 // An in-memory adapter of the interface port (src/interface/port.ts): the second interface that
 // proves the engine does not lean on one platform, and the stand-in tests drive the persona's effects
-// through. It keeps its conversations' messages in memory, records every call in order (`calls`),
+// through. It keeps its chats' messages in memory, records every call in order (`calls`),
 // offers the capabilities it is given, and answers the results a test queues (`failNext`) in
 // place of doing the operation. Same rules as every adapter: edit and delete only the self
 // member's messages, mentions default to none, nothing ever throws. Every call is checked as a
@@ -9,11 +9,11 @@
 // the fake also proves she only ever asks for well-formed actions. A `send` splits a text longer
 // than `maxChars` into parts, stores each as a message of the self member and answers a Delivery
 // (src/protocol/adapter.ts), the way every adapter does. A send's `idempotencyKey` is kept on each part it posted,
-// and `fetchMessages(conversation, ids, { idempotencyKey })` answers those parts too: the fake can reconcile a send
+// and `fetchMessages(chat, ids, { idempotencyKey })` answers those parts too: the fake can reconcile a send
 // whose answer was lost when its capabilities say `reconcile: true` (src/interface/reconcile.ts).
 //
-// The conversation reads (src/protocol/adapter.ts) answer from what a test seeds: `seedConversation(info)`,
-// `seedGroups(placeId, groups)`, `seedMember(placeId, member)`, `seedDmConversation(accountId, conversationId)`, `seedEmoji(placeId, emoji)`,
+// The chat reads (src/protocol/adapter.ts) answer from what a test seeds: `seedChat(info)`,
+// `seedGroups(placeId, groups)`, `seedMember(placeId, member)`, `seedDmChat(accountId, chatId)`, `seedEmoji(placeId, emoji)`,
 // `seedReactors(ref, emoji, accountIds)` and `seedEvent(event)`, a whole `message.received` event kept as the
 // message it carries. Every message the fake holds, seeded or sent, is history: `history` reads them oldest
 // first, ordered by time and then by arrival, and answers each as the event an interface would deliver.
@@ -28,7 +28,7 @@ import { CODE } from '../tools/codes.ts';
 import type { StoredMessage } from './fake-reads.ts';
 import type {
   Capabilities,
-  ConversationInfo,
+  ChatInfo,
   EmojiInfo,
   FetchedMessages,
   GroupInfo,
@@ -54,7 +54,7 @@ type FixtureEvent = {
   kind?: string;
   edit?: boolean;
   deleted?: boolean;
-  conversation?: { id: string };
+  chat?: { id: string };
   message?: { id: string; content: string; author?: { id: string } };
 };
 
@@ -68,15 +68,8 @@ export async function replayFixture(
     const { redeliver = 0, ...fields } = recorded;
     const event = { ...(fixture.iface && fields.iface === undefined ? { iface: fixture.iface } : {}), ...fields };
     const message = event.message;
-    if (
-      port &&
-      event.kind === 'message.received' &&
-      !event.edit &&
-      !event.deleted &&
-      message?.author &&
-      event.conversation
-    ) {
-      port.seed(event.conversation.id, { authorId: message.author.id, text: message.content, messageId: message.id });
+    if (port && event.kind === 'message.received' && !event.edit && !event.deleted && message?.author && event.chat) {
+      port.seed(event.chat.id, { authorId: message.author.id, text: message.content, messageId: message.id });
     }
     for (let delivery = 0; delivery <= redeliver; delivery += 1) {
       const { status, id } = await door.submit(structuredClone(event));
@@ -101,20 +94,20 @@ export const FAKE_CAPABILITIES = Object.freeze({
   maxFileBytes: 8 * 1024 * 1024,
   // A message address shaped like a chat platform's jump link, so a test sees the links the core writes.
   messageUrl: Object.freeze({
-    community: 'https://discord.com/channels/{community}/{conversation}/{message}',
-    direct: 'https://discord.com/channels/@me/{conversation}/{message}',
+    root: 'https://discord.com/channels/{root}/{chat}/{message}',
+    direct: 'https://discord.com/channels/@me/{chat}/{message}',
   }),
 });
 
 /**
  * An in-memory port.
- * @param options `messageId`: the id of each message the persona sends, from the conversation and how many she sent there so
+ * @param options `messageId`: the id of each message the persona sends, from the chat and how many she sent there so
  *   far (else `<iface>-<n>`, n counting every message stored);
  *   `operations`: the capability names offered (all of CAPABILITIES when absent); `reads`: the wire names of the
  *   reads offered (all of READ_ACTIONS when absent); `capabilities`:
  *   the limits (`maxChars`, `maxFiles`, `maxFileBytes`) and `reconcile` over FAKE_CAPABILITIES; `selfId`: the
  *   member id of the persona (the author of what she sends); `now`: the stamp of each new message.
- * @returns `seed` puts someone's message (its `messageId`, else a new one) into a conversation;
+ * @returns `seed` puts someone's message (its `messageId`, else a new one) into a chat;
  *   `failNext(op, result)` queues `result` as the answer of the next call of `op` (`send`,
  *   `edit`, ...), in place of doing it; queued results are answered in order.
  */
@@ -133,30 +126,30 @@ export function createFakeAdapter({
   capabilities?: Partial<Pick<Capabilities, 'maxChars' | 'maxFiles' | 'maxFileBytes' | 'messageUrl' | 'reconcile'>>;
   now?: () => number;
   reads?: Iterable<string> | null;
-  messageId?: ((conversationId: string, count: number) => string) | null;
+  messageId?: ((chatId: string, count: number) => string) | null;
 } = {}): Port & {
   calls: Array<{ op: string; args: Array<unknown> }>;
   messages: Map<string, StoredMessage>;
   typings: Array<string>;
-  seed(conversationId: string, message: { authorId: string; text?: string; messageId?: string }): MessageRef;
+  seed(chatId: string, message: { authorId: string; text?: string; messageId?: string }): MessageRef;
   failNext(op: string, result: PortResult): void;
-  messagesIn(conversationId: string): Array<StoredMessage>;
-  seedConversation(info: ConversationInfo): void;
-  removeConversation(conversationId: string): void;
+  messagesIn(chatId: string): Array<StoredMessage>;
+  seedChat(info: ChatInfo): void;
+  removeChat(chatId: string): void;
   seedGroups(placeId: string, list: Array<GroupInfo>): void;
   seedMember(placeId: string, member: MemberInfo): void;
-  seedDmConversation(accountId: string, conversationId: string): void;
+  seedDmChat(accountId: string, chatId: string): void;
   seedEmoji(placeId: string, list: Array<EmojiInfo>): void;
   seedReactors(ref: MessageRef, emoji: string, accountIds: Array<string>): void;
   seedEvent(event: MessageEvent, extra?: { attachments?: StoredMessage['attachments'] }): void;
-  clearConversation(conversationId: string): void;
+  clearChat(chatId: string): void;
   showSendsInHistory(shown: boolean): void;
 } {
   const offered = new Set(operations ? [...operations] : Object.values(CAPABILITIES));
   const offeredReads = new Set(reads ? [...reads] : READ_ACTIONS);
   const caps = { ...FAKE_CAPABILITIES, ...declared };
   const calls: Array<{ op: string; args: Array<unknown> }> = [];
-  // `${conversationId}/${messageId}` -> the stored message
+  // `${chatId}/${messageId}` -> the stored message
   const messages: Map<string, StoredMessage> = new Map();
   const typings: Array<string> = [];
   const queued = new Map<string, Array<PortResult>>();
@@ -168,8 +161,7 @@ export function createFakeAdapter({
 
   // A queued or refused result stands in for the read as it is: a test queues a failure, and the refusals are failures.
   const asRefusal = (result: PortResult): FetchedMessages => result as FetchedMessages;
-  const keyOf = (ref: { conversationId: string; messageId?: string }): string =>
-    `${ref.conversationId}/${ref.messageId}`;
+  const keyOf = (ref: { chatId: string; messageId?: string }): string => `${ref.chatId}/${ref.messageId}`;
   const capabilityNames: Readonly<Record<string, string>> = CAPABILITIES;
   const supports = (operation: string): boolean => offered.has(capabilityNames[operation]);
 
@@ -198,7 +190,7 @@ export function createFakeAdapter({
 
   /** A stored message for `content`, authored by `authorId` (`messageId`: its id, else a new one; `extra`: `at` and `event` of a seeded one). */
   function store(
-    conversationId: string,
+    chatId: string,
     authorId: string,
     content: Content,
     messageId: string | null = null,
@@ -208,11 +200,11 @@ export function createFakeAdapter({
     nextSeq += 1;
     let given = messageId;
     if (given === null && messageIdOf !== null) {
-      const count = (sentIn.get(conversationId) ?? 0) + 1;
-      sentIn.set(conversationId, count);
-      given = messageIdOf(conversationId, count);
+      const count = (sentIn.get(chatId) ?? 0) + 1;
+      sentIn.set(chatId, count);
+      given = messageIdOf(chatId, count);
     }
-    const ref = { iface, conversationId, messageId: given ?? `${iface}-${nextId}`, accountId: authorId };
+    const ref = { iface, chatId, messageId: given ?? `${iface}-${nextId}`, accountId: authorId };
     const message: StoredMessage = {
       ref,
       authorId,
@@ -250,9 +242,9 @@ export function createFakeAdapter({
     messages,
     typings,
 
-    seed(conversationId, { authorId, text = '', messageId = null }) {
+    seed(chatId, { authorId, text = '', messageId = null }) {
       return {
-        ...store(String(conversationId), String(authorId), { text }, messageId === null ? null : String(messageId)).ref,
+        ...store(String(chatId), String(authorId), { text }, messageId === null ? null : String(messageId)).ref,
       };
     },
 
@@ -262,28 +254,28 @@ export function createFakeAdapter({
       queued.set(op, list);
     },
 
-    // The messages of a conversation that were sent or put in with `seed`: what a seeded event reported is history
+    // The messages of a chat that were sent or put in with `seed`: what a seeded event reported is history
     // (`history` reads it) and not a message the persona or a member posted through the port.
-    messagesIn(conversationId) {
+    messagesIn(chatId) {
       return [...messages.values()].filter(
-        (message) => message.ref.conversationId === conversationId && !message.deleted && message.event === undefined
+        (message) => message.ref.chatId === chatId && !message.deleted && message.event === undefined
       );
     },
 
-    async send(conversation, content, options = {}) {
+    async send(chat, content, options = {}) {
       nextKey += 1;
       const given = idempotencyKeyOf(options);
       const key = given ?? `${iface}-send-${nextKey}`;
-      const early = front('send', [conversation, content]);
+      const early = front('send', [chat, content]);
       if (early) return deliveryOf([early], key);
-      const refused = refRefusal(conversation, iface) ?? contentRefusal(content, caps, iface, { splits: true });
+      const refused = refRefusal(chat, iface) ?? contentRefusal(content, caps, iface, { splits: true });
       if (refused) return deliveryOf([refused], key);
       // The reply and the files go with the first part; the rest of the text follows as plain messages.
       const texts = splitText(typeof content.text === 'string' ? content.text : '', caps.maxChars);
       const stored = texts.map((text, index) => {
         const part = index === 0 ? { ...content, text } : { text, mentions: content.mentions };
         const message = store(
-          conversation.conversationId,
+          chat.chatId,
           selfId,
           part,
           null,
@@ -345,23 +337,23 @@ export function createFakeAdapter({
       return ok({ ...message.ref });
     },
 
-    async fetchMessages(conversation, messageIds, options = {}) {
-      calls.push({ op: 'fetchMessages', args: [conversation, messageIds] });
+    async fetchMessages(chat, messageIds, options = {}) {
+      calls.push({ op: 'fetchMessages', args: [chat, messageIds] });
       const early = takeQueued('fetchMessages');
       if (early) return asRefusal(early);
       if (!offeredReads.has(MESSAGES_FETCH)) return asRefusal(notOk('unsupported', CODE.UNSUPPORTED));
-      const refused = refRefusal(conversation, iface);
+      const refused = refRefusal(chat, iface);
       if (refused) return asRefusal(refused);
       const key = idempotencyKeyOf(options);
       const sentIds = key
         ? [...messages.values()]
-            .filter((message) => message.ref.conversationId === conversation.conversationId)
+            .filter((message) => message.ref.chatId === chat.chatId)
             .filter((message) => message.sentUnder?.idempotencyKey === key)
             .sort((a, b) => (a.sentUnder?.part ?? 0) - (b.sentUnder?.part ?? 0))
             .map((message) => message.ref.messageId)
         : [];
       const out = (Array.isArray(messageIds) ? messageIds : []).concat(sentIds).map((id) => {
-        const message = messages.get(`${conversation.conversationId}/${id}`);
+        const message = messages.get(`${chat.chatId}/${id}`);
         if (!message || message.deleted) return { messageId: String(id), missing: true };
         return {
           messageId: String(id),
@@ -376,23 +368,23 @@ export function createFakeAdapter({
     ...world.methods,
     ...world.seeders,
 
-    // Whether the messages the persona sent are read back in a conversation's history (default: yes).
+    // Whether the messages the persona sent are read back in a chat's history (default: yes).
     showSendsInHistory(shown) {
       sendsInHistory = shown;
     },
 
-    // A test's way to start a conversation over: every message of it is forgotten and its ids start again.
-    clearConversation(conversationId) {
-      for (const [key, message] of messages) if (message.ref.conversationId === conversationId) messages.delete(key);
-      sentIn.delete(conversationId);
+    // A test's way to start a chat over: every message of it is forgotten and its ids start again.
+    clearChat(chatId) {
+      for (const [key, message] of messages) if (message.ref.chatId === chatId) messages.delete(key);
+      sentIn.delete(chatId);
     },
 
-    async typing(conversation) {
-      const early = front('typing', [conversation]);
+    async typing(chat) {
+      const early = front('typing', [chat]);
       if (early) return early;
-      const refused = refRefusal(conversation, iface);
+      const refused = refRefusal(chat, iface);
       if (refused) return refused;
-      typings.push(conversation.conversationId);
+      typings.push(chat.chatId);
       return ok();
     },
 

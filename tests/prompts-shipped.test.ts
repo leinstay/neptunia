@@ -49,7 +49,7 @@ import { loose } from './fixtures/as-options.ts';
 /** The fixed words of a label before its first placeholder. */
 const labelHead = (label: string) => label.split('{')[0];
 
-// The conversations of the turns, the pipeline and the classifiers are held by a fake interface named `fake`, the
+// The chats of the turns, the pipeline and the classifiers are held by a fake interface named `fake`, the
 // persona being `SELF_ID`; the recall runner keeps reading the platform's own objects through the recall bridge.
 useIface('fake');
 useSelf('900000000000000001');
@@ -763,8 +763,8 @@ async function turnInput(overrides: Record<string, unknown> = {}) {
   const trigger = history.at(-1);
   const { descriptions, videos, reads } = mediaMaps(history);
   const config = shippedConfig({
-    // PR 7d: the switches are code; the private chats are `private.enabled`.
-    private: { enabled: true },
+    // PR 7d: the switches are code; the private chats are `dm.enabled`.
+    dm: { enabled: true },
     memory: { mainChannelIds: [GENERAL] },
   });
   const input = {
@@ -959,7 +959,7 @@ test('buildRequest: a private chat fills private.md after the reply task', async
       trigger: history.at(-1),
       triggerKind: 'private',
       currentChannelId: 'dm1',
-      privateChat: { accountId: ANA },
+      dmChat: { accountId: ANA },
       privateProfile,
       neighbors: [],
       lookup: null,
@@ -973,7 +973,7 @@ test('buildRequest: a private chat fills private.md after the reply task', async
     { files: LOADS.private, blocks: ['senses', 'people', 'chat', 'tempo', 'task'] },
     'private'
   );
-  assert.ok(text.includes(LABELS.senses.privateChat), 'the private senses line');
+  assert.ok(text.includes(LABELS.senses.dmChat), 'the private senses line');
 });
 
 test('buildDrawPrompt: draw.md and appearance.md are filled for a picture the persona is in', () => {
@@ -1128,7 +1128,7 @@ test('buildRequest: an inner turn woken by a heartbeat fills heartbeat.md in pla
   const beatText = assertFilled(beatRequest.messages, { files: LOADS.heartbeat, blocks: ['task'] }, 'heartbeat turn');
   assert.ok(
     !/^<chat>\s*$/m.test(userText(beatRequest.messages[1].content)),
-    'a heartbeat has no current conversation to answer'
+    'a heartbeat has no current chat to answer'
   );
   assert.ok(
     // Slice 2 (g): no `<tempo>` block exists any more, so the check looks for the tempo's verdict line anywhere.
@@ -1555,7 +1555,7 @@ test('createMissed: the missed-answer check fills missed.md', async () => {
     llm,
     turns: { triggerOf: () => null },
     reads: world().reads,
-    isServedCommunity: (id: unknown) => id === GUILD,
+    isServedRoot: (id: unknown) => id === GUILD,
     getSelfName: () => SELF_NAME,
     dataDir,
     now: () => candidate!.ts + MINUTE_MS,
@@ -1622,7 +1622,7 @@ test('createMessageHandler: the merge classifier fills merge.md', async () => {
     spontaneous: { onMessage: () => false },
     memory: { observe() {} },
     tagHistory: createTagHistory(),
-    isServedCommunity: (id: unknown) => id === GUILD,
+    isServedRoot: (id: unknown) => id === GUILD,
     getSelfName: () => SELF_NAME,
     llm,
     rng: () => 0.5,
@@ -1661,7 +1661,7 @@ test('createAvatarQueue: the avatar describer fills avatar.md', async () => {
     llm,
     imageFetcher,
     state,
-    isServedCommunity: (id: unknown) => id === GUILD,
+    isServedRoot: (id: unknown) => id === GUILD,
     servedPlaces: () => [GUILD],
     selfId: () => SELF_ID,
     // The interface answers `memberInfo` with the member and the hash and address of their avatar.

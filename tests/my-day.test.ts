@@ -28,8 +28,8 @@ const PARTNER_PERSON = 'person:discord:n1';
 const NAMES: Record<string, string> = { [CAFE]: 'café', [SALON]: 'salon', [DM]: 'Zoé' };
 const placeNames = (id: string): string | null => NAMES[id] ?? null;
 
-/** The native conversation id a turn writes its journal lines with. */
-const CONVERSATION: Record<string, string> = { [CAFE]: 'room-1', [SALON]: 'room-2', [DM]: 'dm-conversation-n1' };
+/** The native chat id a turn writes its journal lines with. */
+const CHAT: Record<string, string> = { [CAFE]: 'room-1', [SALON]: 'room-2', [DM]: 'dm-chat-n1' };
 
 const opened: Array<MemoryDbService> = [];
 after(async () => {
@@ -77,7 +77,7 @@ function world() {
   async function act(place: string, name: string, at: number, skill: string | null = null) {
     clock.at = at;
     const op = journal.op(place, {
-      placeId: CONVERSATION[place],
+      placeId: CHAT[place],
       turnId: `t-${at}`,
       name,
       by: 'persona',

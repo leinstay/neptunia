@@ -4,7 +4,7 @@
 // meaning index and its queue, the intention and task stores). Everything the fixture held is read back from the
 // database, a day of writes goes into it, and after the shutdown no memory file was written and a fresh start reads the
 // new writes back. Synthetic data only; the ids are made up.
-import { accountOf, placeOfCommunity, placeOfConversation } from '../src/memory/addresses.ts';
+import { accountOf, placeOfRoot, placeOfChat } from '../src/memory/addresses.ts';
 import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -136,8 +136,8 @@ test('the memory starts from memory.db and the operational files alone, writes o
 
     // What the fixture held comes back from the database.
     assert.equal(wrongly<{ id: string } | null>(first.store.getUser(accountOf(first.store, MEMBER)))?.id, MEMBER);
-    assert.ok(first.store.getPlace(placeOfCommunity(first.store, GUILD)), 'the guild memory');
-    assert.equal(first.store.getChannel(placeOfConversation(first.store, { id: CHANNEL }))?.id, CHANNEL);
+    assert.ok(first.store.getPlace(placeOfRoot(first.store, GUILD)), 'the guild memory');
+    assert.equal(first.store.getChannel(placeOfChat(first.store, { id: CHANNEL }))?.id, CHANNEL);
     assert.deepEqual(first.store.listPrivate(), [`discord:${MEMBER}`]);
     const lines = [];
     for await (const line of first.record.iterate(legacyServerPlaceId('discord', GUILD), {
@@ -164,7 +164,7 @@ test('the memory starts from memory.db and the operational files alone, writes o
     // A day of writes.
     first.store.touchUser(accountOf(first.store, '100000000000000077'), 'Zoé', NOW);
     first.store.setLore(
-      placeOfCommunity(first.store, GUILD),
+      placeOfRoot(first.store, GUILD),
       [{ title: 'Η πλατεία', keys: ['πλατεία'], text: 'The square by the sea.' }],
       {
         source: 'owner',
@@ -230,7 +230,7 @@ test('the memory starts from memory.db and the operational files alone, writes o
       );
       assert.ok(
         second.store
-          .getLore(placeOfCommunity(second.store, GUILD))
+          .getLore(placeOfRoot(second.store, GUILD))
           .some((entry: Record<string, Untyped>) => entry.title === 'Η πλατεία')
       );
       assert.equal(

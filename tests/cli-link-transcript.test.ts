@@ -1,4 +1,4 @@
-// bin/cli-link.ts: the lines of a resumed conversation answer the core's history reads, in place of this session's.
+// bin/cli-link.ts: the lines of a resumed chat answer the core's history reads, in place of this session's.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLoopback } from '../src/protocol/wire.ts';

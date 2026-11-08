@@ -10,7 +10,7 @@ import path from 'node:path';
 import { createAppendStore } from '../src/memory/append-store.ts';
 import { createArchive } from '../src/memory/archive.ts';
 import { auditMemory } from '../src/memory/db/audit.ts';
-import { placeOfCommunity } from '../src/memory/addresses.ts';
+import { placeOfRoot } from '../src/memory/addresses.ts';
 import { createRecord } from '../src/memory/record.ts';
 import { createStore } from '../src/memory/store.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
@@ -55,7 +55,7 @@ test('an expired participation episode leaves no claim version without its claim
     const record = createRecord({ dataDir, log: quiet, now: () => NOW, memoryDb });
     const archive = createArchive({ appendStore, dataDir, log: quiet, now: () => NOW, memoryDb });
     const store = createStore({ dataDir, record, recordOn: () => true, archive, archiveOn: () => true, memoryDb });
-    const place = placeOfCommunity(store, 'g1');
+    const place = placeOfRoot(store, 'g1');
     const settings = { hours: 24 };
     store.setParticipation(
       place,

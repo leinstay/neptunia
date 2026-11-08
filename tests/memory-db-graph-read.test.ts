@@ -620,7 +620,7 @@ test('reading a path remembers nothing', () => {
 // ---------- the context decides first ----------
 
 function audienceWorld(db: Db): void {
-  addPlace(db, { id: 'place:dm', iface: 'zeta', authority: 'zeta/one', conversation: 'dm', kind: 'dm' });
+  addPlace(db, { id: 'place:dm', iface: 'zeta', authority: 'zeta/one', chat: 'dm', kind: 'dm' });
   addEdge(db, { id: 'edge:public', src: node('a'), dst: node('b'), audience: 'aud:group:zeta' });
   addEdge(db, { id: 'edge:private', src: node('b'), dst: node('secret'), audience: 'aud:dm:place:dm' });
   addEdge(db, { id: 'edge:past-secret', src: node('secret'), dst: node('beyond'), audience: 'aud:group:zeta' });
@@ -671,7 +671,7 @@ test('a group sees neither a node it has no witness for, nor its detail', () => 
   assert.deepEqual(graphNode(db, groupContext('zeta'), node('hidden')), { found: false, code: 'NODE_NOT_FOUND' });
 });
 
-test('a DM context of another conversation reads no private edge', () => {
+test('a DM context of another chat reads no private edge', () => {
   const db = world(audienceWorld);
   const context = dmContext('person:other', 'zeta', 'place:other-dm');
   assert.equal(

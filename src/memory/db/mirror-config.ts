@@ -20,7 +20,7 @@ export type MirrorRow = {
   placeId: string;
   enabled: boolean;
   iface: string;
-  conversationId: string;
+  chatId: string;
   name: string | null;
   registeredAt: number;
   backfill: {
@@ -57,7 +57,7 @@ function mirrorOf(row: Row): MirrorRow {
     placeId: String(row.place_id),
     enabled: row.enabled === 1,
     iface: String(row.iface),
-    conversationId: String(row.native_id),
+    chatId: String(row.native_id),
     name: typeof row.name === 'string' ? row.name : null,
     // A row seeded before the column has its creation time.
     registeredAt: registered ?? Date.parse(String(row.created_at)),
@@ -84,7 +84,7 @@ export function mirrorNamed(handle: Connection, word: string): MirrorRow | null 
 
 /**
  * The place a destination names: its interface-qualified id, or a bare native id one place alone holds. A native id two
- * interfaces share is ambiguous. A community or a private conversation is no place an entry can be mirrored to.
+ * interfaces share is ambiguous. A root or a private chat is no place an entry can be mirrored to.
  */
 export function placeNamed(
   handle: Connection,

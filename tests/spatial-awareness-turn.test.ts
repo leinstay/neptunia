@@ -76,7 +76,7 @@ test('an inner turn that runs in a channel names that place', async () => {
 for (const kind of ['heartbeat', 'selfimprovement']) {
   test(`a ${kind} wake says she is on her own server, with the time`, async () => {
     // Bug: her own time carries no block at all, or names the anchor channel the wake rode in on.
-    // Stage AC, the owner's word of 2026-11-06: a wake with no conversation place is at the command line of her server.
+    // Stage AC, the owner's word of 2026-11-06: a wake with no chat place is at the command line of her server.
     const run = await wakeTurn({ wake: wakeOfKind(kind, `${kind}:1`), answers: ['<skip/>'], board: null });
     const body = spatialOf(wakeRequestText(run.requests[0] ?? []));
     // Slice 5 (d): a service's whereabouts add the wake kind as the reason she is awake, after the place and the clock.

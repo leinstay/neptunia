@@ -8,7 +8,7 @@
 // The video half (describeVideo / describeVideos) runs on a fake video
 // fetcher, a fake llm and a fake persistent state: watch paths, cache
 // states, the daily video rail and the per-batch cap.
-import { placeOfCommunity } from '../src/memory/addresses.ts';
+import { placeOfRoot } from '../src/memory/addresses.ts';
 import { memDataDir } from './fixtures/store-kit.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -125,7 +125,7 @@ test('describe: a successful call downloads the picture, sends it as a data: URL
     'the model must receive the downloaded data: URL, never the bare Discord URL'
   );
 
-  const cache = store.getMediaCache(placeOfCommunity(store, 'g1'));
+  const cache = store.getMediaCache(placeOfRoot(store, 'g1'));
   assert.equal(loose(cache).a1.text, 'A grey cat sleeping on a couch.');
 });
 
@@ -189,7 +189,7 @@ test('describe: a failed download is cached as a miss, costs no LLM request, and
 
   assert.equal(result, null);
   assert.equal(llm.calls.length, 0, 'a failed download must cost nothing');
-  assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1'))).a1.miss, true);
+  assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1'))).a1.miss, true);
 
   const line = logs.find((l) => l.msg === 'describe: failed');
   assert.ok(line, 'expected a "describe: failed" log line');
@@ -210,7 +210,7 @@ test('describe: a downloaded-but-failed-LLM-request is cached as a miss and logs
   const { result, logs } = await withCapturedLogs(() => describer.describe('g1', pictureItem('a1', { kind: 'video' })));
 
   assert.equal(result, null);
-  assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1'))).a1.miss, true);
+  assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1'))).a1.miss, true);
 
   const line = logs.find((l) => l.msg === 'describe: failed');
   assert.ok(line);
@@ -275,7 +275,7 @@ test('describe: an empty caption is treated as a miss, not cached as a success, 
 
   const { result, logs } = await withCapturedLogs(() => describer.describe('g1', pictureItem('a1')));
   assert.equal(result, null);
-  assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1'))).a1.miss, true);
+  assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1'))).a1.miss, true);
   const line = logs.find((l) => l.msg === 'describe: failed');
   assert.ok(line);
   assert.equal(line.reason, 'empty');
@@ -285,7 +285,7 @@ test('describe: an empty caption is treated as a miss, not cached as a success, 
  * Fills the guild's media cache with old entries up to `MEDIA_CACHE_ENTRIES` (src/web/cache.ts), the cache's size.
  */
 function fillCache(store: Untyped) {
-  const cache = store.getMediaCache(placeOfCommunity(store, 'g1'));
+  const cache = store.getMediaCache(placeOfRoot(store, 'g1'));
   for (let n = 0; Object.keys(cache).length < MEDIA_CACHE_ENTRIES; n += 1) cache[`old${n}`] = { text: 'old', ts: 1 };
 }
 
@@ -300,7 +300,7 @@ test('describe: LRU-trims the cache to media.cacheEntries, evicting the least re
   fillCache(store);
   await describer.describe('g1', pictureItem('a2')); // evicts a1 (oldest)
 
-  const cache = store.getMediaCache(placeOfCommunity(store, 'g1'));
+  const cache = store.getMediaCache(placeOfRoot(store, 'g1'));
   assert.deepEqual([Object.keys(cache).length, 'a1' in cache, 'a2' in cache], [MEDIA_CACHE_ENTRIES, false, true]);
 });
 
@@ -316,7 +316,7 @@ test('describe: LRU access order -- re-describing (cache hit) bumps recency, pro
   await describer.describe('g1', pictureItem('a1')); // cache hit: a1 becomes most-recent
   await describer.describe('g1', pictureItem('a3')); // must evict a2, not a1
 
-  const cache = store.getMediaCache(placeOfCommunity(store, 'g1'));
+  const cache = store.getMediaCache(placeOfRoot(store, 'g1'));
   assert.deepEqual(['a1' in cache, 'a2' in cache, 'a3' in cache], [true, false, true]);
 });
 
@@ -326,12 +326,12 @@ test('describe: the media cache is persisted across store instances', async () =
   const hot = fakeHot();
   const llm = fakeLlm({ text: 'a cat' });
   const describerA = createDescriber({ hot, store: storeA, llm, imageFetcher: fakeImageFetcher() });
-  await describerA.describe(placeOfCommunity(storeA, 'g1'), pictureItem('a1'));
+  await describerA.describe(placeOfRoot(storeA, 'g1'), pictureItem('a1'));
   storeA.flush();
   await storeA.flushSettled({});
 
   const storeB = createStore({ dataDir: dir, memoryDb });
-  assert.equal(loose(storeB.getMediaCache(placeOfCommunity(storeB, 'g1'))).a1.text, 'a cat');
+  assert.equal(loose(storeB.getMediaCache(placeOfRoot(storeB, 'g1'))).a1.text, 'a cat');
 });
 
 // The picture the vision model gets is the item's `previewUrl`, which the adapter sized for the platform it came from
@@ -627,7 +627,7 @@ test('describeMany: every picked item counts toward maxNew, a failure included',
 
 test('describeMany: the picked items are described in parallel; cached captions anywhere are filled in free', async () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  loose(store.getMediaCache(placeOfCommunity(store, 'g1'))).old = { text: 'une vieille photo', ts: 1 };
+  loose(store.getMediaCache(placeOfRoot(store, 'g1'))).old = { text: 'une vieille photo', ts: 1 };
   const llm = gatedLlm();
   const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher: fakeImageFetcher() });
   const items = [pictureItem('a1'), pictureItem('a2'), pictureItem('a3'), pictureItem('old')];
@@ -665,7 +665,7 @@ test('describe: with the daily request cap spent nothing is downloaded, requeste
   assert.equal(many.newCount, 0);
   assert.equal(imageFetcher.calls.length, 0);
   assert.equal(llm.calls.length, 0);
-  assert.deepEqual(Object.keys(store.getMediaCache(placeOfCommunity(store, 'g1'))), []);
+  assert.deepEqual(Object.keys(store.getMediaCache(placeOfRoot(store, 'g1'))), []);
 });
 
 test('describe: a refusal by the daily request cap caches no miss; the token rail still does', async () => {
@@ -678,7 +678,7 @@ test('describe: a refusal by the daily request cap caches no miss; the token rai
   });
   const { result, logs } = await withCapturedLogs(() => describer.describe('g1', pictureItem('a1')));
   assert.equal(result, null);
-  assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1'))).a1, undefined);
+  assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1'))).a1, undefined);
   assert.equal(loose(logs.find((l) => l.msg === 'describe: failed')).reason, 'daily-cap');
   assert.equal(
     loose(await describer.describe('g1', pictureItem('a1'))).text,
@@ -694,7 +694,7 @@ test('describe: a refusal by the daily request cap caches no miss; the token rai
     imageFetcher: fakeImageFetcher(),
   });
   const token = await withCapturedLogs(() => tokenRun.describe('g1', pictureItem('a1')));
-  assert.equal(loose(tokenStore.getMediaCache(placeOfCommunity(tokenStore, 'g1'))).a1.miss, true);
+  assert.equal(loose(tokenStore.getMediaCache(placeOfRoot(tokenStore, 'g1'))).a1.miss, true);
   assert.equal(loose(token.logs.find((l) => l.msg === 'describe: failed')).reason, 'token-limit');
 });
 
@@ -929,7 +929,7 @@ test('describeVideo: an attachment size failure is a permanent limit, never retr
 
   assert.equal(videoFetcher.calls.length, 1, 'the permanent miss is served from the cache');
   assert.equal(llm.calls.length, 0);
-  assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['video:v1'].reason, 'size');
+  assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1')))['video:v1'].reason, 'size');
 });
 
 test('describeVideo: a download/tool/timeout failure is an error miss, retried after an hour', async () => {
@@ -1115,7 +1115,7 @@ test('describeVideo: an LLM error (the token rail included) is an error miss', a
   for (const error of [new Error('boom'), new TokenLimitError('cap')]) {
     const { describer, store } = videoDescriber({ llm: fakeLlm(error) });
     assert.deepEqual(await describer.describeVideo('g1', videoAttachment()), { state: 'error' });
-    assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['video:v1'].reason, 'error');
+    assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1')))['video:v1'].reason, 'error');
   }
 });
 
@@ -1125,7 +1125,7 @@ test('describeVideo: a refusal by the daily request cap caches no miss, so the v
   });
   const { result, logs } = await withCapturedLogs(() => describer.describeVideo('g1', videoAttachment()));
   assert.equal(result, null);
-  assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['video:v1'], undefined);
+  assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1')))['video:v1'], undefined);
   const line = logs.find((l) => l.msg === 'describe: video');
   assert.equal(loose(line).state, 'skipped');
   assert.equal(loose(line).reason, 'daily-cap');
@@ -1143,7 +1143,7 @@ test('describeVideo: with the daily request cap spent nothing is fetched, nothin
   assert.equal(result.newCount, 0, 'the spent cap is no attempt');
   assert.equal(videoFetcher.calls.length, 0);
   assert.equal(llm.calls.length, 0);
-  assert.deepEqual(Object.keys(store.getMediaCache(placeOfCommunity(store, 'g1'))), []);
+  assert.deepEqual(Object.keys(store.getMediaCache(placeOfRoot(store, 'g1'))), []);
   assert.ok(
     logs.filter((l) => l.msg === 'describe: video').every((l) => l.state === 'skipped' && l.reason === 'daily-cap')
   );
@@ -1234,7 +1234,7 @@ test('describeVideo: the text is collapsed to one line and capped at 1500 chars 
 test('describeVideo: an empty answer is an error miss', async () => {
   const { describer, store } = videoDescriber({ llm: fakeLlm({ text: '  \n ' }) });
   assert.deepEqual(await describer.describeVideo('g1', videoAttachment()), { state: 'error' });
-  assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['video:v1'].reason, 'error');
+  assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1')))['video:v1'].reason, 'error');
 });
 
 test('describeVideo: logs codes only -- never the text or a full URL', async () => {
@@ -1268,7 +1268,7 @@ test('describeVideos: caps NEW requests at maxNew; cache hits and limit states a
     llm: fakeLlm([{ text: 'one' }, { text: 'two' }, { text: 'three' }]),
   });
   await describer.describeVideo('g1', videoAttachment('v1'));
-  loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['video:v0'] = {
+  loose(store.getMediaCache(placeOfRoot(store, 'g1')))['video:v0'] = {
     miss: true,
     ts: Date.now(),
     reason: 'length',
@@ -1430,7 +1430,7 @@ test('describeVideo: every probe failed and directUrlUnknownDuration off (or not
       ['probeSite', 'probeYoutube']
     );
     assert.equal(llm.calls.length, 0);
-    assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1')))[LINK_KEY].reason, 'error');
+    assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1')))[LINK_KEY].reason, 'error');
   }
 });
 
@@ -1463,7 +1463,7 @@ test('describeVideo: longer than maxSeconds and the clip fails -> a permanent le
       const { describer, llm, store } = videoDescriber({ videoFetcher, now: () => t });
 
       assert.deepEqual(await describer.describeVideo('g1', videoLink()), { state: 'limit', reason: 'length' });
-      assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1')))[LINK_KEY].reason, 'length');
+      assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1')))[LINK_KEY].reason, 'length');
       const fetches = videoFetcher.calls.length;
       t += 30 * 24 * 60 * 60_000;
       assert.deepEqual(await describer.describeVideo('g1', videoLink()), { state: 'limit', reason: 'length' });
@@ -1523,7 +1523,7 @@ test('describeVideo: a 400 s non-direct link whose clip fails stores a length mi
   const { describer, store } = videoDescriber({ videoFetcher, now: () => 7_000 });
   const item = videoLink('video:url:bbbbbbbbbbbbbbbb', TIKTOK);
   assert.deepEqual(await describer.describeVideo('g1', item), { state: 'limit', reason: 'length' });
-  assert.deepEqual(loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['video:video:url:bbbbbbbbbbbbbbbb'], {
+  assert.deepEqual(loose(store.getMediaCache(placeOfRoot(store, 'g1')))['video:video:url:bbbbbbbbbbbbbbbb'], {
     miss: true,
     ts: 7_000,
     reason: 'length',
@@ -1539,10 +1539,10 @@ test('describeVideo: a cached length miss is re-read against the caps of today (
   const { describer, store, videoFetcher } = videoDescriber();
   const item = videoLink('video:url:bbbbbbbbbbbbbbbb', TIKTOK);
   const miss = (durationSec: Untyped) => ({ miss: true, ts: 1, reason: 'length', durationSec });
-  loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['video:video:url:bbbbbbbbbbbbbbbb'] = miss(400);
+  loose(store.getMediaCache(placeOfRoot(store, 'g1')))['video:video:url:bbbbbbbbbbbbbbbb'] = miss(400);
   assert.deepEqual(await describer.describeVideo('g1', item), { state: 'limit', reason: 'length' });
   assert.equal(videoFetcher.calls.length, 0);
-  loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['video:video:url:bbbbbbbbbbbbbbbb'] = miss(120);
+  loose(store.getMediaCache(placeOfRoot(store, 'g1')))['video:video:url:bbbbbbbbbbbbbbbb'] = miss(120);
   assert.equal(loose(await describer.describeVideo('g1', item)).state, 'watched');
   assert.equal(videoFetcher.calls.length, 2);
 });
@@ -1586,7 +1586,7 @@ test('describeVideo: a cached length miss with durationSec null or absent (an ol
   for (const extra of [{ durationSec: null }, {}]) {
     const videoFetcher = fakeVideoFetcher({ probe: { ok: true, durationSec: 120, title: null } });
     const { describer, store, llm } = videoDescriber({ videoFetcher });
-    loose(store.getMediaCache(placeOfCommunity(store, 'g1')))[LINK_KEY] = {
+    loose(store.getMediaCache(placeOfRoot(store, 'g1')))[LINK_KEY] = {
       miss: true,
       ts: 1,
       reason: 'length',
@@ -1598,7 +1598,7 @@ test('describeVideo: a cached length miss with durationSec null or absent (an ol
       ['probeSite']
     );
     assert.equal(llm.calls.length, 1);
-    assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1')))[LINK_KEY].watched, true);
+    assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1')))[LINK_KEY].watched, true);
   }
 });
 
@@ -1691,7 +1691,7 @@ test('describeVideo: cached length misses of 2719 s and 570 s pinned links are r
   for (const durationSec of [2719, 570]) {
     const videoFetcher = fakeVideoFetcher({ probe: { ok: true, durationSec, title: null } });
     const { describer, store, llm } = videoDescriber({ videoFetcher });
-    loose(store.getMediaCache(placeOfCommunity(store, 'g1')))[LINK_KEY] = {
+    loose(store.getMediaCache(placeOfRoot(store, 'g1')))[LINK_KEY] = {
       miss: true,
       ts: 1,
       reason: 'length',
@@ -1708,7 +1708,7 @@ test('describeVideo: cached length misses of 2719 s and 570 s pinned links are r
     assert.equal(llm.calls[0].messages[1].content[0].video_url.url, 'https://www.youtube.com/watch?v=abc');
     assert.equal(llm.calls[0].options.videoSeconds, durationSec);
     assert.equal(llm.calls[0].options.videoTokensPerSecond, 10);
-    assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1')))[LINK_KEY].watched, true);
+    assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1')))[LINK_KEY].watched, true);
   }
 });
 
@@ -1856,18 +1856,16 @@ test('rewatchVideo: one fetch and one video request with the question and answer
   assert.equal(options.videoSeconds, 12);
   assert.equal(options.skipCalibration, true);
   assert.equal(options.countAgainstDailyCap, true);
-  const keys = Object.keys(store.getMediaCache(placeOfCommunity(store, 'g1'))).filter((k) =>
-    k.startsWith('video:v1:q:')
-  );
+  const keys = Object.keys(store.getMediaCache(placeOfRoot(store, 'g1'))).filter((k) => k.startsWith('video:v1:q:'));
   assert.equal(keys.length, 1);
-  assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1')))[keys[0]].answer, 'la voiture est rouge');
+  assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1')))[keys[0]].answer, 'la voiture est rouge');
 });
 
 test('rewatchVideo: the persisted answer key keeps its shape (lower-cased, collapsed, sha1 prefix)', async () => {
   const { describer, store } = videoDescriber({ hot: rewatchHot(), llm: fakeLlm({ text: 'rouge' }) });
   await describer.rewatchVideo('g1', videoAttachment(), '  De quelle   COULEUR ? ');
   const digest = createHash('sha1').update('de quelle couleur ?').digest('hex').slice(0, 16);
-  assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1')))[`video:v1:q:${digest}`].answer, 'rouge');
+  assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1')))[`video:v1:q:${digest}`].answer, 'rouge');
 });
 
 test('rewatchVideo: the same question within an hour is free; after an hour it is asked again', async () => {
@@ -1896,10 +1894,7 @@ test('rewatchVideo: a failure is not cached -- the next call fetches again', asy
   const { describer, videoFetcher, store } = videoDescriber({ hot: rewatchHot(), llm });
 
   assert.equal(await describer.rewatchVideo('g1', videoAttachment(), 'Quelle couleur ?'), null);
-  assert.equal(
-    Object.keys(store.getMediaCache(placeOfCommunity(store, 'g1'))).filter((k) => k.includes(':q:')).length,
-    0
-  );
+  assert.equal(Object.keys(store.getMediaCache(placeOfRoot(store, 'g1'))).filter((k) => k.includes(':q:')).length, 0);
   assert.deepEqual(await describer.rewatchVideo('g1', videoAttachment(), 'Quelle couleur ?'), {
     question: 'Quelle couleur ?',
     text: 'rouge',
@@ -1982,7 +1977,7 @@ test('relookImage: one download and one vision request with the question; the an
   assert.equal(options.purpose, 'relook');
   assert.equal(options.maxOutputTokens, 600, 'media.video.rewatch.maxOutputTokens');
   assert.equal(options.countAgainstDailyCap, true);
-  const cache = store.getMediaCache(placeOfCommunity(store, 'g1'));
+  const cache = store.getMediaCache(placeOfRoot(store, 'g1'));
   assert.equal(loose(cache).a1, undefined, 'never stored as the picture caption');
   const keys = Object.keys(cache).filter((k) => k.startsWith('image:a1:q:'));
   assert.equal(keys.length, 1);
@@ -2034,7 +2029,7 @@ test('relookImage: a spent llm.maxRequestsPerDay downloads nothing; a failed dow
 
   const failed = relookDescriber({ llm: fakeLlm(new Error('boom')) });
   assert.equal(await failed.describer.relookImage('g1', pictureItem('a1'), 'q?'), null);
-  assert.deepEqual(Object.keys(failed.store.getMediaCache(placeOfCommunity(failed.store, 'g1'))), []);
+  assert.deepEqual(Object.keys(failed.store.getMediaCache(placeOfRoot(failed.store, 'g1'))), []);
 });
 
 test('relookImage: no rewatch-answer prompt, a non-picture or an empty question -> null, no download', async () => {
@@ -2083,7 +2078,7 @@ test('cachedDescriptions: returns only cached captions, skips misses and unknown
   const llm = fakeLlm({ text: 'never asked' });
   const imageFetcher = fakeImageFetcher();
   const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher });
-  const cache = store.getMediaCache(placeOfCommunity(store, 'g1'));
+  const cache = store.getMediaCache(placeOfRoot(store, 'g1'));
   loose(cache)['sticker:s1'] = { text: 'a cat waving', ts: 1 };
   loose(cache).a2 = { miss: true, ts: Date.now() };
 
@@ -2101,7 +2096,7 @@ test('cachedDescriptions: returns only cached captions, skips misses and unknown
 
 test('cachedVideos: returns cached video states only, never fetches or spends a daily slot', async () => {
   const { describer, store, llm, videoFetcher } = videoDescriber();
-  loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['video:v1'] = {
+  loose(store.getMediaCache(placeOfRoot(store, 'g1')))['video:v1'] = {
     text: 'someone dances',
     ts: 1,
     watched: true,
@@ -2227,12 +2222,12 @@ test('describe: a gifv embed is watched from its mp4 by the video model, cached 
   assert.equal(options.provider, undefined);
   assert.equal(options.skipCalibration, true);
 
-  const entry = loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['m1#e0'];
+  const entry = loose(store.getMediaCache(placeOfRoot(store, 'g1')))['m1#e0'];
   assert.equal(entry.text, 'a man pulls a child back as a train rushes past');
   assert.equal(entry.watched, true);
   assert.equal(entry.gif, true);
   assert.equal(
-    loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['video:m1#e0'],
+    loose(store.getMediaCache(placeOfRoot(store, 'g1')))['video:m1#e0'],
     undefined,
     'the key a GIF caption has always used, nothing else'
   );
@@ -2255,7 +2250,7 @@ test('describe: an attached .gif is downloaded and converted by the fetcher, the
     'the file itself, never the proxy still'
   );
   assert.equal(llm.calls[0].options.role, 'video');
-  assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1'))).a9.watched, true);
+  assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1'))).a9.watched, true);
 });
 
 test('describe: the GIF length (15 s) caps the watched length', async () => {
@@ -2288,7 +2283,7 @@ function assertOneFrame({ imageFetcher, llm, store }: Opts, itemId: Untyped, { w
   const last = llm.calls[llm.calls.length - 1];
   assert.equal(last.options.role, 'vision');
   assert.equal(last.messages[1].content[0].type, 'image_url');
-  const entry = store.getMediaCache(placeOfCommunity(store, 'g1'))[itemId];
+  const entry = store.getMediaCache(placeOfRoot(store, 'g1'))[itemId];
   assert.equal(typeof entry.text, 'string');
   assert.equal(entry.watched, undefined);
   assert.equal(entry.gif, true);
@@ -2338,7 +2333,7 @@ test('describe: a spent request cap falls back to one frame, not marked as a fai
 
 test('describe: a cached one-frame GIF caption is served as it is, never re-watched automatically', async () => {
   const run = gifDescriber();
-  loose(run.store.getMediaCache(placeOfCommunity(run.store, 'g1')))['m1#e0'] = {
+  loose(run.store.getMediaCache(placeOfRoot(run.store, 'g1')))['m1#e0'] = {
     text: 'a sign in a foreign script',
     ts: 1,
   };
@@ -2369,13 +2364,13 @@ test('describe: pictures and videos are untouched by the GIF watch', async () =>
   );
   assert.equal(run.videoFetcher.calls.length, 0);
   assert.equal(run.imageFetcher.calls.length, 2);
-  assert.deepEqual(Object.keys(loose(run.store.getMediaCache(placeOfCommunity(run.store, 'g1'))).p1 as object).sort(), [
+  assert.deepEqual(Object.keys(loose(run.store.getMediaCache(placeOfRoot(run.store, 'g1'))).p1 as object).sort(), [
     'describedAt',
     'model',
     'text',
     'ts',
   ]);
-  assert.deepEqual(Object.keys(loose(run.store.getMediaCache(placeOfCommunity(run.store, 'g1'))).v1 as object).sort(), [
+  assert.deepEqual(Object.keys(loose(run.store.getMediaCache(placeOfRoot(run.store, 'g1'))).v1 as object).sort(), [
     'describedAt',
     'model',
     'text',
@@ -2392,17 +2387,17 @@ test('describe: pictures and videos are untouched by the GIF watch', async () =>
 
 test('watchGif: replaces a one-frame caption with a watched one under the same key', async () => {
   const run = gifDescriber();
-  loose(run.store.getMediaCache(placeOfCommunity(run.store, 'g1')))['m1#e0'] = { text: 'a still', ts: 1, gif: true };
+  loose(run.store.getMediaCache(placeOfRoot(run.store, 'g1')))['m1#e0'] = { text: 'a still', ts: 1, gif: true };
   const result = await run.describer.watchGif('g1', gifEmbedItem());
   assert.deepEqual(result, { state: 'watched', text: 'a man pulls a child back as a train rushes past' });
-  const entry = loose(run.store.getMediaCache(placeOfCommunity(run.store, 'g1')))['m1#e0'];
+  const entry = loose(run.store.getMediaCache(placeOfRoot(run.store, 'g1')))['m1#e0'];
   assert.equal(entry.watched, true);
   assert.equal(entry.text, 'a man pulls a child back as a train rushes past');
 });
 
 test('watchGif: an entry already watched is served from the cache, no fetch, no request', async () => {
   const run = gifDescriber();
-  loose(run.store.getMediaCache(placeOfCommunity(run.store, 'g1')))['m1#e0'] = {
+  loose(run.store.getMediaCache(placeOfRoot(run.store, 'g1')))['m1#e0'] = {
     text: 'watched before',
     reaction: '',
     action: 'watched before',
@@ -2421,9 +2416,9 @@ test('watchGif: an entry already watched is served from the cache, no fetch, no 
 
 test('watchGif: a failed watch keeps the old caption and marks it watchFailed; never one frame', async () => {
   const run = gifDescriber({ videoFetcher: gifFetcher({ ok: false, reason: 'tool' }) });
-  loose(run.store.getMediaCache(placeOfCommunity(run.store, 'g1')))['m1#e0'] = { text: 'a still', ts: 1, gif: true };
+  loose(run.store.getMediaCache(placeOfRoot(run.store, 'g1')))['m1#e0'] = { text: 'a still', ts: 1, gif: true };
   assert.deepEqual(await run.describer.watchGif('g1', gifEmbedItem()), { state: 'failed', reason: 'tool' });
-  const entry = loose(run.store.getMediaCache(placeOfCommunity(run.store, 'g1')))['m1#e0'];
+  const entry = loose(run.store.getMediaCache(placeOfRoot(run.store, 'g1')))['m1#e0'];
   assert.equal(entry.text, 'a still');
   assert.equal(typeof entry.watchFailed, 'number');
   assert.equal(run.imageFetcher.calls.length, 0);
@@ -2435,7 +2430,7 @@ test('watchGif: an item without an animation fails as source; an uncaptioned GIF
   const item: Untyped = gifEmbedItem('m2#e0');
   delete item.animationUrl;
   assert.deepEqual(await run.describer.watchGif('g1', item), { state: 'failed', reason: 'source' });
-  const entry = loose(run.store.getMediaCache(placeOfCommunity(run.store, 'g1')))['m2#e0'];
+  const entry = loose(run.store.getMediaCache(placeOfRoot(run.store, 'g1')))['m2#e0'];
   assert.equal(entry.miss, true);
   assert.equal(typeof entry.watchFailed, 'number');
 });
@@ -2455,14 +2450,14 @@ test('watchGif: with the daily request cap spent nothing is fetched, nothing is 
   const run = gifDescriber({ llm: cappedLlm(0) });
   assert.deepEqual(await run.describer.watchGif('g1', gifEmbedItem()), { state: 'unavailable', reason: 'daily-cap' });
   assert.equal(run.videoFetcher.calls.length, 0);
-  assert.equal(loose(run.store.getMediaCache(placeOfCommunity(run.store, 'g1')))['m1#e0'], undefined);
+  assert.equal(loose(run.store.getMediaCache(placeOfRoot(run.store, 'g1')))['m1#e0'], undefined);
 });
 
 test('watchGif: unavailable without a watch prompt, nothing marked', async () => {
   const off = gifDescriber({ hot: gifHot({ prompts: { 'describe-video': undefined } }) });
   assert.deepEqual(await off.describer.watchGif('g1', gifEmbedItem()), { state: 'unavailable', reason: 'no-prompt' });
   assert.equal(off.describer.gifWatchBlocker(), 'no-prompt');
-  assert.equal(loose(off.store.getMediaCache(placeOfCommunity(off.store, 'g1')))['m1#e0'], undefined);
+  assert.equal(loose(off.store.getMediaCache(placeOfRoot(off.store, 'g1')))['m1#e0'], undefined);
   assert.equal(gifDescriber().describer.gifWatchBlocker(), null);
 });
 
@@ -2570,7 +2565,7 @@ test('describe: a three-field GIF answer is cached as text, reaction, action and
   const { describer, store } = gifDescriber({ llm, hot });
   const result = await describer.describe('g1', gifEmbedItem());
   assert.equal(loose(result).text, 'a cat lifts its chin');
-  const entry = loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['m1#e0'];
+  const entry = loose(store.getMediaCache(placeOfRoot(store, 'g1')))['m1#e0'];
   assert.deepEqual(
     { ...entry, ts: 0, describedAt: 0 },
     {
@@ -2593,7 +2588,7 @@ test('describe: gifs.reactionChars and gifs.actionChars never cut the cached fie
   loose(hot.config).gifs = { reactionChars: 12, actionChars: 20 };
   const { describer, store } = gifDescriber({ llm, hot });
   await describer.describe('g1', gifEmbedItem());
-  const entry = loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['m1#e0'];
+  const entry = loose(store.getMediaCache(placeOfRoot(store, 'g1')))['m1#e0'];
   assert.deepEqual(
     [entry.reaction, entry.action, entry.text],
     ['quiet firm agreement', 'a small cat lifts its chin slowly', 'a small cat lifts its chin slowly']
@@ -2602,7 +2597,7 @@ test('describe: gifs.reactionChars and gifs.actionChars never cut the cached fie
 
 test('watchGif: an old-format watched entry (no reaction field) is watched again and gains the fields', async () => {
   const run = gifDescriber({ llm: fakeLlm({ text: 'reaction: waiting\naction: a caracal stares ahead\ntext: none' }) });
-  loose(run.store.getMediaCache(placeOfCommunity(run.store, 'g1')))['m1#e0'] = {
+  loose(run.store.getMediaCache(placeOfRoot(run.store, 'g1')))['m1#e0'] = {
     text: 'watched before',
     ts: 1,
     watched: true,
@@ -2612,7 +2607,7 @@ test('watchGif: an old-format watched entry (no reaction field) is watched again
     state: 'watched',
     text: 'a caracal stares ahead',
   });
-  const entry = loose(run.store.getMediaCache(placeOfCommunity(run.store, 'g1')))['m1#e0'];
+  const entry = loose(run.store.getMediaCache(placeOfRoot(run.store, 'g1')))['m1#e0'];
   assert.deepEqual(
     [entry.reaction, entry.action, entry.screen, entry.watched],
     ['waiting', 'a caracal stares ahead', '', true]
@@ -2641,7 +2636,7 @@ const WATCHED_GIF_ENTRY = {
 
 test('watchedGifs: only watched GIF entries with an animation, from the cache alone', async () => {
   const run = gifDescriber({ hot: gifRewatchHot() });
-  const cache = run.store.getMediaCache(placeOfCommunity(run.store, 'g1'));
+  const cache = run.store.getMediaCache(placeOfRoot(run.store, 'g1'));
   loose(cache)['m1#e0'] = { ...WATCHED_GIF_ENTRY };
   loose(cache)['m2#e0'] = { text: 'one frame', ts: 1, gif: true };
   loose(cache)['m3#e0'] = { ...WATCHED_GIF_ENTRY };
@@ -2679,7 +2674,7 @@ test('rewatchGif: one GIF clip fetch and one video request with the question; th
   assert.equal(options.videoSeconds, 15);
   const digest = createHash('sha1').update('qui est dans le miroir ?').digest('hex').slice(0, 16);
   assert.equal(
-    loose(run.store.getMediaCache(placeOfCommunity(run.store, 'g1')))[`gif:m1#e0:q:${digest}`].answer,
+    loose(run.store.getMediaCache(placeOfRoot(run.store, 'g1')))[`gif:m1#e0:q:${digest}`].answer,
     'une autre personne dans le miroir'
   );
 
@@ -2693,9 +2688,7 @@ test('rewatchGif: a failed fetch caches nothing', async () => {
   assert.equal(await failing.describer.rewatchGif('g1', gifEmbedItem(), 'q ?'), null);
   assert.equal(failing.llm.calls.length, 0);
   assert.ok(
-    !Object.keys(failing.store.getMediaCache(placeOfCommunity(failing.store, 'g1'))).some((key) =>
-      key.startsWith('gif:')
-    )
+    !Object.keys(failing.store.getMediaCache(placeOfRoot(failing.store, 'g1'))).some((key) => key.startsWith('gif:'))
   );
 });
 
@@ -2767,7 +2760,7 @@ test('describe: a new picture entry carries describedAt (ms) and the model used'
   const llm = fakeLlm({ text: 'une tasse' });
   const describer = createDescriber({ hot: fakeHot(), store, llm, imageFetcher: fakeImageFetcher(), now: () => 5_000 });
   await describer.describe('g1', pictureItem('a1'));
-  const entry = loose(store.getMediaCache(placeOfCommunity(store, 'g1'))).a1;
+  const entry = loose(store.getMediaCache(placeOfRoot(store, 'g1'))).a1;
   assert.equal(entry.describedAt, 5_000);
   assert.equal(entry.model, 'x/haiku');
   assert.equal(entry.model, llm.calls[0].options.model);
@@ -2775,7 +2768,7 @@ test('describe: a new picture entry carries describedAt (ms) and the model used'
 
 test('describe: with media.recacheBefore null an old entry is served from the cache', async () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  loose(store.getMediaCache(placeOfCommunity(store, 'g1'))).a1 = { text: 'une vieille photo', ts: 1 };
+  loose(store.getMediaCache(placeOfRoot(store, 'g1'))).a1 = { text: 'une vieille photo', ts: 1 };
   const llm = fakeLlm({ text: 'new' });
   const imageFetcher = fakeImageFetcher();
   const describer = createDescriber({
@@ -2794,7 +2787,7 @@ test('describe: with media.recacheBefore null an old entry is served from the ca
 
 test('describe: with media.recacheBefore set, an entry described before it (or never stamped) is described again; a later one is served', async () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  const cache = store.getMediaCache(placeOfCommunity(store, 'g1'));
+  const cache = store.getMediaCache(placeOfRoot(store, 'g1'));
   loose(cache).old = { text: 'une vieille photo', ts: 1 };
   loose(cache).earlier = { text: 'une photo', ts: 2, describedAt: CUTOFF - 1, model: 'x/old' };
   loose(cache).fresh = { text: 'une photo récente', ts: 3, describedAt: CUTOFF + 1, model: 'x/haiku' };
@@ -2817,7 +2810,7 @@ test('describe: with media.recacheBefore set, an entry described before it (or n
 
 test('describe: a stale entry whose new description fails keeps its old text and is not retried until the miss TTL', async () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  const cache = store.getMediaCache(placeOfCommunity(store, 'g1'));
+  const cache = store.getMediaCache(placeOfRoot(store, 'g1'));
   loose(cache).a1 = { text: 'une vieille photo', ts: 1 };
   const clock = handClock(CUTOFF + HOUR);
   const llm = fakeLlm([new Error('boom'), { text: 'enfin' }]);
@@ -2842,7 +2835,7 @@ test('describe: a stale entry whose new description fails keeps its old text and
 
 test('describe: a stale entry whose download fails keeps its old text', async () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  loose(store.getMediaCache(placeOfCommunity(store, 'g1'))).a1 = { text: 'une vieille photo', ts: 1 };
+  loose(store.getMediaCache(placeOfRoot(store, 'g1'))).a1 = { text: 'une vieille photo', ts: 1 };
   const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO } } });
   const describer = createDescriber({
     hot,
@@ -2852,12 +2845,12 @@ test('describe: a stale entry whose download fails keeps its old text', async ()
     now: () => CUTOFF + HOUR,
   });
   assert.equal(loose(await describer.describe('g1', pictureItem('a1'))).text, 'une vieille photo');
-  assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1'))).a1.text, 'une vieille photo');
+  assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1'))).a1.text, 'une vieille photo');
 });
 
 test('describe: a stale entry with the daily request cap spent is served as it is, nothing downloaded', async () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  loose(store.getMediaCache(placeOfCommunity(store, 'g1'))).a1 = { text: 'une vieille photo', ts: 1 };
+  loose(store.getMediaCache(placeOfRoot(store, 'g1'))).a1 = { text: 'une vieille photo', ts: 1 };
   const llm = cappedLlm(0);
   const imageFetcher = fakeImageFetcher();
   const hot = fakeHot({ config: { media: { recacheBefore: CUTOFF_ISO } } });
@@ -2871,7 +2864,7 @@ test('describe: a stale entry with the daily request cap spent is served as it i
 
 test('describeMany: stale entries count toward maxNew; past it their old text is served', async () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  const cache = store.getMediaCache(placeOfCommunity(store, 'g1'));
+  const cache = store.getMediaCache(placeOfRoot(store, 'g1'));
   loose(cache).s1 = { text: 'vieux un', ts: 1 };
   loose(cache).s2 = { text: 'vieux deux', ts: 1 };
   const llm = fakeLlm({ text: 'neuf' });
@@ -2892,7 +2885,7 @@ test('describeMany: stale entries count toward maxNew; past it their old text is
 test('describe: a watched GIF entry carries describedAt and the video model', async () => {
   const run = gifDescriber({ now: () => 9_000 });
   await run.describer.describe('g1', gifEmbedItem());
-  const entry = loose(run.store.getMediaCache(placeOfCommunity(run.store, 'g1')))['m1#e0'];
+  const entry = loose(run.store.getMediaCache(placeOfRoot(run.store, 'g1')))['m1#e0'];
   assert.equal(entry.watched, true);
   assert.equal(entry.describedAt, 9_000);
   assert.equal(entry.model, 'x/video-model');
@@ -2901,22 +2894,22 @@ test('describe: a watched GIF entry carries describedAt and the video model', as
 test('describe: a stale watched GIF is watched again; a failed watch keeps the watched text, never one frame', async () => {
   const hot = gifHot({ media: { recacheBefore: CUTOFF_ISO } });
   const ok = gifDescriber({ hot, now: () => CUTOFF + HOUR });
-  loose(ok.store.getMediaCache(placeOfCommunity(ok.store, 'g1')))['m1#e0'] = { ...WATCHED_GIF_ENTRY };
+  loose(ok.store.getMediaCache(placeOfRoot(ok.store, 'g1')))['m1#e0'] = { ...WATCHED_GIF_ENTRY };
   assert.equal(
     loose(await ok.describer.describe('g1', gifEmbedItem())).text,
     'a man pulls a child back as a train rushes past'
   );
-  assert.equal(loose(ok.store.getMediaCache(placeOfCommunity(ok.store, 'g1')))['m1#e0'].describedAt, CUTOFF + HOUR);
+  assert.equal(loose(ok.store.getMediaCache(placeOfRoot(ok.store, 'g1')))['m1#e0'].describedAt, CUTOFF + HOUR);
 
   const failing = gifDescriber({
     hot,
     videoFetcher: gifFetcher({ ok: false, reason: 'tool' }),
     now: () => CUTOFF + HOUR,
   });
-  loose(failing.store.getMediaCache(placeOfCommunity(failing.store, 'g1')))['m1#e0'] = { ...WATCHED_GIF_ENTRY };
+  loose(failing.store.getMediaCache(placeOfRoot(failing.store, 'g1')))['m1#e0'] = { ...WATCHED_GIF_ENTRY };
   const kept = await failing.describer.describe('g1', gifEmbedItem());
   assert.equal(loose(kept).text, WATCHED_GIF_ENTRY.text);
-  const entry = loose(failing.store.getMediaCache(placeOfCommunity(failing.store, 'g1')))['m1#e0'];
+  const entry = loose(failing.store.getMediaCache(placeOfRoot(failing.store, 'g1')))['m1#e0'];
   assert.equal(entry.watched, true);
   assert.equal(entry.text, WATCHED_GIF_ENTRY.text);
   assert.equal(failing.imageFetcher.calls.length, 0, 'no one-frame fallback over a watched caption');
@@ -2926,7 +2919,7 @@ test('describe: a stale watched GIF is watched again; a failed watch keeps the w
 test('describeVideo: a watched entry carries describedAt and the video model', async () => {
   const { describer, store } = videoDescriber({ now: () => 4_000 });
   await describer.describeVideo('g1', videoAttachment());
-  const entry = loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['video:v1'];
+  const entry = loose(store.getMediaCache(placeOfRoot(store, 'g1')))['video:v1'];
   assert.equal(entry.describedAt, 4_000);
   assert.equal(entry.model, 'x/video-model');
 });
@@ -2935,7 +2928,7 @@ test('describeVideo: with media.recacheBefore set a stale summary is watched aga
   const hot = videoHot();
   loose(hot.config.media).recacheBefore = CUTOFF_ISO;
   const { describer, store, llm } = videoDescriber({ hot, now: () => CUTOFF + HOUR });
-  loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['video:v1'] = {
+  loose(store.getMediaCache(placeOfRoot(store, 'g1')))['video:v1'] = {
     text: 'une vieille vidéo',
     ts: 1,
     watched: true,
@@ -2945,7 +2938,7 @@ test('describeVideo: with media.recacheBefore set a stale summary is watched aga
   assert.equal(llm.calls.length, 0);
   const result = await describer.describeVideo('g1', videoAttachment());
   assert.equal(loose(result).text, 'someone dances');
-  assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['video:v1'].describedAt, CUTOFF + HOUR);
+  assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1')))['video:v1'].describedAt, CUTOFF + HOUR);
 });
 
 test('describeVideo: a stale summary whose watch fails keeps its text and waits errorRetryMinutes', async () => {
@@ -2957,7 +2950,7 @@ test('describeVideo: a stale summary whose watch fails keeps its text and waits 
     llm: fakeLlm([new Error('boom'), { text: 'enfin' }]),
     now: clock.now,
   });
-  loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['video:v1'] = {
+  loose(store.getMediaCache(placeOfRoot(store, 'g1')))['video:v1'] = {
     text: 'une vieille vidéo',
     ts: 1,
     watched: true,
@@ -2965,8 +2958,8 @@ test('describeVideo: a stale summary whose watch fails keeps its text and waits 
   const kept = await describer.describeVideo('g1', videoAttachment());
   assert.equal(loose(kept).state, 'watched');
   assert.equal(loose(kept).text, 'une vieille vidéo');
-  assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['video:v1'].text, 'une vieille vidéo');
-  assert.equal(loose(store.getMediaCache(placeOfCommunity(store, 'g1')))['video:v1'].miss, undefined);
+  assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1')))['video:v1'].text, 'une vieille vidéo');
+  assert.equal(loose(store.getMediaCache(placeOfRoot(store, 'g1')))['video:v1'].miss, undefined);
 
   clock.at += 30 * 60 * 1000;
   assert.equal(loose(await describer.describeVideo('g1', videoAttachment())).text, 'une vieille vidéo');
@@ -2978,7 +2971,7 @@ test('describeVideo: a stale summary whose watch fails keeps its text and waits 
 
 test('redescribe: describes a picture again whatever its cache holds; a failure keeps the old text; a spent cap or no prompt is unavailable', async () => {
   const store = createStore({ dataDir: tmpDataDir() });
-  const cache = store.getMediaCache(placeOfCommunity(store, 'g1'));
+  const cache = store.getMediaCache(placeOfRoot(store, 'g1'));
   loose(cache).a1 = { text: 'par un vieux modèle', ts: 1, describedAt: 1, model: 'x/old' };
   loose(cache).a2 = { text: 'garde-moi', ts: 1 };
   const llm = fakeLlm([{ text: 'par le nouveau' }, new Error('boom')]);
@@ -3081,7 +3074,7 @@ test('describeVideo: a downloaded clip stores its length as watchedSeconds; a pi
   const clip = videoDescriber({ hot, videoFetcher });
   const watched = await clip.describer.describeVideo('g1', item);
   assert.equal(loose(watched).watchedSeconds, 60);
-  assert.equal(loose(clip.store.getMediaCache(placeOfCommunity(clip.store, 'g1')))['video:v9'].watchedSeconds, 60);
+  assert.equal(loose(clip.store.getMediaCache(placeOfRoot(clip.store, 'g1')))['video:v9'].watchedSeconds, 60);
   assert.equal(loose(await clip.describer.describeVideo('g1', item)).watchedSeconds, 60, 'a cache hit carries it');
 
   // A link clip also stores its probed total, and a cache hit carries both.
@@ -3097,14 +3090,14 @@ test('describeVideo: a downloaded clip stores its length as watchedSeconds; a pi
   assert.equal(loose(linkWatched).watchedSeconds, 60);
   assert.equal(loose(linkWatched).totalSeconds, 400);
   assert.equal(
-    loose(linkClip.store.getMediaCache(placeOfCommunity(linkClip.store, 'g1')))[`video:${tiktok.itemId}`].totalSeconds,
+    loose(linkClip.store.getMediaCache(placeOfRoot(linkClip.store, 'g1')))[`video:${tiktok.itemId}`].totalSeconds,
     400
   );
   const linkHit = await linkClip.describer.describeVideo('g1', tiktok);
   assert.equal(loose(linkHit).totalSeconds, 400);
   assert.equal(loose(linkHit).watchedSeconds, 60);
   assert.equal(
-    'totalSeconds' in loose(clip.store.getMediaCache(placeOfCommunity(clip.store, 'g1')))['video:v9'],
+    'totalSeconds' in loose(clip.store.getMediaCache(placeOfRoot(clip.store, 'g1')))['video:v9'],
     false,
     'an attachment carries its own length'
   );
@@ -3115,11 +3108,11 @@ test('describeVideo: a downloaded clip stores its length as watchedSeconds; a pi
   assert.equal(loose(result).state, 'watched');
   assert.equal('watchedSeconds' in loose(result), false);
   assert.equal(
-    'watchedSeconds' in loose(pinned.store.getMediaCache(placeOfCommunity(pinned.store, 'g1')))[`video:${link.itemId}`],
+    'watchedSeconds' in loose(pinned.store.getMediaCache(placeOfRoot(pinned.store, 'g1')))[`video:${link.itemId}`],
     false
   );
   assert.equal(
-    'totalSeconds' in loose(pinned.store.getMediaCache(placeOfCommunity(pinned.store, 'g1')))[`video:${link.itemId}`],
+    'totalSeconds' in loose(pinned.store.getMediaCache(placeOfRoot(pinned.store, 'g1')))[`video:${link.itemId}`],
     false
   );
   assert.equal(pinned.llm.calls[0].messages[0].content, VIDEO_PROMPT);

@@ -600,9 +600,9 @@ export function turnView({
   ].join('\n');
 }
 
-/** The record's scope: the conversation it happened in, when it names one. */
-function scopeOf(conversationId: unknown): { channel?: string } {
-  return typeof conversationId === 'string' && conversationId ? { channel: conversationId } : {};
+/** The record's scope: the chat it happened in, when it names one. */
+function scopeOf(chatId: unknown): { channel?: string } {
+  return typeof chatId === 'string' && chatId ? { channel: chatId } : {};
 }
 
 /** The persona's own latest messages in a channel, as the interface reads them again. */
@@ -791,7 +791,7 @@ export function createJournal({
 
   /** `fields` wrapped in the envelope. */
   function envelope(kind: string, fields: Untyped) {
-    const { placeId: conversationId = null, participants, sourceMessageIds, occurredAt, ...rest } = fields ?? {};
+    const { placeId: chatId = null, participants, sourceMessageIds, occurredAt, ...rest } = fields ?? {};
     const at = new Date(now()).toISOString();
     return {
       record: {
@@ -800,7 +800,7 @@ export function createJournal({
         kind,
         occurredAt: typeof occurredAt === 'string' && occurredAt ? occurredAt : at,
         recordedAt: at,
-        scope: scopeOf(conversationId),
+        scope: scopeOf(chatId),
         participants: idList(participants),
         sourceMessageIds: idList(sourceMessageIds),
         origin: 'live',
@@ -841,7 +841,7 @@ export function createJournal({
   function start(
     placeId: string,
     {
-      placeId: conversationId = null,
+      placeId: chatId = null,
       mode = null,
       trigger = null,
       participants,
@@ -854,7 +854,7 @@ export function createJournal({
     const attempt = typeof attemptId === 'number' && isIntegerNumber(attemptId) && attemptId > 0 ? attemptId : 1;
     const startedAt = new Date(now()).toISOString();
     write(placeId, 'turn.start', {
-      placeId: conversationId,
+      placeId: chatId,
       occurredAt: startedAt,
       participants,
       sourceMessageIds,
@@ -1099,21 +1099,21 @@ export function createJournal({
     );
   }
 
-  /** The persona's last own messages of a conversation, fetched once per reconciliation; null when the fetch failed. */
-  function ownMessagesOnce(fetches: Untyped, fetchOwnMessages: Untyped, conversationId: string) {
-    if (!fetches.has(conversationId)) {
+  /** The persona's last own messages of a chat, fetched once per reconciliation; null when the fetch failed. */
+  function ownMessagesOnce(fetches: Untyped, fetchOwnMessages: Untyped, chatId: string) {
+    if (!fetches.has(chatId)) {
       const fetching = Promise.resolve()
-        .then(() => fetchOwnMessages(conversationId, RECONCILE_FETCH))
+        .then(() => fetchOwnMessages(chatId, RECONCILE_FETCH))
         .catch((error) => {
           log.warn('journal: reconcile fetch failed', {
             code: error?.code ?? null,
-            placeId: conversationId,
+            placeId: chatId,
           });
           return null;
         });
-      fetches.set(conversationId, fetching);
+      fetches.set(chatId, fetching);
     }
-    return fetches.get(conversationId);
+    return fetches.get(chatId);
   }
 
   async function reconcile(placeId: string, { days, fetchOwnMessages, before = null }: ReconcileOptions = {}) {
@@ -1122,12 +1122,12 @@ export function createJournal({
     const used = new Set();
     const counts = { succeeded: 0, unknown: 0 };
     for (const record of open) {
-      const conversationId = record.scope?.channel ?? null;
-      const closing: Record<string, Untyped> = { opId: record.opId, placeId: conversationId, reconciled: true };
+      const chatId = record.scope?.channel ?? null;
+      const closing: Record<string, Untyped> = { opId: record.opId, placeId: chatId, reconciled: true };
       for (const key of OP_FIELDS) if (key !== 'placeId' && key in record) closing[key] = record[key];
       let match = null;
-      if (record.name === 'post' && conversationId && record.intent && typeof fetchOwnMessages === 'function') {
-        const messages = await ownMessagesOnce(fetches, fetchOwnMessages, conversationId);
+      if (record.name === 'post' && chatId && record.intent && typeof fetchOwnMessages === 'function') {
+        const messages = await ownMessagesOnce(fetches, fetchOwnMessages, chatId);
         const startedAt = Date.parse(String(record.occurredAt));
         const replyTo = record.intent.replyTo ?? null;
         match =

@@ -13,7 +13,7 @@ import { FOUR_HOURS, LEASE, T0, mirrorScene, restoreFile, settle } from './fixtu
 /** A scene with one enabled mirror on `d1` and one entry `e1`. */
 async function oneMirror({ reconcile = false }: { reconcile?: boolean } = {}) {
   const scene = await mirrorScene({ reconcile });
-  const { placeId } = seedMirror(scene.memory.memoryDb, { iface: 'fake', conversationId: 'd1', at: T0 });
+  const { placeId } = seedMirror(scene.memory.memoryDb, { iface: 'fake', chatId: 'd1', at: T0 });
   scene.entry({ id: 'e1' });
   return { scene, place: placeId, transport: scene.transport() };
 }
@@ -82,7 +82,7 @@ test('the claim is in memory before anything reaches the interface', async () =>
 test('receipts are kept per segment and per destination, with a key of its own for each send', async () => {
   // Catches: one flat list of ids, which cannot say what a retry may skip, or a key shared across destinations.
   const { scene, place, transport } = await oneMirror();
-  const second = seedMirror(scene.memory.memoryDb, { iface: 'fake', conversationId: 'd2', at: T0 }).placeId;
+  const second = seedMirror(scene.memory.memoryDb, { iface: 'fake', chatId: 'd2', at: T0 }).placeId;
   const mirrors = scene.publisher();
   await mirrors.publishEntry({ ...THREE, pictures: [PICTURE] });
   const state = mirrors.publicationState('e1', place);
@@ -360,17 +360,14 @@ async function tenMirrors() {
   const scene = await mirrorScene({ ifaces: ['fake', 'gone'] });
   const places = new Map<string, string>();
   for (let i = 0; i < 9; i += 1)
-    places.set(
-      `d${i}`,
-      seedMirror(scene.memory.memoryDb, { iface: 'fake', conversationId: `d${i}`, at: T0 + i }).placeId
-    );
-  places.set('d9', seedMirror(scene.memory.memoryDb, { iface: 'gone', conversationId: 'd9', at: T0 + 9 }).placeId);
+    places.set(`d${i}`, seedMirror(scene.memory.memoryDb, { iface: 'fake', chatId: `d${i}`, at: T0 + i }).placeId);
+  places.set('d9', seedMirror(scene.memory.memoryDb, { iface: 'gone', chatId: 'd9', at: T0 + 9 }).placeId);
   scene.disconnect('gone');
   scene.entry({ id: 'e1' });
-  const behave = (attempt: { conversationId: string }) =>
-    attempt.conversationId === 'd3'
+  const behave = (attempt: { chatId: string }) =>
+    attempt.chatId === 'd3'
       ? ({ refuse: 'channel-no-permission' } as const)
-      : attempt.conversationId === 'd5'
+      : attempt.chatId === 'd5'
         ? ('throw' as const)
         : ('deliver' as const);
   scene.transport().behave = behave;
@@ -382,10 +379,10 @@ test('among ten mirrors a forbidden, a broken and an offline one stop none of th
   const { scene, places, mirrors, transport } = await tenMirrors();
   const outcomes = await mirrors.publishEntry(ONE);
   assert.equal(outcomes.length, 10);
-  for (const conversation of ['d0', 'd1', 'd2', 'd4', 'd6', 'd7', 'd8'])
-    assert.deepEqual(transport.posted(conversation), ['one'], conversation);
+  for (const chat of ['d0', 'd1', 'd2', 'd4', 'd6', 'd7', 'd8'])
+    assert.deepEqual(transport.posted(chat), ['one'], chat);
   assert.deepEqual(transport.posted('d3'), []);
-  const state = (conversation: string) => mirrors.publicationState('e1', places.get(conversation) ?? '');
+  const state = (chat: string) => mirrors.publicationState('e1', places.get(chat) ?? '');
   assert.deepEqual([state('d3')?.status, state('d3')?.code], ['failed', 'channel-no-permission']);
   assert.equal(state('d5')?.status, 'uncertain');
   assert.equal(state('d9')?.status, 'queued');
@@ -401,8 +398,7 @@ test('status shows each mirror its own trouble and a certain refusal is not retr
   const { places, mirrors, transport } = await tenMirrors();
   await mirrors.publishEntry(ONE);
   await mirrors.drainQueued();
-  const status = (conversation: string) =>
-    mirrors.mirrorStatus().find((mirror) => mirror.placeId === places.get(conversation));
+  const status = (chat: string) => mirrors.mirrorStatus().find((mirror) => mirror.placeId === places.get(chat));
   assert.deepEqual(status('d3')?.failed, [{ entryId: 'e1', code: 'channel-no-permission', retryable: false }]);
   assert.deepEqual(status('d3')?.uncertain, []);
   assert.deepEqual(
@@ -412,7 +408,7 @@ test('status shows each mirror its own trouble and a certain refusal is not retr
   assert.equal(status('d9')?.queued, 1);
   assert.equal(status('d9')?.interfaceConnected, false);
   assert.deepEqual(status('d0')?.failed, []);
-  assert.equal(transport.attempts.filter((attempt) => attempt.conversationId === 'd3').length, 1);
+  assert.equal(transport.attempts.filter((attempt) => attempt.chatId === 'd3').length, 1);
 });
 
 test('the next entry reaches every healthy mirror while others are in trouble, and an offline one catches up alone', async () => {
@@ -459,12 +455,11 @@ async function ended<T>(work: Promise<T>): Promise<T> {
 test('a send that hangs ends at the send timeout as uncertain and is not sent again', async () => {
   // Catches: one stalled interface holding the publisher and every mirror after it until a restart.
   const scene = await mirrorScene({ sendTimeoutMs: 20 });
-  const { placeId } = seedMirror(scene.memory.memoryDb, { iface: 'fake', conversationId: 'd1', at: T0 });
-  const second = seedMirror(scene.memory.memoryDb, { iface: 'fake', conversationId: 'd2', at: T0 + 1 }).placeId;
+  const { placeId } = seedMirror(scene.memory.memoryDb, { iface: 'fake', chatId: 'd1', at: T0 });
+  const second = seedMirror(scene.memory.memoryDb, { iface: 'fake', chatId: 'd2', at: T0 + 1 }).placeId;
   scene.entry({ id: 'e1' });
   const transport = scene.transport();
-  transport.behave = (attempt, index) =>
-    attempt.conversationId === 'd1' && index === 1 ? 'hang-after-delivery' : 'deliver';
+  transport.behave = (attempt, index) => (attempt.chatId === 'd1' && index === 1 ? 'hang-after-delivery' : 'deliver');
   const mirrors = scene.publisher();
   await ended(mirrors.publishEntry(THREE));
   const state = mirrors.publicationState('e1', placeId);

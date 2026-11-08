@@ -111,7 +111,7 @@ export function createAddressClassifier({
     const placeId = channel.id;
     const mentionCfg = config.mention;
     const startedAt = now();
-    // A served channel is in a community, so it has its id.
+    // A served channel is in a root, so it has its id.
     const selfName = getSelfName(channel.rootId as string);
     let request: ClassifierRequest | null = null;
     let buildFailed = false;

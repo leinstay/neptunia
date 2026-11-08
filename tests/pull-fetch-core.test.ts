@@ -1,9 +1,9 @@
-// Tests for src/behavior/pull-fetch.ts: the rails a read of another conversation must pass before anything is read, each
-// with its skip code. The conversations are held by the fake interface; no network.
+// Tests for src/behavior/pull-fetch.ts: the rails a read of another chat must pass before anything is read, each
+// with its skip code. The chats are held by the fake interface; no network.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SnowflakeUtil } from 'discord.js';
-import type { Audience, ConversationInfo, Permissions } from '../src/protocol/adapter.ts';
+import type { Audience, ChatInfo, Permissions } from '../src/protocol/adapter.ts';
 import { checkPull } from '../src/behavior/pull-fetch.ts';
 import { isReadable, takeSnapshot } from '../src/behavior/snapshot.ts';
 import { useSelf, world } from './fixtures/turn-world.ts';
@@ -11,7 +11,7 @@ import type { Raw } from './fixtures/turn-world.ts';
 
 const MIN = 60_000;
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
-// The owner's example: the conversation's last message was at 10:00 two days ago.
+// The owner's example: the chat's last message was at 10:00 two days ago.
 const LAST = Date.UTC(2026, 9, 3, 10, 0, 0);
 
 const GUILD_ID = '700000000000000000';
@@ -55,7 +55,7 @@ function config({
 
 type MessageSpec = { ts: number; content?: string; authorId?: string; images?: Array<string>; mentionsSelf?: boolean };
 
-/** A discord.js-shaped message of conversation `id` written at `spec.ts`, with a real snowflake id. */
+/** A discord.js-shaped message of chat `id` written at `spec.ts`, with a real snowflake id. */
 function rawMessage(id: string, name: string, spec: MessageSpec): Raw {
   const { ts, content = 'καλημέρα σε όλους', authorId = MEMBER.zoe, images = [], mentionsSelf = false } = spec;
   return {
@@ -91,17 +91,17 @@ function rawMessage(id: string, name: string, spec: MessageSpec): Raw {
 
 type Held = {
   id: string;
-  info: ConversationInfo;
+  info: ChatInfo;
   /** The message ids in the order of their time. */
   ids: Array<string>;
   idAt(ts: number): string;
-  /** The reads made of this conversation since the scene was set, in order: a page query, or a message id. */
+  /** The reads made of this chat since the scene was set, in order: a page query, or a message id. */
   calls(): Array<unknown>;
   /** Makes `calls` start from now. */
   mark(): void;
 };
 
-/** A conversation of the community with its history; `fail` makes every history read of it fail. */
+/** A chat of the root with its history; `fail` makes every history read of it fail. */
 function addChannel({
   id,
   name = id,
@@ -116,7 +116,7 @@ function addChannel({
   name?: string;
   messages?: ReadonlyArray<MessageSpec>;
   permissions?: Partial<Permissions>;
-  kind?: ConversationInfo['kind'];
+  kind?: ChatInfo['kind'];
   audience?: Audience;
   viewers?: Record<string, boolean>;
   fail?: boolean;
@@ -149,7 +149,7 @@ function addChannel({
       return world()
         .port.calls.slice(since)
         .flatMap((call) => {
-          if ((call.args[0] as { conversationId?: string } | undefined)?.conversationId !== id) return [];
+          if ((call.args[0] as { chatId?: string } | undefined)?.chatId !== id) return [];
           if (call.op === 'history') return [call.args[1]];
           if (call.op === 'fetchMessages') return call.args[1];
           return [];
@@ -161,24 +161,24 @@ function addChannel({
   };
 }
 
-/** The public main conversation the persona speaks in. */
+/** The public main chat the persona speaks in. */
 function mainChannel(): Held {
   return addChannel({ id: MAIN_ID, name: 'agora', messages: [{ ts: NOW - MIN }] });
 }
 
 /** A private chat with `partnerId`. */
-function privateChat(partnerId: string | null = null): ConversationInfo {
+function dmChat(partnerId: string | null = null): ChatInfo {
   return world().channel({ id: '790000000000000001', dm: true, partnerId }).info;
 }
 
-/** The listing of the community now. */
+/** The listing of the root now. */
 async function listing(viewers: Array<string> = []) {
   const snapshot = await takeSnapshot(world().reads, GUILD_ID, viewers);
   if (snapshot === null) throw new Error('the world gave no listing');
   return snapshot;
 }
 
-test('checkPull checks the rails without a request and gives the conversation when they pass', async () => {
+test('checkPull checks the rails without a request and gives the chat when they pass', async () => {
   const main = mainChannel();
   const selfreflection = addChannel({
     id: '760000000000000046',
@@ -186,7 +186,7 @@ test('checkPull checks the rails without a request and gives the conversation wh
     messages: [{ ts: LAST }],
   });
   const snapshot = await listing();
-  const check = (placeId: string, destination: ConversationInfo | null, cfg: Config = config()) =>
+  const check = (placeId: string, destination: ChatInfo | null, cfg: Config = config()) =>
     checkPull({ snapshot, placeId, destination, config: cfg, now: NOW });
   assert.equal(check(selfreflection.id, main.info).channel?.id, selfreflection.id);
   assert.equal(check(selfreflection.id, main.info).skip, null);
@@ -194,7 +194,7 @@ test('checkPull checks the rails without a request and gives the conversation wh
   assert.deepEqual(check('', main.info), { channel: null, skip: 'not-found' }, 'no id is not found');
   const railOff = config({ pull: { sameAudience: false } });
   assert.deepEqual(
-    check(selfreflection.id, privateChat(), railOff),
+    check(selfreflection.id, dmChat(), railOff),
     { channel: null, skip: 'private-chat' },
     'a private chat without a partner never pulls, even with the audience rail off'
   );
@@ -210,12 +210,9 @@ test('checkPull lets a private chat with its partner pass what the partner can v
     viewers: { [MEMBER.iason]: true },
   });
   const closed = addChannel({ id: '760000000000000051', messages: [{ ts: LAST }], viewers: { [MEMBER.iason]: false } });
-  const dm = privateChat(MEMBER.iason);
+  const dm = dmChat(MEMBER.iason);
   const snapshot = await listing([MEMBER.iason]);
-  const check = (
-    placeId: string,
-    over: { destination?: ConversationInfo; partnerId?: string | null; cfg?: Config } = {}
-  ) =>
+  const check = (placeId: string, over: { destination?: ChatInfo; partnerId?: string | null; cfg?: Config } = {}) =>
     checkPull({
       snapshot,
       placeId,
@@ -235,7 +232,7 @@ test('checkPull lets a private chat with its partner pass what the partner can v
   assert.deepEqual(check('760000000000000059'), { channel: null, skip: 'not-found' });
 });
 
-test('checkPull refuses exactly the conversations isReadable refuses', async () => {
+test('checkPull refuses exactly the chats isReadable refuses', async () => {
   const main = mainChannel();
   const bot = { dryRunChannelId: MIRROR_ID };
   const held = [

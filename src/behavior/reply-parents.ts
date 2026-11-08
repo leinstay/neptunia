@@ -7,7 +7,7 @@
 // again. A parent that cannot be read (deleted, no access, any error) is skipped and logged once (`collect: parent
 // missing`, ids only).
 
-import type { ConversationRef } from '../protocol/adapter.ts';
+import type { ChatRef } from '../protocol/adapter.ts';
 import type { Reads } from '../interface/reads.ts';
 import { log } from '../log.ts';
 import { lineOf } from './line-of.ts';
@@ -17,7 +17,7 @@ type Trigger = { id?: string; replyToId?: string | null } | null;
 
 export async function fetchReplyParents(
   reads: Reads,
-  ref: ConversationRef,
+  ref: ChatRef,
   history: ReadonlyArray<Line>,
   { trigger = null, recent, max }: { trigger?: Trigger; recent: number; max: number }
 ): Promise<Array<Line>> {
@@ -33,7 +33,7 @@ export async function fetchReplyParents(
     const parentMessage = answer?.messages[0];
     const event = parentMessage?.event;
     if (event === undefined || parentMessage?.missing === true) {
-      log.info('collect: parent missing', { channel: ref.conversationId, messageId: id });
+      log.info('collect: parent missing', { channel: ref.chatId, messageId: id });
       return null;
     }
     const parent = lineOf(event) as Line;

@@ -233,22 +233,22 @@ test('restore-test: the backup restored into an isolated db service hashes as th
   }
 });
 
-test('backup restores normalized families with stable source IDs and conversation routing', () => {
+test('backup restores normalized families with stable source IDs and chat routing', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'message-family-backup-'));
   // A complete persona backup lives outside the data directory it copies.
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   const original = openMemoryDb(path.join(data, 'original.db'));
   const options = { now: () => NOW, log: quiet };
-  const envelope = (conversationId: string, messageId: string, at: number) => {
+  const envelope = (chatId: string, messageId: string, at: number) => {
     const mapped = observationOf({
       iface: 'synthetic',
       at: NOW,
-      conversation: { id: conversationId, kind: 'channel', chatType: 'channel' },
-      message: { id: messageId, at, content: `${conversationId} ${messageId}`, author: { id: 'member' } },
+      chat: { id: chatId, kind: 'channel', chatType: 'channel' },
+      message: { id: messageId, at, content: `${chatId} ${messageId}`, author: { id: 'member' } },
     });
     assert.ok(mapped);
-    return { ...mapped, messageConversation: { id: conversationId, chatType: 'channel' as const } };
+    return { ...mapped, messageChat: { id: chatId, chatType: 'channel' as const } };
   };
   const sourceId = (result: ObserveResult): string => {
     assert.equal(result.ok, true, JSON.stringify(result));
@@ -306,7 +306,7 @@ test('backup restores normalized families with stable source IDs and conversatio
         assert.equal(result.unknown, false);
         assert.deepEqual(
           result.windows.flatMap((entry) => entry.messages).map((message) => message.stored?.native),
-          [{ iface: 'synthetic', conversationId: room, messageId: 'before' }]
+          [{ iface: 'synthetic', chatId: room, messageId: 'before' }]
         );
       }
       assert.equal(sourceId(observe(restored, generic, options)), genericId);

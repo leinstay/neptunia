@@ -2,8 +2,8 @@
 // restore would change, and a restore that needs its confirmation and the revision the preview showed. Every restore first
 // takes a checkpoint of the state it replaces, so it can be undone, and a partial failure is reported with that undo. The
 // local layer, credentials, live data and git are never captured or restored (EXCLUDED and secret-files.ts), and a symlink that leads out of the
-// worktree stops the restore. A worktree the task authority does not allow has no capability. A conversation's rewind is
-// src/conversation/sessions.ts and touches no file. src/development/checkpoint-desk.ts opens one of these per task.
+// worktree stops the restore. A worktree the task authority does not allow has no capability. A chat's rewind is
+// src/chat/sessions.ts and touches no file. src/development/checkpoint-desk.ts opens one of these per task.
 
 import fs from 'node:fs';
 import path from 'node:path';

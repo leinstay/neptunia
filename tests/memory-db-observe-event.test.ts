@@ -81,7 +81,7 @@ function message({
     placeId: channel.id,
     channel,
     guild: guild ? { id: GUILD } : null,
-    conversationId: guild ? GUILD : null,
+    chatId: guild ? GUILD : null,
     author: { id: author, bot: author === BOT, globalName: NAMES[author], username: NAMES[author] },
     member: { displayName: NAMES[author] },
     content,
@@ -162,7 +162,7 @@ function day() {
       toRecordLine(
         {
           id: event.message.id,
-          placeId: event.conversation.id,
+          placeId: event.chat.id,
           content: event.message.content,
           ts: event.message.at,
           replyToId: null,
@@ -313,21 +313,21 @@ test('observationOf: every kind of line goes from toEvent through the envelope c
       authority: 'discord/global',
       key: `dm:${MEMBER}`,
       kind: 'dm',
-      conversation: 'dm',
+      chat: 'dm',
       partner: { key: MEMBER },
     });
     assert.equal(dm.done.placeId, `discord:dm:${MEMBER}`);
     assert.deepEqual(
       {
-        conversation: placeOf(dm.done).conversation,
+        chat: placeOf(dm.done).chat,
         partner: placeOf(dm.done).partner_account,
         person: placeOf(dm.done).partner_person,
       },
-      { conversation: 'dm', partner: `discord:${MEMBER}`, person: null }
+      { chat: 'dm', partner: `discord:${MEMBER}`, person: null }
     );
     assert.equal(dm.row.audience_id, `aud:dm:discord:dm:${MEMBER}`);
 
-    // A group DM: a group conversation of its own.
+    // A group DM: a group chat of its own.
     const group = write(
       message({
         id: 'm-6',
@@ -338,11 +338,7 @@ test('observationOf: every kind of line goes from toEvent through the envelope c
       })
     );
     assert.deepEqual(
-      [
-        present(group.envelope).place.key,
-        present(group.envelope).place.kind,
-        present(group.envelope).place.conversation,
-      ],
+      [present(group.envelope).place.key, present(group.envelope).place.kind, present(group.envelope).place.chat],
       ['group_dm:gdm-1', 'group_dm', 'group']
     );
     assert.equal(group.row.audience_id, 'aud:group:discord');
@@ -371,7 +367,7 @@ test('observationOf: every kind of line goes from toEvent through the envelope c
     assert.equal(
       observationOf(
         eventOf(
-          { id: 'm-9', conversationId: CHANNEL, placeId: GUILD, partial: true, author: null },
+          { id: 'm-9', chatId: CHANNEL, placeId: GUILD, partial: true, author: null },
           { edit: true, now: () => T0 }
         )
       ),

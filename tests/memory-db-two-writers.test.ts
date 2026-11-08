@@ -4,7 +4,7 @@
 // way her turns read it (`store.getUser`, export.js#exportOne). What the session wrote must survive the flush and be
 // in the profile. Two suspects of the same shape close the file: the diary's fetched text and an observation's update
 // of an account. Synthetic data only (Greek or accented Latin for non-ASCII); the ids are made up.
-import { accountOf, placeOfConversation } from '../src/memory/addresses.ts';
+import { accountOf, placeOfChat } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -537,7 +537,7 @@ test("an observation's account kind and place times survive a flush of the membe
         iface: 'discord',
         authority: 'discord/global',
         native: { kind: 'message', key: '400000000000000033', revision: 1 },
-        place: { authority: 'discord/global', key: `channel:${CHANNEL}`, kind: 'channel', conversation: 'group' },
+        place: { authority: 'discord/global', key: `channel:${CHANNEL}`, kind: 'channel', chat: 'group' },
         author: { kind: 'account', key: MEMBER, account_kind: 'bot', display: 'Ada' },
         occurredAt: AT,
         observedAt: AT,
@@ -553,14 +553,12 @@ test("an observation's account kind and place times survive a flush of the membe
   try {
     const store = createStore({ dataDir: data, memoryDb: service });
     store.touchUser(accountOf(store, MEMBER), 'Ada', NOW);
-    store.touchChannel(placeOfConversation(store, { id: CHANNEL }), { name: 'γενικά' }, NOW, MEMBER);
+    store.touchChannel(placeOfChat(store, { id: CHANNEL }), { name: 'γενικά' }, NOW, MEMBER);
     await flush(store);
     const db = dbOf(service.readHandle());
     assert.equal(db.prepare('SELECT kind FROM accounts WHERE id = ?').get(`discord:${MEMBER}`)?.kind, 'bot');
-    const place = db
-      .prepare('SELECT conversation, seen_to_at FROM places WHERE id = ?')
-      .get(`discord:channel:${CHANNEL}`);
-    assert.deepEqual([place?.conversation, place?.seen_to_at], ['group', AT], 'the observed place');
+    const place = db.prepare('SELECT chat, seen_to_at FROM places WHERE id = ?').get(`discord:channel:${CHANNEL}`);
+    assert.deepEqual([place?.chat, place?.seen_to_at], ['group', AT], 'the observed place');
   } finally {
     await service.close();
   }

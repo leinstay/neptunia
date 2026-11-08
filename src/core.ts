@@ -93,7 +93,7 @@ import { SELF_PERSON, channelPlaceId } from './memory/db/ids.ts';
 import { createMemberDirectory } from './interface/members.ts';
 import { createErrandTurns, errandDoneEvent } from './errands/turns.ts';
 import { createEventDoor } from './interface/door.ts';
-import { createConversationDirectory } from './interface/directory.ts';
+import { createChatDirectory } from './interface/directory.ts';
 import { isReadable, takeSnapshot } from './behavior/snapshot.ts';
 import {
   CLI_IFACE,
@@ -106,13 +106,13 @@ import {
 import { createCommandDesk, createCommandIntake, coreStatusFacts } from './interface/neptunia-cli.ts';
 import { createChatState } from './interface/commands/chat-state.ts';
 import type { ChatState } from './interface/commands/chat-state.ts';
-import { createConversationSessions } from './conversation/sessions.ts';
-import { createConversationStore } from './conversation/store.ts';
+import { createChatSessions } from './chat/sessions.ts';
+import { createChatStore } from './chat/store.ts';
 import type { ApprovalGate, ApprovalResult } from './board/approval-view.ts';
 import { createCheckpointDesk } from './development/checkpoint-desk.ts';
 import { WORKTREE_FOLDER } from './development/edges.ts';
 import { selfimprovementSettings } from './selfimprovement/settings.ts';
-import { conversationLines, recentGroupLines } from './memory/db/conversation-lines.ts';
+import { chatLines, recentGroupLines } from './memory/db/chat-lines.ts';
 import { ownerMemoryRuns } from './memory/db/media-english.ts';
 import { mediaText } from './memory/db/media-store.ts';
 import { OWNER_CLIENT } from './setup/clients.ts';
@@ -134,7 +134,7 @@ import { boardSettings, boardTimings } from './board/board.ts';
 import { createBoardPort } from './board/writer.ts';
 import { createReactorStore, applyReactionChanged } from './behavior/reactor-store.ts';
 import { currentIface, withIface } from './memory/db/current-iface.ts';
-import { createCommunityRoutes } from './core-routing.ts';
+import { createRootRoutes } from './core-routing.ts';
 import { accountOf } from './memory/addresses.ts';
 import { personaJournal, personaRecord } from './behavior/inner/persona-sources.ts';
 import { PERSONA_ID } from './memory/db/storage-keys.ts';
@@ -169,7 +169,7 @@ import { objOf } from './tools/types.ts';
 import type { Untyped } from './tools/types.ts';
 import type {
   ConnectionChanged,
-  ConversationChanged,
+  ChatChanged,
   InnerWake,
   MembershipChanged,
   PresenceChanged,
@@ -264,7 +264,7 @@ async function buildCore(
   // The checkout and canonical persona data root are logged once. privateDir aliases dataDir.
   log.info('index: paths', { rootDir: paths.rootDir, privateDir: paths.privateDir, dataDir: paths.dataDir });
   if (interfaces.length > 1) fail(`index: the core starts one interface at most, got ${interfaces.length}.`);
-  // No interface in this process: they run as units, and the community comes from the settings.
+  // No interface in this process: they run as units, and the root comes from the settings.
   const asUnits = interfaces.length === 0;
 
   // The persona key ring is read for each request; an empty store remains available to the keys commands.
@@ -344,7 +344,7 @@ async function buildCore(
   cleanups.push(() => releaseCore());
   // Who the persona is on the interface and which namespace its ids belong to: set once from `hello`, read at each use.
   const identity = { iface: '', selfId: '', selfName: 'bot' };
-  // The names of the members of the served community, fed by `membership.changed` (a nickname change included).
+  // The names of the members of the served root, fed by `membership.changed` (a nickname change included).
   const members = createMemberDirectory();
   // The memory database (src/memory/db/service.js): the memory. Created before the memory modules, which read and write
   // it (src/memory/db/readers/, src/memory/db/unit-write.js). Readiness is awaited before durable stores are created.
@@ -595,7 +595,7 @@ async function buildCore(
     keys: { brave: braveApiKey, exa: exaApiKey },
   };
   const lookup = createLookup(lookupOptions);
-  // The persona's display name in a community: the one name every request uses. Her nickname there when the member
+  // The persona's display name in a root: the one name every request uses. Her nickname there when the member
   // directory holds one (a nickname change reaches it through `membership.changed`), else the name `hello` gave.
   const getSelfName = (placeId: string | null) =>
     members.nameOf(nativeOfPlace(placeId ?? ''), identity.selfId) ?? identity.selfName;
@@ -622,7 +622,7 @@ async function buildCore(
   const interfaceClients = () => (loadPrincipals(paths.privateDir) ?? []).filter((entry) => entry.kind === 'interface');
   if (asUnits) {
     // The namespace the modules below are built with comes from clients.json before any unit connects: the first it
-    // names is the home interface of what no conversation addresses (wakes, the selfreflection). Every effect of a turn goes by
+    // names is the home interface of what no chat addresses (wakes, the selfreflection). Every effect of a turn goes by
     // the `iface` of its own reference (`createIfaceRouter`), so the other interfaces work beside it.
     const ifaces = [...new Set(interfaceClients().map((entry) => entry.iface))];
     identity.iface = ifaces[0] ?? '';
@@ -676,31 +676,31 @@ async function buildCore(
   // becomes the one the core serves.
   let linkSwitch: ReturnType<typeof createLinkSwitch> | null = asUnits ? createLinkSwitch(null) : null;
   let servedName: string | null = null;
-  // Every connected interface by name, and which of them serves each community. One persona across all of them: the
+  // Every connected interface by name, and which of them serves each root. One persona across all of them: the
   // served interface above keeps the core's identity and capabilities, and an effect goes by the reference's `iface`.
   const linksByName = new Map<string, ReturnType<typeof createLinkSwitch>>();
-  const communityRoutes = createCommunityRoutes({ current: currentIface });
-  /** The communities a hello names: the one it serves first, then the rest. */
-  const helloCommunities = (greeting: Hello) =>
-    [greeting.community, ...(greeting.communities ?? [])].flatMap((one) => (one ? [one] : []));
+  const rootRoutes = createRootRoutes({ current: currentIface });
+  /** The roots a hello names: the one it serves first, then the rest. */
+  const helloRoots = (greeting: Hello) =>
+    [greeting.root, ...(greeting.roots ?? [])].flatMap((one) => (one ? [one] : []));
   function connectInterface(name: string, greeting: Hello, link: ReturnType<typeof openAdapterLink>) {
     const known = linksByName.get(greeting.iface);
     if (known === undefined) linksByName.set(greeting.iface, createLinkSwitch(link));
     else known.attach(link);
-    const named = helloCommunities(greeting);
-    const communities = named.map((one) => one.id);
-    communityRoutes.note(greeting.iface, communities);
-    store.noteCommunities(greeting.iface, named, greeting.names);
-    log.info('index: interface connected', { principal: name, iface: greeting.iface, communities: communities.length });
+    const named = helloRoots(greeting);
+    const roots = named.map((one) => one.id);
+    rootRoutes.note(greeting.iface, roots);
+    store.noteRoots(greeting.iface, named, greeting.names);
+    log.info('index: interface connected', { principal: name, iface: greeting.iface, roots: roots.length });
   }
-  /** True for a community some connected interface serves, and the configured one before any said hello. */
-  /** The native id of a community, from the place the core holds it by. */
-  const nativeOfPlace = (id: string): string => store.nativeCommunityOf(store.rootPlaceOf(id) ?? id) ?? id;
-  const isServedCommunity = (id: string | null | undefined): boolean =>
-    typeof id === 'string' && communityRoutes.isServed(nativeOfPlace(id));
-  /** The canonical place of every community the connected interfaces serve. */
+  /** True for a root some connected interface serves, and the configured one before any said hello. */
+  /** The native id of a root, from the place the core holds it by. */
+  const nativeOfPlace = (id: string): string => store.nativeRootOf(store.rootPlaceOf(id) ?? id) ?? id;
+  const isServedRoot = (id: string | null | undefined): boolean =>
+    typeof id === 'string' && rootRoutes.isServed(nativeOfPlace(id));
+  /** The canonical place of every root the connected interfaces serve. */
   const servedPlaces = (): Array<string> =>
-    communityRoutes.servedList().map(({ iface: name, nativeId }) => store.placeOfCommunity(nativeId, name));
+    rootRoutes.servedList().map(({ iface: name, nativeId }) => store.placeOfRoot(nativeId, name));
   /** The served interface's hello: who the persona is on it. */
   function greet(greeting: Hello) {
     identity.iface = greeting.iface;
@@ -806,12 +806,12 @@ async function buildCore(
     : await coreLink.current().hello.catch((err) => fail(`index: the link to the interface failed: ${String(err)}`));
   if (hello !== null) {
     greet(hello);
-    const named = helloCommunities(hello);
-    communityRoutes.note(
+    const named = helloRoots(hello);
+    rootRoutes.note(
       hello.iface,
       named.map((one) => one.id)
     );
-    store.noteCommunities(hello.iface, named);
+    store.noteRoots(hello.iface, named);
   }
   // The around store tells a presence event from a voice one by what the interface declares in `hello`: whether it
   // reports presences at all (intents are fixed at login, the interface reads its own at its start).
@@ -829,7 +829,7 @@ async function buildCore(
     () =>
       [intake.chat(), ...[...linksByName.values()].map((link) => link.adapter)].filter((adapter) => adapter !== null),
     (nativeId) => {
-      const name = communityRoutes.ifaceOf(nativeId, (one) => linksByName.get(one)?.current().isClosed() === false);
+      const name = rootRoutes.ifaceOf(nativeId, (one) => linksByName.get(one)?.current().isClosed() === false);
       return name === null ? null : (linksByName.get(name)?.adapter ?? null);
     }
   );
@@ -844,7 +844,7 @@ async function buildCore(
 
   // The core's reads of the interface: each answers its body or null, and a block that needs one is left out when it is null.
   const reads = createReads(iface, log, (id) =>
-    id === PERSONA_ID ? null : store.nativeCommunityOf(store.rootPlaceOf(id) ?? id)
+    id === PERSONA_ID ? null : store.nativeRootOf(store.rootPlaceOf(id) ?? id)
   );
   // The custom emoji of the turn's place, read from the interface and kept 60 seconds: the turn lists them to her
   // and turns her `:name:` into the platform's markup through it.
@@ -868,7 +868,7 @@ async function buildCore(
   };
   const avatars = createAvatarQueue({
     ...avatarOptions,
-    isServedCommunity,
+    isServedRoot,
     servedPlaces,
   });
   // Who reacted to her messages, fed by `reaction.changed` (the door below) and by the `reactors` read.
@@ -911,10 +911,10 @@ async function buildCore(
     return answer;
   }
   // A task's `context.recent`: the channel's newest lines from the memory database (her own under her name), oldest first.
-  function recentChannelLines(conversationId: string, count: number) {
+  function recentChannelLines(chatId: string, count: number) {
     const db = memoryDb.database();
-    if (!db || !conversationId || !(count > 0)) return [];
-    const rows = recentGroupLines(db, channelPlaceId(identity.iface, String(conversationId)), count);
+    if (!db || !chatId || !(count > 0)) return [];
+    const rows = recentGroupLines(db, channelPlaceId(identity.iface, String(chatId)), count);
     const lines: Array<{ author: string; text: string }> = [];
     for (const row of rows) {
       let name = '';
@@ -953,9 +953,9 @@ async function buildCore(
   // Both stores send their writes to the database; `flush` is their retry and shutdown step.
   const intentionStores = createIntentionStores({ log, memoryDb });
   const intentions = createIntentionService({ stores: intentionStores, hot, errands, log });
-  // The conversations the interface reported (`conversation.changed`) and the direct chats it showed in messages:
+  // The chats the interface reported (`chat.changed`) and the direct chats it showed in messages:
   // their names for the inner life and the turn, the direct chat of a member for a memory session failure.
-  const directory = createConversationDirectory();
+  const directory = createChatDirectory();
   // When the interface's link to its platform last came back, for /nep status.
   const connection: { lastReconnectAt: number | null } = { lastReconnectAt: null };
   const embedOne =
@@ -1014,7 +1014,7 @@ async function buildCore(
     reads,
     memberOf: (placeId: string, accountId: string) => members.infoOf(nativeOfPlace(placeId), accountId),
     membersOf: (placeId: string) => members.list(nativeOfPlace(placeId)),
-    conversationName: (conversationId: string) => directory.nameOf(conversationId),
+    chatName: (chatId: string) => directory.nameOf(chatId),
     activity,
     journal,
     record,
@@ -1041,7 +1041,7 @@ async function buildCore(
   const selfreflection = createSelfreflection({ hot, store, reads, turns, mirrors });
   // The code-only memory of the live message path (src/memory/update.js): counters, GIF library, emoji, names.
   const memory = createMemoryUpdater({ hot, store, gifKeeper });
-  // The turn an errand's end opens, through the lease and a cooldown per conversation.
+  // The turn an errand's end opens, through the lease and a cooldown per chat.
   const taskTurns = createErrandTurns({
     hot,
     reads,
@@ -1051,16 +1051,16 @@ async function buildCore(
     intentions,
     log,
   });
-  // The places the interface lists for a community, as the inner life shows them to her: the channels she may read, with
-  // whether she can write there. The view is read synchronously, so the last listing of each community is kept here,
-  // read again when a conversation changes and before each beat of the inner life.
+  // The places the interface lists for a root, as the inner life shows them to her: the channels she may read, with
+  // whether she can write there. The view is read synchronously, so the last listing of each root is kept here,
+  // read again when a chat changes and before each beat of the inner life.
   const placeListings: Map<string, Array<{ id: string; name: string; writable: boolean }>> = new Map();
   async function refreshPlaces(placeId: string) {
     const snapshot = await takeSnapshot(reads, placeId);
     if (snapshot === null) return;
     placeListings.set(
       placeId,
-      snapshot.conversations
+      snapshot.chats
         .filter((entry) => isReadable(entry))
         .map((entry) => ({ id: entry.id, name: entry.name ?? entry.id, writable: entry.permissions.send }))
     );
@@ -1088,8 +1088,8 @@ async function buildCore(
     record: personaRecord(record, store, servedPlaces),
     // Her attention: the places the interface publishes, and the names of the people a wake names.
     places: placesOf,
-    // The names of the conversations the interface reported (`conversation.changed`), for the places she is shown.
-    conversationName: (conversationId) => directory.nameOf(conversationId),
+    // The names of the chats the interface reported (`chat.changed`), for the places she is shown.
+    chatName: (chatId) => directory.nameOf(chatId),
     nameOf: (accountId: string) => firstName(store.getUser(accountOf(store, accountId))) ?? null,
     journal: personaJournal(journal, servedPlaces, store),
     reads,
@@ -1111,11 +1111,11 @@ async function buildCore(
     },
     log,
   });
-  // The drops, holds and failures kept for her next request in a conversation live in the inner life's state.
+  // The drops, holds and failures kept for her next request in a chat live in the inner life's state.
   turns.setFactsSource(inner.facts);
   /**
    * A memory session run that failed (src/memory/db/service.js, once per failing scope),
-   * told the same way: a `memoryFailed` fact with the code and the lines waiting; a private conversation's only in that
+   * told the same way: a `memoryFailed` fact with the code and the lines waiting; a private chat's only in that
    * private chat (its DM channel, when the client knows it). Never throws.
    */
   function tellSessionFailure({
@@ -1133,10 +1133,10 @@ async function buildCore(
   }) {
     try {
       if (inner.facts?.enabled?.() !== true) return;
-      const privateChat = scopeKind === 'dm';
-      const accountId = privateChat ? String(partner ?? '').replace(/^person:[^:]+:/, '') : null;
-      const conversationId = accountId !== null ? directory.dmConversationOf(accountId) : null;
-      inner.facts.add({ kind: 'memoryFailed', code, waiting: lines, placeId: conversationId, privateChat, at });
+      const dmChat = scopeKind === 'dm';
+      const accountId = dmChat ? String(partner ?? '').replace(/^person:[^:]+:/, '') : null;
+      const chatId = accountId !== null ? directory.dmChatOf(accountId) : null;
+      inner.facts.add({ kind: 'memoryFailed', code, waiting: lines, placeId: chatId, dmChat, at });
     } catch (err) {
       log.warn('index: memory session failure not told', { code: objOf(err).code ?? null });
     }
@@ -1155,7 +1155,7 @@ async function buildCore(
     llm,
     turns,
     reads,
-    partnerOf: (conversationId) => directory.partnerOf(conversationId),
+    partnerOf: (chatId) => directory.partnerOf(chatId),
     getSelfName,
     dataDir,
     memoryDb,
@@ -1192,11 +1192,11 @@ async function buildCore(
 
   const onMessage = createMessageHandler({
     gifKeeper,
-    isServedCommunity,
-    communitiesOf: (name: string) => communityRoutes.communitiesOf(name),
+    isServedRoot,
+    rootsOf: (name: string) => rootRoutes.rootsOf(name),
     hot,
     store,
-    // The core's reads of the interface: the conversation a message is in, its history, a message by id, a member.
+    // The core's reads of the interface: the chat a message is in, its history, a message by id, a member.
     reads,
     selfId: () => identity.selfId,
     turns,
@@ -1248,9 +1248,9 @@ async function buildCore(
     // Her tool `watcher.read` (src/tools/impl/watcher.ts): the reports folder follows `watcher.dir` at each read.
     watcher: createReportReader(() => reportsDirOf(paths.dataDir, watcherDir(hot.config))),
     roleHealth,
-    // The operations' `env.reads`: the conversation they post in, a message's event.
+    // The operations' `env.reads`: the chat they post in, a message's event.
     reads,
-    // Who the persona is, and the names of members and conversations the interface reported.
+    // Who the persona is, and the names of members and chats the interface reported.
     selfId: () => identity.selfId,
     getSelfName,
     memberNameOf: (placeId, accountId) => members.nameOf(nativeOfPlace(placeId), accountId),
@@ -1412,15 +1412,15 @@ async function buildCore(
     now: clock,
     config: (): unknown => hot.config,
   });
-  // The chat's conversation sessions and development checkpoints (docs/cli.md). Sessions live in a file of their own, and their
+  // The chat's chat sessions and development checkpoints (docs/cli.md). Sessions live in a file of their own, and their
   // lines are a read of memory's stored sources.
   chatState = createChatState({
-    sessions: createConversationSessions({
-      store: createConversationStore({
+    sessions: createChatSessions({
+      store: createChatStore({
         file: path.join(paths.privateDir, 'cli', 'sessions.json'),
         readLines: (placeId) => {
           const db = memoryDb.database();
-          return db === null ? [] : conversationLines(db, placeId);
+          return db === null ? [] : chatLines(db, placeId);
         },
       }),
       now: clock,
@@ -1485,7 +1485,7 @@ async function buildCore(
       metrics,
       wakeClock: (name) => wakeClockOf(name, { now: clock(), inner, selfreflection }),
       proxy,
-      conversationLines: (conversationId, count) => recentChannelLines(conversationId, count),
+      chatLines: (chatId, count) => recentChannelLines(chatId, count),
       now: Date.now,
       // `/mirror` (src/interface/commands/mirror.ts).
       mirrors,
@@ -1745,8 +1745,8 @@ async function buildCore(
     rootId: string | null | undefined,
     member: { id: string; bot?: boolean; avatar?: { hash: string | null; url: string | null } } | undefined
   ) {
-    if (!isServedCommunity(rootId) || !member?.avatar) return;
-    avatars.offer(store.placeOfCommunity(String(rootId)), {
+    if (!isServedRoot(rootId) || !member?.avatar) return;
+    avatars.offer(store.placeOfRoot(String(rootId)), {
       id: member.id,
       bot: member.bot === true,
       hash: member.avatar.hash,
@@ -1767,14 +1767,14 @@ async function buildCore(
         store,
         onMessage,
         observeDirectory: (event) => directory.observe(event),
-        offerAvatar: (event) => offerAvatar(event.conversation?.rootId, event.message?.author),
+        offerAvatar: (event) => offerAvatar(event.chat?.rootId, event.message?.author),
         issueInternalContext: () => memoryDb.issueContext({ kind: 'internal' }),
       }),
       // The reactor store follows the reactions on the persona's messages in the served place, whatever
       // features.reactionNames says (a cheap map update; a switch turned on later finds it current).
       'reaction.changed': (event: ReactionChanged) => {
         try {
-          applyReactionChanged(reactors, event, { isServed: isServedCommunity, selfId: identity.selfId });
+          applyReactionChanged(reactors, event, { isServed: isServedRoot, selfId: identity.selfId });
         } catch (err) {
           log.warn('reactors: event failed', { kind: event?.kind ?? null, code: objOf(err).code ?? null });
         }
@@ -1798,8 +1798,8 @@ async function buildCore(
         if (event.state === 'resumed') connection.lastReconnectAt = event.at;
         return around.connection(event);
       },
-      // The names of the conversations (the inner life shows them), and a changed avatar of a member.
-      'conversation.changed': (event: ConversationChanged) => {
+      // The names of the chats (the inner life shows them), and a changed avatar of a member.
+      'chat.changed': (event: ChatChanged) => {
         directory.apply(event);
         void refreshAllPlaces();
       },

@@ -31,7 +31,7 @@ import type { Untyped } from '../src/tools/types.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
-// The conversations the scheduler runs in are held by a fake interface named `fake`.
+// The chats the scheduler runs in are held by a fake interface named `fake`.
 useIface('fake');
 
 const NOW = Date.parse('2026-10-19T12:00:00Z');
@@ -161,9 +161,9 @@ function heartbeatFixture({ stopped = false } = {}) {
   return { dataDir, tmpRoot, stateFile, kept, deps, hot };
 }
 
-test("heartbeatReplayWake: the scheduler's heartbeat wake and conversation, read only, the throwaway state removed", async () => {
+test("heartbeatReplayWake: the scheduler's heartbeat wake and chat, read only, the throwaway state removed", async () => {
   const fx = heartbeatFixture({ stopped: true });
-  const { info, conversation, currentChannel } = await heartbeatReplayWake({
+  const { info, chat, currentChannel } = await heartbeatReplayWake({
     inner,
     hot: fx.hot,
     dataDir: fx.dataDir,
@@ -179,8 +179,8 @@ test("heartbeatReplayWake: the scheduler's heartbeat wake and conversation, read
   );
   assert.equal(asRecord(info).chainId, `heartbeat:${NOW}`);
   assert.equal(asRecord(info).now, NOW);
-  // Slice 5: the heartbeat view left the wake with heartbeatLines, and a service runs nowhere: no conversation.
-  assert.equal(conversation, null);
+  // Slice 5: the heartbeat view left the wake with heartbeatLines, and a service runs nowhere: no chat.
+  assert.equal(chat, null);
   assert.equal(currentChannel, null, 'a heartbeat has no current channel');
   assert.equal(fs.readFileSync(fx.stateFile, 'utf8'), fx.kept, 'the data directory is untouched');
   assert.deepEqual(fs.readdirSync(fx.tmpRoot), [], 'the throwaway directory is gone');
@@ -299,7 +299,7 @@ test('hiddenReads: history and the listing lose the hidden channels and messages
   world().seed('c9', [message('c9', 'm3')]);
   const hide = hideSetsOf({ hideChannels: ['c2', 'c9'], hideMessages: ['m1'] });
   const wrapped = hiddenReads(world().reads, hide);
-  const ref = (conversationId: string) => ({ iface: 'fake', conversationId });
+  const ref = (chatId: string) => ({ iface: 'fake', chatId });
   assert.deepEqual(
     (await wrapped.history(ref('c1'), { limit: 10 }))?.events.map((event) => event.message.id),
     ['m2'],
@@ -307,12 +307,12 @@ test('hiddenReads: history and the listing lose the hidden channels and messages
   );
   assert.deepEqual((await wrapped.history(ref('c9'), { limit: 10 }))?.events, [], 'a hidden channel gives no history');
   assert.deepEqual(
-    (await wrapped.conversations({ placeId: 'g1' }))?.conversations.map((entry) => entry.id),
+    (await wrapped.chats({ placeId: 'g1' }))?.chats.map((entry) => entry.id),
     ['c1', 'c3'],
     'the neighbours and the pulls never see a hidden channel'
   );
-  assert.equal(await wrapped.conversationInfo(ref('c2')), null);
-  assert.equal((await wrapped.conversationInfo(ref('c1')))?.conversation.id, 'c1');
+  assert.equal(await wrapped.chatInfo(ref('c2')), null);
+  assert.equal((await wrapped.chatInfo(ref('c1')))?.chat.id, 'c1');
   assert.equal(hiddenReads(world().reads, hideSetsOf({})), world().reads);
 });
 

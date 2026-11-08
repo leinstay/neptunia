@@ -1,5 +1,5 @@
 // The persona's interface port: the one contract every interface adapter (the package's `port.ts`,
-// src/interface/fake.ts) implements, so the engine speaks of conversations, messages and members
+// src/interface/fake.ts) implements, so the engine speaks of chats, messages and members
 // and never of a chat platform (the skills design: "a platform is her interface, not her self").
 // References are opaque strings namespaced by the adapter's `iface`; content is typed with a safe
 // mention default (nobody is notified unless named); every operation answers a result -- it never
@@ -14,7 +14,7 @@ import type {
   Attachment,
   Capabilities,
   Content,
-  ConversationRef,
+  ChatRef,
   Mentions,
   MessageRef,
   Port,
@@ -22,18 +22,7 @@ import type {
   PortResult,
 } from '../protocol/index.ts';
 
-export type {
-  ConversationRef,
-  MessageRef,
-  Attachment,
-  Mentions,
-  Content,
-  PortError,
-  PortResult,
-  Capabilities,
-  Port,
-  Action,
-};
+export type { ChatRef, MessageRef, Attachment, Mentions, Content, PortError, PortResult, Capabilities, Port, Action };
 
 export {
   STATUSES,

@@ -73,7 +73,7 @@ export function wakeMemory(dataDir: string, now: () => number): WakeMemory {
 
 export const NOW = Date.parse('2026-10-19T12:00:00Z');
 export const SILENT: { info(): void; warn(): void; error(): void } = { info() {}, warn() {}, error() {} };
-export const GUILD = 'g1';
+export const ROOT = 'g1';
 /** The test's clock: every inner life built here reads it; a test moves it. */
 export const clock = { t: NOW };
 
@@ -183,7 +183,7 @@ export function fakeClient(
   ids = ['c1', 'c2', 'c3'],
   can: (channel: { id: string }) => boolean = () => true
 ): { reads: ReturnType<typeof world>['reads'] } {
-  for (const id of ids) world().channel({ id, name: `chan-${id}`, placeId: GUILD, permissions: { send: can({ id }) } });
+  for (const id of ids) world().channel({ id, name: `chan-${id}`, placeId: ROOT, permissions: { send: can({ id }) } });
   return { reads: world().reads };
 }
 
@@ -272,8 +272,8 @@ export function setup({
     journal: { inner: (fields) => journal.push(fields) },
     reads: client.reads,
     iface: () => 'fake',
-    // The names come from the directory of `conversation.changed` events in the core; the fake client's names stand in for it.
-    conversationName: (id) => (id === 'd1' ? 'dm' : `chan-${id}`),
+    // The names come from the directory of `chat.changed` events in the core; the fake client's names stand in for it.
+    chatName: (id) => (id === 'd1' ? 'dm' : `chan-${id}`),
     submit: (event) => door.submit(event),
     store: { state: { data: {} } },
     peopleWaiting,

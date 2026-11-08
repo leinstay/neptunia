@@ -43,7 +43,7 @@ function fakeRecord(lines: Untyped) {
   return record;
 }
 
-/** The turn's read of conversation c1 under g1, over `record` (plan 2026-11-05 T.4: the caller scopes the read). */
+/** The turn's read of chat c1 under g1, over `record` (plan 2026-11-05 T.4: the caller scopes the read). */
 const c1Of =
   (record: { iterate(placeId: string, query: Untyped): AsyncIterable<Untyped> }) =>
   (from: string): AsyncIterable<Untyped> =>

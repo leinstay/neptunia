@@ -410,7 +410,7 @@ export function createRecord({
       db
         .prepare(
           `SELECT a.native_id AS native, p.native_key AS key FROM places p LEFT JOIN accounts a ON a.id = p.partner_account
-           WHERE p.id = ? AND (p.kind = 'dm' OR p.conversation = 'dm')`
+           WHERE p.id = ? AND (p.kind = 'dm' OR p.chat = 'dm')`
         )
         .get(placeId)
     );
@@ -487,7 +487,7 @@ export function createRecord({
     {
       from = null,
       to = null,
-      placeIds: conversationIds = null,
+      placeIds: chatIds = null,
     }: {
       from?: string | null;
       to?: string | null;
@@ -499,7 +499,7 @@ export function createRecord({
     const toMs = to ? Date.parse(to) : Infinity;
     const fromDay = from ? dayOf(from) : '0000-00-00';
     const toDay = to ? dayOf(to) : '9999-99-99';
-    const channels = Array.isArray(conversationIds) ? new Set(conversationIds) : null;
+    const channels = Array.isArray(chatIds) ? new Set(chatIds) : null;
     for (const month of seam.run(() => recordMonths(db, placeId))) {
       if (!MONTH_RE.test(month) || month < fromDay.slice(0, 7) || month > toDay.slice(0, 7)) continue;
       for (const unit of seam.run(() => recordDays(db, placeId, month))) {

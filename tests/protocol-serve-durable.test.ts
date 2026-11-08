@@ -42,7 +42,7 @@ const CAPABILITIES: Capabilities = {
 const HELLO: Hello = {
   iface: 'fake',
   self: { id: 'self-id', name: 'Nova' },
-  community: { id: 'g1', name: 'Alpha' },
+  root: { id: 'g1', name: 'Alpha' },
   capabilities: CAPABILITIES,
   resume: null,
 };
@@ -53,7 +53,7 @@ function reaction(id: string): Record<string, unknown> {
     iface: 'fake',
     at: 1,
     id,
-    conversation: { id: 'c1', kind: 'channel' },
+    chat: { id: 'c1', kind: 'channel' },
     messageId: 'm1',
     emoji: { name: 'x' },
     accountId: 'u1',
@@ -144,7 +144,7 @@ test('a full outbox refuses an event and reads nothing back from the platform on
   // Bug: a missed stretch is fetched and replayed on its own. Changed: the owner's no-catch-up policy of 2026-11-02
   // retires the recovery of a gap from history, so the refused event stays lost and is only counted.
   const adapter = createFakeAdapter({ selfId: 'self-id' });
-  adapter.seedConversation(channelInfo('c1'));
+  adapter.seedChat(channelInfo('c1'));
   const lines = [1000, 2000, 3000].map((at, index) =>
     lineEvent({ id: `m${index + 1}`, text: `line ${index + 1}`, at })
   );
@@ -176,7 +176,7 @@ function clocked(adapter = createFakeAdapter({ selfId: 'self-id' })) {
         'action',
         {
           action: 'message.send',
-          conversation: { iface: 'fake', conversationId: 'c1' },
+          chat: { iface: 'fake', chatId: 'c1' },
           content: { text: 'hi' },
           idempotencyKey: `k-${id}`,
           deadlineAt,
@@ -209,10 +209,10 @@ test('an action that started before its deadline keeps its result when it ends a
   const state = { arrived: false };
   const adapter: typeof fake = {
     ...fake,
-    async send(conversation, content) {
+    async send(chat, content) {
       state.arrived = true;
       await gate;
-      return fake.send(conversation, content);
+      return fake.send(chat, content);
     },
   };
   const rig = clocked(adapter);

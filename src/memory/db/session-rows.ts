@@ -72,7 +72,7 @@ function personScopeOf(
   if (legacyIface !== null)
     return { person, sql: "scope_kind = 'dm' AND scope_iface = ? AND scope_dm = ?", args: [legacyIface, person] };
   const audiences = db
-    .prepare("SELECT id FROM places WHERE partner_account = ? AND (kind = 'dm' OR conversation = 'dm')")
+    .prepare("SELECT id FROM places WHERE partner_account = ? AND (kind = 'dm' OR chat = 'dm')")
     .all(account)
     .map((row) => dmAudienceId(row.id));
   if (audiences.length === 0) return null;

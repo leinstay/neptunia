@@ -432,8 +432,10 @@
     "claimLeaseMs": 600000,
     "sendTimeoutMs": 120000
   },
+  "dm": {
+    "enabled": false
+  },
   "private": {
-    "enabled": false,
     "likeServer": true,
     "minAffinity": 5
   },

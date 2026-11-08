@@ -33,7 +33,7 @@ const IMAGE = KINDS[0];
 const VOICE = KINDS.find((kind) => kind.name === 'voice received') as Kind;
 const MINUTE = 60_000;
 const OTHER = channelPlaceId('discord', 'c2');
-const CONVERSATION = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' };
+const CHAT = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' };
 const IN_OTHER = { id: 'c2', kind: 'channel', rootId: 'g1' };
 const HEARD = 'she says "грибы рано в этом году"';
 /** A key of the family catalog, the form `sources.native_id` holds on a line observed through it. */
@@ -58,13 +58,13 @@ function bareLine(
     kinds = ['image', 'image'],
     at = AT,
     place = GENERAL,
-    conversationId = 'c1',
-  }: { native: string; messageId?: string; kinds?: Array<string>; at?: number; place?: string; conversationId?: string }
+    chatId = 'c1',
+  }: { native: string; messageId?: string; kinds?: Array<string>; at?: number; place?: string; chatId?: string }
 ): string {
   const locator =
     messageId === undefined
       ? {}
-      : { $messageLocator: { v: 1, origin: 'protocol-message', iface: 'discord', conversationId, messageId } };
+      : { $messageLocator: { v: 1, origin: 'protocol-message', iface: 'discord', chatId, messageId } };
   const id = env.say({
     native,
     at,
@@ -96,15 +96,15 @@ function bareLine(
 
 /** A platform holding `events`: a read by anything but a message id of its own form is refused, as Discord answers a 400. */
 function platform(events: Array<Row>) {
-  const reads: Array<{ conversationId: string; query: HistoryQuery }> = [];
+  const reads: Array<{ chatId: string; query: HistoryQuery }> = [];
   const idOf = (event: Row) => BigInt(String((event.message as Row).id));
-  const read = (conversationId: string, query: HistoryQuery) => {
-    reads.push({ conversationId, query });
+  const read = (chatId: string, query: HistoryQuery) => {
+    reads.push({ chatId, query });
     if (query.around !== undefined && !/^\d+$/.test(query.around)) {
       return Promise.resolve({ status: 'failed', events: [], complete: false });
     }
     const held = events
-      .filter((event) => (event.conversation as Row).id === conversationId)
+      .filter((event) => (event.chat as Row).id === chatId)
       .sort((a, b) => (idOf(a) < idOf(b) ? -1 : 1));
     const at = held.findIndex((event) => idOf(event) >= BigInt(query.around ?? '0'));
     const start = Math.max(0, (at < 0 ? held.length : at) - Math.floor(query.limit / 2));
@@ -131,11 +131,11 @@ function run(env: Env, read: ReturnType<typeof platform>['read'], over: Row = {}
 }
 
 const rowsOf = (env: Env, source: string) => lineMedia(env.db, [source], internalContext(), 'source').get(source) ?? [];
-const imageEvent = (id: string, conversation: Row = CONVERSATION) => eventOf(IMAGE, id, [true, true], { conversation });
+const imageEvent = (id: string, chat: Row = CHAT) => eventOf(IMAGE, id, [true, true], { chat });
 
 /** A voice message of one attachment, as the interface reads it. */
-function voiceEvent(id: string, ref: string, conversation: Row = CONVERSATION) {
-  const event = eventOf(VOICE, id, [false, false], { conversation });
+function voiceEvent(id: string, ref: string, chat: Row = CHAT) {
+  const event = eventOf(VOICE, id, [false, false], { chat });
   (event.message as { attachments: Array<Row> }).attachments = [
     { id: ref, kind: 'voice', name: 'voice-1.ogg', durationSec: 9, url: `https://cdn.example.invalid/${ref}.ogg` },
   ];
@@ -149,12 +149,12 @@ async function linkedVoiceWithMiss(
     id,
     ref,
     reason,
-    conversation = CONVERSATION,
+    chat = CHAT,
     place = GENERAL,
-  }: { id: string; ref: string; reason: string; conversation?: Row; place?: string }
+  }: { id: string; ref: string; reason: string; chat?: Row; place?: string }
 ) {
   const source = bareLine(env, { native: id, kinds: ['voice'], place });
-  await run(env, platform([voiceEvent(id, ref, conversation)]).read);
+  await run(env, platform([voiceEvent(id, ref, chat)]).read);
   env.db
     .prepare("UPDATE media SET extra = json_set(COALESCE(extra, '{}'), '$.cache', json(?)) WHERE native_ref = ?")
     .run(JSON.stringify({ [ref]: { miss: true, ts: NOW - 10 * MINUTE, reason } }), ref);
@@ -271,13 +271,13 @@ test('a re-run reads again a linked voice whose download failed, and leaves one 
       id: '1802',
       ref: 'v2',
       reason: 'size',
-      conversation: IN_OTHER,
+      chat: IN_OTHER,
       place: OTHER,
     });
     const { read, reads } = platform([voiceEvent('1801', 'v1'), voiceEvent('1802', 'v2', IN_OTHER)]);
     const { described } = await run(env, read);
     assert.deepEqual(
-      reads.map((one) => one.conversationId),
+      reads.map((one) => one.chatId),
       ['c1']
     );
     assert.deepEqual(
@@ -323,7 +323,7 @@ test("the owner's re-run hears a voice through a download miss cached minutes ag
       },
       reads: {
         history: async (where, query) => {
-          const { status, ...body } = await read(where.conversationId, query);
+          const { status, ...body } = await read(where.chatId, query);
           return status === 'ok' ? body : null;
         },
       },
@@ -364,7 +364,7 @@ test('the run keeps the locator of a line under a family key', () =>
       v: 1,
       origin: 'protocol-message',
       iface: 'discord',
-      conversationId: 'c1',
+      chatId: 'c1',
       messageId: '1701',
     });
   }));
@@ -413,12 +413,12 @@ test('a read that fails once is read again in the same run, and nothing is left'
     const source = bareLine(env, { native: '1901' });
     const healthy = platform([imageEvent('1901')]);
     let failures = 1;
-    const flaky: typeof healthy.read = (conversationId, query) => {
+    const flaky: typeof healthy.read = (chatId, query) => {
       if (failures > 0) {
         failures -= 1;
         return Promise.resolve({ status: 'failed', events: [], complete: false });
       }
-      return healthy.read(conversationId, query);
+      return healthy.read(chatId, query);
     };
     const { report } = await run(env, flaky);
     assert.deepEqual([report.linked, report.failedPlaces, report.linesLeft], [1, 0, 0]);
@@ -430,10 +430,10 @@ test('a place that keeps failing counts its place and the lines it left, and the
     bareLine(env, { native: '1902', at: AT });
     bareLine(env, { native: '1903', at: AT + MINUTE });
     const healthy = platform([imageEvent('1902'), imageEvent('1903')]);
-    const broken: typeof healthy.read = (conversationId, query) =>
+    const broken: typeof healthy.read = (chatId, query) =>
       query.around === '1903'
         ? Promise.resolve({ status: 'failed', events: [], complete: false })
-        : healthy.read(conversationId, query);
+        : healthy.read(chatId, query);
     const first = await run(env, broken, { pageSize: 1 });
     assert.deepEqual([first.report.linked, first.report.failedPlaces, first.report.linesLeft], [1, 1, 1]);
     assert.equal(first.report.classes['read-failed'], 1);

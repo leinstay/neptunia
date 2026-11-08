@@ -27,12 +27,12 @@ const MEMORY_STATEMENT =
 /** The sessions, each resumed by its own row, a branch told from its parent by its lineage. */
 export async function sessionsPanel(client: SessionClient): Promise<Panel> {
   const sessions = await client.list();
-  if (sessions.length === 0) return { title: 'Sessions', lines: ['No conversation is stored yet.'], rows: [] };
+  if (sessions.length === 0) return { title: 'Sessions', lines: ['No chat is stored yet.'], rows: [] };
   const rows = sessions.map((one): PanelRow => ({
     id: one.id,
     label: displaySafe(one.name),
     detail: [
-      one.parentId === null ? 'The whole conversation' : `Branch of ${one.parentId}`,
+      one.parentId === null ? 'The whole chat' : `Branch of ${one.parentId}`,
       `${one.lines} lines`,
       one.lastAt === null ? 'nothing said yet' : `last line ${new Date(one.lastAt).toISOString().slice(0, 16)}`,
       'Enter resumes it',
@@ -56,7 +56,7 @@ export async function boundaryPanel(client: SessionClient, sessionId: string): P
   }));
   return {
     title: 'Branch',
-    lines: rows.length === 0 ? ['This conversation has no line to branch at.', MEMORY_STATEMENT] : [MEMORY_STATEMENT],
+    lines: rows.length === 0 ? ['This chat has no line to branch at.', MEMORY_STATEMENT] : [MEMORY_STATEMENT],
     rows,
   };
 }

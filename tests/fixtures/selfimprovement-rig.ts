@@ -160,7 +160,7 @@ export function herCalls(caller: BoardCaller) {
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     board: caller,
     now: () => SELFIMPROVEMENT_T0,
   });

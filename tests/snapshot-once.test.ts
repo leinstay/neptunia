@@ -1,5 +1,5 @@
-// The conversation snapshot of a turn attempt: every rail that looks at other conversations (neighbours, pulls,
-// participation, routing, the directory) reads one `conversations` listing taken once per attempt, not one read each.
+// The chat snapshot of a turn attempt: every rail that looks at other chats (neighbours, pulls,
+// participation, routing, the directory) reads one `chats` listing taken once per attempt, not one read each.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { channelInfo, deliver, until, withFakeCore } from './fixtures/core-over-fake.ts';
@@ -12,24 +12,23 @@ const CONFIG = {
 };
 
 function seed(fake: Fake): void {
-  fake.seedConversation(channelInfo('c1', { name: 'general', lastMessageAt: NOW - 1000 }));
+  fake.seedChat(channelInfo('c1', { name: 'general', lastMessageAt: NOW - 1000 }));
   for (const [id, name] of [
     ['c2', 'garden'],
     ['c3', 'music'],
     ['c4', 'cooking'],
   ] as const) {
-    fake.seedConversation(channelInfo(id, { name, lastMessageAt: NOW - 90_000 }));
-    deliver(fake, { id: `${id}-1`, conversationId: id, text: `news from ${name}`, at: NOW - 90_000, authorId: 'u2' });
+    fake.seedChat(channelInfo(id, { name, lastMessageAt: NOW - 90_000 }));
+    deliver(fake, { id: `${id}-1`, chatId: id, text: `news from ${name}`, at: NOW - 90_000, authorId: 'u2' });
   }
 }
 
-// PR 7d: the offline catch-up and the emoji backfill are code, so the core lists the conversations itself at its start;
+// PR 7d: the offline catch-up and the emoji backfill are code, so the core lists the chats itself at its start;
 // the listing of a turn attempt is the one that asks for the audiences.
 const listings = (calls: ReadonlyArray<{ op: string; args: ReadonlyArray<unknown> }>): number =>
-  calls.filter((c) => c.op === 'conversations' && (c.args[0] as { audience?: boolean } | undefined)?.audience === true)
-    .length;
+  calls.filter((c) => c.op === 'chats' && (c.args[0] as { audience?: boolean } | undefined)?.audience === true).length;
 
-test('takes one conversations listing for one attempt however many rails read it', async () => {
+test('takes one chats listing for one attempt however many rails read it', async () => {
   await withFakeCore({ config: CONFIG, seed }, async (rig) => {
     const before = listings(rig.fake.calls);
     await rig.emit(deliver(rig.fake, { id: 'm1', text: 'hello', at: NOW - 500, mention: true }));
@@ -49,11 +48,11 @@ test('takes a new listing for the next attempt', async () => {
   });
 });
 
-test('asks the listing for the audience of every conversation and the speaker as viewer', async () => {
+test('asks the listing for the audience of every chat and the speaker as viewer', async () => {
   await withFakeCore({ config: CONFIG, seed }, async (rig) => {
     await rig.emit(deliver(rig.fake, { id: 'm1', text: 'hello', at: NOW - 500, mention: true }));
     await until(() => rig.posted('c1').length === 1);
-    const call = rig.fake.calls.filter((c) => c.op === 'conversations').at(-1);
+    const call = rig.fake.calls.filter((c) => c.op === 'chats').at(-1);
     assert.deepEqual(call?.args[0], { placeId: 'g1', audience: true, viewers: [] });
   });
 });

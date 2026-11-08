@@ -112,7 +112,7 @@ function rig(local: Record<string, unknown> | null = null, memory = true): Rig {
     memoryDb: { database: () => handle?.db ?? null },
     usage: null,
     metrics: { samples: () => [] },
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => NOW,
     serviceManager: fakeManager(calls),
   };

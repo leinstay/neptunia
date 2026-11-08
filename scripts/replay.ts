@@ -70,8 +70,8 @@
 //
 // `--inner heartbeat`: the heartbeat's turn. The wake is built by the scheduler itself (a real
 // src/behavior/inner.ts life over a throwaway copy of inner.json, with a turn runner that only
-// records the wake and the conversation it was handed), so its `<wake>` is the one the live
-// heartbeat would carry now, and like the live one it runs nowhere (no conversation). Takes no
+// records the wake and the chat it was handed), so its `<wake>` is the one the live
+// heartbeat would carry now, and like the live one it runs nowhere (no chat). Takes no
 // `--intention`. Every `--inner` kind takes `--samples n` (n independent runs of
 // the same request, one after another, default 1), `--prompts <dir>` (a prompt layer laid over
 // the live prompts.local/ as `--selfreflection --prompts` does: a directory holding only heartbeat.md
@@ -297,7 +297,7 @@
 //
 // `--selfreflection <kind>`: `--count` briefs (1..50) of one selfreflection kind, each one `runTurn({ placeId, mode: 'selfreflection', selfreflection: {
 // kind, [topic], forced: false } })` of the real turn runner (src/behavior/turn.js, wired as src/index.js wires it)
-// with no conversation, as the live selfreflection runs it: the plan request on the classifier model with the given kind the
+// with no chat, as the live selfreflection runs it: the plan request on the classifier model with the given kind the
 // only one offered (as `/nep selfreflection post <kind>` does; `forced: false` keeps the compose request a scheduled post's),
 // then the compose request on the voice model. `--selfreflection-own-history` keeps only her own messages in the history of a
 // channel her selfreflection posted in, as the data directory's memory names it: the code before the selfreflection wake read
@@ -321,7 +321,7 @@
 // The turns draw from a second stream of the same seed. Then, slot by slot in order, the clock of the turn runner and
 // the image client set to the slot (and running on from there), the selfreflection's own checks as the tick makes them (the
 // day's posts under `selfreflection.maxPerDay`, else `skip` with reason `cap`), and `runTurn({ placeId, mode: 'selfreflection', selfreflection: {
-// kind: null, forced: false } })` of the real turn runner with no conversation: the plan request, its search, the
+// kind: null, forced: false } })` of the real turn runner with no chat: the plan request, its search, the
 // compose request, the pictures generated, and the entry recorded, which the slot reports as what its publication would
 // send. A post a slot made is kept in the in-memory selfreflection and counters, so the next slot sees it as the live selfreflection
 // would. What keeps the bot and its memory untouched: every Discord REST call but GET is refused; the turn acts through
@@ -513,7 +513,7 @@
 // issue or a chat. It never prints a token. Exit code 0 on success, 1 on any
 // error (the message on stderr). Ctrl-C once stops the sampling; twice exits.
 
-import { accountOf, placeOfCommunity } from '../src/memory/addresses.ts';
+import { accountOf, placeOfRoot } from '../src/memory/addresses.ts';
 import { personaJournal, personaRecord } from '../src/behavior/inner/persona-sources.ts';
 import fs from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
@@ -551,7 +551,7 @@ import { readOnlyMemory } from './lib/memory-read.ts';
 import {
   cachedChannel,
   cachedGuild,
-  conversationRef,
+  chatRef,
   customEmojiOf,
   discordReads,
   guildListing,
@@ -590,7 +590,7 @@ import type {
   LoopRecord,
 } from './lib/replay-types.ts';
 
-export { conversationRef, guildListing, hiddenReads, requesterOfChannel, roleIdsOf } from './lib/platform-objects.ts';
+export { chatRef, guildListing, hiddenReads, requesterOfChannel, roleIdsOf } from './lib/platform-objects.ts';
 
 /** The memory of a data directory, read only (scripts/lib/memory-read.ts), one per directory for the whole run. */
 const memories = new Map<Untyped, Untyped>();
@@ -1366,13 +1366,13 @@ async function runRecall({
     if (hit.bot && hit.authorId !== self.id) row.bots += 1;
     if (ownIds.has(id)) row.ownChat += 1;
   }
-  const hitChannels = [...perChannel].map(([conversationId, row]) => {
+  const hitChannels = [...perChannel].map(([chatId, row]) => {
     let pull = null;
     try {
       pull =
         checkPull({
           guild,
-          placeId: conversationId,
+          placeId: chatId,
           destination: channel,
           partner: null,
           config: recallHot.config,
@@ -1381,7 +1381,7 @@ async function runRecall({
     } catch (err: Untyped) {
       pull = `error:${err?.name ?? 'Error'}`;
     }
-    return { placeId: conversationId, channel: cachedChannel(guild, conversationId)?.name ?? null, ...row, pull };
+    return { placeId: chatId, channel: cachedChannel(guild, chatId)?.name ?? null, ...row, pull };
   });
   const pace = paceSettings(config);
   const elapsedMs = classifierMs + recallMs;
@@ -1469,7 +1469,7 @@ export async function readMoment({
   guild,
   placeId,
   self,
-  conversationId,
+  chatId,
   triggerId,
   before,
   config,
@@ -1477,7 +1477,7 @@ export async function readMoment({
   fetchMessage,
   log,
 }: Rec): Promise<Rec> {
-  const channel = await readableChannel({ client, guild, placeId, conversationId });
+  const channel = await readableChannel({ client, guild, placeId, chatId });
 
   const trigger = await fetchMessage(channel, triggerId);
   if (!trigger) throw new CliError('replay-cli: the trigger message was not found');
@@ -1502,11 +1502,11 @@ export async function readMoment({
 }
 
 /** A channel of the served guild that can be read: from the guild's fetched channels, else one REST fetch (a thread is not in that list); else a CliError. */
-export async function readableChannel({ client, guild, placeId, conversationId }: Rec): Promise<Untyped> {
-  let channel = cachedChannel(guild, conversationId) ?? null;
+export async function readableChannel({ client, guild, placeId, chatId }: Rec): Promise<Untyped> {
+  let channel = cachedChannel(guild, chatId) ?? null;
   if (!channel) {
     try {
-      channel = await client.channels.fetch(conversationId);
+      channel = await client.channels.fetch(chatId);
     } catch {
       channel = null;
     }
@@ -2386,7 +2386,7 @@ function replayInnerSources({
     record: mods.createRecord({ dataDir, log, memoryDb }),
     journal: mods.createJournal({ dataDir, config: () => ({}), log, memoryDb }),
     store,
-    places: () => [store.placeOfCommunity(placeId, 'discord') as string],
+    places: () => [store.placeOfRoot(placeId, 'discord') as string],
     hide,
   });
 }
@@ -2402,8 +2402,8 @@ export function hiddenPlaces(places: unknown, hide: Rec): (...args: Array<Untype
  * The heartbeat's wake, built by the scheduler itself: a real inner life (src/behavior/inner.ts#createInnerLife)
  * over a throwaway data directory holding a copy of the guild's inner.json (`dataDir` is only read), the
  * stores and sources it was given, the heartbeat wake queued for `now` and one drain; its turn runner only
- * records what it was handed (the `<wake>` facts, the conversation, the current channel) and ends the turn
- * as a skip. So the facts are the ones the live heartbeat would carry now, with no conversation, since a heartbeat
+ * records what it was handed (the `<wake>` facts, the chat, the current channel) and ends the turn
+ * as a skip. So the facts are the ones the live heartbeat would carry now, with no chat, since a heartbeat
  * runs nowhere. Nothing is written under `dataDir`; the throwaway directory is removed. A CliError when the drain
  * ran no turn (stopped, paused).
  * @param input.inner src/behavior/inner.ts's module.
@@ -2431,7 +2431,7 @@ export async function heartbeatReplayWake({
   log?: Rec;
 }): Promise<{
   info: WakeInfo;
-  conversation: { iface: string; conversationId: string } | null;
+  chat: { iface: string; chatId: string } | null;
   currentChannel: string | null;
 }> {
   const scratch = fs.mkdtempSync(path.join(tmpRoot, 'replay-heartbeat-'));
@@ -2455,7 +2455,7 @@ export async function heartbeatReplayWake({
         runTurn: async (turn: Rec) => {
           seen = {
             info: turn.inner.wake,
-            conversation: turn.conversation,
+            chat: turn.chat,
             currentChannel: turn.inner.currentChannel ?? null,
           };
           return { outcome: 'skip', reason: 'replay-capture' };
@@ -2730,10 +2730,9 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       memoryDb: memoryFor(dataDir),
     });
     const errands = {
-      view: ({ privateChannelId = null }: Rec = {}) =>
+      view: ({ dmChatId = null }: Rec = {}) =>
         [...taskStore.open(), ...taskStore.unseen()].filter(
-          (task) =>
-            task.scope !== 'dm' || (privateChannelId !== null && task.origin?.placeId === String(privateChannelId))
+          (task) => task.scope !== 'dm' || (dmChatId !== null && task.origin?.placeId === String(dmChatId))
         ),
       markSeen: () => {},
       budget: ({ agent }: Rec) => taskStore.budget(agent),
@@ -2747,7 +2746,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     const sources = replayInnerSources({ mods: { ...mods, createJournal }, dataDir, log, store, placeId, hide });
     const now = Date.now();
     let intention = null;
-    let conversation = null;
+    let chat = null;
     let info = null;
     let currentChannel;
     if (args.inner === 'heartbeat') {
@@ -2795,21 +2794,19 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
           store: schedulerStore,
         },
       });
-      ({ info, conversation, currentChannel } = caught);
+      ({ info, chat, currentChannel } = caught);
     } else {
       intention = intentions.store()?.get(args.intention) ?? null;
       if (!intention) throw new CliError(`replay-cli: no intention ${args.intention}`);
       if (!['pending', 'waiting'].includes(intention.status))
         log.warn('replay-cli: the intention is not open, no wake is due', { status: intention.status });
-      const privateChat = intention.provenance?.scope === 'dm';
-      const target = privateChat
-        ? intention.provenance?.placeId
-        : (intention.destination ?? intention.provenance?.placeId);
+      const dmChat = intention.provenance?.scope === 'dm';
+      const target = dmChat ? intention.provenance?.placeId : (intention.destination ?? intention.provenance?.placeId);
       const found = target ? await client.channels.fetch(String(target)).catch(() => null) : null;
-      if (found) conversation = conversationRef(found);
-      if (!conversation)
+      if (found) chat = chatRef(found);
+      if (!chat)
         throw new CliError(
-          'replay-cli: no conversation for this wake (the intention names no channel, or its channel is gone)'
+          'replay-cli: no chat for this wake (the intention names no channel, or its channel is gone)'
         );
       info = innerReplayWake({ inner: mods, kind: args.inner, intention, now, timezone }).info;
     }
@@ -2854,7 +2851,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     });
     log.info('replay-cli: inner ready', {
       placeId,
-      conversationId: conversation?.conversationId ?? null,
+      chatId: chat?.chatId ?? null,
       kind: args.inner,
       intention: intention?.id ?? null,
       samples: args.samples,
@@ -2878,7 +2875,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
       let result;
       try {
         result = await turns.runTurn({
-          conversation,
+          chat,
           placeId,
           mode: 'inner',
           triggerKind: 'inner',
@@ -2940,7 +2937,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     const report = {
       kind: args.inner,
       intention: intention?.id ?? null,
-      placeId: conversation?.conversationId ?? null,
+      placeId: chat?.chatId ?? null,
       hidden: hide.any ? { channels: [...hide.channels], messages: [...hide.messages] } : null,
       wake: blocks.wake ?? null,
       request: {
@@ -3221,7 +3218,7 @@ async function runSelfreflectionDay({ args, root, load, hot: liveHot, log, signa
       const fromDraws = images.calls.length;
       let result;
       try {
-        // As the live selfreflection runs it: the selfreflection wake, no conversation.
+        // As the live selfreflection runs it: the selfreflection wake, no chat.
         result = await turns.runTurn({
           placeId,
           mode: 'selfreflection',
@@ -3862,7 +3859,7 @@ export function loopCall({
  * trigger (src/behavior/prefetch.js#prefetchLanes and the recall runner's `prefetch`, as of `at`:
  * nothing after it is read), null when none would run or the engine has none (`prefetchLanes`,
  * `prefetchOn`, `recallSettings` its pure parts). `conversation.read` runs the live reader
- * (src/tools/conversation-read.ts, `conversation`: its runConversationRead, fetchSpan, recordMessages,
+ * (src/tools/conversation-read.ts, `chat`: its runConversationRead, fetchSpan, recordMessages,
  * searchHandles and pullPictures) over `record` (iterated only) and the REST channel (GET only), its
  * handles numbered on past the request's own (`idByIndex`). Nothing reaches the store or data/.
  */
@@ -3894,14 +3891,14 @@ export function createReplayTools({
   prefetchLanes = null,
   prefetchOn = null,
   recallSettings = null,
-  conversation = null,
+  chat = null,
   record = null,
   mediaTools = null,
   log = null,
 }: Rec): ReplayTools {
   const data = store.state?.data ?? {};
   const media = structuredClone(mediaCache ?? {});
-  // The conversation and the community's listing a recall run is handed, asked of the interface at the first call.
+  // The chat and the root's listing a recall run is handed, asked of the interface at the first call.
   const scopeOf = lazyRecallScope(reads, channel, String(placeId));
   // The second looks media.look took (the per-turn count of the live turn).
   let looks = 0;
@@ -3943,12 +3940,12 @@ export function createReplayTools({
     };
     return { usage, client };
   };
-  // conversation.read as a live turn runs it (src/behavior/turn.js#readConversation), read only: the record iterated,
+  // conversation.read as a live turn runs it (src/behavior/turn.js#readChat), read only: the record iterated,
   // the interface's history over GET requests of the replay's channel. One registry of handles for the tools' life,
   // numbered on past the highest line of the request (searchHandles over a draft with that floor).
   const draft: Rec = {};
-  const readConversation = async (args: Rec, { at, idByIndex }: Rec) => {
-    const { runConversationRead, fetchSpan, recordMessages, searchHandles, pullPictures } = conversation;
+  const readChat = async (args: Rec, { at, idByIndex }: Rec) => {
+    const { runConversationRead, fetchSpan, recordMessages, searchHandles, pullPictures } = chat;
     const config = hot.config;
     const labels = hot.prompts?.labels ?? {};
     const floor = idByIndex instanceof Map ? Math.max(0, ...[...idByIndex.keys()].filter(Number.isFinite)) : 0;
@@ -3982,9 +3979,9 @@ export function createReplayTools({
           return false;
         }
       },
-      readRecord: ({ placeId: conversationId, from }: Rec) =>
-        recordMessages(record, placeId, { placeId: conversationId, from, nameOf, selfName }),
-      fetchLive: (request: Rec) => fetchSpan(reads, { iface, conversationId: String(request.placeId) }, request),
+      readRecord: ({ placeId: chatId, from }: Rec) =>
+        recordMessages(record, placeId, { placeId: chatId, from, nameOf, selfName }),
+      fetchLive: (request: Rec) => fetchSpan(reads, { iface, chatId: String(request.placeId) }, request),
       render: (slice: Rec) => {
         let descriptions;
         if (typeof describer?.cachedDescriptions === 'function') {
@@ -4100,8 +4097,8 @@ export function createReplayTools({
         });
         return { result, usage };
       }
-      if (skill === 'conversation.read' && conversation) {
-        return { result: await readConversation(args, { at, idByIndex }), usage };
+      if (skill === 'conversation.read' && chat) {
+        return { result: await readChat(args, { at, idByIndex }), usage };
       }
       // media.look as a live turn runs it (src/behavior/turn.js#inTurnTools): a describer over the private cache copy and
       // the metered client (the vision helper, on the simulator key as every replay helper), its second look downloading
@@ -5222,7 +5219,7 @@ async function runSkills({
     // The moment the scenario is put after, fetched once for every side.
     let moment;
     try {
-      const channel = await readableChannel({ client, guild, placeId, conversationId: scenario.placeId });
+      const channel = await readableChannel({ client, guild, placeId, chatId: scenario.placeId });
       // Every member who writes in the scenario: one, or each step's authors; for an errand's end, who asked for it.
       const authors = scenario.steps
         ? [
@@ -5360,7 +5357,7 @@ async function runSkills({
           config: scenarioConfig,
           selfId: self.id,
           requester: callRequester,
-          conversationId: channel.id,
+          chatId: channel.id,
           now,
           images,
           tasks,
@@ -5421,7 +5418,7 @@ async function runSkills({
               selfId: self.id,
               texts: sideHot.prompts?.tools,
               requester,
-              conversationId: channel.id,
+              chatId: channel.id,
               registry,
               discovery,
             });
@@ -6158,7 +6155,7 @@ export async function runTriggerLoops({
           config,
           selfId: self.id,
           requester,
-          conversationId: channel.id,
+          chatId: channel.id,
           now: at,
           images,
           tasks,
@@ -6418,17 +6415,17 @@ async function loopDepsOf({
     (typeof collectReadableLinks === 'function' ? collectReadableLinks(message)[0]?.url : null) ??
     (typeof firstLinkIn === 'function' ? firstLinkIn(message?.content) : null);
   // conversation.read (absent from an older engine: its calls fail as an unknown tool's).
-  const conversationMod = await load('tools/conversation-read.ts').catch(() => null);
+  const chatMod = await load('tools/conversation-read.ts').catch(() => null);
   const { pullPictures = null } = await load('behavior/pull.ts').catch(() => ({}));
-  const conversation =
-    conversationMod &&
-    typeof conversationMod.runConversationRead === 'function' &&
+  const chat =
+    chatMod &&
+    typeof chatMod.runConversationRead === 'function' &&
     typeof turnMod?.searchHandles === 'function' &&
     typeof pullPictures === 'function'
       ? {
-          runConversationRead: conversationMod.runConversationRead,
-          fetchSpan: conversationMod.fetchSpan,
-          recordMessages: conversationMod.recordMessages,
+          runConversationRead: chatMod.runConversationRead,
+          fetchSpan: chatMod.fetchSpan,
+          recordMessages: chatMod.recordMessages,
           searchHandles: turnMod.searchHandles,
           pullPictures,
         }
@@ -6556,7 +6553,7 @@ async function loopDepsOf({
         prefetchLanes,
         prefetchOn,
         recallSettings,
-        conversation,
+        chat,
         record: sources.record ?? null,
         mediaTools,
         log,
@@ -6917,10 +6914,10 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
     };
     const mediaCache =
       typeof store.getMediaCache === 'function'
-        ? (store.getMediaCache(placeOfCommunity(store, String(placeId))) ?? null)
+        ? (store.getMediaCache(placeOfRoot(store, String(placeId))) ?? null)
         : null;
     const gifs =
-      typeof store.getGifs === 'function' ? (store.getGifs(placeOfCommunity(store, String(placeId))) ?? null) : null;
+      typeof store.getGifs === 'function' ? (store.getGifs(placeOfRoot(store, String(placeId))) ?? null) : null;
     const customEmoji = await customEmojiOf(discordReads(client, () => hot.config).reads, String(placeId));
     // Her tools that only read (web.search, memory.search) run for real over this guild, read only (createReplayTools).
     const loopDeps = loopWanted
@@ -6943,13 +6940,13 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
     let journalCache = null;
     const journalOf = () =>
       (journalCache ??= journalRecords(path.join(liveData, 'guilds', String(placeId), 'journal')));
-    const momentOf = (conversationId: string, triggerId: Untyped) =>
+    const momentOf = (chatId: string, triggerId: Untyped) =>
       readMoment({
         client,
         guild,
         placeId,
         self,
-        conversationId: conversationId,
+        chatId: chatId,
         triggerId,
         before,
         config,

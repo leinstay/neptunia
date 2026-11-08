@@ -45,7 +45,7 @@ export function agentCommand(
     iface: AGENT_IFACE,
     at: Date.now(),
     id: `${AGENT_IFACE}:command:${replyRef}`,
-    conversation: { id: `${AGENT_IFACE}:${name}`, kind: 'dm' },
+    chat: { id: `${AGENT_IFACE}:${name}`, kind: 'dm' },
     name: command,
     args,
     requester: { id: name, name, roles: [], owner: false },
@@ -67,7 +67,7 @@ export async function connectAgent(socketPath: string, name: string, token: stri
     hello: {
       iface: AGENT_IFACE,
       self: { id: name, name },
-      community: null,
+      root: null,
       capabilities: adapter.capabilities(),
       resume: null,
     },

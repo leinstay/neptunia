@@ -11,9 +11,9 @@ import type { Db, Row } from '../src/memory/db/types.ts';
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const SENT = NOW - 60_000;
 const IFACE = 'synthetic';
-const COMMUNITY = 'community';
-// The place that holds the record of the conversation's tree, as the pipeline names it (src/memory/addresses.ts#sharedPlaceOf).
-const TOP = topPlaceSpelled(IFACE, COMMUNITY);
+const ROOT = 'root';
+// The place that holds the record of the chat's tree, as the pipeline names it (src/memory/addresses.ts#sharedPlaceOf).
+const TOP = topPlaceSpelled(IFACE, ROOT);
 const ROOM = 'room-a';
 const HER = 'her-account';
 const MEMBER = 'member-account';
@@ -33,7 +33,7 @@ async function observeLine(
   const event = {
     iface: IFACE,
     at,
-    conversation: { id: ROOM, kind: 'channel', chatType: 'channel', rootId: COMMUNITY },
+    chat: { id: ROOM, kind: 'channel', chatType: 'channel', rootId: ROOT },
     addressing: { mentionedAccountIds: [] },
     message: {
       id,
@@ -152,7 +152,7 @@ test('a record line retried after a record-first send and its echo adds no row',
 });
 
 test('the echo of her line in a second room with the same message id stays its own row', async () => {
-  // Bug: a lookup by the message id alone joins two conversations' lines of an interface with per-room ids.
+  // Bug: a lookup by the message id alone joins two chats' lines of an interface with per-room ids.
   await withOrder('echo-first', async (memory, db) => {
     const line = toRecordLine(
       { id: 'sent-1', placeId: 'room-b', content: WORDS, ts: SENT, replyToId: null, mentionedAccountIds: [] },

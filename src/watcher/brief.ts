@@ -32,7 +32,7 @@ export function buildBrief({
   install?: InstallFacts;
   /** The spend, balances and limits the engine read before the run, with no key in them. */
   money?: MoneyFacts;
-  /** Stored facts from group conversations that bear on failing work, one line each. */
+  /** Stored facts from group chats that bear on failing work, one line each. */
   memory?: ReadonlyArray<string>;
 }): string {
   const earlier: Array<string> = [];

@@ -1,5 +1,5 @@
-// The owner operation over the private view (src/tools/impl/memory.ts), by person or by place, on a core with no community:
-// it reads `privateByPerson` and `privateByPlace` through the memory service and needs no guild.
+// The owner operation over the private view (src/tools/impl/memory.ts), by person or by place, on a core with no root:
+// it reads `privateByPerson` and `privateByPlace` through the memory service and needs no root.
 // Contract, plan 2026-11-04-cli-and-memory task 5:
 //   runOp('memory.private.read', { person: personId } | { place: placeId }, context)
 //   memoryDb.privateByPerson(personId, context), memoryDb.privateByPlace(placeId, context)
@@ -55,8 +55,8 @@ function rig(): { env: ReturnType<typeof createOpsEnv>; memoryDb: MemoryDbServic
 
 const textOf = (result: { data?: unknown; message?: unknown; text?: unknown }): string => JSON.stringify(result);
 
-test('the owner reads a person across all their DMs, with no community anywhere', async () => {
-  // Bug: `requireGuildId` refuses first, then one community's unit of one account is all that is read.
+test('the owner reads a person across all their DMs, with no root anywhere', async () => {
+  // Bug: `requireRootId` refuses first, then one root's unit of one account is all that is read.
   const { env } = rig();
   const result = await runOp('memory.private.read', { person: ANNA }, { env, asOwner: true });
   assert.equal(result.status, 'ok');
@@ -66,8 +66,8 @@ test('the owner reads a person across all their DMs, with no community anywhere'
   assert.equal(text.includes('the words of claim:b21'), false);
 });
 
-test('the owner reads one DM place and only that conversation', async () => {
-  // Bug: the operation has only a user argument, so one conversation of a person cannot be inspected.
+test('the owner reads one DM place and only that chat', async () => {
+  // Bug: the operation has only a user argument, so one chat of a person cannot be inspected.
   const { env } = rig();
   const result = await runOp('memory.private.read', { place: 'place:dm-a21' }, { env, asOwner: true });
   assert.equal(result.status, 'ok');

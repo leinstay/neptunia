@@ -621,7 +621,7 @@ test('config-migrate --dry-run names each cut key, the one live value apart from
     'capture.after dropped (constant)',
     'image.maxPerDay dropped (cap)',
     'capture.before differs: live 5, constant 3',
-    'features.privateMessages -> private.enabled',
+    'features.privateMessages -> dm.enabled',
     'discord.intents.members -> config.local/interfaces/discord.json',
   ])
     assert.ok(lines.includes(line), line);
@@ -646,7 +646,7 @@ test('config-migrate --apply writes the cut layer and the Discord file, the file
   );
   const run = migrate(['--apply'], layer.file);
   assert.equal(run.code, 0, run.err);
-  assert.deepEqual(readJson(layer.file), { private: { enabled: true }, recall: { timeoutMs: 25000 } });
+  assert.deepEqual(readJson(layer.file), { dm: { enabled: true }, recall: { timeoutMs: 25000 } });
   assert.deepEqual(readJson(layer.discord), { discord: { intents: { presences: false, members: true } } });
 });
 
@@ -782,4 +782,19 @@ test('reads old innerLife keys of the local file under wakes at load', async () 
   );
   assert.deepEqual(result.wakes, { mode: 'live', loop: { maxSteps: 6 }, kinds: { review: { maxActs: 1 } } });
   assert.equal(Object.hasOwn(result, 'innerLife'), false);
+});
+
+test('moves private.enabled to dm.enabled and leaves the other private settings where they are', () => {
+  const { config, moved } = moveConfigKeys({ private: { enabled: false, likeServer: true, minAffinity: 7 } });
+  assert.deepEqual(config, { dm: { enabled: false }, private: { likeServer: true, minAffinity: 7 } });
+  assert.deepEqual(moved, [{ from: 'private.enabled', to: 'dm.enabled' }]);
+});
+
+test('reads private.enabled of the local file as dm.enabled at load', async () => {
+  const root = deployment({ private: { enabled: false } });
+  const { result } = await withCapturedLogs(
+    () => readConfig(root, { privateDir: path.join(root, 'data') }) as Settings
+  );
+  assert.deepEqual(result.dm, { enabled: false });
+  assert.equal(Object.hasOwn((result.private ?? {}) as Settings, 'enabled'), false);
 });

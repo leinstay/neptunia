@@ -35,7 +35,7 @@ test('a sent voice message is one said line, its words empty and its voiced text
     summary: 'voice message posted',
     data: {
       text: 'voice message posted',
-      ref: { conversationId: 'c1', messageId: 'voice-1' },
+      ref: { chatId: 'c1', messageId: 'voice-1' },
       voice: { text: VOICED, durationSecs: 2.5 },
     },
   });

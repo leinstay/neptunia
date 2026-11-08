@@ -9,7 +9,7 @@ import { labels } from './fixtures/labels.ts';
 const TZ = 'Europe/Athens';
 const MIN = 60_000;
 
-type Ref = { iface: string; conversationId: string; messageId: string; url: string; text: string };
+type Ref = { iface: string; chatId: string; messageId: string; url: string; text: string };
 type Line = {
   id: string;
   ts: number;
@@ -36,7 +36,7 @@ function msg(id: string, ts: number, overrides: Partial<Line> = {}): Line {
 
 const refTo = (id: string, text: string): Ref => ({
   iface: 'discord',
-  conversationId: '22',
+  chatId: '22',
   messageId: id,
   url: text.replace(/[<>]/g, ''),
   text,

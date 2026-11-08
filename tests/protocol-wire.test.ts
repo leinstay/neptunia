@@ -19,7 +19,7 @@ const sendWith = (bytes: Uint8Array): Env =>
     'action',
     {
       action: 'message.send',
-      conversation: { iface: 'test', conversationId: 'c1' },
+      chat: { iface: 'test', chatId: 'c1' },
       content: { text: 'file', attachments: [{ name: 'big.bin', data: bytes }] },
     },
     { id: 'a1' }
@@ -227,7 +227,7 @@ test('the socket client decodes a multi-byte character cut between two chunks', 
   const f = folder();
   const text = 'café こんにちは';
   const bytes = Buffer.from(
-    `${encodeEnvelope(envelope('action', { action: 'message.send', conversation: { iface: 't', conversationId: 'c' }, content: { text } }, { id: 'u' }))}\n`
+    `${encodeEnvelope(envelope('action', { action: 'message.send', chat: { iface: 't', chatId: 'c' }, content: { text } }, { id: 'u' }))}\n`
   );
   const cut = bytes.indexOf(Buffer.from('こ')) + 1;
   const server = net.createServer((socket) => {

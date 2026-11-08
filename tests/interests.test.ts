@@ -61,7 +61,7 @@ function stored(list: Record<string, Untyped>) {
   }));
 }
 
-test('applyInterestOps: a sighting close in time to lastSeen (same conversation split over two batches) does not bump the weight', () => {
+test('applyInterestOps: a sighting close in time to lastSeen (same chat split over two batches) does not bump the weight', () => {
   const existing = stored([['Chess', 1, new Date(NOW).toISOString()]]);
   const laterSameConvo = NOW + 2 * HOUR; // well under the 12h confirmGapHours
   const items = applyInterestOps(existing, { seen: ['chess'] }, opts({ seenAt: laterSameConvo }));

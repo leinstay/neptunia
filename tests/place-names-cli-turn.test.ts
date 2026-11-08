@@ -1,6 +1,6 @@
 // A turn on the command line (a private chat of the owner, which has no `<channel_directory>`) in which she reads a
 // channel by a name she guessed: the places she is told about are the channels the owner's account can view, judged by
-// the pull rail against the snapshot of the served community. A private channel and another person's private chat
+// the pull rail against the snapshot of the served root. A private channel and another person's private chat
 // stay out of the answer. Labels carry markers (`labels.tools.tools.place`), so the test checks which places were
 // listed, never their wording. Synthetic names.
 import { test } from 'node:test';
@@ -23,7 +23,7 @@ import {
 } from './fixtures/turn-harness.ts';
 import { freshWorld, useIface, world } from './fixtures/turn-world.ts';
 
-// The world's interface is the command line's: the conversation of the owner's chat answers `cli` as its interface.
+// The world's interface is the command line's: the chat of the owner's chat answers `cli` as its interface.
 useIface('cli');
 
 const withPlaceLabels = {
@@ -42,7 +42,7 @@ const withPlaceLabels = {
   },
 };
 
-/** The owner's account on the community's interface (`bot.owners` of the harness config), who the command line reads as. */
+/** The owner's account on the root's interface (`bot.owners` of the harness config), who the command line reads as. */
 const OWNER_ACCOUNT = 'u1';
 const STRANGER = 'u9';
 
@@ -85,7 +85,7 @@ async function readFromCli(channel: string): Promise<string> {
     hot,
     store,
     client: { user: { id: 'self-id', username: 'Bot' } },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     reads: world().adopt(port),
     port,
   });

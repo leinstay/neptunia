@@ -98,7 +98,7 @@ export type ChatEnv = {
     turn: (event: ClientTurnEvent) => void;
     /** Another core answers now: the turns the last one held are gone. */
     coreRestarted: () => void;
-    /** The transcript as a resumed or branched conversation shows it, in place of what is on the screen. */
+    /** The transcript as a resumed or branched chat shows it, in place of what is on the screen. */
     view: (entries: ReadonlyArray<ChatEntry>) => void;
   }) => void;
   status: () => Promise<StatusBrief | null>;
@@ -483,7 +483,7 @@ export class ChatController {
     if (event.type === 'cancelled') this.say('Her turn over this line was cancelled. The line stays said.');
   }
 
-  /** The transcript of a resumed or branched conversation. The draft stays as it is. */
+  /** The transcript of a resumed or branched chat. The draft stays as it is. */
   showView(entries: ReadonlyArray<ChatEntry>): void {
     // A resumed or branched view shows its own lines whole: Page Up has no stored page to add to it.
     this.stored = { oldest: null, done: true, loading: false };

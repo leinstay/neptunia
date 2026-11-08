@@ -184,7 +184,7 @@ test('a line of the command line is stored under the authority its address names
         kind: 'message.received',
         iface: 'cli',
         at,
-        conversation: { id: 'cli:dm:owner', kind: 'dm', chatType: 'dm', partnerId: 'owner' },
+        chat: { id: 'cli:dm:owner', kind: 'dm', chatType: 'dm', partnerId: 'owner' },
         message: { id: 'line-1', at, content: 'a synthetic line', author: { id: 'owner', name: 'owner' } },
       },
       { connection: 'conn:cli', direct: true }

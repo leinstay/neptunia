@@ -106,8 +106,8 @@ test("the screen shows the galaxy, the status line, and a typed line reaches the
   assert.deepEqual(saved.at(-1), ['γεια']);
 });
 
-test('the input stays at the terminal bottom when the conversation is empty and the terminal grows', async () => {
-  // Bug: an empty conversation leaves the input below the header instead of at the terminal bottom.
+test('the input stays at the terminal bottom when the chat is empty and the terminal grows', async () => {
+  // Bug: an empty chat leaves the input below the header instead of at the terminal bottom.
   const { env } = envOf();
   await withChat(env, async (rig) => {
     const inputRow = (): number => rig.screen().findIndex((line) => line.includes('> bottom-input'));
@@ -128,7 +128,7 @@ test('the input stays at the terminal bottom when the conversation is empty and 
 });
 
 test('expanding a long answer preserves its first and final lines in terminal output', async () => {
-  // Bug: clipping the conversation to terminal height discards the beginning of an expanded answer.
+  // Bug: clipping the chat to terminal height discards the beginning of an expanded answer.
   const { env, listeners } = envOf();
   const lines = Array.from({ length: 40 }, (_, index) => `answer-line-${index + 1}`);
   await withChat(env, async (rig) => {
@@ -197,7 +197,7 @@ test('clearing the display sends nothing to the core', async () => {
 });
 
 test('panel navigation toggles a setting, edits another value and returns to chat without sending either to the model', async () => {
-  // Bug: Enter only filters a text panel, or a settings edit is sent as conversation text.
+  // Bug: Enter only filters a text panel, or a settings edit is sent as chat text.
   const changed: Array<string> = [];
   const { env, sent } = envOf({
     panelOf: () =>

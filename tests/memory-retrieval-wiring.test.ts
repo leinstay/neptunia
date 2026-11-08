@@ -153,7 +153,7 @@ test('an entity description review reads the assertions that name the entity, un
 });
 
 test('an errand carries the facts of its goal, and a private errand none', async () => {
-  // Bug: the runner gets a private fact, or a task with no home community gets nothing.
+  // Bug: the runner gets a private fact, or a task with no home root gets nothing.
   const { world } = known();
   const dir = tempDir('nep-errand-');
   const quiet = { warn() {}, info() {}, error() {}, debug() {} };
@@ -201,7 +201,7 @@ test('an errand carries the facts of its goal, and a private errand none', async
   world.handle.close();
 });
 
-test('a diary plan is told the stored facts of group conversations and no private one', async () => {
+test('a diary plan is told the stored facts of group chats and no private one', async () => {
   // Bug: the diary reads under an internal context and a mirror publishes a private fact.
   const { world } = known();
   const asked: Array<unknown> = [];

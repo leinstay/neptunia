@@ -26,7 +26,7 @@ import { freshWorld, world } from './fixtures/turn-world.ts';
 import '../src/tools/impl/index.ts';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
-const GUILD = 'g1';
+const ROOT = 'g1';
 const TURN = 'turn-1';
 
 type Fake = ReturnType<typeof createFakeAdapter>;
@@ -36,7 +36,7 @@ test('a second attempt of a turn whose first attempt failed before its send carr
   world().channel({
     id: 'c1',
     name: 'general',
-    placeId: GUILD,
+    placeId: ROOT,
     historyMessages: [{ ...rawMessage({ id: 'm1', ts: NOW - 30_000, content: 'γεια' }), placeId: 'c1' }],
   });
   const adapter: Fake = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
@@ -45,9 +45,9 @@ test('a second attempt of a turn whose first attempt failed before its send carr
   const sentKeys: Array<string | null> = [];
   const port: Fake = {
     ...adapter,
-    send(conversation, content, options?: { idempotencyKey?: string }) {
+    send(chat, content, options?: { idempotencyKey?: string }) {
       sentKeys.push(options?.idempotencyKey ?? null);
-      return adapter.send(conversation, content);
+      return adapter.send(chat, content);
     },
   };
   const hot = hotWith({
@@ -61,7 +61,7 @@ test('a second attempt of a turn whose first attempt failed before its send carr
     hot,
     store,
     client,
-    isServedCommunity: (id: unknown) => id === GUILD,
+    isServedRoot: (id: unknown) => id === ROOT,
     port,
     reads,
   });
@@ -104,7 +104,7 @@ test('a second attempt of a turn whose first attempt failed before its send carr
   });
   const attempt = (attemptId: number) =>
     turns.runTurn({
-      conversation: { iface: 'fake', conversationId: 'c1' },
+      chat: { iface: 'fake', chatId: 'c1' },
       mode: 'reply',
       triggerKind: 'mention',
       journalTurn: { turnId: TURN, attemptId },

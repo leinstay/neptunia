@@ -236,7 +236,7 @@ function fakeMember(guild: FakeGuild, id: string, roleIds: Array<string> = []) {
 }
 
 /** A private chat (a DM channel: no guild). */
-function privateChat() {
+function dmChat() {
   return { id: '790000000000000001', guild: null };
 }
 
@@ -272,10 +272,10 @@ test('checkPull: the rails without a request, the channel when they pass', () =>
     channel: null,
     skip: 'not-found',
   });
-  const privateChat = { id: '790000000000000001', guild: null };
+  const dmChat = { id: '790000000000000001', guild: null };
   const railOff = config({ pull: { sameAudience: false } });
   assert.deepEqual(
-    checkPull({ guild, channelId: selfreflection.id, destination: privateChat, config: railOff, now: NOW }),
+    checkPull({ guild, channelId: selfreflection.id, destination: dmChat, config: railOff, now: NOW }),
     { channel: null, skip: 'private-chat' },
     'a private chat never pulls, even with the audience rail off'
   );
@@ -303,16 +303,12 @@ test('audienceAllows: a private chat lets in exactly the sources its partner can
   const zoe = fakeMember(guild, MEMBER.zoe, [ROLE.regular]);
   const iason = fakeMember(guild, MEMBER.iason);
   for (const rail of [config(), config({ pull: { sameAudience: false } })]) {
-    assert.equal(audienceAllows(privateChat(), open, rail, { partner: iason }), true);
-    assert.equal(audienceAllows(privateChat(), closed, rail, { partner: zoe }), true, 'her role views it');
-    assert.equal(
-      audienceAllows(privateChat(), closed, rail, { partner: iason }),
-      false,
-      'he holds no role that views it'
-    );
-    assert.equal(audienceAllows(privateChat(), named, rail, { partner: zoe }), false, 'denied by name');
-    assert.equal(audienceAllows(privateChat(), named, rail, { partner: iason }), true);
-    assert.equal(audienceAllows(privateChat(), open, rail), false, 'no partner never qualifies');
+    assert.equal(audienceAllows(dmChat(), open, rail, { partner: iason }), true);
+    assert.equal(audienceAllows(dmChat(), closed, rail, { partner: zoe }), true, 'her role views it');
+    assert.equal(audienceAllows(dmChat(), closed, rail, { partner: iason }), false, 'he holds no role that views it');
+    assert.equal(audienceAllows(dmChat(), named, rail, { partner: zoe }), false, 'denied by name');
+    assert.equal(audienceAllows(dmChat(), named, rail, { partner: iason }), true);
+    assert.equal(audienceAllows(dmChat(), open, rail), false, 'no partner never qualifies');
   }
 });
 
@@ -325,7 +321,7 @@ test('checkPull: a private chat with its partner passes what the partner can vie
     messages: [{ ts: LAST }],
   });
   const iason = fakeMember(guild, MEMBER.iason);
-  const dm = privateChat();
+  const dm = dmChat();
   assert.deepEqual(
     checkPull({ guild, channelId: open.id, destination: dm, partner: iason, config: config(), now: NOW }),
     { channel: open, skip: null }

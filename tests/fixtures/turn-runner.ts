@@ -1,6 +1,6 @@
 // `createTurnRunner` over the test world, typed as the turn runner it returns. The turn tests name it
 // `createTurnRunner` and call it with the stand-ins a test holds (`runnerOptions` fills in the rest from the world), and
-// `runTurn` takes a channel of the world in the place of a conversation reference (`turnParams`).
+// `runTurn` takes a channel of the world in the place of a chat reference (`turnParams`).
 import { createTurnRunner as createRealTurnRunner } from '../../src/behavior/turn.ts';
 import type { TurnRunner } from '../../src/behavior/turn-types.ts';
 import { onWorld } from './turn-world.ts';

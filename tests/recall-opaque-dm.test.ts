@@ -1,6 +1,6 @@
-// Recall in a direct chat with no community and an opaque partner: stored recall runs by the issued context, and its search
+// Recall in a direct chat with no root and an opaque partner: stored recall runs by the issued context, and its search
 // reaches the person's DMs and nobody else's. Over the real database search and a service-issued context.
-// Contract, plan 2026-11-04-cli-and-memory task 5: `hasRecallContext({ channel, partnerId, memoryContext })` has no `guildId`.
+// Contract, plan 2026-11-04-cli-and-memory task 5: `hasRecallContext({ channel, partnerId, memoryContext })` has no `rootId`.
 // Appendix entries: src/behavior/recall-reads.ts, src/behavior/recall-run.ts, src/behavior/recall-run-types.ts,
 // src/behavior/recall.ts, src/turn/phases/request/lookup.ts, src/turn/pulls.ts.
 import { after, test } from 'node:test';
@@ -67,8 +67,8 @@ const searchIn = (service: MemoryDbService) => {
   });
 };
 
-test('a DM with a partner has a recall context with no community', () => {
-  // Bug: `Boolean(guildId && ...)` turns recall off in every DM that has no community.
+test('a DM with a partner has a recall context with no root', () => {
+  // Bug: `Boolean(rootId && ...)` turns recall off in every DM that has no root.
   assert.equal(
     hasRecallContext({
       channel: { id: 'd1', kind: 'dm', rootId: null },
@@ -80,7 +80,7 @@ test('a DM with a partner has a recall context with no community', () => {
 });
 
 test('a private chat with no partner still has none', () => {
-  // Bug: removing the community check opens stored recall to a conversation nobody can be authorized for.
+  // Bug: removing the root check opens stored recall to a chat nobody can be authorized for.
   assert.equal(
     hasRecallContext({ channel: { id: 'd1', kind: 'dm', rootId: null }, partnerId: null, memoryContext: null }),
     false
@@ -95,7 +95,7 @@ test('the search of an opaque person finds what they said in a linked DM on anot
 });
 
 test('the search of an opaque person never finds the DM of another person', () => {
-  // Bug: widening by a native id or by subject reads a stranger's conversation.
+  // Bug: widening by a native id or by subject reads a stranger's chat.
   const found = searchIn(serviceOver());
   assert.equal(JSON.stringify([found.hits, found.windows]).includes('src:his'), false);
 });

@@ -1,6 +1,6 @@
 // Who reacted to the persona's own messages, as a member sees it by hovering a reaction: the feedback on what she
 // says. A small in-process store, never persisted: message id -> emoji -> the reactors' member ids in the order they
-// reacted. It is fed by the interface's `reaction.changed` events of the served community, and for her messages a
+// reacted. It is fed by the interface's `reaction.changed` events of the served root, and for her messages a
 // transcript shows with reactions it has no reactors for (after a restart, say) by a best-effort `reactors` read
 // bounded by a time budget. Only her messages are kept, at most `REACTIONS_MAX_MESSAGES`, the oldest message
 // evicted first. Her own reaction is the `mine` flag of the reaction already, so she is never listed as a reactor;
@@ -144,7 +144,7 @@ export function applyReactionChanged(
   { isServed, selfId }: { isServed: (placeId: string) => boolean; selfId: string | null }
 ): 'applied' | 'ignored' {
   const messageId = event.messageId;
-  const rootId = event.conversation.rootId;
+  const rootId = event.chat.rootId;
   if (!messageId || !rootId || !isServed(rootId)) return 'ignored';
   const accountId = event.accountId ?? null;
   const emoji = event.emoji ? reactionKey(event.emoji) : null;

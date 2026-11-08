@@ -6,7 +6,7 @@ import { decideTurn } from '../behavior/mention.ts';
 import { MINUTE_MS } from '../time.ts';
 import { log } from '../log.ts';
 import type { CallOutcome } from './call-outcome.ts';
-import type { ConversationRef } from './conversations.ts';
+import type { ChatRef } from './chats.ts';
 import type { HoldCall } from './merge.ts';
 import type { PendingQueueOps } from './pending-queue.ts';
 import type { Conv, Line, PipelineConfig, PipelineTurns, TriggerKind } from './types.ts';
@@ -38,7 +38,7 @@ export type AnswerContext = {
   };
   selfIdOf: () => string;
   getSelfName: (placeId: string) => string;
-  refOf: (channel: Conv) => ConversationRef;
+  refOf: (channel: Conv) => ChatRef;
   holdCall: HoldCall;
   queuedFor: PendingQueueOps['queuedFor'];
   afterCallTurn: CallOutcome['afterCallTurn'];
@@ -134,7 +134,7 @@ export function createAnswer({
     if (!decision.respond) return;
     turns
       .runTurn({
-        conversation: refOf(channel),
+        chat: refOf(channel),
         mode: 'reply',
         trigger: normalized,
         triggerKind: kind,

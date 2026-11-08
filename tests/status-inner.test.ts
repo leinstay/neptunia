@@ -67,7 +67,7 @@ function envOf({ status = STATUS, usage = null }: { status?: typeof STATUS; usag
       hot,
       store,
       client: {},
-      isServedCommunity: (id: unknown) => id === 'g1',
+      isServedRoot: (id: unknown) => id === 'g1',
       inner,
       usage,
     }),

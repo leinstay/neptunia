@@ -1,7 +1,7 @@
 // The owner operations and her tools on neutral contracts (src/tools/impl/env.ts and the families over it): an operation
-// that addresses a place reads it from its context or its arguments. Nothing falls back to a home community.
-// Contract, plan 2026-11-04-cli-and-memory task 5: `createOpsEnv` takes no `getGuildId`; the env has no `requireGuildId` or
-// `resolvedGuildId`; `OpContext.placeId` replaces `OpContext.guildId`; a place operation with no place refuses with code
+// that addresses a place reads it from its context or its arguments. Nothing falls back to a home root.
+// Contract, plan 2026-11-04-cli-and-memory task 5: `createOpsEnv` takes no `getRootId`; the env has no `requireRootId` or
+// `resolvedRootId`; `OpContext.placeId` replaces `OpContext.rootId`; a place operation with no place refuses with code
 // `PLACE_REQUIRED`.
 // Appendix entries: src/tools/impl/{env,access,alias,draw,errand,index,inner,intention,learning,lore,media,memory,message,
 // pause,pings,places,search,shared,status,voice}.ts, src/tools/{codes,conversation-read,executors,tools,types}.ts,
@@ -54,22 +54,22 @@ const owner = (env: ReturnType<typeof createOpsEnv>, placeId?: string) => ({
   ...(placeId === undefined ? {} : { placeId }),
 });
 
-test('no member of the env names a guild', () => {
-  // Bug: `requireGuildId` stays reachable, and a tool written later inherits the home-community assumption.
-  const named = Object.keys(rig()).filter((key) => /guild/i.test(key));
+test('no member of the env names a root', () => {
+  // Bug: `requireRootId` stays reachable, and a tool written later inherits the home-root assumption.
+  const named = Object.keys(rig()).filter((key) => /root/i.test(key));
   assert.deepEqual(named, []);
 });
 
-test('no result code names a guild', () => {
-  // Bug: a refusal tells a Telegram owner that no guild resolved yet.
+test('no result code names a root', () => {
+  // Bug: a refusal tells a Telegram owner that no root resolved yet.
   assert.deepEqual(
-    Object.keys(CODE).filter((key) => /guild/i.test(key)),
+    Object.keys(CODE).filter((key) => /root/i.test(key)),
     []
   );
 });
 
 test('a place operation with a place in its context reads that place', async () => {
-  // Bug: the context's place is ignored for the home community, so the owner reads the wrong server's lore.
+  // Bug: the context's place is ignored for the home root, so the owner reads the wrong server's lore.
   const env = rig();
   const added = await runOp(
     'lore.add',
@@ -84,13 +84,13 @@ test('a place operation with a place in its context reads that place', async () 
 });
 
 test('a place operation with no place is refused by name', async () => {
-  // Bug: it falls back to a home community, or stores under an empty id that every such caller then shares.
+  // Bug: it falls back to a home root, or stores under an empty id that every such caller then shares.
   const result = await runOp('lore.list', {}, owner(rig()));
   assert.equal(result.code, 'PLACE_REQUIRED');
 });
 
 test('an operation of the persona needs no place at all', async () => {
-  // Bug: `status.show` and the kill switch share the guild prerequisite though they read no place.
+  // Bug: `status.show` and the kill switch share the root prerequisite though they read no place.
   const result = await runOp('status.show', {}, owner(rig()));
   assert.equal(result.status, 'ok');
 });

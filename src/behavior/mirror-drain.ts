@@ -88,7 +88,7 @@ export function createMirrorDrain({
     const adapter = port(place.iface);
     if (adapter?.capabilities?.().reconcile !== true || !adapter.fetchMessages) return;
     const answer = await reconcileUnknown(adapter as Pick<Adapter, 'capabilities' | 'fetchMessages'>, {
-      conversation: { iface: place.iface, conversationId: place.conversationId },
+      chat: { iface: place.iface, chatId: place.chatId },
       idempotencyKey: uncertain.key,
     });
     if (answer.status === 'unknown') return;

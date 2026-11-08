@@ -2,11 +2,11 @@
 // the native id, with the generation for an account (a reused native id is a new generation). Equal native ids stay
 // apart until the owner links them. A key is a structured tuple, so no character inside a native id can forge another
 // address. Plain data with no platform in it: the memory database and the core read these, and an interface may declare
-// its authority on a conversation (events.ts).
+// its authority on a chat (events.ts).
 
-import type { Conversation } from './events.ts';
+import type { Chat } from './events.ts';
 
-export type ConversationAddress = { interfaceId: string; authorityId: string; placeId: string };
+export type ChatAddress = { interfaceId: string; authorityId: string; placeId: string };
 export type AccountAddress = { interfaceId: string; authorityId: string; nativeId: string; generation: number };
 
 /** The core's own namespace (`person:self`, rows with no interface). */
@@ -19,23 +19,17 @@ export function nativeAuthorityOf(iface: unknown): string {
   return `${iface}/global`;
 }
 
-export const conversationKey = ({ interfaceId, authorityId, placeId }: ConversationAddress): string =>
+export const chatKey = ({ interfaceId, authorityId, placeId }: ChatAddress): string =>
   JSON.stringify([interfaceId, authorityId, placeId]);
 
 export const accountKey = ({ interfaceId, authorityId, nativeId, generation }: AccountAddress): string =>
   JSON.stringify([interfaceId, authorityId, nativeId, generation]);
 
-/** The address of an event's conversation, under the authority it declares or the interface's native one. */
-export function conversationAddressOf({
-  iface,
-  conversation,
-}: {
-  iface: string;
-  conversation: Conversation;
-}): ConversationAddress {
+/** The address of an event's chat, under the authority it declares or the interface's native one. */
+export function chatAddressOf({ iface, chat }: { iface: string; chat: Chat }): ChatAddress {
   return {
     interfaceId: iface,
-    authorityId: conversation.authorityId ?? nativeAuthorityOf(iface),
-    placeId: conversation.id,
+    authorityId: chat.authorityId ?? nativeAuthorityOf(iface),
+    placeId: chat.id,
   };
 }

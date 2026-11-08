@@ -7,7 +7,7 @@ import { fill, formatTranscript, renderTranscript } from '../format.ts';
 import type { Reads } from '../interface/reads.ts';
 import { topByRank } from '../memory/ranking.ts';
 import { fillPromptTemplate } from '../turn/request/text.ts';
-import type { ConversationRef } from './conversations.ts';
+import type { ChatRef } from './chats.ts';
 import type { MediaPrefill } from './media-prefill.ts';
 import type { Conv, Line, PipelineConfig, PipelineHot, PipelineLabels } from './types.ts';
 import { MEMORY_LIMITS } from '../memory/text-limits.ts';
@@ -36,7 +36,7 @@ export type ClassifierParams = {
 export type ClassifierRequestContext = {
   reads: Reads;
   store: { getUser: (accountId: string) => { aliases?: unknown } | null | undefined } | null | undefined;
-  refOf: (channel: Conv) => ConversationRef;
+  refOf: (channel: Conv) => ChatRef;
   cachedFollowUpMedia: MediaPrefill['cachedFollowUpMedia'];
   /** Her aliases, the names the owner gave her own person record, read at the moment of use. */
   selfNames: () => ReadonlyArray<string>;

@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createStore } from '../src/memory/store.ts';
 import { issueContext } from '../src/memory/db/scope.ts';
-import { GUILD, sceneRunner } from './fixtures/selfreflection-requests-recorded.ts';
+import { ROOT, sceneRunner } from './fixtures/selfreflection-requests-recorded.ts';
 import {
   entryOf,
   selfreflectionPublications,
@@ -22,7 +22,7 @@ import { freshWorld, world } from './fixtures/turn-world.ts';
 import { planAnswerText } from './fixtures/plan-answer.ts';
 
 const TEXT = 'ήσυχο βράδυ στο λιμάνι';
-const GUILD_PLACE = 'fake:guild:g1';
+const ROOT_PLACE = 'fake:root:g1';
 const D1 = 'fake:channel:d1';
 const D2 = 'fake:channel:d2';
 const OTHER_D1 = 'other:channel:d1';
@@ -59,25 +59,25 @@ function blockWords(request: unknown, tag: string): Array<string> | null {
 }
 
 /**
- * Two interfaces that share native ids: `fake` and `other`, each with a community `g1` and a channel `d1`, `fake` with
- * another channel `d2` and a channel `d3` outside the community, a private conversation, and enabled mirrors as named.
+ * Two interfaces that share native ids: `fake` and `other`, each with a root `g1` and a channel `d1`, `fake` with
+ * another channel `d2` and a channel `d3` outside the root, a private chat, and enabled mirrors as named.
  */
 async function places(mirrorOn: ReadonlyArray<'fake:d1' | 'fake:d2' | 'fake:d3' | 'other:d1'> = []) {
   const scene = await mirrorScene({ ifaces: ['fake', 'other'] });
-  const fakeGuild = scene.place({ iface: 'fake', native: 'g1', kind: 'guild' });
-  const otherGuild = scene.place({ iface: 'other', native: 'g1', kind: 'guild' });
-  scene.place({ iface: 'fake', native: 'd1', parent: fakeGuild });
-  scene.place({ iface: 'fake', native: 'd2', parent: fakeGuild });
+  const fakeRoot = scene.place({ iface: 'fake', native: 'g1', kind: 'root' });
+  const otherRoot = scene.place({ iface: 'other', native: 'g1', kind: 'root' });
+  scene.place({ iface: 'fake', native: 'd1', parent: fakeRoot });
+  scene.place({ iface: 'fake', native: 'd2', parent: fakeRoot });
   scene.place({ iface: 'fake', native: 'd3' });
-  scene.place({ iface: 'other', native: 'd1', parent: otherGuild });
+  scene.place({ iface: 'other', native: 'd1', parent: otherRoot });
   scene.place({ iface: 'fake', native: 'u1', kind: 'dm' });
   for (const one of mirrorOn) {
-    const [iface, conversationId] = one.split(':') as [string, string];
+    const [iface, chatId] = one.split(':') as [string, string];
     scene.db
       .prepare(
         "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES (?, 'selfreflection', ?, 1, ?, 'owner', NULL)"
       )
-      .run(`mirror:test:${one}`, `${iface}:channel:${conversationId}`, new Date(T0).toISOString());
+      .run(`mirror:test:${one}`, `${iface}:channel:${chatId}`, new Date(T0).toISOString());
   }
   return scene;
 }
@@ -85,13 +85,13 @@ async function places(mirrorOn: ReadonlyArray<'fake:d1' | 'fake:d2' | 'fake:d3' 
 /** One diary turn in which she answers `answer`, over the scene's memory: the turn's result and the model's requests. */
 async function writeEntry(scene: Scene, answer: string) {
   freshWorld();
-  world().channel({ id: 'd1', name: 'journal', placeId: GUILD });
+  world().channel({ id: 'd1', name: 'journal', placeId: ROOT });
   const store = createStore({ dataDir: scene.memory.dataDir, memoryDb: scene.memory.memoryDb });
   const model = modelSaying(answer);
   const result = await sceneRunner(model, store).runTurn({
     mode: 'selfreflection',
     selfreflection: { kind: 'status', forced: true },
-    placeId: GUILD,
+    placeId: ROOT,
   });
   await store.flushSettled({});
   return { result, entry: entryOf(result), store, writer: model.calls.at(-1) };
@@ -101,16 +101,16 @@ async function writeEntry(scene: Scene, answer: string) {
 const audienceOf = (result: unknown): unknown =>
   (result as { selfreflection?: { audience?: unknown } }).selfreflection?.audience;
 
-/** Every destination a send was attempted to, as `<iface>:<conversation>`, sorted. */
+/** Every destination a send was attempted to, as `<iface>:<chat>`, sorted. */
 function reached(scene: Scene): Array<string> {
   const out: Array<string> = [];
   for (const iface of ['fake', 'other'])
-    for (const attempt of scene.transport(iface).attempts) out.push(`${iface}:${attempt.conversationId}`);
+    for (const attempt of scene.transport(iface).attempts) out.push(`${iface}:${attempt.chatId}`);
   return out.sort();
 }
 
 test('a diary request lists its mirrors by canonical id with their interfaces and leaves out private ones', async () => {
-  // Catches: raw native ids she could not tell apart, or a private conversation offered as an audience.
+  // Catches: raw native ids she could not tell apart, or a private chat offered as an audience.
   // Slice 6: the places she may choose among are the mirrors, listed with two or more, so the scene has two mirrors
   // that share the native id `d1` on two interfaces.
   const scene = await places(['fake:d1', 'other:d1']);
@@ -166,12 +166,12 @@ test('an interface audience covers that interface and nothing of the other, same
   assert.equal(outcomes.find((one) => one.placeId === OTHER_D1)?.code, 'audience-excluded');
 });
 
-test('a community audience names no mirror, so it is refused and reaches no channel', async () => {
+test('a root audience names no mirror, so it is refused and reaches no channel', async () => {
   // Catches: her choice resolved against every group place memory knows instead of the mirrors listed to her.
-  // Slice 6: the places she may name are the mirrors alone, so a community that is no mirror is an unknown place and
+  // Slice 6: the places she may name are the mirrors alone, so a root that is no mirror is an unknown place and
   // the entry stays in her diary, copied nowhere, as any unlisted token is.
   const scene = await places(['fake:d1', 'fake:d2', 'fake:d3', 'other:d1']);
-  const { result, entry } = await writeEntry(scene, `<audience>place:${GUILD_PLACE}</audience><msg>${TEXT}</msg>`);
+  const { result, entry } = await writeEntry(scene, `<audience>place:${ROOT_PLACE}</audience><msg>${TEXT}</msg>`);
   assert.deepEqual(audienceOf(result), { ok: false, code: 'audience-unknown-place' });
   await scene.publisher().publishEntry(entry);
   assert.deepEqual(reached(scene), []);
@@ -287,7 +287,7 @@ test('a copy delivered before a narrowing is reported apart from the pending fil
   );
 });
 
-const BOUNDARY = { kind: 'internal-turn', origin: { iface: 'fake', conversationId: 'd1' } } as const;
+const BOUNDARY = { kind: 'internal-turn', origin: { iface: 'fake', chatId: 'd1' } } as const;
 const INTERNAL = { scope_kind: 'internal', scope_iface: null, scope_dm: null };
 
 /** One stored entry with `audience` under the trusted boundary, offered to mirrors on d1, d2 and other d1. */
@@ -320,12 +320,12 @@ test('a turn under a trusted restriction that names no audience stays restricted
   // Catches: "omitted means unrestricted" reaching an entry whose source is private.
   const scene = await places(['fake:d1', 'other:d1']);
   freshWorld();
-  world().channel({ id: 'd1', name: 'journal', placeId: GUILD });
+  world().channel({ id: 'd1', name: 'journal', placeId: ROOT });
   const store = createStore({ dataDir: scene.memory.dataDir, memoryDb: scene.memory.memoryDb });
   const result = await sceneRunner(modelSaying(`<msg>${TEXT}</msg>`), store).runTurn({
     mode: 'selfreflection',
     selfreflection: { kind: 'status', forced: true },
-    placeId: GUILD,
+    placeId: ROOT,
     publicationBoundary: BOUNDARY,
   });
   await store.flushSettled({});
@@ -385,7 +385,7 @@ test('an old entry keeps its stored restriction', async () => {
 test('a mirror seeded before this model still works for a new entry', async () => {
   // Catches: the audience check requiring a column or setting a `mirrors` row from the seed does not have.
   const scene = await mirrorScene();
-  seedMirror(scene.memory.memoryDb, { iface: 'fake', conversationId: 'd1', at: T0 });
+  seedMirror(scene.memory.memoryDb, { iface: 'fake', chatId: 'd1', at: T0 });
   scene.entry({ id: 'e1', scope: { scope_kind: 'group', scope_iface: 'fake', scope_dm: null } });
   const mirrors = scene.publisher();
   await mirrors.publishEntry({ id: 'e1', messages: [TEXT] });

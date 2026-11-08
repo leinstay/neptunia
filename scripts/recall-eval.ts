@@ -98,7 +98,7 @@
 // days) with their three neighbours on each side, the raw material for writing questions.
 // The record holds no picture captions, so a picture without text is never a candidate.
 
-import { placeOfCommunity } from '../src/memory/addresses.ts';
+import { placeOfRoot } from '../src/memory/addresses.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -275,11 +275,11 @@ function namesOf(store: Rec) {
 }
 
 /** The record's messages from `from` on (latestLines), optionally of the given channels. */
-async function readRecord(record: Rec, placeId: Untyped, { from, placeIds: conversationIds = null }: Untyped) {
+async function readRecord(record: Rec, placeId: Untyped, { from, placeIds: chatIds = null }: Untyped) {
   const lines = [];
   for await (const line of record.iterate(placeId, {
     from: new Date(from).toISOString(),
-    ...(conversationIds ? { placeIds: conversationIds } : {}),
+    ...(chatIds ? { placeIds: chatIds } : {}),
   }))
     lines.push(line);
   return latestLines(lines);
@@ -376,13 +376,13 @@ async function recallParts(
     client?: unknown;
     channels: { cache: { get: (id: string) => { name?: string | null } | undefined } };
   } = guild;
-  const { id: conversationId } = channel;
+  const { id: chatId } = channel;
   if (found.local === true) {
     const { channels } = found;
     const channelNameOf = (id: string) => channels.cache.get(id)?.name ?? null;
     return {
       reads: localReads({ placeId, channelNameOf }),
-      scope: localScope({ placeId, conversationId: String(conversationId), channelNameOf }),
+      scope: localScope({ placeId, chatId: String(chatId), channelNameOf }),
     };
   }
   const { reads } = discordReads(found.client, config);
@@ -765,7 +765,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   if (useWeb) {
     const { createLookup, searches } = webParts;
     const { createPageFetcher } = await import('../src/web/fetch-page.ts');
-    const media = { ...(store.getMediaCache(placeOfCommunity(store, placeId)) ?? {}) };
+    const media = { ...(store.getMediaCache(placeOfRoot(store, placeId)) ?? {}) };
     const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
     const pageFetcher = createPageFetcher();
     const keys = webSearchKeys(process.env);
@@ -803,18 +803,18 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   const historyOf = new Map();
 
   /** The channel's last lines from the record, as the turn's chat. */
-  async function channelHistory(conversationId: Untyped) {
-    if (!historyOf.has(conversationId)) {
+  async function channelHistory(chatId: Untyped) {
+    if (!historyOf.has(chatId)) {
       const lines = await readRecord(record, placeId, {
         from: now() - HISTORY_DAYS * DAY_MS,
-        placeIds: [conversationId],
+        placeIds: [chatId],
       });
       historyOf.set(
-        conversationId,
+        chatId,
         lines.slice(-historyCount).map((line) => recordMessage(line, { nameOf, selfName }))
       );
     }
-    return historyOf.get(conversationId);
+    return historyOf.get(chatId);
   }
 
   /** The search classifier's server part for `trigger`, as maybeLookup asks it; `fallback` on a failed or empty answer. */

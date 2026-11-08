@@ -11,18 +11,18 @@ import type { ObserveResult } from '../src/memory/db/observe.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00Z');
 const options = { now: () => NOW, log: { debug() {}, info() {}, warn() {}, error() {} } };
-const locator = (room: string) => ({ iface: 'synthetic', conversationId: room, messageId: 'same-message' });
+const locator = (room: string) => ({ iface: 'synthetic', chatId: room, messageId: 'same-message' });
 function input(room: string, eventId = 'delete-event') {
   return {
     v: 1,
     iface: 'synthetic',
     authority: 'synthetic/global',
     messageLocator: { v: 1, origin: 'protocol-message', ...locator(room) },
-    messageConversation: { id: room, chatType: 'channel' },
+    messageChat: { id: room, chatType: 'channel' },
     occurredAt: new Date(NOW).toISOString(),
     observedAt: new Date(NOW).toISOString(),
     ingest: {
-      row: { principal: 'adapter', seq: null, eventId, kind: 'message.received', conversation: room },
+      row: { principal: 'adapter', seq: null, eventId, kind: 'message.received', chat: room },
       keepDays: 7,
     },
   };
@@ -31,7 +31,7 @@ function observed(room: string) {
   const result = observationOf({
     iface: 'synthetic',
     at: NOW,
-    conversation: { id: room, kind: 'channel', chatType: 'channel' },
+    chat: { id: room, kind: 'channel', chatType: 'channel' },
     message: { id: 'same-message', at: NOW - 60000, content: `Archive ${room}`, author: { id: 'member' } },
   });
   if (!result) throw new Error('synthetic observation refused');
@@ -43,7 +43,7 @@ function source(result: ObserveResult): string {
   return result.sourceId;
 }
 
-test('an authorless deletion hides only its conversation while retaining archival text and its receipt', () => {
+test('an authorless deletion hides only its chat while retaining archival text and its receipt', () => {
   const handle = openMemoryDb(':memory:');
   try {
     const a = source(observeMessage(handle, observed('room-a'), options));
@@ -108,7 +108,7 @@ test('replaying an accepted deletion returns the original tombstone without dupl
 test('a malformed deletion descriptor writes neither tombstone nor receipt', () => {
   const handle = openMemoryDb(':memory:');
   try {
-    const bad = { ...input('room-a'), messageConversation: { id: 'other-room', chatType: 'channel' } };
+    const bad = { ...input('room-a'), messageChat: { id: 'other-room', chatType: 'channel' } };
     assert.deepEqual(deleteMessage(handle, bad, options), { ok: false, code: 'BAD_PLACE' });
     for (const table of ['sources', 'ingest', 'message_families'])
       assert.deepEqual(dbOf(handle).prepare(`SELECT * FROM ${table}`).all(), []);

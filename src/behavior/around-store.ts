@@ -97,11 +97,11 @@ export function createAroundStore(options: { presences: boolean | (() => boolean
     // A join, a move or a flag change replaces the record, a leave removes it. A join or a move stamps
     // `joinedAt` with the event's time, a flag change keeps the one held (none after a snapshot).
     voiceChanged(event) {
-      if (event.conversationId === null) {
+      if (event.chatId === null) {
         voice.delete(event.accountId);
         return;
       }
-      const record = voiceRecord(event, event.conversationId);
+      const record = voiceRecord(event, event.chatId);
       const held = voice.get(event.accountId);
       if (held?.placeId === record.placeId) {
         if (held.joinedAt !== undefined) record.joinedAt = held.joinedAt;
@@ -119,7 +119,7 @@ export function createAroundStore(options: { presences: boolean | (() => boolean
     snapshot(event) {
       voice = new Map();
       for (const entry of event.voice) {
-        if (entry.conversationId !== null) voice.set(entry.accountId, voiceRecord(entry, entry.conversationId));
+        if (entry.chatId !== null) voice.set(entry.accountId, voiceRecord(entry, entry.chatId));
       }
       presence = new Map();
       if (!reportsPresences()) return;

@@ -2,7 +2,7 @@
 // a memory database, with a scripted model, on fixed inputs that reach every block a selfreflection request can carry.
 // Memory holds two earlier entries with their text, the place `d1` named `journal` with the one enabled mirror on it, the
 // place `c1` named `general`, recent lines of both and the server's notes. Synthetic text only.
-import { placeOfCommunity, placeOfConversation } from '../../src/memory/addresses.ts';
+import { placeOfRoot, placeOfChat } from '../../src/memory/addresses.ts';
 import { createStore } from '../../src/memory/store.ts';
 import { insertRows } from '../../src/memory/db/rows.ts';
 import { dbOf } from '../../src/memory/db/types.ts';
@@ -75,7 +75,7 @@ export function sceneLlm(): {
   };
 }
 
-/** The interface's world: the server's other conversation and the mirror place, empty, so history can only come from memory. */
+/** The interface's world: the server's other chat and the mirror place, empty, so history can only come from memory. */
 export function sceneWorld({ restricted = false }: { restricted?: boolean } = {}): void {
   world().channel({ id: 'c1', name: 'general', placeId: SERVER });
   world().channel({ id: 'd1', name: 'journal', placeId: SERVER, historyMessages: [] });
@@ -113,18 +113,18 @@ export async function sceneMemory({ restricted = false }: { restricted?: boolean
   const memory = await openTestMemory({ now: () => NOW, iface: () => 'fake' });
   const db = dbOf(memory.memoryDb.readHandle() as { db: unknown });
   const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
-  store.updatePlace(placeOfCommunity(store, SERVER), { patterns: 'people greet each other in Greek' });
+  store.updatePlace(placeOfRoot(store, SERVER), { patterns: 'people greet each other in Greek' });
   const channels: Array<readonly [string, string, string]> = [
     ['d1', 'journal', 'her own diary'],
     ['c1', 'general', 'everyday talk'],
   ];
   if (restricted) channels.push(['s1', 'staff-room', 'private planning']);
   for (const [id, name, purpose] of channels) {
-    store.touchChannel(placeOfConversation(store, { id }), { name }, NOW - 2 * HOUR);
-    store.updateChannel(placeOfConversation(store, { id }), { purpose });
+    store.touchChannel(placeOfChat(store, { id }), { name }, NOW - 2 * HOUR);
+    store.updateChannel(placeOfChat(store, { id }), { purpose });
   }
   store.applyRecentOps(
-    placeOfCommunity(store, SERVER),
+    placeOfRoot(store, SERVER),
     [
       { text: 'Alice is planning a trip to Thessaloniki', at: NOW - 2 * HOUR, placeId: 'c1', weight: 1 },
       { text: 'a quiet harbour', at: NOW - 2 * HOUR, placeId: 'd1', weight: 1 },
@@ -157,8 +157,8 @@ export async function sceneMemory({ restricted = false }: { restricted?: boolean
   );
   for (const [id] of channels)
     db.prepare('UPDATE places SET parent_id = ? WHERE id = ?').run(
-      placeOfCommunity(store, SERVER),
-      placeOfConversation(store, { id })
+      placeOfRoot(store, SERVER),
+      placeOfChat(store, { id })
     );
   db.prepare(
     "INSERT INTO mirrors (id, row_kind, place_id, enabled, created_at, created_by, extra) VALUES (?, 'selfreflection', ?, 1, ?, 'owner', NULL)"

@@ -1455,6 +1455,53 @@ function renameStoredKeys(db: Db): void {
   }
 }
 
+/** The keys of the JSON the engine keeps that took the words `chat` and `dm`; the colon keeps a value named `conversation` out. */
+const V39_KEYS = [
+  ['"conversationId"', '"chatId"'],
+  ['"conversation":', '"chat":'],
+  ['"privateChat"', '"dmChat"'],
+] as const;
+const V39_COLUMNS = [...V30_COLUMNS, ['wakes', 'payload']] as const;
+
+/**
+ * `places.conversation` renamed `places.chat`, nothing done where the table is missing or already renamed. The opener
+ * (src/memory/db/open.ts) calls it after every step, so the shared code that a later step runs (the name index, the
+ * projection, the message catalog) reads the column under the name it has today whatever version the file started at.
+ */
+export function renameChatColumn(db: Db): void {
+  const columns = db
+    .prepare('PRAGMA table_info(places)')
+    .all()
+    .map((column) => String(column.name));
+  if (columns.includes('conversation') && !columns.includes('chat'))
+    db.exec('ALTER TABLE places RENAME COLUMN conversation TO chat;');
+}
+
+/**
+ * Version 39: a place says what kind of chat it is in `places.chat` (it was `conversation`), and the mutable JSON the
+ * engine reads back carries the keys of its chat references under the new words. Rows of the append-only tables keep the
+ * old keys; their readers (src/memory/db/message-locator.ts) accept both.
+ */
+function renameChat(db: Db): void {
+  renameChatColumn(db);
+  const tables = new Set(
+    db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+      .all()
+      .map((row) => String(row.name))
+  );
+  for (const [table, column] of V39_COLUMNS) {
+    if (!tables.has(table)) continue;
+    for (const [old, name] of V39_KEYS) {
+      db.prepare(`UPDATE ${table} SET ${column} = replace(${column}, ?, ?) WHERE ${column} LIKE ?`).run(
+        old,
+        name,
+        `%${old}%`
+      );
+    }
+  }
+}
+
 /** The shipped media store step: it runs before the rename, on the old names. */
 function migrateMediaStoreStep(db: Db): void {
   migrateMediaStore(db, 'diary');
@@ -1515,6 +1562,8 @@ export const MIGRATIONS: Array<Migration> = [
   (db: Db): void => {
     moveSelfreflectionMediaIds(db);
   },
+  // Version 39: `places.conversation` is `places.chat`, and stored JSON keys take the words chat and dm.
+  renameChat,
 ];
 
 /** Every table schema v8 adds. */

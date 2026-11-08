@@ -119,7 +119,7 @@ function excerptText(w: Words, excerpt: ExcerptEntry): string {
   });
 }
 
-/** The conversation id of a stored place, which its channel handle stands for; null for a one-to-one chat. */
+/** The chat id of a stored place, which its channel handle stands for; null for a one-to-one chat. */
 export function channelIdOf(placeId: string, kind: string | null): string | null {
   if (kind === 'dm') return null;
   return nativeOfAny(placeId) ?? placeId;
@@ -191,7 +191,7 @@ export function factItemsOf(facts: ReadonlyArray<StoredFact>, labels: Labels): A
 
 /**
  * Every entry of `mind` as an item, in the order of the subtags and, inside one, the reader's rank. `selfreflectionIds`
- * are the conversation ids of the places her selfreflection is mirrored to (src/memory/db/mirrors.ts).
+ * are the chat ids of the places her selfreflection is mirrored to (src/memory/db/mirrors.ts).
  */
 export function memoryItemsOf(
   mind: Mind,

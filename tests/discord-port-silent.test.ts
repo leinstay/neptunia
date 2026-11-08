@@ -25,8 +25,8 @@ function portOver(sent: Array<Payload>, config: () => object) {
   });
 }
 
-const conversation = { iface: 'discord', conversationId: 'c1' };
-const replyTo = { iface: 'discord', conversationId: 'c1', messageId: 'm0' };
+const chat = { iface: 'discord', chatId: 'c1' };
+const replyTo = { iface: 'discord', chatId: 'c1', messageId: 'm0' };
 const on = () => ({ discord: { silent: true } });
 const off = () => ({ discord: { silent: false } });
 // The lead: one sent payload's mentions get a name, so each assertion reads three segments deep at most (R.2).
@@ -50,7 +50,7 @@ const usersOf = (payload: Payload | undefined): Array<string> => mentionsOf(payl
 test('send: silent mode adds no suppress flag to a plain message and pings nobody', async () => {
   // Bug: the port marks every message silent, and the channel no longer lights up as unread.
   const sent: Array<Payload> = [];
-  const result = await portOver(sent, on).send(conversation, { text: 'hi' });
+  const result = await portOver(sent, on).send(chat, { text: 'hi' });
   assert.equal(result.status, 'ok');
   assert.equal(sent[0].content, 'hi');
   assert.equal(flagsOf(sent[0]) & SILENT, 0);
@@ -61,7 +61,7 @@ test('send: silent mode adds no suppress flag to a plain message and pings nobod
 
 test('send: silent mode keeps the reply reference and does not ping a replied author with no state', async () => {
   const sent: Array<Payload> = [];
-  await portOver(sent, on).send(conversation, {
+  await portOver(sent, on).send(chat, {
     text: 'yes',
     replyTo,
     mentions: { users: [], repliedUser: true, asked: { users: [], repliedUser: false } },
@@ -73,7 +73,7 @@ test('send: silent mode keeps the reply reference and does not ping a replied au
 
 test('send: silent mode pings the replied author who asked for it and adds no flag', async () => {
   const sent: Array<Payload> = [];
-  await portOver(sent, on).send(conversation, {
+  await portOver(sent, on).send(chat, {
     text: 'yes',
     replyTo,
     mentions: { users: [], repliedUser: true, notify: true, asked: { users: [], repliedUser: true } },
@@ -86,7 +86,7 @@ test('send: silent mode pings the replied author who asked for it and adds no fl
 test('send: silent mode pings the named member who chose on and not the one who chose nothing', async () => {
   // Bug: the person's own state does not win per person, so a mixed message pings both or neither.
   const sent: Array<Payload> = [];
-  await portOver(sent, on).send(conversation, {
+  await portOver(sent, on).send(chat, {
     text: 'hey <@42> and <@43>',
     mentions: { users: ['42', '43'], repliedUser: false, asked: { users: ['42'], repliedUser: false } },
   });
@@ -97,7 +97,7 @@ test('send: silent mode pings the named member who chose on and not the one who 
 
 test('send: silent mode leaves a named member with off out and keeps the mention text', async () => {
   const sent: Array<Payload> = [];
-  await portOver(sent, on).send(conversation, {
+  await portOver(sent, on).send(chat, {
     text: 'hey <@42>',
     mentions: { users: [], repliedUser: false, asked: { users: [], repliedUser: false } },
   });
@@ -108,7 +108,7 @@ test('send: silent mode leaves a named member with off out and keeps the mention
 test('send: silent mode takes asked over the users and reply ping of the same mentions', async () => {
   // Bug: the port intersects or merges asked with users instead of taking asked.
   const sent: Array<Payload> = [];
-  await portOver(sent, on).send(conversation, {
+  await portOver(sent, on).send(chat, {
     text: 'hey',
     replyTo,
     mentions: { users: ['42', '43'], repliedUser: true, asked: { users: ['43'], repliedUser: false } },
@@ -120,7 +120,7 @@ test('send: silent mode takes asked over the users and reply ping of the same me
 test('send: silent mode sends the users and reply ping as given for notify with no asked', async () => {
   // A stored mirror send carries only `notify`.
   const sent: Array<Payload> = [];
-  await portOver(sent, on).send(conversation, {
+  await portOver(sent, on).send(chat, {
     text: 'hey <@42>',
     replyTo,
     mentions: { users: ['42'], repliedUser: true, notify: true },
@@ -132,7 +132,7 @@ test('send: silent mode sends the users and reply ping as given for notify with 
 
 test('send: silent mode pings nobody for mentions with neither notify nor asked', async () => {
   const sent: Array<Payload> = [];
-  await portOver(sent, on).send(conversation, {
+  await portOver(sent, on).send(chat, {
     text: 'hey <@42>',
     replyTo,
     mentions: { users: ['42'], repliedUser: true },
@@ -144,7 +144,7 @@ test('send: silent mode pings nobody for mentions with neither notify nor asked'
 
 test('send: silent mode adds no flag to a file message and keeps its text and file', async () => {
   const sent: Array<Payload> = [];
-  await portOver(sent, on).send(conversation, {
+  await portOver(sent, on).send(chat, {
     text: 'look',
     attachments: [{ name: 'a.png', data: Buffer.from('x') }],
   });
@@ -156,7 +156,7 @@ test('send: silent mode adds no flag to a file message and keeps its text and fi
 
 test('send: silent mode leaves a voice message with the voice flag alone', async () => {
   const sent: Array<Payload> = [];
-  await portOver(sent, on).send(conversation, {
+  await portOver(sent, on).send(chat, {
     attachments: [
       {
         name: 'voice-1.ogg',
@@ -172,14 +172,14 @@ test('send: silent mode leaves a voice message with the voice flag alone', async
 
 test('send: silent mode adds no flag to any part of a text split into several messages', async () => {
   const sent: Array<Payload> = [];
-  await portOver(sent, on).send(conversation, { text: `${'word '.repeat(600)}`.trim() });
+  await portOver(sent, on).send(chat, { text: `${'word '.repeat(600)}`.trim() });
   assert.ok(sent.length > 1);
   for (const payload of sent) assert.equal(flagsOf(payload) & SILENT, 0);
 });
 
 test('send: with the key off the payload is exactly the engine always sent', async () => {
   const sent: Array<Payload> = [];
-  await portOver(sent, off).send(conversation, { text: 'hi', replyTo });
+  await portOver(sent, off).send(chat, { text: 'hi', replyTo });
   assert.deepEqual(sent[0], {
     content: 'hi',
     reply: { messageReference: 'm0', failIfNotExists: false },
@@ -189,7 +189,7 @@ test('send: with the key off the payload is exactly the engine always sent', asy
 
 test('send: with no config the payload has no flags and a requested reply ping stays', async () => {
   const sent: Array<Payload> = [];
-  await portOver(sent, () => ({})).send(conversation, {
+  await portOver(sent, () => ({})).send(chat, {
     text: 'hi',
     replyTo,
     mentions: { users: [], repliedUser: true },
@@ -200,7 +200,7 @@ test('send: with no config the payload has no flags and a requested reply ping s
 
 test('send: with the key off a voice message carries only the voice flag', async () => {
   const sent: Array<Payload> = [];
-  await portOver(sent, off).send(conversation, {
+  await portOver(sent, off).send(chat, {
     attachments: [{ name: 'v.ogg', data: Buffer.from('o'), voice: { durationSecs: 1, waveform: 'AA==' } }],
   });
   assert.equal(sent[0].flags, VOICE);
@@ -210,11 +210,11 @@ test('send: switching the key between two sends changes the second only', async 
   const sent: Array<Payload> = [];
   let silent = false;
   const port = portOver(sent, () => ({ discord: { silent } }));
-  await port.send(conversation, { text: 'first', replyTo });
+  await port.send(chat, { text: 'first', replyTo });
   silent = true;
-  await port.send(conversation, { text: 'second', replyTo });
+  await port.send(chat, { text: 'second', replyTo });
   silent = false;
-  await port.send(conversation, { text: 'third', replyTo });
+  await port.send(chat, { text: 'third', replyTo });
   assert.equal(sent[0].flags, undefined);
   // Owner's word of 2026-11-06: silent mode adds no suppress flag; it stops the reply ping.
   assert.equal(flagsOf(sent[1]) & SILENT, 0);

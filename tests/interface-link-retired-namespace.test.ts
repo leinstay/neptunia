@@ -31,7 +31,7 @@ test('a hello under the retired namespace plugin is refused with iface and the l
   client.send(
     envelope(
       'hello',
-      { iface: 'plugin', self: { id: 'echo', name: 'echo' }, community: null, token: 'fake-token' },
+      { iface: 'plugin', self: { id: 'echo', name: 'echo' }, root: null, token: 'fake-token' },
       { id: 'hello:plugin:echo' }
     )
   );

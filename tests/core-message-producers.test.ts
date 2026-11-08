@@ -21,7 +21,7 @@ const NATIVE = 'same-native-message';
 type Running = Awaited<ReturnType<typeof start>>;
 
 function event(eventId: string, room: string, text: string, edit = false): MessageEvent {
-  const input = lineEvent({ id: NATIVE, conversationId: room, text, at: NOW - 60_000 });
+  const input = lineEvent({ id: NATIVE, chatId: room, text, at: NOW - 60_000 });
   return { ...input, id: eventId, at: NOW, edit };
 }
 
@@ -62,7 +62,7 @@ async function boot(complete?: (messages: unknown, options?: unknown) => Promise
         start: async (host) => {
           running = await start(
             { ...host, token: readFileSync(`${dirs.privateDir}/clients/fake.token`, 'utf8').trim() },
-            { self: SELF, community: { id: 'g1', name: 'Synthetic community' } }
+            { self: SELF, root: { id: 'g1', name: 'Synthetic root' } }
           );
           return running;
         },
@@ -71,7 +71,7 @@ async function boot(complete?: (messages: unknown, options?: unknown) => Promise
   });
   if (running === null) throw new Error('the core did not start the fake interface');
   const live: Running = running;
-  for (const room of ['room-a', 'room-b']) live.adapter.seedConversation(channelInfo(room));
+  for (const room of ['room-a', 'room-b']) live.adapter.seedChat(channelInfo(room));
   let stopped = false;
   const stop = async () => {
     if (stopped) return;
@@ -96,7 +96,7 @@ async function boot(complete?: (messages: unknown, options?: unknown) => Promise
   };
 }
 
-test('real received, edit and authorless delete events retain their own accepted source in colliding conversations', async () => {
+test('real received, edit and authorless delete events retain their own accepted source in colliding chats', async () => {
   await withCapturedLogs(async () => {
     const rig = await boot();
     try {
@@ -140,7 +140,7 @@ test('real received, edit and authorless delete events retain their own accepted
         for (const room of ['room-a', 'room-b']) {
           const recalled = window(dbOf(handle), {
             ctx: internalContext(),
-            resolvedAnchor: { kind: 'native', locator: { iface: 'fake', conversationId: room, messageId: NATIVE } },
+            resolvedAnchor: { kind: 'native', locator: { iface: 'fake', chatId: room, messageId: NATIVE } },
             messages: 1,
           });
           assert.equal(recalled.unknown, room === 'room-a');
@@ -203,7 +203,7 @@ function toolText(messages: unknown): string {
 }
 
 // The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
-test('a handle recalled from a real received event reads and replies with its native conversation and message IDs', async () => {
+test('a handle recalled from a real received event reads and replies with its native chat and message IDs', async () => {
   await withCapturedLogs(async () => {
     let step = 0;
     let recalledText = '';
@@ -232,11 +232,11 @@ test('a handle recalled from a real received event reads and replies with its na
         const granted = await runCli(rig.dirs, ['-p', `/tools grant ${skill}`]);
         assert.equal(granted.code, 0, granted.stderr);
       }
-      assert.equal(await rig.send(event('decoy', 'room-a', 'Other conversation evidence')), 'ok');
+      assert.equal(await rig.send(event('decoy', 'room-a', 'Other chat evidence')), 'ok');
       assert.equal(await rig.send(event('target', 'room-b', 'gardenrabbit731 target evidence')), 'ok');
       const trigger = lineEvent({
         id: 'question',
-        conversationId: 'room-a',
+        chatId: 'room-a',
         text: 'Please find the stored gardenrabbit731 message.',
         at: NOW,
         mention: true,
@@ -249,7 +249,7 @@ test('a handle recalled from a real received event reads and replies with its na
       const reads = rig.live.adapter.calls.filter((entry) => entry.op === 'history' || entry.op === 'fetchMessages');
       assert.ok(
         reads.some(({ op, args }) => {
-          if (!isDeepStrictEqual(args[0], { iface: 'fake', conversationId: 'room-b' })) {
+          if (!isDeepStrictEqual(args[0], { iface: 'fake', chatId: 'room-b' })) {
             return false;
           }
           if (op === 'fetchMessages') {
@@ -262,7 +262,7 @@ test('a handle recalled from a real received event reads and replies with its na
       const replies = rig.live.adapter.messagesIn('room-b').filter((message) => message.text === 'native reply 842');
       assert.deepEqual(
         replies.map((message) => message.replyTo),
-        [{ iface: 'fake', conversationId: 'room-b', messageId: NATIVE }]
+        [{ iface: 'fake', chatId: 'room-b', messageId: NATIVE }]
       );
       const storageKeys = query(
         rig.dirs,
@@ -311,7 +311,7 @@ test('an unavailable partial edit preserves archived text and author without inv
       await rig.stop();
       assert.deepEqual(query(rig.dirs, select), before);
       for (const call of rig.live.adapter.calls.slice(calls).filter((entry) => entry.op === 'fetchMessages')) {
-        assert.deepEqual(call.args, [{ iface: 'fake', conversationId: 'room-a' }, [NATIVE]]);
+        assert.deepEqual(call.args, [{ iface: 'fake', chatId: 'room-a' }, [NATIVE]]);
       }
     } finally {
       await rig.close();

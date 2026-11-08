@@ -78,7 +78,7 @@ function makeEnv({ errandSettings = {}, agents = {}, configured = true } = {}) {
     client,
     stores,
     hot,
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     onFinished: (task: Untyped) => finished.push(task),
   } as unknown as Parameters<typeof createErrandService>[0]);
   const store = { state: { data: {}, markDirty() {} } };
@@ -89,7 +89,7 @@ function makeEnv({ errandSettings = {}, agents = {}, configured = true } = {}) {
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     errands,
   });
   return { env, client, errands, finished, stores };
@@ -167,7 +167,7 @@ test('errand.run: a member may not run the server agent; an owner may', async ()
     const allowed = await runOp(
       'errand.run',
       { agent: 'server', goal: 'list the units' },
-      ctx(env, OWNER, { actor: 'persona', privateChat: true, placeId: 'dm1' }) as unknown as Parameters<typeof runOp>[2]
+      ctx(env, OWNER, { actor: 'persona', dmChat: true, placeId: 'dm1' }) as unknown as Parameters<typeof runOp>[2]
     );
     assert.equal(allowed.status, 'ok');
     await new Promise((r) => setImmediate(r));
@@ -294,7 +294,7 @@ test("errand.status and errand.list: the open ones, one by id, a private chat's 
           await runOp(
             'errand.run',
             { agent: 'scout', goal: 'private errand' },
-            ctx(env, MEMBER, { privateChat: true, placeId: 'dm1' }) as unknown as Parameters<typeof runOp>[2]
+            ctx(env, MEMBER, { dmChat: true, placeId: 'dm1' }) as unknown as Parameters<typeof runOp>[2]
           )
         ).data
       ).task.id
@@ -506,7 +506,7 @@ test("errand.read: an expired file is marked and has no handle; a failed task sh
       (await runOp('errand.read', { id: 'tnope' }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2])).code,
       'not-found'
     );
-    const dm = await finishedTask(fixture, 'private', { text: 'secret' }, { privateChat: true, placeId: 'dm1' });
+    const dm = await finishedTask(fixture, 'private', { text: 'secret' }, { dmChat: true, placeId: 'dm1' });
     assert.equal(
       (await runOp('errand.read', { id: dm }, ctx(env, OTHER) as unknown as Parameters<typeof runOp>[2])).code,
       'not-found'
@@ -516,7 +516,7 @@ test("errand.read: an expired file is marked and has no handle; a failed task sh
         await runOp(
           'errand.read',
           { id: dm },
-          ctx(env, MEMBER, { placeId: 'dm1', privateChat: true }) as unknown as Parameters<typeof runOp>[2]
+          ctx(env, MEMBER, { placeId: 'dm1', dmChat: true }) as unknown as Parameters<typeof runOp>[2]
         )
       ).status,
       'ok'

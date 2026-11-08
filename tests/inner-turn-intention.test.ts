@@ -50,7 +50,7 @@ test('an intention with a place builds the reply frame there, and <intentions> o
   const run = await serviceTurn({
     wake: () => dueWake(due.id),
     answers: ['<skip/>'],
-    conversation: { iface: 'fake', conversationId: 'c1' },
+    chat: { iface: 'fake', chatId: 'c1' },
     seed: seeded(due, 'c1'),
   });
   const text = run.requests[0] ?? '';
@@ -69,7 +69,7 @@ test('an intention without a place builds the service frame, nowhere', async () 
   const run = await serviceTurn({
     wake: () => dueWake(due.id),
     answers: ['<skip/>'],
-    conversation: null,
+    chat: null,
     seed: seeded(due, null),
   });
   const tags = rootTags(run.requests[0] ?? '');
@@ -84,7 +84,7 @@ test('a message.create naming the command line from an intention nowhere posts i
   const run = await serviceTurn({
     wake: () => dueWake(due.id),
     answers: [toolAnswer(THINK, [call('message.create', { place: CLI_PLACE, text: 'καλημέρα από εδώ' })]), '<skip/>'],
-    conversation: null,
+    chat: null,
     seed: seeded(due, null),
   });
   const { cli } = run;
@@ -99,7 +99,7 @@ test('intention.set without a place is accepted and stores no place', async () =
   const run = await serviceTurn({
     wake: serviceWake('heartbeat'),
     answers: [toolAnswer(THINK, [call('intention.set', { due: '1h', text: 'να ρωτήσω για το βιβλίο' })])],
-    conversation: null,
+    chat: null,
   });
   assert.deepEqual(run.actions, ['intention.set:executed:ok']);
   const [made] = run.intentions.list({ all: true });
@@ -114,7 +114,7 @@ async function setNaming(channel: string): Promise<{ status: string; code: strin
       toolAnswer(THINK, [call('intention.set', { due: '1h', text: 'να γράψω εκεί', place: channel })]),
       '<skip/>',
     ],
-    conversation: null,
+    chat: null,
   });
   const [, status = '', code = ''] = (run.actions[0] ?? '').split(':');
   const open = run.intentions.list({ all: true });

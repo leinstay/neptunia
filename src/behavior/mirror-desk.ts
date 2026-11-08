@@ -38,7 +38,7 @@ export type ReconcileAnswer =
 /** One mirror as `mirrorStatus` answers it. */
 export type MirrorStatus = Mirror & {
   iface: string;
-  conversationId: string;
+  chatId: string;
   interfaceConnected: boolean;
   queued: number;
   failed: Array<{ entryId: string; code: string | null; retryable: boolean }>;
@@ -135,7 +135,7 @@ export function createMirrorDesk({
     return {
       ...brief(mirror),
       iface: mirror.iface,
-      conversationId: mirror.conversationId,
+      chatId: mirror.chatId,
       interfaceConnected: port(mirror.iface) !== null,
       queued: having('queued').length,
       failed: having('failed').map((row) => ({

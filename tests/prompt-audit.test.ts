@@ -50,8 +50,8 @@ test('no tracked prompt names a folder of the old local layer', () => {
   assert.deepEqual(stale, []);
 });
 
-// The platform and the server are named by the interface's own text. These files are read in a conversation on any
-// interface, so they speak of the conversation, the chat and the places the persona follows. Slice 5: interject.md and
+// The platform and the server are named by the interface's own text. These files are read in a chat on any
+// interface, so they speak of the chat, the chat and the places the persona follows. Slice 5: interject.md and
 // initiate.md are deleted with the forced turn.
 const PLATFORM_FREE = ['avatar', 'private', 'follow-up', 'world'];
 

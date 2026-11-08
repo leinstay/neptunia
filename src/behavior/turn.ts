@@ -1,5 +1,5 @@
 // One "turn": collect context → build the request under the token cap → ask
-// the model → act in the conversation like a person would (pause, typing indicator
+// the model → act in the chat like a person would (pause, typing indicator
 // proportional to the text, several short messages in a row, reactions).
 // Used for answering a call ('reply'), for a turn with no call ('interject', an errand's result with its asking
 // message gone) and for her inner turns ('inner'), in a server channel or in a private chat (a
@@ -234,7 +234,7 @@ export { fallbackLookupPlan };
  * mentions, the GIF, the picture's publication after its generation, a selfreflection set's pictures, a
  * reaction, the typing indicator -- is checked by src/tools/gateway.ts#checkReplyEffect right
  * before it runs (`message.create`, a picture or GIF being one with its media or URL, and
- * `message.react.add`: carried over in the current conversation, refused only under the full stop
+ * `message.react.add`: carried over in the current chat, refused only under the full stop
  * -- features.tools false, she goes silent; each refusal logs `skill: refused` (`skill`, `code`,
  * `reason`) and nothing is done; no picture or selfreflection set is generated for a post the check
  * already refuses, and no typing indicator shows), then made through the interface port `port`
@@ -264,12 +264,12 @@ export { fallbackLookupPlan };
  * `<intentions>` block of every turn but a selfreflection post while features.intentions is exactly true.
  *
  * The interface: `reads` (src/interface/reads.ts#createReads over the port) is how a turn asks the interface
- * about a conversation, its lines, a member and the reactors: `runTurn` takes a conversation reference and reads
- * its info (the permissions, the audience) and one snapshot of the community's conversations per attempt. A read the
- * interface does not offer leaves its block out of the request; a conversation it no longer knows ends the turn
+ * about a chat, its lines, a member and the reactors: `runTurn` takes a chat reference and reads
+ * its info (the permissions, the audience) and one snapshot of the root's chats per attempt. A read the
+ * interface does not offer leaves its block out of the request; a chat it no longer knows ends the turn
  * `unavailable` before any model call. `selfId()` is the persona's id on the interface (from `hello`), `getSelfName`
- * her name in a community, `memberOf(placeId, accountId)` the name and kind of a member the core has been told of,
- * `membersOf(placeId)` all of them and `conversationName(id)` the name the interface gave a conversation.
+ * her name in a root, `memberOf(placeId, accountId)` the name and kind of a member the core has been told of,
+ * `membersOf(placeId)` all of them and `chatName(id)` the name the interface gave a chat.
  */
 /** An attempt's first draft: its limits, and the context and the restriction the turn was opened with. */
 function draftOf(args: TurnParams): Draft {
@@ -302,7 +302,7 @@ export function createTurnRunner({
   reads: readsDep,
   memberOf = () => null,
   membersOf = null,
-  conversationName = () => null,
+  chatName = () => null,
   now: clock = Date.now,
   schedule = scheduleTimer,
   activity = null,
@@ -364,11 +364,11 @@ export function createTurnRunner({
 
   const iface = port;
   const inputs = createInputs({ store, iface, memoryContext, errands, intentions, places });
-  const { turnContextOf, conversationOf, messageOf, checkEffect } = inputs;
+  const { turnContextOf, chatOf, messageOf, checkEffect } = inputs;
 
   const { facts, setFactsSource } = createFacts({ clock });
   // The channels known to be private chats (a deferred call names only its channel).
-  const privateChannels = new Set<string>();
+  const dmChannels = new Set<string>();
   const lastPostAt = new Map<string, number>(); // placeId -> ts of the persona's last message
   // placeId -> ids of the messages in the history of the last turn that spoke there (noteSpokeSaw).
   // The pending-ping drain (src/behavior/pipeline.ts) skips a ping such a turn already had in view.
@@ -399,7 +399,7 @@ export function createTurnRunner({
       const at = clock();
       for (const day of [utcDay(at - DAY_MS), utcDay(at)])
         thinks.seed(await reader.read(placeId, { day, kind: 'turn', n: Number.MAX_SAFE_INTEGER }), {
-          isPrivate: false,
+          isDm: false,
         });
     } catch (error) {
       log.warn('turn: thinks not seeded', { placeId, error });
@@ -513,13 +513,13 @@ export function createTurnRunner({
     hot,
     store,
     emoji,
-    conversationName,
+    chatName,
     clock,
     schedule,
     activity,
     iface,
   });
-  const { typingWhileCalls } = createTyping({ iface, schedule, clock, conversationOf });
+  const { typingWhileCalls } = createTyping({ iface, schedule, clock, chatOf });
   const { holdSpeech, act } = createAct({
     hot,
     store,
@@ -528,7 +528,7 @@ export function createTurnRunner({
     selfIdOf,
     ifaceReads,
     iface,
-    conversationOf,
+    chatOf,
     messageOf,
     checkEffect,
     lastPostAt,
@@ -558,7 +558,7 @@ export function createTurnRunner({
     selfIdOf,
     clock,
     iface,
-    conversationOf,
+    chatOf,
     images,
     speech,
     errands,
@@ -585,7 +585,7 @@ export function createTurnRunner({
     reactors,
     memberOf,
     selfIdOf,
-    conversationOf,
+    chatOf,
     callView,
     planToolCall,
     runCalls,
@@ -605,7 +605,7 @@ export function createTurnRunner({
     clock,
     ifaceReads,
     memberOf,
-    conversationOf,
+    chatOf,
     turnContextOf: (draft, channel) => turnContextOf(draft, channel),
     placeReads: frameReads,
     linkCalls,
@@ -650,7 +650,7 @@ export function createTurnRunner({
     busy,
     selfIdOf,
     getSelfName,
-    privateChannels,
+    dmChannels,
     promptState,
     notifyIdle,
     facts,
@@ -699,7 +699,7 @@ export function createTurnRunner({
   async function runTurnOnce(args: TurnParams) {
     // `limits`: what bit during this attempt, for its turn record. The request phase sets `tools` and the response phase `format` before any phase reads them (src/turn/draft.ts).
     const draft = draftOf(args);
-    // `runTurn` names the conversation of every attempt (TurnParams types it as optional) and adds the attempts to
+    // `runTurn` names the chat of every attempt (TurnParams types it as optional) and adds the attempts to
     // journal and the end facts (src/turn/outcome.ts).
     const phaseArgs = args as Parameters<typeof preflight>[1] & TrackedParams;
     let result;
@@ -767,7 +767,7 @@ export function createTurnRunner({
     waitIdle,
     setOnIdle,
     /**
-     * The facts kept for her next request in a conversation (src/behavior/inner.ts's `facts`: `enabled`, `add`,
+     * The facts kept for her next request in a chat (src/behavior/inner.ts's `facts`: `enabled`, `add`,
      * `pending`, `markTold`); used while its `enabled()` says so, else the runner keeps its own in process.
      */
     setFactsSource,

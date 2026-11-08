@@ -133,7 +133,7 @@ function baseRows(db: Db): void {
     INSERT INTO people (id, first_seen_at) VALUES ('person:author', '2026-11-01T00:00:00.000Z');
     INSERT INTO accounts (id, iface, native_id, native_key, authority_id, generation, kind, person_id, link, linked_by, linked_at)
       VALUES ('${ACCOUNT}', 'discord', 'n1', 'n1', 'discord/global', 1, 'user', 'person:author', 'verified', 'owner', '2026-11-01T00:00:00.000Z');
-    INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, conversation, scope_kind)
+    INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, chat, scope_kind)
       VALUES ('${ROOM}', 'discord', 'channel', '${ROOM}', '${ROOM}', 'discord/global', 1, 'group', 'group');
     INSERT OR IGNORE INTO audiences (id, kind, iface) VALUES ('${PUBLIC}', 'group', 'discord');`);
 }

@@ -11,12 +11,12 @@ export const MESSAGES_FETCH = 'messages.fetch';
  * nothing, so none is a capability; an interface declares the ones it offers in `capabilities().reads`.
  */
 export const READ_ACTIONS: ReadonlyArray<string> = Object.freeze([
-  'conversation.info',
-  'conversations.list',
+  'chat.info',
+  'chats.list',
   MESSAGES_FETCH,
   'messages.history',
   'member.info',
-  'dm.conversation',
+  'dm.chat',
   'messages.search',
   'members.search',
   'emoji.list',
@@ -45,17 +45,17 @@ export function readAction(operation: string, args: ReadonlyArray<unknown>): Fie
   const options = isObject(second) ? second : {};
   switch (operation) {
     case 'fetchMessages':
-      return { action: MESSAGES_FETCH, conversation: target, messageIds: second, ...definedOnly(third) };
-    case 'conversationInfo':
-      return { action: 'conversation.info', conversation: target, ...definedOnly(second) };
-    case 'conversations':
-      return { action: 'conversations.list', ...definedOnly(target) };
+      return { action: MESSAGES_FETCH, chat: target, messageIds: second, ...definedOnly(third) };
+    case 'chatInfo':
+      return { action: 'chat.info', chat: target, ...definedOnly(second) };
+    case 'chats':
+      return { action: 'chats.list', ...definedOnly(target) };
     case 'history':
-      return { action: 'messages.history', conversation: target, ...definedOnly(second) };
+      return { action: 'messages.history', chat: target, ...definedOnly(second) };
     case 'memberInfo':
       return { action: 'member.info', placeId: scope.placeId, accountId: scope.accountId };
-    case 'dmConversationOf':
-      return { action: 'dm.conversation', iface: scope.iface, accountId: scope.accountId };
+    case 'dmChatOf':
+      return { action: 'dm.chat', iface: scope.iface, accountId: scope.accountId };
     case 'searchMessages':
       return { action: 'messages.search', placeId: scope.placeId, ...definedOnly(second) };
     case 'searchMembers':
@@ -74,7 +74,7 @@ export function readAction(operation: string, args: ReadonlyArray<unknown>): Fie
 /** Whether `name` is the action of a read. */
 export const isReadAction = (name: unknown): boolean => typeof name === 'string' && READ_ACTIONS.includes(name);
 
-/** The most viewers a conversation read names, the texts and characters of a link parse, and the read limits. */
+/** The most viewers a chat read names, the texts and characters of a link parse, and the read limits. */
 const MAX_VIEWERS = 25;
 const MAX_LINK_TEXTS = 50;
 const MAX_LINK_TEXT_CHARS = 2000;
@@ -110,7 +110,7 @@ function reference(value: unknown, name: string, needMessage: boolean): Problem 
   if (!isObject(value)) return [name, value === undefined ? 'required' : 'type'];
   return firstOf(
     () => field(value.iface, `${name}.iface`, isId),
-    () => field(value.conversationId, `${name}.conversationId`, isId),
+    () => field(value.chatId, `${name}.chatId`, isId),
     () => field(value.messageId, `${name}.messageId`, isId, needMessage)
   );
 }
@@ -133,7 +133,7 @@ function audience(action: Fields): Problem | null {
 function history(action: Fields): Problem | null {
   const anchors = ['before', 'after', 'around'].filter((key) => action[key] !== undefined);
   return firstOf(
-    () => reference(action.conversation, 'conversation', false),
+    () => reference(action.chat, 'chat', false),
     () => field(action.limit, 'limit', isIntegerFrom(1, MAX_HISTORY_LIMIT)),
     () => firstOf(...anchors.map((key) => () => field(action[key], key, isId))),
     () => (anchors.length > 1 ? ['history', 'anchors'] : null),
@@ -173,15 +173,15 @@ function linkTexts(action: Fields): Problem | null {
  */
 export function readActionProblem(given: unknown): Problem | null {
   const fields: Fields = isObject(given) ? given : {};
-  const community = (): Problem | null => field(fields.placeId, 'placeId', isId);
+  const root = (): Problem | null => field(fields.placeId, 'placeId', isId);
   switch (fields.action) {
-    case 'conversation.info':
+    case 'chat.info':
       return firstOf(
-        () => reference(fields.conversation, 'conversation', false),
+        () => reference(fields.chat, 'chat', false),
         () => audience(fields)
       );
-    case 'conversations.list':
-      return firstOf(community, () => audience(fields));
+    case 'chats.list':
+      return firstOf(root, () => audience(fields));
     case 'messages.history':
       return history(fields);
     case 'member.info':
@@ -189,7 +189,7 @@ export function readActionProblem(given: unknown): Problem | null {
         () => field(fields.placeId, 'placeId', (value) => value === null || isId(value)),
         () => field(fields.accountId, 'accountId', isId)
       );
-    case 'dm.conversation':
+    case 'dm.chat':
       return firstOf(
         () => field(fields.iface, 'iface', isId),
         () => field(fields.accountId, 'accountId', isId)
@@ -198,7 +198,7 @@ export function readActionProblem(given: unknown): Problem | null {
       return messageSearch(fields);
     case 'members.search':
       return firstOf(
-        community,
+        root,
         () => field(fields.prefix, 'prefix', (value) => typeof value === 'string'),
         () => field(fields.limit, 'limit', isIntegerFrom(1, MAX_MEMBER_LIMIT))
       );

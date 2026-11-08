@@ -18,9 +18,9 @@ import type { Db, Row } from '../src/memory/db/types.ts';
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const SENT = NOW - 60_000;
 const IFACE = 'synthetic';
-const COMMUNITY = 'community';
-// The place that holds the record of the conversation's tree, as the pipeline names it (src/memory/addresses.ts#sharedPlaceOf).
-const TOP = topPlaceSpelled(IFACE, COMMUNITY);
+const ROOT = 'root';
+// The place that holds the record of the chat's tree, as the pipeline names it (src/memory/addresses.ts#sharedPlaceOf).
+const TOP = topPlaceSpelled(IFACE, ROOT);
 const ROOM = 'room-a';
 const HER = 'her-account';
 const MEMBER = 'member-account';
@@ -47,7 +47,7 @@ function lineEvent({
   return {
     iface: IFACE,
     at,
-    conversation: { id: ROOM, kind: 'channel', chatType: 'channel', rootId: COMMUNITY },
+    chat: { id: ROOM, kind: 'channel', chatType: 'channel', rootId: ROOT },
     addressing: { mentionedAccountIds },
     message: {
       id,
@@ -162,7 +162,7 @@ test('recall finds her echoed line once', async () => {
 });
 
 test('the record lists her echoed line once under its protocol id', async () => {
-  // Bug: every reader of the record (a conversation read, the inner places, the heartbeat view) shows it twice.
+  // Bug: every reader of the record (a chat read, the inner places, the heartbeat view) shows it twice.
   await withEchoedLine(async (memory) => {
     const lines: Array<{ kind?: unknown; messageId?: unknown }> = [];
     for await (const item of createRecord({ ...memory, now: () => NOW }).iterate(TOP)) lines.push(item);

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { reconcileUnknown } from '../src/interface/reconcile.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 
-const CONVERSATION = { iface: 'fake', conversationId: 'c1' };
+const CHAT = { iface: 'fake', chatId: 'c1' };
 const KEY = 'turn-1:0:c1';
 
 const callsOf = (fake: ReturnType<typeof createFakeAdapter>, op: string): number =>
@@ -17,8 +17,8 @@ const callsOf = (fake: ReturnType<typeof createFakeAdapter>, op: string): number
 test('a send the platform took under the key is reconciled ok with the message it posted', async () => {
   const fake = createFakeAdapter({ selfId: 'self-id', capabilities: { reconcile: true } });
   // The send went through, and its answer was lost on the way back.
-  const lost = await fake.send(CONVERSATION, { text: 'did it arrive' }, { idempotencyKey: KEY });
-  const delivery = await reconcileUnknown(fake, { conversation: CONVERSATION, idempotencyKey: KEY });
+  const lost = await fake.send(CHAT, { text: 'did it arrive' }, { idempotencyKey: KEY });
+  const delivery = await reconcileUnknown(fake, { chat: CHAT, idempotencyKey: KEY });
   assert.equal(delivery.status, 'ok');
   assert.equal(delivery.ref?.messageId, lost.ref?.messageId);
   assert.equal(delivery.idempotencyKey, KEY);
@@ -27,16 +27,16 @@ test('a send the platform took under the key is reconciled ok with the message i
 
 test('a send the platform never took is reconciled failed, and nothing is sent', async () => {
   const fake = createFakeAdapter({ selfId: 'self-id', capabilities: { reconcile: true } });
-  await fake.send(CONVERSATION, { text: 'another message' }, { idempotencyKey: 'turn-0:0:c1' });
-  const delivery = await reconcileUnknown(fake, { conversation: CONVERSATION, idempotencyKey: KEY });
+  await fake.send(CHAT, { text: 'another message' }, { idempotencyKey: 'turn-0:0:c1' });
+  const delivery = await reconcileUnknown(fake, { chat: CHAT, idempotencyKey: KEY });
   assert.equal(delivery.status, 'failed');
   assert.equal(callsOf(fake, 'send'), 1);
 });
 
 test('an adapter that cannot reconcile leaves the send unknown, with no read and no send', async () => {
   const fake = createFakeAdapter({ selfId: 'self-id', capabilities: { reconcile: false } });
-  await fake.send(CONVERSATION, { text: 'did it arrive' }, { idempotencyKey: KEY });
-  const delivery = await reconcileUnknown(fake, { conversation: CONVERSATION, idempotencyKey: KEY });
+  await fake.send(CHAT, { text: 'did it arrive' }, { idempotencyKey: KEY });
+  const delivery = await reconcileUnknown(fake, { chat: CHAT, idempotencyKey: KEY });
   assert.equal(delivery.status, 'unknown');
   assert.equal(callsOf(fake, 'send'), 1);
   assert.equal(callsOf(fake, 'fetchMessages'), 0);

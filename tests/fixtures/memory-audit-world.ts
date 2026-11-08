@@ -30,7 +30,7 @@ const observed = (key: string, kind: 'dm' | 'channel', native: string) => ({
     authority: 'discord/global',
     key,
     kind,
-    conversation: kind === 'dm' ? 'dm' : 'group',
+    chat: kind === 'dm' ? 'dm' : 'group',
     // A room has its title from its first line; a direct chat has none (plan 2026-11-06-turn-frame, "The fields of a place").
     ...(kind === 'dm' ? {} : { title: 'αίθουσα' }),
   },

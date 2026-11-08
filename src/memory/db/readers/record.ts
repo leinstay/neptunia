@@ -53,7 +53,7 @@ export function recordNewestRevision(
   const family = locator
     ? db
         .prepare('SELECT * FROM message_families WHERE iface=? AND conversation_id=? AND message_id=? AND generation=1')
-        .get(locator.iface, locator.conversationId, locator.messageId)
+        .get(locator.iface, locator.chatId, locator.messageId)
     : null;
   if (locator && (!family || locator.messageId !== messageId)) return null;
   // With no locator the message id still names its family: an observed line holds the family's key.

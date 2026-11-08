@@ -47,7 +47,7 @@ test('the paths of memory read media through the one read, never the table', () 
   const paths = [
     'src/memory/db/recall.ts',
     'src/memory/db/session.ts',
-    'src/memory/db/conversation-lines.ts',
+    'src/memory/db/chat-lines.ts',
     'src/memory/db/domain-read.ts',
     'src/memory/db/stems.ts',
     'src/memory/db/index-policy.ts',

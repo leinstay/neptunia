@@ -25,7 +25,7 @@ import { DESCRIPTION_CHARS, VIDEO_SUMMARY_CHARS, createDescriber } from '../desc
 import { isOffScript } from '../text-standard.ts';
 import { selfreflectionPlanFillDesk } from './selfreflection-plan-fill.ts';
 import { projectRow } from './graph.ts';
-import { conversationOf, historyReader, isRefusal, mediaBackfillDesk, messageIdOf } from './media-backfill.ts';
+import { chatOf, historyReader, isRefusal, mediaBackfillDesk, messageIdOf } from './media-backfill.ts';
 import { cacheKeyParts, mediaRowOfCacheKey, tellFromCacheKey } from './media-store.ts';
 import { unitById } from './storage-units.ts';
 import { asText, dbOf, transactionOf } from './types.ts';
@@ -390,10 +390,10 @@ function mediaEnglishDesk({
     const db = memoryDb.database() as Db | null;
     if (db === null || item.mediaId === null) return { readable: false };
     for (const line of linesOf(db, item.mediaId)) {
-      const conversationId = conversationOf(line);
-      if (conversationId === null) continue;
+      const chatId = chatOf(line);
+      if (chatId === null) continue;
       const messageId = messageIdOf(line);
-      const page = await read(conversationId, { around: messageId, limit: 1 });
+      const page = await read(chatId, { around: messageId, limit: 1 });
       if (page.status !== 'ok') {
         if (isRefusal(page)) continue;
         throw Object.assign(new Error('history read failed'), { code: page.code ?? 'READ_FAILED' });

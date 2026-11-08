@@ -55,7 +55,7 @@ test('transcript search reports each match by entry id and offset, oldest first'
 });
 
 test('a prompt jump lands only on the owner lines, in both directions, and stops at the ends', () => {
-  // Bug: the jump lands on her answers, or wraps around to the other end of the conversation.
+  // Bug: the jump lands on her answers, or wraps around to the other end of the chat.
   const entries = [
     { id: 'p1', who: 'owner' as const, text: 'one' },
     { id: 'r1', who: 'her' as const, text: 'two' },

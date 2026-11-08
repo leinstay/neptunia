@@ -171,10 +171,10 @@ export function createMerge({
    * HTTP status), `empty`, `unparsed`, `out-of-range`. Codes and counts only.
    */
   async function classifyMerge(channel: Conv, trigger: Line, items: Array<WaitingItem>): Promise<number | null> {
-    const conversationId = channel.id;
+    const chatId = channel.id;
     const prompt = hot.prompts?.merge;
     if (!prompt || !llm) {
-      log.info('merge: failed', { channel: conversationId, reason: 'no-prompt', status: null });
+      log.info('merge: failed', { channel: chatId, reason: 'no-prompt', status: null });
       return null;
     }
     const config = hot.config;
@@ -204,7 +204,7 @@ export function createMerge({
       );
     } catch (err) {
       log.warn('merge: failed', {
-        channel: conversationId,
+        channel: chatId,
         reason: railReason(err),
         status: (err as Thrown)?.statusCode ?? null,
       });
@@ -212,11 +212,11 @@ export function createMerge({
     }
     const { index, reason } = parseMergeAnswer(completion?.text, items.length);
     if (reason !== 'item' && reason !== 'new') {
-      log.warn('merge: failed', { channel: conversationId, reason, status: null });
+      log.warn('merge: failed', { channel: chatId, reason, status: null });
       return null;
     }
     log.info('merge: verdict', {
-      channel: conversationId,
+      channel: chatId,
       waiting: items.length,
       answer: index ? 'item' : 'new',
       ms: now() - startedAt,

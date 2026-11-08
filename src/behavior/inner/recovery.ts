@@ -1,7 +1,7 @@
 // Startup abandons persisted queued and running actions while preserving their recorded turn and work evidence.
 // Journal reconciliation records known effects without authorizing another turn. Held deliveries are retired or
 // reconciled without sending. Recovery runs once for the persona; core and wake leases fence previous holders.
-// Pause and listed-late sleep policy remains scoped to the current community.
+// Pause and listed-late sleep policy remains scoped to the current root.
 
 import { DAY_MS, utcDay } from '../../time.ts';
 import { ALIVE_LEASE, leaseOf, listWakes } from '../../memory/db/wake-queue.ts';
@@ -76,7 +76,7 @@ export async function resolveInflight(life: InnerContext): Promise<void> {
         wake: mark.kind,
         done: done.join('; '),
         placeId: mark.placeId,
-        privateChat: mark.privateChat,
+        dmChat: mark.dmChat,
       });
   }
   save(life);
@@ -111,7 +111,7 @@ function cutOffMarks(rows: ReadonlyArray<StoredWake>): Array<Inflight> {
       kind: row.turn?.kind || row.kind,
       startedAt: row.claimedAt ?? row.leaseExpiresAt ?? 0,
       placeId: row.turn?.placeId ?? null,
-      privateChat: row.turn?.privateChat === true,
+      dmChat: row.turn?.dmChat === true,
       privateAccountId: row.turn?.privateAccountId ?? null,
       ...(row.turn?.iface === undefined ? {} : { iface: row.turn.iface }),
     });

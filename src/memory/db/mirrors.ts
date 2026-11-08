@@ -1,13 +1,13 @@
 // The reads of the selfreflection's mirrors over the memory database (schema v15, `mirrors`): the places her selfreflection is posted
-// to and whether a conversation is one of them. The memory side (the selfreflection media job, the writer's destination, the
+// to and whether a chat is one of them. The memory side (the selfreflection media job, the writer's destination, the
 // memory updater) and the behaviour side (src/behavior/mirror.ts, which passes them on to the turn, the pipeline, the
 // scheduler and the sandbox) read them here. Pure reads over a node:sqlite connection; a failed read is logged with
 // its code and answers nothing.
 
 import { log } from '../../log.ts';
 
-/** A place an entry is posted to: the place id, its interface, the conversation it is and its name. */
-export type SelfreflectionPlace = { placeId: string; iface: string; conversationId: string; name: string | null };
+/** A place an entry is posted to: the place id, its interface, the chat it is and its name. */
+export type SelfreflectionPlace = { placeId: string; iface: string; chatId: string; name: string | null };
 
 type Row = Record<string, unknown>;
 type Db = {
@@ -21,12 +21,12 @@ export function hasMirrors(db: Db): boolean {
   return db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").get() !== undefined;
 }
 
-/** A place row as a selfreflection place, or null when it names no interface or conversation. */
+/** A place row as a selfreflection place, or null when it names no interface or chat. */
 export function placeOf(row: Row | undefined): SelfreflectionPlace | null {
   const placeId = text(row?.id);
   const iface = text(row?.iface);
-  const conversationId = text(row?.native_id);
-  return placeId && iface && conversationId ? { placeId, iface, conversationId, name: text(row?.name) } : null;
+  const chatId = text(row?.native_id);
+  return placeId && iface && chatId ? { placeId, iface, chatId, name: text(row?.name) } : null;
 }
 
 /**
@@ -85,18 +85,17 @@ export function readMirrors<TValue>(source: unknown, read: (db: unknown) => TVal
   }
 }
 
-/** The conversation ids of her selfreflection's places in `memoryDb` (selfreflectionPlaces): where she keeps her selfreflection. */
-export function selfreflectionConversationIds(memoryDb: unknown): Set<string> {
+/** The chat ids of her selfreflection's places in `memoryDb` (selfreflectionPlaces): where she keeps her selfreflection. */
+export function selfreflectionChatIds(memoryDb: unknown): Set<string> {
   return readMirrors(
     memoryDb,
-    (db) => new Set(selfreflectionPlaces(db).map((place) => place.conversationId)),
+    (db) => new Set(selfreflectionPlaces(db).map((place) => place.chatId)),
     new Set<string>()
   );
 }
 
-/** Whether `conversationId` of `iface` is the place of an enabled selfreflection mirror in `memoryDb`. */
-export function isMirrorPlace(memoryDb: unknown, iface: unknown, conversationId: unknown): boolean {
-  const here = (place: SelfreflectionPlace): boolean =>
-    place.iface === iface && place.conversationId === String(conversationId);
+/** Whether `chatId` of `iface` is the place of an enabled selfreflection mirror in `memoryDb`. */
+export function isMirrorPlace(memoryDb: unknown, iface: unknown, chatId: unknown): boolean {
+  const here = (place: SelfreflectionPlace): boolean => place.iface === iface && place.chatId === String(chatId);
   return readMirrors(memoryDb, (db) => mirrorPlaces(db).some(here), false);
 }

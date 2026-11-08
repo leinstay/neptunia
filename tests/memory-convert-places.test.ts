@@ -306,7 +306,13 @@ test('places keep every id, parent and partner, and only the server kind changes
   // A category is no place, the owner's word of 2026-11-06: the `category` column is gone from the output.
   // Bug: the hierarchy or a DM partner is lost, so `rootPlaceOf` and the person view stop answering.
   const except = ['kind', 'owner_key', 'category'];
-  assert.deepEqual(rowsOf(done().output, 'places', except), rowsOf(done().input, 'places', except));
+  // The v28 input names the kind of chat `conversation`, the output `chat`: the values are compared by place.
+  assert.deepEqual(
+    rowsOf(done().output, 'places', [...except, 'chat']),
+    rowsOf(done().input, 'places', [...except, 'conversation'])
+  );
+  const chatOf = (file: string, column: string) => rowsOf(file, 'places', []).map((row) => [row.id, row[column]]);
+  assert.deepEqual(chatOf(done().output, 'chat'), chatOf(done().input, 'conversation'));
 });
 
 test('every publication state survives with its claim, receipts and reconciliation', () => {

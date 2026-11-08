@@ -81,7 +81,7 @@ export function attendWake(
     chainId: `attend:${id}:${info.newestId}`,
     dueAt: newest.at + settleMs,
     placeId: info.place,
-    privateChat: false,
+    dmChat: false,
     attend: info,
   };
 }
@@ -244,14 +244,14 @@ export function attendWakes(life: InnerContext, at: number): Array<Wake> {
 
 /** The name of place `id`: the directory's, else the interface's cache, else the id. */
 export function placeNameOf(life: InnerContext, id: unknown): string {
-  const { conversationName } = life;
+  const { chatName } = life;
   const named = directoryOf(life).find((entry) => entry.id === asText(id));
-  return named?.name ?? conversationName(asText(id)) ?? asText(id);
+  return named?.name ?? chatName(asText(id)) ?? asText(id);
 }
 
 /** The places the interface publishes for the place (`places`), else the places the record shows. */
 export function directoryOf(life: InnerContext): Array<PlaceEntry> {
-  const { placesOf, conversationName, log } = life;
+  const { placesOf, chatName, log } = life;
   if (typeof placesOf === 'function') {
     let listed: Array<{ id: string | number; name?: unknown; writable?: unknown }> = [];
     try {
@@ -273,7 +273,7 @@ export function directoryOf(life: InnerContext): Array<PlaceEntry> {
   }
   return [...placeIndexOf(life).places.keys()].map((id) => ({
     id,
-    name: conversationName(id) ?? id,
+    name: chatName(id) ?? id,
     writable: null,
   }));
 }

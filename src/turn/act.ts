@@ -13,7 +13,7 @@ import type { Snapshot } from '../behavior/snapshot.ts';
 import type { Reads } from '../interface/reads.ts';
 import { sleep } from '../llm/openrouter.ts';
 import { log } from '../log.ts';
-import type { ConversationInfo, ConversationRef, MessageRef } from '../protocol/adapter.ts';
+import type { ChatInfo, ChatRef, MessageRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import type { DrawGif, ResolvedGif } from './draw-gif.ts';
 import { applyEmojiPick } from '../behavior/media-pick.ts';
@@ -47,9 +47,9 @@ type ActResult = NonNullable<PortResult> & { code?: unknown };
 
 /** The interface port (src/interface/port.ts), as the act posts, reacts and types through it. */
 type ActPort = {
-  typing: (conversation: ConversationRef) => Promise<ActResult>;
+  typing: (chat: ChatRef) => Promise<ActResult>;
   react: (message: MessageRef, emoji: string) => Promise<ActResult>;
-  send: (conversation: ConversationRef, content: object) => Promise<ActResult>;
+  send: (chat: ChatRef, content: object) => Promise<ActResult>;
 };
 
 /** The gateway's verdict on one effect of her reply. */
@@ -68,9 +68,9 @@ export type ActContext = {
   selfIdOf: () => string;
   ifaceReads: Reads;
   iface: ActPort;
-  conversationOf: (channel: { id: string }) => ConversationRef;
+  chatOf: (channel: { id: string }) => ChatRef;
   messageOf: (channel: { id: string }, messageId: string) => MessageRef;
-  checkEffect: (skill: string, args: unknown, at: { channel: ConversationInfo; trigger: unknown }) => EffectVerdict;
+  checkEffect: (skill: string, args: unknown, at: { channel: ChatInfo; trigger: unknown }) => EffectVerdict;
   lastPostAt: Map<string, number>;
   noteTrigger: JournalNotes['noteTrigger'];
   recordSaid: JournalNotes['recordSaid'];
@@ -123,9 +123,9 @@ type OwnLine = {
 };
 
 export type ActArgs = {
-  channel: ConversationInfo;
+  channel: ChatInfo;
   placeId: string;
-  privateChat: boolean;
+  dmChat: boolean;
   parsed: ActParsed;
   idByIndex: ReadonlyMap<number, string>;
   history: Parameters<Participation['recordOwnParticipation']>[0]['history'] & MediaPickArgs['history'];
@@ -168,10 +168,10 @@ export type ActOutcome = {
 /** A selfreflection set's picture as the turn staged it, with what its generation logged. */
 type HeldPicture = EntryPicture & { text: string; seconds?: unknown; cost?: unknown; self?: unknown };
 
-export type HoldArgs = Omit<RenderArgs, 'channel' | 'snapshot' | 'placeId' | 'privateChat' | 'link'> & {
-  channel: ConversationInfo;
+export type HoldArgs = Omit<RenderArgs, 'channel' | 'snapshot' | 'placeId' | 'dmChat' | 'link'> & {
+  channel: ChatInfo;
   placeId: string;
-  privateChat: boolean;
+  dmChat: boolean;
   parsed: { messages: ReadonlyArray<{ text: string }> };
   set: { pictures: Array<HeldPicture> } | null;
   draft?: ActDraft | null;
@@ -203,7 +203,7 @@ export function createAct(ctx: ActContext): Act {
     selfIdOf,
     ifaceReads,
     iface,
-    conversationOf,
+    chatOf,
     messageOf,
     checkEffect,
     lastPostAt,
@@ -219,8 +219,8 @@ export function createAct(ctx: ActContext): Act {
   } = ctx;
 
   /** A member's ping state in `placeId` (store.getPings); a private chat has none. */
-  function pingStateIn(placeId: string, privateChat: boolean): (accountId: string) => PingState {
-    return (accountId) => (privateChat || !store.getPings ? null : store.getPings(placeId, accountId));
+  function pingStateIn(placeId: string, dmChat: boolean): (accountId: string) => PingState {
+    return (accountId) => (dmChat || !store.getPings ? null : store.getPings(placeId, accountId));
   }
 
   /**
@@ -228,9 +228,9 @@ export function createAct(ctx: ActContext): Act {
    * members it names under their ping states, mentionsUnderPings) and the staged pictures; the turn records the entry
    * (selfreflection-turn.ts#recordEntry), its mirrors post it.
    */
-  function holdSpeech({ channel, placeId, privateChat, parsed, set, draft = null, ...routing }: HoldArgs): HeldSpeech {
-    const options = { channel, snapshot: snapshotOfDraft(draft), placeId, privateChat, ...routing, link: null };
-    const stateOf = pingStateIn(placeId, privateChat);
+  function holdSpeech({ channel, placeId, dmChat, parsed, set, draft = null, ...routing }: HoldArgs): HeldSpeech {
+    const options = { channel, snapshot: snapshotOfDraft(draft), placeId, dmChat, ...routing, link: null };
+    const stateOf = pingStateIn(placeId, dmChat);
     const rendered = parsed.messages.map((message) => {
       const { text, accountIds } = renderPost(message.text, options);
       const mentions = mentionsUnderPings({ users: accountIds, replying: false, stateOf });
@@ -306,7 +306,7 @@ export function createAct(ctx: ActContext): Act {
   async function act({
     channel,
     placeId,
-    privateChat,
+    dmChat,
     parsed,
     idByIndex,
     history,
@@ -326,7 +326,7 @@ export function createAct(ctx: ActContext): Act {
     participation = null,
     draft = null,
   }: ActArgs): Promise<ActOutcome> {
-    const publicationBoundary = turnBoundary(draft, conversationOf(channel));
+    const publicationBoundary = turnBoundary(draft, chatOf(channel));
     const port = bindPublicationPort(iface, publicationBoundary);
     const cfg = hot.config.typing;
     const typingOn = true;
@@ -334,7 +334,7 @@ export function createAct(ctx: ActContext): Act {
     // Typed only once the message it precedes passed its check (checkEffect).
     const typeFor = async (spoken: string): Promise<void> => {
       // Only the indicator: a missing Send Messages shows up here first, so it is logged.
-      const typed = await iface.typing(conversationOf(channel));
+      const typed = await iface.typing(chatOf(channel));
       if (typed.status !== 'ok') log.warn('turn: typing failed', { channel: channel.id, error: portError(typed) });
       await sleep(typingMs(spoken, cfg, rng));
     };
@@ -443,7 +443,7 @@ export function createAct(ctx: ActContext): Act {
         channel,
         snapshot: snapshotOfDraft(draft),
         placeId,
-        privateChat,
+        dmChat,
         idByIndex,
         pulledIds,
         lines,
@@ -496,7 +496,7 @@ export function createAct(ctx: ActContext): Act {
     // Every message but the first one as written waits and is typed here; that one was typed alongside the picker.
     const typedAbove = (index: number): boolean => index === 0 && !replaced;
     // Each member's own ping state (`pings.set`), read from the store at each send (server channels only).
-    const stateOf = pingStateIn(placeId, privateChat);
+    const stateOf = pingStateIn(placeId, dmChat);
     // A message that did not go out ends the posting; the turn then ends `partial` with a `sendFailed` fact (its code, how many of how many went out).
     // A send whose answer never came (`unknown`: a timeout, a network error) may have gone out: it keeps the hash of its text, and her next turn here looks for it before telling.
     const failSend = (code: unknown, { unknown = false, text: sentText = '' } = {}): void => {
@@ -519,7 +519,7 @@ export function createAct(ctx: ActContext): Act {
         channel,
         snapshot: snapshotOfDraft(draft),
         placeId,
-        privateChat,
+        dmChat,
         idByIndex,
         pulledIds,
         lines,
@@ -568,7 +568,7 @@ export function createAct(ctx: ActContext): Act {
         sourceMessageIds: replyId ? [replyId] : [],
       });
       if (op.opId) await op.started();
-      const result = await port.send(conversationOf(channel), {
+      const result = await port.send(chatOf(channel), {
         text,
         ...(replyId ? { replyTo: messageOf(channel, replyId) } : {}),
         mentions: mentionsUnderPings({ users: accountIds, repliedAuthorId, stateOf }),
@@ -591,7 +591,7 @@ export function createAct(ctx: ActContext): Act {
       recordSaid({
         placeId,
         channel,
-        privateChat,
+        dmChat,
         trigger,
         draft,
         op,
@@ -617,7 +617,7 @@ export function createAct(ctx: ActContext): Act {
         replyToId: replyId,
       };
       // The persona's own exchange on this channel, kept for her turns elsewhere (a server channel only).
-      if (participation && !privateChat) {
+      if (participation && !dmChat) {
         recordOwnParticipation({
           channel,
           placeId,

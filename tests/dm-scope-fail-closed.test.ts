@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { partnerOfDelivery } from '../src/behavior/inner/deliveries.ts';
 import { personaJournal, personaRecord } from '../src/behavior/inner/persona-sources.ts';
-import { recentGroupLines } from '../src/memory/db/conversation-lines.ts';
+import { recentGroupLines } from '../src/memory/db/chat-lines.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { SCOPE_INTERNAL, groupScope, scopeColumns } from '../src/memory/db/scope.ts';
 import { PERSONA_ID } from '../src/memory/db/storage-keys.ts';
@@ -29,8 +29,8 @@ test('a line with the private mark and only a channel is scoped internal', () =>
   assert.deepEqual(scopeColumns({ channel: 'c1', private: true }, { iface: 'discord' }), SCOPE_INTERNAL);
 });
 
-test('a conversation no place holds is scoped internal', () => {
-  // Bug: a wake's line into a conversation nobody can name as a group is filed as a group's.
+test('a chat no place holds is scoped internal', () => {
+  // Bug: a wake's line into a chat nobody can name as a group is filed as a group's.
   assert.deepEqual(scopeColumns({ channel: 'c1', unresolved: true }, { iface: 'discord' }), SCOPE_INTERNAL);
 });
 
@@ -109,10 +109,10 @@ test("a channel's recent lines leave out a line that is not the group's", (t) =>
 
 /** A store that names a DM by its partner and holds one channel as a group's. */
 const addressing = {
-  placeOfConversation: (conversation: { id?: string; partnerId?: string }) =>
-    conversation.partnerId ? `place:dm-${conversation.partnerId}` : `place:${String(conversation.id)}`,
+  placeOfChat: (chat: { id?: string; partnerId?: string }) =>
+    chat.partnerId ? `place:dm-${chat.partnerId}` : `place:${String(chat.id)}`,
   rootPlaceOf: (place: string) => (place === 'place:room' ? 'place:server' : null),
-  holdsSharedConversation: (id: string) => id === 'room',
+  holdsSharedChat: (id: string) => id === 'room',
 };
 
 function journalled() {
@@ -151,7 +151,7 @@ function recorded() {
 }
 
 test("a wake's said line with a partner goes to that partner's DM", () => {
-  // Bug: `recordSaid` appends with no partner, and the line goes to the spelled channel place of the conversation.
+  // Bug: `recordSaid` appends with no partner, and the line goes to the spelled channel place of the chat.
   const { written, inner } = recorded();
   inner.append([{ scope: { channel: 'dm-native' } }], { privateAccountId: 'n1' });
   assert.deepEqual(written, [['place:dm-n1', [{ scope: { channel: 'dm-native' } }]]]);
@@ -167,27 +167,27 @@ test("a wake's said line in a held channel goes to its tree with its scope as wr
 const asking = (answer: unknown) => ({
   log: { warn() {} },
   reads: {
-    conversationInfo: () => {
+    chatInfo: () => {
       if (answer instanceof Error) throw answer;
       return Promise.resolve(answer);
     },
   },
 });
-const CONVERSATION = { iface: 'fake', conversationId: 'c' };
+const CHAT = { iface: 'fake', chatId: 'c' };
 
-test("a delivery's partner comes from the conversation the interface describes", async () => {
+test("a delivery's partner comes from the chat the interface describes", async () => {
   // Bug: `privateAccountId: null` on every delivery files a DM's line away from its partner.
-  const life = asking({ conversation: { rootId: null, partnerId: 'n1' } });
-  assert.equal(await partnerOfDelivery(life as never, CONVERSATION), 'n1');
+  const life = asking({ chat: { rootId: null, partnerId: 'n1' } });
+  assert.equal(await partnerOfDelivery(life as never, CHAT), 'n1');
 });
 
-test("a community's conversation has no partner, whatever it names", async () => {
+test("a root's chat has no partner, whatever it names", async () => {
   // Bug: a channel with a stray partner field files a group's line under one person's DM.
-  const life = asking({ conversation: { rootId: 'g1', partnerId: 'n1' } });
-  assert.equal(await partnerOfDelivery(life as never, CONVERSATION), null);
+  const life = asking({ chat: { rootId: 'g1', partnerId: 'n1' } });
+  assert.equal(await partnerOfDelivery(life as never, CHAT), null);
 });
 
-test('an interface that cannot describe the conversation gives no partner and no throw', async () => {
+test('an interface that cannot describe the chat gives no partner and no throw', async () => {
   // Bug: a failed read after the send loses the said line of a message already sent.
-  assert.equal(await partnerOfDelivery(asking(new Error('gone')) as never, CONVERSATION), null);
+  assert.equal(await partnerOfDelivery(asking(new Error('gone')) as never, CHAT), null);
 });

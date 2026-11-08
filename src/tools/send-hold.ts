@@ -11,7 +11,7 @@
 
 import { isPublicationBoundary, publicationRefusal, refusedPublication } from './publication.ts';
 import type { PublicationBoundary } from './publication.ts';
-import type { ConversationRef, Delivery, SendOptions } from '../protocol/adapter.ts';
+import type { ChatRef, Delivery, SendOptions } from '../protocol/adapter.ts';
 import type { Content } from '../protocol/actions.ts';
 
 /** Her line as the record keeps a post once it is sent: her text as she wrote it, its reply and its mentions. */
@@ -23,13 +23,13 @@ export type SaidNote = {
 };
 
 /** What the turn notes on a call's held sends: the skill that made them, and her said line for the first of them. */
-export type HeldNote = { skill: string; privateChat: boolean; said: SaidNote | null };
+export type HeldNote = { skill: string; dmChat: boolean; said: SaidNote | null };
 
 /** One send a wake turn held: its effect key, where it goes, what it carries and what the turn noted on it. */
 export type HeldSend = {
   publicationBoundary?: PublicationBoundary;
   key: string;
-  conversation: ConversationRef;
+  chat: ChatRef;
   content: Content;
   note?: HeldNote;
 };
@@ -38,8 +38,8 @@ export type HeldSend = {
 export type SendHold = {
   readonly sends: ReadonlyArray<HeldSend>;
   keep(send: HeldSend): void;
-  /** Whether a send is held for `conversationId`. */
-  holdsIn(conversationId: string): boolean;
+  /** Whether a send is held for `chatId`. */
+  holdsIn(chatId: string): boolean;
   /** How many sends are held under `key` (the key itself or `<key>:<n>`). */
   countUnder(key: string): number;
   /** `note` on the sends held under `key`; its said line on the first of them only (the key itself). */
@@ -54,7 +54,7 @@ export function createSendHold(): SendHold {
     keep(send) {
       if (!sends.some((held) => held.key === send.key)) sends.push(send);
     },
-    holdsIn: (conversationId) => sends.some((held) => held.conversation.conversationId === conversationId),
+    holdsIn: (chatId) => sends.some((held) => held.chat.chatId === chatId),
     countUnder: (key) => sends.filter((held) => held.key === key || held.key.startsWith(`${key}:`)).length,
     note(key, note) {
       for (const held of sends) {
@@ -87,16 +87,16 @@ export function heldPort<TPort extends object>(real: TPort, context: HoldContext
   if (!isSendHold(hold)) return real;
   const callKey = typeof context?.idempotencyKey === 'string' ? context.idempotencyKey : 'held';
   let unkeyed = 0;
-  const send = (conversation: ConversationRef, content: Content, options: SendOptions = {}): Promise<Delivery> => {
+  const send = (chat: ChatRef, content: Content, options: SendOptions = {}): Promise<Delivery> => {
     const boundary = context?.publicationBoundary;
-    if (boundary !== undefined && (!isPublicationBoundary(boundary) || publicationRefusal(boundary, conversation)))
+    if (boundary !== undefined && (!isPublicationBoundary(boundary) || publicationRefusal(boundary, chat)))
       return Promise.resolve(refusedPublication(options.idempotencyKey));
     const given = typeof options.idempotencyKey === 'string' ? options.idempotencyKey : '';
     const key = given || (unkeyed === 0 ? callKey : `${callKey}:${unkeyed}`);
     if (!given) unkeyed += 1;
     hold.keep({
       key,
-      conversation: { ...conversation },
+      chat: { ...chat },
       content,
       ...(isPublicationBoundary(boundary)
         ? { publicationBoundary: { kind: boundary.kind, origin: { ...boundary.origin } } }

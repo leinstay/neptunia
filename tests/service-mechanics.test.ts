@@ -25,7 +25,7 @@ import { useIface, world } from './fixtures/turn-world.ts';
 useIface('fake');
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
-const GUILD = 'g1';
+const ROOT = 'g1';
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
@@ -37,7 +37,7 @@ type Call = { inner: { wake: { kind: string; chainId: string } } };
 /** An inner life over the settings given, a clock of its own and a turn runner that records and answers skip. */
 function lifeWith(sections: Record<string, unknown>, start: number, rng: () => number = () => 0.5) {
   const clock = { t: start };
-  world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
+  world().channel({ id: 'c1', name: 'chan-c1', placeId: ROOT, permissions: { send: true } });
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
@@ -77,7 +77,7 @@ function lifeWith(sections: Record<string, unknown>, start: number, rng: () => n
     journal: { inner: () => Promise.resolve(), read: () => [] },
     reads: world().reads,
     iface: () => 'fake',
-    conversationName: (id: string) => `chan-${id}`,
+    chatName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },

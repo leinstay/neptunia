@@ -120,7 +120,7 @@ async function rig(): Promise<Rig> {
     memoryDb: memory.memoryDb,
     usage: null,
     metrics: { samples: () => [] },
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => clock.at,
   });
   return {
@@ -581,7 +581,7 @@ function desk(consoleCalls: Array<string>, boardCalls: Array<string>): ReturnTyp
 }
 
 for (const name of INSPECTIONS) {
-  const event = { name, args: {}, conversation: { id: 'cli:dm:owner' }, requester: { id: 'owner', roles: [] } };
+  const event = { name, args: {}, chat: { id: 'cli:dm:owner' }, requester: { id: 'owner', roles: [] } };
 
   test(`${name} from the owner's chat reaches the console`, async () => {
     const consoleCalls: Array<string> = [];

@@ -193,7 +193,7 @@ export function fixtureConfig(
   { mode = fixture.mode }: Rec = {}
 ): {
   bot: { timezone: Untyped };
-  private: { enabled: boolean };
+  dm: { enabled: boolean };
   mention: { oneAtATime: boolean };
   intentions: Untyped;
   agents: Untyped;
@@ -205,7 +205,7 @@ export function fixtureConfig(
   const { heartbeat, ...life } = fixture.wakes ?? {};
   return {
     bot: { timezone: fixture.timezone },
-    private: { enabled: false },
+    dm: { enabled: false },
     mention: { oneAtATime: true },
     intentions: {
       expiresDays: 14,
@@ -320,7 +320,7 @@ export function createStubVoice(fixture: Fixture): Rec {
  * What the inner gate says of one call (a mirror of src/behavior/turn.ts#innerVerdict): a read
  * runs; in shadow anything else is proposed; live, a stopped inner life refuses (`inner-stopped`).
  */
-export function stubVerdict({ effects, skill, shadow, mayAct, privateChat = false }: Rec): {
+export function stubVerdict({ effects, skill, shadow, mayAct, dmChat = false }: Rec): {
   status: 'executed' | 'proposed' | 'refused';
   code?: string;
   public?: boolean;
@@ -329,7 +329,7 @@ export function stubVerdict({ effects, skill, shadow, mayAct, privateChat = fals
   if (effects === 'read') return { status: 'executed', public: false };
   if (shadow) return { status: 'proposed' };
   if (!mayAct()) return { status: 'refused', code: 'inner-stopped' };
-  const isPublic = POSTING_SKILLS.includes(skill) && !privateChat;
+  const isPublic = POSTING_SKILLS.includes(skill) && !dmChat;
   return { status: 'executed', public: isPublic };
 }
 
@@ -460,17 +460,17 @@ export async function runWeek({
   let inner: Untyped;
   let turnSeq = 0;
 
-  function addLine(conversationId: Untyped, line: Untyped) {
+  function addLine(chatId: Untyped, line: Untyped) {
     world.lineSeq += 1;
-    const full = { id: `m${world.lineSeq}`, placeId: conversationId, ...line };
-    world.chat.get(conversationId)?.push(full);
+    const full = { id: `m${world.lineSeq}`, placeId: chatId, ...line };
+    world.chat.get(chatId)?.push(full);
     return full;
   }
 
   /** A planted marker entering the week (once per marker). */
-  function plant(marker: Untyped, at: Untyped, conversationId: Untyped) {
+  function plant(marker: Untyped, at: Untyped, chatId: Untyped) {
     if (marker && !world.planted.some((p: Rec) => p.marker === marker))
-      world.planted.push({ marker, at, channel: conversationId });
+      world.planted.push({ marker, at, channel: chatId });
   }
 
   /** A turn of the voice for the scheduler (its `turns.runTurn`). */
@@ -487,7 +487,7 @@ export async function runWeek({
       voice: live ? 'live' : 'stub',
       kind: wake.kind,
       chainId: wake.chainId ?? null,
-      placeId: String(params.conversation?.conversationId ?? ''),
+      placeId: String(params.chat?.chatId ?? ''),
       items,
       notes: wake.notes ?? null,
       places: placesView(inner, hot.config),
@@ -568,7 +568,7 @@ export async function runWeek({
   }
 
   /** One executed stub call acting on the week's world. */
-  function act(call: Untyped, { turnId, placeId: conversationId, at, key = null }: Rec) {
+  function act(call: Untyped, { turnId, placeId: chatId, at, key = null }: Rec) {
     const args = call.args ?? {};
     const when = (text: Untyped) => parseWhen(text, at, { timezone: fixture.timezone });
     const everyOf = (text: Untyped) =>
@@ -595,7 +595,7 @@ export async function runWeek({
         attend: typeof args.attend === 'string' && args.attend ? { place: args.attend, ...attendOf() } : null,
         chainId: typeof args.chain === 'string' ? args.chain : null,
         destination: typeof args.channel === 'string' ? args.channel : null,
-        placeId: conversationId,
+        placeId: chatId,
         scope: 'group',
         turnId,
         by: 'persona',
@@ -644,7 +644,7 @@ export async function runWeek({
       return { ok: true, taskId: id };
     }
     if (POSTING_SKILLS.includes(call.skill)) {
-      const target = typeof args.channel === 'string' && world.chat.has(args.channel) ? args.channel : conversationId;
+      const target = typeof args.channel === 'string' && world.chat.has(args.channel) ? args.channel : chatId;
       const content = String(args.text ?? '');
       addLine(target, {
         authorId: 'persona',

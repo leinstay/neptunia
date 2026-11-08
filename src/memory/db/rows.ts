@@ -8,13 +8,13 @@
 //   - a row of a table with the scope triple gets `audience_id` from scope.ts#audienceOf (the one resolver); the
 //     audience row, its interface and, for a DM, the DM place of the partner are created when missing. A given
 //     `audience_id` that is not the triple's audience is a conflict: the row is quarantined to internal and logged;
-//   - an account gets its authority and native key, a place its authority, native key and conversation, a source its
+//   - an account gets its authority and native key, a place its authority, native key and chat, a source its
 //     authority, author kind and `observed_at`;
 //   - `ensureNodeKeys` registers a person, account or place in `external_keys` (its native authority and the legacy
 //     spelling), and `ensureLinks` gives an account with a person its `account_person_links` row once: a missing one
 //     is inserted, an existing one is never rewritten (the links are the database's own, no file owns them).
 // Schema v8 (stage 2): a row that names its own authority (an observation, observe.ts) keeps it, its native key and
-// its conversation instead of the legacy derivation; a source's author combination is checked (`checkAuthor`: an
+// its chat instead of the legacy derivation; a source's author combination is checked (`checkAuthor`: an
 // account line names no participant, a participant line names no account); `ensureRelations` gives a source its
 // `source_relations` rows (a legacy line's `reply_to`, derived here so a remap keeps it) and resolves the relations
 // that were waiting for it. Relations are the database's own: inserted once, a target filled in once, never rewritten.
@@ -142,20 +142,19 @@ export function addKey(
   ).run(authority, kind, asText(nativeKey), generation, nodeId, stampOf(at));
 }
 
-/** The derived columns of a place row: authority, native key, conversation. */
+/** The derived columns of a place row: authority, native key, chat. */
 export function placeColumns(row: Row): {
   authority_id: string;
   native_key: string | null;
-  conversation: string | null;
+  chat: string | null;
 } {
   const kind = row.kind ?? null;
-  const conversation =
-    kind === 'dm' || row.scope_kind === 'dm' ? 'dm' : CONTAINERS.has(kind as string) ? null : 'group';
-  return { authority_id: nativeAuthorityOf(row.iface), native_key: placeNativeKey(row), conversation };
+  const chat = kind === 'dm' || row.scope_kind === 'dm' ? 'dm' : CONTAINERS.has(kind as string) ? null : 'group';
+  return { authority_id: nativeAuthorityOf(row.iface), native_key: placeNativeKey(row), chat };
 }
 
 /**
- * The DM place of a partner, created when missing (`<iface>:dm:<native>`, kind and conversation `dm`, partner from the
+ * The DM place of a partner, created when missing (`<iface>:dm:<native>`, kind and chat `dm`, partner from the
  * scope), with its keys. A place the database writes has no `owner_file`: no file remap touches it.
  */
 export function ensureDmPlace(
@@ -174,7 +173,7 @@ export function ensureDmPlace(
   const cols = placeColumns(row);
   prepared(
     db,
-    `INSERT INTO places (id, iface, kind, native_id, parent_id, scope_kind, authority_id, native_key, generation, conversation, partner_person, partner_account)
+    `INSERT INTO places (id, iface, kind, native_id, parent_id, scope_kind, authority_id, native_key, generation, chat, partner_person, partner_account)
     VALUES (?, ?, 'dm', NULL, NULL, 'dm', ?, ?, 1, 'dm', ?, ?)`
   ).run(placeId, iface, cols.authority_id, cols.native_key, person ?? null, account);
   addKey(db, cols.authority_id, 'place', cols.native_key, placeId, { at });
@@ -232,13 +231,11 @@ export function resolveRow(db: Db, row: Row): Row & { conflict: boolean } {
   const parts = given ? audienceParts(given) : null;
   let dmPlace: string | null = null;
   if (parts?.kind === 'dm' && scope.scope_kind === 'dm' && hasV7(db)) {
-    const place = prepared(db, 'SELECT iface, partner_person, conversation FROM places WHERE id = ?').get(
-      parts.place_id
-    );
+    const place = prepared(db, 'SELECT iface, partner_person, chat FROM places WHERE id = ?').get(parts.place_id);
     // A DM place with no known partner person (an observed DM) matches a triple with none (schema v8).
     if (
       place &&
-      place.conversation === 'dm' &&
+      place.chat === 'dm' &&
       place.iface === scope.scope_iface &&
       (place.partner_person ?? null) === (scope.scope_dm ?? null)
     )
@@ -272,7 +269,7 @@ export function deriveRow(
       ensureAudience(db, resolved, { at });
     }
   }
-  // A row that names its own authority (an observation) keeps it, with its native key and conversation.
+  // A row that names its own authority (an observation) keeps it, with its native key and chat.
   const own = typeof row.authority_id === 'string' && row.authority_id !== '';
   if (table === 'accounts' && have.has('authority_id') && Object.hasOwn(out, 'id')) {
     ensureInterface(db, out.iface);

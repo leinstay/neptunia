@@ -1,5 +1,5 @@
-// A line that arrives while paused (src/behavior/core-pause.ts) is judged by its own conversation: a core with no home
-// community still observes the owner's chat and a served group, and a direct chat's record names no community it does
+// A line that arrives while paused (src/behavior/core-pause.ts) is judged by its own chat: a core with no home
+// root still observes the owner's chat and a served group, and a direct chat's record names no root it does
 // not have.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,8 +16,8 @@ async function observe(
   const seen: Array<Observed> = [];
   const deps: PausedDeps = {
     hot: {},
-    sharedPlaceOf: (conversation: never) => {
-      const { rootId, id } = conversation as { rootId: string | null; id: string };
+    sharedPlaceOf: (chat: never) => {
+      const { rootId, id } = chat as { rootId: string | null; id: string };
       return rootId ?? id;
     },
     isServed: (id) => typeof id === 'string' && served.includes(id),
@@ -31,17 +31,17 @@ async function observe(
   return seen;
 }
 
-const line = (iface: string, conversation: object, author = 'u1'): object => ({
+const line = (iface: string, chat: object, author = 'u1'): object => ({
   kind: 'message.received',
   iface,
-  conversation,
+  chat,
   message: { id: 'm1', author: { id: author, name: 'Eleni', self: false, bot: false } },
   addressing: { mentioned: false },
 });
 const OWNER_CHAT = line('cli', { id: 'cli:dm:owner', kind: 'dm', rootId: null, partnerId: 'owner' }, 'owner');
 
-test('the owner chat is observed while paused on a core with no community', async () => {
-  // Bug: the home community is required before the line's kind is looked at, so the owner's words are lost.
+test('the owner chat is observed while paused on a core with no root', async () => {
+  // Bug: the home root is required before the line's kind is looked at, so the owner's words are lost.
   const seen = await observe(OWNER_CHAT, null);
   assert.equal(seen.length, 1);
   assert.equal(seen[0]?.direct, true);
@@ -49,15 +49,15 @@ test('the owner chat is observed while paused on a core with no community', asyn
   assert.equal(seen[0]?.where.placeId, 'cli:dm:owner');
 });
 
-test('the owner chat while paused does not take the home community of an interface', async () => {
-  // Bug: the owner's private line is recorded under a community the chat has nothing to do with.
+test('the owner chat while paused does not take the home root of an interface', async () => {
+  // Bug: the owner's private line is recorded under a root the chat has nothing to do with.
   const seen = await observe(OWNER_CHAT, 'home-of-first');
   assert.equal(seen.length, 1);
   assert.equal(seen[0]?.where.placeId, 'cli:dm:owner');
 });
 
-test('a group line of a served community is observed under it while the core has no home community', async () => {
-  // Bug: a second interface's community is unobserved during a pause when no home community resolved.
+test('a group line of a served root is observed under it while the core has no home root', async () => {
+  // Bug: a second interface's root is unobserved during a pause when no home root resolved.
   const group = line('other', { id: 'c1', kind: 'channel', rootId: 'g3' });
   const seen = await observe(group, null, ['g3']);
   assert.deepEqual(seen, [{ direct: false, where: { placeId: 'g3' } }]);

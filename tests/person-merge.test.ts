@@ -1,6 +1,6 @@
 // The owner's merge of one person into another (`kind: 'person-merge'` through the one writer, `/memory users merge` from
 // his line): everything stored about the person who goes moves to the person who stays, and nothing moves out of the
-// conversation it was said in. One `people_merges` row records it, and running it again changes nothing. Real
+// chat it was said in. One `people_merges` row records it, and running it again changes nothing. Real
 // temporary databases over the synthetic opaque world.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -172,7 +172,7 @@ test('a merge moves the person a line and its vector are scoped to', () => {
   });
 });
 
-test('a merge widens no audience: every row stays in the conversation it came from', () => {
+test('a merge widens no audience: every row stays in the chat it came from', () => {
   // Bug: the merge rewrites an audience with the person, and a private fact of one DM shows in a group or another DM.
   withWorld((handle, db) => {
     const before = audiences(db);
@@ -374,7 +374,7 @@ function consoleRig(): {
     },
     usage: null,
     metrics: { samples: () => [] },
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => NOW,
   };
   const desk = createConsole(deps);

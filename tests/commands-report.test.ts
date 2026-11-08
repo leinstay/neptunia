@@ -40,7 +40,7 @@ test('a word, a path or two words where a date goes read no file', async () => {
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => 0,
   });
   for (const target of ['yesterday', '../x', '2026-11-02 extra', '2026-1-2']) {

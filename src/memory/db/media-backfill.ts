@@ -1,14 +1,14 @@
 // The historical backfill of media: every old line whose linked items are placeholders, and every old line that misses an
 // item of its message the describer already holds a row for, gets its message read through the interface's history and
 // written in the one format, through the one writer. `backfillMedia` is the core: it lists the lines, asks `read` for pages of
-// their conversations, hands each result to `write` (`applyMediaBackfill` on the writer) and missing text forms to
+// their chats, hands each result to `write` (`applyMediaBackfill` on the writer) and missing text forms to
 // `describe`. Nothing here knows a platform. A run is resumable: what is done holds a reference or the state `missing`, so the
 // next run lists only the rest, along with a voice or an audio file whose download failed. A line that misses a row is
 // listed until it links the row, so its message gone from the platform is read again on every run.
 //
 // A line's message id is the one of its locator, else `native_id`, because `native_id` can be a key of the family catalog
-// (message-families.ts), which no platform knows. A DM line that stored no conversation is read through the one
-// `dmConversationOf` answers for its partner, which the place keeps in `extra.dmConversation`.
+// (message-families.ts), which no platform knows. A DM line that stored no chat is read through the one
+// `dmChatOf` answers for its partner, which the place keeps in `extra.dmConversation`.
 //
 // A place whose read failed gets one more read in the run. A read the platform refuses (any status but `failed`, or a failure it
 // marks not worth another try) gets none. Either way the place's lines wait for the next run.
@@ -80,7 +80,7 @@ export const BACKFILL_FIELDS: Readonly<Record<string, FieldPlan>> = {
   'sources.position': kept('its place in its unit'),
   'sources.tier': derived('the index policy'),
   'sources.retired_at': none('a line the record retired stays retired'),
-  'sources.extra.$messageLocator': derived('the stored conversation and message id, with no read'),
+  'sources.extra.$messageLocator': derived('the stored chat and message id, with no read'),
   'sources.extra.$messageReply': readIt('from the message read'),
   'sources.extra.subtype': derived('the kind of the line'),
   'sources.extra.dmChannel': kept('held by the old rows that had it'),
@@ -115,10 +115,10 @@ export const BACKFILL_FIELDS: Readonly<Record<string, FieldPlan>> = {
 type Reason = { status: string; code?: string; retryable?: boolean };
 
 /** One history read: as the interface's port answers it. */
-type Read = (conversationId: string, query: HistoryQuery) => Promise<Reason & { events?: ReadonlyArray<Row> }>;
+type Read = (chatId: string, query: HistoryQuery) => Promise<Reason & { events?: ReadonlyArray<Row> }>;
 
-/** The private conversation with an account, by the account's native id. */
-type OpenDm = (accountId: string) => Promise<Reason & { conversationId?: string }>;
+/** The private chat with an account, by the account's native id. */
+type OpenDm = (accountId: string) => Promise<Reason & { chatId?: string }>;
 
 /** What a run came to. */
 export type BackfillReport = {
@@ -185,11 +185,12 @@ const parsed = (text: unknown): Row => {
   }
 };
 
-/** The conversation a line is read through: its locator, the DM channel it or its place stored, a place's own id. Null when none is stored. */
-export function conversationOf(line: Pending): string | null {
+/** The chat a line is read through: its locator, the DM channel it or its place stored, a place's own id. Null when none is stored. */
+export function chatOf(line: Pending): string | null {
   const extra = parsed(line.extra);
-  const locator = extra.$messageLocator as { conversationId?: unknown } | undefined;
-  if (typeof locator?.conversationId === 'string' && locator.conversationId) return locator.conversationId;
+  const locator = extra.$messageLocator as { chatId?: unknown; conversationId?: unknown } | undefined;
+  const located = locator?.chatId ?? locator?.conversationId;
+  if (typeof located === 'string' && located) return located;
   if (typeof extra.dmChannel === 'string' && extra.dmChannel) return extra.dmChannel;
   const kept = parsed(line.place_extra).dmConversation;
   if (typeof kept === 'string' && kept) return kept;
@@ -207,7 +208,7 @@ function partnerOf(db: Db, placeId: unknown): string | null {
   const row = db
     .prepare(
       `SELECT a.native_id AS native, p.native_key AS key FROM places p LEFT JOIN accounts a ON a.id = p.partner_account
-       WHERE p.id = ? AND (p.kind = 'dm' OR p.conversation = 'dm')`
+       WHERE p.id = ? AND (p.kind = 'dm' OR p.chat = 'dm')`
     )
     .get(placeId);
   if (typeof row?.native === 'string' && row.native) return row.native;
@@ -250,17 +251,17 @@ function itemsToDescribe(db: Db, iface: unknown, event: Row): Array<Row> {
 }
 
 /** What the writer needs to bring a line to the format, from its message or from what is stored of it. */
-function updateFor(line: Pending, conversationId: string | null, event: Row | null, at: number): Row {
+function updateFor(line: Pending, chatId: string | null, event: Row | null, at: number): Row {
   const iface = line.iface ?? null;
   const locator =
     messageLocator(parsed(line.extra).$messageLocator, iface) ??
-    (conversationId === null
+    (chatId === null
       ? null
-      : messageLocator({ v: 1, origin: 'record-v1', iface, conversationId, messageId: messageIdOf(line) }, iface));
+      : messageLocator({ v: 1, origin: 'record-v1', iface, chatId, messageId: messageIdOf(line) }, iface));
   const envelope = event ? observationOf({ ...event, iface }) : null;
   return {
     sourceId: line.id,
-    state: event ? 'linked' : conversationId === null ? 'bare' : 'gone',
+    state: event ? 'linked' : chatId === null ? 'bare' : 'gone',
     at,
     locator,
     ...(event
@@ -305,8 +306,8 @@ function markPlaceholders(db: Db, sourceId: unknown): void {
   ).run(sourceId);
 }
 
-/** Keeps on a DM place the conversation the interface opened for its partner. */
-function keepDmConversation(db: Db, placeId: unknown, dmConversation: unknown): void {
+/** Keeps on a DM place the chat the interface opened for its partner. */
+function keepDmChat(db: Db, placeId: unknown, dmConversation: unknown): void {
   const extra = parsed(db.prepare('SELECT extra FROM places WHERE id = ?').get(placeId)?.extra);
   db.prepare('UPDATE places SET extra = ? WHERE id = ?').run(JSON.stringify({ ...extra, dmConversation }), placeId);
 }
@@ -343,7 +344,7 @@ export function applyMediaBackfill(connection: Connection, update: Row): { told:
   const at = update.at;
   const write = (): { told: number; queued: number } => {
     if (update.dmConversation !== undefined) {
-      keepDmConversation(db, update.placeId, update.dmConversation);
+      keepDmChat(db, update.placeId, update.dmConversation);
       return { told: 0, queued: 0 };
     }
     const line = sourceLine(db, asText(update.sourceId));
@@ -378,7 +379,7 @@ function waitingOn(db: Db, sourceId: unknown): { told: number; queued: number } 
 export async function backfillMedia({
   db,
   read,
-  dmConversationOf,
+  dmChatOf,
   write,
   describe,
   now,
@@ -390,8 +391,8 @@ export async function backfillMedia({
 }: {
   db: Db;
   read: Read;
-  /** Absent where no interface can open a conversation: a DM line with none stored is then `bare`. */
-  dmConversationOf?: OpenDm;
+  /** Absent where no interface can open a chat: a DM line with none stored is then `bare`. */
+  dmChatOf?: OpenDm;
   write: (update: Row) => Promise<unknown>;
   describe: (placeId: string, items: Array<Row>) => Promise<unknown>;
   now: number;
@@ -425,31 +426,31 @@ export async function backfillMedia({
   };
   const named = rowsNamingMessages(db);
   const lines = pendingLines(db);
-  const byConversation = new Map<string, Array<Pending>>();
-  const toRead = (conversationId: string, line: Pending): void => {
-    byConversation.set(conversationId, [...(byConversation.get(conversationId) ?? []), line]);
+  const byChat = new Map<string, Array<Pending>>();
+  const toRead = (chatId: string, line: Pending): void => {
+    byChat.set(chatId, [...(byChat.get(chatId) ?? []), line]);
   };
   const bare = async (line: Pending): Promise<void> => {
     report.bare += 1;
-    count('no-conversation');
+    count('no-chat');
     if (!dryRun) await apply(updateFor(line, null, null, now));
   };
   const toOpen = new Map<string, { partner: string; lines: Array<Pending> }>();
   for (const line of lines) {
-    const conversationId = conversationOf(line);
+    const chatId = chatOf(line);
     // A line listed for its embed holds no placeholder a named row could take.
     const rows = line.embed === true ? undefined : named.get(messageIdOf(line));
     if (rows && !dryRun) {
-      await apply({ ...updateFor(line, conversationId, null, now), named: rows, state: 'linked', items: [] });
+      await apply({ ...updateFor(line, chatId, null, now), named: rows, state: 'linked', items: [] });
       report.linked += 1;
       count('named');
       continue;
     }
-    if (conversationId !== null) {
-      toRead(conversationId, line);
+    if (chatId !== null) {
+      toRead(chatId, line);
       continue;
     }
-    const partner = dmConversationOf ? partnerOf(db, line.place_id) : null;
+    const partner = dmChatOf ? partnerOf(db, line.place_id) : null;
     if (partner === null) {
       await bare(line);
       continue;
@@ -458,7 +459,7 @@ export async function backfillMedia({
     toOpen.set(placeId, { partner, lines: [...(toOpen.get(placeId)?.lines ?? []), line] });
   }
   if (dryRun) {
-    for (const list of byConversation.values()) report.classes.toRead = (report.classes.toRead ?? 0) + list.length;
+    for (const list of byChat.values()) report.classes.toRead = (report.classes.toRead ?? 0) + list.length;
     for (const { lines: waiting } of toOpen.values())
       report.classes.toOpen = (report.classes.toOpen ?? 0) + waiting.length;
     return report;
@@ -485,12 +486,12 @@ export async function backfillMedia({
       report.stopped = true;
       return report;
     }
-    const open = (): ReturnType<OpenDm> => (dmConversationOf as OpenDm)(partner);
+    const open = (): ReturnType<OpenDm> => (dmChatOf as OpenDm)(partner);
     let answer = await asking(open);
     if (answer.status !== 'ok' && !isRefusal(answer)) answer = await asking(open);
-    if (answer.conversationId) {
-      await apply({ placeId, dmConversation: answer.conversationId, at: now });
-      for (const line of waiting) toRead(answer.conversationId, line);
+    if (answer.chatId) {
+      await apply({ placeId, dmConversation: answer.chatId, at: now });
+      for (const line of waiting) toRead(answer.chatId, line);
     } else if (answer.status === 'unsupported') {
       for (const line of waiting) await bare(line);
     } else if (isRefusal(answer)) {
@@ -504,7 +505,7 @@ export async function backfillMedia({
     }
   }
 
-  for (const [conversationId, held] of byConversation) {
+  for (const [chatId, held] of byChat) {
     const pending = [...held].sort((a, b) => compareIds(messageIdOf(a), messageIdOf(b)));
     let secondRead = true;
     while (pending.length > 0) {
@@ -513,7 +514,7 @@ export async function backfillMedia({
         return report;
       }
       const asked = messageIdOf(pending[0]);
-      const page = await asking(() => read(conversationId, { around: asked, limit: pageSize }));
+      const page = await asking(() => read(chatId, { around: asked, limit: pageSize }));
       if (page.status !== 'ok') {
         if (secondRead && !isRefusal(page)) {
           secondRead = false;
@@ -530,7 +531,7 @@ export async function backfillMedia({
       for (const line of answered) {
         pending.splice(pending.indexOf(line), 1);
         const event = events.get(messageIdOf(line)) ?? null;
-        await apply(updateFor(line, conversationId, event, now));
+        await apply(updateFor(line, chatId, event, now));
         if (!event) {
           report.gone += 1;
           count('deleted');
@@ -567,7 +568,7 @@ const LIVE_PAUSE_MS = 1000;
 export function createMediaBackfillDesk({
   database,
   read,
-  dmConversationOf,
+  dmChatOf,
   write,
   describe,
   now,
@@ -575,7 +576,7 @@ export function createMediaBackfillDesk({
 }: {
   database: () => Db | null;
   read: Read;
-  dmConversationOf?: OpenDm;
+  dmChatOf?: OpenDm;
   write: (update: Row) => Promise<unknown>;
   describe: (placeId: string, items: Array<Row>) => Promise<unknown>;
   now: () => number;
@@ -591,7 +592,7 @@ export function createMediaBackfillDesk({
         backfillMedia({
           db,
           read,
-          ...(dmConversationOf ? { dmConversationOf } : {}),
+          ...(dmChatOf ? { dmChatOf } : {}),
           write: (update) => write({ kind: 'media-backfill', ...update }),
           describe,
           now: now(),
@@ -617,15 +618,15 @@ export function createMediaBackfillDesk({
 
 /** The history reads the core holds: `answer`, where the reads have it, keeps why a read came to nothing. */
 export type HistoryReads = {
-  history(where: { iface: string; conversationId: string }, query: HistoryQuery): Promise<unknown>;
+  history(where: { iface: string; chatId: string }, query: HistoryQuery): Promise<unknown>;
   answer?: Reads['answer'];
 };
 
 /** One history read of the interface `iface` names now, as a run reads it. */
 export function historyReader(reads: HistoryReads, iface: () => string): Read {
   const { answer } = reads;
-  return async (conversationId, query) => {
-    const where = { iface: iface(), conversationId };
+  return async (chatId, query) => {
+    const where = { iface: iface(), chatId };
     if (answer) return await answer('history', where, query);
     const found = (await reads.history(where, query)) as Row | null;
     return found === null ? { status: 'failed' } : { status: 'ok', ...found };
@@ -642,7 +643,7 @@ export function mediaBackfillDesk({
   log,
 }: {
   memoryDb: { database(): unknown; memoryWrite(update: unknown): Promise<unknown> };
-  /** `answer`, where the reads have it, also lets a DM's conversation be opened. */
+  /** `answer`, where the reads have it, also lets a DM's chat be opened. */
   reads: HistoryReads;
   iface: () => string;
   describer: {
@@ -659,9 +660,7 @@ export function mediaBackfillDesk({
   return createMediaBackfillDesk({
     database: () => memoryDb.database() as Db | null,
     read: historyReader(reads, iface),
-    ...(answer
-      ? { dmConversationOf: (accountId: string) => answer('dmConversationOf', { iface: iface(), accountId }) }
-      : {}),
+    ...(answer ? { dmChatOf: (accountId: string) => answer('dmChatOf', { iface: iface(), accountId }) } : {}),
     write: (update) => memoryDb.memoryWrite(update),
     // The backfill names items as the media collectors list them, which is what the describer reads. The owner asked for this
     // run, so a download that failed minutes ago is tried now.

@@ -141,7 +141,7 @@ test('dependent diary announcement: a failed picture and a post to the diary cha
   const jardin = {
     id: 'c2',
     name: 'jardin',
-    guild: { id: 'g1', members: { me: { displayName: 'Bot' } } },
+    root: { id: 'g1', members: { me: { displayName: 'Bot' } } },
     isTextBased: () => true,
     isDMBased: () => false,
     viewable: true,
@@ -408,7 +408,7 @@ test('retired tags: a leftover <call> or <draw> in her speech is cut out, never 
   assert.ok(!noteText(long.llm, 2).includes(labels.task.diagnostics), noteText(long.llm, 2));
 });
 
-test('carried over: draw.create in the current conversation runs on a spontaneous turn with nobody asking, as the old tag did; in another channel it is refused no-requester', async () => {
+test('carried over: draw.create in the current chat runs on a spontaneous turn with nobody asking, as the old tag did; in another channel it is refused no-requester', async () => {
   const { drawTurn, fakeImages } = await import('./fixtures/turn-draws.ts');
   const here = await drawTurn({
     spontaneous: 'initiate',
@@ -421,7 +421,7 @@ test('carried over: draw.create in the current conversation runs on a spontaneou
   const jardin = {
     id: 'c2',
     name: 'jardin',
-    guild: { id: 'g1', members: { me: { displayName: 'Bot' } } },
+    root: { id: 'g1', members: { me: { displayName: 'Bot' } } },
     isTextBased: () => true,
     isDMBased: () => false,
     viewable: true,
@@ -441,7 +441,7 @@ test('carried over: draw.create in the current conversation runs on a spontaneou
   assert.equal(images.calls.length, 0);
 });
 
-test('carried over: message.create in the current conversation also runs on a spontaneous turn with nobody asking', async () => {
+test('carried over: message.create in the current chat also runs on a spontaneous turn with nobody asking', async () => {
   const run = await coreTurn({
     spontaneous: 'initiate',
     allowed: [],

@@ -206,7 +206,7 @@ function endpointAudience(db: Db, ctx: Context, ref: SemanticRef): string | null
   if (!home) return undefined;
   const row = db.prepare(`SELECT * FROM "${home.table}" WHERE id = ?`).get(ref.id);
   if (!row || (row.retired_at !== null && row.retired_at !== undefined)) return undefined;
-  if (ref.kind === 'place' && (row.kind === 'dm' || row.conversation === 'dm')) {
+  if (ref.kind === 'place' && (row.kind === 'dm' || row.chat === 'dm')) {
     const audience = dmAudienceId(ref.id);
     return allowedAudience({ audience_id: audience }, ctx) ? audience : undefined;
   }

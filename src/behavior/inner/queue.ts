@@ -1,6 +1,6 @@
-// One persona state holds shared clocks and scoped conversation evidence. The wake tables supply its queue,
+// One persona state holds shared clocks and scoped chat evidence. The wake tables supply its queue,
 // handled outcomes and in-flight view. Persona state writes and wake transitions share the memory writer chain.
-// Community arguments select conversation context, not separate state objects. Standalone file-backed fixtures
+// Root arguments select chat context, not separate state objects. Standalone file-backed fixtures
 // retain the explicit legacy file adapter.
 
 import fs from 'node:fs';
@@ -91,7 +91,7 @@ function inflightOf(value: unknown): Inflight | null {
     kind: typeof raw.kind === 'string' ? raw.kind : '',
     startedAt: raw.startedAt,
     placeId: idOrNull(raw.placeId),
-    privateChat: raw.privateChat === true,
+    dmChat: raw.dmChat === true,
     privateAccountId: idOrNull(raw.privateAccountId),
     ...(typeof raw.iface === 'string' && raw.iface ? { iface: raw.iface } : {}),
   };
@@ -184,12 +184,12 @@ export type DueIntention = {
   every?: unknown;
 };
 
-/** Where an intention lands: its destination, else the conversation it came from; and whether that is a private chat. */
-function targetOf(intention: DueIntention): { placeId: string | null; privateChat: boolean } {
+/** Where an intention lands: its destination, else the chat it came from; and whether that is a private chat. */
+function targetOf(intention: DueIntention): { placeId: string | null; dmChat: boolean } {
   const provenance = objOf(intention.provenance);
-  const privateChat = provenance.scope === 'dm';
-  const placeId = privateChat ? (provenance.placeId ?? null) : (intention.destination ?? provenance.placeId ?? null);
-  return { placeId: placeId ? asText(placeId) : null, privateChat };
+  const dmChat = provenance.scope === 'dm';
+  const placeId = dmChat ? (provenance.placeId ?? null) : (intention.destination ?? provenance.placeId ?? null);
+  return { placeId: placeId ? asText(placeId) : null, dmChat };
 }
 
 /**
@@ -202,7 +202,7 @@ export function wakeOfDue({ intention, reason, at }: { intention: DueIntention; 
   const deadline = reason === 'wait-deadline';
   const kind = deadline ? 'errand_deadline' : 'intention_due';
   const errandId = deadline ? (intention.awaitingErrandId ?? intention.lastErrandId ?? null) : null;
-  const { placeId, privateChat } = targetOf(intention);
+  const { placeId, dmChat } = targetOf(intention);
   return {
     id: deadline
       ? `inner.wake:errand_deadline:${intention.id}:${String(errandId)}`
@@ -217,7 +217,7 @@ export function wakeOfDue({ intention, reason, at }: { intention: DueIntention; 
         : `intention:${intention.id}`,
     dueAt: at,
     placeId,
-    privateChat,
+    dmChat,
     ...(errandId ? { errandId: String(errandId) } : {}),
   };
 }
@@ -247,10 +247,10 @@ export const channelless = (wake: Wake | null | undefined): boolean =>
 
 /**
  * The wakes of `queue` that run together, the earliest due first: the first wake is the anchor and every wake of the
- * same conversation (and the same private-or-server kind) joins it.
+ * same chat (and the same private-or-server kind) joins it.
  * A retried wake (`retry`) joins only the wakes of its own failed group. A wake `isHeld` says is held (its own chain
  * is over its cap) is left out of every group, so it never joins one and never makes a feedback wake wait.
- * A feedback wake is never coalesced with another kind: the feedback wakes of one conversation run together, first.
+ * A feedback wake is never coalesced with another kind: the feedback wakes of one chat run together, first.
  */
 export function coalesceGroup(queue: ReadonlyArray<Wake>, isHeld: (wake: Wake) => boolean = () => false): Array<Wake> {
   const sorted = [...queue].filter((wake) => !isHeld(wake)).sort((a, b) => (a.dueAt ?? 0) - (b.dueAt ?? 0));
@@ -262,7 +262,7 @@ export function coalesceGroup(queue: ReadonlyArray<Wake>, isHeld: (wake: Wake) =
       (wake) =>
         wake.scopePlaceId === first.scopePlaceId &&
         wake.placeId === first.placeId &&
-        Boolean(wake.privateChat) === Boolean(first.privateChat) &&
+        Boolean(wake.dmChat) === Boolean(first.dmChat) &&
         retryKey(wake) === retryKey(first)
     );
   }
@@ -280,19 +280,19 @@ export function coalesceGroup(queue: ReadonlyArray<Wake>, isHeld: (wake: Wake) =
       retryKey(wake) === key &&
       wake.scopePlaceId === anchor.scopePlaceId &&
       wake.placeId === anchor.placeId &&
-      Boolean(wake.privateChat) === Boolean(anchor.privateChat)
+      Boolean(wake.dmChat) === Boolean(anchor.dmChat)
   );
 }
 
 /** What tells retried wakes of one failed group from fresh ones: '' for a fresh wake. */
 const retryKey = (wake: Wake | undefined): string => (wake?.retry ? `${wake.retry}:${wake.firstFailedAt ?? ''}` : '');
 
-/** Capture the native conversation alongside inner evidence. */
-export function contextOf(life: InnerContext, conversationId?: unknown): Pick<Fact, 'scopePlaceId' | 'conversation'> {
+/** Capture the native chat alongside inner evidence. */
+export function contextOf(life: InnerContext, chatId?: unknown): Pick<Fact, 'scopePlaceId' | 'chat'> {
   const iface = life.iface();
   return {
     scopePlaceId: null,
-    conversation: typeof conversationId === 'string' && conversationId ? { iface, conversationId } : null,
+    chat: typeof chatId === 'string' && chatId ? { iface, chatId } : null,
   };
 }
 
@@ -350,7 +350,7 @@ export function loseState(life: InnerContext, key: string, state: InnerState, co
   }
   log.warn('inner: state unreadable, starting empty', { code, kept });
   note(life, { event: 'stateLost', code, kept });
-  addFact(life, state, { at, kind: 'stateLost', code, placeId: null, privateChat: false });
+  addFact(life, state, { at, kind: 'stateLost', code, placeId: null, dmChat: false });
   // Written only when the old file is safe aside; if it could not be moved it stays where it is.
   if (!kept) return;
   try {
@@ -360,7 +360,7 @@ export function loseState(life: InnerContext, key: string, state: InnerState, co
   }
 }
 
-/** Prune the shared state in place and persist it before the current conversation queue changes. */
+/** Prune the shared state in place and persist it before the current chat queue changes. */
 export function save(life: InnerContext): InnerState {
   const { hot, now } = life;
   const key = 'persona';
@@ -449,7 +449,7 @@ export function paused(life: InnerContext): boolean {
   }
 }
 
-/** `fact` kept in `state.facts` (not told yet); the fact's `placeId` and `privateChat` say where it may be shown. */
+/** `fact` kept in `state.facts` (not told yet); the fact's `placeId` and `dmChat` say where it may be shown. */
 export function addFact(life: InnerContext, state: InnerState, fact: FactInput): Fact {
   const { now } = life;
   const at = isFiniteNumber(fact.at) ? fact.at : now();
@@ -480,7 +480,7 @@ export function wakeFact(life: InnerContext, wake: Wake, kind: string, code: str
     purpose: intentionId ? purposeOf(life, intentionId) : '',
     ...extra,
     placeId: wake.placeId ?? null,
-    privateChat: wake.privateChat === true,
+    dmChat: wake.dmChat === true,
   };
 }
 
@@ -566,7 +566,7 @@ export function onWake(life: InnerContext, event: unknown): WakeAnswer {
   state.queue.push(queued);
   save(life);
   log.info('inner: wake', { id, kind: queued.kind, dueAt: wake.dueAt ?? null });
-  note(life, { event: 'wake', wake: wakeFields(queued), placeId: wake.privateChat ? null : wake.placeId });
+  note(life, { event: 'wake', wake: wakeFields(queued), placeId: wake.dmChat ? null : wake.placeId });
   return { status: 'queued' };
 }
 

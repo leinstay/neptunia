@@ -42,7 +42,7 @@ function normalizedTrigger(raw: ReturnType<typeof rawMessage>) {
   };
 }
 
-/** A guild channel whose guild knows one text channel `γενικά`, which she cannot read (no neighbour reads); the non-text `φωνή` is no conversation. */
+/** A guild channel whose guild knows one text channel `γενικά`, which she cannot read (no neighbour reads); the non-text `φωνή` is no chat. */
 function fakeTurnChannel(historyMessages: Array<Record<string, unknown>>) {
   world().channel({ id: LINKED_ID, name: 'γενικά', permissions: { read: false } });
   return world().channel({ id: 'c1', name: 'chat', placeId: 'g1', historyMessages, permissions: { attach: false } });

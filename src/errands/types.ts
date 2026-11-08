@@ -254,8 +254,8 @@ export type ErrandService = {
   submit: (input: SubmitInput) => AddResult;
   cancel: (input: { id: string; by?: string }) => CancelResult;
   budget: (input?: { agent?: string }) => Budget | null;
-  view: (input?: { privateChannelId?: string | null }) => Array<ErrandRecord>;
-  fileOf: (input?: { handle?: unknown; privateChannelId?: string | null }) => ErrandFileRef | ExpiredFileRef | null;
+  view: (input?: { dmChatId?: string | null }) => Array<ErrandRecord>;
+  fileOf: (input?: { handle?: unknown; dmChatId?: string | null }) => ErrandFileRef | ExpiredFileRef | null;
   markSeen: (input?: IdsInput) => number;
   markRead: (input?: IdsInput) => number;
   markResultFailed: (input?: IdsInput) => number;
@@ -290,7 +290,7 @@ export type ErrandServiceOptions = {
   hot: Untyped;
   env?: Record<string, string | undefined>;
   memory?: {
-    recentLines: (conversationId: string, count: number) => Array<{ author?: unknown; text?: unknown }>;
+    recentLines: (chatId: string, count: number) => Array<{ author?: unknown; text?: unknown }>;
   } | null;
 
   /** The stored facts of an errand's goal through the one retrieval service, under a group context. */

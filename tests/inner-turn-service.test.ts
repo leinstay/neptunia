@@ -1,10 +1,10 @@
 // The service turns on the template of the turn frame (plan 2026-11-06-turn-frame, slice 5, "The services as one
-// template" and "The service trees"): a heartbeat and a selfimprovement wake run with `conversation: null`, their
+// template" and "The service trees"): a heartbeat and a selfimprovement wake run with `chat: null`, their
 // request holds the service list (no `<chat>`, no `<surroundings>`), `<meanwhile>` holds her last
 // `context.memory.serviceMessages` lines over the rooms of every group of every interface and no direct chat, and
 // `<memory>` reads as herself. tests/inner-turn.test.ts is near the file length limit, so these live here.
 // The shapes the specifier chose:
-//   runTurn({ conversation: null, mode: 'inner', triggerKind: 'inner', inner: { wake, currentChannel, shadow, mayAct } })
+//   runTurn({ chat: null, mode: 'inner', triggerKind: 'inner', inner: { wake, currentChannel, shadow, mayAct } })
 //     is a service turn nowhere; the wake carries a selfimprovement wake's facts under `wake.selfimprovement`
 //     (SelfimprovementFacts of src/behavior/selfimprovement-view.ts), as the drain hands them today.
 //   `<work>` and `<board>` are subtags of `<inner>`; `<work>` states its window with the first day as `formatDate`
@@ -46,8 +46,8 @@ function inOrderOf(tags: ReadonlyArray<string>, list: ReadonlyArray<string>): bo
 }
 
 test('a heartbeat request holds the service list in its order, with no <chat> and no <surroundings>', async () => {
-  // Bug: the heartbeat keeps the old `<wake>` emission, or the chat and surroundings of a stand-in conversation.
-  const run = await serviceTurn({ wake: serviceWake('heartbeat'), answers: ['<skip/>'], conversation: null });
+  // Bug: the heartbeat keeps the old `<wake>` emission, or the chat and surroundings of a stand-in chat.
+  const run = await serviceTurn({ wake: serviceWake('heartbeat'), answers: ['<skip/>'], chat: null });
   const text = run.requests[0] ?? '';
   const tags = rootTags(text);
   assert.ok(inOrderOf(tags, SERVICE_TAGS), tags.join(' '));
@@ -60,7 +60,7 @@ test('a selfimprovement request holds the service list too', async () => {
   const run = await serviceTurn({
     wake: serviceWake('selfimprovement', { selfimprovement: facts() }),
     answers: ['<skip/>'],
-    conversation: null,
+    chat: null,
   });
   const tags = rootTags(run.requests[0] ?? '');
   assert.ok(inOrderOf(tags, SERVICE_TAGS), tags.join(' '));
@@ -70,7 +70,7 @@ test('a selfimprovement request holds the service list too', async () => {
 test('<meanwhile> of a heartbeat holds her lines from the groups of two interfaces and none from a direct chat', async () => {
   // Bug: a service reads `context.meanwhile.messages` (8 by default, 1 here) instead of serviceMessages, reads one
   // interface, or lets a private chat into a turn that needs none.
-  const run = await serviceTurn({ wake: serviceWake('heartbeat'), answers: ['<skip/>'], conversation: null });
+  const run = await serviceTurn({ wake: serviceWake('heartbeat'), answers: ['<skip/>'], chat: null });
   const meanwhile = blockOf(run.requests[0] ?? '', 'meanwhile');
   assert.ok(meanwhile.includes(TEXT.ownGarden), 'the room of the first interface');
   assert.ok(meanwhile.includes(TEXT.ownHarbour), 'the room of the second interface');
@@ -82,7 +82,7 @@ test('<meanwhile> of a service is cut at context.memory.serviceMessages', async 
   const run = await serviceTurn({
     wake: serviceWake('heartbeat'),
     answers: ['<skip/>'],
-    conversation: null,
+    chat: null,
     settings: { serviceMessages: 1 },
   });
   const meanwhile = blockOf(run.requests[0] ?? '', 'meanwhile');
@@ -93,7 +93,7 @@ test('<meanwhile> of a service is cut at context.memory.serviceMessages', async 
 test('<memory> of a heartbeat raised from a group line holds that person private fact, under an origin', async () => {
   // Bug: the service reads memory under a group scope and loses what she knows from a direct chat, or seeds the
   // reader from a chat window it does not have, so the person who wrote beside her line never enters.
-  const run = await serviceTurn({ wake: serviceWake('heartbeat'), answers: ['<skip/>'], conversation: null });
+  const run = await serviceTurn({ wake: serviceWake('heartbeat'), answers: ['<skip/>'], chat: null });
   const memory = blockOf(run.requests[0] ?? '', 'memory');
   assert.ok(memory.includes(TEXT.eleniSecret), memory);
   const entry = memory.split('\n\n').find((part) => part.includes(TEXT.eleniSecret)) ?? '';
@@ -104,9 +104,9 @@ test('<memory> of a heartbeat raised from a group line holds that person private
   );
 });
 
-test('a heartbeat with no conversation reads no history and journals its turn under herself', async () => {
+test('a heartbeat with no chat reads no history and journals its turn under herself', async () => {
   // Bug: the turn reads the history of a stand-in or a recent room, or its turn record lands in a place's journal.
-  const run = await serviceTurn({ wake: serviceWake('heartbeat'), answers: ['<skip/>'], conversation: null });
+  const run = await serviceTurn({ wake: serviceWake('heartbeat'), answers: ['<skip/>'], chat: null });
   const { port } = run;
   const reads = port.calls.filter((one: { op: string }) => one.op === 'history' || one.op === 'fetchMessages');
   assert.deepEqual(reads, []);
@@ -115,12 +115,12 @@ test('a heartbeat with no conversation reads no history and journals its turn un
   assert.equal(turns.length, 1);
 });
 
-test('a tool that takes a place is refused in a heartbeat with no conversation when she names none', async () => {
-  // Bug: the call falls back to a conversation the turn does not have and reads a room nobody named.
+test('a tool that takes a place is refused in a heartbeat with no chat when she names none', async () => {
+  // Bug: the call falls back to a chat the turn does not have and reads a room nobody named.
   const run = await serviceTurn({
     wake: serviceWake('heartbeat'),
     answers: [toolAnswer(THINK, [call('conversation.read', {})]), '<skip/>'],
-    conversation: null,
+    chat: null,
   });
   const [action = ''] = run.actions;
   const [skill, status, code] = action.split(':');
@@ -134,7 +134,7 @@ test('a <msg> in a heartbeat carries destination-required', async () => {
   const run = await serviceTurn({
     wake: serviceWake('heartbeat'),
     answers: [`${THINK}<msg>γεια σας</msg>`, '<skip/>'],
-    conversation: null,
+    chat: null,
   });
   const post = run.actions.find((action) => action.startsWith('message.create:')) ?? '';
   assert.equal(post.split(':')[2], DESTINATION_REQUIRED.code, post);
@@ -142,8 +142,8 @@ test('a <msg> in a heartbeat carries destination-required', async () => {
   assert.equal(port.calls.filter((one: { op: string }) => one.op === 'send').length, 0);
 });
 
-test('a second deciding call in one step of a heartbeat with no conversation is still refused', async () => {
-  // Bug: the one-change rule is keyed on a conversation, so a heartbeat nowhere files two intentions in one step.
+test('a second deciding call in one step of a heartbeat with no chat is still refused', async () => {
+  // Bug: the one-change rule is keyed on a chat, so a heartbeat nowhere files two intentions in one step.
   const run = await serviceTurn({
     wake: serviceWake('heartbeat'),
     answers: [
@@ -153,7 +153,7 @@ test('a second deciding call in one step of a heartbeat with no conversation is 
       ]),
       '<skip/>',
     ],
-    conversation: null,
+    chat: null,
   });
   assert.deepEqual(run.actions, ['intention.set:executed:ok', 'intention.set:refused:heartbeat-only']);
   assert.equal(run.intentions.list({ all: true }).length, 1);
@@ -206,7 +206,7 @@ test('<work> of a selfimprovement wake sits in <inner>, states its window and na
   const run = await serviceTurn({
     wake: serviceWake('selfimprovement', { selfimprovement: given }),
     answers: ['<skip/>'],
-    conversation: null,
+    chat: null,
   });
   const inner = blockOf(run.requests[0] ?? '', 'inner');
   const work = /<work>\n([\s\S]*?)\n<\/work>/.exec(inner)?.[1] ?? '';

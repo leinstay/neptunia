@@ -79,11 +79,11 @@ const handlers = perEnv((env) => {
     return env.intentions;
   }
 
-  /** Whether the conversation the command runs in is a private chat. */
+  /** Whether the chat the command runs in is a private chat. */
   function inPrivate(context: OpContext) {
-    if (context?.privateChat === true) return true;
-    const here = env.conversationOf(context);
-    return here ? env.directory.isPrivate(here) : false;
+    if (context?.dmChat === true) return true;
+    const here = env.chatOf(context);
+    return here ? env.directory.isDm(here) : false;
   }
 
   /** `args[key]` as a moment (parseWhen, the wall-clock forms in `bot.timezone`), undefined when not given; an `invalid` error when it does not parse. */
@@ -218,7 +218,7 @@ const handlers = perEnv((env) => {
     return { status, code: result.code, summary: `intention not ${verb}: ${result.code}${open}`, data: null };
   }
 
-  /** The members of the call's conversation: who asked, whom her turn answered, whom she mentioned. */
+  /** The members of the call's chat: who asked, whom her turn answered, whom she mentioned. */
   function participantsOf(context: OpContext) {
     const ids = [
       context?.accountId,
@@ -236,7 +236,7 @@ const handlers = perEnv((env) => {
     const owner = context?.actor !== 'persona' && isOwnerCaller(hot.config, context);
     return {
       all: owner,
-      privateChannelId: !owner && inPrivate(context) ? env.conversationOf(context) : null,
+      dmChatId: !owner && inPrivate(context) ? env.chatOf(context) : null,
     };
   }
 
@@ -247,7 +247,7 @@ const handlers = perEnv((env) => {
       by: persona ? 'persona' : isOwnerCaller(hot.config, context) ? 'owner' : 'member',
       turnId: persona && context?.turnId ? idText(context.turnId) : null,
       messageId: context?.sourceMessageId ? idText(context.sourceMessageId) : null,
-      placeId: env.conversationOf(context),
+      placeId: env.chatOf(context),
       scope: inPrivate(context) ? 'dm' : 'group',
       participants: participantsOf(context),
       ...(context?.publicationBoundary ? { publicationBoundary: context.publicationBoundary } : {}),

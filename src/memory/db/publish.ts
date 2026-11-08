@@ -141,7 +141,7 @@ export function storedSelfreflectionPublicationRefusal(
     const place = db.prepare('SELECT iface, native_id FROM places WHERE id = ?').get(String(destination));
     const refusal = selfreflectionPublicationRefusal(boundary, {
       iface: typeof place?.iface === 'string' ? place.iface : '',
-      conversationId: typeof place?.native_id === 'string' ? place.native_id : '',
+      chatId: typeof place?.native_id === 'string' ? place.native_id : '',
     });
     if (refusal) return refusal.code;
   }

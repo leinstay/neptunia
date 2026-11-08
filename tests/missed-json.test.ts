@@ -10,7 +10,7 @@ import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
-// The conversations are held by a fake interface named `fake`.
+// The chats are held by a fake interface named `fake`.
 useIface('fake');
 
 const T0 = Date.UTC(2026, 10, 6, 12, 0, 0);
@@ -41,7 +41,7 @@ function eventOf(line: MemberLine): Parameters<SeedEvent>[0] {
     iface: 'fake',
     at: line.ts,
     id: `fake:message:${line.id}`,
-    conversation: { id: 'c1', kind: 'channel', rootId: 'g1', name: 'c1' },
+    chat: { id: 'c1', kind: 'channel', rootId: 'g1', name: 'c1' },
     message: {
       id: line.id,
       author: { id: line.authorId, name: line.authorName, self: false, bot: false },
@@ -59,7 +59,7 @@ function eventOf(line: MemberLine): Parameters<SeedEvent>[0] {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
   };
 }
 

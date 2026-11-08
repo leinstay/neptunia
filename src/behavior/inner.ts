@@ -2,7 +2,7 @@
 // what is due for her -- an intention whose time came and an errand she waits for that ran past its
 // deadline -- and hands each as an `inner.wake` event through the core's event door (src/interface/door.ts). Listing
 // is not choosing: no model runs here, nothing ranks or invents a reason. A queued wake keeps its due
-// time while people's turns hold the lease; compatible wakes (the same conversation) coalesce into one inner turn; a
+// time while people's turns hold the lease; compatible wakes (the same chat) coalesce into one inner turn; a
 // queue past `wakes.queueMax` records the overflow. The inner turn itself is the turn runner's
 // (src/behavior/turn.ts, mode `inner`) on the turn frame: no human message, her tools.
 //
@@ -31,7 +31,7 @@
 // a call and lost, every call whose status was not `ok`, an intention she closed as done while no
 // delivery call went through, and the loop cut with calls dropped; a failed turn is a fact too
 // (`turnFailed`). A non-empty list is kept as facts and queues ONE `feedback` wake
-// (`inner.wake:feedback:<turnId>`) in the turn's chain and conversation, due at the next tick,
+// (`inner.wake:feedback:<turnId>`) in the turn's chain and chat, due at the next tick,
 // carrying them -- unless the turn's own wakes come back for a retry, which carries them. The
 // feedback wake is never held by a cap, never coalesced with another wake and does not count
 // against the chain; a feedback turn's own misses are facts but queue no second wake (no loops).
@@ -153,15 +153,15 @@ export type InnerLifeOptions = {
   /** A member's name for an attention's lines (null: the id is shown). */
   nameOf?: ((accountId: string) => unknown) | null;
   journal?: InnerJournal | null;
-  /** The core's reads of the interface: the conversation a turn runs in. */
+  /** The core's reads of the interface: the chat a turn runs in. */
   reads?: InnerContext['reads'];
-  /** The interface the conversations belong to (from `hello`). */
+  /** The interface the chats belong to (from `hello`). */
   iface?: () => string;
   /**
-   * The name an interface reported for a conversation (src/interface/directory.ts); null when it reported none, and
+   * The name an interface reported for a chat (src/interface/directory.ts); null when it reported none, and
    * the id is shown.
    */
-  conversationName?: (conversationId: string) => string | null;
+  chatName?: (chatId: string) => string | null;
   /** The event door's submit (src/index.ts). */
   submit?: ((event: InnerWakeEvent) => Promise<unknown>) | null;
   /** The memory store (its pause). */
@@ -237,7 +237,7 @@ export function createInnerLife({
   journal = null,
   reads = null,
   iface = () => '',
-  conversationName = () => null,
+  chatName = () => null,
   submit = null,
   store = null,
   peopleWaiting = () => false,
@@ -262,7 +262,7 @@ export function createInnerLife({
     journal,
     reads,
     iface,
-    conversationName,
+    chatName,
     submit,
     store,
     peopleWaiting,
@@ -365,8 +365,8 @@ export function createInnerLife({
 
   /**
    * The facts for the turns that are not inner turns (src/behavior/turn.ts's addressed turns): `add` a
-   * fact (`kind`, `placeId`, `privateChat`, its payload), `pending` ones a conversation may be shown
-   * (`scope`: `{ placeId, privateChat }`; a private chat's only in it), `markTold` the ones a completed
+   * fact (`kind`, `placeId`, `dmChat`, its payload), `pending` ones a chat may be shown
+   * (`scope`: `{ placeId, dmChat }`; a private chat's only in it), `markTold` the ones a completed
    * answer carried. `enabled` follows the switch; without it the turn runner keeps its own in process.
    */
   const factsApi: FactsApi = {

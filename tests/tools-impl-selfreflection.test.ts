@@ -24,7 +24,7 @@ import { freshWorld, world } from './fixtures/turn-world.ts';
 import '../src/tools/impl/index.ts';
 
 const NOW = Date.parse('2026-10-27T12:00:00Z');
-const GUILD = 'g1';
+const ROOT = 'g1';
 const MAX_PER_DAY = 3;
 
 /** The memory databases the scenes opened, closed when the file is done. */
@@ -34,11 +34,11 @@ after(async () => {
 });
 
 /**
- * A community with `general` (c1), where Alice wrote last, and the diary's two enabled mirrors `journal` (d1) and
+ * A root with `general` (c1), where Alice wrote last, and the diary's two enabled mirrors `journal` (d1) and
  * `notes` (d2), on a fake interface; a real store over memory, the publisher over the interface's own port, and her
  * tools through a real admin over the guarded port. `postsToday` diary entries are already counted today.
  */
-async function community({ postsToday = 0 }: { postsToday?: number } = {}) {
+async function root({ postsToday = 0 }: { postsToday?: number } = {}) {
   const memory = await openTestMemory({ now: () => NOW });
   OPEN.push(memory);
   freshWorld();
@@ -59,17 +59,17 @@ async function community({ postsToday = 0 }: { postsToday?: number } = {}) {
       ],
     ]),
   };
-  world().channel({ id: 'c1', name: 'general', placeId: GUILD, historyMessages: [ownPicture, line('c1')] });
-  world().channel({ id: 'd1', name: 'journal', placeId: GUILD });
-  world().channel({ id: 'd2', name: 'notes', placeId: GUILD });
+  world().channel({ id: 'c1', name: 'general', placeId: ROOT, historyMessages: [ownPicture, line('c1')] });
+  world().channel({ id: 'd1', name: 'journal', placeId: ROOT });
+  world().channel({ id: 'd2', name: 'notes', placeId: ROOT });
   for (const [id, name] of [
     ['d1', 'journal'],
     ['d2', 'notes'],
   ] as const)
-    seedMirror(memory.memoryDb, { iface: 'fake', conversationId: id, name, at: NOW });
+    seedMirror(memory.memoryDb, { iface: 'fake', chatId: id, name, at: NOW });
   // Her GIF library holds one GIF, `g1`, posted as its address.
   const store = Object.assign(createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb }), {
-    findGif: (_guildId: string, handle: string) =>
+    findGif: (_rootId: string, handle: string) =>
       handle === 'g1' ? { id: 'g1', url: 'https://media.example/g1.gif', file: null } : null,
     recordOwnGif: () => {},
   });
@@ -85,7 +85,7 @@ async function community({ postsToday = 0 }: { postsToday?: number } = {}) {
     dataDir: memory.dataDir,
   });
   const port = guardMirrorPort(adapter, { memoryDb: memory.memoryDb });
-  const texts = (conversationId: string) => adapter.messagesIn(conversationId).map((message) => message.text);
+  const texts = (chatId: string) => adapter.messagesIn(chatId).map((message) => message.text);
   // A file one of her errands brought back.
   const filePath = path.join(memory.dataDir, 'notes.txt');
   fs.writeFileSync(filePath, 'σημειώσεις');
@@ -93,7 +93,7 @@ async function community({ postsToday = 0 }: { postsToday?: number } = {}) {
   return { memory, store, adapter, reads, mirrors, port, texts, errands };
 }
 
-type Community = Awaited<ReturnType<typeof community>>;
+type Root = Awaited<ReturnType<typeof root>>;
 
 /** An intention due in c1: an inner turn of hers. */
 const INTENTION_WAKE = {
@@ -110,7 +110,7 @@ const INTENTION_WAKE = {
  * Returns the logs and the scripted model.
  */
 async function turnOf(
-  core: Community,
+  core: Root,
   {
     answers,
     mode = 'reply',
@@ -130,7 +130,7 @@ async function turnOf(
     hot,
     store: core.store,
     client,
-    isServedCommunity: (id: unknown) => id === GUILD,
+    isServedRoot: (id: unknown) => id === ROOT,
     port: core.port,
     reads: core.reads,
     errands: core.errands,
@@ -175,7 +175,7 @@ async function turnOf(
         }
       : {}),
   });
-  const conversation = { iface: 'fake', conversationId: 'c1' };
+  const chat = { iface: 'fake', chatId: 'c1' };
   const trigger = {
     id: 'm-c1',
     placeId: 'c1',
@@ -190,13 +190,13 @@ async function turnOf(
     stickers: [],
   };
   // One call per kind of turn, each written in the call, so runTurn's declared parameter types it; the selfreflection
-  // wake has no conversation (section 3 item 2).
+  // wake has no chat (section 3 item 2).
   const run = () =>
     mode === 'inner'
       ? turns.runTurn({
-          conversation,
+          chat,
           memoryContext,
-          placeId: GUILD,
+          placeId: ROOT,
           mode: 'inner',
           triggerKind: 'inner',
           inner: { wake: INTENTION_WAKE, shadow: false, mayAct: () => true },
@@ -206,9 +206,9 @@ async function turnOf(
             memoryContext,
             mode: 'selfreflection',
             selfreflection: { kind: 'status', forced: true },
-            placeId: GUILD,
+            placeId: ROOT,
           })
-        : turns.runTurn({ memoryContext, conversation, mode: 'reply', triggerKind: 'mention', trigger });
+        : turns.runTurn({ memoryContext, chat, mode: 'reply', triggerKind: 'mention', trigger });
   const { logs } = await withCapturedLogs(run);
   await core.store.flushSettled({});
   return { logs: logs as Array<Record<string, unknown>>, llm };
@@ -241,7 +241,7 @@ test('the diary turn offers the tools and answers a diary call as the diary chan
     called: Array<string>;
   }; // this test's own fixture, written by the recording of the scene on main
   // PR 7d: voice messages are code, so the recorded writer tools gained voice_say.
-  const core = await community();
+  const core = await root();
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
   const plan = JSON.stringify({ kind: 'status', brief: 'a quiet day', search: '', picture: false, seed: 0 });
   const { llm, logs } = await turnOf(core, {
@@ -261,17 +261,17 @@ test('the diary turn offers the tools and answers a diary call as the diary chan
 
 const PRIVATE_SELFREFLECTION = 'private-diary-marker-731';
 const PUBLIC_SELFREFLECTION = 'ordinary-diary-marker-942';
-const PRIVATE_BOUNDARY = { kind: 'internal-turn', origin: { iface: 'fake', conversationId: 'c1' } } as const;
+const PRIVATE_BOUNDARY = { kind: 'internal-turn', origin: { iface: 'fake', chatId: 'c1' } } as const;
 const internalSelfreflectionContext = () =>
   issueContext({ kind: 'internal', now: () => NOW, newId: () => 'ctx:private-diary' });
 
-function selfreflectionDb(core: Community) {
+function selfreflectionDb(core: Root) {
   const handle = core.memory.memoryDb.readHandle();
   assert.ok(handle);
   return dbOf(handle);
 }
 
-function seedRestrictedSelfreflection(core: Community, metadata: unknown = PRIVATE_BOUNDARY): void {
+function seedRestrictedSelfreflection(core: Root, metadata: unknown = PRIVATE_BOUNDARY): void {
   // Public store writes reproduce restored metadata without granting a model control over it.
   const post = {
     at: NOW - 60000,
@@ -290,7 +290,7 @@ function seedRestrictedSelfreflection(core: Community, metadata: unknown = PRIVA
 for (const metadata of [PRIVATE_BOUNDARY, null, { kind: 'internal-turn', origin: {} }]) {
   test(`restored ${metadata === PRIVATE_BOUNDARY ? 'valid' : metadata === null ? 'null' : 'malformed'} diary restriction hides the entry from outward reads`, async () => {
     // Catches group-scoped diary rows exposing internal text after a mapper round trip.
-    const core = await community();
+    const core = await root();
     seedRestrictedSelfreflection(core, metadata);
     await core.store.flushSettled({});
     const db = selfreflectionDb(core);
@@ -311,7 +311,7 @@ for (const metadata of [PRIVATE_BOUNDARY, null, { kind: 'internal-turn', origin:
 
 test('ordinary diary planning and writing omit restricted posts from the store', async () => {
   // Catches the second diary history path feeding private gists to an outward planning model.
-  const core = await community();
+  const core = await root();
   seedRestrictedSelfreflection(core);
   core.store.appendSelfreflectionPost({
     at: NOW - 120000,
@@ -334,7 +334,7 @@ test('ordinary diary planning and writing omit restricted posts from the store',
 
 test('a diary-mode internal turn records restricted provenance on its held speech', async () => {
   // Catches guarding diary tool calls while leaving the ordinary diary-mode producer unrestricted.
-  const core = await community();
+  const core = await root();
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
   const plan = JSON.stringify({ kind: 'status', brief: 'a private day', search: '', picture: false, seed: 0 });
   await turnOf(core, {

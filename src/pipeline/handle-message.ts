@@ -11,7 +11,7 @@ import { lineOf } from '../behavior/line-of.ts';
 import { detectTrigger } from '../behavior/mention.ts';
 import { log } from '../log.ts';
 import type { MessageReceived } from '../protocol/events.ts';
-import type { Conversations } from './conversations.ts';
+import type { Chats } from './chats.ts';
 import type { MessageEvent } from './edits.ts';
 import type { AddressAttention } from './address-attention.ts';
 import type { AnswerFlagged, MaybeFollowUp } from './follow-up.ts';
@@ -38,14 +38,14 @@ export type HandleMessageContext = {
   memory: { observe: (placeId: string, line: Line, options?: { direct: boolean }) => void };
   activity: { note: (placeId: string, authorId: string, at: number) => void } | null;
   missed: PipelineMissed | null;
-  /** A community some connected interface serves. */
-  isServedCommunity: (placeId: string | null | undefined) => boolean;
+  /** A root some connected interface serves. */
+  isServedRoot: (placeId: string | null | undefined) => boolean;
   selfIdOf: () => string;
   observeLine: ObserveLine;
   maybePauseNotice: (event: MessageEvent) => Promise<void>;
   onPrivateMessage: PrivateGate['onPrivateMessage'];
-  resolveReference: Conversations['resolveReference'];
-  turnPlaceOf: Conversations['turnPlaceOf'];
+  resolveReference: Chats['resolveReference'];
+  turnPlaceOf: Chats['turnPlaceOf'];
   warmMediaCache: MediaPrefill['warmMediaCache'];
   noteAttention: AddressAttention['noteAttention'];
   noteFollowingLine: NoteFollowingLine;
@@ -68,7 +68,7 @@ export function createHandleMessage({
   memory,
   activity,
   missed,
-  isServedCommunity,
+  isServedRoot,
   selfIdOf,
   observeLine,
   maybePauseNotice,
@@ -87,11 +87,11 @@ export function createHandleMessage({
   // catch-up has not taken.
   const liveIds = new Set<string>();
   // observeWhilePaused always names the record of the line it observes (src/behavior/core-pause.ts).
-  const isServed = isServedCommunity;
+  const isServed = isServedRoot;
   const pausedDeps = {
     hot,
     isServed,
-    sharedPlaceOf: (conversation: never, iface: string) => sharedPlaceOf(store, conversation, iface),
+    sharedPlaceOf: (chat: never, iface: string) => sharedPlaceOf(store, chat, iface),
     selfIdOf,
     observeLine: observeLine as PausedDeps['observeLine'],
   };
@@ -126,7 +126,7 @@ export function createHandleMessage({
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/pipeline.ts in stage 5d, a pure move
   async function handleMessage(event: MessageEvent, catchUp: CatchUp, options?: MessageReadOptions): Promise<Handled> {
     try {
-      // 1. System / webhook messages are not conversation.
+      // 1. System / webhook messages are not chat.
       if (event.message.system === true) return 'ignored';
 
       // 1a. Paused (/nep pause): no trigger, no turn, nothing marks the store dirty. A live line is observed
@@ -141,9 +141,7 @@ export function createHandleMessage({
 
       // 1b. Once per message across the gateway and the start's catch-up (checked and noted
       // before the first await, so the two paths never both take it).
-      const messageId = event.message.id
-        ? JSON.stringify([event.iface, event.conversation.id, event.message.id])
-        : null;
+      const messageId = event.message.id ? JSON.stringify([event.iface, event.chat.id, event.message.id]) : null;
       if (messageId) {
         if (caughtUpIds.has(messageId)) return 'duplicate';
         if (catchUp) {
@@ -160,7 +158,7 @@ export function createHandleMessage({
       // 2. DMs: private chat (features.privateMessages, off by default) --
       // see onPrivateMessage. Owner commands are slash commands
       // (the interface's command handler), never DMs.
-      if (event.conversation.rootId === null && event.conversation.chatType !== 'group_dm') {
+      if (event.chat.rootId === null && event.chat.chatType !== 'group_dm') {
         if (catchUp) return 'ignored';
         await onPrivateMessage(event, config, options);
         return;
@@ -168,20 +166,20 @@ export function createHandleMessage({
 
       // 3. A place under a root the interface serves, or a group that has no root. Threads are followed places like
       // any other; which places it sees is the platform's permissions alone.
-      if (event.conversation.rootId !== null && !isServed(event.conversation.rootId)) return 'ignored';
+      if (event.chat.rootId !== null && !isServed(event.chat.rootId)) return 'ignored';
 
       // 3c. When this author last wrote in this channel, for a turn that waits until the person
       // it answers stops writing (pace.settleMs). The persona's own messages never count.
       const { author } = event.message;
-      if (author.id !== selfIdOf()) activity?.note(event.conversation.id, author.id, event.message.at);
+      if (author.id !== selfIdOf()) activity?.note(event.chat.id, author.id, event.message.at);
       // Any message, hers included, pushes back a missed-answer sweep armed here (src/behavior/missed.ts).
-      missed?.noteActivity(event.conversation.id, event.message.at, event.iface);
+      missed?.noteActivity(event.chat.id, event.message.at, event.iface);
 
       const selfId = selfIdOf();
       // lineOf gives the normalized line of a message event.
       const normalized = lineOf(event) as Line;
-      // A served community is a string: the door refuses any other shape, and the gate above admits only those.
-      const placeId = sharedPlaceOf(store, event.conversation, event.iface);
+      // A served root is a string: the door refuses any other shape, and the gate above admits only those.
+      const placeId = sharedPlaceOf(store, event.chat, event.iface);
 
       // 5. Its own message: only bookkeeping. Also opens or extends attention
       // in this place (noteAttention). A limit notice is not the persona's
@@ -212,7 +210,7 @@ export function createHandleMessage({
       // The adapter's cached answer first; else the reference is fetched as before.
       const repliesToSelf =
         event.addressing!.replyToSelf ||
-        (await resolveReference({ iface: event.iface, conversationId: event.conversation.id }, normalized.replyToId));
+        (await resolveReference({ iface: event.iface, chatId: event.chat.id }, normalized.replyToId));
       const kind = detectTrigger({ mentionsSelf, repliesToSelf });
 
       // 9. Everyone else feeds memory; a message addressed to the persona is
@@ -234,7 +232,7 @@ export function createHandleMessage({
         return;
       }
 
-      // 11. A flagged line where she cannot write: no conversation stands in for it, so it is never asked about or
+      // 11. A flagged line where she cannot write: no chat stands in for it, so it is never asked about or
       // queued, and leaves a trace.
       if (!channel.permissions.send) {
         log.info('mention: dropped', { channel: channel.id, kind, reason: 'cannot-send' });

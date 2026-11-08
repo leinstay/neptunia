@@ -66,7 +66,7 @@ const lineIds = (found: { windows: Array<{ messages: Array<{ id: unknown }> }> }
   found.windows.flatMap((window) => window.messages.map((message) => message.id));
 const hitIds = (found: { hits: Array<{ messageId: unknown }> }) => found.hits.map((hit) => hit.messageId);
 
-/** `count` lines spread evenly over a span, each further from the next than a conversation's silence. */
+/** `count` lines spread evenly over a span, each further from the next than a chat's silence. */
 function spread(
   env: Env,
   prefix: string,
@@ -105,7 +105,7 @@ function observePicture(
       links: [],
       stickers: [],
     },
-    conversation: { id: channelId, kind: 'channel', rootId: 'g1', name: channelId },
+    chat: { id: channelId, kind: 'channel', rootId: 'g1', name: channelId },
   });
   assert.ok(envelope);
   const written = observe(env.handle, envelope, { now: () => at });
@@ -132,7 +132,7 @@ function describe(
   assert.equal(Number(held.changes) > 0, true, 'the picture was observed first');
 }
 
-/** The runner and the tool over the fixture database: #general (c1), #secret (c4) that the community cannot see. */
+/** The runner and the tool over the fixture database: #general (c1), #secret (c4) that the root cannot see. */
 function toolRig(env: Env) {
   fillEnvAudiences(env);
   insertRows(
@@ -147,7 +147,7 @@ function toolRig(env: Env) {
   );
   const channel = channelInfo('c1', { name: 'general' });
   const secret = { ...privateChannel('c4', []), name: 'secret' };
-  const snapshot = snapshotOf('g1', { conversations: [channel, secret], groups: [] });
+  const snapshot = snapshotOf('g1', { chats: [channel, secret], groups: [] });
   const shipped = shippedJson('config.json');
   const config = {
     ...shipped,
@@ -245,7 +245,7 @@ test('a sample stays far under the size of the day it reads', () => {
   try {
     spread(env, 'd', { from: DAY_START, to: DAY_END, count: 222 });
     const found = sampling(env, theDay({ placeId: 'c1' }), { limit: 3 });
-    // Each window is at most a hit, its neighbours each side and the conversation followed on.
+    // Each window is at most a hit, its neighbours each side and the chat followed on.
     const most = 3 * (1 + 2 * SETTINGS.recordContext + SETTINGS.followMessages);
     assert.ok(lineIds(found).length > 0, 'the day has lines');
     assert.ok(lineIds(found).length <= most, `${lineIds(found).length} lines`);

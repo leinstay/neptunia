@@ -152,10 +152,10 @@ async function resolveFromCache({
     const client = await connectDiscord(token);
     const videoSites = hot.config.media?.video?.sites ?? [];
     let reads = 0;
-    const readMessage = async (conversationId: string, messageId: string) => {
+    const readMessage = async (chatId: string, messageId: string) => {
       reads += 1;
       try {
-        const channel: Untyped = await client.channels.fetch(conversationId);
+        const channel: Untyped = await client.channels.fetch(chatId);
         const message = await channel?.messages?.fetch(messageId);
         if (!message) return null;
         // @ts-expect-error: `selfId` is typed as a string, and this tool has none: it passes null, as it always has
@@ -166,7 +166,7 @@ async function resolveFromCache({
         });
       } catch (err: Untyped) {
         process.stderr.write(
-          `vision-compare: message read failed (${err?.name ?? 'Error'}) channel ${conversationId} message ${messageId}\n`
+          `vision-compare: message read failed (${err?.name ?? 'Error'}) channel ${chatId} message ${messageId}\n`
         );
         return null;
       }

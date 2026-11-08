@@ -27,7 +27,7 @@ export function selfimprovementWake(at: number, reason: string): Wake {
     chainId: `selfimprovement:${at}`,
     dueAt: at,
     placeId: null,
-    privateChat: false,
+    dmChat: false,
   };
 }
 

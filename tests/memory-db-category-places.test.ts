@@ -20,13 +20,13 @@ const IFACE = 'other';
 const AUTHORITY = 'other/global';
 const quiet = { info() {}, warn() {}, error() {} };
 
-function eventIn(conversation: Record<string, unknown>): Record<string, unknown> {
+function eventIn(chat: Record<string, unknown>): Record<string, unknown> {
   return {
     kind: 'message.received',
     iface: IFACE,
     at: NOW,
     id: 'other:message:m1',
-    conversation,
+    chat,
     message: {
       id: 'm1',
       author: { id: 'u1', name: 'Eleni', self: false, bot: false },
@@ -42,17 +42,17 @@ function eventIn(conversation: Record<string, unknown>): Record<string, unknown>
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
   };
 }
 
 /** An old interface's room: declared under a category, with the root as the envelope's top. */
 const ROOM_IN_CATEGORY = { id: 'c1', kind: 'channel', chatType: 'channel', parentId: 'cat1', parentKind: 'category' };
 
-function stored(conversation: Record<string, unknown>): Array<Record<string, unknown>> {
+function stored(chat: Record<string, unknown>): Array<Record<string, unknown>> {
   const handle = openMemoryDb(':memory:');
   try {
-    const result = observe(handle, observationOf(eventIn(conversation)), { now: () => NOW, log: quiet });
+    const result = observe(handle, observationOf(eventIn(chat)), { now: () => NOW, log: quiet });
     assert.equal(result.ok, true, JSON.stringify(result));
     return dbOf(handle)
       .prepare('SELECT id, kind, native_key, parent_id FROM places')
@@ -81,11 +81,11 @@ test('an envelope that declares a category parent and no root stores the room wi
   );
 });
 
-test('a conversation with a category field passes validateEvent with the field dropped', () => {
+test('a chat with a category field passes validateEvent with the field dropped', () => {
   // Bug: the door refuses every event of an old interface build, or the field travels on into the core.
-  const conversation: Record<string, unknown> = { id: 'c1', kind: 'channel', rootId: 'g1', category: 'Rooms' };
-  assert.equal(validateEvent(eventIn(conversation)).ok, true);
-  assert.equal('category' in conversation, false);
+  const chat: Record<string, unknown> = { id: 'c1', kind: 'channel', rootId: 'g1', category: 'Rooms' };
+  assert.equal(validateEvent(eventIn(chat)).ok, true);
+  assert.equal('category' in chat, false);
 });
 
 // ---- the migration ----
@@ -101,11 +101,11 @@ function databaseBefore(): { file: string; migrations: typeof MIGRATIONS } {
 
 /** One place row, projected into the graph as the writer projects it. */
 function addPlace(db: Db, id: string, kind: string, parent: string | null): void {
-  const conversation = kind === 'server' || kind === 'category' || kind === 'workspace' ? null : 'group';
+  const chat = kind === 'server' || kind === 'category' || kind === 'workspace' ? null : 'group';
   db.prepare(
-    `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, conversation, scope_kind, parent_id, seen_from_at)
+    `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, chat, scope_kind, parent_id, seen_from_at)
      VALUES (?, ?, ?, ?, ?, ?, 1, ?, 'group', ?, ?)`
-  ).run(id, IFACE, kind, id, `${kind}:${id}`, AUTHORITY, conversation, parent, AT);
+  ).run(id, IFACE, kind, id, `${kind}:${id}`, AUTHORITY, chat, parent, AT);
   projectRow(db, 'places', { id }, { at: AT });
 }
 

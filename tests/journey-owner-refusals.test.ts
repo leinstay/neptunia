@@ -117,7 +117,7 @@ async function rig(
       }),
     },
     metrics: { samples: () => [] },
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => clock.at,
     subharness: {
       runBackend: (_name, _brief, model) => {
@@ -175,7 +175,7 @@ test('a principal that is not the owner is refused at the desk and nothing behin
   try {
     for (const name of ['memory.users.list', 'memory.inspect.export', 'model.set', 'status']) {
       const answer = await desk.run(
-        { name, args: {}, conversation: { id: 'c1' }, requester: { id: 'u1', roles: [] } },
+        { name, args: {}, chat: { id: 'c1' }, requester: { id: 'u1', roles: [] } },
         { kind: 'interface', name: 'fake' }
       );
       assert.equal(answer.status, 'denied', name);

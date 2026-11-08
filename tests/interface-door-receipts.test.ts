@@ -10,7 +10,7 @@ const event = (id: string, room = 'room-a') => ({
   iface: 'synthetic',
   at: 1,
   id,
-  conversation: { id: room, kind: 'channel' },
+  chat: { id: room, kind: 'channel' },
   messageId: 'same-message',
   emoji: { name: 'x' },
   accountId: 'member',
@@ -58,7 +58,7 @@ test('a successful atomic observation is acknowledged without a standalone recei
   assert.equal((await env.door.submit(event('first'), { principal: 'adapter', seq: 1 })).status, 'ok');
   assert.deepEqual(env.standalone, []);
   assert.deepEqual(
-    captured.map((row) => [row?.principal, row?.eventId, row?.conversation]),
+    captured.map((row) => [row?.principal, row?.eventId, row?.chat]),
     [['adapter', 'first', 'room-a']]
   );
 });
@@ -119,7 +119,7 @@ test('reversed completion of events sharing a message ID keeps each transport re
         entered.resolve();
         await first.promise;
       }
-      captured.push([row?.principal, row?.eventId, row?.seq, row?.conversation]);
+      captured.push([row?.principal, row?.eventId, row?.seq, row?.chat]);
       return { ok: true, sourceId: `source-${row?.eventId}` };
     });
   });

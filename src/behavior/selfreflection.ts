@@ -29,7 +29,7 @@ import { isFiniteNumber, listOf, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { createStore } from '../memory/store.ts';
-import type { ConversationRef } from '../protocol/adapter.ts';
+import type { ChatRef } from '../protocol/adapter.ts';
 import { historyLines } from './lines.ts';
 import { selfreflectionPlaces, readMirrors } from './mirror.ts';
 
@@ -112,7 +112,7 @@ export type BackfillPost = {
 export type BackfillArgs = {
   store: SelfreflectionStore;
   reads: Reads;
-  conversation: ConversationRef;
+  chat: ChatRef;
 
   config: unknown;
   labels: unknown;
@@ -895,7 +895,7 @@ export type SelfreflectionDeps = {
  * `backfill` once per place and process from the place her selfreflection is posted to
  * (`selfreflection: backfill` with `count`), and the selfreflection wake
  * `turns.runTurn({ mode: 'selfreflection', selfreflection: { kind, forced }, placeId })`, which
- * needs no conversation (`selfreflection: due`, then `selfreflection: post` with the outcome,
+ * needs no chat (`selfreflection: due`, then `selfreflection: post` with the outcome,
  * its `reason` when it has one, and the pictures); the entry the turn recorded
  * goes to `mirrors.publishEntry` (src/behavior/mirror.ts; a failure is logged
  * `selfreflection: publication failed`). A `busy` outcome
@@ -986,7 +986,7 @@ export function createSelfreflection({
   async function backfillOnce(config: unknown) {
     const place = readMirrors(store, selfreflectionPlaces, [])[0];
     if (typeof backfill !== 'function' || !reads || !place) return;
-    const channel = { iface: place.iface, id: place.conversationId };
+    const channel = { iface: place.iface, id: place.chatId };
     const key = String(channel.id);
     if (backfillTried.has(key)) return;
     backfillTried.add(key);
@@ -995,7 +995,7 @@ export function createSelfreflection({
       const count = await backfill({
         store,
         reads,
-        conversation: { iface: channel.iface, conversationId: channel.id },
+        chat: { iface: channel.iface, chatId: channel.id },
         config,
         labels: objOf(hot.prompts).labels,
       });
@@ -1139,7 +1139,7 @@ export function createSelfreflection({
     const plan = plansOf(store, false).persona ?? null;
     const history = typeof store.getSelfreflection === 'function' ? listOf(store.getSelfreflection()?.posts).length : 0;
     return {
-      placeId: readMirrors(store, selfreflectionPlaces, [])[0]?.conversationId ?? '',
+      placeId: readMirrors(store, selfreflectionPlaces, [])[0]?.chatId ?? '',
       day: plan?.day ?? null,
       slots: Array.isArray(plan?.slots) ? [...plan.slots] : [],
       done: Array.isArray(plan?.done) ? [...plan.done] : [],
@@ -1167,11 +1167,11 @@ export function createSelfreflection({
  * `config` is the live merged config (`selfreflection` read now); `labels` the live labels; `reads` the core's reads of the
  * interface. Answers the number of posts written (0 when the history was not empty).
  */
-export async function backfillSelfreflection({ store, reads, conversation, labels }: BackfillArgs): Promise<number> {
+export async function backfillSelfreflection({ store, reads, chat, labels }: BackfillArgs): Promise<number> {
   if (listOf(store.getSelfreflection()?.posts).length > 0) return 0;
   const max = DEFAULT_HISTORY_POSTS;
   const gistChars = DEFAULT_GIST_CHARS;
-  const history = await historyLines(reads, conversation, { limit: Number(max) });
+  const history = await historyLines(reads, chat, { limit: Number(max) });
   const posts: Array<BackfillPost> = history
     .filter((message) => message.self === true)
     .map((message) => ({

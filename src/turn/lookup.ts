@@ -16,7 +16,7 @@ import { roleModel } from '../llm/roles.ts';
 import { isIssuedInternalContext } from '../memory/db/scope.ts';
 import type { Context } from '../memory/db/scope.ts';
 import { log } from '../log.ts';
-import type { ConversationRef, MemberInfo } from '../protocol/adapter.ts';
+import type { ChatRef, MemberInfo } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import type { JournalNotes } from './journal-notes.ts';
 import type { journalled } from './journal.ts';
@@ -99,15 +99,10 @@ function prefetchKey({
   triggerKey,
 }: {
   memoryContext?: Context | null;
-  historyRef?: ConversationRef;
+  historyRef?: ChatRef;
   triggerKey: string;
 }): string {
-  return JSON.stringify([
-    memoryContext?.id ?? null,
-    historyRef?.iface ?? null,
-    historyRef?.conversationId ?? null,
-    triggerKey,
-  ]);
+  return JSON.stringify([memoryContext?.id ?? null, historyRef?.iface ?? null, historyRef?.chatId ?? null, triggerKey]);
 }
 
 /** The request's `lookup` input: the web search's result, with what the server search found. */
@@ -115,7 +110,7 @@ export type LookupInput = Record<string, unknown> | null;
 
 export type Lookup = {
   startPrefetch: (args: {
-    historyRef?: ConversationRef;
+    historyRef?: ChatRef;
     memoryContext?: Context | null;
     config: LookupConfig;
     channel: Channel;
@@ -284,7 +279,7 @@ export function createLookup(ctx: LookupContext): Lookup {
 
   /**
    * The fallback directory of one turn (mentionDirectory) as a thunk, built on its first call
-   * and kept for the turn: the members of the served community the member directory holds (only the members
+   * and kept for the turn: the members of the served root the member directory holds (only the members
    * the interface already told the core of, no read) and, with memory on, the stored
    * profiles. A failure to build it logs `turn: directory failed` and gives an empty one.
    */
@@ -312,7 +307,7 @@ export function createLookup(ctx: LookupContext): Lookup {
   }
 
   /**
-   * A private chat's partner as a member of the served community (`memberInfo`), for a private chat that works
+   * A private chat's partner as a member of the served root (`memberInfo`), for a private chat that works
    * like a server turn on their behalf: features.privateLikeServer (read from `config`, the turn's live
    * config; a missing key counts as on, only false turns it off). Null with the switch off, without a user id or in
    * the owner's chat.

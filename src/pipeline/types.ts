@@ -1,4 +1,4 @@
-// The shapes the message pipeline's topic modules share: a normalized line, a conversation, the live config as far as
+// The shapes the message pipeline's topic modules share: a normalized line, a chat, the live config as far as
 // the pipeline reads it, a pending ping, a turn's result and the parts of the core the pipeline calls. Types only:
 // createMessageHandler (src/behavior/pipeline.ts) wires the modules, and nothing here runs.
 
@@ -6,7 +6,7 @@ import type { AcceptedEventReceipt } from '../interface/door.ts';
 import type { NativeMessageLocator } from '../memory/db/recall.ts';
 import type { Context } from '../memory/db/scope.ts';
 import type { PendingPing } from '../behavior/pending.ts';
-import type { ConversationInfo } from '../protocol/adapter.ts';
+import type { ChatInfo } from '../protocol/adapter.ts';
 import type { TriggerKind } from '../turn/triggers.ts';
 
 export type { TriggerKind };
@@ -20,8 +20,8 @@ export type AcceptedMessageEvent = Readonly<{
 
 export type MessageReadOptions = { memoryContext?: Context; acceptedEvent?: AcceptedMessageEvent };
 
-/** A conversation as the interface describes it (src/protocol/adapter.ts). */
-export type Conv = ConversationInfo;
+/** A chat as the interface describes it (src/protocol/adapter.ts). */
+export type Conv = ChatInfo;
 
 /** A normalized line (src/behavior/line-of.ts#lineOf), as the pipeline reads it. */
 export type Line = {
@@ -47,7 +47,7 @@ export type Limit = { key: string; used?: number; cap?: number };
 export type TurnResult =
   { outcome?: TurnOutcome; limit?: Limit | null; delivered?: boolean; reason?: string } | undefined;
 
-/** A queued call of the pending queue (src/behavior/pending.ts#PendingPing), with its conversations and its line. */
+/** A queued call of the pending queue (src/behavior/pending.ts#PendingPing), with its chats and its line. */
 export type Ping = Omit<PendingPing, 'channel' | 'trigger'> & {
   channel: Conv;
   trigger: Line;
@@ -127,7 +127,7 @@ export type PipelineState = {
 /** A turn as runTurn starts it (src/behavior/turn.ts#runTurn), as far as the pipeline fills it in. */
 export type TurnRequest = {
   memoryContext?: Context;
-  conversation: { iface: string; conversationId: string };
+  chat: { iface: string; chatId: string };
   placeId?: string;
   mode: 'reply';
   trigger: Line;

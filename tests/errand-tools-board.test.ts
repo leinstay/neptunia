@@ -80,7 +80,7 @@ function makeEnv(memoryDb: MemoryDb | null): Rig {
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     errands,
     now: () => NOW,
   });
@@ -94,7 +94,7 @@ async function ask(env: Env, name: string, args: Obj, accountId: string = MEMBER
   const { status, code, summary, data } = await runOp(name, args, {
     env,
     placeId: 'g1',
-    conversationId: 'c1',
+    chatId: 'c1',
     accountId,
     roleIds: [],
   });

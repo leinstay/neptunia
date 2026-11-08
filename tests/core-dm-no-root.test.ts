@@ -1,5 +1,5 @@
-// A DM from ingestion to the model's request on an interface that serves no community, through the real link. Fake
-// interfaces, a scripted model and temporary folders. The gate stays closed for a stranger: having no community to check
+// A DM from ingestion to the model's request on an interface that serves no root, through the real link. Fake
+// interfaces, a scripted model and temporary folders. The gate stays closed for a stranger: having no root to check
 // membership in is no reason to answer anyone.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,24 +15,24 @@ import {
   withFakes,
 } from './fixtures/two-fakes.ts';
 
-const GUILD_PLACES = "SELECT id FROM places WHERE kind = 'guild' ORDER BY id";
+const ROOT_PLACES = "SELECT id FROM places WHERE kind = 'guild' ORDER BY id";
 
-test('a core with no community at all answers the owner in a DM and makes up no community', async () => {
-  // Bug: every step asks for the home community first, so the DM is dropped or kept under an invented guild.
+test('a core with no root at all answers the owner in a DM and makes up no root', async () => {
+  // Bug: every step asks for the home root first, so the DM is dropped or kept under an invented root.
   await withFakes({ owners: ['u1'], names: ['solo'] }, async ({ connect, requests, rows }) => {
     const solo = await connect('solo', []);
     seedDm(solo, 'd1', 'u1');
     await directIn(solo, 'd1', 'u1', 'm1');
     await waitFor(() => postedIn(solo, 'd1').length > 0, 'the answer to the DM');
     assert.equal(requests.length, 1);
-    assert.deepEqual(rows(GUILD_PLACES), []);
+    assert.deepEqual(rows(ROOT_PLACES), []);
     const audiences = rows("SELECT DISTINCT audience_id FROM sources WHERE scope_kind = 'dm'");
     assert.deepEqual(audiences, [{ audience_id: 'aud:dm:solo:dm:u1' }]);
   });
 });
 
-test('a stranger on an interface with no community is not answered, while the owner is', async () => {
-  // Bug: the fix for a missing community opens the gate to everyone who finds the account.
+test('a stranger on an interface with no root is not answered, while the owner is', async () => {
+  // Bug: the fix for a missing root opens the gate to everyone who finds the account.
   await withFakes({ owners: ['u1'], names: ['solo'] }, async ({ connect, requests }) => {
     const solo = await connect('solo', []);
     seedDm(solo, 'd1', 'u1');
@@ -46,8 +46,8 @@ test('a stranger on an interface with no community is not answered, while the ow
   });
 });
 
-test('a DM on an interface with no community asks nothing of the interface that has one', async () => {
-  // Bug: the DM borrows the first interface's home community for its gate and its reads.
+test('a DM on an interface with no root asks nothing of the interface that has one', async () => {
+  // Bug: the DM borrows the first interface's home root for its gate and its reads.
   await withFakes({ owners: ['u1'], names: ['first', 'second'] }, async ({ connect, rows }) => {
     // The DM's interface says hello first: it is the home interface, where `bot.owners` names the owner.
     const second = await connect('second', []);
@@ -65,8 +65,8 @@ test('a DM on an interface with no community asks nothing of the interface that 
   });
 });
 
-test('a group of the community an interface declares is answered and kept with no configured home community', async () => {
-  // Bug: the core refuses to start without `bot.placeId`, or a group line loses its community beside a DM-only interface.
+test('a group of the root an interface declares is answered and kept with no configured home root', async () => {
+  // Bug: the core refuses to start without `bot.placeId`, or a group line loses its root beside a DM-only interface.
   await withFakes({ owners: [], names: ['first', 'second'] }, async ({ connect, rows }) => {
     const first = await connect('first', [{ id: 'g1', name: 'Alpha' }]);
     const second = await connect('second', []);

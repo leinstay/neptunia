@@ -29,8 +29,8 @@ export function portLimit(port: unknown, key: 'maxChars' | 'maxFiles' | 'maxFile
 /** How the port addresses a message (its `messageUrl` templates), null when it declares no form. */
 export function portMessageUrl(port: unknown): MessageUrlTemplate | null {
   const template = capabilitiesOf(port).messageUrl as Partial<MessageUrlTemplate> | null | undefined;
-  return typeof template?.community === 'string' && typeof template.direct === 'string'
-    ? { community: template.community, direct: template.direct }
+  return typeof template?.root === 'string' && typeof template.direct === 'string'
+    ? { root: template.root, direct: template.direct }
     : null;
 }
 

@@ -55,7 +55,7 @@ async function connected(token: string) {
       {
         iface: 'fake',
         self: { id: 'bot-1', name: 'Nova' },
-        community: null,
+        root: null,
         capabilities: CAPABILITIES,
         resume: null,
         token,
@@ -68,8 +68,8 @@ async function connected(token: string) {
 }
 
 test('new reproduction: an interface event naming the command-line chat is refused', async () => {
-  // Bug: the iface field is checked and the conversation is not, so any interface client writes a line into
-  // `cli:dm:owner`, the owner's private conversation whose history and replies are the command line's.
+  // Bug: the iface field is checked and the chat is not, so any interface client writes a line into
+  // `cli:dm:owner`, the owner's private chat whose history and replies are the command line's.
   const { link, client, started, received } = await connected('first');
   try {
     client.send(
@@ -80,7 +80,7 @@ test('new reproduction: an interface event naming the command-line chat is refus
           iface: 'fake',
           at: 1,
           id: 'forged',
-          conversation: { id: 'cli:dm:owner', kind: 'dm' },
+          chat: { id: 'cli:dm:owner', kind: 'dm' },
           messageId: 'm1',
           emoji: { name: 'x' },
           accountId: 'u1',

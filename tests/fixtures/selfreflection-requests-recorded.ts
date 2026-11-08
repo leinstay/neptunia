@@ -1,13 +1,13 @@
 // The scene of tests/diary-requests.test.ts: one diary turn of the real turn runner over the fake interface and a real
 // store over a memory database, with a scripted model, on fixed inputs that reach every block a diary request can carry.
 // Memory holds two earlier diary entries with their text (posted to the diary channel `d1` as `m1` and `m2`), the channel
-// notes of `d1` and of `c1` (the community's other conversation), recent lines of both and the guild's notes; the fake
+// notes of `d1` and of `c1` (the root's other chat), recent lines of both and the guild's notes; the fake
 // interface holds `d1` with the same two posts as her messages. `diary-requests.json` beside this file holds the plan
 // request and the writer request this scene produced with the diary turn running in `d1`, before the diary became the
 // selfreflection wake (recorded with `{ mirror: false }`). With `mirror: true` memory also holds `d1` as a place of the
 // fake interface named `journal` and the diary's one enabled mirror on it, which is what the wake rebuilds the channel's
 // inputs from. Synthetic text only.
-import { placeOfCommunity, placeOfConversation } from '../../src/memory/addresses.ts';
+import { placeOfRoot, placeOfChat } from '../../src/memory/addresses.ts';
 import { createStore } from '../../src/memory/store.ts';
 import { dbOf, seedMirror, seedPlace } from './selfreflection-mirror.ts';
 import { labels } from './labels.ts';
@@ -23,7 +23,7 @@ useSelf('self-id');
 export const NOW = Date.UTC(2026, 9, 6, 19, 30, 0);
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
-export const GUILD = 'g1';
+export const ROOT = 'g1';
 
 /** One message of hers in the diary channel, as discord.js hands it over. */
 function ownPost(id: string, ts: number, content: string): Record<string, unknown> {
@@ -91,15 +91,15 @@ export function sceneLlm(): {
 }
 
 /**
- * The world of the scene: the community's other conversation and the diary channel, which holds her two earlier posts
+ * The world of the scene: the root's other chat and the diary channel, which holds her two earlier posts
  * when `history` is on. The wake's run leaves it empty, so the history it shows can only come from memory.
  */
 export function sceneWorld({ history }: { history: boolean }): void {
-  world().channel({ id: 'c1', name: 'general', placeId: GUILD });
+  world().channel({ id: 'c1', name: 'general', placeId: ROOT });
   world().channel({
     id: 'd1',
     name: 'journal',
-    placeId: GUILD,
+    placeId: ROOT,
     historyMessages: history
       ? [ownPost('m1', NOW - 2 * DAY, 'χθες βράδυ στο λιμάνι'), ownPost('m2', NOW - DAY, 'une journée grise au port')]
       : [],
@@ -126,7 +126,7 @@ async function seedRecord(memoryDb: SceneMemory['memory']['memoryDb']): Promise<
     await memoryDb.writeUnit({
       kind: 'unit',
       op: 'lines',
-      owner: `guilds/${GUILD}/record/${day.slice(0, 7)}/${day}.jsonl`,
+      owner: `guilds/${ROOT}/record/${day.slice(0, 7)}/${day}.jsonl`,
       iface: 'fake',
       lines: [
         {
@@ -137,7 +137,7 @@ async function seedRecord(memoryDb: SceneMemory['memory']['memoryDb']): Promise<
           revision: 1,
           occurredAt,
           recordedAt: occurredAt,
-          placeId: GUILD,
+          placeId: ROOT,
           scope: { channel: 'd1' },
           text: post.text,
           origin: 'live',
@@ -163,16 +163,16 @@ export async function sceneMemory({
 }): Promise<SceneMemory> {
   const memory = await openTestMemory({ now: () => NOW, iface: () => 'fake' });
   const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
-  store.updatePlace(placeOfCommunity(store, GUILD), { patterns: 'people greet each other in Greek' });
+  store.updatePlace(placeOfRoot(store, ROOT), { patterns: 'people greet each other in Greek' });
   for (const [id, name, purpose] of [
     ['d1', 'journal', 'her own diary'],
     ['c1', 'general', 'everyday talk'],
   ] as const) {
-    store.touchChannel(placeOfConversation(store, { id: id }), { name }, NOW - 2 * HOUR);
-    store.updateChannel(placeOfConversation(store, { id: id }), { purpose });
+    store.touchChannel(placeOfChat(store, { id: id }), { name }, NOW - 2 * HOUR);
+    store.updateChannel(placeOfChat(store, { id: id }), { purpose });
   }
   store.applyRecentOps(
-    placeOfCommunity(store, GUILD),
+    placeOfRoot(store, ROOT),
     [
       { text: 'Alice is planning a trip to Thessaloniki', at: NOW - 2 * HOUR, placeId: 'c1', weight: 1 },
       { text: 'a quiet harbour', at: NOW - 2 * HOUR, placeId: 'd1', weight: 1 },
@@ -195,20 +195,20 @@ export async function sceneMemory({
   await store.flushSettled({});
   const db = dbOf(memory.memoryDb);
   for (const post of EARLIER) db.prepare('UPDATE selfreflection SET text = ? WHERE at_ms = ?').run(post.text, post.at);
-  // Before schema v15 there is no `mirrors` table to seed: the scene then fails where the turn needs its conversation,
+  // Before schema v15 there is no `mirrors` table to seed: the scene then fails where the turn needs its chat,
   // which is what the test is about, and not here.
   const hasMirrors = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mirrors'").all().length > 0;
-  if (mirror && hasMirrors) seedMirror(memory.memoryDb, { iface: 'fake', conversationId: 'd1', name: 'journal', at: NOW });
+  if (mirror && hasMirrors) seedMirror(memory.memoryDb, { iface: 'fake', chatId: 'd1', name: 'journal', at: NOW });
   if (published) {
-    const place = seedPlace(memory.memoryDb, { iface: 'fake', conversationId: 'd1', name: 'journal', at: NOW });
+    const place = seedPlace(memory.memoryDb, { iface: 'fake', chatId: 'd1', name: 'journal', at: NOW });
     db.prepare("UPDATE publications SET destination_place_id = ? WHERE row_kind = 'selfreflection'").run(place);
     await seedRecord(memory.memoryDb);
   }
   // Her channels sit under the server, as the observation of their first lines leaves them.
   for (const id of ['d1', 'c1'])
     db.prepare('UPDATE places SET parent_id = ? WHERE id = ?').run(
-      placeOfCommunity(store, GUILD),
-      placeOfConversation(store, { id })
+      placeOfRoot(store, ROOT),
+      placeOfChat(store, { id })
     );
   return { memory, store };
 }

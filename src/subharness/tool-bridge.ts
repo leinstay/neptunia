@@ -109,7 +109,7 @@ export function bridgePeer(transport: Transport, token: string): McpPeer {
     waiting.clear();
   });
   const self = { id: TURN_IFACE, name: TURN_IFACE };
-  transport.send(envelope('hello', { iface: TURN_IFACE, self, community: null, token }, { id: 'turn-hello' }));
+  transport.send(envelope('hello', { iface: TURN_IFACE, self, root: null, token }, { id: 'turn-hello' }));
   const ask = (body: object): Promise<Record<string, unknown>> =>
     new Promise((resolve, reject) => {
       count += 1;

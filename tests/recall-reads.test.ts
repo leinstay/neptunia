@@ -2,7 +2,7 @@
 // search plan written for the interface, the wait on a read that cannot be cancelled, and a history read turned into lines.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hitFrom, inCommunity, linesOf, searchQueryOf, untilAborted } from '../src/behavior/recall-reads.ts';
+import { hitFrom, inRoot, linesOf, searchQueryOf, untilAborted } from '../src/behavior/recall-reads.ts';
 import { IFACE, SELF_ID, channel, message, privateChannel, rig } from './fixtures/reads-rig.ts';
 
 test('writes a form or who query as the text to find and an author query as the author', () => {
@@ -20,7 +20,7 @@ test('carries the time bounds that are numbers and the offset only when it is a 
 
 test('reads a hit as a line of the clustering with no query yet attached', () => {
   const hit = {
-    ref: { iface: IFACE, conversationId: 'c1', messageId: 'm7' },
+    ref: { iface: IFACE, chatId: 'c1', messageId: 'm7' },
     at: 5000,
     text: 'hello',
     author: { id: 'u1', handle: 'eleni', displayName: 'Eleni', bot: true },
@@ -40,10 +40,10 @@ test('reads a hit as a line of the clustering with no query yet attached', () =>
   );
 });
 
-test('tells a conversation of a community from a private chat', () => {
-  assert.equal(inCommunity(channel('c1')), true);
-  assert.equal(inCommunity({ ...privateChannel('c4', []), rootId: null }), false);
-  assert.equal(inCommunity(null), false);
+test('tells a chat of a root from a private chat', () => {
+  assert.equal(inRoot(channel('c1')), true);
+  assert.equal(inRoot({ ...privateChannel('c4', []), rootId: null }), false);
+  assert.equal(inRoot(null), false);
 });
 
 test('gives the value of the read when it settles before the signal aborts', async () => {
@@ -66,7 +66,7 @@ test('gives null when the read fails', async () => {
 test('gives the lines of a history read oldest first, and null when the history cannot be read', async () => {
   const { reads, fake } = rig();
   const room = channel('c1');
-  fake.seedConversation(room);
+  fake.seedChat(room);
   fake.seedEvent(message(room, 'm1', 1000, 'one', { authorId: 'u1' }));
   fake.seedEvent(message(room, 'm2', 2000, 'two', { authorId: SELF_ID }));
   const lines = await linesOf(reads, { iface: IFACE, id: 'c1' }, { limit: 10 });

@@ -17,7 +17,7 @@ import { createEventDoor } from '../src/interface/door.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
 import { personaKey } from '../src/memory/db/storage-keys.ts';
-import { communityKey } from './fixtures/memory-db/legacy-keys.ts';
+import { rootKey } from './fixtures/memory-db/legacy-keys.ts';
 import {} from '../src/memory/db/ids.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { dbOf } from '../src/memory/db/types.ts';
@@ -29,7 +29,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
 useIface('fake');
-const GUILD = 'g1';
+const ROOT = 'g1';
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
@@ -75,7 +75,7 @@ function hotOf() {
  * opens a new one and a new inner life over the same directory, as a new process would.
  */
 async function core(dataDir = tempDir('nep-inner-wakes-'), journal: InnerJournal | null = null) {
-  world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
+  world().channel({ id: 'c1', name: 'chan-c1', placeId: ROOT, permissions: { send: true } });
   const clock = { t: T };
   const hot = hotOf();
   const flags: PauseFlags = {};
@@ -109,7 +109,7 @@ async function core(dataDir = tempDir('nep-inner-wakes-'), journal: InnerJournal
       intentions: service,
       reads: world().reads,
       iface: () => 'fake',
-      conversationName: (id: string) => `chan-${id}`,
+      chatName: (id: string) => `chan-${id}`,
       submit: (event: object) => door.submit(event),
       store,
       meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
@@ -243,7 +243,7 @@ test('a wake cut off by a restart is interrupted without another model call', as
   }
 });
 
-test('the turn mark of a running wake records the interface of its conversation', async () => {
+test('the turn mark of a running wake records the interface of its chat', async () => {
   // Catches: a restart cannot tell on which interface a DM turn ran, so it looks in the wrong DM place.
   const run = await core();
   try {
@@ -404,7 +404,7 @@ test('a recurring intention whose occurrence fell due during the downtime loses 
 
 test('inner stop state saved through the writer survives reopening without inner.json', async () => {
   const run = await core();
-  const file = path.join(run.dataDir, 'guilds', GUILD, 'inner.json');
+  const file = path.join(run.dataDir, 'guilds', ROOT, 'inner.json');
   try {
     run.life.stop({ by: 'owner' });
     await run.life.release();
@@ -417,13 +417,13 @@ test('inner stop state saved through the writer survives reopening without inner
   }
 });
 
-// Separate community caches must not overwrite the persona's clocks or another conversation's evidence.
+// Separate root caches must not overwrite the persona's clocks or another chat's evidence.
 // Slice 5: the daily review is deleted, so the legacy states keep their `review` fields as stored data and the merged
 // life holds no review or review views; the rest of the consolidation is unchanged.
 test('legacy inner states consolidate into one persistent life with scoped facts', async () => {
   const dataDir = tempDir('nep-global-inner-');
-  const firstKey = communityKey('inner', GUILD, { iface: 'fake' });
-  const secondKey = communityKey('inner', 'g2', { iface: 'fake' });
+  const firstKey = rootKey('inner', ROOT, { iface: 'fake' });
+  const secondKey = rootKey('inner', 'g2', { iface: 'fake' });
   const first = {
     ...emptyState(),
     stopped: true,
@@ -432,7 +432,7 @@ test('legacy inner states consolidate into one persistent life with scoped facts
     heartbeat: { lastAt: T - 3 * MINUTE, nextAt: T + 5 * MINUTE },
     selfimprovement: { lastAt: T - MINUTE, raisedAt: T - 4 * MINUTE },
     review: { day: '2026-10-31', at: T + MINUTE, done: true, channels: ['c1'], lines: 2 },
-    facts: [{ id: 'f1', kind: 'turnFailed', placeId: 'c1', privateChat: false, at: T - MINUTE, told: false as const }],
+    facts: [{ id: 'f1', kind: 'turnFailed', placeId: 'c1', dmChat: false, at: T - MINUTE, told: false as const }],
     turns: [{ at: T - MINUTE, chainId: 'one', usd: 1, outcome: 'skip', kinds: ['review'] }],
     spend: [{ at: T - MINUTE, usd: 1 }],
     turnIds: ['turn-one'],
@@ -442,7 +442,7 @@ test('legacy inner states consolidate into one persistent life with scoped facts
     heartbeat: { lastAt: T - 2 * MINUTE, nextAt: T + 3 * MINUTE },
     selfimprovement: { lastAt: T - 2 * MINUTE, raisedAt: T - 3 * MINUTE },
     review: { day: '2026-10-31', at: T + 2 * MINUTE, done: false, channels: ['c2'], lines: 3 },
-    facts: [{ id: 'f2', kind: 'turnFailed', placeId: 'c2', privateChat: false, at: T, told: false as const }],
+    facts: [{ id: 'f2', kind: 'turnFailed', placeId: 'c2', dmChat: false, at: T, told: false as const }],
     turns: [{ at: T, chainId: 'two', usd: 2, outcome: 'skip', kinds: ['review'] }],
     spend: [{ at: T, usd: 2 }],
     turnIds: ['turn-two'],
@@ -458,7 +458,7 @@ test('legacy inner states consolidate into one persistent life with scoped facts
   const run = await core(dataDir);
   try {
     const state = run.life.state();
-    assert.equal(run.life.state().stopped, true, 'the stop applies across community contexts');
+    assert.equal(run.life.state().stopped, true, 'the stop applies across root contexts');
     assert.deepEqual(run.life.state().heartbeat, { lastAt: T - 2 * MINUTE, nextAt: T + 5 * MINUTE });
     assert.deepEqual(state.heartbeat, { lastAt: T - 2 * MINUTE, nextAt: T + 5 * MINUTE });
     assert.deepEqual(state.selfimprovement, { lastAt: T - MINUTE, raisedAt: T - 3 * MINUTE });
@@ -468,7 +468,7 @@ test('legacy inner states consolidate into one persistent life with scoped facts
     assert.deepEqual(
       state.turns.map((turn): [string, unknown] => [turn.chainId, Reflect.get(turn, 'scopePlaceId')]).toSorted(),
       [
-        ['one', legacyServerPlaceId('fake', GUILD)],
+        ['one', legacyServerPlaceId('fake', ROOT)],
         ['two', legacyServerPlaceId('fake', 'g2')],
       ]
     );

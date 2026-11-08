@@ -27,7 +27,7 @@ function rig(enabled: boolean) {
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => 0,
     keys: {
       enabled: () => enabled,

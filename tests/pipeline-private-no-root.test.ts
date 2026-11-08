@@ -1,8 +1,8 @@
-// The private gate and the pending queue with no community question in them (src/pipeline/private-gate.ts, drain.ts). A DM
-// is checked by its author on its interface, and a queued DM runs in the conversation it came from.
+// The private gate and the pending queue with no root question in them (src/pipeline/private-gate.ts, drain.ts). A DM
+// is checked by its author on its interface, and a queued DM runs in the chat it came from.
 // Contract, plan 2026-11-04-cli-and-memory task 5:
-//   createDrain's `checkPrivateGate(config, authorId, iface)`, `afterPrivateTurn(channel, trigger, result)`; no `getGuildId`,
-//   no `dmCommunityOf`
+//   createDrain's `checkPrivateGate(config, authorId, iface)`, `afterPrivateTurn(channel, trigger, result)`; no `getRootId`,
+//   no `dmRootOf`
 //   createPrivateGate returns `{ afterPrivateTurn, checkPrivateGate, dropPrivate, onPrivateMessage }`
 // Appendix entries: src/pipeline/drain.ts, src/pipeline/private-gate.ts, src/pipeline/types.ts,
 // src/behavior/core-pause.ts.
@@ -19,7 +19,7 @@ const NOW = Date.parse('2026-11-05T12:00:00Z');
 const CONFIG = {
   bot: { timezone: 'UTC' },
   mention: { neverIgnore: [], repeatWindowMinutes: 0, pendingMinutes: 10 },
-  private: { enabled: true },
+  dm: { enabled: true },
 };
 
 type TurnAsked = Parameters<PipelineTurns['runTurn']>[0];
@@ -70,7 +70,7 @@ async function drainDm(): Promise<{ turns: Array<TurnAsked>; gates: Array<Array<
     queuedFor: () => () => [],
     requeueBusy: () => false,
     currentOf: (current: typeof channel) => Promise.resolve(current),
-    refOf: (current: typeof channel) => ({ iface: current.iface, conversationId: current.id }),
+    refOf: (current: typeof channel) => ({ iface: current.iface, chatId: current.id }),
     routeOf: () => Promise.resolve({ destination: null }),
     heldCallState: () => Promise.resolve(true as const),
     skipSeenCalls() {},
@@ -92,40 +92,40 @@ async function drainDm(): Promise<{ turns: Array<TurnAsked>; gates: Array<Array<
   return seen;
 }
 
-test('a queued DM asks the gate about its author on its interface and asks no community', async () => {
-  // Bug: `dmCommunityOf` is called at drain time, and a queued DM borrows the community the gate answers then.
+test('a queued DM asks the gate about its author on its interface and asks no root', async () => {
+  // Bug: `dmRootOf` is called at drain time, and a queued DM borrows the root the gate answers then.
   const { gates } = await drainDm();
   assert.deepEqual(gates, [[CONFIG, 'u1', 'fake']]);
 });
 
-test('a queued DM opens a turn with its conversation and no community field', async () => {
-  // Bug: a request that carries `guildId` makes the turn keep the DM under that community.
+test('a queued DM opens a turn with its chat and no root field', async () => {
+  // Bug: a request that carries `rootId` makes the turn keep the DM under that root.
   const { turns, after } = await drainDm();
   assert.equal(turns.length, 1);
-  assert.deepEqual(turns[0]?.conversation, { iface: 'fake', conversationId: 'd1' });
-  assert.equal('guildId' in (turns[0] ?? {}), false);
+  assert.deepEqual(turns[0]?.chat, { iface: 'fake', chatId: 'd1' });
+  assert.equal('rootId' in (turns[0] ?? {}), false);
   assert.equal('rootPlaceId' in (turns[0] ?? {}), false);
   assert.equal(after, 1);
 });
 
-test('the private gate offers no community question', () => {
-  // Bug: `dmCommunityOf` survives beside the neutral path, so a caller reintroduces the owner's home-community fallback.
+test('the private gate offers no root question', () => {
+  // Bug: `dmRootOf` survives beside the neutral path, so a caller reintroduces the owner's home-root fallback.
   const gate = createPrivateGate(
     wrongly<Parameters<typeof createPrivateGate>[0]>({
-      hot: { config: { private: { enabled: true } } },
+      hot: { config: { dm: { enabled: true } } },
       store: {},
     })
   );
-  assert.equal('dmCommunityOf' in gate, false);
+  assert.equal('dmRootOf' in gate, false);
 });
 
-test('a paused line of a group is observed by its own conversation with no home community reader', async () => {
-  // Bug: the pause path needs `getGuildId` to tell whether a line is served.
+test('a paused line of a group is observed by its own chat with no home root reader', async () => {
+  // Bug: the pause path needs `getRootId` to tell whether a line is served.
   const seen: Array<{ direct: boolean; where: object }> = [];
   const line = {
     kind: 'message.received',
     iface: 'other',
-    conversation: { id: 'c1', kind: 'channel', rootId: 'g3' },
+    chat: { id: 'c1', kind: 'channel', rootId: 'g3' },
     message: { id: 'm1', author: { id: 'u1', name: 'Eleni', self: false, bot: false } },
     addressing: { mentioned: false },
   };
@@ -140,5 +140,5 @@ test('a paused line of a group is observed by its own conversation with no home 
   });
   assert.equal(seen.length, 1);
   assert.equal(seen[0]?.direct, false);
-  assert.equal('guildId' in (seen[0]?.where ?? {}), false);
+  assert.equal('rootId' in (seen[0]?.where ?? {}), false);
 });

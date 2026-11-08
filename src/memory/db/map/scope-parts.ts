@@ -28,7 +28,7 @@ export function dmPlaceScope(person: string, iface: string, place: NonNullable<M
   return { scope_kind: 'dm', scope_iface: iface, scope_dm: place.partnerPerson, audience_id: dmAudienceId(place.id) };
 }
 
-/** The `scope` object of a line: the conversation it names, the place it belongs to, or the user. */
+/** The `scope` object of a line: the chat it names, the place it belongs to, or the user. */
 export type OldScope = { user?: unknown; channel?: unknown; place?: unknown };
 
 /**

@@ -17,7 +17,7 @@ import { labels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 
-// The conversations are held by a fake interface named `fake`.
+// The chats are held by a fake interface named `fake`.
 useIface('fake');
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
@@ -91,7 +91,7 @@ function normalizedTrigger(raw: ReturnType<typeof rawMessage>) {
 function fakeServer(history: Array<Record<string, unknown>>, jardinLive: Array<Record<string, unknown>> = []) {
   const fetches: Record<string, Array<unknown>> = { c1: [], c2: [], c3: [] };
   world().tap('history', ([ref, query]) => {
-    fetches[(ref as { conversationId: string }).conversationId]?.push(query);
+    fetches[(ref as { chatId: string }).chatId]?.push(query);
   });
   const channels = new Map([
     ['c1', world().channel({ id: 'c1', name: 'general', placeId: 'g1', historyMessages: history })],
@@ -173,7 +173,7 @@ function hotWith(allowed: Array<string>, features: Record<string, unknown>) {
       'character-card': 'You are friendly and terse.',
       format: 'Use <msg> and <react> tags.',
       reply: 'Someone called you: {{author}}.',
-      interject: 'Jump into the conversation.',
+      interject: 'Jump into the chat.',
       initiate: 'Start a topic.',
       lookup: 'Decide whether {{name}} needs to look something up.',
       labels: L,
@@ -269,7 +269,7 @@ async function turn({
   record?: ReturnType<typeof fakeRecord>;
   jardinLive?: Array<Record<string, unknown>>;
   features?: Record<string, unknown>;
-  seeds?: Array<{ conversationId: string; authorId: string; messageId: string; text: string }>;
+  seeds?: Array<{ chatId: string; authorId: string; messageId: string; text: string }>;
   memoryContext?: ReturnType<typeof issueContext>;
 }) {
   const history = [
@@ -279,14 +279,14 @@ async function turn({
   const hot = hotWith(allowed, features);
   const server = fakeServer(history, jardinLive);
   const port = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
-  for (const seed of seeds) port.seed(seed.conversationId, seed);
+  for (const seed of seeds) port.seed(seed.chatId, seed);
   const client = { user: { id: 'self-id', username: 'Bot' } };
   const store = fakeStore();
   const admin = createAdmin({
     hot,
     store,
     client,
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     reads: world().adopt(port),
     port,
   });
@@ -367,13 +367,13 @@ test('handles: a line she read is a message she can edit or page from in the nex
       '<skip/>',
     ],
     allowed: ['conversation.read', 'message.edit'],
-    seeds: [{ conversationId: 'c2', authorId: 'self-id', messageId: 'q1', text: 'παλιό κείμενο' }],
+    seeds: [{ chatId: 'c2', authorId: 'self-id', messageId: 'q1', text: 'παλιό κείμενο' }],
   });
   const edits = run.port.calls
     .filter((call) => call.op === 'edit')
     .map((call) => {
-      const [target, body] = call.args as [{ conversationId: string; messageId: string }, { text: string }];
-      return [target.conversationId, target.messageId, body.text];
+      const [target, body] = call.args as [{ chatId: string; messageId: string }, { text: string }];
+      return [target.chatId, target.messageId, body.text];
     });
   assert.deepEqual(edits, [['c2', 'q1', 'νέο κείμενο']]);
   const third = requestText(run.llm, 2);

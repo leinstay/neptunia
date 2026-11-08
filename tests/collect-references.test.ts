@@ -24,7 +24,7 @@ type Item = {
   expiring?: boolean;
   previewUrl?: string;
 };
-type Ref = { iface: string; conversationId: string; messageId: string; url: string; text: string };
+type Ref = { iface: string; chatId: string; messageId: string; url: string; text: string };
 type Normalized = { content: string; attachments: Array<Item>; links: Array<Item>; messageRefs: Array<Ref> };
 
 function isNormalized(value: unknown): value is Normalized {
@@ -81,9 +81,9 @@ function guildMessage(overrides: Record<string, unknown> = {}): Record<string, u
 
 const LINK = 'https://discord.com/channels/1/2/300';
 
-test('messageRefsOf: a message link in a text is a reference to its conversation and message', () => {
+test('messageRefsOf: a message link in a text is a reference to its chat and message', () => {
   assert.deepEqual(messageRefsOf(`εδώ ${LINK} είπες`), [
-    { iface: 'discord', conversationId: '2', messageId: '300', url: LINK, text: LINK },
+    { iface: 'discord', chatId: '2', messageId: '300', url: LINK, text: LINK },
   ]);
 });
 
@@ -96,7 +96,7 @@ test('messageRefsOf: the ptb, canary and discordapp hosts and a private chat lin
   ];
   for (const written of forms) {
     const [ref] = messageRefsOf(`x ${written} y`);
-    assert.equal(ref?.conversationId, '2', written);
+    assert.equal(ref?.chatId, '2', written);
     assert.equal(ref?.messageId, '300', written);
     assert.equal(ref?.text, written, written);
   }
@@ -104,14 +104,14 @@ test('messageRefsOf: the ptb, canary and discordapp hosts and a private chat lin
 
 test('messageRefsOf: a link in angle brackets keeps the brackets in its text and none in its url', () => {
   assert.deepEqual(messageRefsOf(`voilà <${LINK}>.`), [
-    { iface: 'discord', conversationId: '2', messageId: '300', url: LINK, text: `<${LINK}>` },
+    { iface: 'discord', chatId: '2', messageId: '300', url: LINK, text: `<${LINK}>` },
   ]);
 });
 
 test('messageRefsOf: two links come in the order they are written, one reference each', () => {
   const other = 'https://discord.com/channels/1/9/301';
   assert.deepEqual(
-    messageRefsOf(`${other} und ${LINK}, ${LINK}`).map((ref) => [ref.conversationId, ref.messageId]),
+    messageRefsOf(`${other} und ${LINK}, ${LINK}`).map((ref) => [ref.chatId, ref.messageId]),
     [
       ['9', '301'],
       ['2', '300'],
@@ -140,7 +140,7 @@ test('messageRefsOf: a link that is not a bare message link gives no reference',
 
 test('normalizeMessage: a message link in the text rides on the message as a reference and stays in the content', () => {
   const m = normalizeMessage(rawMessage({ cleanContent: `εδώ ${LINK} είπες` }), 'self');
-  assert.deepEqual(m.messageRefs, [{ iface: 'discord', conversationId: '2', messageId: '300', url: LINK, text: LINK }]);
+  assert.deepEqual(m.messageRefs, [{ iface: 'discord', chatId: '2', messageId: '300', url: LINK, text: LINK }]);
   assert.equal(m.content, `εδώ ${LINK} είπες`);
 });
 
@@ -153,9 +153,7 @@ test('toEvent: the message of the event carries its message links as references 
   assert.deepEqual(validateEvent(event), { ok: true });
   const message = event.message;
   if (!('messageRefs' in message)) assert.fail('the event carries no normalized message');
-  assert.deepEqual(message.messageRefs, [
-    { iface: 'discord', conversationId: '2', messageId: '300', url: LINK, text: LINK },
-  ]);
+  assert.deepEqual(message.messageRefs, [{ iface: 'discord', chatId: '2', messageId: '300', url: LINK, text: LINK }]);
 });
 
 // --- attachments and links that expire --------------------------------------

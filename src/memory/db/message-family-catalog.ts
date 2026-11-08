@@ -1,4 +1,4 @@
-// The message writer and schema migration resolve verified history into conversation-qualified families.
+// The message writer and schema migration resolve verified history into chat-qualified families.
 
 import { nativeLocatorOf } from './source-locator.ts';
 import { locatorText } from './message-locator.ts';
@@ -49,7 +49,7 @@ function familiesOf(rows: Array<Row>): Array<MessageFamily> {
       continue;
     const family: MessageFamily = {
       iface: locator.iface,
-      conversation_id: locator.conversationId,
+      conversation_id: locator.chatId,
       message_id: locator.messageId,
       generation: typeof row.generation === 'number' ? row.generation : 1,
       authority_id: row.authority_id,
@@ -72,25 +72,24 @@ export function historicalFamilies(db: Db): Array<MessageFamily> {
   return familiesOf(db.prepare('SELECT * FROM sources').all());
 }
 
-const locatorConversation = `CASE WHEN json_valid(extra) THEN json_extract(extra, '$."$messageLocator".conversationId') END`;
+// Rows stored before the chat rename name the chat `chatId`, rows written since `chatId`.
+const locatorChat = `CASE WHEN json_valid(extra) THEN COALESCE(json_extract(extra, '$."$messageLocator".chatId'), json_extract(extra, '$."$messageLocator".conversationId')) END`;
 const locatorMessage = `CASE WHEN json_valid(extra) THEN json_extract(extra, '$."$messageLocator".messageId') END`;
 
 /** Resolves one historical address, then checks every retained revision of its candidate families. */
 export function historicalFamily(db: Db, locator: NativeMessageLocator, generation: number): MessageFamily | undefined {
   const marked = db
     .prepare(
-      `SELECT * FROM sources WHERE iface = ? AND ${locatorConversation} = ? AND ${locatorMessage} = ? AND generation = ?`
+      `SELECT * FROM sources WHERE iface = ? AND ${locatorChat} = ? AND ${locatorMessage} = ? AND generation = ?`
     )
-    .all(locator.iface, locator.conversationId, locator.messageId, generation);
+    .all(locator.iface, locator.chatId, locator.messageId, generation);
   const legacy = db
     .prepare('SELECT * FROM sources WHERE iface = ? AND native_id = ? AND generation = ?')
     .all(locator.iface, locator.messageId, generation);
   const matching = [...marked, ...legacy].filter((row) => {
     const actual = nativeLocatorOf(row, extraOf(row));
     return (
-      actual?.iface === locator.iface &&
-      actual.conversationId === locator.conversationId &&
-      actual.messageId === locator.messageId
+      actual?.iface === locator.iface && actual.chatId === locator.chatId && actual.messageId === locator.messageId
     );
   });
   const candidates = familiesOf(matching);
@@ -105,7 +104,7 @@ export function historicalFamily(db: Db, locator: NativeMessageLocator, generati
   return familiesOf(retained).find(
     (family) =>
       family.iface === locator.iface &&
-      family.conversation_id === locator.conversationId &&
+      family.conversation_id === locator.chatId &&
       family.message_id === locator.messageId &&
       family.generation === generation
   );
@@ -152,7 +151,7 @@ export function migrateMessageFamilies(db: Db): void {
     PRIMARY KEY(iface, conversation_id, message_id, generation),
     UNIQUE(authority_id, native_kind, native_key, generation)
   )`);
-  db.exec(`CREATE INDEX sources_message_locator ON sources(iface, ${locatorConversation}, ${locatorMessage}, generation);
+  db.exec(`CREATE INDEX sources_message_locator ON sources(iface, ${locatorChat}, ${locatorMessage}, generation);
     CREATE INDEX sources_iface_native ON sources(iface, native_id, generation);`);
   for (const family of historicalFamilies(db)) insertFamily(db, family);
 }

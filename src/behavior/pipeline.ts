@@ -2,23 +2,23 @@
 // new message (src/protocol/, built by the interface's adapter)
 // into one of a handful of outcomes (ignore, observe into memory, or run a turn) without ever throwing into the
 // interface. A direct message goes through the private-chat gate instead
-// (private.enabled, src/behavior/private.ts). A turn someone asked
+// (dm.enabled, src/behavior/private.ts). A turn someone asked
 // for that a rail refused gets one plain limit notice (src/behavior/limits.ts);
 // a direct call while paused gets the pause notice the same way.
 // A call in a channel the persona can read but not write in is answered in
-// another conversation once that channel settles.
+// another chat once that channel settles.
 // Owner commands are a separate pipeline entirely (the interface's command handler,
 // driven by a command, not a message). It reads the events an interface delivers
-// and nothing else: what it needs to know about a conversation (its permissions, its newest
+// and nothing else: what it needs to know about a chat (its permissions, its newest
 // messages, a message by id, a member) it asks the interface through the core's `reads`
-// (src/interface/reads.ts), and a conversation is the info the interface gave of it.
+// (src/interface/reads.ts), and a chat is the info the interface gave of it.
 // Each topic is a module of src/pipeline/, built here once over a typed context; this file wires them.
 
 import { createAddressClassifier } from '../pipeline/address-classifier.ts';
 import { createAnswer } from '../pipeline/answer.ts';
 import { createCallOutcome } from '../pipeline/call-outcome.ts';
 import { createClassifierRequest } from '../pipeline/classifier-request.ts';
-import { createConversations } from '../pipeline/conversations.ts';
+import { createChats } from '../pipeline/chats.ts';
 import { createDrain } from '../pipeline/drain.ts';
 import { createEdits } from '../pipeline/edits.ts';
 import { createAddressAttention } from '../pipeline/address-attention.ts';
@@ -60,8 +60,8 @@ export type MessageHandler = ((event: MessageReceived, options?: MessageReadOpti
 
 /**
  * @param deps.reads  The core's reads of the interface
- *   (src/interface/reads.ts): the conversation a message is in, its newest messages, a message by id,
- *   a member, and the listing of the community the route of a call reads.
+ *   (src/interface/reads.ts): the chat a message is in, its newest messages, a message by id,
+ *   a member, and the listing of the root the route of a call reads.
  * @param [deps.selfId]  The persona's id on the interface (`hello`).
  * @param [deps.llm]  From createLlm() (src/llm/openrouter.js), used for the address classifier: every line of a group
  *   place that carries a flag, and an unflagged one within attention, is checked here before ever running a turn.
@@ -107,7 +107,7 @@ export type MessageHandler = ((event: MessageReceived, options?: MessageReadOpti
  * @param [deps.port]  The adapter the limit and pause notices go out through.
  *   Takes the `message.received` event of a new message (the interface builds it, the door validates it): the
  *   pipeline reads the line, the mention and the reply from the event, and asks the interface for the
- *   conversation's permissions and history when it needs them. Also carries a
+ *   chat's permissions and history when it needs them. Also carries a
  *   `.drainPending()` method: called once a turn finishes anywhere (src/index.ts wires it to
  *   src/behavior/turn.ts's `setOnIdle`, in the same `finally` that frees the channel) to answer
  *   the oldest non-expired pending direct ping, one at a time, after a human switch pause. And a `.clearPending()`
@@ -131,8 +131,8 @@ export function createMessageHandler({
   memory,
   gifKeeper = null,
   tagHistory,
-  isServedCommunity,
-  communitiesOf,
+  isServedRoot,
+  rootsOf,
   getSelfName = () => 'bot',
   describer,
   llm,
@@ -161,10 +161,10 @@ export function createMessageHandler({
   gifKeeper?: EditsDeps['gifKeeper'];
   tagHistory: ReturnType<typeof createTagHistory>;
   llm?: PipelineLlm;
-  /** A community some connected interface serves. */
-  isServedCommunity: (placeId: string | null | undefined) => boolean;
-  /** Every community the interface `name` serves. */
-  communitiesOf?: (name: string) => ReadonlyArray<string>;
+  /** A root some connected interface serves. */
+  isServedRoot: (placeId: string | null | undefined) => boolean;
+  /** Every root the interface `name` serves. */
+  rootsOf?: (name: string) => ReadonlyArray<string>;
   getSelfName?: (placeId: string) => string;
   describer?: Untyped;
   lookup?: Untyped;
@@ -185,7 +185,7 @@ export function createMessageHandler({
   port: Adapter;
 }): MessageHandler {
   const turns = turnRunner;
-  const { refOf, currentOf, turnPlaceOf, infoNow, resolveReference } = createConversations({
+  const { refOf, currentOf, turnPlaceOf, infoNow, resolveReference } = createChats({
     reads,
     memoryDb,
   });
@@ -284,7 +284,7 @@ export function createMessageHandler({
   // Each stage declares `memory.observe` for the lines it hands over; the updater types it as the protocol message
   // (src/memory/update.ts#NormalizedMessage), which is what those lines are.
   const { afterPrivateTurn, checkPrivateGate, dropPrivate, onPrivateMessage } = createPrivateGate({
-    ...(communitiesOf === undefined ? {} : { communitiesOf }),
+    ...(rootsOf === undefined ? {} : { rootsOf }),
     hot,
     store,
     reads,
@@ -329,7 +329,7 @@ export function createMessageHandler({
   });
 
   const { maybePauseNotice } = createPauseNotice({
-    isServedCommunity,
+    isServedRoot,
     hot,
     now,
     port,
@@ -343,7 +343,7 @@ export function createMessageHandler({
 
   // One new message (src/pipeline/handle-message.ts).
   const { onMessage, catchUpMessage } = createHandleMessage({
-    isServedCommunity,
+    isServedRoot,
     hot,
     store,
     turns,
@@ -365,7 +365,7 @@ export function createMessageHandler({
 
   // An edit and a deletion of a message (src/pipeline/edits.ts).
   const { onMessageUpdate, onMessageDelete } = createEdits({
-    isServedCommunity,
+    isServedRoot,
     hot,
     // The edit handlers declare `recordGifs` with an `opts` of `unknown`; the store takes its own options object.
     store: store as EditsDeps['store'],

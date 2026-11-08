@@ -1,6 +1,6 @@
 // `message.create` with both a destination and a reply (src/tools/executors.ts#resolveCall). A destination she named is
 // never replaced: when the replied message lives in another channel the call is refused `unknown-message` with the
-// reason `conversation`, which she reads as `message-elsewhere`, and nothing is sent. With no destination the reply's
+// reason `chat`, which she reads as `message-elsewhere`, and nothing is sent. With no destination the reply's
 // channel is the destination. The second half drives a real turn with a scripted native call down to the fake adapter's
 // send, because the refusal only matters if no message goes out.
 import { test } from 'node:test';
@@ -22,13 +22,13 @@ const LINK_TO_B = `https://discord.com/channels/g1/${CHANNEL_B}/${MESSAGE_IN_B}`
 function viewOfBothChannels() {
   return {
     skills: skillRegistry(),
-    conversations: [
+    chats: [
       { id: CHANNEL_A, name: 'άλφα' },
       { id: CHANNEL_B, name: 'βήτα' },
     ],
     channelHandles: new Map([['ca1', CHANNEL_A]]),
-    messageAt: (n: number) => (n === 5 ? { id: MESSAGE_IN_B, conversationId: CHANNEL_B, authorId: '7' } : null),
-    links: new Map([[LINK_TO_B, { conversationId: CHANNEL_B, messageId: MESSAGE_IN_B }]]),
+    messageAt: (n: number) => (n === 5 ? { id: MESSAGE_IN_B, chatId: CHANNEL_B, authorId: '7' } : null),
+    links: new Map([[LINK_TO_B, { chatId: CHANNEL_B, messageId: MESSAGE_IN_B }]]),
     selfId: 'self-1',
   };
 }
@@ -46,7 +46,7 @@ for (const [form, reply] of [
     const refusal = resolveCreate({ place: '#ca1', reply });
     assert.equal(refusal.ok, false);
     assert.equal('code' in refusal ? refusal.code : null, 'unknown-message');
-    assert.equal('reason' in refusal ? refusal.reason : null, 'conversation');
+    assert.equal('reason' in refusal ? refusal.reason : null, 'chat');
   });
 
   // Green before the fix. Catches a fix that refuses every reply beside a channel.
@@ -88,7 +88,7 @@ async function turnWith(args: Record<string, string>, { innerTurn = true }: { in
   return coreTurn({
     answers: [toolAnswer('', [call('message.create', { text: 'απάντηση', ...args })]), '<skip/>'],
     allowed: ['message.create'],
-    seeds: [{ conversationId: 'c2', authorId: 'u7', messageId: 'q2', text: 'ξένο' }],
+    seeds: [{ chatId: 'c2', authorId: 'u7', messageId: 'q2', text: 'ξένο' }],
     ...(innerTurn
       ? {
           inner: wake,
@@ -103,7 +103,7 @@ const LINK_TO_JARDIN = 'https://discord.com/channels/g1/c2/q2';
 // In these turns #2 is the line of #general (c1) that the harness writes last.
 const LINE_IN_GENERAL = '#2';
 
-/** Each send of the turn as its conversation, its text and the message it replies to. */
+/** Each send of the turn as its chat, its text and the message it replies to. */
 function sendsOf(run: Awaited<ReturnType<typeof turnWith>>): Array<Array<unknown>> {
   return run.sends.map((send) => {
     const replied: unknown = asRecord(send.replyTo)?.messageId;

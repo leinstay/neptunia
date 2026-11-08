@@ -9,7 +9,7 @@
 // run on the read connection.
 
 /**
- * One event the core took: who sent it, its `seq` (null when the envelope had none), id, kind and conversation, and
+ * One event the core took: who sent it, its `seq` (null when the envelope had none), id, kind and chat, and
  * `held`, the whole event when it is a message the core holds for its resume (absent for every other).
  */
 export type IngestRow = {
@@ -17,7 +17,7 @@ export type IngestRow = {
   seq: number | null;
   eventId: string;
   kind: string;
-  conversation: string | null;
+  chat: string | null;
   held?: Record<string, unknown> | null;
 };
 
@@ -45,10 +45,10 @@ export function isIngestRow(value: unknown): value is IngestRow {
   const row = value as Record<string, unknown>;
   const filled = (field: unknown): boolean => typeof field === 'string' && field !== '';
   const seqOk = row.seq === null || (typeof row.seq === 'number' && Number.isInteger(row.seq) && row.seq > 0);
-  const conversationOk = row.conversation === null || typeof row.conversation === 'string';
+  const chatOk = row.chat === null || typeof row.chat === 'string';
   const heldOk =
     row.held === undefined || row.held === null || (typeof row.held === 'object' && !Array.isArray(row.held));
-  return filled(row.principal) && filled(row.eventId) && filled(row.kind) && seqOk && conversationOk && heldOk;
+  return filled(row.principal) && filled(row.eventId) && filled(row.kind) && seqOk && chatOk && heldOk;
 }
 
 /**
@@ -65,7 +65,7 @@ export function insertIngest(db: Db, row: IngestRow, options: { at: number; keep
   const held = row.held === undefined || row.held === null ? null : JSON.stringify(row.held);
   db.prepare(
     'INSERT OR IGNORE INTO ingest (principal, seq, event_id, kind, conversation, committed_at, held) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(row.principal, seqTaken ? null : row.seq, row.eventId, row.kind, row.conversation, committedAt, held);
+  ).run(row.principal, seqTaken ? null : row.seq, row.eventId, row.kind, row.chat, committedAt, held);
   const last = lastPrune.get(db) ?? 0;
   if (options.at - last < HOUR_MS) return;
   lastPrune.set(db, options.at);

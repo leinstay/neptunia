@@ -1,5 +1,5 @@
 // The helpers of the store tests: a memory database over a temporary data directory, the unit files it holds, an archive stand-in and the writers' lines of a channel.
-import { placeOfConversation } from '../../src/memory/addresses.ts';
+import { placeOfChat } from '../../src/memory/addresses.ts';
 import { after } from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -72,7 +72,7 @@ export function unitText(memoryDb: MemoryDbService, rel: string): string {
 
 /**
  * The unit a file path of a shipped layout names, under the place a fresh database spells for that server: the store asks
- * for that spelling when no row holds the server yet (src/memory/store-addresses.ts#placeOfCommunity).
+ * for that spelling when no row holds the server yet (src/memory/store-addresses.ts#placeOfRoot).
  */
 export function keyOfRel(rel: string): StorageKey {
   const key = legacyStorageKey(rel);
@@ -104,7 +104,7 @@ export function writeLines(
 ): Record<string, Untyped> {
   let channel: object | undefined;
   for (let n = 0; n < count; n += 1)
-    channel = store.touchChannel(placeOfConversation(store, { id: placeId }), AGORA_FACTS, fromTs + n, authorId, opts);
+    channel = store.touchChannel(placeOfChat(store, { id: placeId }), AGORA_FACTS, fromTs + n, authorId, opts);
   return channel as Record<string, Untyped>;
 }
 

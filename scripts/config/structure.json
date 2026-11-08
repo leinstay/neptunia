@@ -409,7 +409,7 @@
         "src/config/files.ts",
         "src/behavior/**",
         "src/board/**",
-        "src/conversation/**",
+        "src/chat/**",
         "src/service/commands.ts",
         "src/errands/**",
         "src/intentions/**",
@@ -457,8 +457,8 @@
       "test": "required"
     },
     {
-      "path": "src/conversation/",
-      "purpose": "The owner's conversation sessions: named views with a lineage over the stored lines of a place, kept in a file of their own and apart from memory.",
+      "path": "src/chat/",
+      "purpose": "The owner's chat sessions: named views with a lineage over the stored lines of a place, kept in a file of their own and apart from memory.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
@@ -871,7 +871,7 @@
     },
     {
       "path": "src/turn/routing.ts",
-      "purpose": "The channel directory of a turn and whether a conversation belongs to a community. Tested through the turn tests.",
+      "purpose": "The channel directory of a turn and whether a chat belongs to a root. Tested through the turn tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -955,7 +955,7 @@
     },
     {
       "path": "src/turn/facts.ts",
-      "purpose": "The facts kept for her next request in a conversation: the inner life's store while it is on, else the runner's own. Tested through the turn, inner turn and turn failed earlier tests.",
+      "purpose": "The facts kept for her next request in a chat: the inner life's store while it is on, else the runner's own. Tested through the turn, inner turn and turn failed earlier tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -983,7 +983,7 @@
     },
     {
       "path": "src/turn/in-turn-tools.ts",
-      "purpose": "Her in-turn tools over a turn's own context: the web search and read, the second look, the media find, the memory search, the conversation read, the picture and a selfreflection post's voice. Tested through the turn, turn conversation read and media draw tests.",
+      "purpose": "Her in-turn tools over a turn's own context: the web search and read, the second look, the media find, the memory search, the chat read, the picture and a selfreflection post's voice. Tested through the turn, turn chat read and media draw tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1025,7 +1025,7 @@
     },
     {
       "path": "src/turn/phases/preflight.ts",
-      "purpose": "The first phase of an attempt: the pause and the attention, the conversation's info, the journal's start and the settle wait. Tested through the turn and turn attention tests.",
+      "purpose": "The first phase of an attempt: the pause and the attention, the chat's info, the journal's start and the settle wait. Tested through the turn and turn attention tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1095,7 +1095,7 @@
     },
     {
       "path": "src/turn/phases/request/facts.ts",
-      "purpose": "What was kept for her in the conversation, the task input, the follow-up prompt's check, her time away and skills discovery. Tested through the turn and turn failed earlier tests.",
+      "purpose": "What was kept for her in the chat, the task input, the follow-up prompt's check, her time away and skills discovery. Tested through the turn and turn failed earlier tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1290,8 +1290,8 @@
       "test": "none"
     },
     {
-      "path": "src/pipeline/conversations.ts",
-      "purpose": "What the pipeline asks the interface about a conversation: how it looks now, whether a turn may open there, where a call written in it is answered, and whether a line replies to the persona. Tested through the events tests.",
+      "path": "src/pipeline/chats.ts",
+      "purpose": "What the pipeline asks the interface about a chat: how it looks now, whether a turn may open there, where a call written in it is answered, and whether a line replies to the persona. Tested through the events tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1516,8 +1516,8 @@
       "test": "none"
     },
     {
-      "path": "src/memory/db/communities.ts",
-      "purpose": "The server places of the communities a `hello` names. Tested through `tests/memory-db-communities.test.ts`.",
+      "path": "src/memory/db/roots.ts",
+      "purpose": "The server places of the roots a `hello` names. Tested through `tests/memory-db-roots.test.ts`.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1601,7 +1601,7 @@
     },
     {
       "path": "src/memory/db/mirrors.ts",
-      "purpose": "The reads of the selfreflection's mirrors over the memory database: the places her selfreflection is posted to and whether a conversation is one. Tested through the mirror and selfreflection mirror tests.",
+      "purpose": "The reads of the selfreflection's mirrors over the memory database: the places her selfreflection is posted to and whether a chat is one. Tested through the mirror and selfreflection mirror tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

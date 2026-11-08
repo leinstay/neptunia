@@ -237,7 +237,7 @@ async function rig(): Promise<Rig> {
     memoryDb: memory.memoryDb,
     usage: null,
     metrics: { samples: () => [] },
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => Date.UTC(2026, 10, 5, 12),
   });
   const run = async (command: { name: string; args: Record<string, unknown> }): Promise<Answer> => {
@@ -1032,7 +1032,7 @@ for (const name of [
   'memory.entities.names',
   'memory.entities.relations',
 ]) {
-  const event = { name, args: {}, conversation: { id: 'cli:dm:owner' }, requester: { id: 'owner', roles: [] } };
+  const event = { name, args: {}, chat: { id: 'cli:dm:owner' }, requester: { id: 'owner', roles: [] } };
   test(`${name} reaches the console from the owner's chat and from no agent or interface`, async () => {
     // Bug: a worker on the board or a chat platform names the route and reads the DM's entities.
     const calls: Array<string> = [];

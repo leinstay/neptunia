@@ -1,4 +1,4 @@
-// The stored lines of one place, oldest first, for the owner's conversation sessions (src/conversation/): the current
+// The stored lines of one place, oldest first, for the owner's chat sessions (src/chat/): the current
 // revision of each message, with deleted ones left out, as recall reads them. Read only, and through the owner's own command,
 // so this reader applies no audience: only the `cli` principal reaches it.
 
@@ -12,7 +12,7 @@ import type { Db } from './types.ts';
 /** The newest lines a session shows: far past any chat, and a bound on one read. Decided 2026-11-05. */
 const LINES_MAX = 5000;
 
-export type ConversationLine = {
+export type ChatLine = {
   id: string;
   placeId: string;
   at: number;
@@ -24,7 +24,7 @@ export type ConversationLine = {
 
 const HOLDS_SOMETHING = `(length(COALESCE(s.text, '')) > 0 OR ${LINE_HOLDS_MEDIA})`;
 
-export function conversationLines(db: Db, placeId: string): Array<ConversationLine> {
+export function chatLines(db: Db, placeId: string): Array<ChatLine> {
   const rows = db
     .prepare(
       `SELECT s.id, s.kind, s.text, s.occurred_at, s.native_id FROM sources s

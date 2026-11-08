@@ -24,7 +24,7 @@ test('the migration renames the keys of a stored row and leaves a value spelled 
     const raw = new DatabaseSync(stored.file);
     const row = {
       requester: { userId: 'u1', kind: 'member' },
-      conversation: { id: 'c1', communityId: 'g1' },
+      chat: { id: 'c1', rootId: 'g1' },
       note: 'the word "userId" in a text',
     };
     raw.prepare('INSERT INTO operational (kind, owner, value) VALUES (?, ?, ?)').run('state', 'o', JSON.stringify(row));
@@ -36,7 +36,7 @@ test('the migration renames the keys of a stored row and leaves a value spelled 
     raw.close();
     assert.deepEqual(JSON.parse(value.value), {
       requester: { accountId: 'u1', kind: 'member' },
-      conversation: { id: 'c1', rootId: 'g1' },
+      chat: { id: 'c1', rootId: 'g1' },
       note: 'the word "userId" in a text',
     });
   } finally {
@@ -50,14 +50,14 @@ test('the converter names an account and a tree top as the engine reads them', (
     neutralJson({
       requester: { userId: 'u1' },
       turn: { privateUserId: 'u2' },
-      conversation: { communityId: 'g1', id: 'c1' },
+      chat: { rootId: 'g1', id: 'c1' },
       addressing: { mentionedUserIds: ['u3'] },
       message: { replyPingUserId: 'u4' },
     }),
     {
       requester: { accountId: 'u1' },
       turn: { privateAccountId: 'u2' },
-      conversation: { rootId: 'g1', id: 'c1' },
+      chat: { rootId: 'g1', id: 'c1' },
       addressing: { mentionedAccountIds: ['u3'] },
       message: { replyPingAccountId: 'u4' },
     }

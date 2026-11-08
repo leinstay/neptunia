@@ -1,10 +1,10 @@
 {
  "contexts": {
-  "owner-here": "Every tool granted to her, the owner asked, in this conversation",
+  "owner-here": "Every tool granted to her, the owner asked, in this chat",
   "member-here": "Granted to her, a member asked, nothing granted to the member",
   "member-granted-here": "Granted to her and to everyone, a member asked",
-  "owner-there": "The owner asked, aimed at another conversation where the tool takes one",
-  "member-there": "A member asked, aimed at another conversation where the tool takes one",
+  "owner-there": "The owner asked, aimed at another chat where the tool takes one",
+  "member-there": "A member asked, aimed at another chat where the tool takes one",
   "ungranted-owner-here": "Nothing granted to her, the owner asked",
   "shipped-owner-here": "The shipped config.json, the owner listed and asking",
   "no-requester": "Granted to her, nobody asked",

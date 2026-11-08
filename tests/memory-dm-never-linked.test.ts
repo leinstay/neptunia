@@ -38,7 +38,7 @@ function say(handle: MemoryHandle, n: number, text = 'a synthetic line'): void {
       kind: 'message.received',
       iface: 'chat',
       at,
-      conversation: { id: 'n7', kind: 'dm', chatType: 'dm', partnerId: 'n7' },
+      chat: { id: 'n7', kind: 'dm', chatType: 'dm', partnerId: 'n7' },
       message: { id: `line-${n}`, at, content: text, author: { id: 'n7', name: 'someone' } },
     },
     { connection: 'conn:chat', direct: true }
@@ -129,7 +129,7 @@ test('a session on a DM with no link reads no claim of another DM', async () => 
   try {
     say(env.handle, 1);
     env.db.exec(`
-      INSERT INTO places (id, iface, kind, conversation, scope_kind, partner_person, partner_account)
+      INSERT INTO places (id, iface, kind, chat, scope_kind, partner_person, partner_account)
         VALUES ('chat:dm:other', 'chat', 'dm', 'dm', 'dm', 'person:chat:other', NULL);
       INSERT INTO audiences (id, kind, iface, place_id) VALUES ('aud:dm:chat:dm:other', 'dm', 'chat', 'chat:dm:other');
       INSERT INTO claims (id, subject_kind, subject_id, kind, text, how, author, truth, shown, created_at, audience_id, scope_kind, scope_iface, scope_dm)

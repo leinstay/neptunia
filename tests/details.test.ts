@@ -268,7 +268,7 @@ test('normalizeDetails: null/undefined/number/string/object all yield an empty l
   assert.deepEqual(normalizeDetails({ not: 'an array' }).items, []);
 });
 
-// ---- the optional `from` (who taught an item; used by guild.learned) ---------
+// ---- the optional `from` (who taught an item; used by root.learned) ---------
 
 test('applyDetailOps: an add item keeps a non-empty string from, trimmed', () => {
   const { items } = applyDetailOps(

@@ -70,7 +70,7 @@ const flush = async (rounds = 20) => {
 // Slice 4: an addressed turn is a reply on the frame, which tells untold facts in `<feedback>` inside `<inner>`.
 const feedbackBlockOf = (text: string) => /<feedback>\n([\s\S]*?)\n<\/feedback>/.exec(text)?.[1] ?? '';
 
-// ---- the chat: what survives a "death" (the conversations, the model, the log of what was asked) ----
+// ---- the chat: what survives a "death" (the chats, the model, the log of what was asked) ----
 
 /**
  * The chat world: a fake port holding every message (seeded and sent), the channels reading their
@@ -90,28 +90,28 @@ type ChatLlm = {
 function makeChat() {
   let stamp = 0;
   const port = createFakeAdapter({ iface: 'fake', selfId: SELF, now: () => clock.t - 5000 + (stamp += 1) });
-  const injected: Array<Untyped> = []; // the sends a fault turned into a failure: { n, conversation, text }
+  const injected: Array<Untyped> = []; // the sends a fault turned into a failure: { n, chat, text }
   const failures = new Map<number, Record<string, Untyped>>(); // send attempt number -> the result it gets
   const dyingAfter = new Set(); // send attempt numbers after which the process dies: the message is in the chat, the answer never comes
   let attempts = 0;
   const send = port.send.bind(port);
   port.send = wrongly<typeof port.send>(
-    async (conversation: Parameters<typeof send>[0], content: Parameters<typeof send>[1]) => {
+    async (target: Parameters<typeof send>[0], content: Parameters<typeof send>[1]) => {
       attempts += 1;
       if (dyingAfter.has(attempts)) {
-        await send(conversation, content);
+        await send(target, content);
         chat.hung = true;
         return new Promise(() => {});
       }
       const result = failures.get(attempts);
-      if (!result) return send(conversation, content);
-      port.calls.push({ op: 'send', args: [conversation, content] });
-      injected.push({ n: attempts, conversation: conversation.conversationId, text: content?.text ?? '' });
+      if (!result) return send(target, content);
+      port.calls.push({ op: 'send', args: [target, content] });
+      injected.push({ n: attempts, chat: target.chatId, text: content?.text ?? '' });
       return result;
     }
   );
 
-  // The conversations of the chat: #c1, #c2 and #c3 of the community and the direct chat d1 (c9 is unknown to the interface).
+  // The chats of the chat: #c1, #c2 and #c3 of the root and the direct chat d1 (c9 is unknown to the interface).
   const infoOf = (id: string, { send = true }: { send?: boolean } = {}) => ({
     id,
     kind: id === 'd1' ? 'dm' : 'channel',
@@ -140,7 +140,7 @@ function makeChat() {
             memberGroups: {},
           },
   });
-  for (const id of ['c1', 'c2', 'c3', 'd1']) port.seedConversation(wrongly(infoOf(id)));
+  for (const id of ['c1', 'c2', 'c3', 'd1']) port.seedChat(wrongly(infoOf(id)));
 
   const results: Array<Untyped> = []; // every turn that ended: { placeId, mode, result, failedSends }
   const requests: Array<{ audience: string | null; text: string }> = []; // every request a model call got: { audience, text }
@@ -172,20 +172,20 @@ function makeChat() {
     get sendAttempts() {
       return attempts;
     },
-    /** Where she may write: the conversations in `unwritable` may not be written in, the others may. */
+    /** Where she may write: the chats in `unwritable` may not be written in, the others may. */
     permit(unwritable: Array<string> = []) {
       for (const id of ['c1', 'c2', 'c3', 'd1'])
-        port.seedConversation(wrongly(infoOf(id, { send: !unwritable.includes(wrongly(id)) })));
+        port.seedChat(wrongly(infoOf(id, { send: !unwritable.includes(wrongly(id)) })));
     },
-    /** A line by `authorId` in `conversationId` (the persona's own when it is `SELF`); its raw form. */
+    /** A line by `authorId` in `chatId` (the persona's own when it is `SELF`); its raw form. */
     /**
      */
-    say(conversationId: string, authorId: Untyped, text: string) {
+    say(chatId: string, authorId: Untyped, text: string) {
       stamp += 1;
       const at = clock.t - 5000 + stamp;
       const id = `s${stamp}`;
       if (authorId === SELF) {
-        port.seed(conversationId, { authorId, text, messageId: id });
+        port.seed(chatId, { authorId, text, messageId: id });
       } else {
         // A member's line is a whole event, the way an interface reports it, with the name the member goes by.
         port.seedEvent({
@@ -193,11 +193,11 @@ function makeChat() {
           iface: 'fake',
           at,
           id: `fake:message:${id}`,
-          conversation: {
-            id: conversationId,
-            kind: conversationId === 'd1' ? 'dm' : 'channel',
-            rootId: conversationId === 'd1' ? null : GUILD,
-            name: conversationId === 'd1' ? null : `chan-${conversationId}`,
+          chat: {
+            id: chatId,
+            kind: chatId === 'd1' ? 'dm' : 'channel',
+            rootId: chatId === 'd1' ? null : GUILD,
+            name: chatId === 'd1' ? null : `chan-${chatId}`,
           },
           message: {
             id,
@@ -216,14 +216,14 @@ function makeChat() {
             emojis: [],
             reactions: [],
           },
-          addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+          addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
         });
       }
-      return { id, placeId: conversationId, cleanContent: text, createdTimestamp: at };
+      return { id, placeId: chatId, cleanContent: text, createdTimestamp: at };
     },
-    ownMessages(conversationId: string, n = 20) {
+    ownMessages(chatId: string, n = 20) {
       return port
-        .messagesIn(conversationId)
+        .messagesIn(chatId)
         .filter((message) => message.authorId === SELF)
         .slice(-n)
         .map((message) => ({
@@ -233,9 +233,9 @@ function makeChat() {
           createdAt: message.at,
         }));
     },
-    textsFromSelf(conversationId: string) {
+    textsFromSelf(chatId: string) {
       return port
-        .messagesIn(conversationId)
+        .messagesIn(chatId)
         .filter((message) => message.authorId === SELF)
         .map((message) => message.text);
     },
@@ -388,7 +388,7 @@ function hotWith({
       'character-card': 'You are friendly and terse.',
       format: 'Use <msg> and <react> tags.',
       reply: 'Someone called you: {{author}}.',
-      interject: 'Jump into the conversation.',
+      interject: 'Jump into the chat.',
       initiate: 'Start a topic.',
       inner: INNER_TASK,
       labels,
@@ -469,7 +469,7 @@ function boot(
     hot,
     store,
     client,
-    isServedCommunity: (id: unknown) => id === GUILD,
+    isServedRoot: (id: unknown) => id === GUILD,
     port,
     reads,
   });
@@ -510,7 +510,7 @@ function boot(
     memberOf: (placeId: string, accountId: string) =>
       accountId in names ? { name: names[accountId], bot: false } : null,
     membersOf: () => Object.entries(names).map(([id, name]) => ({ id, name, bot: false })),
-    conversationName: (id: string) => (id === 'd1' ? null : `chan-${id}`),
+    chatName: (id: string) => (id === 'd1' ? null : `chan-${id}`),
     skills: skillRegistry(),
     journal,
     runOp,
@@ -524,11 +524,11 @@ function boot(
     isAnyBusy: () => turns.isAnyBusy?.() ?? false,
     isBusy: (id: string) => turns.isBusy?.(id) ?? false,
     runTurn: async (params: Record<string, Untyped>) => {
-      chat.audience = params.conversation?.conversationId ?? null;
+      chat.audience = params.chat?.chatId ?? null;
       const before = chat.sendAttempts;
       const result = await turns.runTurn(params);
       chat.results.push({
-        placeId: params.conversation?.conversationId ?? null,
+        placeId: params.chat?.chatId ?? null,
         mode: params.mode,
         result,
         failedSends: chat.injected.filter((f) => f.n > before && f.n <= chat.sendAttempts),
@@ -596,10 +596,10 @@ function boot(
       return door.submit({ kind: 'inner.wake', at: clock.t, id: wake.id, rootId: GUILD, wake });
     },
     tick: () => quiet(() => inner.tick()),
-    /** Alice's line in `conversationId`, answered by an addressed turn (the model's next answers are `chat.script`). */
-    ask: (conversationId: string, text: Untyped, { dm = false }: { dm?: boolean } = {}) =>
+    /** Alice's line in `chatId`, answered by an addressed turn (the model's next answers are `chat.script`). */
+    ask: (chatId: string, text: Untyped, { dm = false }: { dm?: boolean } = {}) =>
       quiet(async () => {
-        const raw = chat.say(conversationId, 'u1', text);
+        const raw = chat.say(chatId, 'u1', text);
         const trigger = {
           id: raw.id,
           placeId: raw.placeId,
@@ -614,7 +614,7 @@ function boot(
           stickers: [],
         };
         return recorded.runTurn({
-          conversation: { iface: 'fake', conversationId },
+          chat: { iface: 'fake', chatId },
           ...(dm ? { placeId: GUILD } : {}),
           mode: 'reply',
           trigger,
@@ -651,16 +651,16 @@ const tasksBlockOf = (text: string) => /<errands>\n([\s\S]*?)\n<\/errands>/.exec
  *    errand is left open by a process that is gone;
  * 2. no false success: a turn that had a send fail never reads `spoke` with something delivered
  *    unless it says `partial` (or one of its calls is recorded as not ok);
- * 3. no blind duplicate: the persona never said the same text twice in one conversation;
+ * 3. no blind duplicate: the persona never said the same text twice in one chat;
  * 4. no premature told: a fact marked told is backed by a model answer that completed after it was born;
- * 5. audience-correct: nothing marked private (`privateMarks`) is in a request made in another conversation,
- *    and a private fact belongs to one of `privateChats`.
+ * 5. audience-correct: nothing marked private (`privateMarks`) is in a request made in another chat,
+ *    and a private fact belongs to one of `dmChats`.
  */
 /** What a test adds to the invariants: wakes it accepted, the private chats, and the marks that must stay private. */
-type Invariants = { accepted?: Array<Untyped>; privateChats?: Untyped; privateMarks?: Array<Untyped> };
+type Invariants = { accepted?: Array<Untyped>; dmChats?: Untyped; privateMarks?: Array<Untyped> };
 
 function assertNoSilentFailure(run: Record<string, Untyped>, options: Invariants = {}) {
-  const { accepted = [], privateChats = ['d1'], privateMarks = [] } = options;
+  const { accepted = [], dmChats = ['d1'], privateMarks = [] } = options;
   const { chat } = run;
   const state = run.inner.state(GUILD);
   for (const id of new Set([...accepted, ...run.accepted])) {
@@ -683,15 +683,15 @@ function assertNoSilentFailure(run: Record<string, Untyped>, options: Invariants
     assert.equal(readsAsSuccess, false, `2: the ${mode} turn in ${placeId} lost a send but reads as a success`);
   }
   assertSaidOnce(chat);
-  assertPrivateKept(chat, state, { privateChats, privateMarks });
+  assertPrivateKept(chat, state, { dmChats, privateMarks });
 }
 
-/** Invariant 3: the persona never said the same thing twice in one conversation. */
+/** Invariant 3: the persona never said the same thing twice in one chat. */
 function assertSaidOnce(chat: Chat) {
   const said = new Map();
   for (const message of chat.port.messages.values()) {
     if (message.authorId !== SELF || message.deleted) continue;
-    const key = `${message.ref.conversationId}\n${message.text}`;
+    const key = `${message.ref.chatId}\n${message.text}`;
     said.set(key, (said.get(key) ?? 0) + 1);
   }
   for (const [key, count] of said) {
@@ -703,7 +703,7 @@ function assertSaidOnce(chat: Chat) {
 function assertPrivateKept(
   chat: Chat,
   state: Record<string, Untyped>,
-  { privateChats, privateMarks }: { privateChats: Untyped; privateMarks: Array<Untyped> }
+  { dmChats, privateMarks }: { dmChats: Untyped; privateMarks: Array<Untyped> }
 ) {
   for (const fact of state.facts) {
     if (fact.told)
@@ -711,11 +711,10 @@ function assertPrivateKept(
         chat.completed.some((done: { at: number }) => done.at >= fact.at),
         `4: the fact ${fact.kind} is told but no model answer completed after it was born`
       );
-    if (fact.privateChat)
-      assert.ok(privateChats.includes(fact.placeId), `5: a private fact belongs to ${fact.placeId}`);
+    if (fact.dmChat) assert.ok(dmChats.includes(fact.placeId), `5: a private fact belongs to ${fact.placeId}`);
   }
   for (const request of chat.requests) {
-    if (request.audience !== null && privateChats.includes(request.audience)) continue;
+    if (request.audience !== null && dmChats.includes(request.audience)) continue;
     for (const mark of privateMarks)
       assert.ok(!request.text.includes(mark), `5: a request in ${request.audience} carries a private mark`);
   }
@@ -773,7 +772,7 @@ test('row 2: the process dies right after a message was sent -- the journal clos
   const reconciled = await after.reconcile(GUILD, {
     days: [utcDay(clock.t)],
     before: clock.t + HOUR_MS,
-    fetchOwnMessages: async (conversationId, n) => chat.ownMessages(conversationId, n),
+    fetchOwnMessages: async (chatId, n) => chat.ownMessages(chatId, n),
   });
   assert.deepEqual(
     reconciled,
@@ -796,7 +795,7 @@ function journalFor(chat: Chat, dataDir: string) {
     journal.reconcile(GUILD, {
       days: [utcDay(clock.t)],
       before: clock.t + HOUR_MS,
-      fetchOwnMessages: async (conversationId, n) => chat.ownMessages(conversationId, n),
+      fetchOwnMessages: async (chatId, n) => chat.ownMessages(chatId, n),
     });
   return { journal, ready };
 }
@@ -834,7 +833,7 @@ test('row 2: the process dies after an inner turn sent a message and before the 
   );
   const [fact] = after.state().facts;
   assert.deepEqual(
-    [fact.kind, fact.wake, fact.placeId, fact.privateChat, fact.told],
+    [fact.kind, fact.wake, fact.placeId, fact.dmChat, fact.told],
     ['interrupted', 'intention_due', 'c1', false, false]
   );
   const done = wrongly<Array<string>>(fact.done);
@@ -877,7 +876,7 @@ test("row 2: the process dies after a tool call's send reached the chat and befo
   const reconciled = await after.reconcile(GUILD, {
     days: [utcDay(clock.t)],
     before: clock.t + HOUR_MS,
-    fetchOwnMessages: async (conversationId, n) => chat.ownMessages(conversationId, n),
+    fetchOwnMessages: async (chatId, n) => chat.ownMessages(chatId, n),
   });
   assert.deepEqual(
     reconciled,
@@ -987,7 +986,7 @@ test("row 3: the process dies after an errand's result was stored and before its
     reads: after.reads,
     spontaneous: {},
     calibrator: { ratio: 1 },
-    isServedCommunity: (id: unknown) => id === GUILD,
+    isServedRoot: (id: unknown) => id === GUILD,
     errands: after.errands,
   });
   let from = 0;
@@ -996,7 +995,7 @@ test("row 3: the process dies after an errand's result was stored and before its
     const read = await runOp('errand.read', from > 0 ? { id, from } : { id }, {
       env,
       placeId: GUILD,
-      conversationId: 'c1',
+      chatId: 'c1',
       accountId: 'u1',
       roleIds: [],
     });
@@ -1337,14 +1336,10 @@ test('row 11: an errand completes and its result turn fails every time -- the ta
     reads: run.reads,
     spontaneous: {},
     calibrator: { ratio: 1 },
-    isServedCommunity: (id: unknown) => id === GUILD,
+    isServedRoot: (id: unknown) => id === GUILD,
     errands: run.errands,
   });
-  const read = await runOp(
-    'errand.read',
-    { id },
-    { env, placeId: GUILD, conversationId: 'c1', accountId: 'u1', roleIds: [] }
-  );
+  const read = await runOp('errand.read', { id }, { env, placeId: GUILD, chatId: 'c1', accountId: 'u1', roleIds: [] });
   assert.equal(read.status, 'ok');
   assert.ok(read.summary.includes(text), 'errand.read returns the result');
   assertNoSilentFailure(run);
@@ -1368,7 +1363,7 @@ test('row 13: a fact born in a DM is not shown in a server channel, and is shown
   await run.tick();
   const [fact] = run.state().facts;
   assert.deepEqual(
-    [fact.kind, fact.code, fact.why, fact.placeId, fact.privateChat, fact.told],
+    [fact.kind, fact.code, fact.why, fact.placeId, fact.dmChat, fact.told],
     ['wakeDropped', 'stale', 'cancelled', 'd1', true, false]
   );
 
@@ -1387,7 +1382,7 @@ test('row 13: a fact born in a DM is not shown in a server channel, and is shown
   assert.equal(run.state().facts[0].told !== false, true);
   await run.ask('d1', 'and again', { dm: true });
   assert.ok(!requestText(chat, 3).includes(mark), 'told once');
-  assertNoSilentFailure(run, { privateMarks: [mark], privateChats: ['d1'] });
+  assertNoSilentFailure(run, { privateMarks: [mark], dmChats: ['d1'] });
 });
 
 test('row 14: the inner state file is corrupt at start -- a backup is written and a stateLost fact is shown in the next turn', async () => {

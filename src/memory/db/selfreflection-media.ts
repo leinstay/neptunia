@@ -40,7 +40,7 @@ export const GAP_MS = 1000;
 /** A link that is down: nothing was asked of the platform. */
 const LINK_CLOSED = 'link-closed';
 
-/** The platform refused to show that conversation. */
+/** The platform refused to show that chat. */
 const FORBIDDEN = 'http-403';
 
 /** What a read the interface did not answer makes of a row; a closed link asked nothing of the platform and logs nothing. */
@@ -90,7 +90,7 @@ type FetchedMessage = {
 export type SelfreflectionPort = {
   iface: string;
   fetchMessages?: (
-    conversation: { iface: string; conversationId: string },
+    chat: { iface: string; chatId: string },
     ids: ReadonlyArray<string>
   ) => Promise<{ status?: string; error?: { code?: unknown }; messages?: Array<FetchedMessage> } | undefined>;
 };
@@ -114,7 +114,7 @@ export type PendingSelfreflectionRow = {
   scope_iface: unknown;
   scope_dm: unknown;
   native_ids: unknown;
-  conversationId: string | null;
+  chatId: string | null;
   messageIds: Array<string>;
   voice: { messageId?: unknown; text?: unknown; durationSec?: unknown } | null;
 };
@@ -145,12 +145,12 @@ function audioExtension(mime: unknown, name: string | undefined): string {
  * extra, selfreflection-past.ts), and either no text yet, files not read yet (`mediaPending`), a media row that names no
  * attachment id, or (a post saved before audio was kept) a `voice` field in its extra with no audio media row. Each
  * carries the messages it was sent as (messageIdsOf), the post's `voice` object, if any, and the
- * conversation it was posted to: the place its publication names, else the place her selfreflection is posted to
+ * chat it was posted to: the place its publication names, else the place her selfreflection is posted to
 
  * (mirrors.ts#selfreflectionPlaces, the first), else null.
  */
 export function pendingSelfreflectionRows(db: Db): Array<PendingSelfreflectionRow> {
-  const fallbackId = selfreflectionPlaces(db)[0]?.conversationId ?? null;
+  const fallbackId = selfreflectionPlaces(db)[0]?.chatId ?? null;
   const rows: Array<Row> = db
     .prepare(
       `SELECT d.id AS id, d.scope_kind AS scope_kind, d.scope_iface AS scope_iface, d.scope_dm AS scope_dm, d.extra AS extra,
@@ -185,14 +185,14 @@ export function pendingSelfreflectionRows(db: Db): Array<PendingSelfreflectionRo
     } catch {
       /* an unreadable extra means no voice field */
     }
-    const { conversation_id: conversationId } = row;
+    const { conversation_id: chatId } = row;
     out.push({
       id: String(row.id),
       scope_kind: row.scope_kind,
       scope_iface: row.scope_iface,
       scope_dm: row.scope_dm,
       native_ids: row.native_ids,
-      conversationId: typeof conversationId === 'string' ? conversationId : fallbackId,
+      chatId: typeof chatId === 'string' ? chatId : fallbackId,
       messageIds: ids,
       voice,
     });
@@ -454,7 +454,7 @@ export function createSelfreflectionMedia({
   let running: Promise<{ done: number; failed: number }> | null = null;
   let wake: (() => void) | null = null;
   const attempted = new Set<string>();
-  // The conversations the interface refused in this start: asked once, and their posts wait for the next start.
+  // The chats the interface refused in this start: asked once, and their posts wait for the next start.
   const forbidden = new Set<string>();
   const pause =
     sleep ??
@@ -490,8 +490,8 @@ export function createSelfreflectionMedia({
     adapter: SelfreflectionPort & Required<Pick<SelfreflectionPort, 'fetchMessages'>>,
     fetcher: ImageFetcher
   ): Promise<'done' | 'failed' | 'closed' | 'forbidden'> {
-    const conversation = { iface: adapter.iface, conversationId: row.conversationId as string };
-    const result = await adapter.fetchMessages(conversation, row.messageIds);
+    const chat = { iface: adapter.iface, chatId: row.chatId as string };
+    const result = await adapter.fetchMessages(chat, row.messageIds);
     if (result?.status !== 'ok' || !Array.isArray(result.messages)) {
       return refusedRow(result?.error?.code ?? result?.status ?? 'ERROR', log);
     }
@@ -589,8 +589,8 @@ export function createSelfreflectionMedia({
     const fetching = adapter as SelfreflectionPort & Required<Pick<SelfreflectionPort, 'fetchMessages'>>;
     let rows: Array<PendingSelfreflectionRow>;
     try {
-      // A post with no place is never asked of the interface: there is no conversation to ask.
-      rows = pendingSelfreflectionRows(database).filter((row) => row.conversationId !== null && !attempted.has(row.id));
+      // A post with no place is never asked of the interface: there is no chat to ask.
+      rows = pendingSelfreflectionRows(database).filter((row) => row.chatId !== null && !attempted.has(row.id));
     } catch (error) {
       log.warn('selfreflection media: read failed', { code: codeOf(error) });
       return counts;
@@ -599,7 +599,7 @@ export function createSelfreflectionMedia({
     let refused = 0;
     for (const row of rows) {
       if (stopped) break;
-      if (forbidden.has(row.conversationId as string)) {
+      if (forbidden.has(row.chatId as string)) {
         attempted.add(row.id);
         refused += 1;
         continue;
@@ -616,7 +616,7 @@ export function createSelfreflectionMedia({
           break;
         }
         if (outcome === 'forbidden') {
-          forbidden.add(row.conversationId as string);
+          forbidden.add(row.chatId as string);
           refused += 1;
         } else counts[outcome] += 1;
       } catch (error) {

@@ -38,7 +38,7 @@ function consoleOver(data: string, dir: string) {
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => NOW,
     track: (name, fn) => {
       tracked.push(name);

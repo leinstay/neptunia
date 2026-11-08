@@ -66,14 +66,14 @@ export function addDmPlace(
   { id, iface, authority, account, person }: { id: string; iface: string; authority: string; account: string; person: string | null }
 ): void {
   db.prepare(
-    `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, conversation, scope_kind, partner_account, partner_person)
+    `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, chat, scope_kind, partner_account, partner_person)
      VALUES (?, ?, 'dm', ?, ?, ?, 1, 'dm', 'dm', ?, ?)`
   ).run(id, iface, id, id, authority, account, person);
 }
 
 export function addGroupPlace(db: Db, id: string, iface: string, authority: string): void {
   db.prepare(
-    `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, conversation, scope_kind)
+    `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, chat, scope_kind)
      VALUES (?, ?, 'channel', ?, ?, ?, 1, 'group', 'group')`
   ).run(id, iface, id, id, authority);
 }
@@ -145,7 +145,7 @@ export function seedOpaqueWorld(db: Db): void {
   addAffinity(db, 'affinity:a21', ANNA, 'place:dm-a21');
   // Said in a group about her: public, so never part of her private view.
   addClaim(db, 'claim:public', ANNA, 'aud:group:discord');
-  // His conversation, once about himself and once about her: both belong to his DM.
+  // His chat, once about himself and once about her: both belong to his DM.
   addClaim(db, 'claim:b21', BORIS, `aud:dm:${BORIS_PLACE}`);
   addClaim(db, 'claim:about-anna-in-his-dm', ANNA, `aud:dm:${BORIS_PLACE}`);
 }

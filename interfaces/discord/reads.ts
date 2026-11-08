@@ -1,5 +1,5 @@
-// The conversation reads of the Discord adapter (src/protocol/adapter.ts), each a thin answer over the functions of this
-// package: what a conversation allows and holds, its newest messages and the messages around one, a member and his
+// The chat reads of the Discord adapter (src/protocol/adapter.ts), each a thin answer over the functions of this
+// package: what a chat allows and holds, its newest messages and the messages around one, a member and his
 // groups, the server's search, its custom emoji, the messages a text links to and who reacted. `createDiscordReads`
 // builds the methods `port.ts#createDiscordAdapter` spreads into the adapter. Every read answers `{ status: 'ok', ... }` or
 // a failure and never throws. The messages of a read are events (`toEvent`) without the discord.js handles, so they
@@ -10,7 +10,7 @@ import { PermissionFlagsBits } from 'discord.js';
 import type {
   Adapter,
   Audience,
-  ConversationInfo,
+  ChatInfo,
   FetchedMessage,
   HistoryQuery,
   MemberInfo,
@@ -26,7 +26,7 @@ import {
   canReact,
   canRead,
   canSend,
-  conversationOfChannel,
+  chatOfChannel,
   fetchReactorIds,
   lastActivity,
   normalizeOptions,
@@ -41,7 +41,7 @@ type Failure = { status: 'failed' | 'unsupported' | 'forbidden'; error: PortErro
 /** The first millisecond of Discord's snowflakes (2015-01-01). */
 const DISCORD_EPOCH_MS = 1_420_070_400_000;
 
-/** A message link as a whole text: the optional hosts, `@me` for a private chat; groups: the conversation, the message. */
+/** A message link as a whole text: the optional hosts, `@me` for a private chat; groups: the chat, the message. */
 const MESSAGE_LINK_RE =
   /^https?:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(?:\d+|@me)\/(\d+)\/(\d+)\/?$/i;
 
@@ -142,7 +142,7 @@ function memberInfoOf(member: Obj, memberId: string, selfId: string, client: Obj
   };
 }
 
-/** The searches, the emoji list and the link parse of a read: answers over the client and the guild of a community. */
+/** The searches, the emoji list and the link parse of a read: answers over the client and the guild of a root. */
 function createLookupReads(deps: {
   client: Obj;
   iface: string;
@@ -176,7 +176,7 @@ function createLookupReads(deps: {
         hits: page.hits.map((hit) => {
           const author = obj(hit.author);
           return {
-            ref: { iface, conversationId: String(hit.channel_id), messageId: String(hit.id) },
+            ref: { iface, chatId: String(hit.channel_id), messageId: String(hit.id) },
             at: Date.parse(String(hit.timestamp)),
             text: typeof hit.content === 'string' ? hit.content : '',
             author: {
@@ -228,7 +228,7 @@ function createLookupReads(deps: {
       const refs = texts.map((value): MessageRef | null => {
         const match = MESSAGE_LINK_RE.exec(value);
         return match?.[1] !== undefined && match[2] !== undefined
-          ? { iface, conversationId: match[1], messageId: match[2] }
+          ? { iface, chatId: match[1], messageId: match[2] }
           : null;
       });
       return Promise.resolve({ status: 'ok' as const, refs });
@@ -259,12 +259,12 @@ function fetchedFile(file: Obj): NonNullable<FetchedMessage['attachments']>[numb
  */
 export type DiscordReads = Pick<
   Adapter,
-  | 'conversationInfo'
-  | 'conversations'
+  | 'chatInfo'
+  | 'chats'
   | 'fetchMessages'
   | 'history'
   | 'memberInfo'
-  | 'dmConversationOf'
+  | 'dmChatOf'
   | 'searchMessages'
   | 'searchMembers'
   | 'emoji'
@@ -337,12 +337,12 @@ export function createDiscordReads(deps: {
     return (permissions as { has?: (flag: bigint) => boolean } | null)?.has?.(PermissionFlagsBits.ViewChannel) === true;
   };
 
-  /** The conversation of `channel` as a read answers it: the booleans, the time, the flags and, when asked, the audience and viewers. */
+  /** The chat of `channel` as a read answers it: the booleans, the time, the flags and, when asked, the audience and viewers. */
   function infoOf(
     channel: Obj,
     asked: { audience?: boolean; viewers?: ReadonlyArray<string> },
     viewerMembers: Map<string, Obj>
-  ): ConversationInfo {
+  ): ChatInfo {
     const guild = obj(channel.guild);
     const everyone = obj(guild.roles).everyone;
     const permissionsFor = channel.permissionsFor as ((who: unknown) => unknown) | undefined;
@@ -352,8 +352,8 @@ export function createDiscordReads(deps: {
         'ViewChannel'
       ) === true;
     const last = lastActivity(channel);
-    const info: ConversationInfo = {
-      ...(conversationOfChannel(channel) as Obj as ConversationInfo),
+    const info: ChatInfo = {
+      ...(chatOfChannel(channel) as Obj as ChatInfo),
       iface,
       permissions: {
         read: canRead(channel),
@@ -374,7 +374,7 @@ export function createDiscordReads(deps: {
     return info;
   }
 
-  /** The viewers asked for as guild members of `guild` (none when the conversation has no guild). */
+  /** The viewers asked for as guild members of `guild` (none when the chat has no guild). */
   const viewersOf = (guild: Obj | null, ids: ReadonlyArray<string> | undefined): Promise<Map<string, Obj>> =>
     guild === null || (ids?.length ?? 0) === 0 ? Promise.resolve(new Map<string, Obj>()) : membersOf(guild, ids ?? []);
 
@@ -427,19 +427,16 @@ export function createDiscordReads(deps: {
   }
 
   const methods = {
-    async conversationInfo(
-      ref: { conversationId: string },
-      asked: { audience?: boolean; viewers?: ReadonlyArray<string> } = {}
-    ) {
+    async chatInfo(ref: { chatId: string }, asked: { audience?: boolean; viewers?: ReadonlyArray<string> } = {}) {
       const refused = refusal(ref);
       if (refused) return refused;
       const { channel, result } = await resolveChannel(ref);
       if (result || channel === undefined) return result ?? failed('error');
       const viewers = await viewersOf(obj(channel.guild).id === undefined ? null : obj(channel.guild), asked.viewers);
-      return { status: 'ok' as const, conversation: infoOf(channel, asked, viewers) };
+      return { status: 'ok' as const, chat: infoOf(channel, asked, viewers) };
     },
 
-    async conversations(scope: { placeId: string; audience?: boolean; viewers?: ReadonlyArray<string> }) {
+    async chats(scope: { placeId: string; audience?: boolean; viewers?: ReadonlyArray<string> }) {
       const guild = guildOf(scope.placeId);
       if (guild === null) return failed('no-guild');
       const viewers = await viewersOf(guild, scope.viewers);
@@ -455,15 +452,15 @@ export function createDiscordReads(deps: {
         .map((role) => ({ id: String(role.id), name: String(role.name) }));
       return {
         status: 'ok' as const,
-        conversations: channels.map((channel) => infoOf(channel, scope, viewers)),
+        chats: channels.map((channel) => infoOf(channel, scope, viewers)),
         groups,
       };
     },
 
-    async fetchMessages(conversation: { conversationId: string }, messageIds: ReadonlyArray<string>) {
-      const refused = refusal(conversation);
+    async fetchMessages(chat: { chatId: string }, messageIds: ReadonlyArray<string>) {
+      const refused = refusal(chat);
       if (refused) return refused;
-      const { channel, result } = await resolveChannel(conversation);
+      const { channel, result } = await resolveChannel(chat);
       if (result || channel === undefined) return result ?? failed('error');
       const messages = obj(channel.messages);
       if (typeof messages.fetch !== 'function')
@@ -498,10 +495,10 @@ export function createDiscordReads(deps: {
       return { status: 'ok' as const, messages: out };
     },
 
-    async history(conversation: { conversationId: string }, query: HistoryQuery) {
-      const refused = refusal(conversation);
+    async history(chat: { chatId: string }, query: HistoryQuery) {
+      const refused = refusal(chat);
       if (refused) return refused;
-      const { channel, result } = await resolveChannel(conversation);
+      const { channel, result } = await resolveChannel(chat);
       if (result || channel === undefined) return result ?? failed('error');
       const { limit, before, after, around, since } = query;
       const size = Math.min(PAGE, limit);
@@ -538,12 +535,12 @@ export function createDiscordReads(deps: {
     },
 
     /** discord.js's `users.createDM`: Discord answers the one channel it holds for the pair, and no message is sent. */
-    async dmConversationOf(partner: { accountId: string }) {
+    async dmChatOf(partner: { accountId: string }) {
       try {
         const users = obj(client.users);
         const opened = await (users.createDM as (id: string) => Promise<unknown>).call(users, partner.accountId);
-        const conversationId = text(obj(opened).id);
-        return conversationId === null ? failed('no-conversation') : { status: 'ok' as const, conversationId };
+        const chatId = text(obj(opened).id);
+        return chatId === null ? failed('no-chat') : { status: 'ok' as const, chatId };
       } catch (err) {
         return failure(err);
       }

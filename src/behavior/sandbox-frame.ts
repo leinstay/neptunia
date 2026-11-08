@@ -11,7 +11,7 @@ import type { PlaceChainLink } from '../memory/db/place-tree.ts';
 /** What the replay knows of the turn: its memory's place tree, its channel, its trigger, its clock and zone. */
 export type ReplayTurn = {
   memory: {
-    placeOfConversation?: (conversation: { id: string }, iface?: string) => string | null;
+    placeOfChat?: (chat: { id: string }, iface?: string) => string | null;
     placeChainOf?: (placeId: string) => ReadonlyArray<PlaceChainLink>;
     accountOf?: (nativeId: string, iface?: string) => string;
     personOfAccount?: (accountId: string) => string;
@@ -35,7 +35,7 @@ const REPLAY_IFACE = 'replay';
 export function replayFrame(turn: ReplayTurn): { frame: Frame; whereabouts: Whereabouts } {
   const iface = turn.channel.iface || REPLAY_IFACE;
   const memory = turn.memory;
-  const placeId = memory.placeOfConversation?.({ id: turn.channel.id }, iface) || turn.channel.id;
+  const placeId = memory.placeOfChat?.({ id: turn.channel.id }, iface) || turn.channel.id;
   const stored = memory.placeChainOf?.(placeId) ?? [];
   const chain = stored.length > 0 ? stored : [{ id: placeId, kind: 'channel', name: turn.channel.name ?? null }];
   const trigger = turn.trigger;

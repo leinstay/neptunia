@@ -32,9 +32,9 @@ export const ALIVE_LEASE = 'core:alive';
 export type TurnMark = {
   kind: string;
   placeId: string | null;
-  privateChat: boolean;
+  dmChat: boolean;
   privateAccountId: string | null;
-  /** The interface of the turn's conversation; absent in a mark written before it was recorded. */
+  /** The interface of the turn's chat; absent in a mark written before it was recorded. */
   iface?: string;
 };
 
@@ -161,7 +161,7 @@ function turnMarkOf(value: unknown): TurnMark | null {
   return {
     kind: textOrNull(mark.kind) ?? '',
     placeId: textOrNull(mark.placeId),
-    privateChat: mark.privateChat === true,
+    dmChat: mark.dmChat === true,
     privateAccountId: textOrNull(mark.privateAccountId),
     ...(textOrNull(mark.iface) === null ? {} : { iface: String(mark.iface) }),
   };

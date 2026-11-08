@@ -249,18 +249,14 @@ test('memory.search handles: a quoted line carries a #N that message.edit resolv
     config: WEB_CONFIG,
     runner: { recall },
     seeds: [
-      { conversationId: 'c2', authorId: 'self-id', messageId: 'q1', text: 'παλιό κείμενο' },
-      { conversationId: 'c2', authorId: 'u7', messageId: 'q2', text: 'ξένο' },
+      { chatId: 'c2', authorId: 'self-id', messageId: 'q1', text: 'παλιό κείμενο' },
+      { chatId: 'c2', authorId: 'u7', messageId: 'q2', text: 'ξένο' },
     ],
     loop: { maxSteps: 4 },
   } as unknown as Parameters<typeof coreTurn>[0]);
   const edits = run.port.calls
     .filter((call) => call.op === 'edit')
-    .map((call) => [
-      asRecord(call.args[0]).conversationId,
-      asRecord(call.args[0]).messageId,
-      asRecord(call.args[1]).text,
-    ]);
+    .map((call) => [asRecord(call.args[0]).chatId, asRecord(call.args[0]).messageId, asRecord(call.args[1]).text]);
   assert.deepEqual(
     edits,
     [['c2', 'q1', 'νέο κείμενο']],
@@ -434,7 +430,7 @@ test('errand.run in the loop: after a search she hands off the errand, it is que
     { agent: 'scout', goal: brief },
     {
       placeId: 'g1',
-      conversationId: 'c1',
+      chatId: 'c1',
       accountId: 'u1',
       roleIds: [],
       actor: 'persona',
@@ -833,7 +829,7 @@ test('draw.create: reply quotes that message here; a channel she names is where 
   const jardin = {
     id: 'c2',
     name: 'jardin',
-    guild: { id: 'g1' },
+    root: { id: 'g1' },
     isTextBased: () => true,
     isDMBased: () => false,
     viewable: true,
@@ -844,7 +840,7 @@ test('draw.create: reply quotes that message here; a channel she names is where 
   });
   const quoted = here.sends.find((send) => asRecord(send.attachments)?.length === 1);
   assert.deepEqual(
-    [quoted?.to, asRecord(quoted?.replyTo).conversationId, asRecord(quoted?.replyTo).messageId],
+    [quoted?.to, asRecord(quoted?.replyTo).chatId, asRecord(quoted?.replyTo).messageId],
     ['c1', 'c1', 'm1']
   );
   const there = await drawTurn({
@@ -871,7 +867,7 @@ test('draw.create: a reply to a message of another channel (a quoted line of a s
   const jardin = {
     id: 'c2',
     name: 'jardin',
-    guild: { id: 'g1' },
+    root: { id: 'g1' },
     isTextBased: () => true,
     isDMBased: () => false,
     viewable: true,
@@ -897,13 +893,13 @@ test('draw.create: a reply to a message of another channel (a quoted line of a s
     config: { ...DRAW_CONFIG, ...WEB_CONFIG },
     runner: { recall },
     neighbours: [jardin],
-    seeds: [{ conversationId: 'c2', authorId: 'u7', messageId: 'q2', text: 'ξένο' }],
+    seeds: [{ chatId: 'c2', authorId: 'u7', messageId: 'q2', text: 'ξένο' }],
     loop: { maxSteps: 4 },
   } as unknown as Parameters<typeof drawTurn>[0]);
   const picture = run.sends.find((send) => asRecord(send.attachments)?.length === 1);
   assert.ok(picture, JSON.stringify(calledLogs(run)));
   assert.deepEqual(
-    [picture.to, asRecord(picture.replyTo).conversationId, asRecord(picture.replyTo).messageId],
+    [picture.to, asRecord(picture.replyTo).chatId, asRecord(picture.replyTo).messageId],
     ['c2', 'c2', 'q2']
   );
 });

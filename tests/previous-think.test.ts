@@ -17,10 +17,10 @@ const whyOf = (picked: object) => (picked as { why?: string }).why;
 
 const MIN = 60_000;
 const T0 = Date.UTC(2026, 9, 20, 12, 0, 0);
-// Keyed by the conversation alone (plan 2026-11-05 T.4).
-const GROUP = placeKey({ conversationId: 'c1' });
-const OTHER = placeKey({ conversationId: 'c2' });
-const DM = placeKey({ conversationId: 'd1' });
+// Keyed by the chat alone (plan 2026-11-05 T.4).
+const GROUP = placeKey({ chatId: 'c1' });
+const OTHER = placeKey({ chatId: 'c2' });
+const DM = placeKey({ chatId: 'd1' });
 
 test('select: the latest finished turn of the place within the window, with its age; older or none carries nothing', () => {
   const store = createThinkStore();
@@ -57,9 +57,9 @@ test('select: a turn counts for each place it delivered into; an inner turn only
   );
   assert.equal(inner.select(OTHER, { now: T0 + MIN, minutes: 30 }).think, 'beat');
   const priv = createThinkStore();
-  priv.record({ turnId: 'p1', at: T0, think: 'secret of a dm', isPrivate: true, ran: DM, delivered: [GROUP] });
-  assert.equal(whyOf(priv.select(GROUP, { now: T0 + MIN, minutes: 30, isPrivate: false })), 'private');
-  assert.equal(priv.select(DM, { now: T0 + MIN, minutes: 30, isPrivate: true }).think, 'secret of a dm');
+  priv.record({ turnId: 'p1', at: T0, think: 'secret of a dm', isDm: true, ran: DM, delivered: [GROUP] });
+  assert.equal(whyOf(priv.select(GROUP, { now: T0 + MIN, minutes: 30, isDm: false })), 'private');
+  assert.equal(priv.select(DM, { now: T0 + MIN, minutes: 30, isDm: true }).think, 'secret of a dm');
 });
 
 test('store: keeps the latest entry per place and drops the oldest places past its bound', () => {
@@ -69,10 +69,10 @@ test('store: keeps the latest entry per place and drops the oldest places past i
       turnId: `t${i}`,
       at: T0 + i,
       think: placeId,
-      ran: placeKey({ conversationId: placeId }),
+      ran: placeKey({ chatId: placeId }),
     });
   assert.equal(store.size(), 2);
-  assert.equal(whyOf(store.select(placeKey({ conversationId: 'a' }), { now: T0 + 5, minutes: 30 })), 'none-in-window');
+  assert.equal(whyOf(store.select(placeKey({ chatId: 'a' }), { now: T0 + 5, minutes: 30 })), 'none-in-window');
 });
 
 test('inertThink: nothing in it can close the block or read as a tag or a call', () => {
@@ -287,7 +287,7 @@ test('seed: a think the journal holds from 20 minutes before midnight is carried
         posted: [{ messageId: 'p-eve' }],
       },
     ],
-    { isPrivate: false }
+    { isDm: false }
   );
   assert.equal(store.select(GROUP, { now: midnight + 10 * MIN, minutes: 30 }).think, 'before midnight');
   assert.equal(whyOf(store.select(GROUP, { now: midnight + 40 * MIN, minutes: 30 })), 'none-in-window');

@@ -7,7 +7,7 @@ import { imageFileName } from '../../behavior/mirror.ts';
 import { ImageGenError, UnsupportedImageModelError } from '../../llm/images.ts';
 import { roleModel } from '../../llm/roles.ts';
 import { log } from '../../log.ts';
-import { messageRefOf, postingConversation } from './shared.ts';
+import { messageRefOf, postingChat } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { heldPort } from '../send-hold.ts';
@@ -28,7 +28,7 @@ const handlers = perEnv((env) => {
    * generation failure throws with its reason and HTTP status; the prompt is
    * never logged. With `placeId` the picture is posted there as the persona, through her
    * interface (`env.port`), the channel being the one the command runs in or a text channel of
-   * the served place where the bot may send files (src/tools/impl/shared.ts#postingConversation, checked
+   * the served place where the bot may send files (src/tools/impl/shared.ts#postingChat, checked
    * before anything is generated); the answer is then the line alone, or a `failed` result when the post did not go
    * through (`data.unknown` when it may have: never generated again).
    */
@@ -45,11 +45,11 @@ const handlers = perEnv((env) => {
     const target = given ?? reply?.placeId ?? null;
     const postTo =
       target || reply
-        ? await postingConversation({
+        ? await postingChat({
             reads,
             store: env.store,
             iface: port?.iface ?? '',
-            conversationId: target,
+            chatId: target,
             context,
             need: 'attach',
           })
@@ -111,10 +111,10 @@ const handlers = perEnv((env) => {
     if (!port) throw new Error("the persona's interface is not available");
     // A wake turn's post is held for its end (src/tools/send-hold.ts).
     const sent = await heldPort(port, context).send(
-      { iface: port.iface, conversationId: postTo },
+      { iface: port.iface, chatId: postTo },
       {
         attachments: [{ name: file.name, data: file.attachment, contentType: picture.mediaType }],
-        ...(reply ? { replyTo: { iface: port.iface, conversationId: postTo, messageId: reply.messageId } } : {}),
+        ...(reply ? { replyTo: { iface: port.iface, chatId: postTo, messageId: reply.messageId } } : {}),
       }
     );
     if (sent?.status === 'ok')

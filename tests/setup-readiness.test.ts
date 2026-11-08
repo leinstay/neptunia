@@ -249,7 +249,7 @@ test('status.readiness answers from what the core holds and sends no request', a
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => 0,
     subharness: { fetch, runBackend: () => Promise.reject(new Error('no model run')) },
   });

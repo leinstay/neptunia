@@ -7,7 +7,7 @@ import {
   ACTIONS,
   CAPABILITIES,
   COMMAND_RESULT,
-  CONVERSATION_KINDS,
+  CHAT_KINDS,
   CHAT_TYPES,
   CORE_KINDS,
   ENVELOPE_TYPES,
@@ -27,7 +27,7 @@ import {
 import * as port from '../src/interface/port.ts';
 import type { MessageReceived } from '../src/protocol/events.ts';
 
-const conversation = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'γενικά', topic: null, category: null };
+const chat = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'γενικά', topic: null, category: null };
 
 function messageEvent(overrides: Record<string, unknown> = {}) {
   // A loose literal on purpose: the cases below bend it into invalid events, so it is read as the valid shape here.
@@ -36,7 +36,7 @@ function messageEvent(overrides: Record<string, unknown> = {}) {
     iface: 'discord',
     at: 1000,
     id: 'discord:message:m1',
-    conversation,
+    chat,
     message: {
       id: 'm1',
       author: { id: 'u1', name: 'Ελένη', self: false, bot: false },
@@ -52,7 +52,7 @@ function messageEvent(overrides: Record<string, unknown> = {}) {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: true, replyToSelf: false, mentionedAccountIds: ['self'], mentionedConversationIds: [] },
+    addressing: { mentioned: true, replyToSelf: false, mentionedAccountIds: ['self'], mentionedChatIds: [] },
     ...overrides,
   } as MessageReceived;
 }
@@ -64,7 +64,7 @@ const EVENTS = {
     iface: 'discord',
     at: 1000,
     id: 'discord:reaction:1',
-    conversation,
+    chat,
     messageId: 'm1',
     emoji: { name: '\u{1F389}' },
     accountId: 'u1',
@@ -75,7 +75,7 @@ const EVENTS = {
     iface: 'discord',
     at: 1000,
     id: 'discord:command:i1',
-    conversation,
+    chat,
     name: 'memory.show',
     args: { accountId: 'u2' },
     requester: { id: 'u1', name: null, roles: ['r1'], owner: true },
@@ -100,7 +100,7 @@ const EVENTS = {
     id: 'discord:voice:g1:u1:1000',
     placeId: 'g1',
     accountId: 'u1',
-    conversationId: 'v1',
+    chatId: 'v1',
     previousId: null,
     muted: false,
     streaming: true,
@@ -131,12 +131,12 @@ const EVENTS = {
     voice: [],
     presence: [],
   },
-  'conversation.changed': {
-    kind: 'conversation.changed',
+  'chat.changed': {
+    kind: 'chat.changed',
     iface: 'discord',
     at: 1000,
-    id: 'discord:conversation:c1:created:1000',
-    conversation,
+    id: 'discord:chat:c1:created:1000',
+    chat,
     change: 'created',
   },
   'connection.changed': {
@@ -148,24 +148,24 @@ const EVENTS = {
   },
 };
 
-const ref = { iface: 'fake', conversationId: 'c1' };
-const messageRef = { iface: 'fake', conversationId: 'c1', messageId: 'm1' };
+const ref = { iface: 'fake', chatId: 'c1' };
+const messageRef = { iface: 'fake', chatId: 'c1', messageId: 'm1' };
 
 const ACTION_SAMPLES = {
   'message.send': {
     action: 'message.send',
-    conversation: ref,
+    chat: ref,
     content: { text: 'γεια', replyTo: messageRef, mentions: { users: ['u1'], repliedUser: true } },
   },
   'message.edit': { action: 'message.edit', message: messageRef, content: { text: 'άλλο' } },
   'message.delete': { action: 'message.delete', message: messageRef },
   'message.react.add': { action: 'message.react.add', message: messageRef, emoji: '\u{1F389}' },
   'message.react.remove': { action: 'message.react.remove', message: messageRef, emoji: '\u{1F389}' },
-  'conversation.typing': { action: 'conversation.typing', conversation: ref },
+  'chat.typing': { action: 'chat.typing', chat: ref },
   'command.result': { action: 'command.result', replyRef: 'i1', text: 'έγινε', files: [], ephemeral: true },
 };
 
-test('protocol: the kinds, conversation kinds and actions are the contract', () => {
+test('protocol: the kinds, chat kinds and actions are the contract', () => {
   assert.deepEqual(
     [...EVENT_KINDS],
     [
@@ -180,12 +180,12 @@ test('protocol: the kinds, conversation kinds and actions are the contract', () 
       // Stage 2 PR 4 appended these four; an interface sends them, so CORE_KINDS below is unchanged.
       'presence.changed',
       'presence.snapshot',
-      'conversation.changed',
+      'chat.changed',
       'connection.changed',
     ]
   );
   assert.deepEqual([...CORE_KINDS], ['scheduler.tick', 'errand.done', 'inner.wake']);
-  assert.deepEqual([...CONVERSATION_KINDS], ['channel', 'dm', 'thread']);
+  assert.deepEqual([...CHAT_KINDS], ['channel', 'dm', 'thread']);
   assert.deepEqual([...ACTIONS], [...Object.values(CAPABILITIES), COMMAND_RESULT]);
   assert.deepEqual(Object.keys(ACTION_SAMPLES).sort(), [...ACTIONS].sort());
   assert.deepEqual(Object.keys(EVENTS).sort(), [...EVENT_KINDS].sort());
@@ -220,7 +220,7 @@ test('validateEvent: an inner wake needs its own id and its wake record', () => 
 });
 
 test('validateEvent: a direct chat, an edit, a deletion and a partial edit are message.received', () => {
-  const dm = messageEvent({ conversation: { id: 'd1', kind: 'dm' } });
+  const dm = messageEvent({ chat: { id: 'd1', kind: 'dm' } });
   assert.deepEqual(validateEvent(dm), { ok: true });
   assert.deepEqual(validateEvent(messageEvent({ edit: true })), { ok: true });
   const deleted = {
@@ -228,7 +228,7 @@ test('validateEvent: a direct chat, an edit, a deletion and a partial edit are m
     iface: 'discord',
     at: 2000,
     id: 'discord:delete:m1',
-    conversation,
+    chat,
     message: { id: 'm1' },
     deleted: true,
   };
@@ -284,12 +284,12 @@ test('validateEvent: reaction.changed refuses the bad cleared and authorId shape
   for (const [event, reason] of cases) assert.deepEqual(validateEvent(event), { ok: false, reason }, reason);
 });
 
-test('validateEvent: the core kinds need no iface, id or conversation; an interface kind does', () => {
+test('validateEvent: the core kinds need no iface, id or chat; an interface kind does', () => {
   assert.deepEqual(validateEvent({ kind: 'scheduler.tick', at: 5 }), { ok: true });
   const { iface: _iface, ...noIface } = EVENTS['reaction.changed'];
   assert.deepEqual(validateEvent(noIface), { ok: false, reason: 'iface:required' });
-  const { conversation: _c, ...noConversation } = EVENTS['command.requested'];
-  assert.deepEqual(validateEvent(noConversation), { ok: false, reason: 'conversation:required' });
+  const { chat: _c, ...noChat } = EVENTS['command.requested'];
+  assert.deepEqual(validateEvent(noChat), { ok: false, reason: 'chat:required' });
 });
 
 test('validateEvent: invalid shapes are refused with the field and the problem', () => {
@@ -302,8 +302,8 @@ test('validateEvent: invalid shapes are refused with the field and the problem',
     [{ ...message, at: Number.NaN }, 'at:type'],
     [{ ...message, at: '1000' }, 'at:type'],
     [{ ...message, id: '' }, 'id:type'],
-    [{ ...message, conversation: { ...conversation, id: 42 } }, 'conversation.id:type'],
-    [{ ...message, conversation: { ...conversation, kind: 'group' } }, 'conversation.kind:unknown'],
+    [{ ...message, chat: { ...chat, id: 42 } }, 'chat.id:type'],
+    [{ ...message, chat: { ...chat, kind: 'group' } }, 'chat.kind:unknown'],
     [{ ...message, message: { ...message.message, id: 7 } }, 'message.id:type'],
     [
       { ...message, message: { ...message.message, author: { ...message.message.author, id: 1 } } },
@@ -368,18 +368,15 @@ test('validateAction: invalid shapes are refused with the field and the problem'
   const cases: Array<[unknown, string]> = [
     [null, 'action:type'],
     [{ action: 'message.shout' }, 'action:unknown'],
-    [{ action: 'message.send', conversation: null, content: { text: 'x' } }, 'conversation:type'],
-    [
-      { action: 'message.send', conversation: { iface: 'fake' }, content: { text: 'x' } },
-      'conversation.conversationId:required',
-    ],
-    [{ action: 'message.send', conversation: ref }, 'content:required'],
-    [{ action: 'message.send', conversation: ref, content: { text: 5 } }, 'content.text:type'],
-    [{ action: 'message.send', conversation: ref, content: { attachments: 'a.png' } }, 'content.attachments:type'],
+    [{ action: 'message.send', chat: null, content: { text: 'x' } }, 'chat:type'],
+    [{ action: 'message.send', chat: { iface: 'fake' }, content: { text: 'x' } }, 'chat.chatId:required'],
+    [{ action: 'message.send', chat: ref }, 'content:required'],
+    [{ action: 'message.send', chat: ref, content: { text: 5 } }, 'content.text:type'],
+    [{ action: 'message.send', chat: ref, content: { attachments: 'a.png' } }, 'content.attachments:type'],
     [{ action: 'message.edit', message: ref, content: { text: 'x' } }, 'message.messageId:required'],
     [{ action: 'message.delete', message: { ...messageRef, messageId: 9 } }, 'message.messageId:type'],
     [{ action: 'message.react.add', message: messageRef }, 'emoji:required'],
-    [{ action: 'conversation.typing', conversation: {} }, 'conversation.iface:required'],
+    [{ action: 'chat.typing', chat: {} }, 'chat.iface:required'],
     [{ action: 'command.result', replyRef: 'i1' }, 'text:required'],
     [{ action: 'command.result', replyRef: 'i1', text: 'x', ephemeral: 'yes' }, 'ephemeral:type'],
   ];
@@ -391,7 +388,7 @@ test("validateAction: what the content holds and whose the target is stay the ad
   assert.equal(
     validateAction({
       action: 'message.send',
-      conversation: { iface: 'elsewhere', conversationId: 'c1' },
+      chat: { iface: 'elsewhere', chatId: 'c1' },
       content: { text: '' },
     }).ok,
     true
@@ -399,7 +396,7 @@ test("validateAction: what the content holds and whose the target is stay the ad
   assert.equal(
     validateAction({
       action: 'message.send',
-      conversation: ref,
+      chat: ref,
       content: { text: 'x', replyTo: null, mentions: null, attachments: null },
     }).ok,
     true
@@ -409,7 +406,7 @@ test("validateAction: what the content holds and whose the target is stay the ad
 test('portAction: a port call as its action object', () => {
   assert.deepEqual(portAction('send', [ref, { text: 'x' }]), {
     action: 'message.send',
-    conversation: ref,
+    chat: ref,
     content: { text: 'x' },
   });
   assert.deepEqual(portAction('edit', [messageRef, { text: 'x' }]), {
@@ -428,13 +425,13 @@ test('portAction: a port call as its action object', () => {
     message: messageRef,
     emoji: 'e',
   });
-  assert.deepEqual(portAction('typing', [ref]), { action: 'conversation.typing', conversation: ref });
+  assert.deepEqual(portAction('typing', [ref]), { action: 'chat.typing', chat: ref });
   assert.equal(validateAction(portAction('shout', [ref])).ok, false);
   // @ts-expect-error null where the call arguments are a list, on purpose
   assert.equal(validateAction(portAction('send', null)).ok, false);
 });
 
-test('validateEvent: membership and voice events need their community, member and change', () => {
+test('validateEvent: membership and voice events need their root, member and change', () => {
   const member = EVENTS['membership.changed'];
   const voice = EVENTS['voice.changed'];
   assert.deepEqual([...MEMBERSHIP_CHANGES], ['joined', 'left', 'updated']);
@@ -446,10 +443,10 @@ test('validateEvent: membership and voice events need their community, member an
     ok: false,
     reason: 'member.bot:required',
   });
-  assert.deepEqual(validateEvent({ ...voice, conversationId: null, previousId: 'v1' }), { ok: true });
-  assert.deepEqual(validateEvent({ ...voice, conversationId: undefined }), {
+  assert.deepEqual(validateEvent({ ...voice, chatId: null, previousId: 'v1' }), { ok: true });
+  assert.deepEqual(validateEvent({ ...voice, chatId: undefined }), {
     ok: false,
-    reason: 'conversationId:required',
+    reason: 'chatId:required',
   });
   assert.deepEqual(validateEvent({ ...voice, muted: 'yes' }), { ok: false, reason: 'muted:type' });
   assert.deepEqual(validateEvent({ ...voice, accountId: '' }), { ok: false, reason: 'accountId:type' });
@@ -478,19 +475,19 @@ test('validateEvent: an origin record is optional, and checked when present', ()
     reason: 'origin.replyExpected:required',
   });
   assert.deepEqual(validateEvent(messageEvent({ origin: 'x' })), { ok: false, reason: 'origin:type' });
-  assert.deepEqual(validateEvent(messageEvent({ conversation: { ...conversation, kind: 'thread', parentId: 'c0' } })), {
+  assert.deepEqual(validateEvent(messageEvent({ chat: { ...chat, kind: 'thread', parentId: 'c0' } })), {
     ok: true,
   });
-  assert.deepEqual(validateEvent(messageEvent({ conversation: { ...conversation, parentId: 7 } })), {
+  assert.deepEqual(validateEvent(messageEvent({ chat: { ...chat, parentId: 7 } })), {
     ok: false,
-    reason: 'conversation.parentId:type',
+    reason: 'chat.parentId:type',
   });
 });
 
-test('originOf: the origin an adapter sent wins; else it is read off the conversation and the addressing', () => {
+test('originOf: the origin an adapter sent wins; else it is read off the chat and the addressing', () => {
   const plain = originOf(
     messageEvent({
-      addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+      addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
     })
   );
   assert.deepEqual(plain, {
@@ -505,20 +502,18 @@ test('originOf: the origin an adapter sent wins; else it is read off the convers
   assert.equal(
     originOf(
       messageEvent({
-        conversation: { id: 'd1', kind: 'dm' },
-        addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+        chat: { id: 'd1', kind: 'dm' },
+        addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
       })
     ).chatType,
     'dm'
   );
   assert.equal(
-    originOf(messageEvent({ conversation: { id: 'd1', kind: 'dm' } })).replyExpected,
+    originOf(messageEvent({ chat: { id: 'd1', kind: 'dm' } })).replyExpected,
     true,
     'a direct chat expects an answer'
   );
-  const thread = originOf(
-    messageEvent({ conversation: { ...conversation, id: 't1', kind: 'thread', parentId: 'c1' } })
-  );
+  const thread = originOf(messageEvent({ chat: { ...chat, id: 't1', kind: 'thread', parentId: 'c1' } }));
   assert.deepEqual([thread.chatType, thread.place, thread.parent, thread.thread], ['thread', 't1', 'c1', 't1']);
   const sent = {
     chatType: 'group',
@@ -533,11 +528,11 @@ test('originOf: the origin an adapter sent wins; else it is read off the convers
   assert.doesNotThrow(() => originOf(null));
 });
 
-// A hello names who the persona is on the interface and the community it serves.
+// A hello names who the persona is on the interface and the root it serves.
 const HELLO_BODY = {
   iface: 'discord',
   self: { id: 'bot1', name: 'Νέπτυν' },
-  community: { id: 'g1', name: 'Alpha' },
+  root: { id: 'g1', name: 'Alpha' },
 };
 
 test('envelope: a hello without self is refused', () => {
@@ -555,17 +550,17 @@ test('envelope: a hello whose self has no id or no name is refused', () => {
   }
 });
 
-test('envelope: a hello for an interface with no community carries null and is valid', () => {
-  assert.deepEqual(validateEnvelope(envelope('hello', { ...HELLO_BODY, community: null }, { id: 'h1' })), {
+test('envelope: a hello for an interface with no root carries null and is valid', () => {
+  assert.deepEqual(validateEnvelope(envelope('hello', { ...HELLO_BODY, root: null }, { id: 'h1' })), {
     ok: true,
   });
 });
 
-test('envelope: a hello whose community is not an id and a name is refused', () => {
-  for (const community of [{ name: 'Alpha' }, { id: '', name: 'Alpha' }, 'g1']) {
-    const verdict = validateEnvelope(envelope('hello', { ...HELLO_BODY, community }, { id: 'h1' }));
-    assert.equal(verdict.ok, false, JSON.stringify(community));
-    assert.match(String(verdict.reason), /community/);
+test('envelope: a hello whose root is not an id and a name is refused', () => {
+  for (const root of [{ name: 'Alpha' }, { id: '', name: 'Alpha' }, 'g1']) {
+    const verdict = validateEnvelope(envelope('hello', { ...HELLO_BODY, root }, { id: 'h1' }));
+    assert.equal(verdict.ok, false, JSON.stringify(root));
+    assert.match(String(verdict.reason), /root/);
   }
 });
 

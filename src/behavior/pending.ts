@@ -24,7 +24,7 @@ import { strictJsonObject } from '../llm/parse.ts';
 import type { Untyped } from '../tools/types.ts';
 
 /**
- * A call waiting for the persona's attention. `channel` is the conversation the call arrived in and `trigger` the
+ * A call waiting for the persona's attention. `channel` is the chat the call arrived in and `trigger` the
  * normalized message that called her. `kind` `followUp` or `overheard` is an address-classifier `yes` or
  * `overheard` that found the attention taken (one of them per channel, followUpSlot,
  * src/pipeline/pending-queue.ts#deferFollowUp). `decided` is set on a re-queued server call whose ignore roll

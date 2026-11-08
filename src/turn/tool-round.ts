@@ -21,7 +21,7 @@ import { hasThinkTag } from '../llm/parse.ts';
 import { estimateMessages, estimateTools } from '../llm/tokens.ts';
 import { log } from '../log.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
-import type { ConversationRef } from '../protocol/adapter.ts';
+import type { ChatRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import { linksOfCalls, outcomeDetail } from '../tools/executors.ts';
 import type { CallView } from '../tools/executors.ts';
@@ -100,7 +100,7 @@ export type ToolRoundContext = {
   reactors: ReactorStore | null;
   memberOf: (placeId: string, accountId: string) => { name: string; bot: boolean } | null;
   selfIdOf: () => string;
-  conversationOf: (channel: { id: string }) => ConversationRef;
+  chatOf: (channel: { id: string }) => ChatRef;
   callView: SkillCalls['callView'];
   planToolCall: SkillCalls['planToolCall'];
   runCalls: SkillCalls['runCalls'];
@@ -266,7 +266,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     reactors,
     memberOf,
     selfIdOf,
-    conversationOf,
+    chatOf,
     callView,
     planToolCall,
     runCalls,
@@ -305,7 +305,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           log,
         }
       : null;
-    return historyLines(ifaceReads, conversationOf(channel), {
+    return historyLines(ifaceReads, chatOf(channel), {
       limit: inner ? innerSettings(config).chatMessages : config.context.channelMessages,
       names,
     });

@@ -1,12 +1,12 @@
-// The places of the communities an interface names in `hello` (`community` and `communities`, each `{ id, name }`,
+// The places of the roots an interface names in `hello` (`root` and `roots`, each `{ id, name }`,
 // src/protocol/envelope.ts). The core takes every hello (src/core.ts) and writes the whole list it carried through the
-// one writer, as `{ kind: 'communities', iface, communities, at }` (session-write.ts, `applyCommunitiesWrite`).
+// one writer, as `{ kind: 'roots', iface, roots, at }` (session-write.ts, `applyRootsWrite`).
 //
-//   noteCommunities(handle, { iface, communities, at, names? }) -> { ok: true, noted: number }
-//     Each community is the server place `<iface>:server:<id>` (kind `server`, authority `<iface>/global`, or the
+//   noteRoots(handle, { iface, roots, at, names? }) -> { ok: true, noted: number }
+//     Each root is the server place `<iface>:server:<id>` (kind `server`, authority `<iface>/global`, or the
 //     server place the database already holds for that native id). A missing place is created, with the name when the
 //     hello gave one; a retired place is revived; a name differing from the stored one renames it, and an empty name
-//     keeps the stored one. A community the hello leaves out is not touched.
+//     keeps the stored one. A root the hello leaves out is not touched.
 //     `names` is what the hello says of the interface itself (`hello.names`: `{ interface, nouns, dm }`): `interfaces.name`
 //     becomes its `interface`, and its nouns of the kinds of place and its word for a direct chat go to
 //     `interfaces.extra` (`{ nouns, dm }`), where the name index reads the nouns (names.ts). A hello without names leaves
@@ -22,7 +22,7 @@ import type { InterfaceNames } from '../../protocol/serve.ts';
 
 export type { InterfaceNames };
 
-export type Community = { id: string; name: string };
+export type Root = { id: string; name: string };
 
 /** Whether `value` is the names a hello carries: a name, nouns by kind of place, and a word for a direct chat. */
 export function isInterfaceNames(value: unknown): value is InterfaceNames {
@@ -52,24 +52,19 @@ function noteInterfaceNames(db: Db, iface: string, names: InterfaceNames | undef
   touchNames(db, 'interfaces', iface);
 }
 
-/** Writes the places of the communities one hello named, in one transaction. */
-export function noteCommunities(
+/** Writes the places of the roots one hello named, in one transaction. */
+export function noteRoots(
   handle: MemoryHandle,
-  {
-    iface,
-    communities,
-    at,
-    names,
-  }: { iface: string; communities: ReadonlyArray<Community>; at: string; names?: InterfaceNames }
+  { iface, roots, at, names }: { iface: string; roots: ReadonlyArray<Root>; at: string; names?: InterfaceNames }
 ): { ok: true; noted: number } {
   return handle.transaction(() => {
     const db = dbOf(handle);
     noteInterfaceNames(db, iface, names);
     let noted = 0;
-    for (const community of communities) {
-      const native = asText(community.id);
+    for (const root of roots) {
+      const native = asText(root.id);
       if (native === '') continue;
-      const name = asText(community.name ?? '').trim();
+      const name = asText(root.name ?? '').trim();
       const probe: Row = {
         id: topPlaceSpelled(iface, native),
         iface,
@@ -84,7 +79,7 @@ export function noteCommunities(
       if (found === undefined) {
         ensureInterface(db, iface);
         db.prepare(
-          `INSERT INTO places (id, iface, kind, native_id, parent_id, scope_kind, name, authority_id, native_key, generation, conversation)
+          `INSERT INTO places (id, iface, kind, native_id, parent_id, scope_kind, name, authority_id, native_key, generation, chat)
            VALUES (?, ?, 'server', ?, NULL, 'group', ?, ?, ?, 1, ?)`
         ).run(
           asText(probe.id),
@@ -93,7 +88,7 @@ export function noteCommunities(
           name === '' ? null : name,
           cols.authority_id,
           cols.native_key,
-          cols.conversation
+          cols.chat
         );
         addKey(db, cols.authority_id, 'place', cols.native_key, probe.id, { at });
         addKey(db, LEGACY_AUTHORITY, 'place', probe.id, probe.id, { at });

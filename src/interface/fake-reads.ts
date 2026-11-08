@@ -1,5 +1,5 @@
-// The conversation reads of the fake adapter (src/interface/fake.ts): what a test seeds, answered the way an interface
-// answers it. The conversations, groups, members, custom emoji and reactors are held here; the messages are the fake's
+// The chat reads of the fake adapter (src/interface/fake.ts): what a test seeds, answered the way an interface
+// answers it. The chats, groups, members, custom emoji and reactors are held here; the messages are the fake's
 // own store, which this module reads. A read is recorded in `calls` under its method's name, checked as a protocol
 // action first (a malformed one is `failed` with `invalid-action`), refused `unsupported` when the fake does not offer
 // it, and answers a queued `failNext` result in place of doing it.
@@ -8,7 +8,7 @@ import { portAction, validateAction } from '../protocol/index.ts';
 import type { PortResult } from '../protocol/index.ts';
 import type {
   Adapter,
-  ConversationInfo,
+  ChatInfo,
   EmojiInfo,
   GroupInfo,
   MemberInfo,
@@ -40,11 +40,11 @@ export type StoredMessage = {
 
 type ReadMethods = Pick<
   Adapter,
-  | 'conversationInfo'
-  | 'conversations'
+  | 'chatInfo'
+  | 'chats'
   | 'history'
   | 'memberInfo'
-  | 'dmConversationOf'
+  | 'dmChatOf'
   | 'searchMessages'
   | 'searchMembers'
   | 'emoji'
@@ -65,18 +65,18 @@ type Deps = {
   calls: Array<{ op: string; args: Array<unknown> }>;
   takeQueued: (op: string) => PortResult | undefined;
   store: (
-    conversationId: string,
+    chatId: string,
     authorId: string,
     content: { text?: string; attachments?: StoredMessage['attachments'] },
     messageId: string | null,
     extra: { at: number; event: MessageEvent }
   ) => StoredMessage;
-  messageUrl: () => { community: string; direct: string } | null | undefined;
-  /** Whether what the persona sent is part of a conversation's history (it is, as on a platform; a test may say it is not). */
+  messageUrl: () => { root: string; direct: string } | null | undefined;
+  /** Whether what the persona sent is part of a chat's history (it is, as on a platform; a test may say it is not). */
   sendsInHistory: () => boolean;
 };
 
-/** The fields of an event's `conversation` record, taken from a conversation's info. */
+/** The fields of an event's `chat` record, taken from a chat's info. */
 const RECORD_KEYS = ['id', 'kind', 'rootId', 'name', 'topic', 'chatType', 'parentId', 'partnerId'] as const;
 
 /** How many hits one page of a message search holds. */
@@ -88,9 +88,9 @@ const clone = <T>(value: T): T => structuredClone(value);
 function templatePattern(template: string): { regex: RegExp; order: Array<string> } {
   const order: Array<string> = [];
   const source = template
-    .split(/(\{community\}|\{conversation\}|\{message\})/)
+    .split(/(\{root\}|\{chat\}|\{message\})/)
     .map((piece) => {
-      const name = /^\{(community|conversation|message)\}$/.exec(piece)?.[1];
+      const name = /^\{(root|chat|message)\}$/.exec(piece)?.[1];
       if (name === undefined) return piece.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       order.push(name);
       return '([^/?#\\s]+)';
@@ -134,9 +134,9 @@ export function createFakeReads(deps: Deps): {
   methods: ReadMethods;
   eventOf(stored: StoredMessage): MessageEvent;
   seeders: {
-    seedConversation(info: ConversationInfo): void;
-    removeConversation(conversationId: string): void;
-    seedDmConversation(accountId: string, conversationId: string): void;
+    seedChat(info: ChatInfo): void;
+    removeChat(chatId: string): void;
+    seedDmChat(accountId: string, chatId: string): void;
     seedGroups(placeId: string, list: Array<GroupInfo>): void;
     seedMember(placeId: string, member: MemberInfo): void;
     seedEmoji(placeId: string, list: Array<EmojiInfo>): void;
@@ -145,10 +145,10 @@ export function createFakeReads(deps: Deps): {
   };
 } {
   const { iface, selfId, messages, offered, calls, takeQueued, store, messageUrl, sendsInHistory } = deps;
-  const conversations = new Map<string, ConversationInfo>();
+  const chats = new Map<string, ChatInfo>();
   const groups = new Map<string, Array<GroupInfo>>();
   const members = new Map<string, Map<string, MemberInfo>>();
-  const dmConversations = new Map<string, string>();
+  const dmChats = new Map<string, string>();
   const emojis = new Map<string, Array<EmojiInfo>>();
   const reactorLists = new Map<string, Array<string>>();
 
@@ -175,24 +175,24 @@ export function createFakeReads(deps: Deps): {
       ? { status: result.status, error: failure(result).error }
       : failure(result);
 
-  const ordered = (conversationId: string): Array<StoredMessage> =>
+  const ordered = (chatId: string): Array<StoredMessage> =>
     [...messages.values()]
-      .filter((message) => message.ref.conversationId === conversationId && !message.deleted)
+      .filter((message) => message.ref.chatId === chatId && !message.deleted)
       .filter((message) => message.event !== undefined || sendsInHistory())
       .sort((a, b) => a.at - b.at || a.seq - b.seq);
 
-  /** The record an event carries for conversation `id`: what the interface would say of it. */
-  function recordOf(id: string): MessageEvent['conversation'] {
-    const info = conversations.get(id);
+  /** The record an event carries for chat `id`: what the interface would say of it. */
+  function recordOf(id: string): MessageEvent['chat'] {
+    const info = chats.get(id);
     if (info === undefined) return { id, kind: 'channel', rootId: null, name: null };
     const record: Record<string, unknown> = {};
     for (const key of RECORD_KEYS) if (info[key] !== undefined) record[key] = info[key];
-    return record as MessageEvent['conversation'];
+    return record as MessageEvent['chat'];
   }
 
   /** The `message.received` event of a stored message: the one it was seeded with, else one built from what is kept. */
   function eventOf(stored: StoredMessage): MessageEvent {
-    const { conversationId, messageId } = stored.ref;
+    const { chatId, messageId } = stored.ref;
     if (stored.event !== undefined) {
       const { edit, deleted, partial, previous, ...event } = clone(stored.event);
       void [edit, deleted, partial, previous];
@@ -204,7 +204,7 @@ export function createFakeReads(deps: Deps): {
       iface,
       at: stored.at,
       id: `${iface}:message:${String(messageId)}`,
-      conversation: recordOf(conversationId),
+      chat: recordOf(chatId),
       message: {
         id: String(messageId),
         author: { id: stored.authorId, name: null, self: stored.authorId === selfId, bot: false },
@@ -222,50 +222,50 @@ export function createFakeReads(deps: Deps): {
         emojis: [],
         reactions,
       },
-      addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
+      addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
     };
   }
 
   /** `info` as a read answers it: the audience and the viewers only when asked for. */
   function infoOf(
-    info: ConversationInfo,
+    info: ChatInfo,
     { audience = false, viewers = [] }: { audience?: boolean; viewers?: ReadonlyArray<string> } = {}
-  ): ConversationInfo {
+  ): ChatInfo {
     const { audience: held, viewers: seen, ...rest } = clone(info);
-    const out: ConversationInfo = { ...rest };
+    const out: ChatInfo = { ...rest };
     if (audience) out.audience = held ?? null;
     if (viewers.length > 0) out.viewers = Object.fromEntries(viewers.map((id) => [id, seen?.[id] ?? true]));
     return out;
   }
 
-  const known = (conversationId: string): PortResult | null =>
-    conversations.has(conversationId) ? null : notOk('failed', CODE.UNKNOWN_CONVERSATION);
+  const known = (chatId: string): PortResult | null =>
+    chats.has(chatId) ? null : notOk('failed', CODE.UNKNOWN_CONVERSATION);
 
   const ask: SyncReads = {
-    conversationInfo(conversation, options = {}) {
-      const early = front('conversationInfo', 'conversation.info', [conversation, options]);
+    chatInfo(chat, options = {}) {
+      const early = front('chatInfo', 'chat.info', [chat, options]);
       if (early) return refusalOf(early);
-      const refused = refRefusal(conversation, iface) ?? known(conversation.conversationId);
-      const info = conversations.get(conversation.conversationId);
+      const refused = refRefusal(chat, iface) ?? known(chat.chatId);
+      const info = chats.get(chat.chatId);
       if (refused || info === undefined) return refusalOf(refused ?? notOk('failed', CODE.ERROR));
-      return { status: 'ok', conversation: infoOf(info, options) };
+      return { status: 'ok', chat: infoOf(info, options) };
     },
 
-    conversations(scope) {
-      const early = front('conversations', 'conversations.list', [scope]);
+    chats(scope) {
+      const early = front('chats', 'chats.list', [scope]);
       if (early) return refusalOf(early);
-      const listed = [...conversations.values()]
+      const listed = [...chats.values()]
         .filter((info) => info.rootId === scope.placeId)
         .map((info) => infoOf(info, scope));
-      return { status: 'ok', conversations: listed, groups: clone(groups.get(scope.placeId) ?? []) };
+      return { status: 'ok', chats: listed, groups: clone(groups.get(scope.placeId) ?? []) };
     },
 
-    history(conversation, query) {
-      const early = front('history', 'messages.history', [conversation, query]);
+    history(chat, query) {
+      const early = front('history', 'messages.history', [chat, query]);
       if (early) return refusalOf(early);
-      const refused = refRefusal(conversation, iface) ?? known(conversation.conversationId);
+      const refused = refRefusal(chat, iface) ?? known(chat.chatId);
       if (refused) return refusalOf(refused);
-      const window = sliceOf(ordered(conversation.conversationId), query);
+      const window = sliceOf(ordered(chat.chatId), query);
       if (window === null) return refusalOf(notOk('failed', CODE.UNKNOWN_MESSAGE));
       return { status: 'ok', events: window.slice.map(eventOf), complete: window.complete };
     },
@@ -277,23 +277,23 @@ export function createFakeReads(deps: Deps): {
       return { status: 'ok', member: held ? clone(held) : null };
     },
 
-    dmConversationOf(partner) {
-      const early = front('dmConversationOf', 'dm.conversation', [partner]);
+    dmChatOf(partner) {
+      const early = front('dmChatOf', 'dm.chat', [partner]);
       if (early) return refusalOf(early);
-      const conversationId = dmConversations.get(partner.accountId);
-      if (conversationId === undefined) return refusalOf(notOk('failed', CODE.UNKNOWN_CONVERSATION));
-      return { status: 'ok', conversationId };
+      const chatId = dmChats.get(partner.accountId);
+      if (chatId === undefined) return refusalOf(notOk('failed', CODE.UNKNOWN_CONVERSATION));
+      return { status: 'ok', chatId };
     },
 
     searchMessages(scope, query) {
       const early = front('searchMessages', 'messages.search', [scope, query]);
       if (early) return refusalOf(early);
       const needle = query.text?.toLowerCase();
-      const inCommunity = new Set(
-        [...conversations.values()].filter((info) => info.rootId === scope.placeId).map((info) => info.id)
+      const inRoot = new Set(
+        [...chats.values()].filter((info) => info.rootId === scope.placeId).map((info) => info.id)
       );
       const matches = [...messages.values()]
-        .filter((message) => inCommunity.has(message.ref.conversationId) && !message.deleted)
+        .filter((message) => inRoot.has(message.ref.chatId) && !message.deleted)
         .filter((message) => needle === undefined || message.text.toLowerCase().includes(needle))
         .filter((message) => query.authorId === undefined || message.authorId === query.authorId)
         .filter((message) => query.after === undefined || message.at > query.after)
@@ -303,7 +303,7 @@ export function createFakeReads(deps: Deps): {
       const hits = matches.slice(offset, offset + SEARCH_PAGE).map((message) => {
         const name = members.get(scope.placeId)?.get(message.authorId)?.name ?? null;
         return {
-          ref: { iface, conversationId: message.ref.conversationId, messageId: message.ref.messageId },
+          ref: { iface, chatId: message.ref.chatId, messageId: message.ref.messageId },
           at: message.at,
           text: message.text,
           author: { id: message.authorId, handle: name, displayName: name, bot: false },
@@ -340,13 +340,13 @@ export function createFakeReads(deps: Deps): {
       const early = front('parseLinks', 'links.parse', [texts]);
       if (early) return refusalOf(early);
       const template = messageUrl();
-      const patterns = template ? [template.community, template.direct].map(templatePattern) : [];
+      const patterns = template ? [template.root, template.direct].map(templatePattern) : [];
       const refs = texts.map((text): MessageRef | null => {
         for (const { regex, order } of patterns) {
           const match = regex.exec(text);
           if (!match) continue;
           const part = (name: string): string => match[order.indexOf(name) + 1] ?? '';
-          return { iface, conversationId: part('conversation'), messageId: part('message') };
+          return { iface, chatId: part('chat'), messageId: part('message') };
         }
         return null;
       });
@@ -356,18 +356,18 @@ export function createFakeReads(deps: Deps): {
     reactors(message, emoji, limit) {
       const early = front('reactors', 'message.reactors', [message, emoji, limit]);
       if (early) return refusalOf(early);
-      const list = reactorLists.get(`${message.conversationId}/${String(message.messageId)}/${emoji}`);
+      const list = reactorLists.get(`${message.chatId}/${String(message.messageId)}/${emoji}`);
       if (list === undefined) return refusalOf(notOk('failed', CODE.NOT_FOUND));
       return { status: 'ok', accountIds: list.slice(0, limit) };
     },
   };
 
   const methods: ReadMethods = {
-    conversationInfo: (...args) => Promise.resolve(ask.conversationInfo(...args)),
-    conversations: (...args) => Promise.resolve(ask.conversations(...args)),
+    chatInfo: (...args) => Promise.resolve(ask.chatInfo(...args)),
+    chats: (...args) => Promise.resolve(ask.chats(...args)),
     history: (...args) => Promise.resolve(ask.history(...args)),
     memberInfo: (...args) => Promise.resolve(ask.memberInfo(...args)),
-    dmConversationOf: (...args) => Promise.resolve(ask.dmConversationOf(...args)),
+    dmChatOf: (...args) => Promise.resolve(ask.dmChatOf(...args)),
     searchMessages: (...args) => Promise.resolve(ask.searchMessages(...args)),
     searchMembers: (...args) => Promise.resolve(ask.searchMembers(...args)),
     emoji: (...args) => Promise.resolve(ask.emoji(...args)),
@@ -379,14 +379,14 @@ export function createFakeReads(deps: Deps): {
     methods,
     eventOf,
     seeders: {
-      seedConversation(info) {
-        conversations.set(info.id, clone(info));
+      seedChat(info) {
+        chats.set(info.id, clone(info));
       },
-      seedDmConversation(accountId, conversationId) {
-        dmConversations.set(accountId, conversationId);
+      seedDmChat(accountId, chatId) {
+        dmChats.set(accountId, chatId);
       },
-      removeConversation(conversationId) {
-        conversations.delete(conversationId);
+      removeChat(chatId) {
+        chats.delete(chatId);
       },
       seedGroups(placeId, list) {
         groups.set(placeId, clone(list));
@@ -400,9 +400,9 @@ export function createFakeReads(deps: Deps): {
         emojis.set(placeId, clone(list));
       },
       seedReactors(ref, emoji, accountIds) {
-        reactorLists.set(`${ref.conversationId}/${String(ref.messageId)}/${emoji}`, [...accountIds]);
+        reactorLists.set(`${ref.chatId}/${String(ref.messageId)}/${emoji}`, [...accountIds]);
       },
-      /** Keeps a whole `message.received` event as the message it carries, in the conversation it names. */
+      /** Keeps a whole `message.received` event as the message it carries, in the chat it names. */
       seedEvent(event, extra = {}) {
         const { message } = event;
         // The files as the platform lists them for a read by id, when the test says (an event's own list has no type).
@@ -414,7 +414,7 @@ export function createFakeReads(deps: Deps): {
             ...(typeof item.size === 'number' ? { size: item.size } : {}),
           }));
         store(
-          event.conversation.id,
+          event.chat.id,
           String(message.author?.id ?? ''),
           { text: message.content ?? '', attachments },
           String(message.id),

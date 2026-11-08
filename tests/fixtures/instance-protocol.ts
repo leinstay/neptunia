@@ -6,7 +6,7 @@
 export type InstanceRequest =
   | { id: number; kind: 'seed'; info: unknown; event: unknown }
   | { id: number; kind: 'emit'; event: unknown }
-  | { id: number; kind: 'posted'; conversationId: string }
+  | { id: number; kind: 'posted'; chatId: string }
   | { id: number; kind: 'requests' }
   | { id: number; kind: 'stop' };
 

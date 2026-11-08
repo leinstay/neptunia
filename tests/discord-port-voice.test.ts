@@ -19,12 +19,12 @@ function portOver(sent: Untyped) {
   return createDiscordAdapter({ client: client as unknown as Parameters<typeof createDiscordAdapter>[0]['client'] });
 }
 
-const conversation = { iface: 'discord', conversationId: 'c1' };
+const chat = { iface: 'discord', chatId: 'c1' };
 
 test('send: a voice attachment carries the flag, duration and waveform, and no content', async () => {
   const sent: Array<Untyped> = [];
   const waveform = Buffer.alloc(256, 7).toString('base64');
-  const result = await portOver(sent).send(conversation, {
+  const result = await portOver(sent).send(chat, {
     text: 'this must not be sent',
     attachments: [
       {
@@ -47,7 +47,7 @@ test('send: a voice attachment carries the flag, duration and waveform, and no c
 
 test('send: an ordinary attachment keeps its text and has no voice flag', async () => {
   const sent: Array<Untyped> = [];
-  await portOver(sent).send(conversation, { text: 'hi', attachments: [{ name: 'a.png', data: Buffer.from('x') }] });
+  await portOver(sent).send(chat, { text: 'hi', attachments: [{ name: 'a.png', data: Buffer.from('x') }] });
   assert.equal(sent[0].content, 'hi');
   assert.equal(sent[0].flags, undefined);
   assert.deepEqual(sent[0].files, [{ attachment: Buffer.from('x'), name: 'a.png' }]);

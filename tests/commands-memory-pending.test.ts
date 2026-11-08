@@ -42,7 +42,7 @@ function rig(memory: Record<string, unknown>) {
     memoryDb: { database: () => dbOf(reader), ...memory },
     usage: null,
     metrics: { samples: () => [] },
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => NOW,
   };
   const desk = createConsole(deps);

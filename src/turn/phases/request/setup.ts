@@ -1,5 +1,5 @@
 // The first step of a turn's request: the settings read for the attempt, the bar and its cancellation point, the typing
-// indicator while it prepares, the community's listing, the history with its reply parents, the memory prefetch and a
+// indicator while it prepares, the root's listing, the history with its reply parents, the memory prefetch and a
 // selfreflection post's plan. The request phase (src/turn/phases/request.ts) runs it first; the later steps read what it made.
 
 import { accountOf } from '../../../memory/addresses.ts';
@@ -122,7 +122,7 @@ export async function setupRequest(
   } = ctx;
   const { mode, trigger = null, triggerKind = null, part = null, reuseHistory = null } = params;
   const selfreflectionParams = params.selfreflection ?? null;
-  const { channel, placeId, reading, libraryPlace, isPrivate, prepStep, life } = opened;
+  const { channel, placeId, reading, libraryPlace, isDm, prepStep, life } = opened;
   const config = hot.config;
   // How her tools travel this turn (tools.transport, read once): native tool calls, or text blocks.
   const transport = transportOf(config);
@@ -180,7 +180,7 @@ export async function setupRequest(
 
   // A private chat's partner as a place member (private.likeServer), fetched beside
   // the history; null on a server turn, with the switch off or when the fetch fails.
-  const partnerPending = isPrivate
+  const partnerPending = isDm
     ? privatePartner({
         iface: channel.iface,
         placeId: libraryPlace,
@@ -188,15 +188,15 @@ export async function setupRequest(
         config,
       })
     : Promise.resolve(null);
-  // The groups the requester holds in the community, read once: the rights of her calls are checked against them.
+  // The groups the requester holds in the root, read once: the rights of her calls are checked against them.
   const requesterPending =
-    !isPrivate && trigger?.authorId
+    !isDm && trigger?.authorId
       ? ifaceReads.memberInfo({ placeId, accountId: String(trigger.authorId) })
       : Promise.resolve(null);
-  // The community's listing, once for the attempt (neighbours, pulls, routing, places, audience rails); a private
+  // The root's listing, once for the attempt (neighbours, pulls, routing, places, audience rails); a private
   // chat is listed for its partner's sake.
-  const partnerId = isPrivate ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
-  // On the command line the owner is nobody the community knows: the account the community's owners list gives for
+  const partnerId = isDm ? (trigger?.authorId ?? channel.partnerId ?? null) : null;
+  // On the command line the owner is nobody the root knows: the account the root's owners list gives for
   // them is the reader whose view of its channels decides which of them a read may name.
   const cliOwner = isCliOwner(channel.iface, partnerId);
   const partnerHint = cliOwner ? (ownerNativesOf(config)[0] ?? null) : partnerId;
@@ -205,7 +205,7 @@ export async function setupRequest(
     reading.length > 0 ? reading : [placeId],
     partnerHint ? [String(partnerHint)] : []
   );
-  const emojiPending = refreshEmojiIfOn(emoji, isPrivate || placeId === PERSONA_ID ? null : placeId);
+  const emojiPending = refreshEmojiIfOn(emoji, isDm || placeId === PERSONA_ID ? null : placeId);
   const historyStartedAt = clock();
   const snapshot = await beforeBar(snapshotPending);
   draft.snapshot = snapshot;
@@ -234,10 +234,10 @@ export async function setupRequest(
   const partner = await beforeBar(partnerPending);
   await beforeBar(emojiPending);
   draft.requesterGroups = (await beforeBar(requesterPending))?.member?.groupIds ?? [];
-  // A private chat on its partner's behalf: pulls and the server search from the served community (none otherwise).
-  const likeServer = isPrivate && partner !== null;
+  // A private chat on its partner's behalf: pulls and the server search from the served root (none otherwise).
+  const likeServer = isDm && partner !== null;
   if (likeServer && partnerId) draft.readerId = String(partnerId);
-  const servedPlace = isPrivate && !likeServer ? null : { id: placeId };
+  const servedPlace = isDm && !likeServer ? null : { id: placeId };
   const servedSnapshot = servedPlace ? snapshot : null;
   // What the analyzer requests judge: the trigger, or on a part of a split message the trigger with
   // that part's text (same id, author and time).
@@ -247,14 +247,14 @@ export async function setupRequest(
   // The inputs retain the context issued by the core or the per-turn issuer.
   const memoryContext = turnContextOf(draft, channel) as Context | null;
   const prefetching = startPrefetch({
-    historyRef: ctx.conversationOf(channel),
+    historyRef: ctx.chatOf(channel),
     memoryContext,
     config,
     channel,
     snapshot: servedSnapshot,
     placeId,
     place: servedPlace,
-    partner: isPrivate ? partner : null,
+    partner: isDm ? partner : null,
     trigger,
     candidate,
     triggerKind,

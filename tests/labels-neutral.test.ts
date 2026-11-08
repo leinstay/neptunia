@@ -1,5 +1,5 @@
 // The labels speak of a place, never of one platform (plan 2026-11-06-turn-frame, slice 7 (c)): `config/labels.json` is
-// the same for every interface and for a service with none, so a label that says channel, server, guild or Discord
+// the same for every interface and for a service with none, so a label that says channel, server, root or Discord
 // gets a placeholder the code fills with the interface's own noun, or goes with its block. A placeholder is a value the
 // code inserts and is taken out before the check. Two allowlists, both of keys: the labels whose placeholder is named
 // for a platform noun (`#{channel}`, filled with a place's name), which may lose it and may not grow, and the labels
@@ -20,11 +20,11 @@ function stringsOf(value: unknown, key = ''): Array<[string, string]> {
   return Object.entries(value).flatMap(([inner, item]) => stringsOf(item, key === '' ? inner : `${key}.${inner}`));
 }
 
-const PLATFORM_WORD = /\b(?:channel|server|guild|discord)s?\b/i;
-const NOT_A_MACHINE = /\b(?:channel|guild|discord)s?\b/i;
+const PLATFORM_WORD = /\b(?:channel|server|root|discord)s?\b/i;
+const NOT_A_MACHINE = /\b(?:channel|root|discord)s?\b/i;
 const PLACEHOLDER = /\{[^{}]*\}/g;
 
-/** The labels where `server` is the machine or an HTTP server, not a community of a platform. */
+/** The labels where `server` is the machine or an HTTP server, not a root of a platform. */
 const MACHINE_SERVER: ReadonlySet<string> = new Set([
   'model.spatial.server',
   'model.wake.feedback.codes.proxy-down',

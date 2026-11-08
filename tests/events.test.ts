@@ -199,7 +199,7 @@ test('events: a mention with rng above ignoreChance runs a reply turn', async ()
   await Promise.resolve();
 
   assert.ok(seenArgs, 'expected runTurn to be called');
-  assert.deepEqual(seenArgs.conversation, refTo(message.channel));
+  assert.deepEqual(seenArgs.chat, refTo(message.channel));
   assert.equal(seenArgs.mode, 'reply');
   assert.equal(seenArgs.triggerKind, 'mention');
   assert.equal(seenArgs.trigger.content, 'γεια');
@@ -545,7 +545,7 @@ test('events: a direct ping elsewhere becomes pending and is answered after the 
   await handler.drainPending();
 
   assert.ok(seenArgs, 'expected the deferred turn to run once drained');
-  assert.deepEqual(wrongly<Untyped>(seenArgs).conversation, refTo(channel));
+  assert.deepEqual(wrongly<Untyped>(seenArgs).chat, refTo(channel));
   assert.equal(wrongly<Untyped>(seenArgs).mode, 'reply');
   assert.equal(wrongly<Untyped>(seenArgs).triggerKind, 'mention');
   assert.equal(wrongly<Untyped>(seenArgs).trigger.content, 'γεια');
@@ -566,7 +566,7 @@ function busyChannelTurns({ seen = [] }: { seen?: Array<Untyped> } = {}) {
     isAnyBusy: () => busy,
     runTurn: async (args: Record<string, Untyped>) => {
       calls.push(args);
-      return { outcome: busy && args.conversation.conversationId === 'c1' ? 'busy' : 'spoke' };
+      return { outcome: busy && args.chat.chatId === 'c1' ? 'busy' : 'spoke' };
     },
   });
   turns.spokeAfterSeeing = (placeId: string, messageId: string) => placeId === 'c1' && seen.includes(messageId);
@@ -610,7 +610,7 @@ for (const oneAtATime of [true, false]) {
     await handler.drainPending();
 
     assert.equal(turns.calls.length, 1);
-    assert.deepEqual(turns.calls[0].conversation, refTo(channel));
+    assert.deepEqual(turns.calls[0].chat, refTo(channel));
     assert.equal(turns.calls[0].trigger.id, 'm1');
     assert.equal(turns.calls[0].triggerKind, 'mention');
     assert.equal(tagHistory.hits, 1);
@@ -684,7 +684,7 @@ test('events: mention.maxPending caps distinct pending channels, dropping the ol
     isBusy: () => false,
     isAnyBusy: () => true,
     runTurn: async (args: Record<string, Untyped>) => {
-      answeredChannels.push(args.conversation.conversationId);
+      answeredChannels.push(args.chat.chatId);
       return { outcome: 'spoke' };
     },
   });
@@ -912,7 +912,7 @@ test('events: several pending pings drain oldest first, one at a time (never con
     runTurn: async (args: Record<string, Untyped>) => {
       concurrent += 1;
       if (concurrent > 1) sawConcurrency = true;
-      order.push(args.conversation.conversationId);
+      order.push(args.chat.chatId);
       await Promise.resolve();
       concurrent -= 1;
       return { outcome: 'spoke' };
@@ -1491,7 +1491,7 @@ test('follow-up: a "yes" verdict runs a reply turn with the candidate as the tar
   assert.equal(seenArgs.triggerKind, 'followUp');
   assert.equal(seenArgs.trigger.id, 'm-candidate', 'the candidate is the target, so replyTo works');
   assert.equal(seenArgs.trigger.content, 'so what do you think');
-  assert.deepEqual(seenArgs.conversation, refTo(channel));
+  assert.deepEqual(seenArgs.chat, refTo(channel));
   assert.equal(spontaneous.onMessageCalls.length, 0);
 });
 
@@ -1985,8 +1985,8 @@ const TODAY_MS = Date.parse(`${TODAY}T12:00:00Z`);
 function privateConfig(overrides: Record<string, Untyped> = {}) {
   return baseConfig(
     deepMerge(
-      // PR 7d: features.privateMessages is the key private.enabled, and the daily reply caps are gone.
-      { bot: { owners: ['owner1'] }, private: { enabled: true } },
+      // PR 7d: features.privateMessages is the key dm.enabled, and the daily reply caps are gone.
+      { bot: { owners: ['owner1'] }, dm: { enabled: true } },
       overrides
     )
   );
@@ -2024,7 +2024,7 @@ function fakeDmMessage(overrides: Record<string, Untyped> = {}) {
   });
 }
 
-/** A client of a served community the interface knows `members` and `fetchable` ones of; `fetchCalls` lists each member read. */
+/** A client of a served root the interface knows `members` and `fetchable` ones of; `fetchCalls` lists each member read. */
 function fakeDmClient({
   members = ['u1', 'owner1'],
   fetchable = [],
@@ -2191,14 +2191,14 @@ test('private: a DM that passes is observed privately and answered with the pinn
   await settle();
 
   assert.equal(memory.observeCalls.length, 1);
-  // A DM has no community: it is observed under its own place.
+  // A DM has no root: it is observed under its own place.
   assert.notEqual(memory.observeCalls[0][0], 'g1');
   assert.equal(memory.observeCalls[0][1].content, 'γεια σου');
   assert.deepEqual(memory.observeCalls[0][2], { direct: true, private: 'u1' });
   assert.equal(turns.calls.length, 1);
   const args = turns.calls[0];
-  assert.deepEqual(args.conversation, refTo(channel));
-  // A private chat's turn names its conversation alone: no home place is pinned on it.
+  assert.deepEqual(args.chat, refTo(channel));
+  // A private chat's turn names its chat alone: no home place is pinned on it.
   assert.equal('placeId' in args, false);
   assert.equal(args.mode, 'reply');
   assert.equal(args.triggerKind, 'private');
@@ -2242,10 +2242,10 @@ test('private: while busy elsewhere the DM is pending as "private"; the drain pa
   await handler.drainPending();
 
   assert.equal(turns.calls.length, 1);
-  // A DM's turn names no community.
+  // A DM's turn names no root.
   assert.equal('placeId' in turns.calls[0], false);
   assert.equal(turns.calls[0].triggerKind, 'private');
-  assert.deepEqual(turns.calls[0].conversation, refTo(channel));
+  assert.deepEqual(turns.calls[0].chat, refTo(channel));
 });
 
 test('private: a drained DM whose turn finds another one running is re-queued and answered on the next drain', async () => {
@@ -2308,9 +2308,9 @@ test('private: a queued DM whose author was forgotten meanwhile is dropped at dr
   assert.equal(logs.find((l: Record<string, Untyped>) => l.msg === 'private: dropped')?.reason, 'unknown');
 });
 
-test('private: a queued DM is dropped at drain time when private.enabled was switched off', async () => {
+test('private: a queued DM is dropped at drain time when dm.enabled was switched off', async () => {
   const { turns, channel, logs, handler } = await drainAfter(({ config }: Record<string, Untyped>) => {
-    config.private.enabled = false;
+    config.dm.enabled = false;
   });
   assert.equal(turns.calls.length, 0);
   assert.deepEqual(noticesOf(handler, channel.id), []);
@@ -2331,7 +2331,7 @@ test("private: the persona's own DM message is noted and observed privately unde
 
   assert.deepEqual(turns.notePostCalls, [['dm1', message.createdTimestamp]]);
   assert.equal(memory.observeCalls.length, 1);
-  // A DM has no community: it is observed under its own place.
+  // A DM has no root: it is observed under its own place.
   assert.equal(memory.observeCalls[0][0], 'dm1');
   assert.equal(memory.observeCalls[0][1].self, true);
   assert.deepEqual(memory.observeCalls[0][2], { private: 'u1' });
@@ -2840,7 +2840,7 @@ test('follow-up: a "yes" during a turn elsewhere is deferred, then picked up and
   );
   assert.equal(scene.turns.calls.length, 1);
   const [call] = scene.turns.calls;
-  assert.deepEqual(call.conversation, refTo(scene.channel));
+  assert.deepEqual(call.chat, refTo(scene.channel));
   assert.equal(call.mode, 'reply');
   assert.equal(call.triggerKind, 'followUp');
   assert.equal(call.trigger.id, 'm1');
@@ -2977,7 +2977,7 @@ test('follow-up: an "overheard" answer runs a reply turn with triggerKind overhe
   assert.equal(turns.calls[0].mode, 'reply');
   assert.equal(turns.calls[0].triggerKind, 'overheard');
   assert.equal(turns.calls[0].trigger.id, 'm1');
-  assert.deepEqual(turns.calls[0].conversation, refTo(channel));
+  assert.deepEqual(turns.calls[0].chat, refTo(channel));
   assert.equal(spontaneous.onMessageCalls.length, 0);
 });
 
@@ -3418,7 +3418,7 @@ test('events: a message that replies to nothing fetches no message; a reply targ
     rawHistoryMessage({ id: 'm0', authorId: 'self1', authorName: 'Neptunia', ts: Date.now() - 1000, placeId: 'c1' }),
   ]);
   world().tap('fetchMessages', ([ref, ids]: Array<Untyped>) => {
-    if (ref.conversationId === 'c1') fetched.push(...ids);
+    if (ref.chatId === 'c1') fetched.push(...ids);
   });
   const turns = recordingTurns();
   const config = baseConfig({ bot: { nameTriggers: [] } });
@@ -3956,7 +3956,7 @@ test('events: a writable channel beside a read-only one takes none of its calls'
   const scene = routeScene();
   await routeSend(scene, scene.source, 0, { id: 'm1' });
   assert.deepEqual(
-    scene.turns.calls.map((args: Record<string, Untyped>) => args.conversation.conversationId),
+    scene.turns.calls.map((args: Record<string, Untyped>) => args.chat.chatId),
     []
   );
   await routeSend(scene, scene.main, 1, { id: 'm2' });
@@ -3972,7 +3972,7 @@ test('events: a call in a writable channel is untouched by routing', async () =>
 
   assert.equal(scene.turns.calls.length, 1, 'answered at once');
   const args = scene.turns.calls[0];
-  assert.deepEqual(args.conversation, refTo(scene.main));
+  assert.deepEqual(args.chat, refTo(scene.main));
   assert.equal('source' in args, false);
   assert.equal(scene.timers.all.length, 0);
   assert.equal(scene.store.state.data.elsewherePings, undefined);
@@ -4461,8 +4461,8 @@ function liveScene({
   const config = baseConfig(
     deepMerge(
       {
-        // PR 7d: the switches are code, features.privateMessages is private.enabled, and the split measures are constants.
-        private: { enabled: true },
+        // PR 7d: the switches are code, features.privateMessages is dm.enabled, and the split measures are constants.
+        dm: { enabled: true },
         // The typing imitation is code too: no pause, so the turns of a chain follow each other at once.
         typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
         split: { maxOutputTokens: 50 },
@@ -4534,7 +4534,7 @@ function liveScene({
         spontaneous: fakeSpontaneous(),
         memory: fakeMemory(),
         tagHistory,
-        isServedCommunity: (id: unknown) => id === 'g1',
+        isServedRoot: (id: unknown) => id === 'g1',
         llm,
         rng: () => 0.5,
         now,
@@ -5188,7 +5188,7 @@ test('follow-up: an overheard verdict during a running turn is deferred and drai
   );
   assert.deepEqual(startedTurns(scene.turns), [['m1', 'overheard']]);
   assert.equal(scene.turns.calls[0].mode, 'reply');
-  assert.deepEqual(scene.turns.calls[0].conversation, refTo(scene.channel));
+  assert.deepEqual(scene.turns.calls[0].chat, refTo(scene.channel));
   // Plan 2026-11-04-cli-and-memory B1: an overheard turn counts toward the per-author rail.
   assert.equal(tagHistory.hits, 1, 'the started overheard turn is counted');
 });

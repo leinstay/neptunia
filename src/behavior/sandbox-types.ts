@@ -180,7 +180,7 @@ export type ScenarioInventoryInput = {
   selfId: string;
   texts?: Untyped;
   requester: Untyped;
-  conversationId: string;
+  chatId: string;
   registry: Map<string, Untyped>;
   discovery?: 'inventory' | 'none' | Array<string>;
   getOp?: (...args: Array<Untyped>) => Untyped;
@@ -191,7 +191,7 @@ export type ScenarioInventoryInput = {
  * before the operation runs (src/behavior/turn.ts#planToolCall and #runCall): resolved on the
  * server's side over `view` (src/tools/executors.ts#resolveCall; src/behavior/turn.ts#callViewOf),
  * checked by the gateway (src/tools/gateway.ts#checkSkill: the persona as principal, `requester`,
- * `conversationId` as the audience, `config` with her grants, `selfId`, the registry of `view`,
+ * `chatId` as the audience, `config` with her grants, `selfId`, the registry of `view`,
  * no mixed requesters, no earlier destructive run, `now`, the image quota of `images`, the
  * errands' budget of `tasks` -- `{ budget(agent) }`, src/errands/store.ts#budget's answer, as a
  * live turn hands in src/errands/service.ts#budget; without it an `errand.run` is refused
@@ -210,7 +210,7 @@ export type SimulateCallInput = {
   config: Untyped;
   selfId: string;
   requester: { id: string; roleIds: Array<string> } | null;
-  conversationId: string;
+  chatId: string;
   now: number;
   images?: Untyped;
   tasks?: { budget(agent: unknown): Untyped } | null;
@@ -360,7 +360,7 @@ export type SandboxMemory = {
   getRecent?: () => { nextId: number; lines: Array<Untyped> } | null;
   selfreflectionChannelIds?: () => Array<string>;
   /** The addresses of src/memory/store-addresses.ts a replay reads its place tree through. */
-  placeOfConversation?: (conversation: { id: string }, iface?: string) => string | null;
+  placeOfChat?: (chat: { id: string }, iface?: string) => string | null;
   placeChainOf?: (placeId: string) => ReadonlyArray<PlaceChainLink>;
   accountOf?: (nativeId: string, iface?: string) => string;
   personOfAccount?: (accountId: string) => string;

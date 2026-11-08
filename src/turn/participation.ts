@@ -4,13 +4,13 @@
 // with createParticipation; the attempt, the act and the journal notes call its functions.
 
 import type { AroundSnapshot } from '../behavior/around-store.ts';
-import { selfreflectionConversationIds } from '../behavior/mirror.ts';
+import { selfreflectionChatIds } from '../behavior/mirror.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { log } from '../log.ts';
 import { collectPictures } from '../media/classify.ts';
 import { participationSettings, recordOwnLine } from '../memory/index.ts';
-import type { ConversationInfo } from '../protocol/adapter.ts';
-import { inCommunity } from './routing.ts';
+import type { ChatInfo } from '../protocol/adapter.ts';
+import { inRoot } from './routing.ts';
 
 /** The config keys participation reads itself; the settings functions read their own sections. */
 export type ParticipationConfig = Record<string, unknown>;
@@ -60,11 +60,11 @@ type ParticipationMessage = {
 type AroundInput = { snapshot: AroundSnapshot; channelNameOf: (placeId: string) => string | null };
 
 export type Participation = {
-  participationOn: (channel: ConversationInfo) => boolean;
+  participationOn: (channel: ChatInfo) => boolean;
   aroundInputFor: (args: {
     config: ParticipationConfig;
     mode: string | null | undefined;
-    isPrivate: boolean;
+    isDm: boolean;
     snapshot?: Snapshot | null;
   }) => AroundInput | null;
   liveChannelName: (
@@ -72,7 +72,7 @@ export type Participation = {
     snapshot?: Snapshot | null
   ) => (placeId: string) => string | null;
   recordOwnParticipation: (args: {
-    channel: ConversationInfo;
+    channel: ChatInfo;
     placeId: string;
     history: ReadonlyArray<HistoryMessage>;
     earlier: ReadonlyArray<HistoryMessage>;
@@ -87,12 +87,12 @@ export function createParticipation({ store, around, clock }: ParticipationConte
   /**
    * Whether a server turn in `channel` has the persona's participation store: features.memory
    * and features.participation on (`config`, the turn's live config; a missing key counts as on),
-   * a server channel that is not a place of her selfreflection (src/behavior/mirror.ts#selfreflectionConversationIds), and a store that
+   * a server channel that is not a place of her selfreflection (src/behavior/mirror.ts#selfreflectionChatIds), and a store that
    * keeps one. Recording asks this.
    */
-  function participationOn(channel: ConversationInfo): boolean {
-    if (!inCommunity(channel) || typeof store.getParticipation !== 'function') return false;
-    return !selfreflectionConversationIds(store).has(String(channel.id));
+  function participationOn(channel: ChatInfo): boolean {
+    if (!inRoot(channel) || typeof store.getParticipation !== 'function') return false;
+    return !selfreflectionChatIds(store).has(String(channel.id));
   }
 
   /**
@@ -104,15 +104,15 @@ export function createParticipation({ store, around, clock }: ParticipationConte
    */
   function aroundInputFor({
     mode,
-    isPrivate,
+    isDm,
     snapshot = null,
   }: {
     config: ParticipationConfig;
     mode: string | null | undefined;
-    isPrivate: boolean;
+    isDm: boolean;
     snapshot?: Snapshot | null;
   }): AroundInput | null {
-    if (!around || isPrivate || mode === 'selfreflection') return null;
+    if (!around || isDm || mode === 'selfreflection') return null;
     return {
       snapshot: around.view(),
       channelNameOf: (placeId) => {
@@ -131,7 +131,7 @@ export function createParticipation({ store, around, clock }: ParticipationConte
     snapshot: Snapshot | null = null
   ): (placeId: string) => string | null {
     return (placeId) => {
-      const name = inCommunity(channel) ? snapshot?.get(String(placeId))?.name : undefined;
+      const name = inRoot(channel) ? snapshot?.get(String(placeId))?.name : undefined;
       return typeof name === 'string' && name ? name : null;
     };
   }
@@ -187,7 +187,7 @@ export function createParticipation({ store, around, clock }: ParticipationConte
     selfName,
     descriptions,
   }: {
-    channel: ConversationInfo;
+    channel: ChatInfo;
     placeId: string;
     history: ReadonlyArray<HistoryMessage>;
     earlier: ReadonlyArray<HistoryMessage>;

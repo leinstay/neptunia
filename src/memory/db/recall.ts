@@ -22,7 +22,7 @@
 // found it. A relevance gate drops hits far below the best, the rest is ranked by closeness to the plan's date range
 // (its middle; the nearest end of an open range); with no date, by what a hit holds first (terms, phrases) and
 // the nearness to now only among equals. Stretches are built around the best hits as recall
-// builds them from the record: the reply chain, `recordContext` lines each side, then the conversation followed on
+// builds them from the record: the reply chain, `recordContext` lines each side, then the chat followed on
 // (`followMessages` while no silence longer than `followGapMinutes`), merged where they share a line.
 //
 // A group context that has a better match only in a DM it may not open gets `hidden: true` and nothing else about it:
@@ -54,7 +54,7 @@ import {
   RECALL_DEFAULTS,
   RRF_K,
   cutStretch,
-  followConversation,
+  followChat,
   fuseRanks,
   mergeWindows,
   recallSettings,
@@ -73,7 +73,7 @@ import type { Context } from './scope.ts';
 
 /** How many reply parents a hit's chain follows at most (as the record recall does). */
 const REPLY_CHAIN_MAX = 10;
-/** The most lines one follow reads from the database before the conversation's silence cuts it. */
+/** The most lines one follow reads from the database before the chat's silence cuts it. */
 const FOLLOW_READ_MAX = 100;
 /** Hits turned into windows per window kept (as the record recall does). */
 const HITS_PER_WINDOW = 4;
@@ -94,7 +94,7 @@ type ScopeArgs = { from: number | null; to: number | null; placeId: string | nul
 /** A verified interface route kept separately from a stored source's native observation key. */
 export type NativeMessageLocator = Readonly<{
   iface: string;
-  conversationId: string;
+  chatId: string;
   messageId: string;
 }>;
 
@@ -225,13 +225,13 @@ function accountNames(db: Db): Map<unknown, AccountName> {
 function placeNames(db: Db): Map<unknown, PlaceName> {
   const names = new Map<unknown, PlaceName>();
   for (const row of db
-    .prepare('SELECT id, native_id, name, iface, scope_kind, conversation FROM places WHERE retired_at IS NULL')
+    .prepare('SELECT id, native_id, name, iface, scope_kind, chat FROM places WHERE retired_at IS NULL')
     .all()) {
     names.set(row.id, {
       nativeId: str(row.native_id) || null,
       iface: str(row.iface),
       name: str(row.name) || null,
-      private: row.scope_kind === 'dm' || row.scope_kind === 'internal' || row.conversation === 'dm',
+      private: row.scope_kind === 'dm' || row.scope_kind === 'internal' || row.chat === 'dm',
     });
   }
   return names;
@@ -312,7 +312,7 @@ function termsOf(stem: (word: string) => string, forms: unknown): Array<Term> {
 }
 
 /**
- * How near a hit's place is to the conversation the read is for: its own place, then its own interface, then the rest.
+ * How near a hit's place is to the chat the read is for: its own place, then its own interface, then the rest.
  * It only breaks a tie of relevance, so a stronger hit elsewhere keeps its rank and no hit is left out.
  */
 function nearness(placeId: unknown, context: unknown): number {
@@ -796,12 +796,7 @@ function sourceForAnchor(db: Db, ctx: Context, raw: unknown, resolved?: Resolved
     }
     if (resolved.kind !== 'native') return null;
     const locator = resolved.locator;
-    if (
-      !locator ||
-      !locatorText(locator.iface) ||
-      !locatorText(locator.conversationId) ||
-      !locatorText(locator.messageId)
-    )
+    if (!locator || !locatorText(locator.iface) || !locatorText(locator.chatId) || !locatorText(locator.messageId))
       return null;
     const candidates = db
       .prepare(
@@ -813,9 +808,7 @@ function sourceForAnchor(db: Db, ctx: Context, raw: unknown, resolved?: Resolved
       .filter((row) => {
         const native = nativeLocatorOf(row, (parseJson(row.extra) ?? {}) as Row);
         return (
-          native?.iface === locator.iface &&
-          native.conversationId === locator.conversationId &&
-          native.messageId === locator.messageId
+          native?.iface === locator.iface && native.chatId === locator.chatId && native.messageId === locator.messageId
         );
       });
     return readableSource(db, ctx, candidates);
@@ -834,7 +827,7 @@ function sourceForAnchor(db: Db, ctx: Context, raw: unknown, resolved?: Resolved
   );
 }
 
-/** The stretch around a hit: reply chain, `around` lines each side, the followed conversation. Rows, oldest first. */
+/** The stretch around a hit: reply chain, `around` lines each side, the followed chat. Rows, oldest first. */
 function stretchAround(
   db: Db,
   ctx: Context,
@@ -852,7 +845,7 @@ function stretchAround(
   for (const row of neighbours(db, ctx, hit, -1, { count: around }).rows) chosen.set(row.rowid, row);
   const after = neighbours(db, ctx, hit, 1, { count: around });
   for (const row of after.rows) chosen.set(row.rowid, row);
-  // The conversation goes on past the last line of the stretch while it does not fall silent.
+  // The chat goes on past the last line of the stretch while it does not fall silent.
   const rows = [...chosen.values()].sort((a, b) =>
     (a.occurred_at as string) < (b.occurred_at as string)
       ? -1
@@ -864,7 +857,7 @@ function stretchAround(
   if (after.stopped !== 'hidden') {
     const ahead = neighbours(db, ctx, last, 1, { count: FOLLOW_READ_MAX }).rows;
     const lastTs = Date.parse(last.occurred_at as string);
-    const followed = followConversation(
+    const followed = followChat(
       lastTs,
       ahead.map((row) => ({ ts: Date.parse(row.occurred_at as string), row })),
       { followMessages, followGapMinutes }

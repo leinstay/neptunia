@@ -80,7 +80,7 @@ test('voice.say: a failed pronunciation pass is a failed result with the reason,
       },
     },
     assertNotPaused() {},
-    resolvedGuildId: () => 'g',
+    resolvedRootId: () => 'g',
   };
   // The fake env carries only what voice.say reads.
   const run = getOp('voice.say')?.run({ text: 'hello' }, { env: env as unknown as Env, placeId: 'c1' });

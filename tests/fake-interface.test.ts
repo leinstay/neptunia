@@ -15,7 +15,7 @@ import { waitFor, withFakes } from './fixtures/two-fakes.ts';
 
 const TOKEN = 'link-token';
 const SELF_ID = 'self-id';
-const CONVERSATION = { iface: 'fake', conversationId: 'c1' };
+const CHAT = { iface: 'fake', chatId: 'c1' };
 const quiet = { info(): void {}, warn(): void {}, error(): void {} };
 
 function reaction(id: string): Record<string, unknown> {
@@ -24,7 +24,7 @@ function reaction(id: string): Record<string, unknown> {
     iface: 'fake',
     at: 1,
     id,
-    conversation: { id: 'c1', kind: 'channel' },
+    chat: { id: 'c1', kind: 'channel' },
     messageId: 'm1',
     emoji: { name: 'x' },
     accountId: 'u1',
@@ -64,15 +64,15 @@ test('says hello as the fake interface with the capabilities of the fake adapter
   await running.stop();
 });
 
-test('says hello with the persona and the community it was given', async () => {
+test('says hello with the persona and the root it was given', async () => {
   const { host, link } = rig();
   const running = await start(host, {
     self: { id: 'bot-7', name: 'Νόβα' },
-    community: { id: 'g9', name: 'Beta' },
+    root: { id: 'g9', name: 'Beta' },
   });
   const hello = await link.hello;
   assert.deepEqual(hello.self, { id: 'bot-7', name: 'Νόβα' });
-  assert.deepEqual(hello.community, { id: 'g9', name: 'Beta' });
+  assert.deepEqual(hello.root, { id: 'g9', name: 'Beta' });
   await running.stop();
 });
 
@@ -112,7 +112,7 @@ test('a send from the core lands in the stored messages of the fake as a message
   const running = await start(host, { selfId: SELF_ID });
   await link.hello;
   running.open();
-  const delivery = await link.adapter.send(CONVERSATION, { text: 'καλημέρα' });
+  const delivery = await link.adapter.send(CHAT, { text: 'καλημέρα' });
   assert.equal(delivery.status, 'ok');
   const stored = running.adapter.messagesIn('c1').map((message) => [message.authorId, message.text]);
   assert.deepEqual(stored, [[SELF_ID, 'καλημέρα']]);
@@ -130,7 +130,7 @@ test('stop closes the link, so the core sees its peer gone and a later send fail
   await running.stop();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(closedWith, 'peer-closed');
-  const delivery = await link.adapter.send(CONVERSATION, { text: 'late' });
+  const delivery = await link.adapter.send(CHAT, { text: 'late' });
   assert.notEqual(delivery.status, 'ok');
   assert.equal(running.adapter.messagesIn('c1').length, 0);
 });
@@ -141,13 +141,13 @@ test('an interface started over an adapter the caller keeps serves that adapter,
   const first = await start(before.host, { adapter: kept });
   await before.link.hello;
   first.open();
-  await before.link.adapter.send(CONVERSATION, { text: 'before the restart' });
+  await before.link.adapter.send(CHAT, { text: 'before the restart' });
   await first.stop();
   const after = rig();
   const second = await start(after.host, { adapter: kept });
   await after.link.hello;
   second.open();
-  await after.link.adapter.send(CONVERSATION, { text: 'after the restart' });
+  await after.link.adapter.send(CHAT, { text: 'after the restart' });
   assert.equal(second.adapter, kept);
   assert.deepEqual(
     kept.messagesIn('c1').map((message) => message.text),

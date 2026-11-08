@@ -23,10 +23,9 @@ test('journalResultOf: a list records its item count next to the size', () => {
 });
 
 test('journalResultOf: a posted message keeps its id, with the size when the call also answered', () => {
-  assert.deepEqual(
-    summaryOf({ skill: 'message.create', status: 'ok', ref: { messageId: '99', conversationId: '5' } }),
-    { messageId: '99' }
-  );
+  assert.deepEqual(summaryOf({ skill: 'message.create', status: 'ok', ref: { messageId: '99', chatId: '5' } }), {
+    messageId: '99',
+  });
   assert.deepEqual(summaryOf({ skill: 'draw.create', status: 'ok', ref: { messageId: '7' }, data: { text: 'done' } }), {
     messageId: '7',
     chars: 4,

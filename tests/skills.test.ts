@@ -33,7 +33,7 @@ import {
   wakeEnvelope,
 } from '../src/tools/access.ts';
 import { executeCall } from '../src/tools/executors.ts';
-import { postingConversation } from '../src/tools/impl/shared.ts';
+import { postingChat } from '../src/tools/impl/shared.ts';
 import { schemaError } from '../src/tools/schema.ts';
 import { checkReplyEffect, checkSkill, listSkills } from '../src/tools/gateway.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -50,7 +50,7 @@ const MEMBER = '7';
 const SELF = 'self-1';
 const HERE = 'c-here';
 const persona = Object.freeze({ kind: 'persona' });
-const audience = Object.freeze({ conversationId: HERE, accountIds: [MEMBER] });
+const audience = Object.freeze({ chatId: HERE, accountIds: [MEMBER] });
 
 /** A config with the settings these tests read, each set here (never the shipped defaults). */
 type Grant = { everyone?: boolean; roles?: Array<string>; users?: Array<string> };
@@ -445,7 +445,7 @@ test('skills access: the irreversible and administrative operations are never op
   });
 });
 
-test('skills access: her reply tags are carried over in the current conversation, without a grant, even in safe mode', () => {
+test('skills access: her reply tags are carried over in the current chat, without a grant, even in safe mode', () => {
   assert.deepEqual([...CARRIED_OVER].sort(), ['draw.create', 'message.create', 'message.react.add', 'voice.say']);
   for (const skill of CARRIED_OVER) {
     assert.deepEqual(
@@ -483,7 +483,7 @@ test('skills access: her reply tags are carried over in the current conversation
     ).code,
     'unknown-principal'
   );
-  // a call of hers in the current conversation is carried over too
+  // a call of hers in the current chat is carried over too
   assert.deepEqual(check({ skill: 'message.create', args: { text: 'γεια' } }), { ok: true });
   assert.deepEqual(check({ skill: 'message.create', args: { text: 'γεια', place: 'c-other' } }), {
     ok: false,
@@ -903,33 +903,33 @@ test('wake envelope: a skill that posts inside its own operation is refused at t
     env: { hot: { config: { heartbeat: { tools: ['voice.say'] } } } },
   };
   await assert.rejects(
-    postingConversation({
+    postingChat({
       client: null,
       discord: DISCORD,
-      conversationId: null,
+      chatId: null,
       context,
       need: 'attach',
-    } as unknown as Parameters<typeof postingConversation>[0]),
+    } as unknown as Parameters<typeof postingChat>[0]),
     (error) => asRecord(error).status === 'denied' && asRecord(error).code === 'not-allowed'
   );
   assert.equal(
-    await postingConversation({
+    await postingChat({
       client: null,
       discord: DISCORD,
-      conversationId: null,
+      chatId: null,
       context,
       need: 'read',
-    } as unknown as Parameters<typeof postingConversation>[0]),
+    } as unknown as Parameters<typeof postingChat>[0]),
     HERE
   );
   assert.equal(
-    await postingConversation({
+    await postingChat({
       client: null,
       discord: DISCORD,
-      conversationId: null,
+      chatId: null,
       context: { ...context, ownInitiative: false },
       need: 'send',
-    } as unknown as Parameters<typeof postingConversation>[0]),
+    } as unknown as Parameters<typeof postingChat>[0]),
     HERE,
     'not her own initiative: no envelope'
   );
@@ -1046,7 +1046,7 @@ function makeEnv({ cfg = config(), roles = [] }: Record<string, Untyped> = {}) {
     store,
     reads,
     selfId: () => SELF,
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     now: () => Date.UTC(2026, 9, 14, 10, 0, 0),
   } as unknown as Parameters<typeof createOpsEnv>[0]);
   /** `bot.access` as written to the private settings file (canonical persona config/config.json). */

@@ -28,8 +28,8 @@
 //   { kind: 'context', context }
 //       One `execution_contexts` row (scope.ts#contextRow of a context the core issued); a context already recorded is
 //       left as it is. Not a memory write: no mode.
-//   { kind: 'communities', iface, communities: [{ id, name }], at, names? }
-//       The places of the communities a `hello` named (communities.ts#noteCommunities). Not a memory write: no mode.
+//   { kind: 'roots', iface, roots: [{ id, name }], at, names? }
+//       The places of the roots a `hello` named (roots.ts#noteRoots). Not a memory write: no mode.
 //   { kind: 'wake', op, ... } | { kind: 'skills', op, ... } | { kind: 'index-policy' | 'touch' | 'reembed', ... }
 //       Schema v11: handed to wakes.ts#applyWakeWrite, skills.ts#applySkillsWrite and index-policy.ts#applyIndexWrite.
 //       Bookkeeping of the database itself, not her memory: no mode.
@@ -134,7 +134,7 @@ import { applyMirrorWrite } from './mirror-config.ts';
 import { applyEntryMedia } from './selfreflection-media.ts';
 import { applyMediaBackfill } from './media-backfill.ts';
 import { applyMediaEnglish } from './media-english.ts';
-import { isInterfaceNames, noteCommunities } from './communities.ts';
+import { isInterfaceNames, noteRoots } from './roots.ts';
 import { applyMediaEmbed } from './media-store.ts';
 import { writeBackup } from './backup.ts';
 import { applyIngestWrite } from './ingest.ts';
@@ -254,7 +254,7 @@ function contextOf(scope: Scope | null | undefined, audienceColumn = false, audi
 function onlyDmPlaceOf(db: Db, scope: Scope): string | null {
   if (scope.scope_kind !== 'dm' || !namesNoPlaceOn(scope.scope_dm, scope.scope_iface)) return null;
   const places = db
-    .prepare("SELECT id FROM places WHERE partner_person = ? AND iface = ? AND (kind = 'dm' OR conversation = 'dm')")
+    .prepare("SELECT id FROM places WHERE partner_person = ? AND iface = ? AND (kind = 'dm' OR chat = 'dm')")
     .all(scope.scope_dm, scope.scope_iface);
   return places.length === 1 ? String(places[0]?.id) : null;
 }
@@ -280,7 +280,7 @@ const audienceOfRow = (row: Row): unknown =>
 
 /**
  * What a new row of this run is scoped to: the meet of the run's audience and of its own sources, on audience ids, because
- * the triple of an opaque partner names no conversation. Its audience row is created when missing.
+ * the triple of an opaque partner names no chat. Its audience row is created when missing.
  */
 function narrowed(db: Db, state: WriteState, evidence: ReadonlyArray<Row>): { scope: Scope; audienceId: string } {
   const lookup = lookupPlaceOf(db);
@@ -976,13 +976,11 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['semantic-embedding', applySemanticEmbedding],
   ['media-english', applyMediaEnglish],
   [
-    'communities',
+    'roots',
     (handle, update) =>
-      noteCommunities(handle, {
+      noteRoots(handle, {
         iface: asText(update.iface),
-        communities: Array.isArray(update.communities)
-          ? (update.communities as Array<{ id: string; name: string }>)
-          : [],
+        roots: Array.isArray(update.roots) ? (update.roots as Array<{ id: string; name: string }>) : [],
         at: typeof update.at === 'string' ? update.at : new Date().toISOString(),
         ...(isInterfaceNames(update.names) ? { names: update.names } : {}),
       }),

@@ -218,7 +218,7 @@ test('listSkills: an owner-only skill has its row, open only for an owner who as
     selfId: 'self-1',
     texts: {},
     requester: { id: '7' },
-    audience: { conversationId: 'c1' },
+    audience: { chatId: 'c1' },
     registry,
     getOp,
   });
@@ -234,7 +234,7 @@ test('listSkills: an owner-only skill has its row, open only for an owner who as
     selfId: 'self-1',
     texts: {},
     requester: { id: '42' },
-    audience: { conversationId: 'c1' },
+    audience: { chatId: 'c1' },
     registry,
     getOp,
   });
@@ -311,7 +311,7 @@ test("listSkills: each row carries the skill's arguments (skillArgs)", () => {
     selfId: 'self-1',
     texts: {},
     requester: null,
-    audience: { conversationId: 'c1' },
+    audience: { chatId: 'c1' },
     registry,
   });
   const byName = new Map(rows.map((row) => [row.name, row]));

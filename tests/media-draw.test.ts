@@ -256,7 +256,7 @@ test('/nep draw: one picture for the owner', async () => {
       getSelfName: () => 'Bot',
       spontaneous: {},
       calibrator: { ratio: 1 },
-      isServedCommunity: (id: unknown) => id === 'g1',
+      isServedRoot: (id: unknown) => id === 'g1',
       images,
       imageFetcher: imageFetcher(),
       now: () => NOW,
@@ -301,7 +301,7 @@ test("draw.create from a member's mention: the picture is charged to the member"
       client: client(),
       selfId: () => 'self-id',
       getSelfName: () => 'Bot',
-      isServedCommunity: (id: unknown) => id === 'g1',
+      isServedRoot: (id: unknown) => id === 'g1',
     }).runSkillOp,
   });
   const { logs } = await withCapturedLogs(() =>
@@ -331,7 +331,7 @@ test("draw.create operation quotes the message it replies to, in that message's 
     getSelfName: () => 'Bot',
     spontaneous: {},
     calibrator: { ratio: 1 },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     images: recordingImages(),
     imageFetcher: imageFetcher(),
     now: () => NOW,
@@ -344,11 +344,7 @@ test("draw.create operation quotes the message it replies to, in that message's 
   assert.equal(quoted.status ?? 'ok', 'ok', JSON.stringify(quoted));
   const sent: Untyped = port.calls.find((call) => call.op === 'send');
   assert.deepEqual(
-    [
-      present(sent).args[0].conversationId,
-      present(sent).args[1].replyTo.conversationId,
-      present(sent).args[1].replyTo.messageId,
-    ],
+    [present(sent).args[0].chatId, present(sent).args[1].replyTo.chatId, present(sent).args[1].replyTo.messageId],
     ['c1', 'c1', 'm9']
   );
   const refused = await admin.runSkillOp(

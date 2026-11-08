@@ -224,7 +224,7 @@ function planRepair(db: Db, { dmOnly }: { dmOnly: boolean }): { counts: Counts; 
   const { months, left } = readMonths(db, counts);
   const dmPlaces = new Set(
     db
-      .prepare("SELECT id FROM places WHERE kind = 'dm' OR conversation = 'dm'")
+      .prepare("SELECT id FROM places WHERE kind = 'dm' OR chat = 'dm'")
       .all()
       .map((row) => String(row.id))
   );

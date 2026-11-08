@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { Audience, ConversationInfo } from '../src/protocol/adapter.ts';
+import type { Audience, ChatInfo } from '../src/protocol/adapter.ts';
 import {
   audienceAllows,
   isReadable,
@@ -29,7 +29,7 @@ function audience(over: Partial<Audience> = {}): Audience {
   };
 }
 
-function info(id: string, over: Partial<ConversationInfo> = {}): ConversationInfo {
+function info(id: string, over: Partial<ChatInfo> = {}): ChatInfo {
   return {
     id,
     kind: 'channel',
@@ -74,7 +74,7 @@ test('audienceAllows lets a private chat in on exactly the sources its partner c
   }
 });
 
-test('isReadable refuses a thread, a private chat and an unreadable conversation', () => {
+test('isReadable refuses a thread, a private chat and an unreadable chat', () => {
   assert.equal(isReadable(info('open')), true);
   assert.equal(isReadable(info('thread', { kind: 'thread' })), false);
   assert.equal(isReadable(info('dm', { kind: 'dm', rootId: null })), false);
@@ -84,7 +84,7 @@ test('isReadable refuses a thread, a private chat and an unreadable conversation
   );
 });
 
-test('isWritable needs a readable conversation she can send in', () => {
+test('isWritable needs a readable chat she can send in', () => {
   assert.equal(isWritable(info('open')), true);
   assert.equal(
     isWritable(info('selfreflection', { permissions: { read: true, send: false, attach: true, react: true } })),
@@ -107,9 +107,9 @@ test('railAudience turns the lists of the wire into the sets the rail compares a
   assert.equal(railAudience(null), null);
 });
 
-test('snapshotOf finds a conversation of its listing by id and none otherwise', () => {
+test('snapshotOf finds a chat of its listing by id and none otherwise', () => {
   const snapshot = snapshotOf('g1', {
-    conversations: [info('c1'), info('c2')],
+    chats: [info('c1'), info('c2')],
     groups: [{ id: 'r1', name: 'Friends' }],
   });
   assert.equal(snapshot.get('c2')?.id, 'c2');
@@ -117,11 +117,11 @@ test('snapshotOf finds a conversation of its listing by id and none otherwise', 
   assert.deepEqual(snapshot.groups, [{ id: 'r1', name: 'Friends' }]);
 });
 
-test('takeSnapshot lists the community once with the audience and the viewers asked for', async () => {
+test('takeSnapshot lists the root once with the audience and the viewers asked for', async () => {
   world().channel({ id: 'c1', placeId: 'g1', viewers: { [ZOE]: false } });
   const snapshot = await takeSnapshot(world().reads, 'g1', [ZOE]);
   assert.deepEqual(snapshot?.get('c1')?.viewers, { [ZOE]: false });
-  const asked = world().port.calls.filter((call) => call.op === 'conversations');
+  const asked = world().port.calls.filter((call) => call.op === 'chats');
   assert.deepEqual(
     asked.map((call) => call.args[0]),
     [{ placeId: 'g1', audience: true, viewers: [ZOE] }]
@@ -130,7 +130,7 @@ test('takeSnapshot lists the community once with the audience and the viewers as
 
 test('takeSnapshot gives null when the interface offers no listing', async () => {
   world().port.calls.length = 0;
-  world().intercept('conversations', () => ({
+  world().intercept('chats', () => ({
     status: 'unsupported',
     error: { code: 'unsupported', retryable: false, retryAfterMs: null },
   }));

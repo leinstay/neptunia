@@ -186,7 +186,7 @@ test('parseWhen and intentionSettings: relative and ISO times; missing settings 
   assert.deepEqual(intentionSettings({ intentions: { maxOpen: 3 } }), { ...DEFAULTS, maxOpen: 3 });
 });
 
-test('createIntention: the members of the conversation are kept in the provenance, distinct, ids only', () => {
+test('createIntention: the members of the chat are kept in the provenance, distinct, ids only', () => {
   const made = createIntention({
     purpose: 'x',
     provenance: wrongly({ kind: 'self', participants: ['u2', 'u2', 7, '', 'u3'] }),
@@ -203,7 +203,7 @@ test('concernsMember: the destination, a participant, the id or a name of theirs
     now: T0,
   };
   const record = createIntention(wrongly(base)).intention;
-  assert.equal(concernsMember(wrongly(record), { accountId: 'u5' }), true, 'a participant of the conversation');
+  assert.equal(concernsMember(wrongly(record), { accountId: 'u5' }), true, 'a participant of the chat');
   assert.equal(concernsMember(wrongly(record), { accountId: 'u6' }), false);
   assert.equal(
     concernsMember(wrongly(createIntention(wrongly({ ...base, destination: 'u6' })).intention), { accountId: 'u6' }),

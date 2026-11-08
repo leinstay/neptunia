@@ -11,7 +11,7 @@ useIface('fake');
 
 const NOW = Date.parse('2026-11-03T12:00:00Z');
 
-test('an internal turn refuses direct drawing in another conversation before generation', async () => {
+test('an internal turn refuses direct drawing in another chat before generation', async () => {
   const images = fakeImages();
   const context = issueContext({ kind: 'internal', newId: () => 'ctx:draw-internal', now: () => NOW });
   const result = await drawTurn({
@@ -56,7 +56,7 @@ test('a turn that inherited a restriction refuses a group destination while its 
     },
     answers: [toolAnswer('', [call('draw.create', { place: '555', text: 'private scene' })]), '<skip/>'],
     params: {
-      publicationBoundary: { kind: 'internal-turn', origin: { iface: 'fake', conversationId: 'cli-origin' } },
+      publicationBoundary: { kind: 'internal-turn', origin: { iface: 'fake', chatId: 'cli-origin' } },
     },
   });
   assert.deepEqual(images.calls, []);
@@ -65,7 +65,7 @@ test('a turn that inherited a restriction refuses a group destination while its 
 
 test('an internal turn hands its restriction to the errand and the intention it creates, and both survive a reload', () => {
   // Bug: the deferred record forgets where it came from, so its later turn publishes freely.
-  const boundary = { kind: 'internal-turn', origin: { iface: 'cli', conversationId: 'dm-owner' } } as const;
+  const boundary = { kind: 'internal-turn', origin: { iface: 'cli', chatId: 'dm-owner' } } as const;
   const made = createIntention({
     id: 'i1',
     purpose: 'write it up',

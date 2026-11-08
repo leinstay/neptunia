@@ -1,7 +1,7 @@
 // The owner's merge of one person into another (`applyMemoryWrite` kind `person-merge`, `MemoryDbService.personMerge`,
-// `/memory users merge`). Everything stored about the person who goes, and every account and conversation of theirs,
+// `/memory users merge`). Everything stored about the person who goes, and every account and chat of theirs,
 // moves to the person who stays at the end of the merge chain (ids.ts#survivorOf). No row changes its `audience_id`:
-// a line, a fact or a feeling keeps the conversation it came from, and only the person it names moves. One
+// a line, a fact or a feeling keeps the chat it came from, and only the person it names moves. One
 // `people_merges` row records the merge, and the person who went keeps `status` `merged_into:<survivor>`. A repeat of a
 // recorded merge moves what is left behind and writes nothing more, so it is idempotent and it finishes a merge the
 // record-only writer (session-write.ts#mergePeople) left half done. Only the owner merges; her own person is never

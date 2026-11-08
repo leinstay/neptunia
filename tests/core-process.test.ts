@@ -18,7 +18,7 @@ import { start as startFake } from '../src/interface/fake-interface.ts';
 import { onLog } from '../src/log.ts';
 import { lockPathOf, openMemoryDb } from '../src/memory/db/open.ts';
 import { applyWakeQueueWrite } from '../src/memory/db/wake-queue.ts';
-import { ANSWER, COMMUNITY, SELF, channelInfo, lineEvent } from './fixtures/core-over-fake.ts';
+import { ANSWER, ROOT, SELF, channelInfo, lineEvent } from './fixtures/core-over-fake.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 type Row = Record<string, unknown>;
@@ -186,7 +186,7 @@ type Unit = {
   told(op: string): Promise<Reply>;
   /** Emits a mention of the persona and resolves once the child's emit returned. */
   emit(event: unknown): Promise<{ acked: Promise<string> }>;
-  posted(conversationId: string): Promise<Array<string>>;
+  posted(chatId: string): Promise<Array<string>>;
   kill(signal?: NodeJS.Signals): Promise<void>;
 };
 
@@ -255,8 +255,8 @@ function spawnUnit(dirs: Dirs, privateDir = dirs.privateDir): Unit {
       await queued;
       return { acked };
     },
-    async posted(conversationId) {
-      const reply = await unit.ask({ op: 'posted', conversationId }, 'posted');
+    async posted(chatId) {
+      const reply = await unit.ask({ op: 'posted', chatId }, 'posted');
       return Array.isArray(reply.texts) ? reply.texts.map(String) : [];
     },
     async kill(signal = 'SIGTERM') {
@@ -270,11 +270,11 @@ function spawnUnit(dirs: Dirs, privateDir = dirs.privateDir): Unit {
   return unit;
 }
 
-/** A unit that started and holds the conversation c1. */
+/** A unit that started and holds the chat c1. */
 async function startedUnit(dirs: Dirs, privateDir = dirs.privateDir): Promise<Unit> {
   const unit = spawnUnit(dirs, privateDir);
   await unit.told('started');
-  await unit.ask({ op: 'seed-conversation', info: channelInfo('c1') }, 'done');
+  await unit.ask({ op: 'seed-chat', info: channelInfo('c1') }, 'done');
   return unit;
 }
 
@@ -520,7 +520,7 @@ test('disable ends a send the interface holds past drainMs unknown, keeps the ch
     units.push(second);
     await second.told('started').catch(() => {});
     if (second.child.exitCode === null) {
-      await second.ask({ op: 'seed-conversation', info: channelInfo('c1') }, 'done').catch(() => null);
+      await second.ask({ op: 'seed-chat', info: channelInfo('c1') }, 'done').catch(() => null);
       await second.emit(mention('m2', 'still there')).catch(() => null);
     }
     await until(() => helloRefused(logs, 'interface-disabled'), 'the refusal of the disabled interface');
@@ -588,7 +588,7 @@ test('a unit with the wrong token is refused and nothing it sends is taken', asy
     await unit.told('started').catch(() => {});
     await until(() => helloRefused(logs, 'token'), 'the refusal of the wrong token');
     if (unit.child.exitCode === null) {
-      await unit.ask({ op: 'seed-conversation', info: channelInfo('c1') }, 'done').catch(() => null);
+      await unit.ask({ op: 'seed-chat', info: channelInfo('c1') }, 'done').catch(() => null);
       await unit.emit(mention('m1', 'hello bot')).catch(() => null);
     }
     await pause(300);
@@ -618,7 +618,7 @@ test('the in-process fake and the fake unit give the model the same request for 
           {
             name: 'fake',
             start: async (host) => {
-              running = await startFake(host, { self: SELF, community: COMMUNITY });
+              running = await startFake(host, { self: SELF, root: ROOT });
               return running;
             },
           },
@@ -629,7 +629,7 @@ test('the in-process fake and the fake unit give the model the same request for 
       try {
         if (running === null) throw new Error('the core never started the fake interface');
         const live: Awaited<ReturnType<typeof startFake>> = running;
-        live.adapter.seedConversation(channelInfo('c1'));
+        live.adapter.seedChat(channelInfo('c1'));
         const event = mention('m1', 'hello bot');
         live.adapter.seedEvent(event);
         assert.equal(await live.emit(event), 'ok');

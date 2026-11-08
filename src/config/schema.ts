@@ -32,6 +32,7 @@ import { DEVELOPMENT } from './schema/development.ts';
 import { SELFIMPROVEMENT } from './schema/selfimprovement.ts';
 import { SELFREFLECTION } from './schema/selfreflection.ts';
 import { MIRRORS } from './schema/mirrors.ts';
+import { DM } from './schema/dm.ts';
 import { PRIVATE } from './schema/private.ts';
 import { ERRANDS } from './schema/errands.ts';
 import { AGENTS } from './schema/agents.ts';
@@ -89,6 +90,7 @@ export const CONFIG_SCHEMA: ReadonlyArray<SchemaEntry> = [
   ...DEVELOPMENT,
   ...SELFREFLECTION,
   ...MIRRORS,
+  ...DM,
   ...PRIVATE,
   ...ERRANDS,
   ...AGENTS,

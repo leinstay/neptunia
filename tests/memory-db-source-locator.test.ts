@@ -42,19 +42,36 @@ test('a verified marker returns its native route instead of the opaque storage k
         v: 1,
         origin: 'protocol-message',
         iface: 'fake',
-        conversationId: 'actual-dm',
+        chatId: 'actual-dm',
         messageId: 'same-native',
       },
     }
   );
-  assert.deepEqual(result, { iface: 'fake', conversationId: 'actual-dm', messageId: 'same-native' });
+  assert.deepEqual(result, { iface: 'fake', chatId: 'actual-dm', messageId: 'same-native' });
 });
 
-test('an unmarked historical record routes through its actual DM conversation rather than its partner', () => {
+test('a marker stored before the chat rename, with its conversationId key, still returns its native route', () => {
+  // Catches: rows of the append-only sources table that name the chat `conversationId` losing their message route.
+  const result = nativeLocatorOf(
+    { iface: 'fake', native_id: 'opaque-family-key', kind: 'seen', place_id: 'opaque-place' },
+    {
+      $messageLocator: {
+        v: 1,
+        origin: 'protocol-message',
+        iface: 'fake',
+        conversationId: 'old-dm',
+        messageId: 'old-native',
+      },
+    }
+  );
+  assert.deepEqual(result, { iface: 'fake', chatId: 'old-dm', messageId: 'old-native' });
+});
+
+test('an unmarked historical record routes through its actual DM chat rather than its partner', () => {
   const { row, extra } = historical();
   assert.deepEqual(nativeLocatorOf(row, extra), {
     iface: 'discord',
-    conversationId: 'historic-dm-73',
+    chatId: 'historic-dm-73',
     messageId: 'historic-anchor',
   });
 });

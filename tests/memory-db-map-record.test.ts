@@ -9,7 +9,7 @@ import { removeField } from './fixtures/loose-types.ts';
 const REL = 'record/2026-10/2026-10-20.jsonl';
 const PRIVATE_REL = 'private/100000000000000001/record/2026-10/2026-10-20.jsonl';
 const CHANNEL = '200000000000000001';
-const GUILD = '300000000000000001';
+const ROOT = '300000000000000001';
 
 const seen = () => ({
   v: 1,
@@ -19,7 +19,7 @@ const seen = () => ({
   revision: 1,
   occurredAt: '2026-10-20T10:00:00.000Z',
   recordedAt: '2026-10-20T10:00:01.000Z',
-  placeId: GUILD,
+  placeId: ROOT,
   scope: { channel: CHANNEL },
   by: '100000000000000001',
   replyTo: null,
@@ -111,7 +111,7 @@ test('a deleted line has no revision, text or author and still round trips', () 
     messageId: '400000000000000002',
     occurredAt: '2026-10-20T11:00:00.000Z',
     recordedAt: '2026-10-20T11:00:00.000Z',
-    placeId: GUILD,
+    placeId: ROOT,
     scope: { channel: CHANNEL },
     participants: [],
     sourceMessageIds: ['400000000000000002'],
@@ -130,7 +130,7 @@ test('a felt line has its own id, no message, and a user scope', () => {
     kind: 'felt',
     occurredAt: '2026-10-20T12:00:00.000Z',
     recordedAt: '2026-10-20T12:00:00.000Z',
-    placeId: GUILD,
+    placeId: ROOT,
     scope: { user: '100000000000000001' },
     participants: ['100000000000000001'],
     sourceMessageIds: [],
@@ -157,7 +157,7 @@ test('a line of a private layer is a DM source of that member and keeps its chan
 
 test('scopes the columns cannot rebuild are kept whole', () => {
   for (const scope of [
-    { guild: true },
+    { root: true },
     {},
     { channel: CHANNEL, user: '100000000000000001' },
     { channel: 5 },
@@ -197,7 +197,7 @@ test('the record mapper derives its locator from the line and keeps internal met
     v: 1,
     origin: 'record-v1',
     iface: 'discord',
-    conversationId: CHANNEL,
+    chatId: CHANNEL,
     messageId: line.messageId,
   });
   assert.deepEqual(back, line);

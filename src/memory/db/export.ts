@@ -36,7 +36,7 @@ export function isMediaDescriptionEntry(value: unknown): value is MediaDescripti
   );
 }
 
-/** A descriptor belongs to one exact community, interface and cache key. */
+/** A descriptor belongs to one exact root, interface and cache key. */
 export const mediaDescriptionId = (key: StorageKey): string => `desc:media:${storageId(key)}`;
 
 function mediaEntryOf(row: Row | undefined): MediaDescriptionEntry | null {

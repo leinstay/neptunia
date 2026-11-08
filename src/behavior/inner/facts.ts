@@ -129,36 +129,31 @@ export const idOrNull = (value: unknown): string | null =>
 const factsOf = (state: { facts?: Array<Fact> } | null | undefined): Array<Fact> =>
   Array.isArray(state?.facts) ? state.facts : [];
 
-/** The state's facts that `scope` may see and that are not told yet, oldest first (the callers cut them to FACTS_SHOWN_MAX). `scope`: `{ placeId, privateChat, anywhere }`. */
+/** The state's facts that `scope` may see and that are not told yet, oldest first (the callers cut them to FACTS_SHOWN_MAX). `scope`: `{ placeId, dmChat, anywhere }`. */
 export function pendingFactsOf(
   state: { facts?: Array<Fact> } | null | undefined,
-  { placeId = null, privateChat = false, anywhere = false, scopePlaceId, conversation }: FactScope = {}
+  { placeId = null, dmChat = false, anywhere = false, scopePlaceId, chat }: FactScope = {}
 ): Array<Fact> {
   const here = idOrNull(placeId);
   return factsOf(state).filter((fact) => {
     if (fact.told) return false;
     if (scopePlaceId && fact.scopePlaceId !== scopePlaceId) return false;
-    if (
-      fact.conversation &&
-      conversation &&
-      (fact.conversation.iface !== conversation.iface ||
-        (privateChat && fact.conversation.conversationId !== conversation.conversationId))
-    )
+    if (fact.chat && chat && (fact.chat.iface !== chat.iface || (dmChat && fact.chat.chatId !== chat.chatId)))
       return false;
-    if (privateChat === true) return fact.privateChat === true && here !== null && fact.placeId === here;
-    if (fact.privateChat === true) return false;
+    if (dmChat === true) return fact.dmChat === true && here !== null && fact.placeId === here;
+    if (fact.dmChat === true) return false;
     return anywhere || fact.placeId === null || fact.placeId === here;
   });
 }
 
-/** `fact` (`{ kind, placeId, privateChat, at, ...payload }`) appended to `state.facts` (an id given). Returns the stored fact. */
+/** `fact` (`{ kind, placeId, dmChat, at, ...payload }`) appended to `state.facts` (an id given). Returns the stored fact. */
 export function addFactTo(state: { facts?: Array<Fact> }, fact: FactInput, id: string): Fact {
-  const { placeId = null, privateChat = false, at, ...payload } = fact;
+  const { placeId = null, dmChat = false, at, ...payload } = fact;
   const stored: Fact = {
     ...payload,
     id,
     placeId: idOrNull(placeId),
-    privateChat: privateChat === true,
+    dmChat: dmChat === true,
     at: isFiniteNumber(at) ? at : 0,
     told: false,
   };
@@ -181,7 +176,7 @@ export function markFactsTold(
 }
 
 /** The fields of a kept fact that are its bookkeeping, not its payload. */
-const BOOKKEEPING = ['scopePlaceId', 'conversation', 'id', 'placeId', 'privateChat', 'at', 'told'] as const;
+const BOOKKEEPING = ['scopePlaceId', 'chat', 'id', 'placeId', 'dmChat', 'at', 'told'] as const;
 
 /** A fact as the prompt shows it: its payload without the bookkeeping. */
 export function factPayload(fact: Fact): FactPayload {

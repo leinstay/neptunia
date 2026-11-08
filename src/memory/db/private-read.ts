@@ -1,5 +1,5 @@
 // The private view of one person across their accounts and actual DM places, and of one DM place. Joins stored accounts
-// and places and never derives an id from a person's spelling. A DM place holds the private records of its conversation:
+// and places and never derives an id from a person's spelling. A DM place holds the private records of its chat:
 // a record belongs to the place its `audience_id` names, whoever the record is about. The context decides before anything
 // is read: a place outside its audiences adds no account, record or count. An internal context reads every place, every
 // merge and the past links; an outward one follows only the owner's merges (person-links.ts#personMembers). Source text
@@ -10,7 +10,7 @@ import { AUD_INTERNAL, allowedAudience, dmAudienceId } from './scope.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
 
-// The tables whose rows are private memory of a conversation. Conversations themselves are read through places.
+// The tables whose rows are private memory of a chat. Chats themselves are read through places.
 const RECORD_TABLES = ['claims', 'descriptions', 'episodes', 'affinity_events'] as const;
 
 export type PrivatePerson = { id: string; requestedId: string; mergedFrom: Array<string> };
@@ -178,7 +178,7 @@ function partnerOf(db: Db, place: Row, internal: boolean): PrivatePerson | null 
 export function privateByPlace(db: Db, placeId: string, context: Context): PrivatePlaceView {
   allowedAudience({ audience_id: AUD_INTERNAL }, context);
   const place = db
-    .prepare("SELECT * FROM places WHERE id = ? AND (kind = 'dm' OR conversation = 'dm') AND retired_at IS NULL")
+    .prepare("SELECT * FROM places WHERE id = ? AND (kind = 'dm' OR chat = 'dm') AND retired_at IS NULL")
     .get(placeId);
   if (place === undefined) return { found: false, code: 'PLACE_NOT_FOUND' };
   if (!mayRead(place, context))
@@ -204,7 +204,7 @@ export function linkedPrivateClaims(db: Db, accountId: string): Array<{ text: st
   const places = db
     .prepare(
       `SELECT p.id FROM places p JOIN accounts a ON a.id = p.partner_account
-       WHERE a.person_id = ? AND a.id <> ? AND (p.kind = 'dm' OR p.conversation = 'dm') AND p.retired_at IS NULL`
+       WHERE a.person_id = ? AND a.id <> ? AND (p.kind = 'dm' OR p.chat = 'dm') AND p.retired_at IS NULL`
     )
     .all(person, accountId);
   const claims = db.prepare(

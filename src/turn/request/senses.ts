@@ -23,7 +23,7 @@ export type SensesOptions = {
   searchAvailable?: boolean;
   recallAvailable?: boolean;
   drawOn?: boolean;
-  privateChat?: boolean;
+  dmChat?: boolean;
   interfaceText?: string | null;
   gifWatching?: boolean;
   selfreflectionChannel?: string | null;
@@ -122,13 +122,13 @@ function abilitiesOffLine(config: RequestConfig, labels: SensesLabels): string |
  * halves for the prompt cache: `stable`, the lines that read only the config,
  * the prompts and the server's lists (the same on every turn of a day), and
  * `turn`, the lines that depend on this turn -- `senses.recallTool` (the
- * search of the message history), the drawing line (`drawOn`) and `senses.privateChat` (this turn is
+ * search of the message history), the drawing line (`drawOn`) and `senses.dmChat` (this turn is
  * a private chat). Each half keeps the lines in the order described below.
  * Both are '' when `labels.senses` is missing entirely, so an older
  * deployment's labels.json never breaks — the block is simply omitted.
  * `drawOn` (an image client and Attach Files) adds the drawing line.
- * `privateChat` adds `senses.privateChat`; outside a private chat,
- * `private.enabled` true adds `senses.privateAware` instead.
+ * `dmChat` adds `senses.dmChat`; outside a private chat,
+ * `dm.enabled` true adds `senses.privateAware` instead.
  * No search runs before her reply: the search line is `senses.searchTool` (with a search key configured) and the
  * recall line `senses.recallTool` (`recallAvailable`), each only when `toolsGranted`
  * (her granted in-turn tools) holds `web.search` / `memory.search`; else neither. With `web.read` granted,
@@ -150,7 +150,7 @@ export function renderSenses(
     searchAvailable = false,
     recallAvailable = false,
     drawOn,
-    privateChat = false,
+    dmChat = false,
     interfaceText = null,
     gifWatching = false,
     selfreflectionChannel = null,
@@ -204,7 +204,7 @@ export function renderSenses(
   // available); an older labels.json without the line shows nothing. Per turn.
   if (recallAvailable === true && granted('memory.search') && senses.recallTool) turnLines.push(senses.recallTool);
   // Drawing needs the image client and Attach Files (`drawOn`): one line. An older labels.json without senses.draw
-  // shows nothing. Per turn: Attach Files is the conversation's.
+  // shows nothing. Per turn: Attach Files is the chat's.
   if (drawOn === true && senses.draw) turnLines.push(senses.draw);
   lines.push(senses.files);
   lines.push(abilitiesOffLine(config, labels));
@@ -215,10 +215,10 @@ export function renderSenses(
   // Where the persona keeps its selfreflection, so it can speak of it anywhere.
   if (senses.selfreflection && typeof selfreflectionChannel === 'string' && selfreflectionChannel)
     lines.push(fill(senses.selfreflection, { channel: selfreflectionChannel }));
-  // Private chat: the one line for this conversation (per turn), or -- on the
+  // Private chat: the one line for this chat (per turn), or -- on the
   // server, with the feature on -- the rule about what was said in private.
-  if (privateChat) turnLines.push(senses.privateChat);
-  else if (config.private?.enabled === true) lines.push(senses.privateAware);
+  if (dmChat) turnLines.push(senses.dmChat);
+  else if (config.dm?.enabled === true) lines.push(senses.privateAware);
   return { stable: lines.filter(Boolean).join('\n'), turn: turnLines.filter(Boolean).join('\n') };
 }
 
@@ -342,7 +342,7 @@ export type SensesOf = {
  */
 // health: allow complexity until 2027-04-01 -- moved from buildRequest in src/behavior/prompt.js in stage 5d, a pure split
 export function sensesOf(given: RequestInput & Base): SensesOf {
-  const { config, prompts, labels, privateChat, customEmoji } = given;
+  const { config, prompts, labels, dmChat, customEmoji } = given;
   const sensesOptions: SensesOptions = {
     searchAvailable: given.searchAvailable === true,
     recallAvailable: given.recallAvailable === true,
@@ -353,7 +353,7 @@ export function sensesOf(given: RequestInput & Base): SensesOf {
       : [],
     drawOn: given.drawOn,
     window: given.history,
-    privateChat,
+    dmChat,
     // The interface's text speaks of its custom emoji, so it comes with a non-empty index.
     interfaceText: customEmoji.length > 0 ? (given.mediaPickText ?? null) : null,
     // Whether a GIF in the transcript was watched rather than seen in one frame, under the live config and prompts.

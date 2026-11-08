@@ -36,7 +36,7 @@ function rig({ busy = () => false }: { busy?: () => boolean } = {}) {
     hot: { config: { errands: { resultRetrySeconds: 30 } } },
     // The fake holds the two reads a result turn uses.
     reads: {
-      conversationInfo: () => Promise.resolve({ id: 'c1' }),
+      chatInfo: () => Promise.resolve({ id: 'c1' }),
       fetchMessages: () => Promise.resolve({ messages: [] }),
     } as unknown as Reads,
     iface: () => 'fake',

@@ -1,7 +1,7 @@
 // A `place` argument on every interface (plan 2026-11-06-turn-frame, slice 7 (b)): the tools name a place by `place`,
 // never by a platform noun, and src/tools/place-names.ts resolves the name against the name index of the memory
 // (src/memory/db/names.ts#namesOf) instead of the interface's channel list. A handle to read a place and a way to write
-// there are two facts: the interface's `conversationInfo` decides the second, so a room that grants no `send` refuses a
+// there are two facts: the interface's `chatInfo` decides the second, so a room that grants no `send` refuses a
 // write with `channel-no-permission` while a read of the same room goes through. One case per interface fake: the room
 // `c3` "ανακοινώσεις" of the fake interface `fake`, and the room `k1` "λιμάνι" of a second fake interface `tele`.
 // Both rooms are in the memory database only by their stored names; she names each the way she would write it, with
@@ -23,7 +23,7 @@ const THINK = '<think>STEP 4. So: do it.</think>';
 /** The second interface, holding the room `k1` where she may read and not write. */
 function teleAdapter(): Fake {
   const tele = createFakeAdapter({ iface: 'tele', selfId: 'self-id', now: () => TURN_NOW });
-  tele.seedConversation({
+  tele.seedChat({
     iface: 'tele',
     id: 'k1',
     kind: 'channel',
@@ -78,7 +78,7 @@ async function callNowhere(skill: string, args: Record<string, unknown>): Promis
         due.id = made.intention?.id ?? '';
       },
       answers: [toolAnswer(THINK, [call(skill, args)]), '<skip/>'],
-      conversation: null,
+      chat: null,
     });
     return { run, tele };
   } finally {

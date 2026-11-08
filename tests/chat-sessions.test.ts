@@ -1,9 +1,9 @@
-// src/conversation/sessions.ts: durable conversation sessions over stored source lines. A session is a view with a
+// src/chat/sessions.ts: durable chat sessions over stored source lines. A session is a view with a
 // lineage. The store fake holds the lines and session rows; its lines are never written by the service.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createConversationSessions } from '../src/conversation/sessions.ts';
-import type { ConversationStore, SessionRow, SourceLine } from '../src/conversation/sessions.ts';
+import { createChatSessions } from '../src/chat/sessions.ts';
+import type { ChatStore, SessionRow, SourceLine } from '../src/chat/sessions.ts';
 
 const LINES: ReadonlyArray<SourceLine> = [
   { id: 's1', placeId: 'cli:dm:owner', at: 10, who: 'owner', text: 'First   question\nwith a second line' },
@@ -14,7 +14,7 @@ const LINES: ReadonlyArray<SourceLine> = [
 
 function storeOf(lines: ReadonlyArray<SourceLine> = LINES) {
   const rows: Array<SessionRow> = [];
-  const store: ConversationStore = {
+  const store: ChatStore = {
     lines: (placeId) => lines.filter((line) => line.placeId === placeId),
     sessions: () => rows,
     saveSession: (row) => void rows.push(row),
@@ -22,9 +22,9 @@ function storeOf(lines: ReadonlyArray<SourceLine> = LINES) {
   return { store, rows };
 }
 
-function serviceOver(store: ConversationStore) {
+function serviceOver(store: ChatStore) {
   let serial = 0;
-  return createConversationSessions({
+  return createChatSessions({
     store,
     now: () => 5000,
     newId: () => `id${(serial += 1)}-${store.sessions().length}`,
@@ -57,7 +57,7 @@ test('an empty place gets a session with a fixed preview, and no place lists not
 });
 
 test('after a restart a resumed session reads its stored lines by their original source ids', () => {
-  // Bug: resume copies the conversation into new rows, and provenance points at the copy.
+  // Bug: resume copies the chat into new rows, and provenance points at the copy.
   const { store } = storeOf();
   const opened = ok(serviceOver(store).open({ placeId: 'cli:dm:owner' }));
   const again = serviceOver(store);
@@ -112,7 +112,7 @@ test('a branch states that memory stays continuous', () => {
 });
 
 test('a boundary that is not in the lineage is refused', () => {
-  // Bug: a missing boundary silently branches the whole conversation.
+  // Bug: a missing boundary silently branches the whole chat.
   const { store, rows } = storeOf();
   const service = serviceOver(store);
   const root = ok(service.open({ placeId: 'cli:dm:owner' }));
@@ -162,7 +162,7 @@ test('a repeated branch request gives the same session', () => {
 });
 
 test('the authority of one session opens no other session', () => {
-  // Bug: any issued token reads every conversation.
+  // Bug: any issued token reads every chat.
   const { store } = storeOf([...LINES, { id: 'x1', placeId: 'other:dm:p', at: 1, who: 'owner', text: 'Elsewhere' }]);
   const service = serviceOver(store);
   const one = ok(service.open({ placeId: 'cli:dm:owner' }));

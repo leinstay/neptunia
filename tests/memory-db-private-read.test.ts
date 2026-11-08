@@ -96,7 +96,7 @@ test('a concrete account keeps its interface, authority, native id, generation a
 });
 
 test('every record keeps its original audience, place and stored text', () => {
-  // Bug: a person-wide view rewrites an audience to the asking conversation, or merges text into one claim.
+  // Bug: a person-wide view rewrites an audience to the asking chat, or merges text into one claim.
   withWorld((db) => {
     const view = person(privateByPerson(db, ANNA, internalContext()));
     const claim = view.records.find((one) => one.id === 'claim:a11');
@@ -110,7 +110,7 @@ test('every record keeps its original audience, place and stored text', () => {
   });
 });
 
-test('a public claim and a claim made in someone else conversation stay out of the private view', () => {
+test('a public claim and a claim made in someone else chat stay out of the private view', () => {
   // Bug: the reader selects by subject, so what Boris said about Anna in his own DM is shown as hers.
   withWorld((db) => {
     const ids = recordIds(person(privateByPerson(db, ANNA, internalContext())));
@@ -119,7 +119,7 @@ test('a public claim and a claim made in someone else conversation stay out of t
   });
 });
 
-test('a record about a third person made in her DM belongs to her conversation', () => {
+test('a record about a third person made in her DM belongs to her chat', () => {
   // Bug: selecting by subject loses what she told the persona about someone else in her own DM.
   withWorld((db) => {
     addClaim(db, 'claim:third-party', BORIS, 'aud:dm:place:dm-a11');
@@ -229,7 +229,7 @@ test('one DM place holds its partner and only its own records', () => {
 });
 
 test('another person context reading a DM place gets no records and no count', () => {
-  // Bug: a place id supplied in his DM reads her conversation.
+  // Bug: a place id supplied in his DM reads her chat.
   withWorld((db) => {
     const view = place(privateByPlace(db, 'place:dm-a21', dmOf(db, BORIS, 'telegram', BORIS_PLACE)));
     assert.deepEqual(view.records, []);
@@ -239,7 +239,7 @@ test('another person context reading a DM place gets no records and no count', (
 });
 
 test('merged people read as the survivor of the whole chain, with original audiences kept', () => {
-  // Bug: the reader stops at the first merge, or the merge rewrites audiences to the survivor's conversation.
+  // Bug: the reader stops at the first merge, or the merge rewrites audiences to the survivor's chat.
   withWorld((db, handle) => {
     addAccount(db, {
       id: 'account:c1',

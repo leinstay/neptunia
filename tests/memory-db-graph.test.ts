@@ -155,7 +155,7 @@ const discordLine = (key: string, minutes: number, over = {}) => ({
   iface: 'discord',
   authority: D,
   native: { kind: 'message', key, revision: 0 },
-  place: { authority: D, key: 'channel:c1', kind: 'channel', conversation: 'group' },
+  place: { authority: D, key: 'channel:c1', kind: 'channel', chat: 'group' },
   author: { kind: 'account', key: 'alice-main' },
   occurredAt: at(minutes),
   observedAt: at(minutes),
@@ -163,7 +163,7 @@ const discordLine = (key: string, minutes: number, over = {}) => ({
   relations: [],
   ...over,
 });
-const dmPlace = { authority: D, key: 'dm:bob', kind: 'dm', conversation: 'dm', partner: { key: 'bob' } };
+const dmPlace = { authority: D, key: 'dm:bob', kind: 'dm', chat: 'dm', partner: { key: 'bob' } };
 const replyTo = (key: string) => [{ predicate: 'replies_to', target: { kind: 'message', key } }];
 
 /**
@@ -221,10 +221,7 @@ function traversalFixture() {
   };
   const early = put('early', discordLine('m0', 5, { text: 'before the link' }));
   put('main', discordLine('m1', 20));
-  put(
-    'inThread',
-    discordLine('m2', 21, { place: { authority: D, key: 'thread:t1', kind: 'thread', conversation: 'group' } })
-  );
+  put('inThread', discordLine('m2', 21, { place: { authority: D, key: 'thread:t1', kind: 'thread', chat: 'group' } }));
   const alt = put('alt', discordLine('m3', 22, { author: { kind: 'account', key: 'alice-alt' } }));
   put(
     'evidence',
@@ -247,7 +244,7 @@ function traversalFixture() {
     ...discordLine('t-1', 25),
     iface: 'telegram',
     authority: T,
-    place: { authority: T, key: 'chat:tg1', kind: 'room', conversation: 'group' },
+    place: { authority: T, key: 'chat:tg1', kind: 'room', chat: 'group' },
     author: { kind: 'account', authority: T, key: 'alice-tg' },
   });
   const accountOf = (done: Record<string, Untyped>) =>

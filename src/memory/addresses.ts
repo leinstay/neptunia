@@ -1,8 +1,8 @@
-// What a core module holds of a conversation or a person (its native id and interface) as the canonical place and account
+// What a core module holds of a chat or a person (its native id and interface) as the canonical place and account
 // the memory store addresses. The store answers from the database; a stand-in store without these methods holds the
 // native ids as given.
 
-type Conversationish = {
+type Chatish = {
   id?: string | null;
   iface?: string | null;
   rootId?: string | null;
@@ -13,38 +13,36 @@ type Conversationish = {
 };
 
 type Addressing = {
-  placeOfConversation?: (conversation: Conversationish, iface?: string) => string;
-  sharedPlaceOf?: (conversation: Conversationish, iface?: string) => string;
-  placeOfCommunity?: (nativeId: string, iface?: string) => string;
+  placeOfChat?: (chat: Chatish, iface?: string) => string;
+  sharedPlaceOf?: (chat: Chatish, iface?: string) => string;
+  placeOfRoot?: (nativeId: string, iface?: string) => string;
   accountOf?: (nativeId: string, iface?: string) => string;
   personOfAccount?: (accountId: string) => string;
   rootPlaceOf?: (placeId: string) => string | null;
-  conversationOfPlace?: (placeId: string, dmConversationOf?: DmConversationOf | null) => string | null;
+  chatOfPlace?: (placeId: string, dmChatOf?: DmChatOf | null) => string | null;
 };
 
 /** The direct chat an interface saw with a member, by the member's native id. */
-type DmConversationOf = (partnerId: string) => string | null;
+type DmChatOf = (partnerId: string) => string | null;
 
-const given = (conversation: Conversationish): string => String(conversation.rootId ?? conversation.id ?? '');
+const given = (chat: Chatish): string => String(chat.rootId ?? chat.id ?? '');
 
-/** The place of a conversation itself: its channel, thread, group or DM. */
-export function placeOfConversation(store: unknown, conversation: Conversationish, iface?: string): string {
+/** The place of a chat itself: its channel, thread, group or DM. */
+export function placeOfChat(store: unknown, chat: Chatish, iface?: string): string {
   const addressing = store as Addressing | null | undefined;
-  return addressing?.placeOfConversation
-    ? addressing.placeOfConversation(conversation, iface)
-    : String(conversation.id ?? '');
+  return addressing?.placeOfChat ? addressing.placeOfChat(chat, iface) : String(chat.id ?? '');
 }
 
-/** The place that holds what a conversation shares with its tree: the top of it, a DM's own place. */
-export function sharedPlaceOf(store: unknown, conversation: Conversationish, iface?: string): string {
+/** The place that holds what a chat shares with its tree: the top of it, a DM's own place. */
+export function sharedPlaceOf(store: unknown, chat: Chatish, iface?: string): string {
   const addressing = store as Addressing | null | undefined;
-  return addressing?.sharedPlaceOf ? addressing.sharedPlaceOf(conversation, iface) : given(conversation);
+  return addressing?.sharedPlaceOf ? addressing.sharedPlaceOf(chat, iface) : given(chat);
 }
 
-/** The place of a community an interface names by its native id. */
-export function placeOfCommunity(store: unknown, nativeId: string, iface?: string): string {
+/** The place of a root an interface names by its native id. */
+export function placeOfRoot(store: unknown, nativeId: string, iface?: string): string {
   const addressing = store as Addressing | null | undefined;
-  return addressing?.placeOfCommunity ? addressing.placeOfCommunity(nativeId, iface) : nativeId;
+  return addressing?.placeOfRoot ? addressing.placeOfRoot(nativeId, iface) : nativeId;
 }
 
 /** The account of a member an interface names by a native id. */
@@ -67,14 +65,10 @@ export function topPlaceOf(store: unknown, placeId: string): string {
 }
 
 /**
- * The native conversation of a place, for a call that speaks to its interface: the store's answer, a DM's chat from
- * `dmConversationOf`; the place as given when the store cannot say (a stand-in store holds native ids).
+ * The native chat of a place, for a call that speaks to its interface: the store's answer, a DM's chat from
+ * `dmChatOf`; the place as given when the store cannot say (a stand-in store holds native ids).
  */
-export function conversationOfPlace(
-  store: unknown,
-  placeId: string,
-  dmConversationOf: DmConversationOf | null = null
-): string | null {
+export function chatOfPlace(store: unknown, placeId: string, dmChatOf: DmChatOf | null = null): string | null {
   const addressing = store as Addressing | null | undefined;
-  return addressing?.conversationOfPlace ? addressing.conversationOfPlace(placeId, dmConversationOf) : placeId;
+  return addressing?.chatOfPlace ? addressing.chatOfPlace(placeId, dmChatOf) : placeId;
 }

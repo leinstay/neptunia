@@ -1,7 +1,7 @@
 // One inner turn of the turn frame's template over the real turn runner (plan 2026-11-06-turn-frame, slice 5): the real
 // operations, a real intention service, a real journal and a memory database the graph reader and `<meanwhile>` read,
-// a fake model and the fake interface `fake` holding the room `c1`. A service turn runs with `conversation: null`, as
-// the slice has `runTurn` take it; an intention with a place runs with that place's conversation. The world of the
+// a fake model and the fake interface `fake` holding the room `c1`. A service turn runs with `chat: null`, as
+// the slice has `runTurn` take it; an intention with a place runs with that place's chat. The world of the
 // memory database, with made-up names in Greek and accented Latin:
 //   interface `fake`, root `g1` "Αγορά", rooms `c1` "γενικά" and `c2` "κήπος"
 //   interface `tele`, root `t1` "Νησί", room `k1` "λιμάνι"
@@ -146,8 +146,8 @@ export type ServiceTurnSpec = {
   /** The wake as the drain hands it to the turn: `kind`, `items`, `intentions`, `chainId`, and a kind's facts. */
   wake: Record<string, unknown> | ((service: ReturnType<typeof createIntentionService>) => Record<string, unknown>);
   answers: ReadonlyArray<unknown>;
-  /** The conversation the turn runs in: null for a service and an intention without a place. */
-  conversation: { iface: string; conversationId: string } | null;
+  /** The chat the turn runs in: null for a service and an intention without a place. */
+  chat: { iface: string; chatId: string } | null;
   /** What exists before the turn: intentions made through the service. */
   seed?: ((service: ReturnType<typeof createIntentionService>) => void) | null;
   world?: World;
@@ -177,7 +177,7 @@ function routed(main: Fake, others: ReadonlyArray<Fake>): Fake {
 /** The command line's adapter with the owner's chat, where she may write. */
 function cliAdapter(): Fake {
   const cli = createFakeAdapter({ iface: 'cli', selfId: 'self-id', now: () => TURN_NOW });
-  cli.seedConversation({
+  cli.seedChat({
     iface: 'cli',
     id: 'owner',
     kind: 'dm',
@@ -190,7 +190,7 @@ function cliAdapter(): Fake {
     voice: false,
     public: false,
   });
-  cli.seedDmConversation('owner', 'owner');
+  cli.seedDmChat('owner', 'owner');
   return cli;
 }
 
@@ -205,7 +205,7 @@ export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
         access: Object.fromEntries(GRANTED.map((name) => [name, { everyone: false, roles: [], users: ['self-id'] }])),
       },
       context: { ...SERVICE_CONTEXT, memory: { ...SERVICE_CONTEXT.memory, ...spec.settings } },
-      private: { enabled: true },
+      dm: { enabled: true },
       llm: { maxRequestTokens: 60000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
       models: { base: { analyzer: 'x/text' } },
@@ -276,7 +276,7 @@ export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
     hot,
     store,
     client: { user: { id: 'self-id', username: 'Bot' } },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     port,
     reads,
     intentions,
@@ -319,7 +319,7 @@ export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
   const wake = typeof spec.wake === 'function' ? spec.wake(intentions) : spec.wake;
   const inner = { wake, currentChannel: null, shadow: false, mayAct: () => true };
   const { result } = await withCapturedLogs(() =>
-    turns.runTurn({ conversation: spec.conversation, mode: 'inner', triggerKind: 'inner', inner })
+    turns.runTurn({ chat: spec.chat, mode: 'inner', triggerKind: 'inner', inner })
   );
   await new Promise((resolve) => setImmediate(resolve));
   const turn = result as { inner?: { actions?: Array<Record<string, string | null | undefined>> } };

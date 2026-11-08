@@ -8,12 +8,12 @@ import {
   READ_ACTIONS,
 } from '../src/protocol/reads.ts';
 
-const REF = { iface: 'fake', conversationId: 'c1' };
+const REF = { iface: 'fake', chatId: 'c1' };
 
 test('readAction turns a method call into its wire action and gives null for a method that is no read', () => {
   assert.deepEqual(readAction('history', [REF, { limit: 5, before: 'm1', after: undefined }]), {
     action: 'messages.history',
-    conversation: REF,
+    chat: REF,
     limit: 5,
     before: 'm1',
   });
@@ -38,21 +38,18 @@ test('isReadAction knows every read action of the port and no other name', () =>
 });
 
 test('readActionProblem names the first field of a history read that is wrong', () => {
-  const good = { action: 'messages.history', conversation: REF, limit: 10 };
+  const good = { action: 'messages.history', chat: REF, limit: 10 };
   assert.equal(readActionProblem(good), null);
   assert.deepEqual(readActionProblem({ ...good, limit: 0 }), ['limit', 'type']);
   assert.deepEqual(readActionProblem({ ...good, limit: 10_001 }), ['limit', 'type']);
   assert.deepEqual(readActionProblem({ ...good, before: 'a', after: 'b' }), ['history', 'anchors']);
   assert.deepEqual(readActionProblem({ ...good, since: 5, around: 'a' }), ['history', 'since']);
-  assert.deepEqual(readActionProblem({ action: 'messages.history', limit: 10 }), ['conversation', 'required']);
+  assert.deepEqual(readActionProblem({ action: 'messages.history', limit: 10 }), ['chat', 'required']);
 });
 
 test('readActionProblem refuses more than 25 viewers and a link parse of too many or too long texts', () => {
   const viewers = Array.from({ length: 26 }, (_, i) => `u${i}`);
-  assert.deepEqual(readActionProblem({ action: 'conversation.info', conversation: REF, viewers }), [
-    'viewers',
-    'too-many',
-  ]);
+  assert.deepEqual(readActionProblem({ action: 'chat.info', chat: REF, viewers }), ['viewers', 'too-many']);
   assert.deepEqual(readActionProblem({ action: 'links.parse', texts: Array(51).fill('x') }), ['texts', 'too-many']);
   assert.deepEqual(readActionProblem({ action: 'links.parse', texts: ['x'.repeat(2001)] }), ['texts.0', 'too-long']);
   assert.equal(readActionProblem({ action: 'links.parse', texts: ['a', 'b'] }), null);

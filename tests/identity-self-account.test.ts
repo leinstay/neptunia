@@ -38,7 +38,7 @@ function line(
       kind: 'message.received',
       iface,
       at: AT,
-      conversation: { id: 'room', kind: 'channel', chatType: 'channel' },
+      chat: { id: 'room', kind: 'channel', chatType: 'channel' },
       message: { id, at: AT, content: 'a synthetic line', author: { id: author, name } },
     },
     { selfId, connection: `conn:${iface}` }
@@ -144,7 +144,7 @@ test('the owner reads every claim about her through the reader that reads anyone
 });
 
 test('an outward context reads of her only what its audience holds, as of anyone', () => {
-  // Bug: reading her facts through the person's reader opens a private conversation's fact about her to a group.
+  // Bug: reading her facts through the person's reader opens a private chat's fact about her to a group.
   withDb((_handle, db) => {
     db.prepare("INSERT OR IGNORE INTO people (id, kind) VALUES (?, 'self')").run(SELF);
     selfClaim(db, 'claim:self-group', 'aud:group:discord');

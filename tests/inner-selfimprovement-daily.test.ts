@@ -15,7 +15,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
 useIface('fake');
-const GUILD = 'g1';
+const ROOT = 'g1';
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
@@ -110,7 +110,7 @@ type Call = {
 
 function setup(start: number, watcher?: (now: number) => WatcherNews | null) {
   const clock = { t: start };
-  world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
+  world().channel({ id: 'c1', name: 'chan-c1', placeId: ROOT, permissions: { send: true } });
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
@@ -157,7 +157,7 @@ function setup(start: number, watcher?: (now: number) => WatcherNews | null) {
     journal,
     reads: world().reads,
     iface: () => 'fake',
-    conversationName: (id: string) => `chan-${id}`,
+    chatName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },

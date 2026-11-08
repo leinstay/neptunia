@@ -22,16 +22,16 @@ const NOW = Date.parse('2026-10-24T12:00:00Z');
 const quiet = { debug() {}, info() {}, warn() {}, error() {} };
 const options = { now: () => NOW, log: quiet };
 
-function envelope(conversationId = 'room-a', text = 'Original evidence', edited = false): Envelope {
+function envelope(chatId = 'room-a', text = 'Original evidence', edited = false): Envelope {
   const mapped = observationOf({
     iface: 'synthetic',
     at: NOW,
     edit: edited,
-    conversation: { id: conversationId, kind: 'channel', chatType: 'channel' },
+    chat: { id: chatId, kind: 'channel', chatType: 'channel' },
     message: { id: 'same-message', at: NOW - 60000, content: text, author: { id: 'member' } },
   });
   assert.ok(mapped);
-  return { ...mapped, messageConversation: { id: conversationId, chatType: 'channel' } };
+  return { ...mapped, messageChat: { id: chatId, chatType: 'channel' } };
 }
 
 function sourceId(result: ObserveResult): string {
@@ -61,7 +61,7 @@ function oldHandle(): MemoryHandle {
   return openMemoryDb(':memory:', { migrations: MIGRATIONS.slice(0, 22) });
 }
 
-test('normalized messages with one native ID in two conversations receive separate families', () => {
+test('normalized messages with one native ID in two chats receive separate families', () => {
   const handle = openMemoryDb(':memory:');
   try {
     const first = sourceId(
@@ -106,12 +106,12 @@ test('replaying a normalized message returns its source without allocating anoth
   }
 });
 
-test('editing one normalized family preserves the other conversation and replays the edit', () => {
+test('editing one normalized family preserves the other chat and replays the edit', () => {
   const handle = openMemoryDb(':memory:');
   try {
     sourceId(observeMessage(handle, envelope(), { ...options, newKey: () => 'family-a' }));
     const other = sourceId(
-      observeMessage(handle, envelope('room-b', 'Other conversation'), { ...options, newKey: () => 'family-b' })
+      observeMessage(handle, envelope('room-b', 'Other chat'), { ...options, newKey: () => 'family-b' })
     );
     const edited = sourceId(observeMessage(handle, envelope('room-a', 'Edited evidence', true), options));
     assert.equal(sourceId(observeMessage(handle, envelope('room-a', 'Edited evidence', true), options)), edited);
@@ -126,7 +126,7 @@ test('editing one normalized family preserves the other conversation and replays
         [2, 'Edited evidence'],
       ]
     );
-    assert.equal(db.prepare('SELECT text FROM sources WHERE id = ?').get(other)?.text, 'Other conversation');
+    assert.equal(db.prepare('SELECT text FROM sources WHERE id = ?').get(other)?.text, 'Other chat');
     assert.equal(rows(db, 'sources').length, 3);
   } finally {
     handle.close();
@@ -178,7 +178,7 @@ test('a family allocation collision leaves sources and ingestion receipts unchan
       {
         ...envelope('room-b'),
         ingest: {
-          row: { principal: 'adapter', seq: 1, eventId: 'event-b', kind: 'message.received', conversation: 'room-b' },
+          row: { principal: 'adapter', seq: 1, eventId: 'event-b', kind: 'message.received', chat: 'room-b' },
           keepDays: 7,
         },
       },
@@ -201,7 +201,7 @@ test('a normalized observation commits its supplied ingestion receipt with its s
         {
           ...envelope(),
           ingest: {
-            row: { principal: 'adapter', seq: 1, eventId: 'event-a', kind: 'message.received', conversation: 'room-a' },
+            row: { principal: 'adapter', seq: 1, eventId: 'event-a', kind: 'message.received', chat: 'room-a' },
             keepDays: 7,
           },
         },
@@ -225,7 +225,7 @@ for (const descriptor of [
   { id: 'room-a', chatType: 'unknown' },
   { id: 'room-a', chatType: 'dm' },
 ]) {
-  test(`a malformed conversation descriptor ${JSON.stringify(descriptor)} refuses allocation`, () => {
+  test(`a malformed chat descriptor ${JSON.stringify(descriptor)} refuses allocation`, () => {
     const handle = openMemoryDb(':memory:');
     try {
       let allocated = 0;
@@ -233,7 +233,7 @@ for (const descriptor of [
       assert.deepEqual(
         observeMessage(
           handle,
-          { ...envelope(), messageConversation: descriptor },
+          { ...envelope(), messageChat: descriptor },
           {
             ...options,
             newKey: () => {
@@ -253,16 +253,16 @@ for (const descriptor of [
   });
 }
 
-test('the protocol mapper retains actual DM conversation separately from the partner place', () => {
+test('the protocol mapper retains actual DM chat separately from the partner place', () => {
   const mapped = observationOf({
     iface: 'synthetic',
     at: NOW,
-    conversation: { id: 'actual-dm', kind: 'dm', chatType: 'dm', partnerId: 'member' },
+    chat: { id: 'actual-dm', kind: 'dm', chatType: 'dm', partnerId: 'member' },
     message: { id: 'same-message', at: NOW, content: 'Private evidence', author: { id: 'member' } },
   });
   assert.equal(mapped?.place.key, 'dm:member');
-  assert.deepEqual(mapped?.messageConversation, { id: 'actual-dm', chatType: 'dm', partnerId: 'member' });
-  assert.equal(mapped?.messageLocator?.conversationId, 'actual-dm');
+  assert.deepEqual(mapped?.messageChat, { id: 'actual-dm', chatType: 'dm', partnerId: 'member' });
+  assert.equal(mapped?.messageLocator?.chatId, 'actual-dm');
 });
 
 test('V23 creates an empty catalog without rewriting source or graph rows', () => {
@@ -339,9 +339,9 @@ for (const conflict of ['locator', 'family'] as const) {
       const id = sourceId(observe(handle, second, options));
       const db = dbOf(handle);
       if (conflict === 'family')
-        db.prepare(
-          "UPDATE sources SET extra = json_set(extra, '$.$messageLocator.conversationId', 'room-b') WHERE id = ?"
-        ).run(id);
+        db.prepare("UPDATE sources SET extra = json_set(extra, '$.$messageLocator.chatId', 'room-b') WHERE id = ?").run(
+          id
+        );
       db.prepare('UPDATE sources SET retired_at = ? WHERE revision = 1').run('2026-10-24T11:00:00Z');
       const before = snapshot(db);
       assert.throws(() => migrate(db, CATALOG_MIGRATIONS), { code: 'CONVERSATION_CONFLICT' });
@@ -404,7 +404,7 @@ test('an observation refusal rolls back the family reservation and supplied inge
             seq: 1,
             eventId: 'refused-event',
             kind: 'message.received',
-            conversation: 'room-a',
+            chat: 'room-a',
           },
           keepDays: 7,
         },
@@ -534,7 +534,7 @@ test('a locator with a different native message ID refuses normalized allocation
   }
 });
 
-test('a mapped place that disagrees with the conversation descriptor refuses allocation', () => {
+test('a mapped place that disagrees with the chat descriptor refuses allocation', () => {
   const handle = openMemoryDb(':memory:');
   try {
     const value = envelope();
@@ -558,7 +558,7 @@ test('a mapped place that disagrees with the conversation descriptor refuses all
   }
 });
 
-test('two actual DM conversations with one partner retain distinct normalized families', () => {
+test('two actual DM chats with one partner retain distinct normalized families', () => {
   const handle = openMemoryDb(':memory:');
   try {
     const ids = ['dm-a', 'dm-b'].map((id) => {
@@ -572,10 +572,10 @@ test('two actual DM conversations with one partner retain distinct normalized fa
               authority: value.authority,
               key: 'dm:member',
               kind: 'dm',
-              conversation: 'dm',
+              chat: 'dm',
               partner: { key: 'member' },
             },
-            messageConversation: { id, chatType: 'dm', partnerId: 'member' },
+            messageChat: { id, chatType: 'dm', partnerId: 'member' },
           },
           { ...options, newKey: () => `family-${id}` }
         )

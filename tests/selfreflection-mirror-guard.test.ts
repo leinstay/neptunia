@@ -29,7 +29,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import '../src/tools/impl/index.ts';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
-const GUILD = 'g1';
+const ROOT = 'g1';
 const MIRROR = 'd1';
 /** The tracked settings of the message handler's rails (config.json), so the handler runs as it ships. */
 // PR 7c: the shipped settings live in config/config.json.
@@ -47,39 +47,37 @@ after(async () => {
 type Fake = ReturnType<typeof createFakeAdapter>;
 
 /**
- * A community with `general` (c1), where Alice wrote last, and `journal` (d1), the diary's mirror (enabled unless
+ * A root with `general` (c1), where Alice wrote last, and `journal` (d1), the diary's mirror (enabled unless
  * `enabled` is false), on a fake interface whose outbound port is the guarded one. Memory is a real database.
  */
-async function community({ enabled = true }: { enabled?: boolean } = {}) {
+async function root({ enabled = true }: { enabled?: boolean } = {}) {
   const memory = await openTestMemory({ now: () => NOW });
   OPEN.push(memory);
-  seedMirror(memory.memoryDb, { iface: 'fake', conversationId: MIRROR, name: 'journal', enabled, at: NOW });
+  seedMirror(memory.memoryDb, { iface: 'fake', chatId: MIRROR, name: 'journal', enabled, at: NOW });
   freshWorld();
   const line = (placeId: string) => ({
     ...rawMessage({ id: `m-${placeId}`, ts: NOW - 30_000, content: 'γεια' }),
     placeId,
   });
-  world().channel({ id: 'c1', name: 'general', placeId: GUILD, historyMessages: [line('c1')] });
-  world().channel({ id: MIRROR, name: 'journal', placeId: GUILD, historyMessages: [line(MIRROR)] });
+  world().channel({ id: 'c1', name: 'general', placeId: ROOT, historyMessages: [line('c1')] });
+  world().channel({ id: MIRROR, name: 'journal', placeId: ROOT, historyMessages: [line(MIRROR)] });
   const adapter: Fake = createFakeAdapter({ iface: 'fake', selfId: 'self-id', now: () => NOW });
   const reads = world().adopt(adapter);
   const port = guardMirrorPort(adapter, { memoryDb: memory.memoryDb });
-  /** Every send that reached the interface to `conversationId`. */
-  const sendsTo = (conversationId: string) =>
-    adapter.calls.filter(
-      (entry) => entry.op === 'send' && (entry.args[0] as { conversationId?: string }).conversationId === conversationId
-    );
+  /** Every send that reached the interface to `chatId`. */
+  const sendsTo = (chatId: string) =>
+    adapter.calls.filter((entry) => entry.op === 'send' && (entry.args[0] as { chatId?: string }).chatId === chatId);
   return { memory, adapter, reads, port, sendsTo };
 }
 
-type Community = Awaited<ReturnType<typeof community>>;
+type Root = Awaited<ReturnType<typeof root>>;
 
 /**
  * One turn of hers in `here` over `core`, answered with `answers`: an ordinary reply to Alice, or an inner turn for
  * `wake`. Her tools run through a real admin over the same guarded port. Returns the logs of the turn.
  */
 async function turnIn(
-  core: Community,
+  core: Root,
   {
     here,
     answers,
@@ -111,7 +109,7 @@ async function turnIn(
     hot,
     store,
     client,
-    isServedCommunity: (id: unknown) => id === GUILD,
+    isServedRoot: (id: unknown) => id === ROOT,
     port: core.port,
     reads: core.reads,
     images,
@@ -139,19 +137,19 @@ async function turnIn(
     runOwnOp: admin.runOwnSkillOp,
     runInitiativeOp: admin.runInitiativeSkillOp,
   });
-  const conversation = { iface: 'fake', conversationId: here };
+  const chat = { iface: 'fake', chatId: here };
   // One call per kind of turn, each written in the call, so runTurn's declared parameter types it.
   const run = () =>
     wake
       ? turns.runTurn({
-          conversation,
-          placeId: GUILD,
+          chat,
+          placeId: ROOT,
           mode: 'inner',
           triggerKind: 'inner',
           inner: { wake, shadow: false, mayAct: () => true },
         })
       : turns.runTurn({
-          conversation,
+          chat,
           mode: 'reply',
           triggerKind: 'mention',
           trigger: {
@@ -197,22 +195,22 @@ const intentionWake = {
 
 // ---- an event in a mirror place ---------------------------------------------------------------------------------
 
-/** A mention of her by Alice in `conversationId`, as the interface delivers it. */
-function mention(conversationId: string): MessageReceived {
+/** A mention of her by Alice in `chatId`, as the interface delivers it. */
+function mention(chatId: string): MessageReceived {
   return {
     kind: 'message.received',
     iface: 'fake',
     at: NOW,
-    id: `fake:message:e-${conversationId}`,
-    conversation: {
-      id: conversationId,
+    id: `fake:message:e-${chatId}`,
+    chat: {
+      id: chatId,
       kind: 'channel',
-      rootId: GUILD,
-      name: conversationId,
+      rootId: ROOT,
+      name: chatId,
       topic: null,
     },
     message: {
-      id: `e-${conversationId}`,
+      id: `e-${chatId}`,
       author: { id: 'u1', name: 'Alice', self: false, bot: false },
       content: 'καλημέρα, τι γράφεις;',
       at: NOW,
@@ -226,10 +224,10 @@ function mention(conversationId: string): MessageReceived {
       emojis: [],
       reactions: [],
     },
-    addressing: { mentioned: true, replyToSelf: false, mentionedAccountIds: ['self-id'], mentionedConversationIds: [] },
+    addressing: { mentioned: true, replyToSelf: false, mentionedAccountIds: ['self-id'], mentionedChatIds: [] },
     origin: {
       chatType: 'channel',
-      place: conversationId,
+      place: chatId,
       parent: null,
       thread: null,
       replyToAuthorId: null,
@@ -239,7 +237,7 @@ function mention(conversationId: string): MessageReceived {
 }
 
 /** The message handler over `core` with a turn runner that only counts the turns it is asked for. */
-function handlerOver(core: Community) {
+function handlerOver(core: Root) {
   const asked: Array<unknown> = [];
   // The handler's live settings are an event emitter that holds the config and the prompts, as src/hot.js makes them.
   const hot = Object.assign(new EventEmitter(), hotWith({ config: { mention: TRACKED.mention, pace: TRACKED.pace } }));
@@ -269,7 +267,7 @@ function handlerOver(core: Community) {
     reads: core.reads,
     selfId: () => 'self-id',
     getSelfName: () => 'Bot',
-    isServedCommunity: (id: unknown) => id === GUILD,
+    isServedRoot: (id: unknown) => id === ROOT,
     turns: {
       ...runner,
       runTurn: (params) => {
@@ -289,7 +287,7 @@ function handlerOver(core: Community) {
 }
 
 // The catalog owns native IDs. Include unmatched rows so an orphan duplicate fails the same text assertion.
-const linesOf = (core: Community, conversationId: string, messageId: string) =>
+const linesOf = (core: Root, chatId: string, messageId: string) =>
   dbOf(core.memory.memoryDb)
     .prepare(
       `SELECT s.kind, s.text FROM sources s
@@ -298,11 +296,11 @@ const linesOf = (core: Community, conversationId: string, messageId: string) =>
       WHERE s.iface = 'fake' AND s.native_kind = 'message'
         AND ((f.conversation_id = ? AND f.message_id = ?) OR f.native_key IS NULL)`
     )
-    .all(conversationId, messageId)
+    .all(chatId, messageId)
     .map((row) => ({ kind: row.kind, text: row.text }));
 
 test('a mention in a mirror place opens no turn, and its line is in memory', async () => {
-  const core = await community();
+  const core = await root();
   const { handler, asked } = handlerOver(core);
   await handler(mention(MIRROR));
   assert.deepEqual(asked, [], 'no turn of hers');
@@ -312,7 +310,7 @@ test('a mention in a mirror place opens no turn, and its line is in memory', asy
 // ---- a send aimed at a mirror place -----------------------------------------------------------------------------
 
 test('a message, a picture and a voice from an ordinary turn elsewhere are refused selfreflection-mirror', async () => {
-  const core = await community();
+  const core = await root();
   const logs = await turnIn(core, {
     here: 'c1',
     answers: [
@@ -333,7 +331,7 @@ test('a message, a picture and a voice from an ordinary turn elsewhere are refus
 });
 
 test('her message and GIF in an intention turn that runs in a mirror place are refused selfreflection-mirror', async () => {
-  const core = await community();
+  const core = await root();
   const logs = await turnIn(core, {
     here: MIRROR,
     wake: intentionWake,
@@ -346,7 +344,7 @@ test('her message and GIF in an intention turn that runs in a mirror place are r
 // ---- the publisher, and a disabled mirror -----------------------------------------------------------------------
 
 test('the publisher still publishes an entry to the mirror place', async () => {
-  const core = await community();
+  const core = await root();
   // A diary turn's entry, as the publisher takes it: the publisher holds the interface's own port.
   const mirrors = createMirrors({ memoryDb: core.memory.memoryDb, port: () => core.adapter, now: () => NOW });
   const result = { selfreflection: { entry: { id: 'entry-1', messages: ['ημερολόγιο'] } } };
@@ -358,14 +356,14 @@ test('the publisher still publishes an entry to the mirror place', async () => {
 });
 
 test('a disabled mirror row lets a mention there open a turn again', async () => {
-  const core = await community({ enabled: false });
+  const core = await root({ enabled: false });
   const { handler, asked } = handlerOver(core);
   await handler(mention(MIRROR));
   assert.equal(asked.length, 1);
 });
 
 test('a disabled mirror row lets her message there through', async () => {
-  const core = await community({ enabled: false });
+  const core = await root({ enabled: false });
   const logs = await turnIn(core, {
     here: 'c1',
     answers: [toolAnswer('', [call('message.create', { place: '#journal', text: 'από εδώ' })]), '<skip/>'],

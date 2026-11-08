@@ -1,6 +1,6 @@
 // The journal's reconciliation after a restart (src/memory/journal.ts#reconcile) finds the persona's own messages through
 // the interface's `history` read. `ownMessagesOf(reads, iface)` (src/behavior/own-messages.ts) is the `fetchOwnMessages`
-// it is handed: the last `count` messages of a conversation, only the persona's, each as `{ id, content, replyToId,
+// it is handed: the last `count` messages of a chat, only the persona's, each as `{ id, content, replyToId,
 // createdAt }`. `content` is the text as written in the core's grammar (`sourceText`), the form a post's intent was
 // recorded in, never the text as the chat shows it.
 import { after, test } from 'node:test';
@@ -11,7 +11,7 @@ import { IFACE, SELF_ID, channel, rig, message } from './fixtures/reads-rig.ts';
 import { ownMessagesOf } from '../src/behavior/own-messages.ts';
 
 const DAY = Date.UTC(2026, 9, 13, 23, 59, 50);
-const GUILD = 'g1';
+const ROOT = 'g1';
 const room = channel('c1');
 
 const opened: Array<ReturnType<typeof openTestMemorySync>> = [];
@@ -36,9 +36,9 @@ function journalAt(clock: { ms: number }) {
   });
 }
 
-test("gives the persona's own messages of a conversation and none of anyone else's", async () => {
+test("gives the persona's own messages of a chat and none of anyone else's", async () => {
   const { reads, fake } = rig();
-  fake.seedConversation(room);
+  fake.seedChat(room);
   fake.seedEvent(message(room, 'm1', DAY - 3000, 'hello', { authorId: 'u1' }));
   fake.seedEvent(message(room, 'm2', DAY - 2000, 'hi back', { authorId: SELF_ID }));
   fake.seedEvent(message(room, 'm3', DAY - 1000, 'thanks', { authorId: 'u1' }));
@@ -51,7 +51,7 @@ test("gives the persona's own messages of a conversation and none of anyone else
 
 test("gives the text as written, with the mention in the core's grammar, and the reply target and the time", async () => {
   const { reads, fake } = rig();
-  fake.seedConversation(room);
+  fake.seedChat(room);
   fake.seedEvent(
     message(room, 'm9', DAY - 500, 'hi @Eleni', {
       authorId: SELF_ID,
@@ -63,9 +63,9 @@ test("gives the text as written, with the mention in the core's grammar, and the
   assert.deepEqual(own, { id: 'm9', content: 'hi <@u1>', replyToId: 'm1', createdAt: DAY - 500 });
 });
 
-test("reads the last `count` messages of the conversation, mixed authors included, before it keeps the persona's", async () => {
+test("reads the last `count` messages of the chat, mixed authors included, before it keeps the persona's", async () => {
   const { reads, fake, asked } = rig();
-  fake.seedConversation(room);
+  fake.seedChat(room);
   fake.seedEvent(message(room, 'm1', DAY - 4000, 'one', { authorId: SELF_ID }));
   fake.seedEvent(message(room, 'm2', DAY - 3000, 'two', { authorId: 'u1' }));
   fake.seedEvent(message(room, 'm3', DAY - 2000, 'three', { authorId: SELF_ID }));
@@ -74,7 +74,7 @@ test("reads the last `count` messages of the conversation, mixed authors include
     own.map((item) => item.id),
     ['m3']
   );
-  assert.deepEqual(asked('history'), [{ iface: IFACE, conversationId: 'c1' }]);
+  assert.deepEqual(asked('history'), [{ iface: IFACE, chatId: 'c1' }]);
 });
 
 test('fails when the interface cannot give the history, so the operation is left unknown', async () => {
@@ -84,7 +84,7 @@ test('fails when the interface cannot give the history, so the operation is left
 
 test('closes a post as succeeded when its own message is found by the text as written', async () => {
   const { reads, fake } = rig();
-  fake.seedConversation(room);
+  fake.seedChat(room);
   fake.seedEvent(
     message(room, 'm9', DAY - 500, 'hi @Eleni, welcome', {
       authorId: SELF_ID,
@@ -94,7 +94,7 @@ test('closes a post as succeeded when its own message is found by the text as wr
   );
   const clock = { ms: DAY - 60_000 };
   const journal = journalAt(clock);
-  const op = journal.op(GUILD, {
+  const op = journal.op(ROOT, {
     turnId: 't-1',
     name: 'post',
     by: 'persona',
@@ -103,7 +103,7 @@ test('closes a post as succeeded when its own message is found by the text as wr
   });
   await op.started();
   clock.ms = DAY;
-  const counts = await journal.reconcile(GUILD, {
+  const counts = await journal.reconcile(ROOT, {
     days: ['2026-10-13'],
     fetchOwnMessages: ownMessagesOf(reads, IFACE),
   });
@@ -112,11 +112,11 @@ test('closes a post as succeeded when its own message is found by the text as wr
 
 test("closes a post as unknown when the only message with its words is another person's", async () => {
   const { reads, fake } = rig();
-  fake.seedConversation(room);
+  fake.seedChat(room);
   fake.seedEvent(message(room, 'm9', DAY - 500, 'good morning', { authorId: 'u1', replyToId: 'm1' }));
   const clock = { ms: DAY - 60_000 };
   const journal = journalAt(clock);
-  const op = journal.op(GUILD, {
+  const op = journal.op(ROOT, {
     turnId: 't-1',
     name: 'post',
     by: 'persona',
@@ -125,7 +125,7 @@ test("closes a post as unknown when the only message with its words is another p
   });
   await op.started();
   clock.ms = DAY;
-  const counts = await journal.reconcile(GUILD, {
+  const counts = await journal.reconcile(ROOT, {
     days: ['2026-10-13'],
     fetchOwnMessages: ownMessagesOf(reads, IFACE),
   });

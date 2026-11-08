@@ -9,7 +9,7 @@ import { CODE } from '../tools/codes.ts';
 import type { Answer } from './answer.ts';
 import type { CallOutcome } from './call-outcome.ts';
 import { missingReason } from './call-outcome.ts';
-import type { ConversationRef } from './conversations.ts';
+import type { ChatRef } from './chats.ts';
 import type { AddressAttention } from './address-attention.ts';
 import type { PendingQueueOps } from './pending-queue.ts';
 import { isDeferredFollowUp } from './pending-queue.ts';
@@ -35,7 +35,7 @@ export type DrainContext = {
   queuedFor: PendingQueueOps['queuedFor'];
   requeueBusy: PendingQueueOps['requeueBusy'];
   currentOf: (channel: Conv) => Promise<Conv>;
-  refOf: (channel: Conv) => ConversationRef;
+  refOf: (channel: Conv) => ChatRef;
   heldCallState: CallOutcome['heldCallState'];
   afterCallTurn: CallOutcome['afterCallTurn'];
   checkPrivateGate: PrivateGate['checkPrivateGate'];
@@ -151,7 +151,7 @@ export function createDrain({
         let stop = false; // set by requeueBusy while the turn that blocked this ping still runs
 
         // A private message is answered like a direct ping, without the
-        // per-author rail; the channel has no community, so the live path's answer for this person is passed, which may
+        // per-author rail; the channel has no root, so the live path's answer for this person is passed, which may
         // be none. The gate is checked again here: the switch or the profile may have
         // changed while the ping waited.
         if (ping.kind === 'private') {
@@ -163,7 +163,7 @@ export function createDrain({
               continue;
             }
             const result = await turns.runTurn({
-              conversation: refOf(ping.channel),
+              chat: refOf(ping.channel),
               mode: 'reply',
               trigger: ping.trigger,
               triggerKind: 'private',
@@ -198,7 +198,7 @@ export function createDrain({
 
         try {
           const result = await turns.runTurn({
-            conversation: refOf(ping.channel),
+            chat: refOf(ping.channel),
             mode: 'reply',
             trigger: ping.trigger,
             triggerKind: ping.kind,

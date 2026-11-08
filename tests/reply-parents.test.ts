@@ -12,7 +12,7 @@ function rawMessage(overrides: Raw = {}): Raw {
   return {
     id: 'm1',
     placeId: 'c1',
-    guild: { id: 'g1' },
+    root: { id: 'g1' },
     channel: { name: 'general' },
     author: { id: 'u1', bot: false, globalName: 'Alice', username: 'alice' },
     member: { displayName: 'Alice' },

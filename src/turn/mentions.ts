@@ -1,5 +1,5 @@
 // The names a turn turns into mentions and the profiles it shows: `@name` written by the model resolved against the
-// people the request showed and the community's directory, the stored names that count, the profiles of the people
+// people the request showed and the root's directory, the stored names that count, the profiles of the people
 // most recently active, the note on tags that went nowhere, and whom a message notifies under each member's ping state.
 // src/behavior/turn.ts calls them while it renders a post and builds a request, and her `message.create`
 // (src/tools/impl/message.ts) asks mentionsUnderPings too. The replay sandbox (src/behavior/sandbox.ts) reads
@@ -140,7 +140,7 @@ type DirectoryProfile = { id?: Id | null; names?: unknown; aliases?: unknown };
 
 /**
  * The fallback directory `@name` resolves by after the request's own sources (resolveMentions):
- * every name of every member of the served community the core knows without asking the interface --
+ * every name of every member of the served root the core knows without asking the interface --
  * the member directory (`members`: `{ id, name, bot }` as `membership.changed` reported them, a member's
  * other names too when the record carries them) and the stored profiles (`profiles`: names and aliases,
  * store.listUserProfiles).

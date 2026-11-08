@@ -1,5 +1,5 @@
-// The media backfill's DM lines and its refused reads. A DM line that stored no conversation is read through the conversation
-// the interface opens for its partner (`dmConversationOf`), which the place keeps; a partner the platform refuses is `gone`. A
+// The media backfill's DM lines and its refused reads. A DM line that stored no chat is read through the chat
+// the interface opens for its partner (`dmChatOf`), which the place keeps; a partner the platform refuses is `gone`. A
 // read the platform refuses is told apart from one that failed by a code in `classes`, and gets no second read. Fake platform.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -31,7 +31,7 @@ const IMAGE = KINDS[0];
 const DM = dmPlaceId('discord', BOB);
 const OPENED = 'dm-opened';
 const IN_DM = { id: OPENED, kind: 'dm', chatType: 'dm', partnerId: BOB };
-const OK_OPEN = { status: 'ok', conversationId: OPENED };
+const OK_OPEN = { status: 'ok', chatId: OPENED };
 
 async function withEnv(body: (env: Env) => void | Promise<void>) {
   const env = fixture();
@@ -75,16 +75,16 @@ function bareLine(
 
 /** A platform holding `events`, noting each read. */
 function platform(events: Array<Row>) {
-  const reads: Array<{ conversationId: string; query: HistoryQuery }> = [];
-  const read = (conversationId: string, query: HistoryQuery) => {
-    reads.push({ conversationId, query });
-    const page = events.filter((event) => (event.conversation as Row).id === conversationId);
+  const reads: Array<{ chatId: string; query: HistoryQuery }> = [];
+  const read = (chatId: string, query: HistoryQuery) => {
+    reads.push({ chatId, query });
+    const page = events.filter((event) => (event.chat as Row).id === chatId);
     return Promise.resolve({ status: 'ok', events: page, complete: true });
   };
   return { read, reads };
 }
 
-/** A `dmConversationOf` answering `answers` in turn, the last one for good, noting who was asked. */
+/** A `dmChatOf` answering `answers` in turn, the last one for good, noting who was asked. */
 function opener(...answers: Array<Row>) {
   const asked: Array<string> = [];
   const open = (accountId: string) => {
@@ -106,7 +106,7 @@ function run(env: Env, read: Parameters<typeof backfillMedia>[0]['read'], over: 
   });
 }
 
-const dmEvent = (id: string) => eventOf(IMAGE, id, [true, true], { conversation: IN_DM });
+const dmEvent = (id: string) => eventOf(IMAGE, id, [true, true], { chat: IN_DM });
 const firstRef = (env: Env, source: string) =>
   lineMedia(env.db, [source], internalContext(), 'source').get(source)?.[0]?.nativeRef;
 const stateOf = (env: Env, source: string) =>
@@ -119,23 +119,23 @@ const stateOf = (env: Env, source: string) =>
 /** The stored row of a DM place, which a line alone does not make. */
 const dmPlaceRow = (env: Env, place: string, account: string | null = null) =>
   env.db
-    .prepare("INSERT INTO places (id, iface, kind, conversation, partner_account) VALUES (?, 'discord', 'dm', 'dm', ?)")
+    .prepare("INSERT INTO places (id, iface, kind, chat, partner_account) VALUES (?, 'discord', 'dm', 'dm', ?)")
     .run(place, account);
 const placeExtra = (env: Env, place: string) =>
   JSON.parse(asText(env.db.prepare('SELECT extra FROM places WHERE id = ?').get(place)?.extra ?? '{}')) as Row;
 
-// ---------- the conversation of a DM's partner ----------
+// ---------- the chat of a DM's partner ----------
 
-test('a DM line with no stored conversation is read through the one opened for its partner, and the place keeps it', () =>
+test('a DM line with no stored chat is read through the one opened for its partner, and the place keeps it', () =>
   withEnv(async (env) => {
     dmPlaceRow(env, DM);
     const source = bareLine(env, { native: '2101' });
     const { read, reads } = platform([dmEvent('2101')]);
     const { open, asked } = opener(OK_OPEN);
-    const report = await run(env, read, { dmConversationOf: open });
+    const report = await run(env, read, { dmChatOf: open });
     assert.deepEqual(asked, [BOB]);
     assert.deepEqual(
-      reads.map((one) => one.conversationId),
+      reads.map((one) => one.chatId),
       [OPENED]
     );
     assert.deepEqual([report.linked, report.bare, report.gone], [1, 0, 0]);
@@ -143,27 +143,27 @@ test('a DM line with no stored conversation is read through the one opened for i
     assert.equal(placeExtra(env, DM).dmConversation, OPENED);
   }));
 
-test('two lines of one DM open its conversation once', () =>
+test('two lines of one DM open its chat once', () =>
   withEnv(async (env) => {
     bareLine(env, { native: '2102' });
     bareLine(env, { native: '2103' });
     const { open, asked } = opener(OK_OPEN);
-    const report = await run(env, platform([dmEvent('2102'), dmEvent('2103')]).read, { dmConversationOf: open });
+    const report = await run(env, platform([dmEvent('2102'), dmEvent('2103')]).read, { dmChatOf: open });
     assert.deepEqual(asked, [BOB]);
     assert.equal(report.linked, 2);
   }));
 
-test('a later run reads through the conversation the place keeps and opens nothing', () =>
+test('a later run reads through the chat the place keeps and opens nothing', () =>
   withEnv(async (env) => {
     dmPlaceRow(env, DM);
     bareLine(env, { native: '2104' });
-    await run(env, platform([dmEvent('2104')]).read, { dmConversationOf: opener(OK_OPEN).open });
+    await run(env, platform([dmEvent('2104')]).read, { dmChatOf: opener(OK_OPEN).open });
     const later = bareLine(env, { native: '2105' });
     const { read, reads } = platform([dmEvent('2105')]);
     const { open, asked } = opener(OK_OPEN);
-    await run(env, read, { dmConversationOf: open });
+    await run(env, read, { dmChatOf: open });
     assert.deepEqual(asked, []);
-    assert.equal(reads[0].conversationId, OPENED);
+    assert.equal(reads[0].chatId, OPENED);
     assert.equal(firstRef(env, later), '2105-a');
   }));
 
@@ -176,7 +176,7 @@ test('the partner of a place whose id does not spell him is its partner account'
     dmPlaceRow(env, place, 'account:opaque');
     bareLine(env, { native: '2106', place });
     const { open, asked } = opener({ status: 'forbidden', code: 'http-403' });
-    await run(env, platform([]).read, { dmConversationOf: open });
+    await run(env, platform([]).read, { dmChatOf: open });
     assert.deepEqual(asked, ['native-of-bob']);
   }));
 
@@ -184,7 +184,7 @@ test('a DM place no row holds is asked for by the partner its id spells, and the
   withEnv(async (env) => {
     const source = bareLine(env, { native: '2113' });
     const { open, asked } = opener(OK_OPEN);
-    const report = await run(env, platform([dmEvent('2113')]).read, { dmConversationOf: open });
+    const report = await run(env, platform([dmEvent('2113')]).read, { dmChatOf: open });
     assert.deepEqual(asked, [BOB]);
     assert.equal(report.linked, 1);
     assert.equal(firstRef(env, source), '2113-a');
@@ -194,9 +194,9 @@ test('a line of a place with no partner stays bare and nobody is asked', () =>
   withEnv(async (env) => {
     bareLine(env, { native: '2107', place: 'discord:nowhere' });
     const { open, asked } = opener(OK_OPEN);
-    const report = await run(env, platform([]).read, { dmConversationOf: open });
+    const report = await run(env, platform([]).read, { dmChatOf: open });
     assert.deepEqual(asked, []);
-    assert.deepEqual([report.bare, report.classes['no-conversation']], [1, 1]);
+    assert.deepEqual([report.bare, report.classes['no-chat']], [1, 1]);
   }));
 
 for (const [name, answer] of [
@@ -207,13 +207,13 @@ for (const [name, answer] of [
     withEnv(async (env) => {
       const source = bareLine(env, { native: '2108' });
       const first = opener(answer);
-      const report = await run(env, platform([]).read, { dmConversationOf: first.open });
+      const report = await run(env, platform([]).read, { dmChatOf: first.open });
       assert.deepEqual(first.asked, [BOB]);
       assert.deepEqual([report.gone, report.bare, report.failedPlaces, report.linesLeft], [1, 0, 0, 0]);
       assert.equal(report.classes['partner-refused'], 1);
       assert.equal(stateOf(env, source), 'missing');
       const second = opener(answer);
-      await run(env, platform([]).read, { dmConversationOf: second.open });
+      await run(env, platform([]).read, { dmChatOf: second.open });
       assert.deepEqual(second.asked, []);
     }));
 }
@@ -222,11 +222,11 @@ test('an opening that fails gets one more try, then leaves its lines for the nex
   withEnv(async (env) => {
     const source = bareLine(env, { native: '2109' });
     const failing = opener({ status: 'failed', code: 'http-500', retryable: true });
-    const report = await run(env, platform([]).read, { dmConversationOf: failing.open });
+    const report = await run(env, platform([]).read, { dmChatOf: failing.open });
     assert.equal(failing.asked.length, 2);
     assert.deepEqual([report.gone, report.bare, report.failedPlaces, report.linesLeft], [0, 0, 1, 1]);
     assert.equal(stateOf(env, source), 'unknown');
-    const again = await run(env, platform([dmEvent('2109')]).read, { dmConversationOf: opener(OK_OPEN).open });
+    const again = await run(env, platform([dmEvent('2109')]).read, { dmChatOf: opener(OK_OPEN).open });
     assert.deepEqual([again.linked, again.linesLeft], [1, 0]);
   }));
 
@@ -234,7 +234,7 @@ test('an interface with no such read leaves the line bare, as nothing was refuse
   withEnv(async (env) => {
     bareLine(env, { native: '2110' });
     const { open } = opener({ status: 'unsupported', code: 'not-offered' });
-    const report = await run(env, platform([]).read, { dmConversationOf: open });
+    const report = await run(env, platform([]).read, { dmChatOf: open });
     assert.deepEqual([report.bare, report.gone], [1, 0]);
   }));
 
@@ -242,7 +242,7 @@ test('a dry run opens nothing and counts the lines waiting on an opening', () =>
   withEnv(async (env) => {
     bareLine(env, { native: '2111' });
     const { open, asked } = opener(OK_OPEN);
-    const report = await run(env, platform([]).read, { dmConversationOf: open, dryRun: true });
+    const report = await run(env, platform([]).read, { dmChatOf: open, dryRun: true });
     assert.deepEqual(asked, []);
     assert.deepEqual([report.classes.toOpen, report.bare], [1, 0]);
   }));
@@ -251,7 +251,7 @@ test('a stop before an opening stops the run and asks nobody', () =>
   withEnv(async (env) => {
     bareLine(env, { native: '2112' });
     const { open, asked } = opener(OK_OPEN);
-    const report = await run(env, platform([]).read, { dmConversationOf: open, signal: AbortSignal.abort() });
+    const report = await run(env, platform([]).read, { dmChatOf: open, signal: AbortSignal.abort() });
     assert.deepEqual(asked, []);
     assert.equal(report.stopped, true);
   }));
@@ -315,15 +315,15 @@ test('the desk over the interface reads carries the code of a refused read to th
     assert.equal(report?.classes['read-refused:http-403'], 1);
   }));
 
-test('the desk asks the interface for the conversation of a DM partner and counts his refusal as gone', () =>
+test('the desk asks the interface for the chat of a DM partner and counts his refusal as gone', () =>
   withEnv(async (env) => {
     bareLine(env, { native: '2204' });
     const adapter = createFakeAdapter({ iface: 'discord', selfId: 'self' });
-    adapter.failNext('dmConversationOf', notOk('forbidden', 'http-403'));
+    adapter.failNext('dmChatOf', notOk('forbidden', 'http-403'));
     const report = await deskRun(env, adapter);
     assert.deepEqual([report?.gone, report?.classes['partner-refused']], [1, 1]);
     assert.deepEqual(
-      adapter.calls.filter((call) => call.op === 'dmConversationOf').map((call) => call.args[0]),
+      adapter.calls.filter((call) => call.op === 'dmChatOf').map((call) => call.args[0]),
       [{ iface: 'discord', accountId: BOB }]
     );
   }));

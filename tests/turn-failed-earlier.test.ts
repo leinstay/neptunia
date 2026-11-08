@@ -259,7 +259,7 @@ test("facts kept for the channel (a drop, a hold) reach an addressed request the
     intentionId: 'i1',
     purpose: 'say hi',
   };
-  source.add({ ...dropped, placeId: '77', privateChat: false });
+  source.add({ ...dropped, placeId: '77', dmChat: false });
   source.add({
     kind: 'wakeHeld',
     wakeId: 'w2',
@@ -269,10 +269,10 @@ test("facts kept for the channel (a drop, a hold) reach an addressed request the
     purpose: 'later',
     until: NOW + 6 * HOUR,
     placeId: null,
-    privateChat: false,
+    dmChat: false,
   });
-  source.add({ ...dropped, intentionId: 'i3', purpose: 'in a private chat', placeId: '88', privateChat: true });
-  source.add({ ...dropped, intentionId: 'i4', purpose: 'elsewhere', placeId: '99', privateChat: false });
+  source.add({ ...dropped, intentionId: 'i3', purpose: 'in a private chat', placeId: '88', dmChat: true });
+  source.add({ ...dropped, intentionId: 'i4', purpose: 'elsewhere', placeId: '99', dmChat: false });
   await run(first);
   const text = userText(calls[0][1].content);
   // Slice 4: an addressed turn is a reply on the frame, which tells facts in `<feedback>` inside `<inner>`.
@@ -285,15 +285,15 @@ test("facts kept for the channel (a drop, a hold) reach an addressed request the
   ]);
   assert.ok(text.indexOf('<feedback>') > -1 && text.indexOf('<feedback>') < text.indexOf('<task>'));
   assert.equal(
-    source.pending({ placeId: '88', privateChat: true }).length,
+    source.pending({ placeId: '88', dmChat: true }).length,
     1,
     "the private chat's fact is still waiting for that chat"
   );
-  assert.equal(source.pending({ placeId: '99', privateChat: false }).length, 1);
+  assert.equal(source.pending({ placeId: '99', dmChat: false }).length, 1);
   // Told once a completed answer carried them.
   await run(first);
   assert.equal(userText(calls[1][1].content).includes('<feedback>'), false);
-  assert.equal(source.pending({ placeId: '77', privateChat: false }).length, 0);
+  assert.equal(source.pending({ placeId: '77', dmChat: false }).length, 0);
 });
 
 test('sendHash and settleUnknownSends: the hash covers the start of the text with whitespace folded; only a later line of hers with that hash settles the fact', () => {
@@ -328,7 +328,7 @@ test('a send whose answer never came: her next addressed turn looks for it among
     unknown: true,
     hash: sendHash(sentText),
     placeId: '77',
-    privateChat: false,
+    dmChat: false,
     at: NOW - 2 * MINUTE,
   };
   const first = rawMessage({ id: '101' });
@@ -346,7 +346,7 @@ test('a send whose answer never came: her next addressed turn looks for it among
   await found.run(first);
   // Slice 4: an addressed turn is a reply on the frame, which tells facts in `<feedback>` inside `<inner>`.
   assert.equal(userText(found.calls[0][1].content).includes('<feedback>'), false, 'it went out: nothing to tell');
-  assert.equal(foundSource.pending({ placeId: '77', privateChat: false }).length, 0, 'and the fact is gone');
+  assert.equal(foundSource.pending({ placeId: '77', dmChat: false }).length, 0, 'and the fact is gone');
 
   const missing = setup({ history: [first] });
   missing.fail.on = false;

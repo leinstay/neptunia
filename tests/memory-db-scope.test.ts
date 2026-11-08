@@ -139,7 +139,7 @@ test('the SQL filter returns exactly the rows allowed() lets through', () => {
   handle.close();
 });
 
-// The diary's entry is written for every group conversation and no direct chat (stage 3 design, section 5): the
+// The diary's entry is written for every group chat and no direct chat (stage 3 design, section 5): the
 // context reads `none` and the groups of every interface, never a DM or an internal row.
 test('groupsContext reads the groups of every interface and no direct chat', () => {
   const want = {

@@ -120,15 +120,13 @@ const closedCode = (record: Intention): string => (isFiniteNumber(record.sleptAt
 
 /**
  * Whether `record` may be seen and moved where the caller is: a private chat's intention only in
- * that chat (`privateChannelId`), any with `all` (an owner's command, the engine).
+ * that chat (`dmChatId`), any with `all` (an owner's command, the engine).
  */
-function visibleTo(record: Intention, { privateChannelId = null, all = false }: Where = {}): boolean {
+function visibleTo(record: Intention, { dmChatId = null, all = false }: Where = {}): boolean {
   return (
     all ||
     record?.provenance?.scope !== 'dm' ||
-    (privateChannelId !== null &&
-      privateChannelId !== undefined &&
-      record.provenance?.placeId === String(privateChannelId))
+    (dmChatId !== null && dmChatId !== undefined && record.provenance?.placeId === String(dmChatId))
   );
 }
 
@@ -329,7 +327,7 @@ export function createIntentionService({
    * edits an attention (`not-attend` on any other; a due time or a recurrence on an attention is
    * `attend-with-due` / `attend-with-every`); `errandId` / `deadline` set it waiting (as in
    * `set`). `{ ok, intention }` or `{ ok: false, code }` (`not-found`, `terminal`, `cap-open`,
-   * `bad-move`, the model's and the wait's codes). `patch.privateChannelId` / `patch.all`: where the
+   * `bad-move`, the model's and the wait's codes). `patch.dmChatId` / `patch.all`: where the
    * caller is (a private chat's intention is `not-found` anywhere else, see `list`).
    */
   function update(id: unknown, patch: UpdatePatch = {}): Moved {
@@ -437,16 +435,13 @@ export function createIntentionService({
 
   /**
    * Intention `id` cancelled (a candidate rejected): `{ ok, intention }` or `{ ok: false, code }`.
-   * `privateChannelId` / `all`: where the caller is, as in `update`.
+   * `dmChatId` / `all`: where the caller is, as in `update`.
    */
-  function cancel(
-    id: unknown,
-    { by = 'persona', privateChannelId = null, all = false }: { by?: string } & Where = {}
-  ): Moved {
+  function cancel(id: unknown, { by = 'persona', dmChatId = null, all = false }: { by?: string } & Where = {}): Moved {
     const store = storeOf();
     if (!store) return { ok: false, code: CODE.PLACE_REQUIRED };
     const current = store.get(id);
-    if (current && !visibleTo(current, { privateChannelId, all })) return { ok: false, code: CODE.NOT_FOUND };
+    if (current && !visibleTo(current, { dmChatId, all })) return { ok: false, code: CODE.NOT_FOUND };
     if (current && isFiniteNumber(current.sleptAt)) return { ok: false, code: CODE.SLEPT };
     const result = store.update(id, (record) => transition(record, 'cancelled', { now: now(), by, code: 'cancelled' }));
     if (result.ok) log.info('intentions: cancelled', { id: idText(id), by });
@@ -477,29 +472,23 @@ export function createIntentionService({
 
   /**
    * The place's intentions, the expired ones swept first: open ones only unless `closed`, each
-   * visible to the conversation (`privateChannelId`: a private chat's own only there), or every
+   * visible to the chat (`dmChatId`: a private chat's own only there), or every
    * one with `all` (an owner's list).
    */
-  function list({
-    closed = false,
-    privateChannelId = null,
-    all = false,
-  }: { closed?: boolean } & Where = {}): Array<Intention> {
+  function list({ closed = false, dmChatId = null, all = false }: { closed?: boolean } & Where = {}): Array<Intention> {
     const store = storeOf();
     if (!store) return [];
     sweepExpired(store);
-    return store
-      .list()
-      .filter((record) => (closed || isOpen(record.status)) && visibleTo(record, { privateChannelId, all }));
+    return store.list().filter((record) => (closed || isOpen(record.status)) && visibleTo(record, { dmChatId, all }));
   }
 
   /**
-   * What the `<intentions>` block shows in a conversation: her active ones (`pending`, then
+   * What the `<intentions>` block shows in a chat: her active ones (`pending`, then
    * `waiting`, by due time then age). Empty with
    * `features.intentions` off.
    */
-  function view({ privateChannelId = null }: { privateChannelId?: string | null } = {}): Array<Intention> {
-    const open = list({ privateChannelId });
+  function view({ dmChatId = null }: { dmChatId?: string | null } = {}): Array<Intention> {
+    const open = list({ dmChatId });
     const active = open.filter((record) => record.status === 'pending').sort(byDue);
     const waiting = open.filter((record) => record.status === 'waiting').sort(byDue);
     return [...active, ...waiting];

@@ -81,7 +81,7 @@ function setUp(t: { after: (fn: () => void) => void }): {
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     board,
     now: () => NOW,
   });
@@ -89,7 +89,7 @@ function setUp(t: { after: (fn: () => void) => void }): {
   const context = (extra: Record<string, unknown> = {}) => ({
     env,
     placeId: 'g1',
-    conversationId: 'c1',
+    chatId: 'c1',
     accountId: null,
     roleIds: [],
     actor: 'persona',
@@ -269,7 +269,7 @@ test('task.propose answers failed board-unavailable when the core has no board',
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     board: null,
   });
   const { result } = await withCapturedLogs(() =>

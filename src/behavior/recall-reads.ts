@@ -4,13 +4,13 @@
 
 import { isIssuedInternalContext } from '../memory/db/scope.ts';
 import type { Reads } from '../interface/reads.ts';
-import type { ConversationRef, HistoryQuery, MessageHit } from '../protocol/adapter.ts';
+import type { ChatRef, HistoryQuery, MessageHit } from '../protocol/adapter.ts';
 import { lineOf } from './line-of.ts';
 import type { ResolvedRecallAnchor } from '../memory/db/recall.ts';
 import { locatorText } from '../memory/db/message-locator.ts';
 import { objOf } from '../tools/types.ts';
 
-/** Stored recall needs an ordinary conversation context or a trusted issued internal context. */
+/** Stored recall needs an ordinary chat context or a trusted issued internal context. */
 export function hasRecallContext({
   channel,
   partnerId,
@@ -20,7 +20,7 @@ export function hasRecallContext({
   partnerId?: string | null;
   memoryContext: unknown;
 }): boolean {
-  return isIssuedInternalContext(memoryContext) || inCommunity(channel) || Boolean(partnerId);
+  return isIssuedInternalContext(memoryContext) || inRoot(channel) || Boolean(partnerId);
 }
 
 /** A search hit as the clustering reads it; `queries` holds the keys of the queries that found it. */
@@ -48,7 +48,7 @@ export type PlannedQuery = {
 export function hitFrom(hit: MessageHit): RecallHit {
   return {
     id: hit.ref.messageId,
-    placeId: hit.ref.conversationId,
+    placeId: hit.ref.chatId,
     ts: hit.at,
     authorId: hit.author.id ?? null,
     bot: hit.author.bot,
@@ -57,8 +57,8 @@ export function hitFrom(hit: MessageHit): RecallHit {
   };
 }
 
-/** Whether the conversation belongs to a community (a private chat does not). */
-export const inCommunity = (channel: unknown): boolean => objOf(channel).rootId != null;
+/** Whether the chat belongs to a root (a private chat does not). */
+export const inRoot = (channel: unknown): boolean => objOf(channel).rootId != null;
 
 /** A search plan entry as the interface's message search takes it. */
 export function searchQueryOf(planned: unknown): Parameters<Reads['searchMessages']>[1] {
@@ -93,14 +93,14 @@ export function untilAborted<T>(signal: AbortSignal, promise: Promise<T>): Promi
   });
 }
 
-/** The messages of a read of a conversation's history as lines, oldest first; null when the read failed. */
+/** The messages of a read of a chat's history as lines, oldest first; null when the read failed. */
 export async function linesOf(
   reads: Reads,
   source: unknown,
   query: HistoryQuery
 ): Promise<Array<Record<string, unknown>> | null> {
   const entry = source as { iface: string; id: string };
-  const found = await reads.history({ iface: entry.iface, conversationId: entry.id }, query);
+  const found = await reads.history({ iface: entry.iface, chatId: entry.id }, query);
   return found === null ? null : found.events.map((event) => lineOf(event));
 }
 
@@ -116,7 +116,7 @@ export function summaryFailure(error: unknown): 'timeout' | 'failed' {
 }
 
 /** Validate one history line without substituting a route for malformed metadata. */
-function historyExclusion(value: unknown, ref: ConversationRef | null): ResolvedRecallAnchor | null {
+function historyExclusion(value: unknown, ref: ChatRef | null): ResolvedRecallAnchor | null {
   const line = objOf(value);
   if (Object.hasOwn(line, 'stored')) {
     const stored = objOf(line.stored);
@@ -128,19 +128,17 @@ function historyExclusion(value: unknown, ref: ConversationRef | null): Resolved
   }
   if (Object.hasOwn(line, 'native')) {
     const native = objOf(line.native);
-    return locatorText(native.iface) && locatorText(native.conversationId) && locatorText(native.messageId)
+    return locatorText(native.iface) && locatorText(native.chatId) && locatorText(native.messageId)
       ? {
           kind: 'native',
-          locator: { iface: native.iface, conversationId: native.conversationId, messageId: native.messageId },
+          locator: { iface: native.iface, chatId: native.chatId, messageId: native.messageId },
         }
       : null;
   }
   if (!ref || !locatorText(ref.iface) || !locatorText(line.id)) return null;
   if (line.iface !== undefined && line.iface !== ref.iface) return null;
-  const conversationId = line.placeId === undefined ? ref.conversationId : line.placeId;
-  return locatorText(conversationId)
-    ? { kind: 'native', locator: { iface: ref.iface, conversationId, messageId: line.id } }
-    : null;
+  const chatId = line.placeId === undefined ? ref.chatId : line.placeId;
+  return locatorText(chatId) ? { kind: 'native', locator: { iface: ref.iface, chatId, messageId: line.id } } : null;
 }
 
 /** Keep visible history identities separate from unqualified native message IDs. */
@@ -151,15 +149,14 @@ export function historyExclusions({
   channel,
 }: {
   history: unknown;
-  historyRef?: ConversationRef;
+  historyRef?: ChatRef;
   context: unknown;
   channel: unknown;
 }): Array<ResolvedRecallAnchor> {
   const ctx = objOf(context);
   const placeId = objOf(channel).id;
   const ref =
-    historyRef ??
-    (locatorText(ctx.iface) && locatorText(placeId) ? { iface: ctx.iface, conversationId: placeId } : null);
+    historyRef ?? (locatorText(ctx.iface) && locatorText(placeId) ? { iface: ctx.iface, chatId: placeId } : null);
   const exclusions: Array<ResolvedRecallAnchor> = [];
   if (!Array.isArray(history)) return exclusions;
   for (const value of history) {

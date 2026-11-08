@@ -16,7 +16,7 @@ import { issueContext } from '../src/memory/db/scope.ts';
 import { walk } from '../src/memory/db/graph.ts';
 import { notOk } from '../src/protocol/actions.ts';
 import type { Content } from '../src/protocol/actions.ts';
-import { GUILD, NOW, sceneHot, sceneLlm, sceneRunner } from './fixtures/selfreflection-requests-recorded.ts';
+import { ROOT, NOW, sceneHot, sceneLlm, sceneRunner } from './fixtures/selfreflection-requests-recorded.ts';
 import {
   dbOf,
   selfreflectionPublications,
@@ -39,7 +39,7 @@ after(async () => {
 });
 
 /**
- * A core with the fake interface (conversations `d1` and `d2` of the community), a real store over a memory database
+ * A core with the fake interface (chats `d1` and `d2` of the root), a real store over a memory database
  * holding the mirrors of `mirrors`, the publisher over both, and the diary scheduler that runs a turn and hands its
  * entry to the publisher. `link.connected` is whether an interface is connected (the publisher's port, or none).
  */
@@ -47,14 +47,14 @@ async function scene({
   mirrors: specs,
   connected = true,
 }: {
-  mirrors: Array<{ conversationId: string; enabled?: boolean }>;
+  mirrors: Array<{ chatId: string; enabled?: boolean }>;
   connected?: boolean;
 }) {
   const memory = await openTestMemory({ now: () => NOW });
   OPEN.push(memory);
   freshWorld();
-  world().channel({ id: 'd1', name: 'journal', placeId: GUILD });
-  world().channel({ id: 'd2', name: 'notes', placeId: GUILD });
+  world().channel({ id: 'd1', name: 'journal', placeId: ROOT });
+  world().channel({ id: 'd2', name: 'notes', placeId: ROOT });
   const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
   const places = specs.map((spec) => seedMirror(memory.memoryDb, { iface: 'fake', at: NOW, ...spec }).placeId);
   const link = { connected };
@@ -79,21 +79,21 @@ async function scene({
     const result = await turns.runTurn({
       mode: 'selfreflection',
       selfreflection: { kind: 'status', forced: true },
-      placeId: GUILD,
+      placeId: ROOT,
     });
     await store.flushSettled({});
     return entryOf(result);
   }
-  /** Her messages the interface holds in `conversationId`. */
-  const texts = (conversationId: string) =>
+  /** Her messages the interface holds in `chatId`. */
+  const texts = (chatId: string) =>
     world()
-      .port.messagesIn(conversationId)
+      .port.messagesIn(chatId)
       .map((message) => message.text);
   return { memory, store, places, link, mirrors, selfreflection, record, texts };
 }
 
 test('a forced post with one enabled mirror publishes the entry once, and a reconnect sends nothing more', async () => {
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const core = await scene({ mirrors: [{ chatId: 'd1' }] });
   await core.selfreflection.force({ kind: 'status' });
   await core.store.flushSettled({});
   assert.deepEqual(core.texts('d1'), [TEXT]);
@@ -117,7 +117,7 @@ test('a forced post with one enabled mirror publishes the entry once, and a reco
 });
 
 test('an entry recorded while no interface is connected stays queued, and the connection sends it once', async () => {
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }], connected: false });
+  const core = await scene({ mirrors: [{ chatId: 'd1' }], connected: false });
   await core.selfreflection.force({ kind: 'status' });
   await core.store.flushSettled({});
   assert.deepEqual(core.texts('d1'), []);
@@ -136,7 +136,7 @@ test('an entry recorded while no interface is connected stays queued, and the co
 });
 
 test('a send the port refuses leaves the publication failed with its code, and the entry stays in memory', async () => {
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const core = await scene({ mirrors: [{ chatId: 'd1' }] });
   const entry = await core.record();
   world().port.failNext('send', notOk('failed', 'channel-no-permission'));
   const outcomes = await core.mirrors.publishEntry(entry);
@@ -149,7 +149,7 @@ test('a send the port refuses leaves the publication failed with its code, and t
 });
 
 test('a disabled mirror gets nothing and is still listed', async () => {
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }, { conversationId: 'd2', enabled: false }] });
+  const core = await scene({ mirrors: [{ chatId: 'd1' }, { chatId: 'd2', enabled: false }] });
   const entry = await core.record();
   const outcomes = await core.mirrors.publishEntry(entry);
   assert.deepEqual(
@@ -174,7 +174,7 @@ test('a disabled mirror gets nothing and is still listed', async () => {
 });
 
 test('two enabled mirrors of different places each get the entry once, also when it is published again', async () => {
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }, { conversationId: 'd2' }] });
+  const core = await scene({ mirrors: [{ chatId: 'd1' }, { chatId: 'd2' }] });
   const entry = await core.record();
   await core.mirrors.publishEntry(entry);
   const again = await core.mirrors.publishEntry(entry);
@@ -266,12 +266,12 @@ function setAndVoiceTurns(store: Awaited<ReturnType<typeof scene>>['store'], pic
 // message and the staged pictures after them (src/behavior/turn.ts, the act path). The publisher sends all three one
 // after another.
 test('an entry with two pictures and a voice reaches the mirror as the voice, the message, then the pictures', async () => {
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const core = await scene({ mirrors: [{ chatId: 'd1' }] });
   const turns = setAndVoiceTurns(core.store);
   const result = await turns.runTurn({
     mode: 'selfreflection',
     selfreflection: { kind: 'photoset', forced: true },
-    placeId: GUILD,
+    placeId: ROOT,
   });
   await core.store.flushSettled({});
   assert.deepEqual(world().port.messagesIn('d1'), [], 'the turn itself sends nothing');
@@ -296,11 +296,11 @@ test('an entry with two pictures and a voice reaches the mirror as the voice, th
 // Stage 3 design, section 3 item 5: a row still queued is sent when the interface connects, also after a restart. The
 // entry's pictures and voice are on disk, so the restarted publisher sends the whole entry, not its text alone.
 test('an entry with pictures and a voice queued before a restart goes out whole when the interface connects', async () => {
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }], connected: false });
+  const core = await scene({ mirrors: [{ chatId: 'd1' }], connected: false });
   const result = await setAndVoiceTurns(core.store).runTurn({
     mode: 'selfreflection',
     selfreflection: { kind: 'photoset', forced: true },
-    placeId: GUILD,
+    placeId: ROOT,
   });
   await core.store.flushSettled({});
   await core.mirrors.publishEntry(entryOf(result));
@@ -334,19 +334,19 @@ test('an entry with pictures and a voice queued before a restart goes out whole 
 // Her diary is the truth (the owner, 2026-10-27): when the port names the attachments each message became, the
 // publication keeps them in its receipts and the entry's media rows take their attachment ids from there.
 test("a publication keeps the port's attachment ids in its receipts and on the entry's media rows", async () => {
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const core = await scene({ mirrors: [{ chatId: 'd1' }] });
   const result = await setAndVoiceTurns(core.store).runTurn({
     mode: 'selfreflection',
     selfreflection: { kind: 'photoset', forced: true },
-    placeId: GUILD,
+    placeId: ROOT,
   });
   await core.store.flushSettled({});
   let made = 0;
   // The port's answer to a send names each attachment by the platform's id, with the message that carries it.
   const naming = {
     iface: 'fake',
-    send: async (conversation: { iface: string; conversationId: string }, content: Content) => {
-      const delivery = await world().port.send(conversation, content);
+    send: async (chat: { iface: string; chatId: string }, content: Content) => {
+      const delivery = await world().port.send(chat, content);
       const messageId = delivery.ref?.messageId ?? '';
       const attachments = (content.attachments ?? []).map(() => ({ messageId, attachmentId: `att-${(made += 1)}` }));
       return { ...delivery, attachments };
@@ -382,19 +382,19 @@ test("a publication keeps the port's attachment ids in its receipts and on the e
 // A post whose pictures do not fit one message goes out as several messages of files (selfreflection.set.maxMessageBytes): each
 // attachment the port names keeps the message that carried it, in the receipts and on its media row.
 test('a picture set sent across two messages keeps every attachment id with the message that carried it', async () => {
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const core = await scene({ mirrors: [{ chatId: 'd1' }] });
   // PR 7d: a message holds the constant 8 000 000 bytes, so two pictures of 4 100 000 bytes need two messages.
   const result = await setAndVoiceTurns(core.store, 4_100_000).runTurn({
     mode: 'selfreflection',
     selfreflection: { kind: 'photoset', forced: true },
-    placeId: GUILD,
+    placeId: ROOT,
   });
   await core.store.flushSettled({});
   const carried: Array<{ messageId: string; attachmentId: string }> = [];
   const naming = {
     iface: 'fake',
-    send: async (conversation: { iface: string; conversationId: string }, content: Content) => {
-      const delivery = await world().port.send(conversation, content);
+    send: async (chat: { iface: string; chatId: string }, content: Content) => {
+      const delivery = await world().port.send(chat, content);
       const messageId = delivery.ref?.messageId ?? '';
       const attachments = (content.attachments ?? []).map(() => {
         const named = { messageId, attachmentId: `att-${carried.length + 1}` };
@@ -528,7 +528,7 @@ test('preparePublication keeps the grant rule for a row that is not a diary entr
   assert.deepEqual(prepare(GENERAL, 'claim'), { ok: false, code: 'no-grant' });
 });
 
-const RESTRICTED_ENTRY = { kind: 'internal-turn', origin: { iface: 'cli', conversationId: 'd1' } } as const;
+const RESTRICTED_ENTRY = { kind: 'internal-turn', origin: { iface: 'cli', chatId: 'd1' } } as const;
 
 async function restrictStoredEntry(core: Awaited<ReturnType<typeof scene>>, metadata: unknown): Promise<void> {
   const posts = core.store.getSelfreflection().posts.map((post) => ({ ...post, publicationBoundary: metadata }));
@@ -539,7 +539,7 @@ async function restrictStoredEntry(core: Awaited<ReturnType<typeof scene>>, meta
 for (const metadata of [RESTRICTED_ENTRY, null, { kind: 'internal-turn', origin: {} }]) {
   test(`a fresh mirror publisher refuses a queued entry with a stored ${metadata === RESTRICTED_ENTRY ? 'foreign' : metadata === null ? 'null' : 'malformed'} restriction`, async () => {
     // Catches restoring a queued row through rendered text without rechecking its stored diary restriction.
-    const core = await scene({ mirrors: [{ conversationId: 'd1' }], connected: false });
+    const core = await scene({ mirrors: [{ chatId: 'd1' }], connected: false });
     const entry = await core.record();
     await core.mirrors.queueEntry(entry);
     assert.deepEqual(
@@ -565,7 +565,7 @@ for (const metadata of [RESTRICTED_ENTRY, null, { kind: 'internal-turn', origin:
 
 test('publishing an entry without supplied metadata cannot clear its stored restriction', async () => {
   // Catches trusting the caller entry object over the authoritative saved diary row.
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const core = await scene({ mirrors: [{ chatId: 'd1' }] });
   const entry = await core.record();
   await restrictStoredEntry(core, RESTRICTED_ENTRY);
   const result = await core.mirrors.publishEntry(entry);
@@ -578,7 +578,7 @@ test('publishing an entry without supplied metadata cannot clear its stored rest
 
 test('publication preparation intersects the mirror standing grant with the stored restriction', async () => {
   // Catches direct writer preparation bypassing a restriction enforced only in the mirror wrapper.
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const core = await scene({ mirrors: [{ chatId: 'd1' }] });
   const entry = await core.record();
   await restrictStoredEntry(core, RESTRICTED_ENTRY);
   const context = issueContext({ kind: 'group', iface: 'fake', destination: core.places[0], now: () => NOW });
@@ -599,7 +599,7 @@ test('publication preparation intersects the mirror standing grant with the stor
 
 test('recheck refuses a queued diary publication whose stored origin became restricted', async () => {
   // Catches treating an earlier standing grant as permanent permission after private content replaces the entry.
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }], connected: false });
+  const core = await scene({ mirrors: [{ chatId: 'd1' }], connected: false });
   const entry = await core.record();
   await core.mirrors.queueEntry(entry);
   await restrictStoredEntry(core, RESTRICTED_ENTRY);
@@ -613,16 +613,16 @@ test('recheck refuses a queued diary publication whose stored origin became rest
   assert.deepEqual(recheck(handle, publication.id, context), { ok: false, code: 'not-allowed' });
 });
 
-test('sendEntry refuses the same native conversation on a different origin interface', async () => {
-  // Catches comparing only conversation IDs at the actual attachment and text send boundary.
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+test('sendEntry refuses the same native chat on a different origin interface', async () => {
+  // Catches comparing only chat IDs at the actual attachment and text send boundary.
+  const core = await scene({ mirrors: [{ chatId: 'd1' }] });
   const entry = {
     id: 'direct-restricted',
     messages: [TEXT],
     publicationBoundary: RESTRICTED_ENTRY,
     pictures: [{ buffer: new Uint8Array([1, 2]), mediaType: 'image/png' }],
   };
-  const result = await sendEntry(world().port, { iface: 'fake', conversationId: 'd1' }, entry, {
+  const result = await sendEntry(world().port, { iface: 'fake', chatId: 'd1' }, entry, {
     maxMessageBytes: 1000000,
     now: () => NOW,
   });
@@ -632,9 +632,9 @@ test('sendEntry refuses the same native conversation on a different origin inter
 
 test('a same-origin restriction permits a mirror send without changing ordinary standing grants', async () => {
   // Catches replacing the exact-origin rule with a blanket ban on restricted entries.
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const core = await scene({ mirrors: [{ chatId: 'd1' }] });
   const entry = await core.record();
-  await restrictStoredEntry(core, { kind: 'internal-turn', origin: { iface: 'fake', conversationId: 'd1' } });
+  await restrictStoredEntry(core, { kind: 'internal-turn', origin: { iface: 'fake', chatId: 'd1' } });
   const result = await core.mirrors.publishEntry(entry);
   assert.equal(result[0].status, 'sent');
   assert.deepEqual(core.texts('d1'), [TEXT]);
@@ -642,9 +642,9 @@ test('a same-origin restriction permits a mirror send without changing ordinary 
 
 test('a stored restriction refuses publication when its destination has no native route', async () => {
   // Catches interpreting a missing native destination as an unrestricted mirror.
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const core = await scene({ mirrors: [{ chatId: 'd1' }] });
   const entry = await core.record();
-  await restrictStoredEntry(core, { kind: 'internal-turn', origin: { iface: 'fake', conversationId: 'd1' } });
+  await restrictStoredEntry(core, { kind: 'internal-turn', origin: { iface: 'fake', chatId: 'd1' } });
   dbOf(core.memory.memoryDb).prepare('UPDATE places SET native_id = NULL WHERE id = ?').run(core.places[0]);
   const context = issueContext({ kind: 'group', iface: 'fake', destination: core.places[0], now: () => NOW });
   const result = await core.memory.memoryDb.memoryWrite({
@@ -664,7 +664,7 @@ test('a stored restriction refuses publication when its destination has no nativ
 
 test('a supplied entry restriction prevents queueing and publication before its saved row changes', async () => {
   // Catches checking only durable metadata while a producer already carries a stricter live boundary.
-  const core = await scene({ mirrors: [{ conversationId: 'd1' }] });
+  const core = await scene({ mirrors: [{ chatId: 'd1' }] });
   const entry = { ...(await core.record()), publicationBoundary: RESTRICTED_ENTRY };
   await core.mirrors.queueEntry(entry);
   assert.deepEqual(selfreflectionPublications(core.memory.memoryDb), []);

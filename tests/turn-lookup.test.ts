@@ -99,7 +99,7 @@ test('prefetch memoization retains qualified history identity as well as the iss
       throw new Error('the recording loader does not decorate');
     },
   });
-  const start = (historyRef: { iface: string; conversationId: string }) => {
+  const start = (historyRef: { iface: string; chatId: string }) => {
     const pending = lookup.startPrefetch({
       config: config(),
       channel: { id: 'same-room' },
@@ -118,18 +118,18 @@ test('prefetch memoization retains qualified history identity as well as the iss
     if (!pending) throw new Error('valid prefetch did not start');
     return pending.pending;
   };
-  const first = { iface: 'first', conversationId: 'same-room' };
-  const otherInterface = { iface: 'second', conversationId: 'same-room' };
-  const otherConversation = { iface: 'second', conversationId: 'different-room' };
+  const first = { iface: 'first', chatId: 'same-room' };
+  const otherInterface = { iface: 'second', chatId: 'same-room' };
+  const otherChat = { iface: 'second', chatId: 'different-room' };
   assert.deepEqual(await start(first), { status: 'ok', excerpts: ['load-1'] });
   assert.deepEqual(await start(first), { status: 'ok', excerpts: ['load-1'] });
   assert.deepEqual(await start(otherInterface), { status: 'ok', excerpts: ['load-2'] });
-  assert.deepEqual(await start(otherConversation), { status: 'ok', excerpts: ['load-3'] });
-  assert.deepEqual(await start(otherConversation), { status: 'ok', excerpts: ['load-3'] });
-  assert.deepEqual(loaded, [first, otherInterface, otherConversation]);
+  assert.deepEqual(await start(otherChat), { status: 'ok', excerpts: ['load-3'] });
+  assert.deepEqual(await start(otherChat), { status: 'ok', excerpts: ['load-3'] });
+  assert.deepEqual(loaded, [first, otherInterface, otherChat]);
 });
 
-test('the owner chat fetches no partner from the community', async () => {
+test('the owner chat fetches no partner from the root', async () => {
   // Bug: a chat turn asked the platform for the member `owner`, which got an http-400 and a warning on every line.
   const asked: Array<unknown> = [];
   const lookup = createLookup({

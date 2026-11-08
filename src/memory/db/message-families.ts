@@ -1,10 +1,10 @@
-// The service and writer worker commit normalized messages through conversation-qualified families.
+// The service and writer worker commit normalized messages through chat-qualified families.
 
 import { randomUUID } from 'node:crypto';
 import { storageOwner, ownershipRow } from './storage-units.ts';
 
 import { checkEnvelope, observe, observationAudience, resolveObservationPlace, OBSERVE_CODES } from './observe.ts';
-import type { Envelope, MessageConversation, ObserveResult } from './observe.ts';
+import type { Envelope, MessageChat, ObserveResult } from './observe.ts';
 import { locatorText, messageLocator } from './message-locator.ts';
 import { familyError, historicalFamily, insertFamily } from './message-family-catalog.ts';
 import type { MessageFamily } from './message-family-catalog.ts';
@@ -30,11 +30,11 @@ function descriptorCode(e: Envelope): string | null {
     (e.native.subtype !== undefined && e.native.subtype !== 'seen' && e.native.subtype !== 'said')
   )
     return 'BAD_NATIVE';
-  const c = e.messageConversation;
+  const c = e.messageChat;
   if (
     !c ||
     !locatorText(c.id) ||
-    c.id !== locator.conversationId ||
+    c.id !== locator.chatId ||
     !['channel', 'thread', 'group_dm', 'dm'].includes(c.chatType)
   )
     return 'BAD_PLACE';
@@ -46,7 +46,7 @@ function descriptorCode(e: Envelope): string | null {
   return placeCode(e, c);
 }
 
-function placeCode(e: Envelope, c: MessageConversation): string | null {
+function placeCode(e: Envelope, c: MessageChat): string | null {
   const p = e.place;
   const key = c.chatType === 'dm' ? c.partnerId : c.id;
   if (
@@ -54,7 +54,7 @@ function placeCode(e: Envelope, c: MessageConversation): string | null {
     p.authority !== e.authority ||
     p.key !== `${c.chatType}:${key}` ||
     p.kind !== c.chatType ||
-    p.conversation !== (c.chatType === 'dm' ? 'dm' : 'group')
+    p.chat !== (c.chatType === 'dm' ? 'dm' : 'group')
   )
     return 'BAD_PLACE';
   const partner = p.partner;
@@ -79,7 +79,7 @@ function replyEnvelope(db: Db, e: Envelope, options: { newKey?: () => string }):
   });
   return {
     ...e,
-    messageReply: { iface: locator.iface, conversationId: locator.conversationId, messageId: locator.messageId },
+    messageReply: { iface: locator.iface, chatId: locator.chatId, messageId: locator.messageId },
     relations: [
       ...(e.relations ?? []).filter((relation) => relation.predicate !== 'replies_to'),
       {
@@ -95,7 +95,7 @@ function replyEnvelope(db: Db, e: Envelope, options: { newKey?: () => string }):
   };
 }
 
-/** Reserves a conversation's family and writes its observation in one transaction. */
+/** Reserves a chat's family and writes its observation in one transaction. */
 export function observeMessage(
   handle: MemoryHandle,
   envelope: unknown,
@@ -155,7 +155,7 @@ export type MessageDeletion = Readonly<{
   iface: string;
   authority: string;
   messageLocator: MessageLocator;
-  messageConversation: MessageConversation;
+  messageChat: MessageChat;
   generation?: number;
   occurredAt: string;
   observedAt: string;
@@ -164,10 +164,10 @@ export type MessageDeletion = Readonly<{
 
 const isObject = (value: unknown): value is Row => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-function deletionConversationCode(c: unknown, locator: MessageLocator): string | null {
+function deletionChatCode(c: unknown, locator: MessageLocator): string | null {
   if (
     !isObject(c) ||
-    c.id !== locator.conversationId ||
+    c.id !== locator.chatId ||
     typeof c.chatType !== 'string' ||
     !['channel', 'thread', 'group_dm', 'dm'].includes(c.chatType)
   )
@@ -190,7 +190,7 @@ function deletionCode(value: unknown): string | null {
     return 'BAD_AUTHORITY';
   const locator = messageLocator(value.messageLocator, value.iface);
   if (!locator || locator.origin !== 'protocol-message') return 'BAD_NATIVE';
-  const place = deletionConversationCode(value.messageConversation, locator);
+  const place = deletionChatCode(value.messageChat, locator);
   if (place) return place;
   if (value.generation !== undefined && (!Number.isInteger(value.generation) || Number(value.generation) < 1))
     return 'BAD_NATIVE';
@@ -200,12 +200,12 @@ function deletionCode(value: unknown): string | null {
 }
 
 function deletionPlace(input: MessageDeletion): Envelope['place'] {
-  const c = input.messageConversation;
+  const c = input.messageChat;
   return {
     authority: input.authority,
     kind: c.chatType,
     key: `${c.chatType}:${c.chatType === 'dm' ? c.partnerId : c.id}`,
-    conversation: c.chatType === 'dm' ? 'dm' : 'group',
+    chat: c.chatType === 'dm' ? 'dm' : 'group',
     ...(c.chatType === 'dm' && typeof c.partnerId === 'string' ? { partner: { key: c.partnerId } } : {}),
     ...(c.chatType === 'thread' && c.parentId ? { parent: `channel:${c.parentId}` } : {}),
   };
@@ -327,7 +327,7 @@ export function resolveMessageFamily(
     .prepare(
       'SELECT * FROM message_families WHERE iface = ? AND conversation_id = ? AND message_id = ? AND generation = ?'
     )
-    .get(locator.iface, locator.conversationId, locator.messageId, generation);
+    .get(locator.iface, locator.chatId, locator.messageId, generation);
   // Catalog columns have the MessageFamily shape.
   if (current) return current as MessageFamily;
   const historic = historicalFamily(db, locator, generation);
@@ -351,7 +351,7 @@ export function resolveMessageFamily(
     throw familyError('KEY_COLLISION');
   const family = historic ?? {
     iface: locator.iface,
-    conversation_id: locator.conversationId,
+    conversation_id: locator.chatId,
     message_id: locator.messageId,
     generation,
     authority_id: authority,

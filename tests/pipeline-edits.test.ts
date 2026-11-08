@@ -13,7 +13,7 @@ import type { TestMemory } from './fixtures/memory-db/service.ts';
 import { rig } from './fixtures/reads-rig.ts';
 
 const NOW = Date.parse('2026-11-05T12:00:00Z');
-const COMMUNITY = 'community';
+const ROOT = 'root';
 const POSTED = 'https://tenor.example.invalid/view/spinning-cat';
 
 /** The message as it was created: the address of a GIF as text, no embed yet. */
@@ -57,8 +57,8 @@ function eventOf(eventId: string, message: Message, previous?: Message): Message
     id: eventId,
     at: NOW,
     ...(previous ? { edit: true, previous } : {}),
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedConversationIds: [] },
-    conversation: { id: 'room', kind: 'channel', chatType: 'channel', rootId: COMMUNITY },
+    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
+    chat: { id: 'room', kind: 'channel', chatType: 'channel', rootId: ROOT },
     message,
   };
 }
@@ -76,7 +76,7 @@ function editsOver(memory: TestMemory) {
     hot: memory.hot,
     store: null,
     reads: rig().reads,
-    isServedCommunity: (id) => id === COMMUNITY,
+    isServedRoot: (id) => id === ROOT,
     selfIdOf: () => 'self',
     record: {
       append: (_placeId, lines) => {
@@ -113,7 +113,7 @@ test("an update that brings a GIF embed later links it to the line's current rev
   const memory = await openTestMemory({ now: () => NOW });
   try {
     const { observed, edits } = editsOver(memory);
-    await observed.observeLine(eventOf('create-1', created('9001')), false, { placeId: COMMUNITY });
+    await observed.observeLine(eventOf('create-1', created('9001')), false, { placeId: ROOT });
     assert.deepEqual(stored(memory, '9001'), [{ revision: 1, refs: [] }], 'the line arrived without the embed');
     await edits.onMessageUpdate(eventOf('update-1', unfurled('9001'), created('9001')));
     assert.deepEqual(stored(memory, '9001'), [{ revision: 1, refs: ['9001#e0'] }]);
@@ -127,7 +127,7 @@ test('an update that brings only an embed appends no revision to the record', as
   const memory = await openTestMemory({ now: () => NOW });
   try {
     const { observed, edits, appended } = editsOver(memory);
-    await observed.observeLine(eventOf('create-2', created('9002')), false, { placeId: COMMUNITY });
+    await observed.observeLine(eventOf('create-2', created('9002')), false, { placeId: ROOT });
     await edits.onMessageUpdate(eventOf('update-2', unfurled('9002'), created('9002')));
     const revisions = appended.flat().map((line) => (line as { revision?: unknown }).revision);
     assert.equal(

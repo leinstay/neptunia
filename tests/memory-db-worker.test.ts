@@ -327,7 +327,7 @@ test('worker: the unit writers and the observation write through the worker (buf
       iface: 'discord',
       authority: 'discord/global',
       native: { kind: 'message', key: '600000000000000001', subtype: 'seen', revision: 1 },
-      place: { authority: 'discord/global', key: `channel:${CHANNEL}`, kind: 'channel', conversation: 'group' },
+      place: { authority: 'discord/global', key: `channel:${CHANNEL}`, kind: 'channel', chat: 'group' },
       author: { kind: 'account', key: MEMBER, account_kind: 'user' },
       occurredAt: '2026-11-03T10:00:00.000Z',
       observedAt: '2026-11-03T10:00:00.000Z',

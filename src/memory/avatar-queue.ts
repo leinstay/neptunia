@@ -41,7 +41,7 @@ function buildAvatarQueue({
   llm,
   imageFetcher,
   servedPlaces,
-  isServedCommunity,
+  isServedRoot,
   selfId,
   reads,
   paused = () => false,
@@ -52,10 +52,10 @@ function buildAvatarQueue({
   store: Pick<StoreView, 'getUser' | 'listUserProfiles' | 'setAvatar'>;
   llm: { complete: Untyped; capLeft?: Untyped };
   imageFetcher: { fetchAsDataUrl: Untyped };
-  /** The places to read members from: every community the connected interfaces serve. */
+  /** The places to read members from: every root the connected interfaces serve. */
   servedPlaces: () => ReadonlyArray<string>;
-  /** A community some connected interface serves. */
-  isServedCommunity: (placeId: string | null | undefined) => boolean;
+  /** A root some connected interface serves. */
+  isServedRoot: (placeId: string | null | undefined) => boolean;
   selfId: () => string | null;
   reads: Reads;
   paused?: () => boolean;
@@ -90,7 +90,7 @@ function buildAvatarQueue({
   ): 'off' | 'other-place' | 'invalid' | 'self' | 'bot' | 'no-profile' | 'current' | 'failed' | 'queued' | 'error' {
     try {
       if (!on()) return 'off';
-      if (!placeId || !isServedCommunity(placeId)) return 'other-place';
+      if (!placeId || !isServedRoot(placeId)) return 'other-place';
       if (!view || typeof view.id !== 'string' || !view.id) return 'invalid';
       if (view.id === selfId()) return 'self';
       if (view.bot) return 'bot';
@@ -113,7 +113,7 @@ function buildAvatarQueue({
   /**
    * Every profiled member of `placeId` offered with their current avatar (`reads.memberInfo`, one at
    * a time). Clears the failed versions first: this is their retry. A member the interface cannot
-   * find (left the community, a failed read, no such read) is counted as gone.
+   * find (left the root, a failed read, no such read) is counted as gone.
    */
   async function scan(placeId: string): Promise<{ profiles: number; queued: number; gone: number }> {
     failed.clear();
@@ -305,7 +305,7 @@ export type AvatarQueue = ReturnType<typeof buildAvatarQueue>;
  * @param deps.imageFetcher  src/media/fetch-image.ts.
  * @param deps.selfId  The persona's user id.
  * @param deps.reads  The core's reads of the interface: `memberInfo` gives a
- *   member of the community with the hash and the address of their avatar, null when they are not a member.
+ *   member of the root with the hash and the address of their avatar, null when they are not a member.
  */
 export function createAvatarQueue(deps: Parameters<typeof buildAvatarQueue>[0]): AvatarQueue {
   return buildAvatarQueue(deps);

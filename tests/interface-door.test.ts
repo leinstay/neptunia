@@ -25,7 +25,7 @@ const reaction = (id = 'fake:reaction:1') => ({
   iface: 'fake',
   at: 1,
   id,
-  conversation: { id: 'c1', kind: 'channel' },
+  chat: { id: 'c1', kind: 'channel' },
   messageId: 'm1',
   emoji: { name: '\u{1F389}' },
   accountId: 'u1',
@@ -158,7 +158,7 @@ test('door: envelopes -- hello and ping are acked, an event envelope is acked by
   });
   assert.deepEqual(
     await door.receive(
-      envelope('hello', { iface: 'fake', self: { id: 'bot-1', name: 'Bot' }, community: null }, { id: 'h1' })
+      envelope('hello', { iface: 'fake', self: { id: 'bot-1', name: 'Bot' }, root: null }, { id: 'h1' })
     ),
     ack('h1', 'ok')
   );
@@ -168,11 +168,7 @@ test('door: envelopes -- hello and ping are acked, an event envelope is acked by
   assert.deepEqual(await door.receive(envelope('event', event, { id: event.id })), ack(event.id, 'duplicate'));
   assert.deepEqual(
     await door.receive(
-      envelope(
-        'action',
-        { action: 'conversation.typing', conversation: { iface: 'fake', conversationId: 'c1' } },
-        { id: 'x1' }
-      )
+      envelope('action', { action: 'chat.typing', chat: { iface: 'fake', chatId: 'c1' } }, { id: 'x1' })
     ),
     ack('x1', 'invalid', 'type:not-inbound')
   );
@@ -235,7 +231,7 @@ test('direct submissions without authenticated metadata remain ordinary even wit
     [
       { ingest: null, authenticated: null },
       {
-        ingest: { principal: 'owner', seq: 4, eventId: 'named', kind: 'reaction.changed', conversation: 'c1' },
+        ingest: { principal: 'owner', seq: 4, eventId: 'named', kind: 'reaction.changed', chat: 'c1' },
         authenticated: null,
       },
     ]
@@ -248,9 +244,7 @@ test('direct submissions without authenticated metadata remain ordinary even wit
     contexts.map(({ receipt }) => receipt?.row),
     contexts.map(({ ingest }) => ingest)
   );
-  assert.deepEqual(committed, [
-    { principal: 'owner', seq: 4, eventId: 'named', kind: 'reaction.changed', conversation: 'c1' },
-  ]);
+  assert.deepEqual(committed, [{ principal: 'owner', seq: 4, eventId: 'named', kind: 'reaction.changed', chat: 'c1' }]);
 });
 
 for (const entry of ['receive', 'submit'] as const) {
@@ -289,7 +283,7 @@ for (const entry of ['receive', 'submit'] as const) {
       seq: 7,
       eventId: event.id,
       kind: 'reaction.changed',
-      conversation: 'c1',
+      chat: 'c1',
     };
     // The receipt is additive. Authentication and ingestion retain their exact prior values.
     assert.deepEqual(

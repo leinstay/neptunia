@@ -153,7 +153,7 @@ test('a publication queued before the migration goes out afterwards with its pic
   assert.equal(await mirrors.drainQueued(), 1);
   assert.deepEqual(
     // An entry goes out as segments: its message, then its pictures.
-    transport.attempts.map((attempt) => [attempt.conversationId, attempt.files]),
+    transport.attempts.map((attempt) => [attempt.chatId, attempt.files]),
     [
       ['d1', 0],
       ['d1', 1],

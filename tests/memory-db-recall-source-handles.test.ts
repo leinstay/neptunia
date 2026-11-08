@@ -52,7 +52,7 @@ function storedObservation(
       authority,
       key: room,
       kind: privatePlace ? 'dm' : 'room',
-      conversation: privatePlace ? 'dm' : 'group',
+      chat: privatePlace ? 'dm' : 'group',
       ...(privatePlace ? { partner: { key: 'private-partner' } } : {}),
     },
     author: { kind: 'account', key: 'author-42' },
@@ -226,7 +226,7 @@ test('stored source handles follow a reply parent only in the originating place'
   }
 });
 
-test('stored source handles qualify mapped DM anchors by the actual conversation rather than the partner', () => {
+test('stored source handles qualify mapped DM anchors by the actual chat rather than the partner', () => {
   const env = fixture();
   try {
     for (const [id, offset] of [
@@ -235,12 +235,12 @@ test('stored source handles qualify mapped DM anchors by the actual conversation
     ] as const) {
       const event = lineEvent({
         id,
-        conversationId: 'actual-dm-73',
+        chatId: 'actual-dm-73',
         authorId: 'partner-42',
         text: `το κουνέλι ${id}`,
         at: NOW - DAY - offset,
       });
-      event.conversation = { id: 'actual-dm-73', kind: 'dm', rootId: null, partnerId: 'partner-42' };
+      event.chat = { id: 'actual-dm-73', kind: 'dm', rootId: null, partnerId: 'partner-42' };
       const envelope = observationOf(event);
       assert.ok(envelope);
       assert.equal(observe(env.handle, envelope, { now: () => NOW }).ok, true);
@@ -251,14 +251,14 @@ test('stored source handles qualify mapped DM anchors by the actual conversation
     const anchor = found.windows.flatMap((one) => one.messages).find((message) => message.id === 'mapped-anchor');
     assert.deepEqual(anchor?.stored?.native, {
       iface: 'fake',
-      conversationId: 'actual-dm-73',
+      chatId: 'actual-dm-73',
       messageId: 'mapped-anchor',
     });
     const expanded = window(env.db, {
       ctx,
       resolvedAnchor: {
         kind: 'native',
-        locator: { iface: 'fake', conversationId: 'actual-dm-73', messageId: 'mapped-anchor' },
+        locator: { iface: 'fake', chatId: 'actual-dm-73', messageId: 'mapped-anchor' },
       },
       move: 'up',
       messages: 1,
@@ -269,7 +269,7 @@ test('stored source handles qualify mapped DM anchors by the actual conversation
       ctx,
       resolvedAnchor: {
         kind: 'native',
-        locator: { iface: 'fake', conversationId: 'partner-42', messageId: 'mapped-anchor' },
+        locator: { iface: 'fake', chatId: 'partner-42', messageId: 'mapped-anchor' },
       },
     });
     assert.equal(guessed.unknown, true);
@@ -278,7 +278,7 @@ test('stored source handles qualify mapped DM anchors by the actual conversation
   }
 });
 
-test('stored source handles qualify legacy DM records using their recorded conversation', () => {
+test('stored source handles qualify legacy DM records using their recorded chat', () => {
   const env = fixture();
   try {
     for (const [messageId, offset] of [
@@ -309,14 +309,14 @@ test('stored source handles qualify legacy DM records using their recorded conve
     const anchor = found.windows.flatMap((one) => one.messages).find((message) => message.id === 'legacy-anchor');
     assert.deepEqual(anchor?.stored?.native, {
       iface: 'discord',
-      conversationId: 'legacy-dm-73',
+      chatId: 'legacy-dm-73',
       messageId: 'legacy-anchor',
     });
     const expanded = window(env.db, {
       ctx,
       resolvedAnchor: {
         kind: 'native',
-        locator: { iface: 'discord', conversationId: 'legacy-dm-73', messageId: 'legacy-anchor' },
+        locator: { iface: 'discord', chatId: 'legacy-dm-73', messageId: 'legacy-anchor' },
       },
       move: 'up',
       messages: 1,
@@ -359,7 +359,7 @@ test('stored source handles do not turn generic observation keys or opaque place
       ctx: group,
       resolvedAnchor: {
         kind: 'native',
-        locator: { iface: 'other', conversationId: 'opaque-room-731', messageId: 'room:42:message:73' },
+        locator: { iface: 'other', chatId: 'opaque-room-731', messageId: 'room:42:message:73' },
       },
     });
     assert.equal(guessed.unknown, true);
@@ -384,15 +384,15 @@ test('stored source handles retain one observation identity when a repeated tupl
   }
 });
 
-function locatorEvent(id: string, conversationId: string, offset = 0) {
+function locatorEvent(id: string, chatId: string, offset = 0) {
   const event = lineEvent({
     id,
-    conversationId,
+    chatId,
     authorId: 'partner-42',
     text: `το κουνέλι ${id}`,
     at: NOW - DAY - offset,
   });
-  event.conversation = { id: conversationId, kind: 'dm', rootId: null, partnerId: 'partner-42' };
+  event.chat = { id: chatId, kind: 'dm', rootId: null, partnerId: 'partner-42' };
   const envelope = observationOf(event);
   if (!envelope) throw new Error('valid protocol fixture was refused');
   return envelope;
@@ -406,7 +406,7 @@ test('stored source locator metadata cannot be issued by generic observation ext
       iface: 'other',
       authority: 'other/generic',
       native: { kind: 'message', key: 'generic:room:42', revision: 1 },
-      place: { authority: 'other/generic', key: 'opaque-room', kind: 'room', conversation: 'group' },
+      place: { authority: 'other/generic', key: 'opaque-room', kind: 'room', chat: 'group' },
       author: { kind: 'account', key: 'author-42' },
       occurredAt: new Date(NOW - DAY).toISOString(),
       observedAt: new Date(NOW).toISOString(),
@@ -416,7 +416,7 @@ test('stored source locator metadata cannot be issued by generic observation ext
           v: 1,
           origin: 'protocol-message',
           iface: 'other',
-          conversationId: 'forged-room',
+          chatId: 'forged-room',
           messageId: 'forged-message',
         },
       },
@@ -432,7 +432,7 @@ test('stored source locator metadata cannot be issued by generic observation ext
       ctx: group,
       resolvedAnchor: {
         kind: 'native',
-        locator: { iface: 'other', conversationId: 'forged-room', messageId: 'forged-message' },
+        locator: { iface: 'other', chatId: 'forged-room', messageId: 'forged-message' },
       },
     });
     assert.equal(guessed.unknown, true);
@@ -443,9 +443,9 @@ test('stored source locator metadata cannot be issued by generic observation ext
 });
 
 for (const invalid of [
-  { label: 'empty conversation', iface: 'fake', conversationId: '', messageId: 'invalid-locator' },
-  { label: 'NUL message', iface: 'fake', conversationId: 'actual-dm', messageId: 'invalid\0locator' },
-  { label: 'mismatched interface', iface: 'other', conversationId: 'actual-dm', messageId: 'invalid-locator' },
+  { label: 'empty chat', iface: 'fake', chatId: '', messageId: 'invalid-locator' },
+  { label: 'NUL message', iface: 'fake', chatId: 'actual-dm', messageId: 'invalid\0locator' },
+  { label: 'mismatched interface', iface: 'other', chatId: 'actual-dm', messageId: 'invalid-locator' },
 ]) {
   test(`stored source locator validation refuses ${invalid.label} without writing a source`, () => {
     const env = fixture();
@@ -455,7 +455,7 @@ for (const invalid of [
         v: 1,
         origin: 'protocol-message',
         iface: invalid.iface,
-        conversationId: invalid.conversationId,
+        chatId: invalid.chatId,
         messageId: invalid.messageId,
       };
       const result = observe(env.handle, envelope, { now: () => NOW });
@@ -468,7 +468,7 @@ for (const invalid of [
   });
 }
 
-test('stored source locator replay cannot replace the first verified conversation', () => {
+test('stored source locator replay cannot replace the first verified chat', () => {
   const env = fixture();
   try {
     const first = observe(env.handle, locatorEvent('replayed-message', 'first-dm'), { now: () => NOW });
@@ -481,14 +481,14 @@ test('stored source locator replay cannot replace the first verified conversatio
     const message = found.windows.flatMap((one) => one.messages).find((one) => one.id === 'replayed-message');
     assert.deepEqual(message?.stored?.native, {
       iface: 'fake',
-      conversationId: 'first-dm',
+      chatId: 'first-dm',
       messageId: 'replayed-message',
     });
     const redirected = window(env.db, {
       ctx: internalContext(),
       resolvedAnchor: {
         kind: 'native',
-        locator: { iface: 'fake', conversationId: 'second-dm', messageId: 'replayed-message' },
+        locator: { iface: 'fake', chatId: 'second-dm', messageId: 'replayed-message' },
       },
     });
     assert.equal(redirected.unknown, true);
@@ -531,14 +531,14 @@ test('stored source locators recognize historic unmarked DM records through thei
     const message = found.windows.flatMap((one) => one.messages).find((one) => one.id === 'historic-anchor');
     assert.deepEqual(message?.stored?.native, {
       iface: 'discord',
-      conversationId: 'historic-dm-73',
+      chatId: 'historic-dm-73',
       messageId: 'historic-anchor',
     });
     const expanded = window(env.db, {
       ctx: internalContext(),
       resolvedAnchor: {
         kind: 'native',
-        locator: { iface: 'discord', conversationId: 'historic-dm-73', messageId: 'historic-anchor' },
+        locator: { iface: 'discord', chatId: 'historic-dm-73', messageId: 'historic-anchor' },
       },
       move: 'up',
       messages: 1,
@@ -629,7 +629,7 @@ test('a qualified native window ignores unrelated malformed source metadata with
       ctx: internalContext(),
       resolvedAnchor: {
         kind: 'native',
-        locator: { iface: 'fake', conversationId: 'valid-dm', messageId: 'json-anchor' },
+        locator: { iface: 'fake', chatId: 'valid-dm', messageId: 'json-anchor' },
       },
       move: 'up',
       messages: 1,
@@ -643,7 +643,7 @@ test('a qualified native window ignores unrelated malformed source metadata with
       ctx: internalContext(),
       resolvedAnchor: {
         kind: 'native',
-        locator: { iface: 'fake', conversationId: 'unrelated-dm', messageId: 'json-malformed' },
+        locator: { iface: 'fake', chatId: 'unrelated-dm', messageId: 'json-malformed' },
       },
     });
     assert.equal(unroutable.unknown, true);

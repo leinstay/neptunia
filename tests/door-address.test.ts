@@ -16,7 +16,7 @@ import { createMessageHandler } from '../src/behavior/pipeline.ts';
 import { createTagHistory } from '../src/behavior/mention.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createReads } from '../src/interface/reads.ts';
-import type { ConversationInfo } from '../src/protocol/adapter.ts';
+import type { ChatInfo } from '../src/protocol/adapter.ts';
 import type { MessageReceived } from '../src/protocol/events.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { baseConfig } from './fixtures/events-rig.ts';
@@ -29,14 +29,14 @@ const MINUTE = 60_000;
 const SELF = 'self-id';
 const ADDRESS_PROMPT = 'Is the candidate said to {{name}}?';
 
-type Shape = { label: string; iface: string; place: Partial<ConversationInfo> & { id: string } };
+type Shape = { label: string; iface: string; place: Partial<ChatInfo> & { id: string } };
 
-// A server's channel, a group that is its own root place, and a group outside any community.
+// A server's channel, a group that is its own root place, and a group outside any root.
 const GROUP_SHAPES: Array<Shape> = [
   { label: 'a channel under a root place', iface: 'alpha', place: { id: 'c1', kind: 'channel', rootId: 'g1' } },
   { label: 'a group that is its own root', iface: 'beta', place: { id: 'r1', kind: 'channel', rootId: 'r1' } },
   {
-    label: 'a group outside any community',
+    label: 'a group outside any root',
     iface: 'gamma',
     place: { id: 'r2', kind: 'channel', chatType: 'group_dm', rootId: null },
   },
@@ -44,7 +44,7 @@ const GROUP_SHAPES: Array<Shape> = [
 const [CHANNEL, ROOT_GROUP] = GROUP_SHAPES as [Shape, Shape, Shape];
 
 type LlmCall = { system: string; user: string; options: { purpose?: string; role?: string } };
-type TurnAsked = { triggerKind: string | null; trigger: { id: string; authorId: string }; conversation: object };
+type TurnAsked = { triggerKind: string | null; trigger: { id: string; authorId: string }; chat: object };
 
 type DoorOptions = {
   shapes?: Array<Shape>;
@@ -76,9 +76,8 @@ function door(options: DoorOptions = {}) {
     }
     return fake;
   };
-  const infoOf = ({ iface, place }: Shape): ConversationInfo =>
-    channelOf(place.id, { iface, name: place.id, ...place });
-  for (const shape of shapes) adapterOf(shape.iface).seedConversation(infoOf(shape));
+  const infoOf = ({ iface, place }: Shape): ChatInfo => channelOf(place.id, { iface, name: place.id, ...place });
+  for (const shape of shapes) adapterOf(shape.iface).seedChat(infoOf(shape));
   // The core's reads name their interface in the first argument.
   const reads = new Proxy(
     {},
@@ -115,7 +114,8 @@ function door(options: DoorOptions = {}) {
   const hot = {
     config: baseConfig({
       bot: { timezone: 'UTC', nameTriggers: options.nameTriggers ?? [] },
-      private: { enabled: true, minAffinity: 0 },
+      dm: { enabled: true },
+      private: { minAffinity: 0 },
       address: {
         attentionMinutes: options.attentionMinutes ?? 30,
         maxTurnsPerAuthor: options.maxTurnsPerAuthor ?? 100,
@@ -146,8 +146,8 @@ function door(options: DoorOptions = {}) {
       },
       memory: { observe() {} },
       tagHistory: createTagHistory(),
-      isServedCommunity: () => true,
-      communitiesOf: () => [],
+      isServedRoot: () => true,
+      rootsOf: () => [],
       llm,
       rng:
         options.rng ??
@@ -183,7 +183,7 @@ function door(options: DoorOptions = {}) {
       at: clock.at,
       id: `${shape.iface}:message:${id}`,
       // Type fix (plan B1 amendment, approved): the place carries its own `id`, so it is not written twice.
-      conversation: { kind: 'channel', name: shape.place.id, ...shape.place },
+      chat: { kind: 'channel', name: shape.place.id, ...shape.place },
       message: {
         id,
         author: { id: author, name: author === SELF ? 'Nova' : 'Eleni', self: author === SELF, bot: false },
@@ -205,7 +205,7 @@ function door(options: DoorOptions = {}) {
         mentioned: line.mentioned === true,
         replyToSelf: line.replyToSelf === true,
         mentionedAccountIds: [...(line.mentioned ? [SELF] : []), ...(line.alsoMentions ?? [])],
-        mentionedConversationIds: [],
+        mentionedChatIds: [],
       },
     };
     await handler(wrongly<MessageReceived>(event));

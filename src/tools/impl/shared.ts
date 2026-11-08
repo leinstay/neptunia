@@ -1,10 +1,10 @@
 // Pure functions and constants of the owner operations (src/tools/impl/*.ts), moved from src/admin.js:
 // the rules-file and config-path functions, the profile views, the ping/route formatters, the
 // media wording tables and the line formatters several operations share. No I/O but
-// `treeSize` (a directory walk for the memory snapshot) and `postingConversation` (a channel
+// `treeSize` (a directory walk for the memory snapshot) and `postingChat` (a channel
 // looked up through the client it is handed).
 
-import { conversationOfPlace } from '../../memory/addresses.ts';
+import { chatOfPlace } from '../../memory/addresses.ts';
 import { placeIdParts } from '../../memory/db/ids.ts';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -26,7 +26,7 @@ import { isObj, objOf } from '../types.ts';
 import type { Obj, Untyped } from '../types.ts';
 import type { Env } from './env.ts';
 import type { Reads } from '../../interface/reads.ts';
-import type { ConversationRef, Permissions } from '../../protocol/adapter.ts';
+import type { ChatRef, Permissions } from '../../protocol/adapter.ts';
 
 /** `/nep memory journal`'s `n`: default and bounds. */
 export const JOURNAL_N_DEFAULT = 20;
@@ -686,8 +686,8 @@ export function learnedLine(item: Untyped, resolve: (text: unknown) => string): 
 }
 
 /**
- * What an operation does in a conversation other than the one it runs in, and the permissions of the persona it needs
- * there (`info.permissions` of the interface's conversation info): `send` a message, `reply` to one (send, and read the
+ * What an operation does in a chat other than the one it runs in, and the permissions of the persona it needs
+ * there (`info.permissions` of the interface's chat info): `send` a message, `reply` to one (send, and read the
  * history the reply points into), `attach` a picture (send with a file), `read` the history to find a message (an edit,
  * a deletion, a reaction taken back), `react` to one.
  */
@@ -704,7 +704,7 @@ export const CHANNEL_NEEDS: Readonly<
 /** The needs of a post: a closed direct chat refuses them by its own code, every other need by the permission's. */
 const POSTING_NEEDS: ReadonlySet<string> = new Set(['send', 'reply', 'attach']);
 
-/** What posting in another conversation reads of the call's context: the place it runs in, and the wake it is made in. */
+/** What posting in another chat reads of the call's context: the place it runs in, and the wake it is made in. */
 export type PostingContext = {
   publicationBoundary?: PublicationBoundary;
   placeId?: string | null;
@@ -730,38 +730,34 @@ function checkWakePosting(context: PostingContext, capability: string | null): v
 }
 
 /**
- * The conversation a place id names (src/memory/db/ids.ts#placeIdParts) on its own interface: a channel or a thread by
- * its native id, a direct chat by the conversation the directory holds for its partner. Any other id is a conversation
+ * The chat a place id names (src/memory/db/ids.ts#placeIdParts) on its own interface: a channel or a thread by
+ * its native id, a direct chat by the chat the directory holds for its partner. Any other id is a chat
  * of `iface`.
  */
-function refOfPlace(
-  id: string,
-  iface: string,
-  dmConversationOf: ((partnerId: string) => string | null) | null
-): ConversationRef {
+function refOfPlace(id: string, iface: string, dmChatOf: ((partnerId: string) => string | null) | null): ChatRef {
   const parts = placeIdParts(id);
-  if (parts === null) return { iface, conversationId: id };
-  const conversationId = parts.kind === 'dm' ? (dmConversationOf?.(parts.native) ?? parts.native) : parts.native;
-  return { iface: parts.iface, conversationId };
+  if (parts === null) return { iface, chatId: id };
+  const chatId = parts.kind === 'dm' ? (dmChatOf?.(parts.native) ?? parts.native) : parts.native;
+  return { iface: parts.iface, chatId };
 }
 
 /** The directory's reader of a partner's direct chat, null without one. */
 const dmReaderOf = (context: PostingContext): ((partnerId: string) => string | null) | null => {
   const { env } = context;
-  return env?.directory?.dmConversationOf ?? null;
+  return env?.directory?.dmChatOf ?? null;
 };
 
-/** Whether direct chats are open (`private.enabled`, read now through `context.env.hot`). */
+/** Whether direct chats are open (`dm.enabled`, read now through `context.env.hot`). */
 const directChatsOpen = (context: PostingContext): boolean => {
   const hot: unknown = context.env?.hot;
-  return objOf(objOf(objOf(hot).config).private).enabled === true;
+  return objOf(objOf(objOf(hot).config).dm).enabled === true;
 };
 
 /**
- * Where a call of `need` acts: the conversation `conversationId` names (a conversation of `iface`, or a place id of any
- * interface), else the one of the place the call runs in. A conversation other than that one must be one the
- * interface knows and where it reports the permissions `need` names. A post to a direct chat while `private.enabled`
- * is false is a `denied` error (`dm-disabled`), any other refusal a `denied` error (`channel-no-permission`), an `invalid` one with no conversation at all; nothing was
+ * Where a call of `need` acts: the chat `chatId` names (a chat of `iface`, or a place id of any
+ * interface), else the one of the place the call runs in. A chat other than that one must be one the
+ * interface knows and where it reports the permissions `need` names. A post to a direct chat while `dm.enabled`
+ * is false is a `denied` error (`dm-disabled`), any other refusal a `denied` error (`channel-no-permission`), an `invalid` one with no chat at all; nothing was
  * done. On her own initiative (an inner turn: `context.ownInitiative` with `context.wakeKind`) a post or a reaction is
  * also asked of the wake's envelope (src/tools/access.ts#nestedRefusal, the live config through `context.env.hot`): a
  * `denied` error (`not-allowed`) before anything is done.
@@ -770,53 +766,49 @@ export async function postingRef({
   reads,
   store,
   iface,
-  conversationId,
+  chatId,
   context,
   need,
 }: {
   reads: Reads | null;
   store: unknown;
   iface: string;
-  conversationId: string | null | undefined;
+  chatId: string | null | undefined;
   context: PostingContext;
   need: keyof typeof CHANNEL_NEEDS;
-}): Promise<ConversationRef> {
+}): Promise<ChatRef> {
   const capability = NEED_CAPABILITY[need] ?? null;
   checkWakePosting(context, capability);
   const place = context.placeId ?? null;
-  const dmConversationOf = dmReaderOf(context);
-  const here = place ? conversationOfPlace(store, place, dmConversationOf) : null;
-  const target = conversationId
-    ? refOfPlace(conversationId, iface, dmConversationOf)
-    : here
-      ? { iface, conversationId: here }
-      : null;
+  const dmChatOf = dmReaderOf(context);
+  const here = place ? chatOfPlace(store, place, dmChatOf) : null;
+  const target = chatId ? refOfPlace(chatId, iface, dmChatOf) : here ? { iface, chatId: here } : null;
   if (!target) throw invalid('a channel is required');
   if (capability && publicationRefusal(context.publicationBoundary, target))
     throw denied('publication-boundary', 'not-allowed');
-  if (target.iface === iface && target.conversationId === (here ?? '')) return target;
+  if (target.iface === iface && target.chatId === (here ?? '')) return target;
   if (typeof CHANNEL_NEEDS[need] !== 'function') throw new Error(`unknown channel need: ${need}`);
-  const info = reads ? ((await reads.conversationInfo(target))?.conversation ?? null) : null;
-  refuseThere(info, need, target.conversationId, context);
+  const info = reads ? ((await reads.chatInfo(target))?.chat ?? null) : null;
+  refuseThere(info, need, target.chatId, context);
   return target;
 }
 
-/** Throws the refusal of `need` in a conversation as the interface describes it (`info`), or returns when it may run. */
+/** Throws the refusal of `need` in a chat as the interface describes it (`info`), or returns when it may run. */
 function refuseThere(
   info: { kind?: unknown; permissions: Permissions } | null,
   need: keyof typeof CHANNEL_NEEDS,
-  conversationId: string,
+  chatId: string,
   context: PostingContext
 ): void {
   const closedDm = info?.kind === 'dm' && !directChatsOpen(context);
-  if (closedDm && POSTING_NEEDS.has(need)) throw denied(`direct chats are closed, ${conversationId}`, CODE.DM_DISABLED);
+  if (closedDm && POSTING_NEEDS.has(need)) throw denied(`direct chats are closed, ${chatId}`, CODE.DM_DISABLED);
   if (info === null || closedDm || !CHANNEL_NEEDS[need](info.permissions))
-    throw denied(`the bot may not ${need} in channel ${conversationId}`, CODE.CHANNEL_NO_PERMISSION);
+    throw denied(`the bot may not ${need} in channel ${chatId}`, CODE.CHANNEL_NO_PERMISSION);
 }
 
 /**
- * The place an intention begins in, checked now: a conversation of `iface` or a place id of any interface that the
- * interface knows and where she may write. A `denied` error (`dm-disabled`) for a direct chat while `private.enabled`
+ * The place an intention begins in, checked now: a chat of `iface` or a place id of any interface that the
+ * interface knows and where she may write. A `denied` error (`dm-disabled`) for a direct chat while `dm.enabled`
  * is false, and (`channel-no-permission`) for a root, a gone place or one she may only read.
  */
 export async function writablePlace({
@@ -829,9 +821,9 @@ export async function writablePlace({
   iface: string;
   id: string;
   context: PostingContext;
-}): Promise<ConversationRef> {
+}): Promise<ChatRef> {
   const target = refOfPlace(id, iface, dmReaderOf(context));
-  const info = reads ? ((await reads.conversationInfo(target))?.conversation ?? null) : null;
+  const info = reads ? ((await reads.chatInfo(target))?.chat ?? null) : null;
   if (info?.kind === 'dm' && !directChatsOpen(context))
     throw denied(`direct chats are closed, ${id}`, CODE.DM_DISABLED);
   if (info === null || !CHANNEL_NEEDS.send(info.permissions))
@@ -839,16 +831,16 @@ export async function writablePlace({
   return target;
 }
 
-/** The conversation id of postingRef's answer, for the operations that act on the persona's own interface. */
-export async function postingConversation(given: Parameters<typeof postingRef>[0]): Promise<string> {
-  return (await postingRef(given)).conversationId;
+/** The chat id of postingRef's answer, for the operations that act on the persona's own interface. */
+export async function postingChat(given: Parameters<typeof postingRef>[0]): Promise<string> {
+  return (await postingRef(given)).chatId;
 }
 
-/** The core's own spelling of a message in another conversation, `ref:<conversation>/<message>` (executors.ts#mediaRef). */
+/** The core's own spelling of a message in another chat, `ref:<chat>/<message>` (executors.ts#mediaRef). */
 const MESSAGE_REF_RE = /^ref:([\w-]{1,64})\/([\w-]{1,64})$/;
 
 /**
- * `{ placeId, messageId }` of a message id (`placeId` null), a `ref:<conversation>/<message>` the core wrote, or a
+ * `{ placeId, messageId }` of a message id (`placeId` null), a `ref:<chat>/<message>` the core wrote, or a
  * message link a person pasted (with or without angle brackets), which the interface reads (`reads.parseLinks`): the
  * core knows no address grammar of a platform. An `invalid` error (`unknown-message`) for anything else, a link
  * included when there are no reads or the interface does not read links.
@@ -867,7 +859,7 @@ export async function messageRefOf(
   if (/^https?:\/\//i.test(text) && reads) {
     const parsed = await reads.parseLinks([text]);
     const ref = parsed?.refs[0] ?? null;
-    if (ref) return { placeId: ref.conversationId, messageId: ref.messageId };
+    if (ref) return { placeId: ref.chatId, messageId: ref.messageId };
   }
   throw invalid('a message id or link is required', CODE.UNKNOWN_MESSAGE);
 }

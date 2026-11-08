@@ -113,14 +113,14 @@ export function releaseQuarantined(file: string): void {
 
 /**
  * A quarantine notice as her inner life keeps it: a `pendingQuarantined` fact with `waiting` the writes set aside and `code`
- * the code the last of them failed with, told in no conversation.
+ * the code the last of them failed with, told in no chat.
  */
 export type QuarantineNotice = {
   kind: 'pendingQuarantined';
   waiting: number;
   code: string;
   placeId: null;
-  privateChat: false;
+  dmChat: false;
   at: number;
 };
 
@@ -152,7 +152,7 @@ export function quarantineNotices(
         waiting: count,
         code: cause ?? code,
         placeId: null,
-        privateChat: false,
+        dmChat: false,
         at: now(),
       };
       if (teller) tellOne(teller, notice);

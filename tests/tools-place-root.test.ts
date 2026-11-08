@@ -30,7 +30,7 @@ after(async () => {
 
 function addPlace(db: Db, id: string, kind: string, parent: string | null): void {
   db.prepare(
-    `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, conversation, scope_kind, parent_id)
+    `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, chat, scope_kind, parent_id)
      VALUES (?, 'one', ?, ?, ?, 'one/global', 1, 'group', 'group', ?)`
   ).run(id, kind, id, `${kind}:${id}`, parent);
 }

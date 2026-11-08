@@ -41,7 +41,7 @@ function rig() {
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => 0,
     keys: { enabled: () => true, run: (name, args, dialog) => keys.run(name, args, dialog) },
   };

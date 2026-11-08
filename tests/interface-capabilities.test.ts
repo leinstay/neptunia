@@ -5,8 +5,8 @@ import assert from 'node:assert/strict';
 import { portIface, portLimit, portMessageUrl } from '../src/interface/capabilities.ts';
 
 const TEMPLATE = {
-  community: 'https://chat.example/{community}/{conversation}/{message}',
-  direct: 'https://chat.example/me/{conversation}/{message}',
+  root: 'https://chat.example/{root}/{chat}/{message}',
+  direct: 'https://chat.example/me/{chat}/{message}',
 };
 
 test('reads the limit a port declares in its capabilities', () => {
@@ -37,6 +37,6 @@ test('names the interface of a port, empty when it names none', () => {
 test('reads the message address form of a port and answers null for a port that declares none or half of one', () => {
   assert.deepEqual(portMessageUrl({ capabilities: () => ({ messageUrl: TEMPLATE }) }), TEMPLATE);
   assert.equal(portMessageUrl({ capabilities: () => ({}) }), null);
-  assert.equal(portMessageUrl({ capabilities: () => ({ messageUrl: { community: 'x' } }) }), null);
+  assert.equal(portMessageUrl({ capabilities: () => ({ messageUrl: { root: 'x' } }) }), null);
   assert.equal(portMessageUrl({ capabilities: () => ({ messageUrl: null }) }), null);
 });

@@ -16,11 +16,11 @@ import { buildRequest, type Built, type Part } from './fixtures/built-request.ts
 import { framed } from './fixtures/prompt-rig.ts';
 
 const SELF = '100';
-const GUILD = '900';
-const served = { isServed: (placeId: string) => placeId === GUILD, selfId: SELF };
+const ROOT = '900';
+const served = { isServed: (placeId: string) => placeId === ROOT, selfId: SELF };
 
 /**
- * A `reaction.changed` event of conversation `c1`: `kind` add, remove, removeEmoji or removeAll; `authorId` is the author
+ * A `reaction.changed` event of chat `c1`: `kind` add, remove, removeEmoji or removeAll; `authorId` is the author
  * of the message when the interface knows it.
  */
 function reactionEvent(
@@ -30,7 +30,7 @@ function reactionEvent(
     authorId = SELF,
     emoji = { name: '😂' },
     accountId = '2',
-    rootId = GUILD,
+    rootId = ROOT,
   }: {
     messageId?: string;
     authorId?: string | null;
@@ -44,7 +44,7 @@ function reactionEvent(
     iface: 'fake',
     at: 1,
     id: `fake:reaction:${kind}:${messageId}`,
-    conversation: { id: 'c1', kind: 'channel' as const, rootId },
+    chat: { id: 'c1', kind: 'channel' as const, rootId },
     messageId,
     emoji: kind === 'removeAll' ? null : emoji,
     accountId: kind === 'removeEmoji' || kind === 'removeAll' ? null : accountId,
@@ -58,7 +58,7 @@ function reactionEvent(
   };
 }
 
-/** Apply one event of the served community. */
+/** Apply one event of the served root. */
 function feed(
   store: ReturnType<typeof createReactorStore>,
   kind: string,
@@ -106,13 +106,13 @@ test('reactors store: her own reaction is never a reactor', () => {
   assert.equal(store.reactors('m1', '😂'), null);
 });
 
-test('reactors store: another community, another author and an unknown author are ignored', () => {
+test('reactors store: another root, another author and an unknown author are ignored', () => {
   const store = createReactorStore();
   assert.equal(feed(store, 'add', { rootId: '901' }), 'ignored');
   assert.equal(feed(store, 'add', { messageId: 'm2', authorId: '5' }), 'ignored');
   assert.equal(feed(store, 'add', { messageId: 'm3', authorId: null }), 'ignored');
   assert.deepEqual(store.counts(), { messages: 0, reactors: 0 });
-  // Not served yet (no community resolved): nothing.
+  // Not served yet (no root resolved): nothing.
   assert.equal(feed(store, 'add', { messageId: 'm4' }, { isServed: () => false, selfId: SELF }), 'ignored');
 });
 

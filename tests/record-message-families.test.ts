@@ -7,7 +7,7 @@ import { openTestMemory } from './fixtures/memory-db/service.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00Z');
 const AT = new Date(NOW - 60000).toISOString();
-const locator = (room: string) => ({ iface: 'synthetic', conversationId: room, messageId: 'same-message' });
+const locator = (room: string) => ({ iface: 'synthetic', chatId: room, messageId: 'same-message' });
 const line = (id: string, room: string, text: string, revision: number) => ({
   v: 1,
   id,
@@ -16,7 +16,7 @@ const line = (id: string, room: string, text: string, revision: number) => ({
   revision,
   occurredAt: AT,
   recordedAt: new Date(NOW).toISOString(),
-  placeId: 'community',
+  placeId: 'root',
   scope: { channel: room },
   by: 'member',
   text,
@@ -33,7 +33,7 @@ function envelope(room: string, text: string, edited = false) {
     iface: 'synthetic',
     at: NOW,
     edit: edited,
-    conversation: { id: room, kind: 'channel', chatType: 'channel' },
+    chat: { id: room, kind: 'channel', chatType: 'channel' },
     message: { id: 'same-message', at: NOW - 60000, content: text, author: { id: 'member' } },
   });
   if (!result) throw new Error('synthetic message rejected');
@@ -44,21 +44,21 @@ test('recording an observed edit enriches that exact revision without adding a s
   const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
   try {
     const record = createRecord({ ...memory, now: () => NOW });
-    observedId(await memory.memoryDb.observeMessage(envelope('room-a', 'Original'), { placeId: 'community' }));
+    observedId(await memory.memoryDb.observeMessage(envelope('room-a', 'Original'), { placeId: 'root' }));
     const editedId = observedId(
-      await memory.memoryDb.observeMessage(envelope('room-a', 'Edited', true), { placeId: 'community' })
+      await memory.memoryDb.observeMessage(envelope('room-a', 'Edited', true), { placeId: 'root' })
     );
     const db = memory.memoryDb.database();
     if (!db) throw new Error('database unavailable');
     const before = db.prepare('SELECT id, revision, text FROM sources ORDER BY revision').all();
     const data = line('edit-record', 'room-a', 'Edited', 2);
     const opts = { messages: [{ lineId: data.id, locator: locator('room-a'), observedSourceId: editedId }] };
-    await record.append('community', [data], opts);
-    await record.append('community', [data], opts);
+    await record.append('root', [data], opts);
+    await record.append('root', [data], opts);
     assert.deepEqual(db.prepare('SELECT id, revision, text FROM sources ORDER BY revision').all(), before);
-    assert.equal(await record.newestRevision('community', 'same-message', AT, { locator: locator('room-a') }), 2);
+    assert.equal(await record.newestRevision('root', 'same-message', AT, { locator: locator('room-a') }), 2);
     const exported: Array<object> = [];
-    for await (const item of record.iterate('community')) exported.push(item);
+    for await (const item of record.iterate('root')) exported.push(item);
     assert.ok(
       exported.some(
         (item) => 'messageId' in item && item.messageId === 'same-message' && 'revision' in item && item.revision === 2
@@ -69,7 +69,7 @@ test('recording an observed edit enriches that exact revision without adding a s
   }
 });
 
-test('qualified records with one native ID retain separate revisions and actual conversation IDs', async () => {
+test('qualified records with one native ID retain separate revisions and actual chat IDs', async () => {
   const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
   try {
     const record = createRecord({ ...memory, now: () => NOW });
@@ -78,12 +78,12 @@ test('qualified records with one native ID retain separate revisions and actual 
       ['room-b', 1],
     ] as const) {
       const data = line(`record-${room}`, room, `Text ${room}`, revision);
-      await record.append('community', [data], { messages: [{ lineId: data.id, locator: locator(room) }] });
+      await record.append('root', [data], { messages: [{ lineId: data.id, locator: locator(room) }] });
     }
-    assert.equal(await record.newestRevision('community', 'same-message', AT, { locator: locator('room-a') }), 3);
-    assert.equal(await record.newestRevision('community', 'same-message', AT, { locator: locator('room-b') }), 1);
+    assert.equal(await record.newestRevision('root', 'same-message', AT, { locator: locator('room-a') }), 3);
+    assert.equal(await record.newestRevision('root', 'same-message', AT, { locator: locator('room-b') }), 1);
     const exported: Array<object> = [];
-    for await (const item of record.iterate('community')) exported.push(item);
+    for await (const item of record.iterate('root')) exported.push(item);
     assert.equal(exported.length, 2);
     assert.ok(exported.every((item) => 'messageId' in item && item.messageId === 'same-message'));
   } finally {
@@ -91,7 +91,7 @@ test('qualified records with one native ID retain separate revisions and actual 
   }
 });
 
-test('a supplied source belonging to another conversation cannot receive record metadata', async () => {
+test('a supplied source belonging to another chat cannot receive record metadata', async () => {
   const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
   try {
     const record = createRecord({ ...memory, now: () => NOW });
@@ -101,7 +101,7 @@ test('a supplied source belonging to another conversation cannot receive record 
     const before = db.prepare('SELECT * FROM sources ORDER BY id').all();
     const data = line('forged-reference', 'room-a', 'Must not attach', 1);
     await assert.rejects(
-      record.append('community', [data], {
+      record.append('root', [data], {
         messages: [{ lineId: data.id, locator: locator('room-a'), observedSourceId: foreignId }],
       })
     );
@@ -120,17 +120,17 @@ test('exporting a normalized record restores native message and reply IDs rather
       await memory.memoryDb.observeMessage(
         {
           ...child,
-          messageReply: { iface: 'synthetic', conversationId: 'room-a', messageId: 'native-parent' },
+          messageReply: { iface: 'synthetic', chatId: 'room-a', messageId: 'native-parent' },
         },
-        { placeId: 'community' }
+        { placeId: 'root' }
       )
     );
     const data = { ...line('child-record', 'room-a', 'Child', 1), replyTo: 'native-parent' };
-    await record.append('community', [data], {
+    await record.append('root', [data], {
       messages: [{ lineId: data.id, locator: locator('room-a'), observedSourceId: childId }],
     });
     const exported: Array<object> = [];
-    for await (const item of record.iterate('community')) exported.push(item);
+    for await (const item of record.iterate('root')) exported.push(item);
     assert.deepEqual(
       exported.map((item) => ['messageId' in item ? item.messageId : null, 'replyTo' in item ? item.replyTo : null]),
       [['same-message', 'native-parent']]
@@ -160,11 +160,11 @@ test('recording an observed deletion adopts its tombstone without inventing a re
           iface: 'synthetic',
           authority: 'synthetic/global',
           messageLocator: { v: 1, origin: 'protocol-message', ...locator('room-a') },
-          messageConversation: { id: 'room-a', chatType: 'channel' },
+          messageChat: { id: 'room-a', chatType: 'channel' },
           occurredAt: AT,
           observedAt: new Date(NOW).toISOString(),
         },
-        { placeId: 'community' }
+        { placeId: 'root' }
       )
     );
     const data = {
@@ -174,13 +174,13 @@ test('recording an observed deletion adopts its tombstone without inventing a re
       messageId: 'same-message',
       occurredAt: AT,
       recordedAt: new Date(NOW).toISOString(),
-      placeId: 'community',
+      placeId: 'root',
       scope: { channel: 'room-a' },
       origin: 'live',
     };
     const options = { messages: [{ lineId: data.id, locator: locator('room-a'), observedSourceId: deletedId }] };
-    await record.append('community', [data], options);
-    await record.append('community', [data], options);
+    await record.append('root', [data], options);
+    await record.append('root', [data], options);
     const db = memory.memoryDb.database();
     if (!db) throw new Error('database unavailable');
     assert.deepEqual(
@@ -191,7 +191,7 @@ test('recording an observed deletion adopts its tombstone without inventing a re
       [{ id: deletedId, revision: null }]
     );
     const exported: Array<object> = [];
-    for await (const item of record.iterate('community')) exported.push(item);
+    for await (const item of record.iterate('root')) exported.push(item);
     assert.deepEqual(
       exported.map((item) => ('messageId' in item ? item.messageId : null)),
       ['same-message']

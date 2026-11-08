@@ -12,7 +12,7 @@ import {
   cutStretch,
   dropChatHits,
   fallbackWindow,
-  followConversation,
+  followChat,
   fuseRanks,
   isRecentCue,
   locatorKeep,
@@ -973,7 +973,7 @@ test('cutStretch: whole lines go from the far ends, matched lines stay', () => {
   );
 });
 
-// ---- the current conversation, the persona's own stretches, the summary's context --------------
+// ---- the current chat, the persona's own stretches, the summary's context --------------
 
 test('dropChatHits: hits already shown in the chat go before clustering and are counted', () => {
   const t = Date.UTC(2026, 9, 10, 20);
@@ -1693,38 +1693,30 @@ test('recall: a record line outside the range is not read: each read asks the re
   }
 });
 
-test('followConversation: takes the following lines until a silence longer than the gap or the cap', () => {
+test('followChat: takes the following lines until a silence longer than the gap or the cap', () => {
   const T = NOW - HOUR;
   const after = [5, 1, 3, 9, 30].map((m) => ({ id: `a${m}`, ts: T + m * MINUTE }));
   const ids = (list: Untyped) => list.map((m: Untyped) => m.id);
   assert.deepEqual(
-    ids(followConversation(T, after, { followMessages: 24, followGapMinutes: 5 })),
+    ids(followChat(T, after, { followMessages: 24, followGapMinutes: 5 })),
     ['a1', 'a3', 'a5', 'a9'],
     'oldest first; 9 -> 30 is a silence'
   );
+  assert.deepEqual(ids(followChat(T, after, { followMessages: 2, followGapMinutes: 5 })), ['a1', 'a3'], 'the cap');
   assert.deepEqual(
-    ids(followConversation(T, after, { followMessages: 2, followGapMinutes: 5 })),
-    ['a1', 'a3'],
-    'the cap'
-  );
-  assert.deepEqual(
-    ids(followConversation(T, after, { followMessages: 24, followGapMinutes: 1 })),
+    ids(followChat(T, after, { followMessages: 24, followGapMinutes: 1 })),
     ['a1'],
     'a shorter gap stops sooner'
   );
   assert.deepEqual(
-    followConversation(T - 10 * MINUTE, after, { followMessages: 24, followGapMinutes: 5 }),
+    followChat(T - 10 * MINUTE, after, { followMessages: 24, followGapMinutes: 5 }),
     [],
     'a silence right after the last line'
   );
-  assert.deepEqual(
-    followConversation(T, after, { followMessages: 0, followGapMinutes: 5 }),
-    [],
-    'followMessages 0: off'
-  );
+  assert.deepEqual(followChat(T, after, { followMessages: 0, followGapMinutes: 5 }), [], 'followMessages 0: off');
 });
 
-test('recall: a record window follows its conversation past recordContext until the gap, in its own channel only', async () => {
+test('recall: a record window follows its chat past recordContext until the gap, in its own channel only', async () => {
   const T = NOW - 20 * HOUR;
   const lines = [
     rec('b1', T - MINUTE),

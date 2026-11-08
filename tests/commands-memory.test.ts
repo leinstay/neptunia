@@ -62,7 +62,7 @@ function rig(seed: (db: Db) => void = seedBrowser, memory: { closed: boolean } =
     },
     usage: null,
     metrics: { samples: () => [] },
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => NOW,
   };
   const desk = createConsole(deps);

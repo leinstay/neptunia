@@ -3,7 +3,7 @@
 
 import { startTypingLease } from '../interface/typing.ts';
 import { log } from '../log.ts';
-import type { ConversationRef } from '../protocol/adapter.ts';
+import type { ChatRef } from '../protocol/adapter.ts';
 import { portError } from './journal.ts';
 import type { PortResult } from './journal.ts';
 import { PREPARE_TYPING_REFRESH_MS } from './timers.ts';
@@ -13,12 +13,12 @@ import type { TriggerKind } from './triggers.ts';
 /** A channel the indicator shows in: its id and whether the persona may send there. */
 type TypingChannel = { id: string; permissions?: { send?: boolean } | null };
 
-/** What createTyping reads: the port, the clock and the runner's conversation reference. */
+/** What createTyping reads: the port, the clock and the runner's chat reference. */
 export type TypingContext = {
-  iface: { typing: (conversation: ConversationRef) => Promise<PortResult> | PortResult };
+  iface: { typing: (chat: ChatRef) => Promise<PortResult> | PortResult };
   schedule: (run: () => void, ms: number) => (() => void) | null | undefined;
   clock: () => number;
-  conversationOf: (channel: TypingChannel) => ConversationRef;
+  chatOf: (channel: TypingChannel) => ChatRef;
 };
 
 export type Typing = {
@@ -29,7 +29,7 @@ export type Typing = {
   ) => () => void;
 };
 
-export function createTyping({ iface, schedule, clock, conversationOf }: TypingContext): Typing {
+export function createTyping({ iface, schedule, clock, chatOf }: TypingContext): Typing {
   /**
    * A typing lease on `channel` (src/interface/typing.ts): refreshed until stopped, and lapsing on its own if nobody
    * stops it. Sent through the port; one that does not answer `ok` logs `turn: typing failed`. `preparing` tells the
@@ -38,7 +38,7 @@ export function createTyping({ iface, schedule, clock, conversationOf }: TypingC
   function startChannelTyping(channel: TypingChannel, preparing: boolean): () => void {
     const send = (): Promise<void> =>
       Promise.resolve()
-        .then(() => iface.typing(conversationOf(channel)))
+        .then(() => iface.typing(chatOf(channel)))
         .then((result) => {
           if (result?.status !== 'ok')
             log.warn('turn: typing failed', { channel: channel.id, preparing, error: portError(result) });

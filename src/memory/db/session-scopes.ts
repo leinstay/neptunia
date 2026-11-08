@@ -60,7 +60,7 @@ function groupOf(iface: string, audienceColumn: boolean): SweepScope {
 /**
  * The scopes that have chat lines, group first, in a stable order. `audienceColumn`: read them through `audience_id`.
  * A triple that names no valid audience and no stored DM place is not a scope of its own: its lines are internal
- * (scope.ts#audienceOf), never read as a conversation.
+ * (scope.ts#audienceOf), never read as a chat.
  */
 export function scopesOf(
   dbGiven: unknown,
@@ -68,7 +68,7 @@ export function scopesOf(
 ): Array<SweepScope> {
   const db = dbGiven as Db;
   const placeOf = db.prepare(
-    "SELECT id, partner_person, partner_account FROM places WHERE id = ? AND (conversation = 'dm' OR kind = 'dm')"
+    "SELECT id, partner_person, partner_account FROM places WHERE id = ? AND (chat = 'dm' OR kind = 'dm')"
   );
   const rows = db
     .prepare(

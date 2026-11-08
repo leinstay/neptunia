@@ -113,7 +113,7 @@ test('journal: start allots a turnId and writes turn.start to the day of occurre
   assert.deepEqual(record.participants, ['u1']);
   assert.deepEqual(record.sourceMessageIds, ['m1']);
   assert.equal(record.origin, 'live');
-  // The key names the place (the file above): the line itself no longer spells a guild.
+  // The key names the place (the file above): the line itself no longer spells a root.
   assert.equal(record.occurredAt, started.startedAt);
   assert.equal(typeof record.recordedAt, 'string');
 
@@ -176,7 +176,7 @@ test('journal: a think over the former limit is stored whole', async () => {
   assert.equal('thinkTruncated' in record, false);
 });
 
-test('journal: a private turn goes to the private day file, never the guild file', async () => {
+test('journal: a private turn goes to the private day file, never the root file', async () => {
   const clock = { ms: DAY_D };
   const { journal, appendStore } = journalAt(clock);
   const started = journal.start('dm-u7', { placeId: 'dm1', mode: 'reply' });
@@ -186,7 +186,7 @@ test('journal: a private turn goes to the private day file, never the guild file
   assert.equal(appendStore.lines.length, 2);
   for (const { file, record } of records(appendStore)) {
     assert.equal(file, privateFile);
-    // A private chat's lines name the conversation; the place holding them says whose it is.
+    // A private chat's lines name the chat; the place holding them says whose it is.
     assert.deepEqual(record.scope, { channel: 'dm1' });
   }
   assert.ok(appendStore.lines.every(({ file }) => file !== journal.dayFile('g1', '2026-10-13')));
@@ -519,7 +519,7 @@ test('journal: a record missing participants or sourceMessageIds is written with
   assert.deepEqual(written[0].sourceMessageIds, []);
   assert.deepEqual(written[1].scope, { channel: 'c1' });
   assert.deepEqual(written[2].participants, ['u1']);
-  // A record of no conversation has an empty scope: the key already names its place or the persona.
+  // A record of no chat has an empty scope: the key already names its place or the persona.
   assert.deepEqual(written[2].scope, {});
   assert.deepEqual(written[3].scope, {});
 });
@@ -1034,7 +1034,7 @@ test('offPeriods: at most 3 periods, newest first; an overlap takes the kind of 
   ]);
 });
 
-test('journal: timeline reads the guild day files the window spans, oldest first, kind and event only', async () => {
+test('journal: timeline reads the root day files the window spans, oldest first, kind and event only', async () => {
   const clock = { ms: T0 - 36 * HOUR };
   const { journal } = journalAt(clock);
   await journal.system({ event: 'stop', by: 'service' }); // two days back: outside the read days

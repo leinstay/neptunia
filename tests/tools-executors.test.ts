@@ -7,7 +7,7 @@ import { groupContext } from '../src/memory/db/scope.ts';
 import { createRecall } from '../src/behavior/recall-run.ts';
 import { callViewOf, searchHandles, type SearchRefs } from '../src/turn/calls.ts';
 import { memorySearchText, runMemorySearch } from '../src/tools/tools.ts';
-import { rig as readsRig, channel as conversationInfo } from './fixtures/reads-rig.ts';
+import { rig as readsRig, channel as chatInfo } from './fixtures/reads-rig.ts';
 import type { InTurnCall } from '../src/tools/executors.ts';
 // Tests for src/tools/executors.ts and the operations her calls run: one `<call>` of the
 // persona's output resolved on the server's side (channels, members, roles, transcript numbers)
@@ -38,7 +38,7 @@ import { freshWorld, seedExisting, syncStub, useIface, useSelf, world } from './
 import type { Obj, Untyped } from '../src/tools/types.ts';
 import { asRecord } from './fixtures/records.ts';
 
-// The conversations are held by a fake interface named `fake`, where the persona is `self-1`.
+// The chats are held by a fake interface named `fake`, where the persona is `self-1`.
 useIface('fake');
 useSelf('self-1');
 
@@ -112,14 +112,14 @@ function config({
 /** The turn's view: three channels, a transcript of four lines, three stored members, two roles. */
 function view(overrides = {}) {
   const lines = new Map([
-    [1, { id: '1001', conversationId: HERE, authorId: MEMBER }],
-    [2, { id: '1002', conversationId: HERE, authorId: SELF, self: true }],
-    [3, { id: '1003', conversationId: NEWS, authorId: MEMBER }],
-    [4, { id: '1004', conversationId: NEWS, authorId: SELF, self: true }],
+    [1, { id: '1001', chatId: HERE, authorId: MEMBER }],
+    [2, { id: '1002', chatId: HERE, authorId: SELF, self: true }],
+    [3, { id: '1003', chatId: NEWS, authorId: MEMBER }],
+    [4, { id: '1004', chatId: NEWS, authorId: SELF, self: true }],
   ]);
   return {
     skills: skillRegistry(),
-    conversations: [
+    chats: [
       { id: HERE, name: 'γενικά' },
       { id: NEWS, name: '💖νέα' },
       { id: ELSEWHERE, name: 'αλλού' },
@@ -153,7 +153,7 @@ function linksRead(values: Untyped) {
       .replace(/^<(.*)>$/, '$1');
     if (!/^https?:\/\//i.test(text)) continue;
     const found = LINK.exec(text);
-    links.set(text, found ? { iface: 'fake', conversationId: found[1], messageId: found[2] } : null);
+    links.set(text, found ? { iface: 'fake', chatId: found[1], messageId: found[2] } : null);
   }
   return links;
 }
@@ -211,7 +211,7 @@ test('resolveCall: each skill declares the argument its main text fills; an erra
     args: errand.args,
     principal: { kind: 'persona' },
     requester: { id: OWNER, roleIds: [] },
-    audience: { conversationId: HERE },
+    audience: { chatId: HERE },
     context: { config: cfg, selfId: SELF, tasks: { budget: () => ({ spent: false }) } },
   });
   assert.deepEqual(verdict, { ok: true });
@@ -320,7 +320,7 @@ function makeAdmin({
     rootPlaceOf: (placeId: string) =>
       placeId === OTHER_GUILD ? 'g2' : placeId === 'g1' || channels.has(placeId) ? 'g1' : null,
   };
-  // What the interface says of each channel: its community and what she may do there.
+  // What the interface says of each channel: its root and what she may do there.
   freshWorld();
   for (const stub of channels.values()) syncStub(stub);
   for (const [id, message] of Object.entries(HELD.get(channels) ?? {}))
@@ -334,7 +334,7 @@ function makeAdmin({
     hot,
     store,
     client: { user: { id: SELF }, channels: { cache: channels } },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     // What the persona and the members posted through the port is read back from it, as a platform does.
     reads: world().adopt(port, { sendsInHistory: true }),
     port,
@@ -351,7 +351,7 @@ function deps(
 ): ExecuteDeps {
   return {
     port,
-    refOf: (conversationId: unknown) => ({ iface: 'fake', conversationId: String(conversationId) }),
+    refOf: (chatId: unknown) => ({ iface: 'fake', chatId: String(chatId) }),
     renderText: (text: string) => text,
     envelope: Object.freeze({
       actor: 'persona',
@@ -362,8 +362,8 @@ function deps(
     }),
     runOp: admin.runSkillOp,
     runOwnOp: admin.runOwnSkillOp,
-    // The call's place alone, and the turn's own conversation for a post here (plan T.4).
-    here: { iface: 'fake', conversationId: HERE },
+    // The call's place alone, and the turn's own chat for a post here (plan T.4).
+    here: { iface: 'fake', chatId: HERE },
     opContext: { placeId: HERE },
     ...over,
   };
@@ -437,7 +437,7 @@ test('executeCall: message.create posts her own text where she may, the reply no
   const resolved = resolve('message.create', { reply: '#3' }, 'απάντηση');
   const result = await executeCall(resolved, deps(admin, port));
   assert.equal(result.status, 'ok');
-  assert.equal(asRecord(result.ref).conversationId, NEWS);
+  assert.equal(asRecord(result.ref).chatId, NEWS);
   const [posted] = port.messagesIn(NEWS).filter((message) => message.authorId === SELF);
   assert.equal(posted.text, 'απάντηση');
   // The lead: `asked` names who chose `on`, nobody here (owner, 2026-11-06: silent mode pings only those members).
@@ -453,7 +453,7 @@ test('executeCall: message.create posts her own text where she may, the reply no
 });
 
 test("resolveCall: a deleted message is refused as message-deleted -- a placeholder line by its number, a raw id or a link by the record's ids; its detail is its own kind", () => {
-  const placeholder = { id: '2001', conversationId: HERE, authorId: MEMBER, deleted: true };
+  const placeholder = { id: '2001', chatId: HERE, authorId: MEMBER, deleted: true };
   const gone = {
     messageAt: (n: number) => (n === 5 ? placeholder : view().messageAt(n)),
     deletedIds: new Set(['1500000000000000001', '1500000000000000002']),
@@ -543,7 +543,7 @@ test('message.create gif=: the GIF follows the text, goes alone without one, and
     args: alone.args,
     principal: { kind: 'persona' },
     requester: { id: OWNER, roleIds: [] },
-    audience: { conversationId: HERE },
+    audience: { chatId: HERE },
     context: { config: cfg, selfId: SELF },
   });
   assert.equal(gate.ok, true, `the schema takes a GIF-only post: ${asRecord(gate).reason}`);
@@ -606,17 +606,17 @@ test('resolveCall and executeCall: a file handle of one of her errands attaches 
   const dir = tempDir('errand-file-');
   const filePath = path.join(dir, 'meme.png');
   fs.writeFileSync(filePath, Buffer.from([1, 2, 3, 4]));
-  const asked: Array<{ handle: Untyped; privateChannelId: Untyped }> = [];
+  const asked: Array<{ handle: Untyped; dmChatId: Untyped }> = [];
   const errands = {
-    fileOf: ({ handle, privateChannelId }: Untyped) => {
-      asked.push({ handle, privateChannelId });
+    fileOf: ({ handle, dmChatId }: Untyped) => {
+      asked.push({ handle, dmChatId });
       return handle === known ? { path: filePath, name: 'meme.png', contentType: 'image/png', bytes: 4 } : null;
     },
   };
   const { admin, port } = makeAdmin({ extra: { errands } });
   const result = await executeCall(call, deps(admin, port));
   assert.equal(result.status, 'ok');
-  assert.deepEqual(asked, [{ handle: known, privateChannelId: NEWS }], 'resolved for the conversation it goes to');
+  assert.deepEqual(asked, [{ handle: known, dmChatId: NEWS }], 'resolved for the chat it goes to');
   const [posted] = port.messagesIn(NEWS).filter((message) => message.authorId === SELF);
   assert.equal(posted.text, 'βρήκα');
   assert.equal(posted.attachments.length, 1);
@@ -686,7 +686,7 @@ test("resolveCall: an errand's file goes to the channel the errand was asked in,
     resolve('message.create', { file: handle, place: '#νέα' }, 'βρήκα', { ...here, triggerText: 'ωραία' }).code,
     'file-elsewhere'
   );
-  // Without a channel: resolved without one, and posted to the current conversation as today.
+  // Without a channel: resolved without one, and posted to the current chat as today.
   const plain = resolve('message.create', { file: handle }, 'βρήκα', here);
   assert.deepEqual([plain.ok, plain.args], [true, { file: handle, text: 'βρήκα' }]);
   const dir = tempDir('errand-file-');
@@ -804,7 +804,7 @@ test('executeCall: `last` edits or deletes her own most recent message in the ch
   const { admin, port } = makeAdmin();
   const asked: Array<unknown> = [];
   world().tap('history', ([ref, query]) => {
-    if (asRecord(ref).conversationId === HERE) asked.push(query);
+    if (asRecord(ref).chatId === HERE) asked.push(query);
   });
   for (const [id, authorId] of [
     ['3001', SELF],
@@ -839,14 +839,14 @@ test('executeCall: `last` edits or deletes her own most recent message in the ch
 
 test('resolveCall: a message link names the message and its channel; a raw id passes as written', () => {
   const link = 'https://discord.com/channels/111/555/1009';
-  const conversations = [...view().conversations, { id: '555', name: 'ιστορίες' }];
+  const chats = [...view().chats, { id: '555', name: 'ιστορίες' }];
   assert.deepEqual(resolve('message.delete', { message: link }).args, { message: '1009', place: '555' });
   assert.deepEqual(
     resolve('message.delete', { message: `<${link}>` }).args,
     { message: '1009', place: '555' },
     'in angle brackets too'
   );
-  assert.deepEqual(resolve('message.edit', { message: link, place: '#ιστορίες' }, 'σωστό', { conversations }).args, {
+  assert.deepEqual(resolve('message.edit', { message: link, place: '#ιστορίες' }, 'σωστό', { chats }).args, {
     message: '1009',
     place: '555',
     text: 'σωστό',
@@ -861,7 +861,7 @@ test('resolveCall: a message link names the message and its channel; a raw id pa
   const fixed = resolve('message.delete', { message: link, place: '#γενικά' });
   assert.deepEqual([fixed.ok, fixed.args, fixed.channelFixed], [true, { message: '1009', place: '555' }, true]);
   // elsewhere than the five message calls the channel she names must still be the link's
-  assert.equal(resolve('conversation.read', { before: link, place: '#γενικά' }).reason, 'conversation');
+  assert.equal(resolve('conversation.read', { before: link, place: '#γενικά' }).reason, 'chat');
   // a raw id: as written, its channel the one she names
   assert.deepEqual(resolve('message.delete', { message: '123456789012345678', place: '#νέα' }).args, {
     message: '123456789012345678',
@@ -898,10 +898,10 @@ test('executeCall: draw.create without a channel posts its picture here, once; w
   const here = await executeCall(resolve('draw.create', {}, 'a lighthouse at dusk'), deps(admin, port));
   assert.equal(here.status, 'ok', JSON.stringify(here));
   assert.equal(generated.length, 1);
-  assert.equal(asRecord(port.calls.filter((call) => call.op === 'send')[0].args[0]).conversationId, HERE);
+  assert.equal(asRecord(port.calls.filter((call) => call.op === 'send')[0].args[0]).chatId, HERE);
   const there = await executeCall(resolve('draw.create', { place: '#νέα' }, 'a lighthouse'), deps(admin, port));
   assert.equal(there.status, 'ok', JSON.stringify(there));
-  assert.equal(asRecord(port.calls.filter((call) => call.op === 'send')[1].args[0]).conversationId, NEWS);
+  assert.equal(asRecord(port.calls.filter((call) => call.op === 'send')[1].args[0]).chatId, NEWS);
   assert.equal(generated.length, 2, 'one generation per call');
 });
 
@@ -913,13 +913,13 @@ function direct(skill: string, args: Obj): Resolved {
 }
 
 // Slice 5 (plan 5 (i)): the tree check is gone, so a channel of another guild where the bot may send is a destination
-// like any other; a DM stays refused here because the config sets no `private.enabled`.
+// like any other; a DM stays refused here because the config sets no `dm.enabled`.
 test('executeCall: she may post in any text channel the bot may send in, another guild included -- no list; permissions are the only limit', async () => {
   const { admin, port } = makeAdmin();
   const there = await executeCall(resolve('message.create', { place: '#νέα' }, 'καλημέρα'), deps(admin, port));
   assert.equal(there.status, 'ok', JSON.stringify(there));
   assert.equal(port.messagesIn(NEWS).at(-1)?.text, 'καλημέρα');
-  // the current conversation needs no lookup at all, as before
+  // the current chat needs no lookup at all, as before
   const here = await executeCall(resolve('message.create', {}, 'εδώ'), deps(admin, port));
   assert.equal(here.status, 'ok', JSON.stringify(here));
   assert.equal(port.messagesIn(HERE).at(-1)?.text, 'εδώ');
@@ -940,8 +940,8 @@ test('executeCall: she may post in any text channel the bot may send in, another
   }
 });
 
-test('executeCall: a leftover tools.conversations is ignored -- it neither opens nor closes a channel', async () => {
-  const { admin, port } = makeAdmin({ cfg: config({ tools: { conversations: [ELSEWHERE] } }) });
+test('executeCall: a leftover tools.chats is ignored -- it neither opens nor closes a channel', async () => {
+  const { admin, port } = makeAdmin({ cfg: config({ tools: { chats: [ELSEWHERE] } }) });
   const listed = await executeCall(resolve('message.create', { place: '#αλλού' }, 'γεια'), deps(admin, port));
   assert.deepEqual([listed.status, listed.code], ['denied', 'channel-no-permission']);
   const unlisted = await executeCall(resolve('message.create', { place: '#νέα' }, 'γεια'), deps(admin, port));
@@ -1271,15 +1271,15 @@ test('resolveCall: the channel of a #N message wins over a channel that does not
   }
   const edit = resolve('message.edit', { message: '#4', place: '#γενικά' }, 'νέο');
   assert.deepEqual([edit.ok, edit.args.place], [true, NEWS]);
-  // Contract change: message.create no longer takes the reply's channel over a destination she named. That substitution posted a reply in another channel than the one she chose. A mismatch is refused unknown-message (conversation), nothing sent; react, edit and delete keep the rule because their channel only locates the message they act on.
+  // Contract change: message.create no longer takes the reply's channel over a destination she named. That substitution posted a reply in another channel than the one she chose. A mismatch is refused unknown-message (chat), nothing sent; react, edit and delete keep the rule because their channel only locates the message they act on.
   const reply = resolve('message.create', { reply: '#3', place: '#γενικά' }, 'ναι');
-  assert.deepEqual([reply.ok, reply.reason], [false, 'conversation']);
+  assert.deepEqual([reply.ok, reply.reason], [false, 'chat']);
   assert.equal(
     resolve('message.react.add', { message: '#3', emoji: '🎉', place: '#💖νέα' }).channelFixed,
     undefined,
     'the right channel is no fix'
   );
-  assert.equal(resolve('conversation.read', { before: '#3', place: '#γενικά' }).reason, 'conversation');
+  assert.equal(resolve('conversation.read', { before: '#3', place: '#γενικά' }).reason, 'chat');
 });
 
 type HeldMessages = Record<string, { author: { id: string }; attachments?: Map<string, object> }>;
@@ -1307,9 +1307,9 @@ function bytesFetch(bytes: ArrayLike<number>, { ok = true, calls = [] }: { ok?: 
 const PICS = {
   messageAt: (n: number) =>
     n === 2
-      ? { id: '1002', conversationId: '555', authorId: SELF, self: true }
+      ? { id: '1002', chatId: '555', authorId: SELF, self: true }
       : n === 3
-        ? { id: '1005', conversationId: '555', authorId: MEMBER }
+        ? { id: '1005', chatId: '555', authorId: MEMBER }
         : view().messageAt(n),
 };
 
@@ -1326,7 +1326,7 @@ test("resolveCall: message.create media= takes a #N or a link of her own message
   const ok = resolve('message.create', { media: '#2', place: '#νέα' }, 'ξανά', PICS);
   assert.deepEqual(
     [ok.ok, ok.args.place, ok.args.text, ok.args.media],
-    // The core's own form of a message in a conversation (src/tools/impl/shared.ts#messageRefOf reads it).
+    // The core's own form of a message in a chat (src/tools/impl/shared.ts#messageRefOf reads it).
     [true, NEWS, 'ξανά', 'ref:555/1002'],
     'its channel is only where to fetch from, never the target'
   );
@@ -1345,7 +1345,7 @@ test("resolveCall: message.create media= takes a #N or a link of her own message
   assert.equal(resolve('message.create', { media: '#9' }).code, 'unknown-message');
   const gone = {
     messageAt: (n: number) =>
-      n === 5 ? { id: '2001', conversationId: HERE, authorId: SELF, self: true, deleted: true } : view().messageAt(n),
+      n === 5 ? { id: '2001', chatId: HERE, authorId: SELF, self: true, deleted: true } : view().messageAt(n),
   };
   assert.deepEqual(
     [
@@ -1368,7 +1368,7 @@ test("resolveCall: message.create media= takes a #N or a link of her own message
     args: resolve('message.create', { media: '#2' }, '', PICS).args,
     principal: { kind: 'persona' },
     requester: { id: OWNER, roleIds: [] },
-    audience: { conversationId: HERE },
+    audience: { chatId: HERE },
     context: { config: config(), selfId: SELF },
   });
   assert.equal(gate.ok, true, `a picture-only post passes the schema: ${asRecord(gate).reason}`);
@@ -1438,7 +1438,7 @@ test("an unknown argument is still refused by the engine although the model's sc
     args: { text: 'hi', bogus: 'y' },
     principal: { kind: 'persona' },
     requester: { id: OWNER, roleIds: [] },
-    audience: { conversationId: HERE },
+    audience: { chatId: HERE },
     context: { config: cfg, selfId: SELF },
   });
   assert.equal(gate.ok, false);
@@ -1485,7 +1485,7 @@ test('a member who asks her turns off their own pings through pings.set, and nob
     args: { mode: 'off' },
     principal: { kind: 'persona' },
     requester: { id: MEMBER, roleIds: [] },
-    audience: { conversationId: HERE },
+    audience: { chatId: HERE },
     context: { config: cfg, selfId: SELF },
   });
   assert.deepEqual(gate, { ok: true });
@@ -1517,7 +1517,7 @@ test('stored memory handles carry exact source identity through execution into t
             iface: 'other',
             authority: `other/${room}`,
             native: { kind: 'message', key: anchor ? 'same-native' : `before-${room}`, revision: 1 },
-            place: { authority: `other/${room}`, key: room, kind: 'room', conversation: 'group', title: room },
+            place: { authority: `other/${room}`, key: room, kind: 'room', chat: 'group', title: room },
             author: { kind: 'account', key: 'author' },
             occurredAt: new Date(now - 120_000 + (anchor ? 60_000 : 0)).toISOString(),
             observedAt: new Date(now).toISOString(),
@@ -1546,7 +1546,7 @@ test('stored memory handles carry exact source identity through execution into t
       searchRefs: draft.searchRefs,
       skills: skillRegistry(),
     });
-    const current = conversationInfo(HERE);
+    const current = chatInfo(HERE);
     const hot = {
       config: { ...config(), features: { recall: true }, bot: { timezone: 'UTC' } },
       prompts: { labels, 'recall-summary': 'Summarize the stored evidence.' },
@@ -1616,14 +1616,14 @@ test('a same-interface stored message handle sends its verified native locator t
       currentIface: 'fake',
       messageAt: () => ({
         id: 'observation:key',
-        conversationId: 'opaque-place',
+        chatId: 'opaque-place',
         authorId: SELF,
         self: true,
         stored: {
           sourceId: 'opaque-source',
           placeId: 'opaque-place',
           iface: 'fake',
-          native: { iface: 'fake', conversationId: NEWS, messageId: '1004' },
+          native: { iface: 'fake', chatId: NEWS, messageId: '1004' },
         },
       }),
     })
@@ -1650,14 +1650,14 @@ for (const route of ['foreign', 'unroutable'] as const) {
           currentIface: 'fake',
           messageAt: () => ({
             id: '1004',
-            conversationId: NEWS,
+            chatId: NEWS,
             authorId: SELF,
             self: true,
             stored: {
               sourceId: 'foreign-source',
               placeId: 'foreign-place',
               iface: 'other',
-              ...(route === 'foreign' ? { native: { iface: 'other', conversationId: NEWS, messageId: '1004' } } : {}),
+              ...(route === 'foreign' ? { native: { iface: 'other', chatId: NEWS, messageId: '1004' } } : {}),
             },
           }),
         })
@@ -1679,7 +1679,7 @@ test('model arguments cannot create either trusted message carrier', () => {
     memoryAnchor: { kind: 'source', sourceId: 'hidden-source' },
     messageRef: { kind: 'stored', stored: { sourceId: 'hidden-source', placeId: 'hidden-place', iface: 'other' } },
     sourceId: 'hidden-source',
-    locator: { iface: 'other', conversationId: 'hidden-place', messageId: 'hidden-message' },
+    locator: { iface: 'other', chatId: 'hidden-place', messageId: 'hidden-message' },
   };
   for (const [field, value] of Object.entries(malicious)) {
     const resolved = resolveCall(
@@ -1694,7 +1694,7 @@ test('model arguments cannot create either trusted message carrier', () => {
 
 const internalPublication = {
   kind: 'internal-turn',
-  origin: { iface: 'fake', conversationId: HERE },
+  origin: { iface: 'fake', chatId: HERE },
 } as const;
 
 test('an internal turn cannot edit a message outside its origin', async () => {
@@ -1752,7 +1752,7 @@ test('an internal turn refuses returned files when the executor destination diff
   const { admin, port } = makeAdmin();
   const result = await executeCall(resolve('draw.create', { text: 'private drawing' }), {
     ...deps(admin, port),
-    publicationBoundary: { kind: 'internal-turn', origin: { iface: 'cli', conversationId: HERE } },
+    publicationBoundary: { kind: 'internal-turn', origin: { iface: 'cli', chatId: HERE } },
     runOwnOp: () => ({ status: 'ok', data: { files: [{ name: 'private.png', attachment: Buffer.from('pic') }] } }),
   });
   assert.deepEqual([result.status, result.code], ['denied', 'not-allowed']);
@@ -1769,7 +1769,7 @@ test('model arguments cannot remove the publication boundary or impersonate an o
   }
 });
 
-test('an internal turn cannot repost an errand attachment to another conversation', async () => {
+test('an internal turn cannot repost an errand attachment to another chat', async () => {
   const dir = tempDir('publication-file-');
   try {
     const filePath = path.join(dir, 'evidence.png');
@@ -1804,13 +1804,13 @@ test('an internal publication restriction preserves nonpublishing message deleti
 
 // ---- slice 7 of the turn frame: a message.create from the command line to a place of another interface ------------
 // The command line (`cli`, the owner's chat `owner`) and a second interface `tele` behind one router, as the core routes
-// a send by the interface its reference names. `tele` holds the direct chat with its member `555` (the conversation
+// a send by the interface its reference names. `tele` holds the direct chat with its member `555` (the chat
 // `555`) and the room `k9`, where the interface grants a read and no send. The destination is named by `place`, a place
-// id. The shape the specifier chose: a direct chat refused while `private.enabled` is false answers the code
+// id. The shape the specifier chose: a direct chat refused while `dm.enabled` is false answers the code
 // `dm-disabled`, which names the switch (`dm` is the one word for a one-to-one chat, owner's answer 10 of 2026-11-07).
 
-/** The conversation info of `tele`'s conversation `id`, a direct chat or a room, with `send` as given. */
-function teleConversation(id: string, kind: 'dm' | 'channel', send: boolean) {
+/** The chat info of `tele`'s chat `id`, a direct chat or a room, with `send` as given. */
+function teleChat(id: string, kind: 'dm' | 'channel', send: boolean) {
   return {
     iface: 'tele',
     id,
@@ -1826,10 +1826,10 @@ function teleConversation(id: string, kind: 'dm' | 'channel', send: boolean) {
   };
 }
 
-/** The admin and the executor's dependencies of a turn in the owner's chat, with `private.enabled` set to `enabled`. */
+/** The admin and the executor's dependencies of a turn in the owner's chat, with `dm.enabled` set to `enabled`. */
 function fromCommandLine(enabled: boolean) {
   const cli = createFakeAdapter({ iface: 'cli', selfId: SELF, now: () => 1000 });
-  cli.seedConversation({
+  cli.seedChat({
     iface: 'cli',
     id: 'owner',
     kind: 'dm',
@@ -1843,21 +1843,21 @@ function fromCommandLine(enabled: boolean) {
     public: false,
   });
   const tele = createFakeAdapter({ iface: 'tele', selfId: SELF, now: () => 1000 });
-  tele.seedConversation(teleConversation('555', 'dm', true));
-  tele.seedDmConversation('555', '555');
-  tele.seedConversation(teleConversation('k9', 'channel', false));
+  tele.seedChat(teleChat('555', 'dm', true));
+  tele.seedDmChat('555', '555');
+  tele.seedChat(teleChat('k9', 'channel', false));
   const port = createIfaceRouter(
     cli,
     (name) => (name === 'tele' ? tele : null),
     () => [tele]
   );
   const quiet = { info() {}, warn() {}, error() {}, debug() {} };
-  const cfg = { ...config(), private: { enabled } };
+  const cfg = { ...config(), dm: { enabled } };
   const admin = createAdmin({
     hot: { config: cfg, prompts: { labels: {} } },
     store: { state: { data: {}, markDirty() {} }, getUser: () => null, getPlace: () => ({}), rootPlaceOf: () => null },
     client: { user: { id: SELF } },
-    isServedCommunity: () => false,
+    isServedRoot: () => false,
     reads: createReads(port, quiet),
     port,
   });
@@ -1865,16 +1865,16 @@ function fromCommandLine(enabled: boolean) {
     executeCall(
       resolve('message.create', { place }, 'γεια από τη γραμμή εντολών'),
       deps(admin, port, {
-        here: { iface: 'cli', conversationId: 'owner' },
+        here: { iface: 'cli', chatId: 'owner' },
         opContext: { placeId: 'cli:dm:owner' },
-        refOf: (conversationId: unknown) => ({ iface: 'cli', conversationId: String(conversationId) }),
+        refOf: (chatId: unknown) => ({ iface: 'cli', chatId: String(chatId) }),
       })
     );
-  const sentIn = (conversationId: string) => tele.messagesIn(conversationId).filter((one) => one.authorId === SELF);
+  const sentIn = (chatId: string) => tele.messagesIn(chatId).filter((one) => one.authorId === SELF);
   return { run, sentIn };
 }
 
-test('message.create from the command line to a direct chat of another interface is sent while private.enabled is true', async () => {
+test('message.create from the command line to a direct chat of another interface is sent while dm.enabled is true', async () => {
   // Bug: the destination rule still refuses every direct chat, or the send goes to the command line's own port.
   const { run, sentIn } = fromCommandLine(true);
   const result = await run('tele:dm:555');
@@ -1885,7 +1885,7 @@ test('message.create from the command line to a direct chat of another interface
   );
 });
 
-test('message.create from the command line to a direct chat of another interface is refused naming the switch while private.enabled is false', async () => {
+test('message.create from the command line to a direct chat of another interface is refused naming the switch while dm.enabled is false', async () => {
   // Bug: a closed direct chat answers the same code as a room without permission, so she cannot tell that the owner
   // turned direct chats off, or the message goes out although they are off.
   const { run, sentIn } = fromCommandLine(false);

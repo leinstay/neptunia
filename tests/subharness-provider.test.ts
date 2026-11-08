@@ -55,7 +55,7 @@ function consoleOver(dir: string) {
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => 0,
     subharness: {
       runBackend: () => Promise.resolve({ ok: true, text: 'ok', exitCode: 0 }),

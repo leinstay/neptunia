@@ -1,5 +1,5 @@
 // What a direct message leaves in the journal, the record, the archive and the meaning index reaches its partner alone. A
-// journal line of a DM names only its conversation (`scope: { channel }`) and carries no private mark, so every reader
+// journal line of a DM names only its chat (`scope: { channel }`) and carries no private mark, so every reader
 // that branched on the mark falls through to the channel rule or to none. Each test seeds one synthetic secret word through
 // the writer a turn uses, over the real service and database, then reads as another reader: a group turn, another
 // partner's private turn, the persona's own wake. Where the answer could be empty for want of a row, an internal context
@@ -48,7 +48,7 @@ const PARTNER = 'n1';
 const PARTNER_ACCOUNT = 'discord:n1';
 const PARTNER_PERSON = 'person:discord:n1';
 const DM = 'discord:dm:n1';
-const DM_CONVERSATION = 'dm-conversation-n1';
+const DM_CHAT = 'dm-chat-n1';
 // Another partner on the same interface.
 const OTHER = 'n2';
 const OTHER_PERSON = 'person:discord:n2';
@@ -113,7 +113,7 @@ function seedWorld(db: Db): void {
   });
   addGroupPlace(db, GROUP, 'discord', 'discord/global');
   db.prepare(
-    `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, conversation, scope_kind)
+    `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, chat, scope_kind)
      VALUES (?, 'discord', 'server', 'g1', 'server:g1', 'discord/global', 1, 'group', 'group')`
   ).run(SERVER);
 }
@@ -163,10 +163,10 @@ function secretRows(db: Db, table: string, ctx: unknown): Array<Record<string, u
     .all(...columns.map(() => LIKE), ...scope.params);
 }
 
-/** A record line of a conversation: what a person said there. */
-const lineSaid = (id: string, conversation = DM_CONVERSATION, by = PARTNER) =>
+/** A record line of a chat: what a person said there. */
+const lineSaid = (id: string, chat = DM_CHAT, by = PARTNER) =>
   toRecordLine(
-    { id, placeId: conversation, authorId: by, authorName: 'Partner', content: `the ${SECRET} plan`, ts: NOW - 60_000 },
+    { id, placeId: chat, authorId: by, authorName: 'Partner', content: `the ${SECRET} plan`, ts: NOW - 60_000 },
     { now: () => NOW }
   );
 
@@ -177,14 +177,14 @@ const searched = (w: World, ctx: unknown) =>
 /** A DM turn's journal lines, as the turn runner writes them, under the place `place`. */
 async function journalDmTurn(w: World, place = DM) {
   const started = w.journal.start(place, {
-    placeId: DM_CONVERSATION,
+    placeId: DM_CHAT,
     mode: 'reply',
     participants: [PARTNER],
     sourceMessageIds: ['m-dm'],
     trigger: { kind: 'message', messageId: 'm-dm', authorId: PARTNER },
   });
   const op = w.journal.op(place, {
-    placeId: DM_CONVERSATION,
+    placeId: DM_CHAT,
     turnId: started.turnId,
     name: 'post',
     by: 'persona',
@@ -193,7 +193,7 @@ async function journalDmTurn(w: World, place = DM) {
   await op.started();
   await op.succeeded({ messageId: 'said-1' });
   await w.journal.turn(place, {
-    placeId: DM_CONVERSATION,
+    placeId: DM_CHAT,
     turnId: started.turnId,
     attemptId: started.attemptId,
     outcome: 'spoke',
@@ -216,7 +216,7 @@ async function wakePostInDm(w: World) {
       turnId: 't-wake',
       name: 'post',
       by: 'persona',
-      placeId: DM_CONVERSATION,
+      placeId: DM_CHAT,
       privateAccountId: null,
       intent: { replyTo: null, text: `said ${SECRET} to the partner` },
     })
@@ -247,7 +247,7 @@ for (const table of ['day', 'sources', 'affinity_events']) {
 }
 
 test("a group's journal holds no line of a DM", async () => {
-  // Bug: a turn whose place resolves to its community writes the DM's lines into the community's journal.
+  // Bug: a turn whose place resolves to its root writes the DM's lines into the root's journal.
   const w = world();
   await journalDmTurn(w);
   const lines = await w.journal.read(GROUP, { day: DAY, n: 100 });
@@ -301,7 +301,7 @@ test("a wake's said line in a DM stays out of a group's search", async () => {
   const w = world();
   const inner = personaRecord(wrongly(w.record), wrongly(w.store), () => [SERVER]);
   const line = toRecordLine(
-    { id: 'said-wake', placeId: DM_CONVERSATION, content: `the ${SECRET} plan`, ts: NOW - 60_000 },
+    { id: 'said-wake', placeId: DM_CHAT, content: `the ${SECRET} plan`, ts: NOW - 60_000 },
     { kind: 'said', now: () => NOW }
   );
   await inner.append([line], {});
@@ -322,7 +322,7 @@ test("a group's search with quotes finds nothing of a DM", async () => {
 });
 
 test("another partner's search finds nothing of a DM", async () => {
-  // Bug: widening a DM read by anything but the person shows a stranger's conversation.
+  // Bug: widening a DM read by anything but the person shows a stranger's chat.
   const w = world();
   await w.record.append(DM, [lineSaid('m-dm')]);
   await settled();
@@ -385,7 +385,7 @@ test("a DM's vector is out of a group's index and carries no group audience", as
           id: 'm-dm',
           revision: 1,
           occurredAt: new Date(NOW - 60_000).toISOString(),
-          placeId: DM_CONVERSATION,
+          placeId: DM_CHAT,
           by: PARTNER,
           participants: [PARTNER],
           sourceIds: ['m-dm'],
@@ -423,7 +423,7 @@ async function evictedPrivate(w: World, account = PARTNER_ACCOUNT) {
 
 function recaller(w: World) {
   const group = channelInfo('c1', { name: 'general', viewers: { [PARTNER]: true } });
-  const snapshot = snapshotOf('g1', { conversations: [group], groups: [] });
+  const snapshot = snapshotOf('g1', { chats: [group], groups: [] });
   const asked: Array<string> = [];
   const hot = {
     config: recallConfig({ llm: { analyzerTimeoutMs: 30000 }, recall: { archiveMonths: 6 } }),
@@ -450,7 +450,7 @@ function recaller(w: World) {
       embed: null,
     })
   );
-  const dm = channelInfo(DM_CONVERSATION, {
+  const dm = channelInfo(DM_CHAT, {
     kind: 'dm',
     rootId: null,
     chatType: 'dm',
@@ -534,13 +534,13 @@ test("a lesson taught in a DM is out of a group's reach", async () => {
 const dmInfo = (id: string, partnerId: string) =>
   channelInfo(id, { kind: 'dm', rootId: null, chatType: 'dm', partnerId, audience: null });
 
-test('the pull rail refuses a DM conversation toward a group', () => {
+test('the pull rail refuses a DM chat toward a group', () => {
   // Bug: a DM in the directory's snapshot passes the rail because the same-audience rule compares no audience.
   const group = channelInfo('c1', { name: 'general' });
-  const snapshot = snapshotOf('g1', { conversations: [group, dmInfo(DM_CONVERSATION, PARTNER)], groups: [] });
+  const snapshot = snapshotOf('g1', { chats: [group, dmInfo(DM_CHAT, PARTNER)], groups: [] });
   const verdict = checkPull({
     snapshot,
-    placeId: DM_CONVERSATION,
+    placeId: DM_CHAT,
     destination: group,
     partnerId: null,
     config: recallConfig(),
@@ -550,12 +550,12 @@ test('the pull rail refuses a DM conversation toward a group', () => {
 });
 
 test("the pull rail refuses one partner's DM toward another partner's private turn", () => {
-  // Bug: the rail's `viewers` is read on a source that has no community.
+  // Bug: the rail's `viewers` is read on a source that has no root.
   const other = dmInfo('dm-other', OTHER);
-  const snapshot = snapshotOf('g1', { conversations: [dmInfo(DM_CONVERSATION, PARTNER), other], groups: [] });
+  const snapshot = snapshotOf('g1', { chats: [dmInfo(DM_CHAT, PARTNER), other], groups: [] });
   const verdict = checkPull({
     snapshot,
-    placeId: DM_CONVERSATION,
+    placeId: DM_CHAT,
     destination: other,
     partnerId: OTHER,
     config: recallConfig(),
@@ -564,12 +564,12 @@ test("the pull rail refuses one partner's DM toward another partner's private tu
   assert.equal(verdict.skip, 'not-readable');
 });
 
-test("a record read of a group by a DM's conversation id yields no line of that DM", async () => {
+test("a record read of a group by a DM's chat id yields no line of that DM", async () => {
   // Bug: `recordMessages` carries no `allowLine` on `conversation.read`, so only its place keeps the DM out.
   const w = world();
   await w.record.append(DM, [lineSaid('m-dm')]);
   await settled();
-  const lines = await recordMessages(wrongly(w.record), GROUP, { placeId: DM_CONVERSATION, from: NOW - 3_600_000 });
+  const lines = await recordMessages(wrongly(w.record), GROUP, { placeId: DM_CHAT, from: NOW - 3_600_000 });
   assert.equal(JSON.stringify(lines).includes(SECRET), false);
 });
 
@@ -582,11 +582,11 @@ test('a think from a DM is not carried into a group it delivered to', () => {
     turnId: 't1',
     at: NOW,
     think: `the ${SECRET} thought`,
-    isPrivate: true,
+    isDm: true,
     ran: DM,
     delivered: [GROUP],
   });
-  const carried = thinks.select(GROUP, { now: NOW + 1000, minutes: 60, isPrivate: false });
+  const carried = thinks.select(GROUP, { now: NOW + 1000, minutes: 60, isDm: false });
   assert.equal(JSON.stringify(carried).includes(SECRET), false);
 });
 

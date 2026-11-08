@@ -11,7 +11,7 @@ import type { refreshEmojiIfOn } from '../../behavior/emoji-index.ts';
 import type { Deadline } from '../../behavior/turn-parts.ts';
 import type { ErrandRecord } from '../../errands/types.ts';
 import type { Reads } from '../../interface/reads.ts';
-import type { ConversationInfo, ConversationRef } from '../../protocol/adapter.ts';
+import type { ChatInfo, ChatRef } from '../../protocol/adapter.ts';
 import type { SkillMap } from '../../tools/types.ts';
 import type { Selfreflection, SelfreflectionConfig } from '../selfreflection.ts';
 import type { Facts } from '../facts.ts';
@@ -127,7 +127,7 @@ export type PhaseContext = {
   selfIdOf: () => string;
   getSelfName: (placeId: string) => string;
   // The channels known to be private chats (a deferred call names only its channel).
-  privateChannels: Set<string>;
+  dmChannels: Set<string>;
   // Whether the last turn that wanted prompts['follow-up'] found it missing or blank.
   promptState: { followUpMissing: boolean };
   notifyIdle: () => void;
@@ -137,12 +137,7 @@ export type PhaseContext = {
 } & Pick<Participation, 'aroundInputFor' | 'liveChannelName'> &
   Pick<
     Inputs,
-    | 'conversationOf'
-    | 'turnContextOf'
-    | 'stableFreezeOf'
-    | 'errandsInputFor'
-    | 'intentionsInputFor'
-    | 'intentionRefsFor'
+    'chatOf' | 'turnContextOf' | 'stableFreezeOf' | 'errandsInputFor' | 'intentionsInputFor' | 'intentionRefsFor'
   > &
   Pick<
     JournalNotes,
@@ -207,7 +202,7 @@ export type TurnTrigger = {
 /** What a turn attempt was asked to do (runTurn's arguments, as runTurnOnce passes them on). */
 export type PhaseParams = {
   /** Null for a turn that runs nowhere: a service or an intention without a place. */
-  conversation: ConversationRef | null;
+  chat: ChatRef | null;
   placeId?: string | null;
   mode: string;
   trigger?: TurnTrigger | null;
@@ -226,7 +221,7 @@ export type PhaseParams = {
   requester?: unknown;
   taskResult?: ErrandRecord | null;
   inner?: Record<string, unknown> | null;
-  standIn?: ConversationInfo | null;
+  standIn?: ChatInfo | null;
 };
 
 /** How an attempt ended (TurnOutcome in src/behavior/turn.ts), with the parts of a message that splits. */

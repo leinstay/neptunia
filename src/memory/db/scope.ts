@@ -11,7 +11,7 @@
 //
 // Audiences (schema v7, spec 2026-10-24-memory-schema-v7 sections 2 and 11.2): every scoped row also carries
 // `audience_id`, the normalised twin of its three columns: `aud:none`, `aud:internal`, `aud:group:<iface>` and
-// `aud:dm:<DM place id>` (a DM audience is the conversation, not the person). `audienceOf(scope)` is the one resolver
+// `aud:dm:<DM place id>` (a DM audience is the chat, not the person). `audienceOf(scope)` is the one resolver
 // every writer fills both from; `scopeOfAudience(id)` goes back. A malformed triple resolves to `aud:internal`.
 
 import { randomUUID } from 'node:crypto';
@@ -109,7 +109,7 @@ export const groupsContext = (): Context => ({ groups: true });
  * The scope columns of a scope object (`{ channel }`, `{ place }`, `{ place, private }`, `{ user }`, `{}`).
  * A private layer of user U (`opts.privateUser`) or a scope naming a user is `dm` with that member; a private place is
  * `dm` with the partner its id names. A channel or a place is `group`, unless it names a DM, carries the private mark or
- * is marked `unresolved` (a conversation no stored place holds): those are `internal`, as is anything else (no scope, an
+ * is marked `unresolved` (a chat no stored place holds): those are `internal`, as is anything else (no scope, an
  * empty or unknown one). An unknown legacy scope is never shown outward. `none` is only for a unit that is source-free on purpose (a self fact, her own unprompted
  * line), which its mapper sets itself with SCOPE_NONE. The columns name `opts.iface`, the legacy namespace when none
  * is given.
@@ -234,7 +234,7 @@ const isGroupInterface = (value: unknown): value is string => filled(value) && !
  * The one resolver: a scope (its three columns) and its audience id, `{ scope_kind, scope_iface, scope_dm, audience_id }`.
  * The triple comes back as given (it stays the compatibility projection). A DM scope resolves to the DM place of its
  * partner on that interface (`opts.dmPlace` when the writer knows it: then a DM whose partner is no known person, schema
- * v8's observed DM with an account nobody linked, is still its conversation); a triple that names no valid audience (an
+ * v8's observed DM with an account nobody linked, is still its chat); a triple that names no valid audience (an
  * unknown kind, a group without an interface, a DM with neither a partner nor a known place) is `aud:internal`.
  */
 export function audienceOf(

@@ -46,7 +46,7 @@ const observedDm = (iface: string) => ({
   iface,
   authority: `${iface}/global`,
   native: { kind: 'message', key: `${iface}-first`, revision: 1 },
-  place: { authority: `${iface}/global`, key: 'dm:owner', kind: 'dm', conversation: 'dm' },
+  place: { authority: `${iface}/global`, key: 'dm:owner', kind: 'dm', chat: 'dm' },
   author: { kind: 'account', key: 'owner' },
   occurredAt: '2026-11-03T09:00:00.000Z',
   observedAt: '2026-11-03T09:00:01.000Z',
@@ -279,7 +279,7 @@ test("a wake's post into a cli DM is recorded under that DM, not the home interf
       "INSERT INTO wakes (id, kind, queued_at, payload, state) VALUES ('w1', 'heartbeat', 0, '{}', 'running')"
     ).run();
     const payload = {
-      conversation: { iface: 'cli', conversationId: CLI_DM },
+      chat: { iface: 'cli', chatId: CLI_DM },
       content: { text: 'a synthetic post' },
       said: { text: 'a synthetic post', replyId: null, repliedAuthorId: null, accountIds: [] },
     };
@@ -302,7 +302,7 @@ test("a wake's post into a cli DM is recorded under that DM, not the home interf
         send: () => Promise.resolve({ status: 'ok', ref: { messageId: 'sent-1' }, parts: [], at: NOW }),
       },
       reads: {
-        conversationInfo: () => Promise.resolve({ conversation: { rootId: null, partnerId: 'owner' } }),
+        chatInfo: () => Promise.resolve({ chat: { rootId: null, partnerId: 'owner' } }),
       },
       record: personaRecord(record, store, () => []),
     };

@@ -18,7 +18,7 @@ function line(id: string, author: string, name: string, edit = false) {
       iface: 'discord',
       at: AT,
       edit,
-      conversation: { id: 'room', kind: 'channel', chatType: 'channel', rootId: 'community' },
+      chat: { id: 'room', kind: 'channel', chatType: 'channel', rootId: 'root' },
       message: { id, at: AT, content: `a synthetic line ${id}${edit ? ', edited' : ''}`, author: { id: author, name } },
     },
     { selfId: HER }

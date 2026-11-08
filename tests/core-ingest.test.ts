@@ -75,7 +75,7 @@ function scriptedLlm() {
   };
 }
 
-/** One start of the core over `dirs`, with a fresh fake interface seeded with the conversation c1. */
+/** One start of the core over `dirs`, with a fresh fake interface seeded with the chat c1. */
 async function boot(dirs: ReturnType<typeof folders>, llm: ReturnType<typeof scriptedLlm>) {
   let running: Running | null = null;
   const core = await startCore({
@@ -85,7 +85,7 @@ async function boot(dirs: ReturnType<typeof folders>, llm: ReturnType<typeof scr
       {
         name: 'fake',
         start: async (host) => {
-          running = await start(host, { self: SELF, community: { id: 'g1', name: 'Alpha' } });
+          running = await start(host, { self: SELF, root: { id: 'g1', name: 'Alpha' } });
           return running;
         },
       },
@@ -95,7 +95,7 @@ async function boot(dirs: ReturnType<typeof folders>, llm: ReturnType<typeof scr
   });
   if (running === null) throw new Error('the core never started the fake interface');
   const live: Running = running;
-  live.adapter.seedConversation(channelInfo('c1'));
+  live.adapter.seedChat(channelInfo('c1'));
   const posted = (): Array<string> =>
     live.adapter
       .messagesIn('c1')

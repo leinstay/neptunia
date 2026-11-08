@@ -44,7 +44,7 @@ export type CreateTurnRunnerInput = {
   reads: Reads;
   memberOf?: Untyped;
   membersOf?: Untyped;
-  conversationName?: Untyped;
+  chatName?: Untyped;
   now?: () => number;
   schedule?: typeof scheduleTimer;
   activity?: Untyped;

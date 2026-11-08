@@ -31,7 +31,7 @@ export function createMessageProducers(
             eventId: context.receipt.eventId,
             locator: Object.freeze({
               iface: event.iface,
-              conversationId: event.conversation.id,
+              chatId: event.chat.id,
               messageId: event.message.id,
             }),
             receipt: context.receipt,

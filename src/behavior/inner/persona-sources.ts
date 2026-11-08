@@ -1,8 +1,8 @@
 // The record and the journal as the inner life reads them: it belongs to the one persona, so it asks for lines with no
 // place named, and the core's wiring (src/core.ts) answers from every place that holds some. A line it writes goes to the
-// place of its own conversation.
+// place of its own chat.
 
-import { placeOfConversation } from '../../memory/addresses.ts';
+import { placeOfChat } from '../../memory/addresses.ts';
 import { PERSONA_ID } from '../../memory/db/storage-keys.ts';
 import type { Journal } from '../../memory/journal.ts';
 import type { InnerJournal, RecordSource } from './types.ts';
@@ -13,8 +13,8 @@ type PlaceRecord = {
 };
 type PlaceStore = {
   rootPlaceOf?(placeId: string): string | null;
-  placeOfConversation?(conversation: { kind: string; partnerId: string }, iface?: string): string;
-  holdsSharedConversation?(conversationId: string): boolean;
+  placeOfChat?(chat: { kind: string; partnerId: string }, iface?: string): string;
+  holdsSharedChat?(chatId: string): boolean;
 };
 
 /** The journal a wake holds: every call of InnerJournal, and a read of the whole day when no kind is named. */
@@ -28,21 +28,17 @@ const isSkillLine = (line: unknown): boolean =>
 
 /**
  * Where a line of a wake belongs: a DM's place when the partner is known; `sealed` under its own spelled place when no
- * stored place holds the conversation as a group's, so it reaches neither the groups nor the journal every wake reads.
+ * stored place holds the chat as a group's, so it reaches neither the groups nor the journal every wake reads.
  */
-function homeOf(
-  store: PlaceStore,
-  conversationId: unknown,
-  partner: unknown
-): { place: string | null; sealed: boolean } {
+function homeOf(store: PlaceStore, chatId: unknown, partner: unknown): { place: string | null; sealed: boolean } {
   if (typeof partner === 'string' && partner)
-    return { place: placeOfConversation(store, { kind: 'dm', partnerId: partner }), sealed: false };
-  const id = typeof conversationId === 'string' ? conversationId : '';
-  if (!id || store.holdsSharedConversation?.(id) !== false) return { place: null, sealed: false };
-  return { place: placeOfConversation(store, { id }), sealed: true };
+    return { place: placeOfChat(store, { kind: 'dm', partnerId: partner }), sealed: false };
+  const id = typeof chatId === 'string' ? chatId : '';
+  if (!id || store.holdsSharedChat?.(id) !== false) return { place: null, sealed: false };
+  return { place: placeOfChat(store, { id }), sealed: true };
 }
 
-/** The record over every place `places` names; a line goes to its conversation's tree, a private one to its DM. */
+/** The record over every place `places` names; a line goes to its chat's tree, a private one to its DM. */
 export function personaRecord(
   record: PlaceRecord,
   store: PlaceStore,
@@ -63,7 +59,7 @@ export function personaRecord(
         }));
         return record.append(home.place, closed);
       }
-      const own = home.place ?? placeOfConversation(store, { id: typeof channel === 'string' ? channel : '' });
+      const own = home.place ?? placeOfChat(store, { id: typeof channel === 'string' ? channel : '' });
       return record.append(store.rootPlaceOf?.(own) ?? own, lines);
     },
   };
@@ -71,7 +67,7 @@ export function personaRecord(
 
 /**
  * The journal of her own writes under the persona; a cut-off turn's operations from every place and its own DM. An
- * operation in a DM goes to the DM's journal, one in a conversation no stored place holds to its own sealed journal.
+ * operation in a DM goes to the DM's journal, one in a chat no stored place holds to its own sealed journal.
  */
 export function personaJournal(journal: Journal, places: () => Array<string>, store: PlaceStore = {}): PersonaJournal {
   return {
@@ -99,7 +95,7 @@ export function personaJournal(journal: Journal, places: () => Array<string>, st
     },
     async turnOperations(query) {
       const partner = query.privateAccountId;
-      const dm = partner ? placeOfConversation(store, { kind: 'dm', partnerId: partner }, query.iface) : null;
+      const dm = partner ? placeOfChat(store, { kind: 'dm', partnerId: partner }, query.iface) : null;
       const holders = new Set([...places(), PERSONA_ID, ...(dm ? [dm] : [])]);
       const found: Array<unknown> = [];
       for (const placeId of holders) {

@@ -236,7 +236,7 @@ function consoleOver(dir: string, subharness: ConsoleDeps['subharness']) {
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => 0,
     keys: { enabled: () => true, run: () => Promise.resolve({ text: 'keys answered', status: 'ok' }) },
     ...(subharness === undefined ? {} : { subharness }),

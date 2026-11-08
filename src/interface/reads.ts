@@ -13,12 +13,12 @@ import type { Logger } from '../protocol/serve.ts';
 
 /** The adapter methods that are reads, with the wire action each one runs. */
 const WIRE = {
-  conversationInfo: 'conversation.info',
-  conversations: 'conversations.list',
+  chatInfo: 'chat.info',
+  chats: 'chats.list',
   fetchMessages: 'messages.fetch',
   history: 'messages.history',
   memberInfo: 'member.info',
-  dmConversationOf: 'dm.conversation',
+  dmChatOf: 'dm.chat',
   searchMessages: 'messages.search',
   searchMembers: 'members.search',
   emoji: 'emoji.list',
@@ -52,11 +52,7 @@ type Answer = { status: string; error?: { code?: string; retryable?: boolean } }
 
 const NO_PLACE: ReadRefusal = { status: 'unsupported', code: 'no-place' };
 
-export function createReads(
-  adapter: Adapter,
-  log: Logger,
-  nativeCommunityOf?: (placeId: string) => string | null
-): Reads {
+export function createReads(adapter: Adapter, log: Logger, nativeRootOf?: (placeId: string) => string | null): Reads {
   const told = new Set<string>();
 
   const offers = (wire: string): boolean => {
@@ -78,12 +74,12 @@ export function createReads(
     const scope: unknown = args[0];
     const named = (scope as { placeId?: unknown } | null)?.placeId;
     if (scope === PERSONA_ID || named === PERSONA_ID) return NO_PLACE;
-    if (typeof named === 'string' && nativeCommunityOf) {
-      const native = nativeCommunityOf(named);
+    if (typeof named === 'string' && nativeRootOf) {
+      const native = nativeRootOf(named);
       if (native === null) return NO_PLACE;
       args[0] = { ...(scope as object), placeId: native };
-    } else if (typeof scope === 'string' && nativeCommunityOf) {
-      const native = nativeCommunityOf(scope);
+    } else if (typeof scope === 'string' && nativeRootOf) {
+      const native = nativeRootOf(scope);
       if (native === null) return NO_PLACE;
       args[0] = native;
     }
@@ -115,12 +111,12 @@ export function createReads(
   }
 
   return {
-    conversationInfo: wrap('conversationInfo'),
-    conversations: wrap('conversations'),
+    chatInfo: wrap('chatInfo'),
+    chats: wrap('chats'),
     fetchMessages: wrap('fetchMessages'),
     history: wrap('history'),
     memberInfo: wrap('memberInfo'),
-    dmConversationOf: wrap('dmConversationOf'),
+    dmChatOf: wrap('dmChatOf'),
     searchMessages: wrap('searchMessages'),
     searchMembers: wrap('searchMembers'),
     emoji: wrap('emoji'),

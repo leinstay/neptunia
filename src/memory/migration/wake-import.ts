@@ -59,7 +59,7 @@ function importGuild(db: Db, community: string, state: Record<string, unknown>):
   const mark: TurnMark = {
     kind: textOrNull(inflight.kind) ?? '',
     placeId: textOrNull(inflight.channelId),
-    privateChat: inflight.privateChat === true,
+    dmChat: inflight.privateChat === true,
     privateAccountId: textOrNull(inflight.privateAccountId),
   };
   let count = 0;

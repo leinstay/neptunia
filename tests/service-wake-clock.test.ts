@@ -20,7 +20,7 @@ import { useIface, world } from './fixtures/turn-world.ts';
 
 useIface('fake');
 
-const GUILD = 'g1';
+const ROOT = 'g1';
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const SILENT = { info() {}, warn() {}, error() {}, debug() {} };
@@ -43,7 +43,7 @@ async function statusOf(
   const desk = createConsole({
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null }),
     ownerReads: { lessons: () => '', aliases: () => '' },
-    places: () => [GUILD],
+    places: () => [ROOT],
     selfId: () => 'self-1',
     hot: { config },
     privateDir: dir,
@@ -51,7 +51,7 @@ async function statusOf(
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => now,
     wakeClock,
   });
@@ -70,7 +70,7 @@ async function statusOf(
 /** A real inner life over `sections`, whose turn runner waits for `release` when `held`. */
 function lifeWith(sections: Record<string, unknown>, start: number) {
   const clock = { t: start };
-  world().channel({ id: 'c1', name: 'chan-c1', placeId: GUILD, permissions: { send: true } });
+  world().channel({ id: 'c1', name: 'chan-c1', placeId: ROOT, permissions: { send: true } });
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
@@ -107,7 +107,7 @@ function lifeWith(sections: Record<string, unknown>, start: number) {
     journal: { inner: () => Promise.resolve(), read: () => [] },
     reads: world().reads,
     iface: () => 'fake',
-    conversationName: (id: string) => `chan-${id}`,
+    chatName: (id: string) => `chan-${id}`,
     submit: (event: object) => door.submit(event),
     store: { state: { data: {} } },
     meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
@@ -151,7 +151,7 @@ function selfreflectionWith(schedule: string, start: number) {
           selfreflection: { kind: 'status', picture: false, search: false, messages: 1 },
         }),
     },
-    isServedCommunity: (id: unknown) => id === GUILD,
+    isServedRoot: (id: unknown) => id === ROOT,
     rng: () => 0.5,
     now: () => clock.t,
   });
@@ -209,10 +209,10 @@ test('a selfimprovement turn in flight shows as running for its own name alone, 
   assert.equal(fields.get('last result'), iso(finished?.lastAt ?? 0));
 });
 
-test('with no community known yet a wake reads unknown, apart from its saved flag', async () => {
+test('with no root known yet a wake reads unknown, apart from its saved flag', async () => {
   // Catches: a core before its first hello throws on `inner.state(null)`, so status fails in the window it is most read.
   const inner = {
-    // The state is the persona's now, read with or without a community; before the first tick it holds nothing.
+    // The state is the persona's now, read with or without a root; before the first tick it holds nothing.
     state: () => null,
   };
   const read = (name: ServiceName) =>

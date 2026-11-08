@@ -14,7 +14,7 @@ A role that runs through a harness needs no API key, and a missing key does not 
 
 `/keys check memory` checks the path the memory writer runs on, which `src/subharness/memory-path.ts` reads from `keys.json`. On `direct-api` it is the request on the memory key, and the answer ends with `(direct path)`. While the writer runs through `claude-harness` or `codex-harness`, it is the probe of `src/subharness/memory-probe.ts` through that backend, the answer names the backend and model, and no request goes out on the OpenRouter key, so the check needs no core key.
 
-The base conversation roles, the memory writer and the delegated agents are distinct routes. `/model set core` and `/keys check core` record their check for [chat readiness](setup.md#chat-readiness), so a launch sends no model request of its own. A subscription login for an agent backend does not replace the OpenRouter keys used by the core. See [setup](setup.md#subharness-backends) for those logins.
+The base chat roles, the memory writer and the delegated agents are distinct routes. `/model set core` and `/keys check core` record their check for [chat readiness](setup.md#chat-readiness), so a launch sends no model request of its own. A subscription login for an agent backend does not replace the OpenRouter keys used by the core. See [setup](setup.md#subharness-backends) for those logins.
 
 ## Model sources
 

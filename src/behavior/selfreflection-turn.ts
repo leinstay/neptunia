@@ -1,6 +1,6 @@
 // The selfreflection turn's own steps, beside the turn runner (src/behavior/turn.ts, mode `selfreflection`). A selfreflection turn writes her
 // entry and sends nothing: the entry is recorded in memory first (`recordEntry`, the store's selfreflection unit), and the
-// selfreflection's mirrors publish it (src/behavior/mirror.ts). The turn runs nowhere, with no conversation and no
+// selfreflection's mirrors publish it (src/behavior/mirror.ts). The turn runs nowhere, with no chat and no
 // history. `pictureGate` says whether the post may carry a picture, and
 // `selfreflectionVoiceTool` keeps her voice message for the entry instead of posting it. Logs: none.
 
@@ -29,7 +29,7 @@ const sectionOf = (config: Config, name: string): Config => {
 export type PictureGate = { allowed: boolean; limit: { key: string; used: number; cap: number } | null };
 
 /**
- * Whether a selfreflection post may carry a picture: an image client (`drawing`) and Attach Files in the conversation
+ * Whether a selfreflection post may carry a picture: an image client (`drawing`) and Attach Files in the chat
  * (`attach`). Pure.
  */
 export function pictureGate({

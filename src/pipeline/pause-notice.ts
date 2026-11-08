@@ -3,12 +3,12 @@
 // stamp, nothing marked dirty. The interval lives in memory alone. createMessageHandler (src/behavior/pipeline.ts)
 // builds it once with createPauseNotice; handleMessage calls maybePauseNotice for a live line while paused.
 
-import { privateChatsOff } from '../behavior/core-pause.ts';
+import { dmChatsOff } from '../behavior/core-pause.ts';
 import { lineOf } from '../behavior/line-of.ts';
 import { pauseNotice, PAUSE_NOTICE_MINUTES, postPauseNotice } from '../behavior/limits.ts';
 import { detectTrigger } from '../behavior/mention.ts';
 import { MINUTE_MS } from '../time.ts';
-import type { Conversations } from './conversations.ts';
+import type { Chats } from './chats.ts';
 import type { MessageEvent } from './edits.ts';
 import type { PrivateGate } from './private-gate.ts';
 import type { Conv, Line, PipelineConfig, PipelineHot } from './types.ts';
@@ -21,20 +21,20 @@ export type PauseNoticeContext = {
   hot: PipelineHot;
   now: () => number;
   port: Parameters<typeof postPauseNotice>[0]['port'];
-  /** A community some connected interface serves. */
-  isServedCommunity: (placeId: string | null | undefined) => boolean;
+  /** A root some connected interface serves. */
+  isServedRoot: (placeId: string | null | undefined) => boolean;
   selfIdOf: () => string;
   checkPrivateGate: PrivateGate['checkPrivateGate'];
-  infoNow: Conversations['infoNow'];
-  refOf: Conversations['refOf'];
-  resolveReference: Conversations['resolveReference'];
+  infoNow: Chats['infoNow'];
+  refOf: Chats['refOf'];
+  resolveReference: Chats['resolveReference'];
 };
 
 export function createPauseNotice({
   hot,
   now,
   port,
-  isServedCommunity,
+  isServedRoot,
   selfIdOf,
   checkPrivateGate,
   infoNow,
@@ -47,7 +47,7 @@ export function createPauseNotice({
    * How `message` (arriving while paused) called the persona directly, by the
    * flags of the live path without its model request: a mention or a reply to one of its messages in a served place
    * the bot can send in, from a human; in a private chat
-   * (private.enabled) an author the private gate lets through. `{ channel, trigger, kind }`, or null for anything else
+   * (dm.enabled) an author the private gate lets through. `{ channel, trigger, kind }`, or null for anything else
    * (an unflagged line included: it would need the address classifier).
    */
   async function pausedCall(event: MessageEvent, config: PipelineConfig): Promise<PausedCall | null> {
@@ -57,16 +57,16 @@ export function createPauseNotice({
     // lineOf gives the normalized line of a message event.
     const normalize = () => lineOf(event) as Line;
 
-    if (event.conversation.rootId === null) {
-      if (privateChatsOff(config, event)) return null;
+    if (event.chat.rootId === null) {
+      if (dmChatsOff(config, event)) return null;
       const { gate } = await checkPrivateGate(config, author.id, event.iface);
       if (!gate.ok) return null;
-      const privateChannel = await infoNow(event.iface, event.conversation.id);
+      const privateChannel = await infoNow(event.iface, event.chat.id);
       return privateChannel ? { channel: privateChannel, trigger: normalize(), kind: 'private' } : null;
     }
 
-    if (!isServedCommunity(event.conversation.rootId)) return null;
-    const channel = await infoNow(event.iface, event.conversation.id);
+    if (!isServedRoot(event.chat.rootId)) return null;
+    const channel = await infoNow(event.iface, event.chat.id);
     if (!channel?.permissions.send) return null;
     const normalized = normalize();
     // The door refuses a whole message without its addressing (src/protocol/validate.ts).

@@ -34,7 +34,7 @@ import type { Fake } from './fixtures/turn-world.ts';
 import { worldTurnRunner } from './fixtures/world-runner.ts';
 
 useIface('fake');
-const GUILD = 'g1';
+const ROOT = 'g1';
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const T = Date.parse('2026-10-31T12:00:00Z');
@@ -80,7 +80,7 @@ function keptRecord(): Record_ {
   };
 }
 
-/** The lines of `record` of `kind` in conversation c1, each as `<kind>:<message id>`. */
+/** The lines of `record` of `kind` in chat c1, each as `<kind>:<message id>`. */
 function linesOf(record: Record_, kind: string): Array<string> {
   return record.lines
     .filter((line) => Reflect.get(Object(line), 'kind') === kind)
@@ -194,12 +194,12 @@ async function core(
 ) {
   // The heartbeat has no place: with reads that say no interface answers, it runs in its stand-in (drain.ts).
   const reads = heartbeat
-    ? { conversationInfo: world().reads.conversationInfo.bind(world().reads), offers: () => false }
+    ? { chatInfo: world().reads.chatInfo.bind(world().reads), offers: () => false }
     : world().reads;
   world().channel({
     id: 'c1',
     name: 'chan-c1',
-    placeId: GUILD,
+    placeId: ROOT,
     permissions: { send: true },
     historyMessages: [rawMessage({ id: 'm1', ts: T - HOUR, content: 'καλή σας μέρα' })],
   });
@@ -226,7 +226,7 @@ async function core(
       hot,
       store,
       client: CLIENT,
-      isServedCommunity: (id: unknown) => id === GUILD,
+      isServedRoot: (id: unknown) => id === ROOT,
       port,
       reads: world().reads,
     });
@@ -315,7 +315,7 @@ async function core(
       // The inner life's record names no place (src/behavior/inner/persona-sources.ts).
       ...(record ? { record: { ...record, append: (lines: ReadonlyArray<unknown>) => record.append('', lines) } } : {}),
       iface: () => 'fake',
-      conversationName: (id: string) => `chan-${id}`,
+      chatName: (id: string) => `chan-${id}`,
       submit: (event: object) => door.submit(event),
       store: { state: { data: flags } },
       meter: { run: async (fn: () => unknown) => ({ result: await fn(), usd: 0, requests: 1, voice: 0 }) },
@@ -459,8 +459,8 @@ test('a live send that lost its answer is reconciled at restart without another 
   const reconcilable: Fake = { ...world_, capabilities: () => ({ ...world_.capabilities(), reconcile: true }) };
   const losing: Fake = {
     ...reconcilable,
-    send: (conversation, content, options) => {
-      void world_.send(conversation, content, options).then(reached);
+    send: (chat, content, options) => {
+      void world_.send(chat, content, options).then(reached);
       return new Promise(() => {});
     },
   };
@@ -536,7 +536,7 @@ test('an edit of a held message later in the same turn is refused held-message, 
   }
 });
 
-test('a held post sent after the completion is recorded once as her said line in its conversation', async () => {
+test('a held post sent after the completion is recorded once as her said line in its chat', async () => {
   const record = keptRecord();
   const run = await core(
     { answers: [toolAnswer('', [call('message.create', { text: 'καλημέρα' })]), '<skip/>'] },
@@ -653,8 +653,8 @@ test("a wake turn whose calls were not held asks the model what the same turn as
     assert.equal(run.llm.requests.length, 2, 'the second request carries the read');
     // The turn as the drain hands it to the runner on main: these fields and no others.
     const asOnMain: Record<string, unknown> = {
-      // Slice 5: the heartbeat's stand-in conversation and its history are gone; a turn nowhere has `conversation` null.
-      ...(params.conversation ? { conversation: params.conversation } : {}),
+      // Slice 5: the heartbeat's stand-in chat and its history are gone; a turn nowhere has `chat` null.
+      ...(params.chat ? { chat: params.chat } : {}),
       mode: params.mode,
       triggerKind: params.triggerKind,
       journalTurn: params.journalTurn,
@@ -676,8 +676,8 @@ test("a wake turn whose calls were not held asks the model what the same turn as
 });
 
 for (const publicationBoundary of [
-  { kind: 'internal-turn', origin: { iface: 'cli', conversationId: 'c1' } },
-  { kind: 'internal-turn', origin: { iface: '', conversationId: 'c1' } },
+  { kind: 'internal-turn', origin: { iface: 'cli', chatId: 'c1' } },
+  { kind: 'internal-turn', origin: { iface: '', chatId: 'c1' } },
 ]) {
   test(`a persisted ${publicationBoundary.origin.iface ? 'foreign' : 'malformed'} publication restriction prevents live hold release`, async () => {
     const run = await core({

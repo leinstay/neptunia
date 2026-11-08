@@ -5,7 +5,7 @@
 // the per-run cap, watched entries skipped, one run at a time, the pause
 // respected.
 
-import { placeOfCommunity } from '../src/memory/addresses.ts';
+import { placeOfRoot } from '../src/memory/addresses.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -238,11 +238,11 @@ function rawGifMessage(n: number) {
   };
 }
 
-/** The fake interface whose conversation c1 holds `messages` (raw ones, read into events as the Discord package does); any other id is a message that is gone. */
+/** The fake interface whose chat c1 holds `messages` (raw ones, read into events as the Discord package does); any other id is a message that is gone. */
 function fakeClient(messages: Array<Record<string, Untyped>>) {
   const world = rig();
   const stub = { id: 'c1', name: 'c1', parent: null, guild: { id: 'g1' }, isThread: () => false };
-  world.fake.seedConversation(channel('c1'));
+  world.fake.seedChat(channel('c1'));
   for (const raw of messages) {
     const event = toEvent(
       { ...raw, channel: stub, channelId: 'c1', guild: stub.guild },
@@ -289,7 +289,7 @@ function fakeDescriber(
       if (gate) await gate();
       const result = outcome ? outcome(item) : { state: 'watched', text: `watched ${item.itemId}` };
       if (result.state === 'watched') {
-        store.getMediaCache(placeOfCommunity(store, placeId))[item.itemId] = {
+        store.getMediaCache(placeOfRoot(store, placeId))[item.itemId] = {
           text: result.text,
           reaction: '',
           action: result.text,
@@ -316,10 +316,10 @@ function silentLog() {
 }
 
 function seed(store: GifStore, entries: Array<Record<string, Untyped>>, cache = {}) {
-  store.recordGifs(placeOfCommunity(store, 'g1'), []);
+  store.recordGifs(placeOfRoot(store, 'g1'), []);
   const gifs = store.getGifs();
   Object.assign(gifs, library(entries));
-  Object.assign(store.getMediaCache(placeOfCommunity(store, 'g1')), cache);
+  Object.assign(store.getMediaCache(placeOfRoot(store, 'g1')), cache);
 }
 
 // PR 7d: `gifs.recachePerRun` is the constant 50, so the three entries are watched in one run (recacheQueue's cap is
@@ -344,11 +344,11 @@ test('gif recache: drops one-frame captions at once, then watches the entries, o
     const started = recache.start('g1');
     assert.deepEqual(started, { ok: true, dropped: 1, queued: 3 });
     assert.equal(
-      store.getMediaCache(placeOfCommunity(store, 'g1'))['x9#e0'],
+      store.getMediaCache(placeOfRoot(store, 'g1'))['x9#e0'],
       undefined,
       'the stray one-frame caption is dropped, not re-described'
     );
-    assert.equal(store.getMediaCache(placeOfCommunity(store, 'g1'))['556'].text, 'a picture');
+    assert.equal(store.getMediaCache(placeOfRoot(store, 'g1'))['556'].text, 'a picture');
     assert.equal(recache.isRunning(), true);
     await recache.waitIdle();
     assert.equal(recache.isRunning(), false);
@@ -386,7 +386,7 @@ test('gif recache: a second run skips what the first watched and continues with 
       describer.calls.map((c) => c.item.itemId),
       ids.map((n) => `m${n}#e0`)
     );
-    assert.deepEqual(gifCaptionCounts(store.getGifs(), store.getMediaCache(placeOfCommunity(store, 'g1'))), {
+    assert.deepEqual(gifCaptionCounts(store.getGifs(), store.getMediaCache(placeOfRoot(store, 'g1'))), {
       watched: 51,
       'one-frame': 0,
       failed: 0,
@@ -465,7 +465,7 @@ test('gif recache: refused while paused, without a describer or while GIFs are n
       ok: false,
       reason: 'paused',
     });
-    assert.equal(store.getMediaCache(placeOfCommunity(store, 'g1'))['x9#e0'].text, 'a stray still');
+    assert.equal(store.getMediaCache(placeOfRoot(store, 'g1'))['x9#e0'].text, 'a stray still');
   });
 });
 
@@ -756,7 +756,7 @@ test('media recache: emoji from their id, a library GIF from its message, an att
   });
 });
 
-test('media recache: an emoji the community no longer lists is left as it is and counted unlocated', async () => {
+test('media recache: an emoji the root no longer lists is left as it is and counted unlocated', async () => {
   await withStore(async (store: GifStore) => {
     seed(store, [], { 'emoji:77': { text: 'a grin', ts: NOW - DAY }, 'emoji:78': { text: 'a nod', ts: NOW - DAY } });
     const clock = fakeTime();
@@ -766,7 +766,7 @@ test('media recache: an emoji the community no longer lists is left as it is and
       hot: wrongly(mediaHot()),
       store,
       ...depsOf(fakeClient([])),
-      // Only emoji 77 is listed by the community now.
+      // Only emoji 77 is listed by the root now.
       emoji: { refresh: async () => {}, urlOf: (id) => (id === '77' ? 'https://cdn.example/emojis/77.webp' : null) },
       describer,
       now: clock.now,

@@ -247,7 +247,7 @@ function deskWith(backendUsage: () => Promise<ReadonlyArray<BackendUsage>>) {
       sumDays: () => ({ rows: [], interfaces: [], total: zero, since: '2026-11-05', partial: false }),
     },
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => T0,
     backendUsage,
     subharness: {

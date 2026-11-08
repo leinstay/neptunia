@@ -6,29 +6,29 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { READ_ACTIONS, validateAction } from '../src/protocol/index.ts';
 
-const CONVERSATION = { iface: 'fake', conversationId: 'c1' };
-const MESSAGE = { iface: 'fake', conversationId: 'c1', messageId: 'm1' };
+const CHAT = { iface: 'fake', chatId: 'c1' };
+const MESSAGE = { iface: 'fake', chatId: 'c1', messageId: 'm1' };
 
 type Row = { name: string; action: Record<string, unknown>; reason?: string };
 
 const GOOD: ReadonlyArray<Row> = [
-  { name: 'conversation info', action: { action: 'conversation.info', conversation: CONVERSATION } },
+  { name: 'chat info', action: { action: 'chat.info', chat: CHAT } },
   {
-    name: 'conversation info with audience and viewers',
-    action: { action: 'conversation.info', conversation: CONVERSATION, audience: true, viewers: ['u1', 'u2'] },
+    name: 'chat info with audience and viewers',
+    action: { action: 'chat.info', chat: CHAT, audience: true, viewers: ['u1', 'u2'] },
   },
-  { name: 'conversations list', action: { action: 'conversations.list', placeId: 'g1' } },
+  { name: 'chats list', action: { action: 'chats.list', placeId: 'g1' } },
   {
     name: 'history of the newest lines',
-    action: { action: 'messages.history', conversation: CONVERSATION, limit: 50 },
+    action: { action: 'messages.history', chat: CHAT, limit: 50 },
   },
   {
     name: 'history before a message with a floor',
-    action: { action: 'messages.history', conversation: CONVERSATION, limit: 10, before: 'm1', since: 1000 },
+    action: { action: 'messages.history', chat: CHAT, limit: 10, before: 'm1', since: 1000 },
   },
   {
     name: 'history at the largest limit',
-    action: { action: 'messages.history', conversation: CONVERSATION, limit: 10000 },
+    action: { action: 'messages.history', chat: CHAT, limit: 10000 },
   },
   { name: 'member info', action: { action: 'member.info', placeId: 'g1', accountId: 'u1' } },
   { name: 'member info of a private chat', action: { action: 'member.info', placeId: null, accountId: 'u1' } },
@@ -51,61 +51,61 @@ const GOOD: ReadonlyArray<Row> = [
 ];
 
 const BAD: ReadonlyArray<Row> = [
-  { name: 'conversation info without a reference', action: { action: 'conversation.info' } },
+  { name: 'chat info without a reference', action: { action: 'chat.info' } },
   {
-    name: 'conversation info with a reference without an interface',
-    action: { action: 'conversation.info', conversation: { conversationId: 'c1' } },
+    name: 'chat info with a reference without an interface',
+    action: { action: 'chat.info', chat: { chatId: 'c1' } },
   },
   {
-    name: 'conversation info with viewers that are not ids',
-    action: { action: 'conversation.info', conversation: CONVERSATION, viewers: ['u1', ''] },
+    name: 'chat info with viewers that are not ids',
+    action: { action: 'chat.info', chat: CHAT, viewers: ['u1', ''] },
   },
   {
-    name: 'conversation info with 26 viewers',
+    name: 'chat info with 26 viewers',
     action: {
-      action: 'conversation.info',
-      conversation: CONVERSATION,
+      action: 'chat.info',
+      chat: CHAT,
       viewers: Array.from({ length: 26 }, (_, n) => `u${n}`),
     },
   },
-  { name: 'conversations list with an empty community', action: { action: 'conversations.list', placeId: '' } },
-  { name: 'history without a limit', action: { action: 'messages.history', conversation: CONVERSATION } },
+  { name: 'chats list with an empty root', action: { action: 'chats.list', placeId: '' } },
+  { name: 'history without a limit', action: { action: 'messages.history', chat: CHAT } },
   {
     name: 'history with a limit of zero',
-    action: { action: 'messages.history', conversation: CONVERSATION, limit: 0 },
+    action: { action: 'messages.history', chat: CHAT, limit: 0 },
   },
   {
     name: 'history past the largest limit',
-    action: { action: 'messages.history', conversation: CONVERSATION, limit: 10001 },
+    action: { action: 'messages.history', chat: CHAT, limit: 10001 },
   },
   {
     name: 'history with a fractional limit',
-    action: { action: 'messages.history', conversation: CONVERSATION, limit: 2.5 },
+    action: { action: 'messages.history', chat: CHAT, limit: 2.5 },
   },
   {
     name: 'history with two anchors',
-    action: { action: 'messages.history', conversation: CONVERSATION, limit: 5, before: 'm1', after: 'm2' },
+    action: { action: 'messages.history', chat: CHAT, limit: 5, before: 'm1', after: 'm2' },
     reason: 'history:anchors',
   },
   {
     name: 'history with before and around',
-    action: { action: 'messages.history', conversation: CONVERSATION, limit: 5, before: 'm1', around: 'm2' },
+    action: { action: 'messages.history', chat: CHAT, limit: 5, before: 'm1', around: 'm2' },
     reason: 'history:anchors',
   },
   {
     name: 'history with a floor that is not finite',
-    action: { action: 'messages.history', conversation: CONVERSATION, limit: 5, since: Infinity },
+    action: { action: 'messages.history', chat: CHAT, limit: 5, since: Infinity },
   },
   { name: 'member info without a member', action: { action: 'member.info', placeId: 'g1' } },
   {
     name: 'message search with a time that is not finite',
     action: { action: 'messages.search', placeId: 'g1', after: Number.NaN },
   },
-  { name: 'message search without a community', action: { action: 'messages.search', text: 'x' } },
+  { name: 'message search without a root', action: { action: 'messages.search', text: 'x' } },
   { name: 'member search without a prefix', action: { action: 'members.search', placeId: 'g1', limit: 5 } },
   {
     name: 'reactors for a reference without a message id',
-    action: { action: 'message.reactors', message: CONVERSATION, emoji: '🔥', limit: 10 },
+    action: { action: 'message.reactors', message: CHAT, emoji: '🔥', limit: 10 },
   },
   { name: 'link parse with 51 texts', action: { action: 'links.parse', texts: Array.from({ length: 51 }, () => 'x') } },
   { name: 'link parse with a text of 2001 characters', action: { action: 'links.parse', texts: ['x'.repeat(2001)] } },
@@ -129,14 +129,14 @@ for (const row of BAD) {
 test('accepts a limit of one and exactly 25 viewers and 50 texts of 2000 characters', () => {
   const viewers = Array.from({ length: 25 }, (_, n) => `u${n}`);
   const texts = Array.from({ length: 50 }, () => 'x'.repeat(2000));
-  assert.equal(validateAction({ action: 'messages.history', conversation: CONVERSATION, limit: 1 }).ok, true);
-  assert.equal(validateAction({ action: 'conversation.info', conversation: CONVERSATION, viewers }).ok, true);
+  assert.equal(validateAction({ action: 'messages.history', chat: CHAT, limit: 1 }).ok, true);
+  assert.equal(validateAction({ action: 'chat.info', chat: CHAT, viewers }).ok, true);
   assert.equal(validateAction({ action: 'links.parse', texts }).ok, true);
 });
 
 test('lists every read action, the message fetch included', () => {
-  const names = ['conversation.info', 'conversations.list', 'messages.fetch', 'messages.history', 'member.info'];
+  const names = ['chat.info', 'chats.list', 'messages.fetch', 'messages.history', 'member.info'];
   const more = ['messages.search', 'members.search', 'emoji.list', 'links.parse', 'message.reactors'];
-  // The port gained `dm.conversation`, which opens a DM's channel for the media backfill.
-  assert.deepEqual([...READ_ACTIONS].sort(), [...names, ...more, 'dm.conversation'].sort());
+  // The port gained `dm.chat`, which opens a DM's channel for the media backfill.
+  assert.deepEqual([...READ_ACTIONS].sort(), [...names, ...more, 'dm.chat'].sort());
 });

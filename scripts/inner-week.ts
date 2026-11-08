@@ -22,7 +22,7 @@
 // `--live`: the fixture's week again, the inner turns of `--days` (1-based) answered by the real
 // turn runner in shadow (`wakes.mode` forced to `shadow`: her reads run on the simulation key,
 // every other call is only proposed), the other days by the stub. Wired as `replay.ts --inner`:
-// Discord over REST, GET only (`--channel` is the real channel every fixture conversation is played
+// Discord over REST, GET only (`--channel` is the real channel every fixture chat is played
 // in; its sends refused), her memory an unflushed copy of `--data` (default the deployment's data
 // directory; read only), the history of each turn the fixture's scripted chat instead of the real
 // channel's, the intentions and errands the week's own. So that the week reads as her own world:
@@ -215,7 +215,7 @@ function snowflakeOf(ts: Untyped, seq: Untyped) {
 }
 
 /**
- * The fixture's scripted chat of one conversation as fetchHistory's lines (interfaces/discord/collect.ts
+ * The fixture's scripted chat of one chat as fetchHistory's lines (interfaces/discord/collect.ts
  * normalizeMessage's shape), in the real channel `channel`, up to `now`, the last `limit`.
  */
 export function scriptedHistory(lines: Untyped, { channel, selfId, selfName, now, limit }: Rec): Array<Rec> {
@@ -316,13 +316,13 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
     channel.sendTyping = refuse('sendTyping');
     addFixturePeople(store, placeId, fixture.people, fixture.startMs);
 
-    // The turn's history: the fixture's chat of the conversation the scheduler picked.
+    // The turn's history: the fixture's chat of the chat the scheduler picked.
     let scripted: { lines: Array<Untyped>; name: string | null } = { lines: [], name: null };
     // The turn's history is the fixture's chat, as the interface's history read gives it.
     const scriptedChat = (found: Untyped): unknown =>
       scriptedReads(found, (ref, limit) =>
         scriptedHistory(scripted.lines, {
-          channel: { id: ref.conversationId, name: scripted.name ?? channel.name },
+          channel: { id: ref.chatId, name: scripted.name ?? channel.name },
           selfId: self.id,
           selfName: self.name,
           now: clock.now(),
@@ -393,12 +393,12 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
       },
       async runTurn(params: Rec, { world }: Rec) {
         if (budget !== null && spent() + INNER_REQUESTS * USD_PER_ANSWER > budget) return null;
-        scripted = scriptedChatOf(world, fixture, params.conversation);
+        scripted = scriptedChatOf(world, fixture, params.chat);
         const before = calls.length;
         let result;
         try {
           result = await turns.runTurn({
-            conversation: replay.conversationRef(channel),
+            chat: replay.chatRef(channel),
             placeId,
             mode: 'inner',
             triggerKind: 'inner',

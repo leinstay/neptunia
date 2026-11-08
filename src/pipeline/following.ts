@@ -2,7 +2,7 @@
 // episode (src/memory/participation.ts#recordFollowing). createMessageHandler (src/behavior/pipeline.js) builds it once
 // with createFollowing; handleMessage calls it for every member's line of the served place.
 
-import { selfreflectionConversationIds } from '../behavior/mirror.ts';
+import { selfreflectionChatIds } from '../behavior/mirror.ts';
 import { log } from '../log.ts';
 import { participationSettings, recordFollowing } from '../memory/index.ts';
 import { MINUTE_MS } from '../time.ts';
@@ -19,7 +19,7 @@ export type FollowingContext = {
   store: ParticipationStore | null | undefined;
   turns: PipelineTurns;
   /** The memory database (src/memory/db/service.ts), read for the places of her selfreflection. */
-  memoryDb: Parameters<typeof selfreflectionConversationIds>[0];
+  memoryDb: Parameters<typeof selfreflectionChatIds>[0];
   now: () => number;
 };
 
@@ -34,12 +34,12 @@ export function createFollowing({ store, turns, memoryDb, now }: FollowingContex
    * only when it changed (`participation: recorded`, `following: true`). Cheap: nothing is fetched and no profile
    * read, and the store is not even read unless the persona's last post here (turns.lastPostAt) is within
    * `participation.followMinutes`. Off with features.memory or features.participation false (a
-   * missing key counts as on), in a place of her selfreflection (src/behavior/mirror.ts#selfreflectionConversationIds), or for a store
+   * missing key counts as on), in a place of her selfreflection (src/behavior/mirror.ts#selfreflectionChatIds), or for a store
    * without the participation store. Never throws: `participation: failed` (`reason: 'following-error'`).
    */
   function noteFollowingLine(placeId: string, normalized: Line): void {
     try {
-      if (selfreflectionConversationIds(memoryDb).has(String(normalized.placeId))) return;
+      if (selfreflectionChatIds(memoryDb).has(String(normalized.placeId))) return;
       const settings = participationSettings();
       const lastOwn = typeof turns.lastPostAt === 'function' ? turns.lastPostAt(normalized.placeId) : 0;
       if (!(lastOwn > 0) || normalized.ts - lastOwn > settings.followMinutes * MINUTE_MS) return;

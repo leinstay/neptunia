@@ -120,14 +120,14 @@ test('archive: archiveEntry builds the three ids and never guesses sourceRefs', 
   const same = archiveEntry(episode({ weight: 1 }), {
     itemKind: 'episode',
     event: 'evicted',
-    scope: { guild: true },
+    scope: { root: true },
     ...at(NOV),
   });
   assert.equal(loose(same).revisionId, loose(entry).revisionId);
   const changed = archiveEntry(episode({ feeling: 'χαρά' }), {
     itemKind: 'episode',
     event: 'replaced',
-    scope: { guild: true },
+    scope: { root: true },
     ...at(OCT),
   });
   assert.notEqual(loose(changed).revisionId, loose(entry).revisionId);
@@ -151,14 +151,14 @@ test('archive: archiveEntry builds the three ids and never guesses sourceRefs', 
   const fact = archiveEntry('μου αρέσει ο café', {
     itemKind: 'selfFact',
     event: 'replaced',
-    scope: { guild: true },
+    scope: { root: true },
     ...at(OCT),
   });
   assert.match(loose(fact).itemId, /^sf-/);
   assert.deepEqual(loose(fact).text, { text: 'μου αρέσει ο café' });
   assert.deepEqual(loose(fact).observedAt, { date: '2026-10-13', precision: 'approx' });
   assert.throws(
-    () => archiveEntry(episode(), { itemKind: 'episode', event: 'gone', scope: { guild: true } }),
+    () => archiveEntry(episode(), { itemKind: 'episode', event: 'gone', scope: { root: true } }),
     TypeError
   );
 });

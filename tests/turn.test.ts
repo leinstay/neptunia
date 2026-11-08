@@ -1424,7 +1424,7 @@ async function runPrivateTurn({
     llm,
     calibrator: identityCalibrator(),
     client: fakeClient(),
-    // Her name in the served community is the core's to tell (the member directory, else the name of `hello`).
+    // Her name in the served root is the core's to tell (the member directory, else the name of `hello`).
     getSelfName: () => selfName,
     images,
     errands,
@@ -1462,7 +1462,7 @@ test('runTurn: a private request carries the private prompt and the private trig
   assert.ok(user.includes('PRIVATE_TASK with Alice as GuildBot'));
   // Slice 4: the counterpart of a DM comes from the graph reader, not the store's merged profile; the private memory
   // reaching her is tests/core-dm-neutral-turn.test.ts and tests/request-memory-block.test.ts.
-  assert.ok(user.includes(labels.senses.privateChat));
+  assert.ok(user.includes(labels.senses.dmChat));
   assert.ok(!user.includes('<server>'));
   assert.ok(!user.includes('<other_channels>'));
 });
@@ -1559,8 +1559,8 @@ test('runTurn: a guild turn never carries the private prompt or the private sens
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const llm = fakeLlm('<skip/>');
-  // PR 7d: features.privateMessages is the key private.enabled.
-  const hot = fakeHot({}, {}, { private: { enabled: true } });
+  // PR 7d: features.privateMessages is the key dm.enabled.
+  const hot = fakeHot({}, {}, { dm: { enabled: true } });
   hot.prompts.private = 'PRIVATE_TASK';
   const turns = createTurnRunner({
     discord: DISCORD,
@@ -1576,12 +1576,12 @@ test('runTurn: a guild turn never carries the private prompt or the private sens
 
   const user = textOf(llm.calls[0][1].content);
   assert.ok(!user.includes('PRIVATE_TASK'));
-  assert.ok(!user.includes(labels.senses.privateChat));
+  assert.ok(!user.includes(labels.senses.dmChat));
   assert.ok(user.includes(labels.senses.privateAware));
 });
 
-// Changed: a DM needs no community (plan section 3), so the throw this test pinned is the bug that dropped such a DM.
-test('runTurn: a channel without a guild and no placeId param runs a turn with no community and leaves nothing busy', async () => {
+// Changed: a DM needs no root (plan section 3), so the throw this test pinned is the bug that dropped such a DM.
+test('runTurn: a channel without a guild and no placeId param runs a turn with no root and leaves nothing busy', async () => {
   const raw = rawMessage({ id: 'm1' });
   const channel = fakeTurnChannel({ id: 'dm1', dm: true, historyMessages: [raw] });
   const llm = fakeLlm('<msg>hi</msg>');
@@ -2036,7 +2036,7 @@ test('runTurn: a message that fails to send ends the turn partial with a sendFai
     { outcome: result.outcome, delivered: result.delivered, partial: result.partial },
     { outcome: 'spoke', delivered: true, partial: true }
   );
-  const [fact] = source.pending({ placeId: 'c1', privateChat: false });
+  const [fact] = source.pending({ placeId: 'c1', dmChat: false });
   assert.equal(fact.kind, 'sendFailed');
   assert.deepEqual([fact.n, fact.total], [1, 3]);
   assert.equal(typeof fact.code, 'string');
@@ -2255,7 +2255,7 @@ function settleScene({ settleMs, activity }: { settleMs: number; activity?: Unty
   const channel = fakeTurnChannel({ historyMessages: [raw] });
   const fetchedAt: Array<number> = [];
   world().tap('history', ([ref]: Array<Untyped>) => {
-    if (ref.conversationId === channel.id) fetchedAt.push(clock.t);
+    if (ref.chatId === channel.id) fetchedAt.push(clock.t);
   });
   const waits: Array<Untyped> = [];
   const schedule = (fn: () => void, ms: number) => {
@@ -2744,7 +2744,7 @@ test('runTurn: turn: timings carries every stage, null for one that did not run'
   };
   const scene = paceScene({ caption, clock: () => t, llm });
   world().tap('history', ([ref]: Array<Untyped>) => {
-    if (ref.conversationId === scene.channel.id) t += 100;
+    if (ref.chatId === scene.channel.id) t += 100;
   });
 
   const running = withCapturedLogs(() => scene.turns.runTurn(scene.params));
@@ -3860,7 +3860,7 @@ function replyParentChannel(historyMessages: Array<Untyped>, stored: Array<Untyp
   const channel = fakeTurnChannel({ historyMessages: [...stored, ...historyMessages] });
   const fetchedIds: Array<Untyped> = [];
   world().tap('fetchMessages', ([ref, ids]: Array<Untyped>) => {
-    if (asRecord(ref).conversationId === channel.id) fetchedIds.push(...ids);
+    if (asRecord(ref).chatId === channel.id) fetchedIds.push(...ids);
   });
   return Object.assign(channel, { fetchedIds });
 }
@@ -4950,7 +4950,7 @@ test("createTurnRunner: links seeded at start (the journal's rebuild) survive a 
 
 // ---------------------------------------------------------------------------
 // Every effect of a reply is checked (src/tools/gateway.ts#checkReplyEffect: carried over in the
-// current conversation, refused only under the full stop) and made through the interface port.
+// current chat, refused only under the full stop) and made through the interface port.
 
 /** One mention turn answered with `answer`, through `port` (the default Discord adapter when null). */
 async function gatewayTurn({
@@ -5010,10 +5010,10 @@ test('skills gateway: a normal reply is carried over and posted through the port
     ['typing', 'send']
   );
   assert.deepEqual(effects[1].args, [
-    { iface: 'fake', conversationId: 'c1' },
+    { iface: 'fake', chatId: 'c1' },
     {
       text: 'γεια σου <@u1>',
-      replyTo: { iface: 'fake', conversationId: 'c1', messageId: 'm1' },
+      replyTo: { iface: 'fake', chatId: 'c1', messageId: 'm1' },
       // The lead: the mentions carry `asked` since silent mode pings only the members who chose `on` (owner, 2026-11-06).
       // Nobody chose a state here.
       mentions: { users: ['u1'], repliedUser: true, asked: { users: [], repliedUser: false } },
@@ -5113,7 +5113,7 @@ test('skills gateway: the GIF and the drawing are published through the port', a
   assert.equal(asRecord(picture).attachments.length, 1);
   assert.equal(asRecord(picture).attachments[0].name, 'image.png');
   assert.ok(Buffer.isBuffer(asRecord(picture).attachments[0].data));
-  assert.deepEqual(asRecord(picture).replyTo, { iface: 'fake', conversationId: 'c1', messageId: 'm1' });
+  assert.deepEqual(asRecord(picture).replyTo, { iface: 'fake', chatId: 'c1', messageId: 'm1' });
   assert.equal('mentions' in asRecord(picture), false);
   assert.equal(images.generateCalls.length, 1);
   assert.ok(logs.some((entry) => entry.msg === 'turn: gif sent'));
@@ -5133,7 +5133,7 @@ function skillPhases(lines: unknown) {
 /**
  * A mention by Alice (u1, #2) after a line of the persona (#1) in #general (c1), with #νέα (c9,
  * where the bot may do anything) and #αλλού (c8, where it may not send) in the guild; no
- * `tools.conversations` list; the LLM answers `answers` in
+ * `tools.chats` list; the LLM answers `answers` in
  * order; `allowed` skills are granted to her (her user id in bot.access); `owners` are the bot's
  * owners (Alice by default: the owner asks); the port is a fake adapter, the operations run on a
  * real admin over it; `emoji`: the server's custom emoji index, none by default; `later`: raw
@@ -5187,7 +5187,7 @@ async function callTurn({
     hot,
     store,
     client,
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     reads: world().adopt(port),
     port,
     ...(images ? { images } : {}),
@@ -5227,7 +5227,7 @@ async function callTurn({
   );
   const sends = port.calls
     .filter((call) => call.op === 'send')
-    .map((call): Record<string, Untyped> => ({ to: asRecord(call.args[0]).conversationId, ...asRecord(call.args[1]) }));
+    .map((call): Record<string, Untyped> => ({ to: asRecord(call.args[0]).chatId, ...asRecord(call.args[1]) }));
   return { result, logs, llm, port, sends, channel, store, hot };
 }
 
@@ -5383,15 +5383,15 @@ test('skill call: a quiet success in an addressed turn ends the turn: no step, n
   );
 });
 
-test('skill call: a call alone is no skip; here it needs no grant and replies to a line of this conversation', async () => {
+test('skill call: a call alone is no skip; here it needs no grant and replies to a line of this chat', async () => {
   const here = await callTurn({ answers: [toolAnswer('', [call('message.create', { reply: '#2', text: 'ναι' })])] });
   assert.equal(here.result.outcome, 'spoke');
-  // The current conversation: carried over, the replied author notified.
+  // The current chat: carried over, the replied author notified.
   assert.deepEqual(
     here.sends.map((send) => [send.to, send.text, send.replyTo?.messageId, send.mentions.repliedUser]),
     [['c1', 'ναι', 'm1', true]]
   );
-  // A reply target outside the channel she named. Contract change: message.create no longer takes the reply's channel over a destination she named. That substitution posted a reply in another channel than the one she chose. A mismatch is refused unknown-message (conversation), nothing sent; react, edit and delete keep the rule because their channel only locates the message they act on.
+  // A reply target outside the channel she named. Contract change: message.create no longer takes the reply's channel over a destination she named. That substitution posted a reply in another channel than the one she chose. A mismatch is refused unknown-message (chat), nothing sent; react, edit and delete keep the rule because their channel only locates the message they act on.
   const across = await callTurn({
     answers: [
       toolAnswer('', [call('message.create', { place: '#νέα', reply: '#2', text: 'ναι' })]),
@@ -5731,7 +5731,7 @@ function callMarkScene({
     hot,
     store,
     client,
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     reads: world().adopt(port),
     port,
   });
@@ -5787,7 +5787,7 @@ test('call marks: a later turn shows the call as a line of its own after her lin
   const first = await scene.run(scene.channel, scene.history[1]);
   assert.equal(first.result.outcome, 'spoke');
   const [posted] = scene.port.calls.filter((call) => call.op === 'send');
-  assert.equal(asRecord(posted.args[0]).conversationId, 'c9', 'her call ran first');
+  assert.equal(asRecord(posted.args[0]).chatId, 'c9', 'her call ran first');
   const here = ownRaw(scene.port, 'c1', NOW);
   const there = ownRaw(scene.port, 'c9', NOW);
   scene.clock.ms = NOW + 60_000;
@@ -5938,8 +5938,8 @@ function endHookScene(answer = '<msg reply="#1">ναι</msg>') {
     client: fakeClient(),
   });
   const ends: Array<{
-    conversationId: string | null;
-    privateChat: boolean;
+    chatId: string | null;
+    dmChat: boolean;
     routed: boolean;
     mode: string | null;
     trigger: {
@@ -5971,9 +5971,9 @@ test("createTurnRunner: the end hook hears every turn's outcome, its trigger and
   assert.equal(result.outcome, 'spoke');
   assert.equal(ends.length, 1);
   const [end] = ends;
-  // The end names the conversation alone; the hook reads no top (plan 2026-11-05 T.4).
+  // The end names the chat alone; the hook reads no top (plan 2026-11-05 T.4).
   assert.deepEqual(
-    [end.conversationId, end.privateChat, end.routed, end.mode, end.triggerKind, end.outcome, end.reason],
+    [end.chatId, end.dmChat, end.routed, end.mode, end.triggerKind, end.outcome, end.reason],
     ['c1', false, false, 'reply', 'mention', 'spoke', null]
   );
   assert.deepEqual([end.trigger?.id, end.trigger?.authorId, end.trigger?.ts], ['m99', 'u2', NOW - 30_000]);
@@ -6028,8 +6028,8 @@ test('createTurnRunner: a turn dropped at its bar reaches the end hook as an err
     schedule: timers.schedule,
   });
   const ends: Array<{
-    conversationId: string | null;
-    privateChat: boolean;
+    chatId: string | null;
+    dmChat: boolean;
     routed: boolean;
     mode: string | null;
     trigger: {
@@ -6135,8 +6135,8 @@ function cutScene(answers: Untyped) {
     journal,
   });
   const ends: Array<{
-    conversationId: string | null;
-    privateChat: boolean;
+    chatId: string | null;
+    dmChat: boolean;
     routed: boolean;
     mode: string | null;
     trigger: {
@@ -6349,7 +6349,7 @@ test('a cancelled internal turn cannot leave its read context on a subsequent or
     const ownerRaw = rawMessage({
       id: 'owner-cancel',
       authorId: 'owner',
-      content: 'find the distant private rabbit conversation',
+      content: 'find the distant private rabbit chat',
     });
     const owner = fakeTurnChannel({
       id: 'cli:dm:owner',
@@ -6361,7 +6361,7 @@ test('a cancelled internal turn cannot leave its read context on a subsequent or
     const otherRaw = rawMessage({
       id: 'other-after-cancel',
       authorId: 'other',
-      content: 'find the public rabbit conversation',
+      content: 'find the public rabbit chat',
     });
     const other = fakeTurnChannel({
       id: 'cli:dm:other',

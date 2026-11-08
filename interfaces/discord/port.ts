@@ -1,5 +1,5 @@
 // The Discord adapter of the interface port (src/interface/port.ts): the persona's effects in
-// Discord's terms. A conversation is a channel id, a message a message id, a member a user id,
+// Discord's terms. A chat is a channel id, a message a message id, a member a user id,
 // all namespaced `discord`. Channels and messages are looked up by id through the client (a
 // channel the caller already holds first, when it passes `lookupChannel`); mentions become
 // `allowedMentions` (nobody is notified unless named; with `discord.silent` only the members who asked); edit and delete touch only messages the
@@ -16,7 +16,7 @@
 // the same part within Discord's window returns the message already posted instead of a second one. People
 // never see a nonce. Discord gives it back on the bot's own message in the gateway's message create event and
 // in the answer to the send, never on a message read later, so the adapter keeps the nonces of the messages it
-// posted in this process (the newest KEPT_NONCES), from both. `fetchMessages(conversation, ids, { idempotencyKey })`
+// posted in this process (the newest KEPT_NONCES), from both. `fetchMessages(chat, ids, { idempotencyKey })`
 // reads those messages too, which lets the core reconcile a send whose answer was lost
 // (`capabilities().reconcile`, src/interface/reconcile.ts). A key this process never gave a nonce for is a send
 // from before the interface started: the read fails, so the send stays `unknown`. An empty answer means the
@@ -104,8 +104,8 @@ const DISCORD_MEDIA_PICK = Object.freeze({
  * (`@me`), the links the persona sends and the chat shows as a jump to a message.
  */
 export const DISCORD_MESSAGE_URL = Object.freeze({
-  community: 'https://discord.com/channels/{community}/{conversation}/{message}',
-  direct: 'https://discord.com/channels/@me/{conversation}/{message}',
+  root: 'https://discord.com/channels/{root}/{chat}/{message}',
+  direct: 'https://discord.com/channels/@me/{chat}/{message}',
 });
 
 /** Discord refuses a message nonce longer than 25 characters. */
@@ -181,13 +181,13 @@ function postedFiles(posted: unknown): Array<{ messageId: string; attachmentId: 
 /**
  * The nonces of the messages the adapter posted in this process: `issue(key, part)` gives a part of a keyed send its
  * nonce, `posted(message)` notes one of her messages that carries one (the answer to the send, and the gateway's
- * message create event, which comes even when the answer was lost), and `postedUnder(conversationId, key)` names the
+ * message create event, which comes even when the answer was lost), and `postedUnder(chatId, key)` names the
  * messages a send posted, part by part. The newest KEPT_NONCES of each are kept.
  * @param client the discord.js client, whose `messageCreate` events are watched
  */
 function createNonceBook(client: unknown) {
   // nonce -> the message posted under it
-  const sent: Map<string, { conversationId: string; messageId: string }> = new Map();
+  const sent: Map<string, { chatId: string; messageId: string }> = new Map();
   // nonce -> the send that gave it out
   const issued: Set<string> = new Set();
   const trim = (kept: Map<string, unknown> | Set<string>) => {
@@ -201,7 +201,7 @@ function createNonceBook(client: unknown) {
     const nonce = message?.nonce;
     if (typeof nonce !== 'string' || !issued.has(nonce)) return;
     if (typeof message?.id !== 'string' || typeof message.channelId !== 'string') return;
-    sent.set(nonce, { conversationId: message.channelId, messageId: message.id });
+    sent.set(nonce, { chatId: message.channelId, messageId: message.id });
     trim(sent);
   }
   const gateway = client as { on?: (name: string, handler: (message: never) => void) => unknown } | null;
@@ -219,12 +219,12 @@ function createNonceBook(client: unknown) {
     knows(key: string) {
       return issued.has(nonceOf(key, 0));
     },
-    /** @param conversationId @param {string} key */
-    postedUnder(conversationId: string, key: string) {
+    /** @param chatId @param {string} key */
+    postedUnder(chatId: string, key: string) {
       const ids: Array<string> = [];
       for (let part = 0; issued.has(nonceOf(key, part)); part += 1) {
         const found = sent.get(nonceOf(key, part));
-        if (found?.conversationId === conversationId) ids.push(found.messageId);
+        if (found?.chatId === chatId) ids.push(found.messageId);
       }
       return ids;
     },
@@ -289,26 +289,26 @@ export function createDiscordAdapter({
   let sends = 0;
   const nonces = createNonceBook(client);
 
-  /** The channel `conversationId`, or null; a lookup that throws is rethrown as a lookup failure. */
-  async function channelOf(conversationId: string): Promise<DiscordChannel | null> {
-    const held = typeof lookupChannel === 'function' ? lookupChannel(conversationId) : null;
+  /** The channel `chatId`, or null; a lookup that throws is rethrown as a lookup failure. */
+  async function channelOf(chatId: string): Promise<DiscordChannel | null> {
+    const held = typeof lookupChannel === 'function' ? lookupChannel(chatId) : null;
     if (held) return held;
     const channelCache = client?.channels?.cache;
-    const cached = channelCache?.get?.(conversationId);
+    const cached = channelCache?.get?.(chatId);
     if (cached) return cached;
     // The fetch resolves a discord.js channel, or nothing when there is none.
     if (typeof client?.channels?.fetch === 'function')
-      return ((await client.channels.fetch(conversationId)) as DiscordChannel | null | undefined) ?? null;
+      return ((await client.channels.fetch(chatId)) as DiscordChannel | null | undefined) ?? null;
     return null;
   }
 
-  /** `{ channel }` or `{ result }` (a failed lookup) for a conversation reference. */
+  /** `{ channel }` or `{ result }` (a failed lookup) for a chat reference. */
   async function resolveChannel(
     ref: unknown
   ): Promise<{ channel: DiscordChannel; result?: undefined } | { channel?: undefined; result: ReadFailure }> {
     try {
-      // The reference was checked by refRefusal before: it names a conversation.
-      const channel = await channelOf(objOf(ref).conversationId as string);
+      // The reference was checked by refRefusal before: it names a chat.
+      const channel = await channelOf(objOf(ref).chatId as string);
       if (!channel) return { result: lookupFailed(notOk('failed', CODE.UNKNOWN_CONVERSATION)) };
       return { channel };
     } catch (err) {
@@ -372,13 +372,13 @@ export function createDiscordAdapter({
     return objOf(objOf(config()).discord).silent === true ? silenced(payload, content) : payload;
   }
 
-  /** The reference of a message Discord answered with (`posted`), in `conversationId`. */
-  function refOf(posted: DiscordMessage | undefined, conversationId: string): MessageRef {
+  /** The reference of a message Discord answered with (`posted`), in `chatId`. */
+  function refOf(posted: DiscordMessage | undefined, chatId: string): MessageRef {
     const messageId = typeof posted?.id === 'string' && posted.id ? posted.id : undefined;
     const memberId = typeof posted?.author?.id === 'string' ? posted.author.id : (selfId() ?? undefined);
     return {
       iface: DISCORD_IFACE,
-      conversationId,
+      chatId,
       ...(messageId ? { messageId } : {}),
       ...(memberId ? { accountId: memberId } : {}),
     };
@@ -406,16 +406,15 @@ export function createDiscordAdapter({
   return {
     iface: DISCORD_IFACE,
 
-    async send(conversation, content, options = {}) {
+    async send(chat, content, options = {}) {
       sends += 1;
       const given =
         typeof options?.idempotencyKey === 'string' && options.idempotencyKey ? options.idempotencyKey : null;
       const key = given ?? `${DISCORD_IFACE}-send-${now()}-${sends}`;
       if (!supports('send')) return deliveryOf([unsupported()], key);
-      const refused =
-        refRefusal(conversation, DISCORD_IFACE) ?? contentRefusal(content, caps, DISCORD_IFACE, { splits: true });
+      const refused = refRefusal(chat, DISCORD_IFACE) ?? contentRefusal(content, caps, DISCORD_IFACE, { splits: true });
       if (refused) return deliveryOf([refused], key);
-      const { channel, result } = await resolveChannel(conversation);
+      const { channel, result } = await resolveChannel(chat);
       if (result) return deliveryOf([result], key);
       if (typeof channel.send !== 'function') return deliveryOf([unsupported()], key);
       // The reply and the files go with the first part; the rest of the text follows as plain messages.
@@ -430,8 +429,8 @@ export function createDiscordAdapter({
           const sent = await channel.send(
             nonce === null ? payloadOf(part) : { ...payloadOf(part), nonce, enforceNonce: true }
           );
-          const ref = refOf(sent, conversation.conversationId);
-          if (nonce !== null) nonces.posted({ nonce, id: ref.messageId, channelId: conversation.conversationId });
+          const ref = refOf(sent, chat.chatId);
+          if (nonce !== null) nonces.posted({ nonce, id: ref.messageId, channelId: chat.chatId });
           results.push(ok(ref, sent?.createdTimestamp));
           files.push(...postedFiles(sent));
         } catch (err) {
@@ -455,7 +454,7 @@ export function createDiscordAdapter({
       try {
         const { reply: _reply, ...payload } = payloadOf(content);
         const edited = await found.message.edit(payload);
-        return ok(refOf(edited ?? found.message, message.conversationId), edited?.editedTimestamp ?? undefined);
+        return ok(refOf(edited ?? found.message, message.chatId), edited?.editedTimestamp ?? undefined);
       } catch (err) {
         return discordFailure(err, { sent: true });
       }
@@ -471,7 +470,7 @@ export function createDiscordAdapter({
       if (notOwn) return notOwn;
       try {
         await found.message.delete();
-        return ok(refOf(found.message, message.conversationId));
+        return ok(refOf(found.message, message.chatId));
       } catch (err) {
         return discordFailure(err, { sent: true });
       }
@@ -486,7 +485,7 @@ export function createDiscordAdapter({
       if (found.result) return found.result;
       try {
         await found.message.react(emoji);
-        return ok({ iface: DISCORD_IFACE, conversationId: message.conversationId, messageId: message.messageId });
+        return ok({ iface: DISCORD_IFACE, chatId: message.chatId, messageId: message.messageId });
       } catch (err) {
         return discordFailure(err, { sent: true });
       }
@@ -502,7 +501,7 @@ export function createDiscordAdapter({
       const key = reactionKey(emoji);
       const reactions = found.message.reactions;
       const reaction = reactions?.resolve?.(key) ?? reactions?.cache?.get?.(key) ?? null;
-      const done = ok({ iface: DISCORD_IFACE, conversationId: message.conversationId, messageId: message.messageId });
+      const done = ok({ iface: DISCORD_IFACE, chatId: message.chatId, messageId: message.messageId });
       // No such reaction: nothing of hers to take back.
       if (!reaction) return done;
       try {
@@ -513,11 +512,11 @@ export function createDiscordAdapter({
       }
     },
 
-    async typing(conversation) {
+    async typing(chat) {
       if (!supports('typing')) return unsupported();
-      const refused = refRefusal(conversation, DISCORD_IFACE);
+      const refused = refRefusal(chat, DISCORD_IFACE);
       if (refused) return refused;
-      const { channel, result } = await resolveChannel(conversation);
+      const { channel, result } = await resolveChannel(chat);
       if (result) return result;
       if (typeof channel.sendTyping !== 'function') return unsupported();
       try {
@@ -532,15 +531,15 @@ export function createDiscordAdapter({
 
     /** A fetch by a send's key reads the messages this process saw posted under it, beside the ids asked for. */
     fetchMessages(
-      conversation: { iface: string; conversationId: string },
+      chat: { iface: string; chatId: string },
       messageIds: ReadonlyArray<string>,
       options: { idempotencyKey?: string } = {}
     ) {
       const key = typeof options?.idempotencyKey === 'string' ? options.idempotencyKey : null;
       if (key !== null && !nonces.knows(key))
         return Promise.resolve(lookupFailed(notOk('failed', CODE.UNKNOWN_MESSAGE)));
-      const extra = key === null ? [] : nonces.postedUnder(conversation.conversationId, key);
-      return reads.fetchMessages(conversation, [...(messageIds ?? []), ...extra]);
+      const extra = key === null ? [] : nonces.postedUnder(chat.chatId, key);
+      return reads.fetchMessages(chat, [...(messageIds ?? []), ...extra]);
     },
 
     capabilities() {

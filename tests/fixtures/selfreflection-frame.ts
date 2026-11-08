@@ -1,5 +1,5 @@
 // One selfreflection turn on the turn frame (plan 2026-11-06-turn-frame, slice 6): the real turn runner with
-// `conversation: null`, a real store over a real memory service, the graph reader and `<meanwhile>` reading that one
+// `chat: null`, a real store over a real memory service, the graph reader and `<meanwhile>` reading that one
 // database, and a fake model that answers the planner with a fixed plan and the writer with the test's answer. The
 // world of the memory database, with made-up names in Greek and accented Latin:
 //   interface `fake`, root `g1` "Αγορά", room `c2` "κήπος"; interface `tele`, root `t1` "Νησί", room `k1` "λιμάνι"
@@ -50,11 +50,11 @@ export const TEXT = {
 /** The plan the planner answers. */
 export const PLAN = { kind: 'status', brief: 'ΗΣΥΧΟ-ΒΡΑΔΥ-ΣΤΟ-ΛΙΜΑΝΙ', search: '', picture: false } as const;
 
-/** A mirror of her selfreflection: a group conversation of an interface. */
-export type MirrorSpec = { iface: string; conversationId: string; name: string };
+/** A mirror of her selfreflection: a group chat of an interface. */
+export type MirrorSpec = { iface: string; chatId: string; name: string };
 
-export const JOURNAL: MirrorSpec = { iface: 'fake', conversationId: 'd1', name: 'ημερολόγιο' };
-export const PAGES: MirrorSpec = { iface: 'tele', conversationId: 'k9', name: 'σελίδες' };
+export const JOURNAL: MirrorSpec = { iface: 'fake', chatId: 'd1', name: 'ημερολόγιο' };
+export const PAGES: MirrorSpec = { iface: 'tele', chatId: 'k9', name: 'σελίδες' };
 
 /** The gist of stored entry `index`: `ΣΕΛΙΔΑ-007` for 7, so no gist is a part of another. */
 export const gistOf = (index: number): string => `ΣΕΛΙΔΑ-${String(index).padStart(3, '0')}`;
@@ -167,7 +167,7 @@ function frameHot(spec: FrameTurnSpec): { config: Record<string, unknown>; promp
   };
 }
 
-/** One selfreflection turn with `conversation: null` over the world above, the given mirrors and entries. */
+/** One selfreflection turn with `chat: null` over the world above, the given mirrors and entries. */
 export async function frameTurn(spec: FrameTurnSpec = {}): Promise<FrameTurnRun> {
   freshWorld();
   let memory = spec.memory;
@@ -183,7 +183,7 @@ export async function frameTurn(spec: FrameTurnSpec = {}): Promise<FrameTurnRun>
   addLine(dbOf(memoryDb), {
     id: 'mirror-only',
     iface: first.iface,
-    place: `${first.iface}:channel:${first.conversationId}`,
+    place: `${first.iface}:channel:${first.chatId}`,
     author: 'self',
     text: TEXT.mirrorOnly,
     at: iso(FRAME_NOW - 3 * DAY),
@@ -219,7 +219,7 @@ export async function frameTurn(spec: FrameTurnSpec = {}): Promise<FrameTurnRun>
       memoryDb.issueContext({ iface: 'fake', ...given, newId: () => `ctx:selfreflection:${(contexts += 1)}` }),
   });
   const { result } = await withCapturedLogs(() =>
-    turns.runTurn({ conversation: null, mode: 'selfreflection', selfreflection: { kind: 'status', forced: true } })
+    turns.runTurn({ chat: null, mode: 'selfreflection', selfreflection: { kind: 'status', forced: true } })
   );
   await store.flushSettled({});
   return { result, writer, planner, port: world().port };

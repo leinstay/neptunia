@@ -1,6 +1,6 @@
 // The core over the fake interface and nothing else: `startCore` (src/core.ts) with the fake interface of
 // src/interface/fake-interface.ts started without a `legacy` object, a scripted model and temporary data and private
-// folders. A test seeds the fake's conversations and messages through `seed`, emits whole `message.received` events
+// folders. A test seeds the fake's chats and messages through `seed`, emits whole `message.received` events
 // the way an interface delivers them, and reads what the persona posted, what the model was asked and which reads
 // reached the fake (`fake.calls`). No Discord object exists anywhere in it.
 import { dbOf } from '../../src/memory/db/types.ts';
@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { startCore } from '../../src/core.ts';
 import { start } from '../../src/interface/fake-interface.ts';
 import { openMemoryDb } from '../../src/memory/db/open.ts';
-import type { ConversationInfo, MessageEvent } from '../../src/protocol/adapter.ts';
+import type { ChatInfo, MessageEvent } from '../../src/protocol/adapter.ts';
 import { withCapturedLogs } from './capture-logs.ts';
 
 type Running = Awaited<ReturnType<typeof start>>;
@@ -22,7 +22,7 @@ type Settings = Record<string, unknown>;
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 export const SELF = { id: 'self-id', name: 'Nova' };
-export const COMMUNITY = { id: 'g1', name: 'Alpha' };
+export const ROOT = { id: 'g1', name: 'Alpha' };
 export const ANSWER = 'γεια σου, καλημέρα';
 
 /** The private layer of every rig: the settle wait and typing off. PR 7d: the `features` switches are code or gone with
@@ -33,7 +33,7 @@ const BASE_CONFIG: Settings = {
   models: { base: { video: false } },
   pace: { settleMs: 0, settleMaxMs: 0 },
   typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },
-  // The GIF backfill reads every conversation's history at start; a rig counts the reads a turn makes, so it reads none.
+  // The GIF backfill reads every chat's history at start; a rig counts the reads a turn makes, so it reads none.
   gifs: { backfillMessages: 0 },
 };
 
@@ -67,8 +67,8 @@ export type CoreRig = {
   requests: Array<unknown>;
   /** Emits an event over the link and resolves with the core's ack status. */
   emit(event: unknown): Promise<string>;
-  /** What the persona posted in a conversation, in order. */
-  posted(conversationId: string): Array<string>;
+  /** What the persona posted in a chat, in order. */
+  posted(chatId: string): Array<string>;
   /** The text of request `index`, as one string. */
   requestText(index: number): string;
   /** The rows of the memory database's `sources` table of one kind, read through a second read-only connection. */
@@ -118,7 +118,7 @@ export async function withFakeCore<T>(
           start: async (host) => {
             running = await start(host, {
               self: SELF,
-              community: COMMUNITY,
+              root: ROOT,
               ...(options.reads === undefined ? {} : { reads: options.reads }),
             });
             return running;
@@ -136,9 +136,9 @@ export async function withFakeCore<T>(
       fake: live.adapter,
       requests,
       emit: (event) => live.emit(event),
-      posted: (conversationId) =>
+      posted: (chatId) =>
         live.adapter
-          .messagesIn(conversationId)
+          .messagesIn(chatId)
           .filter((message) => message.authorId === SELF.id)
           .map((message) => message.text),
       requestText: (index) => JSON.stringify(requests[index]),
@@ -166,11 +166,11 @@ export async function withFakeCore<T>(
 }
 
 /** A server channel as the fake reports it: readable, writable, public, quiet. */
-export function channelInfo(id: string, extra: Partial<ConversationInfo> = {}): ConversationInfo {
+export function channelInfo(id: string, extra: Partial<ChatInfo> = {}): ChatInfo {
   return {
     id,
     kind: 'channel',
-    rootId: COMMUNITY.id,
+    rootId: ROOT.id,
     name: `room-${id}`,
     topic: null,
     iface: 'fake',
@@ -194,7 +194,7 @@ export function channelInfo(id: string, extra: Partial<ConversationInfo> = {}): 
 
 export type LineOptions = {
   id: string;
-  conversationId?: string;
+  chatId?: string;
   text: string;
   at: number;
   authorId?: string;
@@ -214,11 +214,11 @@ export function lineEvent(options: LineOptions): MessageEvent {
     iface: 'fake',
     at: options.at,
     id: `fake:message:${options.id}`,
-    conversation: {
-      id: options.conversationId ?? 'c1',
+    chat: {
+      id: options.chatId ?? 'c1',
       kind: 'channel',
-      rootId: COMMUNITY.id,
-      name: `room-${options.conversationId ?? 'c1'}`,
+      rootId: ROOT.id,
+      name: `room-${options.chatId ?? 'c1'}`,
     },
     message: {
       id: options.id,
@@ -241,7 +241,7 @@ export function lineEvent(options: LineOptions): MessageEvent {
       mentioned: options.mention === true,
       replyToSelf: false,
       mentionedAccountIds: options.mention === true ? [SELF.id] : [],
-      mentionedConversationIds: [],
+      mentionedChatIds: [],
     },
   };
 }

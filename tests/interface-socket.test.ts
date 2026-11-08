@@ -26,7 +26,7 @@ const sendWith = (text: string, bytes: Uint8Array = new Uint8Array(0)): Env =>
     'action',
     {
       action: 'message.send',
-      conversation: { iface: 'test', conversationId: 'c1' },
+      chat: { iface: 'test', chatId: 'c1' },
       content: { text, attachments: [{ name: 'f.bin', data: bytes }] },
     },
     { id: 'a1' }

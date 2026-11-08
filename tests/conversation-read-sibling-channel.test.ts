@@ -11,7 +11,7 @@ import { startCore } from '../src/core.ts';
 import type { Llm } from '../src/llm/openrouter.ts';
 import { start } from '../src/interface/fake-interface.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
-import { COMMUNITY, SELF, channelInfo, lineEvent, settle, until } from './fixtures/core-over-fake.ts';
+import { ROOT, SELF, channelInfo, lineEvent, settle, until } from './fixtures/core-over-fake.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
@@ -84,7 +84,7 @@ test('a group turn reads a line stored in another channel of the same server', a
         interfaces: [
           {
             name: 'fake',
-            start: async (host) => (live = await start(host, { self: SELF, community: COMMUNITY })),
+            start: async (host) => (live = await start(host, { self: SELF, root: ROOT })),
           },
         ],
         llm,
@@ -93,14 +93,14 @@ test('a group turn reads a line stored in another channel of the same server', a
       try {
         if (live === null) throw new Error('the core never started the fake interface');
         const fake = live;
-        fake.adapter.seedConversation(channelInfo('c1'));
-        fake.adapter.seedConversation(channelInfo('c2'));
-        await fake.emit(lineEvent({ id: 'b0', conversationId: 'c2', text: STORED, at: Date.now() }));
+        fake.adapter.seedChat(channelInfo('c1'));
+        fake.adapter.seedChat(channelInfo('c2'));
+        await fake.emit(lineEvent({ id: 'b0', chatId: 'c2', text: STORED, at: Date.now() }));
         await settle(200);
         await fake.emit(
           lineEvent({
             id: 'a1',
-            conversationId: 'c1',
+            chatId: 'c1',
             text: 'Nova, where is the red book?',
             at: Date.now(),
             mention: true,

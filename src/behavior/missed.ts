@@ -36,7 +36,7 @@ import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
 import type { StorageKey } from '../memory/db/storage-keys.ts';
 import { PERSONA_ID, placeOrPersona } from '../memory/db/storage-keys.ts';
-import { placeOfConversation, sharedPlaceOf } from '../memory/addresses.ts';
+import { placeOfChat, sharedPlaceOf } from '../memory/addresses.ts';
 
 import { createReadSeam, unitValue } from '../memory/db/readers/common.ts';
 import { formatTranscript, MAX_MESSAGE_CHARS, renderTranscript, withTriggers } from '../format.ts';
@@ -51,7 +51,7 @@ import { CODE } from '../tools/codes.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../time.ts';
 import { objOf } from '../tools/types.ts';
 import type { TurnEnd } from '../turn/outcome.ts';
-import type { ConversationInfo } from '../protocol/adapter.ts';
+import type { ChatInfo } from '../protocol/adapter.ts';
 import type { Untyped } from '../tools/types.ts';
 import type {
   AddCandidateArg2,
@@ -596,7 +596,7 @@ export function buildCheckRequest({
   };
 }
 
-/** One armed sweep of a conversation. */
+/** One armed sweep of a chat. */
 type SweepEntry = {
   firstAt: number;
   lastAt: number;
@@ -642,20 +642,20 @@ const byInterface = (list: Array<Candidate>, iface: unknown): [Array<Candidate>,
 const rootOf = (store: unknown, placeId: string): string =>
   (store as { rootPlaceOf?: (id: string) => string | null }).rootPlaceOf?.(placeId) ?? placeId;
 /**
- * The place a conversation's candidates belong to: its own, a DM's by its partner. With `top` the top of its tree, where
+ * The place a chat's candidates belong to: its own, a DM's by its partner. With `top` the top of its tree, where
  * the journal lives.
  */
 function placeOwner(
   store: unknown,
   partner: string | null,
-  conversationId: string,
+  chatId: string,
   iface: string | undefined,
   top: boolean
 ): string {
-  const conversation = partner ? { id: conversationId, kind: 'dm', partnerId: partner } : { id: conversationId };
-  return top && !partner ? sharedPlaceOf(store, conversation, iface) : placeOfConversation(store, conversation, iface);
+  const chat = partner ? { id: chatId, kind: 'dm', partnerId: partner } : { id: chatId };
+  return top && !partner ? sharedPlaceOf(store, chat, iface) : placeOfChat(store, chat, iface);
 }
-/** One conversation's key: two interfaces may share a native id. */
+/** One chat's key: two interfaces may share a native id. */
 const spotOf = (iface: string, placeId: string): string => JSON.stringify([iface, placeId]);
 /** The interface and native id of a key from spotOf. */
 const placeOfSpot = (spot: string): { iface: string; placeId: string } => {
@@ -665,7 +665,7 @@ const placeOfSpot = (spot: string): { iface: string; placeId: string } => {
 const registryOwner = (placeId: string): string => `places/${placeId}/missed.json`;
 const registryFile = (dataDir: string, placeId: string): string => path.join(dataDir, registryOwner(placeId));
 
-/** A registry: its candidates and the last recovery per conversation (spotOf). */
+/** A registry: its candidates and the last recovery per chat (spotOf). */
 type Registry = { candidates: Array<Candidate>; lastRecoveryAt: Record<string, number> };
 
 /** The candidate registry's existing JSON shape, independent of its persistence backend. */
@@ -799,7 +799,7 @@ export function createMissed({
   llm = null,
   turns,
   reads,
-  partnerOf: partnerOfConversation = () => null,
+  partnerOf: partnerOfChat = () => null,
   getSelfName = () => 'bot',
   dataDir,
   memoryDb,
@@ -835,12 +835,12 @@ export function createMissed({
 
   /** The person a private chat belongs to, null for a server channel (or one not known). */
   function partnerOf(placeId: string) {
-    const id = partnerOfConversation(String(placeId));
+    const id = partnerOfChat(String(placeId));
     return typeof id === 'string' && id ? id : null;
   }
 
-  const ownerOf = (iface: string | undefined, conversationId: string, top = false): string =>
-    placeOwner(store, partnerOf(conversationId), conversationId, iface, top);
+  const ownerOf = (iface: string | undefined, chatId: string, top = false): string =>
+    placeOwner(store, partnerOf(chatId), chatId, iface, top);
 
   /** One `answer` record (features.journal on), in the journal of the top of its place, a DM's its own; never throws. */
   function record(fields: Untyped) {
@@ -897,7 +897,7 @@ export function createMissed({
 
   /**
    * At start, once per place that holds a registry: its registry added to the ones already started, reconciled with
-   * its journal of the last hour (features.journal on), pruned and written; a sweep armed in every conversation with a
+   * its journal of the last hour (features.journal on), pruned and written; a sweep armed in every chat with a
    * pending candidate. A place never seen before starts empty.
    */
   async function start(placeId: string) {
@@ -920,7 +920,7 @@ export function createMissed({
       if (candidate.state === 'pending') arm(String(candidate.iface), candidate.placeId);
   }
 
-  /** (Re)schedule a conversation's sweep at sweepDueAt, never before its `notBefore` (a held recovery). */
+  /** (Re)schedule a chat's sweep at sweepDueAt, never before its `notBefore` (a held recovery). */
   function schedule(entry: SweepEntry) {
     if (entry.timer) timers.clear(entry.timer);
     const due = Math.max(entry.notBefore ?? 0, sweepDueAt(entry, missedSettings(hot.config)));
@@ -933,7 +933,7 @@ export function createMissed({
     }, wait);
   }
 
-  /** A candidate event in a conversation: its sweep armed, or pushed back. */
+  /** A candidate event in a chat: its sweep armed, or pushed back. */
   function arm(iface: string, placeId: string, at = now()) {
     const entry = sweeps.get(spotOf(iface, placeId));
     if (entry) {
@@ -946,7 +946,7 @@ export function createMissed({
     schedule(fresh);
   }
 
-  /** A message in a conversation: an armed sweep waits for the talk to settle (never past its cap). */
+  /** A message in a chat: an armed sweep waits for the talk to settle (never past its cap). */
   function noteActivity(placeId: string, at = now(), iface = '') {
     const entry = sweeps.get(spotOf(iface, placeId));
     if (!entry) return;
@@ -1043,13 +1043,13 @@ export function createMissed({
    */
   function onTurnEnd(end: TurnEnd) {
     try {
-      if (!enabled() || !end || !end.conversationId) return;
+      if (!enabled() || !end || !end.chatId) return;
       const trigger = end.trigger ?? null;
       const turnId = typeof end.turnId === 'string' ? end.turnId : null;
       // A turn resolves the candidates of its own interface; two interfaces may share a native id.
       const [mine, others] = byInterface(candidates, end.iface);
       const result = resolveByTurn(mine, {
-        placeId: end.conversationId,
+        placeId: end.chatId,
         triggerId: trigger?.id ?? null,
         triggerAuthorId: trigger?.authorId ?? null,
         triggerAt: trigger?.ts ?? null,
@@ -1072,7 +1072,7 @@ export function createMissed({
       if (reason)
         noteFact({
           reason,
-          message: { ...trigger, placeId: trigger.placeId ?? end.conversationId },
+          message: { ...trigger, placeId: trigger.placeId ?? end.chatId },
           turnId: end.turnId ?? null,
           failure,
           iface: end.iface,
@@ -1124,9 +1124,9 @@ export function createMissed({
     return result.changed;
   }
 
-  /** The conversation `placeId` as the interface describes it now (permissions and all), or null when it does not. */
+  /** The chat `placeId` as the interface describes it now (permissions and all), or null when it does not. */
   async function channelOf(iface: string, placeId: string) {
-    return (await reads.conversationInfo({ iface, conversationId: String(placeId) }))?.conversation ?? null;
+    return (await reads.chatInfo({ iface, chatId: String(placeId) }))?.chat ?? null;
   }
 
   /** The analyzer's verdicts for `list` (one call), each `unchecked` when it fails. */
@@ -1206,7 +1206,7 @@ export function createMissed({
         try {
           history = await historyLines(
             reads,
-            { iface: channel.iface, conversationId: channel.id },
+            { iface: channel.iface, chatId: channel.id },
             { limit: Math.max(1, Math.floor(settings.contextMessages)) }
           );
         } catch (error) {
@@ -1269,7 +1269,7 @@ export function createMissed({
    * (`stillDue`). After it: `resolved` when it spoke or chose silence, else `dismissed` -- one
    * attempt per candidate.
    */
-  async function recover(channel: ConversationInfo, owed: Array<Candidate>, history: Array<MissedLine>) {
+  async function recover(channel: ChatInfo, owed: Array<Candidate>, history: Array<MissedLine>) {
     const placeId = channel.id;
     const spot = spotOf(channel.iface, placeId);
     const config = hot.config;
@@ -1299,9 +1299,9 @@ export function createMissed({
     const trigger = byId.get(shown[0].messageId);
     const ids = shown.map((candidate) => candidate.messageId);
     // A private chat is recovered only where the private-chat gate lets the person through (their daily cap counts the turn).
-    const isPrivate = channel.rootId === null;
+    const isDm = channel.rootId === null;
     if (
-      isPrivate &&
+      isDm &&
       !(
         typeof privateRecovery?.allow === 'function' &&
         (await privateRecovery.allow(channel, trigger).catch(() => false))
@@ -1339,7 +1339,7 @@ export function createMissed({
     let result;
     try {
       result = await turns.runTurn({
-        conversation: { iface: channel.iface, conversationId: channel.id },
+        chat: { iface: channel.iface, chatId: channel.id },
         mode: 'reply',
         trigger,
         triggerKind: 'missed',
@@ -1366,7 +1366,7 @@ export function createMissed({
       return;
     }
     finishRecovery(placeId, shown, result ?? { outcome }, trigger.id);
-    if (isPrivate)
+    if (isDm)
       await Promise.resolve(privateRecovery.after?.(channel, trigger, result ?? { outcome })).catch((error) =>
         log.warn('missed: private recovery count failed', { error })
       );

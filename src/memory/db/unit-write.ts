@@ -209,7 +209,7 @@ function recordLocator(hint: Row, line: Row): MessageLocator {
     !scope ||
     typeof scope !== 'object' ||
     !('channel' in scope) ||
-    scope.channel !== locator.conversationId
+    scope.channel !== locator.chatId
   )
     throw familyError('BAD_PLACE');
   return locator;
@@ -224,11 +224,8 @@ function saidReference(db: Db, unit: Unit, update: Row, line: Row): { hint: Row;
   // A write by a legacy owner is the importer's: it keeps the keys of the rows it brings.
   if (!update.key || line.kind !== 'said' || line.v !== 1 || !hasMessageFamilies(db)) return undefined;
   const iface = (unit.key ? storageContext(db, unit.key).iface : null) ?? ifaceOf(update);
-  const conversationId = (line.scope as { channel?: unknown } | undefined)?.channel;
-  const locator = messageLocator(
-    { v: 1, origin: 'record-v1', iface, conversationId, messageId: line.messageId },
-    iface
-  );
+  const chatId = (line.scope as { channel?: unknown } | undefined)?.channel;
+  const locator = messageLocator({ v: 1, origin: 'record-v1', iface, chatId, messageId: line.messageId }, iface);
   return locator ? { hint: {}, locator } : undefined;
 }
 
@@ -309,7 +306,7 @@ function recordReply(db: Db, source: Row, line: Row, identity: ResolvedRecordIde
   const extra = parseExtra(source.extra);
   const locator = messageLocator(extra.$messageLocator, source.iface);
   if (!locator) throw familyError('BAD_NATIVE');
-  const reply = { iface: locator.iface, conversationId: locator.conversationId, messageId: line.replyTo };
+  const reply = { iface: locator.iface, chatId: locator.chatId, messageId: line.replyTo };
   const parent = resolveMessageFamily(db, { locator: reply, authority: identity.authority });
   source.reply_to = parent.native_key;
   source.extra = JSON.stringify({ ...extra, $messageReply: reply });
@@ -706,7 +703,7 @@ function project(handle: MemoryHandle, update: Row, at: string): { units: number
   return out;
 }
 
-/** Numeric clocks from historical communities share their latest recorded bounds. */
+/** Numeric clocks from historical roots share their latest recorded bounds. */
 function mergeClock(previous: unknown, incoming: unknown): Row | null {
   if (!previous && !incoming) return null;
   const left = previous && typeof previous === 'object' ? (previous as Row) : {};
@@ -719,7 +716,7 @@ function mergeClock(previous: unknown, incoming: unknown): Row | null {
   return out;
 }
 
-/** Preserve review snapshots by community while sharing the latest day's draw and completion. */
+/** Preserve review snapshots by root while sharing the latest day's draw and completion. */
 function mergeReview(value: Row, source: Row, scope: string): void {
   const incoming = source.review as Row | null;
   if (!incoming || typeof incoming.day !== 'string') return;
@@ -733,7 +730,7 @@ function mergeReview(value: Row, source: Row, scope: string): void {
   }
 }
 
-/** Historical evidence keeps its original community when the persona state is consolidated. */
+/** Historical evidence keeps its original root when the persona state is consolidated. */
 function mergeInner(value: Row, source: Row, scope: string): void {
   if (source.stopped === true)
     Object.assign(value, { stopped: true, stoppedAt: source.stoppedAt, stoppedBy: source.stoppedBy });
@@ -754,7 +751,7 @@ function mergeInner(value: Row, source: Row, scope: string): void {
   mergeReview(value, source, scope);
 }
 
-/** Consolidate historical community state once through the same writer that persists the persona's state. */
+/** Consolidate historical root state once through the same writer that persists the persona's state. */
 export function consolidateInnerState(handle: MemoryHandle, { now }: { now: number }): { consolidated: number } {
   return handle.transaction(() => {
     const db = dbOf(handle);

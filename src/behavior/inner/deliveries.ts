@@ -1,6 +1,6 @@
 // Live wake turns hold sends until their fenced completion commits, then send them through the guarded port.
 // Startup retires queued deliveries and reconciles sending deliveries without sending again. Confirmed posts keep
-// their originating wake community and native conversation in the record. Live send failures create feedback;
+// their originating wake root and native chat in the record. Live send failures create feedback;
 // startup recovery creates no action. Logs carry counts and codes.
 
 import { reconcileUnknown } from '../../interface/reconcile.ts';
@@ -8,7 +8,7 @@ import { withIface } from '../../memory/db/current-iface.ts';
 import { toRecordLine } from '../../memory/record.ts';
 import { wakeOf, deliveriesIn, deliveryFiles, deliveryOf } from '../../memory/db/wake-queue.ts';
 import type { Delivery, DeliveryInput, DeliveryState } from '../../memory/db/wake-queue.ts';
-import type { Delivery as Sent, ConversationRef } from '../../protocol/adapter.ts';
+import type { Delivery as Sent, ChatRef } from '../../protocol/adapter.ts';
 import type { Content } from '../../protocol/actions.ts';
 import { isPublicationBoundary, publicationRefusal, refusedPublication } from '../../tools/publication.ts';
 import { createSendHold } from '../../tools/send-hold.ts';
@@ -27,20 +27,20 @@ export function holdFor(life: InnerContext, shadow: boolean): SendHold | null {
 export type DeliveryTurn = { turnId: string; chainId: string };
 
 /**
- * The deliveries of a turn's held sends as the completion records them: the conversation, the content, the files, and
+ * The deliveries of a turn's held sends as the completion records them: the chat, the content, the files, and
  * what the turn noted (the skill, her said line) with the turn's id and chain.
  */
 export function deliveriesOf(hold: SendHold | null | undefined, turn: DeliveryTurn): Array<DeliveryInput> {
-  return (hold?.sends ?? []).map(({ key, conversation, content, note, publicationBoundary }) => ({
+  return (hold?.sends ?? []).map(({ key, chat, content, note, publicationBoundary }) => ({
     key,
-    target: conversation.conversationId,
+    target: chat.chatId,
     payload: {
-      conversation: { iface: conversation.iface, conversationId: conversation.conversationId },
+      chat: { iface: chat.iface, chatId: chat.chatId },
       content: { text: content.text ?? '', replyTo: content.replyTo ?? null, mentions: content.mentions ?? null },
       ...turn,
       ...(publicationBoundary ? { publicationBoundary } : {}),
       skill: note?.skill ?? null,
-      privateChat: note?.privateChat === true,
+      dmChat: note?.dmChat === true,
       said: note?.said ?? null,
     },
     files: content.attachments ?? [],
@@ -56,7 +56,7 @@ function notedOf(delivery: Delivery): Noted {
   const text = (value: unknown): string | null => (typeof value === 'string' && value ? value : null);
   return {
     skill: text(payload.skill),
-    privateChat: payload.privateChat === true,
+    dmChat: payload.dmChat === true,
     turnId: text(payload.turnId) ?? undefined,
     chainId: text(payload.chainId) ?? undefined,
     said:
@@ -71,11 +71,11 @@ function notedOf(delivery: Delivery): Noted {
   };
 }
 
-/** The conversation a delivery goes to, or null when its payload names none. */
-function conversationOf(delivery: Delivery): ConversationRef | null {
-  const given = objOf(objOf(delivery.payload).conversation);
-  return typeof given.iface === 'string' && typeof given.conversationId === 'string'
-    ? { iface: given.iface, conversationId: given.conversationId }
+/** The chat a delivery goes to, or null when its payload names none. */
+function chatOf(delivery: Delivery): ChatRef | null {
+  const given = objOf(objOf(delivery.payload).chat);
+  return typeof given.iface === 'string' && typeof given.chatId === 'string'
+    ? { iface: given.iface, chatId: given.chatId }
     : null;
 }
 
@@ -124,17 +124,17 @@ const settledState = (answer: Sent): DeliveryState =>
   answer.status === 'ok' ? 'sent' : answer.status === 'unknown' ? 'unknown' : 'failed';
 
 /**
- * The partner of the conversation a delivery goes to, as the interface describes it now; null for a community's and for
+ * The partner of the chat a delivery goes to, as the interface describes it now; null for a root's and for
  * one it cannot describe. Without a partner a line of a DM stays sealed (persona-sources.ts), never filed as a group's.
  */
 export async function partnerOfDelivery(
   life: Pick<InnerContext, 'reads' | 'log'>,
-  conversation: ConversationRef | null
+  chat: ChatRef | null
 ): Promise<string | null> {
-  if (!conversation || typeof life.reads?.conversationInfo !== 'function') return null;
+  if (!chat || typeof life.reads?.chatInfo !== 'function') return null;
   try {
-    const found = await life.reads.conversationInfo(conversation);
-    const info = found?.conversation;
+    const found = await life.reads.chatInfo(chat);
+    const info = found?.chat;
     return info && info.rootId === null && typeof info.partnerId === 'string' && info.partnerId ? info.partnerId : null;
   } catch (err) {
     life.log.warn('inner: delivery partner not read', { code: errorCode(err) });
@@ -198,7 +198,7 @@ function postOp(life: InnerContext, delivery: Delivery, partner: string | null):
 }
 
 /**
- * A send that did not go out, told to her: a `callFailed` fact in its conversation, and one `feedback` wake there
+ * A send that did not go out, told to her: a `callFailed` fact in its chat, and one `feedback` wake there
  * (`inner.wake:feedback:delivery:<key>`) so her next turn carries it with the facts it is shown.
  */
 async function tellFailed(life: InnerContext, delivery: Delivery, answer: Sent): Promise<void> {
@@ -212,7 +212,7 @@ async function tellFailed(life: InnerContext, delivery: Delivery, answer: Sent):
     status: answer.status === 'unknown' ? 'unknown' : 'failed',
     code: answer.error?.code ?? answer.status,
     placeId: delivery.target,
-    privateChat: noted.privateChat,
+    dmChat: noted.dmChat,
   });
   save(life);
   await enqueue(life, {
@@ -223,7 +223,7 @@ async function tellFailed(life: InnerContext, delivery: Delivery, answer: Sent):
     chainId: noted.chainId ?? `delivery:${delivery.key}`,
     dueAt: at,
     placeId: delivery.target,
-    privateChat: noted.privateChat,
+    dmChat: noted.dmChat,
     here: delivery.target,
     turnId: noted.turnId ?? null,
     // The fact is one of those her turn there is shown, not one this wake owns: it has no fact of its own.
@@ -232,11 +232,11 @@ async function tellFailed(life: InnerContext, delivery: Delivery, answer: Sent):
   });
 }
 
-function deliveryPublicationRefused(payload: unknown, conversation: ConversationRef): boolean {
+function deliveryPublicationRefused(payload: unknown, chat: ChatRef): boolean {
   const value = objOf(payload);
   if (!Object.hasOwn(value, 'publicationBoundary')) return false;
   const boundary = value.publicationBoundary;
-  return !isPublicationBoundary(boundary) || publicationRefusal(boundary, conversation) !== null;
+  return !isPublicationBoundary(boundary) || publicationRefusal(boundary, chat) !== null;
 }
 
 /**
@@ -246,8 +246,8 @@ function deliveryPublicationRefused(payload: unknown, conversation: Conversation
  */
 async function sendOne(life: InnerContext, delivery: Delivery): Promise<void> {
   const { port, log } = life;
-  const conversation = conversationOf(delivery);
-  if (!port || !conversation || !mayAct(life)) return;
+  const chat = chatOf(delivery);
+  if (!port || !chat || !mayAct(life)) return;
   let content: Content;
   try {
     content = contentOf(life, delivery);
@@ -256,15 +256,15 @@ async function sendOne(life: InnerContext, delivery: Delivery): Promise<void> {
     return;
   }
   if (!(await move(life, delivery.key, ['queued'], 'sending'))) return;
-  const partner = await partnerOfDelivery(life, conversation);
+  const partner = await partnerOfDelivery(life, chat);
   const op = postOp(life, delivery, partner);
   if (op) await op.started();
   let answer: Sent;
   try {
-    const refused = deliveryPublicationRefused(delivery.payload, conversation);
+    const refused = deliveryPublicationRefused(delivery.payload, chat);
     answer = refused
       ? refusedPublication(delivery.key)
-      : await port.send(conversation, content, { idempotencyKey: delivery.key });
+      : await port.send(chat, content, { idempotencyKey: delivery.key });
   } catch (err) {
     // A throw after the call may have reached the interface: its outcome is not known.
     answer = { status: 'unknown', ref: null, parts: [], at: null, idempotencyKey: delivery.key, error: null };
@@ -291,11 +291,11 @@ export async function sendDeliveries(life: InnerContext, keys: ReadonlyArray<str
   for (const key of keys) {
     const read = backendOf(life).read();
     const delivery = read ? deliveryOf(read, key) : null;
-    if (delivery?.state === 'queued') await withIface(conversationOf(delivery)?.iface, () => sendOne(life, delivery));
+    if (delivery?.state === 'queued') await withIface(chatOf(delivery)?.iface, () => sendOne(life, delivery));
   }
 }
 
-/** An interrupted send told to her: a fact her next turn in that conversation shows. It wakes nothing and sends nothing. */
+/** An interrupted send told to her: a fact her next turn in that chat shows. It wakes nothing and sends nothing. */
 function tellInterrupted(life: InnerContext, delivery: Delivery, status: 'failed' | 'unknown'): void {
   const noted = notedOf(delivery);
   const state = stateOf(life);
@@ -306,7 +306,7 @@ function tellInterrupted(life: InnerContext, delivery: Delivery, status: 'failed
     status,
     code: 'interrupted',
     placeId: delivery.target,
-    privateChat: noted.privateChat,
+    dmChat: noted.dmChat,
   });
   save(life);
 }
@@ -318,12 +318,10 @@ export async function resumeDeliveries(life: InnerContext): Promise<void> {
   if (!read) return;
   const lost = deliveriesIn(read, 'sending');
   for (const delivery of lost) {
-    const conversation = conversationOf(delivery);
+    const chat = chatOf(delivery);
     await move(life, delivery.key, ['sending'], 'unknown', { code: 'not-reconcilable' });
     const found =
-      port && conversation
-        ? await reconcileUnknown(port, { conversation, idempotencyKey: delivery.key }).catch(() => null)
-        : null;
+      port && chat ? await reconcileUnknown(port, { chat, idempotencyKey: delivery.key }).catch(() => null) : null;
     const lostIn = wakeOf(read, delivery.wakeId);
     if (!found || found.status === 'unknown') {
       if (lostIn) tellInterrupted(life, delivery, 'unknown');
@@ -333,8 +331,8 @@ export async function resumeDeliveries(life: InnerContext): Promise<void> {
     await move(life, delivery.key, ['unknown'], to, to === 'failed' ? { code: 'not-sent' } : receiptOf(found));
     const parent = wakeOf(read, delivery.wakeId);
     if (to === 'sent' && parent) {
-      const partner = await partnerOfDelivery(life, conversation);
-      withIface(conversation?.iface, () =>
+      const partner = await partnerOfDelivery(life, chat);
+      withIface(chat?.iface, () =>
         recordSaid(life, delivery, { messageId: found.ref?.messageId ?? null, at: found.at, opId: null, partner })
       );
     }

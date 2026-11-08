@@ -1,17 +1,17 @@
 // The code-only memory of the live message path: every place message the persona sees moves the counters of its
 // author's profile and of its channel's map entry (`touchMemory`), feeds the GIF library, the custom emoji ranking
 // and the names members are called by (`recordAddressing`). No model is asked here: what she remembers of a
-// conversation is written by her memory session over the memory database (src/memory/db/session.ts), which reads
+// chat is written by her memory session over the memory database (src/memory/db/session.ts), which reads
 // the observed lines from the database. `slimMessage` is the one shape a normalized message is kept in by the
 // record (src/memory/record.ts#toRecordLine) and by the late-embed fold of src/behavior/pipeline.js.
 
-import { accountOf, placeOfConversation } from './addresses.ts';
+import { accountOf, placeOfChat } from './addresses.ts';
 import { log } from '../log.ts';
 import { DEFAULT_ADDRESS_HALF_LIFE_DAYS, addressCandidates, countAddressUses } from './addressed.ts';
 import { emojiUsageOpts } from './emoji-usage.ts';
 import { gifOpts } from './gifs.ts';
 import { recordLinks } from './record.ts';
-import { selfreflectionConversationIds } from './db/mirrors.ts';
+import { selfreflectionChatIds } from './db/mirrors.ts';
 import { MEMORY_LIMITS } from './text-limits.ts';
 import type { StoreView } from './store.ts';
 import { propOf } from './types.ts';
@@ -67,7 +67,7 @@ export function recordAddressing(
  *   callers are expected to have already dropped other bots' messages.
  * @param [memoryCfg]  The live `config.memory`, for the tally's settings
  *   (`channelWritersStored`, `channelWritersHalfLifeDays`); omitted -> the store's fallbacks.
- *   `selfreflectionChannelIds` (the caller adds the places of her selfreflection, src/memory/db/mirrors.ts#selfreflectionConversationIds) names
+ *   `selfreflectionChannelIds` (the caller adds the places of her selfreflection, src/memory/db/mirrors.ts#selfreflectionChatIds) names
  *   the channels where the persona's own messages count as a writer.
  */
 export function touchMemory(
@@ -87,7 +87,7 @@ export function touchMemory(
   const inSelfreflection = selfreflectionIds?.has(String(normalized.placeId)) === true;
   const writerId = !normalized.bot && (!normalized.self || inSelfreflection) ? normalized.authorId : null;
   store.touchChannel(
-    placeOfConversation(store, { id: normalized.placeId }),
+    placeOfChat(store, { id: normalized.placeId }),
     { name: normalized.channelName, topic: normalized.channelTopic },
     normalized.ts,
     writerId,
@@ -222,7 +222,7 @@ function buildMemoryUpdater({
     touchMemory(store, placeId, normalized, {
       ...hot.config.memory,
       ...MEMORY_LIMITS,
-      selfreflectionChannelIds: selfreflectionConversationIds(store),
+      selfreflectionChannelIds: selfreflectionChatIds(store),
     });
     // The GIF library (src/memory/gifs.ts) is fed here: it needs the GIF's URL, which no slim message keeps.
     const gifs = store.recordGifs(placeId, [normalized], gifOpts());

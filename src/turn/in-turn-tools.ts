@@ -11,7 +11,7 @@ import type { Snapshot } from '../behavior/snapshot.ts';
 import type { TurnRoutes } from '../behavior/turn-ability-route.ts';
 import type { Reads } from '../interface/reads.ts';
 import { collectReadableLinks } from '../media/classify.ts';
-import type { ConversationInfo, ConversationRef } from '../protocol/adapter.ts';
+import type { ChatInfo, ChatRef } from '../protocol/adapter.ts';
 import { CODE } from '../tools/codes.ts';
 import { isIssuedInternalContext } from '../memory/db/scope.ts';
 import type { Context } from '../memory/db/scope.ts';
@@ -35,7 +35,7 @@ import { searchHandles } from './calls.ts';
 import type { SearchRefs } from './calls.ts';
 import type { DrawGif } from './draw-gif.ts';
 import type { JournalNotes } from './journal-notes.ts';
-import { inCommunity } from './routing.ts';
+import { inRoot } from './routing.ts';
 import type { TriggerKind } from './triggers.ts';
 
 type CheckPullArgs = Parameters<typeof checkPull>[0];
@@ -71,8 +71,8 @@ export type InTurnToolsContext = {
   clock: () => number;
   ifaceReads: Reads;
   memberOf: (placeId: string, accountId: string) => { name?: string | null } | null;
-  conversationOf: (channel: { id: string }) => ConversationRef;
-  turnContextOf: (draft: InTurnDraft | null | undefined, channel: ConversationInfo) => unknown;
+  chatOf: (channel: { id: string }) => ChatRef;
+  turnContextOf: (draft: InTurnDraft | null | undefined, channel: ChatInfo) => unknown;
   /** The memory's reads of a place by its id, on any interface (src/memory/db/frame-reads.ts); null while closed. */
   placeReads?: Pick<FrameReads, 'placeReadable' | 'around'> | null;
   linkCalls: JournalNotes['linkCalls'];
@@ -95,7 +95,7 @@ function cachedMessage(
   messageId: string,
   refs: SearchRefs | undefined,
   history: ReadonlyArray<HistoryMessage>,
-  current: ConversationRef
+  current: ChatRef
 ): HistoryMessage | null {
   // Registered message payloads originate in the same history and quote readers.
   const payload = (value: unknown): HistoryMessage | null =>
@@ -109,25 +109,21 @@ function cachedMessage(
         ? entry.stored.native
         : {
             iface: current.iface,
-            conversationId: entry.placeId ?? current.conversationId,
+            chatId: entry.placeId ?? current.chatId,
             messageId: String(entry.id),
           };
-      if (
-        locator?.iface !== native.iface ||
-        locator.conversationId !== native.conversationId ||
-        locator.messageId !== native.messageId
-      )
+      if (locator?.iface !== native.iface || locator.chatId !== native.chatId || locator.messageId !== native.messageId)
         continue;
       const message = payload(entry.message);
       if (message) {
         const key = entry.stored
           ? JSON.stringify(['stored', entry.stored.sourceId])
-          : JSON.stringify(['native', locator.iface, locator.conversationId, locator.messageId]);
+          : JSON.stringify(['native', locator.iface, locator.chatId, locator.messageId]);
         matches.set(key, message);
       }
     }
     if (matches.size > 0) return matches.size === 1 ? [...matches.values()][0] : null;
-    if (current.iface !== native.iface || current.conversationId !== native.conversationId) return null;
+    if (current.iface !== native.iface || current.chatId !== native.chatId) return null;
     const found = history.filter((message) => String(message.id) === native.messageId);
     return found.length === 1 ? found[0] : null;
   }
@@ -136,7 +132,7 @@ function cachedMessage(
 }
 
 export type InTurnArgs = {
-  channel: ConversationInfo;
+  channel: ChatInfo;
   snapshot?: Snapshot | null;
   placeId: string;
   partner?: { id?: string | null } | null;
@@ -168,7 +164,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     clock,
     ifaceReads,
     memberOf,
-    conversationOf,
+    chatOf,
     turnContextOf,
     placeReads = null,
     linkCalls,
@@ -181,7 +177,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
    * -- `web.search` through the turn's `lookup`, `web.read` too (a `#N` message she names read as its first link in
    * `history`: an embedded one, else one written in its text), `media.look` through the turn's `describer` (a `#N`
    * message she names found in `history`; at most `media.look.maxPerTurn` second looks in the turn, read at each call),
-   * `memory.search` through its `recall` over the served community (`snapshot`; a private chat on its `partner`'s
+   * `memory.search` through its `recall` over the served root (`snapshot`; a private chat on its `partner`'s
    * behalf), the turn's `history` left out of the hits and her call marks on the quoted lines (linkCalls), and
    * `draw.create` through drawTool; `draw.create` and `media.look` go on the route of their model role
    * (src/behavior/turn-ability-route.ts#turnRoutes).
@@ -204,7 +200,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     let looks = 0;
     const where = { channel, placeId, trigger, triggerKind, selfName, draft, mode, plain };
     const messageOf = (messageId: string, call?: InTurnCall): HistoryMessage | null =>
-      cachedMessage(call?.messageRef, messageId, draft?.searchRefs, history ?? [], conversationOf(channel));
+      cachedMessage(call?.messageRef, messageId, draft?.searchRefs, history ?? [], chatOf(channel));
     return {
       'draw.create': (args) => routes.tool('drawing', (model) => drawTool(args, where, model)),
       // The attempt always hands its draft to a selfreflection post's tools.
@@ -258,13 +254,13 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           asker: trigger?.authorId ?? null,
           memoryContext: turnContextOf(draft, channel),
           resolvedAnchor: call?.memoryAnchor,
-          historyRef: conversationOf(channel),
+          historyRef: chatOf(channel),
           args,
           now: clock(),
           // The registry takes the quoted lines the search hands it, as the read's own handles.
           ...(draft ? { refs: searchHandles(draft) } : {}),
         }),
-      'conversation.read': (args) => readConversation({ args, channel, snapshot, placeId, partner, selfName, draft }),
+      'conversation.read': (args) => readChat({ args, channel, snapshot, placeId, partner, selfName, draft }),
     };
   }
 
@@ -285,7 +281,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     args: Obj;
     placeId: string;
     parts: NonNullable<ReturnType<typeof placeIdParts>>;
-    channel: ConversationInfo;
+    channel: ChatInfo;
     selfName: string;
     draft: InTurnDraft | null;
   }): Promise<{ status: string; code?: string; reason?: string; data?: { text: string } }> {
@@ -293,7 +289,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     if (!placeReads?.placeReadable || !context) return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const config = hot.config;
     const labels = hot.prompts?.labels ?? {};
-    const ref: ConversationRef = { iface: parts.iface, conversationId: parts.native };
+    const ref: ChatRef = { iface: parts.iface, chatId: parts.native };
     return runConversationRead({
       args: { ...args, placeId },
       labels,
@@ -333,9 +329,9 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
    * the span, rendered like the chat with each line's `#N` handle in the turn's registry
    * (searchHandles). Another channel passes the pull rail (checkPull: readable, the audience rule
    * toward this turn's channel, a private chat on its partner's behalf); this channel always does.
-   * `not_configured` without the community's snapshot or in a private chat without its partner. Never throws.
+   * `not_configured` without the root's snapshot or in a private chat without its partner. Never throws.
    */
-  async function readConversation({
+  async function readChat({
     args,
     channel,
     snapshot,
@@ -345,7 +341,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     draft,
   }: {
     args: Obj;
-    channel: ConversationInfo;
+    channel: ChatInfo;
     snapshot: Snapshot | null;
     placeId: string;
     partner: InTurnArgs['partner'];
@@ -353,13 +349,13 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     draft: InTurnDraft | null;
   }): Promise<{ status: string; code?: string; reason?: string; data?: { text: string } }> {
     const named = typeof args.placeId === 'string' ? placeIdParts(args.placeId) : null;
-    if (named && (!snapshot || named.iface !== conversationOf(channel).iface || !snapshot.get(named.native)))
+    if (named && (!snapshot || named.iface !== chatOf(channel).iface || !snapshot.get(named.native)))
       return readPlace({ args, placeId: String(args.placeId), parts: named, channel, selfName, draft });
     const asked = named ? { ...args, placeId: named.native } : args;
-    if (!snapshot || (!inCommunity(channel) && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
+    if (!snapshot || (!inRoot(channel) && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const config = hot.config;
     const labels = hot.prompts?.labels ?? {};
-    const channelOf = (id: string): ConversationInfo | null =>
+    const channelOf = (id: string): ChatInfo | null =>
       String(id) === String(channel.id) ? channel : (snapshot.get(String(id)) ?? null);
     const profiles = typeof store.listUserProfiles === 'function' ? (store.listUserProfiles() ?? []) : [];
     const stored = new Map(profiles.filter((p) => p?.id).map((p) => [String(p?.id), p]));
@@ -376,8 +372,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       placeId: String(channel.id),
       channelNameOf: (id) => channelOf(id)?.name ?? null,
       allowed: (id) => {
-        if (String(id) === String(channel.id) && inCommunity(channel)) return true;
-        // The owner's authenticated command line reads every stored conversation; its publication stays restricted.
+        if (String(id) === String(channel.id) && inRoot(channel)) return true;
+        // The owner's authenticated command line reads every stored chat; its publication stays restricted.
         if (isIssuedInternalContext(draft?.memoryContext)) return true;
         try {
           return (
@@ -394,10 +390,10 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           return false;
         }
       },
-      readRecord: ({ placeId: conversationId, from }) =>
-        // Every conversation the pull rail lets her read sits in the turn's tree, whose record is under its top.
+      readRecord: ({ placeId: chatId, from }) =>
+        // Every chat the pull rail lets her read sits in the turn's tree, whose record is under its top.
         recordMessages(record, placeId, {
-          placeId: conversationId,
+          placeId: chatId,
           from,
           nameOf,
           selfName,
@@ -405,11 +401,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       fetchLive: (request) => {
         const source = channelOf(request.placeId);
         // fetchSpan takes the request as it comes, its anchor included.
-        return fetchSpan(
-          ifaceReads,
-          source ? conversationOf(source) : null,
-          request as Parameters<typeof fetchSpan>[2]
-        );
+        return fetchSpan(ifaceReads, source ? chatOf(source) : null, request as Parameters<typeof fetchSpan>[2]);
       },
       render: (slice: ReadonlyArray<ReadMessage>) => {
         let descriptions: unknown;

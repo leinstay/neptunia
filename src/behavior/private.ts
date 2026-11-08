@@ -1,6 +1,6 @@
-// Pure logic for private chat (direct messages, `private.enabled`): who
+// Pure logic for private chat (direct messages, `dm.enabled`): who
 // may talk to the persona in private, and how the public profile and the
-// per-member private layer combine for that one conversation. The gate is
+// per-member private layer combine for that one chat. The gate is
 // checked locally with zero tokens; anything it refuses is dropped by the
 // caller (src/behavior/pipeline.ts). The private
 // layer never changes the public profile: `mergeProfiles` builds a NEW
@@ -34,7 +34,7 @@ function maxIso(a: Untyped, b: Untyped) {
 
 /**
  * Whether a DM from this author is answered. Checked in order: the switch
- * (`private.enabled === true`), membership in the served place, a stored
+ * (`dm.enabled === true`), membership in the served place, a stored
  * public profile, and the public `affinity.score >= private.minAffinity`
  * (owners skip this one check). A missing `private.minAffinity` fails closed
  * (no threshold passes).
@@ -51,7 +51,7 @@ export function privateGate({
   isOwner: boolean;
 }): { ok: true } | { ok: false; reason: 'off' | 'not-member' | 'unknown' | 'affinity' } {
   const settings = config?.private ?? {};
-  if (settings.enabled !== true) return { ok: false, reason: 'off' };
+  if (config?.dm?.enabled !== true) return { ok: false, reason: 'off' };
   if (!isMember) return { ok: false, reason: 'not-member' };
   if (!profile) return { ok: false, reason: 'unknown' };
   if (!isOwner) {

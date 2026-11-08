@@ -3,9 +3,9 @@
 // and what of the window the journal names as seen. The request phase (src/turn/phases/request.ts) runs it last. Beside
 // it, the selfreflection planner's request on the same frame (`plannerRequest`), which the setup step hands the plan.
 
-import { accountOf, personOfMember, placeOfConversation } from '../../../memory/addresses.ts';
+import { accountOf, personOfMember, placeOfChat } from '../../../memory/addresses.ts';
 import { buildRequest } from '../../../behavior/prompt.ts';
-import { NO_PLACES, selfreflectionConversationIds, publicationPlaces, readMirrors } from '../../../behavior/mirror.ts';
+import { NO_PLACES, selfreflectionChatIds, publicationPlaces, readMirrors } from '../../../behavior/mirror.ts';
 import { turnRequestInput } from '../../../behavior/turn-input.ts';
 import { awakeLines, feedbackText } from '../../../behavior/wake.ts';
 import type { WakeBlockInput } from '../../../behavior/wake.ts';
@@ -66,7 +66,7 @@ function privateProfileOf(store: PhaseContext['store'], accountId: string): obje
 
 export type BuiltRequest = ReturnType<typeof buildRequest>;
 
-/** The wakes that run with no conversation of their own (src/behavior/inner/queue.ts#channelless). */
+/** The wakes that run with no chat of their own (src/behavior/inner/queue.ts#channelless). */
 const OWN_SERVER_WAKES = new Set(['heartbeat', 'selfimprovement']);
 
 /** How a frame's path names a one-to-one chat. It is a path segment for the code, no text she reads. */
@@ -74,7 +74,7 @@ const DM_WORD = 'private';
 
 /**
  * The stored chain of the turn's place, the place first; a place the tree does not hold yet is a chain of itself. A wake
- * with no conversation place (a heartbeat, a selfimprovement wake, or a turn that is nowhere) has none.
+ * with no chat place (a heartbeat, a selfimprovement wake, or a turn that is nowhere) has none.
  */
 function chainOfTurn(
   store: PhaseContext['store'],
@@ -82,7 +82,7 @@ function chainOfTurn(
   wake: { kind: string | null } | null
 ): ReadonlyArray<PlaceLink> {
   if (wake && (OWN_SERVER_WAKES.has(wake.kind ?? '') || channel.rootId === PERSONA_ID)) return [];
-  const placeId = placeOfConversation(store, channel) || String(channel.id ?? '');
+  const placeId = placeOfChat(store, channel) || String(channel.id ?? '');
   if (!placeId) return [];
   const chainOf: unknown = Reflect.get(Object(store), 'placeChainOf');
   const stored =
@@ -100,7 +100,7 @@ function frameOfTurn(
   store: PhaseContext['store'],
   turn: {
     channel: Opened['channel'];
-    isPrivate: boolean;
+    isDm: boolean;
     mode: string;
     triggerKind: string | null;
     wakeKind: string | null;
@@ -110,7 +110,7 @@ function frameOfTurn(
     timezone: string;
   }
 ): Frame {
-  const { channel, isPrivate, trigger } = turn;
+  const { channel, isDm, trigger } = turn;
   const authorName = trigger?.authorName ?? null;
   const partnerId = trigger?.authorId ?? (typeof channel.partnerId === 'string' ? channel.partnerId : null);
   return frameOf({
@@ -119,7 +119,7 @@ function frameOfTurn(
     wakeKind: turn.wakeKind,
     interface: typeof channel.iface === 'string' ? channel.iface : '',
     chain: chainOfTurn(store, channel, turn.inner ? { kind: turn.wakeKind } : null),
-    dm: isPrivate
+    dm: isDm
       ? {
           word: DM_WORD,
           nativeId: partnerId ?? '',
@@ -516,13 +516,13 @@ export function plannerRequest(
   turn: { config: Setup['config']; selfName: string; selfId: string; now: number },
   parts: PlanParts
 ): BuiltRequest {
-  const { channel, isPrivate } = opened;
+  const { channel, isDm } = opened;
   const { config, selfName, selfId, now } = turn;
   const prompts = ctx.hot.prompts;
   const timezone = String(config.bot?.timezone ?? 'UTC');
   const frame = frameOfTurn(ctx.store, {
     channel,
-    isPrivate,
+    isDm,
     mode: PLANNER_MODE,
     triggerKind: null,
     wakeKind: null,
@@ -549,7 +549,7 @@ export function plannerRequest(
       taggedCall: null,
       placeMemory: {},
       interlocutor: null,
-      privateChat: null,
+      dmChat: null,
       privateProfile: null,
       otherProfiles: [],
       candidateProfiles: [],
@@ -626,7 +626,7 @@ export function buildTurnRequest(
   const { callMarksOf } = ctx;
   const { trigger = null, triggerKind = null } = params;
   const { taskResult = null } = params;
-  const { channel, placeId, libraryPlace, isPrivate } = opened;
+  const { channel, placeId, libraryPlace, isDm } = opened;
   const { config, transport, memoryOn, selfId, selfName, now, snapshot } = setup;
   const { serverOn } = planned;
   const { finalMode } = pulled;
@@ -655,7 +655,7 @@ export function buildTurnRequest(
   const callMarks = callMarksOf({ channel, snapshot });
   const frame = frameOfTurn(store, {
     channel,
-    isPrivate,
+    isDm,
     mode: finalMode,
     triggerKind,
     wakeKind,
@@ -683,14 +683,13 @@ export function buildTurnRequest(
     placeMemory: placeMemory ?? {},
     interlocutor: memoryOn && trigger ? (store.getUser(accountOf(store, trigger.authorId)) ?? null) : null,
     // A private chat: the partner's private layer joins their public profile (only there).
-    privateChat: isPrivate ? { accountId: trigger?.authorId ?? null } : null,
-    privateProfile:
-      isPrivate && memoryOn && trigger ? privateProfileOf(store, accountOf(store, trigger.authorId)) : null,
+    dmChat: isDm ? { accountId: trigger?.authorId ?? null } : null,
+    privateProfile: isDm && memoryOn && trigger ? privateProfileOf(store, accountOf(store, trigger.authorId)) : null,
     otherProfiles: memoryOn ? pickOtherProfiles(store, placeId, history, trigger?.authorId) : [],
     candidateProfiles: memoryOn ? store.listUserProfiles() : [],
     nameOf: memoryOn ? (id: string) => store.getUser(accountOf(store, id))?.names?.[0] ?? null : null,
     currentChannelId: channel.id,
-    selfreflectionChannelIds: selfreflectionConversationIds(store),
+    selfreflectionChannelIds: selfreflectionChatIds(store),
     descriptions: descriptions ?? null,
     videos: videos ?? null,
     imageAnswers,
@@ -734,18 +733,18 @@ export function buildTurnRequest(
     toolsBlock,
     toolsTokens,
     // `<people_now>`'s live part: the voice and status snapshot (null: none).
-    around: aroundInputFor({ config, mode: finalMode, isPrivate, snapshot }),
+    around: aroundInputFor({ config, mode: finalMode, isDm, snapshot }),
     // `<errands>` and `<errand_result>`: her errands (none on a selfreflection post).
     errands:
       finalMode === 'selfreflection'
         ? null
-        : errandsInputFor({ placeId, channel, isPrivate, taskResult, config, labels: prompts?.labels, now }),
+        : errandsInputFor({ placeId, channel, isDm, taskResult, config, labels: prompts?.labels, now }),
     // `<intentions>`: hers and the proposed ones (features.intentions; none on a selfreflection post).
     intentions:
       finalMode === 'selfreflection'
         ? ''
         : intentionsInputFor({
-            ...{ placeId, channel, snapshot, isPrivate, config, now },
+            ...{ placeId, channel, snapshot, isDm, config, now },
             labels: prompts?.labels,
             due: dueIds(wakeWords),
           }),
@@ -759,7 +758,7 @@ export function buildTurnRequest(
     // An inner turn's wake kind: a heartbeat takes `prompts.heartbeat` as its task text.
     wakeKind,
     // Her one previous think: the latest finished turn tied to this place within the window (an inner turn imports none).
-    previousThink: earlierThinkFor({ channel, isPrivate, draft, mode: finalMode }),
+    previousThink: earlierThinkFor({ channel, isDm, draft, mode: finalMode }),
     // `<my_day>`: what she did today, read under this turn's context (context.myDay.lines, read now).
     myDay: myDayLines(ctx, { draft, channel, config, prompts, now }),
     // Her call marks, put among the lines of `<chat>` by time.

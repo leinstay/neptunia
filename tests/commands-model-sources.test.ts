@@ -56,7 +56,7 @@ function rig(
     memoryDb: null,
     usage: null,
     metrics: null,
-    conversationLines: () => [],
+    chatLines: () => [],
     now: () => 0,
     subharness: given,
   });

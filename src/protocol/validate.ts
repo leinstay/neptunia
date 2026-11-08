@@ -15,11 +15,11 @@ import {
   CHAT_TYPES,
   CONNECTION_CHANGED,
   CONNECTION_STATES,
-  CONVERSATION_CHANGED,
-  CONVERSATION_CHANGES,
+  CHAT_CHANGED,
+  CHAT_CHANGES,
   COMMAND_REQUESTED,
-  CONVERSATION_CHAT_TYPES,
-  CONVERSATION_KINDS,
+  CHAT_CHAT_TYPES,
+  CHAT_KINDS,
   CORE_KINDS,
   EVENT_KINDS,
   INNER_WAKE,
@@ -116,22 +116,22 @@ function verdict(check: () => void): { ok: true } | { ok: false; reason: string 
 // ---------------------------------------------------------------------------
 // Inbound events
 
-function checkConversation(given: unknown): void {
-  need(given, 'conversation', isObject);
-  const conversation = asRecord(given);
-  need(conversation.id, 'conversation.id', isId);
-  need(conversation.kind, 'conversation.kind', isOneOf(CONVERSATION_KINDS), { problem: 'unknown' });
+function checkChat(given: unknown): void {
+  need(given, 'chat', isObject);
+  const chat = asRecord(given);
+  need(chat.id, 'chat.id', isId);
+  need(chat.kind, 'chat.kind', isOneOf(CHAT_KINDS), { problem: 'unknown' });
   // An interface build that still sends the sidebar grouping's label is heard: the field goes, the event stays.
-  Reflect.deleteProperty(conversation, 'category');
+  Reflect.deleteProperty(chat, 'category');
   for (const key of ['rootId', 'name', 'topic', 'parentId'])
-    need(conversation[key], `conversation.${key}`, isNullableString, { required: false });
-  need(conversation.chatType, 'conversation.chatType', isOneOf(CONVERSATION_CHAT_TYPES), {
+    need(chat[key], `chat.${key}`, isNullableString, { required: false });
+  need(chat.chatType, 'chat.chatType', isOneOf(CHAT_CHAT_TYPES), {
     required: false,
     problem: 'unknown',
   });
-  need(conversation.partnerId, 'conversation.partnerId', isNullableId, { required: false });
-  need(conversation.parentKind, 'conversation.parentKind', isId, { required: false });
-  need(conversation.authorityId, 'conversation.authorityId', isId, { required: false });
+  need(chat.partnerId, 'chat.partnerId', isNullableId, { required: false });
+  need(chat.parentKind, 'chat.parentKind', isId, { required: false });
+  need(chat.authorityId, 'chat.authorityId', isId, { required: false });
 }
 
 /** The values of `reaction.changed`'s `cleared`. */
@@ -159,7 +159,7 @@ function checkAddressing(given: unknown): void {
   need(addressing.mentioned, 'addressing.mentioned', isBoolean);
   need(addressing.replyToSelf, 'addressing.replyToSelf', isBoolean);
   needIds(addressing.mentionedAccountIds, 'addressing.mentionedAccountIds');
-  needIds(addressing.mentionedConversationIds, 'addressing.mentionedConversationIds');
+  needIds(addressing.mentionedChatIds, 'addressing.mentionedChatIds');
 }
 
 function checkOrigin(given: unknown): void {
@@ -190,7 +190,7 @@ function wholeMessage(message: unknown): boolean {
 }
 
 function checkMessageReceived(event: Rec): void {
-  checkConversation(event.conversation);
+  checkChat(event.chat);
   if (event.origin !== undefined) checkOrigin(event.origin);
   for (const flag of ['edit', 'deleted', 'partial']) need(event[flag], flag, isBoolean, { required: false });
   need(event.message, 'message', isObject);
@@ -207,7 +207,7 @@ function checkMessageReceived(event: Rec): void {
 }
 
 function checkReactionChanged(event: Rec): void {
-  checkConversation(event.conversation);
+  checkChat(event.chat);
   need(event.messageId, 'messageId', isId);
   need(event.authorId, 'authorId', isNullableId, { required: false });
   need(event.cleared, 'cleared', isOneOf(CLEARED), { required: false, problem: 'unknown' });
@@ -229,7 +229,7 @@ function checkReactionChanged(event: Rec): void {
 }
 
 function checkCommandRequested(event: Rec): void {
-  checkConversation(event.conversation);
+  checkChat(event.chat);
   need(event.name, 'name', isId);
   need(event.args, 'args', isObject);
   need(event.requester, 'requester', isObject);
@@ -278,7 +278,7 @@ function checkVoiceState(event: unknown, prefix: string) {
   need(state.placeId, `${prefix}placeId`, isId);
   need(state.accountId, `${prefix}accountId`, isId);
   need(state.name, `${prefix}name`, isNullableString, { required: false });
-  for (const key of ['conversationId', 'previousId']) need(state[key], `${prefix}${key}`, isIdOrNull);
+  for (const key of ['chatId', 'previousId']) need(state[key], `${prefix}${key}`, isIdOrNull);
   for (const flag of ['muted', 'deafened', 'streaming', 'camera'])
     need(state[flag], `${prefix}${flag}`, isBoolean, { required: false });
 }
@@ -314,10 +314,10 @@ function checkPresenceSnapshot(event: unknown) {
   checkEntries(event, 'presence', checkPresenceState);
 }
 
-function checkConversationChanged(event: unknown) {
-  const { conversation, change } = asRecord(event);
-  checkConversation(conversation);
-  need(change, 'change', isOneOf(CONVERSATION_CHANGES), { problem: 'unknown' });
+function checkChatChanged(event: unknown) {
+  const { chat, change } = asRecord(event);
+  checkChat(chat);
+  need(change, 'change', isOneOf(CHAT_CHANGES), { problem: 'unknown' });
 }
 
 function checkConnectionChanged(event: unknown) {
@@ -335,13 +335,13 @@ const EVENT_CHECKS: Record<string, (event: Rec) => void> = {
   [INNER_WAKE]: checkInnerWake,
   [PRESENCE_CHANGED]: (event) => checkPresenceState(event, ''),
   [PRESENCE_SNAPSHOT]: checkPresenceSnapshot,
-  [CONVERSATION_CHANGED]: checkConversationChanged,
+  [CHAT_CHANGED]: checkChatChanged,
   [CONNECTION_CHANGED]: checkConnectionChanged,
 };
 
 /**
  * Whether `event` is a well-formed inbound event (events.ts): its kind known, `at` a finite
- * number, and for an interface's kinds `iface` and `id` non-empty strings and a conversation;
+ * number, and for an interface's kinds `iface` and `id` non-empty strings and a chat;
  * then the kind's own fields. Never throws.
  */
 export function validateEvent(given: unknown): { ok: true } | { ok: false; reason: string } {
@@ -364,7 +364,7 @@ function checkRef(given: unknown, field: string, { needMessage }: { needMessage:
   need(given, field, isObject);
   const ref = asRecord(given);
   need(ref.iface, `${field}.iface`, isId);
-  need(ref.conversationId, `${field}.conversationId`, isId);
+  need(ref.chatId, `${field}.chatId`, isId);
   need(ref.messageId, `${field}.messageId`, isId, { required: needMessage });
 }
 
@@ -414,11 +414,11 @@ export function validateAction(given: unknown): { ok: true } | { ok: false; reas
     });
     throwProblem(readActionProblem(request));
     switch (request.action) {
-      case 'conversation.info':
-      case 'conversations.list':
+      case 'chat.info':
+      case 'chats.list':
       case 'messages.history':
       case 'member.info':
-      case 'dm.conversation':
+      case 'dm.chat':
       case 'messages.search':
       case 'members.search':
       case 'emoji.list':
@@ -426,11 +426,11 @@ export function validateAction(given: unknown): { ok: true } | { ok: false; reas
       case 'message.reactors':
         return;
       case MESSAGES_FETCH:
-        checkRef(request.conversation, 'conversation', { needMessage: false });
+        checkRef(request.chat, 'chat', { needMessage: false });
         needIds(request.messageIds, 'messageIds');
         return;
       case CAPABILITIES.send:
-        checkRef(request.conversation, 'conversation', { needMessage: false });
+        checkRef(request.chat, 'chat', { needMessage: false });
         checkContent(request.content);
         return;
       case CAPABILITIES.edit:
@@ -446,7 +446,7 @@ export function validateAction(given: unknown): { ok: true } | { ok: false; reas
         need(request.emoji, 'emoji', isString);
         return;
       case CAPABILITIES.typing:
-        checkRef(request.conversation, 'conversation', { needMessage: false });
+        checkRef(request.chat, 'chat', { needMessage: false });
         return;
       case COMMAND_RESULT:
         checkCommandResult(request);

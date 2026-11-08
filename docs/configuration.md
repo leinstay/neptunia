@@ -420,11 +420,16 @@ The owner's `/mirror` commands choose the destinations and each destination's ba
 | `mirrors.claimLeaseMs` | number | `600000` | How long a claimed selfreflection publication stands with no word from its publisher. Past it the publisher counts as gone and the send as uncertain | `src/behavior/mirror.ts` |
 | `mirrors.sendTimeoutMs` | number | `120000` | How long one send of a selfreflection publication may take before its result counts as uncertain, at most `mirrors.claimLeaseMs` | `src/behavior/mirror.ts` |
 
+## dm
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `dm.enabled` | boolean | `false` | Answer direct messages from place members. Needs a stored public profile and `affinity.score >= private.minAffinity` | `src/behavior/private.ts` |
+
 ## private
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `private.enabled` | boolean | `false` | Answer direct messages from place members. Needs a stored public profile and `affinity.score >= private.minAffinity` | `src/behavior/private.ts` |
 | `private.likeServer` | boolean | `true` | A private chat works like a server channel: route classifier, channel pull, server search, asked-about episodes. `false`: a private chat has none of them | `src/turn/lookup.ts` |
 | `private.minAffinity` | number | `5` | Minimum public attitude score to answer a DM; owners bypass this | `src/behavior/private.ts` |
 

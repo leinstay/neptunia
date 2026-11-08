@@ -46,7 +46,7 @@ function memoryOf(dataDir: string) {
 }
 
 const DISCORD = createDiscordInterface().capabilities;
-// The conversation an errand answers in is held by the fake interface of the test's world.
+// The chat an errand answers in is held by the fake interface of the test's world.
 useIface('fake');
 const OWNER = '42';
 const T0 = Date.parse('2026-10-18T10:00:00Z');
@@ -159,7 +159,7 @@ function makeEnv({
     client: { channels: { cache: new Map() } },
     spontaneous: {},
     calibrator: { ratio: 1 },
-    isServedCommunity: (id: unknown) => id === 'g1',
+    isServedRoot: (id: unknown) => id === 'g1',
     errands,
     intentions,
     now,
@@ -382,7 +382,7 @@ test('intention.update / intention.cancel: the id alone in the body counts as th
 
 test("private chats: her intention in a DM is the DM's own -- never in a server turn, not movable from a server channel, gone with a forget of the member", async () => {
   const { env, intentions } = makeEnv();
-  const dm = (extra = {}) => hers(env, 'T1', { placeId: 'dm1', privateChat: true, ...extra });
+  const dm = (extra = {}) => hers(env, 'T1', { placeId: 'dm1', dmChat: true, ...extra });
   await withCapturedLogs(async () => {
     const set = await runOp('intention.set', { text: 'ρώτα την για τις εξετάσεις' }, dm());
     assert.equal(set.status, 'ok', set.summary);
@@ -396,12 +396,12 @@ test("private chats: her intention in a DM is the DM's own -- never in a server 
       'a server turn never sees it'
     );
     assert.deepEqual(
-      intentions.view({ privateChannelId: 'dm2' }).map((r) => r.id),
+      intentions.view({ dmChatId: 'dm2' }).map((r) => r.id),
       [],
       'nor another private chat'
     );
     assert.deepEqual(
-      intentions.view({ privateChannelId: 'dm1' }).map((r) => r.id),
+      intentions.view({ dmChatId: 'dm1' }).map((r) => r.id),
       [id]
     );
     // Her call from a server channel cannot reach it, even by its id.
@@ -703,7 +703,7 @@ test("intent dropped: a drop from a recurring or waiting one ends it; a private 
       'ok'
     );
     assert.equal(present(present(intentions.store()).get(id)).status, 'dropped');
-    const dm = (extra = {}) => hers(env, 'T3', { placeId: 'dm1', privateChat: true, ...extra });
+    const dm = (extra = {}) => hers(env, 'T3', { placeId: 'dm1', dmChat: true, ...extra });
     const priv = await runOp('intention.set', { text: 'ρώτα την', state: 'dropped', reason: 'private matter' }, dm());
     assert.equal(priv.status, 'ok');
     assert.deepEqual(
@@ -712,7 +712,7 @@ test("intent dropped: a drop from a recurring or waiting one ends it; a private 
     );
     assert.deepEqual(
       intentions
-        .list({ closed: true, privateChannelId: 'dm1' })
+        .list({ closed: true, dmChatId: 'dm1' })
         .map((r) => r.reason)
         .sort(),
       ['boring', 'private matter']

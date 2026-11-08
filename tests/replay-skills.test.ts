@@ -185,7 +185,7 @@ test("personaGrantsConfig: her grants are exactly the given ones; people's grant
   assert.deepEqual(personaGrantsConfig({}, SELF, []).bot.access, {});
 });
 
-/** A discord.js-like channel: the current conversation in a guild with a news channel, one role, the member's roles cached. */
+/** A discord.js-like channel: the current chat in a guild with a news channel, one role, the member's roles cached. */
 function fakeChannel({ memberRoles = [] }: Record<string, Untyped> = {}) {
   return {
     id: HERE,
@@ -242,7 +242,7 @@ function simulate(
     config,
     selfId: SELF,
     requester: requesterOfChannel(requesterOf)(trigger, channel),
-    conversationId: HERE,
+    chatId: HERE,
     now: NOW,
     images,
     resultText,
@@ -302,7 +302,7 @@ test("simulateCall: her own operations skip the requester's right but not her gr
   assert.equal(
     simulate({ skill: 'message.create', args: { text: 'γεια' } }, { author: MEMBER }).verdict.ok,
     true,
-    'carried over in the current conversation'
+    'carried over in the current chat'
   );
 });
 
@@ -327,7 +327,7 @@ test('simulateCall: a call the server cannot resolve, a drawing answered canned'
 test("scenarioInventory: the requester's catalogue as live discovery lists it: whole, the named ones, or none", () => {
   const config = scenarioConfig(['rule.add']);
   const texts = { 'rule.add': { title: 'Add a rule', whenToUse: 'when asked' } };
-  const input = { config, selfId: SELF, texts, conversationId: HERE, registry: skillRegistry() };
+  const input = { config, selfId: SELF, texts, chatId: HERE, registry: skillRegistry() };
   const whole = scenarioInventory({ ...input, requester: { id: OWNER, roleIds: [] } });
   // PR 7d: no skill sits behind a feature switch any more, so every skill has a row.
   assert.equal(whole?.length, skillRegistry().size);
@@ -594,7 +594,7 @@ async function playSequence(
             config,
             selfId: SELF,
             requester,
-            conversationId: HERE,
+            chatId: HERE,
             now: at,
             resultText: result,
           } as unknown as Parameters<typeof simulateCall>[0]),

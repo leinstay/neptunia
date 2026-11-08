@@ -251,7 +251,7 @@ export type SkillRow = { name: string; allowed: boolean; reason: string };
 
 /**
  * The gateway's verdict on each named skill, from the catalogue rows of this requester and
- * conversation (src/tools/gateway.ts#listSkills): `{ name, allowed, reason }` per name, in
+ * chat (src/tools/gateway.ts#listSkills): `{ name, allowed, reason }` per name, in
  * order; a name with no row (not in the registry) is `{ allowed: false, reason: CODE.UNKNOWN_SKILL }`.
  */
 export function proposalVerdicts(names: ReadonlyArray<string>, rows: ReadonlyArray<SkillRow>): Array<SkillRow> {

@@ -22,7 +22,7 @@ const dm = (iface: string, native: string) => ({
   iface,
   authority: `${iface}/global`,
   native: { kind: 'message', key: `${native}:1`, revision: 1 },
-  place: { authority: `${iface}/global`, key: `dm:${native}`, kind: 'dm', conversation: 'dm' },
+  place: { authority: `${iface}/global`, key: `dm:${native}`, kind: 'dm', chat: 'dm' },
   author: { kind: 'account', key: native },
   occurredAt: '2026-11-03T10:00:00.000Z',
   observedAt: '2026-11-03T10:00:01.000Z',

@@ -1,6 +1,6 @@
 // The lines a recall test seeds a fake channel with, and how they read as a raw search hit, as the event the interface
 // reads for them and as the neutral hit it answers. Shared by the recall runner's tests.
-import type { ConversationInfo, MemberHit, MessageEvent, MessageHit } from '../../src/protocol/adapter.ts';
+import type { ChatInfo, MemberHit, MessageEvent, MessageHit } from '../../src/protocol/adapter.ts';
 import { IFACE, message as messageEvent } from './reads-rig.ts';
 
 // How a time becomes the id a platform bounds a search by (what interfaces/discord/reads.ts does with `after` and `before`).
@@ -66,8 +66,8 @@ export function rawHit(placeId: string, l: Line): RawHit {
   };
 }
 
-/** The stored line `l` of conversation `info` as the event the interface reads for it. */
-export function eventOfLine(info: ConversationInfo, l: Line): MessageEvent {
+/** The stored line `l` of chat `info` as the event the interface reads for it. */
+export function eventOfLine(info: ChatInfo, l: Line): MessageEvent {
   const event = messageEvent(info, l.id, l.ts, l.content, {
     authorId: l.author,
     authorName: l.name,
@@ -85,7 +85,7 @@ export function eventOfLine(info: ConversationInfo, l: Line): MessageEvent {
 /** A raw API search hit as the neutral hit the interface answers. */
 export function neutralHit(hit: RawHit): MessageHit {
   return {
-    ref: { iface: IFACE, conversationId: hit.channel_id, messageId: hit.id },
+    ref: { iface: IFACE, chatId: hit.channel_id, messageId: hit.id },
     at: Date.parse(hit.timestamp),
     text: hit.content,
     author: {

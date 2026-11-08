@@ -49,7 +49,7 @@ function scene(env: ReturnType<typeof fixture>, store: object = {}) {
   });
 }
 
-test('a window without a conversation context returns no configured reader or evidence', async () => {
+test('a window without a chat context returns no configured reader or evidence', async () => {
   const env = fixture();
   try {
     const recall = scene(env);
@@ -68,7 +68,7 @@ test('a window without a conversation context returns no configured reader or ev
   }
 });
 
-test('prefetch without a conversation context is unavailable and performs no retrieval', async () => {
+test('prefetch without a chat context is unavailable and performs no retrieval', async () => {
   const env = fixture();
   try {
     let reads = 0;
@@ -105,7 +105,7 @@ for (const scope of ['dm', 'internal']) {
   });
 }
 
-test('prefetch returns stored lore when the database is unavailable for a valid guild', async () => {
+test('prefetch returns stored lore when the database is unavailable for a valid root', async () => {
   const recall = createRecall({
     reads: rig().reads,
     hot,
@@ -125,13 +125,13 @@ test('prefetch returns stored lore when the database is unavailable for a valid 
   assert.ok(excerpts?.[0].lines.includes('rabbit stored lore evidence'));
 });
 
-for (const hasGuild of [false, true]) {
-  test(`memory search retains database evidence ${hasGuild ? 'without an optional profile callback' : 'without reading legacy profiles for a null guild'}`, async () => {
+for (const hasRoot of [false, true]) {
+  test(`memory search retains database evidence ${hasRoot ? 'without an optional profile callback' : 'without reading legacy profiles for a null root'}`, async () => {
     const env = fixture();
     try {
       const recall = scene(env);
       let profiles = 0;
-      const store = hasGuild
+      const store = hasRoot
         ? undefined
         : {
             listUserProfiles: () => {
@@ -143,7 +143,7 @@ for (const hasGuild of [false, true]) {
       // The tool uses only these injected dependencies for a database search.
       const result = await runMemorySearch({
         ...args,
-        placeId: hasGuild ? 'g1' : null,
+        placeId: hasRoot ? 'g1' : null,
         recall,
         store,
         config: hot.config,
@@ -161,7 +161,7 @@ for (const hasGuild of [false, true]) {
   });
 }
 
-test('an internal summary request without a guild performs no legacy reads when the database is unavailable', async () => {
+test('an internal summary request without a root performs no legacy reads when the database is unavailable', async () => {
   let loreReads = 0;
   let requests = 0;
   const recall = createRecall({

@@ -205,7 +205,7 @@ export type Unit = {
   told(op: string): Promise<Reply>;
   /** Emits an event and resolves once the child's emit returned, with the core's ack still to come. */
   emit(event: unknown): Promise<{ acked: Promise<string> }>;
-  posted(conversationId: string): Promise<Array<string>>;
+  posted(chatId: string): Promise<Array<string>>;
   kill(signal?: NodeJS.Signals): Promise<void>;
 };
 
@@ -273,8 +273,8 @@ export function spawnUnit(dirs: Dirs): Unit {
       await queued;
       return { acked };
     },
-    async posted(conversationId) {
-      const reply = await unit.ask({ op: 'posted', conversationId }, 'posted');
+    async posted(chatId) {
+      const reply = await unit.ask({ op: 'posted', chatId }, 'posted');
       return Array.isArray(reply.texts) ? reply.texts.map(String) : [];
     },
     async kill(signal = 'SIGTERM') {
@@ -288,11 +288,11 @@ export function spawnUnit(dirs: Dirs): Unit {
   return unit;
 }
 
-/** A unit that started and holds the conversation c1. */
+/** A unit that started and holds the chat c1. */
 export async function startedUnit(dirs: Dirs): Promise<Unit> {
   const unit = spawnUnit(dirs);
   await unit.told('started');
-  await unit.ask({ op: 'seed-conversation', info: channelInfo('c1') }, 'done');
+  await unit.ask({ op: 'seed-chat', info: channelInfo('c1') }, 'done');
   return unit;
 }
 

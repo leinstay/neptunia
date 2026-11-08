@@ -108,7 +108,7 @@ export function buildDrawPrompt({ prompts, selfName, request, self, when = '' }:
  * handles of her `@` and `#` tags, the people shown and what of memory and of the chat window went in.
  */
 export function buildRequest(input: BuildRequestInput): BuildRequestResult {
-  // The transport anchor is not the conversation of a wake of her own time. Memory and its wake remain available.
+  // The transport anchor is not the chat of a wake of her own time. Memory and its wake remain available.
   const turnKind = kindOfRequest({
     frame: input.frame,
     mode: input.mode,
@@ -142,7 +142,7 @@ export function buildRequest(input: BuildRequestInput): BuildRequestResult {
     taggedCall: input.taggedCall,
     placeMemory: input.placeMemory,
     interlocutor: input.interlocutor,
-    privateChat: input.privateChat,
+    dmChat: input.dmChat,
     privateProfile: input.privateProfile,
     otherProfiles: input.otherProfiles,
     candidateProfiles: input.candidateProfiles,

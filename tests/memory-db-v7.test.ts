@@ -112,7 +112,7 @@ test('v7 migration of an imported database: audiences, DM places, links, her row
       assert.deepEqual(
         [
           place.kind,
-          place.conversation,
+          place.chat,
           place.partner_person,
           place.partner_account,
           place.owner_file,
@@ -132,11 +132,11 @@ test('v7 migration of an imported database: audiences, DM places, links, her row
       );
     }
     assert.equal(
-      db.prepare("SELECT conversation FROM places WHERE kind = 'server'").get()!.conversation,
+      db.prepare("SELECT chat FROM places WHERE kind = 'server'").get()!.chat,
       null,
       'a server is a container'
     );
-    assert.equal(db.prepare("SELECT conversation FROM places WHERE kind = 'channel'").get()!.conversation, 'group');
+    assert.equal(db.prepare("SELECT chat FROM places WHERE kind = 'channel'").get()!.chat, 'group');
 
     // Malformed triples: internal, and one quarantine decision per table and triple.
     for (const id of ['k-bad-dm', 'k-bad-kind', 'k-group-null'])
@@ -201,7 +201,7 @@ test('v7 migration of an imported database: audiences, DM places, links, her row
         .get(MEMBER)!.node_id,
       personId('discord', MEMBER)
     );
-    // The community-local authority this line counted is gone with the partition by community (plan task 5).
+    // The root-local authority this line counted is gone with the partition by root (plan task 5).
 
     // Accounts and sources: authority, native key, author kind, observed time.
     const account = db
@@ -262,9 +262,7 @@ function derivedSnapshot(db: Db) {
       all(`SELECT '${table}' AS t, rowid AS r, audience_id FROM "${table}" ORDER BY rowid`)
     ),
     accounts: all('SELECT id, authority_id, native_key, generation, kind FROM accounts ORDER BY id'),
-    places: all(
-      'SELECT id, authority_id, native_key, conversation, partner_person, partner_account FROM places ORDER BY id'
-    ),
+    places: all('SELECT id, authority_id, native_key, chat, partner_person, partner_account FROM places ORDER BY id'),
     sources: all('SELECT id, authority_id, author_kind, observed_at FROM sources ORDER BY id'),
     links: all('SELECT * FROM account_person_links ORDER BY id'),
     keys: all(
@@ -316,7 +314,7 @@ test('v7: a replay of the unit writes re-derives the new columns, keeps links an
     assert.equal(
       count(
         db,
-        "SELECT COUNT(*) AS n FROM places WHERE authority_id IS NULL OR (kind = 'channel' AND conversation IS NOT 'group')"
+        "SELECT COUNT(*) AS n FROM places WHERE authority_id IS NULL OR (kind = 'channel' AND chat IS NOT 'group')"
       ),
       0
     );
@@ -326,11 +324,11 @@ test('v7: a replay of the unit writes re-derives the new columns, keeps links an
       'the link row is never rewritten'
     );
     const fresh = db
-      .prepare('SELECT kind, conversation, partner_person, owner_file FROM places WHERE id = ?')
+      .prepare('SELECT kind, chat, partner_person, owner_file FROM places WHERE id = ?')
       .get(dmPlaceId('discord', NEWCOMER));
     assert.deepEqual(
       { ...fresh },
-      { kind: 'dm', conversation: 'dm', partner_person: personId('discord', NEWCOMER), owner_file: null },
+      { kind: 'dm', chat: 'dm', partner_person: personId('discord', NEWCOMER), owner_file: null },
       'a DM line of a new partner brings its DM place'
     );
     assert.equal(

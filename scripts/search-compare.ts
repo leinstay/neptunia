@@ -58,7 +58,7 @@ type Rec = Record<string, Untyped>;
 
 const USAGE =
   'usage: node scripts/search-compare.ts <queries.jsonl> --out <dir> [--engines brave,exa,openrouter] [--key <ENV_NAME>] [--repeat N] [--max-usd 2] [--seed <text>] [--dry-run]';
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'search-compare';
 const DEFAULT_ENGINES = ['brave', 'exa', 'openrouter'];
 const DEFAULT_MAX_USD = 2;
@@ -149,7 +149,7 @@ export async function main(
     llmClient = null,
     searches: givenSearches = null,
     env = process.env,
-    rootDir = ROOT,
+    rootDir = REPO_ROOT,
   }: Opts = {}
 ): Promise<string> {
   const flags = parseFlags(argv, {

@@ -328,7 +328,7 @@ function buildGifRecache({
 
   /** One message read again through the interface, as a line; null when it is gone or the read fails. */
   async function readMessage(placeId: string, messageId: string) {
-    const found = await reads.fetchMessages({ iface: iface(), conversationId: String(placeId) }, [messageId]);
+    const found = await reads.fetchMessages({ iface: iface(), chatId: String(placeId) }, [messageId]);
     const message = found?.messages[0];
     const event = message?.event;
     if (!event) {
@@ -450,7 +450,7 @@ function buildGifRecache({
     };
 
     const run = async () => {
-      // A custom emoji's picture comes from the emoji index; one the community no longer lists cannot be fetched.
+      // A custom emoji's picture comes from the emoji index; one the root no longer lists cannot be fetched.
       await emoji.refresh(placeId);
       for (const key of keys) {
         if (!key.startsWith('emoji:')) continue;

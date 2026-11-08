@@ -11,17 +11,17 @@ import type { Row, Scene } from './fixtures/memory-db/one-server.ts';
 
 const DM = 'discord:dm:u1';
 const DM_AUDIENCE = `aud:dm:${DM}`;
-const GUILD_RECORD = 'unit:c676dd55b9f169af18945bcc0bf315e1';
+const ROOT_RECORD = 'unit:c676dd55b9f169af18945bcc0bf315e1';
 const AT = '2026-10-01T12:00:00.000Z';
 const LINE = 'wake-in-dm';
 
-function said(db: DatabaseSync, id: string, conversation: string): void {
+function said(db: DatabaseSync, id: string, chat: string): void {
   db.prepare(
     `INSERT INTO sources (id, kind, iface, native_id, revision, place_id, occurred_at, recorded_at, text, extra,
        scope_kind, scope_iface, origin, position, authority_id, author_kind, audience_id, native_kind, generation, owner_key)
      VALUES (?, 'said', 'discord', ?, 1, ?, ?, ?, 'her words', '{"v":1}', 'group', 'discord', 'live', 90, 'discord/global',
        'self', 'aud:group:discord', 'message', 1, ?)`
-  ).run(id, id, `discord:channel:${conversation}`, AT, AT, GUILD_RECORD);
+  ).run(id, id, `discord:channel:${chat}`, AT, AT, ROOT_RECORD);
 }
 
 function misfiledWithGraph(db: DatabaseSync): void {
@@ -33,7 +33,7 @@ function misfiledWithGraph(db: DatabaseSync): void {
   db.prepare(
     `INSERT INTO graph_edges (id, src, predicate, dst, audience_id, evidence_id, recorded_at, projection_key, owner_key)
      VALUES ('edge-1', ?, 'located_in', 'place:ghost', 'aud:group:discord', ?, ?, 'located_in:wake', ?)`
-  ).run(node, LINE, AT, GUILD_RECORD);
+  ).run(node, LINE, AT, ROOT_RECORD);
   const witness = db.prepare(
     `INSERT INTO node_access (node_id, audience_id, evidence_id) VALUES (?, 'aud:group:discord', ?)`
   );
@@ -103,7 +103,7 @@ test("a DM place's lesson written as a group's takes the DM's scope", () => {
   assert.deepEqual([row?.scope_kind, row?.scope_dm, row?.audience_id], ['dm', 'person:discord:u1', DM_AUDIENCE]);
 });
 
-test('a conversation two partners each name stays where it was', () => {
+test('a chat two partners each name stays where it was', () => {
   // Bug: the first DM to name a shared id takes the lines of the other.
   const where = scene((db) => {
     said(db, 'contested', 'shared-native');
@@ -112,7 +112,7 @@ test('a conversation two partners each name stays where it was', () => {
          scope_kind, scope_iface, origin, authority_id, author_kind, audience_id, native_kind, generation)
        VALUES (?, 'seen', 'discord', ?, 1, ?, ?, ?, ?, 'a line', ?, 'dm', 'discord', 'live', 'discord/global', 'account', ?, 'message', 1)`
     );
-    const extra = JSON.stringify({ $messageLocator: { conversationId: 'shared-native' } });
+    const extra = JSON.stringify({ $messageLocator: { chatId: 'shared-native' } });
     line.run('u1-names', 'u1-names', DM, 'discord:u1', AT, AT, extra, DM_AUDIENCE);
     line.run('u2-names', 'u2-names', 'discord:dm:u2', 'discord:u2', AT, AT, extra, 'aud:dm:discord:dm:u2');
   });

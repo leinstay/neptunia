@@ -58,7 +58,7 @@ const KINDS = [
   'presence.snapshot',
   'connection.changed',
   'membership.changed',
-  'conversation.changed',
+  'chat.changed',
 ];
 
 const flush = async (rounds = 10): Promise<void> => {
@@ -262,15 +262,15 @@ const messageIdsOf = (h: Harness): Array<unknown> =>
 
 // ---- the guild and the token ------------------------------------------------------------------
 
-test('says hello with the only guild the bot is in as its community when bot.guildId is unset', async () => {
+test('says hello with the only guild the bot is in as its root when bot.guildId is unset', async () => {
   await withSession({}, async (h) => {
-    assert.deepEqual((await h.link.hello).community, { id: 'g1', name: 'Alpha' });
+    assert.deepEqual((await h.link.hello).root, { id: 'g1', name: 'Alpha' });
   });
 });
 
-test('says hello with the configured guild as its community when the bot is in two and bot.guildId names one', async () => {
+test('says hello with the configured guild as its root when the bot is in two and bot.guildId names one', async () => {
   await withSession({ twoGuilds: true, botGuildId: 'g2' }, async (h) => {
-    assert.deepEqual((await h.link.hello).community, { id: 'g2', name: 'Beta' });
+    assert.deepEqual((await h.link.hello).root, { id: 'g2', name: 'Beta' });
   });
 });
 
@@ -278,9 +278,9 @@ test('says hello with every listed server the bot is in and reports the one it i
   // Bug: the second server of the owner's list is never told to the core, so its messages are all ignored.
   await withSession({ twoGuilds: true, servers: ['g2', 'g1', 'g9'] }, async (h) => {
     const hello = await h.link.hello;
-    assert.deepEqual(hello.community, { id: 'g2', name: 'Beta' });
+    assert.deepEqual(hello.root, { id: 'g2', name: 'Beta' });
     assert.deepEqual(
-      hello.communities?.map((one) => one.id),
+      hello.roots?.map((one) => one.id),
       ['g2', 'g1']
     );
   });
@@ -469,41 +469,37 @@ test('turns UserUpdate into a membership.changed for a member the guild cache ho
   });
 });
 
-// ---- conversations ----------------------------------------------------------------------------
+// ---- chats ----------------------------------------------------------------------------
 
-test('turns ChannelUpdate into a conversation.changed that is updated, with the new name', async () => {
+test('turns ChannelUpdate into a chat.changed that is updated, with the new name', async () => {
   await withSession({}, async (h, running) => {
     running.open();
     h.client.emit(Events.ChannelUpdate, {}, textChannel('c7', h.guild, { name: 'general' }));
-    await until(() => h.events('conversation.changed').some((event) => asFake(event.conversation).id === 'c7'));
-    const event = h.events('conversation.changed').find((entry) => asFake(entry.conversation).id === 'c7') ?? {};
+    await until(() => h.events('chat.changed').some((event) => asFake(event.chat).id === 'c7'));
+    const event = h.events('chat.changed').find((entry) => asFake(entry.chat).id === 'c7') ?? {};
     assert.equal(event.change, 'updated');
-    assert.equal(asFake(event.conversation).name, 'general');
-    assert.equal(asFake(event.conversation).kind, 'channel');
+    assert.equal(asFake(event.chat).name, 'general');
+    assert.equal(asFake(event.chat).kind, 'channel');
   });
 });
 
-test('turns ChannelCreate into a conversation.changed that is created', async () => {
+test('turns ChannelCreate into a chat.changed that is created', async () => {
   await withSession({}, async (h, running) => {
     running.open();
     h.client.emit(Events.ChannelCreate, textChannel('c8', h.guild, { name: 'fresh' }));
     const created = (): boolean =>
-      h
-        .events('conversation.changed')
-        .some((event) => asFake(event.conversation).id === 'c8' && event.change === 'created');
+      h.events('chat.changed').some((event) => asFake(event.chat).id === 'c8' && event.change === 'created');
     await until(created);
     assert.equal(created(), true);
   });
 });
 
-test('turns ChannelDelete into a conversation.changed that is deleted', async () => {
+test('turns ChannelDelete into a chat.changed that is deleted', async () => {
   await withSession({}, async (h, running) => {
     running.open();
     h.client.emit(Events.ChannelDelete, textChannel('c1', h.guild, { name: 'chan-c1' }));
     const deleted = (): boolean =>
-      h
-        .events('conversation.changed')
-        .some((event) => asFake(event.conversation).id === 'c1' && event.change === 'deleted');
+      h.events('chat.changed').some((event) => asFake(event.chat).id === 'c1' && event.change === 'deleted');
     await until(deleted);
     assert.equal(deleted(), true);
   });
@@ -512,12 +508,12 @@ test('turns ChannelDelete into a conversation.changed that is deleted', async ()
 test('announces each readable channel and each cached thread as updated at connect, and no unreadable one', async () => {
   await withSession({}, async (h, running) => {
     running.open();
-    await until(() => h.events('conversation.changed').length >= 3);
+    await until(() => h.events('chat.changed').length >= 3);
     await flush();
-    const updated = h.events('conversation.changed').filter((event) => event.change === 'updated');
-    const ids = updated.map((event) => asFake(event.conversation).id);
+    const updated = h.events('chat.changed').filter((event) => event.change === 'updated');
+    const ids = updated.map((event) => asFake(event.chat).id);
     assert.deepEqual([...new Set(ids)].sort(), ['c1', 'c2', 't1']);
-    const thread = asFake(updated.find((event) => asFake(event.conversation).id === 't1')?.conversation);
+    const thread = asFake(updated.find((event) => asFake(event.chat).id === 't1')?.chat);
     assert.equal(thread.kind, 'thread');
     assert.equal(thread.parentId, 'c1');
   });

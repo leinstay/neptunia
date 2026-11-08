@@ -235,7 +235,7 @@ test('maxWaitHours is read from the live config', async () => {
   }
 });
 
-test('a private conversation waits and joins on its own, never with the group', async () => {
+test('a private chat waits and joins on its own, never with the group', async () => {
   // Catches: a small private session joined into the group request (a leak across scopes), or the group held back by it.
   const env = fixture();
   try {

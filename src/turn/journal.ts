@@ -369,7 +369,7 @@ export type JournalDraft = {
   /** The journal's ids of the attempt, and the place whose journal it is written to. */
   started: { turnId: string; attemptId: string; startedAt: number; placeId: string };
   seen?: { messageIds: Array<string>; parents: Array<unknown>; parts: { filePreviews: Array<unknown> } } | null;
-  /** The conversation as the interface described it when the attempt began. */
+  /** The chat as the interface described it when the attempt began. */
   info?: { id: string } | null;
   privateAccountId?: string | null;
   mode?: string | null;

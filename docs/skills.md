@@ -19,7 +19,7 @@ The procedure belongs in `SKILL.md`:
 ```markdown
 ---
 name: gif-search
-description: Find a GIF for the current conversation.
+description: Find a GIF for the current chat.
 tools: [skill.run]
 ---
 
