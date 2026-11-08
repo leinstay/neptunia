@@ -115,3 +115,78 @@ test('a #handle and an @handle she carries from an earlier request resolve in a 
   ) as { args?: Record<string, unknown> };
   assert.equal(set.args?.people, 'member-7');
 });
+
+// Two native ids whose four-digit handles collide (the pair of tests/handles.test.ts).
+const OLDER = '400000000000807738';
+const NEWER = '400000000005693761';
+
+/** The view of a turn on the command line: a private chat with no root, no snapshot, the memory's places known. */
+function commandLineView(knownPlaces: ReadonlyArray<string>) {
+  return callViewOf({
+    channel: { id: 'owner', rootId: null },
+    currentIface: 'cli',
+    placeId: 'cli:dm:owner',
+    skills: skillRegistry(),
+    channelHandles: new Map(),
+    knownPlaces,
+  });
+}
+
+const placeOf = (resolved: unknown): unknown => (resolved as { args?: Record<string, unknown> }).args?.place;
+
+test("a channel's #handle she carries from another interface resolves to that place's id on the command line", () => {
+  // Bug: a handle carried from a turn on another interface resolved only over the turn's own channels, so the call
+  // read the command line chat itself and answered unsupported.
+  const handle = handleOf('far-room', HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX);
+  const view = commandLineView(['other:channel:far-room', 'cli:dm:owner']);
+  for (const skill of ['conversation.read', 'memory.channel.read'])
+    assert.equal(placeOf(resolveCall({ skill, args: { place: `#${handle}` } }, view)), 'other:channel:far-room');
+});
+
+test('a handle two known places of different interfaces share stays unresolved', () => {
+  const view = commandLineView(['other:channel:' + OLDER, 'foreign:channel:' + NEWER]);
+  const shared = handleOf(OLDER, HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX);
+  const read = resolveCall({ skill: 'memory.channel.read', args: { place: `#${shared}` } }, view);
+  assert.equal(placeOf(read), undefined, 'neither place is guessed');
+  const longer = handleOf(NEWER, HANDLE_DIGITS + 1, CHANNEL_HANDLE_PREFIX);
+  const one = resolveCall({ skill: 'memory.channel.read', args: { place: `#${longer}` } }, view);
+  assert.equal(placeOf(one), `foreign:channel:${NEWER}`, 'the lengthened handle names one place');
+});
+
+test("a direct chat's place gives no channel handle", () => {
+  // Bug: a partner's id hashed as a channel would let a #handle name a private chat.
+  const view = commandLineView(['other:dm:partner-3']);
+  const handle = handleOf('partner-3', HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX);
+  assert.equal(placeOf(resolveCall({ skill: 'memory.channel.read', args: { place: `#${handle}` } }, view)), undefined);
+});
+
+test("a handle the request showed for another interface's channel resolves to that place's id", () => {
+  // Bug: the command line request shows a channel of another interface by its native id, which the call then read as
+  // a chat of the command line.
+  const handle = handleOf('far-room', HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX);
+  const view = callViewOf({
+    channel: { id: 'owner', rootId: null },
+    currentIface: 'cli',
+    placeId: 'cli:dm:owner',
+    skills: skillRegistry(),
+    channelHandles: new Map([[handle, 'far-room']]),
+    knownPlaces: ['other:channel:far-room'],
+  });
+  const read = resolveCall({ skill: 'memory.channel.read', args: { place: `#${handle}` } }, view);
+  assert.equal(placeOf(read), 'other:channel:far-room');
+});
+
+test("a handle of the turn's own channel keeps its native id when the memory knows the place too", () => {
+  const handle = handleOf('kitchen-room', HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX);
+  const view = callViewOf({
+    channel: { id: 'current-room', rootId: 'g1' },
+    currentIface: 'primary',
+    placeId: 'g1',
+    store: { listChannels: () => [{ id: 'kitchen-room', name: 'kitchen' }], listUserProfiles: () => [] },
+    skills: skillRegistry(),
+    channelHandles: new Map(),
+    knownPlaces: ['primary:channel:kitchen-room'],
+  });
+  const read = resolveCall({ skill: 'memory.channel.read', args: { place: `#${handle}` } }, view);
+  assert.equal(placeOf(read), 'kitchen-room');
+});

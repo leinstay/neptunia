@@ -540,6 +540,8 @@ export function createTurnRunner({
         ? (name: string) => frameReads.placesNamed?.(context, name) ?? []
         : null;
     },
+    // A #handle she carries names a channel of any interface the memory holds.
+    knownPlaces: () => frameReads?.chatPlaceIds?.() ?? [],
     skills,
     selfIdOf,
     clock,

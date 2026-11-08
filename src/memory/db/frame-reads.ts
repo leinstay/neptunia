@@ -115,6 +115,14 @@ export function placeReadableOf(db: Db, ctx: Context, placeId: string): boolean 
   return place !== undefined && allowedAudience({ audience_id: placeAudience(place) }, ctx);
 }
 
+/** The id of every stored channel and thread of every interface, retired or live: the places a `#handle` may name. */
+export function chatPlaceIdsOf(db: Db): Array<string> {
+  return db
+    .prepare("SELECT id FROM places WHERE kind IN ('channel', 'thread') ORDER BY id")
+    .all()
+    .flatMap((row) => (typeof row.id === 'string' ? [row.id] : []));
+}
+
 /** A stored line by its identity without the revision, as a reference names it. */
 export type IdentityLine = FrameLine & {
   path: Array<string>;
@@ -273,6 +281,8 @@ export type FrameReads = {
   placesNamed?(ctx: Context, name: string): Array<{ id: string; name: string }>;
   /** Whether the context reads a stored place (placeReadableOf). */
   placeReadable?(ctx: Context, placeId: string): boolean;
+  /** The id of every stored channel and thread (chatPlaceIdsOf). */
+  chatPlaceIds?(): Array<string>;
 };
 
 const NO_MIND: Mind = {
@@ -308,5 +318,6 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     selfreflection: (ctx, limit) => over([], (db) => readSelfreflection(db, ctx, limit)),
     placesNamed: (ctx, name) => over([], (db) => placesNamed(db, ctx, name)),
     placeReadable: (ctx, placeId) => over(false, (db) => placeReadableOf(db, ctx, placeId)),
+    chatPlaceIds: () => over([], (db) => chatPlaceIdsOf(db)),
   };
 }
