@@ -1463,7 +1463,7 @@ async function buildCore(
       ...ownerMemoryRuns({ memoryDb, reads, iface: () => identity.iface, describer, describerDeps, now: clock, log }),
       statusBrief: () =>
         statusBrief({
-          config: () => hot.config,
+          config: () => objOf(hot.config),
           paused: () => Boolean(processState.data.paused),
           pauseReason: () => pauseControl.reason(),
           path: (role) => {

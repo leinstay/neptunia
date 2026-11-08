@@ -91,5 +91,6 @@ test("the owner's line just sent carries its send time in the persona's zone", a
     await press(rig, 'ΓΡΑΜΜΗ-ΝΕΑ', shows(rig, '> ΓΡΑΜΜΗ-ΝΕΑ'));
     rig.type(KEY.enter);
     await until(shows(rig, '2026-11-08 22:04'));
+    assert.ok(rig.screen().join('\n').includes('2026-11-08 22:04'), 'the time in the persona zone');
   });
 });
