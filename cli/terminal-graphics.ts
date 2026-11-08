@@ -1,163 +1,85 @@
-// A picture drawn by the terminal itself, so it shows the same at the machine and over SSH: the size of a PNG, JPEG or
-// GIF from its header, the pixels of a PNG decoded with `node:zlib` alone, a box of cells that keeps its proportions, and
-// the sequences of the three graphics protocols. kitty and iTerm2 take the file's bytes and scale it to the box
-// themselves, and Sixel gets the decoded pixels scaled and mapped to a 6x6x6 colour cube. A JPEG, GIF or WebP has no
-// decoder here, so a Sixel terminal shows its description instead. cli/terminal-replies.ts asks the terminal which
-// protocol it speaks, and cli/chat-controller.ts places the picture in the command window.
-import { inflateSync } from 'node:zlib';
+// A picture drawn by the terminal itself, so it shows the same at the machine and over SSH: the pixels of a PNG, JPEG,
+// GIF (its first frame), BMP or WebP, a box of cells that keeps its proportions, and the sequences of the three graphics
+// protocols. Jimp's format packages decode the first four and the WebP decoder of jSquash the last, both loaded on the
+// first picture so the chat starts without them. kitty and iTerm2 take the pixels encoded as PNG and scale them to the box
+// themselves, and Sixel gets them scaled and mapped to a 6x6x6 colour cube. cli/terminal-replies.ts asks the terminal
+// which protocol it speaks, and cli/chat-controller.ts places the picture in the command window.
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 
 export type Pixels = { width: number; height: number; rgba: Uint8Array };
 export type Size = { width: number; height: number };
 
-const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 /** The most pixels a picture may hold before the chat declines to decode it: past any picture the chat carries. */
 const MAX_PIXELS = 40_000_000;
-/** Samples per pixel of each PNG colour type. */
-const CHANNELS: Readonly<Record<number, number>> = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
 
-export const isPng = (bytes: Uint8Array): boolean => PNG_SIGNATURE.every((byte, at) => bytes[at] === byte);
-
-const u32 = (bytes: Uint8Array, at: number): number =>
-  ((bytes[at] << 24) | (bytes[at + 1] << 16) | (bytes[at + 2] << 8) | bytes[at + 3]) >>> 0;
-const u16 = (bytes: Uint8Array, at: number): number => (bytes[at] << 8) | bytes[at + 1];
-
-/** The width and height a JPEG's frame header declares, null when none is found. */
-function jpegSize(bytes: Uint8Array): Size | null {
-  let at = 2;
-  while (at + 9 < bytes.length) {
-    if (bytes[at] !== 0xff) return null;
-    const marker = bytes[at + 1];
-    const isFrame = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
-    if (isFrame) return { width: u16(bytes, at + 7), height: u16(bytes, at + 5) };
-    at += 2 + u16(bytes, at + 2);
-  }
-  return null;
-}
-
-/** The size a PNG, JPEG or GIF declares in its header, null for any other bytes. */
-export function imageSize(bytes: Uint8Array): Size | null {
-  if (isPng(bytes) && bytes.length >= 24) return { width: u32(bytes, 16), height: u32(bytes, 20) };
-  if (bytes[0] === 0xff && bytes[1] === 0xd8) return jpegSize(bytes);
-  const head = String.fromCharCode(...bytes.slice(0, 6));
-  if ((head === 'GIF87a' || head === 'GIF89a') && bytes.length >= 10)
-    return { width: bytes[6] | (bytes[7] << 8), height: bytes[8] | (bytes[9] << 8) };
-  return null;
-}
-
-type Header = { width: number; height: number; depth: number; colour: number; interlaced: boolean };
-
-/** The chunks of a PNG: its header, palette, transparency and joined image data. */
-function chunksOf(bytes: Uint8Array): { header: Header; palette: Uint8Array; alpha: Uint8Array; data: Buffer } | null {
-  let header: Header | null = null;
-  let palette = new Uint8Array();
-  let alpha = new Uint8Array();
-  const data: Array<Uint8Array> = [];
-  for (let at = 8; at + 8 <= bytes.length;) {
-    const length = u32(bytes, at);
-    const type = String.fromCharCode(...bytes.slice(at + 4, at + 8));
-    const body = bytes.slice(at + 8, at + 8 + length);
-    if (type === 'IHDR')
-      header = {
-        width: u32(body, 0),
-        height: u32(body, 4),
-        depth: body[8],
-        colour: body[9],
-        interlaced: body[12] === 1,
-      };
-    else if (type === 'PLTE') palette = body;
-    else if (type === 'tRNS') alpha = body;
-    else if (type === 'IDAT') data.push(body);
-    else if (type === 'IEND') break;
-    at += 12 + length;
-  }
-  return header === null ? null : { header, palette, alpha, data: Buffer.concat(data) };
-}
-
-const paeth = (left: number, up: number, corner: number): number => {
-  const guess = left + up - corner;
-  const toLeft = Math.abs(guess - left);
-  const toUp = Math.abs(guess - up);
-  const toCorner = Math.abs(guess - corner);
-  if (toLeft <= toUp && toLeft <= toCorner) return left;
-  return toUp <= toCorner ? up : corner;
+type Bitmap = { width: number; height: number; data: Uint8Array | Uint8ClampedArray };
+type JimpImage = { bitmap: Bitmap; getBuffer: (mime: 'image/png') => Promise<Buffer> };
+type Codecs = {
+  fromBuffer: (bytes: Buffer) => Promise<JimpImage>;
+  fromBitmap: (bitmap: Bitmap) => JimpImage;
+  webp: (bytes: Uint8Array) => Promise<Bitmap>;
 };
 
-/** The image data with each row's filter undone: `rowBytes` bytes a row, `step` bytes a whole pixel. */
-function unfilter(raw: Buffer, height: number, rowBytes: number, step: number): Uint8Array | null {
-  const out = new Uint8Array(height * rowBytes);
-  for (let y = 0; y < height; y += 1) {
-    const filter = raw[y * (rowBytes + 1)];
-    const from = y * (rowBytes + 1) + 1;
-    const row = y * rowBytes;
-    for (let x = 0; x < rowBytes; x += 1) {
-      const value = raw[from + x];
-      const left = x >= step ? out[row + x - step] : 0;
-      const up = y > 0 ? out[row - rowBytes + x] : 0;
-      const corner = x >= step && y > 0 ? out[row - rowBytes + x - step] : 0;
-      const predicted = [0, left, up, (left + up) >> 1, paeth(left, up, corner)][filter];
-      if (predicted === undefined || value === undefined) return null;
-      out[row + x] = (value + predicted) & 0xff;
-    }
-  }
-  return out;
+let codecs: Promise<Codecs> | null = null;
+
+/** The decoders and the PNG encoder, imported and the WebP module compiled on the first call. */
+function loadCodecs(): Promise<Codecs> {
+  return (codecs ??= (async () => {
+    const [{ createJimp }, bmp, gif, jpeg, png, webp] = await Promise.all([
+      import('@jimp/core'),
+      import('@jimp/js-bmp'),
+      import('@jimp/js-gif'),
+      import('@jimp/js-jpeg'),
+      import('@jimp/js-png'),
+      import('@jsquash/webp/decode.js'),
+    ]);
+    const jimp = createJimp({ formats: [bmp.default, gif.default, jpeg.default, png.default], plugins: [] }) as Omit<
+      Codecs,
+      'webp'
+    >;
+    const wasm = await readFile(fileURLToPath(import.meta.resolve('@jsquash/webp/codec/dec/webp_dec.wasm')));
+    await (webp.init as (module: WebAssembly.Module) => Promise<void>)(await WebAssembly.compile(wasm));
+    return {
+      fromBuffer: (bytes) => jimp.fromBuffer(bytes),
+      fromBitmap: (bitmap) => jimp.fromBitmap(bitmap),
+      webp: async (bytes) => webp.default(new Uint8Array(bytes).buffer),
+    };
+  })());
 }
 
-/** Whether the chat reads a PNG of this header: not interlaced, a known colour type and depth, not too large. */
-function isReadable(header: Header): boolean {
-  const { width, height, depth, colour } = header;
-  if (CHANNELS[colour] === undefined || header.interlaced || width === 0 || height === 0) return false;
-  if (width * height > MAX_PIXELS) return false;
-  return colour === 3 ? [1, 2, 4, 8].includes(depth) : depth === 8 || depth === 16;
+const isWebp = (bytes: Uint8Array): boolean =>
+  Buffer.from(bytes.subarray(0, 4)).toString('latin1') === 'RIFF' &&
+  Buffer.from(bytes.subarray(8, 12)).toString('latin1') === 'WEBP';
+
+/** The pixels a PNG or GIF header declares, 0 for other bytes, so a small file of a huge picture is never inflated. */
+function declaredPixels(bytes: Buffer): number {
+  if (bytes.length >= 24 && bytes.toString('latin1', 1, 4) === 'PNG')
+    return bytes.readUInt32BE(16) * bytes.readUInt32BE(20);
+  if (bytes.length >= 10 && bytes.toString('latin1', 0, 3) === 'GIF')
+    return bytes.readUInt16LE(6) * bytes.readUInt16LE(8);
+  return 0;
 }
 
-/** Writes pixel `x` of row `y` as RGBA at `out`, from the unfiltered rows of a PNG of `header`. */
-function writePixel(
-  rgba: Uint8Array,
-  out: number,
-  rows: Uint8Array,
-  at: { x: number; y: number; rowBytes: number },
-  png: { header: Header; palette: Uint8Array; alpha: Uint8Array }
-): void {
-  const { depth, colour } = png.header;
-  const { x, y, rowBytes } = at;
-  if (colour === 3) {
-    const bit = x * depth;
-    const index = (rows[y * rowBytes + (bit >> 3)] >> (8 - depth - (bit & 7))) & ((1 << depth) - 1);
-    rgba.set([png.palette[index * 3] ?? 0, png.palette[index * 3 + 1] ?? 0, png.palette[index * 3 + 2] ?? 0], out);
-    rgba[out + 3] = png.alpha[index] ?? 255;
-    return;
-  }
-  const channels = CHANNELS[colour] ?? 1;
-  const sampleBytes = depth === 16 ? 2 : 1;
-  const start = y * rowBytes + x * channels * sampleBytes;
-  const sample = (n: number): number => rows[start + n * sampleBytes];
-  const grey = colour === 0 || colour === 4;
-  rgba[out] = sample(0);
-  rgba[out + 1] = grey ? sample(0) : sample(1);
-  rgba[out + 2] = grey ? sample(0) : sample(2);
-  rgba[out + 3] = colour === 4 ? sample(1) : colour === 6 ? sample(3) : 255;
-}
-
-/** The pixels of a PNG as RGBA, null for anything it does not read: another format, an interlaced or damaged PNG. */
-export function decodePng(bytes: Uint8Array): Pixels | null {
-  if (!isPng(bytes)) return null;
+/** The pixels of a picture as RGBA, null for anything the chat does not read: an unknown format or a damaged file. */
+export async function decodeImage(bytes: Uint8Array): Promise<Pixels | null> {
+  const buffer = Buffer.from(bytes);
+  if (buffer.length === 0 || declaredPixels(buffer) > MAX_PIXELS) return null;
   try {
-    const png = chunksOf(bytes);
-    if (png === null || !isReadable(png.header)) return null;
-    const { width, height, depth, colour } = png.header;
-    const channels = CHANNELS[colour] ?? 1;
-    const rowBytes = Math.ceil((width * channels * depth) / 8);
-    const raw = inflateSync(png.data);
-    if (raw.length < height * (rowBytes + 1)) return null;
-    const rows = unfilter(raw, height, rowBytes, Math.max(1, (channels * depth) >> 3));
-    if (rows === null) return null;
-    const rgba = new Uint8Array(width * height * 4);
-    for (let y = 0; y < height; y += 1)
-      for (let x = 0; x < width; x += 1) writePixel(rgba, (y * width + x) * 4, rows, { x, y, rowBytes }, png);
-    return { width, height, rgba };
+    const { fromBuffer, webp } = await loadCodecs();
+    const { width, height, data } = isWebp(buffer) ? await webp(buffer) : (await fromBuffer(buffer)).bitmap;
+    if (width === 0 || height === 0 || width * height > MAX_PIXELS || data.length < width * height * 4) return null;
+    return { width, height, rgba: new Uint8Array(data.buffer, data.byteOffset, width * height * 4) };
   } catch {
     return null;
   }
+}
+
+/** The PNG file of `image`, for the terminals that take a file and scale it themselves. */
+export async function encodePng(image: Pixels): Promise<Uint8Array> {
+  const { fromBitmap } = await loadCodecs();
+  const data = Buffer.from(image.rgba.buffer, image.rgba.byteOffset, image.rgba.byteLength);
+  return fromBitmap({ width: image.width, height: image.height, data }).getBuffer('image/png');
 }
 
 /** The pixel size of one terminal cell when the terminal does not say: the common 10 by 20. */
