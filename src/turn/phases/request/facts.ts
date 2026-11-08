@@ -6,6 +6,7 @@
 import { selfreflectionPlaceNotes } from '../../selfreflection.ts';
 import { accountOf } from '../../../memory/addresses.ts';
 import { messageLinkOf } from '../../../behavior/elsewhere.ts';
+import { portAt } from '../../../interface/capabilities.ts';
 import { FACTS_SHOWN_MAX, factPayload } from '../../../behavior/inner.ts';
 import { isTaggedCall } from '../../../behavior/mention.ts';
 import { usesFollowUpTask } from '../../../behavior/prompt.ts';
@@ -95,7 +96,7 @@ export async function tellFacts(ctx: PhaseContext, params: PhaseParams, draft: D
       store.getUser?.(accountOf(store, String(fact.authorId)))?.names?.[0] ??
       '',
     messageId: fact.messageId,
-    link: messageLinkOf(iface, isDm ? null : placeId, channel.id, fact.messageId),
+    link: messageLinkOf(portAt(iface, ctx.chatOf(channel)), isDm ? null : placeId, channel.id, fact.messageId),
     at: fact.at,
     code: fact.code,
   }));
