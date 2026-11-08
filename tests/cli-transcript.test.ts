@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatEntry } from '../cli/index.ts';
-import { KEY, chatEnv, shows, until, withChat } from './fixtures/chat-rig.ts';
+import { KEY, chatEnv, press, shows, until, withChat } from './fixtures/chat-rig.ts';
 
 type Stored = ChatEntry & { id: string };
 
@@ -61,4 +61,35 @@ test('Page Up at the top asks for the page before the oldest line shown and draw
     );
   });
   assert.deepEqual(asked.slice(0, 2), [null, 's3']);
+});
+
+// A line's time, from the specifier's shape: `ChatEntry.at` (ms since the epoch, when it was sent) and `ChatEnv.timeZone`
+// (`bot.timezone`), drawn as the date and the minute in that zone.
+const SENT = Date.UTC(2026, 10, 8, 13, 4);
+const DRAWN = Date.UTC(2026, 10, 9, 7, 30);
+
+test('a stored line carries the time it was sent, not the time it was drawn', async () => {
+  // Bug: the transcript shows no times, or a line loaded from memory shows the moment the chat opened.
+  const { env } = chatEnv({
+    storedPage: (before) =>
+      Promise.resolve(before === null ? [{ id: 's1', who: 'owner', text: 'ΓΡΑΜΜΗ-ΠΡΩΤΗ', at: SENT }] : []),
+    now: () => DRAWN,
+    timeZone: 'UTC',
+  });
+  await withChat(env, async (rig) => {
+    await until(shows(rig, 'ΓΡΑΜΜΗ-ΠΡΩΤΗ'));
+    const screen = rig.screen().join('\n');
+    assert.ok(screen.includes('2026-11-08 13:04'), screen);
+    assert.ok(!screen.includes('2026-11-09 07:30'));
+  });
+});
+
+test("the owner's line just sent carries its send time in the persona's zone", async () => {
+  // Bug: the time is the server's local clock or UTC whatever `bot.timezone` says.
+  const { env } = chatEnv({ now: () => SENT, timeZone: 'Asia/Tokyo' });
+  await withChat(env, async (rig) => {
+    await press(rig, 'ΓΡΑΜΜΗ-ΝΕΑ', shows(rig, '> ΓΡΑΜΜΗ-ΝΕΑ'));
+    rig.type(KEY.enter);
+    await until(shows(rig, '2026-11-08 22:04'));
+  });
 });

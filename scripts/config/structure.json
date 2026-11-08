@@ -428,6 +428,7 @@
         "src/interface/neptunia-cli.ts",
         "src/interface/commands/chat-state.ts",
         "src/interface/commands/console.ts",
+        "src/interface/commands/status-brief.ts",
         "src/interface/mode.ts",
         "src/interface/principals.ts",
         "src/interface/reads.ts",

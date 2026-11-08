@@ -585,6 +585,7 @@ async function runInkChat(
   const settings = readConfig(where.rootDir, { privateDir: where.privateDir }) as {
     cli?: { mouse?: boolean; bindings?: Array<KeyBinding> };
     context?: { channelMessages?: number };
+    bot?: { timezone?: string };
   };
   const linear = process.env.NEPTUNIA_LINEAR === '1';
   let entry: (one: ChatEntry) => void = () => {};
@@ -704,10 +705,14 @@ async function runInkChat(
       const count = settings.context?.channelMessages ?? 100;
       const answer = await link.ask({ name: 'session.page', args: { before, count } });
       if (answer.status !== 'ok') return [];
-      const { lines } = JSON.parse(answer.text) as { lines: Array<{ id: string; who: 'owner' | 'her'; text: string }> };
+      const { lines } = JSON.parse(answer.text) as {
+        lines: Array<{ id: string; at?: number; who: 'owner' | 'her'; text: string }>;
+      };
       return lines;
     },
     now: () => Date.now(),
+    // Her clock, as `src/time.ts` reads it.
+    timeZone: settings.bot?.timezone ?? 'UTC',
     subscribe(listeners) {
       entry = listeners.entry;
       question = listeners.question;
@@ -736,7 +741,7 @@ async function runInkChat(
       chatPanel(line, run, interfaceNames(where.privateDir), {
         showLines(lines) {
           link.showLines(lines);
-          showView(lines.map((one) => ({ who: one.who === 'her' ? 'her' : 'owner', text: one.text })));
+          showView(lines.map((one) => ({ who: one.who === 'her' ? 'her' : 'owner', text: one.text, at: one.at })));
         },
       }),
     cancelTurn(turnId) {

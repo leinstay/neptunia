@@ -38,7 +38,18 @@ The CLI authenticates through `data/clients.json` and `data/clients/cli.token`. 
 | Ctrl+C | Copy the mouse selection when there is one, otherwise exit the CLI |
 | Ctrl+D on an empty input | Exit the CLI |
 
-The chat has no row of key hints. `/help` lists the commands. The Project Neptunia header shows separate lines for the core, memory and enabled interfaces. Missing reports show a check in progress, and old reports are marked outdated. A lost core connection leaves memory and interface states unknown. The input stays at the bottom as the terminal resizes. `/status` opens the detailed view. `NEPTUNIA_REDUCED_MOTION=1` stops the galaxy animation, and `NEPTUNIA_LINEAR=1` draws the plain column described under [Rendering](#rendering).
+The chat has no row of key hints. `/help` lists the commands. The Project Neptunia header has one line for each of the core, memory and the analyzer, in the form `Core: active · anthropic/claude-opus-4.6 · via claude-harness`, and a line for the enabled interfaces, such as `Interfaces: Discord (active)`. The model is the one the route runs: a role on a harness names the harness's model, and a role on the API names its configured model with the route `direct-api`. The analyzer runs on the API alone. `statusBrief` in `src/interface/commands/status-brief.ts` reads these facts from the pause, `memoryDb.session.mode`, the last memory probe, the key ring and the `subharness` records of `keys.json`, with no request. Each line is cut to the width.
+
+Every line uses the same four state words (`statusLine` in `cli/state.ts`):
+
+| Word | Core | Memory | Analyzer | Interface |
+|---|---|---|---|---|
+| `active` | running, with a key or a harness | session in `apply` or `shadow`, probe passed or not yet run | a model and a key | connected |
+| `paused` | paused, with the reason beside it | | | |
+| `disabled` | | `memoryDb.session.mode` is `off` | no model | no interface enabled |
+| `error` | no key on `direct-api` | no key on `direct-api`, or the probe failed | no key | disconnected |
+
+A lost core connection marks every line `error (connection lost)`, the lines read `…` until the first report, and a report older than a minute is marked outdated. The input stays at the bottom as the terminal resizes. `/status` opens the detailed view. `NEPTUNIA_REDUCED_MOTION=1` stops the galaxy animation, and `NEPTUNIA_LINEAR=1` draws the plain column described under [Rendering](#rendering).
 
 ## Pastes and history
 
@@ -63,6 +74,8 @@ The galaxy is drawn in a box of 13 by 5 cells that never shrinks, and a status l
 `cli/chat-controller.ts` gives the transcript what the other parts leave: the transcript budget is `max(0, R - F - C - O)` (`transcriptBudget` in `cli/layout.ts`), with `R` the terminal's rows, `F` the header, notice and question rows, `C` the input with its borders, and `O` the slash menu or a panel. Everything is counted in cells by `cli/layout.ts`: Backspace and the caret cross a whole grapheme, wrapping never splits a wide glyph, and the caret stands on the next row when its row is full. The input grows to at most 8 rows, then scrolls inside its box with the caret's row in view and a row counting what is hidden. Deleting rows gives them back to the transcript.
 
 `cli/transcript.ts` wraps each entry to the width and draws only the rows that fit, however long the session. Following the tail and reading further up are separate views. Page Up anchors the view to an entry and a row inside it, so a new answer or a resize leaves the reader in place, and reaching the end follows the tail again. An answer folds to at most 20 lines, fewer when the terminal has less room, so it starts on the screen. Ctrl+O changes one entry. An expanded last entry taller than the budget shows its newest rows, and Page Up reaches the rest. The full text stays in the entry.
+
+Each line of the owner and of hers carries the date and minute it was sent, such as `2026-11-08 13:04`, on a muted row above its text and in line with it, as Hermes draws its timestamps (`ui-tui/src/components/messageLine.tsx`). The zone is `bot.timezone` (default `UTC`). A stored line keeps its stored time (`at` of `session.page`), and a new line takes the time it reached the chat. A command's answer carries none.
 
 A stored control character is drawn as one visible character (`displaySafe`), so a line from memory can neither run an escape sequence nor vanish unseen. The owner's line starts with `> `, a command's answer with `· ` and her reply with no mark, so the kinds differ without colour. The selected row of the slash menu carries `›` beside its inverse video. Fenced code, quotes and headings get a style by their line, and their text stays as it arrived.
 
@@ -111,7 +124,7 @@ Each slash command replaces the panel request before it. An answer of a request 
 
 `createTurnControl` in `src/turn/control.ts` owns the state of every line the chat or `neptunia -p` sends: accepted, queued, running, and committed, cancelled or failed. Each event names its turn and carries a rising `seq`. The core sends them to a client that asked with `turn.replay`, as a `command.result` of status `turn` (`src/protocol/turn-control.ts`), and `cli/turn-state.ts` builds the chat's picture from them and from nothing else. Her replies still arrive as messages, so the events carry the turn's state and the reply its words.
 
-A line goes through the event door when it arrives, like a message of any other interface (`src/interface/chat-turns.ts`). Memory observes it at once, and the pipeline's own queue decides when its turn runs: one turn at a time, with at most `mention.maxPending` calls waiting for `mention.pendingMinutes`. The control adds no helper model and holds no line back: it tracks the order and states the client shows, one turn running at a time. The row above the input shows the running turn, its newest tool step and how many lines wait. The same request id sent twice is one line. A failed turn leaves a line in the transcript, and the next line goes on.
+A line goes through the event door when it arrives, like a message of any other interface (`src/interface/chat-turns.ts`). Memory observes it at once, and the pipeline's own queue decides when its turn runs: one turn at a time, with at most `mention.maxPending` calls waiting for `mention.pendingMinutes`. The control adds no helper model and holds no line back: it tracks the order and states the client shows, one turn running at a time. The row above the input shows what her running turn does now and how many lines wait: the names of the calls that began and have not returned, such as `using conversation.read`, or that her turn runs when no call does. A call's result never shows there, and the row goes when the core reports the turn's end. The same request id sent twice is one line. A failed turn leaves a line in the transcript, and the next line goes on.
 
 A line that waits is already said, so its text cannot be edited, and `/queue` offers no edit. Enter on a row of `/queue` cancels the turn over that line, and the line stays in memory, where she can read it. A cancel of a waiting line acknowledges at once, and when the pipeline reaches it the runner ends its turn before any request.
 

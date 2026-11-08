@@ -55,8 +55,9 @@ function envOf(over: Partial<ChatEnv> = {}) {
     subscribe: (given) => Object.assign(listeners, given),
     status: () =>
       Promise.resolve({
-        core: { state: 'running', reason: null },
-        memory: { path: 'direct', model: null, probe: 'ok', checkedAt: 1 },
+        core: { state: 'running', reason: null, model: null, route: 'direct-api', bound: true },
+        memory: { session: 'apply', model: null, route: 'direct-api', bound: true, probe: 'ok', checkedAt: 1 },
+        analyzer: { model: null, route: 'direct-api', bound: true },
         interfaces: [],
       }),
     saveHistory: (lines) => saved.push(lines),
@@ -94,9 +95,10 @@ test("the screen shows the galaxy, the status line, and a typed line reaches the
   await withChat(env, async (rig) => {
     assert.match(rig.frames(), /neptunia/);
     assert.match(rig.frames(), /@/);
-    await until(() => /Core: running/.test(rig.frames()));
+    // The header of 2026-11-08 says `active` for a running core: the word of this assertion follows it.
+    await until(() => /Core: active/.test(rig.frames()));
     // The header presents each status on its own readable line.
-    assert.match(rig.frames(), /Core: running/);
+    assert.match(rig.frames(), /Core: active/);
     rig.type('γεια');
     await until(shows(rig, '> γεια'));
     rig.type('\r');

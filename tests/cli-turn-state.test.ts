@@ -232,3 +232,36 @@ test('a lost link says so, and the turn state stays what the core last said unti
     assert.match(shown, /and-more/);
   });
 });
+
+const step = (seq: number, name: string, detail: string): ClientTurnEvent => ({
+  type: 'progress',
+  turnId: 't1',
+  seq,
+  at: AT,
+  kind: 'tool',
+  name,
+  detail,
+});
+
+test('the row above the input names the calls in progress, never a result status, and goes with the turn', async () => {
+  // Bug: the row read `conversation.read not_configured` after the call had returned, a result status that looks like
+  // a broken setting, and it stayed there for the rest of the turn.
+  const { env, event } = turnChat();
+  await withChat(env, async (rig) => {
+    event(accepted('t1', 1));
+    event(running('t1', 2));
+    event(step(3, 'conversation.read', 'started'));
+    event(step(4, 'memory.recall', 'started'));
+    await until(shows(rig, 'memory.recall'));
+    assert.ok(rig.screen().join('\n').includes('conversation.read'), 'both calls in progress');
+    assert.ok(!rig.screen().join('\n').includes('started'), 'no step word');
+    event(step(5, 'conversation.read', 'not_configured'));
+    await until(() => !rig.screen().join('\n').includes('conversation.read'));
+    const screen = rig.screen().join('\n');
+    assert.ok(!screen.includes('not_configured'), 'no result status');
+    assert.ok(screen.includes('memory.recall'), 'the call still in progress stays');
+    event({ type: 'committed', turnId: 't1', seq: 6, at: AT, responseId: 'r1' });
+    await until(() => !rig.screen().join('\n').includes('memory.recall'));
+    assert.ok(!rig.screen().join('\n').includes('Her turn'), 'nothing of the turn stays once it ended');
+  });
+});

@@ -17,13 +17,38 @@ import {
 import type { StatusBrief } from '../cli/state.ts';
 
 const BRIEF: StatusBrief = {
-  core: { state: 'paused', reason: 'memory-down' },
-  memory: { path: 'claude', model: 'opus', probe: 'failed', checkedAt: 1000 },
+  core: { state: 'paused', reason: 'memory-down', model: 'opus', route: 'claude-harness', bound: true },
+  memory: { session: 'apply', model: 'opus', route: 'claude-harness', bound: true, probe: 'failed', checkedAt: 1000 },
+  analyzer: { model: 'opus', route: 'direct-api', bound: true },
   interfaces: [
     { name: 'discord', enabled: true, connected: false },
     { name: 'telegram', enabled: false, connected: false },
   ],
 };
+
+/** All of it working: the core runs, memory writes, the analyzer has its key, Discord is connected. */
+const HEALTHY: StatusBrief = {
+  core: { state: 'running', reason: null, model: 'anthropic/claude-opus-4.6', route: 'claude-harness', bound: true },
+  memory: {
+    session: 'apply',
+    model: 'claude-opus-4-6',
+    route: 'claude-harness',
+    bound: true,
+    probe: 'ok',
+    checkedAt: 1000,
+  },
+  analyzer: { model: 'google/gemini-3-flash', route: 'direct-api', bound: true },
+  interfaces: [{ name: 'discord', enabled: true, connected: true }],
+};
+
+const header = (brief: StatusBrief): Array<string> =>
+  statusLine(brief, { connected: true, polledAt: 1000, now: 2000 }).split('\n');
+/** The state word of the line that starts with `label`. */
+const stateOf = (lines: ReadonlyArray<string>, label: string): string | undefined =>
+  lines
+    .find((line) => line.startsWith(`${label}: `))
+    ?.slice(label.length + 2)
+    .split(/[ ·(]/)[0];
 
 test('a multiline paste with non-Latin text stays whole and backspace removes one whole character', () => {
   // Bug: a pasted newline sends the line early, or backspace cuts an emoji in half.
@@ -77,22 +102,59 @@ test('a long answer folds with a count and expands whole', () => {
   assert.deepEqual(filterLines(['a key', 'b'], 'KEY'), ['a key']);
 });
 
-test('the header separates core, memory and enabled interfaces, and marks what is lost or stale', () => {
-  // Bug: a dropped connection or an old poll still reads as healthy, or the reason of a pause is hidden.
-  // The header uses separate readable status lines and lists enabled interfaces only.
-  const live = statusLine(BRIEF, { connected: true, polledAt: 1000, now: 2000 });
-  assert.match(live, /^Core: paused \(memory-down\)$/m);
-  assert.match(live, /^Memory: check failed · opus · claude$/m);
-  assert.match(live, /^Interfaces: Discord \(disconnected\)$/m);
-  assert.doesNotMatch(live, /telegram/i);
-  const stale = statusLine(BRIEF, { connected: true, polledAt: 1000, now: 100_000 });
-  assert.equal(stale.split('\n').filter((line) => line.endsWith(' (outdated)')).length, 3);
-  const lost = statusLine(BRIEF, { connected: false, polledAt: 1000, now: 2000 });
-  assert.equal(lost, 'Core: connection lost\nMemory: unknown\nInterfaces: unknown');
-  const checking = statusLine(null, { connected: true, polledAt: null, now: 2000 });
-  assert.equal(checking, 'Core: checking…\nMemory: checking…\nInterfaces: checking…');
-  const recovered = { ...BRIEF, core: { state: 'running', reason: null } } as const;
-  assert.match(statusLine(recovered, { connected: true, polledAt: 1000, now: 2000 }), /^Core: running$/m);
+test('the header gives one line per role with its state, its model once and its route', () => {
+  // Bug: the memory line names the model twice (the role's and the harness's) and runs past the width, and the core's and
+  // the analyzer's models and routes are nowhere on the screen. The owner's header of 2026-11-08 replaced the old lines
+  // (`Memory: ready · <model> · <path>`), so the expectations of the earlier test changed with it.
+  const lines = header(HEALTHY);
+  assert.deepEqual(
+    lines.map((line) => line.split(':')[0]),
+    ['Core', 'Memory', 'Analyzer', 'Interfaces']
+  );
+  const memory = lines[1] ?? '';
+  assert.equal(memory.split('claude-opus-4-6').length - 1, 1, 'the model the route runs, once');
+  assert.ok(!memory.includes('anthropic/claude-opus-4.6'), 'no second model name');
+  assert.ok(memory.endsWith('claude-harness'), memory);
+  assert.ok((lines[0] ?? '').includes('anthropic/claude-opus-4.6') && (lines[0] ?? '').endsWith('claude-harness'));
+  assert.ok((lines[2] ?? '').includes('google/gemini-3-flash') && (lines[2] ?? '').endsWith('direct-api'));
+});
+
+test('one state word means the same on every line of the header', () => {
+  // Bug: a running core reads `running`, a working memory `ready` and a connected interface `connected`, so the owner
+  // cannot tell at a glance that everything works; or a broken part reads like a working one.
+  const lines = header(HEALTHY);
+  const working = ['Core', 'Memory', 'Analyzer'].map((label) => stateOf(lines, label));
+  assert.equal(new Set(working).size, 1, working.join(' '));
+  assert.match(lines[3] ?? '', new RegExp(`^Interfaces: Discord \\(${working[0] ?? ''}\\)$`));
+  const broken = header(BRIEF);
+  // A failed memory probe and a disconnected interface are the same fact: something that should work does not.
+  assert.equal(stateOf(broken, 'Memory'), /\((\w+)\)$/.exec(broken[3] ?? '')?.[1]);
+  assert.notEqual(stateOf(broken, 'Memory'), working[0]);
+  assert.match(broken[0] ?? '', /\(memory-down\)/, 'a pause keeps its reason');
+  assert.notEqual(stateOf(broken, 'Core'), working[0]);
+  assert.doesNotMatch(broken.join('\n'), /telegram/i, 'only enabled interfaces');
+});
+
+test('a role with no key, a memory session that is off and an analyzer without a model each read as not working', () => {
+  // Bug: a role whose direct route has no key shows as working, and her turns or sweeps fail with nothing on the screen.
+  const active = stateOf(header(HEALTHY), 'Core');
+  const unbound = header({ ...HEALTHY, analyzer: { ...HEALTHY.analyzer, bound: false } });
+  assert.notEqual(stateOf(unbound, 'Analyzer'), active);
+  const off = header({ ...HEALTHY, memory: { ...HEALTHY.memory, session: 'off' } });
+  assert.notEqual(stateOf(off, 'Memory'), active);
+  assert.notEqual(stateOf(off, 'Memory'), stateOf(unbound, 'Analyzer'), 'off and without a key are different facts');
+  const noModel = header({ ...HEALTHY, analyzer: { ...HEALTHY.analyzer, model: null } });
+  assert.equal(stateOf(noModel, 'Analyzer'), stateOf(off, 'Memory'), 'a role that does not run is off on every line');
+});
+
+test('a lost link or an old poll says so on every line', () => {
+  // Bug: a dropped connection or an old poll still reads as healthy.
+  const stale = statusLine(HEALTHY, { connected: true, polledAt: 1000, now: 100_000 }).split('\n');
+  assert.equal(stale.filter((line) => line.endsWith(' (outdated)')).length, 4);
+  const lost = statusLine(HEALTHY, { connected: false, polledAt: 1000, now: 2000 }).split('\n');
+  assert.equal(lost.length, 4);
+  assert.equal(new Set(lost.map((line) => line.split(': ')[1])).size, 1, 'nothing known, the same word on each line');
+  assert.notEqual(stateOf(lost, 'Core'), stateOf(header(HEALTHY), 'Core'));
 });
 
 test('the galaxy turns tick by tick, repeats, and stands still under reduced motion', () => {

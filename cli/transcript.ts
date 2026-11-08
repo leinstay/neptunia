@@ -6,9 +6,10 @@
 import { wrapWords } from './layout.ts';
 import { foldedText } from './state.ts';
 
-export type TranscriptEntry = { id: string; text: string };
+/** `stamp` is a muted row above the entry's first line of text, after the blank rows it opens with. */
+export type TranscriptEntry = { id: string; text: string; stamp?: string };
 export type RowBlock = 'plain' | 'code' | 'quote' | 'heading';
-export type TranscriptRow = { entryId: string; text: string; kind: 'text' | 'fold'; block: RowBlock };
+export type TranscriptRow = { entryId: string; text: string; kind: 'text' | 'fold' | 'stamp'; block: RowBlock };
 export type TranscriptView = { kind: 'tail' } | { kind: 'anchor'; entryId: string; row: number };
 export type TranscriptDims = { columns: number; budget: number; expanded: ReadonlySet<string>; foldLines: number };
 export type TranscriptWindow = {
@@ -41,6 +42,29 @@ export function displaySafe(text: string): string {
   });
 }
 
+/**
+ * When a line was sent, as the date and the minute in `timeZone` (`2026-11-08 13:04`), the machine's own zone when it is
+ * absent or unknown.
+ */
+export function lineTime(at: number, timeZone?: string): string {
+  const options: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  };
+  let format: Intl.DateTimeFormat;
+  try {
+    format = new Intl.DateTimeFormat('en-US', { ...options, timeZone });
+  } catch {
+    format = new Intl.DateTimeFormat('en-US', options);
+  }
+  const part = Object.fromEntries(format.formatToParts(new Date(at)).map((one) => [one.type, one.value]));
+  return `${part.year}-${part.month}-${part.day} ${part.hour}:${part.minute}`;
+}
+
 function expandTabs(line: string): string {
   let out = '';
   for (const char of line) out += char === '\t' ? ' '.repeat(TAB_STOP - (out.length % TAB_STOP)) : char;
@@ -56,7 +80,12 @@ function entryRows(
   const folded = foldedText(entry.text, isExpanded, foldLines);
   const rows: Array<TranscriptRow> = [];
   let inCode = false;
+  let stamp = entry.stamp;
   for (const line of folded.text.split('\n')) {
+    if (stamp !== undefined && line !== '') {
+      rows.push({ entryId: entry.id, text: stamp.slice(0, columns), kind: 'stamp', block: 'plain' });
+      stamp = undefined;
+    }
     const isFence = line.trimStart().startsWith('```');
     const block: RowBlock =
       inCode || isFence ? 'code' : line.startsWith('>') ? 'quote' : /^#{1,6} /.test(line) ? 'heading' : 'plain';

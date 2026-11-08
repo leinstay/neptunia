@@ -50,6 +50,19 @@ export const turnOf = (state: TurnsState, turnId: string): ClientTurn | null => 
 export const activeTurn = (state: TurnsState): ClientTurn | null =>
   [...state.turns.values()].find((turn) => turn.state === 'running') ?? null;
 
+/** The step word the core sends when a call begins; any other word is how a call ended (src/turn/tool-round.ts). */
+const CALL_STARTED = 'started';
+
+/** The names of the calls of `turn` that began and have not ended, in the order they began. */
+export function callsInProgress(turn: ClientTurn): Array<string> {
+  const open: Array<string> = [];
+  for (const step of turn.progress) {
+    if (step.detail === CALL_STARTED) open.push(step.name);
+    else if (open.includes(step.name)) open.splice(open.indexOf(step.name), 1);
+  }
+  return open;
+}
+
 /** The turns that wait, in the order the core took them. */
 export const queuedTurns = (state: TurnsState): Array<ClientTurn> =>
   state.order.flatMap((id) => {

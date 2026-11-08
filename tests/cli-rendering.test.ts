@@ -222,27 +222,38 @@ test('the animated header keeps its height and the title its column when a statu
   // Bug: a long memory line shrank the galaxy's box, so each frame wrapped differently: the title moved sideways and the
   // header grew past its rows, which pushed the frame over the viewport and left copies of the header in the scrollback.
   const brief = {
-    core: { state: 'running' as const, reason: null },
+    core: {
+      state: 'running' as const,
+      reason: null,
+      model: 'anthropic/claude-opus-4.6',
+      route: 'direct-api',
+      bound: true,
+    },
     memory: {
-      path: '/opt/neptunia/data/memory/memory.db',
-      model: 'text-embedding-3-large',
+      session: 'apply',
+      model: 'a-model-name-long-enough-to-run-past-the-terminal-width/and-then-some-more-of-it-to-be-sure',
+      route: 'claude-harness',
+      bound: true,
       probe: 'ok' as const,
       checkedAt: 1,
     },
+    analyzer: { model: 'google/flash', route: 'direct-api', bound: true },
     interfaces: [{ name: 'discord', enabled: true, connected: true }],
   };
   const { env } = chatEnv({ title: 'Project Neptunia', still: false, status: () => Promise.resolve(brief) });
   await withChat(
     env,
     async (rig) => {
-      await until(() => rig.screen().join('\n').includes('Memory: ready'));
+      // The header of 2026-11-08 has a line for the analyzer and one state word, so the memory line and the interfaces
+      // line moved: the row numbers and the word below follow it.
+      await until(() => rig.screen().join('\n').includes('Memory: active'));
       const columns = new Set<number>();
       const galaxies = new Set<string>();
       for (let sample = 0; sample < 12; sample += 1) {
         const screen = rig.screen();
         assert.ok(screen.length <= 50, `${screen.length} rows in a terminal of 50`);
         columns.add(screen[0]?.indexOf('Project Neptunia') ?? -1);
-        assert.match(screen[3] ?? '', /Interfaces: Discord/, 'the header lines stay on their rows');
+        assert.match(screen[4] ?? '', /Interfaces: Discord/, 'the header lines stay on their rows');
         galaxies.add(
           screen
             .slice(0, 5)
