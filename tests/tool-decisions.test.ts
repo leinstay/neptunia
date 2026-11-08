@@ -65,5 +65,6 @@ test('the committed table holds a row per tool of the registry and a verdict per
   // The tool watcher.read of the daily watcher is the 72nd, and skill.run of the executable skills the 73rd.
   // `task.unblock` joined the registry with the task-started development run.
   // `inner.stop` and `inner.start` left with `/wakes`.
-  assert.equal(committed.tools.length, 75);
+  // `person.link`, her link tool, is the 76th (plan 2026-11-08-meta-person slice 8).
+  assert.equal(committed.tools.length, 76);
 });

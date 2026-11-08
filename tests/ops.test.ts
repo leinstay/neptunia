@@ -103,6 +103,7 @@ const AGREED = new Set([
   'places.list',
   'tools.describe',
   'conversation.read',
+  'person.link',
   'inner.status',
 ]);
 
