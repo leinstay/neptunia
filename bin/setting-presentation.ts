@@ -118,7 +118,6 @@ const EXPLANATIONS: Record<string, string> = {
     'Use inprocess to run Discord with the core, or units to run each connection separately. Restart to apply.',
   'interfaces.drainMs': 'Time to allow ongoing actions to finish when disabling a connection, in milliseconds.',
   'interfaces.*.enabled': 'Allow this connection to connect to the core.',
-  'bot.owners': 'Owner accounts on the home connection, used until an owner identity is linked with /memory bind.',
   'bot.ownerPerson':
     'The owner meta-person, whose linked accounts have owner rights. The first line of the command line sets it on a new install, or /memory bind while it is empty.',
   'bot.placeId': 'Limit the home connection to this root. Detected automatically when there is only one.',

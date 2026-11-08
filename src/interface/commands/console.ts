@@ -2,7 +2,7 @@
 // table (src/interface/commands/table.ts). src/interface/neptunia-cli.ts hands it every command of that principal
 // but `status`, `header` and the interface switches, which it answers itself. A command whose leaf in the table
 // declares an operation (`operationOf`) runs it through `runOp` with the owner's context (`asOwner`,
-// src/tools/types.ts#OpContext), so the rights check passes it as the owner even while `bot.owners` is empty, and the
+// src/tools/types.ts#OpContext), so the rights check passes it as the owner even before any other account is his, and the
 // operation's own owner checks do too. The rest read
 // what the core holds: the live config, the usage accumulator, the memory database's read connection and the reply
 // metric. The console asks no model and calls no `fetch`, except the key limits of `/usage`, the probes of
@@ -50,6 +50,8 @@ import { searchCommand } from './search.ts';
 import { skillsCommand } from './skills.ts';
 import { MODULE_ACTIONS, moduleCommand } from './module-setup.ts';
 import type { ModuleAction } from './module-setup.ts';
+import { isSetupComplete, pairAfterSetup, pairCommand } from './interfaces-pair.ts';
+import type { PairCommands } from './interfaces-pair.ts';
 import { isMemoryBrowserCommand, memoryBrowserCommand } from './memory.ts';
 import { serviceCommand } from '../../keys/services.ts';
 import { probeProxy } from '../../net/proxy.ts';
@@ -111,6 +113,8 @@ export type ConsoleDeps = {
   memoryWriter?: () => 'ok' | 'down' | 'unknown';
   /** The memory database (src/memory/db/service.ts): `database()` is its read connection, null while it is closed. */
   memoryDb: unknown;
+  /** The owner's pairing of his accounts (src/interface/owner-pairing.ts), for `/interfaces pair` and the setup's end. */
+  pairing?: PairCommands | null;
   usage: { byRole(): Array<RoleRow>; sumDays(days: number): DaysSum } | null;
   /** The speed figures (src/tools/operations/metrics.ts): `samples('reply', 24)` are the reply durations of the last day. */
   metrics: unknown;
@@ -159,12 +163,12 @@ const ENGINE_ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
 
 type OwnCommandDeps = Pick<
   ConsoleDeps,
-  'dataDir' | 'hot' | 'memoryDb' | 'memoryWriter' | 'runOp' | 'statusBrief' | 'proxy'
+  'dataDir' | 'hot' | 'memoryDb' | 'memoryWriter' | 'runOp' | 'statusBrief' | 'proxy' | 'pairing'
 >;
 
 /** The commands answered by a module of their own, or null for any other. */
 function ownCommand(
-  { dataDir, hot, memoryDb, memoryWriter, runOp, statusBrief: brief, proxy }: OwnCommandDeps,
+  { dataDir, hot, memoryDb, memoryWriter, runOp, statusBrief: brief, proxy, pairing }: OwnCommandDeps,
   name: string,
   args: Record<string, unknown>,
   dialog: Dialog | null
@@ -197,8 +201,19 @@ function ownCommand(
   if (name === 'memory.bind') return personLinkCommand({ memoryDb, runOp, hot }, args, dialog);
   if ((name === 'memory.users.names.add' || name === 'memory.users.names.remove') && personWord(args.user))
     return ownerNameCommand(memoryDb, name, args);
+  const paired = pairCommand(pairing, name, args);
+  if (paired !== null) return paired;
   const action = moduleActionOf(name);
-  return action === null ? null : moduleRun(dataDir, name, action, args, dialog);
+  if (action === null) return null;
+  const ran = moduleRun(dataDir, name, action, args, dialog);
+  if (name !== 'interfaces.setup') return ran;
+  const iface = text(args.name);
+  const ref = { rootDir: ENGINE_ROOT, dataDir, kind: 'interface' as const, name: iface };
+  return ran.then((answer) =>
+    answer.status !== 'ok'
+      ? answer
+      : pairAfterSetup({ pairing, hot, iface, complete: isSetupComplete(ref), setupText: answer.text, dialog })
+  );
 }
 
 /** A person's id (`person:self`, `person:<id>`) where a name command takes an account: the name goes on the person. */

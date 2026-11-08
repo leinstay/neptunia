@@ -6,7 +6,7 @@
 //     place: { authority, key, kind, chat: 'dm' | 'group' | undefined, parent?, title?, partner? },
 //     author: { kind: 'account' | 'participant' | 'self', authority?, key?, token_kind?, scope_place?, display?, generation?, account_kind? },
 //     occurredAt, observedAt, text, media?, mentions?, direct?, relations?: [{ predicate, target }],
-//     capture?: { bundle?, role, reason?, coverage? }, extra?, consoleOwner?: { person, listed: [{ iface, native }] } }
+//     capture?: { bundle?, role, reason?, coverage? }, extra?, consoleOwner?: { person } }
 //   (`native.revision` may be absent only with `edited: true`: observe takes it from the database.)
 //
 // observe(handle, envelope) checks the envelope, then in ONE transaction resolves or creates the authority, the place,
@@ -286,10 +286,10 @@ export type Envelope = {
 };
 
 /**
- * On a line of the owner's command line: his person (`bot.ownerPerson`, or the one the core minted for a raw install)
- * and the accounts `bot.owners` lists, linked to that person in the same transaction (identity-links.ts).
+ * On a line of the owner's command line: his person (`bot.ownerPerson`, or the one the core minted for a raw install),
+ * linked to the command line's account in the same transaction (identity-links.ts).
  */
-export type ConsoleOwner = { person: string; listed: ReadonlyArray<{ iface: string; native: string }> };
+export type ConsoleOwner = { person: string };
 
 /** Runs `fn` in the handle's transaction; a refusal becomes `{ ok: false, code }` (logged with its code only). */
 function guarded<TResult>(
@@ -453,17 +453,10 @@ function tailCode(e: Row): string | null {
   return consoleOwnerOk(e.iface, e.consoleOwner) ? null : OBSERVE_CODES.BAD_ENVELOPE;
 }
 
-/** A console owner, when there is one, names a person and the listed accounts, on the command line only. */
+/** A console owner, when there is one, names a person, on the command line only. */
 function consoleOwnerOk(iface: unknown, owner: unknown): boolean {
   if (owner === undefined || owner === null) return true;
-  return (
-    iface === OWNER_CONSOLE_IFACE &&
-    isObject(owner) &&
-    filled(owner.person) &&
-    owner.person.startsWith('person:') &&
-    Array.isArray(owner.listed) &&
-    owner.listed.every((one: unknown) => isObject(one) && filled(one.iface) && filled(one.native))
-  );
+  return iface === OWNER_CONSOLE_IFACE && isObject(owner) && filled(owner.person) && owner.person.startsWith('person:');
 }
 
 // ---------- resolution ----------
@@ -1039,7 +1032,7 @@ function sourceExtraOf(e: Envelope): Row {
 
 /**
  * The account of the owner's command line, linked to his person before the line's place is resolved, so the DM and the
- * line itself name him; each account `bot.owners` lists is linked as well, its earlier person merged into his.
+ * line itself name him.
  */
 function claimConsole(db: Db, e: Envelope, at: string): void {
   const owner = e.consoleOwner;
@@ -1050,15 +1043,6 @@ function claimConsole(db: Db, e: Envelope, at: string): void {
     const authority = e.author.kind === 'account' ? (e.author.authority ?? e.authority) : e.authority;
     const account = accountOf(db, e.iface, { authority, key }, e.occurredAt, at);
     linkOwnerAccount(db, account.id, owner.person, at);
-  }
-  for (const listed of owner.listed) {
-    const authority = nativeAuthorityOf(listed.iface);
-    ensureAuthority(db, authority, listed.iface, authority.slice(listed.iface.length + 1));
-    const account = accountOf(db, listed.iface, { authority, key: listed.native }, e.occurredAt, at);
-    const earlier = earlierPersonOf(db, account.id);
-    linkOwnerAccount(db, account.id, owner.person, at);
-    if (earlier !== null && survivorOf(db, earlier) !== survivorOf(db, owner.person))
-      mergePersonInto(db, { from: earlier, into: owner.person, by: 'owner', reason: 'bot.owners', at });
   }
 }
 

@@ -688,6 +688,10 @@ export const COMMANDS: ReadonlyArray<Command> = [
         ]),
         'only'
       ),
+      sub('pair.open', 'Open pairing on an interface for an hour: write to her there and she answers with a code', [
+        arg('name'),
+      ]),
+      sub('pair', 'Approve the one-time code she answered on an interface: that account becomes yours', [arg('code')]),
       ...moduleSubcommands('interface'),
     ],
     otherwise: sub('command', "An interface's own subcommand", [arg('name'), arg('sub'), arg('rest', false)]),

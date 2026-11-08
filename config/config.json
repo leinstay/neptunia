@@ -5,7 +5,6 @@
   },
   "bot": {
     "timezone": "UTC",
-    "owners": [],
     "ownerPerson": "",
     "access": {}
   },

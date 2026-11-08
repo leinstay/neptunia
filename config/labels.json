@@ -1033,6 +1033,10 @@
         "failed": "gh gave no usable answer about {repository}. Check the name and that GitHub is reachable, then try again.",
         "no-modules": "The development checkout has no node_modules, so the tests of a task cannot run. Run npm install in selfimprovement.checkout, then unblock the task."
       }
+    },
+    "pairing": {
+      "code": "Your one-time pairing code is {code}. Type /interfaces pair {code} in her command line within an hour.",
+      "ask": "Write to her in a direct message on {iface}. She answers with a one-time code: type it here, or press Enter to approve it later with /interfaces pair <code>:"
     }
   }
 }

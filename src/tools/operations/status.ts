@@ -1,7 +1,7 @@
 // Operations: `/nep status [field]`: what the bot is doing now, read only. The reply is one
 // card (`cmdStatusCard`, plain card data the interface's command handler wraps for its platform), the
 // most important field first, for a phone; `field` keeps only that field and computes nothing
-// for the others. A member (anyone not in `bot.owners`) gets the card without the storage line,
+// for the others. A member (anyone the owner check refuses) gets the card without the storage line,
 // the keys, costs, memory and speed fields. Every field lists one item per line; the state field ends
 // with the gateway and the uptime. The card keeps three groups, matching the model config: the base
 // (`models.base`, `keys.base`, `costs.base`: her `core` and the other model roles), the errands (`models.errands`,

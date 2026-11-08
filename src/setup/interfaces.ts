@@ -7,7 +7,8 @@
 // token, and starts its instance `neptunia-interface@<name>.service` through the scope's manager, with no core running. A
 // repeat keeps a valid token and the client as they are. A deployment that already runs its interfaces inside the core
 // (`inprocess`, said outright or implied by an interface already enabled) stays that way, with no client and no unit.
-// `running` names only the instances the manager accepted.
+// `running` names only the instances the manager accepted. The detail names `/interfaces pair open <name>` for each
+// interface set up, the owner's next step there.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -110,7 +111,9 @@ export async function interfacesStep(where: Where, deps: InterfacesStepDeps): Pr
     if (refused !== null) return { state: 'failed', detail: `${name} did not start: ${refused}`, running };
     running.push(name);
   }
-  const shown = running.length === 0 ? '' : `; running: ${running.join(', ')}`;
+  // The owner proves his account on each new interface by pairing, once the core runs (src/interface/owner-pairing.ts).
+  const pair = changed.map((name) => `; pair your account there with /interfaces pair open ${name}`).join('');
+  const shown = `${running.length === 0 ? '' : `; running: ${running.join(', ')}`}${pair}`;
   return changed.length === 0
     ? { state: 'already', detail: `no interface setting changed${shown}`, running }
     : { state: 'done', detail: `set up ${changed.join(', ')}${shown}`, running };

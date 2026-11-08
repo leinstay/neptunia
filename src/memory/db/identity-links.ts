@@ -3,8 +3,8 @@
 // she and never by a name. The command line (`iface: 'cli'`) is spoken only by the `cli` principal, the owner, so its
 // account is linked to the owner's person (`bot.ownerPerson`, handed in by the core with the line) from its first line;
 // a tentative person she proposed for it merges into his, unless that person also holds a verified account of someone
-// else. On a raw install the core mints the owner's person with the first line, and the accounts listed in `bot.owners`
-// are linked to it in the same transaction, so nobody loses owner rights when the setting appears. An install that
+// else. On a raw install the core mints the owner's person with the first line; his accounts elsewhere join it by
+// pairing (src/interface/owner-pairing.ts) or `/memory bind`. An install that
 // stored the command line under `cli/global` has those rows moved to its native authority (`cli/local`,
 // src/protocol/identity.ts#nativeAuthorityOf) when the next line arrives, so the line finds its account and its place.
 // Used by observe.ts and scripts/memory-repair-identity.ts. Counts and codes only.
