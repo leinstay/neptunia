@@ -16,10 +16,10 @@ import type { Op } from './operations/registry.ts';
 import { rightsRefusal } from './operations/rights.ts';
 import { skillRegistry, describeSkill } from './registry.ts';
 import { CARRIED_OVER, skillAccess } from './access.ts';
+import { hasTrait } from './definitions.ts';
 import { schemaError } from './schema.ts';
 import { skillArgs } from './discovery.ts';
 import { MINUTE_MS } from '../time.ts';
-import { SELF_OWNED_OPS } from './operations/effects.ts';
 import { CODE } from './codes.ts';
 import { CORE_ROLE, ROLE_ABILITY, modelAbilities, roleModel } from '../llm/roles.ts';
 import type { RoleDownReason, RoleHealth } from '../llm/role-health.ts';
@@ -91,7 +91,7 @@ function noRequesterRefusal(skill: Skill): Refusal | null {
 }
 
 /** Whether `op` is one of the persona's own expressive operations (no requester's right asked). */
-const isSelfOwned = (op: string | null): boolean => op !== null && SELF_OWNED_OPS.includes(op);
+const isSelfOwned = (op: string | null): boolean => op !== null && hasTrait(op, 'self');
 
 /**
  * Null when the requester may have this skill run for them, else the refusal (`requester-denied`
@@ -100,7 +100,7 @@ const isSelfOwned = (op: string | null): boolean => op !== null && SELF_OWNED_OP
  * themselves (src/tools/operations/rights.ts, the owner commands' own check: an owner passes everything, an
  * owner-only operation only an owner, a member as their grants say); with no requester (nobody
  * asked: a spontaneous turn, the selfreflection) only a read, and only one open to everyone (`no-requester`
- * for a write). Her own expressive operations (src/tools/operations/effects.ts#SELF_OWNED_OPS) skip the
+ * for a write). Her own expressive operations (src/tools/definitions.ts, trait `self`) skip the
  * requester's right -- hers alone decides -- but not the two rules on who asked: no write for
  * several people, only a read for nobody. Any other shared-state skill checks a requester's right
  * on its operation; with none the persona acts on her own. A carried-over skill aimed at the current
@@ -150,7 +150,7 @@ const BUDGETS: Readonly<Record<string, (context: GateContext, requester: Request
 const DESTRUCTIVE_COOLDOWN_MINUTES = 10;
 
 /**
- * Null unless a destructive skill (src/tools/operations/effects.ts) ran from this channel less than
+ * Null unless a destructive skill (src/tools/definitions.ts) ran from this channel less than
  * `tools.destructiveCooldownMinutes` ago (`context.lastRunAt`, the caller's record, against
  * `context.now`), else `cooldown`.
  */

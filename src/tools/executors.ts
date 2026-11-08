@@ -20,9 +20,9 @@ import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { placeIdParts } from '../memory/db/ids.ts';
 import { channelCore, matchChannel, occursAsWholeWord } from '../memory/mentions.ts';
 import { foldText } from '../memory/recent.ts';
-import { SELF_OWNED_OPS } from './operations/effects.ts';
 import { CODE, INVALID_CODES, NOT_CONFIGURED_CODES, WHAT } from './codes.ts';
 import { nestedRefusal } from './access.ts';
+import { hasTrait } from './definitions.ts';
 import { bindPublicationPort, publicationRefusal } from './publication.ts';
 import { heldPort } from './send-hold.ts';
 import { idText, isObj, listOf, objOf, textOf } from './types.ts';
@@ -174,9 +174,6 @@ const FILE_OPTIONS: ReadonlyArray<string> = Object.freeze(['file']);
 const AGENT_SKILL = 'errand.run';
 /** The skills whose `people` option is a list of members (ids, names, `@handle`s, comma or space separated), resolved one by one. */
 const PEOPLE_LIST_SKILLS: ReadonlyArray<string> = Object.freeze(['intention.set', 'intention.update']);
-
-/** The operations whose `text` is the persona's own writing, posted as a `<msg>` of hers is (mentions, custom emoji, links). */
-const WRITTEN: ReadonlyArray<string> = Object.freeze(['message.create', 'message.edit']);
 
 /** Every status a call result may have. */
 export const RESULT_STATUSES: ReadonlyArray<string> = Object.freeze([
@@ -739,8 +736,7 @@ function callPublicationRefusal(
   boundary: PublicationBoundary | null | undefined
 ) {
   if (boundary == null) return null;
-  if (!['message.create', 'message.edit', 'message.react.add', 'draw.create', 'voice.say'].includes(resolved.skill))
-    return null;
+  if (!hasTrait(resolved.skill, 'publishes')) return null;
   if (
     resolved.skill === 'message.create' &&
     resolved.args.selfreflection === true &&
@@ -803,7 +799,7 @@ async function postReturnedFiles(
  * (`deps.renderText`: the text, or `{ text, accountIds }` -- mentions, custom emoji, message and
  * channel links; src/behavior/turn.ts#renderPost), the members it mentions handed to the
  * operation as `mentionAccountIds`, the only ones it may notify. Then `deps.runOp(op, args, context)`
- * (src/admin.ts#runSkillOp) -- for her own expressive operations (src/tools/operations/effects.ts#SELF_OWNED_OPS)
+ * (src/admin.ts#runSkillOp) -- for her own expressive operations (src/tools/definitions.ts, trait `self`)
  * `deps.runOwnOp` (src/admin.ts#runOwnSkillOp: her grant alone, no requester's right), and on
  * her own initiative (`envelope.ownInitiative` with no requester: an inner turn)
  * `deps.runInitiativeOp` (src/admin.ts#runInitiativeSkillOp, the same for any operation) -- on
@@ -855,7 +851,7 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
     }
     // Her own writing as a `<msg>` of hers is posted: the members its mentions resolved to ride along.
     let mentionAccountIds: Array<string> = [];
-    if (WRITTEN.includes(resolved.skill) && typeof args.text === 'string' && typeof deps.renderText === 'function') {
+    if (hasTrait(resolved.skill, 'written') && typeof args.text === 'string' && typeof deps.renderText === 'function') {
       const rendered = deps.renderText(args.text);
       if (typeof rendered === 'string') args.text = rendered;
       else if (typeof rendered.text === 'string') {
@@ -873,11 +869,7 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
     const envelope: CallEnvelope = deps.envelope ?? {};
     const requester = envelope.requester ?? null;
     const initiative = envelope.ownInitiative === true && !requester;
-    const run = SELF_OWNED_OPS.includes(resolved.skill)
-      ? deps.runOwnOp
-      : initiative
-        ? deps.runInitiativeOp
-        : deps.runOp;
+    const run = hasTrait(resolved.skill, 'self') ? deps.runOwnOp : initiative ? deps.runInitiativeOp : deps.runOp;
     if (typeof run !== 'function') return { status: 'not_configured', code: CODE.UNSUPPORTED };
     // An inner turn's wake envelope, at the capabilities this skill reaches inside its operation (a picture or a voice
     // message is a post): checked before anything runs, so nothing paid is made for a post the envelope forbids.

@@ -30,7 +30,7 @@ Use the `intentions`, `wakes` and `heartbeat` sections of [configuration](config
 
 Heartbeat and selfimprovement are separate wakes with separate prompts, schedules and switches. Each one wakes the persona nowhere, with her character, her memory and her lines elsewhere, as the previous section says. [src/tools/wake-tools.ts](../src/tools/wake-tools.ts) holds what each accepts. The model is offered the one tools array of every turn, and a call outside the wake's set is refused with the wake's code (`heartbeat-only` or `selfimprovement-only`) when it is made.
 
-An inner turn that posted nothing, reacted to nothing and answered `<skip/>` last ends `skip`, the reason `nothing-to-do`, when each of its calls was refused, failed or ran a skill whose row in `OP_EFFECTS` is `read` (`outcomePhase` in `src/turn/phases/outcome.ts`). A proposal in shadow mode or any other call that ran keeps it `spoke`.
+An inner turn that posted nothing, reacted to nothing and answered `<skip/>` last ends `skip`, the reason `nothing-to-do`, when each of its calls was refused, failed or ran a skill whose definition declares `effects` `read` (`src/tools/definitions.ts`) (`outcomePhase` in `src/turn/phases/outcome.ts`). A proposal in shadow mode or any other call that ran keeps it `spoke`.
 
 A heartbeat runs on `heartbeat.schedule` with `prompts/heartbeat.md`. Its `<inner>` holds what she did today in `<my_day>`, every open intention, her errands and what she has not been told. It may read memory and chats, and it ends when one intention change goes through or she answers `<skip/>`. A call outside that set is refused with `heartbeat-only`. Filing a task, skills and selfreflection writing have no route here, and a heartbeat neither shows nor marks a merged change.
 

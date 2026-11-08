@@ -22,50 +22,32 @@
 // Pure over the live config the caller reads at the moment of use.
 
 import { CODE } from './codes.ts';
-import { SKILL_DEFINITIONS } from './definitions.ts';
+import { SKILL_DEFINITIONS, toolsWith } from './definitions.ts';
 import { idText, isObj, objOf } from './types.ts';
 import type { Obj, SkillVerdict } from './types.ts';
 
-/** The skills behind the persona's current reply tags, allowed in the current chat without a grant. */
-export const CARRIED_OVER: ReadonlyArray<string> = Object.freeze([
-  'message.create',
-  'message.react.add',
-  'draw.create',
-  'voice.say',
-]);
+/** The skills behind the persona's current reply tags, allowed in the current chat without a grant: the trait `carried`. */
+export const CARRIED_OVER: ReadonlyArray<string> = toolsWith('carried');
 
 /**
  * The operations no grant opens for the persona yet (the owner's decision, 2026-10-14): the
- * irreversible and the administrative ones. Refused by `/nep access grant` with her as the target
- * (a group or `*` skips them) and again at every call (skillAccess: `not-grantable`), whatever
+ * irreversible and the administrative ones, the trait `ungrantable`. Refused by `/nep access grant` with her as the
+ * target (a group or `*` skips them) and again at every call (skillAccess: `not-grantable`), whatever
  * is stored. Everything else -- owner-only operations included -- is grantable to her.
  */
-export const NOT_GRANTABLE_TO_PERSONA: ReadonlyArray<string> = Object.freeze([
-  'memory.restore',
-  'rule.remove',
-  'config.set',
-  'config.unset',
-  'model.set',
-  'route.set',
-  'route.remove',
-  'access.grant',
-  'access.revoke',
-  'bot.pause',
-  'bot.resume',
-]);
+export const NOT_GRANTABLE_TO_PERSONA: ReadonlyArray<string> = toolsWith('ungrantable');
 
 /** The policy version of the wake envelopes (recorded on every wake run). */
 export const WAKE_POLICY_VERSION = 1;
 
 /**
- * The capabilities a skill reaches inside its own operation, as the skills that stand for them: a picture and a voice
- * message are posts (`message.create`). Checked against a wake's envelope before the operation runs and again where
+ * The capabilities a skill reaches inside its own operation, as the skills that stand for them: a tool with the trait
+ * `attaches` (a picture, a voice message) posts, so it reaches `message.create`. Checked against a wake's envelope before the operation runs and again where
  * it posts (src/tools/executors.ts, src/tools/operations/shared.ts#postingChat).
  */
-export const NESTED_CAPABILITIES: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
-  'draw.create': Object.freeze(['message.create']),
-  'voice.say': Object.freeze(['message.create']),
-});
+export const NESTED_CAPABILITIES: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze(
+  Object.fromEntries(toolsWith('attaches').map((name) => [name, Object.freeze(['message.create'])]))
+);
 
 const EFFECTS_OF = new Map(SKILL_DEFINITIONS.map((definition) => [definition.name, definition.effects]));
 /** The wake kinds whose limits are keys of their own section (`heartbeat.tools`), not of `wakes.kinds.<kind>`. */
