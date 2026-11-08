@@ -108,6 +108,7 @@ import { createChatState } from './interface/commands/chat-state.ts';
 import type { ChatState } from './interface/commands/chat-state.ts';
 import { createChatSessions } from './chat/sessions.ts';
 import { createChatStore } from './chat/store.ts';
+import { withStoredHistory } from './chat/stored-history.ts';
 import type { ApprovalGate, ApprovalResult } from './board/approval-view.ts';
 import { createCheckpointDesk } from './development/checkpoint-desk.ts';
 import { WORKTREE_FOLDER } from './development/edges.ts';
@@ -820,14 +821,30 @@ async function buildCore(
   // The live glance at the voice channels and the scene's statuses: a snapshot in process memory,
   // fed by the interface's voice, presence and connection events through the door below, never written anywhere.
   const around = createAroundStore({ presences: () => coreLink.adapter.capabilities().presence === true });
+  // The owner's chat sessions (docs/cli.md): a file of their own, whose lines are a read of memory's stored sources.
+  const chatSessions = createChatSessions({
+    store: createChatStore({
+      file: path.join(paths.privateDir, 'cli', 'sessions.json'),
+      readLines: (placeId) => {
+        const db = memoryDb.database();
+        return db === null ? [] : chatLines(db, placeId);
+      },
+    }),
+    now: clock,
+    newId: randomUUID,
+  });
+  // The chat's history reads those stored lines too, since the chat client holds only the lines said since it started.
+  const cliAdapter = () =>
+    withStoredHistory(intake.chat() ?? closedAdapter(), (placeId) => chatSessions.shown(placeId));
   // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
   // after the skill gateway (src/tools/gateway.ts) let the call pass. It is the guarded port: a send to a selfreflection
   // mirror's place goes nowhere (`selfreflection-mirror`); only the mirrors' publisher below holds the link's own adapter.
   // Her replies in the owner's chat (`iface: 'cli'`) go to the chat's link, every other effect to the served
-  // interface; with no chat connected a reply there ends as a dropped link's does.
+  // interface; with no chat connected a reply there ends as a dropped link's does, and a history read there answers the
+  // stored lines alone.
   const routed = createIfaceRouter(
     coreLink.adapter,
-    (name) => (name === CLI_IFACE ? (intake.chat() ?? closedAdapter()) : (linksByName.get(name)?.adapter ?? null)),
+    (name) => (name === CLI_IFACE ? cliAdapter() : (linksByName.get(name)?.adapter ?? null)),
     () =>
       [intake.chat(), ...[...linksByName.values()].map((link) => link.adapter)].filter((adapter) => adapter !== null),
     (nativeId) => {
@@ -1414,20 +1431,9 @@ async function buildCore(
     now: clock,
     config: (): unknown => hot.config,
   });
-  // The chat's chat sessions and development checkpoints (docs/cli.md). Sessions live in a file of their own, and their
-  // lines are a read of memory's stored sources.
+  // The chat's sessions and development checkpoints (docs/cli.md).
   chatState = createChatState({
-    sessions: createChatSessions({
-      store: createChatStore({
-        file: path.join(paths.privateDir, 'cli', 'sessions.json'),
-        readLines: (placeId) => {
-          const db = memoryDb.database();
-          return db === null ? [] : chatLines(db, placeId);
-        },
-      }),
-      now: clock,
-      newId: randomUUID,
-    }),
+    sessions: chatSessions,
     checkpoints: createCheckpointDesk({
       tasks: async () => (await board.command(OWNER_CLIENT.name, 'task.list', { lane: 'dev' })).data,
       worktreeRoot: () => {
