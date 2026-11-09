@@ -6,7 +6,7 @@
 // `proxyEnvOf` is the environment a child gets for that URL. The probe and the clock are fakes; nothing goes out.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createProxyMonitor, proxyEnvOf } from '../src/net/proxy.ts';
+import { createProxyMonitor, isProxyConnectionFailure, proxyEnvOf } from '../src/net/proxy.ts';
 import type { ProxySwitch } from '../src/net/proxy.ts';
 
 const PROXY = 'socks5h://login:pass-word@proxy.example:1080';
@@ -179,6 +179,141 @@ test('a probe that throws counts as a failure and never rejects the check', asyn
   await monitor.check();
   await monitor.check();
   assert.equal(monitor.route(), 'direct');
+});
+
+/** A monitor whose probes wait until the test answers them, one at a time. */
+function heldRig() {
+  const held: Array<(answer: boolean) => void> = [];
+  const applied: Array<string | null> = [];
+  const switches: Array<ProxySwitch> = [];
+  const state = { url: PROXY as string | null, at: 1_000_000 };
+  const monitor = createProxyMonitor({
+    url: () => state.url,
+    config: () => ({
+      proxy: { enabled: true, health: { everySeconds: EVERY_S, failures: 3, recoveries: 2, timeoutMs: 4000 } },
+    }),
+    probe: () => new Promise<boolean>((resolve) => held.push(resolve)),
+    now: () => state.at,
+    apply: (inForce) => applied.push(inForce),
+    onSwitch: (change) => switches.push(change),
+  });
+  return { monitor, held, applied, switches, state };
+}
+
+test('at the start nothing goes through the proxy until its first probe answers', async () => {
+  // Catches: the start puts a refusing proxy in force at once, so every fetch of the first minutes fails.
+  const { monitor, held, applied } = heldRig();
+  const first = monitor.check();
+  assert.equal(held.length, 1);
+  assert.equal(monitor.route(), 'direct');
+  assert.equal(monitor.current(), null);
+  assert.equal(applied.includes(PROXY), false);
+  held[0]?.(true);
+  await first;
+  assert.equal(monitor.route(), 'proxy');
+  assert.equal(monitor.current(), PROXY);
+});
+
+test('a failed first probe keeps the direct path, and the failure count still tells her once', async () => {
+  // Catches: a proxy that never answered is put in force anyway, or its outage at the start goes unsaid.
+  const { monitor, applied, switches, checks } = rig({ failures: 2 });
+  await checks([false]);
+  assert.equal(monitor.route(), 'direct');
+  assert.deepEqual(switches, []);
+  await checks([false, false]);
+  assert.equal(monitor.route(), 'direct');
+  assert.deepEqual(switches, ['proxy-down']);
+  assert.equal(applied.includes(PROXY), false);
+});
+
+test('a first probe that answers puts the proxy in force with no notice', async () => {
+  // Catches: the first good probe is announced to her as a recovery after every start.
+  const { switches, checks } = rig();
+  await checks([true]);
+  assert.deepEqual(switches, []);
+});
+
+test('a new URL goes direct until its own probe answers', async () => {
+  // Catches: a new URL the owner just stored is used before anyone knows it works.
+  const { monitor, held, applied, state } = heldRig();
+  const first = monitor.check();
+  held[0]?.(true);
+  await first;
+  state.url = SECOND;
+  const second = monitor.check();
+  assert.equal(monitor.current(), null);
+  assert.equal(applied.at(-1), null);
+  held[1]?.(true);
+  await second;
+  assert.equal(monitor.current(), SECOND);
+});
+
+test('a connection failure on the proxy probes at once and goes direct when the probe fails', async () => {
+  // Catches: a proxy that starts refusing keeps failing every request until the next health interval and the
+  // failure count run out.
+  const { monitor, state, applied, switches, checks } = rig({ failures: 3 });
+  await checks([true]);
+  state.at += 5_000;
+  state.answers.push(false);
+  await monitor.suspect();
+  assert.equal(monitor.route(), 'direct');
+  assert.equal(applied.at(-1), null);
+  assert.deepEqual(switches, ['proxy-down']);
+});
+
+test('a connection failure the proxy answers keeps the proxy in force', async () => {
+  // Catches: a target host that refuses one request drops a healthy proxy.
+  const { monitor, state, switches, checks } = rig();
+  await checks([true]);
+  state.at += 5_000;
+  state.answers.push(true);
+  await monitor.suspect();
+  assert.equal(monitor.route(), 'proxy');
+  assert.deepEqual(switches, []);
+});
+
+test('a burst of connection failures sends one probe, and none within the probe timeout of the last', async () => {
+  // Catches: a hundred failing requests send a hundred probes to the proxy at once.
+  const { monitor, state, probes, checks } = rig();
+  await checks([true]);
+  const sent = probes.length;
+  state.at += 1_000;
+  await monitor.suspect();
+  assert.equal(probes.length, sent, 'within the timeout of the last probe');
+  state.at += 4_000;
+  await Promise.all([monitor.suspect(), monitor.suspect(), monitor.suspect()]);
+  assert.equal(probes.length, sent + 1);
+});
+
+test('a connection failure while direct or off sends no probe', async () => {
+  // Catches: requests on the direct path that fail for their own reasons probe the proxy on every failure.
+  const direct = rig({ failures: 1 });
+  await direct.checks([false]);
+  const sent = direct.probes.length;
+  direct.state.at += 10_000;
+  await direct.monitor.suspect();
+  assert.equal(direct.probes.length, sent);
+  const off = rig({ enabled: false });
+  await off.monitor.check();
+  await off.monitor.suspect();
+  assert.equal(off.probes.length, 0);
+});
+
+test('refused, reset and failed tunnel connections count as proxy failures, other errors do not', () => {
+  // Catches: the core's request errors never reach the monitor, or a 404 or a parse error drops the proxy.
+  for (const code of ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ERR_PROXY_TUNNEL', 'UND_ERR_SOCKET'])
+    assert.equal(isProxyConnectionFailure(Object.assign(new Error('x'), { code })), true, code);
+  assert.equal(
+    isProxyConnectionFailure(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } })),
+    true
+  );
+  for (const error of [
+    new Error('x'),
+    Object.assign(new Error('x'), { code: 'ERR_INVALID_URL' }),
+    null,
+    'ECONNREFUSED',
+  ])
+    assert.equal(isProxyConnectionFailure(error), false, String(error));
 });
 
 test('a child gets the proxy in the http form under both spellings curl and the CLIs read, and loopback stays direct', () => {
