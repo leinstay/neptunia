@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import type { DatabaseSync as DatabaseSyncClass } from 'node:sqlite';
 import { MIGRATIONS, finishSelfreflectionDestination, finishSelfreflectionMirror, renameChatColumn } from './schema.ts';
+import { BASELINE_VERSION, createBaseline } from './schema-baseline.ts';
 import { moveSelfreflectionMedia } from '../migration/selfreflection-names.ts';
 import type { Migration, MigrationContext } from './schema.ts';
 import { ALIVE_LEASE, leaseOf } from './wake-queue.ts';
@@ -129,7 +130,8 @@ export function schemaVersion(dbGiven: unknown): number {
 }
 
 /**
- * Applies every migration above the current version, in one transaction. An entry is SQL text or a function of the
+ * Applies every migration above the current version, in one transaction. A new database whose list reaches the baseline
+ * starts from it (src/memory/db/schema-baseline.ts) and takes only the steps above it. An entry is SQL text or a function of the
  * connection and `context` (what only the opener knows: `selfreflectionPlaceId`, the deployment's selfreflection channel, for v12 and
  * v15, and `dataDir`, the data directory, for v18). A data step v12, v15 or v18 could not finish without the context
  * is finished by the first open that has it. The per-place GIF libraries of v32 are merged here too, because a converted
@@ -145,6 +147,10 @@ export function migrate(
   inTransaction(db, () => {
     db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');
     let version = schemaVersion(db);
+    if (version === 0 && migrations.length >= BASELINE_VERSION) {
+      createBaseline(db);
+      version = BASELINE_VERSION;
+    }
     if (version < migrations.length) renameChatColumn(db);
     while (version < migrations.length) {
       const step = migrations[version];

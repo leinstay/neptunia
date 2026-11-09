@@ -432,10 +432,12 @@ test('focus fixture: the reader gives member ids of the interface, close then ex
   };
   walkDir('src');
   // The browser's catalog classifies every table by name and reads none of these by it; a person merge moves their rows.
+  // The schema is two modules: the baseline creates the tables and the chain of schema.ts still holds their steps.
   assert.deepEqual(readers.sort(), [
     'memory/db/focus.ts',
     'memory/db/inspection-classes.ts',
     'memory/db/person-merge.ts',
+    'memory/db/schema-baseline.ts',
     'memory/db/schema.ts',
   ]);
 });
