@@ -833,15 +833,24 @@ export class ChatController {
     if (this.panelLoading) {
       this.panelLoading = false;
       this.panelRequest += 1;
-      if (this.loadingResult !== null) this.answerResult(this.loadingResult, 'Cancelled.');
+      if (this.loadingResult !== null) this.answerResult(this.loadingResult, 'Cancelled.', { reopens: false });
     }
     this.update({ panel: null, isWindowOpen: false, windowView: TAIL, selection: null });
   }
 
-  /** The answer of one command, in its place in the window. */
-  answerResult(id: string, answer: string): void {
-    const { results } = this.model;
-    this.update({ results: results.map((one) => (one.id === id ? { ...one, answer } : one)) });
+  /**
+   * The answer of one command, in its place in the window, with the moment it came. An answer that comes while the window
+   * is closed opens it at its tail, so a command that ran in the background shows its result; a cancel the owner caused
+   * by closing or by a newer command reopens nothing.
+   */
+  answerResult(id: string, answer: string, how: { reopens: boolean } = { reopens: true }): void {
+    const { results, isWindowOpen } = this.model;
+    const finishedAt = this.env.now();
+    const reopen = how.reopens && !isWindowOpen ? { isWindowOpen: true, windowView: TAIL, selection: null } : {};
+    this.update({
+      results: results.map((one) => (one.id === id ? { ...one, answer, finishedAt } : one)),
+      ...reopen,
+    });
   }
 
   closeQuestion(value: string): void {
@@ -1187,7 +1196,8 @@ export class ChatController {
     this.panelRequest += 1;
     const request = this.panelRequest;
     const result: CommandResult = { id: this.nextId('c'), line: typed, at: this.env.now(), answer: null };
-    if (this.panelLoading && this.loadingResult !== null) this.answerResult(this.loadingResult, 'Cancelled.');
+    if (this.panelLoading && this.loadingResult !== null)
+      this.answerResult(this.loadingResult, 'Cancelled.', { reopens: false });
     this.panelLoading = true;
     this.loadingResult = result.id;
     this.update({
@@ -1334,7 +1344,9 @@ export class ChatController {
         const { results } = this.model;
         this.update({
           results: results.map((one) =>
-            one.id === id ? { ...one, answer, ...(graphic === null ? {} : { graphic }) } : one
+            one.id === id
+              ? { ...one, answer, finishedAt: this.env.now(), ...(graphic === null ? {} : { graphic }) }
+              : one
           ),
         });
       })
