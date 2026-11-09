@@ -13,7 +13,7 @@ export type MigrationContext = { selfreflectionPlaceId?: string | null; dataDir?
 /** One migration: SQL text, or a function of the connection and the opener's context. */
 export type Migration = string | ((db: Db, context: MigrationContext) => void);
 
-/** The steps above the baseline, version 44 first. */
+/** The steps above the baseline, version 45 first. */
 export const MIGRATIONS: Array<Migration> = [];
 
 /** The tables that carry a scope and its `audience_id`. */

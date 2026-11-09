@@ -144,8 +144,8 @@ test('allowlist: every path the sync maps is in exactly one list, the one the sp
     assert.ok(operational !== memory, `${rel} is in exactly one list (operational ${operational}, memory ${memory})`);
     assert.equal(pathClass(rel), expected, rel);
   }
-  // Every mapper the sync has is reached by the samples above.
-  assert.deepEqual([...new Set(MAPPED.map(([, kind]) => kind))].sort(), Object.keys(MAPPERS).sort());
+  // Every mapper the sync has is reached by the samples above, and the intentions, which have a write kind instead.
+  assert.deepEqual([...new Set(MAPPED.map(([, kind]) => kind))].sort(), [...Object.keys(MAPPERS), 'intentions'].sort());
 });
 
 test('allowlist: sync-skipped root state uses the database while unrelated files and leftovers stay operational', () => {
