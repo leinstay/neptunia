@@ -115,7 +115,6 @@ import { WORKTREE_FOLDER } from './development/edges.ts';
 import { selfimprovementSettings } from './selfimprovement/settings.ts';
 import { chatLines, recentGroupLines } from './memory/db/chat-lines.ts';
 import { ownerConsoleName } from './memory/db/identity-links.ts';
-import { selfreflectionPlanFillDesk } from './memory/db/selfreflection-plan-fill.ts';
 import { mediaText } from './memory/db/media-store.ts';
 import { OWNER_CLIENT } from './setup/clients.ts';
 import { createConsole } from './interface/commands/console.ts';
@@ -1458,7 +1457,6 @@ async function buildCore(
     // The owner's console (src/interface/commands/console.ts): the chat's table over the operations, run as the owner.
     console: createConsole({
       track: loopWatch.track,
-      planFill: selfreflectionPlanFillDesk({ memoryDb, llm: describerLlm, hot, now: clock, log }),
       statusBrief: () =>
         statusBrief({
           config: () => objOf(hot.config),

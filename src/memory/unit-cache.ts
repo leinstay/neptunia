@@ -3,43 +3,30 @@
 // dirty, and the cache hands a dirty unit's whole value to the outbox (src/memory/db/unit-outbox.ts) at a flush. The
 // entry stays the truth until the outbox no longer holds it, and a failed write waits there for the next push.
 //
-// The database has other writers of the same units: her memory session moves a person's attitude, and the owner fills
-// old selfreflection entries. The service tells both (`memoryDb.onAffinityMoves`, `memoryDb.onSelfreflectionFill`), and
-// the cache, which subscribes at creation, reconciles its entries with them:
-//   - an attitude move drops every cached user unit of the moved person; one that is dirty or still in the outbox is
-//     marked `stale` instead and read again once its write has landed (its write keeps the session's score and reason,
-//     src/memory/db/session-rows.ts#sessionHold);
-//   - a fill drops a clean selfreflection; a dirty or held one gains, on each post with an item id, the filled fields
-//     the database holds and the post lacks (`SELFREFLECTION_FILLED`), and is written again.
+// The database has another writer of the same units: her memory session moves a person's attitude. The service tells
+// it (`memoryDb.onAffinityMoves`), and the cache, which subscribes at creation, drops every cached user unit of the moved
+// person; one that is dirty or still in the outbox is marked `stale` instead and read again once its write has landed
+// (its write keeps the session's score and reason, src/memory/db/session-rows.ts#sessionHold).
 //
 // A name `address` never registered is an operational file: read and written through `files`.
 
 import { storageContext } from './db/map/index.ts';
 import { unitValue } from './db/readers/common.ts';
-import { keyText, personaKey, storageId } from './db/storage-keys.ts';
+import { keyText, storageId } from './db/storage-keys.ts';
 import type { StorageKey, StorageKind } from './db/storage-keys.ts';
 import { listUnits } from './db/storage-units.ts';
 import type { UnitQuery } from './db/storage-units.ts';
 import { createUnitOutbox } from './db/unit-outbox.ts';
 import type { Db } from './db/types.ts';
-import { canWriteUnits, isRecord } from './types.ts';
+import { canWriteUnits } from './types.ts';
 import type { MemoryDb, Untyped } from './types.ts';
 import { log } from '../log.ts';
-
-/** The fields an owner's fill writes into old selfreflection entries: the reconstructed plan and the audience. */
-const SELFREFLECTION_FILLED = ['plan', 'publicationAudience'] as const;
 
 /** A cached unit or file: its parsed value, whether it waits for a flush, the holds on that flush, and a pending re-read. */
 export type CacheItem = { value: Untyped; dirty: boolean; holdFlush?: number; stale?: boolean };
 
 /** What a flush did with one entry. */
 export type FlushOutcome = 'clean' | 'held' | 'written' | 'failed';
-
-/** The posts of a selfreflection value that are records; none when it is not one. */
-function postsOf(value: unknown): Array<Record<string, unknown>> {
-  const posts: unknown = isRecord(value) ? value.posts : null;
-  return Array.isArray(posts) ? posts.filter((post): post is Record<string, unknown> => isRecord(post)) : [];
-}
 
 type Seam = { db(): Db; run<TResult>(fn: () => TResult): TResult };
 
@@ -70,7 +57,6 @@ export type UnitCache = {
   push: () => void;
   holds: (owner: StorageKey | string) => boolean;
   attitudeMoved: (moves: Array<{ personId: string; applied?: number }>) => number;
-  selfreflectionFilled: () => boolean;
 };
 
 /**
@@ -262,39 +248,11 @@ export function createUnitCache({
     return taken;
   }
 
-  /**
-   * The owner filled old entries of the persona's selfreflection (see the head of this file). Returns whether a cached
-   * selfreflection was dropped or merged.
-   */
-  function selfreflectionFilled(): boolean {
-    const file = address(personaKey('selfreflection'));
-    const item = entries.get(file);
-    if (!item) return false;
-    if (!item.dirty && !holds(file)) {
-      entries.delete(file);
-      return true;
-    }
-    const stored = seam.run(() => unitValue(seam.db(), ownerOf(file)));
-    const held = new Map<string, Record<string, unknown>>();
-    for (const post of postsOf(stored.found ? stored.value : null))
-      if (typeof post.itemId === 'string') held.set(post.itemId, post);
-    for (const post of postsOf(item.value)) {
-      const filled = typeof post.itemId === 'string' ? held.get(post.itemId) : undefined;
-      if (!filled) continue;
-      for (const field of SELFREFLECTION_FILLED)
-        if (post[field] === undefined && filled[field] !== undefined) post[field] = structuredClone(filled[field]);
-    }
-    item.dirty = true;
-    writeNow(file, item);
-    return true;
-  }
-
-  // The database's other writers reach the cached units (see the head of this file).
+  // The database's other writer reaches the cached units (see the head of this file).
   if (typeof memoryDb.onAffinityMoves === 'function')
     memoryDb.onAffinityMoves((moves: Array<Record<string, unknown>>) =>
       attitudeMoved(moves as Array<{ personId: string }>)
     );
-  if (typeof memoryDb.onSelfreflectionFill === 'function') memoryDb.onSelfreflectionFill(() => selfreflectionFilled());
 
   return {
     address,
@@ -331,6 +289,5 @@ export function createUnitCache({
     holds: (owner: StorageKey | string): boolean =>
       outbox?.holds(typeof owner === 'string' ? ownerOf(owner) : owner) ?? false,
     attitudeMoved,
-    selfreflectionFilled,
   };
 }
