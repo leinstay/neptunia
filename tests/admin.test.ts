@@ -2424,6 +2424,11 @@ test('/nep pause: no timer-driven writer (store.flush) writes memory while pause
         writes.push(update.owner);
         return mem.memoryDb.writeUnit(update);
       },
+      // A place's notes have their own write kind (src/memory/db/place-notes.ts), so the store's flush reaches it there.
+      writePlaceNotes: (notes: Untyped) => {
+        writes.push(notes.placeId);
+        return mem.memoryDb.writePlaceNotes(notes);
+      },
     };
     const realStore = createStore({ dataDir: mem.dataDir, memoryDb });
     const placeId = 'g1';

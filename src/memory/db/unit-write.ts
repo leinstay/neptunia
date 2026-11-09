@@ -1,8 +1,8 @@
 // The memory writer applies semantic unit updates in one transaction. Value writes replace a collection while
 // preserving protected session rows; lines append in catalog order. A day of the record or of the journal and a month
 // of the archive are that kind's lines write (record-lines.ts, journal-lines.ts, archive-lines.ts), and an account's
-// profile, a private layer and a history of prose that kind's value write (account-profile.ts, private-layer.ts,
-// prose-versions.ts). Selfreflection and
+// profile, a private layer, a history of prose, a place's notes and a channel's entry that kind's value write
+// (account-profile.ts, private-layer.ts, prose-versions.ts, place-notes.ts, channel-entry.ts). Selfreflection and
 // vector operations keep their existing publication and index behavior. Catalog owner keys are independent of source
 // IDs and visibility. Historical owner strings are accepted by the explicit import and pending compatibility boundary,
 // which preserves their provenance without using it for live ownership.
@@ -42,6 +42,8 @@ import { accountProfileWriteOf, isAccountProfileKey, writeAccountProfile } from 
 import { SESSION_COLUMNS, profileOwnerOf, stampProfileRows } from './profile-owner.ts';
 import { proseVersionsValueOf, writeProseVersions } from './prose-versions.ts';
 import { isPrivateLayerKey, privateLayerWriteOf, writePrivateLayer } from './private-layer.ts';
+import { isPlaceNotesKey, placeNotesWriteOf, writePlaceNotes } from './place-notes.ts';
+import { channelEntryWriteOf, isChannelEntryKey, writeChannelEntry } from './channel-entry.ts';
 import { storageContext } from './map/index.ts';
 
 /** Tables of an owned unit whose rows carry a `position`. */
@@ -479,8 +481,8 @@ function withKey(db: Db, update: Row): Row | null {
 
 /**
  * The write of a keyed value update whose kind has its own value write (an account's profile, a private layer, a
- * history of prose: account-profile.ts, private-layer.ts, prose-versions.ts), to run in the writer's transaction; else
- * null.
+ * history of prose, a place's notes, a channel's entry: account-profile.ts, private-layer.ts, prose-versions.ts,
+ * place-notes.ts, channel-entry.ts), to run in the writer's transaction; else null.
  */
 function ownValueWrite(db: Db, update: Row, keyed: Row, at: string): (() => unknown) | null {
   const key = keyed.key as StorageKey;
@@ -493,6 +495,14 @@ function ownValueWrite(db: Db, update: Row, keyed: Row, at: string): (() => unkn
   if (isPrivateLayerKey(key)) {
     const { value } = privateLayerWriteOf({ accountId: key.subject.id, value: keyed.value ?? {} });
     return () => writePrivateLayer(db, key, value, { at, ...legacyOwner });
+  }
+  if (isPlaceNotesKey(key) && key.subject.type === 'place') {
+    const { value } = placeNotesWriteOf({ placeId: key.subject.id, value: keyed.value ?? {} });
+    return () => writePlaceNotes(db, key, value, { at, ...legacyOwner });
+  }
+  if (isChannelEntryKey(key) && key.subject.type === 'place') {
+    const { value } = channelEntryWriteOf({ placeId: key.subject.id, value: keyed.value ?? {} });
+    return () => writeChannelEntry(db, key, value, { at, ...legacyOwner });
   }
   if (key.kind !== 'versions') return null;
   const value = proseVersionsValueOf(keyed.value ?? {});
@@ -515,7 +525,8 @@ export function applyUnitWrite(handle: MemoryHandle, update: Row): unknown {
   if (operational) return handle.transaction(() => writeOperational(db, operational));
   const intentions = keyed ? intentionsOfUnit(keyed) : null;
   if (intentions) return handle.transaction(() => writeIntentions(db, intentions, at));
-  // An account's profile or a history of prose, such as a write kept pending by an older release, is that kind's write.
+  // An account's profile, a private layer, a history of prose, a place's notes or a channel's entry, such as a write
+  // kept pending by an older release, is that kind's write.
   const own = op === 'value' && keyed && hasStorageUnits(db) ? ownValueWrite(db, update, keyed, at) : null;
   if (own) return handle.transaction(own);
   // A record or journal day or an archive month, such as a write kept pending by an older release, is that kind's write.

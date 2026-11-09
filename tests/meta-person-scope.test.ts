@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { storageContext, storageMapper } from '../src/memory/db/map/index.ts';
+import { storageContext } from '../src/memory/db/map/index.ts';
 import { lineOwnerOf } from '../src/memory/db/line-owner.ts';
 import { journalLineOf, journalRows } from '../src/memory/db/journal-lines.ts';
 import { archiveRows } from '../src/memory/db/archive-lines.ts';
@@ -18,6 +18,7 @@ import { createMemoryDb } from '../src/memory/db/service.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { journalKey, placeCollection, storageId } from '../src/memory/db/storage-keys.ts';
 import { resolveRow } from '../src/memory/db/rows.ts';
+import { unitValue } from '../src/memory/db/readers/common.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle, Row, Rows } from '../src/memory/db/types.ts';
 import { addAccount } from './fixtures/memory-db/opaque-people.ts';
@@ -79,6 +80,16 @@ const journalMapper = (db: Db) => {
   };
 };
 
+/** A place's notes written through their write kind (place-notes.ts): the teacher its lesson names and the notes read back. */
+function writtenNotes(handle: MemoryHandle, notes: Row): { teacher: unknown; back: unknown } {
+  const placeId = 'discord:channel:c1';
+  applyMemoryWrite(handle, { kind: 'place-notes', placeId, value: notes, iface: 'discord', now: Date.parse(AT) });
+  const db = dbOf(handle);
+  const teacher = db.prepare("SELECT from_person FROM claims WHERE kind = 'lesson'").get()?.from_person;
+  const read = unitValue(db, placeCollection('place', placeId));
+  return { teacher, back: read.found ? read.value : null };
+}
+
 function withDb(body: (db: Db, handle: MemoryHandle) => void): void {
   const handle = openMemoryDb(':memory:');
   try {
@@ -135,13 +146,10 @@ test("a lesson's teacher is the teacher's meta-person and the place's notes come
   // Bug: the teacher of a lesson is spelled `person:discord:<native>` from the mention.
   withDb((db, handle) => {
     seeDm(handle, 'discord', '700');
-    const key = placeCollection('place', 'discord:channel:c1');
-    const { mapper } = storageMapper(db, key, storageId(key));
     const notes: Row = { learned: [{ id: 'l1', text: 'synthetic lesson', from: '<@700>', weight: 1 }] };
-    const rows = mapper.toRows('n', notes, {});
-    const lesson = (rows.claims ?? []).find((claim) => claim.kind === 'lesson');
-    assert.equal(lesson?.from_person, personOf(db, 'discord:700'));
-    assert.deepEqual(mapper.fromRows(rows), notes);
+    const { teacher, back } = writtenNotes(handle, notes);
+    assert.equal(teacher, personOf(db, 'discord:700'));
+    assert.deepEqual(back, notes);
   });
 });
 
@@ -388,14 +396,11 @@ test("a direct chat whose place names no partner person scopes its lines to its 
 
 test('a mention of an account no row holds stores no spelled person and comes back exactly', () => {
   // Bug: the teacher of a lesson is spelled `person:discord:<native>` when no stored account holds the mention.
-  withDb((db) => {
-    const key = placeCollection('place', 'discord:channel:c1');
-    const { mapper } = storageMapper(db, key, storageId(key));
+  withDb((_db, handle) => {
     const notes: Row = { learned: [{ id: 'l2', text: 'synthetic lesson', from: '<@999>', weight: 1 }] };
-    const rows = mapper.toRows('n', notes, {});
-    const lesson = (rows.claims ?? []).find((claim) => claim.kind === 'lesson');
-    assert.equal(lesson?.from_person, null);
-    assert.deepEqual(mapper.fromRows(rows), notes);
+    const { teacher, back } = writtenNotes(handle, notes);
+    assert.equal(teacher, null);
+    assert.deepEqual(back, notes);
   });
 });
 

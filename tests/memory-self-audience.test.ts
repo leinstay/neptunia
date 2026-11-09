@@ -1,5 +1,5 @@
-// The claims about herself under `aud:none` (master plan V.5). Their writer is `toRows` of the place mapper,
-// src/memory/db/map/place.ts:119, which gives a place's `self` list `SCOPE_NONE`: a self fact noted in a DM could be shown
+// The claims about herself under `aud:none` (master plan V.5). Their writer is the place's notes
+// (src/memory/db/place-notes.ts), which gave a place's `self` list `SCOPE_NONE`: a self fact noted in a DM could be shown
 // anywhere. The correction: a self fact takes the scope of the notes it stands in, the groups on a server or channel and
 // the partner's DM on a DM. Synthetic data on a real temporary database.
 import { test } from 'node:test';

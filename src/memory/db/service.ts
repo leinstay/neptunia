@@ -74,6 +74,8 @@
 //   - `writeAccountProfile(write)` (account-profile.ts): the whole profile of one account.
 //   - `writeProseVersions(write)` (prose-versions.ts): the previous texts of one prose owner.
 //   - `writePrivateLayer(write)` (private-layer.ts): the whole private layer of one account.
+//   - `writePlaceNotes(write)` (place-notes.ts): the whole notes of one place.
+//   - `writeChannelEntry(write)` (channel-entry.ts): the whole entry of one channel.
 //   - her memory session is the memory writer (spec 2026-10-24-memory-authority, section 6 item 7). Each open logs the
 //     effective models (`memory db: effective models`: purpose, model id and key variable of the memory session, the
 //     description review and every other purpose; writer-switch.ts#effectiveModels). With `memoryDb.session.mode`
@@ -130,6 +132,8 @@ import type { ArchiveLinesWrite } from './archive-lines.ts';
 import type { AccountProfileWrite } from './account-profile.ts';
 import type { ProseVersionsWrite } from './prose-versions.ts';
 import type { PrivateLayerWrite } from './private-layer.ts';
+import type { PlaceNotesWrite } from './place-notes.ts';
+import type { ChannelEntryWrite } from './channel-entry.ts';
 import type { OperationalWrite } from './operational.ts';
 
 import { lockPathOf, openMemoryDb } from './open.ts';
@@ -585,6 +589,10 @@ export type MemoryDbService = {
   writeProseVersions(write: ProseVersionsWrite): Promise<unknown>;
   /** The whole private layer of one account (private-layer.ts): resolves the rows it wrote and retired. */
   writePrivateLayer(write: PrivateLayerWrite): Promise<unknown>;
+  /** The whole notes of one place (place-notes.ts): resolves the rows it wrote and retired. */
+  writePlaceNotes(write: PlaceNotesWrite): Promise<unknown>;
+  /** The whole entry of one channel (channel-entry.ts): resolves the rows it wrote and retired. */
+  writeChannelEntry(write: ChannelEntryWrite): Promise<unknown>;
   keepPending(update: unknown): string;
   /** The writes in the quarantine, by name, with the code each failed with and when it moved. */
   quarantinedPending(): Array<QuarantinedPending>;
@@ -1863,6 +1871,10 @@ export function createMemoryDb({
       write(withLiveIface({ ...versions, kind: 'prose-versions', now: now() }, iface)),
     writePrivateLayer: (layer: PrivateLayerWrite) =>
       write(withLiveIface({ ...layer, kind: 'private-layer', now: now() }, iface)),
+    writePlaceNotes: (notes: PlaceNotesWrite) =>
+      write(withLiveIface({ ...notes, kind: 'place-notes', now: now() }, iface)),
+    writeChannelEntry: (entry: ChannelEntryWrite) =>
+      write(withLiveIface({ ...entry, kind: 'channel-entry', now: now() }, iface)),
     keepPending,
     quarantinedPending: () => quarantinedIn(quarantineDir),
     replayQuarantinedPending,
