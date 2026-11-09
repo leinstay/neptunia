@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { log } from './log.ts';
 import { resolvePaths } from './paths.ts';
-import { localFiles, trackedConfigPath, interfacePackageDir, interfaceCredential } from './config/files.ts';
+import { localFiles, trackedConfigPath } from './config/files.ts';
 // A parsed JSON value or an argument no module types yet: the alias of src/tools/types.ts, restated so this leaf
 // imports nothing from src/tools/ (src/memory/ reaches it).
 type Untyped = ReturnType<typeof JSON.parse>;
@@ -161,14 +161,6 @@ function mergeConfigFiles(rootDir: Untyped, privateDir: Untyped) {
   if (!raw) return base;
   const local: unknown = JSON.parse(raw);
   return deepMerge(base, local);
-}
-
-/** Platform startup receives the selected package and only that interface's private token. */
-export function interfaceLaunch({ rootDir, dataDir, name }: { rootDir: string; dataDir: string; name: string }): {
-  packageDir: string;
-  token: string | null;
-} {
-  return { packageDir: interfacePackageDir(rootDir, dataDir, name), token: interfaceCredential(dataDir, name) };
 }
 
 export const env = process.env;

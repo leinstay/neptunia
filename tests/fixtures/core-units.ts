@@ -1,5 +1,5 @@
 // The core as the units run it, for the tests of the `neptunia` command and of what reaches the core through it.
-// `startCore` (src/core.ts) runs in the test process with no interface of its own (`interfaces.mode: units`), over
+// `startCore` (src/core.ts) runs in the test process with no interface of its own, over
 // temporary data and private folders, a scripted model and the tracked prompts. Clients are written by
 // scripts/client-token.ts, as an operator writes them. Two kinds of child process connect to the core's socket:
 // - `spawnUnit` runs `bin/neptunia.ts interface run fake` over the fake interface of
@@ -157,7 +157,7 @@ export function scriptedLlm(): Llm {
   };
 }
 
-/** The core with no interface of its own, as `interfaces.mode: units` starts it. */
+/** The core with no interface of its own. */
 export function startUnitsCore(dirs: Dirs, llm: Llm, now?: () => number): Promise<Core> {
   return startCore({
     paths: dirs.paths,

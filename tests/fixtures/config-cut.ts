@@ -515,7 +515,6 @@ export const CUT: ReadonlyArray<CutRow> = [
 
 /** The schema keys after the cut that are neither in `CUT` nor added by it: every one of them stays. */
 export const KEPT: ReadonlyArray<string> = [
-  'interfaces.mode',
   'interfaces.drainMs',
   'interfaces.*.enabled',
   'bot.timezone',

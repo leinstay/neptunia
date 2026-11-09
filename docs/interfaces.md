@@ -101,6 +101,6 @@ The core's answer to `hello` carries its watermark, and the interface sends ever
 
 ## Interfaces as units
 
-With `interfaces.mode` set to `units`, run a package through `neptunia interface run <name>` or its `neptunia-interface@<name>.service` unit. The core and the interface must select the same persona root and matching socket credentials.
+Run a package through `neptunia interface run <name>` or its `neptunia-interface@<name>.service` unit. The core and the interface must select the same persona root and matching socket credentials.
 
 An authored package can live under `data/interfaces/<name>/`; otherwise the loader uses `interfaces/<name>/` from the engine. Personal interface code therefore travels with a whole-persona backup. Package dependencies still need installation on the destination machine.

@@ -41,8 +41,8 @@ test('a yes asks the questions the package declares, the token without echo, and
   assert.deepEqual(asked[1], { question: 'The token', secret: true });
   assert.equal(interfaceCredential(where.dataDir, 'chatty'), 'SECRETTOKEN');
   const config = fs.readFileSync(localConfigPath(where.dataDir), 'utf8');
-  // Changed: a clean setup runs the interface as its own unit, so it sets the mode too.
-  assert.deepEqual(JSON.parse(config), { interfaces: { mode: 'units', chatty: { enabled: true } } });
+  // Changed: the interface setting `interfaces.mode` is gone, so the config holds only the enabled flag.
+  assert.deepEqual(JSON.parse(config), { interfaces: { chatty: { enabled: true } } });
 });
 
 test('a no writes nothing, and a yes without the required value leaves the interface off', async () => {

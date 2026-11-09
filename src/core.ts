@@ -210,8 +210,8 @@ type ChatClient = Omit<ReturnType<typeof createLlm>, 'complete'> & {
 /**
  * Build the core and start it. `paths` are the checkout, the private layer and the data directory (src/paths.ts),
  * `env` the environment the core reads its own keys from (never logged), `interfaces` the interfaces to start in
- * this process: one (`interfaces.mode: inprocess`), or none, when the interfaces run as units and connect to the
- * socket themselves; the core then serves `bot.placeId`. `llm`, `embedder` and `now` replace the provider client,
+ * this process: none in production, where the interfaces run as units and connect to the socket themselves; a test
+ * passes fakes. The core serves `bot.placeId`. `llm`, `embedder` and `now` replace the provider client,
  * the embedding client and the clock (the scheduler, the inner life and the one-core check): only a test passes them.
  * One core runs over a data directory: a live holder of the database lock refuses the start (`locked`), and so does
  * another holder's `core:alive` lease within its ttl (`core-running`), unless the lock it left names a process that is
@@ -608,7 +608,7 @@ async function buildCore(
   const LINK_SOCKET = coreSocketPath(dataDir);
   const linkToken = randomBytes(32).toString('hex');
   // Every client is a principal of the private layer's clients.json (src/interface/principals.ts), read at each
-  // envelope. The token made here is the boot principal of the one in-process interface whatever that file holds, named
+  // envelope. The token made here is the boot principal of an interface started in this process whatever that file holds, named
   // after it and bound to the iface its hello names.
   const bootPrincipal = {
     name: interfaces[0]?.name ?? 'boot',

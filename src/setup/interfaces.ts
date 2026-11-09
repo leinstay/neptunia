@@ -3,12 +3,10 @@
 // contract (src/setup/modules.ts) and, with every required value stored, enables it (`interfaces.<name>.enabled`). The
 // core knows no question of any platform. A no changes nothing, and an interface can come later through `/interfaces`.
 //
-// On a clean install `interfaces.mode` becomes `units`: the step registers the interface's client, writes its private
-// token, and starts its instance `neptunia-interface@<name>.service` through the scope's manager, with no core running. A
-// repeat keeps a valid token and the client as they are. A deployment that already runs its interfaces inside the core
-// (`inprocess`, said outright or implied by an interface already enabled) stays that way, with no client and no unit.
-// `running` names only the instances the manager accepted. The detail names `/interfaces pair open <name>` for each
-// interface set up, the owner's next step there.
+// The step registers the interface's client, writes its private token, and starts its instance
+// `neptunia-interface@<name>.service` through the scope's manager, with no core running. A repeat keeps a valid token
+// and the client as they are. `running` names only the instances the manager accepted. The detail names
+// `/interfaces pair open <name>` for each interface set up, the owner's next step there.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -35,17 +33,6 @@ function packagesIn(dir: string): Array<string> {
     .readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(dir, entry.name, 'setup.json')))
     .map((entry) => entry.name);
-}
-
-const isObject = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
-
-/** Where the interfaces of this deployment run; null on a clean install, which has not said. */
-function modeInForce(dataDir: string): string | null {
-  const { interfaces } = readLocalConfig(localConfigPath(dataDir));
-  if (!isObject(interfaces)) return null;
-  if (typeof interfaces.mode === 'string') return interfaces.mode;
-  return Object.values(interfaces).some((one) => isObject(one) && one.enabled === true) ? 'inprocess' : null;
 }
 
 type Offer = { complete: boolean; changed: boolean };
@@ -89,7 +76,6 @@ export async function interfacesStep(where: Where, deps: InterfacesStepDeps): Pr
     ...packagesIn(path.join(rootDir, 'interfaces')),
     ...packagesIn(path.join(dataDir, 'interfaces')),
   ]);
-  const mode = modeInForce(dataDir);
   const changed: Array<string> = [];
   const running: Array<string> = [];
   let prepared = false;
@@ -97,11 +83,6 @@ export async function interfacesStep(where: Where, deps: InterfacesStepDeps): Pr
     const { complete, changed: isChanged } = await offer({ rootDir, dataDir, kind: 'interface', name }, deps);
     if (isChanged) changed.push(name);
     if (!complete) continue;
-    if (mode === null) {
-      const file = localConfigPath(dataDir);
-      writeLocalConfig(file, setPath(readLocalConfig(file), ['interfaces', 'mode'], 'units'));
-    }
-    if (mode !== null && mode !== 'units') continue;
     if (!prepared) {
       const why = (await deps.prepareUnits?.()) ?? null;
       if (why !== null) return { state: 'failed', detail: `the units of ${name}: ${why}`, running };
