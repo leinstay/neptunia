@@ -355,14 +355,20 @@ test('a text file of the line shows its content in the command window', async ()
 test('a voice note, which the window cannot show, says so in plain words and gives the path of its stored file', async () => {
   // Bug: a format the terminal cannot show leaves an empty window, a terse code, or no way to reach the file.
   const { env } = lineRig({ 1333: [VOICE] });
-  await withChat(env, async (rig) => {
-    await openOn(rig, '/attach open #1333', null, shows(rig, '/data/media/cli/v2.ogg'));
-    const screen = rig.screen().join('\n');
-    assert.ok(screen.includes('This file format cannot be shown here.'), screen);
-    assert.ok(screen.includes('You can open it or download it from this path:'), screen);
-    assert.ok(screen.includes('/data/media/cli/v2.ogg'), screen);
-    assert.ok(screen.includes('note.ogg') && screen.includes('voice') && screen.includes('1.5 KiB'), screen);
-  });
+  await withChat(
+    env,
+    async (rig) => {
+      await openOn(rig, '/attach open #1333', null, shows(rig, '/data/media/cli/v2.ogg'));
+      const screen = rig.screen().join('\n');
+      assert.ok(screen.includes('This file format cannot be shown here.'), screen);
+      assert.ok(screen.includes('You can open it or download it from this path:'), screen);
+      assert.ok(screen.includes('/data/media/cli/v2.ogg'), screen);
+      assert.ok(screen.includes('note.ogg') && screen.includes('voice') && screen.includes('1.5 KiB'), screen);
+    },
+    { rows: 30 }
+  );
+  // Changed: a finished command takes one more row for its finish time (owner, 2026-11-09), and at 24 rows the window's
+  // tail no longer holds the header line of this answer.
 });
 
 test('/attach open with an unknown #N answers a clear refusal', async () => {

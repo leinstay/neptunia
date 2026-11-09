@@ -1,5 +1,5 @@
-// The command window: every slash command of the session in the order it ran, each under its command line and its time,
-// between the chat and the input. It takes half of the rows the header and the input leave, so the chat keeps the other
+// The command window: every slash command of the session in the order it ran, each under its command line and the
+// minute it started, with the minute it finished under its answer, between the chat and the input. It takes half of the rows the header and the input leave, so the chat keeps the other
 // half, and it scrolls apart from the chat. An interactive panel of the newest command draws in its place. The hint under
 // it follows Claude Code's footers ("Esc to cancel" under its /help panel): the key, then "to" and what it does.
 // cli/chat-controller.ts measures it, and cli/app.ts draws it.
@@ -9,15 +9,22 @@ import { Box, Text } from 'ink';
 import { TranscriptRows } from './chat-view.ts';
 import { THEME } from './theme.ts';
 import { cellWidth } from './layout.ts';
-import { displaySafe, leadDigits, lineLead } from './transcript.ts';
+import { displaySafe, leadDigits, lineLead, lineTime } from './transcript.ts';
 import type { TranscriptEntry, TranscriptRow } from './transcript.ts';
 import type { ResultGraphic } from './file-view.ts';
 
 /**
- * One command the owner ran: the line as typed, when, and its answer, null while it is on its way. `graphic` is a picture
- * `/attach open` shows under the answer (cli/file-view.ts).
+ * One command the owner ran: the line as typed, when it started, its answer, null while it is on its way, and when the
+ * answer came, absent until then. `graphic` is a picture `/attach open` shows under the answer (cli/file-view.ts).
  */
-export type CommandResult = { id: string; line: string; at: number; answer: string | null; graphic?: ResultGraphic };
+export type CommandResult = {
+  id: string;
+  line: string;
+  at: number;
+  answer: string | null;
+  finishedAt?: number;
+  graphic?: ResultGraphic;
+};
 
 /** The rule above the window's rows. */
 const RULE_ROWS = 1;
@@ -53,7 +60,7 @@ export const GRAPHIC_SUFFIX = ':graphic';
 
 /**
  * The window's entries: the command line under the lead of its time and its number among the session's commands, padded to
- * the digits of the session's command count, a width of its own, then its answer as it arrived in the same column, with every control character made visible. A
+ * the digits of the session's command count, a width of its own, then its answer as it arrived in the same column, with every control character made visible, then the minute it finished. A
  * result named in `slots` gets that many blank rows after its answer, where its picture is drawn. Kept per result, so the
  * wrapped rows of an unchanged result are reused.
  */
@@ -75,6 +82,15 @@ export function resultEntries(
       ...(answer === ''
         ? []
         : [{ id: `${result.id}:answer`, text: displaySafe(answer.replaceAll('\r\n', '\n')), indent: cellWidth(lead) }]),
+      ...(result.finishedAt === undefined
+        ? []
+        : [
+            {
+              id: `${result.id}:finished`,
+              text: `finished ${lineTime(result.finishedAt, timeZone)}`,
+              indent: cellWidth(lead),
+            },
+          ]),
       ...(slot === 0
         ? []
         : [{ id: `${result.id}${GRAPHIC_SUFFIX}`, text: Array(slot).fill(' ').join('\n'), indent: cellWidth(lead) }]),

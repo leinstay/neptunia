@@ -89,30 +89,36 @@ test('Esc closes the window first and keeps the draft, and the next Esc clears t
 test('the next command reopens the window with the earlier results above, each under its line and its time', async () => {
   // Bug: reopening shows only the newest answer, or an answer loses the command and the time that produced it.
   const { env } = commandEnv({ '/status': 'first-answer', '/help': 'second-answer' });
-  await withChat(env, async (rig) => {
-    await press(rig, '/status', shows(rig, '> /status'));
-    await press(rig, KEY.enter, shows(rig, 'first-answer'));
-    await press(rig, KEY.escape, () => ruleRow(rig) === -1);
-    await press(rig, '/help', shows(rig, '> /help'));
-    await press(rig, KEY.enter, shows(rig, 'second-answer'));
-    const order = ['] /status', 'first-answer', '] /help', 'second-answer'].map((needle) => rowOf(rig, needle));
-    assert.ok(order.every((row) => row > ruleRow(rig)));
-    assert.deepEqual(
-      order,
-      order.toSorted((a, b) => a - b)
-    );
-    // `now` is 1000 ms past the epoch, drawn in UTC: each command line opens with its time and its number.
-    assert.match(rig.screen()[order[0]] ?? '', /^\[1970-01-01 00:00\] \[#1\] \/status$/);
-    assert.match(rig.screen()[order[2]] ?? '', /^\[1970-01-01 00:00\] \[#2\] \/help$/);
-    assert.equal(
-      rig
-        .screen()
-        .slice(ruleRow(rig))
-        .some((line) => line.trimStart().startsWith('>')),
-      false,
-      'no row of the window carries a `>` mark'
-    );
-  });
+  await withChat(
+    env,
+    async (rig) => {
+      await press(rig, '/status', shows(rig, '> /status'));
+      await press(rig, KEY.enter, shows(rig, 'first-answer'));
+      await press(rig, KEY.escape, () => ruleRow(rig) === -1);
+      await press(rig, '/help', shows(rig, '> /help'));
+      await press(rig, KEY.enter, shows(rig, 'second-answer'));
+      const order = ['] /status', 'first-answer', '] /help', 'second-answer'].map((needle) => rowOf(rig, needle));
+      assert.ok(order.every((row) => row > ruleRow(rig)));
+      assert.deepEqual(
+        order,
+        order.toSorted((a, b) => a - b)
+      );
+      // `now` is 1000 ms past the epoch, drawn in UTC: each command line opens with its time and its number.
+      assert.match(rig.screen()[order[0]] ?? '', /^\[1970-01-01 00:00\] \[#1\] \/status$/);
+      assert.match(rig.screen()[order[2]] ?? '', /^\[1970-01-01 00:00\] \[#2\] \/help$/);
+      assert.equal(
+        rig
+          .screen()
+          .slice(ruleRow(rig))
+          .some((line) => line.trimStart().startsWith('>')),
+        false,
+        'no row of the window carries a `>` mark'
+      );
+    },
+    { rows: 30 }
+  );
+  // Changed: each finished command takes one more row for its finish time (owner, 2026-11-09), so both results fit in
+  // the window of a taller terminal; at 24 rows the first command line scrolls out of the window's seven rows.
 });
 
 test("the window pads its commands' numbers to the widest one, so each command line keeps one column", async () => {
@@ -228,4 +234,68 @@ test('a chat line that reads like a command word goes to her and opens no window
     assert.equal(text(rig).includes('the status panel body'), false);
   });
   assert.deepEqual(lines, ['status']);
+});
+
+// ---- start and finish, and a result that comes while the window is closed (owner, 2026-11-09) ----------------------
+
+/** A command answer the test releases when it wants, with the clock it moves meanwhile. */
+function lateAnswer() {
+  const clock = { t: 1000 };
+  let release: (text: string) => void = () => undefined;
+  const answer = new Promise<string>((resolve) => {
+    release = resolve;
+  });
+  const { env, lines } = commandEnv(
+    {},
+    {
+      now: () => clock.t,
+      send: (line: string) => {
+        lines.push(line);
+        return line.startsWith('/') ? answer : undefined;
+      },
+    }
+  );
+  return { env, clock, release: (text: string) => release(text) };
+}
+
+test('a finished command shows the minute it finished under its answer, and a running one shows none', async () => {
+  // Bug: a command that took an hour reads like one that answered at once, since only its start is drawn.
+  const { env, clock, release } = lateAnswer();
+  await withChat(env, async (rig) => {
+    await press(rig, '/status', shows(rig, '> /status'));
+    await press(rig, KEY.enter, shows(rig, '] /status'));
+    assert.equal(text(rig).includes('finished'), false, 'nothing finished yet');
+    clock.t = 1000 + 90_000;
+    release('late-answer');
+    await until(shows(rig, 'late-answer'));
+    await until(shows(rig, 'finished 1970-01-01 00:01'));
+    assert.ok(rowOf(rig, 'finished 1970-01-01 00:01') > rowOf(rig, 'late-answer'), 'under the answer');
+    assert.match(rig.screen()[rowOf(rig, '] /status')] ?? '', /^\[1970-01-01 00:00\] \[#1\] \/status$/);
+  });
+});
+
+test('an answer that arrives while the window is closed reopens the window with it', async () => {
+  // Bug: a long command's answer lands in a closed window, and the owner never learns that it finished.
+  const { env, release } = lateAnswer();
+  await withChat(env, async (rig) => {
+    await press(rig, '/status', shows(rig, '> /status'));
+    await press(rig, KEY.enter, shows(rig, '] /status'));
+    await press(rig, KEY.escape, () => ruleRow(rig) === -1);
+    release('background-answer');
+    await until(() => ruleRow(rig) >= 0 && text(rig).includes('background-answer'));
+    assert.ok(rowOf(rig, 'background-answer') > ruleRow(rig));
+  });
+});
+
+test('closing the window on a panel still loading does not reopen it with the cancel', async () => {
+  // Bug: the Cancelled. that closing writes into the loading result counts as a finished command and reopens the window
+  // the owner just closed.
+  const { env } = commandEnv({}, { panelOf: () => new Promise(() => undefined) });
+  await withChat(env, async (rig) => {
+    await press(rig, '/status', shows(rig, '> /status'));
+    await press(rig, KEY.enter, shows(rig, '] /status'));
+    await press(rig, KEY.escape, () => ruleRow(rig) === -1);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(ruleRow(rig), -1);
+  });
 });
