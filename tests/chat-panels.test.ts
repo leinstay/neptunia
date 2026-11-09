@@ -31,6 +31,6 @@ test('setup shows choices without installing or probing, and a chosen key opens 
   );
   assert.deepEqual(calls, []);
   assert.ok(panel?.rows?.some((row) => row.id === 'interface:fake'));
-  await panel?.rows?.find((row) => row.id === 'core-key')?.apply?.('primary');
-  assert.deepEqual(calls, [{ name: 'keys.core.add', args: { name: 'primary' } }]);
+  await panel?.rows?.find((row) => row.id === 'key')?.apply?.('primary');
+  assert.deepEqual(calls, [{ name: 'keys.add', args: { name: 'primary' } }]);
 });

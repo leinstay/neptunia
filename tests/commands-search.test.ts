@@ -53,8 +53,7 @@ test('the chat parses the search commands and the binding target', () => {
     '/search disable',
     '/search engine brave',
     '/search model a/b',
-    '/keys bind search k',
-    '/keys unbind search',
+    // Changed: quick search's key is the route of its chain; `/keys bind` and `/keys unbind` are gone.
     '/keys check search',
   ]) {
     assert.match(JSON.stringify(parseCommandLine(line)), /"name":"(search|keys)\.[a-z]+"/, line);

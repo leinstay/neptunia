@@ -110,9 +110,9 @@ async function coreModelStep(options: SetupOptions, askCore: LinkAsk, context: F
   const names = createKeyStore({ privateDir: options.privateDir }).coreNames();
   const chain = routesOf(readConfig(ROOT_DIR, { privateDir: options.privateDir }), 'core', names);
   if (names.length === 0 && chain[0]?.via !== 'harness') {
-    const name = (await context.ask('The name of the first core key:', 'core-1')).trim();
+    const name = (await context.ask('The name of the first key:', 'main')).trim();
     if (name === '') return 'cancelled';
-    return commanded(askCore, { name: 'keys.core.add', args: { name } });
+    return commanded(askCore, { name: 'keys.add', args: { name } });
   }
   const offered = context.remembered(MODEL_ANSWER);
   const onRoute = chain.length === 0 ? '' : ` It runs on ${chain.map(routeText).join(', then ')} now.`;

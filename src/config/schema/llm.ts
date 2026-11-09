@@ -88,7 +88,7 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/subharness/routing.ts',
     'default': {},
     'text':
-      'The extra key of `keys.json` each role goes out on, by role: a base model role or `search`. A role with no entry goes out on the core keys. `/keys bind <role> <name>` writes an entry and `/keys unbind <role>` removes it',
+      'The extra key of `keys.json` each role goes out on, by role: a base model role or `search`. A role with no entry goes out on the core keys. Read into the chain of a role with no `models.routes` entry',
   },
   {
     'key': 'llm.routeRetryMinutes',
@@ -97,6 +97,14 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'default': 30,
     'text':
       'How long a role stays on a later route of its chain after a route was unavailable, before its next request tries the first route again (minutes). Read at each request',
+  },
+  {
+    'key': 'llm.routeEffort',
+    'types': ['map'],
+    'reader': 'src/llm/chain-client.ts',
+    'default': { 'core': 'disabled' },
+    'text':
+      'The effort a route of a role takes when its text names none, by role, on the scale `disabled`, `low`, `medium`, `high`. On an API route `disabled` sends no `reasoning` and a level sends it as `reasoning.effort`. A harness cannot turn its thinking off, so `disabled` runs it at `low`, its lowest level (`--effort low` for claude, `model_reasoning_effort=low` for codex), and a level runs it at that level. Shipped with `core` at `disabled`. An effort the route names wins. Read at each request',
   },
   {
     'key': 'llm.cache.ttl',

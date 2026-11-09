@@ -4,7 +4,7 @@
 // first whether its work is done (`already`), so a rerun after a failure resumes where it stopped. A step that fails
 // stops the run, the steps after it are `skipped`, and no chat opens. The six steps that ask come before `units`, so
 // the units bind the backends just installed and the watcher's timer takes the schedule just given; each is `skipped` with
-// no terminal. After the last step the owner's chat opens on `keys core add`, and the chat takes over.
+// no terminal. After the last step the owner's chat opens on `keys add`, and the chat takes over.
 //
 //   folders          the private folder with `config.local`, `prompts.local`, `clients`, and the data folder, mode 0700
 //   keys-file        an empty `keys.json` at mode 0600; one that exists keeps its content and is made 0600
@@ -103,7 +103,7 @@ export type SetupReport = {
 
 /** The chat commands that finish the install, in order. */
 const NEXT = [
-  'keys core add',
+  'keys add <name>',
   'interfaces token set discord',
   'interfaces enable discord',
   'model set',
@@ -111,7 +111,7 @@ const NEXT = [
 ];
 
 /** The line the chat opens on. */
-const FIRST_LINE = '/keys core add';
+const FIRST_LINE = '/keys add';
 
 /** The usage error of the command line: nothing has been touched when it is raised. */
 export class SetupUsageError extends Error {}

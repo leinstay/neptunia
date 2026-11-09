@@ -1,4 +1,4 @@
-// The questions a command asks the owner in the `neptunia` chat (the key value of `/keys core add`): `createAnswers`
+// The questions a command asks the owner in the `neptunia` chat (the key value of `/keys add`): `createAnswers`
 // takes the lines of a readline interface that a question is waiting for, so the line is the answer and never a command.
 // A secret question follows hermes_cli/secret_prompt.py: nothing the owner types is echoed, one `*` stands for each
 // character and backspace takes one away, and the answer never reaches the history of the chat (neither the

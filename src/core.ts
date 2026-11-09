@@ -49,6 +49,7 @@ import { createLlm } from './llm/openrouter.ts';
 import type { CompleteResult } from './llm/openrouter.ts';
 import { reportingFailures } from './llm/chain-client.ts';
 import { createCoreRoutes } from './llm/core-routes.ts';
+import { harnessEffort } from './llm/route-text.ts';
 import { createKeyFailover } from './llm/key-failover.ts';
 import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, SEARCH_ROLE, roleModel, searchModel } from './llm/roles.ts';
 import { statusCardKeys } from './keys/card-keys.ts';
@@ -1352,15 +1353,15 @@ async function buildCore(
     dataDir,
   });
   // The key commands: the checks go to the provider with the global `fetch` of the moment, a model is saved through the
-  // `model.set` operation, and the last core key's removal pauses her with the reason `no-core-key`.
+  // `model.set` operation, and a removal that leaves her core no route pauses her with the reason `no-core-route`.
   const asOwner = { accountId: '', roleIds: [], actor: 'owner', asOwner: true };
   const ownerOp = async (op: string, args: Record<string, unknown>): Promise<string> => {
     const result = await admin.runSkillOp(op, args, asOwner);
     if (result.status !== 'ok') throw new Error(result.summary || result.code);
     return result.summary;
   };
-  // Her pause with a reason, which the key commands and the probes set: `no-core-key` after the last core key's
-  // removal, `core-down`, `analyzer-down` or `memory-down` after a failed probe. Each lifts only its own pause, and an owner's pause given over
+  // Her pause with a reason, which the key commands and the probes set: `no-core-route` after a key removal that leaves
+  // her core no route, `core-down`, `analyzer-down` or `memory-down` after a failed probe. Each lifts only its own pause, and an owner's pause given over
   // one of them becomes his.
   const pauseControl = reasonedPause({ run: ownerOp, store });
   // One run of the installed codex or claude for a check: the subharness's `/subharness` checks and the memory probe.
@@ -1406,7 +1407,10 @@ async function buildCore(
     chainOf: (role) => chainClient.routes(role),
     saveRoutes: (role, chain) => Promise.resolve(writeLocalSetting(['models', 'routes', role], chain)),
     checkHarness: (route) =>
-      checkedRoute({ privateDir: paths.privateDir, runBackend: runSubharnessBackend, fetch: globalThis.fetch }, route),
+      checkedRoute(
+        { privateDir: paths.privateDir, runBackend: runSubharnessBackend, fetch: globalThis.fetch },
+        { ...route, effort: harnessEffort(route.effort) }
+      ),
     // `keys check memory` proves the path the writer runs on: the probe through the backend while config.json names one.
     memoryPath: routes.memoryCheckPath,
     probeMemory: () => probeMemoryRaw(clock()),

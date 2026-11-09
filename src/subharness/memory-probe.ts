@@ -4,7 +4,7 @@
 // five-hour and weekly limits cannot be read, so the probe is the only signal of them. The watch probes at core start,
 // every `memory.probeMinutes` (default 30) and at once after a refused writer run. A failed probe while she runs pauses
 // her with the reason `memory-down` through the core's pause (src/keys/commands.ts#PauseControl), the next passing
-// probe resumes her, and neither touches a pause of another reason: the owner's and `no-core-key` stay as they are. A
+// probe resumes her, and neither touches a pause of another reason: the owner's and `no-core-route` stay as they are. A
 // source the vendor's own status command reports logged out fails with no model run. A pass on a subharness path names
 // the controls that path lacks in `gaps`, so a green probe claims no parity with the direct one. `routeProbe` and a
 // watch with its own `reason` serve the core and the analyzer the same way (src/subharness/route-watch.ts).

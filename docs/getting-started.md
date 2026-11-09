@@ -28,7 +28,7 @@ Run the interactive setup:
 ./bin/neptunia.ts setup
 ```
 
-Choose Discord, enter its bot token and servers, then select the optional services and agent backends you need. Setup writes the private tokens of the owner CLI and of Discord without printing them, installs user units, and starts Discord and the core. These tokens are separate from your Discord and model credentials. At the end it opens the owner chat with `/keys core add` ready. Add an OpenRouter key there; the dialog checks the selected models before saving it.
+Choose Discord, enter its bot token and servers, then select the optional services and agent backends you need. Setup writes the private tokens of the owner CLI and of Discord without printing them, installs user units, and starts Discord and the core. These tokens are separate from your Discord and model credentials. At the end it opens the owner chat with `/keys add` ready. Add an OpenRouter key there; the dialog checks the selected models before saving it.
 
 Check the installation:
 

@@ -77,8 +77,8 @@ test('with her core on a harness and no core key, the flow never asks for a firs
   const r = rig(true);
   const outcome = await r.flow();
   assert.equal(outcome.status, 'ready', outcome.detail);
-  assert.ok(!r.asked.some((question) => question.includes('first core key')), r.asked.join('\n'));
-  assert.ok(!r.commands.some((command) => command.name === 'keys.core.add'), JSON.stringify(r.commands));
+  assert.ok(!r.asked.some((question) => question.includes('first key')), r.asked.join('\n'));
+  assert.ok(!r.commands.some((command) => command.name === 'keys.add'), JSON.stringify(r.commands));
 });
 
 test('with her core on the API and no core key, the flow asks for the first core key', async () => {
@@ -86,7 +86,7 @@ test('with her core on the API and no core key, the flow asks for the first core
   const r = rig(false);
   await r.flow();
   assert.ok(
-    r.asked.some((question) => question.includes('first core key')),
+    r.asked.some((question) => question.includes('first key')),
     r.asked.join('\n')
   );
 });
@@ -96,5 +96,5 @@ test('with her core chain starting on a harness and no key, the flow never asks 
   const r = rig(false, [{ via: 'harness', backend: 'claude', model: 'claude-opus-4-6' }]);
   const outcome = await r.flow();
   assert.equal(outcome.status, 'ready', outcome.detail);
-  assert.ok(!r.asked.some((question) => question.includes('first core key')), r.asked.join('\n'));
+  assert.ok(!r.asked.some((question) => question.includes('first key')), r.asked.join('\n'));
 });

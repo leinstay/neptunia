@@ -25,7 +25,7 @@ test('a service key reaches its consumer, is stored at 600 and shows only its en
 });
 
 test('the service keys survive a write of the rest of the store', async () => {
-  // Bug: `/keys core add` rewrites keys.json from its known sections, and the service keys silently disappear.
+  // Bug: `/keys add` rewrites keys.json from its known sections, and the service keys silently disappear.
   const dir = tempDir('nep-services-');
   await serviceCommand(dir, 'keys.service.set', { name: 'youtube' }, scriptedDialog([VALUE]).dialog);
   writeKeys(dir, readKeys(dir));

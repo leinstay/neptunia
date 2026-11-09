@@ -201,9 +201,8 @@ async function apiSource(deps: CapabilityDeps, role: string): Promise<SourceDesc
       listing: 'none',
       models: [],
       setup: [
-        { command: '/keys core add <name>', masked: true },
-        { command: '/keys extra add <name>', masked: true },
-        { command: `/keys bind ${role} <name>`, masked: false },
+        { command: '/keys add <name>', masked: true },
+        { command: `/model set ${role} <name>/<model>`, masked: false },
       ],
     };
   const reading = await roleModelListing({ fetch: deps.fetch, baseUrl: deps.baseUrl, value: deps.openRouterKey }, role);

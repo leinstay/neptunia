@@ -70,18 +70,10 @@ function setupRows(run: Run, interfaces: ReadonlyArray<string>): Array<PanelRow>
   return [
     named(
       run,
-      'core-key',
-      'Add core key',
-      'Name this OpenRouter key; the next dialog asks for its secret and models.',
-      'keys.core.add',
-      'Keys'
-    ),
-    named(
-      run,
-      'extra-key',
-      'Add extra key',
-      'A named key for an independent model or service binding.',
-      'keys.extra.add',
+      'key',
+      'Add key',
+      'Name this OpenRouter key; the next dialog asks for its secret, and the first key for the models too.',
+      'keys.add',
       'Keys'
     ),
     ...['youtube', 'brave', 'exa', 'proxy'].map((name) =>
@@ -142,11 +134,11 @@ function setupRows(run: Run, interfaces: ReadonlyArray<string>): Array<PanelRow>
       prefill: '/model',
     },
     {
-      id: 'binding',
-      label: 'Bind an extra key',
-      detail: 'Choose the role and the name of an existing extra key.',
+      id: 'fallback',
+      label: 'Add a fallback route',
+      detail: 'Name the role and a route, <key>/<model> or harness:<claude|codex>/<model>, checked with one reply.',
       group: 'Models',
-      prefill: '/keys bind ',
+      prefill: '/model add ',
     },
     ...['claude', 'codex', 'opencode'].map((backend): PanelRow => ({
       id: `backend:${backend}`,

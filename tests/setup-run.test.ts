@@ -197,8 +197,8 @@ test('setup opens the chat last, on keys core add, and only once', async () => {
   // Bug: the chat opens before the core runs, so the first line gets "no core listens".
   const { options, deps, events, chat } = rig();
   await runSetup(options, deps);
-  assert.deepEqual(chat, ['/keys core add']);
-  assert.equal(events[events.length - 1], 'chat /keys core add');
+  assert.deepEqual(chat, ['/keys add']);
+  assert.equal(events[events.length - 1], 'chat /keys add');
   const enable = events.findIndex((line) => line.includes('enable --now'));
   assert.ok(enable >= 0 && enable < events.length - 1);
 });
@@ -216,7 +216,7 @@ test('the report lists every step done and the commands that come next, in the o
     SETUP_STEPS.map((step) => [step, asking.includes(step) ? 'skipped' : 'done'])
   );
   assert.deepEqual(report.next, [
-    'keys core add',
+    'keys add <name>',
     'interfaces token set discord',
     'interfaces enable discord',
     'model set',
@@ -263,7 +263,7 @@ test('a rerun after a failure resumes: earlier steps are already done and the co
       ['core', 'done'],
     ]
   );
-  assert.deepEqual(chat, ['/keys core add']);
+  assert.deepEqual(chat, ['/keys add']);
 });
 
 test('a unit file edited by hand is rewritten by the next setup', async () => {
@@ -486,7 +486,7 @@ test('a refused self-development step leaves the run ok, stores no repository an
   });
   assert.equal(report.ok, true);
   assert.equal(report.steps.find((step) => step.step === 'selfimprovement')?.state, 'refused');
-  assert.deepEqual(chat, ['/keys core add']);
+  assert.deepEqual(chat, ['/keys add']);
   const local = JSON.parse(fs.readFileSync(path.join(options.privateDir, 'config', 'config.json'), 'utf8')) as {
     selfimprovement: Record<string, unknown>;
   };
@@ -517,7 +517,7 @@ test('without a terminal the subharness, mechanics and watcher steps are skipped
   const stateOf = (step: string): string | undefined => report.steps.find((one) => one.step === step)?.state;
   assert.deepEqual(['subharness', 'mechanics', 'watcher'].map(stateOf), ['skipped', 'skipped', 'skipped']);
   assert.equal(report.ok, true);
-  assert.deepEqual(chat, ['/keys core add']);
+  assert.deepEqual(chat, ['/keys add']);
 });
 
 test('the watcher hour given in a setup run is in the timer the same run writes', async () => {
