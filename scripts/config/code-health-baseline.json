@@ -632,10 +632,6 @@
       "deep": 7,
       "repeated": 0
     },
-    "tests/memory-db-map-record.test.ts": {
-      "deep": 12,
-      "repeated": 0
-    },
     "tests/memory-db-map-user.test.ts": {
       "deep": 9,
       "repeated": 0

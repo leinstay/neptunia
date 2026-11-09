@@ -27,7 +27,6 @@ import * as participation from './participation.ts';
 import * as place from './place.ts';
 import * as privateLayer from './private.ts';
 import * as recent from './recent.ts';
-import * as record from './record.ts';
 import * as requests from './requests.ts';
 import * as user from './user.ts';
 import * as verbatim from './verbatim.ts';
@@ -43,7 +42,6 @@ export type Mapper = {
 };
 
 export const MAPPERS = {
-  record,
   journal,
   user,
   private: privateLayer,
@@ -254,7 +252,6 @@ export function storageMapper(
       ...base,
       ...(key.kind === 'user' && key.subject.type === 'account' ? memberWriteContext(db, id, key.subject.id) : {}),
       position: ctx.position,
-      messageIdentity: ctx.messageIdentity,
       hotClaimIds: ctx.hotClaimIds,
     };
     const rows =

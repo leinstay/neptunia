@@ -24,7 +24,7 @@
 // bot is paused. Each pass logs its coverage (counts), and warns when a message the queue had
 // taken is missing with nothing left to send it (lost). Logs carry counts and place ids, never text.
 
-import { recordHolders } from './db/readers/record.ts';
+import { recordHolders } from './db/record-lines.ts';
 import { log as defaultLog } from '../log.ts';
 import { roleModel } from '../llm/roles.ts';
 import { EMBED_ROLE } from '../llm/embed.ts';
@@ -169,7 +169,7 @@ function oldestOf(missing: Untyped) {
  * @param [deps.selfName]  The persona's display name.
  * @param [deps.paused]  Whether the bot is paused (`/nep pause`): no catch-up then.
  * @param deps.memoryDb  The memory database service: the private layers come from it
- *   (src/memory/db/readers/record.ts; a failed read is an error of the pass); the lines come through
+ *   (src/memory/db/record-lines.ts; a failed read is an error of the pass); the lines come through
  *   `record.iterate`.
  *   `enqueue` (synchronous) queues each embeddable line not queued before at its revision (an
  *   older revision still waiting is replaced) and returns how many it queued; a full batch starts a

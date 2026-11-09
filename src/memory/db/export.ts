@@ -13,8 +13,7 @@ import type { Mapper } from './map/index.ts';
 import type { MappedPath } from '../migration/classify.ts';
 import { OWNED } from './upsert.ts';
 import { addSessionRows } from './session-rows.ts';
-import { recordFieldsOf } from './media-store.ts';
-import { parseExtra } from './map/common.ts';
+import { addSourceMedia } from './record-lines.ts';
 import { asText, dbOf, isFiniteNumber } from './types.ts';
 import type { Connection, Db, Row, Rows } from './types.ts';
 
@@ -102,17 +101,6 @@ const KEY_SQL = (table: string) =>
  * The active rows of one unit (`owner` is its full path): table -> rows (every table present), children included; a
  * member's unit with her session's rows about the person.
  */
-/** A record line reads its media as it was written: the kinds and link cards of the items it links. */
-function addSourceMedia(db: Db, sources: Array<Row>): void {
-  if (sources.length === 0 || !db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'media_links'").get()) return;
-  for (const source of sources) {
-    const { media, links } = recordFieldsOf(db, asText(source.id));
-    if (media.length === 0) continue;
-    source.media = JSON.stringify(media);
-    if (links.length > 0) source.extra = JSON.stringify({ ...parseExtra(source.extra), links });
-  }
-}
-
 export function unitRows(db: Db, key: StorageKey | string): Rows {
   const current = hasStorageUnits(db);
   const semantic = typeof key === 'string' ? (current ? (unitById(db, key)?.key ?? legacyStorageKey(key)) : null) : key;
@@ -150,8 +138,6 @@ const positionOfOwner = (row: Row): number => Number(String(row.owner).split('#'
 function linesOf(kind: string, mapper: Mapper, rows: Rows): Array<unknown> {
   const one = (table: string, row: Row): unknown => mapper.fromRows({ [table]: [row] });
   switch (kind) {
-    case 'record':
-      return rows.sources.map((row) => one('sources', row));
     case 'archive':
       return rows.claim_versions.map((row) => one('claim_versions', row));
     case 'intentions':
