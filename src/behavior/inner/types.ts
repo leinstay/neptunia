@@ -4,7 +4,6 @@
 // (src/behavior/wake.ts) and the turn runner read them.
 
 import type { ServiceSchedule } from '../../service/schedule.ts';
-import type { StorageKey } from '../../memory/db/storage-keys.ts';
 import type { Obj } from '../../tools/types.ts';
 import type { Due, Intention } from '../../intentions/types.ts';
 import type { Reads } from '../../interface/reads.ts';
@@ -469,6 +468,6 @@ export type InnerMemoryDb = {
   namespace?(): string | null;
   recordWake?(update: WakeUpdate): unknown;
   memoryWrite?(update: WakeQueueUpdate): Promise<unknown>;
-  writeUnit?(update: { op: 'value'; key: StorageKey; value: unknown }): Promise<unknown>;
+  writeOperational?(write: { op: 'value'; of: 'inner'; subject: string; value: unknown }): Promise<unknown>;
   readHandle?(): { db: object } | null;
 };

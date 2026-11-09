@@ -19,6 +19,7 @@ import { migrateMediaStore } from './media-store.ts';
 import { dropCategoryPlaces } from './category-places.ts';
 import { NAMES_SCHEMA, rebuildNames } from './names.ts';
 import { SELF_SOURCE_KINDS } from './source-kinds.ts';
+import { moveOperationalOwners } from './operational.ts';
 import { importWakeQueues } from '../migration/wake-import.ts';
 import {
   moveSelfreflectionMediaIds,
@@ -1616,6 +1617,8 @@ export const MIGRATIONS: Array<Migration> = [
   // the audience of a session run (src/memory/db/session-write.ts).
   `CREATE INDEX IF NOT EXISTS places_partner_account ON places(partner_account) WHERE partner_account IS NOT NULL;
    CREATE INDEX IF NOT EXISTS places_partner_person ON places(partner_person) WHERE partner_person IS NOT NULL;`,
+  // Version 43: the engine's own state is owned by its kind and subject, not by a unit (src/memory/db/operational.ts).
+  moveOperationalOwners,
 ];
 
 /** Every table schema v8 adds. */

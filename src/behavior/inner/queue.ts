@@ -6,9 +6,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { personaKey } from '../../memory/db/storage-keys.ts';
+import { operationalValue } from '../../memory/db/operational.ts';
+import { PERSONA_ID } from '../../memory/db/storage-keys.ts';
 
-import { createReadSeam, unitValue } from '../../memory/db/readers/common.ts';
+import { createReadSeam } from '../../memory/db/readers/common.ts';
 import { writeJsonAtomic } from '../../memory/index.ts';
 import { DAY_MS } from '../../time.ts';
 import { errorCode, isFiniteNumber, isObj, listOf, objOf } from '../../tools/types.ts';
@@ -307,7 +308,7 @@ export function stateOf(life: InnerContext): InnerState {
   try {
     if (life.memoryDb) {
       const seam = stateSeam(life);
-      const stored = seam.run(() => unitValue(seam.db(), personaKey('inner')));
+      const stored = seam.run(() => operationalValue(seam.db(), 'inner', PERSONA_ID));
       raw = stored.found ? stored.value : null;
     } else raw = JSON.parse(fs.readFileSync(fileOf(life), 'utf8'));
   } catch (err) {
@@ -377,11 +378,13 @@ function persistState(life: InnerContext, key: string, state: InnerState): void 
   const value = fileStateOf(state);
   const { memoryDb } = life;
   if (memoryDb) {
-    if (!memoryDb.writeUnit) throw Object.assign(new Error('DB_WRITE_UNAVAILABLE'), { code: 'DB_WRITE_UNAVAILABLE' });
-    const write = memoryDb.writeUnit.bind(memoryDb);
+    if (!memoryDb.writeOperational)
+      throw Object.assign(new Error('DB_WRITE_UNAVAILABLE'), { code: 'DB_WRITE_UNAVAILABLE' });
+    const write = memoryDb.writeOperational.bind(memoryDb);
     const snapshot: unknown = JSON.parse(JSON.stringify(value));
-    const keyOfState = personaKey('inner');
-    life.writes = life.writes.then(() => write({ op: 'value', key: keyOfState, value: snapshot })).catch(failed);
+    life.writes = life.writes
+      .then(() => write({ op: 'value', of: 'inner', subject: PERSONA_ID, value: snapshot }))
+      .catch(failed);
     return;
   }
   try {

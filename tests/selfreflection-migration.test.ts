@@ -161,7 +161,13 @@ test('every other table has the rows it had, and the ones that said diary say se
     // The specifier's map renamed every node; a database at schema 33 also holds the shipped interface and authority nodes.
     graph_nodes: (row) => (row.kind === 'diary' ? { ...row, kind: 'selfreflection', id: 'selfreflection:dy-e1' } : row),
     media_links: (row) => (row.owner_kind === 'diary' ? { ...row, owner_kind: 'selfreflection' } : row),
-    operational: (row) => (row.kind === 'diary' ? { ...row, kind: 'selfreflection', owner_key: NEW_UNIT } : row),
+    // Schema v43 owns the engine's state by its kind and subject (src/memory/db/operational.ts).
+    operational: (row) =>
+      row.kind === 'diary'
+        ? { ...row, kind: 'selfreflection', owner_key: NEW_UNIT }
+        : row.kind === 'state'
+          ? { ...row, owner: 'persona:local', owner_key: null }
+          : row,
     files: (row) => ({ ...row, kind: 'selfreflection' }),
     // A category is no place, the owner's word of 2026-11-06.
     places: (row) => {
@@ -173,12 +179,21 @@ test('every other table has the rows it had, and the ones that said diary say se
     // Schema v40 adds the meta-person's columns (plan 2026-11-08): no person is marked and no line names one.
     people: (row) => ({ ...row, meta: 0 }),
     sources: (row) => ({ ...row, author_person: null }),
+    // Schema v43 retires the unit of the state at the time it runs.
     storage_units: (row) =>
       row.id === OLD_UNIT
         ? { ...row, id: NEW_UNIT, kind: 'selfreflection', key_json: keyJsonOf('selfreflection') }
-        : row,
+        : row.kind === 'state'
+          ? { ...row, retired_at: stateRetiredAt }
+          : row,
   };
+  let stateRetiredAt: unknown = null;
   reading(file, (db) => {
+    stateRetiredAt = db.prepare("SELECT retired_at FROM storage_units WHERE kind = 'state'").get()?.retired_at;
+    assert.equal(
+      db.prepare("SELECT COUNT(*) AS n FROM storage_units WHERE kind = 'state' AND retired_at IS NULL").get()?.n,
+      0
+    );
     const after = snapshot(db);
     for (const table of Object.keys(before)) {
       if (table in RENAMED || table === 'meta') continue;
@@ -215,11 +230,8 @@ test('the storage unit of the entries has the id the catalog derives from the ne
     assert.equal(ensureUnit(db, personaKey('selfreflection')), NEW_UNIT);
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM storage_units').get()?.n, 2);
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
-    // The other unit and the rows pointing at it are as they were.
-    assert.equal(
-      db.prepare("SELECT owner_key FROM operational WHERE kind = 'state'").get()?.owner_key,
-      unitIdOf('state')
-    );
+    // The other unit keeps its id. Schema v43 moves the state row to its subject, so no row points at that unit.
+    assert.equal(db.prepare("SELECT id FROM storage_units WHERE kind = 'state'").get()?.id, unitIdOf('state'));
   });
 });
 

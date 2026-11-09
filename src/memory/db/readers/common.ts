@@ -1,7 +1,9 @@
 // Shared semantic readers and the ready database seam. Core modules read complete values and ordered lines by
-// StorageKey. The explicit legacy export adapter understands historical owner strings. A closed service refuses
-// reads with DB_CLOSED; failures are logged once with their reader and code, without stored contents.
+// StorageKey, and a key of an operational kind reads its row by kind and subject (operational.ts). The explicit legacy
+// export adapter understands historical owner strings. A closed service refuses reads with DB_CLOSED; failures are
+// logged once with their reader and code, without stored contents.
 
+import { isOperationalKind, operationalLines, operationalValue } from '../operational.ts';
 import { hasStorageUnits } from '../storage-units.ts';
 import { storageId } from '../storage-keys.ts';
 import type { StorageKey } from '../storage-keys.ts';
@@ -37,6 +39,7 @@ const unitRelOf = (owner: string) => /^[^/]+\/[^/]+\/(.+)$/.exec(owner)?.[1] ?? 
  */
 export function unitLines(dbGiven: unknown, key: StorageKey | string): Array<string> {
   const db = dbGiven as Db;
+  if (typeof key !== 'string' && isOperationalKind(key.kind)) return operationalLines(db, key.kind, key.subject.id);
   if (hasStorageUnits(db)) return storageLines(db, typeof key === 'string' ? legacyStorageKey(key) : key);
   const owner = typeof key === 'string' ? key : storageId(key);
   const info = infoOf(owner, 'jsonl');
@@ -54,6 +57,8 @@ export function unitValue(
   ownerGiven: StorageKey | string
 ): { found: true; value: unknown } | { found: false } {
   const db = dbGiven as Db;
+  if (typeof ownerGiven !== 'string' && isOperationalKind(ownerGiven.kind))
+    return operationalValue(db, ownerGiven.kind, ownerGiven.subject.id);
   if (hasStorageUnits(db)) {
     const key = typeof ownerGiven === 'string' ? legacyStorageKey(ownerGiven) : ownerGiven;
     const unit = db.prepare('SELECT 1 FROM storage_units WHERE id=? AND retired_at IS NULL').get(storageId(key));
