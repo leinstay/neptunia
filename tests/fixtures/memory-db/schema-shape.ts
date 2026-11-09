@@ -45,6 +45,8 @@ export function schemaShape(db: Db): Shape {
       details = [
         ...joined(db.prepare(`PRAGMA table_xinfo("${name}")`).all(), ['name', 'type', 'notnull', 'dflt_value', 'pk', 'hidden']),
         ...joined(db.prepare(`PRAGMA foreign_key_list("${name}")`).all(), ['table', 'from', 'to', 'on_update', 'on_delete']),
+        // The planner breaks a tie between two indexes by this order, so it is part of the shape.
+        ...joined(db.prepare(`PRAGMA index_list("${name}")`).all(), ['seq', 'name', 'unique', 'origin', 'partial']),
       ];
     } else if (object.type === 'index') {
       details = joined(db.prepare(`PRAGMA index_xinfo("${name}")`).all(), ['name', 'desc', 'coll', 'key']);

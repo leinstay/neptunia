@@ -10,7 +10,8 @@ import type { Db } from './types.ts';
 /** The schema version a new database starts at. */
 export const BASELINE_VERSION = 42;
 
-// One block per table in alphabetical order, each with its indexes and triggers. The texts are production's
+// One block per table in alphabetical order, each with its indexes and triggers in the order production created them:
+// the query planner breaks a tie between two indexes of a table by that order. The texts are production's
 // `sqlite_master` at version 42, folded to lines, so a column added by `ALTER TABLE` stands at the end of its table.
 const SCHEMA = `
 CREATE TABLE account_person_links (
@@ -29,8 +30,8 @@ CREATE TABLE accounts (
   kind TEXT NOT NULL DEFAULT 'user' CHECK (kind IN ('user', 'bot', 'shared', 'self')), gone_at TEXT,
   owner_key TEXT REFERENCES storage_units(id)
 );
-CREATE UNIQUE INDEX accounts_native ON accounts(authority_id, native_key, generation) WHERE authority_id IS NOT NULL;
 CREATE INDEX accounts_owner ON accounts(owner_file);
+CREATE UNIQUE INDEX accounts_native ON accounts(authority_id, native_key, generation) WHERE authority_id IS NOT NULL;
 CREATE INDEX "accounts_storage_owner" ON "accounts"(owner_key);
 
 CREATE TABLE affinity_events (
@@ -47,9 +48,9 @@ CREATE TABLE audiences (
   CHECK ((kind IN ('none', 'internal') AND iface IS NULL AND place_id IS NULL) OR (kind = 'group' AND iface IS NOT NULL AND place_id IS NULL) OR (kind = 'dm' AND iface IS NOT NULL AND place_id IS NOT NULL)),
   CHECK (id = CASE kind WHEN 'none' THEN 'aud:none' WHEN 'internal' THEN 'aud:internal' WHEN 'group' THEN 'aud:group:' || iface ELSE 'aud:dm:' || place_id END)
 );
-CREATE UNIQUE INDEX audiences_dm ON audiences(place_id) WHERE kind = 'dm';
-CREATE UNIQUE INDEX audiences_group ON audiences(iface) WHERE kind = 'group';
 CREATE UNIQUE INDEX audiences_single ON audiences(kind) WHERE kind IN ('none', 'internal');
+CREATE UNIQUE INDEX audiences_group ON audiences(iface) WHERE kind = 'group';
+CREATE UNIQUE INDEX audiences_dm ON audiences(place_id) WHERE kind = 'dm';
 
 CREATE TABLE authorities (
   id TEXT PRIMARY KEY, iface TEXT NOT NULL REFERENCES interfaces(id), namespace TEXT NOT NULL, name TEXT, extra JSON,
@@ -73,11 +74,11 @@ CREATE TABLE capture_events (
   added INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX capture_events_bundle ON capture_events(bundle_id, id);
-CREATE TRIGGER capture_events_no_delete BEFORE DELETE ON capture_events
+CREATE TRIGGER capture_events_no_update BEFORE UPDATE ON capture_events
 BEGIN
   SELECT RAISE(ABORT, 'capture events are append-only');
 END;
-CREATE TRIGGER capture_events_no_update BEFORE UPDATE ON capture_events
+CREATE TRIGGER capture_events_no_delete BEFORE DELETE ON capture_events
 BEGIN
   SELECT RAISE(ABORT, 'capture events are append-only');
 END;
@@ -88,11 +89,11 @@ CREATE TABLE capture_members (
   added_at TEXT NOT NULL, PRIMARY KEY (bundle_id, source_id, role)
 );
 CREATE INDEX capture_members_source ON capture_members(source_id);
-CREATE TRIGGER capture_members_no_delete BEFORE DELETE ON capture_members
+CREATE TRIGGER capture_members_no_update BEFORE UPDATE ON capture_members
 BEGIN
   SELECT RAISE(ABORT, 'capture members are never removed');
 END;
-CREATE TRIGGER capture_members_no_update BEFORE UPDATE ON capture_members
+CREATE TRIGGER capture_members_no_delete BEFORE DELETE ON capture_members
 BEGIN
   SELECT RAISE(ABORT, 'capture members are never removed');
 END;
@@ -109,8 +110,8 @@ CREATE TABLE claim_sources (
   owner_key TEXT REFERENCES storage_units(id)
 );
 CREATE INDEX claim_sources_claim ON claim_sources(claim_id);
-CREATE UNIQUE INDEX claim_sources_id ON claim_sources(id);
 CREATE INDEX claim_sources_owner ON claim_sources(owner_file);
+CREATE UNIQUE INDEX claim_sources_id ON claim_sources(id);
 CREATE INDEX "claim_sources_storage_owner" ON "claim_sources"(owner_key);
 CREATE TRIGGER claim_sources_id_fill AFTER INSERT ON claim_sources WHEN new.id IS NULL
 BEGIN
@@ -123,10 +124,6 @@ CREATE TABLE claim_version_sources (
   legacy INTEGER NOT NULL DEFAULT 0 CHECK (legacy IN (0, 1)), PRIMARY KEY (version_id, source_id)
 );
 CREATE INDEX claim_version_sources_source ON claim_version_sources(source_id);
-CREATE TRIGGER semantic_evidence_no_delete BEFORE DELETE ON claim_version_sources WHEN EXISTS (SELECT 1 FROM semantic_assertion_versions WHERE version_id = old.version_id)
-BEGIN
-  SELECT RAISE(ABORT, 'semantic evidence versions are retained');
-END;
 CREATE TRIGGER semantic_evidence_no_insert BEFORE INSERT ON claim_version_sources WHEN EXISTS (SELECT 1 FROM semantic_assertion_versions WHERE version_id = new.version_id)
 BEGIN
   SELECT RAISE(ABORT, 'semantic evidence version is already sealed');
@@ -135,18 +132,18 @@ CREATE TRIGGER semantic_evidence_no_update BEFORE UPDATE ON claim_version_source
 BEGIN
   SELECT RAISE(ABORT, 'semantic evidence versions are immutable');
 END;
+CREATE TRIGGER semantic_evidence_no_delete BEFORE DELETE ON claim_version_sources WHEN EXISTS (SELECT 1 FROM semantic_assertion_versions WHERE version_id = old.version_id)
+BEGIN
+  SELECT RAISE(ABORT, 'semantic evidence versions are retained');
+END;
 
 CREATE TABLE claim_versions (
   id TEXT PRIMARY KEY, claim_id TEXT, revision_id TEXT, text TEXT, extra JSON, recorded_at TEXT, event TEXT, by TEXT,
   origin TEXT, owner_file TEXT, position INTEGER, retired_at TEXT, owner_key TEXT REFERENCES storage_units(id)
 );
-CREATE INDEX claim_versions_claim ON claim_versions(claim_id);
 CREATE INDEX claim_versions_owner ON claim_versions(owner_file);
+CREATE INDEX claim_versions_claim ON claim_versions(claim_id);
 CREATE INDEX "claim_versions_storage_owner" ON "claim_versions"(owner_key);
-CREATE TRIGGER semantic_claim_no_delete BEFORE DELETE ON claim_versions WHEN EXISTS (SELECT 1 FROM semantic_assertion_versions WHERE version_id = old.id)
-BEGIN
-  SELECT RAISE(ABORT, 'sealed claim versions are retained');
-END;
 CREATE TRIGGER semantic_claim_no_replace BEFORE INSERT ON claim_versions WHEN EXISTS (SELECT 1 FROM semantic_assertion_versions WHERE version_id = new.id)
 BEGIN
   SELECT RAISE(ABORT, 'sealed claim versions cannot be replaced');
@@ -154,6 +151,10 @@ END;
 CREATE TRIGGER semantic_claim_no_update BEFORE UPDATE ON claim_versions WHEN EXISTS (SELECT 1 FROM semantic_assertion_versions WHERE version_id = old.id)
 BEGIN
   SELECT RAISE(ABORT, 'sealed claim versions are immutable');
+END;
+CREATE TRIGGER semantic_claim_no_delete BEFORE DELETE ON claim_versions WHEN EXISTS (SELECT 1 FROM semantic_assertion_versions WHERE version_id = old.id)
+BEGIN
+  SELECT RAISE(ABORT, 'sealed claim versions are retained');
 END;
 
 CREATE TABLE claims (
@@ -163,16 +164,16 @@ CREATE TABLE claims (
   origin_file TEXT, owner_file TEXT, position INTEGER, audience_id TEXT REFERENCES audiences(id),
   owner_key TEXT REFERENCES storage_units(id)
 );
+CREATE INDEX claims_subject ON claims(subject_id, kind);
 CREATE INDEX claims_file ON claims(owner_file, position);
 CREATE INDEX "claims_storage_owner" ON "claims"(owner_key);
-CREATE INDEX claims_subject ON claims(subject_id, kind);
 
 CREATE TABLE co_owners (
   tbl TEXT, key TEXT, owner_file TEXT, owner_key TEXT REFERENCES storage_units(id), PRIMARY KEY (tbl, key, owner_file)
 );
 CREATE INDEX co_owners_owner ON co_owners(owner_file);
-CREATE UNIQUE INDEX co_owners_storage ON co_owners(tbl,key,owner_key);
 CREATE INDEX "co_owners_storage_owner" ON "co_owners"(owner_key);
+CREATE UNIQUE INDEX co_owners_storage ON co_owners(tbl,key,owner_key);
 
 CREATE TABLE connections (
   id TEXT PRIMARY KEY, iface TEXT NOT NULL REFERENCES interfaces(id), authority_id TEXT REFERENCES authorities(id),
@@ -223,8 +224,8 @@ CREATE TABLE episode_sources (
   owner_key TEXT REFERENCES storage_units(id)
 );
 CREATE INDEX episode_sources_episode ON episode_sources(episode_id);
-CREATE UNIQUE INDEX episode_sources_id ON episode_sources(id);
 CREATE INDEX episode_sources_owner ON episode_sources(owner_file);
+CREATE UNIQUE INDEX episode_sources_id ON episode_sources(id);
 CREATE INDEX "episode_sources_storage_owner" ON "episode_sources"(owner_key);
 CREATE TRIGGER episode_sources_id_fill AFTER INSERT ON episode_sources WHEN new.id IS NULL
 BEGIN
@@ -264,13 +265,13 @@ CREATE TABLE focus_events (
   id TEXT PRIMARY KEY, person_id TEXT NOT NULL, at TEXT NOT NULL, old_bucket TEXT, new_bucket TEXT,
   reason TEXT NOT NULL, policy_version INTEGER NOT NULL, extra JSON
 );
-CREATE INDEX focus_events_at ON focus_events(at);
 CREATE INDEX focus_events_person ON focus_events(person_id, at);
-CREATE TRIGGER focus_events_no_delete BEFORE DELETE ON focus_events
+CREATE INDEX focus_events_at ON focus_events(at);
+CREATE TRIGGER focus_events_no_update BEFORE UPDATE ON focus_events
 BEGIN
   SELECT RAISE(ABORT, 'focus events are append-only');
 END;
-CREATE TRIGGER focus_events_no_update BEFORE UPDATE ON focus_events
+CREATE TRIGGER focus_events_no_delete BEFORE DELETE ON focus_events
 BEGIN
   SELECT RAISE(ABORT, 'focus events are append-only');
 END;
@@ -291,8 +292,8 @@ CREATE TABLE graph_edges (
   valid_from_at TEXT, valid_to_at TEXT, recorded_at TEXT NOT NULL, retired_at TEXT,
   projection_key TEXT NOT NULL UNIQUE, owner_key TEXT NOT NULL
 );
-CREATE INDEX graph_edges_in ON graph_edges(dst, predicate, src);
 CREATE INDEX graph_edges_out ON graph_edges(src, predicate, dst);
+CREATE INDEX graph_edges_in ON graph_edges(dst, predicate, src);
 CREATE INDEX graph_edges_owner ON graph_edges(owner_key);
 
 CREATE TABLE graph_nodes (
@@ -348,19 +349,19 @@ CREATE TABLE media (
   scope_kind TEXT, scope_iface TEXT, scope_dm TEXT, extra TEXT, owner_file TEXT, retired_at TEXT, audience_id TEXT,
   owner_key TEXT, tier TEXT
 );
-CREATE INDEX media_native_ref ON media(native_ref) WHERE native_ref IS NOT NULL;
 CREATE INDEX media_owner ON media(owner_file);
-CREATE INDEX media_sha1 ON media(sha1) WHERE sha1 IS NOT NULL;
 CREATE INDEX "media_storage_owner" ON "media"(owner_key);
-CREATE TRIGGER media_ad AFTER DELETE ON media
-BEGIN
-  INSERT INTO media_fts(media_fts, rowid, description, stems) VALUES ('delete', old.rowid, old.description, old.stems);
-  INSERT INTO media_tri(media_tri, rowid, description) VALUES ('delete', old.rowid, old.description);
-END;
+CREATE INDEX media_native_ref ON media(native_ref) WHERE native_ref IS NOT NULL;
+CREATE INDEX media_sha1 ON media(sha1) WHERE sha1 IS NOT NULL;
 CREATE TRIGGER media_ai AFTER INSERT ON media
 BEGIN
   INSERT INTO media_fts(rowid, description, stems) VALUES (new.rowid, new.description, new.stems);
   INSERT INTO media_tri(rowid, description) VALUES (new.rowid, new.description);
+END;
+CREATE TRIGGER media_ad AFTER DELETE ON media
+BEGIN
+  INSERT INTO media_fts(media_fts, rowid, description, stems) VALUES ('delete', old.rowid, old.description, old.stems);
+  INSERT INTO media_tri(media_tri, rowid, description) VALUES ('delete', old.rowid, old.description);
 END;
 CREATE TRIGGER media_au AFTER UPDATE OF description, stems ON media
 BEGIN
@@ -418,24 +419,24 @@ CREATE TABLE model_requests (
   response_text TEXT, think TEXT, tool_calls JSON, usage JSON, error_code TEXT, source TEXT, service TEXT,
   backend TEXT, run_id TEXT, outcome JSON, blocks JSON
 );
-CREATE INDEX model_requests_finished ON model_requests(finished_at);
 CREATE INDEX model_requests_started ON model_requests(started_at);
 CREATE INDEX model_requests_turn ON model_requests(turn_id, attempt_id, step);
+CREATE INDEX model_requests_finished ON model_requests(finished_at);
 
 CREATE TABLE names (
   rowid INTEGER PRIMARY KEY, label TEXT NOT NULL, normalized TEXT NOT NULL, stem TEXT NOT NULL, kind TEXT NOT NULL,
   node_id TEXT NOT NULL, audience_id TEXT NOT NULL, source_table TEXT NOT NULL, source_id TEXT NOT NULL,
   UNIQUE (normalized, kind, node_id, source_table, source_id)
 );
-CREATE INDEX names_source ON names(source_table, source_id);
 CREATE INDEX names_stem ON names(stem);
-CREATE TRIGGER names_tri_delete AFTER DELETE ON names
-BEGIN
-  INSERT INTO names_tri(names_tri, rowid, normalized) VALUES ('delete', old.rowid, old.normalized);
-END;
+CREATE INDEX names_source ON names(source_table, source_id);
 CREATE TRIGGER names_tri_insert AFTER INSERT ON names
 BEGIN
   INSERT INTO names_tri(rowid, normalized) VALUES (new.rowid, new.normalized);
+END;
+CREATE TRIGGER names_tri_delete AFTER DELETE ON names
+BEGIN
+  INSERT INTO names_tri(names_tri, rowid, normalized) VALUES ('delete', old.rowid, old.normalized);
 END;
 
 CREATE VIRTUAL TABLE names_tri USING fts5(normalized, content='names', content_rowid='rowid', tokenize='trigram');
@@ -459,8 +460,8 @@ CREATE TABLE participant_links (
   state TEXT NOT NULL CHECK (state IN ('proposed', 'verified', 'revoked')), by TEXT, reason TEXT, evidence_id TEXT,
   valid_from_at TEXT, valid_to_at TEXT, recorded_at TEXT NOT NULL, CHECK ((account_id IS NULL) <> (person_id IS NULL))
 );
-CREATE INDEX participant_links_account ON participant_links(account_id);
 CREATE INDEX participant_links_participant ON participant_links(participant_id, valid_to_at);
+CREATE INDEX participant_links_account ON participant_links(account_id);
 CREATE INDEX participant_links_person ON participant_links(person_id);
 
 CREATE TABLE participants (
@@ -513,11 +514,11 @@ CREATE TABLE places (
   partner_account TEXT, gone_at TEXT, seen_from_at TEXT, seen_to_at TEXT,
   continues_place_id TEXT REFERENCES places(id), owner_key TEXT REFERENCES storage_units(id)
 );
-CREATE UNIQUE INDEX places_native ON places(authority_id, native_key, generation) WHERE authority_id IS NOT NULL;
 CREATE INDEX places_owner ON places(owner_file);
+CREATE UNIQUE INDEX places_native ON places(authority_id, native_key, generation) WHERE authority_id IS NOT NULL;
+CREATE INDEX "places_storage_owner" ON "places"(owner_key);
 CREATE INDEX places_partner_account ON places(partner_account) WHERE partner_account IS NOT NULL;
 CREATE INDEX places_partner_person ON places(partner_person) WHERE partner_person IS NOT NULL;
-CREATE INDEX "places_storage_owner" ON "places"(owner_key);
 
 CREATE TABLE publication_grants (
   id TEXT PRIMARY KEY, row_kind TEXT NOT NULL, row_id TEXT NOT NULL,
@@ -530,13 +531,13 @@ CREATE TRIGGER publication_grants_fixed BEFORE UPDATE OF id, row_kind, row_id, c
 BEGIN
   SELECT RAISE(ABORT, 'a grant is immutable; revoke it and grant again');
 END;
-CREATE TRIGGER publication_grants_no_delete BEFORE DELETE ON publication_grants
-BEGIN
-  SELECT RAISE(ABORT, 'grants are never deleted');
-END;
 CREATE TRIGGER publication_grants_revoked_once BEFORE UPDATE OF revoked_at ON publication_grants WHEN old.revoked_at IS NOT NULL
 BEGIN
   SELECT RAISE(ABORT, 'a revoked grant stays revoked');
+END;
+CREATE TRIGGER publication_grants_no_delete BEFORE DELETE ON publication_grants
+BEGIN
+  SELECT RAISE(ABORT, 'grants are never deleted');
 END;
 
 CREATE TABLE "publications" (
@@ -551,11 +552,11 @@ CREATE TABLE "publications" (
   paced INTEGER NOT NULL DEFAULT 0, reconciled_by TEXT, reconciled_at TEXT,
   delivery JSON CHECK (delivery IS NULL OR json_valid(delivery)), CHECK ((content_hash IS NULL) = (rendered IS NULL))
 );
-CREATE INDEX publications_owner ON publications(owner_file);
-CREATE INDEX publications_place ON publications(row_kind, destination_place_id, status);
 CREATE INDEX publications_row ON publications(row_kind, row_id);
+CREATE INDEX publications_owner ON publications(owner_file);
 CREATE INDEX publications_storage_owner ON publications(owner_key);
 CREATE INDEX publications_unsettled ON publications(status) WHERE status IN ('queued', 'unknown');
+CREATE INDEX publications_place ON publications(row_kind, destination_place_id, status);
 CREATE TRIGGER publications_content_fixed BEFORE UPDATE OF rendered, content_hash ON publications WHEN old.content_hash IS NOT NULL AND (new.content_hash IS NOT old.content_hash OR new.rendered IS NOT old.rendered)
 BEGIN
   SELECT RAISE(ABORT, 'a publication keeps its content; an edit is a new publication');
@@ -590,9 +591,9 @@ CREATE TABLE "selfreflection_mirrors" (
   "selfreflection_id" TEXT, iface TEXT, place_id TEXT, native_ids JSON, posted_at TEXT, retired_at TEXT,
   owner_file TEXT, id TEXT, owner_key TEXT REFERENCES storage_units(id)
 );
-CREATE UNIQUE INDEX selfreflection_mirrors_id ON "selfreflection_mirrors"(id);
-CREATE INDEX selfreflection_mirrors_owner ON "selfreflection_mirrors"(owner_file);
 CREATE INDEX selfreflection_mirrors_selfreflection ON "selfreflection_mirrors"("selfreflection_id");
+CREATE INDEX selfreflection_mirrors_owner ON "selfreflection_mirrors"(owner_file);
+CREATE UNIQUE INDEX selfreflection_mirrors_id ON "selfreflection_mirrors"(id);
 CREATE INDEX "selfreflection_mirrors_storage_owner" ON "selfreflection_mirrors"(owner_key);
 CREATE TRIGGER selfreflection_mirrors_id_fill AFTER INSERT ON "selfreflection_mirrors" WHEN new.id IS NULL
 BEGIN
@@ -606,10 +607,6 @@ CREATE TABLE semantic_arguments (
   CHECK ((ref_kind IS NOT NULL AND ref_id IS NOT NULL AND literal_json IS NULL) OR (ref_kind IS NULL AND ref_id IS NULL AND literal_json IS NOT NULL AND json_valid(literal_json)))
 );
 CREATE INDEX semantic_arguments_ref ON semantic_arguments(ref_kind, ref_id, role, version_id);
-CREATE TRIGGER semantic_argument_no_delete BEFORE DELETE ON semantic_arguments
-BEGIN
-  SELECT RAISE(ABORT, 'semantic argument versions are retained');
-END;
 CREATE TRIGGER semantic_argument_no_late_insert BEFORE INSERT ON semantic_arguments WHEN EXISTS (SELECT 1 FROM semantic_assertion_versions WHERE version_id = new.version_id)
 BEGIN
   SELECT RAISE(ABORT, 'semantic argument version is already sealed');
@@ -617,6 +614,10 @@ END;
 CREATE TRIGGER semantic_argument_no_update BEFORE UPDATE ON semantic_arguments
 BEGIN
   SELECT RAISE(ABORT, 'semantic argument versions are immutable');
+END;
+CREATE TRIGGER semantic_argument_no_delete BEFORE DELETE ON semantic_arguments
+BEGIN
+  SELECT RAISE(ABORT, 'semantic argument versions are retained');
 END;
 
 CREATE TABLE semantic_assertion_versions (
@@ -635,10 +636,6 @@ CREATE TABLE semantic_assertion_versions (
 );
 CREATE INDEX semantic_assertions_audience ON semantic_assertion_versions(audience_id, recorded_at, version_id);
 CREATE INDEX semantic_assertions_predicate ON semantic_assertion_versions(predicate_id, predicate_version, recorded_at);
-CREATE TRIGGER semantic_assertion_no_delete BEFORE DELETE ON semantic_assertion_versions
-BEGIN
-  SELECT RAISE(ABORT, 'semantic assertion versions are retained');
-END;
 CREATE TRIGGER semantic_assertion_no_replace BEFORE INSERT ON semantic_assertion_versions WHEN EXISTS (SELECT 1 FROM semantic_assertion_versions WHERE version_id = new.version_id)
 BEGIN
   SELECT RAISE(ABORT, 'semantic assertion versions cannot be replaced');
@@ -646,6 +643,10 @@ END;
 CREATE TRIGGER semantic_assertion_no_update BEFORE UPDATE ON semantic_assertion_versions
 BEGIN
   SELECT RAISE(ABORT, 'semantic assertion versions are immutable');
+END;
+CREATE TRIGGER semantic_assertion_no_delete BEFORE DELETE ON semantic_assertion_versions
+BEGIN
+  SELECT RAISE(ABORT, 'semantic assertion versions are retained');
 END;
 
 CREATE TABLE semantic_dependencies (
@@ -655,10 +656,6 @@ CREATE TABLE semantic_dependencies (
   PRIMARY KEY (version_id, premise_version_id, role), CHECK (version_id <> premise_version_id)
 );
 CREATE INDEX semantic_dependencies_premise ON semantic_dependencies(premise_version_id, version_id);
-CREATE TRIGGER semantic_dependency_no_delete BEFORE DELETE ON semantic_dependencies
-BEGIN
-  SELECT RAISE(ABORT, 'semantic premise versions are retained');
-END;
 CREATE TRIGGER semantic_dependency_no_late_insert BEFORE INSERT ON semantic_dependencies WHEN EXISTS (SELECT 1 FROM semantic_assertion_versions WHERE version_id = new.version_id)
 BEGIN
   SELECT RAISE(ABORT, 'semantic premise version is already sealed');
@@ -666,6 +663,10 @@ END;
 CREATE TRIGGER semantic_dependency_no_update BEFORE UPDATE ON semantic_dependencies
 BEGIN
   SELECT RAISE(ABORT, 'semantic premise versions are immutable');
+END;
+CREATE TRIGGER semantic_dependency_no_delete BEFORE DELETE ON semantic_dependencies
+BEGIN
+  SELECT RAISE(ABORT, 'semantic premise versions are retained');
 END;
 
 CREATE TABLE semantic_entities (
@@ -679,10 +680,6 @@ CREATE TABLE semantic_entity_kinds (
   definition_json TEXT NOT NULL CHECK (json_valid(definition_json)), created_at TEXT NOT NULL,
   PRIMARY KEY (id, version)
 );
-CREATE TRIGGER semantic_kind_no_delete BEFORE DELETE ON semantic_entity_kinds
-BEGIN
-  SELECT RAISE(ABORT, 'semantic kind versions are retained');
-END;
 CREATE TRIGGER semantic_kind_no_replace BEFORE INSERT ON semantic_entity_kinds WHEN EXISTS (SELECT 1 FROM semantic_entity_kinds WHERE id = new.id AND version = new.version)
 BEGIN
   SELECT RAISE(ABORT, 'semantic kind versions cannot be replaced');
@@ -690,6 +687,10 @@ END;
 CREATE TRIGGER semantic_kind_no_update BEFORE UPDATE ON semantic_entity_kinds
 BEGIN
   SELECT RAISE(ABORT, 'semantic kind versions are immutable');
+END;
+CREATE TRIGGER semantic_kind_no_delete BEFORE DELETE ON semantic_entity_kinds
+BEGIN
+  SELECT RAISE(ABORT, 'semantic kind versions are retained');
 END;
 
 CREATE TABLE semantic_entity_merges (
@@ -713,10 +714,6 @@ CREATE TABLE semantic_predicate_versions (
   definition_json TEXT NOT NULL CHECK (json_valid(definition_json)), created_at TEXT NOT NULL,
   PRIMARY KEY (id, version)
 );
-CREATE TRIGGER semantic_predicate_no_delete BEFORE DELETE ON semantic_predicate_versions
-BEGIN
-  SELECT RAISE(ABORT, 'semantic predicate versions are retained');
-END;
 CREATE TRIGGER semantic_predicate_no_replace BEFORE INSERT ON semantic_predicate_versions WHEN EXISTS (SELECT 1 FROM semantic_predicate_versions WHERE id = new.id AND version = new.version)
 BEGIN
   SELECT RAISE(ABORT, 'semantic predicate versions cannot be replaced');
@@ -724,6 +721,10 @@ END;
 CREATE TRIGGER semantic_predicate_no_update BEFORE UPDATE ON semantic_predicate_versions
 BEGIN
   SELECT RAISE(ABORT, 'semantic predicate versions are immutable');
+END;
+CREATE TRIGGER semantic_predicate_no_delete BEFORE DELETE ON semantic_predicate_versions
+BEGIN
+  SELECT RAISE(ABORT, 'semantic predicate versions are retained');
 END;
 
 CREATE TABLE semantic_search_documents (
@@ -734,13 +735,13 @@ CREATE TABLE semantic_search_documents (
 );
 CREATE INDEX semantic_documents_audience ON semantic_search_documents(audience_id, version_id, rowid);
 CREATE INDEX semantic_documents_ref ON semantic_search_documents(ref_kind, ref_id, version_id);
-CREATE TRIGGER semantic_documents_delete AFTER DELETE ON semantic_search_documents
-BEGIN
-  INSERT INTO semantic_search_fts(semantic_search_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
-END;
 CREATE TRIGGER semantic_documents_insert AFTER INSERT ON semantic_search_documents
 BEGIN
   INSERT INTO semantic_search_fts(rowid, text) VALUES (new.rowid, new.text);
+END;
+CREATE TRIGGER semantic_documents_delete AFTER DELETE ON semantic_search_documents
+BEGIN
+  INSERT INTO semantic_search_fts(semantic_search_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
 END;
 CREATE TRIGGER semantic_documents_update AFTER UPDATE OF text ON semantic_search_documents
 BEGIN
@@ -756,8 +757,8 @@ CREATE TABLE session_runs (
   tokens_completion INTEGER, model TEXT, outcome TEXT, counts JSON, errors JSON, batch_key TEXT,
   applied INTEGER NOT NULL DEFAULT 0, result JSON, answer_source TEXT, audience_id TEXT REFERENCES audiences(id)
 );
-CREATE UNIQUE INDEX session_runs_applied ON session_runs(batch_key) WHERE applied = 1;
 CREATE INDEX session_runs_sweep ON session_runs(sweep_id);
+CREATE UNIQUE INDEX session_runs_applied ON session_runs(batch_key) WHERE applied = 1;
 
 CREATE TABLE skill_evaluations (
   id TEXT PRIMARY KEY, version_id TEXT NOT NULL REFERENCES skill_versions(id),
@@ -767,11 +768,11 @@ CREATE TABLE skill_evaluations (
   commit_sha TEXT NOT NULL
 );
 CREATE INDEX skill_evaluations_version ON skill_evaluations(version_id, kind);
-CREATE TRIGGER skill_evaluations_no_delete BEFORE DELETE ON skill_evaluations
+CREATE TRIGGER skill_evaluations_no_update BEFORE UPDATE ON skill_evaluations
 BEGIN
   SELECT RAISE(ABORT, 'evaluations are append-only');
 END;
-CREATE TRIGGER skill_evaluations_no_update BEFORE UPDATE ON skill_evaluations
+CREATE TRIGGER skill_evaluations_no_delete BEFORE DELETE ON skill_evaluations
 BEGIN
   SELECT RAISE(ABORT, 'evaluations are append-only');
 END;
@@ -783,11 +784,11 @@ CREATE TABLE skill_uses (
   at TEXT NOT NULL
 );
 CREATE INDEX skill_uses_skill ON skill_uses(skill, at);
-CREATE TRIGGER skill_uses_no_delete BEFORE DELETE ON skill_uses
+CREATE TRIGGER skill_uses_no_update BEFORE UPDATE ON skill_uses
 BEGIN
   SELECT RAISE(ABORT, 'skill uses are append-only');
 END;
-CREATE TRIGGER skill_uses_no_update BEFORE UPDATE ON skill_uses
+CREATE TRIGGER skill_uses_no_delete BEFORE DELETE ON skill_uses
 BEGIN
   SELECT RAISE(ABORT, 'skill uses are append-only');
 END;
@@ -840,25 +841,25 @@ CREATE TABLE sources (
   generation INTEGER NOT NULL DEFAULT 1, tier TEXT CHECK (tier IS NULL OR tier IN ('a', 'b', 'c')),
   owner_key TEXT REFERENCES storage_units(id), author_person TEXT REFERENCES people(id)
 );
-CREATE INDEX sources_author_participant ON sources(author_participant) WHERE author_participant IS NOT NULL;
-CREATE INDEX sources_author_person ON sources(author_person) WHERE author_person IS NOT NULL;
-CREATE INDEX sources_file ON sources(owner_file, position);
-CREATE INDEX sources_iface_native ON sources(iface, native_id, generation);
-CREATE INDEX sources_message_locator ON sources(iface, CASE WHEN json_valid(extra) THEN json_extract(extra, '$."$messageLocator".conversationId') END, CASE WHEN json_valid(extra) THEN json_extract(extra, '$."$messageLocator".messageId') END, generation);
-CREATE INDEX sources_native ON sources(native_id);
-CREATE INDEX sources_native_tuple ON sources(authority_id, native_kind, native_id, generation, revision);
 CREATE INDEX sources_place_time ON sources(place_id, occurred_at);
-CREATE INDEX "sources_storage_owner" ON "sources"(owner_key);
+CREATE INDEX sources_native ON sources(native_id);
 CREATE INDEX sources_turn ON sources(turn_id);
-CREATE TRIGGER sources_ad AFTER DELETE ON sources
-BEGIN
-  INSERT INTO sources_fts(sources_fts, rowid, text, stems) VALUES ('delete', old.rowid, old.text, old.stems);
-  INSERT INTO sources_tri(sources_tri, rowid, text) VALUES ('delete', old.rowid, old.text);
-END;
+CREATE INDEX sources_file ON sources(owner_file, position);
+CREATE INDEX sources_native_tuple ON sources(authority_id, native_kind, native_id, generation, revision);
+CREATE INDEX sources_author_participant ON sources(author_participant) WHERE author_participant IS NOT NULL;
+CREATE INDEX sources_message_locator ON sources(iface, CASE WHEN json_valid(extra) THEN json_extract(extra, '$."$messageLocator".conversationId') END, CASE WHEN json_valid(extra) THEN json_extract(extra, '$."$messageLocator".messageId') END, generation);
+CREATE INDEX sources_iface_native ON sources(iface, native_id, generation);
+CREATE INDEX "sources_storage_owner" ON "sources"(owner_key);
+CREATE INDEX sources_author_person ON sources(author_person) WHERE author_person IS NOT NULL;
 CREATE TRIGGER sources_ai AFTER INSERT ON sources
 BEGIN
   INSERT INTO sources_fts(rowid, text, stems) VALUES (new.rowid, new.text, new.stems);
   INSERT INTO sources_tri(rowid, text) VALUES (new.rowid, new.text);
+END;
+CREATE TRIGGER sources_ad AFTER DELETE ON sources
+BEGIN
+  INSERT INTO sources_fts(sources_fts, rowid, text, stems) VALUES ('delete', old.rowid, old.text, old.stems);
+  INSERT INTO sources_tri(sources_tri, rowid, text) VALUES ('delete', old.rowid, old.text);
 END;
 CREATE TRIGGER sources_au AFTER UPDATE OF text, stems ON sources
 BEGIN
@@ -893,9 +894,9 @@ CREATE TABLE vectors (
   owner_key TEXT REFERENCES storage_units(id)
 );
 CREATE INDEX vectors_file ON vectors(owner_file);
-CREATE INDEX vectors_item ON vectors(item_id);
 CREATE INDEX vectors_model ON vectors(model, dims);
 CREATE INDEX "vectors_storage_owner" ON "vectors"(owner_key);
+CREATE INDEX vectors_item ON vectors(item_id);
 
 CREATE TABLE wake_actions (
   run_id TEXT NOT NULL REFERENCES wake_runs(id), n INTEGER NOT NULL CHECK (n >= 1),
