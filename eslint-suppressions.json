@@ -3229,9 +3229,6 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
-    },
-    "tests/assertion-in-test": {
       "count": 2
     }
   },
@@ -3255,17 +3252,6 @@
   "tests/memory-db-map-media.test.ts": {
     "tests/assertion-in-test": {
       "count": 2
-    }
-  },
-  "tests/memory-db-map-place.test.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "tests/assertion-in-test": {
-      "count": 1
     }
   },
   "tests/memory-db-map-record.test.ts": {

@@ -15,10 +15,7 @@ import {
   storedDmPlace,
 } from '../meta-person.ts';
 import type { StorageKey } from '../storage-keys.ts';
-import * as lore from './lore.ts';
 import * as media from './media.ts';
-import * as participation from './participation.ts';
-import * as recent from './recent.ts';
 import * as requests from './requests.ts';
 import * as verbatim from './verbatim.ts';
 
@@ -32,9 +29,6 @@ export type Mapper = {
 };
 
 export const MAPPERS = {
-  lore,
-  participation,
-  recent,
   selfreflection,
   errands,
   media,

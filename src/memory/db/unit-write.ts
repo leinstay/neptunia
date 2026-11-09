@@ -1,8 +1,9 @@
 // The memory writer applies semantic unit updates in one transaction. Value writes replace a collection while
 // preserving protected session rows; lines append in catalog order. A day of the record or of the journal and a month
 // of the archive are that kind's lines write (record-lines.ts, journal-lines.ts, archive-lines.ts), and an account's
-// profile, a private layer, a history of prose, a place's notes and a channel's entry that kind's value write
-// (account-profile.ts, private-layer.ts, prose-versions.ts, place-notes.ts, channel-entry.ts). Selfreflection and
+// profile, a private layer, a history of prose, a place's notes, a channel's entry, a lorebook, a participation and
+// recent lines that kind's value write (account-profile.ts, private-layer.ts, prose-versions.ts, place-notes.ts,
+// channel-entry.ts, place-lore.ts, participation-episodes.ts, recent-lines.ts). Selfreflection and
 // vector operations keep their existing publication and index behavior. Catalog owner keys are independent of source
 // IDs and visibility. Historical owner strings are accepted by the explicit import and pending compatibility boundary,
 // which preserves their provenance without using it for live ownership.
@@ -44,6 +45,9 @@ import { proseVersionsValueOf, writeProseVersions } from './prose-versions.ts';
 import { isPrivateLayerKey, privateLayerWriteOf, writePrivateLayer } from './private-layer.ts';
 import { isPlaceNotesKey, placeNotesWriteOf, writePlaceNotes } from './place-notes.ts';
 import { channelEntryWriteOf, isChannelEntryKey, writeChannelEntry } from './channel-entry.ts';
+import { isPlaceLoreKey, placeLoreWriteOf, writePlaceLore } from './place-lore.ts';
+import { isParticipationKey, participationWriteOf, writeParticipation } from './participation-episodes.ts';
+import { isRecentLinesKey, recentLinesWriteOf, writeRecentLines } from './recent-lines.ts';
 import { storageContext } from './map/index.ts';
 
 /** Tables of an owned unit whose rows carry a `position`. */
@@ -504,9 +508,33 @@ function ownValueWrite(db: Db, update: Row, keyed: Row, at: string): (() => unkn
     const { value } = channelEntryWriteOf({ placeId: key.subject.id, value: keyed.value ?? {} });
     return () => writeChannelEntry(db, key, value, { at, ...legacyOwner });
   }
+  const list = placeListWrite(db, key, keyed, { at, ...legacyOwner });
+  if (list) return list;
   if (key.kind !== 'versions') return null;
   const value = proseVersionsValueOf(keyed.value ?? {});
   return () => writeProseVersions(db, key, value, { at, ...legacyOwner });
+}
+
+/** The write of a keyed value update of a lorebook, a participation or recent lines, to run in the writer's transaction; else null. */
+function placeListWrite(
+  db: Db,
+  key: StorageKey,
+  keyed: Row,
+  opts: { at: string; legacyOwner?: string }
+): (() => unknown) | null {
+  if (isPlaceLoreKey(key)) {
+    const { value } = placeLoreWriteOf({ placeId: key.subject.id, value: keyed.value ?? [] });
+    return () => writePlaceLore(db, key, value, opts);
+  }
+  if (isParticipationKey(key)) {
+    const { value } = participationWriteOf({ placeId: key.subject.id, value: keyed.value ?? {} });
+    return () => writeParticipation(db, key, value, opts);
+  }
+  if (isRecentLinesKey(key)) {
+    const { value } = recentLinesWriteOf({ placeId: key.subject.id, value: keyed.value ?? {} });
+    return () => writeRecentLines(db, key, value, opts);
+  }
+  return null;
 }
 
 /**

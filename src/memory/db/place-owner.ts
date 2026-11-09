@@ -1,24 +1,34 @@
-// Whose a place's row is: the notes of a place (place-notes.ts) and a channel's entry of the server map
-// (channel-entry.ts) keep each row's owner in the row itself, in `writer` (`place` or `channel`) and `holder_id` (the
-// place). A row the notes of two places map, such as a self fact two roots both hold, stays the first place's, and the
-// second place is listed in `co_owners` by the same two columns: its notes read the row, its write leaves the row as
-// the first place wrote it, and when the first place's notes drop the row it goes to the second instead of being
-// retired. The writers stamp these columns beside the row's unit, the shared write rules of upsert.ts#writeRow read
-// them, and the readers, the retirement of what a value no longer holds and the hand-over run on them. Version step 48
-// derives them from the units of the rows and the `co_owners` rows already stored (`ownPlaceRows`).
+// Whose a place's row is: the notes of a place (place-notes.ts), a channel's entry of the server map
+// (channel-entry.ts), a place's lorebook (place-lore.ts), the stretches of a chat she took part in
+// (participation-episodes.ts) and the lines she said lately in it (recent-lines.ts) keep each row's owner in the row
+// itself, in `writer` (`place`, `channel`, `lore`, `participation` or `recent`) and `holder_id` (the place). An
+// episode's message links (`episode_sources`) carry the columns of their episode. A row the values of two places map,
+// such as a self fact two roots both hold, stays the first place's, and the second place is listed in `co_owners` by
+// the same two columns: its value reads the row, its write leaves the row as the first place wrote it, and when the
+// first place's value drops the row it goes to the second instead of being retired. The writers stamp these columns
+// beside the row's unit, the shared write rules of upsert.ts#writeRow read them, and the readers, the retirement of what
+// a value no longer holds and the hand-over run on them. Version step 48 derives them from the units of the rows and
+// the `co_owners` rows already stored (`ownPlaceRows`), and version step 49 for the lorebooks, the participation and
+// the recent lines (`ownPlaceListRows`).
 
 import { projectRow } from './graph.ts';
 import type { StorageKey } from './storage-keys.ts';
 import type { Db, Row, Rows } from './types.ts';
 
 /** The writers whose rows own themselves through these columns. */
-export type PlaceWriter = 'place' | 'channel';
+export type PlaceWriter = 'place' | 'channel' | 'lore' | 'participation' | 'recent';
 
 /** The owner columns of a place's row. */
 export type PlaceOwner = { writer: PlaceWriter; holder_id: string };
 
-/** The tables a place's notes and a channel's entry write. */
-export const PLACE_TABLES = ['places', 'claims', 'descriptions', 'description_versions', 'operational'] as const;
+/** The tables each writer writes. */
+const TABLES_OF: Record<PlaceWriter, ReadonlyArray<string>> = {
+  place: ['places', 'claims', 'descriptions', 'description_versions', 'operational'],
+  channel: ['places', 'descriptions', 'description_versions', 'operational'],
+  lore: ['claims'],
+  participation: ['episodes', 'operational'],
+  recent: ['claims', 'operational'],
+};
 
 /** The primary key of each place table. */
 const keyOf = (table: string): ReadonlyArray<string> => (table === 'operational' ? ['kind', 'owner'] : ['id']);
@@ -49,11 +59,15 @@ export function preparedPlace(db: Db, sql: string): ReturnType<Db['prepare']> {
 }
 
 /** The tables whose rows a read gives in their `position` order. */
-const POSITIONED = new Set(['claims', 'description_versions']);
+const POSITIONED = new Set(['claims', 'description_versions', 'episodes']);
 
-export const isPlaceWriter = (writer: unknown): writer is PlaceWriter => writer === 'place' || writer === 'channel';
+export const isPlaceWriter = (writer: unknown): writer is PlaceWriter =>
+  typeof writer === 'string' && Object.hasOwn(TABLES_OF, writer);
 
-/** The owner columns of the unit `key` of a place's notes or a channel's entry, else null. */
+/**
+ * The owner columns of the unit `key` of a place's notes, a channel's entry, a lorebook, a participation or recent
+ * lines, else null.
+ */
 export function placeOwnerOf(key: StorageKey): PlaceOwner | null {
   return isPlaceWriter(key.kind) ? { writer: key.kind, holder_id: key.subject.id } : null;
 }
@@ -125,16 +139,47 @@ function handOver(db: Db, table: string, row: Row, owner: PlaceOwner): boolean {
       .join(' AND ')}`
   ).run(heir.owner_key, heir.writer, heir.holder_id, ...keyOf(table).map((col) => row[col]));
   db.prepare('DELETE FROM co_owners WHERE rowid = ?').run(heir.rowid);
+  // An episode's message links follow it.
+  if (table === 'episodes')
+    preparedPlace(
+      db,
+      'UPDATE episode_sources SET owner_key = ?, writer = ?, holder_id = ? WHERE episode_id = ? AND writer = ? AND holder_id = ?'
+    ).run(heir.owner_key, heir.writer, heir.holder_id, row.id, owner.writer, owner.holder_id);
   return true;
 }
 
 /**
+ * Retires the live message links `owner` holds that `mapping` no longer holds, unless another owner holds their live
+ * episode. A link is told apart by its episode and its position. Returns how many it retired.
+ */
+function retireLinksAbsent(db: Db, owner: PlaceOwner, mapping: Rows, at: string): number {
+  const keep = new Set(
+    (mapping.episode_sources ?? []).map((row) => `${String(row.episode_id)}\u0000${String(row.position)}`)
+  );
+  let count = 0;
+  for (const row of preparedPlace(
+    db,
+    `SELECT rowid, episode_id, position FROM episode_sources c WHERE writer = ? AND holder_id = ? AND retired_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM episodes p WHERE p.id = c.episode_id AND p.retired_at IS NULL
+         AND (p.owner_key IS NOT NULL OR (p.writer IS NOT NULL AND p.writer != 'session'))
+         AND NOT (p.writer IS ? AND p.holder_id IS ?))`
+  ).all(owner.writer, owner.holder_id, owner.writer, owner.holder_id)) {
+    if (keep.has(`${String(row.episode_id)}\u0000${String(row.position)}`)) continue;
+    preparedPlace(db, 'UPDATE episode_sources SET retired_at = ? WHERE rowid = ?').run(at, row.rowid);
+    projectRow(db, 'episode_sources', row, { at });
+    count += 1;
+  }
+  return count;
+}
+
+/**
  * Retires the live rows `owner` holds that `mapping` (a whole value's rows) no longer holds, a row another place shares
- * going to that place instead, and takes `owner` off the rows it shared and no longer maps. Returns how many it retired.
+ * going to that place instead, and takes `owner` off the rows it shared and no longer maps. Returns how many it
+ * retired.
  */
 export function retirePlaceAbsent(db: Db, owner: PlaceOwner, mapping: Rows, at: string): number {
   let count = 0;
-  for (const table of PLACE_TABLES) {
+  for (const table of TABLES_OF[owner.writer]) {
     const key = keyOf(table);
     const keep = new Set((mapping[table] ?? []).map((row) => keyText(table, row)));
     const update = preparedPlace(
@@ -156,7 +201,7 @@ export function retirePlaceAbsent(db: Db, owner: PlaceOwner, mapping: Rows, at: 
     ).all(table, owner.writer, owner.holder_id))
       if (!keep.has(String(shared.key))) unsharePlaceRow(db, table, String(shared.key), owner);
   }
-  return count;
+  return owner.writer === 'participation' ? count + retireLinksAbsent(db, owner, mapping, at) : count;
 }
 
 /**
@@ -164,7 +209,17 @@ export function retirePlaceAbsent(db: Db, owner: PlaceOwner, mapping: Rows, at: 
  * takes that unit's owner columns.
  */
 export function ownPlaceRows(db: Db): void {
-  for (const table of [...PLACE_TABLES, 'co_owners'])
+  for (const table of ['places', 'claims', 'descriptions', 'description_versions', 'operational', 'co_owners'])
     db.exec(`UPDATE "${table}" SET writer = u.kind, holder_id = u.subject_id
       FROM storage_units u WHERE u.id = "${table}".owner_key AND u.kind IN ('place', 'channel')`);
+}
+
+/**
+ * Version step 49: every row a lorebook, a participation or a recent lines unit owns, the message links of such a unit
+ * and its `co_owners` rows take that unit's owner columns.
+ */
+export function ownPlaceListRows(db: Db): void {
+  for (const table of ['claims', 'episodes', 'episode_sources', 'operational', 'co_owners'])
+    db.exec(`UPDATE "${table}" SET writer = u.kind, holder_id = u.subject_id
+      FROM storage_units u WHERE u.id = "${table}".owner_key AND u.kind IN ('lore', 'participation', 'recent')`);
 }

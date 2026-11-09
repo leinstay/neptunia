@@ -340,6 +340,7 @@ function writeChildren(
   skippedParents: ReadonlySet<string>,
   touched: Array<[string, Row]>
 ): number {
+  // A link that names no owner is the database's or her session's (`isOwned`); a place's links name theirs in columns.
   let count = 0;
   for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
     for (const row of mapping[child] ?? []) {
@@ -356,15 +357,17 @@ function writeChildren(
           : [row[link], bind(row.position)];
       const found = prepared(
         db,
-        `SELECT rowid, owner_key FROM ${quote(child)} WHERE ${where} ORDER BY owner_key IS NULL DESC, rowid LIMIT 1`
+        `SELECT rowid, * FROM ${quote(child)} WHERE ${where} ORDER BY owner_key IS NULL DESC, rowid LIMIT 1`
       ).get(...args);
-      if (found && (found.owner_key === null || found.owner_key === undefined)) continue;
-      if (found) {
+      if (found && !isOwned(found)) continue;
+      // A link that already holds every value is left as it is: rewriting it costs a page write and changes nothing.
+      const same = found !== undefined && cols.every((col) => found[col] === bind(out[col]));
+      if (found && !same) {
         prepared(
           db,
           `UPDATE ${quote(child)} SET ${cols.map((col) => `${quote(col)} = ?`).join(', ')} WHERE rowid = ?`
         ).run(...cols.map((col) => bind(out[col])), found.rowid);
-      } else {
+      } else if (!found) {
         prepared(
           db,
           `INSERT INTO ${quote(child)} (${cols.map(quote).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
