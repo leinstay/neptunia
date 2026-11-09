@@ -606,7 +606,8 @@ test('a line the platform returns renders the description the memory holds for i
     };
     assert.equal(read.status, 'ok', JSON.stringify(read));
     assert.equal(io.asked('history').length > 0, true, 'the platform was asked');
-    assert.ok(read.data?.text.includes('a white rabbit in a garden'), read.data?.text);
+    const shown = read.data?.text ?? '';
+    assert.ok(shown.includes('a white rabbit in a garden'), shown);
   } finally {
     world.close();
   }
