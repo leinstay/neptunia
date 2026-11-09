@@ -126,12 +126,22 @@ function sameHits(actual: Array<{ meta: object; score: number }>, expected: Arra
 test('vectors db reader: search answers every layer, month, range and filter from the database', async () => {
   const env = await readerEnv();
   try {
+    // The fixture's hand-made months of both guilds (datadir.ts#vectorMonth) failed the checksum of their manifests, so
+    // search skipped them. The line vectors hold no manifest (src/memory/db/line-vectors.ts): their rows go, so the
+    // expected hits stay those of the months the engine wrote.
+    const writer = openMemoryDb(env.dbFile);
+    try {
+      dbOf(writer)
+        .prepare('DELETE FROM vectors WHERE item_id IN (?, ?, ?, ?) AND place_id IS NOT NULL')
+        .run(R('01'), R('02'), '410000000000000001', '410000000000000002');
+    } finally {
+      writer.close();
+    }
     const vectors = createVectors({ dataDir: env.data, log: env.log, memoryDb: env.memoryDb });
     for (const [q, query] of QUERIES.entries()) {
       for (const [o, option] of OPTIONS.entries()) {
         const { placeId, rest } = readAt(GUILD, option as { privateAccountId?: string });
         sameHits(await vectors.search(placeId, query, rest), EXPECTED[q][o], `query ${q} option ${o}`);
-        // The second guild's only month is the fixture's hand-made one, whose files fail their checksum.
         // A DM place has no guild: the private option ran above.
         if ('privateAccountId' in option) continue;
         assert.deepEqual(
@@ -141,8 +151,7 @@ test('vectors db reader: search answers every layer, month, range and filter fro
         );
       }
     }
-    // A month whose rows fail their checksum (the fixture's hand-made month) is skipped, and logged.
-    assert.ok(env.warns.length > 0 && env.warns.every((warn) => warn.message === 'vectors: checksum mismatch'));
+    assert.deepEqual(env.warns, []);
   } finally {
     env.done();
   }

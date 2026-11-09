@@ -21,8 +21,8 @@ const SKIPPED: Array<[RegExp, string]> = [
   [/\.unreadable-[^/]*$/, 'unreadable copy'],
 ];
 
-/** A kind a path names that has its own write kind and no mapper (src/memory/db/intentions-write.ts). */
-type DirectKind = 'intentions';
+/** A kind a path names that has its own write kind and no mapper (src/memory/db/intentions-write.ts, line-vectors.ts). */
+type DirectKind = 'intentions' | 'vectors';
 
 /** [pattern, kind, format] for a path inside a guild's data directory; the first match wins. */
 const KINDS: Array<[RegExp, MapperKind | DirectKind, FileFormat]> = [

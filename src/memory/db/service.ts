@@ -67,6 +67,7 @@
 //   - `writeOperational(write)` (operational.ts): the engine's own state, usage, metrics, inner state, missed
 //     registries, emoji rails and recall trace lines, by kind and subject, through the writer.
 //   - `writeIntentions(write)` (intentions-write.ts): her list of intentions and the records moved to its archive.
+//   - `writeLineVectors(write)` (line-vectors.ts): the vectors of the lines she saw and said, by place and month.
 //   - her memory session is the memory writer (spec 2026-10-24-memory-authority, section 6 item 7). Each open logs the
 //     effective models (`memory db: effective models`: purpose, model id and key variable of the memory session, the
 //     description review and every other purpose; writer-switch.ts#effectiveModels). With `memoryDb.session.mode`
@@ -116,6 +117,7 @@ import {
 import type { QuarantinedPending, QuarantineStatus } from './pending-quarantine.ts';
 import type { StorageKey } from './storage-keys.ts';
 import type { IntentionsWrite } from './intentions-write.ts';
+import type { LineVectorsWrite } from './line-vectors.ts';
 import type { OperationalWrite } from './operational.ts';
 
 import { lockPathOf, openMemoryDb } from './open.ts';
@@ -557,6 +559,8 @@ export type MemoryDbService = {
   writeOperational(write: OperationalWrite): Promise<unknown>;
   /** Her intentions and their archive (intentions-write.ts). */
   writeIntentions(write: IntentionsWrite): Promise<unknown>;
+  /** The vectors of the lines she saw and said (line-vectors.ts). */
+  writeLineVectors(write: LineVectorsWrite): Promise<unknown>;
   keepPending(update: unknown): string;
   /** The writes in the quarantine, by name, with the code each failed with and when it moved. */
   quarantinedPending(): Array<QuarantinedPending>;
@@ -1822,6 +1826,7 @@ export function createMemoryDb({
     writeUnit,
     writeOperational: (operational: OperationalWrite) => write({ ...operational, kind: 'operational', now: now() }),
     writeIntentions: (intentions: IntentionsWrite) => write({ ...intentions, kind: 'intentions', now: now() }),
+    writeLineVectors: (vectors: LineVectorsWrite) => write({ ...vectors, kind: 'line-vectors', now: now() }),
     keepPending,
     quarantinedPending: () => quarantinedIn(quarantineDir),
     replayQuarantinedPending,

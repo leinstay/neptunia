@@ -2,13 +2,22 @@
 // starts from the baseline (src/memory/db/schema-baseline.ts); src/memory/db/open.ts then applies each entry of
 // `MIGRATIONS` in order, one version per entry, and never edits a shipped one.
 
+import { placeLineVectors } from './line-vectors.ts';
+import { rebuildLocatorIndex } from './message-family-catalog.ts';
 import type { Db } from './types.ts';
 
 /** One migration: SQL text, or a function of the connection. */
 export type Migration = string | ((db: Db) => void);
 
 /** The steps above the baseline, version 45 first. */
-export const MIGRATIONS: Array<Migration> = [];
+export const MIGRATIONS: Array<Migration> = [
+  // Version 45: a line vector names the place of its index, not a month unit (src/memory/db/line-vectors.ts), and the
+  // index of a line by its stored address matches the query that asks it (message-family-catalog.ts).
+  (db: Db): void => {
+    placeLineVectors(db);
+    rebuildLocatorIndex(db);
+  },
+];
 
 /** The tables that carry a scope and its `audience_id`. */
 export const SCOPED_TABLES = [

@@ -146,11 +146,6 @@ export async function auditWorld(edit?: (db: DatabaseSync) => void): Promise<str
   return file;
 }
 
-/** The storage owner of the world's one month of vectors. */
-export function monthOwner(db: DatabaseSync): string {
-  return String(db.prepare("SELECT owner_key FROM operational WHERE kind = 'vectors' LIMIT 1").get()?.owner_key);
-}
-
 export type AuditRun = { status: number | null; stdout: string; stderr: string };
 
 /** The script as a process with an empty environment, so nothing of a deployment can reach it. */

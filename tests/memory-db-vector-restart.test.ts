@@ -11,13 +11,11 @@ import type { InnerContext } from '../src/behavior/inner/types.ts';
 import { createEmbedder } from '../src/memory/embedder.ts';
 import { OBSERVATION_VERSION } from '../src/memory/db/observe.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { vectorMonthFiles } from '../src/memory/db/readers/vectors.ts';
-import { placeCollection, storageId } from '../src/memory/db/storage-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { applyWakeQueueWrite } from '../src/memory/db/wake-queue.ts';
 import { createRecord } from '../src/memory/record.ts';
 import { createAddressing } from '../src/memory/store-addresses.ts';
-import { createVectors, monthChecksum } from '../src/memory/vectors.ts';
+import { createVectors } from '../src/memory/vectors.ts';
 
 const MONTH = '2026-11';
 const AT = Date.parse('2026-11-03T10:00:00.000Z');
@@ -106,65 +104,16 @@ function coreLife(env: TestMemory, log: ReturnType<typeof logged>['log']) {
   return { record, vectors, embedder, sent };
 }
 
-const monthKey = (placeId: string) => ({ ...placeCollection('vectors', placeId), partition: MONTH });
-
 const readDb = (env: TestMemory) => dbOf(env.memoryDb.readHandle()!);
 
-const stored = (env: TestMemory, placeId: string) => {
-  const owner = storageId(monthKey(placeId));
-  const manifest = (
-    JSON.parse(
-      String(
-        readDb(env)
-          .prepare("SELECT value FROM operational WHERE kind = 'vectors' AND owner_key = ? AND retired_at IS NULL")
-          .get(owner)?.value
-      )
-    ) as { manifest: { rows: number; bytes: number; metaBytes: number } }
-  ).manifest;
-  const rows = readDb(env)
-    .prepare('SELECT item_id, audience_id FROM vectors WHERE owner_key = ? AND retired_at IS NULL ORDER BY rowid')
-    .all(owner)
-    .map((row) => ({ ...row }));
-  return { manifest, rows };
-};
-
-test('a restart sends nothing to embed for records a month holds under a manifest that counts more bytes', async () => {
-  // Bug: `has` reads a month through its manifest's byte count, so a manifest longer than the rows answers no keys, and
-  // the catch-up embeds the last three days again at every restart. A conversion that renames a key in the stored lines
-  // leaves exactly that behind.
-  const { log, warnings } = logged();
-  const env = await openTestMemory({ log });
-  try {
-    const seen = (await env.memoryDb.observe(observedDm('cli'), null)) as { placeId: string };
-    assert.equal(seen.placeId, CLI_DM);
-    const first = coreLife(env, log);
-    await first.record.append(CLI_DM, [recordLine('m1', 0), recordLine('m2', 1)]);
-    await first.embedder.catchUp(CLI_DM);
-    await first.embedder.flush();
-    assert.equal(first.sent.length, 2);
-    const files = vectorMonthFiles(readDb(env), monthKey(CLI_DM), { checksum: monthChecksum })!;
-    const manifest = files.manifest!;
-    await env.memoryDb.writeUnit({
-      op: 'vectors',
-      key: monthKey(CLI_DM),
-      value: {
-        manifest: { ...manifest, metaBytes: Number(manifest.metaBytes) + 2 * Number(manifest.rows) },
-        meta: files.meta.toString('utf8'),
-        i8: files.i8,
-      },
-    });
-
-    const restarted = coreLife(env, log);
-    await restarted.embedder.catchUp(CLI_DM);
-    await restarted.embedder.flush();
-
-    assert.deepEqual(restarted.sent, []);
-    // Search still refuses a month that fails its manifest: the guard stays, and it is logged.
-    assert.deepEqual(await restarted.vectors.search(CLI_DM, [1, 0, 0, 0]), []);
-    assert.equal(warnings.filter((one) => one.message === 'vectors: month unreadable').length, 1);
-  } finally {
-    await env.close();
-  }
+/** The live rows of the month of a place's index, in the order they were written (src/memory/db/line-vectors.ts). */
+const stored = (env: TestMemory, placeId: string) => ({
+  rows: readDb(env)
+    .prepare(
+      'SELECT item_id, audience_id FROM vectors WHERE place_id = ? AND substr(occurred_at, 1, 7) = ? AND retired_at IS NULL ORDER BY rowid'
+    )
+    .all(placeId, MONTH)
+    .map((row) => ({ ...row })),
 });
 
 test('a clean month of a cli DM is seen whole by the next life of the core', async () => {
@@ -181,7 +130,7 @@ test('a clean month of a cli DM is seen whole by the next life of the core', asy
     await restarted.embedder.catchUp(CLI_DM);
     await restarted.embedder.flush();
     assert.deepEqual(restarted.sent, []);
-    assert.equal(stored(env, CLI_DM).manifest.rows, first.sent.length);
+    assert.equal(stored(env, CLI_DM).rows.length, first.sent.length);
   } finally {
     await env.close();
   }
@@ -189,7 +138,7 @@ test('a clean month of a cli DM is seen whole by the next life of the core', asy
 
 test('a record another DM unit already holds under the same key lands in its own month', async () => {
   // Bug: a chunk key names only the partner's native id, so two DM places of one native id spell the same key. The second
-  // writer's row went to `co_owners` and never landed, its manifest counted it anyway, and the month read short for good.
+  // writer's row went to `co_owners` and never landed, and the month read short for good.
   const { log, warnings } = logged();
   const env = await openTestMemory({ log });
   try {
@@ -201,8 +150,8 @@ test('a record another DM unit already holds under the same key lands in its own
     await vectors.append(CLI_DM, [vectorRow('own', 1), vectorRow('shared', 0)], { model: 'test/embedder' });
     await vectors.append(CLI_DM, [vectorRow('later', 2)], { model: 'test/embedder' });
 
-    const { manifest, rows } = stored(env, CLI_DM);
-    assert.equal(manifest.rows, 3);
+    const { rows } = stored(env, CLI_DM);
+    assert.equal(rows.length, 3);
     assert.deepEqual(
       rows.map((row) => [row.item_id, row.audience_id]),
       [
@@ -225,32 +174,6 @@ test('a record another DM unit already holds under the same key lands in its own
     assert.deepEqual(
       warnings.filter((one) => /unreadable|checksum/.test(one.message)),
       []
-    );
-  } finally {
-    await env.close();
-  }
-});
-
-test('a rewrite of a month keeps the key it took beside another unit', async () => {
-  // Bug: a whole-month write spells the base key again, and the row leaves its own month for another unit's.
-  const { log } = logged();
-  const env = await openTestMemory({ log });
-  try {
-    await env.memoryDb.observe(observedDm('cli'), null);
-    await env.memoryDb.observe(observedDm('discord'), null);
-    const { vectors } = coreLife(env, log);
-    await vectors.append(DISCORD_DM, [vectorRow('shared', 0)], { model: 'test/embedder' });
-    await vectors.append(CLI_DM, [vectorRow('shared', 0), vectorRow('own', 1)], { model: 'test/embedder' });
-
-    await vectors.rewrite(CLI_DM, MONTH, (meta) => (meta as { id: string }).id !== 'own');
-
-    assert.deepEqual(
-      stored(env, CLI_DM).rows.map((row) => row.item_id),
-      ['shared']
-    );
-    assert.deepEqual(
-      stored(env, DISCORD_DM).rows.map((row) => row.item_id),
-      ['shared']
     );
   } finally {
     await env.close();

@@ -18,7 +18,7 @@ import { observedSourceId } from './observe.ts';
 import { parseExtra } from './map/common.ts';
 
 import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
-import { hotClaimIds, linkVectors, qualify, retireAbsent, writeMapping } from './upsert.ts';
+import { hotClaimIds, qualify, retireAbsent, writeMapping } from './upsert.ts';
 import { unitRows, isMediaDescriptionEntry, mediaDescriptionId } from './export.ts';
 import { assignSelfreflectionDestination } from './publish.ts';
 import { graphPending, projectPending, projectRow } from './graph.ts';
@@ -34,7 +34,7 @@ import {
 } from './media-store.ts';
 import { applyErrandUnit, skippedErrandUnit } from '../../board/errands.ts';
 import { dbOf, asText, isFiniteNumber, isWholeNumber } from './types.ts';
-import type { Db, MemoryHandle, Row, Rows } from './types.ts';
+import type { Db, MemoryHandle, Row } from './types.ts';
 import type { MappedPath } from '../migration/classify.ts';
 import { SCOPE_INTERNAL, audienceOf, groupScope } from './scope.ts';
 import type { Scope } from './scope.ts';
@@ -42,6 +42,7 @@ import { ensureAudience } from './rows.ts';
 import { legacyPersonNative } from './ids.ts';
 import { writeGifVector } from './gif-vectors.ts';
 import { intentionsOfUnit, writeIntentions } from './intentions-write.ts';
+import { monthLines, writeLineVectors } from './line-vectors.ts';
 import { operationalOfUnit, writeOperational } from './operational.ts';
 import { storageContext } from './map/index.ts';
 
@@ -551,118 +552,29 @@ function writeSelfreflection(db: Db, update: Row, at: string): Row {
 }
 
 /**
- * A vector row belongs to its month. A chunk key spells the partner's native id and no interface, so two DM places of one
- * native id can spell the same key: a row whose key another unit holds takes `#<n>`, which still links to its line, and
- * lands here instead of being refused as shared while the month's manifest counts it.
+ * A month of vectors a unit write carries (a write kept pending by an older index, or a seed of old files): its month
+ * files as the line vectors write of the unit's place (line-vectors.ts). A month whose lines are not clean, or whose
+ * manifest names no vector size, holds no vectors and writes nothing.
  */
-function ownChunkKeys(db: Db, unit: Unit, rows: ReadonlyArray<Row>): void {
-  const column = hasStorageUnits(db) ? 'owner_key' : 'owner_file';
-  const holder = db.prepare(`SELECT ${column} AS owner FROM vectors WHERE chunk_key = ? AND retired_at IS NULL`);
-  const taken = new Set<string>();
-  for (const row of rows) {
-    const base = asText(row.chunk_key);
-    let key = base;
-    for (let n = 2; ; n += 1) {
-      const owner = holder.get(key)?.owner;
-      if (!taken.has(key) && (owner === undefined || owner === unit.full)) break;
-      key = `${base}#${n}`;
-    }
-    taken.add(key);
-    row.chunk_key = key;
-  }
-}
-
-/** A whole month of vectors (its rows linked to their lines, the rows it no longer holds retired). */
-function writeMonth(db: Db, unit: Unit, value: Row, at: string, iface: string): Row {
-  const mapping = unit.mapper.toRows(unit.rel, value, { iface });
-  ownChunkKeys(db, unit, mapping.vectors ?? []);
-  for (const row of mapping.vectors ?? []) row[hasStorageUnits(db) ? 'owner_key' : 'owner_file'] = unit.full;
-  linkVectors(db, mapping.vectors ?? []);
-  qualify(mapping, unit);
-  const upserted = writeMapping(db, mapping, unit.full, { at });
-  const retired = retireAbsent(db, unit.full, mapping, at);
-  return { upserted, retired };
-}
-
-/** The files of a month an update carries: the manifest, the jsonl text and the int8 bytes. */
-type MonthDelta = { manifest?: Row; meta?: unknown; i8?: ArrayLike<number> };
-
-/** Append mappings retain ownership and source links on the same writer transaction. */
-function writeVectorDelta(db: Db, unit: Unit, rows: Rows, at: string): Row {
-  const current = hasStorageUnits(db);
-  ownChunkKeys(db, unit, rows.vectors ?? []);
-  for (const row of rows.vectors ?? []) {
-    if (current) delete row.owner_file;
-    row[current ? 'owner_key' : 'owner_file'] = unit.full;
-  }
-  linkVectors(db, rows.vectors ?? []);
-  return { upserted: writeMapping(db, qualify(rows, unit), unit.full, { at }), retired: 0 };
-}
-
 function writeVectors(db: Db, update: Row, at: string): Row {
-  const unit = updateUnit(db, update, true);
-  if (unit.kind !== 'vectors') throw coded('UNIT_UNMAPPED');
-  let done: Row;
-  let manifest: Row | undefined;
-  if (update.value) {
-    manifest = (update.value as MonthDelta).manifest;
-    done = writeMonth(db, unit, update.value as Row, at, ifaceOf(update));
-  } else {
-    const delta = (update.delta ?? {}) as MonthDelta;
-    manifest = delta.manifest;
-    const stored = db
-      .prepare(
-        `SELECT value FROM operational WHERE kind = 'vectors' AND ${hasStorageUnits(db) ? 'owner_key' : 'owner'} = ? AND retired_at IS NULL`
-      )
-      .get(unit.full);
-    let previous: { manifest?: Row; raw?: unknown; tailI8?: unknown } | null = null;
-    try {
-      previous = stored ? JSON.parse(stored.value as string) : null;
-    } catch {
-      previous = null;
-    }
-    const keys = db
-      .prepare(`SELECT chunk_key FROM vectors WHERE ${hasStorageUnits(db) ? 'owner_key' : 'owner_file'} = ?`)
-      .all(unit.full)
-      .map((row) => row.chunk_key as string);
-    // `appendRows` is the vectors mapper's: this write is for that kind alone (`unitOf` above checked it).
-    const rows = previous
-      ? unit.mapper.appendRows!(unit.rel, delta as never, {
-          previous: previous as never,
-          keys,
-          // A keyed unit's mapper answers with the interface of its own subject.
-          ...(unit.key ? {} : { iface: ifaceOf(update) }),
-        })
-      : null;
-    if (rows) {
-      done = writeVectorDelta(db, unit, rows, at);
-    } else {
-      // A new month is the delta whole; a stored month that cannot be extended is rebuilt with the delta after its
-      // counted rows (a tail past the manifest's count is dropped, as the file append cuts it).
-      let value: { manifest: Row | undefined; meta: string; i8: Buffer } = {
-        manifest,
-        meta: Buffer.isBuffer(delta.meta) ? delta.meta.toString('utf8') : asText(delta.meta ?? ''),
-        i8: Buffer.from(delta.i8 ?? []),
-      };
-      if (previous) {
-        const held = unit.mapper.fromRows(unitRows(db, unit.full)) as { meta: string; i8: Buffer };
-        const bytes = previous.manifest?.bytes;
-        const counted = isWholeNumber(bytes) ? bytes : held.i8.length;
-        value = {
-          manifest,
-          meta: `${held.meta}${value.meta}`,
-          i8: Buffer.concat([Buffer.from(held.i8).subarray(0, counted), value.i8]),
-        };
-      }
-      done = writeMonth(db, unit, value, at, ifaceOf(update));
-    }
-  }
-  noteUnit(db, unit.full, unit.kind, {
-    lines: isWholeNumber(manifest?.rows) ? manifest.rows : null,
-    offset: isWholeNumber(manifest?.gen) ? manifest.gen : null,
-    at,
-  });
-  return done;
+  const keyed = withKey(db, update);
+  const key = keyed?.key as StorageKey | undefined;
+  if (key?.kind !== 'vectors' || !key.partition) throw coded('UNIT_UNMAPPED');
+  const files = (update.value ?? update.delta ?? {}) as Row;
+  const lines = monthLines(files);
+  if (lines === null) return { written: 0, retired: 0 };
+  const manifest = (files.manifest ?? {}) as Row;
+  return writeLineVectors(
+    db,
+    {
+      op: update.value ? 'month' : 'append',
+      placeId: key.subject.id,
+      month: key.partition.slice(0, 7),
+      model: typeof manifest.model === 'string' ? manifest.model : null,
+      lines,
+    },
+    at
+  );
 }
 
 function project(handle: MemoryHandle, update: Row, at: string): { units: number; done: boolean; stems: number } {

@@ -7,7 +7,6 @@
 //   danglingLinks      a live link between rows points at live rows, and a version belongs to a row that exists (a claim version names a claim or an episode,
 //                      retired or not, because an expired episode's archive line is kept as a version beside it)
 //   unexplainedNone    a live row under `aud:none` has a live `decisions` row of `AUDIENCE_NONE_KEPT` naming it
-//   vectorManifests    a month's manifest counts the rows the month holds, in the size it says
 //   linkedMediaKept    no media row a live line or a live selfreflection entry links is retired
 //   unlinkedLineMedia  no live media row of a message's item (`<message id>#<item>`) stands apart from the message's live line
 //                      (src/memory/db/media-store.ts#unlinkedLineItems); the media backfill links them
@@ -32,7 +31,6 @@ export const AUDIT_CHECKS = [
   'audienceDerived',
   'danglingLinks',
   'unexplainedNone',
-  'vectorManifests',
   'linkedMediaKept',
   'unlinkedLineMedia',
   'placeUnnamed',
@@ -185,32 +183,6 @@ function unexplainedNone(db: Db): number {
   return found;
 }
 
-/** Whether a month's stored row agrees with what the month holds. A month kept raw holds no rows to count. */
-function monthAgrees(db: Db, owner: unknown, stored: unknown): boolean {
-  let value: { manifest?: { rows?: unknown; dims?: unknown }; raw?: unknown };
-  try {
-    value = JSON.parse(String(stored)) as typeof value;
-  } catch {
-    return false;
-  }
-  if (value.raw !== undefined) return true;
-  const held = db
-    .prepare(
-      `SELECT COUNT(*) AS n, COALESCE(SUM(bytes IS NOT NULL AND length(bytes) <> ?), 0) AS off FROM vectors
-       WHERE owner_key = ? AND retired_at IS NULL`
-    )
-    .get(Number(value.manifest?.dims), String(owner));
-  return value.manifest?.rows === Number(held?.n) && Number(held?.off) === 0;
-}
-
-function vectorManifests(db: Db): number {
-  const live = liveIn(columnsOf(db, 'operational'), 'o');
-  return db
-    .prepare(`SELECT o.owner_key, o.value FROM operational o WHERE o.kind = 'vectors' AND ${live}`)
-    .all()
-    .filter((row) => !monthAgrees(db, row.owner_key, row.value)).length;
-}
-
 function linkedMediaKept(db: Db): number {
   if (columnsOf(db, 'media_links').size === 0) return 0;
   return countOf(
@@ -290,7 +262,6 @@ export function auditMemory(db: Db, settings: Partial<AuditSettings> = {}): Audi
     audienceDerived: audienceDerived(db),
     danglingLinks: danglingLinks(db),
     unexplainedNone: unexplainedNone(db),
-    vectorManifests: vectorManifests(db),
     linkedMediaKept: linkedMediaKept(db),
     unlinkedLineMedia: unlinkedLineMedia(db),
     placeUnnamed: placeUnnamed(db),

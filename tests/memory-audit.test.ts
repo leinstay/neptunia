@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { auditMemory as auditOver } from '../src/memory/db/audit.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { DM, GROUP, WORDS, auditWorld, monthOwner, runAudit } from './fixtures/memory-audit-world.ts';
+import { DM, GROUP, WORDS, auditWorld, runAudit } from './fixtures/memory-audit-world.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const CHECKS = [
@@ -18,7 +18,6 @@ const CHECKS = [
   'audienceDerived',
   'danglingLinks',
   'unexplainedNone',
-  'vectorManifests',
   'linkedMediaKept',
   // The lead: the audit gained `unlinkedLineMedia` with the late embeds slice (owner, 2026-11-06).
   'unlinkedLineMedia',
@@ -38,17 +37,6 @@ const NONE_CLAIM = `INSERT INTO claims (id, subject_kind, subject_id, kind, text
   VALUES ('claim:none', 'self', 'person:self', 'self_fact', '${WORDS}', 'none', NULL, NULL, 'aud:none')`;
 const DEAD_LINE = `INSERT INTO sources (id, kind, iface, place_id, text, scope_kind, scope_iface, scope_dm, audience_id, retired_at)
   VALUES ('src:dead', 'seen', 'discord', '${GROUP}', '${WORDS}', 'group', 'discord', NULL, 'aud:group:discord', '2026-11-03T09:00:00.000Z')`;
-
-/** What the manifest of the group's month holds, changed by `change`. */
-function editManifest(db: DatabaseSync, change: (manifest: Record<string, unknown>) => Record<string, unknown>): void {
-  const owner = monthOwner(db);
-  const stored = db.prepare("SELECT value FROM operational WHERE kind = 'vectors' AND owner_key = ?").get(owner);
-  const value = JSON.parse(String(stored?.value)) as { manifest: Record<string, unknown> };
-  db.prepare("UPDATE operational SET value = ? WHERE kind = 'vectors' AND owner_key = ?").run(
-    JSON.stringify({ ...value, manifest: change(value.manifest) }),
-    owner
-  );
-}
 
 type Report = { findings: number; checks: Record<Check, number> };
 
@@ -185,8 +173,8 @@ const DAMAGE: ReadonlyArray<Case> = [
     count: 1,
     edit: (db) => {
       db.prepare(
-        "UPDATE vectors SET audience_id = 'aud:internal' WHERE rowid = (SELECT MIN(rowid) FROM vectors WHERE owner_key = ?)"
-      ).run(monthOwner(db));
+        "UPDATE vectors SET audience_id = 'aud:internal' WHERE rowid = (SELECT MIN(rowid) FROM vectors WHERE place_id IS NOT NULL)"
+      ).run();
     },
   },
   {
@@ -242,34 +230,6 @@ const DAMAGE: ReadonlyArray<Case> = [
     check: 'unexplainedNone',
     count: 1,
     edit: (db) => db.exec("UPDATE decisions SET target_id = 'claim:good' WHERE id = 'decision:1'"),
-  },
-  {
-    name: 'a month’s manifest counts more rows than the month holds',
-    check: 'vectorManifests',
-    count: 1,
-    edit: (db) => editManifest(db, (manifest) => ({ ...manifest, rows: Number(manifest.rows) + 1 })),
-  },
-  {
-    name: 'a month’s manifest counts fewer rows than the month holds',
-    check: 'vectorManifests',
-    count: 1,
-    edit: (db) => editManifest(db, (manifest) => ({ ...manifest, rows: Number(manifest.rows) - 1 })),
-  },
-  {
-    name: 'a month’s vectors have another size than its manifest says',
-    check: 'vectorManifests',
-    count: 1,
-    edit: (db) => editManifest(db, (manifest) => ({ ...manifest, dims: Number(manifest.dims) + 1 })),
-  },
-  {
-    name: 'a month’s manifest cannot be read',
-    check: 'vectorManifests',
-    count: 1,
-    edit: (db) => {
-      db.prepare("UPDATE operational SET value = 'not json' WHERE kind = 'vectors' AND owner_key = ?").run(
-        monthOwner(db)
-      );
-    },
   },
   {
     name: 'a live line links a media row that was trimmed',
@@ -374,23 +334,11 @@ const FINE: ReadonlyArray<{ name: string; edit: (db: DatabaseSync) => void }> = 
       ),
   },
   {
-    name: 'a month with an evicted vector, whose manifest counts the row its bytes left',
+    name: 'a line vector whose bytes were evicted',
     edit: (db) => {
       db.prepare(
-        "UPDATE vectors SET bytes = NULL, evicted_at = '2026-11-03T09:00:00.000Z' WHERE rowid = (SELECT MIN(rowid) FROM vectors WHERE owner_key = ?)"
-      ).run(monthOwner(db));
-    },
-  },
-  {
-    name: 'a month kept raw, which holds its lines in the manifest row and no vectors',
-    edit: (db) => {
-      const owner = monthOwner(db);
-      const stored = db.prepare("SELECT value FROM operational WHERE kind = 'vectors' AND owner_key = ?").get(owner);
-      db.prepare("UPDATE operational SET value = ? WHERE kind = 'vectors' AND owner_key = ?").run(
-        JSON.stringify({ ...(JSON.parse(String(stored?.value)) as object), raw: 'kept' }),
-        owner
-      );
-      db.prepare('DELETE FROM vectors WHERE owner_key = ?').run(owner);
+        "UPDATE vectors SET bytes = NULL, evicted_at = '2026-11-03T09:00:00.000Z' WHERE rowid = (SELECT MIN(rowid) FROM vectors WHERE place_id IS NOT NULL)"
+      ).run();
     },
   },
 ];
