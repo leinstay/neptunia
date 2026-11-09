@@ -174,7 +174,7 @@ Tests are written by agents, so the quality lives in the method, not in a review
 |---|---|
 | `.agents/AGENTS.md` | The rules of this deployment: its server, its owner's decisions, what differs from this file. Read first when it exists. |
 | `.agents/memory/MEMORY.md` | The index of the agents' memory, one line per file; one fact per file beside it, with a frontmatter (`name`, `description`, `metadata.type`: user, feedback, project, reference). |
-| `.agents/docs/` | The deployment's documents: `plans/`, `specs/`, `reports/`, `notes/`, `references/`, each file `<YYYY-MM-DD>-<topic>.md`; living documents without a date. |
+| `.agents/docs/` | The deployment's documents: `plans/`, `specs/`, `reports/`, `notes/`, `references/`, each file `<YYYY-MM-DD>-<topic>.md`; living documents without a date. Every document opens with a frontmatter of `date`, `title` and `status`, one of `draft`, `active`, `done` or `superseded`; a superseded document adds `superseded_by` with the path of the one that replaced it. |
 | `.agents/scratch/<YYYY-MM-DD>-<task>/` | Intermediate files of one task; deleted once the result is in a document. |
 | `.agents/tmp/` | `TMPDIR` for test runs and other throwaway files. |
 | `.agents/tools/` | Scripts of this deployment that the public `scripts/` cannot hold. |
