@@ -31,6 +31,12 @@ import type { PlaceNotesWrite } from './place-notes.ts';
 import { placeNotesOfUnit } from './place-notes.ts';
 import type { ChannelEntryWrite } from './channel-entry.ts';
 import { channelEntryOfUnit } from './channel-entry.ts';
+import type { PlaceLoreWrite } from './place-lore.ts';
+import { placeLoreOfUnit } from './place-lore.ts';
+import type { ParticipationWrite } from './participation-episodes.ts';
+import { participationOfUnit } from './participation-episodes.ts';
+import type { RecentLinesWrite } from './recent-lines.ts';
+import { recentLinesOfUnit } from './recent-lines.ts';
 import type { ProseVersionsWrite } from './prose-versions.ts';
 import { keyText } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
@@ -56,7 +62,8 @@ export type UnitOutbox = {
  * The memory service as the outbox uses it: `writeUnit` always, `writeOperational` for a unit of an operational kind,
  * `writeIntentions` for a unit of the intentions, `writeAccountProfile` for an account's profile,
  * `writeProseVersions` for a history of prose, `writePrivateLayer` for a private layer, `writePlaceNotes` for a place's
- * notes and `writeChannelEntry` for a channel's entry when the service has them (operational.ts, intentions-write.ts,
+ * notes, `writeChannelEntry` for a channel's entry, and `writePlaceLore`, `writeParticipation` and `writeRecentLines` for
+ * a place's lorebook, participation and recent lines when the service has them (operational.ts, intentions-write.ts,
  * account-profile.ts, prose-versions.ts, private-layer.ts, place-notes.ts, channel-entry.ts), `keepPending` at
  * shutdown.
  */
@@ -69,6 +76,9 @@ type OutboxMemoryDb = {
   writePrivateLayer?(this: void, write: PrivateLayerWrite): Promise<unknown>;
   writePlaceNotes?(this: void, write: PlaceNotesWrite): Promise<unknown>;
   writeChannelEntry?(this: void, write: ChannelEntryWrite): Promise<unknown>;
+  writePlaceLore?(this: void, write: PlaceLoreWrite): Promise<unknown>;
+  writeParticipation?(this: void, write: ParticipationWrite): Promise<unknown>;
+  writeRecentLines?(this: void, write: RecentLinesWrite): Promise<unknown>;
   keepPending?(update: Row): unknown;
 };
 
@@ -83,6 +93,9 @@ const DIRECT_WRITES: ReadonlyArray<
   ['writePrivateLayer', privateLayerOfUnit],
   ['writePlaceNotes', placeNotesOfUnit],
   ['writeChannelEntry', channelEntryOfUnit],
+  ['writePlaceLore', placeLoreOfUnit],
+  ['writeParticipation', participationOfUnit],
+  ['writeRecentLines', recentLinesOfUnit],
 ];
 
 /**

@@ -1,12 +1,13 @@
-// Synthetic places, their notes and their channel entries, for the tests of the write kinds `place-notes` and
-// `channel-entry` and of the owner columns of their rows (tests/memory-db-place-notes.test.ts,
-// tests/memory-db-channel-entry.test.ts, tests/memory-db-place-owner.test.ts). `writeBothWays` runs the same writes
+// Synthetic places with their notes, channel entries, lorebooks, participation and recent lines, for the tests of the
+// write kinds `place-notes`, `channel-entry`, `place-lore`, `participation-episodes` and `recent-lines` and of the
+// owner columns of their rows (tests/memory-db-place-notes.test.ts, tests/memory-db-channel-entry.test.ts,
+// tests/memory-db-place-owner.test.ts, tests/memory-db-place-lists.test.ts). `writeBothWays` runs the same writes
 // through the unit write and through the write kinds over copies of one seeded database, derives the owner columns of
-// the unit way with version step 48, and returns every table of each.
+// the unit way with version steps 48 and 49, and returns every table of each.
 import fs from 'node:fs';
 import path from 'node:path';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
-import { ownPlaceRows } from '../../../src/memory/db/place-owner.ts';
+import { ownPlaceListRows, ownPlaceRows } from '../../../src/memory/db/place-owner.ts';
 import { applyMemoryWrite } from '../../../src/memory/db/session-write.ts';
 import { placeCollection } from '../../../src/memory/db/storage-keys.ts';
 import { dbOf } from '../../../src/memory/db/types.ts';
@@ -21,11 +22,20 @@ export const CHANNEL = 'discord:channel:200000000000000001';
 export const THREAD = 'discord:channel:200000000000000002';
 export const TEACHER = '100000000000000001';
 
-/** One write of a test: a place's notes, a channel's entry, or her session's review of a root's patterns. */
+/** One write of a test: a value of one of a place's units, or her session's review of a root's patterns. */
 export type PlaceStep =
-  | { kind: 'place'; placeId: string; value: Row }
-  | { kind: 'channel'; placeId: string; value: Row }
+  | { kind: 'place' | 'channel' | 'participation' | 'recent'; placeId: string; value: Row }
+  | { kind: 'lore'; placeId: string; value: Array<Row> | Row }
   | { kind: 'review' };
+
+/** The write kind of each unit kind. */
+const WRITE_KINDS = {
+  place: 'place-notes',
+  channel: 'channel-entry',
+  lore: 'place-lore',
+  participation: 'participation-episodes',
+  recent: 'recent-lines',
+} as const;
 
 export const notes = (extra: Row = {}): Row => ({
   patterns: 'Speaks in short bursts.',
@@ -126,7 +136,7 @@ export function writeUnit(handle: MemoryHandle, step: PlaceStep): unknown {
 export function writeDirect(handle: MemoryHandle, step: PlaceStep): unknown {
   if (step.kind === 'review') return review(dbOf(handle));
   return applyMemoryWrite(handle, {
-    kind: step.kind === 'place' ? 'place-notes' : 'channel-entry',
+    kind: WRITE_KINDS[step.kind],
     placeId: step.placeId,
     value: step.value,
     iface: 'discord',
@@ -143,7 +153,8 @@ export function copyOf(seed: string): MemoryHandle {
 
 /**
  * Runs the steps through both ways over copies of one seed; returns every table of each and the answers. The unit way
- * gets its owner columns from version step 48 (place-owner.ts#ownPlaceRows) after its writes.
+ * gets its owner columns from version steps 48 and 49 (place-owner.ts#ownPlaceRows, #ownPlaceListRows) after its
+ * writes.
  */
 export function writeBothWays(steps: ReadonlyArray<PlaceStep>): {
   unit: [string, Array<unknown>];
@@ -155,6 +166,7 @@ export function writeBothWays(steps: ReadonlyArray<PlaceStep>): {
   try {
     const unitAnswers = steps.map((step) => writeUnit(viaUnit, step));
     ownPlaceRows(dbOf(viaUnit));
+    ownPlaceListRows(dbOf(viaUnit));
     const directAnswers = steps.map((step) => writeDirect(direct, step));
     return {
       unit: [tablesOf(dbOf(viaUnit)), unitAnswers],

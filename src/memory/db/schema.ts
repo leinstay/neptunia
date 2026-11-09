@@ -4,7 +4,7 @@
 
 import { ownLineRows } from './line-owner.ts';
 import { ownProfileRows } from './profile-owner.ts';
-import { ownPlaceRows } from './place-owner.ts';
+import { ownPlaceListRows, ownPlaceRows } from './place-owner.ts';
 import { placeLineVectors } from './line-vectors.ts';
 import { rebuildLocatorIndex } from './message-family-catalog.ts';
 import type { Db } from './types.ts';
@@ -72,6 +72,13 @@ export const MIGRATIONS: Array<Migration> = [
     db.exec('CREATE INDEX "places_holder" ON "places"(writer, holder_id) WHERE writer IS NOT NULL');
     db.exec('CREATE INDEX "co_owners_holder" ON "co_owners"(tbl, writer, holder_id) WHERE writer IS NOT NULL');
     ownPlaceRows(db);
+  },
+  // Version 49: the rows of a lorebook, a participation and recent lines, and an episode's message links, name their
+  // writer and holder (src/memory/db/place-owner.ts).
+  (db: Db): void => {
+    for (const column of ['writer', 'holder_id']) db.exec(`ALTER TABLE episode_sources ADD COLUMN ${column} TEXT`);
+    db.exec('CREATE INDEX "episode_sources_holder" ON episode_sources(writer, holder_id) WHERE writer IS NOT NULL');
+    ownPlaceListRows(db);
   },
 ];
 
