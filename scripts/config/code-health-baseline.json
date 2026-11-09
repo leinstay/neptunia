@@ -612,10 +612,6 @@
       "deep": 6,
       "repeated": 1
     },
-    "tests/memory-db-map-episodes.test.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
     "tests/memory-db-map-media.test.ts": {
       "deep": 4,
       "repeated": 0
