@@ -16,6 +16,7 @@
 
 import type { PublicationBoundary } from './publication.ts';
 import type { NativeMessageLocator, ResolvedRecallAnchor, StoredSourceRef } from '../memory/db/recall.ts';
+import type { FindMeaning } from '../memory/db/graph-find.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { cliChatRef } from '../interface/cli-chat.ts';
 import type { PlaceRef } from '../memory/db/frame-reads.ts';
@@ -56,8 +57,21 @@ export type CallView = {
   stem?: ((word: string) => string) | null;
   /** The live places a name names in the memory's name index, under the turn's context (names.ts#placesNamed). */
   placesNamed?: ((name: string) => ReadonlyArray<{ id: string; name: string }>) | null;
-  /** The places the memory graph ranks for words that name no place, best first, under the turn's context (graph-find.ts). */
-  placesFound?: ((words: string) => ReadonlyArray<{ id: string; name: string; about: string | null }>) | null;
+  /**
+   * The places the memory graph ranks for words that name no place, best first, under the turn's context (graph-find.ts),
+   * by words alone or fused with the words' embedding when one is given.
+   */
+  placesFound?:
+    | ((
+        words: string,
+        meaning?: FindMeaning
+      ) => ReadonlyArray<{ id: string; name: string; about: string | null; hasEveryWord?: boolean }>)
+    | null;
+  /** The turn's embeddings for the finder (graph-find.ts#createFindMeaning): one already made, or one made now. */
+  findMeaning?: {
+    known: (text: string) => FindMeaning | null;
+    fetch: (text: string) => Promise<FindMeaning | null>;
+  } | null;
   /** A stored place by its id as its interface knows it, null without a row (frame-reads.ts#placeRefOf). */
   placeRef?: ((placeId: string) => PlaceRef | null) | null;
   channelHandles?: ReadonlyMap<string, string> | null;
@@ -282,11 +296,16 @@ function indexedOf(given: string, view: CallView | undefined): PlaceMatch | null
  * or a widened one, by place id or by the native id of a chat of the turn); null when the view reads no graph or the
  * graph finds none.
  */
-function graphFoundOf(given: string, view: CallView | undefined): PlaceMatch | null {
+function graphFoundOf(given: string, view: CallView | undefined, misses: Set<string> | null): PlaceMatch | null {
   if (typeof view?.placesFound !== 'function') return null;
   const handles = new Map<string, string>();
   for (const [handle, id] of view.channelHandles ?? []) if (!handles.has(idText(id))) handles.set(idText(id), handle);
-  return foundPlaces(view.placesFound(given.replace(/^#/, '').trim()), (id) => {
+  const words = given.replace(/^#/, '').trim();
+  const meaning = view.findMeaning?.known(words) ?? null;
+  const found = meaning === null ? view.placesFound(words) : view.placesFound(words, meaning);
+  // Words no candidate holds in full are worth an embedding (resolveCallWithMeaning); a full match is answer enough.
+  if (meaning === null && view.findMeaning && !found.some((place) => place.hasEveryWord === true)) misses?.add(words);
+  return foundPlaces(found, (id) => {
     return handles.get(id) ?? handles.get(view.placeRef?.(id)?.nativeId ?? '') ?? null;
   });
 }
@@ -297,13 +316,14 @@ function graphFoundOf(given: string, view: CallView | undefined): PlaceMatch | n
  * then in the name index, then by the memory graph (graphFoundOf), and one that is not one place is refused with the
  * places she may read, or the places the graph ranked for her words, as `choices`.
  */
-function placeOf(given: string, option: string, view: CallView): { id: string } | Refusal {
+function placeOf(given: string, option: string, view: CallView, misses: Set<string> | null): { id: string } | Refusal {
   const id = channelIdOf(given) ?? ((view.chats ?? []).some((c) => idText(c.id) === given) ? given : null);
   if (id) return { id };
   const byHandle = view.channelHandles?.get(given.replace(/^#/, ''));
   if (byHandle !== undefined && idText(byHandle) !== '') return { id: idText(byHandle) };
   const listed = matchPlace(given, view.places ?? [], view.stem ? { stem: view.stem } : {});
-  const match = listed.kind === 'none' ? (indexedOf(given, view) ?? graphFoundOf(given, view) ?? listed) : listed;
+  const match =
+    listed.kind === 'none' ? (indexedOf(given, view) ?? graphFoundOf(given, view, misses) ?? listed) : listed;
   return match.kind === 'one' ? { id: match.id } : placeRefusal(match, given, option);
 }
 
@@ -312,16 +332,22 @@ function placeOf(given: string, option: string, view: CallView): { id: string } 
  * read for the read skills, else among the chats of the view, then in the name index of the memory, which
  * holds the places of every interface by their stored names and aliases, and last by the memory graph (graphFoundOf).
  */
-function channelOf(skill: string, given: string, option: string, view: CallView | undefined): { id: string } | Refusal {
+function channelOf(
+  skill: string,
+  given: string,
+  option: string,
+  view: CallView | undefined,
+  misses: Set<string> | null
+): { id: string } | Refusal {
   // A stored place's id names it on any interface, and the command line's place id names his chat whether or not a row
   // holds it yet; the operation asks that interface whether she may act there.
   const asPlace = given.trim();
   if (cliChatRef(asPlace) !== null || (view?.placeRef?.(asPlace) ?? null) !== null) return { id: asPlace };
-  if (READ_PLACE_SKILLS.includes(skill) && view?.places) return placeOf(given, option, view);
+  if (READ_PLACE_SKILLS.includes(skill) && view?.places) return placeOf(given, option, view, misses);
   const id = chatIdOf(given, view?.chats, view?.channelHandles);
   if (id === 'ambiguous') return refused(CODE.TARGET_AMBIGUOUS, 'chat');
   if (id) return { id };
-  const indexed = indexedOf(given, view) ?? graphFoundOf(given, view);
+  const indexed = indexedOf(given, view) ?? graphFoundOf(given, view, misses);
   if (indexed === null) return refused(CODE.INVALID_ARGS, `args.${option}:unknown-channel`);
   return indexed.kind === 'one' ? { id: indexed.id } : placeRefusal(indexed, given, option);
 }
@@ -490,9 +516,11 @@ function transcriptReference({
  * id) the same way. The `people` option of PEOPLE_LIST_SKILLS is a list of members (comma or space
  * separated), each resolved like a member option; the ids come out comma-separated.
  */
+
 export function resolveCall(
   call: { skill?: unknown; args?: unknown } | null | undefined,
-  view: CallView | undefined
+  view: CallView | undefined,
+  misses: Set<string> | null = null
 ): Resolved | Refusal {
   const name = argText(call?.skill);
   const skill = view?.skills?.get(name);
@@ -533,7 +561,7 @@ export function resolveCall(
         break;
       }
       case 'place': {
-        const channel = channelOf(name, text, option, view);
+        const channel = channelOf(name, text, option, view, misses);
         if ('ok' in channel) return channel;
         args[option] = channel.id;
         break;
@@ -666,6 +694,23 @@ export function resolveCall(
     ...references,
     ...(channelFixed ? { channelFixed: true } : {}),
   };
+}
+
+/**
+ * resolveCall, with the finder's embedding: a place name whose words the memory graph fits to no place in full is embedded
+ * once (`view.findMeaning`, within its deadline) and the call resolved again with the words' meaning. A name the words
+ * answer in full, a view with no embedder and a late or failed embedding leave the answer of the words.
+ */
+export async function resolveCallWithMeaning(
+  call: { skill?: unknown; args?: unknown } | null | undefined,
+  view: CallView | undefined
+): Promise<Resolved | Refusal> {
+  const misses = new Set<string>();
+  const first = resolveCall(call, view, misses);
+  const finder = view?.findMeaning;
+  if (misses.size === 0 || !finder) return first;
+  const meant = await Promise.all([...misses].map((words) => finder.fetch(words)));
+  return meant.some((one) => one !== null) ? resolveCall(call, view, null) : first;
 }
 
 /**

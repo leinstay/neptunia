@@ -17,7 +17,7 @@ import { log } from '../log.ts';
 import { callArgsText } from '../tools/call-args.ts';
 import { CODE } from '../tools/codes.ts';
 import { hasTrait } from '../tools/definitions.ts';
-import { executeCall, outcomeDetail, refusalStatus, resolveCall } from '../tools/executors.ts';
+import { executeCall, outcomeDetail, refusalStatus, resolveCallWithMeaning } from '../tools/executors.ts';
 import type { CallResult, CallView, ExecuteDeps, Resolved, RunOperation } from '../tools/executors.ts';
 import { checkSkill } from '../tools/gateway.ts';
 import type { GateContext, Refusal } from '../tools/gateway.ts';
@@ -76,6 +76,8 @@ export type SkillCallsContext = {
   placesNamedFor?: (draft: CallsDraft | null, channel: CallChannel) => CallView['placesNamed'];
   /** The memory graph under a turn's context: the places it ranks for words that name no place (graph-find.ts#placesFound). */
   placesFoundFor?: (draft: CallsDraft | null, channel: CallChannel) => CallView['placesFound'];
+  /** The turn's embeddings for the finder, one memo per draft (graph-find.ts#createFindMeaning). */
+  findMeaningFor?: (draft: CallsDraft | null) => CallView['findMeaning'];
   /** The memory's channels and threads on every interface with their native ids, read when used; none while it is closed. */
   knownPlaces?: () => ReadonlyArray<KnownPlace>;
   /** A stored place by its id as its interface knows it (frame-reads.ts#placeRefOf), null without a row or a memory. */
@@ -329,6 +331,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     stemmer = () => null,
     placesNamedFor = () => null,
     placesFoundFor = () => null,
+    findMeaningFor = () => null,
     knownPlaces = () => [],
     placeRef = null,
     skills,
@@ -436,6 +439,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       stem: stemmer?.()?.stem ?? null,
       placesNamed: placesNamedFor(draft, channel) ?? null,
       placesFound: placesFoundFor(draft, channel) ?? null,
+      findMeaning: findMeaningFor(draft) ?? null,
       knownPlaces: knownPlaces(),
       placeRef,
     });
@@ -577,7 +581,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       }
       if (String(current) !== String(channel.id)) call = { ...call, args: { ...call.args, channel: String(current) } };
     }
-    const resolved = resolveCall(call, view);
+    const resolved = await resolveCallWithMeaning(call, view);
     if (!resolved.ok) {
       log.info('skill: refused', {
         skill: call.skill,

@@ -652,3 +652,20 @@ test('a qualified native window ignores unrelated malformed source metadata with
     env.done();
   }
 });
+
+test("a window's chat id is the native id its place row holds, whatever the place id spells", () => {
+  // Bug: the chat of a window was cut out of the place id, so a place of another interface or with an opaque id named
+  // its stored id where an interface expects its own chat id.
+  const env = fixture();
+  try {
+    const stored = storedObservation(env, { key: 'chat-of-row', room: 'room-native', text: 'το κουνέλι chat-anchor' });
+    env.stem();
+    const result = run(env, ['κουνέλι'], {}, groupContext('other'));
+    const [one] = result.windows;
+    const [first] = one?.messages ?? [];
+    assert.equal(one?.placeId, 'room-native');
+    assert.equal(first?.stored?.placeId, stored.placeId);
+  } finally {
+    env.done();
+  }
+});

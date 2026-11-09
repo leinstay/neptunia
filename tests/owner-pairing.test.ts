@@ -1,6 +1,6 @@
 // The owner proves his account on a newly connected interface by pairing (src/interface/owner-pairing.ts): while he
-// opened pairing there, a direct message to her is answered with a one-time code instead of a turn, and the code he
-// approves in the command line binds that account to his meta-person by the rules of `/memory bind`
+// opened pairing there, a direct message to her is answered with a one-time phrase of six words instead of a turn,
+// and the phrase he approves in the command line binds that account to his meta-person by the rules of `/memory bind`
 // (src/memory/db/person-bind.ts). A second paired account becomes the interface's owner account and the first stays
 // his. A real temporary memory database, a recording port and synthetic ids only.
 import { test } from 'node:test';
@@ -9,6 +9,7 @@ import path from 'node:path';
 import { createOwnerPairing } from '../src/interface/owner-pairing.ts';
 import type { OwnerPairing } from '../src/interface/owner-pairing.ts';
 import { createPairing } from '../src/interface/pairing.ts';
+import { createPhraseCodes } from '../src/interface/phrase-codes.ts';
 import { onLog } from '../src/log.ts';
 import { withIface } from '../src/memory/db/current-iface.ts';
 import { personOfAccount } from '../src/memory/db/meta-person.ts';
@@ -29,8 +30,9 @@ import { tempDir } from './fixtures/tmp.ts';
 const IFACE = 'chatnet';
 const OWNER = 'person:0a1b0000-owner';
 const NOW = Date.parse('2026-11-08T12:00:00Z');
-const CODE = /[A-HJ-NP-Z2-9]{8}/;
-const LABELS = { pairing: { code: 'pair with {code} please', ask: 'approve on {iface}' } };
+const CODE = /^pair with (.+) please$/;
+const LABELS = { pairing: { code: 'pair with {phrase} please', ask: 'approve on {iface}' } };
+const WORDS = ['amber', 'birch', 'cedar', 'dune', 'ember', 'fjord', 'grove', 'heath', 'inlet', 'jade', 'kelp', 'loam'];
 
 type Sent = { chat: ChatRef; text: string };
 type Rig = { pairing: OwnerPairing; sent: Array<Sent>; db: Db; config: Row };
@@ -69,10 +71,10 @@ async function withPairing(body: (rig: Rig) => Promise<void>): Promise<void> {
       return Promise.resolve({ status: 'ok', ref: null, parts: [], at: NOW, idempotencyKey: 'k', error: null });
     },
   };
-  let turn = 0;
+  const phrases = createPhraseCodes({ words: () => WORDS, matcher: () => ({ stem: (word) => word, endings: [] }) });
   const pairing = createOwnerPairing({
     hot,
-    pairing: createPairing({ now: () => NOW, rng: () => ((turn += 1) % 10) / 10 }),
+    pairing: createPairing({ now: () => NOW, phrases }),
     memoryDb,
     port,
     selfId: () => 'self-id',
@@ -99,8 +101,8 @@ function direct(author: string, id: string, text = 'hello there'): MessageEvent 
 
 function codeIn(sent: ReadonlyArray<Sent>): string {
   const found = CODE.exec(sent.at(-1)?.text ?? '');
-  assert.ok(found, `no code in ${JSON.stringify(sent)}`);
-  return found[0];
+  assert.ok(found, `no phrase in ${JSON.stringify(sent)}`);
+  return found[1] ?? '';
 }
 
 const ownerOn = (native: string, config: Row): boolean => withIface(IFACE, () => isOwnerId(config, native));
@@ -117,7 +119,13 @@ test('answers a direct message with a code in that chat while pairing is open', 
     assert.equal(await pairing.screen(direct('u9', 'm1')), 'observe');
     assert.equal(sent.length, 1);
     assert.deepEqual(sent[0]?.chat, { iface: IFACE, chatId: 'dm-u9' });
-    assert.match(sent[0]?.text ?? '', /^pair with [A-HJ-NP-Z2-9]{8} please$/);
+    // The owner's decision of 2026-11-08 replaced the eight-character code with six words of the list.
+    assert.equal(
+      codeIn(sent)
+        .split(' ')
+        .filter((word) => WORDS.includes(word)).length,
+      6
+    );
   });
 });
 

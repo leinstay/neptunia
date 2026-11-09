@@ -6,6 +6,7 @@
   "bot": {
     "timezone": "UTC",
     "ownerPerson": "",
+    "phraseWords": "phrase-words-en.txt",
     "access": {}
   },
   "models": {
@@ -102,7 +103,8 @@
       "deadlineMs": 1000,
       "embedDocuments": true,
       "embedObjects": true,
-      "embedBatch": 50
+      "embedBatch": 50,
+      "episodes": 3
     },
     "inspection": {
       "pageRows": 100,
@@ -179,7 +181,8 @@
     },
     "find": {
       "candidates": 5,
-      "lines": 100
+      "lines": 100,
+      "deadlineMs": 1000
     },
     "meanwhile": {
       "messages": 8,
