@@ -9,9 +9,10 @@ import type { Frame } from './frame.ts';
 import { escapeStored, pathText } from './text.ts';
 import type { Labels, NameOf } from './types.ts';
 
-/** A stored line as `<meanwhile>` reads it; `at` is epoch ms. */
+/** A stored line as `<meanwhile>` reads it; `at` is epoch ms, `sourceId` its source row's id when the reads give it. */
 export type MeanwhileLine = {
   id: string;
+  sourceId?: string;
   placeId: string;
   at: number;
   authorId: string | null;
