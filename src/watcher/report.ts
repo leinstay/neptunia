@@ -1,5 +1,5 @@
 // The watcher's report: one exact template (`checkTemplate`), the coverage block at its end (`checkCoverage`), the rows
-// the engine stamps into the metadata, the commit, and the lines of the tasks the engine filed under "Tasks filed".
+// the engine stamps into the metadata, the commit, and the gaps the engine itself knows.
 // src/watcher/inspection.ts calls them all. `checkReport` is the last guard of the commit, the sections and no key. A
 // refusal's detail names the template's words and a line number, never the text that caused it, so a planted key is
 // copied nowhere. docs/prompt-contract.md holds the template.
@@ -20,7 +20,6 @@ export const REPORT_HEADINGS = [
   'Trash',
   'The server',
   'Wishes',
-  'Tasks filed',
   'For the owner',
 ] as const;
 
@@ -40,8 +39,6 @@ const TURN_ID = /(?<![\w-])t-[0-9a-f]{6,}(?![\w-])/;
 
 /** The two subsections whose every line is a finding with its risk. */
 const FINDING_SUBHEADINGS: ReadonlyArray<string> = ['Observed defects', 'Suspicious evidence'];
-/** The section the engine writes its filing lines into, which carry no risk. */
-const FILING_SECTION = 'Tasks filed';
 /** What an empty subsection says, exactly. */
 export const EMPTY_WORD = 'none';
 export const FINDING_LEVELS = ['critical', 'high', 'medium', 'low'] as const;
@@ -323,7 +320,7 @@ function checkBody(section: string, sub: string, body: ReadonlyArray<Part>): Tem
 function checkLevels(section: string, sub: string, texts: ReadonlyArray<string>): TemplateRefusal | null {
   const where = `${section}, ${sub}`;
   const levelled = FINDING_SUBHEADINGS.includes(sub) || sub === 'Decisions needed';
-  if (levelled && section !== FILING_SECTION) {
+  if (levelled) {
     return texts.some((text) => !FINDING_LINE.test(text))
       ? refuse('bad-risk', `a line of ${where} has no level and key`)
       : null;
@@ -518,7 +515,7 @@ export function checkCoverage(text: string): CoverageCheck {
 /** One finding line and its place in the text, for the risk rules (src/watcher/risk.ts). */
 export type FindingLine = { section: string; line: number; level: FindingLevel; key: string; text: string };
 
-/** The finding lines of the two risk subsections of each section but "Tasks filed", in order. */
+/** The finding lines of the two risk subsections of each section, in order. */
 export function findingLines(text: string): Array<FindingLine> {
   const found: Array<FindingLine> = [];
   let section = '';
@@ -527,7 +524,7 @@ export function findingLines(text: string): Array<FindingLine> {
     if (part.kind === 'heading') {
       if (part.level === 2) section = part.name;
       sub = part.level === 3 ? part.name : '';
-    } else if (part.kind === 'line' && FINDING_SUBHEADINGS.includes(sub) && section !== FILING_SECTION) {
+    } else if (part.kind === 'line' && FINDING_SUBHEADINGS.includes(sub)) {
       const line = FINDING_LINE.exec(part.text.trim());
       if (line !== null) {
         found.push({
@@ -598,10 +595,6 @@ function insertLines(text: string, section: string, sub: string, added: Readonly
   const kept = own.length === 1 && own[0] === EMPTY_WORD ? [''] : body;
   return [...lines.slice(0, start + 1), '', ...added, ...kept, ...lines.slice(end)].join('\n');
 }
-
-/** The engine's lines under `### Observed defects` of "Tasks filed". */
-export const insertFilingLines = (text: string, added: ReadonlyArray<string>): string =>
-  insertLines(text, FILING_SECTION, 'Observed defects', added);
 
 /** A gap the engine itself knows, under `### Unavailable checks` of `section`. */
 export const insertUnavailable = (text: string, section: string, added: ReadonlyArray<string>): string =>

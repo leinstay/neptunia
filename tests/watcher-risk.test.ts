@@ -1,7 +1,6 @@
 // The risk of a finding (src/watcher/risk.ts): the model writes a level, and code alone decides whether the finding
 // repeats an earlier successful report. A repeat becomes `low` with a fixed mark, new evidence brings the model's level
-// back, a key seen after a verified resolution is new. Through an inspection, the saved lines and the stamped metadata
-// follow it, and a repeat files nothing. Everything in this file is synthetic and the clock is injected.
+// back. Through an inspection, the saved lines and the stamped metadata follow it. Everything in this file is synthetic and the clock is injected.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readReport } from '../src/watcher/read.ts';
@@ -9,20 +8,14 @@ import * as reports from '../src/watcher/report.ts';
 import type { RiskHistoryEntry, RiskLevel } from '../src/watcher/risk.ts';
 import { DAY, MINUTE, inspectionDeps, inspectionRig, said, templateOf } from './fixtures/watcher-inspection-rig.ts';
 import type { InspectionRig } from './fixtures/watcher-inspection-rig.ts';
-import { tasksBlock } from './fixtures/watcher-rig.ts';
 
 const risk = () => import('../src/watcher/risk.ts');
 const inspection = () => import('../src/watcher/inspection.ts');
-const filing = () => import('../src/watcher/filing.ts');
 
 const CODE_500 = 'the session failed with http_500 in src/memory/db/session.ts:88';
 const CODE_503 = 'the session failed with http_503 in src/memory/db/session.ts:88';
 
-const seen = (day: string, key: string, text: string, resolved?: Array<string>): RiskHistoryEntry => ({
-  day,
-  findings: [{ key, text }],
-  ...(resolved === undefined ? {} : { resolved }),
-});
+const seen = (day: string, key: string, text: string): RiskHistoryEntry => ({ day, findings: [{ key, text }] });
 const now = (key: string, text: string, level: RiskLevel = 'high') => ({ key, level, text });
 
 // ---- the fingerprint ------------------------------------------------------------------------------------------------
@@ -155,25 +148,6 @@ test('changed evidence restores the model level and resets the mark, and the cou
   assert.deepEqual(again?.repeat, { count: 2, firstDay: '2026-11-02' });
 });
 
-test('a key seen again after a verified resolution counts as new, and its count starts over', async () => {
-  // Bug: a bug that came back is lowered as an old repeat, exactly when it matters that the fix did not hold.
-  const { applyRiskRules } = await risk();
-  const history = [seen('2026-11-01', 'rail', CODE_500), { day: '2026-11-02', findings: [], resolved: ['rail'] }];
-  const [back] = applyRiskRules([now('rail', CODE_500, 'critical')], history).findings;
-  assert.equal(back?.level, 'critical');
-  assert.equal(back?.repeat, null);
-  const [next] = applyRiskRules([now('rail', CODE_500)], [...history, seen('2026-11-03', 'rail', CODE_500)]).findings;
-  assert.deepEqual(next?.repeat, { count: 2, firstDay: '2026-11-03' });
-});
-
-test('a resolved finding no longer counts under any key, so its evidence under a new name is new too', async () => {
-  // Bug: the resolution clears the key only, and a fixed bug that came back under another name is lowered as a repeat.
-  const { applyRiskRules } = await risk();
-  const history = [seen('2026-11-01', 'rail', CODE_500), { day: '2026-11-02', findings: [], resolved: ['rail'] }];
-  const [renamed] = applyRiskRules([now('other-name', CODE_500)], history).findings;
-  assert.equal(renamed?.repeat, null);
-});
-
 test('the report risk is the highest among new findings and ignores what repeats', async () => {
   // Bug: a repeat keeps the top line at critical for weeks, the same noise the rule exists to remove.
   const { applyRiskRules } = await risk();
@@ -196,8 +170,8 @@ test('the rules change neither their inputs nor anything else', async () => {
   assert.equal(JSON.stringify({ findings, history }), before);
 });
 
-test('findingsOf reads the two risk subsections of each section, without a mark and without Tasks filed', async () => {
-  // Bug: the history counts the engine's filing lines as findings, or keeps the mark and fingerprints its own count.
+test('findingsOf reads the two risk subsections of each section, without a mark', async () => {
+  // Bug: the history keeps the mark and fingerprints its own count.
   const { findingsOf } = await risk();
   const text = templateOf({
     bodies: {
@@ -206,7 +180,6 @@ test('findingsOf reads the two risk subsections of each section, without a mark 
         'Suspicious evidence': '- [medium] hook: a new hook in deploy/x.sh',
         'Inspected without a finding': '- the cursors',
       },
-      'Tasks filed': { 'Observed defects': '- T-1 (fix, rail): Rail' },
     },
   });
   assert.deepEqual(findingsOf(text), [
@@ -217,8 +190,7 @@ test('findingsOf reads the two risk subsections of each section, without a mark 
 
 // ---- through an inspection --------------------------------------------------------------------------------------------
 
-const answer = (line: string, drafts: ReadonlyArray<Record<string, unknown>> = []): string =>
-  templateOf({ bodies: { Errors: { 'Observed defects': line } } }) + (drafts.length === 0 ? '' : tasksBlock(drafts));
+const answer = (line: string): string => templateOf({ bodies: { Errors: { 'Observed defects': line } } });
 
 async function saying(rig: InspectionRig, text: string) {
   const { runInspection } = await inspection();
@@ -286,18 +258,4 @@ test('a finding repeated on a later day names the first day', async () => {
   const later = new Date(rig.clock.t).toISOString().slice(0, 10);
   const { text } = saved(rig, later);
   assert.ok(text.includes(`(repeat 2, first ${DAY})`));
-});
-
-const DRAFT = { kind: 'fix', finding: 'rail', title: 'Retry rail', evidence: 'src/a.ts:1', done: 'It holds' };
-
-test('a draft for a repeated finding files nothing, and one for changed evidence files', async () => {
-  // Bug: the board has no open task, so the board check passes and a repeat files a new task every day.
-  const { readFilings } = await filing();
-  const rig = inspectionRig();
-  await saying(rig, answer(`- [high] rail: ${CODE_500}`));
-  const repeat = await saying(rig, answer(`- [high] rail: ${CODE_500}`, [DRAFT]));
-  assert.equal(rig.fake.rows.length, 0);
-  assert.equal(readFilings(rig.dir, repeat.runId)[0]?.state, 'duplicate');
-  await saying(rig, answer(`- [high] rail: ${CODE_503}`, [DRAFT]));
-  assert.equal(rig.fake.rows.length, 1);
 });

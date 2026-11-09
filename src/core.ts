@@ -150,7 +150,6 @@ import { createIntentionService } from './intentions/service.ts';
 import { skillRegistry, missingDefinitions } from './tools/registry.ts';
 import { wireSkills } from './skills/wiring.ts';
 import { createReportReader, reportsDirOf, watcherDir } from './watcher/read.ts';
-import { watcherNews } from './watcher/news.ts';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.ts';
 import { createMessageHandler } from './behavior/pipeline.ts';
 import { createLeasedAttention } from './behavior/attention.ts';
@@ -1144,11 +1143,8 @@ async function buildCore(
     port: iface,
     now: clock,
     // The selfimprovement wake's facts beyond the journal (src/behavior/selfimprovement-view.ts): her grants, her
-    // skills with their use counts, her proposals and her outbox rows on the board, and the watcher's newest report.
-    selfimprovement: {
-      ...skillsWiring.selfimprovement,
-      watcher: (now) => watcherNews({ config: hot.config, rootDir: paths.dataDir, now }),
-    },
+    // skills with their use counts, and her proposals and her outbox rows on the board.
+    selfimprovement: skillsWiring.selfimprovement,
     log,
   });
   // The drops, holds and failures kept for her next request in a chat live in the inner life's state.

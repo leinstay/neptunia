@@ -11,7 +11,6 @@ import type { Adapter, ChatRef } from '../../protocol/adapter.ts';
 import type { SendHold } from '../../tools/send-hold.ts';
 import type { Handle, WakeQueueUpdate } from '../../memory/db/wake-queue.ts';
 import type { Landed } from '../../selfimprovement/landed.ts';
-import type { WatcherNews } from '../../watcher/news.ts';
 import type { OutboxRow, ProposalEntry, SelfimprovementFacts, SkillUseRow } from '../selfimprovement-view.ts';
 import type { WakeBlockInput } from '../wake.ts';
 import type { WAKE_KINDS } from './settings.ts';
@@ -297,8 +296,6 @@ export type SelfimprovementSources = {
   ackOutbox?(seqs: ReadonlyArray<number>): Promise<void>;
   /** The fixes that merged and were not told to her yet (src/selfimprovement/landed.ts). */
   landed?(): Promise<ReadonlyArray<Landed>>;
-  /** What the newest watcher report of the past day filed at `now` (src/watcher/news.ts), null when nothing. */
-  watcher?(now: number): WatcherNews | null;
 };
 
 /** The facts an inner turn's request carries in `<wake>` (the drain builds them, src/behavior/wake.ts words them). */

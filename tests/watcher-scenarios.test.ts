@@ -97,7 +97,7 @@ test('an unavailable code in the install facts is in the brief and survives into
       }),
       runAgent: (brief) => {
         briefs.push(brief);
-        return Promise.resolve(said(answerOf({}, [])));
+        return Promise.resolve(said(answerOf()));
       },
     })
   );

@@ -1,5 +1,5 @@
 // Every watcher report is one Markdown file in one exact template (`checkTemplate` of src/watcher/report.ts): the title
-// with its day, the fixed metadata block, the thirteen sections, the same four subheadings in each, and the coverage block
+// with its day, the fixed metadata block, the twelve sections, the same four subheadings in each, and the coverage block
 // at the end. A text outside it is refused with a code, the run fails, and the last successful view stays.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,9 +17,7 @@ import {
   inspectionDeps,
   inspectionRig,
   said,
-  sectionOf,
   templateOf,
-  watcherBoard,
 } from './fixtures/watcher-inspection-rig.ts';
 import type { InspectionRig } from './fixtures/watcher-inspection-rig.ts';
 import { HEADINGS, PLANTED_KEY } from './fixtures/watcher-rig.ts';
@@ -57,10 +55,11 @@ test('a report in the template passes, and the check gives back its day and meta
   });
 });
 
-test('the sections are the thirteen of the owner, exact and in order', () => {
+test('the sections are the twelve of the owner, exact and in order', () => {
   // Bug: a section is renamed in one place, and the check, the prompt and the readers hold different lists.
   // Changed by B12.1 of the plan: `Development` joins the list, and only a report in development mode holds it.
   // The lead: the watcher left development (owner, 2026-11-06). `Development` leaves the list, and `Money` follows `Memory`.
+  // The watcher files no task (owner, 2026-11-09), so `Tasks filed` leaves the list.
   assert.deepEqual(
     [...reports.REPORT_HEADINGS],
     [
@@ -75,7 +74,6 @@ test('the sections are the thirteen of the owner, exact and in order', () => {
       'Trash',
       'The server',
       'Wishes',
-      'Tasks filed',
       'For the owner',
     ]
   );
@@ -217,10 +215,10 @@ for (const sub of ['Inspected without a finding', 'Unavailable checks']) {
   });
 }
 
-test('the engine filing lines under Observed defects of Tasks filed carry no level and pass', () => {
-  // Bug: the risk rule covers the section the engine writes, so every report with a task is refused after its own stamp.
-  const lines = '- T-1 (fix, rail): Rail\n- deferred (fix, other): Other\n- already T-2 (chore, third): Third';
-  assert.equal(codeOf(templateOf({ bodies: { 'Tasks filed': { 'Observed defects': lines } } })), 'passed');
+test('a tasks block after the coverage block is refused as trailing-content', () => {
+  // Bug: the engine files no task any more, yet an old-style answer's tasks block passes unread after the report.
+  const tasks = '```tasks\n' + JSON.stringify([{ kind: 'fix', title: 'Rail', evidence: 'a', done: 'b' }]) + '\n```\n';
+  assert.equal(codeOf(`${templateOf()}\n${tasks}`), 'trailing-content');
 });
 
 const END = {
@@ -279,14 +277,12 @@ for (const [name, text, code] of [
   ['content after the end', `${templateOf()}\nOne more thought.\n`, 'trailing-content'],
 ] as const) {
   test(`an answer with ${name} fails the run as ${code} and keeps the last successful view`, async () => {
-    // Bug: the check runs on the side, so a report out of template is saved as the day's success, or files its tasks.
+    // Bug: the check runs on the side, so a report out of template is saved as the day's success.
     const { runInspection } = await inspection();
     const { lastRuns } = await import('../src/watcher/lifecycle.ts');
     const rig = inspectionRig();
     const kept = await good(rig);
-    const draft = { kind: 'fix', finding: 'x', title: 'Rail', evidence: 'src/a.ts:1', done: 'It holds' };
-    const tasks = '```tasks\n' + JSON.stringify([draft]) + '\n```\n';
-    const result = await runInspection(inspectionDeps(rig, { runAgent: () => Promise.resolve(said(text + tasks)) }));
+    const result = await runInspection(inspectionDeps(rig, { runAgent: () => Promise.resolve(said(text)) }));
     assert.equal(result.state, 'failed');
     assert.equal(result.code, code);
     assert.equal(lastRuns(rig.store).lastFailure?.runId, result.runId);
@@ -297,27 +293,6 @@ for (const [name, text, code] of [
       reads.reportVersions(rig.reportsDir, DAY).map((one) => one.runId),
       [kept]
     );
-    assert.equal(rig.fake.adds.length, 0);
-  });
-}
-
-for (const [name, board, word] of [
-  ['filed', () => watcherBoard(), 'T-1'],
-  ['deferred', () => watcherBoard({ down: () => true }), 'deferred'],
-] as const) {
-  test(`the saved report keeps the template with a ${name} task line under Tasks filed`, async () => {
-    // Bug: the engine's own filing lines go straight under the heading, so every report with a task breaks its template.
-    const { runInspection } = await inspection();
-    const rig = inspectionRig(undefined, board());
-    const draft = { kind: 'fix', finding: 'x', title: 'Rail', evidence: 'src/a.ts:1', done: 'It holds' };
-    const result = await runInspection(
-      inspectionDeps(rig, { runAgent: () => Promise.resolve(said(answerOf({}, [draft]))) })
-    );
-    assert.equal(result.state, 'succeeded');
-    const day = readReport(rig.reportsDir, DAY);
-    assert.ok(day.ok);
-    assert.equal(codeOf(day.report.text), 'passed');
-    assert.ok(sectionOf(day.report.text, 'Tasks filed').includes(word));
   });
 }
 

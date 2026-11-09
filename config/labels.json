@@ -537,10 +537,7 @@
         "questionAnswered": " (answered)",
         "review": "A review of {task}: {decision} {scope}{note}",
         "reviewNote": ": {note}",
-        "board": "The board's word on {task}: {kind} {status}{reason}",
-        "watcher": "What the watcher filed in its report of {day}:\n{findings}",
-        "watcherFinding": "{title} ({state}{task})",
-        "watcherTask": ", task {task}"
+        "board": "The board's word on {task}: {kind} {status}{reason}"
       }
     },
     "journal": {

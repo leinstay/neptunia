@@ -522,14 +522,14 @@
     },
     {
       "path": "src/watcher/inspection.ts",
-      "purpose": "One inspection under one durable run. Tested through `tests/watcher-lifecycle.test.ts`, `tests/watcher-filing.test.ts` and `tests/watcher-versions.test.ts`.",
+      "purpose": "One inspection under one durable run. Tested through `tests/watcher-lifecycle.test.ts`, `tests/watcher-retry.test.ts` and `tests/watcher-versions.test.ts`.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
     },
     {
       "path": "src/watcher/",
-      "purpose": "The watcher: its settings, the brief, the report template and commit, the risk rules, the durable run, the filing receipts, the reader of the reports, the read of recorded requests and transcripts, the coverage inventory, the facts of the install, the analyzer's work, the money and limits, the read-only select, the leftovers, the core's degraded routes, the findings for her selfimprovement wake and the inspection that joins them. The agent backend is injected.",
+      "purpose": "The watcher: its settings, the brief, the report template and commit, the risk rules, the durable run, the reader of the reports, the read of recorded requests and transcripts, the coverage inventory, the facts of the install, the analyzer's work, the money and limits, the read-only select, the leftovers, the core's degraded routes and the inspection that joins them. The agent backend is injected.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"

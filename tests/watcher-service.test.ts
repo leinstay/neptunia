@@ -1,6 +1,6 @@
 // `neptunia services watcher trigger|cancel|status` (src/service/commands.ts) with no core: one run identity from one
 // claim, cancel and disable apart, status read with no model request, the units on the same lifecycle, and the worker
-// (bin/neptunia.ts) reporting with the board unreachable. The manager is a recorder. One test runs the real worker over
+// (bin/neptunia.ts) writing its report. The manager is a recorder. One test runs the real worker over
 // a stand-in backend binary and connects to nothing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,7 +19,6 @@ import { answerOf } from './fixtures/watcher-inspection-rig.ts';
 import { PLANTED_KEY } from './fixtures/watcher-rig.ts';
 
 const lifecycle = () => import('../src/watcher/lifecycle.ts');
-const filing = () => import('../src/watcher/filing.ts');
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const BIN = path.join(REPO, 'bin', 'neptunia.ts');
@@ -270,20 +269,14 @@ test('the unit gives a run longer than its timeout, and neither unit calls a ret
   assert.match(timer, /^Unit=neptunia-watcher\.service$/m);
 });
 
-test('the real worker writes a report with the board unreachable and marks the filing deferred', async () => {
-  // Bug: bin/neptunia.ts opens the board before it starts inspecting, and dies with "the board is not reachable".
-  const { readFilings } = await filing();
+test('the real worker writes a report and maps its session to the run', async () => {
+  // Bug: the worker dies before its first inspection, or its session reaches the evidence unattributed.
   const where = rig();
   writeKeysFile(where.data, {
     subharness: { backends: ['claude'], key: null, modes: {}, models: {}, uses: { watcher: 'claude' } },
   });
   const answer = path.join(where.data, 'answer.txt');
-  fs.writeFileSync(
-    answer,
-    answerOf({ Memory: 'MARK-FROM-WORKER' }, [
-      { kind: 'fix', finding: 'rail', title: 'Retry rail', evidence: 'src/a.ts:1', done: 'It holds' },
-    ])
-  );
+  fs.writeFileSync(answer, answerOf({ Memory: 'MARK-FROM-WORKER' }));
   const { binary } = subharnessPlace(where.data, 'claude');
   fs.mkdirSync(path.dirname(binary), { recursive: true });
   fs.writeFileSync(
@@ -318,7 +311,6 @@ test('the real worker writes a report with the board unreachable and marks the f
   assert.ok(fs.readFileSync(path.join(where.dir, 'reports', names[0] ?? ''), 'utf8').includes('MARK-FROM-WORKER'));
   const { lastRuns } = await lifecycle();
   const last = lastRuns(await storeOf(where)).lastSuccess;
-  assert.equal(readFilings(where.dir, last?.runId ?? '')[0]?.state, 'deferred');
   const { readSessionMap } = await import('../src/subharness/sessions.ts');
   const [session] = readSessionMap(where.data);
   assert.equal(session?.agent, 'watcher');
