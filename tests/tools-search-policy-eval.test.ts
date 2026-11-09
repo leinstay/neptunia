@@ -13,7 +13,6 @@ import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
-import type { Hot } from '../src/hot.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
