@@ -1,5 +1,5 @@
 // PR 2, one setup flow and readiness: what setup provisions with no core socket. `runSetup` writes the CLI's identity,
-// and `interfacesStep` (src/setup/interfaces.ts) registers the client, writes its private token, sets the interface mode
+// and `interfacesStep` (src/setup/interfaces.ts) registers the client, writes its private token
 // and starts the selected service instance through the scope's manager. Repeating keeps a valid token, and a failure
 // claims no running interface. Every manager command goes through a fake; the unit folder is a temp folder.
 import { test } from 'node:test';
@@ -120,7 +120,7 @@ const settings = (dataDir: string): Record<string, unknown> =>
 
 const tokenOf = (dataDir: string): string => path.join(dataDir, 'clients', 'chatty.token');
 
-test('a clean interface setup registers the client, writes a private token, sets the mode and starts its instance', async () => {
+test('a clean interface setup registers the client, writes a private token, and starts its instance', async () => {
   // Catches: an interface enabled in settings that no core will ever accept, or that no unit runs.
   const { where, calls, run, scripted, dataDir } = interfaceRig();
   const outcome = await interfacesStep(where, { ask: scripted(['yes', 'PLATFORMTOKEN']), run });
@@ -130,7 +130,7 @@ test('a clean interface setup registers the client, writes a private token, sets
   assert.equal(client?.kind, 'interface');
   assert.equal(client?.iface, 'chatty');
   assert.equal(fs.statSync(tokenOf(dataDir)).mode & 0o777, 0o600);
-  assert.deepEqual(settings(dataDir).interfaces, { mode: 'units', chatty: { enabled: true } });
+  assert.deepEqual(settings(dataDir).interfaces, { chatty: { enabled: true } });
   assert.ok(calls.includes('systemctl --user enable --now neptunia-interface@chatty.service'), calls.join('; '));
 });
 

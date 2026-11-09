@@ -49,7 +49,7 @@ import type { Principal } from './principals.ts';
 /** How many actions may wait for an answer at once. */
 const MAX_PENDING = 256;
 
-/** The principal of a link opened with one token: the core's one in-process interface, bound to its `hello`. */
+/** The principal of a link opened with one token: the interface a test starts in the core's process, bound to its `hello`. */
 const TOKEN_PRINCIPAL: Principal = { name: 'boot', kind: 'interface', iface: null, permissions: [] };
 
 /** Who sent an envelope through the door: the principal's name and the envelope's `seq`. */

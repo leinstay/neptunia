@@ -4,7 +4,7 @@
 // board its `boardRoles` (src/board/board.ts reads those). scripts/client-token.ts writes both. An agent's principal has
 // no `iface`: it says hello under `agent` (src/interface/link.ts). The link resolves the token of every envelope
 // through `principalOfToken`, which reads the files at each call, so a rotated or revoked token stops at the next
-// envelope. The core's boot principal, made at start for its one in-process interface, holds whatever `clients.json`
+// envelope. The core's boot principal, made at start for the interface a test starts in the core's process, holds whatever `clients.json`
 // says: its token is random per boot and only the core has it, and `neptunia setup` writes that file under a running
 // interface. A `clients.json` that cannot be read makes every client's token no one. Logs nothing and never throws.
 
@@ -33,7 +33,7 @@ export type AuthenticatedSender = Readonly<Pick<Principal, 'name' | 'kind'>>;
 /** One entry of `clients.json`: the principal and the file its token is in. */
 export type ClientEntry = Principal & { tokenFile: string };
 
-/** The principal the core makes at start for its in-process interface, with its token. */
+/** The principal the core makes at start for an interface in its process, with its token. */
 export type BootPrincipal = { token: string; principal: Principal };
 
 /** The file of the clients under the private directory. */

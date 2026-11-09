@@ -11,7 +11,6 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `interfaces.mode` | string | `"inprocess"` | Where the interfaces run. `inprocess` starts the Discord interface inside the core's process. `units` starts the core with no interface, and each interface runs in its own unit (`neptunia interface run <name>`). Read once at the start of `src/index.ts`, and any other value stops the start | `src/core.ts` |
 | `interfaces.drainMs` | number | `10000` | How long a disable (`/interfaces disable`) gives the actions in flight to an interface (milliseconds) before the core ends them `unknown` | `src/core.ts` |
 | `interfaces.*.enabled` | boolean | `true` | Whether the interface named in place of `*` may connect. The tracked settings name no interface, so each one is enabled until this key says `false`. A `hello` of a disabled interface is refused with `interface-disabled`, read at each `hello`. `/interfaces disable` writes `false` here in the private settings file | `src/core.ts` |
 

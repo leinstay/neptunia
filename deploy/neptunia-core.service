@@ -1,10 +1,9 @@
-# systemd unit for the persona's core with the interfaces as units (interfaces.mode: units).
+# systemd unit for the persona's core, with the interfaces as units.
 #
 # The core runs src/index.ts with no interface of its own: it listens on
 # <data>/run/core.sock and each interface connects from its own unit
 # (deploy/neptunia-interface@.service). It refuses to start while another core
-# holds the memory database or renewed core:alive within its ttl, and it never
-# runs beside neptunia-bot.service (Conflicts= below).
+# holds the memory database or renewed core:alive within its ttl.
 #
 # `neptunia setup` renders this template for the installing user and starts it
 # (deploy/README.md). The paths below are the template's own and are replaced
@@ -15,7 +14,6 @@
 Description=neptunia core (interfaces as units)
 After=network-online.target
 Wants=network-online.target
-Conflicts=neptunia-bot.service
 
 [Service]
 Type=simple
@@ -30,7 +28,7 @@ Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
 # folder and the user's own tools go on the PATH.
 Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
 
-# The same hardening as neptunia-bot.service: writes go to the data and the
+# The hardening: writes go to the data and the
 # private directory only, which holds the subharness backend's folder.
 NoNewPrivileges=true
 ProtectSystem=strict

@@ -112,8 +112,6 @@ const WORDS: Record<string, string> = {
 };
 
 const EXPLANATIONS: Record<string, string> = {
-  'interfaces.mode':
-    'Use inprocess to run Discord with the core, or units to run each connection separately. Restart to apply.',
   'interfaces.drainMs': 'Time to allow ongoing actions to finish when disabling a connection, in milliseconds.',
   'interfaces.*.enabled': 'Allow this connection to connect to the core.',
   'bot.ownerPerson':

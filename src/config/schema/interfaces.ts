@@ -4,14 +4,6 @@ import type { SchemaEntry } from '../schema.ts';
 
 export const INTERFACES: ReadonlyArray<SchemaEntry> = [
   {
-    'key': 'interfaces.mode',
-    'types': ['string'],
-    'reader': 'src/core.ts',
-    'default': 'inprocess',
-    'text':
-      "Where the interfaces run. `inprocess` starts the Discord interface inside the core's process. `units` starts the core with no interface, and each interface runs in its own unit (`neptunia interface run <name>`). Read once at the start of `src/index.ts`, and any other value stops the start",
-  },
-  {
     'key': 'interfaces.drainMs',
     'types': ['number'],
     'reader': 'src/core.ts',

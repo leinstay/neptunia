@@ -39,7 +39,7 @@ WorkingDirectory=/opt/neptunia/app
 ExecStart=/opt/node/bin/node bin/neptunia.ts errand-runner --profile server
 # Node's folder goes on the PATH; the backend is started by its path in the private layer.
 Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
-# The bot's data directory (deploy/neptunia-bot.service), set as in its unit.
+# The bot's data directory, set as in the core unit (deploy/neptunia-core.service).
 # The runner reads the override agents/server/prompt.md from NEPTUNIA_DATA_DIR
 # (the tracked agents/server/prompt.md stays in the checkout; an override this
 # user cannot read is skipped with one warning and the tracked prompt is used),

@@ -8,7 +8,7 @@ The proxy URL is the `proxy` service of `keys.json`: an `http://`, `https://` or
 
 yt-dlp gets the stored URL as it is, through `--proxy`, for every video site. Every agent run gets `HTTPS_PROXY`, `HTTP_PROXY`, `https_proxy` and `http_proxy` in the http form, with `NO_PROXY` and `no_proxy` for the local hosts and `openrouter.ai`. An errand carries the proxy to its runner in `secrets.proxy` (see [Errands](errands.md#the-proxy-of-an-errand)). A run on the direct path gets none of these variables, and a proxy variable of the host environment or of the caller is dropped.
 
-The interfaces are not proxied. An interface that runs as a unit (`interfaces.mode: units`) is a process of its own and connects directly. With `interfaces.mode: inprocess` the interface shares the core's process, so Node's setting covers its HTTP requests as well, while its gateway connection stays direct.
+The interfaces are not proxied. An interface runs as a unit, a process of its own, and connects directly.
 
 ## Commands
 

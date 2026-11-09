@@ -24,7 +24,7 @@ Type=oneshot
 User=neptunia
 WorkingDirectory=/opt/neptunia/app
 ExecStart=/opt/node/bin/node bin/neptunia.ts worker watcher
-# The bot's directories (deploy/neptunia-bot.service), set as in its unit.
+# The bot's directories, set as in the core unit (deploy/neptunia-core.service).
 Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
 Environment=NEPTUNIA_TASK_CLIENT=watcher
 # The agent backend is started by its path in the private layer; node's folder and the user's tools go on the PATH.

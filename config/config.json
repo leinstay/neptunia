@@ -1,6 +1,5 @@
 {
   "interfaces": {
-    "mode": "inprocess",
     "drainMs": 10000
   },
   "bot": {
