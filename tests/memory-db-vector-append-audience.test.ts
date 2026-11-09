@@ -130,6 +130,20 @@ test('a vector row whose given audience is not its scope is still quarantined to
       ...dmScope(personId('discord', 'u1'), 'discord'),
       audience_id: audience,
     });
+    // Changed with ids-by-links slice 3: no writer makes u1's DM place from the audience id, so it is stored first.
+    insertRows(db, {
+      places: [
+        {
+          id: 'discord:dm:u1',
+          iface: 'discord',
+          kind: 'dm',
+          native_id: null,
+          scope_kind: 'dm',
+          partner_person: personId('discord', 'u1'),
+          partner_account: 'discord:u1',
+        },
+      ],
+    });
     insertRows(
       db,
       { vectors: [row('agrees', 'aud:dm:discord:dm:u1'), row('disagrees', 'aud:group:discord')] },

@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
+import { dbOf as sqlOfHandle } from '../src/memory/db/types.ts';
 import { exportOne } from '../src/memory/migration/export-one.ts';
 import { applySelfreflectionUpdate } from '../src/memory/db/selfreflection-media.ts';
 import { observe } from '../src/memory/db/observe.ts';
@@ -138,6 +139,14 @@ function seededDataDir(): string {
   ]);
   const handle = openMemoryDb(path.join(data, 'memory.db'));
   try {
+    // Changed with ids-by-links slice 3: no writer makes the member's DM place from the member id, so the DM is stored
+    // first, as an observed DM leaves it.
+    sqlOfHandle(handle)
+      .prepare(
+        `INSERT INTO places (id, iface, kind, native_id, chat, scope_kind, partner_account, partner_person)
+         VALUES (?, 'discord', 'dm', NULL, 'dm', 'dm', ?, ?)`
+      )
+      .run(`discord:dm:${MEMBER}`, `discord:${MEMBER}`, PERSON);
     assert.equal(seedUnits(handle, data, { now: () => NOW - 86_400_000 }).errors, 0);
   } finally {
     handle.close();
