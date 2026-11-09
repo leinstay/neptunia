@@ -143,7 +143,6 @@ export async function runDevelopment(argv: ReadonlyArray<string>): Promise<numbe
         ...(agent === 'thinker'
           ? {
               NEPTUNIA_TASK_CLIENT: CLIENT,
-              NEPTUNIA_PRIVATE_DIR: where.privateDir,
               NEPTUNIA_TASK_COMMAND: taskCommand,
             }
           : {}),

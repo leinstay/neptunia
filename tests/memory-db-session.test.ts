@@ -580,8 +580,8 @@ test('private chats are scopes of their own: one request each, the partner only,
     env.say({ native: 'd2', minutesAgo: 45, text: 'private reply', scope: dm, place: dmPlaceOf(ADA), kind: 'said' });
     env.claim({ id: 'cl-dm', subjectId: personOf(ADA), text: 'only in private', scope: dm });
     env.claim({ id: 'cl-pub', subjectId: personOf(ADA), text: 'public one' });
-    // The DM is a stored place and its lines carry its audience, as the observer writes them: the sweep finds a DM
-    // through the place its lines' audience names, never one spelled from the partner's id.
+    // The DM is a stored place and its lines carry its audience: the sweep finds a DM through that place, never one
+    // spelled from the partner's id. Changed with ids-by-links slice 4: the scope's key and cursor are the place's.
     env.db
       .prepare(
         "INSERT INTO places (id, iface, kind, chat, scope_kind, partner_account, partner_person) VALUES (?, 'discord', 'dm', 'dm', 'dm', ?, ?)"
@@ -590,7 +590,7 @@ test('private chats are scopes of their own: one request each, the partner only,
     fillEnvAudiences(env);
     assert.deepEqual(
       scopesOf(env.db).map((scope) => scope.key),
-      ['dm:discord:person:discord:u-ada', 'group:discord']
+      [`dm:discord:${dmPlaceOf(ADA)}`, 'group:discord']
     );
     const llm = fakeLlm(memoryBlock({}));
     const result = await sweep(ctxOf(env, { llm }));
@@ -611,10 +611,7 @@ test('private chats are scopes of their own: one request each, the partner only,
       .prepare("SELECT key FROM meta WHERE key LIKE 'memory_session.cursor.%' ORDER BY key")
       .all()
       .map((row) => row.key);
-    assert.deepEqual(keys, [
-      cursorKey('shadow', 'dm:discord:person:discord:u-ada'),
-      cursorKey('shadow', 'group:discord'),
-    ]);
+    assert.deepEqual(keys, [cursorKey('shadow', `dm:discord:${dmPlaceOf(ADA)}`), cursorKey('shadow', 'group:discord')]);
     assert.equal(llm.calls.length, 2);
     const only = await sweep(ctxOf(env, { llm }), { scope: 'group:discord', ignoreSweepCap: true });
     assert.equal(only.runs.length, 1);

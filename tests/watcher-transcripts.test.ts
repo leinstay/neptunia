@@ -630,7 +630,6 @@ test('the real command line answers evidence as JSON, with no core and no board'
         PATH: `${refusing}:/usr/bin:/bin`,
         HOME: home,
         TMPDIR: process.env.TMPDIR,
-        NEPTUNIA_PRIVATE_DIR: where.data,
         NEPTUNIA_DATA_DIR: where.data,
       },
     }

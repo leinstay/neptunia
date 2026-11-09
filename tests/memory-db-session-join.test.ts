@@ -249,7 +249,7 @@ test('a private chat waits and joins on its own, never with the group', async ()
     assert.deepEqual(
       result.runs.map((r) => [r.scope, r.outcome]),
       [
-        ['dm:discord:person:discord:u-ada', 'waiting'],
+        [`dm:discord:${dmPlaceOf(ADA)}`, 'waiting'], // Changed with ids-by-links slice 4: the key is the place.
         ['group:discord', 'ok'],
       ]
     );

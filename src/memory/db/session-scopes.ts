@@ -3,19 +3,30 @@
 // partner account nobody linked has none and is still swept. The key of a DM comes from the place alone, so a link made
 // later leaves the scope and its cursor where they are.
 
-import { dmPartnerOfPlace } from './ids.ts';
 import { audienceOf, audienceParts, dmAudienceId, dmContext, groupContext, wellFormed } from './scope.ts';
 import type { Context, Scope } from './scope.ts';
 import { asText } from './types.ts';
 import type { Db, Row } from './types.ts';
 
-/** A scope as the sweep walks it: its key, the triple, the context that reads it and, with `audienceColumn`, its audience. */
-export type SweepScope = { key: string; scope: Scope; ctx: Context; audienceId?: string };
+/**
+ * A scope as the sweep walks it: its key, the triple, the context that reads it and, with `audienceColumn`, its
+ * audience. A DM names its `place`, the stored row the sweep found it by.
+ */
+export type SweepScope = { key: string; scope: Scope; ctx: Context; audienceId?: string; place?: string };
 
-/** The key of the scope of a DM place on `iface`: the partner its id spells, else the place. No link ever changes it. */
+/** What a sweep's run names of its scope, so that a reader of the run never takes it out of the key. */
+export type RunColumns = { scopeKind?: string | null; iface?: string | null; place?: string | null };
+
+/** The columns of the scope a run covered: its kind, its interface and, for a DM, its place. */
+export const runColumns = (swept: SweepScope): RunColumns => ({
+  scopeKind: swept.scope.scope_kind,
+  iface: swept.scope.scope_iface,
+  place: swept.place ?? null,
+});
+
+/** The key of the scope of a DM place on `iface`: the place. No link ever changes it. */
 export function dmScopeKey(iface: string, place: string): string {
-  const spelled = dmPartnerOfPlace(place);
-  return `dm:${iface}:${spelled !== null && spelled.iface === iface ? spelled.person : place}`;
+  return `dm:${iface}:${place}`;
 }
 
 /**
@@ -33,6 +44,7 @@ function placedScope(row: Row, iface: string, place: Row): SweepScope | null {
     scope,
     ctx: { ...ctx, audienceColumn: true },
     audienceId: dmAudienceId(placeId),
+    place: placeId,
   };
 }
 

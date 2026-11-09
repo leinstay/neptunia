@@ -409,7 +409,6 @@ cat ${scratch}/answer-$n
         PATH: `${process.env.PATH ?? ''}`,
         HOME: tempDir('nep-retry-home-'),
         TMPDIR: process.env.TMPDIR,
-        NEPTUNIA_PRIVATE_DIR: data,
         NEPTUNIA_DATA_DIR: data,
         NEPTUNIA_TASK_CLIENT: 'watcher',
       },

@@ -271,7 +271,7 @@ test("server external_directory: allowed in core, the path tools' withheld denie
   for (const glob of withheldGlobsOf({
     paths: resolvePaths({
       rootDir: '/opt/neptunia/app',
-      env: { NEPTUNIA_PRIVATE_DIR: '/opt/neptunia/data', NEPTUNIA_DATA_DIR: '/opt/neptunia/data' },
+      env: { NEPTUNIA_DATA_DIR: '/opt/neptunia/data' },
     }),
   }))
     loose(apart)[glob] = 'deny';
@@ -326,7 +326,7 @@ test('promptFilesOf reads persona data prompts before shared prompts and ignores
 
     const apart = promptFilesOf('scout', {
       rootDir,
-      env: { NEPTUNIA_PRIVATE_DIR: dataDir, NEPTUNIA_DATA_DIR: dataDir },
+      env: { NEPTUNIA_DATA_DIR: dataDir },
     });
     assert.deepEqual(apart, [
       path.join(dataDir, 'agents', 'scout', 'prompt.md'),
@@ -473,7 +473,7 @@ test("withheldShellDenies: the deployment's data directory and a private directo
   const apart = withheldShellDenies({
     paths: resolvePaths({
       rootDir: '/srv/app',
-      env: { NEPTUNIA_PRIVATE_DIR: '/srv/site/data', NEPTUNIA_DATA_DIR: '/srv/site/data' },
+      env: { NEPTUNIA_DATA_DIR: '/srv/site/data' },
     }),
   });
   for (const pattern of ['cat */srv/site/data*', 'grep */srv/site/data*', 'cat */etc/neptunia*'])

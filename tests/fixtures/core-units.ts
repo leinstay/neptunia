@@ -6,7 +6,7 @@
 //   tests/fixtures/interfaces/fake/index.ts and drives it over its IPC channel;
 // - `spawnCli` and `runCli` run `bin/neptunia.ts` itself (the chat, `-p`, `doctor`, `errand-runner`) with its stdin
 //   and stdout piped.
-// Both read `NEPTUNIA_PRIVATE_DIR` and `NEPTUNIA_DATA_DIR`, set to the rig's folders, so nothing reads a real local
+// Both read `NEPTUNIA_DATA_DIR`, set to the rig's folder, so nothing reads a real local
 // layer. The memory database is read through a second, read-only connection, because the core holds the lock. No
 // provider and no platform is reached. Every child process and worker thread a rig starts shares one Node compile cache
 // under the temporary folder, so each loads the engine's modules without stripping their types again.
@@ -126,7 +126,7 @@ export function addClient(privateDir: string, client: Client): void {
   const run = spawnSync(process.execPath, args, {
     cwd: REPO,
     encoding: 'utf8',
-    env: { ...process.env, NEPTUNIA_PRIVATE_DIR: privateDir, NEPTUNIA_DATA_DIR: privateDir },
+    env: { ...process.env, NEPTUNIA_DATA_DIR: privateDir },
   });
   assert.equal(run.status, 0, `client-token add ${client.name} failed: ${run.stderr}`);
 }
@@ -198,7 +198,6 @@ export const helloTaken = (logs: ReadonlyArray<LogEntry>, name: string): boolean
 
 const env = (dirs: Dirs): NodeJS.ProcessEnv => ({
   ...process.env,
-  NEPTUNIA_PRIVATE_DIR: dirs.privateDir,
   NEPTUNIA_DATA_DIR: dirs.dataDir,
 });
 

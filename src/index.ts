@@ -23,10 +23,9 @@ function die(message: string): never {
   process.exit(1);
 }
 
-// The three directories, resolved once (src/paths.ts): the checkout, the private layer
-// (NEPTUNIA_PRIVATE_DIR: config.local/, prompts.local/, .env) and the data directory
-// (NEPTUNIA_DATA_DIR). The two variables come from the process environment (the unit file), never
-// from .env, whose own place depends on them.
+// The directories, resolved once (src/paths.ts): the checkout and the data directory
+// (NEPTUNIA_DATA_DIR). The variable comes from the process environment (the unit file), never
+// from .env, whose own place depends on it.
 const paths = resolvePaths({ rootDir: ROOT_DIR });
 
 // Where the interfaces run, read once: the mode decides what this process is.

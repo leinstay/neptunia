@@ -87,7 +87,7 @@ function folders() {
     installDir,
     unitDir,
     data,
-    env: { NEPTUNIA_PRIVATE_DIR: data, NEPTUNIA_UNIT_SCOPE: 'user', XDG_CONFIG_HOME: root } as Record<string, string>,
+    env: { NEPTUNIA_UNIT_SCOPE: 'user', XDG_CONFIG_HOME: root } as Record<string, string>,
   };
 }
 

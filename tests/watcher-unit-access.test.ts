@@ -45,12 +45,12 @@ function folders() {
   return { root, installDir, unitDir };
 }
 
-const collect = ({ installDir, unitDir, root }: ReturnType<typeof folders>) =>
+const collect = ({ installDir, unitDir }: ReturnType<typeof folders>) =>
   collectTrash({
     installDir,
     // The lead: the watcher left development and reads no checkout (owner, 2026-11-06).
     unitDir,
-    env: { NEPTUNIA_PRIVATE_DIR: path.join(root, 'data'), NEPTUNIA_UNIT_SCOPE: 'system' },
+    env: { NEPTUNIA_UNIT_SCOPE: 'system' },
     run: () => Promise.resolve({ code: 0, stdout: '', stderr: '' }),
   });
 

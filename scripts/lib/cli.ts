@@ -63,7 +63,7 @@ export function platformToken(
 
 /**
  * The OpenRouter key a tool spends: the simulation's key of `<private dir>/keys.json` (src/simulation/key.ts), the
- * private dir being `NEPTUNIA_PRIVATE_DIR` of `env`. While the simulation is off, or its key has left the store, the
+ * private dir being the data folder of `NEPTUNIA_DATA_DIR` in `env`. While the simulation is off, or its key has left the store, the
  * tool stops with a CliError of one line that names it. A tool never spends a core key. The value is never printed.
  */
 export function simKey(tool: Untyped, env: Record<string, string | undefined> = process.env): string {
@@ -110,7 +110,7 @@ export function defaultDataDir(cwd: string, env: Record<string, string | undefin
 
 /**
  * The private directory of the checkout at `root` (where a tool reads .env and the local layer):
- * `NEPTUNIA_PRIVATE_DIR` resolved against `root` when set, else `root` (src/paths.ts#resolvePaths).
+ * the data folder, `NEPTUNIA_DATA_DIR` resolved against `root` when set, else `<root>/data` (src/paths.ts#resolvePaths).
  */
 export function privateDirOf(root: string, env: Record<string, string | undefined> = process.env): string {
   return resolvePaths({ rootDir: root, env }).privateDir;
