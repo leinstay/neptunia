@@ -320,7 +320,7 @@ test('progress survives a disable and a restart, with no repeat and no burst', a
   const { scene, transport, mirrors } = await oldEntries(3);
   await mirrors.addMirror({ destination: D1, by: OWNER, backfill: ON });
   await mirrors.drainQueued();
-  await mirrors.disableMirror({ mirror: D1, by: OWNER });
+  await mirrors.configureMirror({ mirror: D1, by: OWNER, enabled: false });
   scene.advance(3 * FOUR_HOURS);
   assert.equal(await mirrors.drainQueued(), 0);
   const restarted = scene.publisher();

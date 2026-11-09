@@ -700,11 +700,10 @@ async function runInkChat(
       { name: 'attach save', help: 'Save the newest image she sent, or with #N a file of line N, on this machine' },
       { name: 'queue', help: 'Cancel the turn over a line that still waits' },
       { name: 'sessions', help: 'List stored chats and resume one' },
+      { name: 'sessions resume', help: 'Resume a stored chat by its id' },
       { name: 'branch', help: 'Continue this chat from an earlier line' },
       { name: 'checkpoints', help: "Preview and restore a development task's files" },
       { name: 'approvals', help: 'Approve or reject what waits on the task board' },
-      { name: 'context', help: 'The route, the model and the request limit of her turns' },
-      { name: 'agents', help: 'Agents and what each may do' },
       { name: 'plugins', help: 'Plugins, which no operation installs yet' },
       ...COMMANDS.flatMap((command) => [
         { name: command.name, help: command.help },

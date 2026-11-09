@@ -141,7 +141,8 @@ test('a capability menu reads through the list operation, and its rows are the t
 
 test('the agents menu uses its own command, and a family with no command shows unavailable', async () => {
   // Bug: a plugin menu pretends to install what no operation supports.
-  const agents = await capabilityPanel('agents', runner().run);
+  // Changed: the menu opens under the command's own word, `/agent`, and `/agents` is no second name for it.
+  const agents = await capabilityPanel('agent', runner().run);
   for (const row of agents.rows ?? []) assert.ok(row.prefill?.startsWith('/agent '), row.id);
   const { run, calls } = runner();
   const plugins = await capabilityPanel('plugins', run);
