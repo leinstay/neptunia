@@ -528,10 +528,6 @@
       "deep": 6,
       "repeated": 1
     },
-    "tests/labels-move.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/lines.test.ts": {
       "deep": 5,
       "repeated": 0
@@ -1191,10 +1187,6 @@
     "tests/tools-executors.test.ts": {
       "deep": 12,
       "repeated": 1
-    },
-    "tests/tools-file-move.test.ts": {
-      "deep": 2,
-      "repeated": 0
     },
     "tests/tools-operations-board.test.ts": {
       "deep": 4,

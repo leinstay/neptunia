@@ -317,6 +317,6 @@ The [archive wrapper](../src/llm/archive.ts) awaits writes around model calls. I
 
 Recall diagnostics also stay in the database, with a bounded recent history.
 
-Successful media descriptions persist across cache eviction and restart. [Media](media.md) explains reuse and rewatching; [selfreflection](selfreflection.md) explains the originals kept under `data/media/`. Back up the whole persona using [persona migration](persona-migration.md#backup-and-restore).
+Successful media descriptions persist across cache eviction and restart. [Media](media.md) explains reuse and rewatching; [selfreflection](selfreflection.md) explains the originals kept under `data/media/`. A backup copies the whole `data/` folder, not only `memory.db`.
 
 The journal keeps its process marker in `data/run/journal.running`. A leftover marker records an unclean stop; a clean shutdown removes it. It holds no chat history.
