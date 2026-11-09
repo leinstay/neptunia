@@ -1,5 +1,5 @@
 // The small rotating ASCII galaxy of the chat's header, in place of a logo: pure frames, one per tick. With reduced
-// motion the first frame stands still. Used by cli/app.ts.
+// motion the first frame stands still. Used by interfaces/cli/app.ts.
 
 const ARMS = 2;
 const WIDTH = 13;

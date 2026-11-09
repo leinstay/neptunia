@@ -1,10 +1,10 @@
 // The chat's state and everything a key, a paste or a mouse report does to it, in one object that lives as long as the
 // chat. The state is read and written synchronously, because several keys can arrive before the next render, and every
-// change asks for a paint. Keys resolve through cli/keymap.ts and dispatch in `run`. `frame` measures what the next render
+// change asks for a paint. Keys resolve through interfaces/cli/keymap.ts and dispatch in `run`. `frame` measures what the next render
 // draws, so the transcript gets exactly the rows the other parts leave. Keys and a paste have one owner at a time
 // (`focusOwner`), and the answer of a panel that was replaced or closed opens nothing and runs nothing. Clearing the display
 // touches nothing else, and leaving ends only this process. The commands and their answers come from the caller: this file
-// knows no command's meaning but `/clear` and `/attach`. cli/app.ts draws it.
+// knows no command's meaning but `/clear` and `/attach`. interfaces/cli/app.ts draws it.
 import type { Key } from 'ink';
 import { alternativeText } from './attachment-actions.ts';
 import type { AttachmentActions, KeptRead } from './attachment-actions.ts';
@@ -153,7 +153,7 @@ export type ChatEnv = {
     entry: (entry: ChatEntry) => void;
     question: (question: Question) => void;
     connected: (connected: boolean) => void;
-    /** What the core says of the turns (cli/turn-state.ts). */
+    /** What the core says of the turns (interfaces/cli/turn-state.ts). */
     turn: (event: ClientTurnEvent) => void;
     /** Another core answers now: the turns the last one held are gone. */
     coreRestarted: () => void;
@@ -184,7 +184,7 @@ export type ChatEnv = {
   linear?: boolean;
   /** Overrides of the keys (`cli.bindings`); a conflict shows when the chat opens. */
   bindings?: ReadonlyArray<KeyBinding>;
-  /** Whether the terminal's mouse reports are taken (`cli.mouse`, cli/mouse.ts). */
+  /** Whether the terminal's mouse reports are taken (`cli.mouse`, interfaces/cli/mouse.ts). */
   mouse?: boolean;
   /** The draft's text in the owner's editor, with the terminal handed over meanwhile. */
   editDraft?: (text: string) => Promise<{ status: 'edited' | 'cancelled' | 'failed'; text: string }>;
@@ -411,7 +411,7 @@ export class ChatController {
   readonly paint: () => void;
   /** Puts text on the clipboard of the owner's terminal. */
   readonly copy: (text: string) => void;
-  /** What the terminal draws pictures with, asked once a session (cli/terminal-replies.ts). */
+  /** What the terminal draws pictures with, asked once a session (interfaces/cli/terminal-replies.ts). */
   readonly deps: { graphics?: () => Promise<GraphicsSupport> };
   readonly keymap: Keymap;
   model: Model;

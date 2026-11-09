@@ -1,4 +1,4 @@
-// cli/composer.ts: the draft as ordered text, paste and attachment parts, driven by the traces of the paste examples.
+// interfaces/cli/composer.ts: the draft as ordered text, paste and attachment parts, driven by the traces of the paste examples.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -10,8 +10,8 @@ import {
   removePart,
   restorePart,
   typeIntoDraft,
-} from '../cli/composer.ts';
-import type { Draft, PasteLimits } from '../cli/composer.ts';
+} from '../interfaces/cli/composer.ts';
+import type { Draft, PasteLimits } from '../interfaces/cli/composer.ts';
 
 const LIMITS: PasteLimits = { collapseLines: 3, collapseChars: 800 };
 

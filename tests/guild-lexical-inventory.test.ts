@@ -14,7 +14,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const ACTIVE_ROOTS = ['src', 'bin', 'cli', 'interfaces', 'config', 'prompts', 'deploy', 'agents'];
+const ACTIVE_ROOTS = ['src', 'bin', 'interfaces', 'config', 'prompts', 'deploy', 'agents'];
 const WORD = /guild\w*/gi;
 const TEXT = /\.(ts|tsx|js|mjs|json|md|service|sh|txt)$/;
 

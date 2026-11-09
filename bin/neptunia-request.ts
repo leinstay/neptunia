@@ -2,7 +2,7 @@
 // words through the chat's table (src/interface/commands/table.ts) and takes `--secret-stdin` off a leaf that asks for a
 // secret, where the same word on any other leaf stays plain text. `panelRefusal` says what a request that needs a
 // terminal does instead, and `secretFromStdin` answers one secret question from stdin. Nothing here opens a link or
-// imports the Ink chat (cli/), which a process with no terminal must never load.
+// imports the Ink chat (interfaces/cli/), which a process with no terminal must never load.
 
 import { COMMANDS, commandLineWords, parseCommandWords, takesSecretStdin } from '../src/interface/commands/table.ts';
 import type { Parsed } from '../src/interface/commands/table.ts';

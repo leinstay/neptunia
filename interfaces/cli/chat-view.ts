@@ -1,5 +1,5 @@
 // What the chat draws: the header, the transcript's rows, the slash menu and the input box, with the row counts each of
-// them takes, so cli/app.ts can give the transcript exactly what is left. The linear mode drops the borders and the galaxy
+// them takes, so interfaces/cli/app.ts can give the transcript exactly what is left. The linear mode drops the borders and the galaxy
 // and keeps the reading order. Nothing here holds state but the galaxy's tick.
 import { createElement as h, useEffect, useState } from 'react';
 import type { ReactElement } from 'react';

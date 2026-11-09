@@ -43,6 +43,10 @@ The modules:
 | `platform-types.ts` | The parts of the discord.js objects the package reads (message, channel, guild, member, reaction), every field optional. Types only. |
 | `values.ts` | The package's copies of the three small helpers that read an unknown value: a thrown error's fields, a record, a scalar as text. |
 
+## cli
+
+Package `@neptunia/cli` (`interfaces/cli/package.json`). Depends on Ink, React, Jimp's format packages and jSquash's WebP decoder. It draws the owner's chat in his terminal, and `neptunia` (`bin/neptunia.ts`) starts it in the terminal's own process, so it has no unit and no `setup.json`. Its [README](cli/README.md) names its modules, and [docs/cli.md](../docs/cli.md) describes the chat.
+
 ## Starting the core with an interface
 
 `startCore` in `src/core.ts` takes the interfaces as `{ name, start(host) }` and starts each over the link, so the Discord package and the fake interface (`src/interface/fake-interface.ts`) start the same way. A test passes the fake with a scripted `llm` and an `embedder`, and no platform or provider is reached. [docs/interfaces.md](../docs/interfaces.md) lists the options.

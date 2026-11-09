@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { KEY, chatEnv, press, shows, until, withChat } from './fixtures/chat-rig.ts';
 import type { Rig } from './fixtures/chat-rig.ts';
-import type { ChatAttachment } from '../cli/composer.ts';
+import type { ChatAttachment } from '../interfaces/cli/composer.ts';
 
 type Sent = { line: string; replyTo: string | undefined };
 

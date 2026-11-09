@@ -1,6 +1,6 @@
 // What the owner can do with a file of the chat: save an image she sent, read its text alternative, read the bytes the
 // command window shows, and read or save a kept file of a numbered line, for `/attach open #N` and `/attach save #N`.
-// Nothing here starts a process: the chat shows a file through the terminal itself (cli/chat-controller.ts). A received
+// Nothing here starts a process: the chat shows a file through the terminal itself (interfaces/cli/chat-controller.ts). A received
 // name is data, and a saved file takes only its last path segment. Reads and writes come from the caller
 // (bin/chat-images.ts).
 import { constants } from 'node:fs';

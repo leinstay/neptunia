@@ -3,8 +3,8 @@
 // would. No core, no provider. `screen` is the last full frame without its styles, `rawScreen` the same frame with them.
 import { Readable, Writable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
-import { runInteractive } from '../../cli/index.ts';
-import type { ChatEntry, ChatEnv, Question } from '../../cli/index.ts';
+import { runInteractive } from '../../interfaces/cli/index.ts';
+import type { ChatEntry, ChatEnv, Question } from '../../interfaces/cli/index.ts';
 
 export type Rig = {
   stdout: Writable & { columns: number; rows: number; isTTY: boolean };

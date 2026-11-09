@@ -8,7 +8,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const ACTIVE_ROOTS = ['src', 'bin', 'cli', 'interfaces', 'agents'];
+const ACTIVE_ROOTS = ['src', 'bin', 'interfaces', 'agents'];
 
 const isExempt = (file: string): boolean =>
   file.startsWith('interfaces/discord/') ||

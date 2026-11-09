@@ -2,7 +2,7 @@
 // minute it started, with the minute it finished under its answer, between the chat and the input. It takes half of the rows the header and the input leave, so the chat keeps the other
 // half, and it scrolls apart from the chat. An interactive panel of the newest command draws in its place. The hint under
 // it follows Claude Code's footers ("Esc to cancel" under its /help panel): the key, then "to" and what it does.
-// cli/chat-controller.ts measures it, and cli/app.ts draws it.
+// interfaces/cli/chat-controller.ts measures it, and interfaces/cli/app.ts draws it.
 import { createElement as h } from 'react';
 import type { ReactElement } from 'react';
 import { Box, Text } from 'ink';
@@ -15,7 +15,7 @@ import type { ResultGraphic } from './file-view.ts';
 
 /**
  * One command the owner ran: the line as typed, when it started, its answer, null while it is on its way, and when the
- * answer came, absent until then. `graphic` is a picture `/attach open` shows under the answer (cli/file-view.ts).
+ * answer came, absent until then. `graphic` is a picture `/attach open` shows under the answer (interfaces/cli/file-view.ts).
  */
 export type CommandResult = {
   id: string;

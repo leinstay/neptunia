@@ -1,7 +1,7 @@
 // One registry of the chat's keys, read by dispatch and by help alike, so the two cannot drift apart. A key resolves
 // against the focus context first, and each context binds each key at most once. The secret context binds nothing that
 // could copy what is typed into a store that outlives the dialog. `cli.bindings` overrides a key, and an override that
-// collides or names an action the context does not allow is reported and not bound. cli/app.ts dispatches through it.
+// collides or names an action the context does not allow is reported and not bound. interfaces/cli/app.ts dispatches through it.
 import type { Key } from 'ink';
 
 export type FocusContext = 'composer' | 'menu' | 'secret' | 'attachment' | 'panel' | 'search';

@@ -1,8 +1,8 @@
-// cli/session-picker.ts: the panels over the session service, and the same panel mounted over a fake core.
+// interfaces/cli/session-picker.ts: the panels over the session service, and the same panel mounted over a fake core.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { boundaryPanel, checkpointPanel, sessionsPanel } from '../cli/session-picker.ts';
-import type { SessionClient } from '../cli/session-picker.ts';
+import { boundaryPanel, checkpointPanel, sessionsPanel } from '../interfaces/cli/session-picker.ts';
+import type { SessionClient } from '../interfaces/cli/session-picker.ts';
 import { KEY, chatEnv, press, shows, withChat } from './fixtures/chat-rig.ts';
 
 function clientOf(over: Partial<SessionClient> = {}) {

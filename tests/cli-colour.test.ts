@@ -3,12 +3,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { stripVTControlCharacters } from 'node:util';
 import { createElement } from 'react';
-import type { ChatEnv } from '../cli/app.ts';
+import type { ChatEnv } from '../interfaces/cli/app.ts';
 
 process.env.FORCE_COLOR = '3';
 const { KEY, chatEnv, press, shows, until, withChat } = await import('./fixtures/chat-rig.ts');
 const { Text, renderToString } = await import('ink');
-const { THEME } = await import('../cli/theme.ts');
+const { THEME } = await import('../interfaces/cli/theme.ts');
 
 test('the caret on an astral character styles the whole character', async () => {
   // Bug: the caret cell takes one UTF-16 unit, the style splits the surrogate pair and the terminal shows two broken cells.

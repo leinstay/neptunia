@@ -129,7 +129,14 @@ import {
 import type { LocalFiles } from '../src/config/files.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
-import type { ChatAttachment, ChatEntry, KeyBinding, PasteLimits, Question, StatusBrief } from '../cli/index.ts';
+import type {
+  ChatAttachment,
+  ChatEntry,
+  KeyBinding,
+  PasteLimits,
+  Question,
+  StatusBrief,
+} from '../interfaces/cli/index.ts';
 import { chatPanel } from './chat-panels.ts';
 import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
@@ -569,7 +576,7 @@ function printBlock(text: string): void {
 }
 
 /**
- * The chat in a terminal (cli/): the same link, commands and handlers as the plain chat, only another presentation. It
+ * The chat in a terminal (interfaces/cli/): the same link, commands and handlers as the plain chat, only another presentation. It
  * asks the core `status.brief` for its status line, which reads what the core knows and calls no provider.
  */
 /** Interface names offered by setup, including persona-authored packages. */
@@ -591,7 +598,7 @@ async function runInkChat(
   where: { rootDir: string; privateDir: string; dataDir: string },
   firstLine = ''
 ): Promise<void> {
-  const { mouseAvailable, runInteractive, reducedMotion } = await import('../cli/index.ts');
+  const { mouseAvailable, runInteractive, reducedMotion } = await import('../interfaces/cli/index.ts');
   const settings = readConfig(where.rootDir, { privateDir: where.privateDir }) as {
     cli?: { mouse?: boolean; bindings?: Array<KeyBinding> };
     context?: { channelMessages?: number };
@@ -1401,7 +1408,7 @@ async function askAtTerminal(
   options: { secret: boolean } = { secret: false }
 ): Promise<string> {
   if (process.stdin.isTTY === true && process.stdout.isTTY === true && process.env.TERM !== 'dumb') {
-    const { askQuestion } = await import('../cli/question.ts');
+    const { askQuestion } = await import('../interfaces/cli/question.ts');
     const choices =
       offered === 'on' || offered === 'off'
         ? ['on', 'off']

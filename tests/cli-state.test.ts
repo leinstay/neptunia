@@ -1,7 +1,7 @@
-// cli/state.ts and cli/galaxy.ts: the chat's behaviour without a terminal.
+// interfaces/cli/state.ts and interfaces/cli/galaxy.ts: the chat's behaviour without a terminal.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { galaxyFrame, reducedMotion } from '../cli/galaxy.ts';
+import { galaxyFrame, reducedMotion } from '../interfaces/cli/galaxy.ts';
 import {
   backspace,
   browse,
@@ -13,8 +13,8 @@ import {
   moveCursor,
   statusLine,
   submit,
-} from '../cli/state.ts';
-import type { StatusBrief } from '../cli/state.ts';
+} from '../interfaces/cli/state.ts';
+import type { StatusBrief } from '../interfaces/cli/state.ts';
 
 const BRIEF: StatusBrief = {
   core: { state: 'paused', reason: 'memory-down', model: 'opus', route: 'claude-harness', bound: true },

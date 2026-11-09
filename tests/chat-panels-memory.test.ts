@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chatPanel } from '../bin/chat-panels.ts';
-import type { PanelResult } from '../cli/panel.ts';
+import type { PanelResult } from '../interfaces/cli/panel.ts';
 
 function reader(answers: Record<string, unknown>): {
   asked: Array<string>;

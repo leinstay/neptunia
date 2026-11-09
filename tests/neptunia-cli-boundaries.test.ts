@@ -277,7 +277,7 @@ for (const { what, argv } of PANELS) {
     const imports = probe.imports();
     assert.ok(imports.length > 0, 'the import probe ran');
     assert.deepEqual(
-      imports.filter((one) => one === 'ink' || one.endsWith('cli/index.ts')),
+      imports.filter((one) => one === 'ink' || one.endsWith('interfaces/cli/index.ts')),
       [],
       'Ink is not loaded'
     );

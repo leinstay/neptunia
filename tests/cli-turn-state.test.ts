@@ -1,8 +1,15 @@
-// cli/turn-state.ts: the client's picture of the turns, built only from the core's events; and the keys on the mounted chat.
+// interfaces/cli/turn-state.ts: the client's picture of the turns, built only from the core's events; and the keys on the mounted chat.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeTurn, emptyTurns, queuedTurns, reduceTurns, requestCancel, turnOf } from '../cli/turn-state.ts';
-import type { ClientTurnEvent, TurnsState } from '../cli/turn-state.ts';
+import {
+  activeTurn,
+  emptyTurns,
+  queuedTurns,
+  reduceTurns,
+  requestCancel,
+  turnOf,
+} from '../interfaces/cli/turn-state.ts';
+import type { ClientTurnEvent, TurnsState } from '../interfaces/cli/turn-state.ts';
 import { KEY, chatEnv, pause, press, shows, until, withChat } from './fixtures/chat-rig.ts';
 
 const fold = (events: ReadonlyArray<ClientTurnEvent>, start: TurnsState = emptyTurns()): TurnsState =>

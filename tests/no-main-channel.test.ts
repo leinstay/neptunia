@@ -47,7 +47,7 @@ test('nothing in the active tree or the docs names a main channel', () => {
   // Bug: the portrait assembly, the memory inspector or a prompt keeps reading a setting that no longer exists.
   // The one list of retired keys may name it, because that is how it is refused.
   const hits: Array<string> = [];
-  for (const root of ['src', 'bin', 'cli', 'config', 'prompts', 'agents', 'docs', 'interfaces']) {
+  for (const root of ['src', 'bin', 'config', 'prompts', 'agents', 'docs', 'interfaces']) {
     for (const file of walk(join(ROOT, root))) {
       if (/mainChannel|main channel|isMain\b/i.test(readFileSync(join(ROOT, file), 'utf8'))) hits.push(file);
     }

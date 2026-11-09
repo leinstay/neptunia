@@ -1,10 +1,10 @@
-// cli/app.ts drawn into a fake terminal: an offline visual fixture with no core and no provider.
+// interfaces/cli/app.ts drawn into a fake terminal: an offline visual fixture with no core and no provider.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Writable, Readable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
-import { runInteractive } from '../cli/index.ts';
-import type { ChatEnv, ChatEntry, Question } from '../cli/index.ts';
+import { runInteractive } from '../interfaces/cli/index.ts';
+import type { ChatEnv, ChatEntry, Question } from '../interfaces/cli/index.ts';
 import { until } from './fixtures/chat-rig.ts';
 
 function terminal(columns = 80) {
@@ -268,7 +268,7 @@ test('panel navigation toggles a setting, edits another value and returns to cha
 
 test('setup choices use arrows and Enter, while secret answers never appear in terminal output', async () => {
   // Bug: setup loses the selected option, or its independent secret dialog echoes a key.
-  const { askQuestion } = await import('../cli/question.ts');
+  const { askQuestion } = await import('../interfaces/cli/question.ts');
   const rig = terminal();
   const streams = { stdin: rig.stdin as never, stdout: rig.stdout as never };
   const choice = askQuestion('Enable heartbeat?', 'off', { choices: ['on', 'off'] }, streams);

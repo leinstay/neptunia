@@ -42,8 +42,7 @@
     "prose:update": "node scripts/prose-check.ts --update"
   },
   "workspaces": [
-    "interfaces/*",
-    "cli"
+    "interfaces/*"
   ],
   "license": "MIT",
   "devDependencies": {

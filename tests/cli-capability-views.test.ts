@@ -3,8 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { capabilityPanel, chatPanel } from '../bin/chat-panels.ts';
-import { approvalPanel } from '../cli/approval-view.ts';
-import { contextLine } from '../cli/context-line.ts';
+import { approvalPanel } from '../interfaces/cli/approval-view.ts';
+import { contextLine } from '../interfaces/cli/context-line.ts';
 import { KEY, chatEnv, pause, press, shows, until, withChat } from './fixtures/chat-rig.ts';
 
 const GATE = {

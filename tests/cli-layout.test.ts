@@ -1,10 +1,17 @@
-// cli/layout.ts and cli/transcript.ts: cell geometry and the transcript window as pure functions over fixed text.
+// interfaces/cli/layout.ts and interfaces/cli/transcript.ts: cell geometry and the transcript window as pure functions over fixed text.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { caretCell, cellWidth, composerViewport, graphemes, transcriptBudget, wrapCells } from '../cli/layout.ts';
-import { displaySafe, scrollView, TAIL, transcriptWindow } from '../cli/transcript.ts';
-import type { TranscriptView } from '../cli/transcript.ts';
-import { backspace, emptyInput, insert, moveCursor } from '../cli/state.ts';
+import {
+  caretCell,
+  cellWidth,
+  composerViewport,
+  graphemes,
+  transcriptBudget,
+  wrapCells,
+} from '../interfaces/cli/layout.ts';
+import { displaySafe, scrollView, TAIL, transcriptWindow } from '../interfaces/cli/transcript.ts';
+import type { TranscriptView } from '../interfaces/cli/transcript.ts';
+import { backspace, emptyInput, insert, moveCursor } from '../interfaces/cli/state.ts';
 
 const FAMILY = '👨‍👩‍👧';
 const ACCENT = 'é';

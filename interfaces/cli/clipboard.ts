@@ -1,6 +1,6 @@
 // Reading an image from the clipboard of the machine this process runs on, through the platform's own tool with literal
 // argv. Over SSH that machine is the server, so the clipboard is unavailable and no process starts: the owner's laptop is
-// out of reach and `/attach <file>` is the way in. bin/chat-images.ts gives it the runner; cli/app.ts calls it on Ctrl+V.
+// out of reach and `/attach <file>` is the way in. bin/chat-images.ts gives it the runner; interfaces/cli/app.ts calls it on Ctrl+V.
 // Copying goes the other way, through the terminal itself (`osc52`), so it works over SSH.
 
 /**

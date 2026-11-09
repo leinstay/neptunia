@@ -1,9 +1,9 @@
-// cli/editor-actions.ts: search, jumps, undo, stash and the external editor over the draft of cli/composer.ts.
+// interfaces/cli/editor-actions.ts: search, jumps, undo, stash and the external editor over the draft of interfaces/cli/composer.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { draftFromParts, draftFromText, assembleDraft } from '../cli/composer.ts';
-import type { Draft } from '../cli/composer.ts';
+import { draftFromParts, draftFromText, assembleDraft } from '../interfaces/cli/composer.ts';
+import type { Draft } from '../interfaces/cli/composer.ts';
 import {
   applyEdit,
   editExternally,
@@ -15,7 +15,7 @@ import {
   searchTranscript,
   stashDraft,
   undo,
-} from '../cli/editor-actions.ts';
+} from '../interfaces/cli/editor-actions.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const textOf = (draft: Draft): string => {

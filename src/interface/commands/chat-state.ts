@@ -37,7 +37,7 @@ const NOT_FILES = new Set(['link', 'emoji']);
 const fileRows = (line: SourceLine): Array<MediaRow> => (line.media ?? []).filter((row) => !NOT_FILES.has(row.kind));
 
 /**
- * The files of a stored line for `/attach open #N` and `/attach save #N` (cli/chat-controller.ts), in their order: each
+ * The files of a stored line for `/attach open #N` and `/attach save #N` (interfaces/cli/chat-controller.ts), in their order: each
  * with its name, its kind, its kept path under the data folder, null for a file the core did not keep, and the
  * description memory stores for it.
  */
@@ -102,7 +102,7 @@ export function createChatState({
     return { text: `The board moved the task to ${answer.result.taskStatus}.`, status: 'ok' };
   }
 
-  /** The chat's stored lines as the current session shows them, one page at a time (cli/chat-controller.ts). */
+  /** The chat's stored lines as the current session shows them, one page at a time (interfaces/cli/chat-controller.ts). */
   function pageAnswer(args: Readonly<Record<string, unknown>>): ChatStateAnswer {
     const current = sessions.current(CLI_PLACE);
     const shown = current === null ? null : sessions.resume(current.id);
