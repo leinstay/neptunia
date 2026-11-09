@@ -1,0 +1,207 @@
+// The write kind `selfreflection-entries` (src/memory/db/selfreflection-entries.ts): her dated entries, the message ids
+// each was mirrored as and their publications, written as their rows directly instead of through the selfreflection
+// mapper of a unit write, each row naming its writer and holder (place-owner.ts). The first test writes the same values
+// through the unit write and through the write kind over copies of one seeded database and compares every table column
+// by column, the owner columns of the unit way taken from version step 50. Then the stamps against that step, the reads
+// without the units, a dropped entry's mirror and publication, the code, the store over a reopen and an append.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { ownSelfreflectionRows } from '../src/memory/db/place-owner.ts';
+import { unitValue } from '../src/memory/db/readers/common.ts';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
+import { personaKey } from '../src/memory/db/storage-keys.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import type { MemoryHandle, Row } from '../src/memory/db/types.ts';
+import { createStore } from '../src/memory/store.ts';
+import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
+import { CHANNEL, NOW, copyOf, seededPlaces, tablesOf } from './fixtures/memory-db/place-writes.ts';
+
+const KEY = personaKey('selfreflection');
+const OWNED = ['selfreflection', 'selfreflection_mirrors', 'operational', 'publications', 'co_owners'];
+
+const post = (n: number, extra: Row = {}): Row => ({
+  itemId: `sr-${n}`,
+  at: NOW - n * 60_000,
+  kind: 'day',
+  gist: `μια μέρα ${n}`,
+  picture: null,
+  search: null,
+  pictures: 1,
+  ...extra,
+});
+
+/** One write of a test: a whole value, or one post appended with a cap. */
+type Step = { value: Row; destination?: string } | { append: Row; max: number; destination?: string };
+
+const STEPS: ReadonlyArray<Step> = [
+  {
+    value: {
+      updatedAt: NOW,
+      posts: [
+        post(1, { messageIds: ['m1', 'm2'], text: 'Το πλήρες κείμενο.' }),
+        post(2, { messageIds: ['m3'], publicationBoundary: { audience: 'owner' } }),
+        post(3, { itemId: undefined }),
+      ],
+    },
+    destination: CHANNEL,
+  },
+  { append: post(4, { messageIds: ['m4'] }), max: 3 },
+  { value: { updatedAt: NOW + 1, posts: [post(3, { itemId: undefined }), post(4, { messageIds: ['m4', 'm5'] })] } },
+];
+
+function writeUnitWay(handle: MemoryHandle, step: Step): unknown {
+  const base = {
+    kind: 'unit',
+    key: KEY,
+    iface: 'discord',
+    now: NOW,
+    ...(step.destination ? { destination: step.destination } : {}),
+  };
+  return 'value' in step
+    ? applyMemoryWrite(handle, { ...base, op: 'value', value: step.value })
+    : applyMemoryWrite(handle, { ...base, op: 'selfreflection', post: step.append, max: step.max, updatedAt: NOW + 2 });
+}
+
+function writeDirectWay(handle: MemoryHandle, step: Step): unknown {
+  const base = {
+    kind: 'selfreflection-entries',
+    iface: 'discord',
+    now: NOW,
+    ...(step.destination ? { destination: step.destination } : {}),
+  };
+  return 'value' in step
+    ? applyMemoryWrite(handle, { ...base, value: step.value })
+    : applyMemoryWrite(handle, { ...base, append: step.append, max: step.max, updatedAt: NOW + 2 });
+}
+
+const read = (handle: MemoryHandle): unknown => unitValue(dbOf(handle), KEY);
+
+test('entries, an append with a cap and a rewrite store the same rows both ways', () => {
+  const seed = seededPlaces();
+  const viaUnit = copyOf(seed);
+  const direct = copyOf(seed);
+  try {
+    const unitAnswers = STEPS.map((step) => writeUnitWay(viaUnit, step));
+    ownSelfreflectionRows(dbOf(viaUnit));
+    const directAnswers = STEPS.map((step) => writeDirectWay(direct, step));
+    assert.equal(tablesOf(dbOf(direct)), tablesOf(dbOf(viaUnit)));
+    assert.deepEqual(directAnswers, unitAnswers);
+  } finally {
+    viaUnit.close();
+    direct.close();
+  }
+});
+
+test('the writer stamps every entry, mirror and publication with the owner columns version step 50 derives', () => {
+  const handle = copyOf(seededPlaces());
+  try {
+    for (const step of STEPS) writeDirectWay(handle, step);
+    const db = dbOf(handle);
+    const stamped = tablesOf(db);
+    assert.deepEqual(
+      db
+        .prepare("SELECT DISTINCT writer, holder_id FROM publications WHERE row_kind = 'selfreflection'")
+        .all()
+        .map((row) => [row.writer, row.holder_id]),
+      [['selfreflection', 'persona:local']]
+    );
+    for (const table of OWNED)
+      db.exec(`UPDATE "${table}" SET writer = NULL, holder_id = NULL WHERE writer = 'selfreflection'`);
+    ownSelfreflectionRows(db);
+    assert.equal(tablesOf(db), stamped);
+  } finally {
+    handle.close();
+  }
+});
+
+test('the entries read the same once no unit owns their rows', () => {
+  const handle = copyOf(seededPlaces());
+  try {
+    for (const step of STEPS) writeDirectWay(handle, step);
+    const before = read(handle);
+    const stored = (before as { value?: { posts?: Array<Row> } }).value;
+    assert.deepEqual(
+      (stored?.posts ?? []).map((entry) => entry.messageIds ?? null),
+      [null, ['m4', 'm5']]
+    );
+    for (const table of OWNED)
+      dbOf(handle).exec(`UPDATE "${table}" SET owner_key = NULL WHERE writer = 'selfreflection'`);
+    assert.deepEqual(read(handle), before);
+  } finally {
+    handle.close();
+  }
+});
+
+test("a dropped entry retires its mirror and its mirror's publication", () => {
+  const handle = copyOf(seededPlaces());
+  try {
+    for (const step of STEPS) writeDirectWay(handle, step);
+    const live = dbOf(handle)
+      .prepare(
+        "SELECT row_id FROM publications WHERE row_kind = 'selfreflection' AND retired_at IS NULL ORDER BY row_id"
+      )
+      .all()
+      .map((row) => row.row_id);
+    assert.deepEqual(live, ['sr-4']);
+  } finally {
+    handle.close();
+  }
+});
+
+test('a selfreflection write with neither a value nor a post is refused with a code', () => {
+  const handle = copyOf(seededPlaces());
+  try {
+    assert.throws(() => applyMemoryWrite(handle, { kind: 'selfreflection-entries', now: NOW }), {
+      code: 'SELFREFLECTION_VALUE',
+    });
+  } finally {
+    handle.close();
+  }
+});
+
+test('the store reads back an appended entry after the database is closed and opened again', async () => {
+  const dataDir = tempDataDir('nep-selfreflection-reopen-');
+  const first = await openTestMemory({ dataDir, now: () => NOW, iface: () => 'discord' });
+  let written: unknown;
+  try {
+    const store = createStore({ dataDir, memoryDb: first.memoryDb });
+    // @ts-expect-error a post without a picture is null, the shape the diary writes before one is drawn
+    store.appendSelfreflectionPost({ ...post(7), messageIds: [], search: null }, { max: 10, now: NOW });
+    await store.flushSettled({});
+    written = store.getSelfreflection();
+  } finally {
+    await first.close();
+  }
+  const second = await openTestMemory({ dataDir, now: () => NOW, iface: () => 'discord' });
+  try {
+    const store = createStore({ dataDir, memoryDb: second.memoryDb });
+    const back = store.getSelfreflection() as { posts?: Array<{ gist?: unknown }> };
+    const [first] = back.posts ?? [];
+    assert.equal(first?.gist, 'μια μέρα 7');
+    assert.deepEqual(back, written);
+  } finally {
+    await second.close();
+  }
+});
+
+test('empty, absent and odd message ids, an empty list and repeated ids come back as they were written', () => {
+  const values: ReadonlyArray<Row> = [
+    {
+      updatedAt: NOW,
+      posts: [post(1, { messageIds: [1, 'x'] }), post(2, { messageIds: [], search: 'moths' }), post(3)],
+    },
+    { posts: [] },
+    { posts: [{ gist: 5 }, { itemId: 'same' }, { itemId: 'same' }] },
+    { posts: 'broken', other: [1] },
+  ];
+  for (const value of values) {
+    const handle = copyOf(seededPlaces());
+    try {
+      applyMemoryWrite(handle, { kind: 'selfreflection-entries', value, iface: 'discord', now: NOW });
+      const back = read(handle) as { value?: unknown };
+      assert.deepEqual(back.value, JSON.parse(JSON.stringify(value)), JSON.stringify(value));
+    } finally {
+      handle.close();
+    }
+  }
+});
