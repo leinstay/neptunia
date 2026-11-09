@@ -6,13 +6,13 @@
 // nothing by itself: every change is a pure transition of the model applied through `update`. Logs carry ids and
 // counts, never text.
 
-import { personaKey } from '../memory/db/storage-keys.ts';
 import { log as defaultLog } from '../log.ts';
 import { checkInvariants, isOpen } from './model.ts';
 import { CODE } from '../tools/codes.ts';
 import { createReadSeam } from '../memory/db/readers/common.ts';
 import { intentionsArchiveLines, intentionsValue } from '../memory/db/readers/intentions.ts';
-import { createUnitOutbox } from '../memory/db/unit-outbox.ts';
+import { createWritesUnderWay } from '../memory/db/writes-under-way.ts';
+import type { IntentionsWrite } from '../memory/db/intentions-write.ts';
 import { errorCode, idText } from '../tools/types.ts';
 import type { Untyped } from '../tools/types.ts';
 import type { FlushCounts, Logger } from '../errands/types.ts';
@@ -23,12 +23,11 @@ export const KEEP_CLOSED = 50;
 
 /**
  * `memoryDb` (the memory database service): the list is loaded from the database and `archived` reads it there
- * (src/memory/db/readers/intentions.ts; a failed read throws, with a code). Each change hands the whole list and the
- * records it moved out to an outbox (src/memory/db/unit-outbox.ts) that sends them through the database's writer as
- * the write kind `intentions`. The list in memory stays the truth
- * meanwhile, so `add` and `update` answer at once; a write that failed waits in the outbox and goes again at the
- * next change or `flush`, and `flush({ final: true })` (the shutdown) logs what still fails as lost. Without a `memoryDb` (tests, a tool) nothing is read or written:
- * the list lives in memory only.
+ * (src/memory/db/readers/intentions.ts; a failed read throws, with a code). Each change sends the whole list and the
+ * records it moved out straight to the database's writer as the write kind `intentions` (`writeIntentions`). The list
+ * in memory stays the truth meanwhile, so `add` and `update` answer at once; a write that failed goes again at the next
+ * change or `flush`, and `flush({ final: true })` (the shutdown) logs what still fails as lost. Without a `memoryDb`
+ * (tests, a tool) nothing is read or written: the list lives in memory only.
  */
 export function createIntentionStore({
   log = defaultLog,
@@ -40,12 +39,17 @@ export function createIntentionStore({
 }): IntentionStore {
   const seam = createReadSeam({ memoryDb, log, reader: 'intentions' });
   const state: { list: Array<Intention>; archived: Array<Intention> } = { list: load(), archived: [] };
-  const outbox =
-    memoryDb && typeof memoryDb.writeUnit === 'function'
-      ? createUnitOutbox({ memoryDb, log, name: 'intentions' })
+  const writeIntentions: unknown = memoryDb ? Reflect.get(memoryDb as object, 'writeIntentions') : null;
+  const writer: ((write: IntentionsWrite) => Promise<unknown>) | null =
+    typeof writeIntentions === 'function'
+      ? (write) => Promise.resolve((writeIntentions as (given: IntentionsWrite) => unknown).call(memoryDb, write))
       : null;
-  const owner = { ...personaKey('intentions'), selector: { collection: 'active' as const } };
-  const archiveOwner = { ...owner, selector: { collection: 'archive' as const } };
+  const writes = createWritesUnderWay({ log, name: 'intentions' });
+  // A list whose last write failed, and the archived records whose write failed: sent again by the next change or flush.
+  let listUnwritten = false;
+  const archiveUnwritten: Array<Intention> = [];
+  // Counts the list's writes, so only the failure of the latest one marks the list unwritten.
+  let listWrites = 0;
 
   /** The list read once from the database (none without a `memoryDb`). */
   function load(): Array<Intention> {
@@ -78,20 +82,34 @@ export function createIntentionStore({
   }
 
   /**
-   * The list handed to the outbox whole, the records `moved` out of it to the archive first (so a
-   * crash between the two repeats a record in the archive, never loses one). Throws when the outbox
-   * cannot take it (the caller's change is then not made). Without a `memoryDb` the moved records are
-   * kept in memory.
+   * The list sent whole, the records `moved` out of it to the archive first (so a crash between the
+   * two repeats a record in the archive, never loses one), with what an earlier failed write left.
+   * Throws without a writer (the caller's change is then not made). Without a `memoryDb` the moved
+   * records are kept in memory.
    */
   function persist(list: Array<Intention>, moved: Array<Intention> = []): void {
     if (!memoryDb) {
       state.archived.push(...moved.map(copy));
       return;
     }
-    if (!outbox) throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
-    if (moved.length > 0) outbox.lines(archiveOwner, JSON.parse(JSON.stringify(moved)));
-    outbox.value(owner, JSON.parse(JSON.stringify({ intentions: list })));
-    outbox.push();
+    if (!writer) throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
+    const records = [...archiveUnwritten.splice(0), ...moved.map(copy)];
+    if (records.length > 0)
+      writes.track(
+        () => writer({ op: 'archive', records }),
+        () => {
+          archiveUnwritten.unshift(...records);
+        }
+      );
+    listWrites += 1;
+    const sent = listWrites;
+    listUnwritten = false;
+    writes.track(
+      () => writer({ op: 'value', intentions: list.map(copy) }),
+      () => {
+        if (sent === listWrites) listUnwritten = true;
+      }
+    );
   }
 
   /** The archived records, oldest first (a line that does not parse is skipped). Tools only. */
@@ -169,12 +187,25 @@ export function createIntentionStore({
   }
 
   /**
-   * The writes still waiting sent again and awaited; with `final` (the shutdown) what still fails is logged as lost.
-   * Nothing without a `memoryDb`.
+   * The writes still waiting sent again and awaited; with `final` (the shutdown) what still fails is logged as lost,
+   * and the wait ends after `timeoutMs` when given. Nothing without a `memoryDb`.
    */
-  async function flush({ final = false }: { final?: boolean } = {}): Promise<FlushCounts> {
-    if (!outbox) return { waiting: 0 };
-    return { waiting: await outbox.flush({ final }) };
+  async function flush({
+    final = false,
+    timeoutMs,
+  }: { final?: boolean; timeoutMs?: number } = {}): Promise<FlushCounts> {
+    if (!writer) return { waiting: 0 };
+    const unwritten = (): number => Number(listUnwritten) + Number(archiveUnwritten.length > 0);
+    return {
+      waiting: await writes.drain({
+        final,
+        timeoutMs,
+        unwritten,
+        resend: () => {
+          if (unwritten() > 0) persist(state.list);
+        },
+      }),
+    };
   }
 
   return { list, get, add, update, archived, flush };
@@ -206,7 +237,7 @@ export function createIntentionStores({
       return store;
     },
     /** Every store's `flush` (the writes waiting for the database; `final` at the shutdown). */
-    async flush(options: { final?: boolean } = {}): Promise<FlushCounts> {
+    async flush(options: { final?: boolean; timeoutMs?: number } = {}): Promise<FlushCounts> {
       let waiting = 0;
       for (const store of stores.values()) waiting += (await store.flush(options)).waiting;
       return { waiting };

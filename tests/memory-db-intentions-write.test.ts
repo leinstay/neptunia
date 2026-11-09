@@ -202,3 +202,33 @@ test('the intention store keeps its list and its archive over a reopen of the da
     fs.rmSync(mem.dataDir, { recursive: true, force: true });
   }
 });
+
+test('a list write that failed is sent again by the next flush', async () => {
+  // Catches: a store that drops the write the database refused, so the change is gone after a restart.
+  let mem = await openTestMemory();
+  try {
+    const service = mem.memoryDb;
+    let down = true;
+    const memoryDb = {
+      ...service,
+      writeIntentions: (write: Parameters<typeof service.writeIntentions>[0]) =>
+        down ? Promise.reject(Object.assign(new Error('down'), { code: 'DB_CLOSED' })) : service.writeIntentions(write),
+    };
+    const store = createIntentionStore({ memoryDb, log: { info() {}, warn() {}, error() {} } });
+    assert.equal(store.add(intention('i1') as never).ok, true);
+    assert.equal((await store.flush()).waiting, 1);
+    down = false;
+    assert.equal((await store.flush({ final: true })).waiting, 0);
+    await mem.close();
+    mem = await openTestMemory({ dataDir: mem.dataDir });
+    assert.deepEqual(
+      createIntentionStore({ memoryDb: mem.memoryDb })
+        .list()
+        .map((record) => record.id),
+      ['i1']
+    );
+  } finally {
+    await mem.close();
+    fs.rmSync(mem.dataDir, { recursive: true, force: true });
+  }
+});

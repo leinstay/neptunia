@@ -81,10 +81,11 @@ export type MemoryDb = {
   writeRecentLines?: (write: RecentLinesWrite) => Promise<unknown>;
   writeSelfreflection?: (write: SelfreflectionWrite) => Promise<unknown>;
   memoryWrite?: (update: unknown) => Promise<unknown>;
+  writeGeneration?: () => number;
   onAffinityMoves?: (listener: (moves: Array<Row>) => void) => () => void;
 };
 
-/** Whether the database can take a unit write: the outbox of a store or a journal exists only then. */
+/** Whether the database can take a unit write: a store or a journal writes only then. */
 export function canWriteUnits(db: MemoryDb | null | undefined): db is MemoryDb & Required<Pick<MemoryDb, 'writeUnit'>> {
   return typeof db?.writeUnit === 'function';
 }

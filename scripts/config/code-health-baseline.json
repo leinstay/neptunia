@@ -1563,7 +1563,7 @@
     },
     "src/errands/store.ts": {
       "createErrandStore": {
-        "function-length": 496
+        "function-length": 494
       }
     },
     "src/format.ts": {
@@ -1932,7 +1932,6 @@
       "src/memory/db/rows.ts",
       "src/memory/db/schema.ts",
       "src/memory/db/stems.ts",
-      "src/memory/db/unit-outbox.ts",
       "src/memory/db/unit-write.ts",
       "src/memory/db/upsert.ts",
       "src/memory/db/writer-worker.ts",

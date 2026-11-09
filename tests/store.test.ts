@@ -1699,8 +1699,9 @@ test('dropCaches: forgets every cached unit except state.json, so the next read 
   store.flush();
   await store.flushSettled({});
 
-  const dropped = store.dropCaches();
-  assert.ok(dropped >= 2, 'dropped the user profile and the guild memory, at least');
+  // The expectation on the drop's count went: the store keeps no unit once its write landed, so the drop has nothing
+  // to count. The read below is what the pause needs.
+  store.dropCaches();
 
   // A hand-edit made right after the drop is picked up on the very next read.
   writeRaw(path.join(dir, 'guilds', 'g1', 'users', 'u1.json'), {

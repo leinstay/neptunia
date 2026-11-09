@@ -10,10 +10,9 @@
 // come from one place: src/errands/costs.ts#agentCosts over the store's spend records, one per errand of the last
 // KEEP_DAYS days (read from the board at load, then kept with every transition).
 // Every change of an errand is one write of the whole errand through the memory database's writer (op `errand` of
-// src/memory/db/unit-write.ts), handed to an outbox (src/memory/db/unit-outbox.ts) keyed by the errand: a newer write
-// of the same errand replaces the one waiting, a failed write goes again at the next change or `flush`, and
-// `flush({ final: true })` (the shutdown) logs what still fails as lost; a write that waits behind an earlier
-// write of the same errand goes as soon as that one settles. The end of an errand (`finish`,
+// src/memory/db/unit-write.ts), sent at once (src/memory/db/writes-under-way.ts): the writer takes the writes in the
+// order they were sent, a failed write sends the errand as it is then again at the next change or `flush`, and
+// `flush({ final: true })` (the shutdown) logs what still fails as lost. The end of an errand (`finish`,
 // `cancel`, `failOpen`) is one transaction of the writer: the board's move to its end, the board's outbox row to
 // `persona`, and the closing journal action line; a failure of any of them writes none. `pendingEnds` lists the ends
 // the board committed whose `errand.done` the core has not marked delivered (`markDelivered`), so a core started after
@@ -44,7 +43,7 @@ import { DAY_MS } from '../time.ts';
 import { agentCosts, costRecord, KEEP_DAYS } from './costs.ts';
 import { normalizeResult, normalizeUsage } from '../agent-runner/protocol.ts';
 import { createReadSeam } from '../memory/db/readers/common.ts';
-import { createUnitOutbox } from '../memory/db/unit-outbox.ts';
+import { createWritesUnderWay } from '../memory/db/writes-under-way.ts';
 import { errandsOf, pendingEnds as boardEnds } from '../board/errands.ts';
 import { agentSettings, profileOf } from '../agent-runner/profiles.ts';
 import type { AgentPaths } from '../agent-runner/profiles.ts';
@@ -187,12 +186,57 @@ const journalWritesOf = (journal: unknown): JournalWrites => ({
   actionLine: methodOf(journal, 'actionLine'),
 });
 
-/** The outbox of the errand writes: op `errand` of the memory writer. */
-function errandOutbox({ writeUnit }: MemoryWrites, log: Logger): ReturnType<typeof createUnitOutbox> {
-  const writer = {
-    writeUnit: (update: Record<string, unknown>): Promise<unknown> => writeUnit({ ...update, op: 'errand' }),
+/** The errands' writes to the board, each sent at once (src/memory/db/writes-under-way.ts). */
+type ErrandWrites = {
+  send: (id: string, value: { errand: ErrandRecord | null } & Record<string, unknown>) => void;
+  holds: (id: string) => boolean;
+  flush: (
+    options: { final?: boolean; timeoutMs?: number | undefined },
+    resend: (id: string, errand: ErrandRecord | null) => void
+  ) => Promise<number>;
+};
+
+/**
+ * The writes of errands as op `errand` of the memory writer: `holds(id)` while a write of the errand is under way or
+ * its latest write failed, and `flush` sends each failed errand again through `resend`.
+ */
+function errandWrites({ writeUnit }: MemoryWrites, log: Logger): ErrandWrites {
+  const underWay = createWritesUnderWay({ log, name: 'tasks' });
+  // id -> how many writes of the errand are under way; id -> the record of the errand whose latest write failed.
+  const sending = new Map<string, number>();
+  const unwritten = new Map<string, ErrandRecord | null>();
+  // id -> the number of the errand's latest write, so only its failure marks the errand unwritten.
+  const latest = new Map<string, number>();
+  let count = 0;
+  const settled = (id: string): void => {
+    const left = (sending.get(id) ?? 1) - 1;
+    if (left > 0) sending.set(id, left);
+    else sending.delete(id);
   };
-  return createUnitOutbox({ memoryDb: writer, log, name: 'tasks' });
+  return {
+    send(id, value) {
+      count += 1;
+      const number = count;
+      latest.set(id, number);
+      unwritten.delete(id);
+      sending.set(id, (sending.get(id) ?? 0) + 1);
+      underWay.track(
+        () => writeUnit({ op: 'errand', key: errandKey(id), value }).finally(() => settled(id)),
+        () => {
+          if (latest.get(id) === number) unwritten.set(id, value.errand);
+        }
+      );
+    },
+    holds: (id) => sending.has(id) || unwritten.has(id),
+    flush: (options, resend) =>
+      underWay.drain({
+        ...options,
+        unwritten: () => unwritten.size,
+        resend: () => {
+          for (const [id, errand] of [...unwritten]) resend(id, errand);
+        },
+      }),
+  };
 }
 
 /** Whether a spend record is older than the last KEEP_DAYS days (by its later time). */
@@ -313,7 +357,7 @@ export function createErrandStore({
   const state: { errands: Array<ErrandRecord> } = { errands: loaded };
   const writes = memoryWritesOf(memoryDb);
   const journalWrites = journalWritesOf(journal);
-  const outbox = db && writes ? errandOutbox(writes, log) : null;
+  const writer = db && writes ? errandWrites(writes, log) : null;
   // id -> the closing journal line of an end not yet known written; it rides along every write of that errand, and
   // the writer writes it only with the move to the end.
   const closings = new Map<string, unknown>();
@@ -338,29 +382,27 @@ export function createErrandStore({
     for (const [id, kept] of spend) if (stale(kept, at)) spend.delete(id);
   }
 
-  /** The errand's write to the board handed to the outbox (its spend noted, the list pruned). */
+  /** The errand's write to the board sent (its spend noted, the list pruned). */
   function persist(errand: ErrandRecord): void {
     state.errands = pruned(state.errands);
     noteSpend(errand);
     send(errand.id, errand);
   }
 
-  /** One write of errand `id` (its record, or null for the delivery mark alone) to the outbox. */
+  /** One write of errand `id` (its record, or null for the delivery mark alone) sent to the writer. */
   function send(id: string, errand: ErrandRecord | null): void {
     if (!memoryDb) return;
-    if (!outbox) {
+    if (!writer) {
       log.warn('errands: tasks write failed', { code: 'DB_CLOSED' });
       return;
     }
-    outbox.value(errandKey(id), {
+    writer.send(id, {
       id,
       at: now(),
       errand: errand ? copy(errand) : null,
       delivered: delivered.has(id),
       closing: closings.get(id) ?? null,
     });
-    // A push skips an errand whose earlier write is under way; a flush sends this one as soon as that write settles.
-    void outbox.flush();
   }
 
   /** Whether the journal takes lines: one was given. */
@@ -373,7 +415,7 @@ export function createErrandStore({
   function closingLine(errand: ErrandRecord, phase: string, extra: Record<string, unknown>): void {
     if (!journalOn()) return;
     const { actionLine } = journalWrites;
-    if (outbox && actionLine) {
+    if (writer && actionLine) {
       closings.set(errand.id, actionLine(PERSONA_ID, journalFields(errand, phase, extra)));
       return;
     }
@@ -750,7 +792,7 @@ export function createErrandStore({
   function markDelivered(id: unknown): boolean {
     const key = idText(id);
     const errand = key ? find(key) : null;
-    const landing = Boolean(errand && !isOpenState(errand.state) && outbox?.holds(errandKey(key)));
+    const landing = Boolean(errand && !isOpenState(errand.state) && writer?.holds(key) === true);
     if (!key || (!landing && !pendingEnds().some((end) => end.errandId === key))) return false;
     delivered.add(key);
     send(key, find(key));
@@ -759,12 +801,12 @@ export function createErrandStore({
   }
 
   /**
-   * The writes still waiting sent again and awaited; with `final` (the shutdown) what still fails is logged as lost.
-   * Nothing without a `memoryDb`.
+   * The writes still waiting sent again and awaited; with `final` (the shutdown) what still fails is logged as lost,
+   * and the wait ends after `timeoutMs` when given. Nothing without a `memoryDb`.
    */
-  async function flush({ final = false }: { final?: boolean } = {}): Promise<FlushCounts> {
-    if (!outbox) return { waiting: 0 };
-    return { waiting: await outbox.flush({ final }) };
+  async function flush(options: { final?: boolean; timeoutMs?: number } = {}): Promise<FlushCounts> {
+    if (!writer) return { waiting: 0 };
+    return { waiting: await writer.flush(options, (id, errand) => send(id, find(id) ?? errand)) };
   }
 
   return {
@@ -817,7 +859,7 @@ export function createErrandStores({
       return store;
     },
     /** Every store's `flush` (the writes waiting for the database; `final` at the shutdown). */
-    async flush(options: { final?: boolean } = {}): Promise<FlushCounts> {
+    async flush(options: { final?: boolean; timeoutMs?: number } = {}): Promise<FlushCounts> {
       let waiting = 0;
       for (const store of stores.values()) waiting += (await store.flush(options)).waiting;
       return { waiting };

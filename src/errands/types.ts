@@ -186,13 +186,13 @@ export type ErrandStore = {
   pendingEnds: () => Array<ErrandEnd>;
   /** Marks the pending end of errand `id` delivered; false when no end of that errand is pending. */
   markDelivered: (id: unknown) => boolean;
-  flush: (options?: { final?: boolean }) => Promise<FlushCounts>;
+  flush: (options?: { final?: boolean; timeoutMs?: number }) => Promise<FlushCounts>;
 };
 
 /** One store per place. */
 export type ErrandStores = {
   get: () => ErrandStore | null;
-  flush: (options?: { final?: boolean }) => Promise<FlushCounts>;
+  flush: (options?: { final?: boolean; timeoutMs?: number }) => Promise<FlushCounts>;
 };
 
 /** What the service hands the client to run one errand. */

@@ -513,3 +513,29 @@ test('an errand an internal turn asked for keeps its publication restriction on 
   const record = ('errand' in added ? added.errand : added) as { origin: { publicationBoundary?: unknown } };
   assert.deepEqual(record.origin.publicationBoundary, boundary);
 });
+
+test('task store: a board write that failed is sent again by the next flush', async () => {
+  // Catches: a store that drops the write the database refused, so the errand is missing from the board.
+  await withCapturedLogs(async () => {
+    const dataDir = tempDataDir();
+    const service = memoryOf(dataDir);
+    let down = true;
+    const memoryDb = {
+      ...service,
+      writeUnit: (update: unknown) =>
+        down ? Promise.reject(Object.assign(new Error('down'), { code: 'DB_CLOSED' })) : service.writeUnit(update),
+    };
+    const store = createErrandStore({
+      memoryDb,
+      now: () => T0,
+      config: () => ({ errands: { maxOpen: 3 }, agents: { scout: { daily: { tasks: 5 } } } }),
+    });
+    const added = store.add(asked);
+    assert.equal(added.ok, true);
+    assert.equal((await store.flush()).waiting, 1);
+    down = false;
+    assert.equal((await store.flush()).waiting, 0);
+    const view = await boardTask(store, dataDir, idOf(added.ok ? added.errand : null));
+    assert.deepEqual(statusesOf(view), ['approved']);
+  });
+});

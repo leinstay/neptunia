@@ -1,7 +1,6 @@
 // The memory units on the database (spec 2026-10-24-memory-authority, section 6 items 1, 2, 3 and 8): the store's
-// cached units, the intention and task stores, the archive and the versions write the database (unit-write.js, through
-// the outbox of unit-outbox.js), their reads never touch the disk, and a unit write that still fails at the shutdown
-// is logged as lost and leaves no file. A day of writes on a fixture whose memory files are gone and whose directories are
+// units, the intention and task stores, the archive and the versions write the database through its writer, their
+// reads never touch the disk, and a unit write that still fails at the shutdown leaves no file. A day of writes on a fixture whose memory files are gone and whose directories are
 // read-only leaves no memory file and writes every kind of unit. Synthetic data only (Greek or accented Latin for
 // non-ASCII); the ids are made up.
 import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
@@ -25,7 +24,6 @@ import { createIntentionStore } from '../src/intentions/store.ts';
 import { createErrandStore } from '../src/errands/store.ts';
 import { touchMemory } from '../src/memory/update.ts';
 import { CHANNEL, GUILD, MEMBER, buildDataDir, fileFixtureErrand } from './fixtures/memory-db/datadir.ts';
-import { createUnitOutbox } from '../src/memory/db/unit-outbox.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 import {} from '../src/memory/db/ids.ts';
@@ -316,52 +314,6 @@ async function day(m: Awaited<ReturnType<typeof modules>>) {
   await m.tasks().flush();
   await settle();
 }
-
-test('outbox: a newer value replaces the waiting one, lines keep their order, a failed write goes back in front and is logged lost at the shutdown', async () => {
-  const written: Array<unknown> = [];
-  let failing = true;
-  const memoryDb = {
-    async writeUnit(update: unknown) {
-      if (failing) throw Object.assign(new Error('down'), { code: 'DB_CLOSED' });
-      written.push(update);
-      return {};
-    },
-  };
-  const log = logs();
-  const outbox = createUnitOutbox({ memoryDb, log, name: 'test' });
-  outbox.value('guilds/g/a.json', { n: 1 });
-  outbox.lines('guilds/g/t.jsonl', [{ n: 1 }]);
-  assert.equal(await outbox.push(), 0);
-  assert.equal(outbox.holds('guilds/g/a.json'), true);
-  outbox.value('guilds/g/a.json', { n: 2 });
-  outbox.lines('guilds/g/t.jsonl', [{ n: 2 }]);
-  failing = false;
-  assert.equal(await outbox.flush(), 0);
-  assert.deepEqual(written, [
-    { op: 'value', owner: 'guilds/g/a.json', value: { n: 2 } },
-    { op: 'lines', owner: 'guilds/g/t.jsonl', lines: [{ n: 1 }, { n: 2 }] },
-  ]);
-  assert.equal(outbox.size(), 0);
-  failing = true;
-  outbox.value('guilds/g/a.json', { n: 3 });
-  assert.equal(await outbox.flush({ final: true }), 1);
-  assert.ok(
-    log.out.some(
-      (entry) =>
-        entry.level === 'warn' && entry.message === 'memory db: unit write failed' && entry.code === 'DB_CLOSED'
-    )
-  );
-  // Bug: the shutdown hands the write to a folder nothing reads, so the loss goes unseen in the log.
-  assert.ok(
-    log.out.some(
-      (entry) =>
-        entry.level === 'error' &&
-        entry.message === 'memory db: units lost' &&
-        entry.units === 1 &&
-        entry.code === 'DB_CLOSED'
-    )
-  );
-});
 
 test('a day of writes with the memory files gone writes every kind of unit to the database and no memory file', async () => {
   const db = prepared();
