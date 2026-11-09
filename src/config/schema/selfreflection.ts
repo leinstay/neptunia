@@ -20,14 +20,6 @@ export const SELFREFLECTION: ReadonlyArray<SchemaEntry> = [
       'Exact UTC slots of the selfreflection, `at 09:00,21:00` or `every 6h` laid from the start of the UTC day, which replace `windows` and its quiet days. A change moves the slots ahead on the current day. Null: the windows draw the day',
   },
   {
-    'key': 'selfreflection.placeId',
-    'types': ['string'],
-    'reader': 'src/memory/db/service.ts',
-    'default': '',
-    'text':
-      "The seed of the selfreflection's first mirror: schema v15 makes this channel's place a `selfreflection` mirror. Nothing else reads it",
-  },
-  {
     'key': 'selfreflection.windows',
     'types': ['array'],
     'reader': 'src/behavior/selfreflection.ts',

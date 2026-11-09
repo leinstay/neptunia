@@ -666,7 +666,7 @@ export const KEPT: ReadonlyArray<string> = [
   'tools.loop.timeBudgetMs',
   'tools.loop.maxCallsPerStep',
   'tools.loop.stepReserveTokens',
-  'selfreflection.placeId',
+  // `selfreflection.placeId` went later with the open that seeded the first mirror from it, its one reader.
   'selfreflection.windows',
   'selfreflection.quietDayChance',
   'selfreflection.forceWaitMs',

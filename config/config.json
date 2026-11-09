@@ -405,7 +405,6 @@
   "selfreflection": {
     "enabled": true,
     "schedule": null,
-    "placeId": "",
     "windows": [
       {
         "from": 7,

@@ -11,12 +11,10 @@
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import type { DatabaseSync as DatabaseSyncClass } from 'node:sqlite';
-import { MIGRATIONS, finishSelfreflectionDestination, finishSelfreflectionMirror } from './schema.ts';
+import { MIGRATIONS } from './schema.ts';
 import { BASELINE_VERSION, createBaseline } from './schema-baseline.ts';
-import type { Migration, MigrationContext } from './schema.ts';
+import type { Migration } from './schema.ts';
 import { ALIVE_LEASE, leaseOf } from './wake-queue.ts';
-import { importWakeQueues } from '../migration/wake-import.ts';
-import { mergeGifLibraries } from './gif-library-merge.ts';
 import { BOARD_VERSION, boardVersion } from '../../board/schema.ts';
 import type { BoardDb, BoardStatus } from '../../board/schema.ts';
 import type { Db, MemoryHandle } from './types.ts';
@@ -132,16 +130,9 @@ export function schemaVersion(dbGiven: unknown): number {
 /**
  * Brings a database to the newest version in one transaction. A new database starts from the baseline
  * (src/memory/db/schema-baseline.ts), and every entry of `migrations` is one version above it. A database below the
- * baseline is refused with `schema-below-baseline` and left as it was. `context` is what only the opener knows: the
- * selfreflection's channel (`selfreflectionPlaceId`) and the data directory (`dataDir`). With them an open finishes
- * what a database once left pending: the selfreflection's destination and mirror, the wake files and the per-place GIF
- * libraries, before the commit.
+ * baseline is refused with `schema-below-baseline` and left as it was.
  */
-export function migrate(
-  dbGiven: unknown,
-  migrations: ReadonlyArray<Migration> = MIGRATIONS,
-  context: MigrationContext = {}
-): void {
+export function migrate(dbGiven: unknown, migrations: ReadonlyArray<Migration> = MIGRATIONS): void {
   const db = dbGiven as Db;
   inTransaction(db, () => {
     db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');
@@ -159,16 +150,10 @@ export function migrate(
     }
     while (version < BASELINE_VERSION + migrations.length) {
       const step = migrations[version - BASELINE_VERSION];
-      if (typeof step === 'function') step(db, context);
+      if (typeof step === 'function') step(db);
       else db.exec(step);
       version += 1;
       db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(version);
-    }
-    if (migrations === MIGRATIONS) {
-      finishSelfreflectionDestination(db, context);
-      finishSelfreflectionMirror(db, context);
-      importWakeQueues(db, context);
-      mergeGifLibraries(db);
     }
   });
 }
@@ -199,11 +184,10 @@ function boardStatusOf(db: BoardDb): BoardStatus {
     : { ok: false, version, error: `the board is at version ${version}, the engine expects ${BOARD_VERSION}` };
 }
 
-/** The options of `openMemoryDb`. `context` is what a migration step needs from the opener (see `migrate`). */
+/** The options of `openMemoryDb`. */
 export type OpenOptions = LockOptions & {
   readOnly?: boolean;
   migrations?: ReadonlyArray<Migration>;
-  context?: MigrationContext;
 };
 
 /**
@@ -226,7 +210,7 @@ export function openMemoryDb(dbPathGiven: unknown, opts: OpenOptions = {}): Memo
     }
     db.exec('PRAGMA busy_timeout = 5000');
     db.exec('PRAGMA foreign_keys = ON');
-    if (!readOnly) migrate(db, opts.migrations ?? MIGRATIONS, opts.context ?? {});
+    if (!readOnly) migrate(db, opts.migrations ?? MIGRATIONS);
     board = boardStatusOf(db);
   } catch (error) {
     try {

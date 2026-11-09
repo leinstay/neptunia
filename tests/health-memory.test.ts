@@ -16,7 +16,7 @@ const iso = (daysAgo: number): string => new Date(NOW - daysAgo * DAY).toISOStri
 /** A fresh memory database and its connection. */
 function fixture(): { db: DatabaseSync; close: () => void; dir: string } {
   const dir = tempDir('health-memory-');
-  const handle = openMemoryDb(join(dir, 'memory.db'), { context: { dataDir: dir } });
+  const handle = openMemoryDb(join(dir, 'memory.db'));
   return { db: handle.db as DatabaseSync, close: () => handle.close(), dir };
 }
 

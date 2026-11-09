@@ -106,7 +106,7 @@ export function backendOf(life: InnerContext): WakeBackend {
   const key = path.resolve(life.dataDir);
   let handle = FALLBACK.get(key);
   if (!handle) {
-    handle = openMemoryDb(':memory:', { context: { dataDir: life.dataDir } });
+    handle = openMemoryDb(':memory:');
     FALLBACK.set(key, handle);
   }
   const fallback = handle;

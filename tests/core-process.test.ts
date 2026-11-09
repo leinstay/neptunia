@@ -440,7 +440,7 @@ test('a second core over the same data is refused and the first keeps its socket
 /** The `core:alive` lease written as another core would have left it, through a writer that is then closed. */
 function aliveOfAnotherCore(dirs: Dirs, renewedAt: number, ttlMs: number): void {
   mkdirSync(dirs.dataDir, { recursive: true });
-  const handle = openMemoryDb(join(dirs.dataDir, 'memory.db'), { context: { dataDir: dirs.dataDir } });
+  const handle = openMemoryDb(join(dirs.dataDir, 'memory.db'));
   try {
     applyWakeQueueWrite(handle, { kind: 'wake-queue', op: 'alive', holder: 'core:other', now: renewedAt, ttlMs });
   } finally {
