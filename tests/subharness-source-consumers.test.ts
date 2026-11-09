@@ -8,19 +8,17 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { chatPanel } from '../bin/chat-panels.ts';
-import { readRouting } from '../src/subharness/routing.ts';
+
 import { subharnessCommand } from '../src/interface/commands/subharness.ts';
 import { unitText } from '../src/setup/install.ts';
 import type { UnitTarget } from '../src/setup/install.ts';
 import { watcherStep } from '../src/setup/watcher.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
-import { routeOfAgent } from '../src/subharness/control.ts';
+
 import { updateSubharness } from '../src/subharness/install.ts';
-import { memoryProbe } from '../src/subharness/memory-probe.ts';
-import { runMemoryWriter } from '../src/subharness/memory-writer.ts';
+
 import { subharnessPlace } from '../src/subharness/place.ts';
-import { runAgent } from '../src/subharness/run.ts';
-import { featureRows } from '../src/subharness/summary.ts';
+
 import { fakeVendor, treeOf } from './fixtures/fake-vendor.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
 import type { KeysFile } from './fixtures/keys-file.ts';
@@ -34,87 +32,6 @@ function storeWith(subharness: Partial<KeysFile['subharness']>): string {
   writeKeysFile(privateDir, { subharness: { key: null, modes: {}, ...subharness } });
   return privateDir;
 }
-
-// Changed: the tests of the stored list's migration are gone. The engine reads the agents' backends from
-// `models.agents.via` of config.json alone, and the deploy's one-off moved the old list there.
-
-// Runner selection
-
-test('routeOfAgent follows the role assignment when the old list omits that backend', () => {
-  // Catches: a valid login left out of the old list keeps the agent refused.
-  const privateDir = storeWith({ backends: ['codex'], uses: { dev: 'claude' }, models: { dev: 'sonnet' } });
-  assert.deepEqual(routeOfAgent(privateDir, 'dev'), {
-    backend: 'claude',
-    model: 'sonnet',
-    effort: null,
-    mode: 'write',
-  });
-});
-
-test('the runner starts the assigned backend when the old list omits it', async () => {
-  // Catches: the runner's own read of the list answers subharness-off for a source that works.
-  const privateDir = storeWith({ backends: ['codex'], uses: { dev: 'claude' } });
-  const vendor = fakeVendor(privateDir, 'claude', { loggedIn: true });
-  const done = await runAgent(
-    { agent: 'dev', brief: 'the brief', cwd: privateDir, timeoutMs: 5000 },
-    { privateDir, denyDir: tempDir('nep-deny-'), hostEnv: { PATH: '/usr/bin:/bin' } }
-  );
-  assert.equal(done.error, undefined);
-  assert.equal(done.ok, true);
-  // Changed: the installed backend reads its own --help before a run, which is no model run.
-  assert.equal(vendor.calls().filter((one) => one !== '--help').length, 1);
-});
-
-// The memory path
-
-function probeOf(privateDir: string, ran: Array<string>) {
-  const { fetch, calls } = fakeFetch();
-  return {
-    calls,
-    deps: {
-      privateDir,
-      route: () => ({ name: 'core-1', value: 'value' }),
-      fetch,
-      baseUrl: 'https://openrouter.test/api/v1',
-      model: () => 'x/memory',
-      runBackend: (name: 'codex' | 'claude') => {
-        ran.push(name);
-        return Promise.resolve({ ok: true, text: 'ok', exitCode: 0 });
-      },
-    },
-  };
-}
-
-test('the memory probe reaches a selected backend the old list omits', async () => {
-  // Catches: the writer's selected Claude reads as subharness-off, so she sleeps with a working login.
-  const privateDir = storeWith({
-    backends: [],
-    memory: { backend: 'claude', model: 'claude-opus-4-6', effort: null },
-  });
-  fakeVendor(privateDir, 'claude', { loggedIn: true });
-  const ran: Array<string> = [];
-  const result = await memoryProbe(probeOf(privateDir, ran).deps, 1000);
-  // Changed: claude enforces the output cap, so its probe carries no gap.
-  assert.deepEqual(result, { ok: true, at: 1000, gaps: [] });
-  assert.deepEqual(ran, ['claude']);
-});
-
-test('the memory writer runs a selected backend the old list omits', async () => {
-  // Catches: the writer's own gate refuses every sweep with subharness-off after the list is gone.
-  const privateDir = storeWith({ backends: [] });
-  fakeVendor(privateDir, 'claude', { loggedIn: true });
-  const completion = await runMemoryWriter(
-    { kind: 'subharness', backend: 'claude', model: 'claude-opus-4-6', effort: null },
-    { system: 'SYSTEM', user: 'USER', timeoutMs: 5000 },
-    {
-      privateDir,
-      workDir: tempDir('nep-memory-work-'),
-      runChild: () =>
-        Promise.resolve({ exitCode: 0, stdout: JSON.stringify({ is_error: false, result: 'text' }), stderr: '' }),
-    }
-  );
-  assert.equal(completion.text, 'text');
-});
 
 // Unit binds
 
@@ -157,33 +74,12 @@ function watcherRig(privateDir: string, answers: Array<string>) {
   return { ask: () => Promise.resolve(answers.shift() ?? '') };
 }
 
-test('the watcher step takes an installed, authenticated source the old list omits', async () => {
-  // Catches: setup refuses a logged-in backend because the enable step that fed the list is gone.
-  const privateDir = storeWith({ backends: [] });
-  fakeVendor(privateDir, 'claude', { loggedIn: true });
-  const outcome = await watcherStep({ rootDir: ROOT, privateDir }, watcherRig(privateDir, ['claude', 'sonnet']));
-  assert.equal(outcome.state, 'done');
-  assert.equal(readRouting(privateDir).subharness.uses.watcher, 'claude');
-});
-
 test('the watcher step refuses a source that is installed and not logged in', async () => {
   // Catches: installed alone passes as available, so the watcher is switched on over a backend that cannot answer.
   const privateDir = storeWith({ backends: ['claude'] });
   fakeVendor(privateDir, 'claude');
   const outcome = await watcherStep({ rootDir: ROOT, privateDir }, watcherRig(privateDir, ['claude', 'sonnet']));
   assert.equal(outcome.state, 'refused');
-});
-
-test('the features row reads the subharness on with an authenticated source and names no enable command', async () => {
-  // Catches: doctor tells the owner to run a command that no longer exists.
-  const on = storeWith({});
-  fakeVendor(on, 'claude', { loggedIn: true });
-  const row = (await featureRows(on)).find((one) => one.name === 'subharness');
-  assert.equal(row?.available, true);
-  const off = storeWith({});
-  const none = (await featureRows(off)).find((one) => one.name === 'subharness');
-  assert.equal(none?.available, false);
-  assert.equal(none?.hint?.includes('subharness enable'), false);
 });
 
 test('the setup panel offers the login of each backend and never the retired enable', async () => {

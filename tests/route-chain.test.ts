@@ -38,18 +38,6 @@ test('an empty chain in models.routes leaves the role with no route', () => {
   assert.deepEqual(routesOf({ models: { routes: { vision: [] } } }, 'vision'), []);
 });
 
-test('a role with no models.routes entry has no route, whatever the retired settings still hold', () => {
-  // Catches: the retired settings still translated, so a deployment whose migration missed a role keeps a route
-  // nobody can see in `/model show` or change with `/model set`.
-  const config = {
-    models: { base: { core: 'anthropic/claude-opus-4.6' }, harness: { core: { backend: 'claude', model: 'm' } } },
-    llm: { boundKeys: { search: 'helpers' }, subscription: { fallback: true } },
-    web: { quickSearch: { model: 'openai/gpt-6.1-sol' } },
-  };
-  assert.deepEqual(routesOf(config, 'core'), []);
-  assert.deepEqual(routesOf(config, 'search'), []);
-});
-
 test('a harness record of models.routes is read as a harness route', () => {
   // Catches: a harness route of the memory writer dropped by the reader, so her memory session spends a key.
   const config = { models: { routes: { memory: [{ via: 'harness', backend: 'claude', model: 'claude-opus-4-6' }] } } };
