@@ -43,29 +43,6 @@ const OPS: Array<OpInfo> = [
 ];
 const byName = (name: string) => OPS.find((o) => o.name === name);
 
-/** The old command keys of the fixture registry: an exact key -> its op, a group -> its keys' ops. */
-const OLD_KEYS: Record<string, string> = {
-  status: 'status.show',
-  set: 'config.set',
-  'rule.list': 'rule.list',
-  'rule.add': 'rule.add',
-  'memory.show': 'memory.profile.read',
-  'memory.recent': 'memory.recent.read',
-  'memory.affinity': 'memory.affinity.read',
-  'memory.refresh': 'memory.refresh',
-  'memory.journal': 'memory.journal.read',
-  'memory.wipe': 'memory.wipe',
-  'private.show': 'memory.private.read',
-  'access.list': 'access.list',
-  pings: 'pings.get',
-};
-function legacy(key: string): { from: string | null; names: Array<string> } | null {
-  if (key === '*') return { from: '*', names: OPS.map((o) => o.name) };
-  if (Object.hasOwn(OLD_KEYS, key)) return { from: null, names: [OLD_KEYS[key]] };
-  const under = Object.keys(OLD_KEYS).filter((k) => k.startsWith(`${key}.`));
-  return under.length ? { from: key, names: [...new Set(under.map((k) => OLD_KEYS[k]))] } : null;
-}
-
 // The stored grant of `key`; every test that reads one has just written it through `grant`.
 // The stored shape is Record<string, unknown> because config files are untrusted; the cast names the entry shape.
 const entryAt = (access: Access, key: string): Pick<GrantEntry, 'roles' | 'via'> => access[key] as GrantEntry;

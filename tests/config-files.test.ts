@@ -9,7 +9,6 @@ import { createHot as createHotUntyped } from '../src/hot.ts';
 import * as files from '../src/config/files.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { ROOT } from './fixtures/private-layer.ts';
 import { resolvePaths } from '../src/paths.ts';
 import { readConfig } from '../src/config.ts';

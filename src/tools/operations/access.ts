@@ -16,13 +16,11 @@ import {
   revoke as accessRevoke,
   hasGrant,
 } from './grants.ts';
-import { log } from '../../log.ts';
 import { NONE, reloadNote } from './shared.ts';
 import { skillNames, skillRegistry } from '../registry.ts';
 import { NOT_GRANTABLE_TO_PERSONA } from '../access.ts';
 import { defineOp, perEnv, invalid, denied, listOps } from './registry.ts';
 import { CODE } from '../codes.ts';
-import type { Env } from './env.ts';
 import { idText, isObj, objOf, textOf } from '../types.ts';
 import type { Access, GrantTarget, Obj, OpContext, OpInfo } from '../types.ts';
 

@@ -15,7 +15,6 @@
 
 import { createOpsEnv } from './tools/operations/env.ts';
 import { runOp, runOpPrechecked } from './tools/operations/index.ts';
-import { listOps } from './tools/operations/registry.ts';
 import { listAliases } from './tools/operations/alias.ts';
 import { listLessons } from './tools/operations/learning.ts';
 import { hasTrait } from './tools/definitions.ts';
