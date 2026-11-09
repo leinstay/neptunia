@@ -662,6 +662,46 @@ test('the tool answers an empty search the same as before: no sampled line', asy
   }
 });
 
+test('the tool answers terms and a day that match nothing with none found and no sample of the day', async () => {
+  const env = fixture();
+  try {
+    spread(env, 'd', { from: DAY_START, to: DAY_END, count: 30 });
+    const text = textOf(await toolRig(env).ask({ terms: 'ανυπαρκτο', when: '2026-11-01' }));
+    assert.ok(text.includes(NONE_MARK), text);
+    assert.ok(!text.includes('line d'), 'no line of the day comes back');
+    assert.ok(!text.includes(SAMPLED_MARK), text);
+  } finally {
+    env.done();
+  }
+});
+
+test('the tool narrows a word to the place of another interface that the call names by its stored id', async () => {
+  const env = fixture();
+  try {
+    const away = channelPlaceId('telegram', 't9');
+    env.db
+      .prepare(
+        "INSERT INTO places (id, iface, kind, native_id, chat, scope_kind, name) VALUES (?, 'telegram', 'channel', 't9', 'group', 'group', 'away')"
+      )
+      .run(away);
+    env.say({ native: 'here', at: DAY_START + 60 * MINUTE, text: 'a kite over the home channel', place: GENERAL });
+    env.say({
+      native: 'there',
+      at: DAY_START + 61 * MINUTE,
+      text: 'a kite over the other interface',
+      iface: 'telegram',
+      place: away,
+      scope: groupScope('telegram'),
+    });
+    env.stem();
+    const text = textOf(await toolRig(env).ask({ terms: 'kite', placeId: away }));
+    assert.ok(text.includes('over the other interface'), text);
+    assert.ok(!text.includes('over the home channel'), "the line of the turn's own interface stays out");
+  } finally {
+    env.done();
+  }
+});
+
 test('the tool still refuses a call with nothing to search', async () => {
   const env = fixture();
   try {

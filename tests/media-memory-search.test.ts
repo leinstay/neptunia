@@ -29,7 +29,7 @@ import {
   recallRig,
   tell,
 } from './fixtures/media-memory.ts';
-import { byMeaning, embedLines } from './fixtures/media-memory-embed.ts';
+import { MODEL, byMeaning, embedLines, embedWords } from './fixtures/media-memory-embed.ts';
 import type { Env, Kind, Presence } from './fixtures/media-memory.ts';
 import type { Row } from '../src/memory/db/types.ts';
 
@@ -423,4 +423,62 @@ test('a search over 100000 links reads media and its links through indexes', () 
       const scans = plan.filter((detail) => /^SCAN (\w+ AS )?(media_links|media)\b/.test(detail));
       assert.deepEqual(scans, [], `no full scan: ${sql}`);
     }
+  }));
+
+// ---------- terms alone are embedded, a picture is found by what it shows ----------
+
+/** A recording embedding call over the fake embedder: it gives `vectorOf(text)` for every text and keeps the texts it was asked. */
+function recordingEmbed(vectorOf: (text: string) => Float32Array) {
+  const asked: Array<string> = [];
+  const embed = (texts: Array<string>) => {
+    asked.push(...texts);
+    return Promise.resolve(texts.map(vectorOf));
+  };
+  return { asked, embed };
+}
+
+/** A picture whose description is English, its vector queued under the fake model. */
+async function pictureWithDescription(env: Env): Promise<{ description: string; sourceId: string }> {
+  const sourceId = observeLine(env, IMAGE, 'part');
+  env.stem();
+  await embedLines(env);
+  return { description: itemsOf(IMAGE, 'pic')[0].told, sourceId };
+}
+
+test('terms with no question are embedded for the meaning search', () =>
+  withEnv(async (env) => {
+    await pictureWithDescription(env);
+    const { asked, embed } = recordingEmbed(embedWords);
+    await recallRig(env, { embed, model: MODEL }).ask({ terms: 'маяк' });
+    assert.equal(
+      asked.some((text) => text.includes('маяк')),
+      true,
+      `the embedder received: ${JSON.stringify(asked)}`
+    );
+  }));
+
+test('a window read by anchor embeds nothing', () =>
+  withEnv(async (env) => {
+    const { sourceId } = await pictureWithDescription(env);
+    env.say({ native: 'before', at: AT - 60_000, text: 'an earlier remark about the harbour', place: GENERAL });
+    const { asked, embed } = recordingEmbed(embedWords);
+    const text = await recallRig(env, { embed, model: MODEL }).ask({ anchor: '#1' }, { kind: 'source', sourceId });
+    assert.ok(text.includes('earlier remark'), 'the lines before the anchor were read');
+    assert.deepEqual(asked, []);
+  }));
+
+test('terms that share no word with a picture description find its line when the embedder puts them close', () =>
+  withEnv(async (env) => {
+    const { description } = await pictureWithDescription(env);
+    const { embed } = recordingEmbed(() => embedWords(description));
+    const text = await recallRig(env, { embed, model: MODEL, minMeaning: 0.5 }).ask({ terms: 'маяк' });
+    assert.ok(text.includes(description), text);
+  }));
+
+test('terms that share no word with a picture description find nothing when the embedder puts them far', () =>
+  withEnv(async (env) => {
+    const { description } = await pictureWithDescription(env);
+    const { embed } = recordingEmbed(() => embedWords(KINDS[4].first.word));
+    const text = await recallRig(env, { embed, model: MODEL, minMeaning: 0.5 }).ask({ terms: 'маяк' });
+    assert.ok(!text.includes(description), text);
   }));
