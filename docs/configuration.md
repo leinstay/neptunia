@@ -139,10 +139,6 @@ The paths of her core, her memory writer and the simulation through a subharness
 | `memoryDb.inspection.snapshotIdleSeconds` | number | `60` | How long an inspection snapshot stays open with no read of it | `src/interface/commands/memory.ts` |
 | `memoryDb.inspection.snapshotMaxSeconds` | number | `300` | How long an inspection snapshot stays open at most, so it cannot hold the write-ahead log back | `src/interface/commands/memory.ts` |
 | `memoryDb.inspection.maxSnapshots` | number | `4` | How many inspection snapshots may be open at once. Each holds a read transaction that keeps the write-ahead log from resetting, and the next open is refused with INSPECTION_TOO_MANY | `src/interface/commands/memory.ts` |
-| `memoryDb.backup.enabled` | boolean | `false` | Daily backup of the persona data, including a consistent memory database snapshot | `src/memory/db/backup.ts` |
-| `memoryDb.backup.hour` | number | `3` | The UTC hour (0 to 23) from which the day's backup is taken | `src/memory/db/backup.ts` |
-| `memoryDb.backup.dir` | string | `"../backups/memory"` | Where the backups go, relative to the data directory or absolute | `src/memory/db/backup.ts` |
-| `memoryDb.backup.keep` | number | `7` | How many finished backups are kept | `src/memory/db/backup.ts` |
 
 ## memoryDb.session
 

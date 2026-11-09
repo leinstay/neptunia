@@ -25,7 +25,6 @@ import { indexSettings } from '../src/memory/db/index-policy.ts';
 import { dbSettings } from '../src/memory/db/recall.ts';
 import { graphSettings } from '../src/memory/db/graph.ts';
 import { focusSettings } from '../src/memory/db/focus.ts';
-import { backupSettings } from '../src/memory/db/backup.ts';
 import { captureSettings } from '../src/memory/db/observe.ts';
 import { sessionSettings } from '../src/memory/db/session.ts';
 import { boardSettings } from '../src/board/board.ts';
@@ -150,7 +149,6 @@ const READERS: ReadonlyArray<{ name: string; group: CutGroup; read: (config: Tre
   { name: 'focusSettings', group: 'memory', read: (config) => focusSettings(config) },
   { name: 'captureSettings', group: 'memory', read: (config) => captureSettings(config) },
   { name: 'sessionSettings', group: 'memory', read: (config) => sessionSettings(config) },
-  { name: 'backupSettings', group: 'memory', read: (config) => backupSettings(config, '/data') },
   { name: 'innerSettings', group: 'inner life', read: (config) => innerSettings(config) },
   { name: 'heartbeatLimits', group: 'inner life', read: (config) => heartbeatLimits(config) },
   { name: 'intentionSettings', group: 'inner life', read: (config) => intentionSettings(config) },
