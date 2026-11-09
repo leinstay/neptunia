@@ -9,18 +9,10 @@ import path from 'node:path';
 import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
 import { SCOPED_TABLES } from '../src/memory/db/schema.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
-import { insertRows } from '../src/memory/db/rows.ts';
+import { insertRows, resolveRow } from '../src/memory/db/rows.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { insertTurnReads } from '../src/memory/db/service.ts';
-import {
-  AUD_INTERNAL,
-  audienceOf,
-  contextRow,
-  dmScope,
-  groupScope,
-  issueContext,
-  wellFormed,
-} from '../src/memory/db/scope.ts';
+import { AUD_INTERNAL, contextRow, dmScope, groupScope, issueContext, wellFormed } from '../src/memory/db/scope.ts';
 import { applySelfreflectionUpdate } from '../src/memory/db/selfreflection-media.ts';
 import { canonicalKey, dmPlaceId, linkId, newPersonId, nodeId, personId, resolveAlias } from '../src/memory/db/ids.ts';
 import { main } from '../scripts/memory-db.ts';
@@ -76,11 +68,15 @@ const run = (...argv: Array<string>) => {
   return { code, text: lines.join('\n') };
 };
 
-/** Every scoped row's audience is the resolver's answer for its triple. */
+/**
+ * Every scoped row's audience is the resolver's answer for its triple. Changed with ids-by-links slice 3: a DM triple
+ * resolves through the stored DM place of its partner (`resolveRow`), since `audienceOf` alone spells no place.
+ */
 function assertAudiences(db: Db) {
   for (const table of SCOPED_TABLES) {
     for (const row of db.prepare(`SELECT scope_kind, scope_iface, scope_dm, audience_id FROM "${table}"`).all()) {
-      assert.equal(row.audience_id, audienceOf(row).audience_id, `${table}: ${JSON.stringify({ ...row })}`);
+      const triple = { scope_kind: row.scope_kind, scope_iface: row.scope_iface, scope_dm: row.scope_dm };
+      assert.equal(row.audience_id, resolveRow(db, triple).audience_id, `${table}: ${JSON.stringify({ ...row })}`);
     }
   }
 }
@@ -323,17 +319,16 @@ test('v7: a replay of the unit writes re-derives the new columns, keeps links an
       'revoked',
       'the link row is never rewritten'
     );
-    const fresh = db
-      .prepare('SELECT kind, chat, partner_person, owner_file FROM places WHERE id = ?')
-      .get(dmPlaceId('discord', NEWCOMER));
-    assert.deepEqual(
-      { ...fresh },
-      { kind: 'dm', chat: 'dm', partner_person: personId('discord', NEWCOMER), owner_file: null },
-      'a DM line of a new partner brings its DM place'
+    // Changed with ids-by-links slice 3: a private file of a partner no stored DM holds spells its place from the member
+    // id, and no writer makes a place from that spelling. Its line stays internal until the DM is observed.
+    assert.equal(
+      db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(dmPlaceId('discord', NEWCOMER)),
+      undefined,
+      'a DM line of a new partner brings no place spelled from the member id'
     );
     assert.equal(
       db.prepare("SELECT audience_id FROM sources WHERE native_id = '400000000000000031'").get()!.audience_id,
-      `aud:dm:${dmPlaceId('discord', NEWCOMER)}`
+      AUD_INTERNAL
     );
     for (const user of [MEMBER, STRANGER])
       assert.ok(
@@ -353,6 +348,20 @@ test("v7 writers: a given audience that is not the triple's is quarantined; her 
   try {
     const warned: Array<{ message: string; fields: unknown }> = [];
     const log = { warn: (message: string, fields: unknown) => warned.push({ message, fields }) };
+    // Changed with ids-by-links slice 3: no writer makes u1's DM place from the person id, so it is stored first.
+    insertRows(db, {
+      places: [
+        {
+          id: dmPlaceId('discord', 'u1'),
+          iface: 'discord',
+          kind: 'dm',
+          native_id: null,
+          scope_kind: 'dm',
+          partner_person: personId('discord', 'u1'),
+          partner_account: 'discord:u1',
+        },
+      ],
+    });
     insertRows(
       db,
       {

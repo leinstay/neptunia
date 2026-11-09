@@ -553,24 +553,19 @@ function accountOf(
   const gen = isWholeNumber(generation) ? generation : 1;
   const legacy = found ? null : legacyAccountIdOf(authority, String(key), gen);
   const id = found ?? interfaceAccountId(authority, String(key), gen);
-  const row = deriveRow(
-    db,
-    'accounts',
-    {
-      id,
-      iface,
-      native_id: String(key),
-      person_id: null,
-      link: null,
-      names: filled(display) ? json([display]) : null,
-      authority_id: authority,
-      native_key: String(key),
-      generation: gen,
-      kind: filled(kind) ? kind : 'user',
-      owner_key: null,
-    },
-    { at }
-  );
+  const row = deriveRow(db, 'accounts', {
+    id,
+    iface,
+    native_id: String(key),
+    person_id: null,
+    link: null,
+    names: filled(display) ? json([display]) : null,
+    authority_id: authority,
+    native_key: String(key),
+    generation: gen,
+    kind: filled(kind) ? kind : 'user',
+    owner_key: null,
+  });
   insertRow(db, 'accounts', row);
   addKey(db, authority, 'account', String(key), id, { generation: gen, at });
   if (legacy) addKey(db, LEGACY_AUTHORITY, 'account', id, id, { at });
@@ -753,30 +748,25 @@ function placeOf(
   const legacy = legacyPlaceOf(p.authority, p.key, 1);
   const spelled = interfacePlaceOf(p.authority, p.key, 1);
   const placeId = spelled.id;
-  const row = deriveRow(
-    db,
-    'places',
-    {
-      id: placeId,
-      iface: envelope.iface,
-      kind: p.kind,
-      native_id: addressOr(p.address, spelled.native_id),
-      parent_id: parent,
-      scope_kind: declared,
-      name: filled(p.title) ? p.title : null,
-      authority_id: p.authority,
-      native_key: p.key,
-      generation: 1,
-      chat: declared,
-      partner_person: partner?.person ?? null,
-      partner_account: partner?.account ?? null,
-      seen_from_at: envelope.occurredAt,
-      seen_to_at: envelope.occurredAt,
-      extra: parentNote(p.parent, parent),
-      owner_key: null,
-    },
-    { at }
-  );
+  const row = deriveRow(db, 'places', {
+    id: placeId,
+    iface: envelope.iface,
+    kind: p.kind,
+    native_id: addressOr(p.address, spelled.native_id),
+    parent_id: parent,
+    scope_kind: declared,
+    name: filled(p.title) ? p.title : null,
+    authority_id: p.authority,
+    native_key: p.key,
+    generation: 1,
+    chat: declared,
+    partner_person: partner?.person ?? null,
+    partner_account: partner?.account ?? null,
+    seen_from_at: envelope.occurredAt,
+    seen_to_at: envelope.occurredAt,
+    extra: parentNote(p.parent, parent),
+    owner_key: null,
+  });
   insertRow(db, 'places', row);
   addKey(db, p.authority, 'place', p.key, placeId, { generation: 1, at });
   if (legacy) addKey(db, LEGACY_AUTHORITY, 'place', placeId, placeId, { at });
@@ -1157,7 +1147,7 @@ function writeObservation(
       owner_key: filled(owner) ? owner : null,
       position: filled(owner) ? nextPosition(db, owner) : null,
     },
-    { at, log }
+    { log }
   );
   if (row.audience_id !== audience) throw refusal(OBSERVE_CODES.AUDIENCE_CONFLICT);
   insertRow(db, 'sources', row);

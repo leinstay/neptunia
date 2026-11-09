@@ -5,9 +5,10 @@
 // Schema v7 (spec 2026-10-24-memory-schema-v7, sections 1, 2 and 11): every writer fills the derived columns from the
 // row itself through `deriveRow` (the sync's upsert, `insertRows`, the database's own writers in session-write.ts and
 // selfreflection-media.ts), so a remap of a file re-derives them instead of nulling them:
-//   - a row of a table with the scope triple gets `audience_id` from scope.ts#audienceOf (the one resolver); the
-//     audience row, its interface and, for a DM, the DM place of the partner are created when missing. A given
-//     `audience_id` that is not the triple's audience is a conflict: the row is quarantined to internal and logged;
+//   - a row of a table with the scope triple gets `audience_id` from scope.ts#audienceOf (the one resolver), a DM row
+//     the audience of the stored DM place that names its partner (`resolveRow`); the audience row and its interface are
+//     created when missing, and a DM audience whose place no row holds is refused. A given `audience_id` that is not
+//     the triple's audience is a conflict: the row is quarantined to internal and logged;
 //   - an account gets its authority and native key, a place its authority, native key and chat, a source its
 //     authority, author kind and `observed_at`;
 //   - `ensureNodeKeys` registers a person, account or place in `external_keys` (its native authority and the legacy
@@ -32,7 +33,6 @@ import { log as engineLog } from '../../log.ts';
 import {
   CORE_AUTHORITY,
   LEGACY_AUTHORITY,
-  dmPartnerOfPlace,
   externalTargetKey,
   legacyAccountNative,
   legacyNativeKind,
@@ -144,43 +144,43 @@ export function addKey(
   ).run(authority, kind, asText(nativeKey), generation, nodeId, stampOf(at));
 }
 
-/** The derived columns of a place row: authority, native key, chat. */
-export function placeColumns(row: Row): {
+/**
+ * The derived columns of a place row: authority, native key, chat. A DM place with no native id of its own takes the
+ * native id of its partner account, which the caller read (`partnerNativeOf`).
+ */
+export function placeColumns(
+  row: Row,
+  partnerNative: unknown = null
+): {
   authority_id: string;
   native_key: string | null;
   chat: string | null;
 } {
   const kind = row.kind ?? null;
   const chat = kind === 'dm' || row.scope_kind === 'dm' ? 'dm' : CONTAINERS.has(kind as string) ? null : 'group';
-  return { authority_id: nativeAuthorityOf(row.iface), native_key: placeNativeKey(row), chat };
+  return { authority_id: nativeAuthorityOf(row.iface), native_key: placeNativeKey(row, partnerNative), chat };
+}
+
+/** The native id of a DM place row's partner account (`accounts.native_id`), null for any other row or no account row. */
+function partnerNativeOf(db: Db, row: Row): unknown {
+  if (row.kind !== 'dm' || (row.native_id !== null && row.native_id !== undefined)) return null;
+  if (typeof row.partner_account !== 'string' || row.partner_account === '') return null;
+  return prepared(db, 'SELECT native_id FROM accounts WHERE id = ?').get(row.partner_account)?.native_id ?? null;
 }
 
 /**
- * The DM place of a partner, created when missing (`<iface>:dm:<native>`, kind and chat `dm`, partner from the
- * scope), with its keys. A place the database writes has no `owner_file`: no file remap touches it.
+ * The one stored DM place of a DM scope's partner on its interface (`places.partner_person`); null for none and for
+ * several, which no triple can tell apart.
  */
-export function ensureDmPlace(
-  db: Db,
-  placeId: string,
-  iface: string,
-  person: string | null,
-  { at }: { at?: string } = {}
-): void {
-  if (!hasV7(db)) return;
-  if (prepared(db, 'SELECT 1 AS ok FROM places WHERE id = ?').get(placeId)) return;
-  ensureInterface(db, iface);
-  const partner = dmPartnerOfPlace(placeId);
-  const account = partner && partner.iface === iface ? partner.account : null;
-  const row = { id: placeId, iface, kind: 'dm', native_id: null, scope_kind: 'dm' };
-  const cols = placeColumns(row);
-  prepared(
+export function storedDmPlaceOf(db: Db, scope: Row): string | null {
+  if (scope.scope_kind !== 'dm' || typeof scope.scope_dm !== 'string' || typeof scope.scope_iface !== 'string')
+    return null;
+  if (scope.scope_dm === '' || scope.scope_iface === '' || !hasV7(db)) return null;
+  const places = prepared(
     db,
-    `INSERT INTO places (id, iface, kind, native_id, parent_id, scope_kind, authority_id, native_key, generation, chat, partner_person, partner_account)
-    VALUES (?, ?, 'dm', NULL, NULL, 'dm', ?, ?, 1, 'dm', ?, ?)`
-  ).run(placeId, iface, cols.authority_id, cols.native_key, person ?? null, account);
-  addKey(db, cols.authority_id, 'place', cols.native_key, placeId, { at });
-  addKey(db, LEGACY_AUTHORITY, 'place', placeId, placeId, { at });
-  projectRow(db, 'places', { id: placeId }, { at });
+    "SELECT id FROM places WHERE partner_person = ? AND iface = ? AND (kind = 'dm' OR chat = 'dm') LIMIT 2"
+  ).all(scope.scope_dm, scope.scope_iface);
+  return places.length === 1 ? String(places[0]?.id) : null;
 }
 
 /**
@@ -193,8 +193,11 @@ export const NEWEST_CLAIM_VERSION_SQL =
 export const newestClaimVersion = (db: Db, claimId: unknown): unknown =>
   db.prepare(NEWEST_CLAIM_VERSION_SQL).get(claimId)?.id ?? null;
 
-/** The audience row of a resolved scope (and its interface, and the DM place), when missing. */
-export function ensureAudience(db: Db, resolved: Row, { at }: { at?: string } = {}): void {
+/**
+ * The audience row of a resolved scope (and its interface), when missing. A DM audience takes the interface of its place
+ * row; one whose place no row holds is refused, since no place is made from the spelling of an audience id.
+ */
+export function ensureAudience(db: Db, resolved: Row): void {
   if (!hasV7(db)) return;
   const parts = audienceParts(resolved.audience_id);
   if (!parts || parts.kind === 'none' || parts.kind === 'internal') {
@@ -204,24 +207,42 @@ export function ensureAudience(db: Db, resolved: Row, { at }: { at?: string } = 
     );
     return;
   }
-  const iface = parts.kind === 'group' ? parts.iface : resolved.scope_iface;
-  ensureInterface(db, iface);
   if (parts.kind === 'group') {
-    prepared(db, "INSERT OR IGNORE INTO audiences (id, kind, iface) VALUES (?, 'group', ?)").run(parts.id, iface);
+    ensureInterface(db, parts.iface);
+    prepared(db, "INSERT OR IGNORE INTO audiences (id, kind, iface) VALUES (?, 'group', ?)").run(parts.id, parts.iface);
     return;
   }
-  ensureDmPlace(db, parts.place_id as string, iface as string, resolved.scope_dm as string | null, { at });
+  const place = prepared(db, 'SELECT iface FROM places WHERE id = ?').get(parts.place_id);
+  if (typeof place?.iface !== 'string' || place.iface === '')
+    throw new Error('memory db: a DM audience names no stored place; observe the DM before writing rows into it');
+  ensureInterface(db, place.iface);
   prepared(db, "INSERT OR IGNORE INTO audiences (id, kind, iface, place_id) VALUES (?, 'dm', ?, ?)").run(
     parts.id,
-    iface,
+    place.iface,
     parts.place_id
   );
+}
+
+/** The DM place a given DM audience names, when its stored row is a DM of the triple's partner on its interface. */
+function givenDmPlace(db: Db, scope: Row, placeId: string | null): string | null {
+  if (scope.scope_kind !== 'dm' || !hasV7(db)) return null;
+  const place = prepared(db, 'SELECT iface, partner_person, partner_account, chat FROM places WHERE id = ?').get(
+    placeId
+  );
+  if (!place || place.chat !== 'dm' || place.iface !== scope.scope_iface) return null;
+  // A DM place with no known partner person (an observed DM) matches a triple with none (schema v8), or with the
+  // person its partner account is linked to.
+  if ((place.partner_person ?? null) === (scope.scope_dm ?? null)) return placeId;
+  return place.partner_person == null && scope.scope_dm != null && partnerPersonOfPlace(db, place) === scope.scope_dm
+    ? placeId
+    : null;
 }
 
 /**
  * The resolved scope of a row: the triple and its audience. A given `audience_id` is kept when it is the triple's own,
  * or a DM audience whose place names the same partner on the same interface (a writer that knows the DM place);
- * anything else is a conflict (`conflict: true`).
+ * anything else is a conflict (`conflict: true`). A DM triple with no such audience resolves to the one stored DM place
+ * of its partner on its interface (`storedDmPlaceOf`), and is internal with none or several.
  */
 export function resolveRow(db: Db, row: Row): Row & { conflict: boolean } {
   const scope = {
@@ -231,22 +252,7 @@ export function resolveRow(db: Db, row: Row): Row & { conflict: boolean } {
   };
   const given = row.audience_id ?? null;
   const parts = given ? audienceParts(given) : null;
-  let dmPlace: string | null = null;
-  if (parts?.kind === 'dm' && scope.scope_kind === 'dm' && hasV7(db)) {
-    const place = prepared(db, 'SELECT iface, partner_person, partner_account, chat FROM places WHERE id = ?').get(
-      parts.place_id
-    );
-    // A DM place with no known partner person (an observed DM) matches a triple with none (schema v8), or with the
-    // person its partner account is linked to.
-    if (
-      place &&
-      place.chat === 'dm' &&
-      place.iface === scope.scope_iface &&
-      ((place.partner_person ?? null) === (scope.scope_dm ?? null) ||
-        (place.partner_person == null && scope.scope_dm != null && partnerPersonOfPlace(db, place) === scope.scope_dm))
-    )
-      dmPlace = parts.place_id;
-  }
+  const dmPlace = parts?.kind === 'dm' ? givenDmPlace(db, scope, parts.place_id) : storedDmPlaceOf(db, scope);
   const resolved = audienceOf(scope, { dmPlace });
   return { ...resolved, conflict: given !== null && given !== resolved.audience_id };
 }
@@ -259,7 +265,7 @@ export function deriveRow(
   db: Db,
   table: string,
   row: Row,
-  { log = engineLog, at }: { log?: Partial<Log> | null; at?: string } = {}
+  { log = engineLog }: { log?: Partial<Log> | null } = {}
 ): Row {
   const have = columnsOf(db, table);
   if (!have.has('audience_id') && !have.has('authority_id')) return row;
@@ -272,7 +278,7 @@ export function deriveRow(
       ensureAudience(db, { ...SCOPE_INTERNAL, audience_id: AUD_INTERNAL });
     } else {
       out.audience_id = resolved.audience_id;
-      ensureAudience(db, resolved, { at });
+      ensureAudience(db, resolved);
     }
   }
   // A row that names its own authority (an observation) keeps it, with its native key and chat.
@@ -287,7 +293,7 @@ export function deriveRow(
     ensureInterface(db, out.iface);
   } else if (table === 'places' && have.has('authority_id') && Object.hasOwn(out, 'id')) {
     ensureInterface(db, out.iface);
-    Object.assign(out, placeColumns(out));
+    Object.assign(out, placeColumns(out, partnerNativeOf(db, out)));
   } else if (table === 'sources' && have.has('authority_id')) {
     if (Object.hasOwn(out, 'iface') && !own) out.authority_id = nativeAuthorityOf(out.iface);
     if (Object.hasOwn(out, 'kind') && !Object.hasOwn(row, 'author_kind')) {
@@ -484,7 +490,7 @@ export function ensureNodeKeys(
             authority_id: nativeAuthorityOf(row.iface),
             native_key: row.native_key ?? row.native_id ?? legacyAccountNative(row.id, row.iface),
           }
-        : placeColumns(row);
+        : placeColumns(row, partnerNativeOf(db, row));
     const derived = legacy ? legacyDerived : { authority_id: row.authority_id, native_key: row.native_key };
     addKey(db, derived.authority_id, kind, derived.native_key, row.id, {
       generation: isWholeNumber(row.generation) ? row.generation : 1,
@@ -558,7 +564,7 @@ export function insertRows(
   const db = connection as Db; // a node:sqlite connection of the memory database
   for (const [table, rows] of Object.entries(mapping)) {
     for (const given of rows) {
-      const row = deriveRow(db, table, given, { log, at });
+      const row = deriveRow(db, table, given, { log });
       // A record line's `media` names no column: its items are written beside the row.
       const have = columnsOf(db, table);
       const cols = Object.keys(row).filter((col) => have.has(col));

@@ -42,11 +42,9 @@ const idsOf = (handle: Handle, table: string): Array<unknown> =>
 test('keeps the id of the account, the places and the sources of a seeded database', () => {
   withSeeded((handle) => {
     assert.deepEqual(idsOf(handle, 'accounts'), [`discord:${MEMBER}`]);
-    assert.deepEqual(idsOf(handle, 'places'), [
-      `discord:channel:${CHANNEL}`,
-      `discord:dm:${MEMBER}`,
-      `discord:guild:${GUILD}`,
-    ]);
+    // Changed with ids-by-links slice 3: the member's private file spells a DM place no row holds, and no writer makes a
+    // place from that spelling, so the seeded database holds the channel and the server only.
+    assert.deepEqual(idsOf(handle, 'places'), [`discord:channel:${CHANNEL}`, `discord:guild:${GUILD}`]);
     assert.deepEqual(idsOf(handle, 'sources'), [
       'src:discord:400000000000000001:1:seen',
       'src:discord:400000000000000001:2:seen',
@@ -91,7 +89,8 @@ test('lands an observed Discord message of the same member and channel on the ro
     if (envelope === null) assert.fail('the event is an observable line');
     observe(handle, envelope, { now: () => NOW, log: quiet });
     assert.deepEqual(idsOf(handle, 'accounts'), [`discord:${MEMBER}`], 'no second account');
-    assert.equal(idsOf(handle, 'places').length, 3, 'no second place');
+    // Changed with ids-by-links slice 3: the seeded database holds two places (see the test above).
+    assert.equal(idsOf(handle, 'places').length, 2, 'no second place');
     assert.equal(idsOf(handle, 'sources').includes('src:discord:400000000000000077:1:seen'), true);
   });
 });
