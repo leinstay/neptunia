@@ -23,11 +23,13 @@ import type { OldScope } from './map/scope-parts.ts';
 import { errandIdOfLine } from '../../board/archive.ts';
 import { addSourceMedia } from './record-lines.ts';
 import { markStemsPending } from './stems.ts';
-import { placeOrPersona, storageId } from './storage-keys.ts';
+import { placeOrPersona } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
-import { nextPosition, noteUnit } from './unit-write.ts';
+import { noteUnit } from './unit-write.ts';
+import { lineColumns, lineOwnerOf, lineRows, nextLinePosition } from './line-owner.ts';
+import type { LineOwner } from './line-owner.ts';
 import { ifaceOrLegacy } from './legacy-namespace.ts';
 import { asText, dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
@@ -57,8 +59,8 @@ const DECISION_SPEC: Array<Spec> = [
 
 const ANSWER_SPEC: Array<Spec> = [{ col: 'think', key: 'think', type: 'text' }];
 
-/** The tables a journal day's rows are in. */
-const TABLES = ['day', 'decisions', 'sources', 'affinity_events'] as const;
+/** The tables a journal day's lines are in; a memory line's attitude rows hang off its `decisions` row. */
+const TABLES = ['day', 'decisions', 'sources'] as const;
 
 /** An attitude entry's columns (see the head of this file). */
 const attitudeSpec = (ctx: MapContext): Array<Spec> => [
@@ -91,11 +93,15 @@ function scopeRows(scope: Row): Row {
   return out;
 }
 
-/** Where a day's rows belong: the unit's id, the line's position in it and, from an older release, its owner path. */
-type Owner = { id: string; position: number | null; legacyOwner?: string };
+/**
+ * Where a day's rows belong: the unit's id, the day's owner columns (line-owner.ts), the line's position in it and,
+ * from an older release, its owner path.
+ */
+type Owner = { id: string; line: LineOwner; position: number | null; legacyOwner?: string };
 
 const owned = (owner: Owner): Row => ({
   owner_key: owner.id,
+  ...lineColumns(owner.line),
   ...(owner.legacyOwner ? { owner_file: owner.legacyOwner } : {}),
 });
 
@@ -244,11 +250,13 @@ export function writeJournalDay(
   }
   const base = storageContext(db, key);
   const ctx: MapContext = { ...base, iface: base.iface ?? iface };
-  let position = nextPosition(db, id);
+  const owner = lineOwnerOf(key);
+  if (!owner) throw coded('JOURNAL_LINES_DAY');
+  let position = nextLinePosition(db, owner);
   let written = 0;
   for (const line of lines) {
     if (!isPlainObject(line)) continue;
-    writeMapping(db, journalRows(line, ctx, { id, position, legacyOwner }), id, { at });
+    writeMapping(db, journalRows(line, ctx, { id, line: owner, position, legacyOwner }), id, { at });
     written += 1;
     position += 1;
   }
@@ -288,24 +296,27 @@ export function applyJournalLinesWrite(handle: MemoryHandle, update: Row): Journ
   return handle.transaction(() => writeJournalLines(dbOf(handle), write, ifaceOrLegacy(update), at));
 }
 
-/** The live rows of one journal day's unit, table by table, in the order they were written. */
-function dayRows(db: Db, id: string): Rows {
+/** The live rows of one journal day, table by table, in the order they were written. */
+function dayRows(db: Db, owner: LineOwner): Rows {
   const rows: Rows = {};
-  for (const table of TABLES)
-    rows[table] = db
-      .prepare(
-        `SELECT * FROM "${table}" WHERE (owner_key = ? OR id IN (SELECT key FROM co_owners WHERE tbl = ? AND owner_key = ?))
-         AND retired_at IS NULL ORDER BY position, rowid`
-      )
-      .all(id, table, id)
-      .map((row) => ({ ...row }));
+  for (const table of TABLES) rows[table] = lineRows(db, owner, table);
+  // A memory line's attitude rows are named after its decision (`aff:<line id>:<index>`): a range of the primary key.
+  const attitude = db.prepare(
+    `SELECT * FROM affinity_events WHERE id >= ? AND id < ? AND writer = 'journal' AND retired_at IS NULL
+     ORDER BY position, rowid`
+  );
+  rows.affinity_events = rows.decisions.flatMap((decision) =>
+    attitude.all(`aff:${asText(decision.id)}:`, `aff:${asText(decision.id)};`).map((row) => ({ ...row }))
+  );
   addSourceMedia(db, rows.sources);
   return rows;
 }
 
 /** The lines (JSON text) of one journal day's unit, in the order they were written. */
 export function journalLines(db: Db, key: StorageKey): Array<string> {
-  const rows = dayRows(db, storageId(key));
+  const owner = lineOwnerOf(key);
+  if (!owner) return [];
+  const rows = dayRows(db, owner);
   const ctx = storageContext(db, key);
   const answers = new Map(rows.sources.map((row): [unknown, Row] => [row.id, row]));
   const items: Array<{ position: unknown; build: () => Row }> = [

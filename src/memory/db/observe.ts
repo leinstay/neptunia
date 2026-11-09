@@ -101,6 +101,8 @@ import { ensureAccountPerson } from './person-links.ts';
 import { authorPersonOf } from './meta-person-write.ts';
 import { projectRow } from './graph.ts';
 import { nextPosition, noteUnit } from './unit-write.ts';
+import { lineColumns, lineOwnerOfUnit, nextLinePosition } from './line-owner.ts';
+import type { LineOwner } from './line-owner.ts';
 import { ingestOption, insertIngest } from './ingest.ts';
 import { dbOf, asText, isWholeNumber } from './types.ts';
 import type { Connection, Db, Log, MemoryHandle, Row } from './types.ts';
@@ -999,12 +1001,14 @@ function replayOf(
       .prepare(`SELECT ${hasStorageUnits(db) ? 'owner_key' : 'owner_file'} AS current_owner FROM sources WHERE id = ?`)
       .get(sourceId);
     if (stored && (stored.current_owner === null || stored.current_owner === undefined)) {
-      const position = nextPosition(db, owner);
-      db.prepare(ownershipSql(db, 'UPDATE sources SET owner_key = ?, position = ? WHERE id = ?')).run(
-        owner,
-        position,
-        sourceId
-      );
+      const line = lineOwnerOfUnit(db, owner);
+      const position = line ? nextLinePosition(db, line) : nextPosition(db, owner);
+      db.prepare(
+        ownershipSql(
+          db,
+          'UPDATE sources SET owner_key = ?, position = ?, writer = ?, holder_id = ?, period = ? WHERE id = ?'
+        )
+      ).run(owner, position, line?.writer ?? null, line?.holder_id ?? null, line?.period ?? null, sourceId);
       noteUnit(db, owner, 'record', { lines: position + 1, at });
     }
   }
@@ -1059,6 +1063,12 @@ function claimConsole(db: Db, e: Envelope, at: string): void {
   }
 }
 
+/** The next position of the unit `owner` (none without one): its day's when it is a record day. */
+function positionIn(db: Db, owner: string | null, line: LineOwner | null): number | null {
+  if (line) return nextLinePosition(db, line);
+  return filled(owner) ? nextPosition(db, owner) : null;
+}
+
 function writeObservation(
   db: Db,
   given: Envelope,
@@ -1106,6 +1116,7 @@ function writeObservation(
   const author = authorOf(db, e, place, at);
   const { scope, audience } = observationAudience(e.iface, place);
   const extra = sourceExtraOf(e);
+  const line = lineOwnerOfUnit(db, owner);
   const kind = lineKindOf(e);
   // The native message a line replies to, in the line's own kind and authority (the legacy `reply_to` column).
   const reply = (e.relations ?? []).find(
@@ -1145,7 +1156,8 @@ function writeObservation(
       origin: 'observation',
       extra: Object.keys(extra).length > 0 ? json(extra) : null,
       owner_key: filled(owner) ? owner : null,
-      position: filled(owner) ? nextPosition(db, owner) : null,
+      ...lineColumns(line),
+      position: positionIn(db, owner, line),
     },
     { log }
   );

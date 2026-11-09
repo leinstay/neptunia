@@ -30,11 +30,13 @@ import { observedSourceId } from './observe.ts';
 import { storeHeld } from './media-stems.ts';
 import { recordFieldsOf, takeRecordMedia, writeRecordMedia } from './media-store.ts';
 import { markStemsPending } from './stems.ts';
-import { placeOrPersona, storageId } from './storage-keys.ts';
+import { PERSONA_ID, placeOrPersona } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit, listUnits, partitionOf, subjectOf, unitById } from './storage-units.ts';
+import { ensureUnit } from './storage-units.ts';
+import { lineColumns, lineOwnerOf, linePeriods, lineRows, nextLinePosition } from './line-owner.ts';
+import type { LineOwner } from './line-owner.ts';
 import { writeMapping } from './upsert.ts';
-import { nextPosition, noteUnit } from './unit-write.ts';
+import { noteUnit } from './unit-write.ts';
 import { LEGACY_IFACE, ifaceOrLegacy } from './legacy-namespace.ts';
 import { asText, dbOf, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
@@ -65,6 +67,8 @@ type Identity = {
 type DayWrite = {
   key: StorageKey;
   id: string;
+  /** The day's owner columns (line-owner.ts). */
+  owner: LineOwner;
   ctx: MapContext;
   iface: string;
   messages: ReadonlyArray<Row> | undefined;
@@ -201,33 +205,34 @@ export function addSourceMedia(db: Db, sources: Array<Row>): void {
   }
 }
 
-/** Whether a line is one its unit's month already holds (an observation is adopted, never a duplicate). */
-function recordDuplicate(db: Db, owner: string, line: Row): boolean {
+/** The rows of the record of `holder` in `month`, as a condition on `sources` and its values. */
+function monthOf(holder: string, month: string): { sql: string; args: Array<string> } {
+  return {
+    sql: "writer = 'record' AND holder_id = ? AND period >= ? AND period < ?",
+    args: [holder, `${month}-01`, `${month}-99`],
+  };
+}
+
+/** Whether a line is one its day's month already holds (an observation is adopted, never a duplicate). */
+function recordDuplicate(db: Db, owner: LineOwner, line: Row): boolean {
   const messageId = filled(line?.messageId) ? line.messageId : null;
   if (!messageId) return false;
-  const unit = unitById(db, owner);
-  const month = unit ? partitionOf(unit)?.slice(0, 7) : undefined;
-  const ids = unit
-    ? listUnits(db, { kind: 'record', subject: unit.key.subject, scopePlaceId: unit.key.scopePlaceId })
-        .filter((entry) => partitionOf(entry)?.slice(0, 7) === month)
-        .map((entry) => entry.id)
-    : [];
-  const ownership = `owner_key IN (${ids.map(() => '?').join(',')})`;
+  const month = monthOf(owner.holder_id, owner.period.slice(0, 7));
   if (line.kind === 'deleted') {
     return (
       db
         .prepare(
-          `SELECT 1 AS ok FROM sources WHERE native_id = ? AND kind = 'deleted' AND ${ownership} AND retired_at IS NULL LIMIT 1`
+          `SELECT 1 AS ok FROM sources WHERE native_id = ? AND kind = 'deleted' AND ${month.sql} AND retired_at IS NULL LIMIT 1`
         )
-        .get(messageId, ...ids) !== undefined
+        .get(messageId, ...month.args) !== undefined
     );
   }
   const revision = isWholeNumber(line.revision) && line.revision > 0 ? line.revision : 1;
   for (const row of db
     .prepare(
-      `SELECT id, revision, origin FROM sources WHERE native_id = ? AND kind IN ('seen', 'said') AND ${ownership} AND retired_at IS NULL`
+      `SELECT id, revision, origin FROM sources WHERE native_id = ? AND kind IN ('seen', 'said') AND ${month.sql} AND retired_at IS NULL`
     )
-    .all(messageId, ...ids)) {
+    .all(messageId, ...month.args)) {
     if (row.origin === 'observation') continue;
     const stored = row.revision;
     if ((isWholeNumber(stored) && stored > 0 ? stored : 1) === revision) return true;
@@ -337,6 +342,7 @@ function adoptedRecord(source: Row, found: Row): Row {
   const adopted: Row = {
     ...found,
     owner_key: source.owner_key,
+    ...lineColumns({ writer: 'record', holder_id: asText(source.holder_id), period: asText(source.period) }),
     owner_file: found.owner_file,
     position: source.position,
     origin: source.origin,
@@ -352,6 +358,10 @@ function adoptedRecord(source: Row, found: Row): Row {
   return adopted;
 }
 
+/** Whether a stored row is one of the day `owner`'s lines. */
+const ownedBy = (row: Row, owner: LineOwner): boolean =>
+  row.writer === owner.writer && row.holder_id === owner.holder_id && row.period === owner.period;
+
 /** One line of a day's write at `position`; what it wrote and whether the day's next position moves. */
 function writeLine(db: Db, day: DayWrite, line: Row, position: number, at: string) {
   const identity = recordIdentity(db, day, line);
@@ -360,13 +370,14 @@ function writeLine(db: Db, day: DayWrite, line: Row, position: number, at: strin
   let source: Row = {
     ...recordSourceRow(line, { ...day.ctx, iface }, identity),
     owner_key: day.id,
+    ...lineColumns(day.owner),
     ...(day.legacyOwner ? { owner_file: day.legacyOwner } : {}),
     position,
   };
   if (identity) recordReply(db, source, line, identity);
   const found = db.prepare('SELECT * FROM sources WHERE id = ?').get(source.id);
   const duplicate =
-    (!identity && recordDuplicate(db, day.id, line)) ||
+    (!identity && recordDuplicate(db, day.owner, line)) ||
     (found !== undefined && found.origin !== 'observation' && found.retired_at === null);
   if (duplicate) return { written: 0, duplicates: 1, adopted: 0, advance: 0 };
   if (identity && found) source = adoptedRecord(source, found);
@@ -374,7 +385,7 @@ function writeLine(db: Db, day: DayWrite, line: Row, position: number, at: strin
   const keep =
     found !== undefined &&
     found.origin === 'observation' &&
-    found.owner_key === day.id &&
+    ownedBy(found, day.owner) &&
     Number.isInteger(found.position);
   if (keep) source.position = found.position;
   // What a line holds of its media goes to `media` and `media_links`, and leaves its `extra`.
@@ -404,9 +415,11 @@ export function writeRecordDay(
     db.prepare('INSERT OR IGNORE INTO legacy_unit_aliases(path,unit_id) VALUES (?,?)').run(legacyOwner, id);
     db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, key.kind);
   }
-  const day: DayWrite = { key, id, ctx: storageContext(db, key), iface, messages, legacyOwner };
+  const owner = lineOwnerOf(key);
+  if (!owner) throw coded('RECORD_LINES_DAY');
+  const day: DayWrite = { key, id, owner, ctx: storageContext(db, key), iface, messages, legacyOwner };
   const result: RecordLinesResult = { written: 0, duplicates: 0, adopted: 0 };
-  let position = nextPosition(db, id);
+  let position = nextLinePosition(db, owner);
   for (const line of lines) {
     if (!isRecord(line)) continue;
     const done = writeLine(db, day, line, position, at);
@@ -459,40 +472,32 @@ export function applyRecordLinesWrite(handle: MemoryHandle, update: Row): Record
   return handle.transaction(() => writeRecordLines(dbOf(handle), write, ifaceOrLegacy(update), at));
 }
 
-function daysOf(db: Db, placeId: string | null) {
-  return listUnits(db, { kind: 'record', subject: placeOrPersona('record', placeId).subject });
+/** The holder id of a place's record (the persona's with null). */
+const holderOf = (placeId: string | null): string => placeOrPersona('record', placeId).subject.id;
+
+/** The days of a place's record, in order. */
+function daysOf(db: Db, placeId: string | null): Array<string> {
+  return linePeriods(db, 'record', holderOf(placeId)).map((row) => row.period);
 }
 
 /** The months of a place's record, in order. */
 export function recordMonths(db: Db, placeId: string | null): Array<string> {
-  return [
-    ...new Set(
-      daysOf(db, placeId)
-        .map((unit) => partitionOf(unit)?.slice(0, 7))
-        .filter((month): month is string => Boolean(month))
-    ),
-  ].sort();
+  return [...new Set(daysOf(db, placeId).map((day) => day.slice(0, 7)))].sort();
 }
 
 /** The days of a month of a place's record, each with its unit, in order. */
 export function recordDays(db: Db, placeId: string | null, month: string): Array<{ day: string; owner: StorageKey }> {
   return daysOf(db, placeId)
-    .filter((unit) => partitionOf(unit)?.startsWith(`${month}-`))
-    .map((unit) => ({ day: unit.key.partition!, owner: unit.key }))
-    .sort((a, b) => a.day.localeCompare(b.day));
+    .filter((day) => day.startsWith(`${month}-`))
+    .map((day) => ({ day, owner: placeOrPersona('record', placeId, { partition: day }) }));
 }
 
 /** The lines of one day's unit as JSON text, in the order they were written. */
 export function recordLines(db: Db, key: StorageKey): Array<string> {
-  const id = storageId(key);
+  const owner = lineOwnerOf(key);
+  if (!owner) return [];
   const ctx = storageContext(db, key);
-  const rows = db
-    .prepare(
-      `SELECT * FROM sources WHERE (owner_key = ? OR id IN (SELECT key FROM co_owners WHERE tbl = 'sources' AND owner_key = ?))
-       AND retired_at IS NULL ORDER BY position, rowid`
-    )
-    .all(id, id)
-    .map((row) => ({ ...row }));
+  const rows = lineRows(db, owner, 'sources');
   addSourceMedia(db, rows);
   return rows.map((row) => JSON.stringify(recordLineOf(row, ctx)));
 }
@@ -513,8 +518,7 @@ export function recordNewestRevision(
   locator?: NativeMessageLocator,
   iface = locator?.iface ?? ifaceOfHolder(db, placeId)
 ): number | null {
-  const units = daysOf(db, placeId).filter((unit) => partitionOf(unit)?.startsWith(`${month}-`));
-  if (!units.length) return null;
+  const scope = monthOf(holderOf(placeId), month);
   const family = locator
     ? db
         .prepare('SELECT * FROM message_families WHERE iface=? AND conversation_id=? AND message_id=? AND generation=1')
@@ -532,12 +536,9 @@ export function recordNewestRevision(
     : hasMessageFamilies(db)
       ? [String(messageId), iface, String(messageId)]
       : [String(messageId)];
-  const ids = units.map((unit) => storageId(unit.key));
   const rows = db
-    .prepare(
-      `SELECT kind,revision FROM sources WHERE ${clause} AND owner_key IN (${ids.map(() => '?').join(',')}) AND retired_at IS NULL`
-    )
-    .all(...values, ...ids);
+    .prepare(`SELECT kind,revision FROM sources WHERE ${clause} AND ${scope.sql} AND retired_at IS NULL`)
+    .all(...values, ...scope.args);
   let newest: number | null = null;
   for (const row of rows)
     if (row.kind !== 'deleted') {
@@ -550,26 +551,22 @@ export function recordNewestRevision(
 /** How many messages a place's record holds, over how many days, from which first day. */
 export function recordStats(db: Db, placeId: string | null): { messages: number; days: number; first: string | null } {
   const days = daysOf(db, placeId);
-  const ids = days.map((unit) => unit.id);
-  const messages = ids.length
+  const messages = days.length
     ? Number(
         db
           .prepare(
             `SELECT COUNT(DISTINCT json_array(iface,authority_id,native_kind,native_id,generation)) AS n FROM sources
-    WHERE native_id IS NOT NULL AND owner_key IN (${ids.map(() => '?').join(',')}) AND retired_at IS NULL`
+    WHERE native_id IS NOT NULL AND writer = 'record' AND holder_id = ? AND retired_at IS NULL`
           )
-          .get(...ids)?.n
+          .get(holderOf(placeId))?.n
       )
     : 0;
-  return { messages, days: days.length, first: days.map((unit) => unit.key.partition!).sort()[0] ?? null };
+  return { messages, days: days.length, first: days[0] ?? null };
 }
 
 /** Every place that holds a record. */
 export function recordHolders(db: Db): Array<string> {
-  const holders = new Set<string>();
-  for (const unit of listUnits(db, { kind: 'record' })) {
-    const subject = subjectOf(unit);
-    if (subject.type === 'place') holders.add(subject.id);
-  }
-  return [...holders].sort();
+  return [...new Set(linePeriods(db, 'record').map((row) => row.holder))]
+    .filter((holder) => holder !== PERSONA_ID)
+    .sort();
 }

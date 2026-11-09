@@ -2,6 +2,7 @@
 // starts from the baseline (src/memory/db/schema-baseline.ts); src/memory/db/open.ts then applies each entry of
 // `MIGRATIONS` in order, one version per entry, and never edits a shipped one.
 
+import { ownLineRows } from './line-owner.ts';
 import { placeLineVectors } from './line-vectors.ts';
 import { rebuildLocatorIndex } from './message-family-catalog.ts';
 import type { Db } from './types.ts';
@@ -16,6 +17,31 @@ export const MIGRATIONS: Array<Migration> = [
   (db: Db): void => {
     placeLineVectors(db);
     rebuildLocatorIndex(db);
+  },
+  // Version 46: the rows of the record, the journal and the archive name their owner themselves: the writer, the place
+  // that holds them and their day or month (src/memory/db/line-owner.ts), taken from their units.
+  (db: Db): void => {
+    for (const table of ['sources', 'day', 'decisions', 'affinity_events', 'claim_versions']) {
+      db.exec(`ALTER TABLE "${table}" ADD COLUMN writer TEXT`);
+      db.exec(`ALTER TABLE "${table}" ADD COLUMN holder_id TEXT`);
+      db.exec(`ALTER TABLE "${table}" ADD COLUMN period TEXT`);
+    }
+    // A journal's attitude rows are read through their decision's id, so that table needs no index of its own.
+    for (const table of ['sources', 'day', 'decisions', 'claim_versions'])
+      db.exec(
+        `CREATE INDEX "${table}_line" ON "${table}"(writer, holder_id, period, position) WHERE writer IS NOT NULL`
+      );
+    // The indexes of the owner paths of an older layout serve no query and cost every line write.
+    for (const index of [
+      'sources_file',
+      'day_owner',
+      'decisions_owner',
+      'affinity_events_owner',
+      'claim_versions_owner',
+    ])
+      db.exec(`DROP INDEX IF EXISTS "${index}"`);
+    db.exec('ALTER TABLE claims ADD COLUMN writer TEXT');
+    ownLineRows(db);
   },
 ];
 
