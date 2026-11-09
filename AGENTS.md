@@ -91,7 +91,7 @@ npm run check:codes                                       # the result codes aga
 
 Set `TMPDIR` to a scratch folder before running tests.
 
-Every run has a time budget: one test file 2 minutes, the whole suite 6, a lint or type check 2, a CI run 5 from the moment it starts. A run past its budget is not waited for: stop it, find out why it is slow, and fix that before anything else. A check that takes longer than it used to is a bug of the check.
+Every run has a time budget: one test file 2 minutes, a lint or type check 2, a CI run 6 from the moment it starts, the whole suite 10. A run past its budget is not waited for: stop it, find out why it is slow, and fix that before anything else. A check that takes longer than it used to is a bug of the check.
 
 Locally, run only the test files of the modules you changed. Everything slow runs in CI: the whole suite, prettier, the lint, the type check, code health, the prose check and the codes check. Fix a red check at its cause. When CI reports a count that shrank, record it with `npm run health:update` in the same change, because CI refuses an unrecorded shrink as well as a growth.
 
@@ -145,7 +145,8 @@ The defaults, for documentation, comments, commit messages, pull request text an
 - Commit subject in English, imperative, under 72 characters; the body says why when the subject is not enough. End the message with a `Co-Authored-By:` trailer naming the model that did the work.
 - A pull request says what changed and why, how it was tested, and whether it adds a setting, a prompt file or a contract change. CI must be green before a merge; read the conclusion, do not assume it.
 - Never commit the local layer, `.env`, `.agents/`, `.claude/`, `.opencode/` or anything with a key in it. The pre-commit hook and CI refuse them; do not work around either.
-- Never force-push `main`, never rewrite published history, never delete a branch you did not create.
+- A branch is deleted with its merge (`gh pr merge --delete-branch`). Any branch, and its worktree, untouched for 24 hours is deleted, whoever made it, unless an open pull request names it.
+- Never force-push `main`, never rewrite published history.
 
 ## Tests
 
@@ -182,7 +183,7 @@ Nothing from `.agents/` goes into a pull request. A script used a second time st
 
 ## Protected
 
-`AGENTS.md`, `CLAUDE.md`, `STYLEGUIDE.md`, `WRITING.md` and `CONTRIBUTING.md` at the root, and `.agents/AGENTS.md` of a deployment, change only with the maintainer's explicit approval of that one change. An agent that thinks one of them is wrong stops and says what it would change and why. It does not edit the file, and it does not write the change somewhere else instead.
+`AGENTS.md`, `CLAUDE.md`, `STYLEGUIDE.md` and `WRITING.md` at the root, and `.agents/AGENTS.md` of a deployment, change only with the maintainer's explicit approval of that one change. An agent that thinks one of them is wrong stops and says what it would change and why. It does not edit the file, and it does not write the change somewhere else instead.
 
 ## Forbidden
 

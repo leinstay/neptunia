@@ -60,4 +60,4 @@ A missing socket usually means the core is down or the CLI selected a different 
 
 ## The second instance and the fault run
 
-For development, `tests/second-instance.test.ts` exercises isolated personas and `scripts/fault-run.ts --short` exercises event delivery with fake models and interfaces. These are development checks, not instructions to start another bot against your live `data/`. Follow [CONTRIBUTING.md](../CONTRIBUTING.md) for tests and changes.
+For development, `tests/second-instance.test.ts` exercises isolated personas and `scripts/fault-run.ts --short` exercises event delivery with fake models and interfaces. These are development checks, not instructions to start another bot against your live `data/`. Follow [AGENTS.md](../AGENTS.md) for tests and changes.
