@@ -1,5 +1,5 @@
 // Owner-managed access grants, keyed by operation name (src/tools/operations/registry.ts): a pure decision
-// over `config.bot.access`, the shape `/nep access grant|revoke|list` (src/tools/operations/access.ts) read
+// over `config.bot.access`, the shape `access.grant|revoke|list` (src/tools/operations/access.ts) read
 // and write. An owner (`isOwnerId` below) always passes. Then the operation's own rights decide:
 // `ownerOnly` or `grantable: false` refuse everyone else whatever is stored, `*` included; a
 // `member` operation is open to every member while `features.memberCommands` is on; anything

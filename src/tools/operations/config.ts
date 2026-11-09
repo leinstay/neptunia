@@ -1,4 +1,4 @@
-// Operations: `/nep set|unset`: one config override in the private settings file (config.local/config.json); a path under bot.ownerPerson or bot.access only for an owner.
+// Operations: `config.set|unset`: one config override in the private settings file (data/config/config.json); a path under bot.ownerPerson or bot.access only for an owner.
 // The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
@@ -36,7 +36,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep set`: one leaf of the live config (a path autocomplete offers, src/tools/operations/catalog.ts
+   * `config.set`: one leaf of the live config (a path autocomplete offers, src/tools/operations/catalog.ts
    * #leafPaths, walked over own keys only) overridden in the private settings file. The value is JSON, or
    * the raw text when it does not parse -- or when the setting is a string, so an id typed bare
    * stays text. Its JSON type must be the current one's (any type when the current is null).

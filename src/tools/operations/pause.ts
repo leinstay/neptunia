@@ -1,4 +1,4 @@
-// Operations: `/nep pause|resume`: the maintenance mode in which data/ may be edited by hand.
+// Operations: `bot.pause|resume`: the owner's pause, which holds every turn and keeps what arrives for the resume.
 // The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
@@ -19,10 +19,8 @@ const handlers = perEnv((env) => {
    * Sets `paused`/`pausedAt` (and `pausedBy`, the caller) in state.json FIRST (so a crash or restart
    * mid-pause comes back paused), then waits out a turn already running and a
    * GIF recache in flight. Only once
-   * all are idle does it clear the pending-ping queue when the deps give a `pending.clear` (the core gives none:
-   * its pings wait for the resume), flush everything and drop every cache except state.json itself, so
-   * nothing stale (or a late in-flight write) can land in data/ after the
-   * owner starts editing it. A second call reports the state, and a pause the core set with a reason
+   * all are idle does it flush everything and drop every cache except state.json itself. The pending pings wait for
+   * the resume, which hands them back. A second call reports the state, and a pause the core set with a reason
    * (`no-core-route`, `core-down`, `analyzer-down`, `memory-down`) becomes the owner's, so only his resume lifts it. Then the journal's `pause` record; nothing is posted to the chat (the persona learns
    * of the pause from the journal, src/memory/journal.ts#offPeriods).
    */
@@ -37,10 +35,7 @@ const handlers = perEnv((env) => {
         callMethod(store.state, 'markDirty');
         callMethod(store, 'flush');
       }
-      return [
-        `Already paused (since ${state.pausedAt ?? '?'}).`,
-        `Files under data/ can be edited freely. Run ${slash('resume')} when done.`,
-      ].join('\n');
+      return [`Already paused (since ${state.pausedAt ?? '?'}).`, `Run ${slash('resume')} when done.`].join('\n');
     }
 
     state.paused = true;
@@ -60,10 +55,6 @@ const handlers = perEnv((env) => {
       await env.gifRecache.waitIdle();
     }
 
-    if (env.pending && typeof env.pending.clear === 'function') {
-      env.pending.clear();
-    }
-
     // A file held for the archive (an item rewritten in place) waits up to archive.holdMaxMs, then is written.
     const { hot } = env;
     if (typeof env.store.flushSettled === 'function')
@@ -76,7 +67,7 @@ const handlers = perEnv((env) => {
     await journalSystem({ event: 'pause', by: 'owner' });
 
     return [
-      'Paused. Memory is flushed to disk -- files under data/ can be edited safely now.',
+      'Paused. New turns wait, and the messages that arrive are held for the resume.',
       `Run ${slash('resume')} when done.`,
     ].join('\n');
   }
@@ -98,7 +89,7 @@ const handlers = perEnv((env) => {
     const badFiles = typeof env.store.validate === 'function' ? env.store.validate() : [];
     if (badFiles.length > 0) {
       return [
-        'Still paused: found invalid JSON under data/, fix or restore these files and try again:',
+        'Still paused: these files under data/ hold invalid JSON. Fix or restore them and try again:',
         ...(badFiles as Array<string>).map((file) => `  ${file}`),
       ].join('\n');
     }

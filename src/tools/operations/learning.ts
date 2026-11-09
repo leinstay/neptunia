@@ -1,4 +1,4 @@
-// Operations: `/nep learned add|remove`, and the owner's console read `/memory lessons list` (no operation, so no
+// Operations: `learning.add|remove`, and the owner's console read `/memory lessons list` (no operation, so no
 // tool of hers): the owner's side of the place's list of things people taught the persona (store.js#applyLearnedOps).
 // The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
@@ -16,8 +16,8 @@ const handlers = perEnv((env) => {
   const { hot, store, assertNotPaused, requirePlaceId, tokenResolver } = env;
 
   /**
-   * `/nep learned add`: an `add` op with no `from` that confirms the lesson at once, the same way
-   * `/nep alias add` confirms an alias: repeated sightings with `confirmGapHours: 0` and ONE
+   * `learning.add`: an `add` op with no `from` that confirms the lesson at once, the same way
+   * `alias.add` confirms an alias: repeated sightings with `confirmGapHours: 0` and ONE
    * `seenAt` (an add of a stored text counts as a sighting of it) until the item's weight reaches
    * `memory.confirmAfter` (default 2). A lesson already at or past that weight gets one ordinary
    * sighting under the live `config.memory` (so `confirmGapHours` applies) -- never more than the
@@ -62,7 +62,7 @@ const handlers = perEnv((env) => {
     return learnedLine(item, tokenResolver().resolve);
   }
 
-  /** `/nep learned remove`: deletes one item by id; an id that is not stored is an error. */
+  /** `learning.remove`: deletes one item by id; an id that is not stored is an error. */
   function cmdLearnedRemove(args: Obj, context: OpContext): string {
     assertNotPaused();
     const placeId = requirePlaceId(context);

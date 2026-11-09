@@ -86,26 +86,27 @@ function digest(dir: string): string {
 
 // ---- retired spellings -----------------------------------------------------------------------------------------------
 
-for (const [argv, names] of [
-  [['-p', '/service watcher status'], 'services watcher status'],
-  [['-p', '/health core'], 'doctor core'],
-  [['-p', '/wakes'], 'services list'],
-  [['-p', '/report'], 'logs watcher'],
-  [['service', 'watcher', 'status'], 'services'],
-  [['service', 'start'], 'services start'],
-  [['health'], 'doctor'],
-  [['wakes'], 'services list'],
-  [['route', 'list'], 'routes'],
-  [['interface', 'list'], 'interfaces'],
+// Changed: the retired names are gone with the rest of the legacy, so such a line is refused like any line the table
+// does not hold, and names no replacement.
+for (const argv of [
+  ['-p', '/service watcher status'],
+  ['-p', '/health core'],
+  ['-p', '/wakes'],
+  ['-p', '/report'],
+  ['service', 'watcher', 'status'],
+  ['service', 'start'],
+  ['health'],
+  ['wakes'],
+  ['route', 'list'],
+  ['interface', 'list'],
 ] as const) {
-  test(`neptunia ${argv.join(' ')} exits 2 naming ${names}, and runs, sends and asks nothing`, async () => {
-    // Catches: a retired spelling still executes, is taken for a line to her, or ends with a bare usage.
+  test(`neptunia ${argv.join(' ')} exits 2, and runs, sends and asks nothing`, async () => {
+    // Catches: a retired spelling still executes, or is taken for a line to her.
     fresh();
     const connections = core.connections();
     const done = await run(online, argv);
     assert.equal(done.code, 2, done.stderr.slice(0, 300));
     assert.equal(done.stdout, '');
-    assert.ok(done.stderr.includes(names), done.stderr.slice(0, 300));
     assert.deepEqual(core.commands, []);
     assert.deepEqual(core.lines, []);
     assert.equal(core.connections(), connections, 'no connection was opened');
