@@ -79,7 +79,7 @@ Each settled task gets one comment, `skill-activation <code>`, which names the r
 | `invalid-name` | The binding's skill name is no skill name, so no folder was read. |
 | `unknown-version` | The binding's version is not a version of that skill. |
 
-Nothing else activates. Other pending versions stay pending, and so does the version of a failed or cancelled task, of a task the owner or the watcher filed, and an edit made after the binding. A watcher's finding about a skill is evidence for the owner and changes no skill. The owner reviews a pending version with `/skills review <name>` and activates the newest one with `/skills activate <name>`. `/skills rollback <name>` returns to the previous version, and a later beat leaves that in place. `/skills disable <name>` keeps a skill out of her tools, and an activation does not lift the switch.
+Nothing else activates. Other pending versions stay pending, and so does the version of a failed or cancelled task, of a task the owner filed, and an edit made after the binding. A watcher's finding about a skill is evidence for the owner and changes no skill. The owner reviews a pending version with `/skills review <name>` and activates the newest one with `/skills activate <name>`. `/skills rollback <name>` returns to the previous version, and a later beat leaves that in place. `/skills disable <name>` keeps a skill out of her tools, and an activation does not lift the switch.
 
 ## A skill among her tools
 

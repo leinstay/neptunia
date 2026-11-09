@@ -1,8 +1,7 @@
-// What the watcher tests share: a temp watcher folder (prompt.md and reports/), a task row, and builders for a report
-// that holds the thirteen headings and a tasks block. Synthetic data only; no provider, no database, no socket.
+// What the watcher tests share: a temp watcher folder (prompt.md and reports/) and a builder for a report that holds the
+// twelve headings. Synthetic data only; no provider, no database, no socket.
 import fs from 'node:fs';
 import path from 'node:path';
-import type { TaskRecord } from '../../src/board/board.ts';
 import { tempDir } from './tmp.ts';
 
 /** The headings of a report, in order (src/watcher/report.ts#REPORT_HEADINGS). */
@@ -18,7 +17,6 @@ export const HEADINGS: ReadonlyArray<string> = [
   'Trash',
   'The server',
   'Wishes',
-  'Tasks filed',
   'For the owner',
 ];
 
@@ -27,11 +25,6 @@ export function reportText(bodies: Readonly<Record<string, string>> = {}): strin
   return (
     HEADINGS.map((heading) => `## ${heading}\n\n${bodies[heading] ?? 'nothing found'}\n`).join('\n')
   );
-}
-
-/** A `tasks` block as the agent ends its answer with. */
-export function tasksBlock(drafts: ReadonlyArray<Record<string, unknown>>): string {
-  return '```tasks\n' + JSON.stringify(drafts, null, 2) + '\n```\n';
 }
 
 /** A key shaped like an OpenRouter key, built in pieces so no scanner sees one in the source. */
@@ -52,38 +45,4 @@ export function watcherDirs(prompt = 'PROMPT-SENTINEL: the three questions.'): W
 /** Writes `<day>.md` into the reports folder. */
 export function putReport(dirs: WatcherDirs, day: string, text: string): void {
   fs.writeFileSync(path.join(dirs.reportsDir, `${day}.md`), text);
-}
-
-/** One task row with the fields the watcher reads. */
-export function taskRow(fields: Partial<TaskRecord> & { id: string }): TaskRecord {
-  return {
-    lane: 'dev',
-    project: null,
-    title: 'a task',
-    description: null,
-    acceptance: null,
-    requester: 'watcher',
-    priority: 2,
-    risk: 'normal',
-    role: null,
-    budget_usd: null,
-    step_cap: null,
-    estimate_minutes: null,
-    status: 'proposed',
-    close_reason: null,
-    defer_until: null,
-    is_blocked: 0,
-    revision: 1,
-    lease_owner: null,
-    lease_expires_at: null,
-    heartbeat_at: null,
-    subscriber: null,
-    created_at: '2026-11-01T00:00:00.000Z',
-    updated_at: '2026-11-01T00:00:00.000Z',
-    metadata: null,
-    lease_generation: 0,
-    blocked_reason: null,
-    unblocks: null,
-    ...fields,
-  };
 }

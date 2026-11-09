@@ -21,27 +21,12 @@ import {
   inspectionDeps,
   inspectionRig,
   said,
-  watcherBoard,
 } from './fixtures/watcher-inspection-rig.ts';
 
 const lifecycle = () => import('../src/watcher/lifecycle.ts');
 const inspection = () => import('../src/watcher/inspection.ts');
 
 const CLAIM = { source: 'timer', owner: SELF, timeoutMs: 60 * MINUTE } as const;
-const DRAFT = {
-  kind: 'fix',
-  title: 'Retry rail',
-  evidence: 'src/turn/run.ts:1',
-  done: 'The rail holds',
-  finding: 'rail',
-};
-const OTHER = {
-  kind: 'chore',
-  title: 'Unread key',
-  evidence: 'config/config.json:2',
-  done: 'It is gone',
-  finding: 'key',
-};
 
 // ---- the claim ------------------------------------------------------------------------------------------------------
 
@@ -328,7 +313,7 @@ test('cancel during generation shows stopping, then cancelled, and the partial o
 });
 
 test('an agent that ends well just after a cancel is still cancelled', async () => {
-  // Bug: the exit code wins the race, so a cancel the owner saw accepted ends in a saved report and filed tasks.
+  // Bug: the exit code wins the race, so a cancel the owner saw accepted ends in a saved report.
   const { runInspection } = await inspection();
   const { requestCancel } = await lifecycle();
   const rig = inspectionRig();
@@ -336,56 +321,29 @@ test('an agent that ends well just after a cancel is still cancelled', async () 
     inspectionDeps(rig, {
       runAgent: () => {
         requestCancel(rig.store);
-        return Promise.resolve(said(answerOf({}, [DRAFT])));
+        return Promise.resolve(said(answerOf()));
       },
     })
   );
   assert.equal(result.state, 'cancelled');
   assert.equal(reads.reportDays(rig.reportsDir).length, 0);
-  assert.equal(rig.fake.adds.length, 0);
 });
 
-test('cancel during validation files nothing and saves nothing', async () => {
-  // Bug: the run goes on to filing once the agent has ended, whatever the cancel said.
+test('cancel during validation saves nothing', async () => {
+  // Bug: the run goes on to the commit once the agent has ended, whatever the cancel said.
   const { runInspection } = await inspection();
   const { requestCancel } = await lifecycle();
   const rig = inspectionRig();
   const result = await runInspection(
     inspectionDeps(rig, {
-      runAgent: () => Promise.resolve(said(answerOf({}, [DRAFT]))),
+      runAgent: () => Promise.resolve(said(answerOf())),
       onPhase: (phase) => {
         if (phase === 'validating') requestCancel(rig.store);
       },
     })
   );
   assert.equal(result.state, 'cancelled');
-  assert.equal(rig.fake.adds.length, 0);
   assert.equal(reads.reportDays(rig.reportsDir).length, 0);
-});
-
-test('cancel during filing stops before the next task, keeps the receipt and saves no report', async () => {
-  // Bug: the batch runs to its end after a cancel, or the task already accepted loses its receipt and is filed again.
-  const { runInspection } = await inspection();
-  const { requestCancel } = await lifecycle();
-  const { readFilings, retryFilings } = await import('../src/watcher/filing.ts');
-  const rig = inspectionRig(
-    undefined,
-    watcherBoard({
-      onAdd: () => {
-        requestCancel(rig.store);
-      },
-    })
-  );
-  const result = await runInspection(
-    inspectionDeps(rig, { runAgent: () => Promise.resolve(said(answerOf({}, [DRAFT, OTHER]))) })
-  );
-  assert.equal(result.state, 'cancelled');
-  assert.equal(rig.fake.rows.length, 1);
-  assert.equal(reads.reportDays(rig.reportsDir).length, 0);
-  const receipts = readFilings(rig.dir, result.runId);
-  assert.equal(receipts.find((one) => one.finding === 'rail')?.taskId, rig.fake.rows[0]?.id);
-  await retryFilings({ dir: rig.dir, board: rig.fake.board, now: rig.store.now });
-  assert.equal(rig.fake.rows.length, 1, 'a cancelled run files nothing more on a retry');
 });
 
 test('cancel before the commit is cancelled, with no report', async () => {

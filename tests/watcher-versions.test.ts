@@ -1,6 +1,6 @@
-// Repeated inspections of one day (src/watcher/read.ts, brief.ts, news.ts, src/tools/operations/watcher.ts): each successful
-// run keeps an immutable report, `<day>.md` is the latest successful view for the day readers, the next inspection
-// reads the one before it, a failed attempt replaces nothing, and her wake hears only safe findings. The clock is injected.
+// Repeated inspections of one day (src/watcher/read.ts, brief.ts, src/tools/operations/watcher.ts): each successful run
+// keeps an immutable report, `<day>.md` is the latest successful view for the day readers, the next inspection reads the
+// one before it, and a failed attempt replaces nothing. The clock is injected.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -12,23 +12,12 @@ import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { runOpPrechecked } from '../src/tools/operations/index.ts';
 import { createReportReader, readReport } from '../src/watcher/read.ts';
 import * as reads from '../src/watcher/read.ts';
-import { watcherNews } from '../src/watcher/news.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
-import {
-  DAY,
-  MINUTE,
-  NOW,
-  answerOf,
-  inspectionDeps,
-  inspectionRig,
-  said,
-  watcherBoard,
-} from './fixtures/watcher-inspection-rig.ts';
+import { DAY, MINUTE, answerOf, inspectionDeps, inspectionRig, said } from './fixtures/watcher-inspection-rig.ts';
 import type { InspectionRig } from './fixtures/watcher-inspection-rig.ts';
 
 const inspection = () => import('../src/watcher/inspection.ts');
-const filing = () => import('../src/watcher/filing.ts');
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 
@@ -196,90 +185,4 @@ test('watcher.read answers the latest with its run identity, and an earlier run 
   assert.equal(earlier.status, 'ok');
   assert.equal(earlier.data?.runId, first);
   assert.ok(earlier.data?.text?.includes('MARK-FIRST'));
-});
-
-// ---- what her wake hears ------------------------------------------------------------------------------------------
-
-const SENSITIVE = 'SENSITIVE-listener-on-10.0.0.9-root-owned-backup';
-const DRAFT = {
-  kind: 'fix',
-  finding: 'retry-rail',
-  title: 'MARK-SAFE-TITLE',
-  evidence: `journal of the server unit, ${SENSITIVE}`,
-  done: 'One retry per turn',
-};
-const SECRET_BODIES = { 'The server': SENSITIVE, 'For the owner': `Rotate it: ${SENSITIVE}`, Memory: SENSITIVE };
-
-async function reported(rig: InspectionRig, mark = 'x'): Promise<string> {
-  const { runInspection } = await inspection();
-  const result = await runInspection(
-    inspectionDeps(rig, {
-      runAgent: () => Promise.resolve(said(answerOf({ ...SECRET_BODIES, Project: mark }, [DRAFT]))),
-    })
-  );
-  return result.runId;
-}
-
-const newsOf = (rig: InspectionRig) =>
-  watcherNews({ config: { watcher: { enabled: true } }, rootDir: rig.root, now: rig.clock.t });
-
-test('her wake hears the safe finding and its run, and no owner section or evidence', async () => {
-  // Bug: news.ts copies `For the owner` into her context, with whatever server detail the report holds.
-  const rig = inspectionRig();
-  const runId = await reported(rig);
-  const news = newsOf(rig);
-  assert.equal(news?.runId, runId);
-  assert.equal(news?.day, DAY);
-  assert.deepEqual(
-    news?.findings.map((one) => [one.title, one.state, one.taskId]),
-    [['MARK-SAFE-TITLE', 'filed', rig.fake.rows[0]?.id]]
-  );
-  assert.equal(JSON.stringify(news).includes(SENSITIVE), false);
-});
-
-test('a report with no finding carries nothing of its owner section to her', async () => {
-  // Bug: an empty findings list falls back to the owner section, which is the leak again by another door.
-  const { runInspection } = await inspection();
-  const rig = inspectionRig();
-  await runInspection(inspectionDeps(rig, { runAgent: () => Promise.resolve(said(answerOf(SECRET_BODIES))) }));
-  const news = newsOf(rig);
-  assert.deepEqual(news?.findings ?? [], []);
-  assert.equal(JSON.stringify(news).includes(SENSITIVE), false);
-});
-
-test('a report from before versions carries nothing of its sections to her', () => {
-  // Bug: the old day file has no receipts, so news falls back to its sections on the first wake after the update.
-  const rig = inspectionRig();
-  fs.writeFileSync(path.join(rig.reportsDir, `${DAY}.md`), `## For the owner\n\n${SENSITIVE}\n`);
-  assert.equal(JSON.stringify(newsOf(rig) ?? null).includes(SENSITIVE), false);
-});
-
-test('a repeated delivery says the same and files nothing twice', async () => {
-  // Bug: every wake re-presents a finding as new, or reading the news drains the filing queue again.
-  const { retryFilings } = await filing();
-  const rig = inspectionRig();
-  await reported(rig);
-  const first = newsOf(rig);
-  await retryFilings({ dir: rig.dir, board: rig.fake.board, now: rig.store.now });
-  const second = newsOf(rig);
-  assert.deepEqual(second, first);
-  assert.equal(rig.fake.rows.length, 1);
-});
-
-test('a deferred finding reaches her as deferred with no task id, then with the id once it is filed', async () => {
-  // Bug: she reads "filed" for a task that does not exist yet, and files it herself.
-  const { retryFilings } = await filing();
-  let down = true;
-  const rig = inspectionRig(NOW, watcherBoard({ down: () => down }));
-  await reported(rig);
-  assert.deepEqual(
-    newsOf(rig)?.findings.map((one) => [one.state, one.taskId]),
-    [['deferred', null]]
-  );
-  down = false;
-  await retryFilings({ dir: rig.dir, board: rig.fake.board, now: rig.store.now });
-  assert.deepEqual(
-    newsOf(rig)?.findings.map((one) => [one.state, one.taskId]),
-    [['filed', rig.fake.rows[0]?.id]]
-  );
 });

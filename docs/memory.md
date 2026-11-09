@@ -283,7 +283,7 @@ Every read filters by the context's audience before any limit, and a version's s
 | Selfreflection plan | `src/turn/selfreflection.ts` | Known people up to the post's moment | `groupsContext` | `<stored_facts>` in the plan request |
 | Memory session | `src/memory/db/session-retrieved.ts` | The batch's words, people and places, and one embedding of its query (purpose `recall-query`) | The scope's | `<retrieved>`, as of the batch's newest line |
 | Errand | `src/errands/service.ts`, `src/core.ts` | The goal | A group context; a `dm` errand reads nothing | `context.memory` |
-| Watcher | `src/watcher/install.ts#watcherMemory` | Failure words | `groupsContext`, because a report can reach a public filing | `<memory>` in the brief |
+| Watcher | `src/watcher/install.ts#watcherMemory` | Failure words | `groupsContext`, because a report is read outside her private chats | `<memory>` in the brief |
 
 Retrieval never yields a destination: a query names none, and a page's fields hold no target. A failed read leaves the consumer what else it has. A heartbeat keeps intention-or-skip, a selfimprovement wake keeps task-or-skip and its outbox rows, and a read consumes no receipt.
 

@@ -144,4 +144,4 @@ The main thread holds no long read or copy, because nothing else in the core mov
 
 ## The task board
 
-The [board](board.md) stores delegated work in the same database. Its roles govern task operations independently from conversational memory access. A watcher can file findings without receiving permission to deploy code.
+The [board](board.md) stores delegated work in the same database. Its roles govern task operations independently from conversational memory access.

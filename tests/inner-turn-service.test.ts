@@ -196,7 +196,6 @@ function facts(): SelfimprovementFacts {
     proposals: [],
     news: { questions: [], reviews: [], outbox: [], landed: [] },
     outboxSeqs: [],
-    watcher: null,
   };
 }
 

@@ -1,6 +1,6 @@
 // The daily selfimprovement wake (src/behavior/inner/selfimprovement.ts, spec 2026-11-02 "`selfimprovement` daily,
 // after the watcher"): once a day at `selfimprovement.at` of the server clock (UTC), never twice a day, never before
-// the hour, and its facts carry the newest watcher report when the source gives one. The pure rule first, then the
+// the hour. The pure rule first, then the
 // inner life over a fake turn runner with the clock injected. Each test names the bug it catches.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +10,6 @@ import { scheduledWake } from '../src/behavior/inner/selfimprovement.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
-import type { WatcherNews } from '../src/watcher/news.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
@@ -103,12 +102,12 @@ type Call = {
     wake: {
       kind: string;
       items: Array<{ reason: string }>;
-      selfimprovement?: { shapes: Array<unknown>; watcher?: WatcherNews | null } | null;
+      selfimprovement?: { shapes: Array<unknown> } | null;
     };
   };
 };
 
-function setup(start: number, watcher?: (now: number) => WatcherNews | null) {
+function setup(start: number) {
   const clock = { t: start };
   world().channel({ id: 'c1', name: 'chan-c1', placeId: ROOT, permissions: { send: true } });
   const hot = {
@@ -166,7 +165,6 @@ function setup(start: number, watcher?: (now: number) => WatcherNews | null) {
       skills: () => [],
       proposals: () => Promise.resolve({ entries: [], outbox: [] }),
       ackOutbox: () => Promise.resolve(),
-      ...(watcher === undefined ? {} : { watcher }),
     },
     rng: () => 0.5,
     now: () => clock.t,
@@ -211,45 +209,4 @@ test('the next day the wake comes again at the hour', async () => {
   run.clock.t = SLOT + DAY;
   await run.life.tick();
   assert.equal(selfimprovementCalls(run.calls).length, 2);
-});
-
-test("the wake's facts carry the watcher report the source gives for the wake's time", async () => {
-  // Catches: the report is read but never put into the facts, or read with the tick's clock instead of the wake's.
-  const news: WatcherNews = {
-    day: '2026-11-02',
-    runId: 'run-1',
-    findings: [{ title: 'Retries', state: 'filed', taskId: 'T3' }],
-  };
-  const asked: Array<number> = [];
-  const run = setup(SLOT - HOUR, (now) => (asked.push(now), news));
-  await run.life.tick();
-  run.clock.t = SLOT;
-  await run.life.tick();
-  assert.deepEqual(selfimprovementCalls(run.calls)[0]?.inner.wake.selfimprovement?.watcher, news);
-  assert.ok(asked.includes(SLOT), asked.join(','));
-});
-
-test('a watcher source that gives nothing leaves the report out of the facts', async () => {
-  // Catches: a null report becomes an empty object, which the text renders as a block without a date.
-  const run = setup(SLOT - HOUR, () => null);
-  await run.life.tick();
-  run.clock.t = SLOT;
-  await run.life.tick();
-  const woken = selfimprovementCalls(run.calls);
-  assert.equal(woken.length, 1);
-  assert.equal(woken[0]?.inner.wake.selfimprovement?.watcher ?? null, null);
-});
-
-test('a watcher source that throws leaves the report out and the wake keeps its other facts', async () => {
-  // Catches: a broken reports folder fails the whole view, and the wake runs with no facts at all.
-  const run = setup(SLOT - HOUR, () => {
-    throw new Error('EACCES');
-  });
-  await run.life.tick();
-  run.clock.t = SLOT;
-  await run.life.tick();
-  const woken = selfimprovementCalls(run.calls);
-  assert.equal(woken.length, 1);
-  assert.deepEqual(woken[0]?.inner.wake.selfimprovement?.shapes, []);
-  assert.equal(woken[0]?.inner.wake.selfimprovement?.watcher ?? null, null);
 });

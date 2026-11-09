@@ -1,17 +1,12 @@
 // Fakes for the watcher's lifecycle tests: a watcher folder under a temp persona root, a run store with an injected
-// clock and an injected table of live processes, an agent that answers a canned text, and a board that keeps rows,
-// honours an idempotency key the way src/board/board.ts does, and can lose its answer after accepting a task. The answers
-// follow the report's exact template with its `coverage` block at the end, which the check of an inspection requires.
+// clock and an injected table of live processes, and an agent that answers a canned text. The answers follow the report's exact template with its `coverage` block at the end, which the check of an inspection requires.
 // Synthetic data only: no provider, no database, no socket.
 import fs from 'node:fs';
 import path from 'node:path';
-import type { BoardOp, BoardResults, TaskRecord } from '../../src/board/board.ts';
-import { BoardError } from '../../src/board/machine.ts';
-import type { BoardCaller } from '../../src/tools/operations/board.ts';
 import type { InspectionAgentResult, InspectionDeps } from '../../src/watcher/inspection.ts';
 import type { ProcessIdentity, RunStore } from '../../src/watcher/lifecycle.ts';
 import { tempDir } from './tmp.ts';
-import { HEADINGS, taskRow, tasksBlock } from './watcher-rig.ts';
+import { HEADINGS } from './watcher-rig.ts';
 
 export const NOW = Date.parse('2026-11-04T06:00:00Z');
 export const DAY = '2026-11-04';
@@ -92,90 +87,12 @@ export function templateOf(
   return [title, metadata, ...sections, options.end ?? coverageBlock()].join('\n\n').trimEnd() + '\n';
 }
 
-/**
- * A whole answer: the report in its template with `bodies` and, with drafts, the tasks block after it. A draft files only
- * from a finding line at `medium` or above, so each draft with a key brings its line under `Errors`, its evidence as the text.
- */
-export function answerOf(
-  bodies: Readonly<Record<string, string>> = {},
-  drafts: ReadonlyArray<Record<string, unknown>> = []
-): string {
-  const lines = drafts.flatMap((draft) =>
-    typeof draft.finding === 'string' ? [`- [medium] ${draft.finding}: ${String(draft.evidence)}`] : []
-  );
-  if (lines.length === 0) return templateOf({ bodies }) + (drafts.length === 0 ? '' : tasksBlock(drafts));
-  const inspected = bodies.Errors;
-  const errors = {
-    'Observed defects': lines.join('\n'),
-    ...(inspected === undefined ? {} : { 'Inspected without a finding': inspected }),
-  };
-  return templateOf({ bodies: { ...bodies, Errors: errors } }) + tasksBlock(drafts);
+/** A whole answer: the report in its template with `bodies`, each string under `Inspected without a finding`. */
+export function answerOf(bodies: Readonly<Record<string, string>> = {}): string {
+  return templateOf({ bodies });
 }
 
 export const said = (text: string): InspectionAgentResult => ({ ok: true, text, exitCode: 0 });
-
-export type FakeWatcherBoard = {
-  board: BoardCaller;
-  rows: Array<TaskRecord>;
-  /** Every `task.add`, a repeat answered from the idempotency table included. */
-  adds: Array<Record<string, unknown>>;
-};
-
-/**
- * A board holding `rows`. `down` throws on every call, as a socket nobody listens on does. `refuse` throws a `BoardError`
- * on `task.add`, the row not taken. `onAdd` runs after a row is accepted, before the answer goes back: a throw in it is an answer
- * lost, and a promise it returns holds the answer back. `forgetKeys` models an idempotency key past its 24 hours.
- */
-export function watcherBoard(
-  options: {
-    rows?: ReadonlyArray<TaskRecord>;
-    down?: () => boolean;
-    refuse?: () => boolean;
-    onAdd?: (row: TaskRecord) => void | Promise<void>;
-    forgetKeys?: boolean;
-  } = {}
-): FakeWatcherBoard {
-  const rows = [...(options.rows ?? [])];
-  const adds: Array<Record<string, unknown>> = [];
-  const keys = new Map<string, TaskRecord>();
-  const add = async (principal: string, args: Readonly<Record<string, unknown>>, key: string | null) => {
-    adds.push({ ...args });
-    const known = key === null || options.forgetKeys === true ? undefined : keys.get(key);
-    if (known !== undefined) return known;
-    if (options.refuse?.() === true) throw new BoardError('forbidden', 'the board refused the task');
-    const row = taskRow({
-      id: `T-${rows.length + 1}`,
-      title: String(args.title),
-      description: typeof args.description === 'string' ? args.description : null,
-      acceptance: typeof args.acceptance === 'string' ? args.acceptance : null,
-      requester: principal,
-      metadata: (args.metadata ?? null) as TaskRecord['metadata'],
-      status: 'proposed',
-    });
-    rows.push(row);
-    if (key !== null) keys.set(key, row);
-    await options.onAdd?.(row);
-    return row;
-  };
-  const board: BoardCaller = {
-    async call<TOp extends BoardOp>(
-      principal: string,
-      op: TOp,
-      args: Readonly<Record<string, unknown>> = {},
-      idempotency: string | null = null
-    ): Promise<BoardResults[TOp]> {
-      if (options.down?.() === true) throw new Error('connect ECONNREFUSED');
-      // The fake answers each op with the row shape the real board gives it; the cast is the generic return.
-      if (op === 'task.add') return (await add(principal, args, idempotency)) as BoardResults[TOp];
-      if (op === 'task.list') {
-        const { requester } = args;
-        return rows.filter((row) => requester === undefined || row.requester === requester) as BoardResults[TOp];
-      }
-      throw new Error(`the watcher called ${String(op)}, which it has no right to`);
-    },
-  };
-  return { board, rows, adds };
-}
 
 export type InspectionRig = {
   root: string;
@@ -186,11 +103,10 @@ export type InspectionRig = {
   /** pid to start id of the processes alive at this moment. */
   alive: Map<number, string>;
   store: RunStore;
-  fake: FakeWatcherBoard;
 };
 
 /** A persona root with `agents/watcher/prompt.md` and an empty `reports/`, the clock at `start`, `SELF` alive. */
-export function inspectionRig(start: number = NOW, board: FakeWatcherBoard = watcherBoard()): InspectionRig {
+export function inspectionRig(start: number = NOW): InspectionRig {
   const root = tempDir('nep-inspection-');
   const dir = path.join(root, 'agents', 'watcher');
   const reportsDir = path.join(dir, 'reports');
@@ -209,7 +125,7 @@ export function inspectionRig(start: number = NOW, board: FakeWatcherBoard = wat
     },
     processStart: (pid) => alive.get(pid) ?? null,
   };
-  return { root, dir, reportsDir, promptFile, clock, alive, store, fake: board };
+  return { root, dir, reportsDir, promptFile, clock, alive, store };
 }
 
 /** The deps of one inspection over `rig`, answering `answerOf()` unless the overrides say otherwise. */
@@ -223,7 +139,6 @@ export function inspectionDeps(rig: InspectionRig, overrides: Partial<Inspection
     promptFiles: [rig.promptFile],
     selected: { backend: 'claude', model: 'model-m', effort: 'medium' },
     runAgent: () => Promise.resolve(said(answerOf())),
-    openBoard: () => Promise.resolve(rig.fake.board),
     cancelPollMs: 5,
     ...overrides,
   };

@@ -1,5 +1,4 @@
-// The rework after the watcher's first real report: only a finding line at `medium` or above files a task, and any other
-// draft is reported as `unmatched-draft`. `For the owner` opens with `### Decisions needed`, the metadata counts what this
+// The rework after the watcher's first real report: `For the owner` opens with `### Decisions needed`, the metadata counts what this
 // report still holds open, `Misunderstandings` cites its turns, and the evidence
 // page brings the diary's mirrors, selfreflection and the CI of `main`. Synthetic reports and rows, the board and the
 // commands are fakes, the clock is injected.
@@ -13,7 +12,6 @@ import { localConfigPath } from '../src/config/files.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { serviceFamily } from '../src/service/commands.ts';
-import { readFilings, retryFilings } from '../src/watcher/filing.ts';
 import { runInspection } from '../src/watcher/inspection.ts';
 import { readReport } from '../src/watcher/read.ts';
 import * as reports from '../src/watcher/report.ts';
@@ -29,7 +27,6 @@ import {
 } from './fixtures/watcher-inspection-rig.ts';
 import type { InspectionRig } from './fixtures/watcher-inspection-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
-import { tasksBlock } from './fixtures/watcher-rig.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const NOW = Date.parse('2026-11-05T12:00:00Z');
@@ -41,9 +38,7 @@ const codeOf = (text: string): string => {
 };
 
 const FINDING = 'the session failed with http_500 in src/memory/db/session.ts:88';
-const DRAFT = { kind: 'fix', finding: 'rail', title: 'Retry rail', evidence: 'src/a.ts:1', done: 'It holds' };
-const answerSaying = (line: string, drafts: ReadonlyArray<Record<string, unknown>> = []): string =>
-  templateOf({ bodies: { Errors: { 'Observed defects': line } } }) + (drafts.length === 0 ? '' : tasksBlock(drafts));
+const answerSaying = (line: string): string => templateOf({ bodies: { Errors: { 'Observed defects': line } } });
 
 async function saying(rig: InspectionRig, text: string, overrides = {}) {
   const result = await runInspection(
@@ -60,128 +55,6 @@ function saved(rig: InspectionRig) {
   assert.ok(checked.ok, checked.ok ? '' : checked.code);
   return { text: read.report.text, metadata: checked.metadata };
 }
-
-// ---- 1. the filing threshold --------------------------------------------------------------------------------------------
-
-test('a low finding stays in the report and files nothing, and no later retry files it', async () => {
-  // Bug: the first real report filed a task for a wrong word in a code comment, and the board fills with noise.
-  const rig = inspectionRig();
-  const result = await saying(rig, answerSaying(`- [low] rail: ${FINDING}`, [DRAFT]));
-  assert.equal(result.state, 'succeeded', result.code ?? '');
-  assert.equal(rig.fake.adds.length, 0);
-  assert.equal(result.filing, 'none');
-  assert.ok(saved(rig).text.includes(`- [low] rail: ${FINDING}`));
-  await retryFilings({ dir: rig.dir, board: rig.fake.board, now: rig.store.now });
-  assert.equal(rig.fake.adds.length, 0);
-  assert.deepEqual(
-    readFilings(rig.dir, result.runId).map((one) => one.state),
-    ['unmatched-draft']
-  );
-});
-
-test('a low finding under Suspicious evidence files nothing either', async () => {
-  // Bug: the threshold reads the defects only, and a low suspicion still reaches the board.
-  const rig = inspectionRig();
-  const text = templateOf({ bodies: { Trash: { 'Suspicious evidence': `- [low] rail: ${FINDING}` } } });
-  const result = await saying(rig, text + tasksBlock([DRAFT]));
-  assert.equal(result.state, 'succeeded', result.code ?? '');
-  assert.equal(rig.fake.adds.length, 0);
-});
-
-test('a low finding never opens the board', async () => {
-  // Bug: a draft that files nothing still marks the run deferred on the day the board is down.
-  const rig = inspectionRig();
-  let opened = 0;
-  const result = await saying(rig, answerSaying(`- [low] rail: ${FINDING}`, [DRAFT]), {
-    openBoard: () => {
-      opened += 1;
-      return Promise.reject(new Error('down'));
-    },
-  });
-  assert.equal(result.state, 'succeeded', result.code ?? '');
-  assert.equal(opened, 0);
-  assert.equal(result.filing, 'none');
-});
-
-for (const level of ['medium', 'high', 'critical']) {
-  test(`a ${level} finding files its task`, async () => {
-    // Bug: the threshold is off by one level, and a real defect reaches nobody.
-    const rig = inspectionRig();
-    const result = await saying(rig, answerSaying(`- [${level}] rail: ${FINDING}`, [DRAFT]));
-    assert.equal(rig.fake.rows.length, 1);
-    assert.equal(result.filing, 'filed');
-  });
-}
-
-test('a repeat the code lowered to low files nothing, whatever level the model wrote', async () => {
-  // Bug: the threshold reads the model's level, so a repeat written as critical files again.
-  const rig = inspectionRig();
-  await saying(rig, answerSaying(`- [high] rail: ${FINDING}`));
-  const repeat = await saying(rig, answerSaying(`- [critical] rail: ${FINDING}`, [DRAFT]));
-  assert.equal(repeat.state, 'succeeded', repeat.code ?? '');
-  assert.equal(rig.fake.adds.length, 0);
-});
-
-for (const [name, draft] of [
-  ['with a key no finding line holds', DRAFT],
-  ['with no key at all', { kind: 'fix', title: 'Retry rail', evidence: 'src/a.ts:1', done: 'It holds' }],
-] as const) {
-  test(`a draft ${name} files nothing and is reported as unmatched-draft`, async () => {
-    // Bug: the model leaves the finding line out, and the threshold never sees the task it files.
-    const rig = inspectionRig();
-    let opened = 0;
-    const result = await saying(rig, templateOf() + tasksBlock([draft]), {
-      openBoard: () => {
-        opened += 1;
-        return Promise.resolve(rig.fake.board);
-      },
-    });
-    assert.equal(result.state, 'succeeded', result.code ?? '');
-    assert.equal(opened, 0);
-    assert.equal(result.filing, 'none');
-    assert.equal(rig.fake.adds.length, 0);
-    assert.equal(readFilings(rig.dir, result.runId)[0]?.state, 'unmatched-draft');
-    const filed = sectionOf(saved(rig).text, 'Tasks filed');
-    assert.ok(filed.includes('unmatched-draft'), filed);
-    assert.ok(filed.includes(draft.title), filed);
-  });
-}
-
-test('an unmatched draft is settled: no later run or retry files it', async () => {
-  // Bug: it waits among the pending drafts, and the next run with a board files what the threshold refused.
-  const rig = inspectionRig();
-  const result = await saying(rig, templateOf() + tasksBlock([DRAFT]));
-  assert.equal(result.state, 'succeeded', result.code ?? '');
-  await retryFilings({ dir: rig.dir, board: rig.fake.board, now: rig.store.now });
-  await saying(rig, templateOf());
-  assert.equal(rig.fake.adds.length, 0);
-});
-
-test('a finding that matches a draft only under Inspected without a finding files nothing', async () => {
-  // Bug: the match reads the whole report for the key, and a plain mention carries the draft through.
-  const rig = inspectionRig();
-  const text = templateOf({ bodies: { Errors: { 'Inspected without a finding': `- rail: ${FINDING}` } } });
-  const result = await saying(rig, text + tasksBlock([DRAFT]));
-  assert.equal(result.state, 'succeeded', result.code ?? '');
-  assert.equal(rig.fake.adds.length, 0);
-});
-
-test('a batch files only the drafts above the threshold', async () => {
-  // Bug: one low draft stops the batch, or one high draft carries the low ones through.
-  const rig = inspectionRig();
-  const other = { ...DRAFT, finding: 'comment', title: 'A wrong word in a comment' };
-  const text = templateOf({
-    bodies: {
-      Errors: { 'Observed defects': `- [high] rail: ${FINDING}` },
-      'Modules and structure': { 'Observed defects': '- [low] comment: a wrong word in src/a.ts:3' },
-    },
-  });
-  await saying(rig, text + tasksBlock([other, DRAFT]));
-  assert.deepEqual(
-    rig.fake.rows.map((row) => row.title),
-    [DRAFT.title]
-  );
-});
 
 // ---- 2. Decisions needed -------------------------------------------------------------------------------------------------
 
@@ -242,7 +115,7 @@ for (const [name, line] of [
   });
 }
 
-test('a decision is no finding: it counts for nothing, keeps its line, and files nothing', async () => {
+test('a decision is no finding: it counts for nothing and keeps its line', async () => {
   // Bug: the owner's list feeds the repeat rule, so a decision he has not taken yet reads "low, repeat 5".
   const rig = inspectionRig();
   const text = decisions(`- [high] rail: ${FINDING}`);
@@ -253,7 +126,6 @@ test('a decision is no finding: it counts for nothing, keeps its line, and files
   assert.equal(metadata.newFindings, 0);
   assert.equal(metadata.repeats, 0);
   assert.deepEqual(metadata.open, { critical: 0, high: 0, medium: 0, low: 0 });
-  assert.equal(rig.fake.adds.length, 0);
 });
 
 // ---- 3. open findings ---------------------------------------------------------------------------------------------------
@@ -323,19 +195,6 @@ test('new and repeated findings count together, and Risk reads the new one alone
   assert.equal(metadata.risk, 'medium');
   assert.equal(metadata.newFindings, 1);
   assert.equal(metadata.repeats, 1);
-});
-
-test('a finding that came back after its fix counts at the level the model gives it now', async () => {
-  // Bug: the level it came in at the first time outlives its resolution.
-  const rig = inspectionRig();
-  await saying(rig, answerSaying(`- [high] rail: ${FINDING}`, [DRAFT]));
-  const row = rig.fake.rows[0] ?? assert.fail('no task was filed');
-  Object.assign(row, { status: 'done', metadata: { merged: { pr: 7 } }, updated_at: iso(rig.clock.t) });
-  rig.clock.t += MINUTE;
-  await saying(rig, answerSaying(`- [critical] rail: ${FINDING}`));
-  const { metadata } = saved(rig);
-  assert.deepEqual(metadata.open, { critical: 1, high: 0, medium: 0, low: 0 });
-  assert.equal(metadata.risk, 'critical');
 });
 
 test('changed evidence under one key counts once, at the level of the change', async () => {
@@ -451,11 +310,11 @@ test('the prompt holds Project to the CI of main', () => {
   assert.match(text, /`main`/);
 });
 
-test('the prompt gives the threshold and the decisions block', () => {
-  // Bug: the agent writes drafts for low findings that never file, or leaves the owner's decisions in prose.
+test('the prompt gives the decisions block', () => {
+  // Bug: the agent leaves the owner's decisions in prose.
+  // Changed: the watcher files no task (owner, 2026-11-09), so the filing threshold left the prompt and this test.
   assert.ok(PROMPT.includes('### Decisions needed'));
   assert.ok(promptOf('For the owner').includes('Decisions needed'));
-  assert.match(PROMPT, /`medium`/);
 });
 
 // ---- 4 and 5. the evidence page ------------------------------------------------------------------------------------------
