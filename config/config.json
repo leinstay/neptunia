@@ -382,7 +382,8 @@
   "watcher": {
     "enabled": false,
     "schedule": "at 00:00",
-    "draftsOnly": false
+    "draftsOnly": false,
+    "degradedAfterMinutes": 60
   },
   "selfimprovement": {
     "enabled": true,

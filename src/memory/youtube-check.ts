@@ -1,5 +1,5 @@
 // Whether YouTube video vision can work on this host. A YouTube link's
-// duration comes from yt-dlp, else the Data API (YOUTUBE_API_KEY), else the
+// duration comes from yt-dlp, else the Data API (the `youtube` service of keys.json), else the
 // watch page (src/memory/describe.ts#fetchVideoMedia); on many servers
 // YouTube answers yt-dlp with a bot check and the page carries no duration,
 // so without the key most links end as "could not load" -- silently, one link
@@ -30,7 +30,7 @@ function hasDuration(result: Probe): result is { ok: true; durationSec: number }
 /**
  * @param deps.hot  Live config; read at the moment of use.
  * @param deps.videoFetcher  From createVideoFetcher(): `probeSite`, `probeYoutube`.
- * @param [deps.youtubeApiKey]  Optional YOUTUBE_API_KEY; never logged or returned.
+ * @param [deps.youtubeApiKey]  The `youtube` service of keys.json, or null; never logged or returned.
  * @param [deps.proxy]  The engine proxy in force now, read at each check; null goes direct.
  *   Never rejects. `detail` is a short operator-facing note (a duration or the probes' reasons).
  */
@@ -101,7 +101,7 @@ export function startYoutubeCheck({
     .then(() => checkYoutube())
     .then(({ status }) => {
       if (status === 'page' || status === 'blocked') {
-        log.warn('youtube-check: status', { status, hint: 'set YOUTUBE_API_KEY' });
+        log.warn('youtube-check: status', { status, hint: '/keys service set youtube' });
       } else {
         log.info('youtube-check: status', { status });
       }
