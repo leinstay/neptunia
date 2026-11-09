@@ -596,14 +596,6 @@
       "deep": 1,
       "repeated": 0
     },
-    "tests/memory-db-backup-schedule.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "tests/memory-db-backup-secrets.test.ts": {
-      "deep": 3,
-      "repeated": 0
-    },
     "tests/memory-db-describe.test.ts": {
       "deep": 12,
       "repeated": 0
