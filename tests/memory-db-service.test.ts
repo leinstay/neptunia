@@ -13,6 +13,7 @@ import { memoryDbStatusLine } from '../src/tools/operations/status.ts';
 import { CHANNEL, GUILD, HOT_ITEM, MEMBER, buildDataDir, guildDir } from './fixtures/memory-db/datadir.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { memoryRing } from './fixtures/memory-db/session-rig.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const tmpRoot = () => fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-svc-'));
 
@@ -593,7 +594,7 @@ test('a failed run of a DM is told with its kind, interface and place, and no pa
     Object.assign(env.hot, {
       config: {
         bot: { timezone: 'UTC' },
-        models: { base: { memory: 'x/memory' } },
+        models: { routes: chainsOf({ memory: 'x/memory' }) },
         memoryDb: { ...live.memoryDb, session },
       },
       prompts: { 'memory-session': 'SESSION', 'system-prompt': 'S', 'character-card': 'C', rules: '- R', format: 'F' },

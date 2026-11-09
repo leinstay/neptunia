@@ -16,6 +16,7 @@ import { fill } from '../src/format.ts';
 import { labels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // The chats are held by a fake interface named `fake`.
 useIface('fake');
@@ -158,7 +159,7 @@ function hotWith(allowed: Array<string>, features: Record<string, unknown>) {
         record: true,
         ...features,
       },
-      models: { base: { analyzer: 'x/text' } },
+      models: { routes: chainsOf({ analyzer: 'x/text' }) },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
       tools: {

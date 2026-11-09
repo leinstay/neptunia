@@ -28,8 +28,9 @@ const KEYS: ReadonlyArray<MoneyKey> = [
   { slot: 'core', service: 'openrouter', value: CORE_VALUE },
   { slot: 'helpers', service: 'openrouter', value: HELPERS_VALUE },
 ];
-/** The analyzer spends on the extra key `helpers`; every other role on the core keys. */
-const ROLE_SLOTS = { analyzer: 'helpers' };
+/** The analyzer's chain names the key `helpers`, the core's and the memory writer's the key `core`. */
+// Changed: a role spends on the key its chain names (spec 2026-11-09-model-routes, slice 4), with no core pool.
+const ROLE_SLOTS = { core: 'core', memory: 'core', analyzer: 'helpers' };
 const CONFIG = { bot: { timezone: 'UTC' }, llm: { maxRequestsPerDay: 5000, maxRequestTokens: 50_000 } };
 
 function freshHandle(): MemoryHandle {

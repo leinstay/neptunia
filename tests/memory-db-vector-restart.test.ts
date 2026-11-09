@@ -16,6 +16,7 @@ import { applyWakeQueueWrite } from '../src/memory/db/wake-queue.ts';
 import { createRecord } from '../src/memory/record.ts';
 import { createAddressing } from '../src/memory/store-addresses.ts';
 import { createVectors } from '../src/memory/vectors.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const MONTH = '2026-11';
 const AT = Date.parse('2026-11-03T10:00:00.000Z');
@@ -81,7 +82,7 @@ const vectorRow = (id: string, minute: number) => ({
   vector: Float32Array.from([0.5, 0.5, minute + 1, 0.25]),
 });
 
-const CONFIG = { embed: { dimensions: 4 }, models: { base: { embedding: 'test/embedder' } }, llm: {} };
+const CONFIG = { embed: { dimensions: 4 }, models: { routes: chainsOf({ embedding: 'test/embedder' }) }, llm: {} };
 
 /** One life of the core over `env`: its own index and embedding queue. What `embed` was asked goes in `sent`. */
 function coreLife(env: TestMemory, log: ReturnType<typeof logged>['log']) {

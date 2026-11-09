@@ -6,7 +6,7 @@
 // names none, or when opencode is on a key that has left the store, with `bad-route` for a route that is not one, and with `not-installed` while the backend is not in `<private>/subharness/<backend>/` (src/subharness/place.ts),
 // whose binary every run starts with that folder's home in its environment. Otherwise the agent's mode (src/subharness/control.ts) becomes the backend's sandbox, and the child gets a
 // PATH on which `sudo` refuses unless the mode is `sudo`: a stand-in named `sudo` in a folder of its own comes first.
-// OpenCode gets one extra key as OPENROUTER_API_KEY and nothing else key-like: the one it logged in with, or with a
+// OpenCode gets one named key as OPENROUTER_API_KEY and nothing else key-like: the one it logged in with, or with a
 // route the one the task brought (`routeKey`, a run without it fails `route-no-key`); codex and claude bring their own
 // login and get no key. An opencode run that searches with exa gets `OPENCODE_ENABLE_EXA=1` and, when the task brought
 // the stored Exa key (`searchKey`), that key as `EXA_API_KEY`. A run with a `route` (src/agent-runner/protocol.ts#TaskRoute) is the runner's: the core decided

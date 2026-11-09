@@ -59,7 +59,7 @@ function rig({ answers = {}, refuse = {} }: RigOptions = {}) {
   const askCore = (command: { name: string; args: Record<string, unknown> }) => {
     commands.push(command);
     if (command.name === 'keys.add')
-      createKeyStore({ privateDir: options.privateDir }).addCore({ name: String(command.args.name), value: 'value' });
+      createKeyStore({ privateDir: options.privateDir }).add({ name: String(command.args.name), value: 'value' });
     state.checked = true;
     return Promise.resolve({ status: 'ok', text: 'done' });
   };

@@ -13,6 +13,7 @@ import { fixture, kindNamed, observeLine, tell } from './fixtures/media-memory.t
 import { tempDir } from './fixtures/tmp.ts';
 import type { Rec } from './fixtures/describe-fakes.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const UNQUOTED = 'грибы рано в этом году, и дождь идёт каждый день';
 
@@ -28,7 +29,10 @@ test('a transcript with no quotation marks stays as heard: one request and no ma
   const llm = fakeLlm({ text: UNQUOTED, model: 'x/flash' });
   const describer = createDescriber({
     hot: {
-      config: { models: { base: { vision: 'x/vision', video: 'x/flash' } }, media: { maxOutputTokens: 120 } },
+      config: {
+        models: { routes: chainsOf({ vision: 'x/vision', video: 'x/flash' }) },
+        media: { maxOutputTokens: 120 },
+      },
       prompts: { describe: 'Describe.', 'describe-audio': 'Retell in up to {{maxChars}} characters.' },
     },
     store,

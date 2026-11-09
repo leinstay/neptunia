@@ -9,7 +9,6 @@ import path from 'node:path';
 import type { BackendResult } from '../src/agent-runner/backend.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
-import { roleConfigKeys } from '../src/llm/roles.ts';
 import { modelRoleRegistry, roleSources } from '../src/subharness/model-capabilities.ts';
 import type { RoleSources, SourceDescriptor } from '../src/subharness/model-capabilities.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
@@ -68,8 +67,8 @@ const source = (read: RoleSources, via: SourceDescriptor['via']): SourceDescript
 
 // The registry
 
-test('Main lists the eight roles and Voice persists as speech under models.base', () => {
-  // Catches: Voice writing a key `models.base.voice` that nothing reads.
+test('Main lists the eight roles and Voice persists as the speech role', () => {
+  // Catches: Voice writing a role `voice` that nothing reads.
   const main = modelRoleRegistry().filter((one) => one.group === 'main');
   assert.deepEqual(
     main.map((one) => one.role),
@@ -80,8 +79,7 @@ test('Main lists the eight roles and Voice persists as speech under models.base'
     main.some((one) => one.role === 'voice'),
     false
   );
-  // roleConfigKeys answers the path as parts, as tests/roles.test.ts pins, so the spec's includes of a dotted string could never hold.
-  assert.equal(roleConfigKeys('speech')?.join('.'), 'models.base.speech');
+  // Changed: a base role has no config key of its own, its model being its chain's (slice 4), so the path check is deleted.
 });
 
 test('Errand and Development come from the registry, thinker included, and watcher is marked apart', () => {

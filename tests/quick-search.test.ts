@@ -13,6 +13,7 @@ import { runWebSearch } from '../src/tools/tools.ts';
 import { searchCommand } from '../src/interface/commands/search.ts';
 import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
 const QUERY = 'the opening hours';
@@ -40,8 +41,12 @@ function rig({
 } = {}) {
   const searches: Array<SearchCall> = [];
   const requests: Array<Record<string, unknown>> = [];
+  // Changed: quick search's model is its chain's (spec 2026-11-09-model-routes, slice 4), so a `model` of `search`
+  // becomes the `search` chain.
+  const { model, ...quick } = search;
   const config = {
-    web: { quickSearch: { enabled: true, cacheHours: 24, timeoutMs: 1000, ...search } },
+    models: { routes: chainsOf({ search: model }) },
+    web: { quickSearch: { enabled: true, cacheHours: 24, timeoutMs: 1000, ...quick } },
     llm: { timeoutMs: 1000 },
   };
   const client = (engine: string, answer: Answer) => ({

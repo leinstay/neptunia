@@ -1,7 +1,7 @@
 // OpenRouter's speech endpoint (`POST /api/v1/audio/speech`) for the persona's voice messages: one
 // request per message, no retry (a synthesis that was answered may have been billed). The model is
-// the `speech` role's (`models.base.speech`), the voice `speech.voice`, the key the key
-// store gives the speech role (the main key without one), and the provider object is derived
+// the `speech` role's (the first route of its chain), the voice `speech.voice`, the key of the
+// speech role's route in force (the main key without one), and the provider object is derived
 // exactly as a chat request derives it from `llm.providerByModel`.
 //
 // Logs carry the model, the character count, the estimated cost and failure reasons -- never the

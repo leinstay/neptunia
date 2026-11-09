@@ -13,6 +13,7 @@ import { start } from '../src/interface/fake-interface.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { channelInfo, deliver } from './fixtures/core-over-fake.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 type Running = Awaited<ReturnType<typeof start>>;
 type Row = Record<string, unknown>;
@@ -25,7 +26,7 @@ const ANSWER = 'γεια σου, καλημέρα';
 const PRIVATE_CONFIG = {
   bot: { timezone: 'UTC', owners: [], placeId: 'g1' },
   // No video role, so the start sends no canary probe to YouTube.
-  models: { base: { video: false } },
+  models: { routes: chainsOf({ video: false }) },
   pace: { settleMs: 0, settleMaxMs: 0 },
   typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },
   features: {

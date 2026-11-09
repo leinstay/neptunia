@@ -49,11 +49,9 @@ import type { CompleteResult } from './llm/openrouter.ts';
 import { reportingFailures } from './llm/chain-client.ts';
 import { createCoreRoutes } from './llm/core-routes.ts';
 import { harnessEffort } from './llm/route-text.ts';
-import { createKeyFailover } from './llm/key-failover.ts';
 import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, SEARCH_ROLE, roleModel, searchModel } from './llm/roles.ts';
 import { statusCardKeys } from './keys/card-keys.ts';
 import { createKeysCommands, reasonedPause } from './keys/commands.ts';
-import { createKeyRing } from './keys/ring.ts';
 import type { KeyOf } from './keys/ring.ts';
 import { createKeyStore } from './keys/store.ts';
 import { createRoleHealth, reportingCoreKeys, reportingLlm, roleKeyCheck } from './llm/role-health.ts';
@@ -273,10 +271,8 @@ async function buildCore(
   // No interface in this process: they run as units, and the root comes from the settings.
   const asUnits = interfaces.length === 0;
 
-  // The persona key ring is read for each request; an empty store remains available to the keys commands.
+  // keys.json is read for each request; an empty store remains available to the keys commands.
   const keyStore = createKeyStore({ privateDir: paths.privateDir });
-  const keyRing = createKeyRing({ store: keyStore, failover: createKeyFailover({ now: clock }) });
-  const ringNow = () => keyRing;
   /** The key of `role`: the key of the first usable API route of its chain, '' with none. */
   const keyOf: KeyOf = (role) => chainClient.keyOf(role) ?? '';
   const openrouterKey = '';
@@ -291,7 +287,7 @@ async function buildCore(
   const hot = createHot({ rootDir: paths.rootDir, privateDir: paths.privateDir }).watch();
   cleanups.push(() => hot.close());
   // Every request of a model role walks its chain of routes to the clients built below (src/llm/core-routes.ts).
-  const routes = createCoreRoutes({ store: keyStore, keyRing, getConfig: (): unknown => hot.config, now: clock });
+  const routes = createCoreRoutes({ store: keyStore, getConfig: (): unknown => hot.config, now: clock });
   const { client: chainClient, ring: chainRing, pathOf, modelOf, harnessOf } = routes;
 
   // The engine proxy (src/net/engine-proxy.ts) in force before anything connects; the interfaces never take it.
@@ -496,7 +492,7 @@ async function buildCore(
   const directLlm = (options.llm ??
     createLlm({
       apiKey: openrouterKey,
-      keys: ringNow,
+      keys: chainRing,
       getConfig: () => hot.config,
       calibrator,
       state: processState,
@@ -1383,17 +1379,6 @@ async function buildCore(
     },
     saveModel: async (role, model) => {
       await ownerOp('model.set', { role, id: model });
-    },
-    // `/model set --provider` and `--effort` write the local config directly: the route key holds dots and `@`, and
-    // `llm.reasoningByRole.<role>` is absent until its first write, so neither fits `config.set`.
-    routes: () => objOf(objOf(hot.config).llm).providerByModel as Readonly<Record<string, unknown>>,
-    saveRoute: (key, value) => {
-      writeLocalSetting(['llm', 'providerByModel', key], value);
-      return Promise.resolve();
-    },
-    saveSetting: (dotted, value) => {
-      writeLocalSetting(dotted.split('.'), value);
-      return Promise.resolve();
     },
     pause: pauseControl,
     recordCheck: (role, check) => {

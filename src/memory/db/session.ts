@@ -211,7 +211,7 @@ export function sessionSettings(configGiven: unknown): SessionSettings {
 
 /**
  * Whether the memory writer has what it needs: on a harness `path` nothing; on the direct path the key the key ring
- * routes `memory` to (the bound extra key, else the core key in use), and nothing without a ring. `config` and `env`
+ * routes `memory` to (the key of its route in force), and nothing without a ring. `config` and `env`
  * are not read.
  */
 export function memoryKeyState(

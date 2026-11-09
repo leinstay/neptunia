@@ -82,3 +82,33 @@ export function fakePause(initial: string | null = null): PauseControl & { pause
   };
   return state;
 }
+
+/**
+ * The key ring the core reads off its chains, over a test's own chains: the first API route of the role's chain whose
+ * key the store holds, with that key's value.
+ */
+export function chainRing(
+  store: { valueOf(name: string): string | null },
+  chainOf: (role: string) => ReadonlyArray<{ via: string; key?: string }>
+): { route(role: string): { name: string; value: string } | null } {
+  return {
+    route(role) {
+      for (const route of chainOf(role)) {
+        const value = route.via === 'api' && route.key !== undefined ? store.valueOf(route.key) : null;
+        if (value !== null && route.key !== undefined) return { name: route.key, value };
+      }
+      return null;
+    },
+  };
+}
+
+/**
+ * The chains of a deployment whose every role runs on every key of `store` in file order, with the model `modelOf` gives
+ * the role: what the core key list gave each role before the chains, for a test of something else than the routing.
+ */
+export function everyKeyChains(
+  store: { names(): Array<string> },
+  modelOf: (role: string) => string
+): (role: string) => Array<{ via: 'api'; key: string; model: string; effort: null }> {
+  return (role) => store.names().map((key) => ({ via: 'api', key, model: modelOf(role), effort: null }));
+}

@@ -226,11 +226,8 @@ test('a copied persona supplies configuration, prompts, keys and agent overrides
   write(original.dataDir, 'config/labels.json', { model: { copied: 'personal label' }, owner: {} });
   fs.mkdirSync(path.join(original.dataDir, 'prompts'));
   fs.writeFileSync(path.join(original.dataDir, 'prompts/rules.md'), 'personal rules');
-  write(original.dataDir, 'keys.json', {
-    core: [{ name: 'core-1', value: 'synthetic-portable-key' }],
-    extra: {},
-    roles: {},
-  });
+  // Changed: keys.json holds named keys under `keys` (spec 2026-11-09-model-routes, slice 4).
+  write(original.dataDir, 'keys.json', { keys: { 'core-1': 'synthetic-portable-key' } });
   original.override({ limits: { steps: 6 } });
   fs.writeFileSync(path.join(original.personal, 'prompt.md'), 'personal worker instructions');
   const copied = tempDir('nep-persona-copied-');

@@ -4,6 +4,8 @@
 // key name, a mode, a file's content) and on statuses, not on the wording of an answer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 import { subharnessCommand } from '../src/interface/commands/subharness.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
@@ -219,4 +221,59 @@ test('inside the core a mode change is stored and the answer names neptunia setu
   assert.equal(answer.status, 'ok');
   assert.equal(readKeysFile(dir).subharness.modes.server, 'sudo');
   assert.ok(answer.text.includes('neptunia setup'));
+});
+
+// the rows of her core and her memory writer
+// Changed: moved here from the tests of the retired subscription and memory path modules (slice 4); each row reads the
+// first route of the role's chain.
+
+/** A private folder with `chains` as `models.routes`, both backends installed and logged in but those in `out`. */
+function chainsRig(chains: Record<string, unknown>, out: ReadonlyArray<'codex' | 'claude'> = []) {
+  const dir = tempDir('nep-cmd-sub-rows-');
+  writeKeysFile(dir, {});
+  const config = JSON.parse(fs.readFileSync(path.join(dir, 'config', 'config.json'), 'utf8')) as Record<
+    string,
+    unknown
+  >;
+  fs.writeFileSync(path.join(dir, 'config', 'config.json'), JSON.stringify({ ...config, models: { routes: chains } }));
+  for (const backend of ['codex', 'claude'] as const)
+    if (!out.includes(backend)) fakeVendor(dir, backend, { loggedIn: true });
+  const deps: EnableDeps = {
+    privateDir: dir,
+    runBackend: () => Promise.resolve({ ok: true, text: 'ok', exitCode: 0 }),
+    fetch: () => Promise.resolve(new Response('{}', { status: 200 })),
+  };
+  return deps;
+}
+
+/** The line of `subharness status` that starts with two spaces and `name`. */
+const rowOf = (text: string, name: string): string =>
+  text.split('\n').find((line) => line.startsWith(`  ${name} `) || line.startsWith(`  ${name}\t`)) ?? '';
+
+const onClaude = (effort: string | null) => [{ via: 'harness', backend: 'claude', model: 'claude-opus-4-6', effort }];
+
+test('subharness status names the harness, model and effort of her core and of her memory writer', async () => {
+  // Catches: the status lists the agents alone, so the owner cannot see that her turns or her memory run on a subscription.
+  const deps = chainsRig({ core: onClaude('low'), memory: onClaude('high') });
+  const status = await subharnessCommand(deps, 'subharness.status', {});
+  for (const role of ['core', 'memory']) {
+    const row = rowOf(status.text, role);
+    for (const word of ['claude', 'claude-opus-4-6']) assert.ok(row.includes(word), `${word} on "${row}"`);
+  }
+  assert.ok(rowOf(status.text, 'core').includes('low') && rowOf(status.text, 'memory').includes('high'), status.text);
+});
+
+test('subharness status marks a harness row whose backend cannot run now', async () => {
+  // Catches: a route on a logged-out CLI shown as healthy while every turn of hers fails.
+  const deps = chainsRig({ core: onClaude(null) }, ['claude']);
+  const status = await subharnessCommand(deps, 'subharness.status', {});
+  assert.ok(rowOf(status.text, 'core').includes('unavailable'), status.text);
+});
+
+test('subharness status says direct-api for a role whose chain starts on a key or has no route', async () => {
+  // Catches: no row at all on the API, so a missing row cannot be told from a lost chain.
+  const deps = chainsRig({ core: [{ via: 'api', key: 'main', model: 'x/core', effort: null }] });
+  const status = await subharnessCommand(deps, 'subharness.status', {});
+  assert.ok(rowOf(status.text, 'core').includes('direct'), status.text);
+  assert.ok(rowOf(status.text, 'memory').includes('direct'), status.text);
 });

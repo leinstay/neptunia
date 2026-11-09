@@ -172,10 +172,10 @@ export function followUpTriggerKind(answer: 'yes' | 'overheard' | 'no'): 'follow
 const videoOf = (config: Untyped) => config?.media?.video;
 
 const DEPRECATED_MODEL_KEYS = [
-  { key: 'llm.classifierModel', use: 'models.base.analyzer', read: (c: Untyped) => c?.llm?.classifierModel },
-  { key: 'mention.followUpModel', use: 'models.base.analyzer', read: (c: Untyped) => c?.mention?.followUpModel },
-  { key: 'media.model', use: 'models.base.vision', read: (c: Untyped) => c?.media?.model },
-  { key: 'media.video.model', use: 'models.base.video', read: (c: Untyped) => videoOf(c)?.model },
+  { key: 'llm.classifierModel', use: 'models.routes.analyzer', read: (c: Untyped) => c?.llm?.classifierModel },
+  { key: 'mention.followUpModel', use: 'models.routes.analyzer', read: (c: Untyped) => c?.mention?.followUpModel },
+  { key: 'media.model', use: 'models.routes.vision', read: (c: Untyped) => c?.media?.model },
+  { key: 'media.video.model', use: 'models.routes.video', read: (c: Untyped) => videoOf(c)?.model },
 ];
 
 /**

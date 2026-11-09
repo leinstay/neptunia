@@ -23,19 +23,6 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 | `bot.phraseWords` | string | `"phrase-words-en.txt"` | The word list of the one-time phrases that prove an account, a file of `config/` with one word per line. The same file in `data/config/` replaces it, so a deployment supplies a list in its audience's language there. The shipped list is BIP-39's English list. See [Phrase codes](interfaces.md#phrase-codes) | `src/interface/phrase-codes.ts` |
 | `bot.access` | map | `{}` | Who besides owners may run which operations, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access) | `src/behavior/sandbox.ts` |
 
-## models.base
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `models.base.core` | string, boolean | `"anthropic/claude-opus-4.6"` | The persona's model. Purposes: `reply`, `memory-voice` | `src/llm/openrouter.ts` |
-| `models.base.memory` | string, boolean | `"anthropic/claude-opus-4.6"` | Her memory session and description review model. Same default as `core`, not a copy. Its key is the extra key `llm.boundKeys` binds to `memory`, else the core keys | `src/llm/roles.ts` |
-| `models.base.analyzer` | string, boolean | `"openai/gpt-6.1-sol"` | Picks options (address, room, route, split, media-pick, missed, etc.), plans searches and turns sources into notes. Pin one purpose to another model with `byPurpose` | `src/behavior/mention.ts` |
-| `models.base.vision` | string, boolean, null | `null` | Describes pictures (describe, relook, avatar). Off while null | `src/behavior/mention.ts` |
-| `models.base.video` | string, boolean, null | `null` | Watches video and GIFs, looks again on questions. Off while null | `src/behavior/mention.ts` |
-| `models.base.embedding` | string, boolean | `"openai/text-embedding-3-large"` | Turns text into vectors for meaning search. `embed.dimensions` sets the width | `src/llm/embed.ts` |
-| `models.base.speech` | string, boolean, null | `null` | Speaks her text aloud through the speech endpoint. Named on the status card, never probed. Off while null | `src/speech/synth.ts` |
-| `models.base.drawing` | string, boolean, null | `null` | Generates pictures through the Images API. Only `openai/*` and `google/*` families. Off while null | `src/llm/images.ts` |
-
 ## models.abilities
 
 | Key | Type | Default | What it does | Read by |
@@ -64,7 +51,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 ## models.agents
 
-Which backend, model, effort, provider and mode each agent runs on, and the extra key `opencode` runs on. `src/subharness/routing.ts` reads them at each run, and `/model set` and `/subharness mode` write them. See [Keys and models](keys.md#model-sources).
+Which backend, model, effort, provider and mode each agent runs on, and the named key `opencode` runs on. `src/subharness/routing.ts` reads them at each run, and `/model set` and `/subharness mode` write them. See [Keys and models](keys.md#model-sources).
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
@@ -73,24 +60,15 @@ Which backend, model, effort, provider and mode each agent runs on, and the extr
 | `models.agents.effort` | map | `{}` | The reasoning effort each agent runs at, by agent. An agent with no entry runs at its model's default | `src/subharness/routing.ts` |
 | `models.agents.provider` | map | `{}` | The OpenRouter provider each agent on `opencode` is pinned to, by agent, with no fallback. `/model set <agent> <model> --via opencode-harness --provider <slug>` writes it | `src/subharness/routing.ts` |
 | `models.agents.mode` | map | `{}` | What each agent may do, by agent: `read`, `write`, `full` or `sudo`. An agent with no entry runs in its default mode (see [Errands](errands.md)). `/subharness mode <agent> <mode>` writes it | `src/subharness/routing.ts` |
-| `models.agents.opencodeKey` | string, null | `null` | The extra key of `keys.json` that `opencode` runs on. Null while `opencode` has no login. `neptunia subharness opencode login --key <name>` sets it | `src/subharness/routing.ts` |
-
-## models.harness
-
-The paths of her core and her memory writer through a subharness. `src/subharness/routing.ts` reads them at each request, and `/model set <role> <model> --via <route>` writes them after one reply. See [Keys and models](keys.md#her-core-on-a-subscription).
-
-| Key | Type | Default | What it does | Read by |
-|---|---|---|---|---|
-| `models.harness.core` | map, null | `null` | Her core's subscription route, `{ "backend": "claude" or "codex", "model": id, "effort": level or null }`. Null is the OpenRouter API. `/model set core <model> --via <route>` writes it after one reply, and `/model set core <model>` clears it | `src/subharness/routing.ts` |
-| `models.harness.memory` | map, null | `null` | The memory writer's path through a subharness, in the shape of `models.harness.core`. Null is the direct path on the memory role's key. `/model set memory <model> --via <route>` writes it after one reply | `src/subharness/routing.ts` |
+| `models.agents.opencodeKey` | string, null | `null` | The named key of `keys.json` that `opencode` runs on. Null while `opencode` has no login. `neptunia subharness opencode login --key <name>` sets it | `src/subharness/routing.ts` |
 
 ## models.routes
 
-The chain of routes each model role runs on. `src/llm/route-chain.ts` reads it at each request; a role with no entry runs on the routes its `models.base`, `models.harness`, `llm.boundKeys` and core keys give it. See [Keys and models](keys.md#chains-of-routes).
+The chain of routes each model role runs on, the one place a role's key, harness, model and effort live. `src/llm/route-chain.ts` reads it at each request, and a role with no entry has no route. `/model set`, `/model add` and `/model remove` write it. See [Keys and models](keys.md#chains-of-routes).
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `models.routes` | map | `{}` | The chain of routes of each model role, by role (`core`, `memory`, `analyzer`, `vision`, `video`, `embedding`, `speech`, `drawing`, `search`): an array of `{ "via": "api", "key": name, "model": id, "effort": level }` or `{ "via": "harness", "backend": "claude" or "codex", "model": id, "effort": level }`, tried in order. A role with no entry runs on the routes its older settings give it. An empty array turns an optional role off | `src/llm/route-chain.ts` |
+| `models.routes` | map | `{}` | The chain of routes of each model role, by role (`core`, `memory`, `analyzer`, `vision`, `video`, `embedding`, `speech`, `drawing`, `search`): an array of `{ "via": "api", "key": name, "model": id, "effort": level }` or `{ "via": "harness", "backend": "claude" or "codex", "model": id, "effort": level }`, tried in order. A role's model is the model of its first route. A role with no entry has no route, and an optional role with no entry or an empty array is off. `/model set`, `/model add` and `/model remove` write it | `src/llm/route-chain.ts` |
 
 ## llm
 
@@ -106,8 +84,6 @@ The chain of routes each model role runs on. `src/llm/route-chain.ts` reads it a
 | `llm.maxRequestsPerDay` | number | `5000` | Daily request cap | `src/llm/openrouter.ts` |
 | `llm.provider` | map, null | `null` | OpenRouter `provider` routing object, passed verbatim | `src/llm/openrouter.ts` |
 | `llm.providerByModel` | map | `{}` | Per-model provider routing. See the resolution order below | `src/llm/embed.ts` |
-| `llm.reasoningByRole` | map | `{}` | The reasoning effort of a role by role name, `{ "effort": "low" }`, `medium` or `high`, sent as `reasoning` on each request of the role that has no reasoning of its own. Read for `memory`, `analyzer`, `vision` and `video`, never for the core. `/model set <role> <model> --effort <level>` writes it | `src/llm/roles.ts` |
-| `llm.boundKeys` | map | `{}` | The extra key of `keys.json` each role goes out on, by role: a base model role or `search`. A role with no entry goes out on the core keys. Read into the chain of a role with no `models.routes` entry | `src/subharness/routing.ts` |
 | `llm.routeRetryMinutes` | number | `30` | How long a role stays on a later route of its chain after a route was unavailable, before its next request tries the first route again (minutes). Read at each request | `src/llm/chain-client.ts` |
 | `llm.routeEffort` | map | `{ "core": "disabled" }` | The effort a route of a role takes when its text names none, by role, on the scale `disabled`, `low`, `medium`, `high`. On an API route `disabled` sends no `reasoning` and a level sends it as `reasoning.effort`. A harness cannot turn its thinking off, so `disabled` runs it at `low`, its lowest level (`--effort low` for claude, `model_reasoning_effort=low` for codex), and a level runs it at that level. Shipped with `core` at `disabled`. An effort the route names wins. Read at each request | `src/llm/chain-client.ts` |
 | `llm.cache.ttl` | string | `"1h"` | Cache TTL for the markers on the system message and the stable user prefix: `"1h"` or `"5m"` | `src/llm/openrouter.ts` |
@@ -117,7 +93,6 @@ The chain of routes each model role runs on. `src/llm/route-chain.ts` reads it a
 | `llm.hedge.afterMs` | number | `2500` | Milliseconds before the second attempt starts. `0` or below turns hedging off | `src/llm/openrouter.ts` |
 | `llm.hedge.timeoutMs` | number | `8000` | Milliseconds from the first attempt's start at which both are aborted if neither returned | `src/llm/openrouter.ts` |
 | `llm.hedge.longTimeoutMs` | number | `20000` | Timeout used when the caller marks the request `long: true` (the route classifier does this for a large channel list) | `src/llm/openrouter.ts` |
-| `llm.subscription.fallback` | boolean | `false` | While her core runs through a subscription CLI (`/model set core <model> --via claude-harness` or `--via codex-harness`), `true` sends a step that failed on it, and every later step of that turn, to the API with the same messages. With `false` the step fails and she reads its code. A paid script whose core runs through a harness reads it too and sends such a step to the core's key. A refusal of the token or daily rail never goes to the API. Read at every failed step | `src/subharness/subscription-client.ts` |
 | `llm.subscription.thinking` | boolean | `false` | `false` turns Claude's native thinking off with `MAX_THINKING_TOKENS=0` and asks Codex for no reasoning summary. Codex has no switch that turns a reasoning model's thinking off. Read at the start of each run | `src/subharness/subscription-client.ts` |
 | `llm.subscription.holdMs` | number | `60000` | How long a subscription run whose last step ended on tool calls waits for its next step before its process is killed (ms). Read after each such step | `src/subharness/subscription-client.ts` |
 
@@ -299,7 +274,6 @@ The chain of routes each model role runs on. `src/llm/route-chain.ts` reads it a
 | `web.links.fetchTimeoutMs` | number | `10000` | Download timeout per page (ms) | `src/web/lookup.ts` |
 | `web.quickSearch.enabled` | boolean | `true` | Whether quick search may run once an engine is chosen. `web.read` does not depend on it | `src/tools/operations/status.ts` |
 | `web.quickSearch.engine` | string, null | `null` | The one engine of quick search: `brave`, `exa` or `openrouter`. `null` leaves quick search off, and nothing answers for a chosen engine that fails | `src/web/lookup.ts` |
-| `web.quickSearch.model` | string, null | `null` | The model of the `openrouter` engine and of the search summary, apart from the analyzer. `null` leaves the `openrouter` engine off | `src/llm/roles.ts` |
 | `web.quickSearch.rawOutputTokens` | number | `256` | Max output tokens of the `openrouter` engine's request for `web.search` | `src/web/lookup.ts` |
 | `web.quickSearch.maxOutputTokens` | number | `4000` | Max output tokens for the condenser | `src/llm/openrouter.ts` |
 | `web.quickSearch.classifierMaxOutputTokens` | number | `2000` | Max output tokens for the search classifier the measuring tools ask (no live turn asks it) | `scripts/search-policy-eval.ts` |

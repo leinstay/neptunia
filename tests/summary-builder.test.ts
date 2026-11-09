@@ -27,6 +27,7 @@ import {
   config as recallConfig,
   rabbitAnswers,
 } from './fixtures/recall-run-kit.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const LIMITS = { maxChars: 100, maxOutputTokens: 50 };
 
@@ -74,8 +75,8 @@ function builder(options: { answer?: string | Error; prompts?: Record<string, un
       config: {
         bot: { timezone: 'UTC' },
         llm: {},
-        models: { base: { analyzer: 'x/analyzer' } },
-        web: { quickSearch: { model: 'x/search' } },
+        // Changed: quick search's model is its chain's, `models.routes.search` (spec 2026-11-09-model-routes, slice 4).
+        models: { routes: chainsOf({ analyzer: 'x/analyzer', search: 'x/search' }) },
       },
       prompts: {
         labels,
@@ -205,14 +206,13 @@ test('a web search whose summary answers none gives her no text', async () => {
       hot: {
         config: {
           llm: { timeoutMs: 300_000 },
-          models: { base: { analyzer: 'x/reason' } },
+          models: { routes: chainsOf({ analyzer: 'x/reason', search: 'x/search' }) },
           web: {
             acceptLanguage: 'el',
             links: { maxOutputTokens: 300, fetchTimeoutMs: 10_000 },
             quickSearch: {
               enabled: true,
               engine: 'brave',
-              model: 'x/search',
               maxOutputTokens: 400,
               cacheHours: 24,
               timeoutMs: 10_000,

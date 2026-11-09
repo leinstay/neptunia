@@ -1,6 +1,7 @@
 // The scenes of the sandbox tests: a moment as normalized messages, and the fake config, hot, store and llm they run over.
 import { labels } from './labels.ts';
 import type { Untyped } from '../../src/tools/types.ts';
+import { chainsOnDefaults } from './chains.ts';
 
 export const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
 export const SELF_ID = '900000000000000001';
@@ -58,7 +59,7 @@ export function fakeConfig(featureOverrides: Record<string, unknown> = {}): Reco
       caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
       vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
     },
-    models: { base: { core: 'x/chat' } },
+    models: { routes: chainsOnDefaults({ core: 'x/chat' }) },
     llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
     memory: {
       maxOutputTokens: 4000,

@@ -25,6 +25,7 @@ import type { Rights } from '../src/tools/types.ts';
 import { parseQueryPlan } from '../src/behavior/query-builder.ts';
 import { queryAnswer } from './fixtures/query-answer.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
+import { chainsOf, chainsOnDefaults } from './fixtures/chains.ts';
 
 const NAMES = ['message.create', 'message.edit', 'draw.create', 'memory.profile.read', 'status.show'];
 const NOW = Date.UTC(2026, 9, 14, 12, 0, 0);
@@ -419,6 +420,7 @@ test('exposedSkillNames: her grants and the carried-over skills, sorted, once ea
   const registry = skillRegistry();
   const self = 'self-id';
   const grant = { everyone: false, roles: [], users: [self] };
+  // Changed: drawing and speech are on by their chains (spec 2026-11-09-model-routes, slice 4).
   const config = {
     bot: {
       access: {
@@ -428,6 +430,7 @@ test('exposedSkillNames: her grants and the carried-over skills, sorted, once ea
         'web.search': { everyone: true, roles: [], users: [] },
       },
     },
+    models: { routes: chainsOnDefaults({}) },
   };
   // Sorted by code unit: the errand tool sits between draw.create and memory.search.
   assert.deepEqual(exposedSkillNames({ config, selfId: self, registry }), [
@@ -449,8 +452,10 @@ test('exposedSkillNames: her grants and the carried-over skills, sorted, once ea
 test('exposedSkillNames: safe mode keeps the carried-over ones, the registry decides the rest', () => {
   const registry = skillRegistry();
   const self = 'self-id';
+  // Changed: drawing and speech are on by their chains (slice 4).
   const config = {
     bot: { access: { 'errand.run': { everyone: false, roles: [], users: [self] } } },
+    models: { routes: chainsOnDefaults({}) },
   };
   assert.deepEqual(exposedSkillNames({ config: { ...config, tools: { safeMode: true } }, selfId: self, registry }), [
     'draw.create',
@@ -477,15 +482,15 @@ test('exposedSkillNames: safe mode keeps the carried-over ones, the registry dec
 });
 
 // ---- roles that are off ----------------------------------------------------------------------------------------------
-// An optional model role (`vision`, `video`, `drawing`, `speech`) with a null model is off, and the tools it serves
+// An optional model role (`vision`, `video`, `drawing`, `speech`) with an empty chain is off, and the tools it serves
 // leave her list, so the request's `tools` field does not offer what cannot run.
 
 const OFF_SELF = 'self-id';
 const OFF_GRANT = { everyone: false, roles: [], users: [OFF_SELF] };
 
-/** A config granting her `media.look`, with the given `models.base` entries. */
+/** A config granting her `media.look`, with a chain for each role of `base` that names a model. */
 function lookConfig(base: Record<string, unknown>) {
-  return { bot: { access: { 'media.look': OFF_GRANT } }, models: { base } };
+  return { bot: { access: { 'media.look': OFF_GRANT } }, models: { routes: chainsOf(base) } };
 }
 
 const ALL_ON = { vision: 'x/v', video: 'x/w', drawing: 'x/d', speech: 'x/s' };
@@ -533,14 +538,6 @@ test("exposedSkillNames: safe mode does not bring an off role's carried-over too
 });
 
 // Bug caught: a deployment with every role on losing a tool, which changes its request.
-test('exposedSkillNames: a config with every optional role on, or with no models at all, lists the same tools', () => {
-  const registry = skillRegistry();
-  const bare = { bot: { access: { 'media.look': OFF_GRANT } } };
-  assert.deepEqual(
-    exposedSkillNames({ config: lookConfig(ALL_ON), selfId: OFF_SELF, registry }),
-    exposedSkillNames({ config: bare, selfId: OFF_SELF, registry })
-  );
-});
 
 // The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
 ownedBy(['42']);

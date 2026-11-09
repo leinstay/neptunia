@@ -7,6 +7,7 @@ import { createRecord } from '../src/memory/record.ts';
 import { createEmbedder } from '../src/memory/embedder.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -78,7 +79,7 @@ function scene({
   const record = createRecord({ dataDir, log: quietLog(), memoryDb });
   const config = {
     embed: { dimensions: 4 },
-    models: { base: { embedding: 'test/embed-model' } },
+    models: { routes: chainsOf({ embedding: 'test/embed-model' }) },
     llm: { maxRequestTokens: 50000 },
   };
   const hot = { config };

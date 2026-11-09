@@ -20,6 +20,7 @@ import { tempDir } from './tmp.ts';
 import { completionOf } from './tool-answers.ts';
 import { freshWorld, onWorld, useIface, world } from './turn-world.ts';
 import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
+import { chainsOnDefaults } from './chains.ts';
 
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 
@@ -136,7 +137,7 @@ export async function skillTurn({
       dm: { enabled: true },
       llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      models: { base: { analyzer: 'x/text' } },
+      models: { routes: chainsOnDefaults({ analyzer: 'x/text' }) },
       tools: {
         safeMode: false,
         transport: 'native',

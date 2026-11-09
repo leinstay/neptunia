@@ -19,6 +19,7 @@ import { addAccount, addPerson } from './memory-db/opaque-people.ts';
 import type { Db } from '../../src/memory/db/types.ts';
 import { OWNER_PERSON } from './owner-accounts.ts';
 import { channelInfo, lineEvent } from './core-over-fake.ts';
+import { chainsOnDefaults } from './chains.ts';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 export const ANSWER = 'γεια σου';
@@ -75,14 +76,14 @@ export async function withFakes(
     JSON.stringify({
       bot: { timezone: 'UTC', ...(ownerPerson === null ? {} : { ownerPerson }) },
       dm: { enabled: true }, private: { minAffinity: 0 },
-      models: { base: { video: false } },
+      models: { routes: chainsOnDefaults({ video: false }) },
       interfaces: { mode: 'units', drainMs: 2000 },
       pace: { settleMs: 0, settleMaxMs: 0 },
       typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },
       gifs: { backfillMessages: 0 },
     })
   );
-  createKeyStore({ privateDir: dataDir }).addCore({ name: 'core-1', value: 'test-key' });
+  createKeyStore({ privateDir: dataDir }).add({ name: 'core-1', value: 'test-key' });
   for (const name of settings.names) {
     const made = spawnSync(
       process.execPath,

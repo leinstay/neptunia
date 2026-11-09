@@ -13,8 +13,7 @@
 import type { PauseControl } from '../keys/commands.ts';
 import { MEMORY_DOWN, createMemoryWatch, routeProbe } from './memory-probe.ts';
 import type { MemoryProbeDeps, MemoryWatch, ProbePath, ProbeResult } from './memory-probe.ts';
-import { memoryPath } from './memory-path.ts';
-import { subscriptionPath } from './subscription-path.ts';
+import { harnessPathOf } from './memory-path.ts';
 
 export const CORE_DOWN = 'core-down';
 export const ANALYZER_DOWN = 'analyzer-down';
@@ -74,8 +73,7 @@ const rec = (value: unknown): Record<string, unknown> =>
 const writerRuns = (config: unknown): boolean => rec(rec(rec(config).memoryDb).session).mode === 'apply';
 
 function storedPathOf(privateDir: string, role: WatchedRole): ProbePath {
-  if (role === 'core') return subscriptionPath(privateDir, 'core');
-  return role === 'memory' ? memoryPath(privateDir) : { kind: 'direct' };
+  return role === 'core' || role === 'memory' ? harnessPathOf(privateDir, role) : { kind: 'direct' };
 }
 
 export function createRouteWatches(deps: RouteWatchDeps): RouteWatches {

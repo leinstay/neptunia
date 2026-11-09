@@ -21,6 +21,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import { onWorld, useIface, world } from './fixtures/turn-world.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // The chat is held by a fake interface named `fake`.
 useIface('fake');
@@ -84,7 +85,7 @@ function hotWith({ access = {}, wakes = {} } = {}) {
       },
       llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      models: { base: { analyzer: 'x/text' } },
+      models: { routes: chainsOf({ analyzer: 'x/text' }) },
       tools: {
         safeMode: false,
         resultMaxChars: 2000,

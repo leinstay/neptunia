@@ -12,6 +12,7 @@ import { world } from './turn-world.ts';
 import { makeStore } from './admin-store.ts';
 import type { StoreFake } from './admin-store.ts';
 import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
+import { chainsOf } from './chains.ts';
 
 const DISCORD = createDiscordInterface().capabilities;
 
@@ -40,7 +41,7 @@ export function makeHot(rootDir: string): Hot {
   return {
     config: {
       bot: { ownerPerson: OWNER_PERSON },
-      models: { base: { core: 'anthropic/claude-opus-4.6' } },
+      models: { routes: chainsOf({ core: 'anthropic/claude-opus-4.6' }) },
       llm: { maxRequestsPerDay: 300 },
     },
     prompts: { persona: 'who she is', labels: { locale: 'en-US' } },
@@ -129,8 +130,9 @@ export function makeHotWithMedia(rootDir: string): Hot {
   const hot = makeHot(rootDir);
   hot.config.memory = {};
   hot.config.media = {};
-  const models = hot.config.models as { base: Record<string, string> };
-  hot.config.models = { ...models, base: { ...models.base, vision: 'anthropic/claude-haiku-4.5' } };
+  // Changed: a role's model is its chain's (spec 2026-11-09-model-routes, slice 4).
+  const models = hot.config.models as { routes: Record<string, unknown> };
+  hot.config.models = { ...models, routes: { ...models.routes, ...chainsOf({ vision: 'anthropic/claude-haiku-4.5' }) } };
   return hot;
 }
 

@@ -14,6 +14,8 @@ import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
+import { chainsOf } from './fixtures/chains.ts';
+import { roleModel } from '../src/llm/roles.ts';
 
 // The Discord interface's capabilities object, as src/index.ts injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -631,29 +633,30 @@ test('createHot: a config that still sets a per-day, per-hour or public-posts co
 });
 
 test('createHot: a data/config/config.json is read key by key: an old model key is not read, a reload keeps the previous config on bad JSON', async () => {
-  const dir = makeRoot(wrongly({ config: { models: { base: { analyzer: 'x/default' } } } }));
+  const dir = makeRoot(wrongly({ config: { models: { routes: chainsOf({ analyzer: 'x/default' }) } } }));
   fs.mkdirSync(path.join(dir, 'data', 'config'), { recursive: true });
   const localFile = path.join(dir, 'data', 'config', 'config.json');
   fs.writeFileSync(
     localFile,
-    JSON.stringify({ classifier: { text: 'x/old-text' }, models: { base: { vision: 'x/new-vision' } } })
+    JSON.stringify({ classifier: { text: 'x/old-text' }, models: { routes: chainsOf({ vision: 'x/new-vision' }) } })
   );
   let hot = wrongly<Hot>(undefined);
   try {
     const started = await withCapturedLogs(() => {
       hot = createHot({ rootDir: dir });
     });
-    assert.equal(hot.config.models.base.analyzer, 'x/default', 'classifier.text is no model key any more');
-    assert.equal(hot.config.models.base.vision, 'x/new-vision');
+    // Changed: a role's model is its chain's (spec 2026-11-09-model-routes, slice 4).
+    assert.equal(roleModel(hot.config, 'analyzer'), 'x/default', 'classifier.text is no model key any more');
+    assert.equal(roleModel(hot.config, 'vision'), 'x/new-vision');
     assert.equal(started.logs.filter((entry) => entry.level === 'warn').length, 0, 'no listing of old keys');
 
     fs.writeFileSync(localFile, '{ not json');
     const reload = await withCapturedLogs(() => hot.reloadConfig());
     assert.equal(reload.result, false, 'the reload is refused');
-    assert.equal(hot.config.models.base.vision, 'x/new-vision', 'the previous config stays live');
-    fs.writeFileSync(localFile, JSON.stringify({ models: { base: { analyzer: 'x/new-text' } } }));
+    assert.equal(roleModel(hot.config, 'vision'), 'x/new-vision', 'the previous config stays live');
+    fs.writeFileSync(localFile, JSON.stringify({ models: { routes: chainsOf({ analyzer: 'x/new-text' }) } }));
     hot.reloadConfig();
-    assert.equal(hot.config.models.base.analyzer, 'x/new-text');
+    assert.equal(roleModel(hot.config, 'analyzer'), 'x/new-text');
   } finally {
     hot?.close();
     fs.rmSync(dir, { recursive: true, force: true });

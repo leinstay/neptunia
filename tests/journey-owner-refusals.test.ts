@@ -36,6 +36,7 @@ import {
 } from './fixtures/core-units.ts';
 import { syntheticPng } from './fixtures/synthetic-png.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const T0 = Date.parse('2026-11-05T12:00:00.000Z');
 const BOUNDS = { pageRows: 25, snapshotIdleSeconds: 60, snapshotMaxSeconds: 300, maxSnapshots: 8 };
@@ -353,7 +354,7 @@ test('native usage that cannot be read automatically is stated with its hand-off
 test('an image that cannot be staged is refused before the core sees the caption', async () => {
   // Bug: a text file named .png sends an empty image part and a turn over nothing.
   await withRig(
-    { config: { models: { base: { vision: 'example/vision-model' } } } },
+    { config: { models: { routes: chainsOf({ vision: 'example/vision-model' }) } } },
     async ({ dirs, llm, clis, cores }) => {
       cores.push(await startUnitsCore(dirs, llm));
       const file = join(dirs.root, 'not-an-image.png');

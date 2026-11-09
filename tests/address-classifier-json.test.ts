@@ -10,11 +10,12 @@ import { parseAddressAnswer } from '../src/behavior/mention.ts';
 import type { ClassifierRequest } from '../src/pipeline/classifier-request.ts';
 import type { Conv, Line } from '../src/pipeline/types.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const NOW = Date.UTC(2026, 10, 6, 12, 0, 0);
 
 const SETTINGS = {
-  models: { base: { analyzer: 'small/analyzer' } },
+  models: { routes: chainsOf({ analyzer: 'small/analyzer' }) },
   llm: { analyzerTimeoutMs: 1000 },
   // The lead: the two settings `MentionConfig` requires, at values the classifier does not read, for the type check.
   mention: { followUpMaxOutputTokens: 20, neverIgnore: [], repeatWindowMinutes: 0 },

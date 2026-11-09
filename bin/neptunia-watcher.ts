@@ -10,6 +10,7 @@ import { serviceCredential } from '../src/keys/file.ts';
 import { proxyForRun } from '../src/net/proxy.ts';
 import { readKeys } from '../src/keys/file.ts';
 import { readRouting } from '../src/subharness/routing.ts';
+import { chainKeyNames } from '../src/llm/route-chain.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { backendOfAgent } from '../src/subharness/control.ts';
@@ -46,7 +47,7 @@ function promptFiles(where: Where): Array<string> {
 }
 
 /**
- * The money fact of this run: every key of keys.json by slot, the roles' extra keys, today's request count and the
+ * The money fact of this run: every key of keys.json by slot, the key each role's chain names, today's request count and the
  * spend of the memory database, read over a read-only connection held until the key reads are done. The key values go
  * to `moneyFacts` and nowhere else. A database that cannot be opened fails the read, and the brief then holds no `<money>`.
  */
@@ -59,7 +60,7 @@ async function moneyOf(where: Where, config: unknown): Promise<MoneyFacts> {
     return await moneyFacts({
       db,
       keys: moneyKeysOf(store),
-      roleSlots: readRouting(where.privateDir).roles,
+      roleSlots: chainKeyNames(config),
       requestsToday: requestsTodayOf(db, now),
       fetch: (url, init) => fetch(url, init),
       now: () => now,

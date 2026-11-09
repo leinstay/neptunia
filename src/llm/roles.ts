@@ -1,16 +1,17 @@
 // The model roles: every LLM request names the model role it goes out on, and each model role has its own
-// model with a built-in default (the same value config.json ships). The models sit in three
-// groups, matching the status card:
-// - `models.base.<role>`: her `core` and the other model roles, the model roles the bot's own requests go out on;
+// model. The models sit in three groups, matching the status card:
+// - the base roles, her `core` and the other model roles the bot's own requests go out on: the model of the first
+//   route of the role's chain in `models.routes.<role>` (src/llm/route-chain.ts); a mandatory role with no chain has its
+//   built-in default, an optional one is off;
 // - `models.errands.<role>`: the delegated agents, each with its own OpenCode loop, async;
 // - `models.development.<role>`: the agents outside her, working on this repository.
 // A model role never takes another model role's model: an unset model role is its own default, so
 // changing one model role can never move another. `models.byPurpose` pins a single purpose (one role
 // request, one kind of request) to a model of its own whatever its model role.
-// models.base
+// the base roles
 // - `core`       speaks as the persona: the reply;
 // - `memory`     her memory session and description review (src/memory/db/session.ts); its default
-//                is the core's, it is not listed by `/nep model`, and its key never falls back;
+//                is the core's, and it is not listed by `/nep model`;
 // - `analyzer`   the core's classifier model: picks one of a few given options (address, room,
 //                merge, rewatch, split, media-pick, missed),
 //                plans a search and turns sources into notes (query-builder, recall-summary,
@@ -36,31 +37,27 @@
 
 import { isObj, objOf } from '../tools/types.ts';
 
-/** The core: the one model role that speaks and decides as the persona, its model under `models.base.core`. */
+/** The core: the one model role that speaks and decides as the persona, its model the first route of `models.routes.core`. */
 export const CORE_ROLE = 'core';
 
 /**
  * Her memory session and description review (src/memory/db/session.ts): words in her voice, so the model role sits beside
- * the core (`models.base.memory`, built-in default the core's), but it is not one of ROLES: `/nep model` does not list it.
- * Its key is the extra key `llm.boundKeys` binds to it, else the core keys (src/keys/ring.ts).
+ * the core (its own chain, built-in default the core's), but it is not one of ROLES: `/nep model` does not list it.
  */
 export const MEMORY_ROLE = 'memory';
 
-/** The memory role's model while `models.base.memory` is unset: the core's built-in default, as config.json ships it. */
+/** The memory role's model while it has no chain: the core's built-in default. */
 export const MEMORY_ROLE_DEFAULT = 'anthropic/claude-opus-4.6';
 
 /**
  * Quick search's own request role, with a chain of routes of its own (`/model set search <key>/<model>`), apart from the
- * analyzer's. Its model is the first route's, else the setting `web.quickSearch.model`.
+ * analyzer's. Its model is the first route's.
  */
 export const SEARCH_ROLE = 'search';
 
-/** The model of quick search and of the scout's web search; undefined until the owner sets one, as it has no default. */
+/** The model of quick search and of the scout's web search; undefined until the owner sets a chain, as it has no default. */
 export function searchModel(config: unknown): string | undefined {
-  const routed = chainModel(objOf(config).models, SEARCH_ROLE);
-  if (routed !== undefined) return routed ?? undefined;
-  const model = objOf(objOf(objOf(config).web).quickSearch).model;
-  return typeof model === 'string' && model !== '' ? model : undefined;
+  return chainModel(objOf(config).models, SEARCH_ROLE) ?? undefined;
 }
 
 /** The model roles other than `core` that a turn calls, in display order. */
@@ -69,7 +66,7 @@ export const NON_CORE_ROLES = Object.freeze(['analyzer', 'vision', 'video', 'emb
 /** The model roles the bot's chat and embedding requests go out on, in display order: the core, then the model roles other than `core`. */
 export const CORE_ROLES = Object.freeze([CORE_ROLE, ...NON_CORE_ROLES]);
 
-/** The base model roles, in display order: the core, NON_CORE_ROLES, then drawing. Their models sit under `models.base`. */
+/** The base model roles, in display order: the core, NON_CORE_ROLES, then drawing. Their models are their chains'. */
 export const BASE_ROLES = Object.freeze([...CORE_ROLES, 'drawing']);
 
 /** The errand model roles: their models sit under `models.errands`. */
@@ -84,13 +81,13 @@ export const OPENCODE_ROLES = Object.freeze([...ERRAND_ROLES, ...DEVELOPMENT_ROL
 /** The model roles, in display order (`/nep model`, the status card). */
 export const ROLES = Object.freeze([...BASE_ROLES, ...OPENCODE_ROLES]);
 
-/** The base roles that are always on: without them there is no persona. A null model for one is refused by the settings check. */
+/** The base roles that are always on: without them there is no persona. One with no chain has its built-in default. */
 export const MANDATORY_ROLES = Object.freeze(['core', 'memory', 'analyzer', 'embedding'] as const);
 
-/** The base roles an owner may leave off, in the order of the tool roles. Off while `models.base.<role>` is null, false or empty. */
+/** The base roles an owner may leave off, in the order of the tool roles. Off while their chain holds no route. */
 export const OPTIONAL_ROLES = Object.freeze(['vision', 'video', 'drawing', 'speech'] as const);
 
-/** Each model role's model while its key is unset: config.json's values. */
+/** Each model role's built-in model: a mandatory role's with no chain, an agent's with no `models.<group>` entry. */
 export const ROLE_DEFAULTS: Readonly<Record<string, string>> = Object.freeze({
   core: 'anthropic/claude-opus-4.6',
   analyzer: 'openai/gpt-6.1-sol',
@@ -144,12 +141,12 @@ export function roleGroup(role: unknown): 'base' | 'errands' | 'development' | u
 }
 
 /**
- * The config keys of a model role's model (`['models', 'base', 'vision']`, `['models', 'errands', 'scout']`),
- * undefined for a name that is not a model role.
+ * The config keys of an agent role's model (`['models', 'errands', 'scout']`), undefined for a base role, whose model is
+ * the first route of its chain, and for a name that is not a model role.
  */
 export function roleConfigKeys(role: unknown): Array<string> | undefined {
   const group = roleGroup(role);
-  return group ? ['models', group, String(role)] : undefined;
+  return group === 'errands' || group === 'development' ? ['models', group, String(role)] : undefined;
 }
 
 /**
@@ -194,17 +191,17 @@ export function isRole(role: unknown): boolean {
   return typeof role === 'string' && ROLES.includes(role);
 }
 
-/**
- * The model of one request, the one resolver every caller goes through: the
- * `models.byPurpose` entry for `purpose` when it is a non-empty string (an own key of a
- * plain object), else the model role's own key (`models.<group>.<role>`) when it is a non-empty string,
- * else the model role's own default (ROLE_DEFAULTS). Never another model role's model. `undefined` only for a
- * `role` that is not one of ROLES and no `byPurpose` entry.
- * @param config The whole live config, read at the moment of use.
- */
 /** A model on the direct path as a source-qualified selection, as readiness records its check. */
 export const directSelectionOf = (model: string): string => `openrouter:${model}`;
 
+/**
+ * The model of one request, the one resolver every caller goes through: the `models.byPurpose` entry for `purpose`
+ * when it is a non-empty string (an own key of a plain object), else for a base role the model of the first route of
+ * its chain, else for an agent its `models.<group>.<role>` entry when it is a non-empty string, else the role's own
+ * default (ROLE_DEFAULTS; the core's for `memory`). Never another model role's model. `undefined` for an optional role
+ * that is off, and for a `role` that is not one of ROLES with no `byPurpose` entry.
+ * @param config The whole live config, read at the moment of use.
+ */
 export function roleModel(config: unknown, role: string, purpose?: string): string | undefined {
   if (OPTIONAL_ROLES.includes(role as (typeof OPTIONAL_ROLES)[number]) && !roleOn(config, role)) return undefined;
   const models = objOf(config).models;
@@ -213,43 +210,33 @@ export function roleModel(config: unknown, role: string, purpose?: string): stri
     const pinned = byPurpose[purpose];
     if (typeof pinned === 'string' && pinned) return pinned;
   }
-  const routed = chainModel(models, role);
-  if (routed !== undefined)
-    return routed ?? (MANDATORY_ROLES.some((one) => one === role) ? ROLE_DEFAULTS[role] : undefined);
   const group = roleGroup(role);
+  if (group === 'base')
+    return chainModel(models, role) ?? (role === MEMORY_ROLE ? MEMORY_ROLE_DEFAULT : ROLE_DEFAULTS[role]);
   if (!group) return undefined;
   const groupMap = objOf(models)[group];
   const map = isObj(models) && Object.hasOwn(models, group) && isObj(groupMap) ? groupMap : undefined;
   const own = map && Object.hasOwn(map, role) ? map[role] : undefined;
-  return typeof own === 'string' && own ? own : role === MEMORY_ROLE ? MEMORY_ROLE_DEFAULT : ROLE_DEFAULTS[role];
+  return typeof own === 'string' && own ? own : ROLE_DEFAULTS[role];
 }
 
-/**
- * The model of the first route of `models.routes.<role>` (src/llm/route-chain.ts) when the role has a chain there:
- * null for an empty chain, undefined while the role has none, so the old `models.base` entry still answers.
- */
-function chainModel(models: unknown, role: string): string | null | undefined {
+/** The model of the first route of `models.routes.<role>` (src/llm/route-chain.ts), undefined with no route. */
+function chainModel(models: unknown, role: string): string | undefined {
   const routes = objOf(objOf(models).routes);
   const chain: unknown = Object.hasOwn(routes, role) ? routes[role] : undefined;
   if (!Array.isArray(chain)) return undefined;
   const model: unknown = objOf(chain[0]).model;
-  return typeof model === 'string' && model !== '' ? model : null;
+  return typeof model === 'string' && model !== '' ? model : undefined;
 }
 
 /**
- * Whether `role` is on. A mandatory role is always on. An optional role is on when `models.base.<role>` is a
- * non-empty string, and off when it is null, false or empty. An absent key is on with the role's built-in default, so
- * a config that names no models keeps working. Any other name is on.
+ * Whether `role` is on. A mandatory role is always on. An optional role is on while the first route of its chain names
+ * a model, and off with no chain or an empty one. Any other name is on.
  * @param config The whole live config, read at the moment of use.
  */
 export function roleOn(config: unknown, role: string): boolean {
   if (!OPTIONAL_ROLES.includes(role as (typeof OPTIONAL_ROLES)[number])) return true;
-  const routed = chainModel(objOf(config).models, role);
-  if (routed !== undefined) return routed !== null;
-  const base = objOf(objOf(config).models).base;
-  if (!isObj(base) || !Object.hasOwn(base, role)) return true;
-  const own = base[role];
-  return typeof own === 'string' && own !== '';
+  return chainModel(objOf(config).models, role) !== undefined;
 }
 
 /** The optional roles that are off, in the order of OPTIONAL_ROLES. */
@@ -271,23 +258,3 @@ export const isEffortLevel = (value: unknown): value is (typeof EFFORT_LEVELS)[n
 /** Whether `value` is one of LISTED_EFFORT_LEVELS. */
 export const isListedEffort = (value: unknown): value is EffortLevel =>
   LISTED_EFFORT_LEVELS.some((level) => level === value);
-
-/**
- * The base roles whose requests take OpenRouter's `reasoning.effort`: the chat completions other than the core's. The
- * core is left out on purpose, the owner's rule (2026-10-19): her written `<think>` is her thinking, never provider
- * reasoning. `embedding`, `speech` and `drawing` go to endpoints that take no reasoning.
- */
-export const REASONING_ROLES: ReadonlyArray<string> = Object.freeze(['memory', 'analyzer', 'vision', 'video']);
-
-/**
- * The `reasoning` of a request for `role`: `llm.reasoningByRole.<role>` when the role is one of REASONING_ROLES and the
- * entry holds a known effort, else undefined.
- * @param config The whole live config, read at the moment of use.
- */
-export function reasoningOf(config: unknown, role: string): { effort: EffortLevel } | undefined {
-  if (!REASONING_ROLES.includes(role)) return undefined;
-  const byRole = objOf(objOf(config).llm).reasoningByRole;
-  const entry: unknown = isObj(byRole) && Object.hasOwn(byRole, role) ? byRole[role] : undefined;
-  const effort: unknown = isObj(entry) ? entry.effort : undefined;
-  return isEffortLevel(effort) ? { effort } : undefined;
-}

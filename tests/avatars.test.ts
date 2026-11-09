@@ -14,6 +14,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import { openTestMemory, unitFile } from './fixtures/memory-db/service.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { Reads } from '../src/interface/reads.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -46,7 +47,7 @@ function fakeHot({ prompts = {} } = {}) {
     config: {
       context: { vision: { fetchTimeoutMs: 500 } },
       media: { maxOutputTokens: 300 },
-      models: { base: { vision: 'v/model' } },
+      models: { routes: chainsOf({ vision: 'v/model' }) },
     },
     prompts: { avatar: PROMPT, ...prompts },
   };

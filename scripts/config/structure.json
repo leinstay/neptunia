@@ -1404,19 +1404,15 @@
     },
     {
       "path": "src/keys/",
-      "purpose": "The model keys of a deployment: the key store (`keys.json`), the core key list with its failover, the probes that check a key and a model, and the owner's key commands. The binding of a role to a key goes through `src/subharness/routing.ts`.",
+      "purpose": "The model keys of a deployment: the key store of named keys (`keys.json`), the key ring read off the chains of routes, the probes that check a key and a model, and the owner's key and chain commands.",
       "layer": "public",
       "imports": [
         "node:*",
         "src/keys/**",
-        "src/agent-runner/profiles.ts",
-        "src/llm/key-failover.ts",
         "src/llm/openrouter.ts",
         "src/llm/roles.ts",
         "src/llm/route-text.ts",
-        "src/log.ts",
-        "src/subharness/routing.ts",
-        "src/time.ts"
+        "src/log.ts"
       ],
       "test": "required"
     },

@@ -37,6 +37,7 @@ import {
   normalizedTrigger,
   rawMessage,
 } from './fixtures/turn-kit.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const NOW = Date.parse('2026-11-05T12:00:00Z');
@@ -242,7 +243,10 @@ async function turnWithGifAndReaction(): Promise<string> {
   const hot = fakeHot(
     {},
     {},
-    { media: { maxPerTurn: 6, filePreviewChars: 500, pick: { candidates: 5 } }, models: { base: { analyzer: 'x/a' } } }
+    {
+      media: { maxPerTurn: 6, filePreviewChars: 500, pick: { candidates: 5 } },
+      models: { routes: chainsOf({ analyzer: 'x/a' }) },
+    }
   );
   Object.assign(hot.prompts, { 'media-pick': 'Pick for {{name}}.', labels });
   const link = 'https://tenor.com/view/invented-1';

@@ -6,7 +6,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setAgentModel } from '../src/subharness/control.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
-import { setMemoryPath } from '../src/subharness/memory-path.ts';
 import { modelRoleRegistry, roleSources } from '../src/subharness/model-capabilities.ts';
 import { openPicker, pickerReduce } from '../cli/model-picker.ts';
 import type { PickerEvent, PickerState } from '../cli/model-picker.ts';
@@ -85,15 +84,13 @@ test('a help that cannot run stays unknown and leaves the source usable', async 
   assert.deepEqual(claude?.effort, { evidence: 'unknown', levels: [] });
 });
 
-test('the setter stores a level the binary lists, for an agent and for the writer', async () => {
+test('the setter stores a level the binary lists for an agent', async () => {
   // Catches: the chooser offering max and the setter refusing it after the confirmation.
+  // Changed: the memory writer's effort is on the route scale of its chain (slice 4), so its half is deleted.
   const { deps, privateDir } = rig(LISTED);
   const agent = await setAgentModel(deps, 'dev', 'opus', 'max', 'claude');
   assert.equal(agent.ok, true, agent.message);
   assert.equal(readKeysFile(privateDir).subharness.efforts?.dev, 'max');
-  const writer = await setMemoryPath(deps, 'claude', 'opus', 'xhigh');
-  assert.equal(writer.ok, true, writer.message);
-  assert.equal(readKeysFile(privateDir).subharness.memory?.effort, 'xhigh');
 });
 
 test('the setter refuses a level this binary does not list', async () => {

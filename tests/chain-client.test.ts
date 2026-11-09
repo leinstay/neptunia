@@ -51,7 +51,6 @@ function rig(
   const client = createChainClient({
     getConfig: () => config,
     keys: {
-      coreNames: () => ['main', 'spare'],
       valueOf: (name) => (Object.hasOwn(KEYS, name) ? (KEYS[name] ?? null) : null),
     },
     chain: createRouteChain({ now: () => clock.at, retryMs: () => 30 * 60_000 }),

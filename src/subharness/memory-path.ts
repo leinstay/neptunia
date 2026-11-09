@@ -1,116 +1,41 @@
-// The path of her memory writer: the direct path, her memory session's request on the `memory` role's key, or one
-// run of `claude` or `codex` through the subharness. The path is the record `models.harness.memory` of config.json
-// (src/subharness/routing.ts), read again at every call, so a change from the chat acts on the next sweep. `model set memory
-// --via <route> <model> [--effort <level>]` writes the record after one reply on that model and effort, and `model
-// set memory <model>` removes it after the direct model passed its check (src/keys/commands.ts, `directPath`).
-// opencode cannot carry the writer, because `opencode run` takes no system prompt of its own.
+// The path of a role that may run as a CLI chat step, her memory writer and her core: the direct path on a key, or one
+// run of `claude` or `codex` through the subharness. The path is read off the role's chain of routes in
+// `models.routes.<role>` of config.json (src/llm/route-chain.ts): its first route when that is a harness route, else
+// the direct path. The core reads the route in force from its chain client instead (src/llm/core-routes.ts#pathOf);
+// this read serves the modules that are handed no path, at every call, so a `/model set` from the chat acts on the next
+// run. The memory session (src/memory/db) reads the types and `memoryPathText`.
 
-import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
-import { EFFORT_LEVELS, isEffortLevel, isListedEffort } from '../llm/roles.ts';
+import path from 'node:path';
+import { CONFIG_DIR, CONFIG_FILE } from '../config/files.ts';
 import type { EffortLevel } from '../llm/roles.ts';
-import { MEMORY_BACKENDS, readRouting, updateRouting } from './routing.ts';
-import type { MemoryBackend, MemoryPathRecord } from './routing.ts';
-import { routeName, routeNamesText } from './route-names.ts';
-import { MEMORY_CLAIM, checkedSelection, dropClaim, listsEffort } from './selection.ts';
-import type { EnableDeps, SubharnessResult } from './control.ts';
+import { harnessEffort, isRefusal, readRoute } from '../llm/route-text.ts';
+import { readLocalConfig } from '../tools/operations/shared.ts';
+import type { MemoryBackend } from './routing.ts';
+import { routeName } from './route-names.ts';
 
-export { MEMORY_BACKENDS };
-export type { MemoryBackend, MemoryPathRecord };
+/** A path through a subharness: the backend, model and effort a run takes. */
+export type MemoryPathRecord = { backend: MemoryBackend; model: string; effort: EffortLevel | null };
 
 export type MemoryPath = { kind: 'direct' } | ({ kind: 'subharness' } & MemoryPathRecord);
 export type SubharnessMemoryPath = Extract<MemoryPath, { kind: 'subharness' }>;
 
-const done = (message: string, changed = true): SubharnessResult => ({ ok: true, code: 'ok', changed, message });
-const refused = (code: string, message: string): SubharnessResult => ({ ok: false, code, changed: false, message });
+type Tree = Record<string, unknown>;
+const treeOf = (value: unknown): Tree =>
+  typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Tree) : {};
 
-/** The path in config.json now, read at every call: the stored record, else direct. */
-export function memoryPath(privateDir: string): MemoryPath {
-  const record = readRouting(privateDir).subharness.memory;
-  return record === null ? { kind: 'direct' } : { kind: 'subharness', ...record };
+/** The path of `role` in config.json now: the harness of the first route of its chain, else direct. */
+export function harnessPathOf(privateDir: string, role: 'core' | 'memory'): MemoryPath {
+  const local = readLocalConfig(path.join(privateDir, CONFIG_DIR, CONFIG_FILE));
+  const chain = treeOf(treeOf(treeOf(local).models).routes)[role];
+  const first: unknown = Array.isArray(chain) ? chain[0] : undefined;
+  if (first === undefined) return { kind: 'direct' };
+  const route = readRoute(role, first);
+  if (isRefusal(route) || route.via !== 'harness') return { kind: 'direct' };
+  return { kind: 'subharness', backend: route.backend, model: route.model, effort: harnessEffort(route.effort) };
 }
 
-/** The path as `keys check memory` answers it: the backend of a subharness path under its route name. */
-export function memoryCheckPath(
-  privateDir: string
-): { kind: 'direct' } | { kind: 'subharness'; backend: string; model: string } {
-  const path = memoryPath(privateDir);
-  return path.kind === 'direct' ? path : { kind: 'subharness', backend: routeName(path.backend), model: path.model };
-}
-
-/** The config.json records of a path through a subharness: the memory writer's and the core's. */
-export type PathSlot = 'memory' | 'core';
-
-/**
- * One checked write of the record `slot`: one reply on that model and effort through the backend, then the record,
- * written whole, if nothing moved while the reply ran. Without an effort the record holds none, whatever was stored
- * before. A refusal writes nothing. `carrier` names what the backend would carry, for the refusal of opencode, and
- * `said` the line of a saved record.
- */
-export async function setPathRecord(
-  deps: EnableDeps,
-  slot: PathSlot,
-  choice: { backend: string; model: string; effort: string | undefined },
-  words: { carrier: string; said: (record: MemoryPathRecord) => string }
-): Promise<SubharnessResult> {
-  const { backend, model, effort } = choice;
-  const known = BACKEND_NAMES.find((name) => name === backend);
-  if (known === undefined)
-    return refused('unknown-backend', `${backend} is no backend; use ${routeNamesText(MEMORY_BACKENDS)}`);
-  const name = MEMORY_BACKENDS.find((one) => one === known);
-  if (name === undefined)
-    return refused(
-      'backend-unsupported',
-      `${routeName(known)} cannot carry ${words.carrier}, it takes no system prompt; use ${routeNamesText(MEMORY_BACKENDS)}`
-    );
-  let level: EffortLevel | undefined;
-  if (effort !== undefined) {
-    if (!isListedEffort(effort) || !(isEffortLevel(effort) || (await listsEffort(deps, name, effort))))
-      return refused('unknown-effort', `${effort} is no effort of ${routeName(name)}; use ${EFFORT_LEVELS.join(', ')}`);
-    level = effort;
-  }
-  if (model.trim() === '') return refused('model-rejected', 'name the model; nothing was changed');
-  return checkedSelection(
-    deps,
-    { claim: slot, backend: name, keyValue: '', model, ...(level === undefined ? {} : { effort: level }) },
-    () => JSON.stringify(readRouting(deps.privateDir).subharness[slot]),
-    () => {
-      const record: MemoryPathRecord = { backend: name, model, effort: level ?? null };
-      updateRouting(deps.privateDir, (fresh) => ({ ...fresh, subharness: { ...fresh.subharness, [slot]: record } }));
-      return done(words.said(record));
-    }
-  );
-}
-
-/** `model set memory --via <route> <model> [--effort <level>]`: the memory writer's record, after one reply. */
-export function setMemoryPath(
-  deps: EnableDeps,
-  backend: string,
-  model: string,
-  effort?: string
-): Promise<SubharnessResult> {
-  return setPathRecord(
-    deps,
-    MEMORY_CLAIM,
-    { backend, model, effort },
-    {
-      carrier: 'the memory writer',
-      said: (record) =>
-        `her memory writer runs through ${memoryPathText({ kind: 'subharness', ...record })} from its next sweep`,
-    }
-  );
-}
-
-/**
- * Back to the direct path: removes the record, and a check of the subharness path that is still running can no longer
- * save. `changed: false` when there was none.
- */
-export function clearMemoryPath(privateDir: string): SubharnessResult {
-  dropClaim(privateDir, MEMORY_CLAIM);
-  if (readRouting(privateDir).subharness.memory === null)
-    return done('her memory writer is on direct-api already', false);
-  updateRouting(privateDir, (store) => ({ ...store, subharness: { ...store.subharness, memory: null } }));
-  return done('her memory writer is back on direct-api');
-}
+/** The memory writer's path in config.json now. */
+export const memoryPath = (privateDir: string): MemoryPath => harnessPathOf(privateDir, 'memory');
 
 /** The path in words: `direct-api`, or `via <harness> <model>` with ` effort <level>` when there is one. */
 export function memoryPathText(path: MemoryPath): string {

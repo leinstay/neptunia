@@ -1,7 +1,10 @@
-// Tests for src/keys/commands.ts, the commands of `keys core|extra|bind|unbind|check` and `model set`, and for their
-// lines in the command table. The store is a temp folder, the provider a fake fetch, the chat a scripted dialog, the
-// pause a fake that keeps its reason. The tests assert on what is saved, sent and paused, and on a key value never
-// appearing in an answer; the wording of an answer is not tested.
+// Tests for src/keys/commands.ts, the commands of `keys add|remove|list|check` and an agent's `model set`, and for their
+// lines in the command table. The store is a temp folder, the chains a map the commands write through `saveRoutes`, the
+// provider a fake fetch, the chat a scripted dialog, the pause a fake that keeps its reason. The tests assert on what is
+// saved, sent and paused, and on a key value never appearing in an answer; the wording of an answer is not tested.
+// Changed: keys.json holds named keys and a role's model is the first route of its chain (spec 2026-11-09-model-routes,
+// slice 4), so the first key writes a chain of one route per mandatory role, and the direct `model set` of a model role
+// is gone with `models.base` (its chain commands are in tests/keys-route-commands.test.ts).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -9,54 +12,70 @@ import path from 'node:path';
 import { createKeysCommands, reasonedPause } from '../src/keys/commands.ts';
 import { createAdmin } from '../src/admin.ts';
 import { makeStore } from './fixtures/admin-store.ts';
-import { createKeyRing } from '../src/keys/ring.ts';
 import { createKeyStore, KEYS_FILE } from '../src/keys/store.ts';
-import { createKeyFailover } from '../src/llm/key-failover.ts';
+import type { KeyStore } from '../src/keys/store.ts';
+import { isRouteRole } from '../src/llm/route-text.ts';
+import type { Route, RouteRole } from '../src/llm/route-text.ts';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
 import {
   BASE_URL,
   SECRET,
   SECRET_2,
   SECRET_3,
+  chainRing,
   fakeFetch,
   fakePause,
   healthy,
   scriptedDialog,
 } from './fixtures/keys-rig.ts';
 import type { Call, Reply } from './fixtures/keys-rig.ts';
+import type { PauseControl } from '../src/keys/commands.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
-const T0 = Date.parse('2026-11-02T09:00:00Z');
 const MANDATORY = ['core', 'memory', 'analyzer', 'embedding'];
 const DEFAULTS = Object.fromEntries(MANDATORY.map((role) => [role, `default/${role}`]));
 
-function rig(answer: (call: Call) => Reply = healthy, paused: string | null = null) {
-  const privateDir = tempDir('keys-commands-');
-  const store = createKeyStore({ privateDir });
-  const ring = createKeyRing({ store, failover: createKeyFailover({ now: () => T0 }) });
-  const { fetch, calls } = fakeFetch(answer);
-  const pause = fakePause(paused);
+const api = (key: string, model: string): Route => ({ via: 'api', key, model, effort: null });
+
+/** The key commands over `store` and a map of chains, with `pause`; what `model set` of an agent saved. */
+function commandsOver(store: KeyStore, pause: PauseControl, fetch: typeof globalThis.fetch) {
+  const chains: Partial<Record<RouteRole, Array<Route>>> = {};
+  const chainOf = (role: string): Array<Route> => (isRouteRole(role) ? (chains[role] ?? []) : []);
   const saved: Array<[string, string]> = [];
   const keys = createKeysCommands({
     store,
-    ring,
+    ring: chainRing(store, chainOf),
     fetch,
     baseUrl: () => BASE_URL,
     defaults: DEFAULTS,
-    currentModel: (role) => `current/${role}`,
+    currentModel: (role) => chainOf(role)[0]?.model ?? '',
     saveModel: (role, model) => {
       saved.push([role, model]);
       return Promise.resolve();
     },
     pause,
+    chainOf,
+    saveRoutes: (role, routes) => {
+      chains[role] = routes;
+      return Promise.resolve();
+    },
   });
-  return { keys, store, calls, pause, saved, file: path.join(privateDir, KEYS_FILE) };
+  return { keys, chains, saved };
+}
+
+function rig(answer: (call: Call) => Reply = healthy, paused: string | null = null) {
+  const privateDir = tempDir('keys-commands-');
+  const store = createKeyStore({ privateDir });
+  const { fetch, calls } = fakeFetch(answer);
+  const pause = fakePause(paused);
+  const { keys, chains, saved } = commandsOver(store, pause, fetch);
+  return { keys, store, calls, pause, chains, saved, file: path.join(privateDir, KEYS_FILE) };
 }
 
 const BLANKS = ['', '', '', ''];
 
-test('the first core add asks the value without echo, then the four models with the defaults offered, and checks each', async () => {
-  const { keys, store, calls, saved } = rig();
+test('the first key asks the value without echo, then the four models with the defaults offered, checks each and writes their chains', async () => {
+  const { keys, store, calls, chains, saved } = rig();
   const { dialog, asked } = scriptedDialog([SECRET, 'custom/core', '', '', '']);
   const answer = await keys.run('keys.add', { name: 'core-1' }, dialog);
   assert.equal(answer.status, 'ok');
@@ -66,13 +85,15 @@ test('the first core add asks the value without echo, then the four models with 
     assert.ok(asked[i + 1]?.question.includes(role), `question ${i + 1} is about ${role}`)
   );
   assert.ok(asked[2]?.question.includes('default/memory'), 'the default is shown');
-  assert.deepEqual(saved, [
-    ['core', 'custom/core'],
-    ['memory', 'default/memory'],
-    ['analyzer', 'default/analyzer'],
-    ['embedding', 'default/embedding'],
-  ]);
-  assert.deepEqual(store.coreNames(), ['core-1']);
+  // Bug caught: the four models saved where no reader looks any more, so a fresh install has no route for her core.
+  assert.deepEqual(chains, {
+    core: [api('core-1', 'custom/core')],
+    memory: [api('core-1', 'default/memory')],
+    analyzer: [api('core-1', 'default/analyzer')],
+    embedding: [api('core-1', 'default/embedding')],
+  });
+  assert.deepEqual(saved, [], 'no model is saved outside the chains');
+  assert.deepEqual(store.names(), ['core-1']);
   assert.deepEqual(calls.map((call) => call.body?.model).sort(), [
     'custom/core',
     'default/analyzer',
@@ -87,12 +108,12 @@ test('the first core add asks the value without echo, then the four models with 
   assert.ok(!answer.text.includes('SECRETVALUE'));
 });
 
-test('the first core add refuses to finish when one mandatory model fails its check, and saves nothing', async () => {
+test('the first key refuses to finish when one mandatory model fails its check, and saves nothing', async () => {
   const echo = (call: Call): Reply =>
     call.url.endsWith('/embeddings')
       ? { status: 404, body: { error: { message: `No such model for key ${SECRET}` } } }
       : healthy(call);
-  const { keys, store, saved, file } = rig(echo);
+  const { keys, store, chains, file } = rig(echo);
   const { dialog } = scriptedDialog([SECRET, ...BLANKS]);
   const answer = await keys.run('keys.add', { name: 'core-1' }, dialog);
   // Bug caught: the key written before the checks run, so a fresh install ends half-configured with a model that fails.
@@ -102,8 +123,8 @@ test('the first core add refuses to finish when one mandatory model fails its ch
     'names the role and model that failed'
   );
   assert.ok(!answer.text.includes('SECRETVALUE'), 'the provider echoed the key; the answer must not');
-  assert.deepEqual(saved, [], 'no model is saved');
-  assert.deepEqual(store.coreNames(), []);
+  assert.deepEqual(chains, {}, 'no chain is written');
+  assert.deepEqual(store.names(), []);
   assert.equal(fs.existsSync(file), false);
 });
 
@@ -116,12 +137,12 @@ test('a first add with no dialog, an empty value or a pasted line sends nothing 
   assert.equal(pasted.status, 'invalid');
   assert.ok(!pasted.text.includes('SECRETVALUE'));
   assert.deepEqual(calls, []);
-  assert.deepEqual(store.coreNames(), []);
+  assert.deepEqual(store.names(), []);
 });
 
-test('a later core add checks the key with /auth/key only, trims the paste, and saves it', async () => {
+test('a later add checks the key with /auth/key only, trims the paste, and saves it', async () => {
   const { keys, store, calls } = rig();
-  store.addCore({ name: 'core-1', value: SECRET });
+  store.add({ name: 'core-1', value: SECRET });
   const answer = await keys.run('keys.add', { name: 'core-2' }, scriptedDialog([`  ${SECRET_2}\n`]).dialog);
   assert.equal(answer.status, 'ok');
   assert.equal(calls.length, 1, 'one request');
@@ -130,19 +151,19 @@ test('a later core add checks the key with /auth/key only, trims the paste, and 
   assert.equal(store.valueOf('core-2'), SECRET_2);
 });
 
-test('a later core add whose key /auth/key rejects is not saved', async () => {
+test('a later add whose key /auth/key rejects is not saved', async () => {
   const { keys, store } = rig((call) =>
     call.url.endsWith('/auth/key') ? { status: 401, body: { error: { message: 'User not found.' } } } : healthy(call)
   );
-  store.addCore({ name: 'core-1', value: SECRET });
+  store.add({ name: 'core-1', value: SECRET });
   const answer = await keys.run('keys.add', { name: 'core-2' }, scriptedDialog([SECRET_2]).dialog);
   assert.equal(answer.status, 'failed');
-  assert.deepEqual(store.coreNames(), ['core-1']);
+  assert.deepEqual(store.names(), ['core-1']);
 });
 
 test('a name already in use is refused before the value is asked or anything is sent', async () => {
   const { keys, store, calls } = rig();
-  store.addCore({ name: 'core-1', value: SECRET });
+  store.add({ name: 'core-1', value: SECRET });
   const { dialog, asked } = scriptedDialog([SECRET_2]);
   const answer = await keys.run('keys.add', { name: 'core-1' }, dialog);
   assert.equal(answer.status, 'invalid');
@@ -150,54 +171,46 @@ test('a name already in use is refused before the value is asked or anything is 
   assert.deepEqual(calls, []);
 });
 
-test('removing the last core key pauses her as no-core-route; removing another key does not', async () => {
+test('removing the key her core runs on pauses her as no-core-route; removing another key does not', async () => {
   // Changed: `/keys remove` replaces `/keys core remove`, and the pause is named for a core with no route.
-  const { keys, store, pause } = rig();
-  store.addCore({ name: 'core-1', value: SECRET });
-  store.addCore({ name: 'core-2', value: SECRET_2 });
+  const { keys, store, pause, chains } = rig();
+  store.add({ name: 'core-1', value: SECRET });
+  store.add({ name: 'core-2', value: SECRET_2 });
+  chains.core = [api('core-1', 'x/core')];
   assert.equal((await keys.run('keys.remove', { name: 'core-2' }, null)).status, 'ok');
-  assert.deepEqual(pause.pauses, [], 'one key is still there');
+  assert.deepEqual(pause.pauses, [], 'her core still has its key');
   assert.equal((await keys.run('keys.remove', { name: 'core-1' }, null)).status, 'ok');
   // Bug caught: the last removal refused, or allowed without the pause, so she keeps answering with no key to answer on.
   assert.deepEqual(pause.pauses, ['no-core-route']);
-  assert.deepEqual(store.coreNames(), []);
+  assert.deepEqual(store.names(), []);
   assert.equal((await keys.run('keys.remove', { name: 'core-1' }, null)).status, 'invalid', 'an unknown name');
 });
 
-test('the next core add resumes a no-core-route pause, and leaves a pause the owner gave alone', async () => {
+test('the next first key resumes a no-core-route pause, and a later add leaves a pause the owner gave alone', async () => {
   const afterRemoval = rig(healthy, 'no-core-route');
   await afterRemoval.keys.run('keys.add', { name: 'core-1' }, scriptedDialog([SECRET, ...BLANKS]).dialog);
   assert.equal(afterRemoval.pause.resumes, 1);
 
   const owner = rig(healthy, 'owner');
-  owner.store.addCore({ name: 'core-1', value: SECRET });
+  owner.store.add({ name: 'core-1', value: SECRET });
+  owner.chains.core = [api('core-1', 'x/core')];
   await owner.keys.run('keys.add', { name: 'core-2' }, scriptedDialog([SECRET_2]).dialog);
   // Bug caught: adding a key undoing a pause the owner set for editing data/.
   assert.equal(owner.pause.resumes, 0);
 });
 
-test('an owner pause given over no-core-route stays when the next core key is added', async () => {
+test('an owner pause given over no-core-route stays when the next key is added', async () => {
   // Catches: the owner's /pause after the last key's removal keeps the reason no-core-route, so the next add wakes her
   // while he edits data/.
   const state = makeStore();
   const admin = createAdmin({ hot: { config: { bot: { owners: [] } }, prompts: {} }, store: state });
-  const privateDir = tempDir('keys-commands-');
-  const store = createKeyStore({ privateDir });
-  const ring = createKeyRing({ store, failover: createKeyFailover({ now: () => T0 }) });
+  const store = createKeyStore({ privateDir: tempDir('keys-commands-') });
   const pause = reasonedPause({ run: (op, args) => admin.run(op, args, {}), store: state });
-  const keys = createKeysCommands({
-    store,
-    ring,
-    fetch: fakeFetch().fetch,
-    baseUrl: () => BASE_URL,
-    defaults: DEFAULTS,
-    currentModel: (role) => `current/${role}`,
-    saveModel: () => Promise.resolve(),
-    pause,
-  });
-  store.addCore({ name: 'core-1', value: SECRET });
+  const { keys, chains } = commandsOver(store, pause, fakeFetch().fetch);
+  store.add({ name: 'core-1', value: SECRET });
   // Changed: `/keys remove`; the next add of a non-empty keys.json goes in as a named key, with no models asked.
-  store.addExtra({ name: 'spare', value: SECRET_3 });
+  store.add({ name: 'spare', value: SECRET_3 });
+  chains.core = [api('core-1', 'x/core'), api('core-2', 'x/core')];
   await keys.run('keys.remove', { name: 'core-1' }, null);
   assert.equal(pause.reason(), 'no-core-route');
   await admin.run('bot.pause', {}, {});
@@ -219,8 +232,8 @@ test('a failed add does not resume the no-core-route pause', async () => {
 test('the listing shows every key by name and last four characters, never a value', async () => {
   // Changed: one `/keys list` of named keys replaces the core and extra listings and their grants.
   const { keys, store } = rig();
-  store.addCore({ name: 'core-1', value: SECRET });
-  store.addExtra({ name: 'art', value: SECRET_3 });
+  store.add({ name: 'core-1', value: SECRET });
+  store.add({ name: 'art', value: SECRET_3 });
   const answer = await keys.run('keys.list', {}, null);
   assert.equal(answer.status, 'ok');
   // Bug caught: a listing that prints the stored row, value and all.
@@ -229,54 +242,40 @@ test('the listing shows every key by name and last four characters, never a valu
   assert.ok(answer.text.includes('art') && answer.text.includes('EFGH'), answer.text);
 });
 
-test("keys check sends one request on the role's own key and names model, key name and is_byok", async () => {
+test("keys check sends one request on the key of the role's route and names model, key name and is_byok", async () => {
   const byok =
     (is: boolean) =>
     (call: Call): Reply =>
       call.url.endsWith('/chat/completions')
         ? { status: 200, body: { choices: [{ message: { content: 'ok' } }], usage: { cost: 0.01, is_byok: is } } }
         : healthy(call);
-  const bound = rig(byok(true));
-  bound.store.addCore({ name: 'core-1', value: SECRET });
-  bound.store.addExtra({ name: 'art', value: SECRET_3 });
-  bound.store.bind('vision', 'art');
-  const onExtra = await bound.keys.run('keys.check', { role: 'vision' }, null);
-  assert.equal(onExtra.status, 'ok');
-  assert.equal(bound.calls.length, 1);
-  assert.equal(bound.calls[0]?.auth, SECRET_3, 'the bound key, not the core key');
-  assert.equal(bound.calls[0]?.body?.model, 'current/vision');
-  assert.ok(onExtra.text.includes('current/vision') && onExtra.text.includes('art'));
+  const onRoute = rig(byok(true));
+  onRoute.store.add({ name: 'core-1', value: SECRET });
+  onRoute.store.add({ name: 'art', value: SECRET_3 });
+  onRoute.chains.vision = [api('art', 'current/vision')];
+  const onArt = await onRoute.keys.run('keys.check', { role: 'vision' }, null);
+  assert.equal(onArt.status, 'ok');
+  assert.equal(onRoute.calls.length, 1);
+  assert.equal(onRoute.calls[0]?.auth, SECRET_3, "the route's key, not the first key of the file");
+  assert.equal(onRoute.calls[0]?.body?.model, 'current/vision');
+  assert.ok(onArt.text.includes('current/vision') && onArt.text.includes('art'));
 
   const plain = rig(byok(false));
-  plain.store.addCore({ name: 'core-1', value: SECRET });
-  plain.store.addExtra({ name: 'art', value: SECRET_3 });
-  plain.store.bind('vision', 'art');
+  plain.store.add({ name: 'art', value: SECRET_3 });
+  plain.chains.vision = [api('art', 'current/vision')];
   const notByok = await plain.keys.run('keys.check', { role: 'vision' }, null);
   // Bug caught: the answer not saying whether the key was used as BYOK, the one thing the check exists to prove.
-  assert.notEqual(onExtra.text, notByok.text, 'is_byok true and false read differently');
-  assert.ok(!onExtra.text.includes('SECRETVALUE') && !notByok.text.includes('SECRETVALUE'));
+  assert.notEqual(onArt.text, notByok.text, 'is_byok true and false read differently');
+  assert.ok(!onArt.text.includes('SECRETVALUE') && !notByok.text.includes('SECRETVALUE'));
 });
 
 test('keys check with no key for the role fails without sending anything', async () => {
-  const { keys, calls } = rig();
+  // Changed: the role's key is its route's (slice 4), here a route on a key keys.json lacks.
+  const { keys, calls, chains } = rig();
+  chains.core = [api('missing', 'x/core')];
   const answer = await keys.run('keys.check', { role: 'core' }, null);
   assert.equal(answer.status, 'failed');
   assert.deepEqual(calls, []);
-});
-
-test("model set checks the model on the role's key first and saves only a model that answers", async () => {
-  const gone = (call: Call): Reply =>
-    call.body?.model === 'x/gone' ? { status: 404, body: { error: { message: 'No endpoints found' } } } : healthy(call);
-  const { keys, store, saved, calls } = rig(gone);
-  store.addCore({ name: 'core-1', value: SECRET });
-  const refused = await keys.run('model.set', { role: 'analyzer', model: 'x/gone' }, null);
-  // Bug caught: saving the model first and finding out on the next turn that every analyzer request fails.
-  assert.equal(refused.status, 'failed');
-  assert.deepEqual(saved, []);
-  const accepted = await keys.run('model.set', { role: 'analyzer', model: 'x/fine' }, null);
-  assert.equal(accepted.status, 'ok');
-  assert.deepEqual(saved, [['analyzer', 'x/fine']]);
-  assert.ok(calls.every((call) => call.auth === SECRET));
 });
 
 test('model set for an errand or development role saves at once: its ids are not OpenRouter model ids', async () => {

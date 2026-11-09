@@ -41,6 +41,7 @@ import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
 import { readOnlyMemory } from '../scripts/lib/memory-read.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -89,7 +90,7 @@ function scenarioConfig(grants: Untyped, { agents = {} } = {}) {
         caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
         vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
       },
-      models: { base: { core: 'x/chat' } },
+      models: { routes: chainsOf({ core: 'x/chat' }) },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
       tools: { safeMode: false },
       errands: { maxOpen: 3 },

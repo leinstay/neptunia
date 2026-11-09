@@ -3,35 +3,23 @@
 // The operations under src/tools/operations/, her tool definitions (src/tools/definitions.ts) and the owner's command table
 // read them, and `leafPaths` lists every setting of a config.
 
-import { CORE_ROLES, OPENCODE_ROLES, ROLES, roleConfigKeys } from '../../llm/roles.ts';
+import { CORE_ROLES, OPENCODE_ROLES, ROLES } from '../../llm/roles.ts';
 import { isObj, objOf } from '../types.ts';
 
 /**
- * The core's model roles (src/llm/roles.ts#CORE_ROLES: the core, then the model roles other than `core`), each with the
- * config path of its model (src/tools/operations/model.ts): the roles the status card probes; with the other
- * roles they make `MODEL_SET_PATHS`; every role choice list is derived from this one. `core` is
- * the one model that speaks as the persona: its replies. `embedding` serves the embeddings (src/llm/embed.ts), which
- * take no chat completion.
+ * The core's model roles (src/llm/roles.ts#CORE_ROLES: the core, then the model roles other than `core`): the roles the
+ * status card probes; every role choice list is derived from these. `core` is the one model that speaks as the persona:
+ * its replies. `embedding` serves the embeddings (src/llm/embed.ts), which take no chat completion.
  */
-export const MODEL_ROLE_PATHS = Object.freeze(
-  Object.fromEntries(CORE_ROLES.map((role) => [role, (roleConfigKeys(role) ?? []).join('.')]))
-);
-
-/** The roles of `MODEL_ROLE_PATHS`, in order. */
-export const MODEL_ROLES = Object.freeze(Object.keys(MODEL_ROLE_PATHS));
+export const MODEL_ROLES: ReadonlyArray<string> = Object.freeze([...CORE_ROLES]);
 
 /**
- * The roles whose model `model.show` lists and `model.set` changes, each with the config path
- * `set` writes (`models.<group>.<role>`, src/llm/roles.ts#ROLES): the base roles (the core, the
- * other model roles, drawing), then the errand and development roles, which take no request of the bot
- * (OpenCode workers run them). Drawing (src/llm/images.ts#IMAGE_ROLE) takes no chat completion.
+ * The roles whose model `model.show` lists and `model.set` changes (src/llm/roles.ts#ROLES): the base roles (the core,
+ * the other model roles, drawing), whose model is their chain's, then the errand and development roles, whose model is
+ * their `models.<group>.<role>` and which take no request of the bot (OpenCode workers run them). Drawing
+ * (src/llm/images.ts#IMAGE_ROLE) takes no chat completion. The choices of `model.set` and `/model set`.
  */
-export const MODEL_SET_PATHS = Object.freeze(
-  Object.fromEntries(ROLES.map((role) => [role, (roleConfigKeys(role) ?? []).join('.')]))
-);
-
-/** The roles of `MODEL_SET_PATHS`, in order: the choices of `model.set` and `/model set`. */
-export const MODEL_SET_ROLES = Object.freeze(Object.keys(MODEL_SET_PATHS));
+export const MODEL_SET_ROLES: ReadonlyArray<string> = Object.freeze([...ROLES]);
 
 /** The `section` choices of `memory.profile.read`, in display order (it falls back to `summary`). */
 export const MEMORY_SHOW_SECTIONS = Object.freeze([

@@ -20,6 +20,7 @@ import { fakeImageFetcher, fakeLlm, fakeState, fakeVideoFetcher } from './fixtur
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { NOW, coreTurn } from './fixtures/turn-harness.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const ZERO = {
@@ -110,7 +111,7 @@ test('a description described again and one kept and marked are readable, with n
     const describer = createDescriber({
       hot: {
         config: {
-          models: { base: { vision: 'x/vision' } },
+          models: { routes: chainsOf({ vision: 'x/vision' }) },
           media: { maxOutputTokens: 120 },
           context: { vision: { fetchTimeoutMs: 10_000 } },
         },

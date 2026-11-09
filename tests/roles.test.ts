@@ -1,6 +1,7 @@
-// Tests for src/llm/roles.ts (the model roles in three groups: `models.base` for the core, its
-// helpers and drawing, `models.errands` for the errand agents, `models.development` for the
-// development agents; one resolver, no cross-role fallback), src/config.ts#readConfig and the call sites.
+// Tests for src/llm/roles.ts (the model roles in three groups: the core, its helpers and drawing on the first route of
+// their chains in `models.routes`, `models.errands` for the errand agents, `models.development` for the development
+// agents; one resolver, no cross-role fallback), src/config.ts#readConfig and the call sites.
+// Changed: `models.base` is retired (spec 2026-11-09-model-routes, slice 4), so a base role's model comes from its chain.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -32,6 +33,9 @@ import { tempDir } from './fixtures/tmp.ts';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const purposeRoles: Record<string, string> = PURPOSE_ROLES;
 
+/** A chain of one API route on the key `main` for `role`, as `models.routes` holds it. */
+const on = (role: string, model: string) => ({ [role]: [{ via: 'api', key: 'main', model, effort: null }] });
+
 /** A scratch root with the tracked config.json and, when given, a config.local.json. */
 function loadWith(local: unknown) {
   const dir = tempDir('nep-roles-');
@@ -50,8 +54,8 @@ function loadWith(local: unknown) {
 
 // ---- roleModel ---------------------------------------------------------------
 
-test("roleModel: models.byPurpose for the purpose, else the role's own key, else the role default", () => {
-  const config = { models: { base: { analyzer: 'x/analyzer' }, byPurpose: { split: 'x/split' } } };
+test("roleModel: models.byPurpose for the purpose, else the role's first route, else the role default", () => {
+  const config = { models: { routes: on('analyzer', 'x/analyzer'), byPurpose: { split: 'x/split' } } };
   assert.equal(roleModel(config, 'analyzer', 'split'), 'x/split');
   assert.equal(roleModel(config, 'analyzer', 'address'), 'x/analyzer');
   assert.equal(roleModel(config, 'analyzer'), 'x/analyzer');
@@ -63,7 +67,11 @@ test('roles: the lookup purposes go out on the analyzer, each pinnable by itself
   for (const purpose of ['recall-summary', 'selfreflection-planner', 'web-search']) {
     assert.equal(purposeRoles[purpose], 'analyzer', purpose);
     assert.equal(
-      roleModel({ models: { base: { analyzer: 'x/a' }, byPurpose: { [purpose]: 'x/pinned' } } }, 'analyzer', purpose),
+      roleModel(
+        { models: { routes: on('analyzer', 'x/a'), byPurpose: { [purpose]: 'x/pinned' } } },
+        'analyzer',
+        purpose
+      ),
       'x/pinned',
       purpose
     );
@@ -71,10 +79,11 @@ test('roles: the lookup purposes go out on the analyzer, each pinnable by itself
 });
 
 test('roleModel: a byPurpose entry applies whatever the role, an empty or non-string one does not', () => {
-  const config = { models: { base: { core: 'x/core' }, byPurpose: { reply: 'x/reply', describe: '', relook: 7 } } };
+  const routes = { ...on('core', 'x/core'), ...on('vision', 'x/vision') };
+  const config = { models: { routes, byPurpose: { reply: 'x/reply', describe: '', relook: 7 } } };
   assert.equal(roleModel(config, 'core', 'reply'), 'x/reply');
-  assert.equal(roleModel(config, 'vision', 'describe'), ROLE_DEFAULTS.vision);
-  assert.equal(roleModel(config, 'vision', 'relook'), ROLE_DEFAULTS.vision);
+  assert.equal(roleModel(config, 'vision', 'describe'), 'x/vision');
+  assert.equal(roleModel(config, 'vision', 'relook'), 'x/vision');
   assert.equal(
     roleModel({ models: { byPurpose: Object.create({ split: 'x/inherited' }) } }, 'analyzer', 'split'),
     ROLE_DEFAULTS.analyzer
@@ -82,10 +91,10 @@ test('roleModel: a byPurpose entry applies whatever the role, an empty or non-st
 });
 
 test('roleModel: a byPurpose that is not a plain object, or an entry that is not a non-empty string, leaves the role model', () => {
-  const base = { analyzer: 'x/analyzer' };
+  const routes = on('analyzer', 'x/analyzer');
   for (const byPurpose of [{ lookup: '' }, { lookup: null }, { lookup: 7 }, ['x/array'], 'x/string', null]) {
     assert.equal(
-      roleModel({ models: { base, byPurpose } }, 'analyzer', 'lookup'),
+      roleModel({ models: { routes, byPurpose } }, 'analyzer', 'lookup'),
       'x/analyzer',
       JSON.stringify(byPurpose)
     );
@@ -97,23 +106,21 @@ test('roleModel: a byPurpose that is not a plain object, or an entry that is not
   );
 });
 
-test("roleModel: an unset role takes its own default, never another role's model", () => {
-  const config = { models: { base: { core: 'x/core', analyzer: 'x/analyzer', vision: 'x/vision' } } };
-  for (const role of ['video', 'embedding', 'drawing', 'scout', 'dev']) {
-    assert.equal(roleModel(config, role), ROLE_DEFAULTS[role], role);
-  }
-  assert.equal(roleModel({ models: { base: { analyzer: null, video: '' } } }, 'analyzer'), ROLE_DEFAULTS.analyzer);
-  assert.equal(
-    roleModel({ models: { base: { analyzer: null, video: '' } } }, 'video'),
-    undefined,
-    'an empty video is off'
-  );
+test("roleModel: a mandatory role with no chain takes its own default, never another role's model", () => {
+  const config = { models: { routes: { ...on('core', 'x/core'), ...on('analyzer', 'x/analyzer') } } };
+  for (const role of ['embedding', 'memory', 'scout', 'dev'])
+    assert.equal(roleModel(config, role), ROLE_DEFAULTS[role] ?? ROLE_DEFAULTS.core, role);
   assert.equal(roleModel(undefined, 'core'), ROLE_DEFAULTS.core);
-  assert.equal(
-    roleModel({ models: { base: { core: { nested: 'x/no' } } } }, 'core'),
-    ROLE_DEFAULTS.core,
-    'models.base.core is a string, nothing else'
-  );
+  assert.equal(roleModel({ models: { routes: { analyzer: [] } } }, 'analyzer'), ROLE_DEFAULTS.analyzer);
+});
+
+test('roleModel: an optional role with no chain, or an empty one, is off', () => {
+  // Catches: an optional role with no chain coming back on its built-in default, so it spends a key nobody chose.
+  for (const role of ['vision', 'video', 'speech', 'drawing']) {
+    assert.equal(roleModel({}, role), undefined, role);
+    assert.equal(roleModel({ models: { routes: { [role]: [] } } }, role), undefined, role);
+    assert.equal(roleOn({}, role), false, role);
+  }
 });
 
 test('roleModel: undefined for a name that is not a role, unless its purpose is pinned', () => {
@@ -129,15 +136,17 @@ test('roleModel: undefined for a name that is not a role, unless its purpose is 
 test('roleModel: each role reads its own group only', () => {
   const crossed = {
     models: {
-      base: { scout: 'openrouter/x/scout', thinker: 'openrouter/x/thinker' },
+      routes: { scout: [{ via: 'api', key: 'main', model: 'openrouter/x/scout' }] },
       errands: { core: 'x/core', drawing: 'x/draw' },
       development: { analyzer: 'x/an', server: 'openrouter/x/server' },
     },
   };
-  for (const role of ROLES) assert.equal(roleModel(crossed, role), ROLE_DEFAULTS[role], role);
+  for (const role of ['core', 'analyzer', 'scout', 'server'])
+    assert.equal(roleModel(crossed, role), ROLE_DEFAULTS[role], role);
+  assert.equal(roleModel(crossed, 'drawing'), undefined, 'an optional role named in another group stays off');
   const own = {
     models: {
-      base: { drawing: 'x/draw' },
+      routes: on('drawing', 'x/draw'),
       errands: { scout: 'openrouter/x/scout' },
       development: { dev: 'openrouter/x/dev' },
     },
@@ -146,24 +155,25 @@ test('roleModel: each role reads its own group only', () => {
   assert.equal(roleModel(own, 'scout'), 'openrouter/x/scout');
   assert.equal(roleModel(own, 'dev'), 'openrouter/x/dev');
   assert.equal(roleModel(own, 'server'), ROLE_DEFAULTS.server, "never another agent role's model");
-  for (const models of [null, 'x', ['a'], { base: 7 }, { base: [], errands: 'x', development: null }])
+  for (const models of [null, 'x', ['a'], { routes: 7 }, { routes: [], errands: 'x', development: null }])
     assert.equal(roleModel({ models }, 'core'), ROLE_DEFAULTS.core, JSON.stringify(models));
 });
 
-test("roleModel: the memory role has its own key and default, never the core's key", () => {
-  assert.equal(roleModel({ models: { base: { memory: 'x/m', core: 'x/c' } } }, MEMORY_ROLE), 'x/m');
+test("roleModel: the memory role has its own chain and default, never the core's chain", () => {
+  assert.equal(roleModel({ models: { routes: { ...on('memory', 'x/m'), ...on('core', 'x/c') } } }, MEMORY_ROLE), 'x/m');
   assert.equal(
-    roleModel({ models: { base: { core: 'x/c' } } }, MEMORY_ROLE),
+    roleModel({ models: { routes: on('core', 'x/c') } }, MEMORY_ROLE),
     ROLE_DEFAULTS.core,
-    'unset: its own default, never the core key'
+    "with no chain: its own default, never the core's route"
   );
   assert.equal(isRole(MEMORY_ROLE), false, '/nep model does not list it');
 });
 
-test("roleGroup / roleConfigKeys: each role's group and config keys", () => {
+test("roleGroup / roleConfigKeys: each role's group, and the config keys of an agent's model", () => {
+  // Changed: a base role's model is the first route of its chain, so it has no config key of its own (slice 4).
   for (const role of [...BASE_ROLES, MEMORY_ROLE]) {
     assert.equal(roleGroup(role), 'base', role);
-    assert.deepEqual(roleConfigKeys(role), ['models', 'base', role]);
+    assert.equal(roleConfigKeys(role), undefined, role);
   }
   for (const role of ERRAND_ROLES) {
     assert.equal(roleGroup(role), 'errands', role);
@@ -179,40 +189,29 @@ test("roleGroup / roleConfigKeys: each role's group and config keys", () => {
   }
 });
 
-test("roles: the built-in defaults equal config.json's three groups, and every role has one", () => {
+test("roles: the built-in defaults equal config.json's agent groups, and every role has one", () => {
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
   // `abilities` declares what each model can do, per model id (PR E in detail, stage 4 cut spec).
-  // Changed: `agents` and `harness` hold the routing that left keys.json; they are routes, not role models.
-  // Changed: `routes` holds each role's chain of routes (spec 2026-11-09-model-routes), empty as shipped.
+  // Changed: `agents` holds the agents' routing; `routes` holds each role's chain of routes, empty as shipped, and
+  // replaces `base` and `harness` (spec 2026-11-09-model-routes, slice 4).
   assert.deepEqual(Object.keys(shipped.models), [
-    'base',
     'byPurpose',
     'abilities',
     'errands',
     'development',
     'agents',
-    'harness',
     'routes',
   ]);
-  assert.deepEqual(Object.keys(shipped.models.base), [CORE_ROLE, MEMORY_ROLE, ...NON_CORE_ROLES, 'drawing']);
+  assert.deepEqual(shipped.models.routes, {});
   assert.deepEqual(Object.keys(shipped.models.errands), [...ERRAND_ROLES]);
   assert.deepEqual(Object.keys(shipped.models.development), [...DEVELOPMENT_ROLES]);
   assert.equal(
-    shipped.models.base.memory,
-    shipped.models.base.core,
-    "her memory session starts on the core's model, as its own key"
-  );
-  assert.equal(
     roleModel({}, 'memory'),
     roleModel({}, 'core'),
-    "unset: the built-in default of the memory role is the core's default"
+    "with no chain: the built-in default of the memory role is the core's default"
   );
-  const { memory, vision, video, speech, drawing, ...base } = shipped.models.base;
-  assert.deepEqual([vision, video, speech, drawing], [null, null, null, null], 'the optional roles ship off');
-  const mandatoryAndAgents = Object.fromEntries(
-    Object.entries(ROLE_DEFAULTS).filter(([role]) => !['vision', 'video', 'speech', 'drawing'].includes(role))
-  );
-  assert.deepEqual({ ...base, ...shipped.models.errands, ...shipped.models.development }, mandatoryAndAgents);
+  const agents = Object.fromEntries(Object.entries(ROLE_DEFAULTS).filter(([role]) => OPENCODE_ROLES.includes(role)));
+  assert.deepEqual({ ...shipped.models.errands, ...shipped.models.development }, agents);
   assert.deepEqual(shipped.models.byPurpose, {});
   assert.deepEqual(Object.keys(ROLE_DEFAULTS).sort(), [...ROLES].sort());
   assert.deepEqual([...ROLES], [...CORE_ROLES, 'drawing', ...ERRAND_ROLES, ...DEVELOPMENT_ROLES]);
@@ -235,7 +234,10 @@ test('roles: the groups, the OpenCode roles with OpenCode model ids, resolved li
   assert.equal(ROLE_DEFAULTS.drawing, 'openai/gpt-image-2.5-flare', 'drawing: a bare OpenRouter image model id');
   for (const role of OPENCODE_ROLES)
     assert.match(ROLE_DEFAULTS[role], /^openrouter\/[\w.-]+\/[\w.:-]+$/, `${role}: an OpenCode id, provider first`);
-  for (const role of ROLES) assert.equal(roleModel({}, role), ROLE_DEFAULTS[role], role);
+  // Changed: an optional role with no chain is off (slice 4), so only the other roles resolve to their default.
+  const optional = ['vision', 'video', 'speech', 'drawing'];
+  for (const role of ROLES)
+    assert.equal(roleModel({}, role), optional.includes(role) ? undefined : ROLE_DEFAULTS[role], role);
   assert.equal(roleModel({ models: { errands: { scout: 'openrouter/x/scout' } } }, 'scout'), 'openrouter/x/scout');
   assert.equal(
     roleModel({ models: { errands: { scout: 'openrouter/x/scout' }, byPurpose: { scout: 'x/pinned' } } }, 'server'),
@@ -271,10 +273,10 @@ test('roles: config.json carries none of the old model keys', () => {
 // ---- readConfig --------------------------------------------------------------
 
 test('readConfig: config.local.json is merged over config.json key by key', () => {
-  const config = loadWith({ models: { base: { vision: 'x/v' } } });
+  const config = loadWith({ models: { routes: on('vision', 'x/v') } });
   assert.equal(roleModel(config, 'vision'), 'x/v');
   assert.equal(roleModel(config, 'core'), ROLE_DEFAULTS.core);
-  assert.equal(roleModel(loadWith(undefined), 'vision'), undefined, 'the tracked vision is null, so off');
+  assert.equal(roleModel(loadWith(undefined), 'vision'), undefined, 'the tracked vision has no chain, so off');
 });
 
 // ---- every purpose resolves --------------------------------------------------
@@ -356,24 +358,27 @@ test('call sites: every request role is one of the roles, every purpose goes out
   assert.ok(pairs >= 28, `found ${pairs} role/purpose pairs`);
 });
 
-test('a role with a chain in models.routes takes the model of its first route over models.base', () => {
-  // Catches: a request built with the old `models.base` model while the chain the owner set names another.
+test('a role with a chain in models.routes takes the model of its first route, and models.base is not read', () => {
+  // Catches: a request built with the retired `models.base` model while the chain the owner set names another, or a
+  // role the migration missed still running on the retired setting.
   const config = {
     models: {
-      base: { analyzer: 'openai/gpt-6.1-sol', vision: 'google/gemini-4-argon' },
+      base: { analyzer: 'openai/gpt-6.1-sol', vision: 'google/gemini-4-argon', video: 'google/gemini-4-argon' },
       routes: { analyzer: [{ via: 'api', key: 'helpers', model: 'anthropic/claude-sonnet-6.1' }], vision: [] },
     },
   };
   assert.equal(roleModel(config, 'analyzer'), 'anthropic/claude-sonnet-6.1');
   assert.equal(roleModel(config, 'vision'), undefined, 'an empty chain turns an optional role off');
   assert.equal(roleOn(config, 'vision'), false);
+  assert.equal(roleModel(config, 'video'), undefined, 'models.base.video is not read');
 });
 
-test('quick search takes the model of the first route of its chain over web.quickSearch.model', () => {
-  // Catches: quick search answering with the old setting's model after its chain was set.
+test('quick search takes the model of the first route of its chain, and web.quickSearch.model is not read', () => {
+  // Catches: quick search answering with the retired setting's model after its chain was set, or with no chain.
   const config = {
     models: { routes: { search: [{ via: 'api', key: 'helpers', model: 'perplexity/sonar-pro' }] } },
     web: { quickSearch: { model: 'perplexity/sonar' } },
   };
   assert.equal(searchModel(config), 'perplexity/sonar-pro');
+  assert.equal(searchModel({ web: { quickSearch: { model: 'perplexity/sonar' } } }), undefined);
 });

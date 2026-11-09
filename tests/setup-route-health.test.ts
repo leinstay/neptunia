@@ -1,8 +1,10 @@
 // src/setup/route-health.ts: the `routes` check of `neptunia doctor`. Every part of Neptunia is checked for real on what
 // it runs on now: a role on the API with one minimal request on its own key and model, a role or an agent on a harness
-// with the vendor's own status command. A connection that is set up and used by nothing is checked too: an extra key
-// bound to no role with the free read of its record, a logged-in harness no role uses with its status command. The
-// owner's word of 2026-11-08. keys.json and config.json in a temp dir, fetch and the vendors are fakes.
+// with the vendor's own status command. A connection that is set up and used by nothing is checked too: a key no route
+// names with the free read of its record, a logged-in harness no role uses with its status command. The owner's word of
+// 2026-11-08. keys.json and config.json in a temp dir, fetch and the vendors are fakes.
+// Changed: every role runs on its chain in `models.routes` (spec 2026-11-09-model-routes, slice 4), so the rig gives each
+// role of MODELS a chain of one route on `core-1`, or on the key `options.keys` names, and none for a role set to false.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -28,10 +30,10 @@ const MODELS = {
   drawing: 'x/drawing',
 };
 
-/** A deployment with one core key and `keys` beside it; fetch refuses the models in `refused`. */
+/** A deployment with the key `core-1` and `keys` beside it; fetch refuses the models in `refused`. */
 function rig(
   keys: Partial<KeysFile> = {},
-  options: { refused?: Array<string>; models?: Record<string, unknown> } = {}
+  options: { refused?: Array<string>; models?: Record<string, unknown>; keys?: Record<string, string> } = {}
 ) {
   const privateDir = tempDir('nep-route-health-');
   writeKeysFile(privateDir, {
@@ -51,9 +53,16 @@ function rig(
       models?: object;
       llm?: object;
     };
+    const chains = Object.fromEntries(
+      Object.entries({ ...MODELS, ...options.models }).map(([role, model]) => [
+        role,
+        model === false ? [] : [{ via: 'api', key: options.keys?.[role] ?? 'core-1', model, effort: null }],
+      ])
+    );
+    const own = (stored.models as { routes?: object } | undefined)?.routes;
     return {
       llm: { baseUrl: BASE_URL, ...stored.llm },
-      models: { base: { ...MODELS, ...options.models }, ...stored.models },
+      models: { ...stored.models, routes: { ...chains, ...own } },
       speech: { voice: '' },
     };
   };
@@ -72,9 +81,9 @@ test('a core on the API whose key the provider refuses fails the check, naming t
   assert.equal(health.detail.includes(CORE_VALUE), false, 'no key value is printed');
 });
 
-test('a role bound to an extra key is asked on that key with its own model', async () => {
-  // Catches: every role checked on the core key, so an analyzer whose own key was revoked passes.
-  const { run, asked } = rig({ extra: { side: EXTRA_VALUE }, roles: { analyzer: 'side' } });
+test('a role whose chain names another key is asked on that key with its own model', async () => {
+  // Catches: every role checked on the core's key, so an analyzer whose own key was revoked passes.
+  const { run, asked } = rig({ extra: { side: EXTRA_VALUE } }, { keys: { analyzer: 'side' } });
   await run();
   assert.deepEqual(
     asked('x/analyzer').map((call) => call.auth),
@@ -117,7 +126,7 @@ test('an agent on a harness that is logged out is reported as a warning', async 
   assert.ok(/dev: claude-harness .*not logged in/.test(health.detail), health.detail);
 });
 
-test('an extra key bound to nothing is read for free and reported unused', async () => {
+test('a key no route names is read for free and reported unused', async () => {
   // Catches: a key the owner entered and forgot, revoked or spent, never shown because no role uses it.
   const { run, calls } = rig({ extra: { spare: EXTRA_VALUE } });
   const health = await run();
@@ -126,7 +135,7 @@ test('an extra key bound to nothing is read for free and reported unused', async
     read.map((call) => [call.method, call.auth]),
     [['GET', EXTRA_VALUE]]
   );
-  assert.ok(/spare: bound to nothing/.test(health.detail), health.detail);
+  assert.ok(/spare: used by no route/.test(health.detail), health.detail);
 });
 
 test('a harness logged in that no role or agent uses is reported unused', async () => {

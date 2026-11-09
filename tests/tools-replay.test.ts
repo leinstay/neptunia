@@ -36,6 +36,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -200,7 +201,11 @@ test('replay: explicit data selection supplies canonical config and prompts to d
 
 test('replay: search availability follows web.quickSearch.engine through the lookup, not the Brave key alone', () => {
   const searches = { brave: createBraveSearch(), exa: createExaSearch() };
-  const hotOf = (engine: string) => ({ config: { web: { quickSearch: { engine, model: 'x/quick' } } }, prompts: {} });
+  // Changed: quick search's model is its chain's, `models.routes.search` (spec 2026-11-09-model-routes, slice 4).
+  const hotOf = (engine: string) => ({
+    config: { models: { routes: chainsOf({ search: 'x/quick' }) }, web: { quickSearch: { engine } } },
+    prompts: {},
+  });
   // Service secrets come from keys.json in the selected data root.
   const available = (engine: string, services: Record<string, string>) => {
     const dataDir = tempDir('nep-replay-service-');
@@ -400,7 +405,7 @@ test('replay: --selfreflection-day records every generate() call at the image cl
   const state = { data: {}, markDirty() {} };
   const config = {
     llm: { baseUrl: 'https://openrouter.invalid/api/v1' },
-    models: { base: { drawing: 'openai/image-model' } },
+    models: { routes: chainsOf({ drawing: 'openai/image-model' }) },
     image: { retries: 0 },
   };
   const real = createImageGen({

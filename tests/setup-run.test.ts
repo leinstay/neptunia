@@ -143,10 +143,11 @@ test('a keys.json that exists keeps its content, and a loose mode is tightened t
   const { options, deps } = rig();
   fs.mkdirSync(options.privateDir, { recursive: true });
   const file = keysPath(options.privateDir);
-  fs.writeFileSync(file, JSON.stringify({ core: [{ name: 'core-1', value: 'v' }], extra: {} }), { mode: 0o644 });
+  // Changed: keys.json holds named keys under `keys` (spec 2026-11-09-model-routes, slice 4).
+  fs.writeFileSync(file, JSON.stringify({ keys: { 'core-1': 'v' } }), { mode: 0o644 });
   fs.chmodSync(file, 0o644);
   await runSetup(options, deps);
-  assert.equal(readKeysFile(options.privateDir).core[0]?.name, 'core-1');
+  assert.deepEqual(Object.keys(readKeysFile(options.privateDir).extra), ['core-1']);
   assert.equal(mode(file), 0o600);
 });
 

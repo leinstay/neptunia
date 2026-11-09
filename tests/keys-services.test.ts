@@ -37,12 +37,13 @@ test('clearing one service key leaves the others and the model keys', async () =
   const dir = tempDir('nep-services-');
   fs.writeFileSync(
     path.join(dir, 'keys.json'),
-    JSON.stringify({ core: [{ name: 'main', value: 'sk' }], services: { youtube: VALUE, brave: 'b' } })
+    // Changed: keys.json holds named keys under `keys` (slice 4).
+    JSON.stringify({ keys: { main: 'sk' }, services: { youtube: VALUE, brave: 'b' } })
   );
   await serviceCommand(dir, 'keys.service.clear', { name: 'youtube' }, null);
   assert.equal(serviceCredential(dir, 'youtube'), null);
   assert.equal(serviceCredential(dir, 'brave'), 'b');
-  assert.equal(readKeys(dir).core[0]?.value, 'sk');
+  assert.equal(readKeys(dir).keys.main, 'sk');
 });
 
 test('an unknown service and a set without a dialog are refused and write nothing', async () => {

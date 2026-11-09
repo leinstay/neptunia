@@ -14,6 +14,7 @@ import { start } from '../../src/interface/fake-interface.ts';
 import { openMemoryDb } from '../../src/memory/db/open.ts';
 import type { ChatInfo, MessageEvent } from '../../src/protocol/adapter.ts';
 import { withCapturedLogs } from './capture-logs.ts';
+import { chainsOnDefaults } from './chains.ts';
 
 type Running = Awaited<ReturnType<typeof start>>;
 export type Fake = Running['adapter'];
@@ -30,7 +31,7 @@ export const ANSWER = 'γεια σου, καλημέρα';
 const BASE_CONFIG: Settings = {
   bot: { timezone: 'UTC' },
   // No video role, so the start sends no canary probe to YouTube.
-  models: { base: { video: false } },
+  models: { routes: chainsOnDefaults({ video: false }) },
   pace: { settleMs: 0, settleMaxMs: 0 },
   typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },
   // The GIF backfill reads every chat's history at start; a rig counts the reads a turn makes, so it reads none.

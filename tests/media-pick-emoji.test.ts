@@ -13,6 +13,7 @@ import {
 } from '../src/behavior/media-pick.ts';
 import { userText } from '../src/behavior/prompt.ts';
 import { labels } from './fixtures/labels.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
 const MINUTE = 60_000;
@@ -154,7 +155,7 @@ function rig({ answer = '{"pick":"none","name":null}', pickConfig = {}, gifs = {
     hot: {
       config: {
         bot: { timezone: 'UTC' },
-        models: { base: { analyzer: 'cheap/classifier' } },
+        models: { routes: chainsOf({ analyzer: 'cheap/classifier' }) },
         media: {
           pick: {
             maxOutputTokens: 17,

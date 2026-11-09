@@ -6,14 +6,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkRole } from '../src/keys/check.ts';
 import { createKeysCommands } from '../src/keys/commands.ts';
-import { createKeyRing } from '../src/keys/ring.ts';
 import { createKeyStore } from '../src/keys/store.ts';
-import { createKeyFailover } from '../src/llm/key-failover.ts';
-import { BASE_URL, SECRET, fakeFetch, fakePause, healthy } from './fixtures/keys-rig.ts';
+import { BASE_URL, SECRET, chainRing, everyKeyChains, fakeFetch, fakePause, healthy } from './fixtures/keys-rig.ts';
 import type { Call, Reply } from './fixtures/keys-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
-const T0 = Date.parse('2026-11-05T09:00:00Z');
 const input = { baseUrl: BASE_URL, keyName: 'core-1', value: SECRET };
 
 /** The audio bytes OpenRouter answers a synthesis with. */
@@ -26,13 +23,21 @@ function rig({
 }: { answer?: (call: Call) => Reply; model?: string; withKey?: boolean } = {}) {
   const privateDir = tempDir('keys-media-');
   const store = createKeyStore({ privateDir });
-  if (withKey) store.addCore({ name: 'core-1', value: SECRET });
-  const ring = createKeyRing({ store, failover: createKeyFailover({ now: () => T0 }) });
+  if (withKey) store.add({ name: 'core-1', value: SECRET });
+  // Changed: every role runs on its chain (slice 4); here every role's chain names every key of the store.
+  const chainOf = everyKeyChains(store, (role) => `current/${role}`);
+  const ring = chainRing(store, chainOf);
   const { fetch, calls } = fakeFetch(answer);
   const saved: Array<[string, string]> = [];
+  const chains: Record<string, unknown> = {};
   const keys = createKeysCommands({
     store,
     ring,
+    chainOf,
+    saveRoutes: (role, routes) => {
+      chains[role] = routes;
+      return Promise.resolve();
+    },
     fetch,
     baseUrl: () => BASE_URL,
     defaults: {},
@@ -44,7 +49,7 @@ function rig({
     },
     pause: fakePause(null),
   });
-  return { keys, calls, saved };
+  return { keys, calls, saved, chains };
 }
 
 test('the speech probe sends one short synthesis on the speech endpoint with the voice and the key', async () => {
@@ -120,9 +125,10 @@ for (const role of ['speech', 'drawing']) {
 
 test('model set drawing saves the model unverified, since nothing can check it for cents', async () => {
   // Bug: the unimplemented check refuses every drawing model, so the role cannot be set from the chat at all.
-  const { keys, calls, saved } = rig();
-  const answer = await keys.run('model.set', { role: 'drawing', model: 'x/draw' }, null);
+  // Changed: a model role is set as one route of its chain (slice 4), so the drawing route names its key.
+  const { keys, calls, chains } = rig();
+  const answer = await keys.run('model.set', { role: 'drawing', model: 'core-1/x/draw' }, null);
   assert.equal(answer.status, 'ok', answer.text);
-  assert.deepEqual(saved, [['drawing', 'x/draw']]);
+  assert.deepEqual(chains.drawing, [{ via: 'api', key: 'core-1', model: 'x/draw', effort: null }]);
   assert.deepEqual(calls, []);
 });

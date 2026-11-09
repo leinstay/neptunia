@@ -19,10 +19,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
-import { createKeyRing } from '../../src/keys/ring.ts';
+import { chainRing } from '../../src/keys/ring.ts';
 import type { KeyRing } from '../../src/keys/ring.ts';
 import { createKeyStore } from '../../src/keys/store.ts';
-import { createKeyFailover } from '../../src/llm/key-failover.ts';
 import { createChainClient, createRouteChainOf } from '../../src/llm/chain-client.ts';
 import type { CompleteResult } from '../../src/llm/openrouter.ts';
 import { roleModel, searchModel } from '../../src/llm/roles.ts';
@@ -159,15 +158,18 @@ function placed(tree: unknown, keys: ReadonlyArray<string>, value: unknown): Rec
   return { ...own, [head]: tail.length === 0 ? value : placed(own[head], tail, value) };
 }
 
-/** `config` with the models of the roles `variant` sends on a key; the live object is never changed. */
+/**
+ * `config` with the chain of each role `variant` sends on a key replaced by that one route, so every reader of a role's
+ * model reads the flag's; the live object is never changed.
+ */
 export function routedConfig<C>(config: C, variant: Variant): C {
   let out: unknown = config;
   for (const role of ROUTE_ROLES) {
     const route = variant[role];
     if (route?.kind !== 'key') continue;
-    out = placed(out, role === 'search' ? ['web', 'quickSearch', 'model'] : ['models', 'base', role], route.model);
+    out = placed(out, ['models', 'routes', role], [chainRouteOf(route)]);
   }
-  // The copy differs from `config` only in model names, string leaves where the settings hold a model, so its shape is C.
+  // The copy differs from `config` only in the chains of `models.routes`, so its shape is C.
   return out as C;
 }
 
@@ -260,31 +262,6 @@ function routeOf(variant: Variant, role: string): RoleRoute | undefined {
   return known === undefined ? undefined : variant[known];
 }
 
-/** The ring production builds, with each role `variant` sends on a key going out on that key alone. */
-function routedRing(privateDir: string, variant: Variant, offline: boolean): KeyRing {
-  const store = createKeyStore({ privateDir });
-  const base = createKeyRing({ store, failover: createKeyFailover({ now: Date.now }) });
-  const keyOf = (role: string): string | null => {
-    const route = routeOf(variant, role);
-    return route?.kind === 'key' ? route.key : null;
-  };
-  return {
-    ...base,
-    route(role) {
-      if (offline) return null;
-      const name = keyOf(role);
-      if (name === null) return base.route(role);
-      const value = store.valueOf(name);
-      return value === null ? null : { name, value };
-    },
-    names: (role) => {
-      const name = keyOf(role);
-      return name === null ? base.names(role) : [name];
-    },
-    failed: (role, name, status) => (keyOf(role) === null ? base.failed(role, name, status) : null),
-  };
-}
-
 /** Each replaced role checked against keys.json and the harnesses, before any client is built. */
 async function checkRoutes(tool: string, privateDir: string, variant: Variant): Promise<void> {
   const store = createKeyStore({ privateDir });
@@ -323,13 +300,12 @@ export async function scriptRouting<C>(tool: string, deps: ScriptRoutingDeps<C>)
   const { privateDir, variant } = deps;
   const offline = deps.offline !== undefined;
   if (!offline) await checkRoutes(tool, privateDir, variant);
-  const ring = routedRing(privateDir, variant, offline);
   const store = createKeyStore({ privateDir });
   const getConfig = (): C => routedConfig(deps.getConfig(), variant);
   let executor: ((role: string) => Direct) | null = null;
   const chain = createChainClient({
     getConfig,
-    keys: { coreNames: () => store.coreNames(), valueOf: (name) => store.valueOf(name) },
+    keys: { valueOf: (name) => store.valueOf(name) },
     chain: createRouteChainOf(getConfig, Date.now),
     executor: (role) => {
       if (executor === null) throw new Error(`${tool}: a model request came before the clients were built`);
@@ -346,6 +322,9 @@ export async function scriptRouting<C>(tool: string, deps: ScriptRoutingDeps<C>)
       ? { kind: 'subharness', backend: route.backend, model: route.model, effort: harnessEffort(route.effort) }
       : { kind: 'direct' };
   };
+  // The key ring production builds over the chains, with the variant's roles on their own routes; none offline.
+  const viewed = chainRing(chain);
+  const ring: KeyRing = offline ? { ...viewed, route: () => null } : viewed;
   const said = deps.roles.map((role) => saidOf(role, chain.inForce(role), { config: getConfig(), offline }));
   const routes = (role: RouteRole): Array<Route> => chain.routes(role);
   if (deps.offline !== undefined) {

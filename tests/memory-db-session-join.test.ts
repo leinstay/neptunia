@@ -33,6 +33,7 @@ import {
   textOf,
 } from './fixtures/memory-db/session-rig.ts';
 import type { Fixture, LlmCall, Rec, SayArgs } from './fixtures/memory-db/session-shapes.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const SETTINGS = { minLines: 10, batchLines: 30, maxWaitHours: 24 };
 const cfg = (over: Rec = {}): Rec => baseConfig({ ...SETTINGS, ...over });
@@ -389,13 +390,13 @@ test('the stable part is byte-identical between two runs of a scope while nothin
 
 // ---------- the model and the record ----------
 
-test('the run goes to models.base.memory with the memory role and a forced cache marker, never to the core model', async () => {
+test('the run goes to the model of the memory chain with the memory role and a forced cache marker, never to the core model', async () => {
   // Catches: the writer sent to another model or role, or without the cache request.
   const env = fixture();
   try {
     lines(env, 11, 0, 'a');
     const llm = scripted();
-    const config = { ...cfg(), models: { base: { memory: 'x/the-writer', core: 'x/the-core' } } };
+    const config = { ...cfg(), models: { routes: chainsOf({ memory: 'x/the-writer', core: 'x/the-core' }) } };
     await sweep(ctxAt(env, 60, llm, config));
     assert.equal(llm.calls.length, 1);
     const options = llm.calls[0].options as Rec;

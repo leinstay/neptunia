@@ -57,13 +57,15 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // Its key variable went with `llm.keyByRole`: the key ring routes the role (src/keys/ring.ts).
-test('the memory role: its own model key and its own default model', () => {
-  assert.deepEqual(roleConfigKeys(MEMORY_ROLE), ['models', 'base', 'memory']);
-  assert.equal(roleModel({ models: { base: { memory: 'x/m', core: 'x/c' } } }, 'memory'), 'x/m');
+test('the memory role: its own chain and its own default model', () => {
+  // Changed: a base role's model is its chain's (spec 2026-11-09-model-routes, slice 4), so it has no config key.
+  assert.equal(roleConfigKeys(MEMORY_ROLE), undefined);
+  assert.equal(roleModel({ models: { routes: chainsOf({ memory: 'x/m', core: 'x/c' }) } }, 'memory'), 'x/m');
   assert.equal(
-    roleModel({ models: { base: { core: 'x/c' } } }, 'memory'),
+    roleModel({ models: { routes: chainsOf({ core: 'x/c' }) } }, 'memory'),
     MEMORY_ROLE_DEFAULT,
     'unset: its own default, never the core key'
   );

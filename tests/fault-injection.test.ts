@@ -38,6 +38,7 @@ import { wakeOf } from '../src/memory/db/wake-queue.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 /** The memory database of each data directory used here (a restart opens the same one); closed when the file is done. */
 const MEMORY = new Map<string, ReturnType<typeof openTestMemorySync>>();
@@ -361,7 +362,7 @@ function hotWith({
         intentions: true,
         ...features,
       },
-      models: { base: { analyzer: 'x/text' } },
+      models: { routes: chainsOf({ analyzer: 'x/text' }) },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
       mention: { oneAtATime: true },

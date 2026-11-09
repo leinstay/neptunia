@@ -9,7 +9,6 @@ import { createLookup } from '../src/web/lookup.ts';
 import type { LookupDeps } from '../src/web/lookup.ts';
 import { searchModel } from '../src/llm/roles.ts';
 import { searchCommand } from '../src/interface/commands/search.ts';
-import { servicesStep } from '../src/setup/services.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
 import { localConfigPath } from '../src/config/files.ts';
 import { readLocalConfig } from '../src/tools/operations/shared.ts';
@@ -62,30 +61,23 @@ test('the lookup does not read an engine left under the old web.search section',
   assert.equal(lookup.hasSearch(), false);
 });
 
-test('the quick-search model is the setting web.quickSearch.model and nothing else', () => {
+test('the quick-search model is the model of the search chain and nothing else', () => {
   // Bug: the model of the `openrouter` engine is read from the old section, so a migrated file loses it.
-  assert.equal(searchModel({ web: { quickSearch: { model: 'x/quick' } } }), 'x/quick');
+  // Changed: quick search's model is its chain's (spec 2026-11-09-model-routes, slice 4).
+  const routes = { search: [{ via: 'api', key: 'main', model: 'x/quick', effort: null }] };
+  assert.equal(searchModel({ models: { routes } }), 'x/quick');
   assert.equal(searchModel({ web: { search: { model: 'x/old' } } }), undefined);
 });
 
-test('/search writes the engine, the model and the switch under web.quickSearch', () => {
+test('/search writes the engine and the switch under web.quickSearch, and the model on the search chain', () => {
   // Bug: the command still writes the old section, which the loader moves on every start.
   const dataDir = tempDir('nep-quick-keys-command-');
   searchCommand(dataDir, 'search.engine', { name: 'exa' });
-  searchCommand(dataDir, 'search.model', { id: 'x/quick' });
+  // Changed: the model goes on each route of the `search` chain, so a command with no chain writes nothing (slice 4).
+  assert.equal(searchCommand(dataDir, 'search.model', { id: 'x/quick' }).status, 'invalid');
   searchCommand(dataDir, 'search.disable', {});
   const web = (readLocalConfig(localConfigPath(dataDir)) as { web?: Settings }).web ?? {};
-  assert.deepEqual(web.quickSearch, { engine: 'exa', model: 'x/quick', enabled: false });
-  assert.equal(Object.hasOwn(web, 'search'), false);
-});
-
-test('setup writes the engine it was told under web.quickSearch', async () => {
-  // Bug: setup and the command disagree about where the engine lives.
-  const dataDir = tempDir('nep-quick-keys-setup-');
-  const answers = ['', 'openrouter', 'x/quick'];
-  await servicesStep({ dataDir }, { ask: () => Promise.resolve(answers.shift() ?? '') });
-  const web = (readLocalConfig(localConfigPath(dataDir)) as { web?: Settings }).web ?? {};
-  assert.deepEqual(web.quickSearch, { model: 'x/quick', engine: 'openrouter' });
+  assert.deepEqual(web.quickSearch, { engine: 'exa', enabled: false });
   assert.equal(Object.hasOwn(web, 'search'), false);
 });
 
@@ -100,7 +92,6 @@ test('the shipped settings and the schema name the section web.quickSearch', () 
     'enabled',
     'engine',
     'maxOutputTokens',
-    'model',
     'rawOutputTokens',
     'timeoutMs',
   ]);

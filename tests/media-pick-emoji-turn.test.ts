@@ -19,6 +19,7 @@ import {
   rawMessage,
 } from './fixtures/turn-kit.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const URL_G1 = 'https://tenor.com/view/g1';
 const CAPABILITY_TEXT = 'Εδώ ένα αυτοκόλλητο μιλά δυνατά.';
@@ -83,7 +84,7 @@ async function runScene({
         filePreviewChars: 500,
         pick: { maxOutputTokens: 17, candidates: 5, emojiCandidates: 5, emojiPerReplies: 0, emojiCooldownMinutes: 0 },
       },
-      models: { base: { analyzer: 'cheap/classifier' } },
+      models: { routes: chainsOf({ analyzer: 'cheap/classifier' }) },
     }
   );
   Object.assign(hot.prompts, { 'media-pick': 'Pick for {{name}}.', labels });

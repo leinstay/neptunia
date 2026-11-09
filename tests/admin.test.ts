@@ -29,6 +29,7 @@ import { world } from './fixtures/turn-world.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { makeStore } from './fixtures/admin-store.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 type Field = { name: string; value: string };
 
@@ -279,21 +280,27 @@ test('run: rule.add seeds from an empty text when the base rules.md is missing',
 
 test('run: set writes an override to config.local.json and reloads config', async () => {
   const rootDir = makeRoot();
-  const { admin, hot } = makeAdmin(rootDir);
+  const hot = makeHot(rootDir);
+  hot.config.bot.timezone = 'UTC';
+  const { admin } = makeAdmin(rootDir, { hot });
 
-  const result = await admin.run('config.set', { path: 'models.base.core', value: '"openrouter/test-model"' }, {});
+  // Changed: `models.base` is retired (spec 2026-11-09-model-routes, slice 4); `bot.timezone` is the string leaf here.
+  const result = await admin.run('config.set', { path: 'bot.timezone', value: '"Europe/Athens"' }, {});
 
-  assert.deepEqual(readLocal(rootDir), { models: { base: { core: 'openrouter/test-model' } } });
+  assert.deepEqual(readLocal(rootDir), { bot: { timezone: 'Europe/Athens' } });
   assert.equal(hot.reloadConfigCalls, 1);
-  assert.ok(result.includes('Set models.base.core'));
+  assert.ok(result.includes('Set bot.timezone'));
 });
 
 test('run: set falls back to the raw string when the value is not valid JSON', async () => {
   const rootDir = makeRoot();
-  const { admin } = makeAdmin(rootDir);
+  const hot = makeHot(rootDir);
+  hot.config.bot.timezone = 'UTC';
+  const { admin } = makeAdmin(rootDir, { hot });
 
-  await admin.run('config.set', { path: 'models.base.core', value: 'plain-text-model' }, {});
-  assert.deepEqual(readLocal(rootDir), { models: { base: { core: 'plain-text-model' } } });
+  // Changed: `models.base` is retired (spec 2026-11-09-model-routes, slice 4); `bot.timezone` is the string leaf here.
+  await admin.run('config.set', { path: 'bot.timezone', value: 'Plain/Text' }, {});
+  assert.deepEqual(readLocal(rootDir), { bot: { timezone: 'Plain/Text' } });
 });
 
 test('run: set rejects an unknown config path and writes nothing', async () => {
@@ -309,10 +316,13 @@ test('run: set rejects an unknown config path and writes nothing', async () => {
 
 test('run: unset removes a previously set override', async () => {
   const rootDir = makeRoot();
-  const { admin, hot } = makeAdmin(rootDir);
+  const hot = makeHot(rootDir);
+  hot.config.bot.timezone = 'UTC';
+  const { admin } = makeAdmin(rootDir, { hot });
 
-  await admin.run('config.set', { path: 'models.base.core', value: '"temp-model"' }, {});
-  await admin.run('config.unset', { path: 'models.base.core' }, {});
+  // Changed: `models.base` is retired (spec 2026-11-09-model-routes, slice 4); `bot.timezone` is the string leaf here.
+  await admin.run('config.set', { path: 'bot.timezone', value: '"Asia/Tokyo"' }, {});
+  await admin.run('config.unset', { path: 'bot.timezone' }, {});
 
   assert.deepEqual(readLocal(rootDir), {});
   assert.equal(hot.reloadConfigCalls, 2);
@@ -399,7 +409,8 @@ test('set: a non-owner granted set cannot touch bot.ownerPerson or bot.access; a
 test('set: accepts only an own leaf path of the live config and a value of the same JSON type', async () => {
   const rootDir = makeRoot();
   const hot = makeHot(rootDir);
-  hot.config.models = { ...hot.config.models, base: { ...hot.config.models.base, spare: null } };
+  // Changed: `models.base` is retired (spec 2026-11-09-model-routes, slice 4); `bot.ownerPerson` is the string leaf here.
+  hot.config.bot = { ...hot.config.bot, spare: null };
   hot.config.tools = { ...hot.config.tools, safeMode: false };
   // An array setting, for the type check below (`bot.owners` was the array here before it was retired).
   hot.config.mention = { neverIgnore: [] };
@@ -431,11 +442,11 @@ test('set: accepts only an own leaf path of the live config and a value of the s
 
   await admin.run('config.set', { path: 'llm.maxRequestsPerDay', value: '250' }, owner);
   await admin.run('config.set', { path: 'tools.safeMode', value: 'true' }, owner);
-  await admin.run('config.set', { path: 'models.base.spare', value: '"x/y"' }, owner); // the current value is null: any type
-  await admin.run('config.set', { path: 'models.base.core', value: '123' }, owner); // a string setting keeps the text as typed
+  await admin.run('config.set', { path: 'bot.spare', value: '"x/y"' }, owner); // the current value is null: any type
+  await admin.run('config.set', { path: 'bot.ownerPerson', value: '123' }, owner); // a string setting keeps the text as typed
   assert.deepEqual(readLocal(rootDir), {
+    bot: { ownerPerson: '123', spare: 'x/y' },
     llm: { maxRequestsPerDay: 250 },
-    models: { base: { core: '123', spare: 'x/y' } },
     tools: { safeMode: true },
   });
 });
@@ -478,19 +489,26 @@ test("run: model.show lists each role with its own model; an unset role shows it
   assert.deepEqual(lines.slice(12, 14), [`thinker: ${ROLE_DEFAULTS.thinker}`, `dev: ${ROLE_DEFAULTS.dev}`]);
 });
 
+/** `hot` with a chain of one route on `main` for each role of `models`, over the chains it holds. */
+function withChains(hot: ReturnType<typeof makeHotWithMedia>, models: Record<string, string>) {
+  hot.config.models = { ...hot.config.models, routes: { ...hot.config.models.routes, ...chainsOf(models) } };
+  return hot;
+}
+
 test('run: model.show ignores the deprecated keys of an old config.local.json', async () => {
   const rootDir = makeRoot();
   const hot = makeHotWithMedia(rootDir);
-  hot.config.models = { base: { core: 'anthropic/claude-opus-4.6' } };
+  hot.config.models = { routes: chainsOf({ core: 'anthropic/claude-opus-4.6' }) };
   hot.config.llm.classifierModel = 'openrouter/old-classifier';
   hot.config.mention = { followUpModel: 'openrouter/older-classifier' };
   hot.config.media = { model: 'openrouter/old-media', video: { model: 'openrouter/old-video' } };
   const { admin } = makeAdmin(rootDir, { hot });
 
   const lines = (await admin.run('model.show', {}, {})).split('\n');
+  // Changed: an optional role with no chain is off (slice 4), so vision and video show no model.
   assert.ok(lines.includes(`analyzer: ${ROLE_DEFAULTS.analyzer}`));
-  assert.ok(lines.includes(`vision: ${ROLE_DEFAULTS.vision}`));
-  assert.ok(lines.includes(`video: ${ROLE_DEFAULTS.video}`));
+  assert.ok(lines.includes('vision: -'));
+  assert.ok(lines.includes('video: -'));
   assert.ok(!lines.some((l: string) => l.includes('openrouter/old')), 'no deprecated key is shown');
   assert.ok(
     !lines.some((l: string) => /^(followup|media|classifier[.a-z]*|image):/.test(l)),
@@ -498,14 +516,21 @@ test('run: model.show ignores the deprecated keys of an old config.local.json', 
   );
 });
 
-test('run: model.set writes the models.<group> path of each role', async () => {
+test("run: model.set puts the model on each route of a base role's chain and writes an agent's models.<group> path", async () => {
+  // Changed: a base role's model is its chain's (spec 2026-11-09-model-routes, slice 4), so the rig gives each base role
+  // a chain on `main` first, and the set rewrites the model of that chain.
   const rootDir = makeRoot();
-  const hot = makeHotWithMedia(rootDir);
+  const hot = withChains(makeHotWithMedia(rootDir), {
+    analyzer: 'x/analyzer',
+    video: 'x/video',
+    embedding: 'x/embedding',
+    drawing: 'x/drawing',
+  });
   const changedAt = Date.UTC(2026, 9, 15, 9, 30);
   const { admin } = makeAdmin(rootDir, { hot, now: () => changedAt });
 
   await admin.run('model.set', { role: 'core', id: 'anthropic/claude-opus-4.6' }, {});
-  assert.deepEqual(readLocal(rootDir), { models: { base: { core: 'anthropic/claude-opus-4.6' } } });
+  assert.deepEqual(readLocal(rootDir), { models: { routes: chainsOf({ core: 'anthropic/claude-opus-4.6' }) } });
 
   await admin.run('model.set', { role: 'analyzer', id: 'openrouter/text-model' }, {});
   await admin.run('model.set', { role: 'vision', id: 'anthropic/claude-haiku-4.5' }, {});
@@ -517,14 +542,14 @@ test('run: model.set writes the models.<group> path of each role', async () => {
   await admin.run('model.set', { role: 'dev', id: 'openrouter/anthropic/dev-model' }, {});
   assert.deepEqual(readLocal(rootDir), {
     models: {
-      base: {
+      routes: chainsOf({
         core: 'anthropic/claude-opus-4.6',
         analyzer: 'openrouter/text-model',
         vision: 'anthropic/claude-haiku-4.5',
         video: 'openrouter/video-model',
         embedding: 'openai/text-embedding-3-small',
         drawing: 'openai/gpt-image-x',
-      },
+      }),
       errands: {
         scout: 'openrouter/x-ai/web-model',
         server: 'openrouter/x-ai/server-model',
@@ -542,14 +567,15 @@ test('run: model.set writes the models.<group> path of each role', async () => {
 test('run: model.set vision or video sets media.recacheBefore to the moment of the change and says so; other roles never do', async () => {
   const changedAt = Date.UTC(2026, 9, 15, 9, 30);
   const iso = new Date(changedAt).toISOString();
+  const everyChain = { analyzer: 'x/a', video: 'x/v', embedding: 'x/e', drawing: 'x/d' };
   for (const role of ['vision', 'video']) {
     const rootDir = makeRoot();
-    const hot = makeHotWithMedia(rootDir);
+    const hot = withChains(makeHotWithMedia(rootDir), everyChain);
     const { admin } = makeAdmin(rootDir, { hot, now: () => changedAt });
     const reply = await admin.run('model.set', { role, id: 'google/a-new-model' }, {});
     assert.deepEqual(
       readLocal(rootDir),
-      { models: { base: { [role]: 'google/a-new-model' } }, media: { recacheBefore: iso } },
+      { models: { routes: chainsOf({ [role]: 'google/a-new-model' }) }, media: { recacheBefore: iso } },
       role
     );
     assert.equal(hot.reloadConfigCalls, 1, `${role}: one write, one reload`);
@@ -558,7 +584,8 @@ test('run: model.set vision or video sets media.recacheBefore to the moment of t
   }
   for (const role of ['core', 'analyzer', 'embedding', 'scout', 'server', 'thinker', 'dev', 'drawing']) {
     const rootDir = makeRoot();
-    const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir), now: () => changedAt });
+    const hot = withChains(makeHotWithMedia(rootDir), everyChain);
+    const { admin } = makeAdmin(rootDir, { hot, now: () => changedAt });
     const reply = await admin.run('model.set', { role, id: 'google/a-new-model' }, {});
     assert.equal(readLocal(rootDir).media, undefined, role);
     assert.ok(!reply.includes('recacheBefore'), role);
@@ -569,7 +596,15 @@ test('run: model.set vision to the model it already has leaves media.recacheBefo
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir) });
   await admin.run('model.set', { role: 'vision', id: 'anthropic/claude-haiku-4.5' }, {});
-  assert.deepEqual(readLocal(rootDir), { models: { base: { vision: 'anthropic/claude-haiku-4.5' } } });
+  assert.deepEqual(readLocal(rootDir), { models: { routes: chainsOf({ vision: 'anthropic/claude-haiku-4.5' }) } });
+});
+
+test('run: model.set refuses a base role with no chain, whose key it cannot name, and writes nothing', async () => {
+  // Catches: a model written for a role with no route, which no request reads, so the set looks done and changes nothing.
+  const rootDir = makeRoot();
+  const { admin } = makeAdmin(rootDir, { hot: makeHotWithMedia(rootDir) });
+  await assert.rejects(() => admin.run('model.set', { role: 'speech', id: 'x/voice' }, {}), /no route/);
+  assert.equal(fs.existsSync(localPath(rootDir)), false);
 });
 
 test('run: model.set rejects an unknown role and a role name that is no longer one, and writes nothing', async () => {
@@ -603,12 +638,12 @@ test('run: model.set accepts a loosely-valid id (letters, digits, dot, colon, sl
 
   await admin.run('model.set', { role: 'vision', id: 'anthropic/claude-haiku-4.5:beta' }, {});
   assert.deepEqual(readLocal(rootDir), {
-    models: { base: { vision: 'anthropic/claude-haiku-4.5:beta' } },
+    models: { routes: chainsOf({ vision: 'anthropic/claude-haiku-4.5:beta' }) },
     media: { recacheBefore: new Date(0).toISOString() },
   });
 });
 
-test('model show: the core role is models.base.core, never a stale memory.voiceModel; no voice line', async () => {
+test("model show: the core role is its chain's model, never a stale memory.voiceModel; no voice line", async () => {
   const rootDir = makeRoot();
   const hot = makeHotWithMedia(rootDir);
   hot.config.memory.voiceModel = 'openrouter/stale-voice-model';
@@ -617,18 +652,20 @@ test('model show: the core role is models.base.core, never a stale memory.voiceM
   const lines = (await admin.run('model.show', {}, {})).split('\n');
   assert.ok(lines.includes('core: anthropic/claude-opus-4.6'));
   assert.ok(!lines.some((l: string) => l.startsWith('voice:')), 'no voice role');
-  assert.ok(lines.includes(`speech: ${ROLE_DEFAULTS.speech}`), 'speech is the voice model, a helper role');
+  // Changed: speech is off with no chain (slice 4); its line stays, the voice model's role.
+  assert.ok(lines.includes('speech: -'), 'speech is the voice model, a helper role');
   assert.ok(!lines.some((l: string) => l.includes('stale-voice-model')), 'memory.voiceModel is not read');
 });
 
-test('model set drawing: writes models.base.drawing to config.local.json, reloads, and model show lists it', async () => {
+test('model set drawing: writes the drawing chain to config.local.json, reloads, and model show lists it', async () => {
+  // Changed: the drawing model is its chain's (slice 4), so the rig starts drawing on a chain of its own.
   const rootDir = makeRoot();
-  const hot = makeHotWithMedia(rootDir);
+  const hot = withChains(makeHotWithMedia(rootDir), { drawing: ROLE_DEFAULTS.drawing });
   hot.reloadConfig = function reloadConfig() {
     this.reloadConfigCalls += 1;
     this.config.models = {
       ...this.config.models,
-      base: { ...this.config.models?.base, ...readLocal(rootDir).models.base },
+      routes: { ...this.config.models?.routes, ...readLocal(rootDir).models.routes },
     };
     return true;
   };
@@ -637,7 +674,7 @@ test('model set drawing: writes models.base.drawing to config.local.json, reload
   assert.ok((await admin.run('model.show', {}, {})).split('\n').includes(`drawing: ${ROLE_DEFAULTS.drawing}`));
   const reply = await admin.run('model.set', { role: 'drawing', id: 'openai/gpt-image-x' }, {});
   assert.match(reply, /^Set drawing model to openai\/gpt-image-x /);
-  assert.deepEqual(readLocal(rootDir), { models: { base: { drawing: 'openai/gpt-image-x' } } });
+  assert.deepEqual(readLocal(rootDir), { models: { routes: chainsOf({ drawing: 'openai/gpt-image-x' }) } });
   assert.equal(hot.reloadConfigCalls, 1);
   assert.ok((await admin.run('model.show', {}, {})).split('\n').includes('drawing: openai/gpt-image-x'));
 });
@@ -1546,11 +1583,12 @@ test('status: the card carries the fields in order and the member variant drops 
       'core · anthropic/claude-opus-4.6',
       `memory · ${ROLE_DEFAULTS.core}`,
       `analyzer · ${ROLE_DEFAULTS.analyzer}`,
-      `vision · ${ROLE_DEFAULTS.vision}`,
-      `video · ${ROLE_DEFAULTS.video}`,
+      // Changed: an optional role with no chain is off (spec 2026-11-09-model-routes, slice 4).
+      'vision · no model configured',
+      'video · no model configured',
       `embedding · ${ROLE_DEFAULTS.embedding}`,
-      `speech · ${ROLE_DEFAULTS.speech}`,
-      `drawing · ${ROLE_DEFAULTS.drawing}`,
+      'speech · no model configured',
+      'drawing · no model configured',
     ].join('\n'),
     'no llm client: one line per base role with its own model, unprobed, drawing last'
   );
@@ -2004,15 +2042,17 @@ function fakeProbeLlm(
 
 /** The probe tests' config: a model per role (the drawing model included), the probe timeout and label. */
 function probeConfig(hot: Untyped) {
+  // Changed: each role runs on its chain (slice 4); speech, which the old config left on its default, gets one too.
   hot.config.models = {
-    base: {
+    routes: chainsOf({
       core: 'anthropic/claude-opus-4.6',
       analyzer: 'x/text',
       vision: 'x/media',
       video: 'x/video',
       embedding: 'x/embed',
+      speech: ROLE_DEFAULTS.speech,
       drawing: 'openai/gpt-image-1',
-    },
+    }),
   };
   hot.config.llm.probeTimeoutMs = 1234;
   hot.prompts.labels.status = { probe: 'Answer with one word: Ωmega' };
@@ -2248,7 +2288,7 @@ test('status: identical probes are sent once, each role shows its own model, the
   };
   const { admin, hot } = makeAdmin(rootDir, { images: fakeImages({ quota: { used: 0, cap: 5 } }), llm, embedder });
   probeConfig(hot);
-  Object.assign(hot.config.models.base, { video: 'x/media' });
+  Object.assign(hot.config.models.routes, chainsOf({ video: 'x/media' }));
   hot.config.models.byPurpose = { lookup: 'x/pinned', describe: 'x/seen' };
   // A role-specific route keeps the video role's probe apart although its model is the vision one.
   hot.config.llm.providerByModel = { 'x/@video': { only: ['video-host'] } };
@@ -2542,8 +2582,9 @@ test('run: read-only and config commands keep working while paused', async () =>
   await assert.doesNotReject(() => admin.run('lore.list', {}, { placeId: 'g1' }));
   await assert.doesNotReject(() => admin.run('model.show', {}, {}));
   await assert.doesNotReject(() => admin.run('rule.list', {}, {}));
-  await assert.doesNotReject(() => admin.run('config.set', { path: 'models.base.core', value: '"x/y"' }, {}));
-  await assert.doesNotReject(() => admin.run('config.unset', { path: 'models.base.core' }, {}));
+  // Changed: `models.base` is retired (spec 2026-11-09-model-routes, slice 4); `llm.maxRequestsPerDay` is the leaf here.
+  await assert.doesNotReject(() => admin.run('config.set', { path: 'llm.maxRequestsPerDay', value: '250' }, {}));
+  await assert.doesNotReject(() => admin.run('config.unset', { path: 'llm.maxRequestsPerDay' }, {}));
   await assert.doesNotReject(() => admin.run('model.set', { role: 'core', id: 'x/y' }, {}));
 });
 
@@ -2609,7 +2650,11 @@ function fakeImageFetcher(result: { dataUrl: string } | null = { dataUrl: 'data:
 
 function hotForDraw(rootDir: string, { model = 'openai/image-model', ...image }: Record<string, unknown> = {}) {
   const hot = makeHot(rootDir);
-  hot.config.models = { ...hot.config.models, base: { ...hot.config.models?.base, drawing: model } };
+  // Changed: the drawing model is its chain's (spec 2026-11-09-model-routes, slice 4).
+  hot.config.models = {
+    ...hot.config.models,
+    routes: { ...hot.config.models?.routes, ...chainsOf({ drawing: model }) },
+  };
   hot.config.image = { maxPromptChars: 800, reference: 'avatar', referenceMaxBytes: 4000000, ...image };
   hot.config.context = { vision: { fetchTimeoutMs: 7000 } };
   hot.prompts = {

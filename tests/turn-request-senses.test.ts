@@ -11,6 +11,7 @@ import { renderSenses } from '../src/turn/request/senses.ts';
 import { buildRequest } from './fixtures/built-request.ts';
 import { labels } from './fixtures/labels.ts';
 import { baseInput, fakeConfig, fakePrompts } from './fixtures/prompt-rig.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const OFF_LINE = 'Down for you at the moment: {abilities}.';
 const SEPARATOR = ' and ';
@@ -30,24 +31,24 @@ const OFF_LABELS = {
 
 const ALL_ON = { vision: 'x/v', video: 'x/w', drawing: 'x/d', speech: 'x/s' };
 
-/** The request config with the given `models.base` entries. */
-const configWith = (base: Record<string, unknown>) => ({ ...fakeConfig(), models: { base } });
+/** The request config with a chain for each role of `base` that names a model. */
+const configWith = (base: Record<string, unknown>) => ({ ...fakeConfig(), models: { routes: chainsOf(base) } });
 
 /** The line for these abilities, as the label fills it. */
 const lineOf = (...abilities: Array<keyof typeof WORDS>) =>
   fill(OFF_LINE, { abilities: abilities.map((ability) => WORDS[ability]).join(SEPARATOR) });
 
 // Bug caught: a deployment with every role on getting a new line, which moves its cached request and its replies.
-test('renderSenses: with every optional role on, or with no models setting, the halves are those of today', () => {
-  const bare = renderSenses(fakeConfig(), OFF_LABELS);
+// Changed: an optional role with no chain is off (spec 2026-11-09-model-routes, slice 4), so a config with no models is
+// no longer the same as one with every role on, and the comparison with it is deleted.
+test('renderSenses: with every optional role on, no line names an ability that is down', () => {
   const on = renderSenses(configWith(ALL_ON), OFF_LABELS);
-  assert.deepEqual(on, bare);
   assert.equal(`${on.stable}\n${on.turn}`.includes('Down for you'), false);
 });
 
 // Bug caught: the line absent, so she claims to see pictures she is not given, or names roles in a random order.
 test('renderSenses: off roles add one stable line naming their abilities in the order vision, video, drawing, speech', () => {
-  const bare = renderSenses(fakeConfig(), OFF_LABELS);
+  const bare = renderSenses(configWith(ALL_ON), OFF_LABELS);
   const off = renderSenses(configWith({ speech: null, drawing: null, video: 'x/w', vision: null }), OFF_LABELS);
   const line = lineOf('imagesIn', 'imagesOut', 'audioOut');
   assert.equal(off.stable.split('\n').filter((entry) => entry === line).length, 1);
@@ -82,17 +83,12 @@ test('renderSenses: a labels file without senses.abilitiesOff adds nothing', () 
   assert.deepEqual(renderSenses(configWith({ ...ALL_ON, vision: null }), older), renderSenses(fakeConfig(), older));
 });
 
-/** The whole text of the request: the system message and the user parts. */
-const wholeOf = (request: ReturnType<typeof buildRequest>): string =>
-  JSON.stringify(request.messages.map((message) => [message.role, userText(message.content)]));
-
 // Bug caught: any byte of the request moving for a deployment where every role has a model.
-test('buildRequest: with every role on the request is byte-identical to one without models, and an off role adds only the senses line', () => {
+// Changed: a config with no models has every optional role off (spec 2026-11-09-model-routes, slice 4), so the
+// request with every role on is the one compared against.
+test('buildRequest: an off role adds only the senses line to the request with every role on', () => {
   const prompts = fakePrompts({ labels: OFF_LABELS });
-  const bare = buildRequest(baseInput({ prompts }));
-  const on = buildRequest(baseInput({ prompts, config: configWith(ALL_ON) }));
-  assert.equal(wholeOf(on), wholeOf(bare));
-  assert.deepEqual(on.messages[1].content, bare.messages[1].content, 'the cache segments too');
+  const bare = buildRequest(baseInput({ prompts, config: configWith(ALL_ON) }));
 
   const off = buildRequest(baseInput({ prompts, config: configWith({ ...ALL_ON, speech: null }) }));
   const line = lineOf('audioOut');

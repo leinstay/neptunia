@@ -9,16 +9,6 @@
     "access": {}
   },
   "models": {
-    "base": {
-      "core": "anthropic/claude-opus-4.6",
-      "memory": "anthropic/claude-opus-4.6",
-      "analyzer": "openai/gpt-6.1-sol",
-      "vision": null,
-      "video": null,
-      "embedding": "openai/text-embedding-3-large",
-      "speech": null,
-      "drawing": null
-    },
     "byPurpose": {},
     "abilities": {
       "anthropic/claude-opus-4.6": ["text", "imagesIn"],
@@ -43,10 +33,6 @@
       "mode": {},
       "opencodeKey": null
     },
-    "harness": {
-      "core": null,
-      "memory": null
-    },
     "routes": {}
   },
   "llm": {
@@ -60,8 +46,6 @@
     "maxRequestsPerDay": 5000,
     "provider": null,
     "providerByModel": {},
-    "reasoningByRole": {},
-    "boundKeys": {},
     "routeRetryMinutes": 30,
     "routeEffort": { "core": "disabled" },
     "cache": {
@@ -76,7 +60,6 @@
       "longTimeoutMs": 20000
     },
     "subscription": {
-      "fallback": false,
       "thinking": false,
       "holdMs": 60000
     }
@@ -280,7 +263,6 @@
     "quickSearch": {
       "enabled": true,
       "engine": null,
-      "model": null,
       "rawOutputTokens": 256,
       "maxOutputTokens": 4000,
       "classifierMaxOutputTokens": 2000,

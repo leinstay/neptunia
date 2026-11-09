@@ -13,6 +13,7 @@ import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -64,7 +65,7 @@ function hotFixture(overrides = {}) {
     config: {
       bot: { timezone: 'UTC' },
       features: { tools: false },
-      models: { base: { analyzer: 'test/analyzer' } },
+      models: { routes: chainsOf({ analyzer: 'test/analyzer' }) },
       context: { maxMessageChars: 2000 },
       web: { quickSearch: { contextMessages: 50, classifierMaxOutputTokens: 300 } },
       llm: { analyzerTimeoutMs: 9000 },

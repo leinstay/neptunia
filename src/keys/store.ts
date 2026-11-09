@@ -1,42 +1,30 @@
-// The key store: `keys.json` in the private folder, the one file that holds the model keys of a deployment. The core
-// list (`core`, the first key is the primary) and the extra keys by name live here, and the service credentials pass
-// through every write untouched. Which role is bound to which extra key is routing: `bind` and `unbind` write it to
-// `llm.boundKeys` of config.json (src/subharness/routing.ts), and no write leaves routing in keys.json. Every read goes
-// to the file at the moment of use, so a key added from the chat is used by the next request. The file is mode 600,
-// written whole to a temp file and renamed over the old one, with the mode set on every write. A listing shows a key's
-// name and its last four characters, never a value; an error names a code and never holds a value, a bad name or the
-// content of the file. Read by the key ring (src/keys/ring.ts), the check and the commands in this folder.
+// The key store: `keys.json` in the private folder, the one file that holds the model keys of a deployment. Each key is
+// named, under `keys` (`{ <name>: <value> }`, in the order they were added), and the service credentials and the
+// `management` key pass through every write untouched. Which role runs on which key is its chain of routes in
+// `models.routes` of config.json (src/llm/route-chain.ts), never a section of this file. Every read goes to the file at
+// the moment of use, so a key added from the chat is used by the next request. The file is mode 600, written whole to a
+// temp file and renamed over the old one, with the mode set on every write. A listing shows a key's name and its last
+// four characters, never a value; an error names a code and never holds a value, a bad name or the content of the
+// file. A file in the layout before named keys (a `core` list or an `extra` section) is refused with `old-layout`.
+// Read by the chain client (src/llm/chain-client.ts), the check and the commands in this folder.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { readRouting, updateRouting } from '../subharness/routing.ts';
-import { SEARCH_ROLE, roleGroup } from '../llm/roles.ts';
-import { secretsOnly } from './file.ts';
+import { isOldLayout, OLD_LAYOUT_REASON, secretsOnly } from './file.ts';
 
 export const KEYS_FILE = 'keys.json';
 
 /** Why the store refused: each code is a reason the owner can act on. */
 export type KeysErrorCode =
-  | 'bad-name'
-  | 'bad-value'
-  | 'duplicate-name'
-  | 'unknown-key'
-  | 'unknown-role'
-  | 'not-bound'
-  | 'key-in-use'
-  | 'store-not-empty'
-  | 'unreadable-file';
+  'bad-name' | 'bad-value' | 'duplicate-name' | 'unknown-key' | 'unreadable-file' | 'old-layout';
 
 const REASONS: Readonly<Record<KeysErrorCode, string>> = {
   'bad-name': 'a key name is lowercase letters, digits and dashes, 1 to 32 characters, starting with a letter or digit',
   'bad-value': 'a key value is not blank and holds no whitespace',
-  'duplicate-name': 'a key name is used once, across the core and the extra keys',
-  'unknown-key': 'no such key of that kind',
-  'unknown-role': 'only a base model role can be bound to a key',
-  'not-bound': 'that role is not bound to a key',
-  'key-in-use': 'a role is still bound to that key; unbind it first',
-  'store-not-empty': 'keys.json already holds a key',
+  'duplicate-name': 'a key name is used once',
+  'unknown-key': 'keys.json holds no key of that name',
   'unreadable-file': 'keys.json is not in the shape the store reads',
+  'old-layout': OLD_LAYOUT_REASON,
 };
 
 export class KeysError extends Error {
@@ -49,36 +37,18 @@ export class KeysError extends Error {
   }
 }
 
-export type CoreKeyRow = { name: string; last4: string };
-
-export type KeyListing = {
-  /** In file order: the first is the primary. */
-  core: Array<CoreKeyRow>;
-  /** Each extra key with the roles bound to it, sorted. */
-  extra: Array<{ name: string; last4: string; roles: Array<string> }>;
-};
+/** A key as a listing shows it: its name and the last four characters of its value. */
+export type KeyRow = { name: string; last4: string };
 
 export type KeyStore = {
-  /** Names, last four characters and bindings; never a value. */
-  list(): KeyListing;
-  coreNames(): Array<string>;
-  /** The extra key a role is bound to. */
-  boundTo(role: string): string | null;
-  /** The value of a core or extra key. Only the key ring and the check call it. */
+  /** Every key in file order, by name and last four characters; never a value. */
+  list(): Array<KeyRow>;
+  /** The key names in file order. */
+  names(): Array<string>;
+  /** The value of a named key, null for a name keys.json lacks. Only the chain client and the checks call it. */
   valueOf(name: string): string | null;
-  addCore(input: { name: string; value: string }): void;
-  removeCore(name: string): { left: number };
-  addExtra(input: { name: string; value: string }): void;
-  removeExtra(name: string): void;
-  /** Binds a base role to an extra key, in config.json. */
-  bind(role: string, name: string): void;
-  unbind(role: string): void;
-};
-
-type CoreRow = { name: string; value: string };
-type Content = {
-  core: Array<CoreRow>;
-  extra: Record<string, string>;
+  add(input: { name: string; value: string }): void;
+  remove(name: string): void;
 };
 
 const NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -86,28 +56,16 @@ const NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
-/** The core rows of the file, or null when a row is not `{ name, value }`; a grant an older file holds is dropped. */
-function coreRowsOf(value: unknown): Array<CoreRow> | null {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) return null;
-  const rows: Array<CoreRow> = [];
-  for (const entry of value as Array<unknown>) {
-    if (!isRecord(entry) || typeof entry.name !== 'string' || typeof entry.value !== 'string') return null;
-    rows.push({ name: entry.name, value: entry.value });
-  }
-  return rows;
-}
-
-/** A map of names to strings, or null when a value is not a string. */
-function stringMapOf(value: unknown): Record<string, string> | null {
+/** The named keys of the file, or null when a value is not a string. */
+function namedKeysOf(value: unknown): Record<string, string> | null {
   if (value === undefined) return {};
   if (!isRecord(value)) return null;
-  const map: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(value)) {
+  const keys: Record<string, string> = {};
+  for (const [name, entry] of Object.entries(value)) {
     if (typeof entry !== 'string') return null;
-    map[key] = entry;
+    keys[name] = entry;
   }
-  return map;
+  return keys;
 }
 
 export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore {
@@ -130,21 +88,20 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
       throw new KeysError('unreadable-file');
     }
     if (!isRecord(parsed)) throw new KeysError('unreadable-file');
+    if (isOldLayout(parsed)) throw new KeysError('old-layout');
     return parsed;
   }
 
-  function read(): Content {
-    const raw = readRaw();
-    const core = coreRowsOf(raw.core);
-    const extra = stringMapOf(raw.extra);
-    if (core === null || extra === null) throw new KeysError('unreadable-file');
-    return { core, extra };
+  function read(): Record<string, string> {
+    const keys = namedKeysOf(readRaw().keys);
+    if (keys === null) throw new KeysError('unreadable-file');
+    return keys;
   }
 
-  /** Writes the two sections the store owns and keeps every other secret section of the file as it was. */
-  function write(content: Content): void {
+  /** Writes the named keys and keeps every other secret section of the file as it was. */
+  function write(keys: Record<string, string>): void {
     const kept = secretsOnly(readRaw());
-    const text = `${JSON.stringify({ ...kept, core: content.core, extra: content.extra }, null, 2)}\n`;
+    const text = `${JSON.stringify({ ...kept, keys }, null, 2)}\n`;
     fs.mkdirSync(privateDir, { recursive: true, mode: 0o700 });
     const temp = `${file}.${process.pid}.tmp`;
     try {
@@ -158,84 +115,24 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
     }
   }
 
-  const last4 = (value: string): string => value.slice(-4);
-  const has = (content: Content, name: string): boolean =>
-    content.core.some((row) => row.name === name) || Object.hasOwn(content.extra, name);
-
-  function checkNew(content: Content, name: string, value: string): void {
-    if (!NAME.test(name)) throw new KeysError('bad-name');
-    if (value === '' || /\s/.test(value)) throw new KeysError('bad-value');
-    if (has(content, name)) throw new KeysError('duplicate-name');
-  }
-
   return {
-    list() {
-      const { core, extra } = read();
-      const { roles } = readRouting(privateDir);
-      return {
-        core: core.map((row) => ({
-          name: row.name,
-          last4: last4(row.value),
-        })),
-        extra: Object.entries(extra).map(([name, value]) => ({
-          name,
-          last4: last4(value),
-          roles: Object.entries(roles)
-            .filter(([, bound]) => bound === name)
-            .map(([role]) => role)
-            .sort(),
-        })),
-      };
-    },
-    coreNames: () => read().core.map((row) => row.name),
-    boundTo(role) {
-      const { roles } = readRouting(privateDir);
-      return Object.hasOwn(roles, role) ? (roles[role] ?? null) : null;
-    },
+    list: () => Object.entries(read()).map(([name, value]) => ({ name, last4: value.slice(-4) })),
+    names: () => Object.keys(read()),
     valueOf(name) {
-      const { core, extra } = read();
-      const row = core.find((one) => one.name === name);
-      if (row !== undefined) return row.value;
-      return Object.hasOwn(extra, name) ? (extra[name] ?? null) : null;
+      const keys = read();
+      return Object.hasOwn(keys, name) ? (keys[name] ?? null) : null;
     },
-    addCore({ name, value }) {
-      const content = read();
-      checkNew(content, name, value);
-      content.core.push({ name, value });
-      write(content);
+    add({ name, value }) {
+      const keys = read();
+      if (!NAME.test(name)) throw new KeysError('bad-name');
+      if (value === '' || /\s/.test(value)) throw new KeysError('bad-value');
+      if (Object.hasOwn(keys, name)) throw new KeysError('duplicate-name');
+      write({ ...keys, [name]: value });
     },
-    removeCore(name) {
-      const content = read();
-      if (!content.core.some((row) => row.name === name)) throw new KeysError('unknown-key');
-      content.core = content.core.filter((row) => row.name !== name);
-      write(content);
-      return { left: content.core.length };
-    },
-    addExtra({ name, value }) {
-      const content = read();
-      checkNew(content, name, value);
-      content.extra[name] = value;
-      write(content);
-    },
-    removeExtra(name) {
-      const content = read();
-      if (!Object.hasOwn(content.extra, name)) throw new KeysError('unknown-key');
-      if (Object.values(readRouting(privateDir).roles).includes(name)) throw new KeysError('key-in-use');
-      delete content.extra[name];
-      write(content);
-    },
-    bind(role, name) {
-      const content = read();
-      if (roleGroup(role) !== 'base' && role !== SEARCH_ROLE) throw new KeysError('unknown-role');
-      if (!Object.hasOwn(content.extra, name)) throw new KeysError('unknown-key');
-      updateRouting(privateDir, (routing) => ({ ...routing, roles: { ...routing.roles, [role]: name } }));
-    },
-    unbind(role) {
-      if (!Object.hasOwn(readRouting(privateDir).roles, role)) throw new KeysError('not-bound');
-      updateRouting(privateDir, (routing) => ({
-        ...routing,
-        roles: Object.fromEntries(Object.entries(routing.roles).filter(([bound]) => bound !== role)),
-      }));
+    remove(name) {
+      const keys = read();
+      if (!Object.hasOwn(keys, name)) throw new KeysError('unknown-key');
+      write(Object.fromEntries(Object.entries(keys).filter(([one]) => one !== name)));
     },
   };
 }

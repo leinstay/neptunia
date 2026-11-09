@@ -47,14 +47,6 @@ export const WEB: ReadonlyArray<SchemaEntry> = [
       'The one engine of quick search: `brave`, `exa` or `openrouter`. `null` leaves quick search off, and nothing answers for a chosen engine that fails',
   },
   {
-    'key': 'web.quickSearch.model',
-    'types': ['string', 'null'],
-    'reader': 'src/llm/roles.ts',
-    'default': null,
-    'text':
-      'The model of the `openrouter` engine and of the search summary, apart from the analyzer. `null` leaves the `openrouter` engine off',
-  },
-  {
     'key': 'web.quickSearch.rawOutputTokens',
     'types': ['number'],
     'reader': 'src/web/lookup.ts',

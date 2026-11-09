@@ -664,7 +664,7 @@ function runner(
   const config = structuredClone(SHIPPED);
   config.bot = { ...config.bot, timezone: 'UTC' };
   config.features = { ...config.features, meaningSearch: meaning, recall: true };
-  config.models = { ...config.models, base: { ...config.models?.base, embedding: 'test/embedder' } };
+  config.models = { ...config.models, routes: { embedding: [{ via: 'api', key: 'main', model: 'test/embedder' }] } };
   const data = {};
   const store = {
     state: {

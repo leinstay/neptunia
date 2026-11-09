@@ -1,7 +1,7 @@
 // Whether a subharness can run anything now: `available` is `installed` and `authenticated`, read from the disk and from
 // the backend itself at every call and stored nowhere. Installed is the binary in its folder of the private layer
 // (src/subharness/place.ts). Authenticated is what the vendor's own status command answers under the backend's home, with
-// no model request, and for opencode that the extra key `models.agents.opencodeKey` names is still in keys.json, with no
+// no model request, and for opencode that the named key `models.agents.opencodeKey` names is still in keys.json, with no
 // process.
 
 import { execFile } from 'node:child_process';

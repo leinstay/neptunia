@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLlm } from '../src/llm/openrouter.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const NOW = Date.parse('2026-11-20T12:00:00Z');
 
@@ -11,7 +12,7 @@ function coreLlm() {
     apiKey: 'core-a',
     getConfig: () =>
       ({
-        models: { base: { core: 'x/core' } },
+        models: { routes: chainsOf({ core: 'x/core' }) },
         llm: {
           baseUrl: 'http://x',
           timeoutMs: 1000,

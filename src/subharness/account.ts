@@ -2,7 +2,7 @@
 // (`neptunia subharness codex login`) and in the chat. They change whether a source can run and nothing else: no role moves
 // and no model is chosen. Installation happens only through `login`, after the owner's yes. A vendor login is interactive,
 // so with no terminal it answers what is needed and starts nothing. opencode has no vendor login here: logging in names
-// the extra key it runs on. `logout` refuses while a run of that backend is alive (src/subharness/activity.ts), and
+// the named key it runs on. `logout` refuses while a run of that backend is alive (src/subharness/activity.ts), and
 // credential changes of one backend run one at a time across processes. The login runs under the backend's own home,
 // never the installing user's. No answer carries a key value.
 
@@ -11,7 +11,7 @@ import type { StdioOptions } from 'node:child_process';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { updateRouting } from './routing.ts';
-import { hasExtraKey, readKeys } from '../keys/file.ts';
+import { hasKey, readKeys } from '../keys/file.ts';
 import { BackendLocked, backendBusy, withBackendLock } from './activity.ts';
 import { installSubharness } from './install.ts';
 import type { InstallRun } from './install.ts';
@@ -95,17 +95,17 @@ async function vendorLogin(deps: AccountDeps, backend: 'codex' | 'claude'): Prom
     : refused('login-failed', `the login of ${backend} ended, and ${backend} still says it is not logged in`);
 }
 
-/** opencode's login: the named extra key becomes the one it runs on. */
+/** opencode's login: the named key becomes the one it runs on. */
 function opencodeLogin(deps: AccountDeps, key: string | undefined): AccountAnswer {
-  if (key === undefined || !hasExtraKey(readKeys(deps.privateDir), key))
+  if (key === undefined || !hasKey(readKeys(deps.privateDir), key))
     return refused(
       'key-unknown',
       key === undefined
-        ? 'opencode logs in by naming an extra key: --key <name>'
-        : `${key} is no extra key; an extra key is added with keys extra`
+        ? 'opencode logs in by naming a key of keys.json: --key <name>'
+        : `${key} is no key of keys.json; a key is added with /keys add ${key}`
     );
   updateRouting(deps.privateDir, (store) => ({ ...store, subharness: { ...store.subharness, key } }));
-  return ok(`opencode runs on the extra key ${key}`);
+  return ok(`opencode runs on the key ${key}`);
 }
 
 /** The absent backend installed on the owner's yes, null when the login can go on; else the answer it ends with. */
@@ -131,7 +131,7 @@ async function offerInstall(deps: AccountDeps, backend: BackendName): Promise<Ac
 
 async function login(deps: AccountDeps, backend: BackendName, key: string | undefined): Promise<AccountAnswer> {
   // A key is checked before anything is offered: an install for a name that fails next would be for nothing.
-  if (backend === 'opencode' && (key === undefined || !hasExtraKey(readKeys(deps.privateDir), key)))
+  if (backend === 'opencode' && (key === undefined || !hasKey(readKeys(deps.privateDir), key)))
     return opencodeLogin(deps, key);
   if (!isInstalled(deps.privateDir, backend)) {
     const stopped = await offerInstall(deps, backend);

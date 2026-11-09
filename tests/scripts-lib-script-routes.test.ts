@@ -1,5 +1,5 @@
 // scripts/lib/script-routes.ts: the routing of a paid script. By default a script spends what production spends, the
-// keys of keys.json under the routing of config.json; a flag `--<role> <route>` replaces one role for the run alone, and
+// keys of keys.json under the chains of config.json; a flag `--<role> <route>` replaces one role for the run alone, and
 // `--variant` runs the same inputs on several such setups. The clients are fakes: no CLI starts, no provider is asked.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,16 +34,16 @@ const MESSAGES = [
   { role: 'user', content: 'Is the trip still on?' },
 ];
 const FINAL = '<think>Yes.</think><msg>Still on.</msg>';
+// Changed: the roles run on the chains of `models.routes` alone (spec 2026-11-09-model-routes, slice 4), which the rig
+// writes into config.json, so the live settings hold no model of a role.
 const LIVE = {
-  models: { base: { core: 'anthropic/claude-opus-4.6', analyzer: 'openai/gpt-6.1-sol', vision: null } },
-  llm: {
-    maxRequestTokens: 50_000,
-    maxRequestsPerDay: 5000,
-    reasoningByRole: { analyzer: { effort: 'low' } },
-    subscription: { fallback: false, thinking: false, holdMs: 45_000 },
-  },
-  web: { quickSearch: { engine: 'openrouter', model: 'perplexity/sonar' } },
+  models: {},
+  llm: { maxRequestTokens: 50_000, maxRequestsPerDay: 5000, subscription: { thinking: false, holdMs: 45_000 } },
+  web: { quickSearch: { engine: 'openrouter' } },
 };
+
+/** A chain route on a key, as `models.routes` holds it. */
+const onKey = (key: string, model: string, effort: string | null = null) => ({ via: 'api', key, model, effort });
 
 type PathRecord = { backend: string; model: string; effort: string | null };
 
@@ -84,7 +84,23 @@ function liveWith(dir: string): unknown {
   return { ...LIVE, models: { ...LIVE.models, ...stored.models }, llm: { ...LIVE.llm, ...stored.llm } };
 }
 
-/** A private dir with two core keys, two extra keys, `analyzer` bound to one, and the given harness records. */
+/** The chains of the rig: the core and quick search on `main` then `spare`, the analyzer on `tools`, vision off. */
+const CHAINS = {
+  core: [onKey('main', 'anthropic/claude-opus-4.6'), onKey('spare', 'anthropic/claude-opus-4.6')],
+  memory: [onKey('main', 'anthropic/claude-opus-4.6'), onKey('spare', 'anthropic/claude-opus-4.6')],
+  analyzer: [onKey('tools', 'openai/gpt-6.1-sol', 'low')],
+  vision: [],
+  search: [onKey('main', 'perplexity/sonar'), onKey('spare', 'perplexity/sonar')],
+};
+
+/** Writes `chains` as `models.routes` of the private config.json, over what the folder's config holds. */
+function writeChains(dir: string, chains: Record<string, unknown>): void {
+  const stored = JSON.parse(fs.readFileSync(routingPath(dir), 'utf8')) as { models?: Record<string, unknown> };
+  const routes = { ...(stored.models?.routes as object | undefined), ...chains };
+  fs.writeFileSync(routingPath(dir), JSON.stringify({ ...stored, models: { ...stored.models, routes } }));
+}
+
+/** A private dir with four named keys, the chains of CHAINS, and the given harness routes in front of them. */
 function rig(options: { core?: PathRecord | null; memory?: PathRecord | null; loggedIn?: boolean } = {}) {
   const dir = tempDir('nep-script-routes-');
   writeKeysFile(dir, {
@@ -93,8 +109,14 @@ function rig(options: { core?: PathRecord | null; memory?: PathRecord | null; lo
       { name: 'spare', value: 'sk-or-v1-spare-secret-0123456789' },
     ],
     extra: { helpers: HELPERS_KEY, tools: ANALYZER_KEY },
-    roles: { analyzer: 'tools' },
-    subharness: { key: null, modes: {}, core: options.core ?? null, memory: options.memory ?? null },
+    subharness: { key: null, modes: {} },
+  });
+  const harness = (record: PathRecord | null | undefined) =>
+    record === undefined || record === null ? null : [{ via: 'harness', ...record }];
+  writeChains(dir, {
+    ...CHAINS,
+    ...(harness(options.core) === null ? {} : { core: harness(options.core) }),
+    ...(harness(options.memory) === null ? {} : { memory: harness(options.memory) }),
   });
   for (const backend of ['claude', 'codex'] as const) fakeVendor(dir, backend, { loggedIn: options.loggedIn ?? true });
   const { spawn, children } = fakeSpawn();
@@ -258,7 +280,7 @@ test('--variant is refused by a script that runs one setup', async () => {
   await assertRefused(() => takeRoutes('recall-eval', ['--variant', '--core helpers/x/y']), 'recall-eval', 'variant');
 });
 
-test("with no flag the core request goes out on production's first core key and the bound analyzer on its extra key", async () => {
+test("with no flag the core request goes out on the first key of production's core chain and the analyzer on its own", async () => {
   // Catches: a script that still spends one key for every role instead of the routing production has.
   const { deps, sent, children } = rig();
   const routing = await scriptRouting('replay-cli', deps({}));
@@ -429,19 +451,19 @@ test('an offline client answers every role and no key or CLI is used', async () 
   assert.equal(routing.keyOf('embedding'), null);
 });
 
-test('the routed config replaces the models of the replaced roles and leaves the live object alone', () => {
+test('the routed config replaces the chains of the replaced roles and leaves the live object alone', () => {
   // Catches: an overlay that mutates the hot config, so a later variant inherits the previous one's model.
+  // Changed: a role's model is its chain's (slice 4), so the overlay replaces the chain of each role on a key.
   const live = structuredClone(LIVE);
   const config = routedConfig(live, {
     analyzer: parseRoute('t', 'analyzer', 'helpers/google/gemini-3.8-flash'),
     search: parseRoute('t', 'search', 'helpers/perplexity/sonar-pro'),
     vision: parseRoute('t', 'vision', 'helpers/google/gemini-3.8-flash'),
-  }) as typeof LIVE & { models: { base: Record<string, unknown> } };
-  const { base } = config.models;
-  const { quickSearch } = config.web;
-  assert.equal(base.analyzer, 'google/gemini-3.8-flash');
-  assert.equal(base.vision, 'google/gemini-3.8-flash');
-  assert.equal(quickSearch.model, 'perplexity/sonar-pro');
+  }) as typeof LIVE & { models: { routes: Record<string, unknown> } };
+  const { routes } = config.models;
+  assert.deepEqual(routes.analyzer, [onKey('helpers', 'google/gemini-3.8-flash')]);
+  assert.deepEqual(routes.vision, [onKey('helpers', 'google/gemini-3.8-flash')]);
+  assert.deepEqual(routes.search, [onKey('helpers', 'perplexity/sonar-pro')]);
   assert.deepEqual(live, LIVE);
 });
 
@@ -491,15 +513,10 @@ test('side by side text lists every input once with each variant beneath it', ()
 });
 
 test('the routing reads a changed config.json at the next request', async () => {
-  // Catches: the bindings read once at the start, so a key bound during a long run is not used.
+  // Catches: the chains read once at the start, so a route set during a long run is not used.
   const { dir, deps, sent } = rig();
   const routing = await scriptRouting('replay-cli', deps({}));
-  writeKeysFile(dir, {
-    core: [{ name: 'main', value: CORE_KEY }],
-    extra: { helpers: HELPERS_KEY, tools: ANALYZER_KEY },
-    roles: { analyzer: 'helpers' },
-    subharness: { key: null, modes: {} },
-  });
+  writeChains(dir, { analyzer: [onKey('helpers', 'openai/gpt-6.1-sol')] });
   await routing.llm.complete(MESSAGES, { role: 'analyzer' });
   assert.equal(sent[0].key, HELPERS_KEY);
   assert.ok(fs.existsSync(path.join(dir, 'keys.json')));

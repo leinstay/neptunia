@@ -10,6 +10,7 @@
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { opencodeKey, readRouting, SUBHARNESS_AGENTS } from './routing.ts';
+import { harnessPathOf } from './memory-path.ts';
 import { roleModelListing } from '../keys/models.ts';
 import { BASE_ROLES, DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../llm/roles.ts';
 import { FIXED_MODELS } from './models.ts';
@@ -65,7 +66,7 @@ export type CapabilityDeps = {
   helpOf?(name: BackendName): Promise<string>;
 };
 
-/** Main's display order and names. `Voice` is the display name of the role `speech`, whose key is `models.base.speech`. */
+/** Main's display order and names. `Voice` is the display name of the role `speech`, whose chain is `models.routes.speech`. */
 const MAIN_ROLES = ['core', 'drawing', 'speech', 'memory', 'analyzer', 'vision', 'video', 'embedding'] as const;
 const LABELS: Readonly<Record<string, string>> = { speech: 'Voice' };
 
@@ -132,7 +133,7 @@ async function effortOf(deps: CapabilityDeps, backend: BackendName): Promise<Sou
   }
 }
 
-/** opencode's source when it can run: OpenRouter's listing on the extra key it logged in with. */
+/** opencode's source when it can run: OpenRouter's listing on the named key it logged in with. */
 async function opencodeReady(deps: CapabilityDeps, role: string): Promise<SourceDescriptor> {
   const { key } = readRouting(deps.privateDir).subharness;
   const reading = await roleModelListing(
@@ -220,8 +221,8 @@ async function apiSource(deps: CapabilityDeps, role: string): Promise<SourceDesc
 function currentOf(privateDir: string, role: string): RoleSources['current'] {
   const stored = readRouting(privateDir).subharness;
   if (role === MEMORY_ROLE) {
-    const { memory } = stored;
-    return memory === null ? null : { via: memory.backend, model: memory.model, effort: memory.effort };
+    const memory = harnessPathOf(privateDir, 'memory');
+    return memory.kind === 'direct' ? null : { via: memory.backend, model: memory.model, effort: memory.effort };
   }
   if (!isAgent(role)) return null;
   return {

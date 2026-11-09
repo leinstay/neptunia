@@ -19,6 +19,7 @@ import {
   rawMessage,
 } from './fixtures/turn-kit.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const URL_G1 = 'https://tenor.com/view/g1';
 
@@ -78,7 +79,7 @@ async function runScene({
     {},
     {
       media: { maxPerTurn: 6, filePreviewChars: 500, pick: { maxOutputTokens: 17, candidates: 5 } },
-      models: { base: { analyzer: 'cheap/classifier' } },
+      models: { routes: chainsOf({ analyzer: 'cheap/classifier' }) },
     }
   );
   // The old prompt stays beside the new one: a picker that still reads it, or that runs on an interface without the

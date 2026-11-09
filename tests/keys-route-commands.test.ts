@@ -5,12 +5,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createKeysCommands } from '../src/keys/commands.ts';
-import { createKeyRing } from '../src/keys/ring.ts';
 import { createKeyStore } from '../src/keys/store.ts';
-import { createKeyFailover } from '../src/llm/key-failover.ts';
 import { isRouteRole } from '../src/llm/route-text.ts';
 import type { Route, RouteRole } from '../src/llm/route-text.ts';
-import { BASE_URL, SECRET, SECRET_2, fakeFetch, fakePause, healthy } from './fixtures/keys-rig.ts';
+import { BASE_URL, SECRET, SECRET_2, chainRing, fakeFetch, fakePause, healthy } from './fixtures/keys-rig.ts';
 import type { Call, Reply } from './fixtures/keys-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
@@ -23,11 +21,12 @@ const firstModel = (chain: ReadonlyArray<Route> | undefined): string => chain?.[
 function rig(chains: Partial<Record<RouteRole, Array<Route>>> = {}, answer: (call: Call) => Reply = healthy) {
   const privateDir = tempDir('keys-route-commands-');
   const store = createKeyStore({ privateDir });
-  store.addExtra({ name: 'helpers', value: SECRET });
-  store.addExtra({ name: 'spare', value: SECRET_2 });
-  const ring = createKeyRing({ store, failover: createKeyFailover({ now: () => 0 }) });
+  // Changed: keys.json holds named keys (slice 4), and the ring is the core's view of the chains.
+  store.add({ name: 'helpers', value: SECRET });
+  store.add({ name: 'spare', value: SECRET_2 });
   const { fetch, calls } = fakeFetch(answer);
   const held: Partial<Record<RouteRole, Array<Route>>> = { ...chains };
+  const ring = chainRing(store, (role) => (isRouteRole(role) ? (held[role] ?? []) : []));
   const harnessChecks: Array<Route> = [];
   let harnessOk = true;
   const pause = fakePause(null);

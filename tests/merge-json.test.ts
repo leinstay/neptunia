@@ -12,6 +12,7 @@ import type { Line, PendingQueue, PipelineTurns } from '../src/pipeline/types.ts
 import { channelInfo } from './fixtures/core-over-fake.ts';
 import { labels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const NOW = Date.UTC(2026, 10, 6, 12, 0, 0);
 const CHANNEL = channelInfo('c1');
@@ -50,7 +51,7 @@ async function hold(text: string) {
   const config = {
     bot: { timezone: 'UTC' },
     mention: { neverIgnore: [], repeatWindowMinutes: 0, maxPending: 10, followUpMaxOutputTokens: 20 },
-    models: { base: { analyzer: 'small/analyzer' } },
+    models: { routes: chainsOf({ analyzer: 'small/analyzer' }) },
     llm: { maxRequestTokens: 50000, maxRequestsPerDay: 100, timeoutMs: 1000 },
   };
   const hot = { config, prompts: { labels, merge: 'Choose an item or new for {{name}}.' } };

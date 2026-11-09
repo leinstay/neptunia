@@ -21,6 +21,7 @@ import type { Untyped } from '../src/tools/types.ts';
 import type { KeyRing } from '../src/keys/ring.ts';
 import { memoryRing } from './fixtures/memory-db/session-rig.ts';
 import { sqlOf, wrongly } from './fixtures/loose-types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const ADA = 'u-ada';
@@ -40,7 +41,7 @@ const prompts = {
 // PR 7d: the field lengths are MEMORY_LIMITS.fieldChars (1000) and RELATIONSHIP_LIMITS.textChars (800).
 const config = (session = {}) => ({
   bot: { timezone: 'UTC' },
-  models: { base: { memory: 'x/memory' } },
+  models: { routes: chainsOf({ memory: 'x/memory' }) },
   memoryDb: { session: { mode: 'shadow', ...session } },
 });
 

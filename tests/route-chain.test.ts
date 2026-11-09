@@ -1,7 +1,7 @@
-// Tests for src/llm/route-chain.ts: a role's chain read from `models.routes`, and from the old settings
-// (`models.base`, `models.harness`, `llm.boundKeys`, `llm.subscription.fallback`, `llm.reasoningByRole`,
-// `web.quickSearch.model` and the core key names) while a role has none; which failure makes a route unavailable;
+// Tests for src/llm/route-chain.ts: a role's chain read from `models.routes`, which failure makes a route unavailable,
 // and the per-role choice of the route in force, with the retry window after a switch. The clock is injected.
+// Changed: the old settings and their translation are gone (spec 2026-11-09-model-routes, slice 4), so the tests of the
+// translation are deleted and `routesOf` takes the config alone.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRouteChain, routesOf, unavailableCode } from '../src/llm/route-chain.ts';
@@ -10,89 +10,50 @@ import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 const T0 = Date.parse('2026-11-09T09:00:00Z');
 const MINUTE = 60_000;
-const HARNESS = { backend: 'claude', model: 'claude-opus-4-6', effort: null };
 
 const api = (key: string, model: string, effort: string | null = null): Route =>
   ({ via: 'api', key, model, effort }) as Route;
 const harness = (model: string): Route => ({ via: 'harness', backend: 'claude', model, effort: null });
 
-test('a role with its own chain in models.routes takes it whole and ignores the old settings', () => {
-  // Catches: a saved chain still overridden by `llm.boundKeys`, so `/model set` changes nothing.
+test('a role with its own chain in models.routes takes it whole', () => {
+  // Catches: a saved chain read partly, so a fallback the owner added with `/model add` is never tried.
   const config = {
     models: {
-      base: { analyzer: 'openai/gpt-6.1-sol' },
-      routes: { analyzer: [{ via: 'api', key: 'tools', model: 'anthropic/claude-sonnet-6.1', effort: 'low' }] },
+      routes: {
+        analyzer: [
+          { via: 'api', key: 'tools', model: 'anthropic/claude-sonnet-6.1', effort: 'low' },
+          { via: 'api', key: 'main', model: 'openai/gpt-6.1-sol', effort: null },
+        ],
+      },
     },
-    llm: { boundKeys: { analyzer: 'helpers' } },
   };
-  assert.deepEqual(routesOf(config, 'analyzer', ['main']), [api('tools', 'anthropic/claude-sonnet-6.1', 'low')]);
+  assert.deepEqual(routesOf(config, 'analyzer'), [
+    api('tools', 'anthropic/claude-sonnet-6.1', 'low'),
+    api('main', 'openai/gpt-6.1-sol'),
+  ]);
 });
 
 test('an empty chain in models.routes leaves the role with no route', () => {
   // Catches: an empty array read as absent, so an optional role the owner turned off comes back on its default.
-  assert.deepEqual(routesOf({ models: { routes: { vision: [] } } }, 'vision', ['main']), []);
+  assert.deepEqual(routesOf({ models: { routes: { vision: [] } } }, 'vision'), []);
 });
 
-test('a role bound to a key goes out on it alone, with its model and its reasoning effort', () => {
-  // Catches: the translation dropping `llm.reasoningByRole`, so the analyzer's requests lose their `reasoning`.
+test('a role with no models.routes entry has no route, whatever the retired settings still hold', () => {
+  // Catches: the retired settings still translated, so a deployment whose migration missed a role keeps a route
+  // nobody can see in `/model show` or change with `/model set`.
   const config = {
-    models: { base: { analyzer: 'anthropic/claude-sonnet-5.5' } },
-    llm: { boundKeys: { analyzer: 'helpers' }, reasoningByRole: { analyzer: { effort: 'low' } } },
-  };
-  assert.deepEqual(routesOf(config, 'analyzer', ['main', 'spare']), [
-    api('helpers', 'anthropic/claude-sonnet-5.5', 'low'),
-  ]);
-});
-
-test('an unbound role takes one route per core key, in the order of the key list', () => {
-  // Catches: the failover over the core keys lost, so a spent first key fails every request.
-  const config = { models: { base: { vision: 'google/gemini-4-argon' } } };
-  assert.deepEqual(routesOf(config, 'vision', ['main', 'spare']), [
-    api('main', 'google/gemini-4-argon'),
-    api('spare', 'google/gemini-4-argon'),
-  ]);
-});
-
-test('a role switched off or with no key has no route', () => {
-  // Catches: an off role given a route on its default model, so it spends a key the owner did not want spent.
-  assert.deepEqual(routesOf({ models: { base: { vision: null } } }, 'vision', ['main']), []);
-  assert.deepEqual(routesOf({ models: { base: { analyzer: 'openai/gpt-6.1-sol' } } }, 'analyzer', []), []);
-});
-
-test('a core on a harness has that route alone while the fallback is off', () => {
-  // Catches: the core's API model appended behind the harness, so a spent window spends a key nobody chose.
-  const config = { models: { base: { core: 'anthropic/claude-opus-4.6' }, harness: { core: HARNESS } } };
-  assert.deepEqual(routesOf(config, 'core', ['main']), [harness('claude-opus-4-6')]);
-});
-
-test('a core on a harness with the fallback on goes to its API routes after the harness', () => {
-  // Catches: `llm.subscription.fallback` lost in the translation, so a spent window fails her turn.
-  const config = {
-    models: { base: { core: 'anthropic/claude-opus-4.6' }, harness: { core: HARNESS } },
-    llm: { subscription: { fallback: true } },
-  };
-  assert.deepEqual(routesOf(config, 'core', ['main', 'spare']), [
-    harness('claude-opus-4-6'),
-    api('main', 'anthropic/claude-opus-4.6'),
-    api('spare', 'anthropic/claude-opus-4.6'),
-  ]);
-});
-
-test('a memory writer on a harness never falls back to a key, whatever the core fallback says', () => {
-  // Catches: the core's fallback applied to the memory writer, which has no fallback today.
-  const config = { models: { harness: { memory: HARNESS } }, llm: { subscription: { fallback: true } } };
-  assert.deepEqual(routesOf(config, 'memory', ['main']), [harness('claude-opus-4-6')]);
-});
-
-test('quick search takes the model of web.quickSearch.model and the key bound to search', () => {
-  // Catches: search translated with the analyzer's model, so the quick search answers with a different model.
-  const config = {
-    models: { base: { analyzer: 'anthropic/claude-sonnet-5.5' } },
-    llm: { boundKeys: { search: 'helpers' } },
+    models: { base: { core: 'anthropic/claude-opus-4.6' }, harness: { core: { backend: 'claude', model: 'm' } } },
+    llm: { boundKeys: { search: 'helpers' }, subscription: { fallback: true } },
     web: { quickSearch: { model: 'openai/gpt-6.1-sol' } },
   };
-  assert.deepEqual(routesOf(config, 'search', ['main']), [api('helpers', 'openai/gpt-6.1-sol')]);
-  assert.deepEqual(routesOf({ web: { quickSearch: { model: null } } }, 'search', ['main']), []);
+  assert.deepEqual(routesOf(config, 'core'), []);
+  assert.deepEqual(routesOf(config, 'search'), []);
+});
+
+test('a harness record of models.routes is read as a harness route', () => {
+  // Catches: a harness route of the memory writer dropped by the reader, so her memory session spends a key.
+  const config = { models: { routes: { memory: [{ via: 'harness', backend: 'claude', model: 'claude-opus-4-6' }] } } };
+  assert.deepEqual(routesOf(config, 'memory'), [harness('claude-opus-4-6')]);
 });
 
 test('a 401, a 402 and a 429 that names credits make an API route unavailable, other failures do not', () => {

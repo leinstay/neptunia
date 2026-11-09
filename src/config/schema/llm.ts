@@ -75,22 +75,6 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'text': 'Per-model provider routing. See the resolution order below',
   },
   {
-    'key': 'llm.reasoningByRole',
-    'types': ['map'],
-    'reader': 'src/llm/roles.ts',
-    'default': {},
-    'text':
-      'The reasoning effort of a role by role name, `{ "effort": "low" }`, `medium` or `high`, sent as `reasoning` on each request of the role that has no reasoning of its own. Read for `memory`, `analyzer`, `vision` and `video`, never for the core. `/model set <role> <model> --effort <level>` writes it',
-  },
-  {
-    'key': 'llm.boundKeys',
-    'types': ['map'],
-    'reader': 'src/subharness/routing.ts',
-    'default': {},
-    'text':
-      'The extra key of `keys.json` each role goes out on, by role: a base model role or `search`. A role with no entry goes out on the core keys. Read into the chain of a role with no `models.routes` entry',
-  },
-  {
     'key': 'llm.routeRetryMinutes',
     'types': ['number'],
     'reader': 'src/llm/chain-client.ts',
@@ -155,14 +139,6 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'default': 20000,
     'text':
       'Timeout used when the caller marks the request `long: true` (the route classifier does this for a large channel list)',
-  },
-  {
-    'key': 'llm.subscription.fallback',
-    'types': ['boolean'],
-    'reader': 'src/subharness/subscription-client.ts',
-    'default': false,
-    'text':
-      "While her core runs through a subscription CLI (`/model set core <model> --via claude-harness` or `--via codex-harness`), `true` sends a step that failed on it, and every later step of that turn, to the API with the same messages. With `false` the step fails and she reads its code. A paid script whose core runs through a harness reads it too and sends such a step to the core's key. A refusal of the token or daily rail never goes to the API. Read at every failed step",
   },
   {
     'key': 'llm.subscription.thinking',

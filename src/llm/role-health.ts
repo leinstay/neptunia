@@ -1,6 +1,6 @@
 // Which model roles are globally failing, kept in memory per role for the life of the process. A role is down when
-// its model is switched off (`models.base.<role>: false`), when its key is missing (`hasKey`, the key ring's route
-// of the role), after a 401, a 402 or a 404, after a 429 whose answer says the daily limit is spent
+// it is an optional role whose chain holds no route (src/llm/roles.ts#roleOn), when its key is missing (`hasKey`, the
+// key ring's route of the role), after a 401, a 402 or a 404, after a 429 whose answer says the daily limit is spent
 // (src/llm/openrouter.ts#providerLimitOf), after three malformed answers in a row, or when every route of its chain is
 // unavailable (`routes-exhausted`, src/llm/chain-client.ts), which keeps it down until 00:00 UTC. One failed request of any
 // other kind leaves the role up. A failing role is tried again on a backoff of 1, 5, 15 and then every 60 minutes, and it
@@ -8,7 +8,7 @@
 // describer's model client; the tool gateway (src/tools/gateway.ts#abilityRoute) reads it to route a tool role's call,
 // and `/status` lists `failing`. Pure apart from the injected clock.
 
-import { BASE_ROLES, CORE_ROLE, OPTIONAL_ROLES, roleModel } from './roles.ts';
+import { BASE_ROLES, CORE_ROLE, roleModel, roleOn } from './roles.ts';
 import { DAY_MS } from '../time.ts';
 import { providerLimitOf } from './openrouter.ts';
 import type { KeyOf } from '../keys/ring.ts';
@@ -56,14 +56,9 @@ function globalReasonOf(err: unknown): RoleDownReason | null {
   return typeof status === 'number' && Object.hasOwn(GLOBAL_STATUS, status) ? (GLOBAL_STATUS[status] ?? null) : null;
 }
 
-/** The reason the config or the key keeps `role` down, else null. A null or missing model is the role's default. */
+/** The reason the config or the key keeps `role` down, else null: an optional role that is off, or no key. */
 function configReasonOf(config: unknown, role: string, hasKey: (role: string) => boolean): RoleDownReason | null {
-  const models: unknown = config !== null && typeof config === 'object' ? Reflect.get(config, 'models') : null;
-  const base: unknown = models !== null && typeof models === 'object' ? Reflect.get(models, 'base') : null;
-  const model: unknown = base !== null && typeof base === 'object' ? Reflect.get(base, role) : undefined;
-  if (model === false || (model === null && OPTIONAL_ROLES.includes(role as (typeof OPTIONAL_ROLES)[number]))) {
-    return 'no-model';
-  }
+  if (!roleOn(config, role)) return 'no-model';
   return hasKey(role) ? null : 'no-key';
 }
 
@@ -172,8 +167,8 @@ export function reportingLlm<TClient extends Completing>(
 
 /**
  * `llm` with the one failure of the core's requests that `health` tracks: `routes-exhausted`, every route of the core's
- * chain unavailable, or `keys-exhausted`, which the key ring's own failover in src/llm/openrouter.ts still throws. That failure puts the core down until 00:00 UTC, and its next answer clears it. Any other failure, and every
- * empty answer, is not told to `health`. Everything else about the request passes through unchanged.
+ * chain unavailable. That failure puts the core down until 00:00 UTC, and its next answer clears it. Any other failure,
+ * and every empty answer, is not told to `health`. Everything else about the request passes through unchanged.
  */
 export function reportingCoreKeys<TClient extends Completing>(llm: TClient, health: RoleHealth): TClient {
   const complete = async (messages: unknown, options?: unknown): Promise<unknown> => {
@@ -191,10 +186,10 @@ export function reportingCoreKeys<TClient extends Completing>(llm: TClient, heal
   return Object.assign(Object.create(llm) as TClient, { complete });
 }
 
-/** Whether `err` says every route of a role's chain, or every key of the key ring's list, failed. */
+/** Whether `err` says every route of a role's chain failed. */
 function isExhausted(err: unknown): boolean {
   const code: unknown = err !== null && typeof err === 'object' ? Reflect.get(err, 'code') : undefined;
-  return code === 'routes-exhausted' || code === 'keys-exhausted';
+  return code === 'routes-exhausted';
 }
 
 /** The live config of `hot` (`{ config, prompts }`), read at the call. */
@@ -214,7 +209,7 @@ export function roleKeyCheck({
   mainKey: string;
   /** The key of the key store, '' when it has none for the role. */
   keyOf?: KeyOf;
-  /** Whether a harness carries `role`, which then needs no key (config.json: `models.harness.core`, `.memory`). */
+  /** Whether a harness carries `role`, which then needs no key (the route in force of its chain). */
   served?: (role: string) => boolean;
 }): (role: string) => boolean {
   return (role) => {

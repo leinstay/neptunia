@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { abilityRoute } from '../src/tools/gateway.ts';
 import { createRoleHealth } from '../src/llm/role-health.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const NOW = Date.parse('2026-10-31T09:00:00Z');
 
@@ -18,7 +19,7 @@ test('the analyzer and the embedding role never fall back to the core, even when
   for (const role of ['analyzer', 'embedding', 'vision']) health.failed(role, httpError(401));
   const config = {
     models: {
-      base: { core: 'x/core', analyzer: 'x/analyzer', embedding: 'x/embed', vision: 'x/eyes' },
+      routes: chainsOf({ core: 'x/core', analyzer: 'x/analyzer', embedding: 'x/embed', vision: 'x/eyes' }),
       abilities: { 'x/core': ['text', 'embeddings', 'imagesIn'] },
     },
   };

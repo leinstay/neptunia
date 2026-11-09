@@ -15,6 +15,7 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { connectSocket } from '../src/protocol/wire.ts';
 import { deliver, channelInfo, until } from './fixtures/core-over-fake.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const ANSWER = 'γεια σου';
@@ -34,14 +35,14 @@ async function withTwoInterfaces(
       bot: { timezone: 'UTC', owners: ['u1'], placeId: 'g1' },
       dm: { enabled: true },
       private: { minAffinity: 0 },
-      models: { base: { video: false } },
+      models: { routes: chainsOf({ video: false }) },
       interfaces: { mode: 'units', drainMs: 2000 },
       pace: { settleMs: 0, settleMaxMs: 0 },
       typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },
       gifs: { backfillMessages: 0 },
     })
   );
-  createKeyStore({ privateDir: dataDir }).addCore({ name: 'core-1', value: 'test-key' });
+  createKeyStore({ privateDir: dataDir }).add({ name: 'core-1', value: 'test-key' });
   for (const name of ['fake', 'other']) {
     const made = spawnSync(
       process.execPath,

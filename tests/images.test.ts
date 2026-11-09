@@ -8,13 +8,14 @@ import { NotByokError } from '../src/llm/openrouter.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { wrongly } from './fixtures/loose-types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const NOW = Date.parse('2026-09-28T12:00:00Z');
 
 function baseConfig({ model = 'openai/test-image', ...overrides } = {}) {
   return {
     llm: { baseUrl: 'https://openrouter.ai/api/v1/' },
-    models: { base: { drawing: model } },
+    models: { routes: chainsOf({ drawing: model }) },
     // PR 7d: the daily caps are gone and the output format, aspect ratio and background are constants (png, auto, auto).
     image: {
       timeoutMs: 5000,

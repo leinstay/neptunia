@@ -67,6 +67,7 @@ import {
 } from './fixtures/turn-kit.ts';
 import type { FakeHot, RawMessage } from './fixtures/turn-kit.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
+import { chainsOnDefaults } from './fixtures/chains.ts';
 
 /** What she did through a port: its calls but the reads a turn makes of it. */
 function effectsOf(port: Untyped) {
@@ -1797,7 +1798,7 @@ test('createTurnRunner: the persona turn is requested as role core, purpose repl
   assert.deepEqual(
     withoutTools(llm.optionCalls[0]),
     { role: 'core', purpose: 'reply', iface: 'discord' },
-    'only the role, the purpose and the interface (PR 7a: `iface` for the usage row, never in the request) besides her tools: models.base.core and every other setting stay the defaults'
+    'only the role, the purpose and the interface (PR 7a: `iface` for the usage row, never in the request) besides her tools: the core chain and every other setting stay the defaults'
   );
   // The reply call hands the archive its blocks, one entry per block of the request.
   const { blocks } = llm.optionCalls[0];
@@ -3481,7 +3482,7 @@ function pickHot({
     {},
     {
       media: { maxPerTurn: 6, filePreviewChars: 500, pick: pickSettings },
-      models: { base: { analyzer: 'cheap/classifier' } },
+      models: { routes: chainsOnDefaults({ analyzer: 'cheap/classifier' }) },
       ...(typing ? { typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], ...typing } } : {}),
     }
   );

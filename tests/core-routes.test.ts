@@ -4,7 +4,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createCoreRoutes } from '../src/llm/core-routes.ts';
-import type { KeyRing } from '../src/keys/ring.ts';
 import type { KeyStore } from '../src/keys/store.ts';
 
 const VALUES: Record<string, string> = { main: 'sk-main-0001', helpers: 'sk-helpers-0002' };
@@ -18,12 +17,9 @@ const CONFIG = {
 };
 
 function routesOver(config: unknown) {
-  const store = {
-    coreNames: () => ['main'],
-    valueOf: (name: string) => VALUES[name] ?? null,
-  } as unknown as KeyStore; // the routes read these two methods of the store alone
-  const keyRing = { route: () => ({ name: 'main', value: VALUES.main }) } as unknown as KeyRing; // only spread over
-  return createCoreRoutes({ store, keyRing, getConfig: () => config, now: () => 0 });
+  // Changed: the routes read the value of a named key alone, and the ring is their own (slice 4).
+  const store = { valueOf: (name: string) => VALUES[name] ?? null } as unknown as KeyStore; // the one method read
+  return createCoreRoutes({ store, getConfig: () => config, now: () => 0 });
 }
 
 test("a reader of a role's key gets the key of the role's chain, not the ring's first core key", () => {

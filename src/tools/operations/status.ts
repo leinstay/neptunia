@@ -609,7 +609,7 @@ const handlers = perEnv((env) => {
   /**
    * The owner's `keys.base` field (src/tools/operations/usage.ts#keyCostsLines, every word from
    * `labels.status.costs`): the main API key's limit and spend and those of
-   * each extra key `llm.boundKeys` puts in use (`llm.roleKeys`, read by role, never holding a key
+   * each other key a role's chain is on now (`llm.roleKeys`, read by role, never holding a key
    * here) but the errand agents' (a key whose roles are all ERRAND_KEY_ROLES: no line, no read), free GETs in parallel (`llm.keyInfo`; `llm.probeTimeoutMs`, never counted against
    * `llm.maxRequestsPerDay`), with the rolling 7- and 30-day sums of each key's roles from the
    * usage accumulator. With the management key (the store's `management` key, `env.managementKey`,
@@ -653,7 +653,7 @@ const handlers = perEnv((env) => {
     const today = utcDay(clock());
     const sumsOf = (outcome: AccountRead | null | undefined) =>
       outcome?.ok ? activitySums(outcome.data, today) : null;
-    // Rolling sums per key: an extra key over its own roles, the main key over every other role.
+    // Rolling sums per key: a role key over its own roles, the main key over every other role.
     const sums = typeof usage?.sumDays === 'function';
     const windowsOf = (filter: { only?: ReadonlyArray<string>; except?: ReadonlyArray<string> }) =>
       sums ? { last7: usage.sumDays(7, filter), last30: usage.sumDays(30, filter) } : null;

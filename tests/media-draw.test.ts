@@ -20,6 +20,7 @@ import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
 import { planAnswerText } from './fixtures/plan-answer.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 
@@ -57,7 +58,7 @@ function hot() {
         pull: { sameAudience: true },
       },
       llm: { maxRequestTokens: 50000 },
-      models: { base: { drawing: 'openai/image-model' } },
+      models: { routes: chainsOf({ drawing: 'openai/image-model' }) },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
       image: { maxPromptChars: 1000, reference: 'avatar', referenceMaxBytes: 4_000_000 },
       selfreflection: { placeId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },

@@ -48,6 +48,7 @@ import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { JournalLinesWrite } from '../src/memory/db/journal-lines.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
+import { chainsOnDefaults } from './fixtures/chains.ts';
 
 /** What an inner turn reports, the fields these tests read. */
 type InnerResult = {
@@ -137,7 +138,7 @@ function hotWith({
       },
       llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      models: { base: { analyzer: 'x/text' } },
+      models: { routes: chainsOnDefaults({ analyzer: 'x/text' }) },
       tools: {
         safeMode: false,
         resultMaxChars: 2000,

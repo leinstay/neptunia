@@ -105,10 +105,10 @@ async function commanded(askCore: LinkAsk, command: Parameters<LinkAsk>[0]): Pro
   return answer.status === 'ok' ? 'done' : { failed: answer.text };
 }
 
-/** The first core key, whose command asks for the models too; or the core's route, checked before it is saved. */
+/** The first key, whose command asks for the models of the mandatory roles too; or the core's route, checked before it is saved. */
 async function coreModelStep(options: SetupOptions, askCore: LinkAsk, context: FlowContext) {
-  const names = createKeyStore({ privateDir: options.privateDir }).coreNames();
-  const chain = routesOf(readConfig(ROOT_DIR, { privateDir: options.privateDir }), 'core', names);
+  const names = createKeyStore({ privateDir: options.privateDir }).names();
+  const chain = routesOf(readConfig(ROOT_DIR, { privateDir: options.privateDir }), 'core');
   if (names.length === 0 && chain[0]?.via !== 'harness') {
     const name = (await context.ask('The name of the first key:', 'main')).trim();
     if (name === '') return 'cancelled';

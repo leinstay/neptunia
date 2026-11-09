@@ -1,5 +1,6 @@
 // Her core requests through a subscription CLI: the client in front of the direct client (src/llm/openrouter.ts) while
-// the route of config.json (src/subharness/subscription-path.ts) names a backend. The step loop stays as it is and calls
+// the core's route names a backend: the route the chain client chose, else the first route of the core's chain
+// (src/subharness/memory-path.ts#harnessPathOf). The step loop stays as it is and calls
 // `complete` per step. The first step of a turn starts one `claude -p` or `codex exec` with her system text in place of
 // the CLI's own and her user text on stdin, and resolves when the model's first call stops. Her tools reach the CLI
 // through the `nep` MCP server (bin/neptunia-mcp.ts), which forwards each call over the core socket to the tool bridge
@@ -9,8 +10,8 @@
 // rails as an API request before anything starts, records its usage at no cost and returns the backend, so the archive
 // keeps one row per step. A failure rejects with an Error whose `code` is one of `SUBSCRIPTION_CODES`. A request that
 // brings the route the chain client chose (`chainRoute`, src/llm/chain-client.ts) takes that route, and its failure goes
-// back to the chain, which moves on; any other request takes the stored route and goes to the direct client on a
-// failure only while `llm.subscription.fallback` is true. Logs carry the backend, counts and codes, never text.
+// back to the chain, which moves on; any other request takes the stored route, and its failure fails the request. Logs
+// carry the backend, counts and codes, never text.
 
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -25,7 +26,6 @@ import type { CompleteResult } from '../llm/openrouter.ts';
 import { isListedEffort } from '../llm/roles.ts';
 import { estimateMessages, estimateTools } from '../llm/tokens.ts';
 import { coreSocketPath } from '../interface/socket.ts';
-import { createKeyStore } from '../keys/store.ts';
 import { log } from '../log.ts';
 import type { Transport } from '../protocol/wire.ts';
 import { bareToolName } from '../tools/gateway.ts';
@@ -36,8 +36,11 @@ import type { LoginState, RunOutcome } from './login-state.ts';
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX } from './mcp-server.ts';
 import type { BridgeAnswer, BridgeCall } from './mcp-server.ts';
 import { isInstalled, subharnessPlace } from './place.ts';
-import { subscriptionPath } from './subscription-path.ts';
-import type { SubscriptionPath } from './subscription-path.ts';
+import { harnessPathOf } from './memory-path.ts';
+import type { SubharnessMemoryPath } from './memory-path.ts';
+
+/** The route of her core: the API, or one backend with its model and effort. */
+export type SubscriptionPath = { kind: 'api' } | SubharnessMemoryPath;
 import { createToolBridge, routeTurnLink } from './tool-bridge.ts';
 import type { ToolBridge } from './tool-bridge.ts';
 
@@ -54,8 +57,8 @@ export type SubscriptionProcess = { lines: AsyncIterable<string>; exited: Promis
 
 export type SubscriptionClientDeps = {
   privateDir: string;
-  /** The route in place of `models.harness.core`, for a paid script whose `--core` flag replaces it; absent, the record
-   * is read again at every first step. */
+  /** The route in place of the core's chain, for a paid script whose `--core` flag replaces it; absent, the chain is
+   * read again at every first step. */
   fixedPath?: SubscriptionPath;
   direct: { complete(messages: unknown, options?: unknown): Promise<CompleteResult> };
   bridge: ToolBridge;
@@ -291,11 +294,10 @@ export function spawnSubscriptionChild(child: SubscriptionChild): SubscriptionPr
 }
 
 /** The settings of the route, read at the moment of use. */
-function settingsOf(llm: Rec): { fallback: boolean; thinking: boolean; holdMs: number } {
+function settingsOf(llm: Rec): { thinking: boolean; holdMs: number } {
   const own = rec(llm.subscription);
   const hold = num(own.holdMs);
   return {
-    fallback: own.fallback === true,
     thinking: own.thinking === true,
     holdMs: hold > 0 ? hold : HOLD_MS_DEFAULT,
   };
@@ -597,6 +599,12 @@ function resume(
   return next;
 }
 
+/** The core's route as its chain stores it: its first route when that is a harness, else the API. */
+function storedPath(privateDir: string): SubscriptionPath {
+  const path = harnessPathOf(privateDir, 'core');
+  return path.kind === 'subharness' ? path : { kind: 'api' };
+}
+
 /** The route of the chain client's `chainRoute` (src/llm/route-text.ts) as a path, null for a request without one. */
 function chainPathOf(value: unknown): SubscriptionPath | null {
   if (!isRec(value)) return null;
@@ -753,21 +761,11 @@ export function createSubscriptionClient(deps: SubscriptionClientDeps): {
     [...sessions].find((session) => session.entries.some((entry) => results.some((one) => one.id === entry.id))) ??
     null;
 
-  /** Whether the direct client has a key to go out on: one is bound to the route or a core key is kept. */
-  function apiKeyExists(): boolean {
-    try {
-      const store = createKeyStore({ privateDir: deps.privateDir });
-      return store.boundTo('core') !== null || store.coreNames().length > 0;
-    } catch {
-      return true;
-    }
-  }
-
   async function onRoute(messages: Array<Rec>, options: Rec): Promise<CompleteResult> {
     const results = laterStep(messages);
     const session = results === null ? null : sessionOf(results);
     const chosen = chainPathOf(options.chainRoute);
-    const route = session?.route ?? chosen ?? deps.fixedPath ?? subscriptionPath(deps.privateDir, 'core');
+    const route = session?.route ?? chosen ?? deps.fixedPath ?? storedPath(deps.privateDir);
     if (route.kind === 'api') return deps.direct.complete(messages, options);
     const estimated = rails(messages, options);
     try {
@@ -779,10 +777,7 @@ export function createSubscriptionClient(deps: SubscriptionClientDeps): {
       return resultOf(route, answer, estimated, options);
     } catch (error) {
       if (isSubscriptionFailure(error)) deps.ran?.(route.backend, runOutcomeOf(error));
-      if (chosen !== null || !isSubscriptionFailure(error) || !settingsOf(llmOf(deps)).fallback || !apiKeyExists())
-        throw error;
-      log.warn('subscription: step goes to the api', { code: str(rec(error).code) });
-      return deps.direct.complete(messages, { ...options, countAgainstDailyCap: false });
+      throw error;
     }
   }
 

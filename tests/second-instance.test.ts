@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { lockPathOf, openMemoryDb } from '../src/memory/db/open.ts';
 import { channelInfo, lineEvent } from './fixtures/core-over-fake.ts';
 import type { InstanceCommand, InstanceReady, InstanceReply } from './fixtures/instance-protocol.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const RUNNER = join(REPO, 'tests', 'fixtures', 'instance-runner.ts');
@@ -43,7 +44,7 @@ type Tree = Map<string, Stat>;
 const settings = (placeId: string) => ({
   bot: { timezone: 'UTC', owners: [], placeId },
   // No video role, so the start sends no canary probe to YouTube.
-  models: { base: { video: false } },
+  models: { routes: chainsOf({ video: false }) },
   pace: { settleMs: 0, settleMaxMs: 0 },
   typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },
   gifs: { backfillMessages: 0 },

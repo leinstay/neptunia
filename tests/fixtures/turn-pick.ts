@@ -4,6 +4,7 @@ import { findGif } from '../../src/memory/gifs.ts';
 import { NOW, fakeStore } from './turn-kit.ts';
 import { world } from './turn-world.ts';
 import type { FakeHot } from './turn-kit.ts';
+import { chainsOnDefaults } from './chains.ts';
 
 /** A fake store with one GIF the search can find by a word of the replies these tests write. */
 export function gifStore(): ReturnType<typeof fakeStore> & { getGifs: () => object; findGif: (id: string) => object | null } {
@@ -35,7 +36,7 @@ export function declarePick(mediaPick: object = { gifForms: ['file', 'link'] }):
 export function withPick(hot: FakeHot): FakeHot {
   declarePick();
   Object.assign(hot.prompts, { 'media-pick': 'Pick a GIF for what {{name}} wrote.' });
-  Object.assign(hot.config, { models: { base: { analyzer: 'cheap/classifier' } } });
+  Object.assign(hot.config, { models: { routes: chainsOnDefaults({ analyzer: 'cheap/classifier' }) } });
   return hot;
 }
 

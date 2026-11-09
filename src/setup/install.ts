@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import { readRouting } from '../subharness/routing.ts';
+import { harnessPathOf } from '../subharness/memory-path.ts';
 import { modeOf } from '../subharness/control.ts';
 import { isInstalled } from '../subharness/place.ts';
 import { ClientsError, readClients } from './clients.ts';
@@ -72,7 +73,11 @@ export function unitText(target: UnitTarget, template: string, file: string): st
   const { subharness } = readRouting(target.dataDir);
   // Named or installed: a restored persona's role finds its folder bound before the install, and a role moved to an
   // installed backend finds it bound before config.json says so.
-  const named = new Set<string>([...Object.values(subharness.uses), subharness.memory?.backend ?? '']);
+  const memory = harnessPathOf(target.dataDir, 'memory');
+  const named = new Set<string>([
+    ...Object.values(subharness.uses),
+    memory.kind === 'subharness' ? memory.backend : '',
+  ]);
   const backends = BACKEND_NAMES.filter((name) => named.has(name) || isInstalled(target.dataDir, name));
   const vars: UnitVars = {
     ...target,

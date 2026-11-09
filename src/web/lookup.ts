@@ -14,7 +14,8 @@
 // - search: one web search whose numbered results are condensed through prompts/search-summary.md, sources kept.
 //   `web.quickSearch.engine` picks the engine, and it has no default: `brave` (src/web/brave.ts) and `exa` (src/web/exa.ts) each
 //   need their service key, and `openrouter` (OpenRouter's web plugin, its engine `auto`: the summary request itself
-//   searches, one request billed to credits, its sources the answer's `url_citation` annotations) needs `web.quickSearch.model`.
+//   searches, one request billed to credits, its sources the answer's `url_citation` annotations) needs a chain for `search`
+//   (`models.routes.search`).
 //   Brave and Exa condense on that model too, so they do not summarise without it. An engine outside the three, or one
 //   without what it needs, leaves quick search off, and when the chosen engine fails nothing answers in its place.
 // - searchResults: the persona's own web.search (src/tools/tools.ts): the same engine, but the results come back raw --

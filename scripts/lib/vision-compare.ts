@@ -3,7 +3,7 @@
 // through the live describer (src/memory/describe.ts) with one model, the run with its USD stop,
 // the per-model summary and the HTML sheet. Exists so a candidate media model can be judged
 // against the current one on the same pictures, GIFs and videos, by the very code path the
-// persona's senses use, before the owner switches `models.base.vision` / `models.base.video`.
+// persona's senses use, before the owner switches the `vision` and `video` chains.
 // No clock or randomness of its own: `now` is injected.
 
 import { CliError, parseFlags } from './cli.ts';
@@ -276,10 +276,10 @@ export function lookupSince(picked: Array<{ kind: string; ts: number | null; use
 }
 
 /**
- * The tool's own view over the live hot view: the same prompts, and a config whose
- * `models.base.vision` and `models.base.video` are `model` (every `models.byPurpose` entry of a vision or
- * video purpose dropped, so it cannot pin another model), with media descriptions and video
- * descriptions switched on. Built fresh on every read from `base.config`, which is never
+ * The tool's own view over the live hot view: the same prompts, and a config whose `vision` and `video` chains in
+ * `models.routes` run on `model` (each route of the live vision chain, else the live video chain, with its model
+ * replaced; every `models.byPurpose` entry of a vision or video purpose dropped, so it cannot pin another model), with
+ * media descriptions and video descriptions switched on. Built fresh on every read from `base.config`, which is never
  * changed: the live config of this process stays as it is.
  */
 export function toolHot(
@@ -290,7 +290,10 @@ export function toolHot(
     get config() {
       const live = base.config ?? {};
       const models = isPlainObject(live.models) ? live.models : {};
-      const baseModels = isPlainObject(models.base) ? models.base : {};
+      const routes: Record<string, unknown> = isPlainObject(models.routes) ? models.routes : {};
+      const chainOf = (role: string): Array<unknown> => (Array.isArray(routes[role]) ? routes[role] : []);
+      const keyed = chainOf('vision').length > 0 ? chainOf('vision') : chainOf('video');
+      const chain = keyed.filter((route): route is Rec => isPlainObject(route)).map((route) => ({ ...route, model }));
       const byPurpose = isPlainObject(models.byPurpose)
         ? Object.fromEntries(
             Object.entries(models.byPurpose).filter(
@@ -302,7 +305,7 @@ export function toolHot(
         ...live,
         models: {
           ...models,
-          base: { ...baseModels, vision: model, video: model },
+          routes: { ...routes, vision: chain, video: chain },
           ...(byPurpose ? { byPurpose } : {}),
         },
       };

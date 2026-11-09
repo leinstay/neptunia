@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Operations tool: describe the same media with two or more vision/video models through the
 // persona's own describer and put the answers side by side. Exists so a candidate for
-// `models.base.vision` / `models.base.video` is judged on the server's real pictures, GIFs and videos, by
+// the `vision` and `video` chains is judged on the server's real pictures, GIFs and videos, by
 // the very code path the bot uses, before the owner switches the role.
 //
 //   cd /opt/neptunia/app && node scripts/vision-compare.ts <modelA> <modelB> [more models...]
@@ -22,7 +22,7 @@
 // Each item with each model: scripts/lib/vision-compare.ts#describeOne -- the live describer
 // (src/memory/describe.ts: `describe` for a picture, an emoji, a sticker and a GIF, which is
 // watched first and falls back to one frame as live; `describeVideo` with `force` for a video)
-// over a tool-local hot view whose `models.base.vision` and `models.base.video` are the model (the live
+// over a tool-local hot view whose `vision` and `video` chains run on the model (the live
 // config is never changed), provider routing as configured (`llm.providerByModel`), an empty
 // in-memory media cache and throwaway daily counters. Requests go out on the keys production uses for `vision` and
 // `video` (scripts/lib/script-routes.ts; `--vision <key>/<model>` or `--video <key>/<model>` replaces a role for this run,

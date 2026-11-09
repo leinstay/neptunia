@@ -7,6 +7,7 @@ import '../src/tools/operations/index.ts';
 import { answerSkillScenario, liveView, personaGrantsConfig } from '../src/behavior/sandbox.ts';
 import { requestJson, createAnswersDir, renderRequest } from '../scripts/lib/answers-dir.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -215,7 +216,7 @@ test('an answer whose tool-calls.json holds a data call drives two steps of a re
         caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
         vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
       },
-      models: { base: { core: 'x/chat' } },
+      models: { routes: chainsOf({ core: 'x/chat' }) },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
       features: {},
     },
