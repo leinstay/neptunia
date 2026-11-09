@@ -173,4 +173,12 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
     'text':
       "The memory writer's path through a subharness, in the shape of `models.harness.core`. Null is the direct path on the memory role's key. `/model set memory <model> --via <route>` writes it after one reply",
   },
+  {
+    'key': 'models.routes',
+    'types': ['map'],
+    'reader': 'src/llm/route-chain.ts',
+    'default': {},
+    'text':
+      'The chain of routes of each model role, by role (`core`, `memory`, `analyzer`, `vision`, `video`, `embedding`, `speech`, `drawing`, `search`): an array of `{ "via": "api", "key": name, "model": id, "effort": level }` or `{ "via": "harness", "backend": "claude" or "codex", "model": id, "effort": level }`, tried in order. A role with no entry runs on the routes its older settings give it. An empty array turns an optional role off',
+  },
 ];

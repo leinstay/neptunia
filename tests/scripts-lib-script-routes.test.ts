@@ -75,6 +75,15 @@ function fakeSpawn() {
   return { spawn, children };
 }
 
+/**
+ * The script's live config: the shipped values with the private config.json laid over them, read at each call, as a
+ * script's `hot.config` holds it. The chains are read from it (src/llm/route-chain.ts), not from the file directly.
+ */
+function liveWith(dir: string): unknown {
+  const stored = JSON.parse(fs.readFileSync(routingPath(dir), 'utf8')) as { models?: object; llm?: object };
+  return { ...LIVE, models: { ...LIVE.models, ...stored.models }, llm: { ...LIVE.llm, ...stored.llm } };
+}
+
 /** A private dir with two core keys, two extra keys, `analyzer` bound to one, and the given harness records. */
 function rig(options: { core?: PathRecord | null; memory?: PathRecord | null; loggedIn?: boolean } = {}) {
   const dir = tempDir('nep-script-routes-');
@@ -111,7 +120,7 @@ function rig(options: { core?: PathRecord | null; memory?: PathRecord | null; lo
     privateDir: dir,
     roles,
     variant,
-    getConfig: (): unknown => LIVE,
+    getConfig: (): unknown => liveWith(dir),
     createDirect,
     state: { data: {}, markDirty: () => {} },
     spawn,
@@ -139,7 +148,9 @@ async function assertRefused(run: () => unknown, tool: string, code: string): Pr
 
 test('a key route reads the key name, the model id and the effort', () => {
   // Catches: the model id cut at its first slash, or the effort left on the model id.
-  assert.deepEqual(parseRoute('replay-cli', 'core', 'helpers/anthropic/claude-opus-5.5:medium'), {
+  // On the analyzer: an API effort is refused for the core since the routes spec of 2026-11-09 (owner rule, no
+  // provider reasoning for the core), covered in tests/route-text.test.ts.
+  assert.deepEqual(parseRoute('replay-cli', 'analyzer', 'helpers/anthropic/claude-opus-5.5:medium'), {
     kind: 'key',
     key: 'helpers',
     model: 'anthropic/claude-opus-5.5',
@@ -219,13 +230,14 @@ test('no role flag gives one variant that changes no role', () => {
 
 test('each --variant runs on the role flags given outside it, with its own flags on top', () => {
   // Catches: a variant that drops the shared flags, or one variant's flags leaking into the next.
+  // The first variant's core carries no effort: an API effort on the core is refused since the routes spec of 2026-11-09.
   const taken = takeRouteFlags(
     'replay-cli',
     [
       '--analyzer',
       'helpers/openai/gpt-6.1-sol',
       '--variant',
-      '--core helpers/anthropic/claude-opus-5.5:high',
+      '--core helpers/anthropic/claude-opus-5.5',
       '--variant',
       '--core harness:codex/gpt-6.1-sol',
     ],
@@ -263,17 +275,40 @@ test('a key route sends the role on that key with its model and effort, and writ
   // Catches: an override that edits the deployment's settings, or one that loses its model or effort on the way.
   const { dir, deps, sent } = rig();
   const before = fs.readFileSync(routingPath(dir), 'utf8');
+  // On the analyzer: an API effort on the core is refused since the routes spec of 2026-11-09.
   const routing = await scriptRouting(
     'replay-cli',
-    deps({ core: parseRoute('t', 'core', 'helpers/x-ai/grok-6:high') })
+    deps({ analyzer: parseRoute('t', 'analyzer', 'helpers/x-ai/grok-6:high') })
   );
-  await routing.llm.complete(MESSAGES, { role: 'core', purpose: 'reply' });
+  await routing.llm.complete(MESSAGES, { role: 'analyzer', purpose: 'address' });
   assert.equal(sent[0].key, HELPERS_KEY);
   const [{ options }] = sent;
   assert.equal(options.model, 'x-ai/grok-6');
   assert.deepEqual(options.reasoning, { effort: 'high' });
   assert.equal(fs.readFileSync(routingPath(dir), 'utf8'), before);
+  assert.equal(routing.keyOf('analyzer'), HELPERS_KEY);
+});
+
+test("each request names its route's key to the direct client, never the key ring's first key", async () => {
+  // Catches: the chain bypassed in a script, so a spent core key is never left for the next one.
+  const { deps, sent } = rig();
+  const routing = await scriptRouting('replay-cli', deps({}));
+  await routing.llm.complete(MESSAGES, { role: 'analyzer', purpose: 'address' });
+  const [first] = sent;
+  assert.deepEqual(first?.options.routeKey, { name: 'tools', value: ANALYZER_KEY });
+});
+
+test('a key route on the core replaces its whole chain, so a harness failure never reaches a stored key', async () => {
+  // Catches: the flag replacing only the first route, so the stored core keys still answer behind the measured route.
+  const { deps } = rig({ core: { backend: 'claude', model: 'claude-opus-4-6', effort: null } });
+  const routing = await scriptRouting(
+    'replay-cli',
+    deps({ core: parseRoute('t', 'core', 'helpers/anthropic/claude-opus-5.5') })
+  );
   assert.equal(routing.keyOf('core'), HELPERS_KEY);
+  assert.deepEqual(routing.routes('core'), [
+    { via: 'api', key: 'helpers', model: 'anthropic/claude-opus-5.5', effort: null },
+  ]);
 });
 
 test('an unknown key name is refused before any client is built', async () => {

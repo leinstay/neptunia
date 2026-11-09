@@ -2,9 +2,9 @@
 // StorageKey. A key of an operational kind reads its row by kind and subject (operational.ts), a key of the intentions
 // reads their rows (readers/intentions.ts), a day of the record or of the journal and a month of the archive their
 // lines (record-lines.ts, journal-lines.ts, archive-lines.ts), and an account's profile, a private layer, a history of
-// prose (a picture's descriptions too), a place's notes, a channel's entry, a lorebook, a participation and recent
-// lines their value (account-profile.ts, private-layer.ts, prose-versions.ts, place-notes.ts, channel-entry.ts,
-// place-lore.ts, participation-episodes.ts, recent-lines.ts). The explicit legacy export adapter
+// prose (a picture's descriptions too), a place's notes, a channel's entry, a lorebook, a participation, recent lines
+// and her selfreflection their value (account-profile.ts, private-layer.ts, prose-versions.ts, place-notes.ts,
+// channel-entry.ts, place-lore.ts, participation-episodes.ts, recent-lines.ts, selfreflection-entries.ts). The explicit legacy export adapter
 // understands historical owner strings. A closed service refuses reads with DB_CLOSED; failures are logged once with
 // their reader and code, without stored contents.
 
@@ -21,6 +21,7 @@ import { channelEntryValue } from '../channel-entry.ts';
 import { placeLoreValue } from '../place-lore.ts';
 import { participationValue } from '../participation-episodes.ts';
 import { recentLinesValue } from '../recent-lines.ts';
+import { selfreflectionValue } from '../selfreflection-entries.ts';
 import { hasStorageUnits } from '../storage-units.ts';
 import { storageId } from '../storage-keys.ts';
 import type { StorageKey } from '../storage-keys.ts';
@@ -64,12 +65,13 @@ const DIRECT_KINDS: ReadonlyArray<string> = [
   'lore',
   'participation',
   'recent',
+  'selfreflection',
 ];
 
 /**
  * The key of a unit whose kind its own reader answers (an operational kind, the intentions, a day of the record or of
  * the journal, a month of the archive, an account's profile, a private layer, a history of prose, a place's notes, a
- * channel's entry, a lorebook, a participation, recent lines), else
+ * channel's entry, a lorebook, a participation, recent lines, her selfreflection), else
  * null; a path spells it.
  */
 function directKey(db: Db, given: StorageKey | string): StorageKey | null {
@@ -125,6 +127,7 @@ export function unitValue(
   if (direct?.kind === 'lore') return placeLoreValue(db, direct);
   if (direct?.kind === 'participation') return participationValue(db, direct);
   if (direct?.kind === 'recent') return recentLinesValue(db, direct);
+  if (direct?.kind === 'selfreflection') return selfreflectionValue(db, direct);
   if (hasStorageUnits(db)) {
     const key = typeof ownerGiven === 'string' ? legacyStorageKey(ownerGiven) : ownerGiven;
     const unit = db.prepare('SELECT 1 FROM storage_units WHERE id=? AND retired_at IS NULL').get(storageId(key));

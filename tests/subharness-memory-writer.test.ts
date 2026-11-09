@@ -388,6 +388,31 @@ test('the client reads the path at each call, so a change from the chat acts on 
   assert.equal(seen.length, 1);
 });
 
+test('the chain route of a request wins over the stored path, in both directions', async () => {
+  // Catches: the chain's fallback route ignored, so a memory request goes to the spent harness again, or the reverse.
+  const { deps, seen } = rig(claudeAnswers(ANSWER), {
+    subharness: { memory: { backend: 'claude', model: 'claude-opus-4-6', effort: null } },
+  });
+  const { llm, direct } = clientOf(deps);
+  const messages = [
+    { role: 'system', content: 'S' },
+    { role: 'user', content: [{ type: 'text', text: 'U' }] },
+  ];
+  const options = { role: 'memory', purpose: 'memory-session', model: 'x/memory' };
+  // The chain client adds `chainRoute` to the session's options; the rig's type names the session's own fields only.
+  const routed = (chainRoute: object) => ({ ...options, chainRoute }) as LlmCall['options'];
+  await llm.complete(messages, routed({ via: 'api', key: 'helpers', model: 'x/memory', effort: null }));
+  assert.equal(direct.calls.length, 1);
+  assert.equal(seen.length, 0);
+  const { deps: plain, seen: runs } = rig(claudeAnswers(ANSWER));
+  const { llm: onDirect } = clientOf(plain);
+  await onDirect.complete(
+    messages,
+    routed({ via: 'harness', backend: 'claude', model: 'claude-opus-4-8', effort: null })
+  );
+  assert.equal(after(runs[0]?.args ?? [], '--model'), 'claude-opus-4-8');
+});
+
 test('a subharness run is counted under memory at cost 0 with its tokens, and the core rows stay empty', async () => {
   // Catches: subscription runs priced as API spend, or counted under core, which shrinks the week's turns line.
   const { deps } = rig(claudeAnswers(ANSWER, { input_tokens: 300, output_tokens: 20 }), {

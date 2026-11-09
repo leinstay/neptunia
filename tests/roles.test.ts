@@ -22,6 +22,8 @@ import {
   roleConfigKeys,
   roleGroup,
   roleModel,
+  roleOn,
+  searchModel,
 } from '../src/llm/roles.ts';
 import { readConfig } from '../src/config.ts';
 import { MODEL_SET_ROLES } from '../src/tools/operations/catalog.ts';
@@ -181,6 +183,7 @@ test("roles: the built-in defaults equal config.json's three groups, and every r
   const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
   // `abilities` declares what each model can do, per model id (PR E in detail, stage 4 cut spec).
   // Changed: `agents` and `harness` hold the routing that left keys.json; they are routes, not role models.
+  // Changed: `routes` holds each role's chain of routes (spec 2026-11-09-model-routes), empty as shipped.
   assert.deepEqual(Object.keys(shipped.models), [
     'base',
     'byPurpose',
@@ -189,6 +192,7 @@ test("roles: the built-in defaults equal config.json's three groups, and every r
     'development',
     'agents',
     'harness',
+    'routes',
   ]);
   assert.deepEqual(Object.keys(shipped.models.base), [CORE_ROLE, MEMORY_ROLE, ...NON_CORE_ROLES, 'drawing']);
   assert.deepEqual(Object.keys(shipped.models.errands), [...ERRAND_ROLES]);
@@ -350,4 +354,26 @@ test('call sites: every request role is one of the roles, every purpose goes out
   }
   // Changed: quick search's two requests name SEARCH_ROLE, which this pattern does not read, so two sites count less.
   assert.ok(pairs >= 28, `found ${pairs} role/purpose pairs`);
+});
+
+test('a role with a chain in models.routes takes the model of its first route over models.base', () => {
+  // Catches: a request built with the old `models.base` model while the chain the owner set names another.
+  const config = {
+    models: {
+      base: { analyzer: 'openai/gpt-6.1-sol', vision: 'google/gemini-4-argon' },
+      routes: { analyzer: [{ via: 'api', key: 'helpers', model: 'anthropic/claude-sonnet-6.1' }], vision: [] },
+    },
+  };
+  assert.equal(roleModel(config, 'analyzer'), 'anthropic/claude-sonnet-6.1');
+  assert.equal(roleModel(config, 'vision'), undefined, 'an empty chain turns an optional role off');
+  assert.equal(roleOn(config, 'vision'), false);
+});
+
+test('quick search takes the model of the first route of its chain over web.quickSearch.model', () => {
+  // Catches: quick search answering with the old setting's model after its chain was set.
+  const config = {
+    models: { routes: { search: [{ via: 'api', key: 'helpers', model: 'perplexity/sonar-pro' }] } },
+    web: { quickSearch: { model: 'perplexity/sonar' } },
+  };
+  assert.equal(searchModel(config), 'perplexity/sonar-pro');
 });

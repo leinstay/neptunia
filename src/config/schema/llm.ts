@@ -91,6 +91,14 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
       'The extra key of `keys.json` each role goes out on, by role: a base model role or `search`. A role with no entry goes out on the core keys. `/keys bind <role> <name>` writes an entry and `/keys unbind <role>` removes it',
   },
   {
+    'key': 'llm.routeRetryMinutes',
+    'types': ['number'],
+    'reader': 'src/llm/chain-client.ts',
+    'default': 30,
+    'text':
+      'How long a role stays on a later route of its chain after a route was unavailable, before its next request tries the first route again (minutes). Read at each request',
+  },
+  {
     'key': 'llm.cache.ttl',
     'types': ['string'],
     'reader': 'src/llm/openrouter.ts',
