@@ -1,4 +1,4 @@
-// The memory session's key (src/memory/db/session.ts#memoryKeyState) and the key wiring of scripts/memory-session.ts,
+// The memory session's key (src/memory/db/session.ts#memoryKeyState),
 // apart from tests/memory-db-session.test.ts because that file is at its length limit.
 
 import { test } from 'node:test';
@@ -13,9 +13,8 @@ import { createKeyStore } from '../src/keys/store.ts';
 import { createKeyFailover } from '../src/llm/key-failover.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { NOW, baseConfig, prompts } from './fixtures/memory-db/session-rig.ts';
-// The memory key from the key store (spec 2026-11-02, follow-up 1): once keys.json exists, the memory session goes out
-// on the key `memory` is bound to, else the core list, like every other role; `llm.keyByRole.memory` and `.env` only
-// count on a deployment without the store.
+// The memory key from the key store (spec 2026-11-02, follow-up 1): the memory session goes out on the key `memory` is
+// bound to, else the core list, like every other role; a variable of `.env` never counts.
 
 /** A key ring over a fresh keys.json in a temp folder, with `fill` run on its store first. */
 function ringWith(fill: (store: ReturnType<typeof createKeyStore>) => void): KeyRing {
@@ -61,26 +60,7 @@ test('the description review follows the key store the same way as the sweep', (
   assert.equal(reviewRefusal(baseConfig(), { OPENROUTER_MEMORY_KEY: 'v' }, reviewPrompts, empty), CODES.NOT_CONFIGURED);
 });
 
-// scripts/memory-session.ts (spec 2026-11-02, follow-up 9): the tool hands the simulation's key to the session under a
-// slot name the key check of src/llm/role-keys.ts accepts, so a sweep of the tool is not refused not_configured.
-
-test('the memory-session tool names its key slot so that the session finds the simulation key', async () => {
-  // Catches: the slot MEMORY_SESSION_KEY fails the ^OPENROUTER_ check, and every sweep of the tool is refused not_configured.
-  const { sessionKeyWiring } = await import('../scripts/memory-session.ts');
-  const { config, env } = sessionKeyWiring(baseConfig({}, { llm: { maxRequestTokens: 50000 } }), 'v-sim-0005');
-  const state = memoryKeyState(config, env);
-  assert.equal(state.ok, true);
-  assert.equal(env[state.name ?? ''], 'v-sim-0005');
-  assert.equal(refusalOf(config, env, prompts), null);
-  assert.equal((config.llm as { maxRequestTokens?: number }).maxRequestTokens, 50000, 'the live llm settings stay');
-});
-
-test('the memory-session tool with a blank simulation key still refuses not_configured', async () => {
-  // Catches: the wiring fills the slot with a placeholder, and a sweep goes out with no key at all.
-  const { sessionKeyWiring } = await import('../scripts/memory-session.ts');
-  const { config, env } = sessionKeyWiring(baseConfig(), '');
-  assert.equal(refusalOf(config, env, prompts), CODES.NOT_CONFIGURED);
-});
+// scripts/memory-session.ts gives the session the simulation's key ring: tests/simulation-key-ring.test.ts.
 
 // The owner's word of 2026-11-06 and 2026-11-08: a role that runs through a harness needs no API key, and no check at
 // the moment of use asks for one. The memory writer on `claude` or `codex` sends no key, so neither its sweep nor its

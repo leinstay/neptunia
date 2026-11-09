@@ -283,7 +283,8 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
     const calibrator = mods.createCalibrator(state.data.calibration);
     const calls: Array<Untyped> = [];
     sim = simulationLlm('inner-week', {
-      createDirect: (apiKey) => mods.createLlm({ apiKey, getConfig: () => hot.config, calibrator, state }),
+      createDirect: (apiKey, ring) =>
+        mods.createLlm({ apiKey, keys: ring, getConfig: () => hot.config, calibrator, state }),
       getConfig: (): unknown => hot.config,
       state,
     });

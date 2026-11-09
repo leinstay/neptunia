@@ -41,7 +41,6 @@ function rig(network: Network) {
   const handle = openMemoryDb(path.join(tempDir('nep-archive-cause-'), 'memory.db'));
   const client = createLlm({
     apiKey: 'test-key',
-    env: {},
     getConfig: settings,
     calibrator: { apply: (n: number) => n, observe() {} },
     state: { data: {}, markDirty() {} },

@@ -1,6 +1,7 @@
 // The memory writer made cheaper (item 0.3 of the final plan): small sessions wait and join the next one of their scope,
 // the request puts its stable part first under the cache marker, and a run records the sessions it joined and the
 // cache tokens the provider read. A scripted model and a fake clock; nothing leaves the process.
+import type { KeyRing } from '../src/keys/ring.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -68,9 +69,9 @@ const ctxAt = (
   minutes: number,
   llm: ReturnType<typeof scripted>,
   config: Rec = cfg(),
-  envVars?: Record<string, string>
+  ring?: KeyRing | null
 ) => ({
-  ...ctxOf(env, { llm, config, ...(envVars ? { envVars } : {}) }),
+  ...ctxOf(env, { llm, config, ...(ring === undefined ? {} : { ring }) }),
   now: () => NOW + minutes * MINUTE,
 });
 const runs = (env: Fixture) => env.db.prepare('SELECT * FROM session_runs ORDER BY started_at').all();
@@ -408,13 +409,14 @@ test('the run goes to models.base.memory with the memory role and a forced cache
   }
 });
 
-test('without the memory key no request is made, though a core key is set', async () => {
-  // Catches: the writer falling back to the core key (and its budget).
+test('without a key ring no request is made', async () => {
+  // Catches: the writer sending a request with no key behind it. A core key in `.env` stood here: the session reads its
+  // key from the key ring alone, so the case is a missing ring.
   const env = fixture();
   try {
     lines(env, 11, 0, 'a');
     const llm = scripted();
-    const result = await sweep(ctxAt(env, 60, llm, cfg(), { OPENROUTER_CORE_KEY: 'core-secret' }));
+    const result = await sweep(ctxAt(env, 60, llm, cfg(), null));
     assert.equal(result.status, 'refused');
     assert.equal(llm.calls.length, 0);
   } finally {

@@ -22,7 +22,16 @@ import { labels } from './fixtures/labels.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { tempDir } from './fixtures/tmp.ts';
-import { NOW, baseConfig, chat, ctxOf, fakeLlm, fixture, memoryBlock } from './fixtures/memory-db/session-rig.ts';
+import {
+  NOW,
+  baseConfig,
+  chat,
+  ctxOf,
+  fakeLlm,
+  fixture,
+  memoryBlock,
+  memoryRing,
+} from './fixtures/memory-db/session-rig.ts';
 import {
   ALEX,
   KAI,
@@ -138,7 +147,8 @@ test('an entity description review reads the assertions that name the entity, un
       db: world.db,
       llm,
       hot: { config: baseConfig({ mode: 'apply' }), prompts },
-      env: { OPENROUTER_MEMORY_KEY: 'k' },
+      env: {},
+      ring: memoryRing(),
       now: () => START,
       write: () => Promise.resolve(null),
       log: {},

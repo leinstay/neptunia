@@ -475,11 +475,11 @@ async function buildCore(
   const processState = store.state; // state.json: the pause flag, the daily counters and the process's marks
   const calibrator = createCalibrator(processState.data.calibration);
   // Which model roles are down (src/llm/role-health.ts): one tracker for the turns, the operations, the describer and
-  // `/status`. A role has no key when the key it resolves to is empty (src/llm/openrouter.js#roleApiKey).
+  // `/status`. A role has no key when the key ring routes it to none (src/llm/role-health.ts#roleKeyCheck).
   const harnessOf = (role: string): string | null => harnessBackend(paths.privateDir, role);
   const roleHealth = createRoleHealth({
     now: () => Date.now(),
-    hasKey: roleKeyCheck({ hot, env, mainKey: openrouterKey, keyOf, served: (role) => harnessOf(role) !== null }),
+    hasKey: roleKeyCheck({ mainKey: openrouterKey, keyOf, served: (role) => harnessOf(role) !== null }),
   });
   // createLlm (src/llm/openrouter.js) declares `complete` as `Function`, which no caller's declared call accepts, so
   // the core hands the client on typed as the call the modules below make.
@@ -959,7 +959,6 @@ async function buildCore(
     client: errandClient,
     stores: taskStores,
     hot,
-    env,
     memory: { recentLines: recentChannelLines },
     // An errand's facts: a group read, because a runner never sees a private chat.
     retrieve: (input) =>

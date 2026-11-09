@@ -3517,14 +3517,6 @@
       "count": 1
     }
   },
-  "tests/openrouter-role-keys.test.ts": {
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    },
-    "@typescript-eslint/require-await": {
-      "count": 4
-    }
-  },
   "tests/openrouter.test.ts": {
     "@typescript-eslint/no-base-to-string": {
       "count": 2

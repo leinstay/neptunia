@@ -68,7 +68,7 @@ export type Config = {
   selfreflection?: { placeId?: unknown };
   focus?: Row | null;
   wakes?: { loop?: { timeBudgetMs?: unknown } };
-  llm?: { maxRequestTokens?: unknown; keyByRole?: Row };
+  llm?: { maxRequestTokens?: unknown };
   memoryDb?: { file?: unknown; closeTimeoutMs?: unknown; session?: Row; [key: string]: unknown };
   recall?: { db?: Row; [key: string]: unknown };
   [section: string]: unknown;

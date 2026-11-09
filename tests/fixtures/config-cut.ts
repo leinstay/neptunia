@@ -544,7 +544,6 @@ export const KEPT: ReadonlyArray<string> = [
   'llm.maxRequestsPerDay',
   'llm.provider',
   'llm.providerByModel',
-  'llm.keyByRole',
   'llm.cache.ttl',
   'llm.cache.roles',
   'llm.cache.models',

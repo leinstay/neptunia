@@ -52,11 +52,9 @@ test('usageTap: the key name of an llm: usage line reaches the key rows, a line 
   assert.equal(usage.keyCost('OPENROUTER_CORE_KEY', '2026-11-01'), 9);
 });
 
-function coreLlm(env: Record<string, string>, firstFails: boolean) {
-  const sent: Array<string> = [];
+function coreLlm() {
   const llm = createLlm({
     apiKey: 'core-a',
-    env,
     getConfig: () =>
       ({
         models: { base: { core: 'x/core' } },
@@ -67,38 +65,26 @@ function coreLlm(env: Record<string, string>, firstFails: boolean) {
           maxRequestTokens: 1e6,
           maxOutputTokens: 10,
           maxRequestsPerDay: 100,
-          keyByRole: {},
         },
       }) as never,
     calibrator: { apply: (n: number) => n, observe() {} },
     state: { data: {}, markDirty() {} },
     now: () => NOW,
-    fetchImpl: ((_url: unknown, init: { headers: Record<string, string> }) => {
-      sent.push(init.headers.Authorization);
-      const fail = firstFails && init.headers.Authorization === 'Bearer core-a';
-      return Promise.resolve({
-        ok: !fail,
-        status: fail ? 402 : 200,
+    fetchImpl: (() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
         text: () => Promise.resolve(''),
         json: () =>
           Promise.resolve({ choices: [{ message: { content: 'ok' } }], usage: { prompt_tokens: 5, cost: 0.5 } }),
-      });
-    }) as never,
+      })) as never,
   });
   const ask = () => withCapturedLogs(() => llm.complete([{ role: 'user', content: 'hi' }], { role: 'core' }));
-  return { ask, sent };
+  return { ask };
 }
 
-test('createLlm: after a switch the usage line names the variable of the backup key, never its value', async () => {
-  const { ask, sent } = coreLlm({ OPENROUTER_CORE_KEY: 'core-a', OPENROUTER_CORE_BACKUP_KEY: 'core-b' }, true);
-  const { logs } = await ask();
-  assert.equal(sent.length, 2);
-  assert.equal(logs.find((line) => line.msg === 'llm: usage')?.key, 'OPENROUTER_CORE_BACKUP_KEY');
-  assert.ok(!JSON.stringify(logs).match(/core-[ab]/));
-});
-
 test('createLlm: a request on the main key leaves the key field out of the usage line', async () => {
-  const { ask } = coreLlm({ OPENROUTER_CORE_KEY: 'core-a' }, false);
+  const { ask } = coreLlm();
   const { logs } = await ask();
   assert.ok(!('key' in (logs.find((line) => line.msg === 'llm: usage') ?? {})));
 });
