@@ -817,7 +817,7 @@ function writeOwnerName(db: Db, update: Row, at: string): { personId: string; na
   if (!live?.id) {
     const id = `claim:owner-name:${personId}:${name.toLowerCase()}:${at}`;
     const scope = ownerNameScope(db, personId, update.iface);
-    ensureAudience(db, scope, { at });
+    ensureAudience(db, scope);
     db.prepare(
       `INSERT INTO claims (id, subject_kind, subject_id, kind, text, weight, first_seen_at, last_seen_at, how, author,
         truth, created_at, scope_kind, scope_iface, scope_dm, audience_id)

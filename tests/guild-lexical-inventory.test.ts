@@ -24,7 +24,7 @@ type Class = 'adapter SDK' | 'shipped migration' | 'explicit legacy codec' | 'fi
 function classOf(file: string): Class | null {
   if (file.startsWith('interfaces/discord/')) return file.endsWith('.md') ? 'prose' : 'adapter SDK';
   if (file === 'src/memory/db/schema.ts' || file.startsWith('src/memory/db/migrations/')) return 'shipped migration';
-  // The offline converter of S0 and S10 and the only decoders of old identifiers. Nothing else may parse them.
+  // The only decoders of old identifiers. Nothing else may parse them.
   if (file.startsWith('src/memory/migration/')) return 'explicit legacy codec';
   if (file === 'src/interface/fake-interface.ts') return 'fixture';
   if (file.endsWith('.md')) return 'prose';

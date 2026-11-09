@@ -22,7 +22,9 @@ import { peopleMemoryOf } from './request/memory-block.ts';
 import type { Labels } from './request/types.ts';
 import { nativeChatOf } from '../memory/db/frame-reads.ts';
 import { fetchSpan, recordMessages, runConversationRead } from '../tools/conversation-read.ts';
-import type { ReadMessage } from '../tools/conversation-read.ts';
+import type { LiveLines, ReadMessage } from '../tools/conversation-read.ts';
+import { chatOfStoredPlace } from '../interface/place-chat.ts';
+import { notePlaceAddress } from '../memory/addresses.ts';
 import {
   firstLinkIn,
   lookPerTurn,
@@ -60,6 +62,8 @@ export type InTurnDescriber = LookDescriber & {
 /** The memory store, as the in-turn tools read it. */
 type InTurnStore = NonNullable<Parameters<typeof runMediaFind>[0]['store']> & {
   listUserProfiles: () => ReadonlyArray<{ id?: unknown; names?: Array<unknown> } | null> | null;
+  /** Stores the chat an interface opened for a place as its address (src/memory/store.ts). */
+  notePlaceAddress?: (placeId: string, address: string) => Promise<unknown>;
 };
 
 /** The stored lines a read of a place outside the turn's snapshot takes from the memory, at most (conversation.read's own cap). */
@@ -353,11 +357,24 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     }
   }
 
-  /** The chat of a stored place on its own interface, from its row (frame-reads.ts#placeRefOf); null without one. */
-  function storedChatOf(placeId: string): ChatRef | null {
+  /**
+   * The interface of a stored place and the address its row holds (frame-reads.ts#placeRefOf), `chatId` null for a
+   * direct chat that holds none yet; null without a row.
+   */
+  function storedChatOf(placeId: string): StoredChat | null {
     const ref = placeReads?.placeRef?.(placeId) ?? null;
-    const chatId = ref === null ? null : nativeChatOf(ref);
-    return ref === null || chatId === null ? null : { iface: ref.iface, chatId };
+    return ref === null ? null : { iface: ref.iface, chatId: nativeChatOf(ref) };
+  }
+
+  /** The interface's history of a stored place: through the address its row holds, a direct chat opened once if none. */
+  async function fetchStored(placeId: string, request: Parameters<typeof fetchSpan>[2]): Promise<LiveLines> {
+    const live = await chatOfStoredPlace({
+      placeId,
+      ref: placeReads?.placeRef?.(placeId) ?? null,
+      reads: ifaceReads,
+      note: (id, address) => notePlaceAddress(store, id, address),
+    });
+    return live.ok ? fetchSpan(ifaceReads, live.chat, request) : { failed: live.code };
   }
 
   /**
@@ -376,11 +393,11 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
   }: {
     args: Obj;
     placeId: string;
-    ref: ChatRef;
+    ref: StoredChat;
     channel: ChatInfo;
     selfName: string;
     draft: InTurnDraft | null;
-  }): Promise<{ status: string; code?: string; reason?: string; data?: { text: string } }> {
+  }): Promise<ReadAnswer> {
     const context = turnContextOf(draft, channel) as Context | null;
     if (!placeReads?.placeReadable || !context) return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const config = hot.config;
@@ -413,7 +430,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
                 ]
           )
         ),
-      fetchLive: (request) => fetchSpan(ifaceReads, ref, request as Parameters<typeof fetchSpan>[2]),
+      fetchLive: (request) => fetchStored(placeId, request as Parameters<typeof fetchSpan>[2]),
       render: { timezone: config.bot?.timezone ?? 'UTC', selfName, labels, seeReactions: true },
       refs: draft ? searchHandles(draft) : null,
       now: clock(),
@@ -495,13 +512,14 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     partner: InTurnArgs['partner'];
     selfName: string;
     draft: InTurnDraft | null;
-  }): Promise<{ status: string; code?: string; reason?: string; data?: { text: string } }> {
+  }): Promise<ReadAnswer> {
     if (typeof args.person === 'string' && args.person.trim() !== '')
       return readPerson({ args, channel, placeId, selfName, draft });
     const named = typeof args.placeId === 'string' ? storedChatOf(args.placeId) : null;
-    if (named && (!snapshot || named.iface !== chatOf(channel).iface || !snapshot.get(named.chatId)))
+    const inSnapshot = named?.chatId != null && snapshot !== null && Boolean(snapshot.get(named.chatId));
+    if (named && (named.iface !== chatOf(channel).iface || !inSnapshot))
       return readPlace({ args, placeId: String(args.placeId), ref: named, channel, selfName, draft });
-    const asked = named ? { ...args, placeId: named.chatId } : args;
+    const asked = named?.chatId != null ? { ...args, placeId: named.chatId } : args;
     if (!snapshot || (!inRoot(channel) && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const config = hot.config;
     const labels = hot.prompts?.labels ?? {};
@@ -591,7 +609,17 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
 }
 
 /** What a read answers before anything is read. */
-type ReadAnswer = { status: string; code?: string; reason?: string; data?: { text: string }; memory?: string };
+type ReadAnswer = {
+  status: string;
+  code?: string;
+  reason?: string;
+  values?: Record<string, unknown>;
+  data?: { text: string };
+  memory?: string;
+};
+
+/** A stored place's interface and the address its row holds, null for a direct chat that holds none yet. */
+type StoredChat = { iface: string; chatId: string | null };
 
 /**
  * The people the memory graph ranked for words that name nobody, as the text of a tool result: the lead of

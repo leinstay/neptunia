@@ -29,17 +29,6 @@ type ChatNames = Parameters<typeof chatPlaceKey>[0] & {
 
 type Seam = { db(): Db; run<TResult>(fn: () => TResult): TResult };
 
-/** The DM chat the media backfill kept on a DM place (`extra.dmConversation`), or null. */
-function keptDmChat(extra: unknown): string | null {
-  if (typeof extra !== 'string' || extra === '') return null;
-  try {
-    const kept: unknown = (JSON.parse(extra) as Record<string, unknown> | null)?.dmConversation;
-    return typeof kept === 'string' && kept ? kept : null;
-  } catch {
-    return null;
-  }
-}
-
 type AddressedDb = { readHandle?(): unknown; namespace?(): unknown } | null | undefined;
 
 /** The most places the addressing remembers it named from a chat; the oldest goes first. */
@@ -252,24 +241,18 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
     },
 
     /**
-     * The native chat of a place, for a call that speaks to its interface: the native id of a channel, a thread
-     * or a group, and for a DM the chat `dmChatOf` names for its partner's native id, else the one this store
-     * named the place from, else the one kept on the place. With no row: the chat the place was named from, else the
+     * The native chat of a place, for a call that speaks to its interface: the address its row holds, the chat id its
+     * interface gave, for a direct chat as for a channel, else the chat this store named the place from (a message the
+     * writer has not stored yet); null when neither holds one. With no row: the chat the place was named from, else the
      * id as given (a caller that holds a native chat passes it on, and a store without a database holds native ids).
-     * Null for a DM whose chat is unknown.
      */
-    chatOfPlace(placeId: string, dmChatOf?: ((partnerId: string) => string | null) | null): string | null {
+    chatOfPlace(placeId: string): string | null {
       const known = named.get(placeId)?.chat ?? null;
       const row = readable()
-        ? seam.run(() =>
-            seam.db().prepare('SELECT kind, native_id, partner_account, extra FROM places WHERE id = ?').get(placeId)
-          )
+        ? seam.run(() => seam.db().prepare('SELECT native_id FROM places WHERE id = ?').get(placeId))
         : undefined;
       if (!row) return known ?? placeId;
-      if (row.kind !== 'dm') return typeof row.native_id === 'string' && row.native_id ? row.native_id : null;
-      const partner = typeof row.partner_account === 'string' ? nativeOfRow('accounts', row.partner_account) : null;
-      const open = partner === null ? null : (dmChatOf?.(partner) ?? null);
-      return open ?? known ?? keptDmChat(row.extra);
+      return typeof row.native_id === 'string' && row.native_id ? row.native_id : known;
     },
 
     /** A stored place as its interface knows it (frame-reads.ts#placeRefOf), null without a row or a database. */

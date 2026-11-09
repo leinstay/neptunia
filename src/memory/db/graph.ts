@@ -729,7 +729,7 @@ function writeUnit(db: Db, table: string, id: string, at: unknown): { nodes: num
   );
   const unwitness = prepared(db, 'DELETE FROM node_access WHERE evidence_id = ?');
   // An edge that holds the key under another id is replaced with its witnesses: its id hashes a tuple its ends no
-  // longer spell (a text rewrite of a person id, meta-person-migrate.ts), and the upsert would hit the unique key.
+  // longer spell (a text rewrite of a person id), and the upsert would hit the unique key.
   const displace = prepared(db, 'DELETE FROM graph_edges WHERE projection_key = ? AND id <> ? RETURNING id');
   for (const n of produced.nodes) {
     upsertNode.run(n.id, n.kind, String(n.row_id), n.created_at);

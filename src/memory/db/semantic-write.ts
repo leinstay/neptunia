@@ -472,7 +472,7 @@ function insertArguments(db: Db, versionId: string, given: ReadonlyArray<Semanti
 /** One assertion in the seal's order: rows, evidence, arguments and premises, the immutable row, then what derives from it. */
 function writeAssertion(db: Db, payload: Payload, deps: WriteDeps): { claimId: string; versionId: string } {
   const { at, uuid } = deps;
-  ensureAudience(db, { ...payload.scope, audience_id: payload.audienceId }, { at });
+  ensureAudience(db, { ...payload.scope, audience_id: payload.audienceId });
   const claimId = payload.claimId ?? insertClaim(db, payload, deps);
   if (payload.claimId !== null) updateClaim(db, claimId, payload, at);
   const versionId = `cv:${uuid()}`;

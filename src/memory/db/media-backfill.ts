@@ -7,9 +7,10 @@
 // listed until it links the row, so its message gone from the platform is read again on every run.
 //
 // A line's message id is the one of its locator, else `native_id`, because `native_id` can be a key of the family catalog
-// (message-families.ts), which no platform knows. A line of a room is read through its place row's native id. A DM line
-// that stored no chat is read through the one `dmChatOf` answers for its partner, the native id of the place's partner
-// account, and the place keeps that chat in `extra.dmConversation`. A place no row holds names no chat and no partner.
+// (message-families.ts), which no platform knows. A line is read through its place row's native id, the chat id its
+// interface gave. A DM line whose place holds none is read through the one `dmChatOf` answers for its partner, the native
+// id of the place's partner account, and the place keeps that chat as its native id. A place no row holds names no chat
+// and no partner.
 //
 // A place whose read failed gets one more read in the run. A read the platform refuses (any status but `failed`, or a failure it
 // marks not worth another try) gets none. Either way the place's lines wait for the next run.
@@ -145,10 +146,9 @@ const FAILED_DOWNLOAD_SQL = `(m.native_ref IS NOT NULL AND m.kind IN ('voice', '
   AND json_extract(m.extra, '$.cache.' || json_quote(m.native_ref) || '.miss') = 1
   AND json_extract(m.extra, '$.cache.' || json_quote(m.native_ref) || '.reason') = 'download')`;
 
-/** The columns of a line a run reads, with its place's `extra` and native id, from `sources s LEFT JOIN places p`. */
+/** The columns of a line a run reads, with its place's native id, from `sources s LEFT JOIN places p`. */
 const PENDING_COLUMNS = `s.id AS id, s.native_id AS native_id, s.place_id AS place_id, s.iface AS iface, s.extra AS extra,
-  s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.kind AS kind, p.extra AS place_extra,
-  p.native_id AS place_native`;
+  s.scope_kind AS scope_kind, s.scope_iface AS scope_iface, s.kind AS kind, p.native_id AS place_native`;
 
 /**
  * The old lines a run works on: linked items still placeholders, a reference missing and no state said about it, and sounds
@@ -188,21 +188,14 @@ const parsed = (text: unknown): Row => {
   }
 };
 
-/**
- * The chat a line is read through: its locator, the DM channel it or its place stored, its place row's native id. Null
- * when none is stored.
- */
+/** The chat a line is read through: its locator, the DM channel it stored, its place row's native id. Null when none is stored. */
 export function chatOf(line: Pending): string | null {
   const extra = parsed(line.extra);
   const locator = extra.$messageLocator as { chatId?: unknown; conversationId?: unknown } | undefined;
   const located = locator?.chatId ?? locator?.conversationId;
   if (typeof located === 'string' && located) return located;
   if (typeof extra.dmChannel === 'string' && extra.dmChannel) return extra.dmChannel;
-  const kept = parsed(line.place_extra).dmConversation;
-  if (typeof kept === 'string' && kept) return kept;
-  return line.scope_kind === 'dm' || typeof line.place_native !== 'string' || !line.place_native
-    ? null
-    : line.place_native;
+  return typeof line.place_native === 'string' && line.place_native ? line.place_native : null;
 }
 
 /** The platform's id of a line's message: the locator's, else `native_id`, which can be a key of the family catalog. */
@@ -320,10 +313,9 @@ function markPlaceholders(db: Db, sourceId: unknown): void {
   ).run(sourceId);
 }
 
-/** Keeps on a DM place the chat the interface opened for its partner. */
-function keepDmChat(db: Db, placeId: unknown, dmConversation: unknown): void {
-  const extra = parsed(db.prepare('SELECT extra FROM places WHERE id = ?').get(placeId)?.extra);
-  db.prepare('UPDATE places SET extra = ? WHERE id = ?').run(JSON.stringify({ ...extra, dmConversation }), placeId);
+/** Keeps on a DM place that holds no address the chat the interface opened for its partner, as its address. */
+function keepDmChat(db: Db, placeId: unknown, address: unknown): void {
+  db.prepare('UPDATE places SET native_id = ? WHERE id = ? AND native_id IS NULL').run(address, placeId);
 }
 
 /** Links a line's placeholder to a row that names its message, and tells the writer's caller whether any changed. */
@@ -357,8 +349,8 @@ export function applyMediaBackfill(connection: Connection, update: Row): { told:
   const db = dbOf(connection);
   const at = update.at;
   const write = (): { told: number; queued: number } => {
-    if (update.dmConversation !== undefined) {
-      keepDmChat(db, update.placeId, update.dmConversation);
+    if (update.address !== undefined) {
+      keepDmChat(db, update.placeId, update.address);
       return { told: 0, queued: 0 };
     }
     const line = sourceLine(db, asText(update.sourceId));
@@ -504,7 +496,7 @@ export async function backfillMedia({
     let answer = await asking(open);
     if (answer.status !== 'ok' && !isRefusal(answer)) answer = await asking(open);
     if (answer.chatId) {
-      await apply({ placeId, dmConversation: answer.chatId, at: now });
+      await apply({ placeId, address: answer.chatId, at: now });
       for (const line of waiting) toRead(answer.chatId, line);
     } else if (answer.status === 'unsupported') {
       for (const line of waiting) await bare(line);
