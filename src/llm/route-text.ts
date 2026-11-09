@@ -2,10 +2,10 @@
 // run of a subscription CLI with a model. The text form is what commands and script flags take and print,
 // `<key>/<model>[:<effort>]` and `harness:<claude|codex>/<model>[:<effort>]`; the record form is what
 // `models.routes.<role>` of config.json holds. Both read into the same route, and each refusal is a code with a reason
-// that holds no key value. A harness carries only the roles that run as a CLI chat step, and an effort on an API route
-// only the roles of REASONING_ROLES, so the core never gets provider reasoning (the owner's rule, 2026-10-19). Pure.
+// that holds no key value. A harness carries only the roles that run as a CLI chat step; every role takes an effort
+// (the owner's correction of 2026-11-09), and a route that names none takes `llm.routeEffort` of its role. Pure.
 
-import { isEffortLevel, isListedEffort, REASONING_ROLES } from './roles.ts';
+import { isEffortLevel, isListedEffort } from './roles.ts';
 import type { EffortLevel } from './roles.ts';
 
 /** The model roles that run on a chain of routes, in display order. */
@@ -60,10 +60,7 @@ function checked(role: string, route: Route): Route | RouteRefusal {
       return unsupported(`${role} runs on a key only; a harness carries ${HARNESS_ROLES.join(' and ')}`);
     return route;
   }
-  if (!KEY_NAME.test(route.key)) return malformed();
-  if (route.effort !== null && !REASONING_ROLES.includes(role))
-    return unsupported(`${role} takes no effort on the API; the roles that do are ${REASONING_ROLES.join(', ')}`);
-  return route;
+  return KEY_NAME.test(route.key) ? route : malformed();
 }
 
 /** The route of `text` for `role`, or why it is refused. */
