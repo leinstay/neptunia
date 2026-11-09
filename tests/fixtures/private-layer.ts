@@ -1,9 +1,7 @@
-// A deployment's private layer on a temporary folder, for the tests of the tools that move its files: write files into
-// it, read them back, and run scripts/tools-file-move.ts on it. The tool finds the folder through NEPTUNIA_PRIVATE_DIR,
-// as every tool under scripts/ does. Nothing here touches a real local layer.
+// A deployment's private layer on a temporary folder: write files into it and read them back. Nothing here touches a
+// real local layer.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tempDir } from './tmp.ts';
 
@@ -31,14 +29,4 @@ export function layer(): Layer {
     json: (rel) => (fs.existsSync(at(rel)) ? (JSON.parse(fs.readFileSync(at(rel), 'utf8')) as unknown) : null),
     bytes: (rel) => (fs.existsSync(at(rel)) ? fs.readFileSync(at(rel), 'utf8') : null),
   };
-}
-
-/** Runs the move tool on `layer` with `flags`. */
-export function moveTool(target: Layer, flags: Array<string>): { code: number | null; out: string; err: string } {
-  const run = spawnSync(process.execPath, ['scripts/tools-file-move.ts', ...flags], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    env: { ...process.env, NEPTUNIA_PRIVATE_DIR: target.dir },
-  });
-  return { code: run.status, out: run.stdout, err: run.stderr };
 }

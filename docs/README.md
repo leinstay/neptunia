@@ -11,7 +11,6 @@ Start with the task you want to do. These guides describe the engine and its pub
 | [Setup](setup.md) | Configure services and agent backends |
 | [Keys](keys.md) | Select models and manage credentials |
 | [Proxy](proxy.md) | Send outbound traffic through one proxy |
-| [Persona migration](persona-migration.md) | Move an older installation, back up and restore |
 
 ## Understand the persona
 

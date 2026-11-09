@@ -1,7 +1,6 @@
 // The selfimprovement wake's own prompt and context (plan sections 7 and 8). `prompts/selfimprovement.md` is the wake
-// addressed to her; the executor's brief is `prompts/executor-brief.md`, loaded as `prompts['executor-brief']`, and a
-// local `selfdev.md` is that brief. The assembled request carries her character and memory, the view of her tasks,
-// repeated needs and failures. The tests read marker texts and data, never a prompt's wording. `guard:` names a test of
+// addressed to her; the executor's brief is `prompts/executor-brief.md`, loaded as `prompts['executor-brief']`. The
+// assembled request carries her character and memory, the view of her tasks, repeated needs and failures. The tests read marker texts and data, never a prompt's wording. `guard:` names a test of
 // what already works and must keep working.
 //
 // The signatures these tests hold the code to, in `SelfimprovementFacts` (src/behavior/selfimprovement-view.ts):
@@ -23,10 +22,8 @@ import { createJournal } from '../src/memory/journal.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { workLines } from '../src/behavior/selfimprovement-text.ts';
 import { joinLabels } from '../src/config/labels.ts';
-import { createHot } from '../src/hot.ts';
 import { briefFrom } from '../src/development/brief.ts';
 import { selfimprovementWorld } from './fixtures/selfimprovement-rig.ts';
-import { tempDir } from './fixtures/tmp.ts';
 import { ANCHOR_LINE, PROMPT_MARK, WAKE_NOW, requestText, wakeOfKind, wakeTurn } from './fixtures/wake-turn.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -82,25 +79,6 @@ test('the tracked brief moves to executor-brief.md and is the only prompt the ex
   assert.ok(briefFrom(brief, FIX).includes('T-1'));
   const wake = fs.readFileSync(path.join(ROOT, 'prompts', 'selfimprovement.md'), 'utf8');
   assert.equal(wake.includes('{{id}}'), false, 'the wake addressed to her carries none of the brief placeholders');
-});
-
-test('a local selfdev.md is the executor brief and never replaces her wake prompt', () => {
-  // Bug: the older local name still loads as `selfimprovement`, so a deployment's brief reaches her as her wake.
-  const dir = tempDir('nep-wake-request-hot-');
-  fs.mkdirSync(path.join(dir, 'config'));
-  fs.mkdirSync(path.join(dir, 'data', 'prompts'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'config', 'config.json'), JSON.stringify({ bot: { timezone: 'UTC' } }));
-  fs.mkdirSync(path.join(dir, 'prompts'));
-  fs.writeFileSync(path.join(dir, 'prompts', 'selfimprovement.md'), 'tracked wake');
-  fs.writeFileSync(path.join(dir, 'prompts', 'executor-brief.md'), 'tracked brief');
-  fs.writeFileSync(path.join(dir, 'data', 'prompts', 'selfdev.md'), 'local brief');
-  const hot = createHot({ rootDir: dir });
-  try {
-    assert.equal(hot.prompts['executor-brief'], 'local brief');
-    assert.equal(hot.prompts.selfimprovement, 'tracked wake');
-  } finally {
-    hot.close();
-  }
 });
 
 const JOURNAL_AT = WAKE_NOW - HOUR;

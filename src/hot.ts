@@ -10,7 +10,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 import { readConfig, deepMerge, isPlainObject } from './config.ts';
 import { log } from './log.ts';
-import { CONFIG_DIR, CONFIG_FILE, LABELS_FILE, MOVE_TOOL, OLD_LOCAL_CONFIG, localFiles } from './config/files.ts';
+import { CONFIG_DIR, CONFIG_FILE, LABELS_FILE, localFiles } from './config/files.ts';
 import { joinLabels, labelsFileOf } from './config/labels.ts';
 // A parsed JSON value or an argument no module types yet: the alias of src/tools/types.ts, restated so this leaf
 // imports nothing from src/tools/ (src/memory/ reaches it).
@@ -36,9 +36,6 @@ const JSON_LAYERS: ReadonlyArray<{
       computeJsonLayer({ name: 'tools', dir: CONFIG_DIR, localDir: CONFIG_DIR }, rootDir, privateDir),
   },
 ]);
-
-/** Where an earlier version kept the tool texts, which the start refuses to find (scripts/tools-file-move.ts moves it). */
-const OLD_TOOLS_FILE = path.join('prompts.local', 'skills.json');
 
 /** The value at the dotted `key` of `config`, undefined once a step is missing. */
 const valueAtKey = (config: Untyped, key: string): unknown =>
@@ -122,30 +119,6 @@ function stripText(raw: Untyped) {
   return raw.replace(/^﻿/, '').replace(/\r\n/g, '\n').trim();
 }
 
-/**
- * The local prompt files read under a newer name: `data/prompts/selfdev.md` (the brief of src/selfimprovement/ under
- * its older name) loads as `executor-brief` while `data/prompts/executor-brief.md` is absent, and the same holds for
- * each file below.
- */
-const LOCAL_PROMPT_MOVES: Readonly<Record<string, string>> = Object.freeze({
-  selfdev: 'executor-brief',
-  lookup: 'query-builder',
-});
-
-/** The local file name `file` is read under: its newer name for a file of LOCAL_PROMPT_MOVES, else itself. */
-const localNameOf = (file: string): string => {
-  const moved = LOCAL_PROMPT_MOVES[path.basename(file, '.md')];
-  return moved === undefined ? file : `${moved}.md`;
-};
-
-/** Text of `prompts.local/<file>`, else of the older local name that moves to it, else null. */
-function readLocalMdFile(localDir: string, file: string): string | null {
-  const own = readMdFile(localDir, file) as string | null;
-  if (own !== null) return own;
-  const older = Object.keys(LOCAL_PROMPT_MOVES).find((name) => `${LOCAL_PROMPT_MOVES[name]}.md` === file);
-  return older === undefined ? null : (readMdFile(localDir, `${older}.md`) as string | null);
-}
-
 /** Basenames (with extension) of every `*.md` file directly under `dir`, or `[]` when `dir` is absent. */
 function listMdFiles(dir: Untyped) {
   if (!fs.existsSync(dir)) return [];
@@ -175,7 +148,7 @@ function computePromptFiles(
   prevPrompts: Record<string, unknown>,
   prevSources: Record<string, string>
 ) {
-  const files = new Set([...listMdFiles(promptsDir), ...listMdFiles(localPromptsDir).map(localNameOf)]);
+  const files = new Set([...listMdFiles(promptsDir), ...listMdFiles(localPromptsDir)]);
   const prompts: Record<string, unknown> = {};
   const sources: Record<string, string> = {};
   const keptPrevious: Array<string> = [];
@@ -183,7 +156,7 @@ function computePromptFiles(
   for (const file of files) {
     const name = path.basename(file, '.md');
     const baseText = readMdFile(promptsDir, file);
-    const localText = readLocalMdFile(localPromptsDir, file);
+    const localText = readMdFile(localPromptsDir, file);
     const useLocal = Boolean(localText);
     const effective = useLocal ? localText : (baseText ?? '');
 
@@ -230,18 +203,16 @@ function computeJsonLayer(
 
 /** `{ model, owner }` of a parsed labels file, a missing section as `{}`. */
 /**
- * `{ value, source }` of the labels: `config/labels.json` joined (src/config/labels.ts), with the private labels
- * deep-merged over it, `data/config/labels.json` joined or a flat `data/prompts/labels.json` of the old layout.
- * Throws on invalid JSON, on a key in both sections and on a private labels file at both its places.
+ * `{ value, source }` of the labels: `config/labels.json` joined (src/config/labels.ts), with the private
+ * `data/config/labels.json` joined and deep-merged over it. Throws on invalid JSON and on a key in both sections.
  */
 function computeLabels(rootDir: string, privateDir: string) {
   const tracked = readJsonFile(path.join(rootDir, CONFIG_DIR), path.basename(LABELS_FILE, '.json'));
   const base = tracked === undefined ? {} : joinLabels(labelsFileOf(tracked));
   const found = localFiles(privateDir).labels;
-  const local = found === null ? undefined : readJsonFile(path.dirname(found.file), path.basename(found.file, '.json'));
+  const local = found === null ? undefined : readJsonFile(path.dirname(found), path.basename(found, '.json'));
   if (local === undefined) return { value: base, source: 'base' };
-  const flat = found?.shape === 'split' ? joinLabels(labelsFileOf(local)) : local;
-  return { value: deepMerge(base, flat), source: 'merged' };
+  return { value: deepMerge(base, joinLabels(labelsFileOf(local))), source: 'merged' };
 }
 
 /** The labels of the two layers as `hot.prompts.labels` holds them, read once, for a command that runs without a core. */
@@ -357,7 +328,7 @@ function restartableWatch({
 
 /**
  * Create a live view over the config and the two prompt layers: config.json and prompts/ under
- * `rootDir`, config.local.json and data/prompts/ under `privateDir` (default `rootDir`).
+ * `rootDir`, data/config/ and data/prompts/ under `privateDir` (default `rootDir`).
  * Emits 'change' with `{ what: 'config' | 'prompts' }` after every successful reload;
  * `hot.onReload(listener)` subscribes to the same with the layer name alone.
  * `hot.hashes` is `{ promptsHash, configHash }`: the first 16 hex characters of the sha256 of
@@ -389,16 +360,7 @@ export function createHot({
   // Whether the private layer sits in a directory of its own, which then needs its own watcher.
   const privateApart = path.resolve(privateDir) !== path.resolve(rootDir);
 
-  // The tool texts still in their old place refuse the start before anything is read: left there they would stop
-  // counting without a word.
-  if (fs.existsSync(path.join(privateDir, OLD_TOOLS_FILE)))
-    throw new Error(`${OLD_TOOLS_FILE} is where the tool texts were: run node scripts/tools-file-move.ts --apply`);
   hot.config = readConfig(rootDir, { privateDir });
-  // A layer laid out the old way loads, and says once per start that scripts/config-files-move.ts moves it.
-  if (localFiles(privateDir).old)
-    log.warn('hot: the private layer keeps config.local.json or a flat prompts.local/labels.json', {
-      move: MOVE_TOOL,
-    });
   // The retired keys reported for the config now live: one warning when a key appears (at
   // startup or on a reload), none while it stays, another once it was removed and set again.
   const reportedRetired = new Set();
@@ -571,12 +533,10 @@ export function createHot({
   const toolsWatch = restartableWatch({ watchImpl, dir: toolsDir, watchers, onEvent: onConfigDirEntry });
   const localToolsWatch = restartableWatch({ watchImpl, dir: localToolsDir, watchers, onEvent: onConfigDirEntry });
 
-  /** An entry of the private directory changed: config.local.json (the old layout) reloads the config;
-   * data/prompts/ and data/config/ appearing or going away start or drop their watchers. */
+  /** An entry of the private directory changed: data/prompts/ and data/config/ appearing or going away start or drop
+   * their watchers. */
   function onPrivateEntry(name: string) {
-    if (name === OLD_LOCAL_CONFIG) {
-      schedule('config', hot.reloadConfig);
-    } else if (name === CONFIG_DIR) {
+    if (name === CONFIG_DIR) {
       if (!fs.existsSync(localToolsDir)) {
         localToolsWatch.stop();
         schedule('config', hot.reloadConfig);
