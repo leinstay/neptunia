@@ -64,7 +64,8 @@ test('posts the speech of the final answer when it carries a call, and the call 
     withHot: native,
     wrapCommand: counter.wrap,
   });
-  assert.equal(run.llm.calls.length, 3);
+  const { calls } = run.llm;
+  assert.equal(calls.length, 3);
   assert.deepEqual(texts(run), ['τελικά'], 'the final answer is her reply');
   assert.equal(counter.runs.length, 2, `only the two steps' reads ran: ${counter.runs.join(', ')}`);
 });
@@ -80,11 +81,12 @@ test('sends the final request with tool choice none when the steps run out', asy
     config: { llm: { maxRequestTokens: 50000 } },
     withHot: native,
   });
-  assert.equal(run.llm.options.length, 3);
-  assert.equal(run.llm.options[2].toolChoice, 'none', 'the final request cannot call');
-  assert.ok(Array.isArray(run.llm.options[2].tools), 'the tools stay in the request for the cached prefix');
-  assert.notEqual(run.llm.options[0].toolChoice, 'none');
-  assert.notEqual(run.llm.options[1].toolChoice, 'none');
+  const { options } = run.llm;
+  assert.equal(options.length, 3);
+  assert.equal(options[2].toolChoice, 'none', 'the final request cannot call');
+  assert.ok(Array.isArray(options[2].tools), 'the tools stay in the request for the cached prefix');
+  assert.notEqual(options[0].toolChoice, 'none');
+  assert.notEqual(options[1].toolChoice, 'none');
 });
 
 test('keeps tool choice auto on the final request of an inner turn', async () => {
@@ -107,8 +109,9 @@ test('keeps tool choice auto on the final request of an inner turn', async () =>
     prompts: { inner: 'Do what the wake says.' },
     withHot: native,
   });
-  assert.equal(run.llm.options.length, 2, 'the read was followed by the final request');
-  assert.equal(run.llm.options[1].toolChoice, 'auto', 'its one terminal call still runs');
+  const { options } = run.llm;
+  assert.equal(options.length, 2, 'the read was followed by the final request');
+  assert.equal(options[1].toolChoice, 'auto', 'its one terminal call still runs');
 });
 
 test('sends the final request with tool choice none when the room runs out', async () => {
@@ -122,9 +125,10 @@ test('sends the final request with tool choice none when the room runs out', asy
     },
     wrapCommand: bigWhen(() => true, BIG),
   });
-  assert.equal(run.llm.options.length, 2);
-  assert.equal(run.llm.options[1].toolChoice, 'none', 'the request the room made the last cannot call');
-  assert.notEqual(run.llm.options[0].toolChoice, 'none');
+  const { options } = run.llm;
+  assert.equal(options.length, 2);
+  assert.equal(options[1].toolChoice, 'none', 'the request the room made the last cannot call');
+  assert.notEqual(options[0].toolChoice, 'none');
 });
 
 test('makes one rescue request when the follow-up request throws in a turn that answers someone', async () => {
@@ -134,13 +138,14 @@ test('makes one rescue request when the follow-up request throws in a turn that 
     config: { llm: { maxRequestTokens: 50000 } },
     withHot: native,
   });
-  assert.equal(run.llm.calls.length, 3, 'one rescue request after the failed one');
+  const { calls, options } = run.llm;
+  assert.equal(calls.length, 3, 'one rescue request after the failed one');
   assert.deepEqual(texts(run), ['εδώ είμαι']);
-  const [first, , rescue] = run.llm.calls;
+  const [first, , rescue] = calls;
   assert.equal(rescue.length, first.length + 1, "the first request's messages and one note");
   first.forEach((message, at) => assert.deepEqual(rescue[at], message, `message ${at} is the first request's`));
   assert.equal(rescue.at(-1)?.role, 'user');
-  assert.equal(run.llm.options[2].toolChoice, 'none');
+  assert.equal(options[2].toolChoice, 'none');
 });
 
 test('makes no rescue request in an overheard turn when the follow-up request throws', async () => {
@@ -151,7 +156,8 @@ test('makes no rescue request in an overheard turn when the follow-up request th
     config: { llm: { maxRequestTokens: 50000 } },
     withHot: native,
   });
-  assert.equal(run.llm.calls.length, 2, 'nobody waits for an overheard line');
+  const { calls } = run.llm;
+  assert.equal(calls.length, 2, 'nobody waits for an overheard line');
   assert.deepEqual(texts(run), []);
 });
 
@@ -162,7 +168,8 @@ test('ends without a post when the rescue request throws too', async () => {
     config: { llm: { maxRequestTokens: 50000 } },
     withHot: native,
   });
-  assert.equal(run.llm.calls.length, 3, 'one rescue request, no second one');
+  const { calls } = run.llm;
+  assert.equal(calls.length, 3, 'one rescue request, no second one');
   assert.deepEqual(texts(run), []);
 });
 
@@ -173,7 +180,8 @@ test('honours a skip in the rescue answer', async () => {
     config: { llm: { maxRequestTokens: 50000 } },
     withHot: native,
   });
-  assert.equal(run.llm.calls.length, 3, 'the rescue request was made');
+  const { calls } = run.llm;
+  assert.equal(calls.length, 3, 'the rescue request was made');
   assert.deepEqual(texts(run), []);
   assert.equal(asRecord(run.result).outcome, 'skip');
 });
@@ -201,7 +209,8 @@ test('posts only the final message when the room runs out after a held step and 
     // The third read gives the large result, so the request after it is the last one for the room.
     wrapCommand: (runOp: RunOp) => bigWhen(() => counter.runs.length === 3, BIG)(counter.wrap(runOp)),
   });
-  assert.equal(run.llm.calls.length, 4, 'three steps and the final request');
+  const { calls } = run.llm;
+  assert.equal(calls.length, 4, 'three steps and the final request');
   assert.deepEqual(texts(run), ['βρήκα την απάντηση'], 'the final message only; the held one of step 0 never goes out');
   assert.equal(counter.runs.length, 3, `the final answer's calls did not run: ${counter.runs.join(', ')}`);
 });
