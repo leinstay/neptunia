@@ -50,7 +50,7 @@ import type { CompleteResult } from './llm/openrouter.ts';
 import { reportingFailures } from './llm/chain-client.ts';
 import { createCoreRoutes } from './llm/core-routes.ts';
 import { createKeyFailover } from './llm/key-failover.ts';
-import { MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, SEARCH_ROLE, roleModel, searchModel } from './llm/roles.ts';
+import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, SEARCH_ROLE, roleModel, searchModel } from './llm/roles.ts';
 import { statusCardKeys } from './keys/card-keys.ts';
 import { createKeysCommands, reasonedPause } from './keys/commands.ts';
 import { createKeyRing } from './keys/ring.ts';
@@ -1420,7 +1420,7 @@ async function buildCore(
     routeProbe(
       {
         privateDir: paths.privateDir,
-        role: 'memory',
+        role: MEMORY_ROLE,
         path: () => pathOf('memory'),
         route: () => chainRing.route('memory'),
         fetch: (input, init) => globalThis.fetch(input, init),
