@@ -1634,10 +1634,10 @@
     },
     "src/llm/openrouter.ts": {
       "createLlm": {
-        "function-length": 615
+        "function-length": 610
       },
       "createLlm>complete": {
-        "complexity": 44
+        "complexity": 41
       }
     },
     "src/memory/append-store.ts": {

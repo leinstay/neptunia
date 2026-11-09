@@ -91,6 +91,11 @@ export type CompleteOptions = {
    * included (`responseFormatField`). Without it no `response_format` is sent.
    */
   responseFormat?: { name: string; schema: object };
+  /**
+   * The key of the route the chain client chose (src/llm/chain-client.ts): the request goes out on it alone, and a spent
+   * key is thrown at once with no retry, for the chain to move on. Never sent; the usage line names it.
+   */
+  routeKey?: { name: string; value: string };
 };
 
 // ---- transport shared with the images client (src/llm/images.ts) ----------
@@ -880,9 +885,9 @@ export type SubscriptionCode = (typeof SUBSCRIPTION_CODES)[number];
  */
 export function errorCodeOf(
   err: unknown
-): 'provider-limit' | 'provider-error' | 'timeout' | 'keys-exhausted' | SubscriptionCode | 'error' {
+): 'provider-limit' | 'provider-error' | 'timeout' | 'routes-exhausted' | SubscriptionCode | 'error' {
   const { statusCode: status, name, message } = errorFields(err);
-  if (isKeysExhausted(err)) return 'keys-exhausted';
+  if (isKeysExhausted(err) || (isRec(err) && err.code === 'routes-exhausted')) return 'routes-exhausted';
   const own = SUBSCRIPTION_CODES.find((code) => isRec(err) && err.code === code);
   if (own !== undefined) return own;
   if (typeof status === 'number' && Number.isInteger(status))
@@ -934,6 +939,26 @@ function createSingleKeyRoute(mainKey: string): KeyRoute {
   return {
     key: () => mainKey,
     named: (fields) => fields,
+    failOver: (first, firstError) => Promise.resolve({ response: first, error: firstError }),
+  };
+}
+
+/** The tokens a request's video adds to its estimate: `videoSeconds` at `videoTokensPerSecond`, see `complete`. */
+function videoTokensOf(options: CompleteOptions): number {
+  const seconds = options.videoSeconds;
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) return 0;
+  const override = options.videoTokensPerSecond;
+  const perSecond =
+    typeof override === 'number' && Number.isFinite(override) && override > 0 ? override : VIDEO_TOKENS_PER_SECOND;
+  return Math.ceil(seconds * perSecond);
+}
+
+/** The route of a request on the key the chain client chose: named in the usage line, with no key to move to. */
+function createChosenKeyRoute(chosen: { name: string; value: string }): KeyRoute {
+  if (!chosen.value) throw roleKeyMissing();
+  return {
+    key: () => chosen.value,
+    named: (fields) => ({ ...fields, key: chosen.name }),
     failOver: (first, firstError) => Promise.resolve({ response: first, error: firstError }),
   };
 }
@@ -1003,8 +1028,9 @@ function ringOf(keys: KeyRing | (() => KeyRing | null) | undefined): KeyRing | n
 function createKeyLookup({ keys, mainKey }: { keys: KeyRing | (() => KeyRing | null) | undefined; mainKey: string }) {
   const ring = (): KeyRing | null => ringOf(keys);
   return {
-    /** The route of one request of `role`. */
-    route(role: unknown): KeyRoute {
+    /** The route of one request of `role`, on `routeKey` alone when the chain client chose one. */
+    route(role: unknown, routeKey?: { name: string; value: string }): KeyRoute {
+      if (routeKey !== undefined) return createChosenKeyRoute(routeKey);
       const keyRing = ring();
       return keyRing ? createRingRoute({ keys: keyRing, role }) : createSingleKeyRoute(mainKey);
     },
@@ -1604,17 +1630,7 @@ export function createLlm({
     const tools = Array.isArray(options.tools) && options.tools.length ? options.tools : null;
     // The tools are counted apart (src/llm/tokens.ts#estimateTools): added to the calibrated estimate, never fed to the calibrator.
     const toolsTokens = tools ? estimateTools(tools) : 0;
-    let raw = estimateMessages(messages);
-    if (
-      typeof options.videoSeconds === 'number' &&
-      Number.isFinite(options.videoSeconds) &&
-      options.videoSeconds >= 0
-    ) {
-      const override = options.videoTokensPerSecond;
-      const tokensPerSecond =
-        typeof override === 'number' && Number.isFinite(override) && override > 0 ? override : VIDEO_TOKENS_PER_SECOND;
-      raw += Math.ceil(options.videoSeconds * tokensPerSecond);
-    }
+    const raw = estimateMessages(messages) + videoTokensOf(options);
     const estimated = calibrator.apply(raw) + toolsTokens;
     const requestTokenCap = finiteOr(options.maxRequestTokens, cfg.maxRequestTokens);
     if (estimated > requestTokenCap) {
@@ -1661,7 +1677,7 @@ export function createLlm({
     if (Array.isArray(options.plugins) && options.plugins.length) body.plugins = options.plugins;
     // `options.purpose`, `options.origin` and `options.iface` are for the usage line only: never put on `body`.
 
-    const route = lookup.route(options.role);
+    const route = lookup.route(options.role, options.routeKey);
     // One POST of this body, under the attempt's own signal.
     const send: Send = (signal) =>
       fetchImpl(apiUrl(cfg.baseUrl, 'chat/completions'), {
@@ -1770,6 +1786,11 @@ export function createLlm({
         if (!response.ok) {
           let error = await httpErrorOf(response);
           ({ response, error } = await route.failOver(response, error, send, signal));
+          // A spent key on the chain's route: the chain moves to its next route, so no retry holds the caller.
+          if (!response.ok && options.routeKey !== undefined && isBudgetError(response.status, error.body)) {
+            notRetried = error;
+            throw error;
+          }
           if (!response.ok) {
             if (!RETRY_STATUS.has(response.status)) throw error;
             // A provider's quota of the day: it comes back in minutes, not within the seconds of
