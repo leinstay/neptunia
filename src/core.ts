@@ -271,7 +271,7 @@ async function buildCore(
   const keyStore = createKeyStore({ privateDir: paths.privateDir });
   const keyRing = createKeyRing({ store: keyStore, failover: createKeyFailover({ now: clock }) });
   const ringNow = () => keyRing;
-  /** The key of `role` in the key store, null while there is none (`.env` serves then), '' when the store has no key for it. */
+  /** The key of `role` in the key store, '' when the store has no key for it. */
   const keyOf: KeyOf = (role) => keyRing.route(role)?.value ?? '';
   const openrouterKey = '';
   // Optional: without it a YouTube duration comes from the watch page only.
@@ -1330,8 +1330,8 @@ async function buildCore(
     // /nep status: the costs field's per-role lines.
     usage,
     // /nep status: each key's activity for its last 7 and 30 days (GETs only), with the management key read from
-    // keys.json, else .env, at the moment of the card. Never logged.
-    cardKeys: () => statusCardKeys(paths.privateDir, {}),
+    // keys.json at the moment of the card. Never logged.
+    cardKeys: () => statusCardKeys(paths.privateDir),
     // /nep memory snapshot: the data directory it copies.
     dataDir,
   });

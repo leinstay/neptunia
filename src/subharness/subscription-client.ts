@@ -22,7 +22,7 @@ import { SUBSCRIPTION_CODES, TokenLimitError, countLlmRequest, toolCallsOf } fro
 import type { CompleteResult } from '../llm/openrouter.ts';
 import { estimateMessages, estimateTools } from '../llm/tokens.ts';
 import { coreSocketPath } from '../interface/socket.ts';
-import { createKeyStore, keysFileExists } from '../keys/store.ts';
+import { createKeyStore } from '../keys/store.ts';
 import { log } from '../log.ts';
 import type { Transport } from '../protocol/wire.ts';
 import { bareToolName } from '../tools/gateway.ts';
@@ -740,10 +740,9 @@ export function createSubscriptionClient(deps: SubscriptionClientDeps): {
     [...sessions].find((session) => session.entries.some((entry) => results.some((one) => one.id === entry.id))) ??
     null;
 
-  /** Whether the direct client has a key to go out on: one is bound to the route or a core key is kept, or keys.json is absent. */
+  /** Whether the direct client has a key to go out on: one is bound to the route or a core key is kept. */
   function apiKeyExists(): boolean {
     try {
-      if (!keysFileExists(deps.privateDir)) return true;
       const store = createKeyStore({ privateDir: deps.privateDir });
       return store.boundTo('core') !== null || store.coreNames().length > 0;
     } catch {

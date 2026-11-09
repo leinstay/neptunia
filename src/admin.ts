@@ -87,7 +87,7 @@ export {
  *   Absent -> that operation reports it is not available.
  * `usage` — from src/tools/operations/usage.ts#createUsage, optional: `byRole`, today's requests per role on
  *   the owner card's costs field. Absent -> no role lines.
- * `managementKey` — the optional management key (OPENROUTER_MANAGEMENT_KEY), a string: used only for
+ * `managementKey` — the optional management key (the store's `management` key), a string: used only for
  *   the read-only activity GETs behind each key's last 7 and 30 days on the owner card. Absent -> the
  *   bot's own accumulator.
  * `port` — the persona's interface (src/interface/port.ts), optional: what the `message.*`

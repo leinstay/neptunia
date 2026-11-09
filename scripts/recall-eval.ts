@@ -49,7 +49,7 @@
 //
 // Stages: the database's words, letters and people, and -- with features.meaningSearch exactly true
 // and not `--dry` -- its meaning search. `--discord`: the guild's channels and permissions over
-// REST with DISCORD_TOKEN (no gateway session, GET only), so the audience rail reads them. Without
+// REST with the interface's stored token (no gateway session, GET only), so the audience rail reads them. Without
 // it the guild is scripts/lib/recall-eval.ts#localGuild: every channel readable and viewable by
 // everyone (the audience rail lets every channel through). `--dry`: no model or embedding
 // request: no classifier (the fallback plan stands in for its answer), no meaning search.

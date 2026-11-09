@@ -6,7 +6,7 @@
 # server's filesystem beyond its own out dir and the backend's folder in the
 # private layer, and never localhost or private networks. The backend runs from
 # <private>/subharness/<backend>/, which holds its binary and its login, so no
-# model key reaches it from the bot's .env.
+# model key reaches it beside its task.
 #
 # Codex sandboxes the commands it runs with its own bubblewrap. That works
 # under this unit's NoNewPrivileges, ProtectSystem and PrivateTmp (checked

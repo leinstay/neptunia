@@ -42,14 +42,14 @@ test('keyCost: survives a save and a load, and a file written before the key row
   assert.equal(createUsage({ dataDir: old, now: () => NOW }).keyCost('OPENROUTER_CORE_KEY', '2026-11-01'), 0);
 });
 
-test('usageTap: the key name of an llm: usage line reaches the key rows, a line without one counts for the main key', () => {
+test('usageTap: the key name of an llm: usage line reaches the key rows, a line without one adds no key row', () => {
   const usage = createUsage({ dataDir: dir(), now: () => NOW });
   const tap = usageTap(usage);
   tap({ msg: 'llm: usage', role: 'core', key: 'OPENROUTER_CORE_BACKUP_KEY', cost: 1.5 });
   tap({ msg: 'llm: usage', role: 'core', cost: 9 });
   assert.equal(usage.keyCost('OPENROUTER_CORE_BACKUP_KEY', '2026-11-01'), 1.5);
-  // A line without a key is a request on the main key.
-  assert.equal(usage.keyCost('OPENROUTER_CORE_KEY', '2026-11-01'), 9);
+  // A line without a key name is counted under no key: the requests of a client built on one key stay out of the rows.
+  assert.equal(usage.keyCost('OPENROUTER_CORE_KEY', '2026-11-01'), 0);
 });
 
 function coreLlm() {

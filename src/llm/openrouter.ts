@@ -36,9 +36,6 @@ import { isBudgetError } from './key-failover.ts';
 import type { KeyState } from './key-failover.ts';
 import type { KeyRing } from '../keys/ring.ts';
 
-/** The name a usage line without a key name of its own is counted under: a client built on one key with no key ring. */
-export const MAIN_KEY_NAME = 'OPENROUTER_CORE_KEY';
-
 /**
  * The SHA-256 hex digest of an API key: how OpenRouter's activity endpoint names a key (`api_key_hash`), so the status
  * card can ask for one key's spend without holding it.
@@ -1023,7 +1020,6 @@ function createKeyLookup({ keys, mainKey }: { keys: KeyRing | (() => KeyRing | n
     /** `keyNames`: the names a request of `role` may go out on. `keyStates`: the roles that switched keys. */
     readers: {
       keyGrants: (): Record<string, { grant: number; resetDay: number }> | null => ring()?.grants() ?? null,
-      keyVariables: (): Record<string, string> => ring()?.variables() ?? {},
       keyNames: (role: string): Array<string> => ring()?.names(role) ?? [],
       keyStates(): Array<KeyState> {
         const keyRing = ring();
@@ -1196,8 +1192,6 @@ export type Llm = {
   keyNames: (role: string) => Array<string>;
   /** The grants of the core keys by name when the keys come from a key store, null without one. */
   keyGrants: () => Record<string, { grant: number; resetDay: number }> | null;
-  /** The `.env` variable each imported key came from: spend recorded under it counts for the key. */
-  keyVariables: () => Record<string, string>;
 };
 
 /** The `llm` section of the live config, as the client reads it. */

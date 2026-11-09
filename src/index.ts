@@ -15,8 +15,7 @@ function die(message: string): never {
 }
 
 // The directories, resolved once (src/paths.ts): the checkout and the data directory
-// (NEPTUNIA_DATA_DIR). The variable comes from the process environment (the unit file), never
-// from .env, whose own place depends on it.
+// (NEPTUNIA_DATA_DIR). The variable comes from the process environment (the unit file).
 const paths = resolvePaths({ rootDir: ROOT_DIR });
 
 const starting = startCore({ paths, env, interfaces: [] });
