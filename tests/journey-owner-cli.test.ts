@@ -119,7 +119,7 @@ before(async () => {
   const provider = fakeFetch();
   const desk = createConsole({
     runOp: () => Promise.resolve({ status: 'failed', code: 'NOT_FOR_THIS_JOURNEY', summary: '', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => ['g1'],
     selfId: () => null,
     hot: { config, prompts: {} },

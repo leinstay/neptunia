@@ -36,7 +36,7 @@ An entry also keeps `turnId` in its `extra`, the id of the selfreflection turn t
 
 The selfreflection is one persona collection (`store.getSelfreflection`, `store.setSelfreflectionPosts`), and an entry needs no server: `createSelfreflection` takes none, and a turn of an entry names none. A mirror is one known place that receives her selfreflection entries, and there may be none or many. The owner manages them with `/mirror` ([commands](cli.md#mirrors)), and `src/behavior/mirror-desk.ts` writes every change through the memory writer (kind `mirror`, `src/memory/db/mirror-config.ts`). Every destination is an interface-qualified place id, or a bare native id that one place alone holds. Two interfaces sharing the native id make it `ambiguous-place`, and a root or a private chat is `unknown-place`. An interface that is not connected delays delivery and changes no configuration.
 
-Configuration and delivery history live apart. `/mirror remove` marks the `mirrors` row and keeps its `publications` rows, so adding the same destination again reuses the row and sends nothing already delivered. `/mirror disable` keeps everything and holds what is queued until the mirror is enabled again. A repeated add answers the same mirror.
+Configuration and delivery history live apart. `/mirror remove` marks the `mirrors` row and keeps its `publications` rows, so adding the same destination again reuses the row and sends nothing already delivered. `/mirror configure <mirror> --enabled false` keeps everything and holds what is queued until the mirror is enabled again. A repeated add answers the same mirror.
 
 ## Delivery
 

@@ -26,7 +26,7 @@ function rig(memory: Record<string, unknown>) {
   const reader = openMemoryDb(file, { readOnly: true });
   const deps: ConsoleDeps = {
     runOp: () => Promise.resolve({ status: 'failed', code: 'NOT_AN_OP', summary: '', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => [],
     selfId: () => null,
     hot: {

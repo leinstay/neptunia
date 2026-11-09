@@ -62,8 +62,6 @@ export type Command = {
   defaultSubcommand?: string;
   /** The bare line is refused. */
   needsSubcommand?: boolean;
-  /** The subcommand a line runs whose next word names none of `subcommands` (`/interfaces <name> <sub>`). */
-  otherwise?: Subcommand;
   /** Why the parsed arguments are refused, or null when they stand. */
   check?: (name: string, args: Readonly<Record<string, string>>) => string | null;
   /** The operation a command without subcommands runs as the owner. */
@@ -624,6 +622,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
     check: checkTarget,
     subcommands: [
       sub('list', 'Every tool and whether she has it'),
+      runs(sub('grants', 'Every stored grant: who may use which tool'), 'access.list'),
       runs(sub('describe', 'Show one tool or one family in full', [arg('tool')]), 'tools.describe', (args) => ({
         name: args.tool,
       })),
@@ -644,7 +643,6 @@ export const COMMANDS: ReadonlyArray<Command> = [
     defaultSubcommand: 'list',
     subcommands: [
       sub('list', 'Every skill with its state, who activated it and the version a rollback restores'),
-      sub('show', 'Show active text and tools of one skill', [arg('name')]),
       sub('review', 'Show active version beside the pending ones, with their texts and use counts', [arg('name')]),
       sub('pending', 'Show versions waiting for an activation'),
       sub('activate', 'Make the newest pending version of a skill the active one', [arg('name')]),
@@ -678,7 +676,6 @@ export const COMMANDS: ReadonlyArray<Command> = [
       ]),
       ...moduleSubcommands('interface'),
     ],
-    otherwise: sub('command', "An interface's own subcommand", [arg('name'), arg('sub'), arg('rest', false)]),
   },
   {
     name: 'mirror',
@@ -699,7 +696,6 @@ export const COMMANDS: ReadonlyArray<Command> = [
         flagArg('backfill', false),
         flagArg('every', false),
       ]),
-      sub('disable', 'Stop publishing to a mirror and keep its configuration', [arg('mirror')]),
       sub('remove', 'Take a mirror off the list and keep what it was sent', [arg('mirror')]),
       sub(
         'reconcile',
@@ -994,9 +990,6 @@ function parseWithoutPlace(words: ReadonlyArray<string>): Parsed {
       args = fallback?.args ?? [];
     } else if (rest.length === 0 && command.needsSubcommand === true) {
       return refuse(`/${command.name} needs a subcommand: ${names}`);
-    } else if (rest.length > 0 && command.otherwise !== undefined) {
-      name = `${command.name}.${command.otherwise.name}`;
-      args = command.otherwise.args;
     } else if (refusesLooseWords(command, rest)) {
       return refuse(`/${command.name} has no subcommand "${rest[0] ?? ''}": ${names}`);
     }

@@ -144,8 +144,6 @@ const HANDLERS: Readonly<Record<string, (call: Call) => Answer | Promise<Answer>
   'mirror.status': status,
   'mirror.add': add,
   'mirror.configure': configure,
-  'mirror.disable': async ({ desk, by, mirror, changed }) =>
-    changed(await desk.disableMirror({ mirror, by }), `${mirror}: disabled, its configuration kept`),
   'mirror.remove': async ({ desk, by, mirror, changed }) =>
     changed(await desk.removeMirror({ mirror, by }), `${mirror}: removed, its delivery history kept`),
   'mirror.reconcile': reconcile,

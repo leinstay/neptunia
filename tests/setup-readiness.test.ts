@@ -240,7 +240,7 @@ test('status.readiness answers from what the core holds and sends no request', a
   const { fetch, calls } = fakeFetch();
   const desk = createConsole({
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: '', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] }, models: { base: { core: 'vendor/core-1' } } } },

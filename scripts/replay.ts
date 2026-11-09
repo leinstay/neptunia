@@ -350,8 +350,8 @@
 // `report.md`. stdout: the paths, the slot outcomes and the usage. Exit code 1
 // when a slot ended in `error` or the run was stopped.
 //
-// `--snapshot <dir>`: the memory is read from a snapshot of data/ (written by
-// `/nep memory snapshot`, or an unpacked stop-backup) instead of the live
+// `--snapshot <dir>`: the memory is read from a snapshot folder (written by
+// `memory.snapshot`, or an unpacked stop-backup) instead of the live
 // data/, read only as ever. The memory is the memory database of that
 // directory (its `memory.db`, opened read only by scripts/lib/memory-read.ts);
 // the operational files beside it (state.json, inner.json) are read as files.

@@ -136,6 +136,7 @@ function directionOf(args: Args, absent: GraphDirection): GraphDirection {
 }
 
 function usersRead(db: Db, name: string, args: Args, bounds: InspectionBounds): Answer | null {
+  if (!name.startsWith('memory.users.')) return null;
   const context = internalContext();
   const person = word(args, 'person');
   const leaf = name.slice('memory.users.'.length);

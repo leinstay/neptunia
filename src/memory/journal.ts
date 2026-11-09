@@ -18,7 +18,7 @@
 // A `.running` marker under data/run/journal/<interface>/, written at start and
 // removed on a clean stop (`markRunning` / `clearRunning`), lets the next start record an `unclean-stop`.
 //
-// `withWriterLock(fn)` (`/nep memory snapshot`) holds every new line back while `fn` runs, after
+// `withWriterLock(fn)` holds every new line back while `fn` runs, after
 // the append stores flushed what they had: the journal's own lines here, and the
 // record's and the archive's appends, which wait on `waitUnlocked` (src/memory/record.ts,
 // src/memory/archive.ts `writerGate`; the append stores are flushed through `lockStores`). A copy of

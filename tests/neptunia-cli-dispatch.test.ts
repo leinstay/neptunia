@@ -82,13 +82,12 @@ for (const command of COMMANDS) {
   });
 }
 
-test('an interface subcommand the table does not name goes to the interface', () => {
-  // Catches: the `otherwise` branch of the parser is lost, so an interface's own subcommand is refused.
-  assert.deepEqual(parseRequest(['interfaces', 'zeta71', 'sync', 'all', 'now']).parsed, {
-    ok: true,
-    name: 'interfaces.command',
-    args: { name: 'zeta71', sub: 'sync', rest: 'all now' },
-  });
+test('an interfaces word the table does not name is refused with that word', () => {
+  // Changed: no interface has commands of its own, so the leaf that took any word and always refused it is gone and
+  // the parser refuses the word itself. Catches: a stray word parses and reaches the core as a command.
+  const { parsed } = parseRequest(['interfaces', 'zeta71', 'sync', 'all', 'now']);
+  assert.equal(parsed.ok, false);
+  assert.ok(!parsed.ok && parsed.reason.includes('zeta71'), JSON.stringify(parsed));
 });
 
 /** Each line the table refuses, with a word its reason must hold: the wrong word, or the argument that is missing. */

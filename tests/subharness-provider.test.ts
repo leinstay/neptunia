@@ -46,7 +46,7 @@ const selectionDeps = (dir: string): EnableDeps => ({
 function consoleOver(dir: string) {
   return createConsole({
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: '', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] } } },

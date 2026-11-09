@@ -5,6 +5,8 @@
 // owner's word of 2026-11-08. keys.json and config.json in a temp dir, fetch and the vendors are fakes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { routeHealth } from '../src/setup/route-health.ts';
 import { BASE_URL, fakeFetch, healthy } from './fixtures/keys-rig.ts';
 import type { Call, Reply } from './fixtures/keys-rig.ts';
@@ -43,12 +45,19 @@ function rig(
       ? { status: 401, body: { error: { message: 'User not found' } } }
       : healthy(call);
   const { fetch, calls } = fakeFetch(answer);
-  const config = {
-    llm: { baseUrl: BASE_URL },
-    models: { base: { ...MODELS, ...options.models } },
-    speech: { voice: '' },
+  // The doctor's config is the merged one, so the routing config.json holds is laid over the test's values, read at the run.
+  const config = () => {
+    const stored = JSON.parse(fs.readFileSync(path.join(privateDir, 'config', 'config.json'), 'utf8')) as {
+      models?: object;
+      llm?: object;
+    };
+    return {
+      llm: { baseUrl: BASE_URL, ...stored.llm },
+      models: { base: { ...MODELS, ...options.models }, ...stored.models },
+      speech: { voice: '' },
+    };
   };
-  const run = () => routeHealth({ privateDir, config, fetch });
+  const run = () => routeHealth({ privateDir, config: config(), fetch });
   const asked = (model: string): Array<Call> => calls.filter((call) => call.body?.model === model);
   return { privateDir, run, calls, asked };
 }
@@ -134,4 +143,24 @@ test('two roles on the same model and key are asked once', async () => {
   const { run, asked } = rig({}, { models: { memory: 'x/core' } });
   await run();
   assert.equal(asked('x/core').length, 1);
+});
+
+test('a core chain whose harness is logged out but whose API route answers warns, naming both routes', async () => {
+  // Catches: a doctor that fails her core although the route behind the spent harness carries her turns.
+  const { privateDir, run } = rig();
+  fakeVendor(privateDir, 'claude', { loggedIn: false });
+  const file = path.join(privateDir, 'config', 'config.json');
+  const stored = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+  const routes = {
+    core: [
+      { via: 'harness', backend: 'claude', model: 'claude-opus-4-6' },
+      { via: 'api', key: 'core-1', model: 'x/core' },
+    ],
+  };
+  fs.writeFileSync(file, JSON.stringify({ ...stored, models: { routes } }));
+  const health = await run();
+  assert.equal(health.status, 'warn', health.detail);
+  const lines = health.detail.split('\n').filter((one) => one.startsWith('core'));
+  assert.equal(lines.length, 2, health.detail);
+  assert.ok(lines[1]?.includes('core-1'), health.detail);
 });
