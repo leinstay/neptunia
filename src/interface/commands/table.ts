@@ -244,11 +244,6 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
     arg('into'),
     flagArg('reason', false),
   ]),
-  sub(
-    'selfreflection.audience.fill',
-    'Give old group selfreflection entries without an audience the unrestricted one: --dry-run counts only',
-    [bareFlagArg('dry-run')]
-  ),
   sub('places.list', 'List places of any kind and depth', [
     flagArg('interface', false),
     flagArg('authority', false),
@@ -587,15 +582,6 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('conversation', "A conversation's newest stored lines", [arg('conversation')]),
       runs(sub('recent', 'Show live recent lines'), 'memory.recent.read'),
       runs(sub('search', 'Search her memory', [arg('query')]), 'memory.search', (args) => ({ question: args.query })),
-      sub('backfill-media', 'Bring old media lines to the one format: backfill-media [--dry-run|status]', [
-        arg('mode', false),
-      ]),
-      sub('backfill-english', 'Bring stored media descriptions to English: backfill-english [--dry-run|status]', [
-        arg('mode', false),
-      ]),
-      sub('backfill-plans', 'Reconstruct the plans of old selfreflection entries: backfill-plans [--dry-run|status]', [
-        arg('mode', false),
-      ]),
       runs(sub('restore', 'Bring an archived item back', [arg('id')]), 'memory.restore', (args) => ({
         itemId: args.id,
       })),

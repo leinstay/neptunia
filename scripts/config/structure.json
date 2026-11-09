@@ -1490,13 +1490,6 @@
       "test": "none"
     },
     {
-      "path": "src/memory/db/media-backfill.ts",
-      "purpose": "The historical backfill of media over an interface's history. Tested through `tests/media-memory-backfill.test.ts`, `tests/media-voice-backfill.test.ts` and `tests/media-backfill-dm.test.ts`.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "none"
-    },
-    {
       "path": "src/memory/db/roots.ts",
       "purpose": "The server places of the roots a `hello` names. Tested through `tests/memory-db-roots.test.ts`.",
       "layer": "public",
@@ -1506,13 +1499,6 @@
     {
       "path": "src/memory/db/meta-person.ts",
       "purpose": "The read adapter of the meta-person: the person of an account and the accounts of a person, from `person_accounts` first and the old verified links after. Tested through `tests/memory-db-meta-person.test.ts`.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "none"
-    },
-    {
-      "path": "src/memory/db/media-english.ts",
-      "purpose": "The owner's run that brings stored media descriptions to English. Tested through `tests/media-english-backfill.test.ts`.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
