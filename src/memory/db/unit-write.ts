@@ -1,6 +1,6 @@
 // The memory writer applies semantic unit updates in one transaction. Value writes replace a collection while
-// preserving protected session rows; lines append in catalog order. A day of the record is the record lines write
-// (record-lines.ts). Selfreflection and vector operations keep their existing publication and index behavior. Catalog owner keys are
+// preserving protected session rows; lines append in catalog order. A day of the record or of the journal is that
+// kind's lines write (record-lines.ts, journal-lines.ts). Selfreflection and vector operations keep their existing publication and index behavior. Catalog owner keys are
 // independent of source IDs and visibility. Historical owner strings are accepted by the explicit import and
 // pending compatibility boundary, which preserves their provenance without using it for live ownership.
 
@@ -32,6 +32,7 @@ import { writeGifVector } from './gif-vectors.ts';
 import { intentionsOfUnit, writeIntentions } from './intentions-write.ts';
 import { monthLines, writeLineVectors } from './line-vectors.ts';
 import { writeRecordDay } from './record-lines.ts';
+import { writeJournalDay } from './journal-lines.ts';
 import { operationalOfUnit, writeOperational } from './operational.ts';
 import { storageContext } from './map/index.ts';
 
@@ -51,7 +52,7 @@ const POSITIONED = [
   'work_events',
 ];
 /** The kinds of JSONL unit op `lines` writes. */
-const LINE_KINDS = new Set(['journal', 'archive', 'errands']);
+const LINE_KINDS = new Set(['archive', 'errands']);
 
 const coded = (code: string): Error & { code: string } => Object.assign(new Error(code), { code });
 const isoOf = (ms: unknown): string => new Date(isFiniteNumber(ms) ? ms : Date.now()).toISOString();
@@ -422,6 +423,27 @@ function writeOwnerName(db: Db, update: Row, at: string): { personId: string; na
   return { personId, name, stored: true };
 }
 
+/** The kind of a keyed lines write whose day has its own write kind (the record, the journal), else null. */
+function dayKindOf(db: Db, keyed: Row): 'record' | 'journal' | null {
+  const kind = (keyed.key as StorageKey | undefined)?.kind;
+  return hasStorageUnits(db) && (kind === 'record' || kind === 'journal') ? kind : null;
+}
+
+/** A keyed lines write of a record or journal day, through that kind's writer (record-lines.ts, journal-lines.ts). */
+function writeDay(db: Db, update: Row, keyed: Row, at: string): unknown {
+  const key = keyed.key as StorageKey;
+  const lines = Array.isArray(keyed.lines) ? (keyed.lines as Array<Row>) : [];
+  // An update that names an owner path and no key is an older release's: its rows keep the path.
+  const legacyOwner = typeof update.owner === 'string' && !update.key ? { legacyOwner: update.owner } : {};
+  if (key.kind === 'journal') return writeJournalDay(db, key, lines, { iface: ifaceOf(keyed), at, ...legacyOwner });
+  return writeRecordDay(db, key, lines, {
+    ...(keyed.messages !== undefined ? { messages: keyed.messages as Array<Row> } : {}),
+    iface: ifaceOf(keyed),
+    at,
+    ...legacyOwner,
+  });
+}
+
 /** The update with the storage key its owner path spells, when it names a path and no key; null when none maps. */
 function withKey(db: Db, update: Row): Row | null {
   if (update.key) return update;
@@ -450,19 +472,8 @@ export function applyUnitWrite(handle: MemoryHandle, update: Row): unknown {
   if (operational) return handle.transaction(() => writeOperational(db, operational));
   const intentions = keyed ? intentionsOfUnit(keyed) : null;
   if (intentions) return handle.transaction(() => writeIntentions(db, intentions, at));
-  // A day of the record, such as a write kept pending by an older release, is the record lines write of its day.
-  const recordDay = op === 'lines' && keyed && hasStorageUnits(db) ? (keyed.key as StorageKey) : null;
-  if (recordDay?.kind === 'record') {
-    const legacyOwner = typeof update.owner === 'string' && !update.key ? update.owner : undefined;
-    return handle.transaction(() =>
-      writeRecordDay(db, recordDay, Array.isArray(update.lines) ? (update.lines as Array<Row>) : [], {
-        ...(update.messages !== undefined ? { messages: update.messages as Array<Row> } : {}),
-        iface: ifaceOf(update),
-        at,
-        ...(legacyOwner ? { legacyOwner } : {}),
-      })
-    );
-  }
+  // A day of the record or of the journal, such as a write kept pending by an older release, is that kind's lines write.
+  if (op === 'lines' && keyed && dayKindOf(db, keyed)) return handle.transaction(() => writeDay(db, update, keyed, at));
   const runs: Record<string, (() => unknown) | undefined> = {
     lines: () => skippedErrandUnit(db, update, () => update.key ?? unitOf(update.owner)) ?? writeLines(db, update, at),
     value: () => skippedErrandUnit(db, update, () => update.key ?? unitOf(update.owner)) ?? writeValue(db, update, at),
@@ -470,7 +481,12 @@ export function applyUnitWrite(handle: MemoryHandle, update: Row): unknown {
     vectors: () => writeVectors(db, update, at),
     'gif-vector': () => writeGifVector(db, update, at),
     'owner-name': () => writeOwnerName(db, update, at),
-    errand: () => applyErrandUnit(db, update, at, (closing) => writeLines(db, closing, at)),
+    errand: () =>
+      applyErrandUnit(db, update, at, (closing) => {
+        const keyedClosing = withKey(db, closing);
+        if (keyedClosing && dayKindOf(db, keyedClosing)) writeDay(db, closing, keyedClosing, at);
+        else writeLines(db, closing, at);
+      }),
   };
   const run = typeof op === 'string' ? runs[op] : undefined;
   if (!run) throw coded('UNIT_BAD_OP');

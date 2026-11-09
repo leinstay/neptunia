@@ -1,7 +1,7 @@
 // The persona's journal: one record per thing that happened -- a turn started, a turn
 // ended (what it saw, what it thought, what it posted), an action's phase, a memory change, a
-// system event -- written to the memory database (src/memory/db/service.ts, `memoryDb.writeUnit`) in
-// the unit of its day, `places/<g>/journal/<YYYY-MM-DD>.jsonl`, as the journal mapper maps it, so it
+// system event -- written to the memory database through the write kind `journal-lines`
+// (`memoryDb.writeJournalLines`, src/memory/db/journal-lines.ts) in the unit of its place's day, so it
 // keeps its order. The day is the UTC day of the record's `occurredAt`; a private chat has its own
 // units under the partner's private directory and is never written to the place's journal. Every record carries the same envelope (`v`, `id`,
 // `kind`, `occurredAt`, `recordedAt`, `placeId`, `scope`, `participants`, `sourceMessageIds`,
@@ -55,7 +55,7 @@ import { log as defaultLog } from '../log.ts';
 import { oneLine } from './clamp.ts';
 import { memoryRootOf } from './root.ts';
 
-import { journalLastWrite, journalLines } from './db/readers/journal.ts';
+import { journalLastWrite, journalLines } from './db/journal-lines.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay } from '../time.ts';
 import { currentToolName } from '../tools/definitions.ts';
 import { propOf, isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
@@ -738,9 +738,9 @@ type JournalDeps = {
  *   flushes before `fn` (the record's and the archive's, src/index.js)
  * @param options.memoryDb  the memory database service (src/memory/db/service.ts): the day reads
  *   (`read`, `timeline`, and so `findTurn`, `turnOperations`, `pending`, `triggerLinks`, `callMarks`,
- *   `reconcile`'s scan) and `stats` are answered from it (src/memory/db/readers/journal.ts; a failed read rejects
- *   with a code), and every line the writers write goes to it as the journal mapper maps it (`day`, `decisions`,
- *   her answers' `sources`, `affinity_events`, in the day's unit, `memoryDb.writeUnit`); the
+ *   `reconcile`'s scan) and `stats` are answered from it (src/memory/db/journal-lines.ts; a failed read rejects
+ *   with a code), and every line the writers write goes to it (`day`, `decisions`, her answers' `sources`,
+ *   `affinity_events`, in the day's unit, `memoryDb.writeJournalLines`); the
  *   `.running` marker stays a file.
  *   `actionLine` builds an `action` line and its day unit without writing it: an errand's end writes it with its
  *   board move.
@@ -831,11 +831,11 @@ export function createJournal({
 
   async function write(placeId: string | null, kind: string, fields: Untyped) {
     try {
-      const { key, line } = lineOf(placeId, kind, fields);
+      const { line } = lineOf(placeId, kind, fields);
       await unlocked();
-      if (typeof memoryDb?.writeUnit !== 'function')
+      if (typeof memoryDb?.writeJournalLines !== 'function')
         throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
-      await memoryDb.writeUnit({ op: 'lines', key, lines: [line] });
+      await memoryDb.writeJournalLines({ placeId, lines: [line as Record<string, unknown>] });
     } catch (error) {
       log.warn('journal: append failed', { kind, code: propOf(error, 'code') ?? null });
     }

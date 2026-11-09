@@ -20,7 +20,6 @@ import {
 import { ensureAccountPerson, linkedProfileUnit } from '../person-links.ts';
 import { accountCollection, storageId } from '../storage-keys.ts';
 import type { StorageKey } from '../storage-keys.ts';
-import * as journal from './journal.ts';
 import * as lore from './lore.ts';
 import * as media from './media.ts';
 import * as participation from './participation.ts';
@@ -42,7 +41,6 @@ export type Mapper = {
 };
 
 export const MAPPERS = {
-  journal,
   user,
   private: privateLayer,
   channel,

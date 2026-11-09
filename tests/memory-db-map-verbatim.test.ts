@@ -173,9 +173,9 @@ test('classify names the mapper and format of every memory path', () => {
     assert.ok(found && !found.skipped, rel);
     assert.equal(found.kind, kind, rel);
     assert.equal(found.format, format, rel);
-    // The intentions, the line vectors and the record have their own write kinds and no mapper
-    // (src/memory/db/intentions-write.ts, line-vectors.ts, record-lines.ts).
-    const direct = kind === 'intentions' || kind === 'vectors' || kind === 'record';
+    // The intentions, the line vectors, the record and the journal have their own write kinds and no mapper
+    // (src/memory/db/intentions-write.ts, line-vectors.ts, record-lines.ts, journal-lines.ts).
+    const direct = ['intentions', 'vectors', 'record', 'journal'].includes(kind);
     assert.equal(found.mapper, direct ? mappers.verbatim : mappers[kind], rel);
     assert.equal(kindOfPath(rel), kind, rel);
   }
