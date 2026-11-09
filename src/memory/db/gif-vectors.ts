@@ -14,22 +14,17 @@ const PREFIX = 'gif:';
 export function writeGifVector(db: Db, update: Row, at: string): Row {
   const vector = update.vector as ReadonlyArray<number>;
   const { bytes, scale, norm } = quantize(vector);
-  const row = deriveRow(
-    db,
-    'vectors',
-    {
-      item_id: update.itemId,
-      chunk_key: `${PREFIX}${String(update.itemId)}`,
-      model: update.model ?? null,
-      dims: vector.length,
-      scale,
-      norm,
-      bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
-      occurred_at: at,
-      ...groupScope(ifaceOrLegacy(update)),
-    },
-    { at }
-  );
+  const row = deriveRow(db, 'vectors', {
+    item_id: update.itemId,
+    chunk_key: `${PREFIX}${String(update.itemId)}`,
+    model: update.model ?? null,
+    dims: vector.length,
+    scale,
+    norm,
+    bytes: new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+    occurred_at: at,
+    ...groupScope(ifaceOrLegacy(update)),
+  });
   const columns = Object.keys(row);
   db.prepare(
     `INSERT OR REPLACE INTO vectors (${columns.map((column) => `"${column}"`).join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`

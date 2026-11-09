@@ -261,7 +261,7 @@ function writeDeletion(db: Db, input: MessageDeletion, options: MessageWriteOpti
       position,
       extra: JSON.stringify({ $messageLocator: input.messageLocator }),
     },
-    { at, log: options.log }
+    { log: options.log }
   );
   const storedRow = ownershipRow(db, row);
   const columns = Object.keys(storedRow);

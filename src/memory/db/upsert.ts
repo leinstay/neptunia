@@ -176,7 +176,7 @@ function writeRow(db: Db, table: string, row: Row, opts: { ignore?: boolean; at?
     }
   }
   // The v7 derived columns (audience, authority, native key, ...) come from the row itself, so a remap re-derives them.
-  const derived = deriveRow(db, table, row, { at: opts.at });
+  const derived = deriveRow(db, table, row);
   upsert(db, table, derived, opts);
   if (table === 'people' || table === 'accounts' || table === 'places')
     ensureNodeKeys(db, table, derived, { at: opts.at });

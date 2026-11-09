@@ -126,6 +126,13 @@ export function fixture(): Fixture {
         VALUES (?, ?, ?, ?, ?, 'legacy', 'import', ?, ?, ?, ?, ?, '2026-10-01', '2026-10-20')`
       ).run(id, subjectKind, subjectId, kind, text, truth, shown, scope.scope_kind, scope.scope_iface, scope.scope_dm);
     },
+    /** A member's stored DM place, as an observed DM leaves it: a DM row's audience is the place naming its partner. */
+    storeDmPlace(member: string) {
+      db.prepare(
+        `INSERT INTO places (id, iface, kind, native_id, chat, scope_kind, partner_account, partner_person)
+         VALUES (?, 'discord', 'dm', NULL, 'dm', 'dm', ?, ?)`
+      ).run(dmPlaceOf(member), `discord:${member}`, personOf(member));
+    },
     done() {
       handle.close();
     },

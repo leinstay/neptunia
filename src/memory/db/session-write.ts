@@ -122,7 +122,13 @@ import {
   scopeOfAudience,
   SCOPE_INTERNAL,
 } from './scope.ts';
-import { NEWEST_CLAIM_VERSION_SQL, ensureAudience, ensureInterface, newestClaimVersion } from './rows.ts';
+import {
+  NEWEST_CLAIM_VERSION_SQL,
+  ensureAudience,
+  ensureInterface,
+  newestClaimVersion,
+  storedDmPlaceOf,
+} from './rows.ts';
 import { applySemanticEmbedding } from './semantic-search.ts';
 import { writeSessionAssertion, writeSessionEntity } from './semantic-write.ts';
 import type { SessionSemantics } from './semantic-write.ts';
@@ -252,20 +258,11 @@ function contextOf(scope: Scope | null | undefined, audienceColumn = false, audi
   return audienceColumn === true ? { ...ctx, audienceColumn: true } : ctx;
 }
 
-/** The one stored DM place of a DM scope's partner on its interface; null for none and for several, which no triple can tell apart. */
-function onlyDmPlaceOf(db: Db, scope: Scope): string | null {
-  if (scope.scope_kind !== 'dm' || !scope.scope_dm || !scope.scope_iface) return null;
-  const places = db
-    .prepare("SELECT id FROM places WHERE partner_person = ? AND iface = ? AND (kind = 'dm' OR chat = 'dm')")
-    .all(scope.scope_dm, scope.scope_iface);
-  return places.length === 1 ? String(places[0]?.id) : null;
-}
-
 /** The audience id of a scope (the one resolver), its audience row created when missing. */
-function audienceIdOf(db: Db, scope: Scope | null | undefined, at: string): string {
-  const dmPlace = scope ? onlyDmPlaceOf(db, scope) : null;
+function audienceIdOf(db: Db, scope: Scope | null | undefined): string {
+  const dmPlace = scope ? storedDmPlaceOf(db, scope) : null;
   const resolved = audienceOf(scope, { dmPlace });
-  ensureAudience(db, resolved, { at });
+  ensureAudience(db, resolved);
   return resolved.audience_id;
 }
 
@@ -274,11 +271,12 @@ const lookupPlaceOf =
   (placeId: string): Row | undefined =>
     db.prepare('SELECT iface, partner_person FROM places WHERE id = ?').get(placeId);
 
-/** The audience of a row with the scope triple: its stored one, else what its triple resolves to. */
-const audienceOfRow = (row: Row): unknown =>
-  typeof row.audience_id === 'string' && row.audience_id !== ''
-    ? row.audience_id
-    : audienceOf(scopeOfRow(row)).audience_id;
+/**
+ * The audience of a row with the scope triple: its stored one, else what its triple resolves to, a DM through the stored
+ * DM place of its partner.
+ */
+const audienceOfRow = (db: Db, row: Row): unknown =>
+  typeof row.audience_id === 'string' && row.audience_id !== '' ? row.audience_id : audienceIdOf(db, scopeOfRow(row));
 
 /**
  * What a new row of this run is scoped to: the meet of the run's audience and of its own sources, on audience ids, because
@@ -286,9 +284,9 @@ const audienceOfRow = (row: Row): unknown =>
  */
 function narrowed(db: Db, state: WriteState, evidence: ReadonlyArray<Row>): { scope: Scope; audienceId: string } {
   const lookup = lookupPlaceOf(db);
-  const audienceId = narrowestAudience([state.audience, ...evidence.map(audienceOfRow)], lookup);
+  const audienceId = narrowestAudience([state.audience, ...evidence.map((row) => audienceOfRow(db, row))], lookup);
   const scope = scopeOfAudience(audienceId, lookup);
-  ensureAudience(db, { ...scope, audience_id: audienceId }, { at: state.at });
+  ensureAudience(db, { ...scope, audience_id: audienceId });
   return { scope, audienceId };
 }
 
@@ -296,7 +294,7 @@ function insertRun(
   db: Db,
   run: SessionRunRow,
   mode: unknown,
-  { applied, answerSource, at }: { applied: unknown; answerSource: unknown; at: string }
+  { applied, answerSource }: { applied: unknown; answerSource: unknown }
 ): void {
   db.prepare(
     `INSERT OR REPLACE INTO session_runs (id, sweep_id, scope_key, scope_kind, scope_iface, scope_dm, mode, started_at, finished_at,
@@ -324,7 +322,7 @@ function insertRun(
     run.batchKey ?? null,
     applied ? 1 : 0,
     answerSource ?? null,
-    typeof run.audienceId === 'string' ? run.audienceId : audienceIdOf(db, run.scope ?? null, at)
+    typeof run.audienceId === 'string' ? run.audienceId : audienceIdOf(db, run.scope ?? null)
   );
 }
 
@@ -379,7 +377,7 @@ function insertAnswer(
     SCOPE_INTERNAL.scope_kind,
     SCOPE_INTERNAL.scope_iface,
     SCOPE_INTERNAL.scope_dm,
-    audienceIdOf(db, SCOPE_INTERNAL, at),
+    audienceIdOf(db, SCOPE_INTERNAL),
     CORE_AUTHORITY,
     at
   );
@@ -642,7 +640,7 @@ function applyClaim(db: Db, proposal: Row, state: WriteState): void {
   // Compare-and-set on the claim: the version the session read must still be its newest (schema v9).
   if (Object.hasOwn(proposal, 'base') && (proposal.base ?? null) !== newestClaimVersion(db, proposal.id))
     return reject(db, state, 'claims', proposal, 'stale_base');
-  const derived = audienceId !== audienceOfRow(claim);
+  const derived = audienceId !== audienceOfRow(db, claim);
   let target = proposal.id;
   if (proposal.op === 'confirm') {
     if (derived) target = deriveClaim(db, claim, scope, { at, runId, index, audienceId });
@@ -908,7 +906,7 @@ function readSetOf(reads: unknown): SessionSemantics['read'] {
 /** What the ops of one run share, with the audience the run reads and writes under. */
 function writeStateOf(db: Db, run: SessionRunRow, update: Row, counts: Counts, at: string): WriteState {
   const uuid = typeof update.uuid === 'function' ? (update.uuid as () => string) : randomUUID;
-  const audience = typeof run.audienceId === 'string' ? run.audienceId : audienceIdOf(db, run.scope ?? null, at);
+  const audience = typeof run.audienceId === 'string' ? run.audienceId : audienceIdOf(db, run.scope ?? null);
   return {
     at,
     runId: run.id,
@@ -1056,7 +1054,7 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
           })
         : null;
     const applied = run != null && mode === 'apply' && plan != null && run.outcome === 'ok';
-    if (run) insertRun(db, run, mode, { applied, answerSource, at });
+    if (run) insertRun(db, run, mode, { applied, answerSource });
     // What the request rendered (the read-set of the run), in the run's context.
     let contextId = '';
     if (run && update.context) contextId = insertContext(db, update.context as Row) ?? '';
@@ -1207,7 +1205,7 @@ function writeDescription(handle: MemoryHandle, update: Row): { written: number 
         scope.scope_iface,
         scope.scope_dm,
         row.id,
-        audienceIdOf(db, scope, at)
+        audienceIdOf(db, scope)
       );
     }
     projectRow(db, 'description_versions', { description_id: row.descriptionId }, { at });
