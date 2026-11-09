@@ -1,7 +1,7 @@
 // One storage format for any media, whatever the interface (src/memory/db/media-store.ts): `media` is the only store and
 // `media_links` ties it to its owners. The closed list of kinds, what an observed line stores, edit and delete, the describer's
-// write, a voice line she sends, the diary's links and the mirror's `path`, the cache cap, the one forward migration, and a
-// second fake interface whose native references have another shape and give the same rows and the same rendering. Synthetic
+// write, a voice line she sends, the diary's links and the mirror's `path`, the cache cap, and a second
+// fake interface whose native references have another shape and give the same rows and the same rendering. Synthetic
 // content; no model.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,19 +9,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { applyEntryMedia } from '../src/memory/db/selfreflection-media.ts';
 import { topPlaceSpelled } from '../src/memory/db/ids.ts';
-import { MEDIA_KINDS, lineMedia, migrateMediaStore, tellMedia } from '../src/memory/db/media-store.ts';
+import { MEDIA_KINDS, lineMedia, tellMedia } from '../src/memory/db/media-store.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { rootPlaceInDb } from '../src/memory/db/place-tree.ts';
 import { dbSettings, quotesOf, search } from '../src/memory/db/recall.ts';
 import { groupContext, internalContext } from '../src/memory/db/scope.ts';
-import { fillStems } from '../src/memory/db/stems.ts';
 import { placeCollection } from '../src/memory/db/storage-keys.ts';
 import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
 import { createRecord, toRecordLine } from '../src/memory/record.ts';
 import {
   AT,
-  GENERAL,
   HER,
   KINDS,
   LABELS,
@@ -417,290 +415,6 @@ test('a diary entry and a message showing the same file are one item with two li
     assert.ok(String(linked.path).startsWith('media/'), 'the line now knows the file');
     assert.equal(rowsOf(env, 'd2', 'selfreflection')[0].mediaId, linked.mediaId);
   }));
-
-// ---------- the migration ----------
-
-/** The database of an old engine: the old `media` table and the kinds on `sources`. */
-function legacySchema(env: Env) {
-  env.db.exec(`DROP TABLE IF EXISTS media_links; DROP TABLE media;
-    CREATE TABLE media (id TEXT PRIMARY KEY, kind TEXT, owner TEXT, path TEXT, native_ref TEXT, description TEXT, described_at TEXT,
-      sha1 TEXT, bytes INTEGER, mime TEXT, scope_kind TEXT, scope_iface TEXT, scope_dm TEXT, audience_id TEXT, extra JSON, owner_file TEXT, retired_at TEXT, owner_key TEXT, tier TEXT);`);
-  const has = env.db
-    .prepare('PRAGMA table_info(sources)')
-    .all()
-    .some((column) => column.name === 'media');
-  if (!has) env.db.exec('ALTER TABLE sources ADD COLUMN media TEXT');
-}
-
-function legacyLine(env: Env, native: string, kinds: Array<string>, extra: Row = {}): string {
-  const id = env.say({ native, at: AT, text: '', place: GENERAL, extra: JSON.stringify(extra) });
-  env.db.prepare('UPDATE sources SET media = ? WHERE id = ?').run(JSON.stringify(kinds), id);
-  return id;
-}
-
-function legacyMedia(env: Env, id: string, kind: string, nativeRef: string | null, row: Row = {}) {
-  env.db
-    .prepare(
-      `INSERT INTO media (id, kind, native_ref, description, path, sha1, mime, extra, scope_kind, scope_iface)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'group', 'discord')`
-    )
-    .run(
-      id,
-      kind,
-      nativeRef,
-      row.description ?? null,
-      row.path ?? null,
-      row.sha1 ?? null,
-      row.mime ?? null,
-      row.extra ? JSON.stringify(row.extra) : null
-    );
-}
-
-function migrated(body: (env: Env) => void | Promise<void>) {
-  return () => {
-    const env = fixture();
-    legacySchema(env);
-    return Promise.resolve(body(env)).finally(() => env.done());
-  };
-}
-
-test(
-  'the migration makes one item and one link per kind, in position, bare with no reference',
-  migrated((env) => {
-    const source = legacyLine(env, 'm1', ['image', 'video', 'sticker']);
-    migrateMediaStore(env.db);
-    assert.deepEqual(
-      rowsOf(env, source).map(({ position, kind, nativeRef, availability }) => [
-        position,
-        kind,
-        nativeRef,
-        availability,
-      ]),
-      [
-        [0, 'image', null, 'unknown'],
-        [1, 'video', null, 'unknown'],
-        [2, 'sticker', null, 'unknown'],
-      ]
-    );
-  })
-);
-
-test(
-  'the migration removes sources.media, and every other path of the old format',
-  migrated((env) => {
-    const source = legacyLine(env, 'm1', ['image', 'link'], {
-      subtype: 'x',
-      links: [{ id: 'l1', url: 'https://x.invalid/a', title: 'page', description: 'an observatory', site: 'x' }],
-      extra: { attachmentIds: ['a1', null] },
-    });
-    migrateMediaStore(env.db);
-    const columns = env.db.prepare('PRAGMA table_info(sources)').all();
-    assert.equal(
-      columns.some((column) => column.name === 'media'),
-      false
-    );
-    const extra = JSON.parse(
-      String(env.db.prepare('SELECT extra FROM sources WHERE id = ?').get(source)?.extra)
-    ) as Row;
-    assert.deepEqual(extra, { subtype: 'x' }, 'what else the line holds stays');
-  })
-);
-
-test(
-  'the migration moves attachmentIds into references and links the held description',
-  migrated((env) => {
-    const source = legacyLine(env, 'm1', ['image', 'image'], { extra: { attachmentIds: ['a1', null] } });
-    legacyMedia(env, 'media:attachment:a1', 'attachment', 'a1', { description: 'a lighthouse' });
-    migrateMediaStore(env.db);
-    assert.deepEqual(
-      rowsOf(env, source).map(({ kind, nativeRef, description, availability, extra }) => [
-        kind,
-        nativeRef,
-        description,
-        availability,
-        extra.textOrigin ?? null,
-      ]),
-      [
-        ['image', 'a1', 'a lighthouse', 'present', 'retelling'],
-        ['image', null, null, 'unknown', null],
-      ]
-    );
-  })
-);
-
-test(
-  'the migration runs forward once: a second run changes nothing',
-  migrated((env) => {
-    const source = legacyLine(env, 'm1', ['image'], { extra: { attachmentIds: ['a1'] } });
-    migrateMediaStore(env.db);
-    const first = rowsOf(env, source);
-    migrateMediaStore(env.db);
-    assert.deepEqual(rowsOf(env, source), first);
-  })
-);
-
-test(
-  'the migration gives a report: rows, links, and what stayed bare',
-  migrated((env) => {
-    legacyLine(env, 'm1', ['image'], { extra: { attachmentIds: ['a1'] } });
-    legacyLine(env, 'm2', ['image']);
-    legacyMedia(env, 'media:attachment:a1', 'attachment', 'a1', { description: 'present' });
-    const report = migrateMediaStore(env.db);
-    assert.deepEqual([report.links, report.told, report.bare], [2, 1, 1]);
-  })
-);
-
-test(
-  "a video's watched summary is its text form; a still frame alone is one, origin frame; both are one item",
-  migrated((env) => {
-    const both = legacyLine(env, 'm1', ['video'], { extra: { attachmentIds: ['v1'] } });
-    const still = legacyLine(env, 'm2', ['video'], { extra: { attachmentIds: ['v2'] } });
-    legacyMedia(env, 'media:attachment:v1', 'attachment', 'v1', { description: 'a frame' });
-    legacyMedia(env, 'media:attachment:video:v1', 'attachment', 'video:v1', { description: 'an avalanche, watched' });
-    legacyMedia(env, 'media:attachment:v2', 'attachment', 'v2', { description: 'a frame only' });
-    migrateMediaStore(env.db);
-    const [watched] = rowsOf(env, both);
-    assert.deepEqual([watched.description, watched.extra.textOrigin], ['an avalanche, watched', 'retelling']);
-    const [frame] = rowsOf(env, still);
-    assert.deepEqual([frame.description, frame.extra.textOrigin], ['a frame only', 'frame']);
-    assert.equal(env.db.prepare("SELECT COUNT(*) AS n FROM media WHERE native_ref LIKE '%v1'").get()?.n, 1);
-  })
-);
-
-for (const [prefix, kind] of [
-  ['sticker:', 'sticker'],
-  ['emoji:', 'emoji'],
-  ['link:', 'link'],
-] as const) {
-  test(
-    `the prefix ${prefix} of a cache key becomes kind ${kind} and leaves the reference`,
-    migrated((env) => {
-      legacyMedia(env, `media:attachment:${prefix}k1`, 'attachment', `${prefix}k1`, { description: 'present' });
-      migrateMediaStore(env.db);
-      const row = env.db.prepare("SELECT kind, native_ref FROM media WHERE description = 'present'").get();
-      assert.deepEqual([row?.kind, row?.native_ref], [kind, 'k1']);
-    })
-  );
-}
-
-test(
-  'a line stored without ids is linked through the GIF library row that names its message, its file kept',
-  migrated((env) => {
-    const source = legacyLine(env, 'm3', ['gif']);
-    legacyMedia(env, 'media:gif:k', 'gif', 'm3', {
-      description: 'its name',
-      path: 'media/gifs/k.gif',
-      extra: { itemId: 'item-1', name: 'its name' },
-    });
-    legacyMedia(env, 'media:attachment:item-1', 'attachment', 'item-1', { description: 'a pirouette' });
-    migrateMediaStore(env.db);
-    const [row] = rowsOf(env, source);
-    assert.deepEqual(
-      [row.kind, row.nativeRef, row.description, row.path],
-      ['gif', 'item-1', 'a pirouette', 'media/gifs/k.gif']
-    );
-    assert.equal(row.extra.name, 'its name', 'the library keeps its name');
-  })
-);
-
-test(
-  "a diary post's rows become items of their kinds, linked to the entry and to the line that posted them",
-  migrated((env) => {
-    const source = legacyLine(env, 'm4', ['image', 'voice']);
-    env.db.prepare("INSERT INTO selfreflection (id, scope_kind, scope_iface) VALUES ('d9', 'group', 'discord')").run();
-    legacyMedia(env, 'media:diary:d9-1', 'selfreflection', JSON.stringify({ messageId: 'm4', attachmentId: 'd1' }), {
-      description: 'a walrus',
-      // B10 of the master plan: her files live under media/selfreflection, by the owner's word.
-      path: 'media/selfreflection/d9-1.png',
-      sha1: 'aa',
-      mime: 'image/png',
-    });
-    legacyMedia(env, 'media:diary:d9-2', 'selfreflection', JSON.stringify({ messageId: 'm4', attachmentId: 'd2' }), {
-      path: 'media/selfreflection/d9-2.ogg',
-      sha1: 'bb',
-      mime: 'audio/ogg',
-      extra: { voice: true, text: 'a cathedral at dusk' },
-    });
-    migrateMediaStore(env.db);
-    const [picture, voice] = rowsOf(env, source);
-    assert.deepEqual(
-      [picture.kind, picture.nativeRef, picture.description, picture.path],
-      ['image', 'd1', 'a walrus', 'media/selfreflection/d9-1.png']
-    );
-    assert.deepEqual(
-      [voice.kind, voice.nativeRef, voice.description, voice.extra.textOrigin],
-      ['voice', 'd2', 'a cathedral at dusk', 'voiced']
-    );
-    assert.deepEqual(
-      rowsOf(env, 'd9', 'selfreflection').map((one) => one.mediaId),
-      [picture.mediaId, voice.mediaId]
-    );
-  })
-);
-
-test(
-  'an old link holding its embed text becomes a link item, origin embed; the rest stay bare',
-  migrated((env) => {
-    const source = legacyLine(env, 'm5', ['link', 'link'], {
-      links: [{ id: 'l1', url: 'https://x.invalid/a', title: 'page', description: 'an observatory', site: 'x' }],
-    });
-    migrateMediaStore(env.db);
-    const [first, second] = rowsOf(env, source);
-    assert.deepEqual(
-      [first.nativeRef, first.description, first.availability, first.extra.title, first.extra.url],
-      ['l1', 'an observatory', 'present', 'page', 'https://x.invalid/a']
-    );
-    assert.equal(second.availability, 'unknown');
-  })
-);
-
-test(
-  'an old column kind: `text` stays text, `file` and an unknown one become a file no model reads',
-  migrated((env) => {
-    const source = legacyLine(env, 'm8', ['text', 'file', 'hologram']);
-    migrateMediaStore(env.db);
-    assert.deepEqual(
-      rowsOf(env, source).map(({ kind, availability }) => [kind, availability]),
-      [
-        ['text', 'unknown'],
-        ['file', 'unreadable'],
-        ['file', 'unreadable'],
-      ]
-    );
-  })
-);
-
-test(
-  'an old cache row nothing links stays as an item, so the backfill finds it with no model call',
-  migrated((env) => {
-    legacyMedia(env, 'media:attachment:orphan', 'attachment', 'orphan', { description: 'held' });
-    migrateMediaStore(env.db);
-    assert.equal(
-      env.db.prepare("SELECT description FROM media WHERE native_ref = 'orphan'").get()?.description,
-      'held'
-    );
-  })
-);
-
-test(
-  'after the migration a word of a mapped description finds its item through its line',
-  migrated((env) => {
-    legacyLine(env, 'm9', ['image'], { extra: { attachmentIds: ['a9'] } });
-    legacyMedia(env, 'media:attachment:a9', 'attachment', 'a9', { description: 'a lighthouse' });
-    migrateMediaStore(env.db);
-    fillStems(env.db);
-    const found = search(env.db, {
-      ctx: groupContext('discord'),
-      plan: { forms: ['lighthouse'], who: [], from: null, to: null },
-      now: NOW,
-      settings: dbSettings({})!,
-    });
-    assert.deepEqual(
-      found.mediaHits.map((hit) => hit.latest.messageId),
-      ['m9']
-    );
-  })
-);
 
 // ---------- a second interface ----------
 

@@ -22,8 +22,7 @@
 //
 // Schema v9: each `media` row written is projected into the graph in the same transaction (graph.ts#projectRow).
 
-import { ENTRY_MEDIA } from '../migration/selfreflection-names.ts';
-import { writeEntryFiles } from './media-store.ts';
+import { ENTRY_MEDIA, writeEntryFiles } from './media-store.ts';
 import type { EntryFile } from './media-store.ts';
 import fs from 'node:fs';
 import path from 'node:path';

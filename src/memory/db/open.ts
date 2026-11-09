@@ -13,7 +13,6 @@ import { createRequire } from 'node:module';
 import type { DatabaseSync as DatabaseSyncClass } from 'node:sqlite';
 import { MIGRATIONS, finishSelfreflectionDestination, finishSelfreflectionMirror } from './schema.ts';
 import { BASELINE_VERSION, createBaseline } from './schema-baseline.ts';
-import { moveSelfreflectionMedia } from '../migration/selfreflection-names.ts';
 import type { Migration, MigrationContext } from './schema.ts';
 import { ALIVE_LEASE, leaseOf } from './wake-queue.ts';
 import { importWakeQueues } from '../migration/wake-import.ts';
@@ -135,8 +134,8 @@ export function schemaVersion(dbGiven: unknown): number {
  * (src/memory/db/schema-baseline.ts), and every entry of `migrations` is one version above it. A database below the
  * baseline is refused with `schema-below-baseline` and left as it was. `context` is what only the opener knows: the
  * selfreflection's channel (`selfreflectionPlaceId`) and the data directory (`dataDir`). With them an open finishes
- * what a database once left pending: the selfreflection's destination and mirror, the wake files, the per-place GIF
- * libraries and the folder of the selfreflection's files, before the commit.
+ * what a database once left pending: the selfreflection's destination and mirror, the wake files and the per-place GIF
+ * libraries, before the commit.
  */
 export function migrate(
   dbGiven: unknown,
@@ -170,7 +169,6 @@ export function migrate(
       finishSelfreflectionMirror(db, context);
       importWakeQueues(db, context);
       mergeGifLibraries(db);
-      if (typeof context.dataDir === 'string') moveSelfreflectionMedia(context.dataDir);
     }
   });
 }

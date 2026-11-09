@@ -1484,7 +1484,7 @@
     },
     {
       "path": "src/memory/db/media-store.ts",
-      "purpose": "The one store of media: its read, its writes, its vectors, its search and the forward migration. Tested through the media memory tests.",
+      "purpose": "The one store of media: its read, its writes, its vectors and its search. Tested through the media memory tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
