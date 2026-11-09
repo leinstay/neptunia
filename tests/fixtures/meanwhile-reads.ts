@@ -13,6 +13,8 @@ export type MeanwhileLine = {
   authorId: string | null;
   self: boolean;
   text: string;
+  /** The line's stored media, in order: its kind and the text form the memory holds (null while it has none). */
+  media?: ReadonlyArray<{ kind: string; text: string | null }>;
 };
 
 export type OwnMessage = MeanwhileLine & { path: ReadonlyArray<string>; dm: boolean };
@@ -43,6 +45,13 @@ export function meanwhileReads(places: ReadonlyArray<FakePlace>): FakeMeanwhileR
 }
 
 /** A line of the fake at `at`, by `authorId`, or hers when `authorId` is null. */
-export function line(placeId: string, id: string, at: number, authorId: string | null, text: string): MeanwhileLine {
-  return { id, placeId, at, authorId, self: authorId === null, text };
+export function line(
+  placeId: string,
+  id: string,
+  at: number,
+  authorId: string | null,
+  text: string,
+  media: ReadonlyArray<{ kind: string; text: string | null }> = []
+): MeanwhileLine {
+  return { id, placeId, at, authorId, self: authorId === null, text, media };
 }

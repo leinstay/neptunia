@@ -1,15 +1,21 @@
 // The body of `<meanwhile>`: her last messages in other places, each with a few lines around it, as background she is
 // not asked about (docs/prompt-contract.md). Never a line of the current place. A one-to-one chat's lines only at the
 // command line and in a chat with the same person; the reads already keep out what the turn's scope may not read. Windows of
-// one place that overlap merge, and each window is headed by its place's path and date. The request builder
+// one place that overlap merge, and each window is headed by its place's path and date. A line's media follow its text
+// as the chat renders stored media, so a post of a picture alone reads as its description. The request builder
 // (src/turn/request/reader.ts) calls it. Pure apart from the reads.
 
-import { fill, formatClock, formatDate } from '../../format.ts';
+import { fill, formatClock, formatDate, storedMediaTags } from '../../format.ts';
+import { lineItemParts } from '../../memory/db/media-store.ts';
+import type { LineMediaItem } from '../../memory/db/media-store.ts';
 import type { Frame } from './frame.ts';
 import { escapeStored, pathText } from './text.ts';
 import type { Labels, NameOf } from './types.ts';
 
-/** A stored line as `<meanwhile>` reads it; `at` is epoch ms, `sourceId` its source row's id when the reads give it. */
+/**
+ * A stored line as `<meanwhile>` reads it; `at` is epoch ms, `sourceId` its source row's id when the reads give it,
+ * `media` its media items in position order.
+ */
 export type MeanwhileLine = {
   id: string;
   sourceId?: string;
@@ -18,6 +24,7 @@ export type MeanwhileLine = {
   authorId: string | null;
   self: boolean;
   text: string;
+  media?: ReadonlyArray<LineMediaItem>;
 };
 
 /**
@@ -126,6 +133,12 @@ export function meanwhileWindows(
   return [...byPlace.values()].flatMap(merged).sort((a, b) => firstAt(a) - firstAt(b));
 }
 
+/** A line's text and the tags of its media as the chat renders them (`labels.transcript`), a picture alone included. */
+function lineText(line: MeanwhileLine, labels: Labels): string {
+  const tags = line.media?.length ? storedMediaTags(lineItemParts(line.media, line.id), labels) : [];
+  return [line.text, ...tags].filter(Boolean).join(' ');
+}
+
 /** One window in the labels' words: the place's path and date, then each line with its time and author. */
 export function windowText(
   window: MeanwhileWindow,
@@ -146,7 +159,7 @@ export function windowText(
       author: escapeStored(
         line.self ? (l.you ?? '') : ((line.authorId && nameOf(line.authorId)) ?? line.authorId ?? '')
       ),
-      text: escapeStored(line.text),
+      text: escapeStored(lineText(line, labels)),
     })
   );
   return [handle ? `#${handle} ${head}` : head, ...lines].join('\n');
