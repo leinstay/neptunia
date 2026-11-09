@@ -12,7 +12,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { reproject } from '../src/memory/db/graph.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import { wrongly } from './fixtures/loose-types.ts';
-import { addAccount, addClaim, addDmPlace } from './fixtures/memory-db/opaque-people.ts';
+import { addAccount, addAuthority, addClaim, addDmPlace } from './fixtures/memory-db/opaque-people.ts';
 import {
   directIn,
   mentionIn,
@@ -138,6 +138,30 @@ test('a group turn stores its public collections under the place of its root, a 
     assert.deepEqual(
       unitsOf(rig).filter((unit) => /:root:/.test(unit.subject_id) || /:root:/.test(unit.scope_place_id ?? '')),
       []
+    );
+  });
+});
+
+test('a group turn issues its context for the place row of its room, not one spelled from the chat id', async () => {
+  // Bug: src/turn/inputs.ts spelled `<iface>:channel:<id>`, so a room stored under an opaque id got a context of no place.
+  await withFakes({ owners: ['u1'], names: ['one'] }, async (rig) => {
+    const one = await rig.connect('one', [{ id: 'g1', name: 'Alpha' }]);
+    seedOver(rig, (db) => {
+      addAuthority(db, 'one', 'one/global');
+      db.prepare(
+        `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, chat, scope_kind)
+         VALUES ('place:opaque-r1', 'one', 'channel', 'r1', 'channel:r1', 'one/global', 1, 'group', 'group')`
+      ).run();
+    });
+    seedRoom(one, 'r1', 'g1');
+    await mentionIn(one, 'r1', 'g1', 'm1');
+    await waitFor(() => postedIn(one, 'r1').length > 0, 'the answer in the room');
+    const issued = rig.rows(
+      "SELECT DISTINCT destination_place_id AS place FROM execution_contexts WHERE mode = 'outward'"
+    );
+    assert.deepEqual(
+      issued.map((row) => row.place),
+      ['place:opaque-r1']
     );
   });
 });

@@ -137,9 +137,17 @@ test("a lesson's teacher is the teacher's meta-person and the place's notes come
 test("a read's direct chat context names the person its resolver gives, never a spelled one", () => {
   // Bug: the spec names `person:cli:owner`, which no row holds, for the owner's command line chat.
   const asked: Array<string> = [];
-  const spec = readContextSpec('cli', 'discord', 'owner', 'owner', (iface, native) => {
-    asked.push(`${iface} ${native}`);
-    return 'person:00000000-0000-4000-8000-000000000001';
+  const spec = readContextSpec({
+    chatIface: 'cli',
+    home: 'discord',
+    chatId: 'owner',
+    privateAccountId: 'owner',
+    personOf: (iface, native) => {
+      asked.push(`${iface} ${native}`);
+      return 'person:00000000-0000-4000-8000-000000000001';
+    },
+    dmPlaceOf: () => null,
+    chatPlaceOf: () => null,
   });
   assert.deepEqual(asked, ['cli owner']);
   assert.deepEqual(spec, { iface: 'cli', kind: 'dm', person: 'person:00000000-0000-4000-8000-000000000001' });
@@ -147,15 +155,37 @@ test("a read's direct chat context names the person its resolver gives, never a 
 
 test("a read's direct chat context of a partner no row names reads as the interface's group", () => {
   // Bug: the resolver finds no person, and the spec names none, so issuing the context throws and the turn reads nothing.
-  const spec = readContextSpec(
-    'discord',
-    'discord',
-    'c1',
-    '700',
-    () => null,
-    () => null
-  );
+  const spec = readContextSpec({
+    chatIface: 'discord',
+    home: 'discord',
+    chatId: 'c1',
+    privateAccountId: '700',
+    personOf: () => null,
+    dmPlaceOf: () => null,
+    chatPlaceOf: () => 'place:room',
+  });
   assert.deepEqual(spec, { iface: 'discord', kind: 'group', destination: null });
+});
+
+test("a read's group context is issued for the place the chat's row holds, never one spelled from the chat id", () => {
+  // Bug: the destination was spelled `<iface>:channel:<id>`, a place no row holds when the room's id is opaque.
+  const asked: Array<string> = [];
+  const spec = readContextSpec({
+    chatIface: 'discord',
+    home: 'discord',
+    chatId: 'c1',
+    privateAccountId: null,
+    personOf: () => null,
+    dmPlaceOf: () => null,
+    chatPlaceOf: (iface, native) => {
+      asked.push(`${iface} ${native}`);
+      return 'place:opaque-room';
+    },
+  });
+  assert.deepEqual(
+    [asked, spec],
+    [['discord c1'], { iface: 'discord', kind: 'group', destination: 'place:opaque-room' }]
+  );
 });
 
 /** A service over a database seeded by `seed`, closed after `body`. */
@@ -367,14 +397,15 @@ test('the partner of a direct chat is read from the stored place its audience na
 
 test("a read's direct chat context of a meta-person reads the lines of the account's direct chat", () => {
   // Bug: the spec names no place, a meta-person spells none, so the issued context reads nothing private.
-  const spec = readContextSpec(
-    'discord',
-    'discord',
-    'c1',
-    '700',
-    () => META,
-    (iface, native) => `${iface}:dm:${native}`
-  );
+  const spec = readContextSpec({
+    chatIface: 'discord',
+    home: 'discord',
+    chatId: 'c1',
+    privateAccountId: '700',
+    personOf: () => META,
+    dmPlaceOf: (iface, native) => `${iface}:dm:${native}`,
+    chatPlaceOf: () => null,
+  });
   const ctx = issueContext({ ...spec, now: () => NOW });
   assert.equal(allowedAudience({ audience_id: dmAudienceId('discord:dm:700') }, ctx), true);
 });
