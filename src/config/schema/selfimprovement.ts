@@ -48,7 +48,7 @@ export const SELFIMPROVEMENT: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/behavior/inner/settings.ts',
     'default': 'at 03:00',
     'text':
-      "When the selfimprovement wake falls due: daily UTC times such as `at 03:00` or `every 6h`, after the watcher's run so the wake carries its report. `neptunia services selfimprovement setup` writes it, and a value that means nothing reads as the default",
+      'When the selfimprovement wake falls due: daily UTC times such as `at 03:00` or `every 6h`. `neptunia services selfimprovement setup` writes it, and a value that means nothing reads as the default',
   },
   {
     'key': 'selfimprovement.failuresPerShape',

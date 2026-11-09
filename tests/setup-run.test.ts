@@ -86,7 +86,7 @@ test('the steps run in a fixed order: folders, keys file, units, linger, core', 
   // Bug: the core is started before its units exist, or the units are written before the folders they point at.
   // Changed: SETUP_STEPS gains the self-development step after the core (spec 2026-11-02, PR 5 "Forks").
   // Changed again for spec 2026-11-02 PR 5 "Several subharnesses": the four steps that ask come before the units, so
-  // the units bind the backends just connected and the watcher timer takes the hour just given; the core is last.
+  // the units bind the backends just connected; the core is last.
   assert.deepEqual(
     [...SETUP_STEPS],
     // Changed: the interfaces step asks after the key file, because interfaces own their token and server list now.
@@ -508,12 +508,11 @@ test('a refused self-development step leaves the run ok, stores no repository an
 });
 
 // The subharness, mechanics and watcher steps (spec 2026-11-02, PR 5 "Several subharnesses", "The three ticking
-// mechanics", "The watcher is a fourth ticking mechanic"): asked before the units are written, so the units bind the
-// backends just connected and the watcher timer takes the hour just given.
+// mechanics"): asked before the units are written, so the units bind the backends just connected.
 
 test('the questions of the subharness, the mechanics and the watcher come before the units, and the core comes last', () => {
-  // Catches: the watcher hour or the backends are asked after the units were rendered, so the timer and the agent units
-  // carry the old values until a second setup run.
+  // Catches: the backends are asked after the units were rendered, so the agent units carry the old values until a
+  // second setup run.
   const at = (step: string): number => SETUP_STEPS.findIndex((one) => one === step);
   for (const step of ['subharness', 'mechanics', 'watcher']) {
     assert.notEqual(at(step), -1, step);
@@ -534,16 +533,18 @@ test('without a terminal the subharness, mechanics and watcher steps are skipped
   assert.deepEqual(chat, ['/keys add']);
 });
 
-test('the watcher hour given in a setup run is in the timer the same run writes', async () => {
-  // Catches: the units are rendered before the watcher step, or without watcher.at, so the timer keeps 00:00.
+test('the watcher route given in a setup run is stored, and no watcher timer is written', async () => {
+  // Catches: the step still asks for a switch and an hour, so the answers land in the wrong questions, or a unit that
+  // nothing starts any more is installed beside the core.
+  // Changed: the watcher runs on /doctor watcher run (owner, 2026-11-09); the step asks only the backend and the model.
   const { options, deps, unitDir } = rig();
   writeKeysFile(options.privateDir, { subharness: { backends: ['codex'], key: null, modes: {} } });
-  // Changed: the watcher's source must be installed and logged in, whatever the stored list says.
   fakeVendor(options.privateDir, 'codex', { loggedIn: true });
-  // Changed: the first three answers decline the interface step, the YouTube key and quick search, which ask before the watcher.
-  const answers = ['no', '', '', 'on', '05:30', 'codex', ''];
+  // The first three answers decline the interface step, the YouTube key and quick search, which ask before the watcher.
+  const answers = ['no', '', '', 'codex', 'model-w'];
   const report = await runSetup(options, { ...deps, ask: () => Promise.resolve(answers.shift() ?? '') });
   assert.equal(report.steps.find((step) => step.step === 'watcher')?.state, 'done');
-  const timer = fs.readFileSync(path.join(unitDir, 'neptunia-watcher.timer'), 'utf8');
-  assert.deepEqual(unitValues(timer, 'OnCalendar'), ['*-*-* 05:30:00 UTC']);
+  assert.equal(readKeysFile(options.privateDir).subharness.models?.watcher, 'model-w');
+  assert.equal(fs.existsSync(path.join(unitDir, 'neptunia-watcher.timer')), false);
+  assert.equal(fs.existsSync(path.join(unitDir, 'neptunia-watcher.service')), false);
 });

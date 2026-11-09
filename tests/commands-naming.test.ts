@@ -1,5 +1,5 @@
 // The public names of the owner's commands after the naming policy (the command naming spec of 2026-11-04): `services`,
-// `routes` and `interfaces` are plural collections, `/logs watcher` reads the watcher's reports, `/doctor` holds the
+// `routes` and `interfaces` are plural collections, `/doctor watcher` reads the watcher's reports, `/doctor` holds the
 // checks `/health` had, and `/health`, `/report`, `/wakes` and the singular spellings are refused with the new spelling
 // and run nothing. Only the table and its two parsers are used (src/interface/commands/table.ts, bin/neptunia-request.ts),
 // with no core and no child process, so the chat's line and the shell's argv are compared word for word. Parsed names
@@ -97,7 +97,6 @@ test('the help panel lists the plural collections and none of the retired comman
 
 /** One command of the family, how its parsed name ends and the arguments it must carry. */
 const SERVICE_LINES: ReadonlyArray<{ words: string; tail: string; args: Record<string, string> }> = [
-  { words: 'watcher status', tail: 'watcher.status', args: {} },
   { words: 'heartbeat status', tail: 'heartbeat.status', args: {} },
   { words: 'selfreflection enable', tail: 'selfreflection.enable', args: {} },
   { words: 'selfimprovement disable', tail: 'selfimprovement.disable', args: {} },
@@ -106,9 +105,7 @@ const SERVICE_LINES: ReadonlyArray<{ words: string; tail: string; args: Record<s
     tail: 'heartbeat.setup',
     args: { every: '3h', jitter: '30m' },
   },
-  { words: 'watcher setup --at 00:00,12:00', tail: 'watcher.setup', args: { at: '00:00,12:00' } },
-  { words: 'watcher trigger', tail: 'watcher.trigger', args: {} },
-  { words: 'watcher cancel', tail: 'watcher.cancel', args: {} },
+  { words: 'heartbeat setup --at 00:00,12:00', tail: 'heartbeat.setup', args: { at: '00:00,12:00' } },
   {
     words: 'watcher evidence --from 2026-11-04T00:00:00Z --cursor c1',
     tail: 'watcher.evidence',
@@ -129,7 +126,8 @@ for (const { words, tail, args } of SERVICE_LINES) {
   });
 }
 
-test('services takes the four mechanisms and the list, and no process unit as a mechanism', () => {
+test("services takes the three mechanisms, the list and the watcher agent's reads, and no process unit", () => {
+  // Changed: the watcher's own commands moved to `/doctor watcher` (owner, 2026-11-09); its evidence reads stay.
   // Catches: the system units (core, agent runners) slip into the scheduled mechanisms, or a fifth mechanism appears.
   const services = COMMANDS.find((command) => command.name === 'services');
   assert.ok(services);
@@ -156,9 +154,9 @@ for (const words of [
 
 for (const line of [
   '/services heartbeat setup --every 0h',
-  '/services watcher setup --at 25:00',
-  '/services watcher setup --every 6h --jitter 5m',
-  '/services watcher setup --at 00:00 --every 6h',
+  '/services heartbeat setup --at 25:00',
+  '/services selfreflection setup --every 6h --jitter 5m',
+  '/services heartbeat setup --at 00:00 --every 6h',
 ]) {
   test(`the parse still refuses "${line}"`, () => {
     // Catches: the rename drops the check on setup flags, so a bad schedule reaches the handler.
@@ -202,27 +200,15 @@ for (const line of RETIRED) {
 
 // ---- /logs -----------------------------------------------------------------------------------------------------------
 
-for (const [words, args] of [
-  ['watcher', {}],
-  ['watcher 2026-11-03', { target: '2026-11-03' }],
-  ['watcher run-71', { target: 'run-71' }],
-] as const) {
-  test(`/logs ${words} reads the watcher's reports, in the chat's line and in argv`, () => {
-    // Catches: the report reader has no home under /logs, or the date or run lands in the journal's options.
+for (const words of ['watcher', 'watcher 2026-11-03', 'watcher run-71']) {
+  test(`/logs ${words} is refused, in the chat's line and in argv`, () => {
+    // Changed: the reports moved to `/doctor watcher` (owner, 2026-11-09).
+    // Catches: the old reader stays under /logs, or the word reaches journalctl as a filter.
     const [chat, shell] = both(words, 'logs');
-    assert.deepEqual(shell, chat);
-    const parsed = assertAccepted(chat);
-    assert.deepEqual(parsed.args, args);
+    assertRefused(chat);
+    assertRefused(shell);
   });
 }
-
-test('/logs watcher is another operation than the journal and shares nothing with its options', () => {
-  // Catches: the watcher selector is read as journal words, so `/logs watcher` opens journalctl.
-  const watcher = assertAccepted(parseCommandLine('/logs watcher 2026-11-03'));
-  const journal = assertAccepted(parseCommandLine('/logs errors'));
-  assert.notEqual(watcher.name, journal.name);
-  assert.equal('options' in watcher.args, false);
-});
 
 for (const [line, options] of [
   ['/logs', undefined],
@@ -324,9 +310,9 @@ test('a key never goes on the command line of keys add, and stdin takes it', () 
 
 test('--secret-stdin on a leaf that asks for no secret stays plain text', () => {
   // Catches: the new families take the flag as a switch where it is an ordinary word.
-  const request = parseRequest(['logs', 'watcher', '--secret-stdin']);
+  // Changed: `/logs watcher` is gone (owner, 2026-11-09), so the plain leaf under test is `/memory recent`.
+  const request = parseRequest(['memory', 'recent', '--secret-stdin']);
   assert.equal(request.secretStdin, false);
-  if (request.parsed.ok) assert.equal(request.parsed.args.target, '--secret-stdin');
 });
 
 test('an unknown plural is no command and no prompt for her', () => {

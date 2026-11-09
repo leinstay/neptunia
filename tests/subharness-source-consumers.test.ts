@@ -13,7 +13,6 @@ import { subharnessCommand } from '../src/interface/commands/subharness.ts';
 import { unitText } from '../src/setup/install.ts';
 import type { UnitTarget } from '../src/setup/install.ts';
 import { watcherStep } from '../src/setup/watcher.ts';
-import { serviceFamily } from '../src/service/commands.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
 import { routeOfAgent } from '../src/subharness/control.ts';
 import { updateSubharness } from '../src/subharness/install.ts';
@@ -162,10 +161,7 @@ test('the watcher step takes an installed, authenticated source the old list omi
   // Catches: setup refuses a logged-in backend because the enable step that fed the list is gone.
   const privateDir = storeWith({ backends: [] });
   fakeVendor(privateDir, 'claude', { loggedIn: true });
-  const outcome = await watcherStep(
-    { rootDir: ROOT, privateDir },
-    watcherRig(privateDir, ['on', 'every 6h', 'claude', 'sonnet'])
-  );
+  const outcome = await watcherStep({ rootDir: ROOT, privateDir }, watcherRig(privateDir, ['claude', 'sonnet']));
   assert.equal(outcome.state, 'done');
   assert.equal(readRouting(privateDir).subharness.uses.watcher, 'claude');
 });
@@ -174,33 +170,8 @@ test('the watcher step refuses a source that is installed and not logged in', as
   // Catches: installed alone passes as available, so the watcher is switched on over a backend that cannot answer.
   const privateDir = storeWith({ backends: ['claude'] });
   fakeVendor(privateDir, 'claude');
-  const outcome = await watcherStep(
-    { rootDir: ROOT, privateDir },
-    watcherRig(privateDir, ['on', 'every 6h', 'claude', 'sonnet'])
-  );
+  const outcome = await watcherStep({ rootDir: ROOT, privateDir }, watcherRig(privateDir, ['claude', 'sonnet']));
   assert.equal(outcome.state, 'refused');
-});
-
-test('/service reads the watcher ready when its role names a source, whatever the old list holds', async () => {
-  // Catches: status keeps reporting "no backend is connected" from a list nothing writes any more.
-  const privateDir = storeWith({ uses: { watcher: 'claude' } });
-  fakeVendor(privateDir, 'claude', { loggedIn: true });
-  const answer = await serviceFamily(
-    {
-      rootDir: ROOT,
-      privateDir,
-      dataDir: privateDir,
-      config: () => ({}),
-      now: () => 0,
-      env: { NEPTUNIA_UNIT_SCOPE: 'user' },
-      run: () => Promise.resolve({ code: 0, stdout: 'inactive', stderr: '' }),
-      coreUp: false,
-      report: () => ({ text: '', status: 'ok' }),
-    },
-    'service.watcher.status',
-    {}
-  );
-  assert.equal(answer.text.includes('no subharness backend is connected'), false);
 });
 
 test('the features row reads the subharness on with an authenticated source and names no enable command', async () => {

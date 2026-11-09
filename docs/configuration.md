@@ -396,8 +396,6 @@ The engine proxy is described in [Proxy](proxy.md).
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `watcher.enabled` | boolean | `false` | Whether the deployment runs the watcher, which only `true` turns on. `neptunia services watcher enable` and `disable` move it with the timer | `src/watcher/settings.ts` |
-| `watcher.schedule` | string | `"at 00:00"` | When the watcher runs: daily UTC times such as `at 00:00,12:00`, or `every 6h`. `neptunia services watcher setup` writes it and renders `neptunia-watcher.timer`, and a value that means nothing reads as the default | `src/watcher/settings.ts` |
 | `watcher.degradedAfterMinutes` | number | `60` | Minutes a route of the core may stay down before `services watcher evidence` lists it under `routes`: the engine proxy, the YouTube check and a harness login, read from the core journal | `src/watcher/settings.ts` |
 
 ## selfimprovement
@@ -409,7 +407,7 @@ The engine proxy is described in [Proxy](proxy.md).
 | `selfimprovement.base` | string | `"main"` | The branch her worktrees start from and her pull requests target | `src/selfimprovement/settings.ts` |
 | `selfimprovement.checkout` | string, null | `null` | The absolute path of the dev checkout the development worker works on: its working repository, with one worktree per task under `.worktrees/`. The worker's own code runs from the install. `neptunia setup` asks for the folder and clones `selfimprovement.repository` into it when it is empty, and it and the worker refuse the folder the engine runs from. Setup renders no development unit while it is unset, relative or the deployed checkout itself | `src/setup/run.ts` |
 | `selfimprovement.repository` | string, null | `null` | The repository her pull requests open against and her branches are pushed to, as `owner/name`. `neptunia setup` asks for it and stores it only when the system's gh login can push there, so someone else's installation names a fork. While it is unset a filed task blocks with that reason | `src/selfimprovement/settings.ts` |
-| `selfimprovement.schedule` | string | `"at 03:00"` | When the selfimprovement wake falls due: daily UTC times such as `at 03:00` or `every 6h`, after the watcher's run so the wake carries its report. `neptunia services selfimprovement setup` writes it, and a value that means nothing reads as the default | `src/behavior/inner/settings.ts` |
+| `selfimprovement.schedule` | string | `"at 03:00"` | When the selfimprovement wake falls due: daily UTC times such as `at 03:00` or `every 6h`. `neptunia services selfimprovement setup` writes it, and a value that means nothing reads as the default | `src/behavior/inner/settings.ts` |
 | `selfimprovement.failuresPerShape` | number | `3` | How many chains of one shape must fail in a UTC day to raise a selfimprovement wake with that cause | `src/behavior/inner/settings.ts` |
 | `selfimprovement.tools` | string, array | `"*"` | The tools a selfimprovement wake may call: `"*"` for every granted tool or a list of tool names | `src/tools/access.ts` |
 | `selfimprovement.maxActs` | number, null | `null` | The most actions a selfimprovement wake may take; null: no cap | `src/tools/access.ts` |

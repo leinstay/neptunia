@@ -1,7 +1,7 @@
-// `neptunia worker watcher` (deploy/neptunia-watcher.service): one inspection (src/watcher/inspection.ts) through the
-// subharness's backend, in the mode of `watcher`, working in the checkout. It files nothing. The exit code is 0 for a
-// committed report, for a cancelled run, for a run already in progress and while `watcher.enabled` is false. It is 1 for
-// a failed run, with the code on stderr.
+// `neptunia worker watcher`, which the core starts detached for `/doctor watcher run` (src/watcher/doctor.ts): one
+// inspection (src/watcher/inspection.ts) through the subharness's backend, in the mode of `watcher`, working in the
+// checkout. It adopts the run the core claimed. It files nothing. The exit code is 0 for a committed report, for a
+// cancelled run and for a run already in progress, and 1 for a failed run, with the code on stderr.
 
 import path from 'node:path';
 import { listAgents, promptFilesOf } from '../src/agent-runner/profiles.ts';
@@ -19,15 +19,8 @@ import { runInspection } from '../src/watcher/inspection.ts';
 import type { InspectionDeps } from '../src/watcher/inspection.ts';
 import { moneyFacts, moneyKeysOf, requestsTodayOf } from '../src/watcher/money.ts';
 import type { MoneyFacts } from '../src/watcher/money.ts';
-import {
-  WATCHER_RUN_TIMEOUT_MS,
-  currentRun,
-  defaultProcessStart,
-  finishRun,
-  runStoreOf,
-} from '../src/watcher/lifecycle.ts';
+import { WATCHER_RUN_TIMEOUT_MS, defaultProcessStart, runStoreOf } from '../src/watcher/lifecycle.ts';
 import { reportsDirOf, watcherDir } from '../src/watcher/read.ts';
-import { watcherSettings } from '../src/watcher/settings.ts';
 
 type Where = { rootDir: string; privateDir: string; dataDir: string };
 
@@ -82,18 +75,11 @@ export async function runWatcherWorker(where: Where): Promise<number> {
   const config = readConfig(where.rootDir, { privateDir: where.privateDir });
   const reportsDir = reportsDirOf(where.privateDir, watcherDir(config));
   const store = runStoreOf(path.dirname(reportsDir));
-  if (!watcherSettings(config).enabled) {
-    // A trigger that came before the disable leaves a claim only this start can end.
-    const pending = currentRun(store);
-    if (pending?.owner === null) finishRun(store, pending.runId, { state: 'cancelled', code: 'disabled' });
-    console.log('watcher: off (watcher.enabled is false)');
-    return 0;
-  }
   const done = await runInspection({
     store,
     reportsDir,
     self: { pid: process.pid, startId: defaultProcessStart(process.pid) ?? 'unknown' },
-    source: 'timer',
+    source: 'manual',
     timeoutMs: WATCHER_RUN_TIMEOUT_MS,
     promptFiles: promptFiles(where),
     retryPromptFiles: [path.join(where.rootDir, 'agents', 'watcher', 'retry.md')],

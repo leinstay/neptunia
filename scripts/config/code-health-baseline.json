@@ -136,10 +136,6 @@
       "deep": 0,
       "repeated": 1
     },
-    "tests/commands-naming.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/commands-service.test.ts": {
       "deep": 0,
       "repeated": 2
@@ -1017,7 +1013,7 @@
       "repeated": 0
     },
     "tests/setup-watcher.test.ts": {
-      "deep": 2,
+      "deep": 1,
       "repeated": 0
     },
     "tests/skills-task-activation.test.ts": {

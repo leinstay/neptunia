@@ -4,23 +4,19 @@ The watcher is an agent that reads project and persona evidence and writes a rep
 
 Its shared definition lives in `agents/watcher/`. Customize the prompt and supported profile fields under `data/agents/watcher/`, just like the [other agents](development-agents.md). Reports live under `data/agents/watcher/reports/`.
 
-## Configure and run
+## Run and read
 
-`neptunia services watcher setup --at 00:00,12:00` or `--every 6h` sets `watcher.schedule` and renders `neptunia-watcher.timer`. `neptunia services watcher enable` and `disable` move `watcher.enabled` and the timer. The full `neptunia setup` asks for the same schedule, and for the backend and the model. See [the service commands](cli.md#scheduled-services).
+The watcher runs only when the owner asks. `/doctor watcher run` goes to the core, which claims one run and starts `neptunia worker watcher` (`bin/neptunia-watcher.ts`) in its own process group with no terminal (`workerStarter` in `src/watcher/doctor.ts`), and answers at once with the report's number and start time. Closing the chat or the terminal stops nothing. A run already going is answered instead, and nothing more starts. With no core up the command is refused and nothing is claimed. The worker invokes the agent and can spend model allowance. `neptunia setup` asks for the watcher's backend and model, and nothing else of it.
 
-The timer starts `neptunia worker watcher` from `bin/neptunia-watcher.ts`, which invokes the agent and can spend model allowance, and exits at once while `watcher.enabled` is false. Enabling starts no worker. The timer keeps `Persistent=true`, so a machine that was off gets one catch-up inspection at its next start, however many slots passed.
+The other four forms read the files, with the core up or down, and ask no model. `/doctor watcher stop` asks the running run to stop. `/doctor watcher list` shows every report, the newest first, each with its number, its start and finish to the minute in UTC, and its state, with the code of a failure. `/doctor watcher read` opens the newest committed report and `/doctor watcher <n>` opens report `n`, each under its number and dates. A number is the place of a run in the order of the starts, the oldest first, so a later run never changes it. A report written before run records has no start time, goes by its day and keeps its place among the others.
 
 ## One run
 
-`src/watcher/lifecycle.ts` keeps every inspection as one record under `data/agents/watcher/runs/`, with an identity and one of the states `running`, `stopping`, `succeeded`, `failed` and `cancelled`. Manual and timer starts take the same claim under one lock, so a start during a run answers that run and spawns nothing. A claim records the pid and the start identity of its process. A claim whose process is gone, or whose pid now belongs to another process, reads as finished. Recovery signals nothing, and it ends as `succeeded` when the run had already committed its report and otherwise as `failed` with the code `holder-gone`.
+`src/watcher/lifecycle.ts` keeps every inspection as one record under `data/agents/watcher/runs/`, with an identity and one of the states `running`, `stopping`, `succeeded`, `failed` and `cancelled`. Every start takes the same claim under one lock, so a start during a run answers that run and spawns nothing. The core claims with no owner, and the worker adopts the claim and keeps its identity. A worker that cannot be started fails the run at once with the code `start-failed`. A claim records the pid and the start identity of its process. A claim whose process is gone, or whose pid now belongs to another process, reads as finished, and so does a claim no worker took within `WATCHER_RUN_TIMEOUT_MS`. Recovery signals nothing, and it ends as `succeeded` when the run had already committed its report and otherwise as `failed` with the code `holder-gone`. The worker is a child of the core, so a restart of the core's unit ends it, and the run then reads as `holder-gone`.
 
-`neptunia services watcher trigger` refuses a disabled watcher. On an enabled one it claims a run with no owner, starts the worker with `systemctl start --no-block` and answers `run:` and `state:`. The worker adopts that claim and keeps its identity. A start the manager refuses fails the run at once, and a worker that never comes leaves the claim stale after `WATCHER_RUN_TIMEOUT_MS`.
+`/doctor watcher stop` writes `stopping` into the record, and `src/watcher/inspection.ts` reads it once a second. The abort signal reaches the backend, which kills the agent's process group. The run checks again between its phases, so a stop ends the validation and the commit. Once the report is committed the run ends as `succeeded`, whatever a late stop said. Output of an interrupted agent is kept nowhere. A stop before the worker adopted the claim leaves it in `stopping`, and the worker that comes ends it as `cancelled` without asking the agent.
 
-`neptunia services watcher cancel` writes `stopping` into the record, and `src/watcher/inspection.ts` reads it once a second. The abort signal reaches the backend, which kills the agent's process group. The run checks again between its phases, so a cancel stops the validation and the commit. Once the report is committed the run ends as `succeeded`, whatever a late cancel said. Output of an interrupted agent is kept nowhere. A trigger cancelled before its worker starts leaves the claim in `stopping`: the worker that comes ends it as `cancelled` without asking the agent, and if none comes the claim goes stale after the same timeout. A worker that finds the watcher disabled ends a waiting claim as `cancelled` with the code `disabled`. `disable` stops future runs and leaves a run in progress alone, and `cancel` leaves the flag and the timer alone.
-
-`WATCHER_RUN_TIMEOUT_MS` is 60 minutes and bounds the agent. A run past it fails with the code `timeout`. `TimeoutStartSec=70min` in `deploy/neptunia-watcher.service` leaves ten minutes for the commit, and the manager ends a worker that hangs past them.
-
-The worker exits `0` for a committed report and for a cancelled run, and `1` for a failed run.
+`WATCHER_RUN_TIMEOUT_MS` is 60 minutes and bounds the agent. A run past it fails with the code `timeout`. The worker exits `0` for a committed report and for a cancelled run, and `1` for a failed run.
 
 ## Reports and versions
 
@@ -30,7 +26,7 @@ The runner checks the answer before it saves anything, and a refusal's detail ne
 
 Each successful run commits an immutable file `reports/runs/<day>_<commit ms>_<run id>.md`, and `reports/<day>.md` is a link swapped atomically to the newest of its day, so a failed or interrupted attempt replaces nothing. A plain `<day>.md` from an older installation reads as before, with no run identity, and stays readable as the run `legacy-<day>` once a run commits over it. The day of a report is the UTC day of its claim.
 
-`neptunia logs watcher` reads the newest report, a day or a run identity, and a day's report names the other runs of that day. The persona's `watcher.read` tool takes `day` or `run` and uses stored reports rather than launching another inspection. The brief in `src/watcher/brief.ts` carries the observation interval, the facts of the install, the [money](#money-and-limits) and the last seven reports: the newest of each earlier day as `<report day="...">`, then every kept report of the run's own day as `<report day="..." run="...">`.
+The persona's `watcher.read` tool takes `day` or `run` and uses stored reports rather than launching another inspection. The brief in `src/watcher/brief.ts` carries the observation interval, the facts of the install, the [money](#money-and-limits) and the last seven reports: the newest of each earlier day as `<report day="...">`, then every kept report of the run's own day as `<report day="..." run="...">`.
 
 ## Finding risk
 
@@ -111,37 +107,14 @@ What cannot be read is a row of `unavailable` with its category, its `where` and
 | `youtube` | `youtube-check: status` with `page` or `blocked` | `youtube-check: status` with `ytdlp` or `api` |
 | `harness-login`, named by its backend | `subscription: run failed` with `subscription-login` or `not-logged-in` | `subscription: step` of the same backend |
 
-`down` lists each route that has been down longer than `watcher.degradedAfterMinutes` (default `60`), with its `name`, `since` and `minutes`. The proxy is left out while `proxy.enabled` is not `true`, since `/proxy off` logs nothing. `llm: route switched` logs no recovery, so `switches` counts each role's switches from one route to another inside the observation window instead, with the time of the last. A journal the worker cannot read sets `unavailable` to `journal-permission`, `journalctl-exit-<code>` or `journalctl-<errno>`, and `down` stays empty. The watcher's unit holds the group `systemd-journal` for this read.
+`down` lists each route that has been down longer than `watcher.degradedAfterMinutes` (default `60`), with its `name`, `since` and `minutes`. The proxy is left out while `proxy.enabled` is not `true`, since `/proxy off` logs nothing. `llm: route switched` logs no recovery, so `switches` counts each role's switches from one route to another inside the observation window instead, with the time of the last. A journal the worker cannot read sets `unavailable` to `journal-permission`, `journalctl-exit-<code>` or `journalctl-<errno>`, and `down` stays empty. The core's unit holds the group `systemd-journal` in the system scope for this read, and a user unit cannot hold it.
 
-## What the system enforces
+## What holds the agent
 
-`deploy/neptunia-watcher.service` states these limits to the kernel, as `src/setup/units.ts` renders them while the watcher's mode is `read` or `write`.
-
-| Setting | What it does |
-|---|---|
-| `ProtectSystem=strict` | The whole file system is read-only, the install and `data/memory.db` included |
-| `ReadWritePaths=` | `data/agents/watcher` and `data/subharness` stay writable, each only if it exists. `services watcher enable` makes the first |
-| `SupplementaryGroups=systemd-journal` | The unit reads the journal of the other units. Only a system unit carries it, because a user manager refuses the line |
-| `NoNewPrivileges=yes` | No child gains privileges through a setuid binary |
-| `PrivateTmp=yes` | The unit has its own `/tmp` |
-| `InaccessiblePaths=-<path>` | One entry per other client's `clients/<name>.token` and per interface's `interfaces/<name>/credentials.json`, so a child of the unit cannot connect to the core as the owner or read the Discord token. The unit's own token stays readable. The leading `-` lets the unit start before a file exists |
-| `Environment=GH_CONFIG_DIR=<path>` | The watcher's unit alone carries it. `gh` finds its login through this variable, and the path is `data/agents/watcher/no-gh-login`, a folder that holds no login, so a `gh` that the worker or its child starts reads nothing |
-
-The mode `full` drops `ProtectSystem=`, `ReadWritePaths=` and `InaccessiblePaths=`, and `sudo` also drops `NoNewPrivileges=`, as for the [agent units](errands.md#modes).
-
-Other limits are promises of a program, and the kernel does not hold them:
-
-- The unit runs as the installing user, the same user as the core. It can read what that user reads, the memory database and `keys.json` among them, except the paths in `InaccessiblePaths=`.
-- `keys.json` stays readable because the worker reads the agent's route (backend, model, effort) from it at each run. The core's own keys in that file are reachable for the same reason.
-- A client made after the unit was rendered is not hidden until `neptunia setup` renders the unit again.
-- The network is open. The unit has no address rules.
-- The agent can write inside the two writable folders: earlier reports, run records, a local `prompt.md` and the backends' binaries and logins. "Immutable" for a report means no code path changes it.
-- The backend's read-only mode and the prompt's ban on edits are the backend's and the model's.
-
-In a user unit `ProtectSystem=` needs unprivileged user namespaces from the kernel. The core's socket stays reachable on a read-only mount. Reading `memory.db` from there depends on the core holding its `-wal` and `-shm` files open, so a read may fail while the core is down.
+The worker runs inside the core's unit, `deploy/neptunia-core.service`, as the core's user and under its sandbox: `ProtectSystem=strict` with the data folder writable, `NoNewPrivileges=true` and `PrivateTmp=true`. It can read what the core reads, the memory database, `keys.json` and the clients' tokens among them. `workerStarter` gives it no `GH_TOKEN` or `GITHUB_TOKEN` and a `GH_CONFIG_DIR` of `data/agents/watcher/no-gh-login`, a folder that holds no login, so a `gh` it starts reads nothing. The network is open. The agent can write in the data folder, earlier reports and run records among them, and "immutable" for a report means no code path changes it. The backend's read-only mode and the prompt's ban on edits are the backend's and the model's.
 
 ## Judging a report
 
 When evaluating a watcher, look for findings supported by file paths or recorded events, decisions the owner can act on, and repeated reports of an already tracked issue. A quiet report is useful only if the agent actually had access to the evidence it needed.
 
-Read the implementation in [report validation](../src/watcher/report.ts), [finding risk](../src/watcher/risk.ts), [the run](../src/watcher/lifecycle.ts), [the inspection](../src/watcher/inspection.ts), [the recorded requests](../src/watcher/requests.ts), [the analyzer's work](../src/watcher/analyzer-facts.ts), [the money](../src/watcher/money.ts) and [the transcripts](../src/watcher/transcripts.ts).
+Read the implementation in [report validation](../src/watcher/report.ts), [finding risk](../src/watcher/risk.ts), [the run](../src/watcher/lifecycle.ts), [the doctor commands](../src/watcher/doctor.ts), [the inspection](../src/watcher/inspection.ts), [the recorded requests](../src/watcher/requests.ts), [the analyzer's work](../src/watcher/analyzer-facts.ts), [the money](../src/watcher/money.ts) and [the transcripts](../src/watcher/transcripts.ts).

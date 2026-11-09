@@ -1,5 +1,6 @@
 // What `neptunia setup` gives the development worker: a unit whose code comes from the install and whose working
-// repository is `selfimprovement.checkout`, and the clients `development` and `watcher` with their tokens. Through
+// repository is `selfimprovement.checkout`, and the client `development` with its token.
+// Changed: setup makes no client `watcher` any more (owner, 2026-11-09). Through
 // `runSetup` with the units step and a fake service manager; the private folder is a temp dir.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -93,8 +94,8 @@ test('the unit cannot write the install, the persona folder whole, or a developm
 
 // ---------- the clients ----------
 
-test('setup provisions the clients development and watcher with their roles and private tokens', async () => {
-  // Catches: the worker and the watcher are installed with no way to reach the board.
+test('setup provisions the client development with its roles and private token, and no watcher', async () => {
+  // Catches: the worker is installed with no way to reach the board, or the watcher keeps a board client it never uses.
   const { options, deps, dataDir } = rig();
   const report = await runSetup(options, deps);
   const clients = clientsOf(dataDir);
@@ -102,18 +103,14 @@ test('setup provisions the clients development and watcher with their roles and 
     [clients.development?.kind, clients.development?.boardRoles, clients.development?.tokenFile],
     ['agent', ['reviewer', 'worker'], 'clients/development.token']
   );
-  assert.deepEqual(
-    [clients.watcher?.kind, clients.watcher?.boardRoles, clients.watcher?.tokenFile],
-    ['agent', ['watcher'], 'clients/watcher.token']
-  );
+  assert.equal(clients.watcher, undefined);
   assert.equal(fs.statSync(path.join(dataDir, 'clients')).mode & 0o777, 0o700);
-  for (const name of ['development', 'watcher']) {
+  for (const name of ['development']) {
     assert.match(tokenOf(dataDir, name), /^[0-9a-f]{64}\n$/);
     assert.equal(fs.statSync(path.join(dataDir, 'clients', `${name}.token`)).mode & 0o777, 0o600);
   }
   const detail = report.steps.find((step) => step.step === 'units')?.detail ?? '';
   assert.match(detail, /development/);
-  assert.match(detail, /watcher/);
   assert.equal(detail.includes(tokenOf(dataDir, 'development').trim()), false, 'a report never holds a token');
 });
 
@@ -121,11 +118,10 @@ test('a second setup changes no token and no entry, and says the clients are the
   // Catches: a rerun of setup rotates the token under a running worker, which closes its link.
   const { options, deps, dataDir } = rig();
   await runSetup(options, deps);
-  const [development, watcher] = [tokenOf(dataDir, 'development'), tokenOf(dataDir, 'watcher')];
+  const development = tokenOf(dataDir, 'development');
   const entries = clientsOf(dataDir);
   const again = await runSetup(options, deps);
   assert.equal(tokenOf(dataDir, 'development'), development);
-  assert.equal(tokenOf(dataDir, 'watcher'), watcher);
   assert.deepEqual(clientsOf(dataDir), entries);
   assert.equal(again.steps.find((step) => step.step === 'units')?.state, 'already');
 });

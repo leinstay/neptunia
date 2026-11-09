@@ -57,6 +57,10 @@ import { serviceFamily } from '../../service/commands.ts';
 import type { WakeClock } from '../../service/commands.ts';
 import type { ServiceName } from '../../service/schedule.ts';
 import { spawnRun } from '../../setup/install.ts';
+import { watcherDoctor } from '../../watcher/doctor.ts';
+import type { StartWorker } from '../../watcher/doctor.ts';
+import { runStoreOf } from '../../watcher/lifecycle.ts';
+import { reportsDirOf, watcherDir } from '../../watcher/read.ts';
 import type { RunManager } from '../../service/manager.ts';
 import { backendOfRouteName, routeName, routeNamesText } from '../../subharness/route-names.ts';
 import { SUBHARNESS_AGENTS } from '../../subharness/control.ts';
@@ -128,6 +132,8 @@ export type ConsoleDeps = {
   mirrors?: MirrorDesk | null;
   /** How `/services` and `/doctor server` reach the service manager, the machine's own when absent. A test always gives its own. */
   serviceManager?: RunManager;
+  /** How `/doctor watcher run` starts the watcher's worker (src/core.ts gives `workerStarter`); absent, `run` is refused. */
+  startWatcher?: StartWorker;
   /** What the core knows of one of its wakes, for `/services <name> status`. */
   wakeClock?: (name: ServiceName) => WakeClock | null;
   /** The core's proxy monitor for `/proxy` (src/interface/commands/proxy.ts); absent, the route reads `off`. */
@@ -584,6 +590,17 @@ function serviceRun(
   return serviceFamily(wakeClock === undefined ? given : { ...given, wakeClock }, name, args);
 }
 
+/** `/doctor watcher`: the run started by this core, which holds no terminal, and the reads of the same files. */
+function watcherCommand(deps: ConsoleDeps, config: () => unknown, name: string, args: Record<string, unknown>): Answer {
+  const reportsDir = reportsDirOf(deps.privateDir, watcherDir(config()));
+  const store = runStoreOf(path.dirname(reportsDir), () => deps.now());
+  return watcherDoctor(name, args, {
+    store,
+    reportsDir,
+    ...(deps.startWatcher === undefined ? {} : { start: deps.startWatcher }),
+  });
+}
+
 /** The place a command addresses: the one it names, else the only one there is, else none. */
 function placeOf(deps: Pick<ConsoleDeps, 'places'>, args: Record<string, unknown>): string | null {
   const named = text(args.place);
@@ -815,7 +832,7 @@ export function createConsole(deps: ConsoleDeps): {
       const owned = ownCommand(deps, name, args, dialog);
       if (owned !== null) return owned;
       if (name.startsWith(SERVICE_PREFIX)) return serviceRun(deps, config, name, args);
-      if (name === 'logs.watcher') return serviceRun(deps, config, 'service.watcher.report', args);
+      if (name.startsWith('doctor.watcher')) return Promise.resolve(watcherCommand(deps, config, name, args));
       if (name.startsWith(SKILLS_PREFIX)) return skillsCommand(deps.skills, name, args);
       if (isSubharnessCommand(name)) return subharnessCommand(subharnessDeps(deps), name, args);
       return run(name, args, requester);

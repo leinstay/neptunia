@@ -6,7 +6,7 @@
 // processes. A test asserts on exit codes, files, the manager's argv and the `key: value` lines of an answer, never on
 // wording.
 //
-// The manager's scope is the watcher's installed timer: under `$XDG_CONFIG_HOME/systemd/user/` it is the user manager
+// The manager's scope is the core's installed unit: under `$XDG_CONFIG_HOME/systemd/user/` it is the user manager
 // (`systemctl --user`), otherwise the system manager (`sudo systemctl`), and `NEPTUNIA_UNIT_SCOPE=user|system` says it
 // outright. Exit codes: 0 success, 1 an operational failure, 2 bad syntax or missing input.
 import { test } from 'node:test';
@@ -22,15 +22,14 @@ import { localConfigPath } from '../src/config/files.ts';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
 import type { Parsed } from '../src/interface/commands/table.ts';
 import { serviceFamily } from '../src/service/commands.ts';
-import { reportsDirOf, watcherDir } from '../src/watcher/read.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const BIN = join(REPO, 'bin', 'neptunia.ts');
-const MECHANICS = ['heartbeat', 'selfreflection', 'selfimprovement', 'watcher'] as const;
+// Changed: the watcher left the services for `/doctor watcher` (owner, 2026-11-09).
+const MECHANICS = ['heartbeat', 'selfreflection', 'selfimprovement'] as const;
 const WAKES = ['heartbeat', 'selfreflection', 'selfimprovement'] as const;
-const TIMER = 'neptunia-watcher.timer';
-const WORKER = 'neptunia-watcher.service';
+const CORE = 'neptunia-core.service';
 /** The clock of the runs in this process, between the two slots most tests name. */
 const NOW = Date.parse('2026-11-04T10:00:00Z');
 
@@ -79,19 +78,9 @@ if [ -n "$FAKE_FAIL" ] && [ "$1" = "$FAKE_FAIL" ]; then exit 1; fi
 exit 0
 `;
 
-const TIMER_TEXT = `[Unit]
-Description=neptunia watcher
+const CORE_TEXT = '[Unit]\nDescription=neptunia core\n';
 
-[Timer]
-OnCalendar=*-*-* 00:00:00 UTC
-Persistent=true
-Unit=${WORKER}
-
-[Install]
-WantedBy=timers.target
-`;
-
-/** Fresh folders with the settings of `local`, the fake manager on an otherwise empty PATH, and the timer of `scope`. */
+/** Fresh folders with the settings of `local`, the fake manager on an otherwise empty PATH, and the core unit of `scope`. */
 function rig(local: Settings | null = null, scope: Scope = 'user'): Rig {
   const root = tempDir('nep-service-');
   const data = join(root, 'd');
@@ -112,7 +101,7 @@ function rig(local: Settings | null = null, scope: Scope = 'user'): Rig {
   }
   if (scope === 'user') {
     mkdirSync(join(xdg, 'systemd', 'user'), { recursive: true });
-    writeFileSync(join(xdg, 'systemd', 'user', TIMER), TIMER_TEXT);
+    writeFileSync(join(xdg, 'systemd', 'user', CORE), CORE_TEXT);
   }
   return {
     root,
@@ -219,8 +208,6 @@ const changesOf = (calls: ReadonlyArray<string>): Array<string> =>
 
 const managerChanges = (where: Rig): Array<string> => changesOf(where.calls);
 
-const timerText = (where: Rig): string => readFileSync(join(where.xdg, 'systemd', 'user', TIMER), 'utf8');
-
 /** The `key: value` lines of an answer. */
 function fieldsOf(text: string): Map<string, string> {
   const fields = new Map<string, string>();
@@ -247,9 +234,9 @@ for (const { form, parse } of FORMS) {
   test(`${form}: setup --at saves the daily times and answers the timezone and the next times`, async () => {
     // Catches: the answer leaves the owner to work out the UTC offset, or the times are saved under another key.
     const where = rig();
-    const done = await run(where, 'watcher setup --at 00:00,12:00', {}, parse);
+    const done = await run(where, 'heartbeat setup --at 00:00,12:00', {}, parse);
     assert.equal(done.code, 0, done.stderr.slice(0, 300));
-    assert.equal(settingsOf(where).watcher?.schedule, 'at 00:00,12:00');
+    assert.equal(settingsOf(where).heartbeat?.schedule, 'at 00:00,12:00');
     assert.equal(field(done.stdout, 'timezone'), 'UTC');
     const next = momentsOf(field(done.stdout, 'next'));
     assert.ok(next.length >= 2, `several next times: ${next.length}`);
@@ -263,7 +250,7 @@ for (const { form, parse } of FORMS) {
 
 for (const name of MECHANICS) {
   test(`services ${name} setup --every saves one interval and answers times one interval apart`, async () => {
-    // Catches: one of the four keeps its own key or answers a time that is no step of its schedule.
+    // Catches: one of the three keeps its own key or answers a time that is no step of its schedule.
     const where = rig();
     const done = await run(where, `${name} setup --every 6h`);
     assert.equal(done.code, 0, done.stderr.slice(0, 300));
@@ -298,40 +285,37 @@ test('setup takes an interval in minutes', async () => {
 
 test('setup replaces the mode that was there, leaving no second schedule', async () => {
   // Catches: the at and the every of two runs both stay in the file and the evaluation picks one of them.
-  const where = rig({ watcher: { schedule: 'every 6h' } });
-  assert.equal((await run(where, 'watcher setup --at 03:00')).code, 0);
-  assert.equal(settingsOf(where).watcher?.schedule, 'at 03:00');
+  const where = rig({ heartbeat: { schedule: 'every 6h' } });
+  assert.equal((await run(where, 'heartbeat setup --at 03:00')).code, 0);
+  assert.equal(settingsOf(where).heartbeat?.schedule, 'at 03:00');
 });
 
 for (const [what, words, names] of [
-  ['mixed modes', 'watcher setup --at 00:00 --every 6h', '--every'],
-  ['a duplicate slot', 'watcher setup --at 00:00,00:00', '--at'],
-  ['a malformed time', 'watcher setup --at 25:00', '--at'],
+  ['mixed modes', 'heartbeat setup --at 00:00 --every 6h', '--every'],
+  ['a duplicate slot', 'heartbeat setup --at 00:00,00:00', '--at'],
+  ['a malformed time', 'selfreflection setup --at 25:00', '--at'],
   ['a time missing its zero', 'heartbeat setup --at 7:00', '--at'],
   ['a trailing comma', 'heartbeat setup --at 00:00,', '--at'],
   ['a zero interval', 'selfreflection setup --every 0h', '--every'],
   ['a zero interval in minutes', 'selfimprovement setup --every 0m', '--every'],
   ['a negative interval', 'heartbeat setup --every -1h', '--every'],
   ['an interval with no unit', 'heartbeat setup --every 6', '--every'],
-  ['--jitter on the watcher', 'watcher setup --every 6h --jitter 5m', '--jitter'],
   ['--jitter on selfreflection', 'selfreflection setup --every 6h --jitter 5m', '--jitter'],
   ['--jitter on selfimprovement', 'selfimprovement setup --every 6h --jitter 5m', '--jitter'],
   ['--jitter on daily times', 'heartbeat setup --at 06:00 --jitter 5m', '--jitter'],
   ['a negative jitter', 'heartbeat setup --every 3h --jitter -5m', '--jitter'],
-  ['--at with no value', 'watcher setup --at', '--at'],
+  ['--at with no value', 'selfimprovement setup --at', '--at'],
 ] as const) {
   for (const { form, parse } of FORMS) {
     test(`${form}: setup refuses ${what} with exit 2, names ${names} and writes nothing`, async () => {
       // Catches: a value the schedule cannot run is stored, and the service then never falls due, or the manager reloads.
-      const local = { watcher: { enabled: true, schedule: 'at 01:00' }, heartbeat: { schedule: 'every 3h' } };
+      const local = { selfreflection: { enabled: true, schedule: 'at 01:00' }, heartbeat: { schedule: 'every 3h' } };
       const where = rig(local);
       const before = rawSettings(where);
-      const timerBefore = timerText(where);
       const done = await run(where, words, {}, parse);
       assert.equal(done.code, 2, done.out.slice(0, 300));
       assert.ok(done.stderr.includes(names), done.stderr.slice(0, 300));
       assert.equal(rawSettings(where), before);
-      assert.equal(timerText(where), timerBefore);
       assert.deepEqual(managerChanges(where), []);
     });
   }
@@ -365,7 +349,7 @@ for (const { form, parse } of FORMS) {
   test(`${form}: setup with no option names what is missing and saves nothing`, async () => {
     // Catches: the run saves a default where the owner gave none, or the answer leaves him without the flags.
     const where = rig();
-    const done = await run(where, 'watcher setup', {}, parse);
+    const done = await run(where, 'heartbeat setup', {}, parse);
     assert.equal(done.code, 2, done.out.slice(0, 300));
     assert.equal(done.stdout, '');
     assert.ok(done.stderr.includes('--at'), done.stderr.slice(0, 300));
@@ -373,49 +357,6 @@ for (const { form, parse } of FORMS) {
     assert.equal(rawSettings(where), null);
   });
 }
-
-test('watcher setup renders the installed timer with every slot and reloads the manager, starting nothing', async () => {
-  // Catches: the setting moves and the timer keeps its old hour, or the second daily time never reaches systemd.
-  const where = rig({ watcher: { enabled: false } });
-  const done = await run(where, 'watcher setup --at 00:00,12:00');
-  assert.equal(done.code, 0, done.out.slice(0, 300));
-  const text = timerText(where);
-  assert.ok(text.includes('OnCalendar=*-*-* 00:00:00 UTC'), text);
-  assert.ok(text.includes('OnCalendar=*-*-* 12:00:00 UTC'), text);
-  assert.deepEqual(managerChanges(where), ['systemctl --user daemon-reload']);
-});
-
-test('watcher setup --every renders an interval timer in the same one file', async () => {
-  // Catches: the interval gets a timer of its own beside the calendar one, a second scheduler of the same worker.
-  const where = rig({ watcher: { enabled: true } });
-  assert.equal((await run(where, 'watcher setup --every 90m')).code, 0);
-  const text = timerText(where);
-  assert.equal(text.includes('OnCalendar='), false, text);
-  assert.ok(text.includes('OnUnitActiveSec=90min'), text);
-  assert.deepEqual(readdirSync(join(where.xdg, 'systemd', 'user')), [TIMER]);
-});
-
-test('watcher setup whose reload fails reports desired against applied, keeps the setting and exits 1', async () => {
-  // Catches: the command prints the new times as if they ran while systemd still holds the old ones.
-  const where = rig({ watcher: { enabled: true } });
-  const done = await run(where, 'watcher setup --at 05:00', { fail: 'daemon-reload' });
-  assert.equal(done.code, 1, done.out.slice(0, 300));
-  assert.equal(settingsOf(where).watcher?.schedule, 'at 05:00');
-  assert.equal(field(done.out, 'desired'), 'at 05:00');
-  assert.notEqual(field(done.out, 'applied'), 'at 05:00');
-});
-
-test('watcher setup in the system scope installs through sudo and reloads the system manager', async () => {
-  // Catches: the render writes straight to /etc/systemd/system, or reloads the user's manager, which holds no such unit.
-  const where = rig(null, 'system');
-  assert.equal((await run(where, 'watcher setup --at 05:00')).code, 0);
-  assert.ok(
-    where.calls.some((line) => /^sudo install .*neptunia-watcher\.timer$/.test(line)),
-    where.calls.join('\n')
-  );
-  assert.ok(where.calls.includes('sudo systemctl daemon-reload'), where.calls.join('\n'));
-  assert.equal(where.calls.includes('systemctl --user daemon-reload'), false);
-});
 
 for (const name of WAKES) {
   test(`services ${name} setup calls no manager: her wakes run in the core`, async () => {
@@ -469,69 +410,6 @@ test('selfimprovement enable saves the flag with no repository and no backend, a
   assert.match(field(status.stdout, 'readiness'), /^not ready/);
 });
 
-for (const [scope, enable, disable] of [
-  [
-    'user',
-    'systemctl --user enable --now neptunia-watcher.timer',
-    'systemctl --user disable --now neptunia-watcher.timer',
-  ],
-  [
-    'system',
-    'sudo systemctl enable --now neptunia-watcher.timer',
-    'sudo systemctl disable --now neptunia-watcher.timer',
-  ],
-] as const) {
-  test(`watcher enable in the ${scope} scope saves the flag and enables the timer only`, async () => {
-    // Catches: the flag says on while no timer ever fires, or the worker starts at once on enable.
-    const where = rig({ watcher: { enabled: false } }, scope);
-    const done = await run(where, 'watcher enable');
-    assert.equal(done.code, 0, done.out.slice(0, 300));
-    assert.equal(settingsOf(where).watcher?.enabled, true);
-    assert.deepEqual(managerChanges(where), [enable]);
-    assert.equal(where.calls.join('\n').includes(WORKER), false, 'the worker is not touched');
-  });
-
-  test(`watcher disable in the ${scope} scope stops the timer and leaves a running inspection alone`, async () => {
-    // Catches: disable stops the worker, cutting an inspection off, where it should only prevent the next one.
-    const where = rig({ watcher: { enabled: true } }, scope);
-    const done = await run(where, 'watcher disable');
-    assert.equal(done.code, 0, done.out.slice(0, 300));
-    assert.equal(settingsOf(where).watcher?.enabled, false);
-    assert.deepEqual(managerChanges(where), [disable]);
-    assert.equal(where.calls.join('\n').includes(WORKER), false, 'the worker is not touched');
-  });
-
-  test(`a failed watcher enable in the ${scope} scope reports desired against applied and exits 1`, async () => {
-    // Catches: the flag says on and the command claims success while the timer never fires.
-    const where = rig({ watcher: { enabled: false } }, scope);
-    const done = await run(where, 'watcher enable', { fail: 'enable' });
-    assert.equal(done.code, 1, done.out.slice(0, 300));
-    assert.equal(settingsOf(where).watcher?.enabled, true, 'the wish is kept');
-    assert.equal(field(done.out, 'desired'), 'enabled');
-    assert.notEqual(field(done.out, 'applied'), 'enabled');
-  });
-
-  test(`a failed watcher disable in the ${scope} scope reports desired against applied and exits 1`, async () => {
-    // Catches: the owner reads "disabled" while the timer goes on firing inspections.
-    const where = rig({ watcher: { enabled: true } }, scope);
-    const done = await run(where, 'watcher disable', { fail: 'disable' });
-    assert.equal(done.code, 1, done.out.slice(0, 300));
-    assert.equal(settingsOf(where).watcher?.enabled, false, 'the wish is kept');
-    assert.equal(field(done.out, 'desired'), 'disabled');
-    assert.notEqual(field(done.out, 'applied'), 'disabled');
-  });
-}
-
-test('a second watcher enable after a failed one applies the timer and succeeds', async () => {
-  // Catches: "already enabled" short-circuits on the saved flag, so a failed apply can never be repaired.
-  const where = rig({ watcher: { enabled: false } });
-  assert.equal((await run(where, 'watcher enable', { fail: 'enable' })).code, 1);
-  const repaired = await run(where, 'watcher enable');
-  assert.equal(repaired.code, 0, repaired.out.slice(0, 300));
-  const enables = managerChanges(where).filter((line) => line.endsWith(`enable --now ${TIMER}`));
-  assert.equal(enables.length, 2);
-});
-
 // ---- status ---------------------------------------------------------------------------------------------------------
 
 /** Every file and folder under `dir`, to prove a read wrote none. */
@@ -556,8 +434,8 @@ for (const { form, parse } of FORMS) {
 
 test('status of a disabled service has no next time, and the same schedule', async () => {
   // Catches: a disabled service promises a next run, so the owner cannot tell the flag from the schedule.
-  const where = rig({ watcher: { enabled: false, schedule: 'at 06:00' } });
-  const done = await run(where, 'watcher status');
+  const where = rig({ heartbeat: { enabled: false, schedule: 'at 06:00' } });
+  const done = await run(where, 'heartbeat status');
   assert.equal(field(done.stdout, 'enabled'), 'false');
   assert.equal(field(done.stdout, 'schedule'), 'at 06:00');
   assert.equal(field(done.stdout, 'next due'), 'none');
@@ -565,59 +443,13 @@ test('status of a disabled service has no next time, and the same schedule', asy
 
 test('status writes nothing and starts no process that changes the manager', async () => {
   // Catches: reading the status creates the data folders or the database, so a read changes a stopped deployment.
-  const where = rig({ watcher: { enabled: true, schedule: 'every 6h' } });
+  const where = rig({ heartbeat: { enabled: true, schedule: 'every 6h' } });
   const before = treeOf(where.root);
   const raw = rawSettings(where);
-  assert.equal((await run(where, 'watcher status')).code, 0);
+  assert.equal((await run(where, 'heartbeat status')).code, 0);
   assert.deepEqual(treeOf(where.root), before);
   assert.equal(rawSettings(where), raw);
   assert.deepEqual(managerChanges(where), []);
-});
-
-test('watcher status shows a run still going after disable: not enabled, and running', async () => {
-  // Catches: the flag is reported as the running state, so an inspection finishing after disable is invisible.
-  // A oneshot unit is `activating` for the whole of its run.
-  const where = rig({ watcher: { enabled: false, schedule: 'at 06:00' } });
-  const done = await run(where, 'watcher status', { isActive: 'activating' });
-  assert.equal(field(done.stdout, 'enabled'), 'false');
-  assert.equal(field(done.stdout, 'running'), 'true');
-});
-
-test('watcher status with no manager to ask says unknown for what only the manager knows', async () => {
-  // Catches: a machine without systemctl makes status fail, or reads as not running.
-  const where = rig({ watcher: { enabled: true, schedule: 'at 06:00' } });
-  const done = await run(where, 'watcher status', { absent: true });
-  assert.equal(done.code, 0, done.out.slice(0, 300));
-  assert.equal(field(done.stdout, 'enabled'), 'true');
-  assert.equal(field(done.stdout, 'running'), 'unknown');
-  assert.equal(field(done.stdout, 'timer'), 'unknown');
-});
-
-test('watcher status after a failed enable shows the wish and the timer apart', async () => {
-  // Catches: the desired-against-applied report lives only in the failed run, and every later read says all is well.
-  const where = rig({ watcher: { enabled: true, schedule: 'at 06:00' } });
-  const done = await run(where, 'watcher status', { isEnabled: 'disabled' });
-  assert.equal(field(done.stdout, 'enabled'), 'true');
-  assert.equal(field(done.stdout, 'timer'), 'disabled');
-});
-
-test('watcher status names a missing backend under readiness, apart from the saved flag', async () => {
-  // Catches: a missing subharness reads as "disabled", or as a schedule that will run.
-  const where = rig({ watcher: { enabled: true, schedule: 'at 06:00' } });
-  const done = await run(where, 'watcher status');
-  assert.equal(field(done.stdout, 'enabled'), 'true');
-  assert.match(field(done.stdout, 'readiness'), /^not ready.*subharness/);
-});
-
-test('watcher status names the newest saved report as its last result, with no core', async () => {
-  // Catches: the last result is asked of the core, so it is missing exactly when the owner investigates a stopped one.
-  const where = rig({ watcher: { enabled: true, schedule: 'at 06:00' } });
-  const reports = reportsDirOf(where.data, watcherDir({}));
-  mkdirSync(reports, { recursive: true });
-  writeFileSync(join(reports, '2026-11-02.md'), '# older\n');
-  writeFileSync(join(reports, '2026-11-03.md'), '# newer\n');
-  const done = await run(where, 'watcher status');
-  assert.ok(field(done.stdout, 'last result').includes('2026-11-03'), done.stdout);
 });
 
 // ---- the verbs of the system units -----------------------------------------------------------------------------------
@@ -652,30 +484,6 @@ for (const verb of ['start', 'stop', 'restart']) {
   });
 }
 
-// ---- the operations of one run --------------------------------------------------------------------------------------
-
-for (const { form, parse } of FORMS) {
-  test(`${form}: trigger refuses a disabled watcher, names enable, and enables nothing`, async () => {
-    // Catches: trigger quietly enables the watcher to run it, or starts the worker of a service the owner switched off.
-    const where = rig({ watcher: { enabled: false, schedule: 'at 06:00' } });
-    const before = rawSettings(where);
-    const done = await run(where, 'watcher trigger', {}, parse);
-    assert.equal(done.code, 1, done.out.slice(0, 300));
-    assert.ok(done.stderr.includes('services watcher enable'), done.stderr.slice(0, 300));
-    assert.equal(rawSettings(where), before);
-    assert.deepEqual(managerChanges(where), []);
-  });
-}
-
-for (const words of ['watcher cancel']) {
-  test(`services ${words} is recognized by the shell`, async () => {
-    // Catches: the table holds the operation while the direct form answers usage.
-    const done = await run(rig({ watcher: { enabled: true } }), words);
-    assert.notEqual(done.code, 2, done.out.slice(0, 300));
-    assert.equal(done.stderr.startsWith('neptunia: usage:'), false, done.stderr.slice(0, 300));
-  });
-}
-
 // ---- the competing controls -----------------------------------------------------------------------------------------
 
 // Changed: the retired names are gone with the rest of the legacy, so such a line is refused like any line the table
@@ -693,7 +501,7 @@ test('neptunia -p /report is refused before any handler', () => {
 });
 
 for (const [step, names] of [
-  ['watcher', 'services watcher setup'],
+  ['watcher', 'neptunia setup'],
   ['selfimprovement', 'services selfimprovement setup'],
   ['mechanics', 'neptunia services'],
 ] as const) {
@@ -704,17 +512,6 @@ for (const [step, names] of [
 }
 
 // ---- what only a real process proves --------------------------------------------------------------------------------
-
-test('child: the direct form saves, renders the timer through a real systemctl argv, answers on stdout and exits 0', async () => {
-  // Catches: bin/neptunia.ts routes `service` elsewhere than the handler, or wires a manager that never spawns.
-  const where = rig({ watcher: { enabled: false } });
-  const done = await child(where, ['services', 'watcher', 'setup', '--at', '00:00,12:00']);
-  assert.equal(done.code, 0, done.stderr.slice(0, 300));
-  assert.equal(field(done.stdout, 'timezone'), 'UTC');
-  assert.equal(settingsOf(where).watcher?.schedule, 'at 00:00,12:00');
-  assert.ok(timerText(where).includes('OnCalendar=*-*-* 12:00:00 UTC'));
-  assert.deepEqual(changesOf(childCalls(where)), ['systemctl --user daemon-reload']);
-});
 
 test('child: -p reaches the same handler with no core and exits 0', async () => {
   // Catches: `-p` sends the line to a core that is down, so a mechanic cannot be read while it is down.
@@ -728,43 +525,11 @@ test('child: -p reaches the same handler with no core and exits 0', async () => 
 test('child: setup with no option and no terminal exits 2 at once, with the input left open', async () => {
   // Catches: the dialog waits on a pipe nobody writes to, so a script hangs.
   const where = rig();
-  const done = await child(where, ['services', 'watcher', 'setup'], {}, 5000);
+  const done = await child(where, ['services', 'heartbeat', 'setup'], {}, 5000);
   assert.equal(done.code, 2, done.out.slice(0, 300));
   assert.equal(done.stdout, '');
   assert.ok(done.stderr.includes('--at') && done.stderr.includes('--every'), done.stderr.slice(0, 300));
   assert.equal(rawSettings(where), null);
-});
-
-test('child: enable in the user scope spawns systemctl --user for the timer and starts no worker', async () => {
-  // Catches: the spawned argv differs from the injected one, or the worker starts at once on enable.
-  const where = rig({ watcher: { enabled: false } }, 'user');
-  const done = await child(where, ['services', 'watcher', 'enable']);
-  assert.equal(done.code, 0, done.out.slice(0, 300));
-  assert.equal(settingsOf(where).watcher?.enabled, true);
-  assert.deepEqual(changesOf(childCalls(where)), ['systemctl --user enable --now neptunia-watcher.timer']);
-  assert.equal(childCalls(where).join('\n').includes(WORKER), false);
-});
-
-test('child: enable in the system scope spawns systemctl through sudo and starts no worker', async () => {
-  // Catches: `sudo -n` is lost or the wrong manager is asked, so the system's timer never moves.
-  const where = rig({ watcher: { enabled: false } }, 'system');
-  const done = await child(where, ['services', 'watcher', 'enable']);
-  assert.equal(done.code, 0, done.out.slice(0, 300));
-  assert.deepEqual(changesOf(childCalls(where)), [
-    'sudo systemctl enable --now neptunia-watcher.timer',
-    'systemctl enable --now neptunia-watcher.timer',
-  ]);
-  assert.equal(childCalls(where).join('\n').includes(WORKER), false);
-});
-
-test('child: a failed manager call exits 1 and reports desired against applied', async () => {
-  // Catches: the process exits 0 on a refused call, whatever the handler answered.
-  const where = rig({ watcher: { enabled: false } });
-  const done = await child(where, ['services', 'watcher', 'enable'], { FAKE_FAIL: 'enable' });
-  assert.equal(done.code, 1, done.out.slice(0, 300));
-  assert.equal(settingsOf(where).watcher?.enabled, true, 'the wish is kept');
-  assert.equal(field(done.out, 'desired'), 'enabled');
-  assert.notEqual(field(done.out, 'applied'), 'enabled');
 });
 
 test('child: neptunia watcher run exits 2, names the family and runs nothing', async () => {
@@ -784,34 +549,39 @@ test('child: service restart in a user install goes to the user manager', async 
   assert.deepEqual(childCalls(where), ['systemctl --user restart neptunia-core.service']);
 });
 
-test('child: the usage shows the family and none of the retired forms, and hides the worker the unit starts', async () => {
+test('child: the usage shows the family and none of the retired forms, and hides the worker the core starts', async () => {
   // Catches: help keeps teaching the forms that now only explain themselves, or lists the internal entry point.
-  const unit = readFileSync(join(REPO, 'deploy', WORKER), 'utf8');
-  const exec = /^ExecStart=\S+ bin\/neptunia\.ts (.+)$/m.exec(unit)?.[1] ?? assert.fail('it starts bin/neptunia.ts');
+  const exec = 'worker watcher';
   const done = await child(rig(), ['no-such-word-71']);
   assert.equal(done.code, 2, done.out.slice(0, 300));
   assert.ok(done.stderr.includes('services <name>'), done.stderr.slice(0, 600));
-  for (const gone of ['watcher run', 'selfimprovement run', 'mechanics', '/report', exec.split(' ')[0] ?? ''])
+  for (const gone of [
+    'neptunia watcher run',
+    'watcher trigger',
+    'selfimprovement run',
+    'mechanics',
+    '/report',
+    exec.split(' ')[0] ?? '',
+  ])
     assert.equal(done.stderr.includes(gone), false, gone);
 });
 
-test('child: the worker the watcher unit starts is a word the command knows', async () => {
-  // Catches: ExecStart names a command that was retired or never added, so the timer fires a usage error every day.
-  const unit = readFileSync(join(REPO, 'deploy', WORKER), 'utf8');
-  const exec = /^ExecStart=\S+ bin\/neptunia\.ts (.+)$/m.exec(unit)?.[1] ?? assert.fail('it starts bin/neptunia.ts');
+test('child: the worker the core starts for /doctor watcher run is a word the command knows', async () => {
+  // Catches: the core spawns a command that was retired or never added, so every run ends in a usage error.
+  const exec = 'worker watcher';
   // No board and no backend here, so the worker ends by itself with its own failure, never with usage.
   const worker = await child(rig(), exec.split(' '), {}, 20_000);
   assert.notEqual(worker.code, 2, worker.out.slice(0, 300));
   assert.equal(worker.stderr.startsWith('neptunia: usage:'), false, worker.stderr.slice(0, 300));
 });
 
-test('children: concurrent setups of the four keep every schedule', async () => {
+test('children: concurrent setups of the three keep every schedule', async () => {
   // Catches: each process reads and rewrites the whole settings file, so the last writer drops the others' schedules.
   const where = rig({ bot: { timezone: 'UTC' } });
   const runs = await Promise.all(MECHANICS.map((name) => child(where, ['services', name, 'setup', '--at', '06:00'])));
   assert.deepEqual(
     runs.map((one) => one.code),
-    [0, 0, 0, 0]
+    [0, 0, 0]
   );
   const saved = settingsOf(where);
   for (const name of MECHANICS) assert.equal(saved[name]?.schedule, 'at 06:00', name);

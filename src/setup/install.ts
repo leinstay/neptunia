@@ -10,12 +10,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
-import { readConfig } from '../config.ts';
 import { readRouting } from '../subharness/routing.ts';
 import { modeOf } from '../subharness/control.ts';
-import type { ServiceSchedule } from '../service/schedule.ts';
 import { isInstalled } from '../subharness/place.ts';
-import { watcherSettings } from '../watcher/settings.ts';
 import { ClientsError, readClients } from './clients.ts';
 import { UNIT_AGENTS, renderUnit } from './units.ts';
 import type { UnitVars } from './units.ts';
@@ -54,16 +51,6 @@ export function systemctlOf(target: Pick<UnitTarget, 'system'>, ...args: Array<s
   return target.system ? ['sudo', ['systemctl', ...args]] : ['systemctl', ['--user', ...args]];
 }
 
-/** `watcher.schedule` of the settings, null when they cannot be read (the timer then keeps the template's hour). */
-function watcherSchedule(target: UnitTarget): ServiceSchedule | null {
-  try {
-    return watcherSettings(readConfig(target.rootDir, { privateDir: target.dataDir })).schedule;
-  } catch {
-    // A checkout without config/config.json or a broken local file: the template's hour stands.
-    return null;
-  }
-}
-
 /** The names of the clients and of the interfaces of the install: the folders under `interfaces/` and the interface of each client. */
 function secretsOf(privateDir: string): { clients: Array<string>; interfaces: Array<string> } {
   const clients = readClients(privateDir);
@@ -77,8 +64,8 @@ function secretsOf(privateDir: string): { clients: Array<string>; interfaces: Ar
 }
 
 /**
- * The text of one unit as the scope, the owner's modes, the backends a role names in config.json or installed in the private layer and the hour of the
- * watcher's run (`watcher.schedule` of the settings) want it.
+ * The text of one unit as the scope, the owner's modes and the backends a role names in config.json or installed in the
+ * private layer want it.
  */
 export function unitText(target: UnitTarget, template: string, file: string): string {
   const agent = UNIT_AGENTS[file];
@@ -92,8 +79,6 @@ export function unitText(target: UnitTarget, template: string, file: string): st
     backends,
     ...secretsOf(target.privateDir),
   };
-  const schedule = watcherSchedule(target);
-  if (schedule !== null) vars.watcherSchedule = schedule;
   if (agent !== undefined) vars.mode = modeOf(subharness.modes, agent);
   return renderUnit(template, target.system ? 'system' : 'user', vars);
 }

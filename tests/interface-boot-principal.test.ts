@@ -16,7 +16,8 @@ const BOOT: BootPrincipal = {
   principal: { name: 'discord', kind: 'interface', iface: null, permissions: [] },
 };
 
-/** A persona folder after `neptunia setup units`, which leaves the client `watcher` in `clients.json`. */
+/** A persona folder after `neptunia setup units`, which leaves the client `owner` in `clients.json`. */
+// Changed: setup makes no client `watcher` any more (owner, 2026-11-09), so the client under test is `owner`.
 async function afterSetupUnits(): Promise<string> {
   const base = tempDir('nep-boot-principal-');
   const dataDir = path.join(base, 'data');
@@ -57,9 +58,9 @@ test('a wrong token is no one, with or without clients.json', async () => {
 test("a client's token stands for that client and never for the boot principal", async () => {
   // Catches: a client on the socket gets the in-process interface's name and rights.
   const privateDir = await afterSetupUnits();
-  const token = fs.readFileSync(path.join(privateDir, 'clients', 'watcher.token'), 'utf8').trim();
+  const token = fs.readFileSync(path.join(privateDir, 'clients', 'owner.token'), 'utf8').trim();
   const who = principalOfToken(token, { privateDir, boot: BOOT });
-  assert.equal(who?.name, 'watcher');
+  assert.equal(who?.name, 'owner');
   assert.equal(who?.kind, 'agent');
 });
 
@@ -74,7 +75,7 @@ test('a boot principal with no token is no one, and an empty token never matches
 test('a broken clients.json still leaves the boot token its principal, and every other token no one', async () => {
   // Catches: a bad hand edit of the file takes down the in-process interface, or lets a client's token through unread.
   const privateDir = await afterSetupUnits();
-  const token = fs.readFileSync(path.join(privateDir, 'clients', 'watcher.token'), 'utf8').trim();
+  const token = fs.readFileSync(path.join(privateDir, 'clients', 'owner.token'), 'utf8').trim();
   fs.writeFileSync(path.join(privateDir, 'clients.json'), '{ broken');
   assert.deepEqual(principalOfToken(BOOT.token, { privateDir, boot: BOOT }), BOOT.principal);
   assert.equal(principalOfToken(token, { privateDir, boot: BOOT }), null);

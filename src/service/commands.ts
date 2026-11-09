@@ -1,10 +1,8 @@
-// The `services` family: `services list`, `services <name> setup|enable|disable|status` for the four scheduled mechanics,
-// and `trigger` and `cancel` of the watcher (src/service/watcher.ts). `/logs watcher` reads the watcher's reports through
-// the internal operation `service.watcher.report` of this handler. bin/neptunia.ts calls `serviceFamily` for the shell and `-p`, and the owner's
+// The `services` family: `services list` and `services <name> setup|enable|disable|status` for the three scheduled mechanics,
+// and `evidence` and `select`, the watcher agent's reads (src/service/watcher.ts). bin/neptunia.ts calls `serviceFamily` for the shell and `-p`, and the owner's
 // console (src/interface/commands/console.ts) for a chat that reaches the core, so one handler answers every form. It
-// writes `<name>.schedule` and `<name>.enabled` of the local settings, which every mechanic's own scheduler reads, and
-// moves the watcher's timer through the manager (src/service/manager.ts). The persona's wakes run in the core and call no
-// manager. A status asks no model and writes nothing. An answer is `key: value` lines; `invalid` is missing syntax.
+// writes `<name>.schedule` and `<name>.enabled` of the local settings, which every mechanic's own scheduler reads. The
+// persona's wakes run in the core and call no manager. A status asks no model and writes nothing. An answer is `key: value` lines; `invalid` is missing syntax.
 
 import type { BackendName } from '../agent-runner/profiles.ts';
 import { readRouting } from '../subharness/routing.ts';
@@ -15,19 +13,8 @@ import { nextWindowStart } from '../behavior/selfreflection.ts';
 import { innerSettings } from '../behavior/inner/settings.ts';
 import { setPath } from '../tools/operations/shared.ts';
 import { objOf } from '../tools/types.ts';
-import { reportDays, reportsDirOf, watcherDir } from '../watcher/read.ts';
-import { watcherSettings } from '../watcher/settings.ts';
 import { updateLocalSettings } from './local-settings.ts';
-import {
-  cancelWatcher,
-  readyWatcherFolder,
-  triggerWatcher,
-  watcherEvidence,
-  watcherSelect,
-  watcherReport,
-  watcherStatusFields,
-} from './watcher.ts';
-import { moveTimer, renderTimer, timerState, workerRunning } from './manager.ts';
+import { watcherEvidence, watcherSelect } from './watcher.ts';
 import type { Environment, RunManager } from './manager.ts';
 import {
   evaluateSchedule,
@@ -58,8 +45,6 @@ export type ServiceDeps = {
   coreUp: boolean;
   /** The core's clock of a wake; absent with no core, whose wakes then read `unknown`. */
   wakeClock?: (name: ServiceName) => WakeClock | null;
-  /** One report by day or run as the terminal shows it; absent, the report's markdown as it is. */
-  report?: (day: string | undefined, runId?: string) => ServiceAnswer;
 };
 
 /** How many next times `setup` answers. */
@@ -67,7 +52,6 @@ const NEXT_SHOWN = 3;
 
 const iso = (moment: number): string => new Date(moment).toISOString();
 const invalid = (text: string): ServiceAnswer => ({ text, status: 'invalid' });
-const failed = (text: string): ServiceAnswer => ({ text, status: 'failed' });
 const lines = (fields: ReadonlyArray<readonly [string, string]>): string =>
   fields.map(([key, value]) => `${key}: ${value}`).join('\n');
 
@@ -78,17 +62,12 @@ function scheduleOf(name: ServiceName, config: unknown): ServiceSchedule | null 
       return innerSettings(config).heartbeat.schedule;
     case 'selfimprovement':
       return innerSettings(config).wakes.selfimprovement.schedule;
-    case 'watcher':
-      return watcherSettings(config).schedule;
     case 'selfreflection':
       return parseSchedule(objOf(objOf(config).selfreflection).schedule);
   }
 }
 
-const isEnabled = (name: ServiceName, config: unknown): boolean => {
-  const flag = objOf(objOf(config)[name]).enabled;
-  return name === 'watcher' ? flag === true : flag !== false;
-};
+const isEnabled = (name: ServiceName, config: unknown): boolean => objOf(objOf(config)[name]).enabled !== false;
 
 /** The schedule as status shows it, with the jitter an interval of the heartbeat carries. */
 function scheduleText(name: ServiceName, config: unknown): string {
@@ -106,12 +85,8 @@ function setupSchedule(args: Readonly<Record<string, unknown>>): ServiceSchedule
   return args.at !== undefined ? scheduleOfFlag('at', args.at) : scheduleOfFlag('every', args.every);
 }
 
-/** `setup`: the schedule saved and the flag left alone; the watcher's timer rendered, and nothing started. */
-async function setup(
-  deps: ServiceDeps,
-  name: ServiceName,
-  args: Readonly<Record<string, unknown>>
-): Promise<ServiceAnswer> {
+/** `setup`: the schedule saved and the flag left alone, and nothing started. */
+function setup(deps: ServiceDeps, name: ServiceName, args: Readonly<Record<string, unknown>>): ServiceAnswer {
   const refused = setupRefusal(name, args);
   if (refused !== null) return invalid(`services ${name} setup: ${refused}`);
   const given = setupSchedule(args);
@@ -127,16 +102,6 @@ async function setup(
   });
   const schedule = given ?? scheduleOf(name, deps.config());
   const saved = schedule === null ? 'windows' : formatSchedule(schedule);
-  if (name === 'watcher') {
-    const held = await renderTimer(deps, deps.run, deps.env);
-    if (held !== null)
-      return failed(
-        `services watcher setup: the manager did not take it: ${held.reason}\n${lines([
-          ['desired', saved],
-          ['applied', held.applied],
-        ])}`
-      );
-  }
   const next = schedule === null ? [] : nextOf(name, schedule, deps.now(), NEXT_SHOWN);
   return {
     text: lines([
@@ -149,8 +114,8 @@ async function setup(
   };
 }
 
-/** `enable` and `disable`: the flag moved, then the watcher's timer. A second call with the flag set applies it again. */
-async function moveFlag(deps: ServiceDeps, name: ServiceName, enabled: boolean): Promise<ServiceAnswer> {
+/** `enable` and `disable`: the flag moved. A second call with the flag set changes nothing. */
+function moveFlag(deps: ServiceDeps, name: ServiceName, enabled: boolean): ServiceAnswer {
   updateLocalSettings(deps.privateDir, (local) =>
     objOf(local[name]).enabled === enabled ? local : setPath(local, [name, 'enabled'], enabled)
   );
@@ -158,25 +123,14 @@ async function moveFlag(deps: ServiceDeps, name: ServiceName, enabled: boolean):
     ['service', name],
     ['enabled', String(enabled)],
   ] as const;
-  if (name !== 'watcher') return { text: lines(fields), status: 'ok' };
-  if (enabled) readyWatcherFolder(deps);
-  const verb = enabled ? 'enable' : 'disable';
-  const refused = await moveTimer(deps.run, deps.env, verb);
-  if (refused === null) return { text: lines(fields), status: 'ok' };
-  return failed(
-    `services watcher ${verb}: the manager refused: ${refused}\n${lines([
-      ['desired', enabled ? 'enabled' : 'disabled'],
-      ['applied', 'unchanged'],
-    ])}`
-  );
+  return { text: lines(fields), status: 'ok' };
 }
 
-/** The agent roles a mechanic needs a source for: the watcher its own, the wake's tasks the thinker's and the dev's. */
+/** The agent roles a mechanic needs a source for: the wake's tasks the thinker's and the dev's. */
 const SOURCE_ROLES: Readonly<Record<ServiceName, ReadonlyArray<string>>> = {
   heartbeat: [],
   selfreflection: [],
   selfimprovement: ['thinker', 'dev'],
-  watcher: ['watcher'],
 };
 
 /** Why `role` cannot run now, null when its source can. An unreadable config.json names no source. */
@@ -195,7 +149,7 @@ async function sourceMissing(privateDir: string, role: string): Promise<string |
 /** What stops the mechanic from running, apart from its saved flag. */
 async function missingOf(deps: ServiceDeps, name: ServiceName, config: unknown): Promise<Array<string>> {
   const missing: Array<string> = [];
-  if (name !== 'watcher' && !deps.coreUp) missing.push('the core is not running');
+  if (!deps.coreUp) missing.push('the core is not running');
   for (const role of SOURCE_ROLES[name]) {
     const problem = await sourceMissing(deps.privateDir, role);
     if (problem !== null) missing.push(problem);
@@ -239,24 +193,22 @@ function nextDue(
 async function status(deps: ServiceDeps, name: ServiceName): Promise<ServiceAnswer> {
   const config = deps.config();
   const enabled = isEnabled(name, config);
-  const clock = name === 'watcher' ? null : (deps.wakeClock?.(name) ?? null);
+  const clock = deps.wakeClock?.(name) ?? null;
   const missing = await missingOf(deps, name, config);
-  const newest = reportDays(reportsDirOf(deps.privateDir, watcherDir(config))).at(-1);
   const lastWake = clock === null ? 'unknown' : clock.lastAt === null ? 'none' : iso(clock.lastAt);
   const fields: Array<readonly [string, string]> = [
     ['service', name],
     ['enabled', String(enabled)],
-    ['running', name === 'watcher' ? await workerRunning(deps.run, deps.env) : runningText(clock?.running)],
+    ['running', runningText(clock?.running)],
     ['readiness', missing.length === 0 ? 'ready' : `not ready: ${missing.join(', ')}`],
     ['schedule', scheduleText(name, config)],
     ['next due', nextDue(deps, name, config, enabled, clock)],
-    ['last result', name === 'watcher' ? (newest === undefined ? 'none' : `report ${newest}`) : lastWake],
+    ['last result', lastWake],
   ];
-  if (name === 'watcher') fields.push(...watcherStatusFields(deps), ['timer', await timerState(deps.run, deps.env)]);
   return { text: lines(fields), status: 'ok' };
 }
 
-/** The four mechanics, each as its own status answers: `services list` keeps no copy of what a status reads. */
+/** The three mechanics, each as its own status answers: `services list` keeps no copy of what a status reads. */
 async function list(deps: ServiceDeps): Promise<ServiceAnswer> {
   const answers = await Promise.all(SERVICE_NAMES.map((name) => status(deps, name)));
   return { text: answers.map((answer) => answer.text).join('\n\n'), status: 'ok' };
@@ -270,27 +222,19 @@ export function serviceFamily(
 ): Promise<ServiceAnswer> {
   const [, word, action] = parsedName.split('.');
   if (word === 'list') return list(deps);
-  // The table only hands over its own names, so `word` is one of the four.
+  if (action === 'evidence') return watcherEvidence(deps, args);
+  if (action === 'select') return Promise.resolve(watcherSelect(deps, args));
+  // The table only hands over its own names, so `word` is one of the three.
   const name = word as ServiceName;
   switch (action) {
     case 'setup':
-      return setup(deps, name, args);
+      return Promise.resolve(setup(deps, name, args));
     case 'enable':
-      return moveFlag(deps, name, true);
+      return Promise.resolve(moveFlag(deps, name, true));
     case 'disable':
-      return moveFlag(deps, name, false);
+      return Promise.resolve(moveFlag(deps, name, false));
     case 'status':
       return status(deps, name);
-    case 'trigger':
-      return triggerWatcher(deps);
-    case 'cancel':
-      return Promise.resolve(cancelWatcher(deps));
-    case 'report':
-      return Promise.resolve(watcherReport(deps, typeof args.target === 'string' ? args.target : undefined));
-    case 'evidence':
-      return watcherEvidence(deps, args);
-    case 'select':
-      return Promise.resolve(watcherSelect(deps, args));
     default:
       return Promise.resolve(invalid(`no such command: services ${String(word)} ${String(action)}`));
   }
@@ -323,7 +267,6 @@ export function wakeClockOf(
       nextAt: slots.find((slot) => slot > now && !done.includes(slot)) ?? null,
     };
   }
-  if (name === 'watcher') return null;
   const state = inner.state();
   if (!state) return null;
   const running = state.inflight?.kind === name || state.queue.some((wake) => wake.kind === name);

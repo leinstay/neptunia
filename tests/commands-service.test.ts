@@ -1,5 +1,5 @@
 // The `/services` family in the command table (src/interface/commands/table.ts), in the panels (bin/chat-panels.ts) and in
-// the core's console (src/interface/commands/console.ts): the one public control of the four scheduled mechanics, what
+// the core's console (src/interface/commands/console.ts): the one public control of the three scheduled mechanics, what
 // the parse refuses before anything runs, the controls it replaces, and that a /config read sees what `setup` saved.
 // The tests assert on parsed names, arguments, files and the commands a refusal names, never on wording.
 import { test } from 'node:test';
@@ -18,7 +18,8 @@ import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
-const NAMES = ['heartbeat', 'selfreflection', 'selfimprovement', 'watcher'] as const;
+// Changed: the watcher left the services for `/doctor watcher` (owner, 2026-11-09).
+const NAMES = ['heartbeat', 'selfreflection', 'selfimprovement'] as const;
 const ACTIONS = ['setup', 'enable', 'disable', 'status'] as const;
 
 for (const name of NAMES) {
@@ -36,9 +37,9 @@ for (const name of NAMES) {
 
 test('setup takes --at and --every as flags', () => {
   // Catches: the value is read as a positional word, or the flag name differs from the one the docs and setup offer.
-  assert.deepEqual(parseCommandLine('/services watcher setup --at 00:00,12:00'), {
+  assert.deepEqual(parseCommandLine('/services heartbeat setup --at 00:00,12:00'), {
     ok: true,
-    name: 'services.watcher.setup',
+    name: 'services.heartbeat.setup',
     args: { at: '00:00,12:00' },
   });
   assert.deepEqual(parseCommandLine('/services selfreflection setup --every 90m'), {
@@ -64,15 +65,15 @@ test('heartbeat setup takes --jitter beside an interval, and alone', () => {
 
 for (const line of [
   // The modes exclude each other.
-  '/services watcher setup --at 00:00 --every 6h',
+  '/services heartbeat setup --at 00:00 --every 6h',
   // Malformed and duplicate slots.
-  '/services watcher setup --at 25:00',
-  '/services watcher setup --at 7:00',
-  '/services watcher setup --at 00:60',
-  '/services watcher setup --at noon',
-  '/services watcher setup --at 00:00,00:00',
-  '/services watcher setup --at 00:00,',
-  '/services watcher setup --at ,00:00',
+  '/services heartbeat setup --at 25:00',
+  '/services heartbeat setup --at 7:00',
+  '/services heartbeat setup --at 00:60',
+  '/services heartbeat setup --at noon',
+  '/services heartbeat setup --at 00:00,00:00',
+  '/services heartbeat setup --at 00:00,',
+  '/services heartbeat setup --at ,00:00',
   // Zero, negative and malformed intervals.
   '/services heartbeat setup --every 0h',
   '/services heartbeat setup --every 0m',
@@ -82,7 +83,7 @@ for (const line of [
   '/services heartbeat setup --every 1h30m',
   '/services heartbeat setup --every 6d',
   // Only the heartbeat has a jitter, only on an interval, and it is a duration of zero or more.
-  '/services watcher setup --every 6h --jitter 5m',
+
   '/services selfreflection setup --every 6h --jitter 5m',
   '/services selfimprovement setup --every 6h --jitter 5m',
   '/services heartbeat setup --at 06:00 --jitter 5m',
@@ -90,8 +91,8 @@ for (const line of [
   '/services heartbeat setup --every 3h --jitter soon',
   // Only setup takes a schedule.
   '/services heartbeat enable --every 3h',
-  '/services watcher status --at 00:00',
-  // Only the watcher has the operations of one run.
+  '/services heartbeat status --at 00:00',
+  // No mechanic has the operations of one run, and the watcher's moved to the doctor.
   '/services heartbeat trigger',
   '/services selfreflection cancel',
   '/services selfimprovement report',
@@ -99,6 +100,13 @@ for (const line of [
   '/services bogus status',
   '/services watcher start',
   '/services watcher bogus',
+  '/services watcher trigger',
+  '/services watcher cancel',
+  '/services watcher setup',
+  '/services watcher enable',
+  '/services watcher status',
+  '/logs watcher',
+  '/logs watcher 2026-11-03',
   '/services status',
   '/services restart',
   '/services',
@@ -112,11 +120,9 @@ for (const line of [
 }
 
 for (const [line, name, args] of [
-  ['/services watcher trigger', 'services.watcher.trigger', {}],
-  ['/services watcher cancel', 'services.watcher.cancel', {}],
-  ['/logs watcher', 'logs.watcher', {}],
-  ['/logs watcher 2026-11-03', 'logs.watcher', { target: '2026-11-03' }],
-  ['/logs watcher run-71', 'logs.watcher', { target: 'run-71' }],
+  ['/services watcher evidence', 'services.watcher.evidence', {}],
+  ['/doctor watcher run', 'doctor.watcher.run', {}],
+  ['/doctor watcher 2', 'doctor.watcher', { number: '2' }],
 ] as const) {
   test(`${line} is in the table`, () => {
     // Catches: the operations of one run stay outside the family, and a second public family grows around them.
@@ -251,19 +257,18 @@ test('a failed setup in the chat writes nothing', async () => {
     chatLines: () => [],
     now: () => 0,
   });
-  const answer = await desk.run('services.watcher.setup', { at: '25:00' }, { id: 'owner-1' });
+  const answer = await desk.run('services.heartbeat.setup', { at: '25:00' }, { id: 'owner-1' });
   assert.equal(answer.status, 'invalid', answer.text);
   assert.equal(answer.text.includes('no such command'), false, answer.text);
   assert.equal(existsSync(localConfigPath(dir)), false);
 });
 
-test('the settings schema knows the schedule of each of the four', () => {
+test('the settings schema knows the schedule of each of the three', () => {
   // Catches: `/config check` and the doctor warn about the key the family itself writes.
   const settings = {
     heartbeat: { schedule: 'every 3h' },
     selfreflection: { schedule: 'at 09:00' },
     selfimprovement: { schedule: 'at 03:00' },
-    watcher: { schedule: 'at 00:00,12:00' },
   };
   assert.deepEqual(checkConfig(settings, CONFIG_SCHEMA), []);
 });
