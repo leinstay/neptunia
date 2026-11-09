@@ -90,12 +90,14 @@ test('/branch cuts the current session at a line, and the chat then shows the li
   );
 });
 
-test('/resume with an id resumes it, an unknown id fails with nothing shown, and the bare line is not a panel', async () => {
+test('/sessions resume with an id resumes it, an unknown id fails with nothing shown, and /resume is no panel', async () => {
+  // Changed: `/resume <id>` shared its word with the end of a pause, so a session resumes under `/sessions`.
   // Bug: `/resume` stops ending a pause, or a typo reads as resumed.
   const { run, view, shown } = rig();
   await run({ name: 'session.open', args: {} });
   assert.equal(await chatPanel('/resume', run, [], view), null);
-  const refused = await chatPanel('/resume nope', run, [], view);
+  assert.equal(await chatPanel('/resume nope', run, [], view), null);
+  const refused = await chatPanel('/sessions resume nope', run, [], view);
   assert.match(refused?.lines.join('\n') ?? '', /unknown-session/);
   assert.deepEqual(shown, []);
 });

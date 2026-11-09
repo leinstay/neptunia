@@ -332,7 +332,7 @@ const CAPABILITY_MENUS = {
   tools: { title: 'Tools', command: 'tools', list: 'tools.list' },
   skills: { title: 'Skills', command: 'skills', list: 'skills.list' },
   interfaces: { title: 'Interfaces', command: 'interfaces', list: 'interfaces.list' },
-  agents: { title: 'Agents', command: 'agent', list: null },
+  agent: { title: 'Agents', command: 'agent', list: null },
 } as const;
 
 /**
@@ -359,11 +359,10 @@ export async function capabilityPanel(kind: keyof typeof CAPABILITY_MENUS, run: 
   return { title, lines: read === null ? [found?.help ?? title] : read.text.split('\n'), rows };
 }
 
-/** `/context`: the numbers the core holds of a request, an absent one named as unknown. */
-async function contextPanel(run: Run): Promise<Panel> {
+/** The last line of `/status full`: the numbers the core holds of a request, an absent one named as unknown. */
+async function contextOf(run: Run): Promise<string> {
   const answer = await run({ name: 'context.read', args: {} });
-  if (answer.status !== 'ok') return { title: 'Context', lines: [answer.text] };
-  return { title: 'Context', lines: [contextLine(JSON.parse(answer.text) as ContextFacts)] };
+  return answer.status === 'ok' ? contextLine(JSON.parse(answer.text) as ContextFacts) : answer.text;
 }
 
 /** A row of a memory panel: what it names, and the command that opens it. */
@@ -481,19 +480,17 @@ async function localPanel(line: string, run: Run, view: ChatView): Promise<Panel
   const word = line.split(/\s+/)[0];
   const client = sessionClient(run, view);
   if (line === '/sessions') return sessionsPanel(client);
+  if (line.startsWith('/sessions resume ')) {
+    const answer = await client.resume(line.slice('/sessions resume '.length).trim());
+    return { title: 'Sessions', lines: [answer.text] };
+  }
   if (word === '/branch') return branchPanel(line, client, run);
   if (word === '/checkpoints') return checkpointsPanel(line, run);
   if (word === '/approvals') return approvalsPanel(line, run);
-  if (line === '/context') return contextPanel(run);
   const memory = MEMORY_PANELS[line];
   if (memory !== undefined) return memory(run);
-  if (line === '/tools' || line === '/skills' || line === '/interfaces' || line === '/agents')
+  if (line === '/tools' || line === '/skills' || line === '/interfaces' || line === '/agent')
     return capabilityPanel(line.slice(1) as keyof typeof CAPABILITY_MENUS, run);
-  // Bare `/resume` stays the command that ends a pause: only a session's id makes this one.
-  if (word === '/resume' && line !== word) {
-    const answer = await client.resume(line.slice(word.length).trim());
-    return { title: 'Sessions', lines: [answer.text] };
-  }
   return null;
 }
 
@@ -545,7 +542,8 @@ export async function chatPanel(
   }
   if (parsed.name === 'status' || parsed.name === 'status.full') {
     const result = await run(parsed);
-    return { title: 'Status', lines: result.text.split('\n') };
+    const lines = result.text.split('\n');
+    return { title: 'Status', lines: parsed.name === 'status.full' ? [...lines, '', await contextOf(run)] : lines };
   }
   return null;
 }

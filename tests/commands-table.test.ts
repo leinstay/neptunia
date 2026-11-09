@@ -103,7 +103,8 @@ test('/skills with nothing after it lists, and list and pending take no argument
 });
 
 test('every /skills subcommand that works on one skill takes its name and is refused without it', () => {
-  for (const sub of ['show', 'enable', 'disable', 'review', 'activate', 'rollback', 'reject']) {
+  // Changed: `show` left, as `review` shows the active text with the candidates.
+  for (const sub of ['enable', 'disable', 'review', 'activate', 'rollback', 'reject']) {
     const parsed = parseCommandLine(`/skills ${sub} look-it-up`);
     assert.ok(parsed.ok, sub);
     assert.equal(parsed.name, `skills.${sub}`);

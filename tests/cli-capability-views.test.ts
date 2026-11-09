@@ -141,7 +141,8 @@ test('a capability menu reads through the list operation, and its rows are the t
 
 test('the agents menu uses its own command', async () => {
   // Bug: a menu row prefills a command of another family.
-  const agents = await capabilityPanel('agents', runner().run);
+  // Changed: the menu opens under the command's own word, `/agent`, and `/agents` is no second name for it.
+  const agents = await capabilityPanel('agent', runner().run);
   for (const row of agents.rows ?? []) assert.ok(row.prefill?.startsWith('/agent '), row.id);
 });
 

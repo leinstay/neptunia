@@ -643,7 +643,6 @@ export const COMMANDS: ReadonlyArray<Command> = [
     defaultSubcommand: 'list',
     subcommands: [
       sub('list', 'Every skill with its state, who activated it and the version a rollback restores'),
-      sub('show', 'Show active text and tools of one skill', [arg('name')]),
       sub('review', 'Show active version beside the pending ones, with their texts and use counts', [arg('name')]),
       sub('pending', 'Show versions waiting for an activation'),
       sub('activate', 'Make the newest pending version of a skill the active one', [arg('name')]),
@@ -697,7 +696,6 @@ export const COMMANDS: ReadonlyArray<Command> = [
         flagArg('backfill', false),
         flagArg('every', false),
       ]),
-      sub('disable', 'Stop publishing to a mirror and keep its configuration', [arg('mirror')]),
       sub('remove', 'Take a mirror off the list and keep what it was sent', [arg('mirror')]),
       sub(
         'reconcile',
