@@ -1,6 +1,6 @@
 // The pure side of one step of a turn that calls tools: how a step's calls are ordered, whether her
 // speech may go out after them, the messages the next request appends (the same shape on both
-// transports), the note that ends them, the numbers of the lines that came in meanwhile, the room
+// transports), the note that ends them, the rescue request of a turn left with no answer, the numbers of the lines that came in meanwhile, the room
 // that is left, and whether her answer began with her thinking. Nothing here reads a clock, a
 // config or the network; the turn (src/behavior/turn.ts) and the replay sandbox (src/behavior/sandbox.ts)
 // pass in what they know.
@@ -128,6 +128,7 @@ export type StepLabels =
           delivery?: string;
           last?: string;
           lastInner?: string;
+          rescue?: string;
         };
         diagnostics?: string;
       };
@@ -180,6 +181,25 @@ export function stepNote({
   const found = (Array.isArray(diagnostics) ? diagnostics : []).filter(Boolean);
   if (found.length > 0) lines.push([task.diagnostics, ...found].filter(Boolean).join('\n'));
   return lines.join('\n\n');
+}
+
+/**
+ * The rescue request of a turn whose steps ended with no final answer: the turn's first messages as they
+ * were, then one user message with `labels.task.step.rescue`. The same shape on both transports; a fresh
+ * array. With the label missing the request is the first messages alone.
+ */
+export function rescueRequest({
+  messages,
+  labels,
+}: {
+  messages: Array<Record<string, Untyped>>;
+  labels: StepLabels;
+}): Array<Record<string, Untyped>> {
+  const out = [...(Array.isArray(messages) ? messages : [])];
+  const step = labels?.task?.step ?? {};
+  const note = step.rescue;
+  if (note) out.push({ role: 'user', content: [textPart(note)] });
+  return out;
 }
 
 /**

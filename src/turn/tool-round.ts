@@ -9,7 +9,15 @@ import type { Line, ReactorNames } from '../behavior/lines.ts';
 import { skillsInventoryText } from '../behavior/prompt.ts';
 import type { ReactorStore } from '../behavior/reactor-store.ts';
 import type { StepLabels } from '../behavior/tool-step.ts';
-import { appendStep, cutToFit, deltaLines, roomLeft, stepNote, stepVerdict } from '../behavior/tool-step.ts';
+import {
+  appendStep,
+  cutToFit,
+  deltaLines,
+  rescueRequest,
+  roomLeft,
+  stepNote,
+  stepVerdict,
+} from '../behavior/tool-step.ts';
 import { innerSettings } from '../behavior/inner.ts';
 import { diagnosticText } from '../behavior/wake.ts';
 import { WAKE_PURPOSE_CHARS } from '../behavior/wake.ts';
@@ -234,6 +242,8 @@ export type Stepped = {
   skipped: boolean;
   /** A later request's two answers broke their `<think>`, which ended the steps. */
   leakEnded: boolean;
+  /** Her last answer came from the rescue request. */
+  rescued: boolean;
 };
 
 type TranscriptOptions = {
@@ -401,14 +411,18 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
    * (the speech held, the lines that came in meanwhile numbered past every number in use, the messages that did not go
    * out, the last-step notice, an inner turn's open intentions, what the parser did with her answer). The first user
    * message is never rebuilt. `tools.loop.maxSteps` (an inner turn's: `wakes.loop`) counts those requests and the
-   * last of them is always the final one, which cannot call: its calls get a `loop-cap` result that only the journal
-   * keeps, and its speech is held unless it has no calls (an inner turn's one terminal call, if it went through,
-   * lets it go out). The same goes for a request the time budget (`timeBudgetMs`, from the first call) or the room
-   * of the request (the tokens: the results are cut to fit, 400 characters each at least) made the last. A heartbeat
-   * turn ends with its one intention change, a selfimprovement wake with its one filing. Logs `skills: loop` (`steps`, `calls`, `ms`).
+   * last of them is always the final one, which cannot call: it goes with the tool choice `none` (an inner turn's keeps
+   * `auto`), its calls get a `loop-cap` result that only the journal keeps, and its speech goes out (an inner turn's
+   * when its one terminal call went through, a selfreflection post's is held). The same goes for a request the time
+   * budget (`timeBudgetMs`, from the first call) or the room of the request (the tokens: the results are cut to fit,
+   * 400 characters each at least) made the last. When the steps end with no final answer (the next request does not
+   * fit even cut, or it throws), a turn that answers someone and delivered nothing makes one rescue request: the first
+   * messages and `labels.task.step.rescue`, with the tool choice `none`, read as a final answer. A heartbeat turn ends
+   * with its one intention change, a selfimprovement wake with its one filing. Logs `skills: loop` (`steps`, `calls`, `ms`).
    *
-   * Resolves `{ acts, cutOff, delivered }`: act's answers in order, whether a step was cut off with nothing complete,
-   * and whether anything reached the chat (her speech, a post, a picture, an errand accepted).
+   * Resolves `{ acts, cutOff, delivered, skipped, leakEnded, rescued }`: act's answers in order, whether a step was cut
+   * off with nothing complete, whether anything reached the chat (her speech, a post, a picture, an errand accepted),
+   * whether her last answer skipped, whether a broken think ended the steps, and whether her last answer was the rescue's.
    */
   async function runSteps(args: RunStepsArgs): Promise<Stepped> {
     // The typing lease of the calls (typingWhileCalls): started with the first step that has calls, stopped when no
@@ -468,6 +482,10 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     // loopSettings gives an inner turn its own callTimeoutMs.
     const callTimeoutCap = (inner ? settings.callTimeoutMs : (hot.config.tools?.callTimeoutMs ?? 120000)) as number;
     const tools = transport === 'native' && draft.tools.length > 0 ? { tools: draft.tools, toolChoice: 'auto' } : {};
+    // The final request cannot call: the tools stay for the cached prefix, the choice is none. An inner turn's final
+    // request keeps its choice, because its one terminal call still runs.
+    const toolsOf = (final: boolean): object =>
+      final && !inner && 'tools' in tools ? { ...tools, toolChoice: 'none' } : tools;
     const acts: Array<ActOutcome | HeldSpeech> = [];
     let messages = requestMessages;
     // What the request in hand numbers: its lines (the delta's too), where a `#N` of hers resolves.
@@ -485,6 +503,11 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     let made = 0;
     // The results no request has followed yet, and the inner actions of the calls that gave them.
     let unseen: Array<CallOutcome> = [];
+    // The rescue request is made once a turn; the results of the step it replaced stay facts.
+    let rescued = false;
+    // Her answer in hand came from the rescue request.
+    let fromRescue = false;
+    let carried: Array<CallOutcome> = [];
     let ranActions: NonNullable<ToolRoundDraft['innerActions']> = [];
     const knownIds = new Set(
       [...(routing.history ?? []), ...(routing.lines ?? [])]
@@ -557,6 +580,38 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       // deltaLines hands back lines of the history it was given.
       const lines = numbered.lines as Array<StepLine>;
       return { text: items.map((item) => item.text).join('\n'), lines, idByIndex: numbered.idByIndex };
+    };
+
+    /**
+     * One follow-up request under the think standard: its completion, `ended` when a second answer leaked too, or
+     * null when the request threw.
+     */
+    const ask = async (
+      sent: Array<object>,
+      final: boolean,
+      skill: string | null
+    ): Promise<{ completion: StepCompletion } | { ended: true } | null> => {
+      try {
+        const asked = await askUnleaked(
+          () =>
+            llm.complete(sent, {
+              ...REPLY_REQUEST,
+              ...(draft.started ? { limits: draft.limits } : {}),
+              ...ifaceOption(draft),
+              ...toolsOf(final),
+              ...(cancel === null ? {} : { signal: cancel }),
+            }),
+          (given) => answerLeaked(given as Parameters<typeof answerLeaked>[0], { transport, step: step + 2, registry }),
+          () => {
+            draft.format.thinkLeaked += 1;
+            log.info('turn: think leaked', { channel: channel.id, step: step + 1, leaks: draft.format.thinkLeaked });
+          }
+        );
+        return asked.ended ? { ended: true } : { completion: asked.completion };
+      } catch (err) {
+        log.warn('skills: follow-up failed', { channel: channel.id, skill, step: step + 1, error: err });
+        return null;
+      }
     };
 
     for (;;) {
@@ -669,8 +724,12 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
               results.map((result) => ({ name: result.skill, result })),
               { definitionOf }
             ).speak;
+      // The final answer is her reply: its calls did not run and its speech goes out. An inner turn's speaks when its
+      // one terminal call went through; a selfreflection post's is held.
       if (isFinal && records.length > 0)
-        speak = terminalAt >= 0 && coversSpeech(definitionOf(results[terminalAt].skill), results[terminalAt]);
+        speak = inner
+          ? terminalAt >= 0 && coversSpeech(definitionOf(results[terminalAt].skill), results[terminalAt])
+          : !selfreflection;
       let loweredResults: Array<CallOutcome> = [];
       const deliveries: Array<{ n: number; total: number; code: string }> = [];
       if (speak && heldItems > 0 && !isCancelled()) {
@@ -791,7 +850,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         });
       let last: boolean = next === 'final';
       let reason: string | null = last ? (step >= settings.maxSteps - 1 ? LOOP_WHY.steps : LOOP_WHY.time) : null;
-      let sent = build(last, resultTexts);
+      let sent: Array<object> | null = build(last, resultTexts);
       // The request must fit under the cap with its tools: the results are cut to fit, and the request is the last one.
       const limit = requestTokenLimit(hot.config);
       const cost = (list: Array<object>): number =>
@@ -806,53 +865,43 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
           log.warn('skills: loop cap', { channel: channel.id, reason, step, dropped: results.length });
           draft.loopCut = { reason, dropped: (draft.loopCut?.dropped ?? 0) + results.length };
           draft.limits?.add({ kind: 'loop-cap', where: 'tools.loop', lost: results.length, detail: reason });
-          unseen = stepResults;
-          break;
+          sent = null;
         }
       }
-      let completion: StepCompletion;
-      try {
-        const asked = await askUnleaked(
-          () =>
-            llm.complete(sent, {
-              ...REPLY_REQUEST,
-              ...(draft.started ? { limits: draft.limits } : {}),
-              ...ifaceOption(draft),
-              ...tools,
-              ...(cancel === null ? {} : { signal: cancel }),
-            }),
-          (given) => answerLeaked(given as Parameters<typeof answerLeaked>[0], { transport, step: step + 2, registry }),
-          () => {
-            draft.format.thinkLeaked += 1;
-            log.info('turn: think leaked', { channel: channel.id, step: step + 1, leaks: draft.format.thinkLeaked });
-          }
-        );
-        completion = asked.completion;
-        if (asked.ended) {
+      let asked = sent === null ? null : await ask(sent, last, results[0]?.skill ?? null);
+      // The steps ended with no final answer: a turn that answers someone and has delivered nothing gets one rescue
+      // request, her first messages and the rescue note, which cannot call. The step's results stay facts.
+      const rescuing = asked === null && answersSomeone && !delivered && !rescued && !isCancelled();
+      if (rescuing) {
+        rescued = true;
+        carried = stepResults;
+        last = true;
+        reason = LOOP_WHY.rescue;
+        sent = rescueRequest({ messages: requestMessages as Array<Obj>, labels });
+        log.info('turn: rescue request', { channel: channel.id, step: step + 1 });
+        asked = await ask(sent, true, null);
+      }
+      if (asked === null || 'ended' in asked || sent === null) {
+        if (asked !== null && 'ended' in asked) {
           // What the steps before it posted stands. Their results reached no answer, so they stay facts.
           draft.format.leakEnded = 1;
           (draft.diagnostics ??= []).push({ kind: 'thinkLeaked', told: false } as { told?: boolean });
           leakEnded = true;
-          unseen = stepResults;
-          break;
         }
-      } catch (err) {
-        log.warn('skills: follow-up failed', {
-          channel: channel.id,
-          skill: results[0]?.skill ?? null,
-          step: step + 1,
-          error: err,
-        });
-        unseen = stepResults;
+        unseen = rescuing ? [] : stepResults;
         break;
       }
+      const { completion } = asked;
+      fromRescue = rescuing;
       step += 1;
       draft.steps = step;
-      // The delta's lines went out in that request: she saw them (noteSpokeSaw).
-      (draft.loopSeen ??= []).push(...delta.lines);
-      // The answer completed with the note on: what the parser said is told, and the results are read.
-      for (const diagnostic of draft.diagnostics ?? []) diagnostic.told = true;
-      for (const action of ranActions) action.presented = true;
+      if (!rescuing) {
+        // The delta's lines went out in that request: she saw them (noteSpokeSaw).
+        (draft.loopSeen ??= []).push(...delta.lines);
+        // The answer completed with the note on: what the parser said is told, and the results are read.
+        for (const diagnostic of draft.diagnostics ?? []) diagnostic.told = true;
+        for (const action of ranActions) action.presented = true;
+      }
       unseen = [];
       ranActions = [];
       messages = sent;
@@ -890,6 +939,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     // eslint-disable-next-line @typescript-eslint/only-throw-error -- TURN_CANCELLED is the turn's own signal, caught by its end
     if (isCancelled() && !delivered) throw TURN_CANCELLED;
     // The end: calls no request followed are either dropped (a fact for her next request) or failed unseen (a fact too).
+    unseen = [...carried, ...unseen];
     const dropped = unseen.filter((result) => result.code === CODE.LOOP_CAP);
     if (dropped.length > 0) {
       const why = finalReason ?? LOOP_WHY.extraCall;
@@ -916,7 +966,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
     // An inner turn's loop end state, for its result (`inner.loop`): the steps made, the bound that cut it with calls dropped, how many.
     if (inner)
       draft.innerLoop = { steps: step, cut: draft.loopCut?.reason ?? null, droppedCalls: draft.loopCut?.dropped ?? 0 };
-    return { acts, cutOff, delivered, skipped: Boolean(answer.parsed.skip), leakEnded };
+    return { acts, cutOff, delivered, skipped: Boolean(answer.parsed.skip), leakEnded, rescued: fromRescue };
 
     /** Her speech of a step posted: the messages, reactions and picture through act, then an inner turn's lowered speech as calls. */
     async function postSpeech({
