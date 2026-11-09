@@ -24,7 +24,7 @@ Interactive setup uses a keyboard selector for `on` or `off` and `yes` or `no` q
 
 A failure stops later steps. Without a terminal, interactive questions are skipped and no chat opens. Inspect the report instead of assuming that a noninteractive setup configured your credentials.
 
-The `interfaces` step on a clean install writes `interfaces.mode: units`, because the shipped `inprocess` default runs only the interface built into the core. A local config that names a mode, or already enables an interface, is left as it is. An `inprocess` deployment gets no client and no unit from this step. A repeat keeps a client and a token that hold a value, and replaces an empty token file. An interface missing a required value is neither registered nor started, and the report names an interface as running only after the service manager accepted it.
+The `interfaces` step registers a client and starts the unit `neptunia-interface@<name>.service` for each interface it sets up. A repeat keeps a client and a token that hold a value, and replaces an empty token file. An interface missing a required value is neither registered nor started, and the report names an interface as running only after the service manager accepted it.
 
 The `subharness` step takes none, one, several or `all`. A backend that can run already is left alone, so naming it again repeats no login, and reopening the step to add another keeps the accounts and the model choices of the first. No role moves.
 

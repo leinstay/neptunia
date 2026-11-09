@@ -14,11 +14,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startCore } from '../src/core.ts';
-import { start as startFake } from '../src/interface/fake-interface.ts';
 import { onLog } from '../src/log.ts';
 import { lockPathOf, openMemoryDb } from '../src/memory/db/open.ts';
 import { applyWakeQueueWrite } from '../src/memory/db/wake-queue.ts';
-import { ANSWER, ROOT, SELF, channelInfo, lineEvent } from './fixtures/core-over-fake.ts';
+import { ANSWER, channelInfo, lineEvent } from './fixtures/core-over-fake.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 type Row = Record<string, unknown>;
@@ -133,7 +132,7 @@ function scriptedLlm() {
 }
 type Llm = ReturnType<typeof scriptedLlm>;
 
-/** The core with no interface of its own, as `interfaces.mode: units` starts it. */
+/** The core with no interface of its own. */
 function startUnitsCore(dirs: Dirs, llm: Llm, now?: () => number): Promise<Core> {
   return startCore({
     paths: dirs.paths,
@@ -598,57 +597,6 @@ test('a unit with the wrong token is refused and nothing it sends is taken', asy
       core.interfaces.list().map((entry) => [entry.name, entry.connected]),
       [['fake', false]]
     );
-  });
-});
-
-/** The text of a model request with every run of digits masked: ids, times and dates differ between two runs. */
-const shapeOf = (request: unknown): string => JSON.stringify(request).replace(/\d+/g, '#');
-
-// Case 7 of PR C: the in-process start and the unit give her the same request for the same message.
-test('the in-process fake and the fake unit give the model the same request for the same message', async () => {
-  const inProcess = folders({ interfaces: { mode: 'inprocess' } });
-  const inProcessLlm = scriptedLlm();
-  try {
-    await withCapturedLogs(async () => {
-      let running: Awaited<ReturnType<typeof startFake>> | null = null;
-      const core = await startCore({
-        paths: inProcess.paths,
-        env: { OPENROUTER_CORE_KEY: 'test-key' },
-        interfaces: [
-          {
-            name: 'fake',
-            start: async (host) => {
-              running = await startFake(host, { self: SELF, root: ROOT });
-              return running;
-            },
-          },
-        ],
-        llm: inProcessLlm,
-        embedder: { embed: () => Promise.resolve([]) },
-      });
-      try {
-        if (running === null) throw new Error('the core never started the fake interface');
-        const live: Awaited<ReturnType<typeof startFake>> = running;
-        live.adapter.seedChat(channelInfo('c1'));
-        const event = mention('m1', 'hello bot');
-        live.adapter.seedEvent(event);
-        assert.equal(await live.emit(event), 'ok');
-        await until(() => inProcessLlm.requests.length === 1, 'the in-process turn');
-      } finally {
-        await core.stop();
-      }
-    });
-  } finally {
-    rmSync(inProcess.root, { recursive: true, force: true });
-  }
-
-  await withRig({}, async ({ dirs, llm, units, cores }) => {
-    cores.push(await startUnitsCore(dirs, llm));
-    const unit = await startedUnit(dirs);
-    units.push(unit);
-    assert.equal(await (await unit.emit(mention('m1', 'hello bot'))).acked, 'ok');
-    await until(() => llm.requests.length === 1, 'the unit turn');
-    assert.equal(shapeOf(llm.requests[0]), shapeOf(inProcessLlm.requests[0]));
   });
 });
 

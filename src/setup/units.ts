@@ -223,7 +223,6 @@ function renderedLines(line: string, key: string | null, rules: LineRules): Arra
 function linesOf(line: string, rules: LineRules): Array<string> {
   const { scope, vars, dropped } = rules;
   const key = keyOf(line);
-  if (key === 'Conflicts' && line.includes('neptunia-bot.service')) return [];
   if (key === 'Group' || (key !== null && dropped.has(key))) return [];
   if (key === 'User') return scope === 'system' ? [`User=${vars.user}`, `Group=${vars.group}`] : [];
   // A user manager refuses `SupplementaryGroups=` with status 216.

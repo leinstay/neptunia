@@ -4,12 +4,11 @@ The systemd unit templates of the engine. `neptunia setup` renders them for the 
 
 | Template | What it runs | Rendered by setup |
 |---|---|---|
-| `neptunia-core.service` | The core with no interface of its own (`interfaces.mode: units`). The one unit setup starts. | yes |
+| `neptunia-core.service` | The core with no interface of its own. The one unit setup starts. | yes |
 | `neptunia-interface@.service` | One interface, `neptunia interface run %i`. | yes |
 | `neptunia-agent-scout.service`, `neptunia-agent-server.service` | The errand agents, `neptunia errand-runner --profile <name>`. See [Errands](../docs/errands.md#the-subharness). | yes |
 | `neptunia-watcher.service`, `neptunia-watcher.timer` | The watcher, `neptunia worker watcher`, started by the timer on `watcher.schedule` (default `at 00:00`, UTC), which setup and `neptunia services watcher setup` render into it. See [The watcher](../docs/watcher.md). | yes |
 | `neptunia-development.service` | The long-lived development worker, `neptunia worker development`, run from the install and working on the dev checkout `selfimprovement.checkout` names. Setup writes it and never enables it; the owner's step is in [Self-development](../docs/selfimprovement.md#enabling-the-worker). | when `selfimprovement.checkout` names another checkout |
-| `neptunia-bot.service` | The core with the Discord interface in its process (`interfaces.mode: inprocess`). It conflicts with the core unit. | no |
 
 ## How a template becomes a unit
 
@@ -19,7 +18,7 @@ The node binary is the one `neptunia setup` was started with, as it was typed or
 
 A subharness backend lives in `<private>/subharness/<backend>/` with its binary and its home (`src/subharness/place.ts`), and a run starts that binary by its path. An agent unit in `read` or `write` binds the folder of every backend a role names in `keys.json` or that is installed writable, one `BindPaths=` entry each after `ProtectHome=tmpfs`. Each entry has a leading `-`, so the unit starts before the backend is installed. They cover those folders alone, and `keys.json` stays read-only for the agent. The core writes the folder through the private directory in its `ReadWritePaths=`, and the watcher unit keeps `<private>/subharness/` and its own folder writable under `ProtectSystem=strict`. The units keep `<home>/.local/bin` and the folder of the node binary on `PATH`.
 
-A user unit goes to `$XDG_CONFIG_HOME/systemd/user` (`~/.config/systemd/user` when the variable is unset). It has no `User=` or `Group=`, installs into `default.target`, and the interface unit loses its `InaccessiblePaths`, since the one user owns the core's files too. The `Conflicts=` line against the bot unit is dropped.
+A user unit goes to `$XDG_CONFIG_HOME/systemd/user` (`~/.config/systemd/user` when the variable is unset). It has no `User=` or `Group=`, installs into `default.target`, and the interface unit loses its `InaccessiblePaths`, since the one user owns the core's files too.
 
 A system unit, written with `neptunia setup --system`, goes to `/etc/systemd/system` through `sudo install -m 0644`. It runs as the installing user and keeps the template's hardening, and its agent units bind the backend's folder in the private directory as a user unit does.
 

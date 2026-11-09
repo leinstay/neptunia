@@ -202,11 +202,6 @@ test("system agent units bind nothing of the installing user's home, and their P
   }
 });
 
-test('the core unit of a user install does not name the bot unit it conflicts with', () => {
-  // Bug: Conflicts=neptunia-bot.service in a unit set that has no such unit makes systemd warn on every start.
-  assert.deepEqual(valuesOf(renderUnit(template('neptunia-core.service'), 'user', VARS), 'Conflicts'), []);
-});
-
 // The core and the watcher find the subharness backend (spec 2026-11-02, follow-up 6): their units carry the PATH of
 // the installing user's own tools and may write the backend's home, so the enable check and the watcher's run reach
 // the binary and its login.

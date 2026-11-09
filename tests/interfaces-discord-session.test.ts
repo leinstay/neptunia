@@ -586,7 +586,6 @@ test('deletes the /nep the guild still has at its first connect and registers no
 
 test('registers no command when it opens under a core whose interfaces run as units', async () => {
   const h = harness();
-  Object.assign(h.config, { interfaces: { mode: 'units' } });
   const commands = registeredCommands([]);
   h.guild.commands = commands.manager;
   const running = await start(h.host);

@@ -13,10 +13,8 @@ The package `@neptunia/interface-discord` connects the persona's core to one Dis
 
 ## Running it
 
-With `interfaces.mode: inprocess`, `src/index.ts` loads `index.ts` and the core starts the interface in its own process with the token from `data/interfaces/discord/credentials.json`.
-
-With `interfaces.mode: units`, the unit `neptunia-interface@discord` runs `neptunia interface run discord` as the user `neptunia-discord-interface`. The interface reads its token from `data/interfaces/discord/credentials.json` and its client token from `clients/discord.token` in the persona folder. [`deploy/README.md`](../../deploy/README.md) gives the steps.
+The unit `neptunia-interface@discord` runs `neptunia interface run discord` as the user `neptunia-discord-interface`. The interface reads its token from `data/interfaces/discord/credentials.json` and its client token from `clients/discord.token` in the persona folder. [`deploy/README.md`](../../deploy/README.md) gives the steps.
 
 The interface keeps its events in an outbox under its data folder until the core acknowledges them, and it has `reconnect()`. When its link to the core drops, the runner opens a new one with backoff, and the outbox sends again what the core did not take, so a core restart loses no event the interface saw.
 
-Under `interfaces.mode: units` the interface sends each `/nep` interaction to the core as a `command.requested` event and replies with the text of the answer. Its client needs the permission `commands` (`--permission commands` of `scripts/client-token.ts add`), or the core refuses the command. It registers the command tree itself when it opens.
+The interface sends each `/nep` interaction to the core as a `command.requested` event and replies with the text of the answer. Its client needs the permission `commands` (`--permission commands` of `scripts/client-token.ts add`), or the core refuses the command. It registers the command tree itself when it opens.

@@ -1092,7 +1092,7 @@ function checkRoles(where: { rootDir: string; privateDir: string }): Check {
 function checkTokens(where: { privateDir: string }): Check {
   const clients = loadPrincipals(where.privateDir);
   if (clients === null)
-    return { name: 'tokens', status: 'warn', detail: `no ${CLIENTS_FILE}: only an in-process interface connects` };
+    return { name: 'tokens', status: 'warn', detail: `no ${CLIENTS_FILE}: no interface can connect` };
   const problems: Array<string> = [];
   for (const client of clients) {
     const file = path.resolve(where.privateDir, client.tokenFile);
