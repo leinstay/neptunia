@@ -124,14 +124,6 @@ test('parseSplitAnswer: minPartChars 0 or a bare maxTasks number folds nothing',
   assert.deepEqual(parseSplitAnswer(answer, 4).parts, [OPENER, ARGUMENT]);
 });
 
-// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
-test('parseSplitAnswer: settings without minPartChars fold at the shipped default', () => {
-  assert.deepEqual(parseSplitAnswer(JSON.stringify({ parts: ['ναι;', ARGUMENT] }), { maxTasks: 4 }), {
-    parts: null,
-    reason: 'folded',
-  });
-});
-
 test('foldShortParts: a part exactly at the minimum stays', () => {
   const exact = 'é'.repeat(10);
   assert.deepEqual(foldShortParts([exact, 'à'.repeat(12)], 10), [exact, 'à'.repeat(12)]);

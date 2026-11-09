@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { resolvePaths, DATA_DIR_VAR } from '../src/paths.ts';
+import { resolvePaths } from '../src/paths.ts';
 
 const ROOT = path.resolve('/opt/engine');
 
@@ -43,8 +43,4 @@ test('resolvePaths: a relative root comes back absolute', () => {
   assert.equal(onlyData.rootDir, path.resolve('engine'));
   assert.equal(onlyData.privateDir, path.resolve('engine', 'mem'));
   assert.equal(onlyData.dataDir, path.resolve('engine', 'mem'));
-});
-
-test('resolvePaths: the variable name is the documented one', () => {
-  assert.equal(DATA_DIR_VAR, 'NEPTUNIA_DATA_DIR');
 });

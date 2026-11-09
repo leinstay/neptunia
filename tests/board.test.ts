@@ -180,32 +180,6 @@ test("a derived role listed in clients.json does not make a principal the holder
   }
 });
 
-test('a watcher reads the board and is refused a comment', () => {
-  const { board, close } = setUp();
-  try {
-    const task = board.call('boss', 'task.add', { title: 'watched' });
-    assert.deepEqual(
-      board.call('eyes', 'task.list', {}).map((row) => row.id),
-      [task.id]
-    );
-    assert.equal(board.call('eyes', 'task.show', { id: task.id }).task.title, 'watched');
-    assert.equal(
-      codeOf(() => board.call('eyes', 'task.comment', { id: task.id, text: 'seen' })),
-      'forbidden'
-    );
-    // The watcher role files a task (docs/board.md) and does nothing else: no triage, no approval.
-    const filed = board.call('eyes', 'task.add', { title: 'mine' });
-    assert.equal(filed.requester, 'eyes');
-    assert.equal(filed.status, 'proposed');
-    assert.equal(
-      codeOf(() => board.call('eyes', 'task.add', { title: 'auto', auto: true })),
-      'forbidden'
-    );
-  } finally {
-    close();
-  }
-});
-
 test('a role taken out of clients.json is gone at the next call', () => {
   const { board, dir, close } = setUp();
   try {

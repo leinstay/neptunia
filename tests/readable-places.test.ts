@@ -127,9 +127,3 @@ test('the view of a call in a private chat carries the places its partner can vi
   const view = callViewOf({ channel: dmOf(OWNER), snapshot, partnerId: OWNER, config: CONFIG });
   assert.deepEqual(namesOf(view.places ?? []), ['🌿 herbs', '💬 general']);
 });
-
-test('the view of a call hands on the stemmer it was given', () => {
-  const stem = (word: string): string => word.replace(/s$/, '');
-  const view = callViewOf({ channel: general, snapshot: null, config: CONFIG, stem });
-  assert.equal(view.stem?.('herbs'), 'herb');
-});

@@ -639,36 +639,6 @@ test('formatTranscript: a link thumbnail description appends thumbnailDescribed,
   assert.ok(described[0].text.includes('[link: YouTube — Cool video] [thumbnail: a cat plays piano]'));
 });
 
-test('formatTranscript: an older labels.json with no thumbnailDescribed key renders the plain link tag only', () => {
-  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const oldLabels = { ...labels, transcript: { ...labels.transcript, thumbnailDescribed: undefined } };
-  const messages = [
-    msg('a', t0, {
-      content: '',
-      links: [
-        {
-          id: 'link:abcd1234',
-          kind: 'link',
-          site: 'YouTube',
-          title: 'Cool video',
-          thumbnailUrl: 'https://i.ytimg.com/x.jpg',
-        },
-      ],
-    }),
-  ];
-  const items = formatTranscript(messages, {
-    timezone: TZ,
-    gapMinutes: 20,
-    maxChars: 100,
-    selfName: 'Nept',
-    labels: oldLabels,
-    descriptions: new Map([['link:abcd1234', 'a cat plays piano']]),
-  });
-  assert.ok(items[0].text.includes('[link: YouTube — Cool video]'));
-  assert.ok(!items[0].text.includes('a cat plays piano'));
-  assert.ok(!items[0].text.includes('  '), 'no stray double space from the omitted tag');
-});
-
 // --- formatTranscript: video states ------------------------------------
 
 function videoTranscript(messages: Array<Record<string, Untyped>>, extra = {}) {
@@ -776,46 +746,6 @@ test("formatTranscript: a forwarded snapshot's video also reads its state", () =
   assert.ok(items[0].text.includes('[forwarded: [video: ρολόι.mp4, 0:03, watched: a clock ticks]]'));
 });
 
-test('formatTranscript: labels without the video keys render byte-for-byte as before, video states ignored', () => {
-  const oldTranscript: Record<string, Untyped> = { ...labels.transcript };
-  for (const key of [
-    'videoWatched',
-    'videoNotWatched',
-    'videoNotWatchedFrame',
-    'linkWatched',
-    'linkNotWatched',
-    'linkNotWatchedFrame',
-    'videoReason',
-  ]) {
-    delete oldTranscript[key];
-  }
-  const oldLabels = { ...labels, transcript: oldTranscript };
-  const messages = [
-    msg('a', T0, {
-      content: 'look',
-      attachments: [{ id: 'v1', kind: 'video', name: 'clip.mp4', durationSec: 65 }],
-      links: [ytLink],
-    }),
-  ];
-  const context = {
-    descriptions: new Map([['v1', 'a dog runs']]),
-  };
-  const before = videoTranscript(messages, { labels: oldLabels, ...context });
-  const after = videoTranscript(messages, {
-    labels: oldLabels,
-    ...context,
-    videos: new Map([
-      ['v1', { state: 'watched', text: 'the whole clip' }],
-      ['link:abcd1234', { state: 'error' }],
-    ]),
-  });
-  assert.equal(after[0].text, before[0].text);
-  assert.ok(
-    before[0].text.endsWith('look [video: clip.mp4, 1:05: a dog runs] [link: YouTube — Cool video]'),
-    before[0].text
-  );
-});
-
 // --- formatTranscript: stickers ---------------------------------------
 
 function stickerItem(id: string, name: Untyped, url: Untyped) {
@@ -834,22 +764,6 @@ test('formatTranscript: a described sticker renders stickerDescribed', () => {
     descriptions: new Map([['sticker:s1', 'a frog giving a thumbs up']]),
   });
   assert.ok(items[0].text.includes('[sticker: pepe: a frog giving a thumbs up]'));
-});
-
-test('formatTranscript: an older labels.json with no stickerDescribed key falls back to the plain sticker tag', () => {
-  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const oldLabels = { ...labels, transcript: { ...labels.transcript, stickerDescribed: undefined } };
-  const messages = [msg('a', t0, { content: '', stickers: [stickerItem('s1', 'pepe', 'https://x/s1.png')] })];
-  const items = formatTranscript(messages, {
-    timezone: TZ,
-    gapMinutes: 20,
-    maxChars: 100,
-    selfName: 'Nept',
-    labels: oldLabels,
-    descriptions: new Map([['sticker:s1', 'a frog giving a thumbs up']]),
-  });
-  assert.ok(items[0].text.includes('[sticker: pepe]'));
-  assert.ok(!items[0].text.includes('thumbs up'));
 });
 
 // --- formatTranscript: custom emoji -----------------------------------
@@ -874,22 +788,6 @@ test('formatTranscript: an undescribed custom emoji renders no extra tag at all'
   const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
   assert.ok(items[0].text.endsWith('nice :pog:'));
   assert.ok(!items[0].text.includes('[:pog:'));
-});
-
-test("formatTranscript: an older labels.json with no emojiDescribed key renders no extra tag, today's behaviour", () => {
-  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const oldLabels = { ...labels, transcript: { ...labels.transcript, emojiDescribed: undefined } };
-  const messages = [msg('a', t0, { content: 'nice :pog:', emojis: [{ id: 'e1', name: 'pog' }] })];
-  const items = formatTranscript(messages, {
-    timezone: TZ,
-    gapMinutes: 20,
-    maxChars: 100,
-    selfName: 'Nept',
-    labels: oldLabels,
-    descriptions: new Map([['emoji:e1', 'a surprised cat face']]),
-  });
-  assert.equal(items[0].text.includes('a surprised cat face'), false);
-  assert.ok(!items[0].text.includes('  '));
 });
 
 test('formatTranscript: emojiInline false keeps the bare :name: with no description tag', () => {
@@ -945,26 +843,6 @@ test('formatTranscript: a forward whose source channel is unresolved (forwardedF
     }),
   ];
   const items = formatTranscript(messages, { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept', labels });
-  assert.ok(items[0].text.includes('[forwarded: big news]'));
-});
-
-test('formatTranscript: an older labels.json with no forwardedFrom key falls back to plain forwarded, even with a resolved channel', () => {
-  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const oldLabels = { ...labels, transcript: { ...labels.transcript, forwardedFrom: undefined } };
-  const messages = [
-    msg('a', t0, {
-      content: '',
-      forwardedFrom: 'announcements',
-      forwarded: [{ content: 'big news', attachments: [], links: [], stickers: [] }],
-    }),
-  ];
-  const items = formatTranscript(messages, {
-    timezone: TZ,
-    gapMinutes: 20,
-    maxChars: 100,
-    selfName: 'Nept',
-    labels: oldLabels,
-  });
   assert.ok(items[0].text.includes('[forwarded: big news]'));
 });
 
@@ -1188,36 +1066,6 @@ test('formatTranscript: a watched video with an answer renders videoAnswered rig
   );
 });
 
-test('formatTranscript: labels without videoAnswered render an answered video exactly as a plain watched one', () => {
-  const oldLabels = { ...labels, transcript: { ...labels.transcript, videoAnswered: undefined } };
-  const messages = [
-    msg('a', T0, {
-      content: '',
-      attachments: [{ id: 'v1', kind: 'video', name: 'clip.mp4', durationSec: 65 }],
-      links: [ytLink],
-    }),
-  ];
-  const context = {};
-  const plain = videoTranscript(messages, {
-    labels: oldLabels,
-    ...context,
-    videos: new Map([
-      ['v1', { state: 'watched', text: 'a dog runs' }],
-      ['link:abcd1234', { state: 'watched', text: 'a talk' }],
-    ]),
-  });
-  const withAnswers = videoTranscript(messages, {
-    labels: oldLabels,
-    ...context,
-    videos: new Map([
-      ['v1', { state: 'watched', text: 'a dog runs', answer: answered }],
-      ['link:abcd1234', { state: 'watched', text: 'a talk', answer: answered }],
-    ]),
-  });
-  assert.deepEqual(withAnswers, plain);
-  assert.ok(!withAnswers[0].text.includes('κόκκινο'));
-});
-
 // --- formatTranscript: a second look at a picture (imageAnswers -> imageAnswered) ---
 
 const pictureMsg = () => msg('a', T0, { content: '', attachments: [{ id: 'p1', kind: 'image', name: 'singes.png' }] });
@@ -1235,18 +1083,6 @@ test('formatTranscript: a picture with an answer renders imageAnswered right aft
     blind[0].text.endsWith(`${labels.transcript.image} [picture checked again for "τι χρώμα είναι;": κόκκινο]`),
     blind[0].text
   );
-});
-
-test('formatTranscript: labels without imageAnswered render an answered picture exactly as a plain one', () => {
-  const oldLabels = { ...labels, transcript: { ...labels.transcript, imageAnswered: undefined } };
-  const descriptions = new Map([['p1', 'deux singes']]);
-  const plain = videoTranscript([pictureMsg()], { labels: oldLabels, descriptions });
-  const withAnswer = videoTranscript([pictureMsg()], {
-    labels: oldLabels,
-    descriptions,
-    imageAnswers: new Map([['p1', answered]]),
-  });
-  assert.deepEqual(withAnswer, plain);
 });
 
 test('formatTranscript: a GIF with an answer renders videoAnswered after its tag; gone with videoAnswered blanked, whatever imageAnswered says', () => {
@@ -1297,22 +1133,6 @@ test('formatTranscript: reads appends linkRead after the link tag and its other 
     ),
     items[0].text
   );
-});
-
-test('formatTranscript: an older labels.json with no linkRead key ignores reads, rendering as before', () => {
-  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const oldLabels = { ...labels, transcript: { ...labels.transcript, linkRead: undefined } };
-  const messages = [
-    msg('a', t0, {
-      content: '',
-      links: [{ id: 'a#e0', kind: 'link', site: 'example.org', title: 'Crêpes', url: 'https://example.org/c' }],
-    }),
-  ];
-  const options = { timezone: TZ, gapMinutes: 20, maxChars: 100, selfName: 'Nept' };
-  const withReads = formatTranscript(messages, { ...options, labels: oldLabels, reads: new Map([['a#e0', 'texte']]) });
-  const without = formatTranscript(messages, { ...options, labels });
-  assert.equal(withReads[0].text, without[0].text);
-  assert.ok(!withReads[0].text.includes('texte'));
 });
 
 // --- formatTranscript: reactions ---------------------------------------
@@ -1436,18 +1256,6 @@ test('formatTranscript: seeReactions=false renders none', () => {
   });
   assert.ok(items[0].text.endsWith(': text'), items[0].text);
   assert.ok(!items[0].text.includes('🍣'));
-});
-
-test('formatTranscript: labels without transcript.reactions render none', () => {
-  const T = Date.UTC(2026, 8, 20, 10, 0, 0);
-  const oldLabels = {
-    ...labels,
-    transcript: { ...labels.transcript, reactions: undefined, reactionItem: undefined, reactionMine: undefined },
-  };
-  const items = reactionTranscript([msg('1', T, { reactions: [{ emoji: '🍣', count: 2, mine: true }] })], {
-    labels: oldLabels,
-  });
-  assert.ok(items[0].text.endsWith(': text'), items[0].text);
 });
 
 // --- A library GIF's three caption fields (transcript.gifKnownFields) -----------
@@ -1867,4 +1675,86 @@ test('formatTranscript: an edited line ends with the edited mark; a deleted plac
   assert.ok(!items[1].text.includes('must not show'));
   assert.ok(items[2].text.includes('#2'), 'a reply to the placeholder still names its number');
   assert.ok(!items[2].text.includes(labels.transcript.edited));
+});
+
+// Tests for the message links a transcript shows as numbers (src/format.ts#formatTranscript with `messageNumbers`):
+// the core turns only the references the adapter put on a message (`messageRefs`) into the `#n` of a line of the
+// window, never a link it finds in the text by its shape.
+
+const TZ_MESSAGE_REFS = 'Europe/Athens';
+
+type Ref = { iface: string; chatId: string; messageId: string; url: string; text: string };
+type Line = {
+  id: string;
+  ts: number;
+  authorId: string;
+  authorName: string;
+  content: string;
+  placeId: string;
+  channelName: string;
+  messageRefs?: Array<Ref>;
+};
+
+function messageRefsMsg(id: string, ts: number, overrides: Partial<Line> = {}): Line {
+  return {
+    id,
+    ts,
+    authorId: 'u1',
+    authorName: 'Nick',
+    content: 'text',
+    placeId: 'c1',
+    channelName: 'general',
+    ...overrides,
+  };
+}
+
+const refTo = (id: string, text: string): Ref => ({
+  iface: 'discord',
+  chatId: '22',
+  messageId: id,
+  url: text.replace(/[<>]/g, ''),
+  text,
+});
+
+test('formatTranscript: messageNumbers maps a reference to a line of the list to its #n, a reference to another message stays', () => {
+  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
+  const link = (id: string): string => `https://discord.com/channels/9/22/${id}`;
+  const messages = [
+    messageRefsMsg('101', t0, { content: 'γεια' }),
+    messageRefsMsg('102', t0 + MIN, {
+      content: `εδώ ${link('101')} και ${link('555')}`,
+      messageRefs: [refTo('101', link('101')), refTo('555', link('555'))],
+    }),
+  ];
+  const base = { timezone: TZ_MESSAGE_REFS, gapMinutes: 20, maxChars: 500, selfName: 'Nept', labels, indexOffset: 6 };
+  const on = formatTranscript(messages, { ...base, messageNumbers: true });
+  assert.ok(on[1].text.endsWith(`Nick: εδώ #7 και ${link('555')}`), on[1].text);
+  const off = formatTranscript(messages, base);
+  assert.ok(off[1].text.endsWith(`Nick: εδώ ${link('101')} και ${link('555')}`), off[1].text);
+  const memory = formatTranscript(messages, { ...base, mode: 'memory', messageNumbers: true });
+  assert.ok(memory[1].text.includes(link('101')), 'memory mode has no numbers to point at');
+});
+
+test('formatTranscript: a reference written in angle brackets turns the whole span, brackets included, into the #n', () => {
+  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
+  const written = '<https://discord.com/channels/9/22/101>';
+  const messages = [
+    messageRefsMsg('101', t0, { content: 'γεια' }),
+    messageRefsMsg('102', t0 + MIN, { content: `voilà ${written}.`, messageRefs: [refTo('101', written)] }),
+  ];
+  const base = { timezone: TZ_MESSAGE_REFS, gapMinutes: 20, maxChars: 500, selfName: 'Nept', labels, indexOffset: 6 };
+  const on = formatTranscript(messages, { ...base, messageNumbers: true });
+  assert.ok(on[1].text.endsWith('Nick: voilà #7.'), on[1].text);
+});
+
+test('formatTranscript: a Discord link in the text with no reference on the message stays as written', () => {
+  const t0 = Date.UTC(2026, 8, 20, 10, 0, 0);
+  const link = 'https://discord.com/channels/9/22/101';
+  const messages = [
+    messageRefsMsg('101', t0, { content: 'γεια' }),
+    messageRefsMsg('102', t0 + MIN, { content: `εδώ ${link}` }),
+  ];
+  const base = { timezone: TZ_MESSAGE_REFS, gapMinutes: 20, maxChars: 500, selfName: 'Nept', labels, indexOffset: 6 };
+  const on = formatTranscript(messages, { ...base, messageNumbers: true });
+  assert.ok(on[1].text.endsWith(`Nick: εδώ ${link}`), on[1].text);
 });

@@ -4,8 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import '../src/tools/operations/index.ts';
-import { skillRegistry } from '../src/tools/registry.ts';
-import { IN_TURN_TOOLS } from '../src/tools/tools.ts';
+
 import {
   pickSpan,
   readSelection,
@@ -15,6 +14,17 @@ import {
 } from '../src/tools/conversation-read.ts';
 import { labels } from './fixtures/labels.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { startCore } from '../src/core.ts';
+import type { Llm } from '../src/llm/openrouter.ts';
+import { start } from '../src/interface/fake-interface.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { ROOT, SELF, channelInfo, lineEvent, settle, until } from './fixtures/core-over-fake.ts';
+import { call, toolAnswer } from './fixtures/tool-answers.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -94,24 +104,6 @@ function runner(overrides = {}) {
   };
   return { calls, run: (args: Untyped) => runConversationRead({ ...deps, args }) };
 }
-
-test('registry: conversation.read is a read skill and an in-turn tool, with the options of the spec', () => {
-  const skill = skillRegistry().get('conversation.read');
-  assert.equal(loose(skill).kind, 'read');
-  // Slice 7: the tool argument `channel` is named `place`. Meta-person fault 2: `person` names a direct chat, which
-  // has no place handle, so the spec's options gained it.
-  assert.deepEqual(Object.keys(loose(skill).argsSchema.properties), [
-    'place',
-    'around',
-    'before',
-    'after',
-    'since',
-    'last',
-    'person',
-  ]);
-  assert.equal(loose(skill).argsSchema.properties.last.maximum, 60);
-  assert.ok(IN_TURN_TOOLS.includes('conversation.read'));
-});
 
 test('sinceMoment: a delay back, the latest clock time, a date-time', () => {
   assert.equal(sinceMoment('2h', NOW), NOW - 2 * HOUR);
@@ -357,4 +349,111 @@ test('an empty span says so; arguments that do not fit are invalid; a hidden cha
   const hidden = runner({ allowed: (id: string) => id !== 'c9' });
   assert.deepEqual(await hidden.run({ placeId: 'c9' }), { status: 'denied', code: 'channel-not-visible' });
   assert.equal(hidden.calls.record.length + hidden.calls.live.length, 0, 'nothing was read');
+});
+
+// A group turn reads a sibling channel of the same server through the real core: the real store over a temporary
+// database, the fake interface and a scripted model. The line was stored from a received event in channel c2; the turn
+// in channel c1 calls `conversation.read` of c2 and the tool result must hold that line.
+
+const REPO = fileURLToPath(new URL('..', import.meta.url));
+const STORED = 'the red book is on the shelf';
+
+const CONFIG = {
+  bot: {
+    timezone: 'UTC',
+    owners: ['u1'],
+    access: { 'conversation.read': { everyone: false, roles: [], users: [SELF.id] } },
+  },
+  models: { routes: chainsOf({ video: false }) },
+  pace: { settleMs: 0, settleMaxMs: 0 },
+  typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },
+  gifs: { backfillMessages: 0 },
+};
+
+const FIXED: Record<string, string> = {
+  address: 'yes',
+  // The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
+  split: '{"parts":[]}',
+  merge: '{"item":null}',
+  lookup: 'none',
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  'query-builder': '{"web":null,"history":null,"who":null,"when":null,"when_role":null,"recent":null,"skills":null}',
+  'route-channel': 'none',
+  'participation-pick': 'none',
+  'elsewhere-pick': '{"place":null,"earlier":false,"episodes":[]}',
+  'gif-pick': 'none',
+  'media-pick': '{"pick":"none","name":null}',
+  // The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
+  missed: '{"verdicts":[{"n":1,"verdict":"uncertain"}]}',
+};
+
+const toolResults = (messages: unknown): string =>
+  (Array.isArray(messages) ? messages : [])
+    .filter(
+      (message: unknown): message is { role: string; content: unknown } =>
+        (message as { role?: unknown } | null)?.role === 'tool'
+    )
+    .map((message) => (typeof message.content === 'string' ? message.content : JSON.stringify(message.content)))
+    .join('\n');
+
+test('a group turn reads a line stored in another channel of the same server', async () => {
+  // Bug: the read looked the stored record up under the channel's native root id instead of the turn's place,
+  // so it answered "No messages in that span" while the line was stored.
+  const root = mkdtempSync(join(tmpdir(), 'sr-'));
+  const dataDir = join(root, 'd');
+  mkdirSync(join(dataDir, 'config'), { recursive: true });
+  writeFileSync(join(dataDir, 'config', 'config.json'), JSON.stringify(CONFIG));
+  let step = 0;
+  let read = '';
+  const llm: Pick<Llm, 'complete'> = {
+    complete: (messages, options = {}) => {
+      const fixed = FIXED[String((options as { purpose?: unknown }).purpose)];
+      if (fixed !== undefined) return Promise.resolve(toolAnswer(fixed));
+      step += 1;
+      if (step === 1)
+        return Promise.resolve(toolAnswer('', [call('conversation.read', { place: '#room-c2', last: 5 })]));
+      if (step === 2) read = toolResults(messages);
+      return Promise.resolve(toolAnswer('<skip/>'));
+    },
+  };
+  let live: Awaited<ReturnType<typeof start>> | null = null;
+  try {
+    await withCapturedLogs(async () => {
+      const core = await startCore({
+        paths: { rootDir: REPO, privateDir: dataDir, dataDir },
+        env: { OPENROUTER_CORE_KEY: 'test-key' },
+        interfaces: [
+          {
+            name: 'fake',
+            start: async (host) => (live = await start(host, { self: SELF, root: ROOT })),
+          },
+        ],
+        llm,
+        embedder: { embed: () => Promise.resolve([]) },
+      });
+      try {
+        if (live === null) throw new Error('the core never started the fake interface');
+        const fake = live;
+        fake.adapter.seedChat(channelInfo('c1'));
+        fake.adapter.seedChat(channelInfo('c2'));
+        await fake.emit(lineEvent({ id: 'b0', chatId: 'c2', text: STORED, at: Date.now() }));
+        await settle(200);
+        await fake.emit(
+          lineEvent({
+            id: 'a1',
+            chatId: 'c1',
+            text: 'Nova, where is the red book?',
+            at: Date.now(),
+            mention: true,
+          })
+        );
+        await until(() => step >= 2);
+      } finally {
+        await core.stop();
+      }
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+  assert.ok(read.includes(STORED), read);
 });

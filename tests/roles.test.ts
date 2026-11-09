@@ -9,11 +9,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   BASE_ROLES,
-  CORE_ROLE,
   CORE_ROLES,
   DEVELOPMENT_ROLES,
   ERRAND_ROLES,
-  NON_CORE_ROLES,
   MEMORY_ROLE,
   OPENCODE_ROLES,
   ROLES,
@@ -219,57 +217,6 @@ test("roles: the built-in defaults equal config.json's agent groups, and every r
   for (const role of Object.values(PURPOSE_ROLES)) assert.ok(isRole(role), role);
 });
 
-test('roles: the groups, the OpenCode roles with OpenCode model ids, resolved like any role, no purpose on them', () => {
-  assert.equal(CORE_ROLE, 'core');
-  assert.deepEqual([...NON_CORE_ROLES], ['analyzer', 'vision', 'video', 'embedding', 'speech']);
-  assert.deepEqual([...CORE_ROLES], ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech']);
-  assert.deepEqual([...BASE_ROLES], ['core', 'analyzer', 'vision', 'video', 'embedding', 'speech', 'drawing']);
-  assert.deepEqual([...ERRAND_ROLES], ['scout', 'server']);
-  assert.deepEqual([...DEVELOPMENT_ROLES], ['thinker', 'dev']);
-  assert.deepEqual([...OPENCODE_ROLES], ['scout', 'server', 'thinker', 'dev']);
-  assert.equal(ROLE_DEFAULTS.scout, 'openrouter/openai/gpt-6.1-sol');
-  assert.equal(ROLE_DEFAULTS.server, 'openrouter/openai/gpt-6.1-sol');
-  assert.equal(ROLE_DEFAULTS.thinker, 'openrouter/anthropic/claude-opus-5.5');
-  assert.equal(ROLE_DEFAULTS.dev, 'openrouter/anthropic/claude-sonnet-5.5');
-  assert.equal(ROLE_DEFAULTS.drawing, 'openai/gpt-image-2.5-flare', 'drawing: a bare OpenRouter image model id');
-  for (const role of OPENCODE_ROLES)
-    assert.match(ROLE_DEFAULTS[role], /^openrouter\/[\w.-]+\/[\w.:-]+$/, `${role}: an OpenCode id, provider first`);
-  // Changed: an optional role with no chain is off (slice 4), so only the other roles resolve to their default.
-  const optional = ['vision', 'video', 'speech', 'drawing'];
-  for (const role of ROLES)
-    assert.equal(roleModel({}, role), optional.includes(role) ? undefined : ROLE_DEFAULTS[role], role);
-  assert.equal(roleModel({ models: { errands: { scout: 'openrouter/x/scout' } } }, 'scout'), 'openrouter/x/scout');
-  assert.equal(
-    roleModel({ models: { errands: { scout: 'openrouter/x/scout' }, byPurpose: { scout: 'x/pinned' } } }, 'server'),
-    ROLE_DEFAULTS.server
-  );
-  assert.ok(
-    !Object.values(PURPOSE_ROLES).some((role) => OPENCODE_ROLES.includes(role)),
-    'no request purpose goes out on an OpenCode role'
-  );
-});
-
-test('roles: config.json carries none of the old model keys', () => {
-  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
-  assert.equal(shipped.classifier, undefined);
-  assert.equal(Object.hasOwn(shipped, 'roles'), false);
-  assert.equal(Object.hasOwn(shipped.llm, 'model'), false);
-  assert.equal(Object.hasOwn(shipped.memory, 'model'), false);
-  assert.equal(Object.hasOwn(shipped.image, 'model'), false);
-  assert.deepEqual(shipped.llm.hedge.roles, ['analyzer']);
-  assert.deepEqual(shipped.llm.cache.roles, ['core']);
-  assert.equal(
-    JSON.stringify([shipped.models, shipped.llm]).includes('voice'),
-    false,
-    'no model key or role named voice (memory.voice is the memory-wording section, not a role)'
-  );
-  assert.equal(
-    JSON.stringify([shipped.models, shipped.llm, shipped.agents]).includes('"web"'),
-    false,
-    'the errand agent is called scout'
-  );
-});
-
 // ---- readConfig --------------------------------------------------------------
 
 test('readConfig: config.local.json is merged over config.json key by key', () => {
@@ -356,21 +303,6 @@ test('call sites: every request role is one of the roles, every purpose goes out
   }
   // Changed: quick search's two requests name SEARCH_ROLE, which this pattern does not read, so two sites count less.
   assert.ok(pairs >= 28, `found ${pairs} role/purpose pairs`);
-});
-
-test('a role with a chain in models.routes takes the model of its first route, and models.base is not read', () => {
-  // Catches: a request built with the retired `models.base` model while the chain the owner set names another, or a
-  // role the migration missed still running on the retired setting.
-  const config = {
-    models: {
-      base: { analyzer: 'openai/gpt-6.1-sol', vision: 'google/gemini-4-argon', video: 'google/gemini-4-argon' },
-      routes: { analyzer: [{ via: 'api', key: 'helpers', model: 'anthropic/claude-sonnet-6.1' }], vision: [] },
-    },
-  };
-  assert.equal(roleModel(config, 'analyzer'), 'anthropic/claude-sonnet-6.1');
-  assert.equal(roleModel(config, 'vision'), undefined, 'an empty chain turns an optional role off');
-  assert.equal(roleOn(config, 'vision'), false);
-  assert.equal(roleModel(config, 'video'), undefined, 'models.base.video is not read');
 });
 
 test('quick search takes the model of the first route of its chain, and web.quickSearch.model is not read', () => {

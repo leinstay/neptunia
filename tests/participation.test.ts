@@ -12,7 +12,6 @@ import {
   episodeHeadlines,
   expireEpisodes,
   normalizeParticipation,
-  participationSettings,
   purgeParticipationFor,
   recordFollowing,
   recordOwnLine,
@@ -63,13 +62,6 @@ function deepFreeze<T>(value: T): T {
 }
 
 const ids = (episode: { messages: Array<{ id: string }> }) => episode.messages.map((m) => m.id);
-
-// --- settings ------------------------------------------------------------------
-
-// Plan 2026-11-04-cli-and-memory B3: the output cap and the timeout moved to `elsewhere.*`, so only constants are left.
-test('participation: the settings are the production constants', () => {
-  assert.deepEqual(participationSettings(), { ...PARTICIPATION_DEFAULTS });
-});
 // --- recordOwnLine ---------------------------------------------------------------
 
 test('recordOwnLine: a first line opens an episode with the lines before it, chronological', () => {

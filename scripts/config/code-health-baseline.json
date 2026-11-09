@@ -117,7 +117,7 @@
       "repeated": 0
     },
     "tests/collect.test.ts": {
-      "deep": 54,
+      "deep": 52,
       "repeated": 2
     },
     "tests/commands-console.test.ts": {
@@ -149,7 +149,7 @@
       "repeated": 0
     },
     "tests/conversation-read.test.ts": {
-      "deep": 4,
+      "deep": 3,
       "repeated": 1
     },
     "tests/core-identity.test.ts": {
@@ -185,7 +185,7 @@
       "repeated": 0
     },
     "tests/describe.test.ts": {
-      "deep": 120,
+      "deep": 117,
       "repeated": 0
     },
     "tests/development-boundary.test.ts": {
@@ -273,7 +273,7 @@
       "repeated": 0
     },
     "tests/events.test.ts": {
-      "deep": 164,
+      "deep": 151,
       "repeated": 3
     },
     "tests/exa.test.ts": {
@@ -364,12 +364,8 @@
       "deep": 1,
       "repeated": 0
     },
-    "tests/format-message-refs.test.ts": {
-      "deep": 5,
-      "repeated": 0
-    },
     "tests/format.test.ts": {
-      "deep": 99,
+      "deep": 92,
       "repeated": 0
     },
     "tests/gif-backfill.test.ts": {
@@ -441,7 +437,7 @@
       "repeated": 0
     },
     "tests/inner.test.ts": {
-      "deep": 147,
+      "deep": 142,
       "repeated": 1
     },
     "tests/intention-due-jitter.test.ts": {
@@ -553,7 +549,7 @@
       "repeated": 0
     },
     "tests/media-pick-emoji-contract.test.ts": {
-      "deep": 4,
+      "deep": 2,
       "repeated": 0
     },
     "tests/media-pick-emoji-turn.test.ts": {
@@ -884,10 +880,6 @@
       "deep": 5,
       "repeated": 0
     },
-    "tests/quick-search.test.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
     "tests/reactor-store.test.ts": {
       "deep": 9,
       "repeated": 0
@@ -938,10 +930,6 @@
     },
     "tests/replay-skills.test.ts": {
       "deep": 36,
-      "repeated": 0
-    },
-    "tests/roles.test.ts": {
-      "deep": 2,
       "repeated": 0
     },
     "tests/rules-list.test.ts": {
@@ -1041,7 +1029,7 @@
       "repeated": 0
     },
     "tests/store.test.ts": {
-      "deep": 37,
+      "deep": 33,
       "repeated": 0
     },
     "tests/subharness-control.test.ts": {
@@ -1293,7 +1281,7 @@
     "src/behavior/recall.ts": 2357,
     "tests/openrouter.test.ts": 3545,
     "tests/prompt.test.ts": 2812,
-    "tests/recall.test.ts": 2379
+    "tests/recall.test.ts": 2366
   },
   "functions": {
     "interfaces/discord/collect.ts": {

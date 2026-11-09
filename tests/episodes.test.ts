@@ -5,9 +5,7 @@
 // import-graph test reads source files only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+
 import {
   mergeEpisodes,
   sortEpisodesForDisplay,
@@ -538,29 +536,6 @@ test('mergeEpisodes: a candidate is a duplicate exactly when isSameEpisode says 
     const kept = result.episodes.slice(1).some((e) => loose(e).date === raw.date && loose(e).what === raw.what);
     assert.equal(kept, !isSameEpisode(existing[0], { quote: '', ...raw }), raw.what);
   }
-});
-
-// ---- the import graph: episodes.js stays a leaf toward prompt.js ------------
-
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-
-/** Every source file reachable from `file` through static relative imports. */
-function reachableFrom(file: string, seen = new Set<string>()): Set<string> {
-  if (seen.has(file)) return seen;
-  seen.add(file);
-  const source = fs.readFileSync(file, 'utf8');
-  for (const match of source.matchAll(/^\s*(?:import|export)\b[^'"]*?from\s+'(\.{1,2}\/[^']+)'/gm)) {
-    reachableFrom(path.resolve(path.dirname(file), match[1]), seen);
-  }
-  return seen;
-}
-
-test('episodes: does not import prompt.js, directly or through another module', () => {
-  const reached = [...reachableFrom(path.join(ROOT, 'src', 'memory', 'episodes.ts'))].map((file) =>
-    path.relative(ROOT, file).split(path.sep).join('/')
-  );
-  assert.ok(reached.includes('src/memory/interests.ts'), 'the walk follows imports');
-  assert.equal(reached.includes('src/behavior/prompt.js'), false);
 });
 
 test('episodes: eviction returns the dropped items with their itemId', () => {

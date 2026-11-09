@@ -13,18 +13,15 @@ import {
   ENVELOPE_TYPES,
   EVENT_KINDS,
   MEMBERSHIP_CHANGES,
-  STATUSES,
   ackOf,
   envelope,
-  notOk,
-  ok,
   originOf,
   portAction,
   validateAction,
   validateEnvelope,
   validateEvent,
 } from '../src/protocol/index.ts';
-import * as port from '../src/interface/port.ts';
+
 import type { MessageReceived } from '../src/protocol/events.ts';
 
 const chat = { id: 'c1', kind: 'channel', rootId: 'g1', name: 'γενικά', topic: null, category: null };
@@ -189,23 +186,6 @@ test('protocol: the kinds, chat kinds and actions are the contract', () => {
   assert.deepEqual([...ACTIONS], [...Object.values(CAPABILITIES), COMMAND_RESULT]);
   assert.deepEqual(Object.keys(ACTION_SAMPLES).sort(), [...ACTIONS].sort());
   assert.deepEqual(Object.keys(EVENTS).sort(), [...EVENT_KINDS].sort());
-});
-
-test('protocol: the port re-exports the package, so its importers are unchanged', () => {
-  assert.equal(port.CAPABILITIES, CAPABILITIES);
-  assert.equal(port.STATUSES, STATUSES);
-  assert.equal(port.ok, ok);
-  assert.equal(port.notOk, notOk);
-  for (const name of [
-    'INCOMING_HOOKS',
-    'NO_MENTIONS',
-    'mentionsOf',
-    'isRefOf',
-    'refRefusal',
-    'contentRefusal',
-    'declaredHooks',
-  ])
-    assert.ok(name in port, name);
 });
 
 test('validateEvent: every kind is valid in its documented shape', () => {

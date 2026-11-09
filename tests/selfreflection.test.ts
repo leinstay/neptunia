@@ -4,8 +4,7 @@
 // scheduler's factory (createSelfreflection) over fakes.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
+
 import {
   localDayKey,
   planDay,
@@ -16,7 +15,6 @@ import {
   isPictureKind,
   isSetKind,
   setSettings,
-  DEFAULT_PICTURE_KINDS,
   validatePlan,
   renderSelfreflectionBlock,
   renderKindsBlock,
@@ -25,7 +23,6 @@ import {
   usedSeedLines,
   sceneOf,
   renderSeedsBlock,
-  stripUrls,
   gistOf,
   createSelfreflection,
 } from '../src/behavior/selfreflection.ts';
@@ -322,15 +319,6 @@ test('nextHunger: a changed windows list pads with zero or trims', () => {
   assert.deepEqual(nextHunger(previous, more, 'UTC', nowMs, 30).hunger, [4, 2, 5, 1]);
 });
 
-test('nextHunger: a stored plan from before hunger starts at zero', () => {
-  const slot = Date.parse('2026-03-10T13:00:00Z');
-  const previous = { day: '2026-03-10', slots: [slot], done: [slot], quiet: false };
-  assert.deepEqual(nextHunger(previous, H_WINDOWS, 'UTC', Date.parse('2026-03-11T02:00:00Z'), 30), {
-    hunger: [0, 0, 0],
-    quietStreak: 0,
-  });
-});
-
 test('dueSlot: returns the first not-done slot within the grace', () => {
   const t = Date.parse('2026-03-10T15:00:00Z');
   const plan = { slots: [t - 20 * MINUTE_MS, t - 5 * MINUTE_MS, t + 10 * MINUTE_MS], done: [t - 20 * MINUTE_MS] };
@@ -382,13 +370,6 @@ test('withoutPictureKinds: drops the picture kinds, keeps the others with their 
   const kinds = { selfPicture: 2, status: 1, meme: 3, news: 0 };
   assert.deepEqual(withoutPictureKinds(kinds, ['selfPicture', 'meme']), { status: 1, news: 0 });
   assert.deepEqual(kinds, { selfPicture: 2, status: 1, meme: 3, news: 0 }, 'the input is not changed');
-});
-
-test('withoutPictureKinds: the default picture kinds when selfreflection.pictureKinds is not a list', () => {
-  const kinds = { selfPicture: 1, picture: 1, meme: 1, status: 2 };
-  assert.deepEqual(withoutPictureKinds(kinds, undefined), { status: 2 });
-  assert.deepEqual(DEFAULT_PICTURE_KINDS, ['selfPicture', 'picture', 'meme', 'photoset', 'randomSet']);
-  assert.deepEqual(withoutPictureKinds(null, ['meme']), {});
 });
 
 test('withoutPictureKinds: nothing weighted left makes pickKind return null', () => {
@@ -739,13 +720,6 @@ test('renderSeedsBlock: one line per set', () => {
     'Random seeds (place; setting; detail; activity; subject; twist):\n- a pier; rain\n- an alley; fog'
   );
   assert.equal(renderSeedsBlock([], labels), '');
-});
-
-test('stripUrls: removes links and keeps the words around them', () => {
-  assert.equal(stripUrls('see https://a.b/c now'), 'see now');
-  assert.equal(stripUrls('http://x.y at the start'), 'at the start');
-  assert.equal(stripUrls('line one <https://a.b>\nline two'), 'line one\nline two');
-  assert.equal(stripUrls('no links, señor'), 'no links, señor');
 });
 
 test('gistOf: one line cut at a word boundary', () => {

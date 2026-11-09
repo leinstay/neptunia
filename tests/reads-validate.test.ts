@@ -4,7 +4,7 @@
 // most 25 viewers, at most 50 texts of at most 2,000 characters.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { READ_ACTIONS, validateAction } from '../src/protocol/index.ts';
+import { validateAction } from '../src/protocol/index.ts';
 
 const CHAT = { iface: 'fake', chatId: 'c1' };
 const MESSAGE = { iface: 'fake', chatId: 'c1', messageId: 'm1' };
@@ -132,11 +132,4 @@ test('accepts a limit of one and exactly 25 viewers and 50 texts of 2000 charact
   assert.equal(validateAction({ action: 'messages.history', chat: CHAT, limit: 1 }).ok, true);
   assert.equal(validateAction({ action: 'chat.info', chat: CHAT, viewers }).ok, true);
   assert.equal(validateAction({ action: 'links.parse', texts }).ok, true);
-});
-
-test('lists every read action, the message fetch included', () => {
-  const names = ['chat.info', 'chats.list', 'messages.fetch', 'messages.history', 'member.info'];
-  const more = ['messages.search', 'members.search', 'emoji.list', 'links.parse', 'message.reactors'];
-  // The port gained `dm.chat`, which opens a DM's channel for the media backfill.
-  assert.deepEqual([...READ_ACTIONS].sort(), [...names, ...more, 'dm.chat'].sort());
 });

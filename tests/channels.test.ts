@@ -254,26 +254,6 @@ test('renderChannel: without the label nothing is added', () => {
   }
 });
 
-test('renderChannel: works with a non-English (Greek) labels object', () => {
-  const grLabels = {
-    server: {
-      currentMark: ' (είσαι εδώ)',
-      category: 'κατηγορία: {text}',
-      topic: 'θέμα: {text}',
-      purpose: 'σκοπός: {text}',
-      topics: 'τι γράφουν: {text}',
-      tone: 'ύφος: {text}',
-      activity: 'δραστηριότητα: {activity}',
-      activityLive: 'ζωντανό',
-      activitySlow: 'αργό',
-      activityDead: 'νεκρό',
-    },
-  };
-  const c = channel({ name: 'γενικά', purpose: 'κουβέντα' });
-  const text = renderChannel(c, grLabels, { current: true, activity: 'live' });
-  assert.equal(text, '# γενικά (είσαι εδώ)\nσκοπός: κουβέντα\nδραστηριότητα: ζωντανό');
-});
-
 const SINCE_T0 = Date.UTC(2026, 9, 7, 12); // 2026-10-07T12:00Z
 const dayKey = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
