@@ -107,6 +107,12 @@ function makeFixture() {
         new Date(at).toISOString()
       );
     },
+    /** A member's stored DM place, as an observed DM leaves it: a DM line's audience is the place naming its partner. */
+    dmPlace(member: string) {
+      db.prepare(
+        "INSERT INTO places (id, iface, kind, native_id, chat, scope_kind, partner_account, partner_person) VALUES (?, 'discord', 'dm', NULL, 'dm', 'dm', ?, ?)"
+      ).run(dmPlaceId('discord', member), `discord:${member}`, personId('discord', member));
+    },
     account(accountId: string, names: Array<string>) {
       db.prepare(
         "INSERT INTO accounts (id, iface, native_id, person_id, link, names) VALUES (?, 'discord', ?, ?, 'verified', ?)"

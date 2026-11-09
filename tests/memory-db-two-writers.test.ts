@@ -138,6 +138,14 @@ function seededDataDir(): string {
   ]);
   const handle = openMemoryDb(path.join(data, 'memory.db'));
   try {
+    // Changed with ids-by-links slice 3: no writer makes the member's DM place from the member id, so the DM is stored
+    // first, as an observed DM leaves it.
+    dbOf(handle)
+      .prepare(
+        `INSERT INTO places (id, iface, kind, native_id, chat, scope_kind, partner_account, partner_person)
+         VALUES (?, 'discord', 'dm', NULL, 'dm', 'dm', ?, ?)`
+      )
+      .run(`discord:dm:${MEMBER}`, `discord:${MEMBER}`, PERSON);
     assert.equal(seedUnits(handle, data, { now: () => NOW - 86_400_000 }).errors, 0);
   } finally {
     handle.close();

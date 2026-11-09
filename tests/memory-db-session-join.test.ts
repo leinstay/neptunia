@@ -239,6 +239,7 @@ test('a private chat waits and joins on its own, never with the group', async ()
   // Catches: a small private session joined into the group request (a leak across scopes), or the group held back by it.
   const env = fixture();
   try {
+    env.storeDmPlace(ADA); // Changed with ids-by-links slice 3: no writer makes the DM place from her person id.
     const dm = { scope_kind: 'dm', scope_iface: 'discord', scope_dm: personOf(ADA) };
     lines(env, 12, 0, 'g');
     lines(env, 4, 0, 'p', { scope: dm, place: dmPlaceOf(ADA) });
