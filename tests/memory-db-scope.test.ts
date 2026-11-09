@@ -32,12 +32,11 @@ import {
   dmPlaceId,
   itemOrDerivedId,
   messageSourceId,
-  nativeOf,
   otherSourceId,
-  personId,
   shortHash,
   uniqueIds,
 } from '../src/memory/db/ids.ts';
+import { personId } from './fixtures/memory-db/spelled-ids.ts';
 
 const ALICE = personId('discord', '100000000000000001');
 const BOB = personId('discord', '100000000000000002');
@@ -47,11 +46,16 @@ test('scope columns from an old scope object', () => {
   assert.deepEqual(scopeColumns({ place: 'discord:guild:1' }), groupScope('discord'));
   assert.deepEqual(scopeColumns({}), SCOPE_INTERNAL, 'an unknown legacy scope is never shown outward');
   assert.deepEqual(scopeColumns(undefined), SCOPE_INTERNAL);
-  assert.deepEqual(scopeColumns({ user: '100000000000000001' }), dmScope(ALICE, 'discord'));
+  // A member's DM is the stored one its reader gives; with no reader nothing is stored and the scope is internal.
+  assert.deepEqual(scopeColumns({ user: '100000000000000001' }), SCOPE_INTERNAL);
+  const dmOf = (id: string) => (id === '100000000000000001' ? dmScope(ALICE, 'discord') : null);
+  assert.deepEqual(scopeColumns({ user: '100000000000000001' }, { dmOf }), dmScope(ALICE, 'discord'));
 });
 
 test('a private layer of user U is a DM scope with U whatever the line names', () => {
-  const opts = { privateUser: '100000000000000001' };
+  // The member's DM comes from the stored-DM reader, never from a person id spelled out of the member's id.
+  const dmOf = (id: string) => (id === '100000000000000001' ? dmScope(ALICE, 'discord') : null);
+  const opts = { privateUser: '100000000000000001', dmOf };
   assert.deepEqual(scopeColumns({ channel: '200000000000000009' }, opts), dmScope(ALICE, 'discord'));
   assert.deepEqual(scopeColumns({}, opts), dmScope(ALICE, 'discord'));
   assert.deepEqual(scopeColumns(undefined, opts), dmScope(ALICE, 'discord'));
@@ -241,15 +245,6 @@ test('ids are deterministic text', () => {
   assert.equal(shortHash('a', 'b'), shortHash('a', 'b'));
   assert.notEqual(shortHash('a', 'b'), shortHash('ab'));
   assert.match(shortHash('x'), /^[0-9a-f]{16}$/);
-});
-
-test('nativeOf reads the native id back out of person, account and place ids', () => {
-  assert.equal(nativeOf(personId('discord', '9')), '9');
-  assert.equal(nativeOf(accountId('discord', '9')), '9');
-  assert.equal(nativeOf(channelPlaceId('discord', '9')), '9');
-  assert.equal(nativeOf(dmPlaceId('discord', '9')), '9');
-  assert.equal(nativeOf(legacyServerPlaceId('discord', '9')), '9');
-  assert.equal(nativeOf('person:self'), null);
 });
 
 test('a claim id is the old itemId when there was one, else kind, owner and a hash of the stable fields', () => {

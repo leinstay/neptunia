@@ -5,11 +5,16 @@
 // and the graph. Then the archive over a reopen.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { createArchive } from '../src/memory/archive.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { createAppendStore } from '../src/memory/append-store.ts';
 import { placeOrPersona } from '../src/memory/db/storage-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, Row } from '../src/memory/db/types.ts';
+import { addChannelPlace } from './fixtures/memory-db/opaque-people.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
 
 const NOW = Date.parse('2026-11-09T10:00:00.000Z');
@@ -151,5 +156,21 @@ test('the archive reads back what it wrote after the database is closed and open
     assert.equal((await archive.find('item-7')).length, 1);
   } finally {
     await second.close();
+  }
+});
+
+test('an archived item of a chat whose place id spells nothing is a claim about the stored place', () => {
+  const dir = tempDataDir();
+  const handle = openMemoryDb(path.join(dir, 'memory.db'));
+  try {
+    const db = dbOf(handle);
+    addChannelPlace(db, { id: 'place:9b22', iface: 'discord', authority: 'discord/global', native: 'room-n' });
+    const line = entry('e1', 'claim:archived-1', NOV, { scope: { channel: 'room-n' }, participants: [] });
+    applyMemoryWrite(handle, { kind: 'archive-lines', placeId: null, month: '2026-11', lines: [line], now: NOW });
+    const claim = db.prepare('SELECT subject_kind, subject_id FROM claims WHERE id = ?').get('claim:archived-1');
+    assert.deepEqual({ ...claim }, { subject_kind: 'place', subject_id: 'place:9b22' });
+  } finally {
+    handle.close();
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

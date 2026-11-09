@@ -3,10 +3,9 @@
 // `people_merges` on a connection they are given.
 //
 // Two families live here (schema v7, spec 2026-10-24-memory-schema-v7 sections 1.2 and 11.3):
-//   - the legacy-shaped ids (`person:<iface>:<id>`, `<iface>:<id>`, `<iface>:channel:<id>`, `src:<iface>:...`): every
-//     builder takes the interface as its first argument, so `discord` gives the strings stored today and another
-//     interface its own namespace; `nativeOf` and the functions below that read them are the one place an id is taken
-//     apart, and only for the legacy spellings (src/memory/db/legacy-namespace.ts);
+//   - the legacy-shaped ids (`<iface>:<id>`, `<iface>:channel:<id>`, `src:<iface>:...`): every builder takes the
+//     interface as its first argument, so `discord` gives the strings stored today and another interface its own
+//     namespace. They are minted once for a new row and never taken apart (src/memory/db/legacy-namespace.ts);
 //   - the new ids: `nodeId(kind, parts)` (`<kind>:<32 hex of SHA-256 over the canonical key>`) and `newPersonId()`
 //     (`person:<uuid>`). A new id is a stable spelling, never parsed: the tuple it hashes is stored in columns.
 // Schema v8 adds the relation target keys (`externalTargetKey`, `sourceTargetKey`) and `survivorOf` (merged people).
@@ -27,82 +26,15 @@ type Db = {
 const text = (value: unknown): string => String(value);
 
 // The interface and the native id are any value an adapter or a legacy file gave: they are written with `String`.
-export const personId = (iface: unknown, nativeId: unknown): string => `person:${text(iface)}:${text(nativeId)}`;
 export const accountId = (iface: unknown, nativeId: unknown): string => `${text(iface)}:${text(nativeId)}`;
 /** The spelled id of the top place an interface names by a native id, when the database holds none for it yet. */
 export const topPlaceSpelled = (iface: unknown, nativeId: unknown): string => `${text(iface)}:server:${text(nativeId)}`;
 export const channelPlaceId = (iface: unknown, placeId: unknown): string => `${text(iface)}:channel:${text(placeId)}`;
 export const dmPlaceId = (iface: unknown, nativeId: unknown): string => `${text(iface)}:dm:${text(nativeId)}`;
 
-const PLACE_ID_RE = /^([a-z][\w-]*):(channel|dm|thread):(.+)$/;
-
-/**
- * The interface, the kind and the native id of a spelled chat place (`<iface>:channel:<id>`,
- * `<iface>:dm:<partner>`, `<iface>:thread:<id>`), null for any other shape: a root, a hashed id, a bare id.
- */
-export function placeIdParts(id: string): { iface: string; kind: 'channel' | 'dm' | 'thread'; native: string } | null {
-  const match = PLACE_ID_RE.exec(id);
-  if (!match) return null;
-  const [, iface = '', kind = '', native = ''] = match;
-  return kind === 'channel' || kind === 'dm' || kind === 'thread' ? { iface, kind, native } : null;
-}
-
-const LEGACY_NATIVE_RE = new RegExp(`^(?:person:${LEGACY_IFACE}:|${LEGACY_IFACE}:(?:[a-z_]+:)?)(.+)$`);
-
-/** The native id inside a legacy person, account or place id (the legacy spellings); null when the id has another shape. */
-export function nativeOf(id: unknown): string | null {
-  const match = LEGACY_NATIVE_RE.exec(String(id));
-  return match ? (match[1] ?? null) : null;
-}
-
-const ANY_NATIVE_RE = /^(?:person:[^:]+:|(?!person:|src:)[^:]+:(?:[a-z_]+:)?)(.+)$/;
-
-/**
- * The native id inside a person, account or place id of any interface (`person:<iface>:<id>`, `<iface>:<id>`,
- * `<iface>:channel:<id>`...); null when the id has another shape (`person:self`, `src:...`). The legacy files'
- * mappers read the ids they wrote with it.
- */
-export function nativeOfAny(id: unknown): string | null {
-  const match = ANY_NATIVE_RE.exec(String(id));
-  return match ? (match[1] ?? null) : null;
-}
-
 export { CORE_AUTHORITY, nativeAuthorityOf };
 /** The namespace of the full legacy id spellings (every row id from before schema v7 is an alias here too). */
 export const LEGACY_AUTHORITY = 'legacy/local';
-
-/**
- * The DM place of a DM partner on an interface, from the legacy person spelling `person:<iface>:<native>`
- * (`<iface>:dm:<native>`, the same id `dmPlaceId` gives); null for a person id of another shape (a new
- * `person:<uuid>` names its DM place explicitly).
- */
-export function dmPlaceOfPerson(person: unknown, iface: unknown): string | null {
-  const prefix = `person:${text(iface)}:`;
-  const value = text(person ?? '');
-  if (!iface || !value.startsWith(prefix) || value.length <= prefix.length) return null;
-  return `${text(iface)}:dm:${value.slice(prefix.length)}`;
-}
-
-/** The interface and partner of a legacy DM place id (`<iface>:dm:<native>`): `{ iface, person, account }`, or null. */
-export function dmPartnerOfPlace(placeId: unknown): { iface: string; person: string; account: string } | null {
-  const match = /^([^:]+):dm:(.+)$/.exec(text(placeId ?? ''));
-  return match
-    ? { iface: match[1] ?? '', person: `person:${match[1]}:${match[2]}`, account: `${match[1]}:${match[2]}` }
-    : null;
-}
-
-/** The native key of a legacy person id (`person:<iface>:<native>`) on its interface: `{ iface, native }`, or null. */
-export function legacyPersonNative(person: unknown): { iface: string; native: string } | null {
-  const match = /^person:([^:]+):(.+)$/.exec(text(person ?? ''));
-  return match ? { iface: match[1] ?? '', native: match[2] ?? '' } : null;
-}
-
-/** The native key of a legacy account id (`<iface>:<native>`), or null. */
-export function legacyAccountNative(account: unknown, iface: unknown): string | null {
-  const prefix = `${text(iface)}:`;
-  const value = text(account ?? '');
-  return iface && value.startsWith(prefix) && value.length > prefix.length ? value.slice(prefix.length) : null;
-}
 
 /**
  * The native key of a place inside its authority: the place kind and the native id (`channel:<id>`, `server:<id>`,

@@ -193,8 +193,8 @@ test('a merge moves the account rows and the author person of the lines to the s
   });
 });
 
-test('binding an account to a person of the old shape leaves it to the fallback of the old link', () => {
-  // Bug: the account row keeps naming its first meta-person, which wins over the owner's new link.
+test('binding an account to a person whose id spells an interface makes that person a meta-person with the account row', () => {
+  // The id of a person is never read: a person nobody merged away holds its accounts like any other.
   withDb((db, handle) => {
     const ilse = see(handle, '1', { kind: 'account', key: '700', display: 'Ilse' });
     const account = accountOfLine(db, ilse);
@@ -205,8 +205,8 @@ test('binding an account to a person of the old shape leaves it to the fallback 
       target: { personId: 'person:telegram:9' },
       now: NOW,
     });
-    assert.equal(accountRow(db, account), undefined);
-    assert.equal(personOfAccount(db, account), 'person:telegram:9');
+    assert.equal(accountRow(db, account)?.person_id, 'person:telegram:9');
+    assert.equal(isMeta(db, 'person:telegram:9'), true);
     assert.equal(authorPersonOf(db, ilse), 'person:telegram:9');
   });
 });

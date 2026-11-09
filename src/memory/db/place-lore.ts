@@ -17,6 +17,7 @@ import { storageContext } from './map/index.ts';
 import { heldPlaceRows, placeOwnerOf, retirePlaceAbsent, stampPlaceRows } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
 import { placeCollection, keyText } from './storage-keys.ts';
+import { namedIface } from './legacy-namespace.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
@@ -49,12 +50,13 @@ function placeLoreRows(
   key: StorageKey,
   value: PlaceLoreWrite['value'],
   owner: string,
-  holder: PlaceOwner
+  holder: PlaceOwner,
+  writeIface?: string
 ): Rows {
   const entries: ReadonlyArray<Row> = Array.isArray(value)
     ? value
     : ((value as { entries?: ReadonlyArray<Row> }).entries ?? []);
-  const ctx = storageContext(db, key);
+  const ctx = storageContext(db, key, writeIface);
   const iface = ifaceOf(ctx);
   const rows: Rows = {};
   const uniq = uniqueIds();
@@ -107,7 +109,7 @@ export function writePlaceLore(
   db: Db,
   key: StorageKey,
   value: PlaceLoreWrite['value'],
-  { at, legacyOwner }: { at: string; legacyOwner?: string }
+  { at, iface, legacyOwner }: { at: string; iface?: string; legacyOwner?: string }
 ): PlaceLoreResult {
   const id = ensureUnit(db, key);
   if (legacyOwner) {
@@ -115,7 +117,7 @@ export function writePlaceLore(
     db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, 'lore');
   }
   const holder = placeOwnerOf(key)!; // a `lore` unit always has its owner columns (place-owner.ts)
-  const mapping = placeLoreRows(db, key, value, id, holder);
+  const mapping = placeLoreRows(db, key, value, id, holder, iface);
   if (legacyOwner) for (const list of Object.values(mapping)) for (const row of list) row.owner_file = legacyOwner;
   const upserted = writeMapping(db, mapping, id, { at, holder });
   const retired = retirePlaceAbsent(db, holder, mapping, at);
@@ -147,7 +149,9 @@ export function applyPlaceLoreWrite(handle: MemoryHandle, update: Row): PlaceLor
   const write = placeLoreWriteOf(update);
   const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
   const key = placeCollection('lore', write.placeId);
-  return handle.transaction(() => writePlaceLore(dbOf(handle), key, write.value, { at }));
+  return handle.transaction(() =>
+    writePlaceLore(dbOf(handle), key, write.value, { at, iface: namedIface(update) ?? undefined })
+  );
 }
 
 /** The lorebook the unit `key` holds (a place's `lore` unit), or not found when the database holds no entry of it. */

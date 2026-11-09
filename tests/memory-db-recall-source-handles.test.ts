@@ -12,16 +12,23 @@ import { recordSourceRow } from '../src/memory/db/record-lines.ts';
 import type { Row, Rows } from '../src/memory/db/types.ts';
 import { lineEvent } from './fixtures/core-over-fake.ts';
 
-/** A record row as an older release stored it: its day file's path in `owner_file`, a private layer's partner spelled in it. */
-const recordRows = (rel: string, line: Row): Rows => ({
-  sources: [
-    {
-      ...recordSourceRow(line, { privateAccountId: /private\/([^/]+)\//.exec(rel)?.[1] ?? null }),
-      owner_file: rel,
-      position: null,
-    },
-  ],
-});
+/**
+ * A record row as an older release stored it: its day file's path in `owner_file`, and for a private layer the DM place
+ * of its partner, which the record's unit context names (map/index.ts#storageContext).
+ */
+const recordRows = (rel: string, line: Row): Rows => {
+  const partner = /private\/([^/]+)\//.exec(rel)?.[1] ?? null;
+  const dmPlace = partner === null ? null : { id: `discord:dm:${partner}`, partnerPerson: null };
+  return {
+    sources: [
+      {
+        ...recordSourceRow(line, { privateAccountId: partner, dmPlace }),
+        owner_file: rel,
+        position: null,
+      },
+    ],
+  };
+};
 
 const DAY = 86400000;
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
@@ -75,9 +82,11 @@ function storedObservation(
   const result = observe(env.handle, envelope, { now: () => NOW });
   assert.equal(result.ok, true);
   if (typeof result.sourceId !== 'string') throw new Error('source identity missing');
-  const placeId = env.db.prepare('SELECT place_id FROM sources WHERE id = ?').get(result.sourceId)?.place_id;
+  const row = env.db.prepare('SELECT place_id, revision FROM sources WHERE id = ?').get(result.sourceId);
+  const placeId = row?.place_id;
   if (typeof placeId !== 'string') throw new Error('stored place missing');
-  return { sourceId: result.sourceId, placeId, iface };
+  // A stored ref carries its source row's revision, which a quoted line's handle keeps (turn/handles.ts#targetOfSource).
+  return { sourceId: result.sourceId, placeId, iface, revision: Number(row?.revision) };
 }
 
 for (const secondIface of ['other', 'foreign']) {

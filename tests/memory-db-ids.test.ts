@@ -13,28 +13,20 @@ import {
   legacyPlaceOf,
   legacySourceIdOf,
   messageSourceId,
-  personId,
 } from '../src/memory/db/ids.ts';
 import { LEGACY_IFACE } from '../src/memory/db/legacy-namespace.ts';
 
-test('names a Discord person, account and places with the spellings the database stores today', () => {
-  assert.equal(personId('discord', '100000000000000001'), 'person:discord:100000000000000001');
+test('names a Discord account and places with the spellings the database stores today', () => {
   assert.equal(accountId('discord', '100000000000000001'), 'discord:100000000000000001');
   assert.equal(legacyServerPlaceId('discord', '300000000000000001'), 'discord:guild:300000000000000001');
   assert.equal(channelPlaceId('discord', '200000000000000001'), 'discord:channel:200000000000000001');
   assert.equal(dmPlaceId('discord', '100000000000000001'), 'discord:dm:100000000000000001');
 });
 
-test('names a command-line person under the cli namespace', () => {
-  assert.equal(personId('cli', 'owner'), 'person:cli:owner');
+test('names a command-line account and places under the cli namespace', () => {
   assert.equal(accountId('cli', 'owner'), 'cli:owner');
   assert.equal(channelPlaceId('cli', 'main'), 'cli:channel:main');
   assert.equal(dmPlaceId('cli', 'owner'), 'cli:dm:owner');
-});
-
-test('gives one person on two interfaces two ids and accepts a number as a native id', () => {
-  assert.notEqual(personId('discord', '7'), personId('fake', '7'));
-  assert.equal(personId('fake', 7), 'person:fake:7');
 });
 
 test('names a message source with its interface, message, revision and kind', () => {
@@ -46,7 +38,6 @@ test('names a message source with its interface, message, revision and kind', ()
 
 test('keeps the legacy namespace as the stored discord spelling', () => {
   assert.equal(LEGACY_IFACE, 'discord');
-  assert.equal(personId(LEGACY_IFACE, '1'), 'person:discord:1');
 });
 
 test('spells an observed Discord tuple the way the importer wrote it', () => {

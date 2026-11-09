@@ -22,7 +22,6 @@
 // takeOverClaim (called by session-write.ts#applyClaim): a confirm, revise or retire of a claim makes the claim her
 // session's (writer `session`, `owner_key` null, its `co_owners` rows gone), in the transaction of the op.
 
-import { legacyPersonNative } from './ids.ts';
 import { dmAudienceId } from './scope.ts';
 import { hasStorageUnits } from './storage-units.ts';
 
@@ -61,17 +60,12 @@ function personScopeOf(
       : kind === 'private'
         ? text(rows.operational?.find((row) => row.kind === 'private')?.owner)
         : null;
-  if (!person) return null;
-  // A database before the storage units names no account: only a shipped migration reads one, over legacy ids.
-  const legacyIface = account === null ? (legacyPersonNative(person)?.iface ?? null) : null;
-  if (account === null && legacyIface === null) return null;
+  if (!person || account === null) return null;
   if (kind === 'user') {
-    const iface = legacyIface ?? text(db.prepare('SELECT iface FROM accounts WHERE id = ?').get(account)?.iface);
+    const iface = text(db.prepare('SELECT iface FROM accounts WHERE id = ?').get(account)?.iface);
     if (iface === null) return null;
     return { person, sql: "scope_kind = 'group' AND scope_iface = ? AND scope_dm IS NULL", args: [iface] };
   }
-  if (legacyIface !== null)
-    return { person, sql: "scope_kind = 'dm' AND scope_iface = ? AND scope_dm = ?", args: [legacyIface, person] };
   const audiences = db
     .prepare("SELECT id FROM places WHERE partner_account = ? AND (kind = 'dm' OR chat = 'dm')")
     .all(account)

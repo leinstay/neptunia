@@ -153,3 +153,15 @@ export function seedOpaqueWorld(db: Db): void {
 
 /** The record ids of her three DMs as `seedOpaqueWorld` wrote them. */
 export const ANNA_RECORDS = ['affinity:a21', 'claim:a11', 'description:a12', 'episode:a21'];
+
+/** A channel an interface knows by `native`, stored under an id that spells nothing of it. */
+export function addChannelPlace(
+  db: Db,
+  { id, iface, authority, native }: { id: string; iface: string; authority: string; native: string }
+): void {
+  addAuthority(db, iface, authority);
+  db.prepare(
+    `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, chat, scope_kind)
+     VALUES (?, ?, 'channel', ?, ?, ?, 1, 'group', 'group')`
+  ).run(id, iface, native, `channel:${native}`, authority);
+}

@@ -77,3 +77,12 @@ test('an owner name with no interface to name is internal, and the door still re
     assert.deepEqual(ownerNamesOf(db, SELF), ['Zefira']);
   });
 });
+
+test('an owner name on a person whose id spells an interface but who has no account is internal without a command interface', () => {
+  // Bug: the interface was cut out of the person id's text instead of read from a stored account.
+  withMemory((handle, db) => {
+    db.prepare("INSERT INTO people (id, first_seen_at) VALUES ('person:chat:42', '2026-11-01T00:00:00.000Z')").run();
+    named(handle, 'person:chat:42', 'Orestis');
+    assert.equal(scopeOf(db, 'Orestis').audience_id, 'aud:internal');
+  });
+});

@@ -399,34 +399,38 @@ export function createRecord({
     return path.join(baseDir(placeId), day.slice(0, 7), `${day}.jsonl`);
   }
 
-  /** The partner of a stored DM place: the account and its native id, or null for any other place. */
-  function partnerOf(placeId: string | null): { native: string } | null {
-    if (placeId === null || !memoryDb?.readHandle?.()) return null;
+  /**
+   * What the stored row of a line's place says of its scope: the native id of a DM place's partner account, `group` for
+   * any other stored place, `unknown` for a place no row holds yet (or no database to read).
+   */
+  function placeScopeOf(placeId: string | null): { native: string } | 'group' | 'unknown' {
+    if (placeId === null) return 'group';
+    if (!memoryDb?.readHandle?.()) return 'unknown';
     const db = seam.db();
     const row = seam.run(() =>
       db
         .prepare(
-          `SELECT a.native_id AS native, p.native_key AS key FROM places p LEFT JOIN accounts a ON a.id = p.partner_account
-           WHERE p.id = ? AND (p.kind = 'dm' OR p.chat = 'dm')`
+          `SELECT a.native_id AS native, (p.kind = 'dm' OR p.chat = 'dm') AS dm FROM places p
+           LEFT JOIN accounts a ON a.id = p.partner_account WHERE p.id = ?`
         )
         .get(placeId)
     );
-    // A DM place no row holds yet (a kept write of an older release): its spelled id names the partner.
-    if (!row) {
-      const spelled = /^[^:]+:dm:(.+)$/.exec(placeId)?.[1];
-      return spelled ? { native: spelled } : null;
-    }
-    const native = row.native ?? /^dm:(.+)$/.exec(String(row.key))?.[1];
-    return typeof native === 'string' ? { native } : null;
+    if (!row) return 'unknown';
+    if (row.dm !== 1) return 'group';
+    return typeof row.native === 'string' ? { native: row.native } : 'unknown';
   }
 
-  /** A line as `append` stores it: `occurredAt` as ISO, a line of a DM place with the private scope. */
-  function stamped(raw: Untyped, partner: { native: string } | null) {
+  /**
+   * A line as `append` stores it: `occurredAt` as ISO, a line of a DM place with the private scope. A line of a place
+   * no row holds names that place in its scope, so a direct chat's line stays closed (scope.ts#scopeColumns).
+   */
+  function stamped(raw: Untyped, placeId: string | null, place: { native: string } | 'group' | 'unknown') {
     const line = { ...raw };
     line.occurredAt = isoOf(line.occurredAt) ?? new Date(now()).toISOString();
-    if (partner) {
+    if (place === 'unknown' && placeId !== null) line.scope = { ...(raw.scope ?? {}), place: placeId };
+    else if (place !== 'group' && place !== 'unknown') {
       const channel = typeof raw.scope?.channel === 'string' ? raw.scope.channel : null;
-      line.scope = { user: partner.native, private: true, ...(channel ? { channel } : {}) };
+      line.scope = { user: place.native, private: true, ...(channel ? { channel } : {}) };
     }
     return line;
   }
@@ -441,10 +445,10 @@ export function createRecord({
   /** The lines go to the database as one write, which stores each run of lines of one day in that day's unit. */
   async function appendToDb(placeId: string | null, lines: Untyped, messages?: ReadonlyArray<RecordMessageRef>) {
     const write = seam.run(() => linesWriter());
-    const partner = partnerOf(placeId);
+    const place = placeScopeOf(placeId);
     const stampedLines: Array<Untyped> = [];
     for (const raw of Array.isArray(lines) ? lines : []) {
-      if (raw && typeof raw === 'object') stampedLines.push(stamped(raw, partner));
+      if (raw && typeof raw === 'object') stampedLines.push(stamped(raw, placeId, place));
     }
     if (stampedLines.length === 0) return { written: 0, duplicates: 0 };
     // The writer answers how many lines it wrote and how many the month already held.

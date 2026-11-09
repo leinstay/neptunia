@@ -18,7 +18,10 @@ import type { RecordLine } from '../src/memory/record.ts';
 import { newestRevisions } from '../src/memory/chunks.ts';
 import { normalizeMessage } from '../interfaces/discord/index.ts';
 import { slimMessage } from '../src/memory/update.ts';
-import { openTestMemory, unitFile } from './fixtures/memory-db/service.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import { addAccount, addDmPlace } from './fixtures/memory-db/opaque-people.ts';
+import { openTestMemory, tempDataDir, unitFile } from './fixtures/memory-db/service.ts';
 
 const quiet = { info() {}, warn() {}, error() {} };
 const T1 = Date.UTC(2026, 9, 11, 11, 55, 51, 568);
@@ -56,8 +59,34 @@ function slim(overrides: Record<string, unknown> = {}) {
   };
 }
 
-async function scene() {
-  const mem = await openTestMemory();
+/** A data directory whose database holds u1's account and direct chat, as the observation of u1's first line stores them. */
+function withStoredDm(): string {
+  const dataDir = tempDataDir();
+  const handle = openMemoryDb(path.join(dataDir, 'memory.db'));
+  try {
+    const db = dbOf(handle);
+    addAccount(db, {
+      id: 'discord:u1',
+      iface: 'discord',
+      authority: 'discord/global',
+      native: 'u1',
+      person: 'person:u1',
+    });
+    addDmPlace(db, {
+      id: DM_U1,
+      iface: 'discord',
+      authority: 'discord/global',
+      account: 'discord:u1',
+      person: 'person:u1',
+    });
+  } finally {
+    handle.close();
+  }
+  return dataDir;
+}
+
+async function scene({ dataDir: given }: { dataDir?: string } = {}) {
+  const mem = await openTestMemory(given ? { dataDir: given } : {});
   const dataDir = mem.dataDir;
   const record = createRecord({ dataDir, log: quiet, now: () => NOW, memoryDb: mem.memoryDb });
   const done = async () => {
@@ -278,7 +307,8 @@ test('record: iterate filters by time and channel', async () => {
 });
 
 test('record: a private line never lands in the guild directory', async () => {
-  const { dataDir, record, memoryDb, done } = await scene();
+  // The direct chat is stored: a line of a place no row holds is not stamped private (src/memory/record.ts).
+  const { dataDir, record, memoryDb, done } = await scene({ dataDir: withStoredDm() });
   const result = await record.append(DM_U1, [toRecordLine(slim({ id: 'd1', placeId: 'dm1' }))]);
   assert.deepEqual(result, { written: 1, duplicates: 0 });
   const privateFile = path.join(dataDir, 'places', encodeURIComponent(DM_U1), 'record', '2026-10', '2026-10-11.jsonl');

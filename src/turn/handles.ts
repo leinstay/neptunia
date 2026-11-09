@@ -52,21 +52,25 @@ export function lineIdentity(target: HandleTarget): string {
 
 /**
  * The target of a line a memory.search quoted, from its stored source: the source's interface, else the interface of
- * its native locator. The revision is read from the source id, 1 when it holds none.
- * TODO(plan 2026-11-08-ids-by-links, slice 8): take the revision from the source row once the stored source ref of
- * src/memory/db/recall.ts carries it.
+ * its native locator, and the source row's revision, 1 when it names none.
  */
 export function targetOfSource(
-  stored: { sourceId: string; placeId: string; iface: string | null; native?: { iface: string } },
+  stored: {
+    sourceId: string;
+    placeId: string;
+    iface: string | null;
+    revision?: number | null;
+    native?: { iface: string };
+  },
   messageId: string
 ): HandleTarget {
-  const revision = Number(stored.sourceId.split(':').at(-2));
+  const revision = stored.revision ?? null;
   return {
     sourceId: stored.sourceId,
     iface: stored.iface ?? stored.native?.iface ?? null,
     placeId: stored.placeId,
     messageId,
-    revision: Number.isInteger(revision) && revision > 0 ? revision : 1,
+    revision: revision !== null && Number.isInteger(revision) && revision > 0 ? revision : 1,
   };
 }
 

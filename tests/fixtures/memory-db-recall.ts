@@ -2,7 +2,10 @@
 import { openMemoryDb } from '../../src/memory/db/open.ts';
 import { dbOf } from '../../src/memory/db/types.ts';
 import { fillStems } from '../../src/memory/db/stems.ts';
-import { channelPlaceId, dmPlaceId, messageSourceId, personId } from '../../src/memory/db/ids.ts';
+import { channelPlaceId, dmPlaceId, messageSourceId } from '../../src/memory/db/ids.ts';
+import { personId } from './memory-db/spelled-ids.ts';
+
+export { personId };
 import { dmContext, groupScope } from '../../src/memory/db/scope.ts';
 import type { Context } from '../../src/memory/db/scope.ts';
 import { quantize } from '../../src/memory/vectors.ts';

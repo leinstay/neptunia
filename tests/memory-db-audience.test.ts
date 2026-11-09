@@ -36,7 +36,8 @@ import {
   whereFor,
 } from '../src/memory/db/scope.ts';
 import type { Scope } from '../src/memory/db/scope.ts';
-import { channelPlaceId, dmPlaceId, messageSourceId, personId } from '../src/memory/db/ids.ts';
+import { channelPlaceId, dmPlaceId, messageSourceId } from '../src/memory/db/ids.ts';
+import { personId } from './fixtures/memory-db/spelled-ids.ts';
 import { search, window } from '../src/memory/db/recall.ts';
 import { fillStems } from '../src/memory/db/stems.ts';
 import { batchOf, buildSessionRequest, scopesOf } from '../src/memory/db/session.ts';
