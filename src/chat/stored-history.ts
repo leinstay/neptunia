@@ -17,9 +17,6 @@ import type { Adapter, ChatRef, HistoryQuery, MessageEvent } from '../protocol/a
 /** The wire name of the history read, which the wrapper declares while no client is connected. */
 const HISTORY_READ = 'messages.history';
 
-/** The partner of a direct chat id `<iface>:dm:<partner>`, which is also the chat's place id in memory. */
-const partnerOf = (placeId: string): string | null => /^[^:]+:dm:(.+)$/.exec(placeId)?.[1] ?? null;
-
 /** The media of a stored line in the fields of a message, each kept file named by its reference. */
 function partsOf(line: SourceLine, id: string): ReturnType<typeof mediaMessageParts> {
   const rows = line.media ?? [];
@@ -106,11 +103,14 @@ function namedOwner(event: MessageEvent, name: string | null): MessageEvent {
 
 /**
  * `live`, the chat client's adapter, with the history of a direct chat answered from `shown(chatId)` as well, and the
- * owner named `ownerName()` in it and in the chat's description when that answers a name.
+ * owner named `ownerName()` in it and in the chat's description when that answers a name. The chat's id is its place id
+ * in memory, and `partnerOf` gives the platform id of the place's DM partner from its row, null for a place that is no
+ * stored DM: only a stored DM's history is answered from memory.
  */
 export function withStoredHistory(
   live: Adapter,
   shown: (placeId: string) => ReadonlyArray<SourceLine>,
+  partnerOf: (placeId: string) => string | null,
   ownerName: () => string | null = () => null
 ): Adapter {
   return {

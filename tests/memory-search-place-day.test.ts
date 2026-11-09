@@ -140,15 +140,18 @@ function describe(
   assert.equal(Number(held.changes) > 0, true, 'the picture was observed first');
 }
 
-/** The runner and the tool over the fixture database: #general (c1), #secret (c4) that the root cannot see. */
-function toolRig(env: Env) {
+/**
+ * The runner and the tool over the fixture database: #general (c1), #secret (c4) that the root cannot see, stored as
+ * `secret`.
+ */
+function toolRig(env: Env, { secret: secretId = SECRET }: { secret?: string } = {}) {
   fillEnvAudiences(env);
   insertRows(
     env.db,
     {
       places: [
         { id: GENERAL, iface: 'discord', kind: 'channel', native_id: 'c1', scope_kind: 'group', name: 'general' },
-        { id: SECRET, iface: 'discord', kind: 'channel', native_id: 'c4', scope_kind: 'group', name: 'secret' },
+        { id: secretId, iface: 'discord', kind: 'channel', native_id: 'c4', scope_kind: 'group', name: 'secret' },
       ],
     },
     { log: { info() {}, debug() {}, warn() {}, error() {} } }
@@ -678,6 +681,21 @@ test('the tool keeps a hidden channel hidden through its place rule', async () =
     const wide = textOf(await rig.ask({ when: '2026-11-01' }));
     assert.ok(!wide.includes('κρυφο'), wide);
     assert.ok(wide.includes('line open'), wide);
+  } finally {
+    env.done();
+  }
+});
+
+test('the place rule keeps a hidden channel stored under an opaque id hidden, read by the native id of its row', async () => {
+  // Bug: the rule cut the channel's native id out of the text of its place id, which an opaque id does not spell.
+  const env = fixture();
+  try {
+    const hidden = 'place:opaque-secret';
+    spread(env, 'shut', { from: DAY_START, to: DAY_END, count: 12, place: hidden, text: 'κρυφο' });
+    spread(env, 'open', { from: DAY_START, to: DAY_END, count: 12 });
+    const rig = toolRig(env, { secret: hidden });
+    const wide = textOf(await rig.ask({ when: '2026-11-01' }));
+    assert.deepEqual([wide.includes('κρυφο'), wide.includes('line open')], [false, true]);
   } finally {
     env.done();
   }

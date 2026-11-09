@@ -94,3 +94,9 @@ export function placeRefOf(store: unknown, placeId: string): PlaceRef | null {
   const addressing = store as Addressing | null | undefined;
   return addressing?.placeRefOf?.(placeId) ?? null;
 }
+
+/** The platform id of a stored DM place's partner, from its row and its partner's account; null for any other place. */
+export function dmPartnerOf(store: unknown, placeId: string): string | null {
+  const ref = placeRefOf(store, placeId);
+  return ref?.kind === 'dm' ? ref.partnerNativeId : null;
+}
