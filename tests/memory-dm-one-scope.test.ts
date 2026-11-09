@@ -4,32 +4,24 @@
 // Synthetic ids and text only. The scopes and batches are read through the exports of `session.ts`, as the sweep reads them.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
 import { observe } from '../src/memory/db/observe.ts';
-import { batchOf, cursorKey, scopesOf } from '../src/memory/db/session.ts';
+import { batchOf, scopesOf } from '../src/memory/db/session.ts';
 import type { SweepScope } from '../src/memory/db/session.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import {
   CLI_AUDIENCE,
   CLI_PLACE,
-  CURSOR_AT,
-  LINES,
   OLD_PERSON,
   OWNER,
   addCliLines,
   addCliPlace,
-  productionWorld,
 } from './fixtures/memory-audit-production.ts';
 import { tempDir } from './fixtures/tmp.ts';
-
-const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const REPAIR = path.join(ROOT, 'scripts', 'memory-repair-audit.ts');
 
 const cliScopes = (db: Db): Array<SweepScope> =>
   scopesOf(db, { audienceColumn: true }).filter((one) => one.scope.scope_iface === 'cli');
@@ -88,35 +80,6 @@ test('a DM whose lines all carry the place partner is swept as one scope that re
     assert.equal(scope.ctx.place, CLI_PLACE);
     assert.equal(scope.ctx.person, OWNER);
     assert.deepEqual(batchIds(db, scope, 0), ids(1, 4));
-  } finally {
-    handle.close();
-  }
-});
-
-test('after the repair the session sweeps the DM as one scope with the cursor it had, no line read twice or skipped', async () => {
-  // Bug: normalising `scope_dm` renames the scope key, the new key starts at cursor 0, and the eight lines already
-  // summarised are read again; or the scope is dropped and the seven lines after the cursor are never read.
-  const file = await productionWorld();
-  const done = spawnSync(process.execPath, [REPAIR, '--db', file, '--apply'], { cwd: ROOT, encoding: 'utf8', env: {} });
-  assert.equal(done.status, 0, done.stderr);
-  const handle = openMemoryDb(file, { readOnly: true });
-  try {
-    const db = dbOf(handle);
-    const scopes = cliScopes(db);
-    assert.equal(scopes.length, 1, 'one scope for the one DM');
-    const [scope] = scopes as [SweepScope];
-    const kept = db.prepare('SELECT value FROM meta WHERE key = ?').get(cursorKey('apply', scope.key))?.value;
-    const old = db.prepare('SELECT rowid FROM sources WHERE id = ?').get(`src:cli:${CURSOR_AT}`)?.rowid;
-    assert.equal(Number(kept), Number(old), 'the cursor of the old key is the cursor of the scope');
-    assert.deepEqual(
-      db
-        .prepare("SELECT key FROM meta WHERE key LIKE 'memory_session.cursor.apply.dm:cli:%'")
-        .all()
-        .map((row) => row.key),
-      [cursorKey('apply', scope.key)],
-      'no cursor is left under a key the sweep no longer walks'
-    );
-    assert.deepEqual(batchIds(db, scope, Number(kept)), ids(CURSOR_AT + 1, LINES));
   } finally {
     handle.close();
   }

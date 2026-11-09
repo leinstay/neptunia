@@ -1442,11 +1442,6 @@
         "function-length": 333
       }
     },
-    "scripts/lib/report.ts": {
-      "tally": {
-        "complexity": 34
-      }
-    },
     "scripts/lib/vision-compare.ts": {
       "describeOne": {
         "complexity": 29
@@ -1751,7 +1746,7 @@
     },
     "src/memory/db/observe.ts": {
       "checkEnvelope": {
-        "complexity": 99
+        "complexity": 98
       },
       "participantOf": {
         "complexity": 25

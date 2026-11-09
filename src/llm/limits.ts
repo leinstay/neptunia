@@ -13,7 +13,7 @@ export const LIMIT_KINDS = Object.freeze([
   'budget-drop',
   'estimate-off',
   'output-cap',
-  // Nothing writes it; journal records of earlier runs carry it and are read back by scripts/lib/report.ts.
+  // Nothing writes it; journal records of earlier runs carry it.
   'message-cut',
   'message-merge',
   'preview-cut',

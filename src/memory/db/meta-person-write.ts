@@ -1,10 +1,9 @@
 // The writes that keep the meta-person's rows current (plan 2026-11-08-meta-person, slice 5). An account's row in
 // `person_accounts` and the `author_person` of its lines follow the account's verified link, the one source of truth
 // (person-links.ts#linkAccount). A person whose id spells no interface (her own `person:self`, a `person:<uuid>`) is a
-// meta-person, marked where it stands as the offline migration marks it (meta-person-migrate.ts). An account linked to
-// a person of the old shape, `person:<iface>:<native>`, which no migration has moved yet, has no row in
-// `person_accounts`: the adapter reaches that person through the old link (meta-person.ts). Called by person-links.ts
-// (a link), observe.ts and rows.ts (an account or a line written) and upsert.ts (a unit's accounts).
+// meta-person, marked where it stands. An account linked to a person of the old shape, `person:<iface>:<native>`, has
+// no row in `person_accounts`: the adapter reaches that person through the old link (meta-person.ts). Called by
+// person-links.ts (a link), observe.ts and rows.ts (an account or a line written) and upsert.ts (a unit's accounts).
 
 import { legacyPersonNative, newPersonId, survivorOf } from './ids.ts';
 import { personOfAccount } from './meta-person.ts';

@@ -27,8 +27,6 @@ Every script that sends model requests spends the simulation's key, read from `k
 |---|---|---|---|---|
 | `labels-catalogue.ts` | Compares the code catalogue (`src/tools/codes.ts`) with `config/labels.json` and the reason-codes table in `docs/prompt-contract.md`. `--check` is a CI step (`npm run check:codes`); `--write` regenerates the table | no | no | no |
 | `config-doc.ts` | Prints `docs/configuration.md` from the settings schema (`src/config/schema.ts`) and the prose of `scripts/config-doc.template.md`: `node scripts/config-doc.ts > docs/configuration.md`. `tests/config-doc.test.ts` fails while the committed file differs | no | no | no |
-| `journal-report.ts` | Reads the journal day files and prints one markdown section per day: turns by outcome, actions, prompt tokens, cached share, items dropped, limits, message count, file size | no | no | no |
-| `request-report.ts` | The same per-day numbers from the operational log, for the days before the journal: pipe `journalctl -u neptunia-bot -o cat` into it | no | no | no |
 | `cache-report.ts` | Reads `model_requests` of `<data>/memory.db` read-only for `--from` to `--to` (UTC days) and prints her prompt tokens, cached tokens, the share of turns whose first request read nothing from the cache and the median gap between turns of one place | no | no | no |
 | `replay.ts` | Answers one real message again with the current code, prompts and memory. `--split` and `--recall` replay the splitter and the server search. `--snapshot <dir>` reads memory from a snapshot. `--show-request` prints the request. `--show-request <turnId>` prints a journal turn's request | no | no | yes, ~0.15 USD per request |
 | `replay.ts --pair` | Two prompt layers answer the same triggers. Writes `sheet.html` (a blind sheet) and `key.json`. Score with `replay-score.ts` | no | no | yes, 2 requests per trigger |
@@ -48,9 +46,7 @@ Every script that sends model requests spends the simulation's key, read from `k
 | `graph-retrieval-bench.ts` | Builds identical synthetic graphs in temporary databases (`--sizes`, `--shapes` uniform, zipf, star) and reads them with source-only recall and with graph-enabled retrieval, idle and under a concurrent ingest. Prints p50 and p95 latency, peak RSS, WAL size, pages stopped on a bound, write latency and the query plans | no (temporary folder only) | no | no |
 | `vision-compare.ts` | Describes the same media with each model. `--from-cache` reads from the guild's media cache via Discord REST. Writes one HTML page | `data/vision-compare/` only | no | yes, 1 request per item and model |
 | `memory-db.ts` | The memory database: `stats`, `hash`, `reproject`, `rebuild`, `backup`, `restore`, `restore-test`, `media-check`, `index-policy`. Opens the database read-only | no | no | no |
-| `board-import.ts` | Imports a ledger's development history onto the task board of a stopped core. `--dry-run` opens the database read-only and only counts. See [The task board](../docs/board.md) | the `board_*` tables of `memory.db` | yes | no |
 | `memory-repair-dm-vectors.ts` | Rebuilds the months of the meaning index that disagree with their manifest: a DM's rows go back to their own place and audience, a repeated record is retired, the manifest is counted again. A dry run unless `--apply`, which needs a stopped core. `--dm-only` leaves group months alone. Prints counts | `vectors` and `operational` rows of `memory.db`, with `--apply` | yes, with `--apply` | no |
-| `meta-person-migrate.ts` | Moves every person onto a meta-person with its accounts under it in `person_accounts`, and every row keyed by an old person id to that meta-person. `--db` and `--config` name the database and the live config, which it only reads; it prints the `bot.ownerPerson` edit for the operator. A dry run unless `--apply`, which writes `meta-person-map-<date>.json` beside the database. Prints counts. See [Memory](../docs/memory.md#one-person-several-accounts) | `memory.db` and the mapping file, with `--apply` | yes | no |
 | `memory-session.ts` | Runs her memory session once, on a copy, in shadow. Says what she proposed | no | no | yes |
 
 Pure helpers live in `scripts/lib/` and are tested by `tests/tools-*.test.js`.
@@ -59,6 +55,6 @@ Pure helpers live in `scripts/lib/` and are tested by `tests/tools-*.test.js`.
 
 1. `/nep memory snapshot` in Discord; note the path.
 2. Let the bot run for a day with the change under test.
-3. `node scripts/journal-report.ts --since <day>` for the day's numbers.
+3. `node scripts/cache-report.ts --from <day> --to <day>` for the day's cache numbers.
 4. `node scripts/replay.ts --pair data/prompts <candidate-dir> --triggers triggers.txt --out /tmp/pair-1` to read the estimate, then again with `--spend <usd>`.
 5. Score `sheet.html` in a browser, save as `scores.json`, then `node scripts/replay-score.ts /tmp/pair-1/sheet.html /tmp/pair-1/key.json scores.json`.
