@@ -501,7 +501,9 @@ test("a DM's old picture, read through its stored chat, stays in the DM on every
     await run(env, fakeInterface([imageEvent('2001', AT, chat)]).read);
     fillStems(env.db);
     await embedLines(env);
-    assert.deepEqual(mediaFinds(env, 'lighthouse', dmContext(BOB_PERSON, 'discord')), ['2001']);
+    assert.deepEqual(mediaFinds(env, 'lighthouse', dmContext(BOB_PERSON, 'discord', dmPlaceId('discord', BOB))), [
+      '2001',
+    ]);
     assert.deepEqual(mediaFinds(env, 'lighthouse'), []);
     assert.deepEqual(mediaFinds(env, 'ighthou'), []);
     assert.deepEqual(search(env.db, { ctx: group, ...byMeaning('маяк') }).mediaHits, []);

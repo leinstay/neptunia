@@ -148,7 +148,7 @@ test('an ordinary DM read hides private place names before callbacks while inter
     env.say({ native: 'private-before', place, scope, at: NOW - DAY, text: 'το κουνέλι private-before' });
     const anchor = env.say({ native: 'private-anchor', place, scope, at: NOW - DAY + 60_000, text: 'private-anchor' });
     const ordinary = window(env.db, {
-      ctx: dmContext(personId('discord', BOB), 'discord'),
+      ctx: dmContext(personId('discord', BOB), 'discord', dmPlaceId('discord', BOB)),
       anchor,
       move: 'up',
       messages: 1,

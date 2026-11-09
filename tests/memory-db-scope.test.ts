@@ -10,6 +10,8 @@ import {
   SCOPE_NONE,
   allowed,
   allowedAudience,
+  canRead,
+  dmAudienceId,
   dmContext,
   dmScope,
   groupContext,
@@ -17,6 +19,7 @@ import {
   groupsContext,
   internalContext,
   isIssuedInternalContext,
+  issueContext,
   narrowest,
   scopeColumns,
   whereFor,
@@ -98,8 +101,8 @@ const MATRIX: Record<string, Record<string, boolean>> = {
 
 const CONTEXTS: Record<string, Context> = {
   group: groupContext('discord'),
-  dmAlice: dmContext(ALICE, 'discord'),
-  dmBob: dmContext(BOB, 'discord'),
+  dmAlice: dmContext(ALICE, 'discord', dmPlaceId('discord', '100000000000000001')),
+  dmBob: dmContext(BOB, 'discord', dmPlaceId('discord', '100000000000000002')),
   internal: internalContext(),
 };
 
@@ -268,7 +271,10 @@ test('cross-interface group provenance has the same visibility in either evidenc
   const reverse = narrowest([groupScope('future-interface'), groupScope('discord')]);
   assert.deepEqual(forward, groupScope('discord'));
   assert.deepEqual(reverse, groupScope('future-interface'));
-  for (const ctx of [groupContext('third-interface'), dmContext(ALICE, 'discord')]) {
+  for (const ctx of [
+    groupContext('third-interface'),
+    dmContext(ALICE, 'discord', dmPlaceId('discord', '100000000000000001')),
+  ]) {
     assert.equal(allowed(forward, ctx), true);
     assert.equal(allowed(reverse, ctx), true);
   }
@@ -293,7 +299,10 @@ test('ordinary SQL and memory reads reject malformed groups while admitting an u
     db.exec('CREATE TABLE probe (name TEXT, scope_kind TEXT, scope_iface TEXT, scope_dm TEXT)');
     for (const row of rows)
       db.prepare('INSERT INTO probe VALUES (?, ?, ?, ?)').run(row.name, row.scope_kind, row.scope_iface, row.scope_dm);
-    for (const ctx of [groupContext('discord'), dmContext(ALICE, 'discord')]) {
+    for (const ctx of [
+      groupContext('discord'),
+      dmContext(ALICE, 'discord', dmPlaceId('discord', '100000000000000001')),
+    ]) {
       assert.deepEqual(
         rows.filter((row) => allowed(row, ctx)).map((row) => row.name),
         ['valid']
@@ -325,7 +334,11 @@ test('group scope identifiers reject literal NUL bytes but preserve an encoded p
     db.exec('CREATE TABLE probe (id TEXT, scope_kind TEXT, scope_iface TEXT, scope_dm TEXT)');
     for (const row of rows)
       db.prepare('INSERT INTO probe VALUES (?, ?, ?, ?)').run(row.id, row.scope_kind, row.scope_iface, row.scope_dm);
-    for (const ctx of [groupContext('discord'), dmContext(ALICE, 'discord'), groupsContext()]) {
+    for (const ctx of [
+      groupContext('discord'),
+      dmContext(ALICE, 'discord', dmPlaceId('discord', '100000000000000001')),
+      groupsContext(),
+    ]) {
       assert.deepEqual(
         rows.filter((row) => allowed(row, ctx)).map((row) => row.id),
         ['encoded']
@@ -354,4 +367,22 @@ test('the internal context validator refuses a primitive value without throwing'
 
 test('the internal context validator refuses an empty execution ID', () => {
   assert.equal(isIssuedInternalContext({ id: '', mode: 'internal', internal: true }), false);
+});
+
+test('a DM context reads no DM its partner id spells when the caller names no place', () => {
+  // Bug: the context works the place out of the person id, so a DM nobody stored opens by spelling alone.
+  const ctx = { ...dmContext(ALICE, 'discord', null), audienceColumn: true };
+  assert.equal(canRead({ audience_id: dmAudienceId(dmPlaceId('discord', '100000000000000001')) }, ctx), false);
+  assert.equal(canRead({ audience_id: 'aud:group:discord' }, ctx), true);
+});
+
+test('a DM context with a place and no person reads its DM and no DM row whose person is left unnamed', () => {
+  // Bug: a DM nobody linked cannot be issued without a person, so it is given one spelled from its place.
+  const ctx = issueContext({ kind: 'dm', iface: 'discord', person: null, place: 'place:dm-unlinked' });
+  assert.equal(ctx.person, undefined);
+  assert.equal(canRead({ audience_id: dmAudienceId('place:dm-unlinked') }, ctx), true);
+  assert.equal(
+    allowed({ scope_kind: 'dm', scope_iface: 'discord' }, dmContext(null, 'discord', 'place:dm-unlinked')),
+    false
+  );
 });

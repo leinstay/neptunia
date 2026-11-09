@@ -1612,6 +1612,10 @@ export const MIGRATIONS: Array<Migration> = [
   // Version 41: the vectors of an object are found by its id, for the pending query and the retirement of
   // src/memory/db/object-vectors.ts.
   'CREATE INDEX IF NOT EXISTS vectors_item ON vectors(item_id);',
+  // Version 42: a DM place is found by its partner, for the linked DMs of a context (src/memory/db/person-links.ts) and
+  // the audience of a session run (src/memory/db/session-write.ts).
+  `CREATE INDEX IF NOT EXISTS places_partner_account ON places(partner_account) WHERE partner_account IS NOT NULL;
+   CREATE INDEX IF NOT EXISTS places_partner_person ON places(partner_person) WHERE partner_person IS NOT NULL;`,
 ];
 
 /** Every table schema v8 adds. */

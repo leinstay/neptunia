@@ -547,7 +547,12 @@ test("a DM context reads its own DM's lines and never another person's", () => {
         scope: theirs,
       });
     }
-    const found = sampling(env, theDay(), { limit: 5 }, dmContext(personId('discord', BOB), 'discord'));
+    const found = sampling(
+      env,
+      theDay(),
+      { limit: 5 },
+      dmContext(personId('discord', BOB), 'discord', dmPlaceId('discord', BOB))
+    );
     assert.ok(lineIds(found).some((id) => String(id).startsWith('mine')));
     assert.ok(!JSON.stringify(found.windows).includes('ξενο'));
   } finally {

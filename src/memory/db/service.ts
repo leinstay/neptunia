@@ -675,8 +675,8 @@ export type MemoryDbOptions = {
 
 /** A DM reads the history of the person: the context carries the DMs of every account bound to this one. */
 function linkedContext(ctx: Context, read: Db | null): Context {
-  if (read === null || ctx.kind !== 'dm' || !ctx.iface || !ctx.person) return ctx;
-  return { ...ctx, linked: linkedDmScopes(read, ctx.iface, ctx.person).filter((one) => one.place !== ctx.place) };
+  if (read === null || ctx.kind !== 'dm' || !ctx.person) return ctx;
+  return { ...ctx, linked: linkedDmScopes(read, ctx.person, ctx.place ?? null) };
 }
 
 /** The private view of a person or a DM place, read over whichever connection is open when it is asked for. */
