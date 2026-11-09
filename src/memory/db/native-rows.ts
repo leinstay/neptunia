@@ -55,13 +55,15 @@ export function channelOfPlace(db: Db, placeId: string): string | null {
   return textOf(prepared(db, "SELECT native_id FROM places WHERE id = ? AND kind = 'channel'").get(placeId)?.native_id);
 }
 
-/** One reader remembered for the life of its context: a day's read asks it once per line, of a few ids. */
-function remembered<TValue>(read: (...keys: Array<string>) => TValue): (...keys: Array<string>) => TValue {
-  const known = new Map<string, TValue>();
-  return (...keys) => {
-    const key = keys.join('\u0000');
-    if (!known.has(key)) known.set(key, read(...keys));
-    return known.get(key) as TValue; // set on the line above
+/** A reader of one id remembered for the life of its context: a day's read asks it once per line, of a few ids. */
+function remembered(read: (id: string) => string | null): (id: string) => string | null {
+  const known = new Map<string, string | null>();
+  return (id) => {
+    const found = known.get(id);
+    if (found !== undefined) return found;
+    const value = read(id);
+    known.set(id, value);
+    return value;
   };
 }
 
@@ -75,30 +77,41 @@ export function nativeRows(db: Db): {
   placeOfChannel: (iface: string, native: string) => string | null;
   channelOfPlace: (placeId: string) => string | null;
 } {
-  const accounts = remembered((iface, native) => accountOfMember(db, iface ?? '', native ?? ''));
-  const members = remembered((accountId) => memberOfAccount(db, accountId ?? ''));
-  const places = remembered((iface, native) => placeOfChannel(db, iface ?? '', native ?? ''));
-  const channels = remembered((placeId) => channelOfPlace(db, placeId ?? ''));
+  const accounts = new Map<string, (native: string) => string | null>();
+  const places = new Map<string, (native: string) => string | null>();
+  const of = (
+    byIface: Map<string, (native: string) => string | null>,
+    iface: string,
+    read: (iface: string, native: string) => string | null
+  ): ((native: string) => string | null) => {
+    let reader = byIface.get(iface);
+    if (!reader) byIface.set(iface, (reader = remembered((native) => read(iface, native))));
+    return reader;
+  };
+  const members = remembered((accountId) => memberOfAccount(db, accountId));
+  const channels = remembered((placeId) => channelOfPlace(db, placeId));
   return {
-    accountOfMember: (iface, native) => accounts(iface, native),
-    memberOfAccount: (accountId) => members(accountId),
-    placeOfChannel: (iface, native) => places(iface, native),
-    channelOfPlace: (placeId) => channels(placeId),
+    accountOfMember: (iface, native) => of(accounts, iface, (i, n) => accountOfMember(db, i, n))(native),
+    memberOfAccount: members,
+    placeOfChannel: (iface, native) => of(places, iface, (i, n) => placeOfChannel(db, i, n))(native),
+    channelOfPlace: channels,
   };
 }
 
 /**
  * The column of a value's channel (`placeId`, a channel's own id): the channel's place, read back from that place's row.
- * A channel no row holds keeps the id the value gave beside the column (`exact`).
+ * A channel no row holds keeps the id the value gave beside the column (`exact`). Its readers remember what they read
+ * for the life of the column, which a read or a write of one value makes.
  */
 export function channelColumn(db: Db, col: string): Spec {
+  const rows = nativeRows(db);
   return {
     col,
     key: 'placeId',
     type: 'text',
     ok: (v: unknown) => textOf(v) !== null,
-    enc: (v: unknown, iface: string) => placeOfChannel(db, iface, String(v)) ?? mintedChannel(iface, String(v)),
-    dec: (v: unknown) => (typeof v === 'string' ? channelOfPlace(db, v) : null),
+    enc: (v: unknown, iface: string) => rows.placeOfChannel(iface, String(v)) ?? mintedChannel(iface, String(v)),
+    dec: (v: unknown) => (typeof v === 'string' ? rows.channelOfPlace(v) : null),
     exact: true,
   };
 }
