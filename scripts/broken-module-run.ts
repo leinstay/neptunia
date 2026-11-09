@@ -12,8 +12,7 @@
 // only and runs the files the rule matches. The rule pairs unrelated files of the same base name (`store`,
 // `access`), so this mode over-reports.
 //
-// Stryker (scripts/mutation-diff.ts) judges per test file, so it cannot name the single test that kills nothing.
-// This run can. The tool deletes nothing. It is an occasional tool: no npm script.
+// The tool deletes nothing. It is an occasional tool: no npm script.
 //
 //   node scripts/broken-module-run.ts [--by-imports] [--out <report.json>] [--max-minutes <n>] [<name> ...]
 //
@@ -32,7 +31,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
 
 import { findImports } from './code-health.ts';
-import { selectTestFiles } from './mutation-diff.ts';
+import { selectTestFiles } from './lib/test-select.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
