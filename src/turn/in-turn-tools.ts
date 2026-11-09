@@ -384,7 +384,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
               ? []
               : [
                   {
-                    id: line.id.split(':').pop() ?? line.id,
+                    id: line.id,
                     placeId,
                     authorId: line.authorId,
                     authorName: line.self ? selfName : authorNameOf(line),

@@ -2,14 +2,24 @@
 // pulled lines and the search handles above the floor, each to the line it names. A reference in her words means
 // nothing outside the request that numbered it, so when her words leave the turn into a durable row (her think in the
 // journal, her posted line in the record, an intention, a skill action's arguments) `canonical` replaces each
-// reference by the line's identity, `src:<iface>:<message id>:<revision>`, and cuts a number that names nothing.
-// Pure apart from the registry's own map.
+// reference by the line's identity, `src:<iface>:<message id>:<revision>`, and cuts a number that names nothing. The
+// identity is written from the target's interface, message id and revision, the columns of the line's source row,
+// never from the text of its source id. Pure apart from the registry's own map.
 
 /** What issued a number: a line of `<chat>`, a reply parent, a line of a pulled channel, a search handle. */
 export type HandleKind = 'chat' | 'parent' | 'pulled' | 'search';
 
-/** The line a number names: its memory source id, its place, the platform's message id and the revision she saw. */
-export type HandleTarget = { sourceId: string; placeId: string; messageId: string; revision: number };
+/**
+ * The line a number names: its memory source id, its interface (null when no row holds one), its place, the platform's
+ * message id and the revision she saw.
+ */
+export type HandleTarget = {
+  sourceId: string;
+  iface: string | null;
+  placeId: string;
+  messageId: string;
+  revision: number;
+};
 
 /** The turn's registry. */
 export type Handles = {
@@ -32,23 +42,32 @@ export type Handles = {
 const REFERENCE = /( ?)(?<![\p{L}\p{N}_])#(\d{1,9})(?![\p{L}\p{N}_])/gu;
 
 /**
- * The identity a stored text carries for a line: its source id without the trailing kind (`seen` or `said`), with the
- * revision she saw. A source id of another shape stands as it is.
+ * The identity a stored text carries for a line: its interface, its message id and the revision she saw. A line whose
+ * interface nobody stored keeps its source id.
  */
 export function lineIdentity(target: HandleTarget): string {
-  const parts = target.sourceId.split(':');
-  if (parts.length < 5 || parts[0] !== 'src') return target.sourceId;
-  const messageId = parts.slice(2, -2).join(':');
-  return `src:${parts[1]}:${messageId}:${target.revision}`;
+  if (target.iface === null) return target.sourceId;
+  return `src:${target.iface}:${target.messageId}:${target.revision}`;
 }
 
 /**
- * The target of a line known by its stored source id (`src:<iface>:<message id>:<revision>:<kind>`): the revision is
- * read from the id, 1 when it holds none.
+ * The target of a line a memory.search quoted, from its stored source: the source's interface, else the interface of
+ * its native locator. The revision is read from the source id, 1 when it holds none.
+ * TODO(plan 2026-11-08-ids-by-links, slice 8): take the revision from the source row once the stored source ref of
+ * src/memory/db/recall.ts carries it.
  */
-export function targetOfSource(sourceId: string, placeId: string, messageId: string): HandleTarget {
-  const revision = Number(sourceId.split(':').at(-2));
-  return { sourceId, placeId, messageId, revision: Number.isInteger(revision) && revision > 0 ? revision : 1 };
+export function targetOfSource(
+  stored: { sourceId: string; placeId: string; iface: string | null; native?: { iface: string } },
+  messageId: string
+): HandleTarget {
+  const revision = Number(stored.sourceId.split(':').at(-2));
+  return {
+    sourceId: stored.sourceId,
+    iface: stored.iface ?? stored.native?.iface ?? null,
+    placeId: stored.placeId,
+    messageId,
+    revision: Number.isInteger(revision) && revision > 0 ? revision : 1,
+  };
 }
 
 /** A new, empty registry for one turn. */

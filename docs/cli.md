@@ -224,7 +224,7 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Choose credentials and models | `/keys`, `/model`, `/search` |
 | Send outbound connections through one proxy | `/proxy`. See [Proxy](proxy.md) |
 | Configure a chat platform | `/interfaces` |
-| Prove the owner's account on an interface. See [Pairing the owner's account](interfaces.md#pairing-the-owners-account) | `/interfaces pair open <name>`, `/interfaces pair <code>` |
+| Prove the owner's account on an interface. See [Pairing the owner's account](interfaces.md#pairing-the-owners-account) | `/interfaces pair open <name>`, `/interfaces pair <phrase>` |
 | Choose which providers serve a model | `/routes` |
 | Bind an account to a meta-person, or merge two people | `/memory bind`, `/memory users merge` |
 | Give her or a person a name the door and the classifier know | `/memory users names add person:self NAME`, `/memory users names remove person:self NAME` |

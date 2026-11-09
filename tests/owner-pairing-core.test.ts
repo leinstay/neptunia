@@ -1,6 +1,7 @@
 // Pairing the owner's account in the running core: `/interfaces pair open <name>` opens pairing on an interface, a
-// direct message there is answered with a one-time code and starts no turn, and `/interfaces pair <code>` in the
-// command line binds that account to the owner's meta-person. The code reaches no model request and no log. The real
+// direct message there is answered with a one-time phrase of six words and starts no turn, and `/interfaces pair`
+// with that phrase in the command line binds that account to the owner's meta-person. The phrase reaches no model
+// request and no log. The real
 // core, the real `neptunia` command and the fake interface as a unit over fresh folders; synthetic ids only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,7 +14,8 @@ import { query, runCli, settle, spawnCli, startUnitsCore, startedUnit, until, wi
 import type { Dirs, Rig, Unit } from './fixtures/core-units.ts';
 import type { MessageEvent } from '../src/protocol/adapter.ts';
 
-const CODE = /[A-HJ-NP-Z2-9]{8}/;
+// The phrase as the shipped `labels.pairing.code` words it.
+const CODE = /pairing phrase is: (.+?)\. Type/;
 
 const configOf = (dirs: Dirs): { bot: { ownerPerson?: string } } =>
   JSON.parse(readFileSync(path.join(dirs.privateDir, 'config', 'config.json'), 'utf8')) as {
@@ -67,11 +69,12 @@ test('a code approved in the command line binds the account that wrote to her, w
       posted = await unit.posted('dm-u9');
       await settle(50);
     }
-    const code = CODE.exec(posted.join('\n'))?.[0] ?? '';
-    assert.notEqual(code, '', `no code in ${JSON.stringify(posted)}`);
+    const code = CODE.exec(posted.join('\n'))?.[1] ?? '';
+    // The owner's decision of 2026-11-08 replaced the eight-character code with six words of the list.
+    assert.equal(code.split(' ').length, 6, `no phrase in ${JSON.stringify(posted)}`);
     await until(() => personOf(dirs, 'u9') !== undefined, 'her sight of u9');
 
-    const approved = await runCli(dirs, ['-p', `/interfaces pair ${code}`]);
+    const approved = await runCli(dirs, ['-p', `/interfaces pair ${code.split(' ').reverse().join(' ')}`]);
     assert.equal(approved.code, 0, approved.stdout + approved.stderr.slice(-2000));
     const config = configOf(dirs);
     assert.equal(personOf(dirs, 'u9'), config.bot.ownerPerson);
