@@ -52,8 +52,8 @@ export { recordFollowing, recordOwnLine } from './participation.ts';
 export { applyAliasOps } from './aliases.ts';
 export { writeJsonAtomic } from './store.ts';
 
-// The snapshot of data/ and the vault left by the earlier forgets (data, never written).
-export { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR } from './store.ts';
+// The folder of the snapshots of data/.
+export { SNAPSHOTS_DIR } from './store.ts';
 
 // The root: every memory path under data/.
 export { memoryRootOf } from './root.ts';

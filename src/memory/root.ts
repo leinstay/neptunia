@@ -8,8 +8,6 @@
 
 import path from 'node:path';
 
-/** `memory.vaultDir` when it is missing (config.json carries the same). */
-export const DEFAULT_VAULT_DIR = 'vault';
 /** The directory under `data/` `/nep memory snapshot` writes to (src/tools/operations/memory.ts). */
 export const SNAPSHOTS_DIR = 'snapshots';
 
@@ -20,7 +18,6 @@ export type MemoryRoot = {
   placeDir: (placeId: string | null) => string;
   stateFile: string;
   snapshotsRoot: string;
-  vaultDir: (configured: unknown) => string;
   resolve: (rel: string) => string;
   relative: (abs: string) => string;
 };
@@ -39,9 +36,6 @@ export function memoryRootOf(dataDir: string): MemoryRoot {
     stateFile: path.join(dataDir, 'state.json'),
     /** `<dataDir>/snapshots`. */
     snapshotsRoot: path.join(dataDir, SNAPSHOTS_DIR),
-    /** The vault directory: `configured` (`memory.vaultDir`) under `data/`, or as given when absolute. */
-    vaultDir: (configured: unknown) =>
-      path.resolve(dataDir, typeof configured === 'string' && configured.trim() ? configured : DEFAULT_VAULT_DIR),
     /** `rel` resolved against `dataDir` (a path stored relative to it, such as a forget marker's vault). */
     resolve: (rel: string) => path.resolve(dataDir, rel),
     /** `abs` relative to `dataDir`, forward-slash separated (stable across platforms). */

@@ -1279,7 +1279,7 @@ export type Llm = {
   keyStates: () => Array<KeyState>;
   /** The variable names a request of `role` may go out on now, the primary first. */
   keyNames: (role: string) => Array<string>;
-  /** The grants of the core keys by name when the keys come from a key store, null when `llm.keys` holds them. */
+  /** The grants of the core keys by name when the keys come from a key store, null without one. */
   keyGrants: () => Record<string, { grant: number; resetDay: number }> | null;
   /** The `.env` variable each imported key came from: spend recorded under it counts for the key. */
   keyVariables: () => Record<string, string>;
