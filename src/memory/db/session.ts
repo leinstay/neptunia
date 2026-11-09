@@ -61,17 +61,15 @@ import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.ts';
 import { ASSERTION_HOW } from './semantic-registry.ts';
 import { validateSemanticAnswer } from './semantic-answer.ts';
 import { episodeLinesOf, intentionLinesOf } from './session-blocks.ts';
-import { peopleOf } from './session-people.ts';
-import type { BatchAccount, BatchAuthor, BatchPerson } from './session-people.ts';
-import { readRetrieved, requestCapOf, retrievedLines } from './session-retrieved.ts';
+import { peopleOf, type BatchAccount, type BatchAuthor, type BatchPerson } from './session-people.ts';
+import { readRetrieved, requestCapOf, retrievedLines, sessionEmbedding } from './session-retrieved.ts';
 import type { MemoryPage } from './semantic-types.ts';
 import { asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import { sessionRequestId } from './request-archive.ts';
 import type { KeyRing } from '../../keys/ring.ts';
 import type { Labels, Profile } from '../../turn/request/types.ts';
 import type { Config, Db, Log, Row } from './types.ts';
-import type { Track } from '../../loop-watch.ts';
-import { untracked } from '../../loop-watch.ts';
+import { untracked, type Track } from '../../loop-watch.ts';
 import type { Context, Scope } from './scope.ts';
 
 export const SESSION_PURPOSE = 'memory-session';
@@ -1271,6 +1269,7 @@ export type SessionContext = {
   readCtx?: Context;
   /** The event loop watch's `track` (src/loop-watch.ts); batch reads and request builds are named operations. */
   track?: Track;
+  embed?: Parameters<typeof sessionEmbedding>[1]; // the embedding client, for the batch query (sessionEmbedding)
 };
 
 // The media pass's runs count toward `mediaPassPerDay`, never toward the ordinary cap.
@@ -1887,6 +1886,7 @@ async function runScope(
     batch,
     people: peopleOf(db, batch, ctx.selfName ?? '').people.map((person) => person.id),
     now,
+    ...sessionEmbedding(config, ctx.embed),
     log,
   });
   let request: SessionRequest;

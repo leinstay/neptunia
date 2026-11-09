@@ -598,6 +598,15 @@ function factLines(found: Obj, labels: unknown): Array<string> {
   return lines;
 }
 
+/** The episodes a search found by meaning as lines: one `.episode` each (`{date}`, `{text}`). Nothing without one. Pure. */
+function episodeLines(found: Obj, labels: unknown): Array<string> {
+  const line = toolLabels(labels, 'memory').episode;
+  if (!line) return [];
+  return listOf(found.episodes)
+    .filter(isObj)
+    .map((one) => fill(line, { date: plain(one.date), text: plain(one.text) }));
+}
+
 /** The persona's filters of the stored facts; a moment that is no date is refused by the caller. */
 function factFilters(
   given: Obj
@@ -791,7 +800,7 @@ export async function runMemorySearch({
     const l = toolLabels(labels, 'memory');
     const lines: Array<string> = [];
     if (outcome.degraded === true && l.degraded) lines.push(l.degraded);
-    lines.push(shown(), ...factLines(found, labels));
+    lines.push(shown(), ...factLines(found, labels), ...episodeLines(found, labels));
     if (typeof outcome.failed === 'number' && outcome.failed > 0 && l.partial)
       lines.push(fill(l.partial, { failed: String(outcome.failed), total: plain(outcome.total) }));
     return { status: 'ok', data: { text: lines.join('\n') } };

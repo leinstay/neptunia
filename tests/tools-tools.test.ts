@@ -880,3 +880,36 @@ test('memorySearchText: with a registry each quoted line carries a #N handle num
   // Without a registry the text is as before.
   assert.ok(!memorySearchText(quotes, { labels, timezone: 'UTC' }).includes('#85'));
 });
+
+test('runMemorySearch lists each episode the search found under its date, after the stored facts', async () => {
+  // Bug: the episodes a search found by meaning never reach her, or reach her without when they happened.
+  const root = { id: 'g1' };
+  const shipped = labels.tools;
+  const memory = {
+    facts: 'Facts:',
+    fact: '- {text}',
+    episode: '- moment of {date}: {text}',
+  };
+  const result = await runMemorySearch({
+    recall: recallAnswering({
+      ...NO_STRETCH,
+      quotes: [STRETCH],
+      assertions: [{ text: 'likes tea', state: 'current', polarity: 'positive' }],
+      episodes: [{ id: 'ep:1', date: '2026-10-30', text: 'danced at the party' }],
+      outcome: { kind: 'searched' },
+    }),
+    store: { listUserProfiles: () => [] },
+    config: { bot: { timezone: 'UTC' }, features: { recall: true }, recall: { maxForms: 4 } },
+    labels: { ...labels, tools: { ...shipped, tools: { ...shipped.tools, memory } } },
+    root,
+    placeId: 'g1',
+    channel: { id: 'c1', rootId: 'g1', root },
+    args: { question: 'what happened at the party', terms: 'party' },
+    now: NOW,
+  } as unknown as Parameters<typeof runMemorySearch>[0]);
+  const text = result.data?.text ?? '';
+  const lines = text.split('\n');
+  const fact = lines.indexOf('- likes tea');
+  assert.ok(fact >= 0, 'the fact is listed');
+  assert.equal(lines[fact + 1], '- moment of 2026-10-30: danced at the party');
+});

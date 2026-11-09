@@ -109,7 +109,7 @@ import { fitExcerpts, focusHits, itemLines, lanePlan, lexicalKeep, rankPrefetch 
 import { indexWords } from '../memory/record-index.ts';
 import { CODE } from '../tools/codes.ts';
 import { dbSettings, quotesOf, search as searchRows, window as windowRows } from '../memory/db/recall.ts';
-import { factExcerpts, prefetchFacts, searchFacts } from './recall-facts.ts';
+import { factExcerpts, prefetchFacts, searchEpisodes, searchFacts } from './recall-facts.ts';
 import type { MemoryPage } from '../memory/db/semantic-types.ts';
 import type { RetrievalInput } from '../memory/retrieval-input.ts';
 import { nativeOf } from '../memory/db/ids.ts';
@@ -1171,6 +1171,7 @@ export function createRecall({
       people: [],
       assertions: page?.assertions ?? [],
       factsCut: page?.next != null,
+      episodes: db ? searchEpisodes({ db, ctx: reader.ctx, vector, model: reader.model, config }) : [],
       stats: { ...stats, ms: now() - started },
       outcome: { kind: 'searched', degraded, failed: 0, total: 1 },
     };

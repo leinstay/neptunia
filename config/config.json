@@ -103,7 +103,8 @@
       "deadlineMs": 1000,
       "embedDocuments": true,
       "embedObjects": true,
-      "embedBatch": 50
+      "embedBatch": 50,
+      "episodes": 3
     },
     "inspection": {
       "pageRows": 100,
