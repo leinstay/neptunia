@@ -46,3 +46,19 @@ test('nobody on the page reads no episode, and no open intention reads no line',
   assert.deepEqual(intentionLinesOf(world.db, world.contexts.group, [], [], read), []);
   world.handle.close();
 });
+
+test("an open intention about a room stored under an opaque id concerns the batch through the room's native id", () => {
+  // Bug: the room's native id was cut out of the text of its place id, which an opaque id does not spell.
+  const world = semanticWorld();
+  world.db.exec(`INSERT INTO places (id, iface, kind, native_id, chat, scope_kind)
+      VALUES ('place:opaque-garden', 'discord', 'channel', 'c-garden', 'group', 'group');
+    INSERT INTO intentions (id, record, status, created_ms, archived, audience_id, scope_kind, scope_iface)
+      VALUES ('i1', '{"status":"pending","purpose":"water the garden","attend":{"chatId":"c-garden"}}', 'pending', 1, 0,
+        'aud:group:discord', 'group', 'discord');`);
+  const reads: Array<unknown> = [];
+  const lines = intentionLinesOf(world.db, world.contexts.group, [], ['place:opaque-garden'], (_kind, id) =>
+    reads.push(id)
+  );
+  assert.deepEqual([lines, reads], [['pending: water the garden'], ['i1']]);
+  world.handle.close();
+});

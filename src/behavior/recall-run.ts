@@ -69,7 +69,7 @@
 // it is memory about real people, kept under data/ only.
 
 // health: allow file-length until 2027-04-01 -- one runner over the recall sources, grown by the one dependency that names the loop watch
-import { dmPlaceOfMember, personOfMember, storedPersonOfMember } from '../memory/addresses.ts';
+import { dmPlaceOfMember, personOfMember, placeOfChat, storedPersonOfMember } from '../memory/addresses.ts';
 import { log } from '../log.ts';
 import { createSummaryBuilder } from './summary-builder.ts';
 import { railReason } from '../llm/openrouter.ts';
@@ -112,7 +112,6 @@ import { dbSettings, quotesOf, search as searchRows, window as windowRows } from
 import { factExcerpts, prefetchFacts, searchEpisodes, searchFacts } from './recall-facts.ts';
 import type { MemoryPage } from '../memory/db/semantic-types.ts';
 import type { RetrievalInput } from '../memory/retrieval-input.ts';
-import { nativeOf } from '../memory/db/ids.ts';
 import { currentIface } from '../memory/db/current-iface.ts';
 import { isIssuedInternalContext, issueContext, readContextSpec } from '../memory/db/scope.ts';
 import { LEGACY_IFACE } from '../memory/db/legacy-namespace.ts';
@@ -218,8 +217,9 @@ function asksServer(server: Untyped, retrieval: Untyped = null) {
   return some(server.forms) || some(server.who) || Number.isFinite(server.from) || Number.isFinite(server.to) || named;
 }
 
-/** What a sample's place rule reads: the turn's live view and its chat. */
+/** What a sample's place rule reads: the memory's connection, the turn's live view and its chat. */
 type SamplePlaceInput = {
+  db: { prepare(sql: string): { get(...params: Array<unknown>): Record<string, unknown> | undefined } } | null;
   snapshot: { get: (id: string) => ChatInfo | undefined } | null;
   channel: ChatInfo;
   partnerId: string | null;
@@ -229,13 +229,23 @@ type SamplePlaceInput = {
 /**
  * Which places a sample of the persona's own search may read: a sample hands her a stretch of a channel with no word of
  * hers behind it, so it keeps to the chats the turn's live view allows (readable, the audience rule of
- * `context.pull.sameAudience`). A stored place the view does not hold, her DM among them, stays with the read context.
+ * `context.pull.sameAudience`). The view holds a chat by the native id of its place's row (`places.native_id`), read
+ * once per place. A stored place the view does not hold, her DM among them, stays with the read context.
  */
 function samplePlaceRule(given: Record<keyof SamplePlaceInput, unknown>) {
   // The runner's inputs are untyped; these are the shapes `run` is given.
-  const { snapshot, channel, partnerId, config } = given as SamplePlaceInput;
+  const { db, snapshot, channel, partnerId, config } = given as SamplePlaceInput;
+  const nativeOfPlace = db?.prepare('SELECT native_id FROM places WHERE id = ?') ?? null;
+  const natives = new Map<unknown, string>();
+  const nativeOf = (placeId: unknown): string => {
+    if (!natives.has(placeId)) {
+      const native = nativeOfPlace?.get(placeId)?.native_id;
+      natives.set(placeId, typeof native === 'string' ? native : '');
+    }
+    return natives.get(placeId) ?? '';
+  };
   return (placeId: unknown): boolean => {
-    const entry = snapshot?.get(nativeOf(placeId) ?? '') ?? null;
+    const entry = snapshot?.get(nativeOf(placeId)) ?? null;
     return entry === null || (isReadable(entry) && audienceAllows(channel, entry, config, { partnerId }));
   };
 }
@@ -993,14 +1003,15 @@ export function createRecall({
    * The read context of a db read (see dbReader): the turn's own when it fits, else one issued for this read; an issued internal context spans every audience.
    */
   function readContext({ channel, privateAccountId, asker, memoryContext = null }: ReadContextInput) {
-    const spec = readContextSpec(
-      currentIface(),
-      iface,
-      channel?.id,
+    const spec = readContextSpec({
+      chatIface: currentIface(),
+      home: iface,
+      chatId: channel?.id,
       privateAccountId,
-      (on, platformId) => personOfMember(store, platformId, on),
-      (on, platformId) => dmPlaceOfMember(store, platformId, on)
-    );
+      personOf: (on, platformId) => personOfMember(store, platformId, on),
+      dmPlaceOf: (on, platformId) => dmPlaceOfMember(store, platformId, on),
+      chatPlaceOf: (on, chatId) => placeOfChat(store, { id: chatId }, on),
+    });
     const fits =
       memoryContext &&
       typeof memoryContext === 'object' &&
@@ -1115,7 +1126,7 @@ export function createRecall({
         allowPlace: reader.allowPlace,
         model: reader.model,
         sampleTime: true,
-        samplePlace: samplePlaceRule({ snapshot, channel, partnerId, config }),
+        samplePlace: samplePlaceRule({ db, snapshot, channel, partnerId, config }),
       },
       controller.signal
     );

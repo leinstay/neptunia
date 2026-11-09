@@ -86,7 +86,7 @@ import { createErrandStores } from './errands/store.ts';
 import { groupsContext } from './memory/db/scope.ts';
 import type { RetrievalInput } from './memory/retrieval-input.ts';
 import { createErrandService } from './errands/service.ts';
-import { SELF_PERSON, channelPlaceId } from './memory/db/ids.ts';
+import { SELF_PERSON } from './memory/db/ids.ts';
 import { createMemberDirectory } from './interface/members.ts';
 import { createErrandTurns, errandDoneEvent } from './errands/turns.ts';
 import { createEventDoor } from './interface/door.ts';
@@ -139,7 +139,7 @@ import { createBoardPort } from './board/writer.ts';
 import { createReactorStore, applyReactionChanged } from './behavior/reactor-store.ts';
 import { currentIface, withIface } from './memory/db/current-iface.ts';
 import { createRootRoutes } from './core-routing.ts';
-import { accountOf } from './memory/addresses.ts';
+import { accountOf, dmPartnerOf, placeOfChat } from './memory/addresses.ts';
 import { personaJournal, personaRecord } from './behavior/inner/persona-sources.ts';
 import { PERSONA_ID } from './memory/db/storage-keys.ts';
 import { createOwnerAccounts } from './memory/db/person-links.ts';
@@ -171,8 +171,7 @@ import type { RouteWatches } from './subharness/route-watch.ts';
 import { recordCoreCheck } from './setup/model-check.ts';
 import type { EffortLevel } from './llm/roles.ts';
 import type { SessionContext } from './memory/db/session.ts';
-import { objOf } from './tools/types.ts';
-import type { Untyped } from './tools/types.ts';
+import { objOf, type Untyped } from './tools/types.ts';
 import type {
   ConnectionChanged,
   ChatChanged,
@@ -842,9 +841,10 @@ async function buildCore(
   // The owner's chat exists while no client is open (src/interface/cli-chat.ts): a text post is kept as her line and
   // shown when it opens; its history reads the stored lines; a file she sends is kept and echoed through the door.
   const cliChat = createCliChat({ live: () => intake.chat(), now: clock, newId: randomUUID });
+  const partnerOf = (placeId: string): string | null => dmPartnerOf(store, placeId);
   const cliAdapter = () =>
     withKeptSends(
-      withStoredHistory(cliChat, (placeId) => chatSessions.shown(placeId), ownerName),
+      withStoredHistory(cliChat, (id) => chatSessions.shown(id), partnerOf, ownerName),
       { dataDir, newId: randomUUID, echo: echoThrough(linkDoor) }
     );
   // The persona's interface (src/interface/port.js): every effect of her replies goes through it,
@@ -943,7 +943,7 @@ async function buildCore(
   function recentChannelLines(chatId: string, count: number) {
     const db = memoryDb.database();
     if (!db || !chatId || !(count > 0)) return [];
-    const rows = recentGroupLines(db, channelPlaceId(identity.iface, String(chatId)), count);
+    const rows = recentGroupLines(db, placeOfChat(store, { id: String(chatId) }, identity.iface), count);
     const lines: Array<{ author: string; text: string }> = [];
     for (const row of rows) {
       let name = '';

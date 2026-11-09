@@ -12,7 +12,6 @@ import { innerSettings } from '../behavior/inner.ts';
 import { DEFAULT_RESULT_MAX_CHARS, errandResultText, errandsBlockText } from '../errands/blocks.ts';
 import type { ErrandRecord } from '../errands/types.ts';
 import { portIface } from '../interface/capabilities.ts';
-import { channelPlaceId } from '../memory/db/ids.ts';
 import { personOfMember, placeOfChat } from '../memory/addresses.ts';
 import { DEFAULT_INTENTIONS_CAP, intentionsBlockText } from '../intentions/blocks.ts';
 import { intentionSettings } from '../intentions/model.ts';
@@ -149,7 +148,7 @@ export function createInputs(ctx: InputsContext): Inputs {
                   person,
                   place: placeOfChat(store, { kind: 'dm', partnerId: String(partner) }, channelIface),
                 }
-              : { kind: 'group', destination: channel?.id ? channelPlaceId(channelIface, channel.id) : null }
+              : { kind: 'group', destination: channel?.id ? placeOfChat(store, channel, channelIface) : null }
           ) ?? null;
       }
     } catch {
