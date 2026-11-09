@@ -5,7 +5,6 @@
 // an interface's name and nouns and her past selfreflection entries for a selfreflection request's `<selfreflection>`.
 // Each read applies the turn's context (`whereFor`), so nothing a scope may not read leaves here. Read only.
 
-import { nativeOfAny } from './ids.ts';
 import { directChatsOf } from './direct-chats.ts';
 import type { DirectChats } from './direct-chats.ts';
 import { findSettingsOf, peopleFound, placesFound } from './graph-find.ts';
@@ -46,17 +45,24 @@ const text = (value: unknown): string | null => (typeof value === 'string' && va
 /** Where a line stands: its place's path, whether that place is a one-to-one chat, and that chat's partner person. */
 export type PlacePath = { path: Array<string>; dm: boolean; partner: string | null };
 
-/** A place by names from its interface down; a one-to-one chat's ends in the partner's platform id. */
+/**
+ * A place by names from its interface (`places.iface`) down; a one-to-one chat's ends in the platform id of its partner
+ * account (`places.partner_account`), the place id when no account row holds one.
+ */
 export function placePathOf(db: Db, placeId: string): PlacePath {
-  const chain = placeChainInDb(db, placeId);
-  const iface = placeId.slice(0, Math.max(0, placeId.indexOf(':')));
-  const here = chain[0];
-  if (here?.kind === 'dm') {
-    const row = db.prepare('SELECT partner_person FROM places WHERE id = ?').get(placeId);
-    const partner = text(row?.partner_person);
-    return { path: [iface, DM_WORD, nativeOfAny(placeId) ?? placeId], dm: true, partner };
+  const row = db
+    .prepare(
+      `SELECT p.iface, p.kind, p.partner_person, a.native_id AS partner_native FROM places p
+       LEFT JOIN accounts a ON a.id = p.partner_account WHERE p.id = ?`
+    )
+    .get(placeId);
+  const iface = text(row?.iface) ?? '';
+  if (row?.kind === 'dm') {
+    return { path: [iface, DM_WORD, text(row.partner_native) ?? placeId], dm: true, partner: text(row.partner_person) };
   }
-  const names = chain.map((link) => link.name ?? link.id).reverse();
+  const names = placeChainInDb(db, placeId)
+    .map((link) => link.name ?? link.id)
+    .reverse();
   return { path: [iface, ...(names.length > 0 ? names : [placeId])], dm: false, partner: null };
 }
 
@@ -65,7 +71,7 @@ const lineOf = (row: Row): FrameLine => ({
   sourceId: String(row.id),
   placeId: text(row.place_id) ?? '',
   at: Date.parse(text(row.occurred_at) ?? ''),
-  authorId: text(row.author_account) === null ? null : nativeOfAny(row.author_account),
+  authorId: text(row.author_native),
   authorName: text(row.author_name),
   self: row.author_kind === 'self',
   text: text(row.text) ?? '',
@@ -77,7 +83,10 @@ const AUTHOR_NAME = `COALESCE(
      JOIN storage_units u ON u.id = p.owner_key JOIN accounts pa ON pa.id = u.subject_id
    WHERE a.id = s.author_account AND u.subject_type = 'account'),
   (SELECT json_extract(a.names, '$[0]') FROM accounts a WHERE a.id = s.author_account)) AS author_name`;
-const LINE_COLUMNS = `s.id, s.native_id, s.place_id, s.occurred_at, s.author_account, s.author_kind, s.text, ${AUTHOR_NAME}`;
+/** The platform id of a line's author, from its account's row. */
+const AUTHOR_NATIVE = '(SELECT a.native_id FROM accounts a WHERE a.id = s.author_account) AS author_native';
+const LINE_COLUMNS = `s.id, s.native_id, s.place_id, s.occurred_at, s.author_account, s.author_kind, s.text, ${AUTHOR_NATIVE},
+  ${AUTHOR_NAME}`;
 const LIVE_LINE = `s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND length(COALESCE(s.text, '')) > 0`;
 
 /**

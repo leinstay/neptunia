@@ -22,7 +22,7 @@ import { createDescriber } from '../src/memory/describe.ts';
 import { createStore } from '../src/memory/store.ts';
 import { fakeLlm, fakeState, fakeVideoFetcher } from './fixtures/describe-fakes.ts';
 import { wrongly } from './fixtures/loose-types.ts';
-import { AT, ALICE, GENERAL, GROUP_SCOPE, KINDS, NOW, eventOf, fixture } from './fixtures/media-memory.ts';
+import { AT, ALICE, GENERAL, GROUP_SCOPE, KINDS, NOW, channelRow, eventOf, fixture } from './fixtures/media-memory.ts';
 import { channelPlaceId } from '../src/memory/db/ids.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import type { Env, Kind } from './fixtures/media-memory.ts';
@@ -43,6 +43,9 @@ const FAMILY_KEY_2 = '550e8400-e29b-41d4-a716-446655440000';
 
 async function withEnv(body: (env: Env) => void | Promise<void>) {
   const env = fixture();
+  // The rows of the places the lines name, as every stored line's place has one: a line is read through its row's native id.
+  channelRow(env, GENERAL, 'c1');
+  channelRow(env, OTHER, 'c2');
   try {
     await body(env);
   } finally {

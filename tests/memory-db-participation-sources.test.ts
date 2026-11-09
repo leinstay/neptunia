@@ -3,6 +3,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRecord } from '../src/memory/record.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { resolveParticipationSources } from '../src/memory/db/participation-sources.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import type { Rows } from '../src/memory/db/types.ts';
 import {
   batchOf,
   buildSessionRequest,
@@ -246,5 +250,27 @@ test('an unchanged participation flush retains its captured source after a later
     assert.equal(restored.includes(env.foreign), false);
   } finally {
     await env.close();
+  }
+});
+
+test('evidence in a room stored under an opaque id resolves by the room row, not by the text of its id', () => {
+  // Bug: the interface was cut out of the place id, so an episode in a room stored as `place:...` linked no source.
+  const handle = openMemoryDb(':memory:');
+  try {
+    const db = dbOf(handle);
+    db.exec(`INSERT INTO places (id, iface, kind, native_id, chat, scope_kind)
+        VALUES ('place:opaque-room', 'fake', 'channel', 'c3', 'group', 'group');
+      INSERT INTO sources (id, kind, iface, native_id, native_kind, generation, revision, place_id, occurred_at, text,
+          scope_kind, scope_iface)
+        VALUES ('source:opaque-line', 'seen', 'fake', 'm-9', 'message', 1, 1, 'place:opaque-room',
+          '2026-10-24T11:00:00.000Z', 'ναι', 'group', 'fake');`);
+    const mapping: Rows = {
+      episodes: [{ id: 'episode-opaque', kind: 'participation', place_id: 'place:opaque-room' }],
+      episode_sources: [{ episode_id: 'episode-opaque', source_id: 'src:fake:m-9', position: 0 }],
+    };
+    resolveParticipationSources(db, mapping);
+    assert.equal(mapping.episode_sources?.[0]?.source_id, 'source:opaque-line');
+  } finally {
+    handle.close();
   }
 });
