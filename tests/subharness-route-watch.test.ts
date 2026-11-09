@@ -165,3 +165,37 @@ test('with no fetch the parts on the API pass with no request, and a harness par
   assert.equal(ran.length, 1);
   assert.deepEqual(pause.pauses, []);
 });
+
+test('a core whose route in force fails its probe moves to the next route of its chain and stays awake when that one answers', async () => {
+  // Catches: a spent subscription pausing her with core-down although the API route behind it in her chain works.
+  const privateDir = tempDir('nep-route-watch-chain-');
+  writeKeysFile(privateDir, { subharness: { key: null, modes: {} } });
+  const pause = fakePause(null);
+  const { fetch } = fakeFetch(healthy);
+  let onHarness = true;
+  const moved: Array<string> = [];
+  const watches = createRouteWatches({
+    privateDir,
+    fetch,
+    baseUrl: () => BASE_URL,
+    route: () => ({ name: 'helpers', value: SECRET }),
+    model: (role) => MODELS[role],
+    path: (role) =>
+      role === 'core' && onHarness
+        ? { kind: 'subharness', backend: 'claude', model: 'claude-opus-4-6', effort: null }
+        : { kind: 'direct' },
+    moveOn: (role, code) => {
+      moved.push(`${role} ${code}`);
+      onHarness = false;
+      return true;
+    },
+    runBackend: () => Promise.resolve({ ok: false, text: '', exitCode: 1 }),
+    pause,
+    now: () => T0,
+    config: () => ({ memory: { probeMinutes: 30 }, memoryDb: { session: { mode: 'off' } } }),
+  });
+  await watches.start();
+  assert.equal(moved.length, 1);
+  assert.deepEqual(pause.pauses, []);
+  assert.equal(watches.last('core')?.ok, true);
+});

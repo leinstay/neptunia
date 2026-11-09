@@ -185,7 +185,7 @@ With no chat open, the chat still exists, as a Discord direct chat exists while 
 
 A chat session is a named view over the lines memory already stores for the owner's chat, in the `sources` table under the place `cli:dm:owner`. Those records are the durable chat, so `src/chat/sessions.ts` copies none of them and keeps only ids and times, in `<private>/cli/sessions.json` (`src/chat/store.ts`). The file is not memory: nothing she recalls reads it. A session's name is the start of the owner's first line, with no model. The input history in `data/cli/history` and the transcript on the screen are separate from both.
 
-`/sessions` lists them, and Enter on a row resumes one. `/resume <id>` does the same by id. Bare `/resume` stays the command that ends a pause. `/branch` lists the lines of the current session with their exact stored text, and Enter on a line continues from there. `/branch <id>` cuts another session. Opening any of these panels only reads, and the same boundary of the same session is always the same branch.
+`/sessions` lists them, and Enter on a row resumes one. `/sessions resume <id>` does the same by id. `/resume` is the command that ends a pause. `/branch` lists the lines of the current session with their exact stored text, and Enter on a line continues from there. `/branch <id>` cuts another session. Opening any of these panels only reads, and the same boundary of the same session is always the same branch.
 
 Resuming or branching replaces the transcript on the screen and the lines the core's history reads answer from, so the next turn's context is the selected view. A line written while a branch is selected belongs to that branch, and the root shows every line no branch owns. Stored lines, facts she learned and their sources stay untouched, and memory stays continuous: a branch does not make her forget what she saw after its boundary, because her memory reads across every session. A new chat process starts on the root. These commands exist only in the interactive chat, because their effect is on its screen.
 
@@ -201,7 +201,7 @@ Her turns read the same stored lines. `withStoredHistory` in `src/chat/stored-hi
 
 Tool calls have no such panel, because nothing asks. An agent's mode (`read`, `write`, `full` or `sudo`, `/agent mode`) is set in advance and becomes the sandbox of its run (`src/subharness/control.ts`), and a headless backend cannot stop to ask. Her own tools are decided by grants before the turn (`/tools grant`). So no command panel, scope or expiry exists to show, and no proposed command or file diff reaches a gate: a merge gate shows the artifacts the worker named, and the diff lives in its pull request.
 
-`/tools`, `/skills`, `/interfaces` and `/agents` open a menu: the family's list operation as text, where it has one, and a row per subcommand of the command table that prefills the typed command. Opening a menu runs only that read, and every change goes through its typed command. `/plugins` says that no operation installs a plugin. `/context` shows the request limit (`llm.maxRequestTokens`), the core's route and its model through `cli/context-line.ts`. The size of the last request is held by no read, so it shows as unknown. The chat offers no context compression, because the core has no such operation.
+`/tools`, `/skills`, `/interfaces` and `/agent` open a menu: the family's list operation as text, where it has one, and a row per subcommand of the command table that prefills the typed command. Opening a menu runs only that read, and every change goes through its typed command. `/tools list` names every tool and whether she holds it, and `/tools grants` runs `access.list`, every stored grant of hers, of a member, of a role or of everyone. `/status full` ends with the request limit (`llm.maxRequestTokens`), the core's route and its model through `cli/context-line.ts`. The size of the last request is held by no read, so it shows as unknown. The chat offers no context compression, because the core has no such operation.
 
 ## Settings and setup panels
 
@@ -237,10 +237,9 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Schedule, switch and inspect the four scheduled mechanics | `/services` |
 | Read a watcher report | `/logs watcher` |
 | Cancel the turn over a waiting line, in the chat only | `/queue` |
-| Resume or branch a chat, in the chat only | `/sessions`, `/resume <id>`, `/branch` |
+| Resume or branch a chat, in the chat only | `/sessions`, `/sessions resume <id>`, `/branch` |
 | Restore a development task's files, in the chat only | `/checkpoints` |
 | Answer what waits on the task board, in the chat only | `/approvals` |
-| See the request limit, route and model, in the chat only | `/context` |
 
 ## The memory browser
 
@@ -296,8 +295,7 @@ Each block names its source, its account and its observation time. A value the s
 | `/mirror list` | Every mirror and whether it is enabled. This is the bare `/mirror`. |
 | `/mirror status` | Each mirror with its interface, queue, failed, incomplete, uncertain and blocked entries, the copies delivered outside their audience, and its backfill. |
 | `/mirror add <destination> [--backfill true\|false] [--every <duration>]` | Registers a known place. Adding it again reuses the mirror. |
-| `/mirror configure <mirror> [--enabled true\|false] [--backfill true\|false] [--every <duration>]` | Changes a mirror. `--backfill true` needs an interval, given now or earlier. |
-| `/mirror disable <mirror>` | Stops sending and keeps the configuration. |
+| `/mirror configure <mirror> [--enabled true\|false] [--backfill true\|false] [--every <duration>]` | Changes a mirror. `--enabled false` stops sending and keeps the configuration. `--backfill true` needs an interval, given now or earlier. |
 | `/mirror remove <mirror>` | Takes the mirror off the list and keeps its delivery history. |
 | `/mirror reconcile <mirror> --through <entry>` | Records every entry up to that one as already published, with the requester's name, and sends nothing. |
 | `/mirror reconcile <mirror> --entries <id,id>` | Records the named entries alone. A real receipt stays as it is, and an unknown id refuses the whole command. |

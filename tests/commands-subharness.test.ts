@@ -102,7 +102,7 @@ test('a mode line with no mode shows the current one and writes nothing', async 
 function consoleOver(dir: string, subharness: ConsoleDeps['subharness']) {
   const deps: ConsoleDeps = {
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: '', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] } } },

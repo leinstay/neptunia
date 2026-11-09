@@ -45,8 +45,7 @@ export const TASK_USAGE = `usage: neptunia tasks <command> [options]   (--socket
            # a closed task: only --budget, --steps, --estimate (the owner, a reviewer)
   tasks risk T-xxxxxx <low|normal|high> --reason "..."   # recorded; only the owner lowers, never below a dev task
   tasks triage T-xxxxxx --role implementer --estimate 40 --budget 3 [--steps 60]
-  tasks approve T-xxxxxx [--scope plan|merge|deploy] [--note "..."] [--reject]
-  tasks reject T-xxxxxx --reason "..."
+  tasks approve T-xxxxxx [--scope plan|merge|deploy] [--note "..."] [--reject --note "..."]
   tasks cancel T-xxxxxx --reason "..."          tasks fail T-xxxxxx [--reason "..."]
   tasks retry T-xxxxxx [--note "..."] [--budget N] [--steps N]   # a failed task back to approved, its attempts kept
   tasks move T-xxxxxx <status> [--reason ".."] [--comment ".."]
@@ -54,7 +53,8 @@ export const TASK_USAGE = `usage: neptunia tasks <command> [options]   (--socket
   tasks claim T-xxxxxx [--ttl 30]   tasks heartbeat T-xxxxxx --generation N [--ttl 30]
   tasks release T-xxxxxx --generation N
   tasks block T-xxxxxx --generation N --reason "..." --unblocks "..."   tasks unblock T-xxxxxx --note "..."
-  tasks submit T-xxxxxx --generation N --handoff <file|->   # the handoff JSON: result, evidence, artifacts, tests, open_issues
+  tasks submit T-xxxxxx --generation N --handoff <file|-> [--attempt A-xxxxxx]
+           # the handoff JSON: result, evidence, artifacts, tests, open_issues; --attempt names the attempt it ends
   tasks review T-xxxxxx --accept | --changes --comment "..."
   tasks orient                                  # what the caller holds, blocked, reviews and is asked
   tasks depend T-xxxxxx --on T-yyyyyy [--type blocks]   tasks undepend T-xxxxxx --on T-yyyyyy
@@ -66,7 +66,7 @@ export const TASK_USAGE = `usage: neptunia tasks <command> [options]   (--socket
   tasks events [--from <seq>] [--limit N] [--json]
   tasks inbox [--json]                          # the caller's outbox rows, acknowledged on read
   tasks costs [--now ISO] [--json]              # the agents: runs, tokens, USD today / 7 / 30 UTC days
-Common: --json, --key <idempotency key>, --socket <path>.
+Common: --json, --key <idempotency key>, --socket <path>. A flag the command does not take is refused.
 Token: NEPTUNIA_TASK_TOKEN, else the token file of the client NEPTUNIA_TASK_CLIENT, by default owner.`;
 
 const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
@@ -328,12 +328,9 @@ const COMMANDS: Readonly<Record<string, Command>> = {
       id: needId(positionals, 'T'),
       scope: flagText(flags, 'scope') ?? 'plan',
       decision: flags.reject === true ? 'reject' : 'approve',
-      note: flagText(flags, 'note'),
+      // A reject is the close reason of the task or the fix a merge gate asks for, so it carries one.
+      note: flags.reject === true ? needFlag(flags, 'note') : flagText(flags, 'note'),
     },
-  }),
-  reject: ({ flags, positionals }) => ({
-    name: 'task.approve',
-    args: { id: needId(positionals, 'T'), scope: 'plan', decision: 'reject', note: needFlag(flags, 'reason') },
   }),
   cancel: moveTo('cancelled'),
   fail: moveTo('failed'),
@@ -471,6 +468,52 @@ const COMMANDS: Readonly<Record<string, Command>> = {
     return { status: 'ok', text };
   },
 };
+
+/** The flags every command takes. */
+const COMMON_FLAGS: ReadonlyArray<string> = ['json', 'key', 'socket', 'help'];
+const FIELDS: ReadonlyArray<string> = [...Object.keys(FIELD_FLAGS), 'description', 'acceptance', 'meta'];
+const CLOSE: ReadonlyArray<string> = ['reason', 'comment'];
+
+/** The flags of each command beside the common ones: what its builder reads, and nothing else. */
+const COMMAND_FLAGS: Readonly<Record<string, ReadonlyArray<string>>> = {
+  add: [...FIELDS, 'lane', 'project', 'requester', 'subscriber', 'parent', 'auto', 'no-brief'],
+  list: ['lane', 'status', 'project', 'requester', 'ready'],
+  show: ['full'],
+  update: FIELDS,
+  risk: ['reason'],
+  triage: FIELDS,
+  approve: ['scope', 'note', 'reject'],
+  cancel: CLOSE,
+  fail: CLOSE,
+  move: CLOSE,
+  retry: ['note', 'budget', 'steps'],
+  next: ['lane', 'role'],
+  claim: ['ttl'],
+  heartbeat: ['generation', 'ttl'],
+  release: ['generation'],
+  block: ['reason', 'unblocks', 'generation'],
+  unblock: ['note'],
+  submit: ['handoff', 'generation', 'attempt'],
+  review: ['accept', 'changes', 'comment'],
+  orient: [],
+  depend: ['on', 'type'],
+  undepend: ['on'],
+  ask: ['to', 'generation'],
+  answer: [],
+  escalate: ['note'],
+  comment: [],
+  result: ['kind', 'uri', 'body', 'no-submit', 'generation'],
+  'skill-pending': [],
+  events: ['from', 'limit'],
+  costs: ['now'],
+  inbox: [],
+};
+
+/** The first flag of `flags` that the command `name` does not take, or null. */
+function strayFlag(name: string, flags: Flags): string | null {
+  const taken = new Set([...COMMON_FLAGS, ...(COMMAND_FLAGS[name] ?? [])]);
+  return Object.keys(flags).find((flag) => !taken.has(flag)) ?? null;
+}
 
 /** What the board's agents declare to the core: nothing. The core sends an agent only command results. */
 const AGENT_CAPABILITIES: Capabilities = {
@@ -628,6 +671,8 @@ async function lineOf(argv: ReadonlyArray<string>): Promise<{ command: Command; 
   }
   const command = COMMANDS[name];
   if (command === undefined) return usageError(`unknown command ${name}`);
+  const stray = strayFlag(name, parsed.flags);
+  if (stray !== null) return usageError(`tasks ${name} takes no --${stray}`);
   const dry: Ask = () => Promise.resolve({ status: 'ok', text: '{"task":{"revision":0,"status":""}}' });
   try {
     await command({ ask: dry, flags: parsed.flags, positionals: [...parsed.positionals], stdin: () => '{}' });

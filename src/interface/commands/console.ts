@@ -80,7 +80,6 @@ export type ConsoleDeps = {
   /** The owner's reads that are no operation (src/admin.ts#ownerReads): each a reply text, or a thrown refusal. */
   ownerReads: {
     lessons(context: Record<string, unknown>): string;
-    aliases(args: Record<string, unknown>, context: Record<string, unknown>): string;
   };
   /** Every place the core serves or holds memory of: a command names one unless there is exactly one. */
   places(): ReadonlyArray<string>;
@@ -802,8 +801,6 @@ export function createConsole(deps: ConsoleDeps): {
         if ('status' in given && typeof given.status === 'string') return given as Answer;
         return op(name, name === 'tools.grant' ? 'access.grant' : 'access.revoke', given, args, requester);
       }
-      case 'interfaces.command':
-        return refused(name, args, `the interface ${text(args.name)} has no commands of its own`);
       default: {
         const read = LOCAL_CONFIG_READS[name];
         if (read !== undefined) return read(deps.privateDir);

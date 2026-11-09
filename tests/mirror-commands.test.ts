@@ -51,7 +51,6 @@ for (const [words, name, args] of [
     'mirror.configure',
     { mirror: D1, backfill: 'false', every: '4h' },
   ],
-  [['disable', D1], 'mirror.disable', { mirror: D1 }],
   [['remove', D1], 'mirror.remove', { mirror: D1 }],
   [['reconcile', D1, '--through', 'e3'], 'mirror.reconcile', { mirror: D1, through: 'e3' }],
   [['reconcile', D1, '--entries', 'e1,e3'], 'mirror.reconcile', { mirror: D1, entries: 'e1,e3' }],
@@ -158,15 +157,21 @@ test('mirror configure changes the mirror it names and a bad value changes nothi
   assert.equal((await run('configure', 'fake:channel:nowhere', '--enabled', 'true')).status, 'invalid');
 });
 
-test('mirror disable keeps the configuration and sends nothing until the mirror is enabled again', async () => {
-  // Catches: disable deleting the row, or a disabled mirror still receiving what was queued for it.
+test('/mirror disable is no command: configure --enabled false is the one switch', () => {
+  // Changed: `disable` did what `configure --enabled false` does. Catches: two words for one switch come back.
+  assert.equal(parseCommandLine(`/mirror disable ${D1}`).ok, false);
+  assert.equal(parseRequest(['mirror', 'disable', D1]).parsed.ok, false);
+});
+
+test('configure --enabled false keeps the configuration and sends nothing until the mirror is enabled again', async () => {
+  // Catches: switching a mirror off deleting the row, or a switched-off mirror still receiving what was queued for it.
   const { scene, place, mirrors, run } = await known();
   await run('add', D1);
   scene.disconnect();
   scene.entry({ id: 'e1' });
   await mirrors.publishEntry({ id: 'e1', messages: ['one'] });
   scene.connect();
-  assert.equal((await run('disable', D1)).status, 'ok');
+  assert.equal((await run('configure', D1, '--enabled', 'false')).status, 'ok');
   assert.deepEqual(
     mirrors.listMirrors().map((one) => [one.placeId, one.enabled]),
     [[place, false]]
@@ -424,7 +429,7 @@ test('re-enabling a disabled mirror posts nothing written while it was off, unle
   // Catches: the crash recovery of unpublished entries reading a disabled stretch as a crash, and flooding the channel.
   const { scene, place, mirrors, run } = await known();
   await run('add', D1);
-  await run('disable', D1);
+  await run('configure', D1, '--enabled', 'false');
   scene.advance(FOUR_HOURS);
   scene.entry({ id: 'off', position: 1 });
   await mirrors.publishEntry({ id: 'off', messages: ['text of off'] });

@@ -304,12 +304,10 @@ test('/routes takes the arguments /route took, and a model with a space stays on
   assert.ok(endsWith(assertAccepted(parseCommandLine('/routes')).name, 'list'));
 });
 
-test('/interfaces keeps its leaves and the subcommand an interface brings itself', () => {
-  // Catches: the rename drops the `otherwise` branch, so an interface's own subcommand is refused.
+test('/interfaces keeps its leaves', () => {
+  // Changed: no interface brings subcommands of its own, so the `otherwise` leaf is gone and
+  // tests/neptunia-cli-dispatch.test.ts checks that such a word is refused. Catches: the rename drops a leaf.
   assert.ok(endsWith(assertAccepted(parseCommandLine('/interfaces enable zeta71')).name, 'enable'));
-  const own = assertAccepted(parseRequest(['interfaces', 'zeta71', 'sync', '$(echo zeta71)', 'now']).parsed);
-  assert.ok(endsWith(own.name, 'command'));
-  assert.deepEqual(own.args, { name: 'zeta71', sub: 'sync', rest: '$(echo zeta71) now' });
 });
 
 test('an interface token never goes on the command line of the renamed family, and stdin takes it', () => {

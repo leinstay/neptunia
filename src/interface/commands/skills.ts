@@ -88,14 +88,6 @@ export async function skillsCommand(
       );
       return { text: lines.join('\n'), status: 'ok' };
     }
-    case 'skills.show': {
-      const shown = await access.show(skill);
-      if (shown === null) return failed(name, skill, `no skill named ${skill}`);
-      const head = listLine(shown.row);
-      if (shown.text === null) return { text: `${head}\nno active version`, status: 'ok' };
-      const { active } = shown.row;
-      return { text: `${head}\ntools: ${active?.tools.join(', ') || 'none'}\n${shown.text}`, status: 'ok' };
-    }
     case 'skills.review': {
       const review = await access.review(skill);
       if (review === null) return failed(name, skill, `no skill named ${skill}`);

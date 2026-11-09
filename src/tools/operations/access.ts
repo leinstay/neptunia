@@ -25,21 +25,6 @@ import { idText, isObj, objOf, textOf } from '../types.ts';
 import type { Access, GrantTarget, Obj, OpContext, OpInfo } from '../types.ts';
 
 /**
- * Every key `/nep access grant` accepts, for the autocomplete: `*`, each group (a dotted prefix
- * of an operation name) that covers at least one grantable read operation, then every grantable
- * operation name. Pure over `ops` (src/tools/operations/registry.ts#listOps).
- */
-export function grantKeys(ops: ReadonlyArray<OpInfo>): Array<string> {
-  const groups = new Set<string>();
-  for (const op of ops) {
-    if (!isGrantableOp(op) || op.rights.kind !== 'read') continue;
-    const parts = op.name.split('.');
-    for (let i = 1; i < parts.length; i += 1) groups.add(parts.slice(0, i).join('.'));
-  }
-  return ['*', ...groups, ...ops.filter(isGrantableOp).map((op) => op.name)];
-}
-
-/**
  * What a grant of `key` to the persona stores, against the skills that exist now: a skill (an
  * operation) name is itself (`names`), whatever it does, unless no grant opens it for her yet
  * (src/tools/access.ts#NOT_GRANTABLE_TO_PERSONA: `refused`); a group (a dotted prefix of a skill

@@ -93,10 +93,12 @@ test('/approvals names a gate that does not wait, and says so', async (t) => {
   assert.match((await chatPanel('/approvals T9', run))?.lines.join('\n') ?? '', /T9/);
 });
 
-test('/context shows the numbers the core holds and names the rest unknown', async (t) => {
-  // Bug: the panel reads as 0 tokens used when nothing measured it.
+test('/status full ends with the numbers the core holds of a request and names the rest unknown, and /context is gone', async (t) => {
+  // Changed: `/context` was a panel of its own beside the status. Bug: the line reads as 0 tokens used when nothing
+  // measured it.
   const { run } = rig(t);
-  const shown = (await chatPanel('/context', run))?.lines.join('\n') ?? '';
+  assert.equal(await chatPanel('/context', run), null);
+  const shown = (await chatPanel('/status full', run))?.lines.join('\n') ?? '';
   assert.match(shown, /unknown of 50000 tokens/);
   assert.match(shown, /zeta-route/);
   assert.match(shown, /zeta-model/);

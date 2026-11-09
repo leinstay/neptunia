@@ -10,7 +10,7 @@ import { ROOT_DIR, readConfig } from '../config.ts';
 import { localConfigPath } from '../config/files.ts';
 import { loadPrincipals } from '../interface/principals.ts';
 import { CORE_UNIT } from '../service/manager.ts';
-import { subscriptionPath } from '../subharness/subscription-path.ts';
+import { routesOf } from '../llm/route-chain.ts';
 import { coreSelection, readCoreCheck } from './model-check.ts';
 import type { CoreCheck } from './model-check.ts';
 
@@ -159,10 +159,11 @@ function modelOnDisk(privateDir: string, dataDir: string): ReadinessHealth['mode
   return { selection, check: readCoreCheck(dataDir) };
 }
 
-/** `harness` while her turns run through a subscription backend; a config.json that cannot be read says nothing. */
+/** `harness` while her chain starts on a subscription backend; a config.json that cannot be read says nothing. */
 function coreRoute(privateDir: string): { harness?: true } {
   try {
-    return subscriptionPath(privateDir, 'core').kind === 'subharness' ? { harness: true } : {};
+    const [first] = routesOf(readConfig(ROOT_DIR, { privateDir }), 'core', []);
+    return first?.via === 'harness' ? { harness: true } : {};
   } catch {
     return {};
   }

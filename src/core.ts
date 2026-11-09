@@ -47,9 +47,10 @@ import type { ArchiveWriteGap } from './llm/archive.ts';
 import { noteArchiveGap } from './watcher/requests.ts';
 import { createLlm } from './llm/openrouter.ts';
 import type { CompleteResult } from './llm/openrouter.ts';
-import { createChainClient, createRouteChainOf } from './llm/chain-client.ts';
+import { reportingFailures } from './llm/chain-client.ts';
+import { createCoreRoutes } from './llm/core-routes.ts';
 import { createKeyFailover } from './llm/key-failover.ts';
-import { MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, SEARCH_ROLE, roleModel, searchModel } from './llm/roles.ts';
+import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, SEARCH_ROLE, roleModel, searchModel } from './llm/roles.ts';
 import { statusCardKeys } from './keys/card-keys.ts';
 import { createKeysCommands, reasonedPause } from './keys/commands.ts';
 import { createKeyRing } from './keys/ring.ts';
@@ -120,7 +121,7 @@ import { ownerConsoleName } from './memory/db/identity-links.ts';
 import { mediaText } from './memory/db/media-store.ts';
 import { OWNER_CLIENT } from './setup/clients.ts';
 import { createConsole } from './interface/commands/console.ts';
-import { rolePath, statusBrief } from './interface/commands/status-brief.ts';
+import { statusBrief } from './interface/commands/status-brief.ts';
 import { wakeClockOf } from './service/commands.ts';
 import { isPausedIn, resumeHeld } from './behavior/core-pause.ts';
 import { configuredInterfaces, drainMs, interfaceEnabled } from './interface/mode.ts';
@@ -159,12 +160,12 @@ import { DEFAULT_BASE_URL } from './subharness/models.ts';
 import { backendUsageReader, execUsage, spawnUsageChild } from './subharness/usage.ts';
 import { deferModeToUnit } from './setup/install.ts';
 import { REPLY_CHECK_MS } from './subharness/control.ts';
-import { clearMemoryPath, memoryCheckPath, memoryPath } from './subharness/memory-path.ts';
-import { clearSubscriptionPath, harnessBackend } from './subharness/subscription-path.ts';
+import { clearMemoryPath } from './subharness/memory-path.ts';
+import { clearSubscriptionPath } from './subharness/subscription-path.ts';
 import { coreSubscription } from './subharness/subscription-client.ts';
 import { createLoginState } from './subharness/login-state.ts';
 import { memoryWriterClient } from './subharness/memory-writer.ts';
-import { memoryProbe } from './subharness/memory-probe.ts';
+import { routeProbe } from './subharness/memory-probe.ts';
 import { createRouteWatches, probeWord } from './subharness/route-watch.ts';
 import type { RouteWatches } from './subharness/route-watch.ts';
 import { recordCoreCheck } from './setup/model-check.ts';
@@ -203,9 +204,6 @@ const firstName = (profile: object | null): string | undefined =>
 function fail(message: string): never {
   throw new Error(message);
 }
-
-/** A model client as the chain client (src/llm/chain-client.ts) hands it a request. */
-type Completing = { complete(messages: unknown, options?: unknown): Promise<CompleteResult> };
 
 /** The chat client as the core hands it on. */
 type ChatClient = Omit<ReturnType<typeof createLlm>, 'complete'> & {
@@ -289,17 +287,9 @@ async function buildCore(
   fs.mkdirSync(paths.dataDir, { recursive: true });
   const hot = createHot({ rootDir: paths.rootDir, privateDir: paths.privateDir }).watch();
   cleanups.push(() => hot.close());
-  // Every request of a model role walks its chain of routes (src/llm/chain-client.ts) to the clients built below.
-  let chainExecutors: { core: Completing; memory: Completing; direct: Completing } | null = null;
-  const chainClient = createChainClient({
-    getConfig: (): unknown => hot.config,
-    keys: { coreNames: () => keyStore.coreNames(), valueOf: (name) => keyStore.valueOf(name) },
-    chain: createRouteChainOf((): unknown => hot.config, clock),
-    executor: (role) => {
-      if (chainExecutors === null) throw new Error('core: a model request came before the model clients were built');
-      return role === 'core' ? chainExecutors.core : role === 'memory' ? chainExecutors.memory : chainExecutors.direct;
-    },
-  });
+  // Every request of a model role walks its chain of routes to the clients built below (src/llm/core-routes.ts).
+  const routes = createCoreRoutes({ store: keyStore, keyRing, getConfig: (): unknown => hot.config, now: clock });
+  const { client: chainClient, ring: chainRing, pathOf, modelOf, harnessOf } = routes;
 
   // The engine proxy (src/net/engine-proxy.ts) in force before anything connects; the interfaces never take it.
   const proxy = startEngineProxy({ dataDir: paths.dataDir, config: (): unknown => hot.config, now: clock, log });
@@ -388,8 +378,8 @@ async function buildCore(
     sessionLlm: () => sessionClient,
     track: loopWatch.track,
     sessionEnv: () => env,
-    sessionKeys: ringNow,
-    sessionPath: () => memoryPath(paths.privateDir),
+    sessionKeys: () => chainRing,
+    sessionPath: () => pathOf('memory'),
     onSessionFailure: (failure: Untyped) => tellSessionFailure(failure),
     onPendingQuarantined: quarantine.hold,
   };
@@ -434,7 +424,6 @@ async function buildCore(
   });
   // The record (src/memory/record.js): every observed message, the persona's own lines and her
   // feelings, written while features.record is exactly true (read at each write).
-  // A snapshot holds the record's appends with the journal's writer lock (journal.withWriterLock).
   const recordWriter = createRecord({ dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
   // The meaning index (src/memory/vectors.js): its writers wait on the same writer lock.
   const vectors = createVectors({ dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
@@ -491,7 +480,6 @@ async function buildCore(
   const calibrator = createCalibrator(processState.data.calibration);
   // Which model roles are down (src/llm/role-health.ts): one tracker for the turns, the operations, the describer and
   // `/status`. A role has no key when the key ring routes it to none (src/llm/role-health.ts#roleKeyCheck).
-  const harnessOf = (role: string): string | null => harnessBackend(paths.privateDir, role);
   const roleHealth = createRoleHealth({
     now: () => Date.now(),
     hasKey: roleKeyCheck({ mainKey: openrouterKey, keyOf, served: (role) => harnessOf(role) !== null }),
@@ -525,7 +513,7 @@ async function buildCore(
     onRefused: () => void watches?.refused('memory'),
     ran: (backend, outcome) => logins.ran('memory', backend, outcome),
   });
-  chainExecutors = {
+  routes.serve({
     core: subscription.llm,
     // A memory request's messages and options pass the chain unchanged, in the shapes the session gave the writer.
     memory: {
@@ -536,13 +524,18 @@ async function buildCore(
         ) as unknown as Promise<CompleteResult>,
     },
     direct: directLlm,
-  };
+  });
   const chained = { ...directLlm, complete: chainClient.complete };
   const reported = options.llm === undefined ? reportingCoreKeys(chained, roleHealth) : chained;
   const llm = archivedLlm(reported, requestArchive);
   sessionClient = archivedLlm(reported, requestArchive);
   // Embeddings (role embedding) on the same daily request count as the chat client.
-  const embedder = options.embedder ?? createEmbedder({ apiKey: openrouterKey, keyOf, state: processState });
+  // Its spent key moves the embedding role along its chain (src/llm/chain-client.ts#reportingFailures), as do the
+  // speech synthesis's and the pictures' below.
+  const report = (role: string, error: unknown): void => chainClient.report(role, error);
+  const embedder =
+    options.embedder ??
+    reportingFailures(createEmbedder({ apiKey: openrouterKey, keyOf, state: processState }), 'embedding', report);
   // The meaning index kept current: record lines queued above, flushed on the tick below.
   embedQueue = createEmbedQueue({
     hot,
@@ -565,7 +558,7 @@ async function buildCore(
     getConfig: () => hot.config,
     state: processState,
   };
-  const images = createImageGen(imageOptions);
+  const images = reportingFailures(createImageGen(imageOptions), 'drawing', report);
   // The persona's voice messages: the preparation pass on the analyzer, the synthesis on the
   // voice role's key and model, the conversion with the system ffmpeg. Without ffmpeg there is no `speech` at
   // all (the skill answers `speech-not-configured`), reported once.
@@ -579,7 +572,7 @@ async function buildCore(
     llm,
     state: processState,
   };
-  const speech = speechReady ? createSpeech(speechOptions) : null;
+  const speech = speechReady ? reportingFailures(createSpeech(speechOptions), 'speech', report) : null;
 
   // Shared, so a picture attached on several turns is downloaded once within the fetcher's LRU window.
   // An image from the owner's terminal waits in the staging folder, and these readers open its reference like any address.
@@ -1356,7 +1349,7 @@ async function buildCore(
     // /nep status: each key's activity for its last 7 and 30 days (GETs only), with the management key read from
     // keys.json at the moment of the card. Never logged.
     cardKeys: () => statusCardKeys(paths.privateDir),
-    // /nep memory snapshot: the data directory it copies.
+    // memory.snapshot: the data directory it writes its copy of the memory database under.
     dataDir,
   });
   // The key commands: the checks go to the provider with the global `fetch` of the moment, a model is saved through the
@@ -1382,7 +1375,7 @@ async function buildCore(
     });
   const keysCommands = createKeysCommands({
     store: keyStore,
-    ring: keyRing,
+    ring: chainRing,
     fetch: (input, init) => globalThis.fetch(input, init),
     baseUrl: () => String(objOf(objOf(hot.config).llm).baseUrl),
     defaults: { ...ROLE_DEFAULTS, memory: MEMORY_ROLE_DEFAULT },
@@ -1417,19 +1410,21 @@ async function buildCore(
     },
     harnessOf,
     // `keys check memory` proves the path the writer runs on: the probe through the backend while config.json names one.
-    memoryPath: () => memoryCheckPath(paths.privateDir),
+    memoryPath: routes.memoryCheckPath,
     probeMemory: () => probeMemoryRaw(clock()),
   });
   // The memory probe as `keys check memory` asks it, and the watches of the core, the analyzer and the memory writer
   // (src/subharness/route-watch.ts), whose sleeps `core-down`, `analyzer-down` and `memory-down` go through the pause.
   const probeMemoryRaw = (now: number) =>
-    memoryProbe(
+    routeProbe(
       {
         privateDir: paths.privateDir,
-        route: () => keyRing.route('memory'),
+        role: MEMORY_ROLE,
+        path: () => pathOf('memory'),
+        route: () => chainRing.route('memory'),
         fetch: (input, init) => globalThis.fetch(input, init),
         baseUrl: String(objOf(objOf(hot.config).llm).baseUrl),
-        model: () => roleModel(hot.config, 'memory') ?? '',
+        model: () => modelOf('memory') ?? '',
         runBackend: runSubharnessBackend,
       },
       now
@@ -1438,8 +1433,10 @@ async function buildCore(
     privateDir: paths.privateDir,
     fetch: options.llm === undefined ? (input, init) => globalThis.fetch(input, init) : null,
     baseUrl: () => String(objOf(objOf(hot.config).llm).baseUrl),
-    route: (role) => keyRing.route(role),
-    model: (role) => roleModel(hot.config, role) ?? null,
+    route: (role) => chainRing.route(role),
+    model: modelOf,
+    path: pathOf,
+    moveOn: (role, code) => chainClient.moveOn(role, code),
     runBackend: runSubharnessBackend,
     pause: pauseControl,
     now: clock,
@@ -1471,7 +1468,7 @@ async function buildCore(
     context: () => ({
       usedTokens: null,
       limitTokens: numberOrNull(objOf(objOf(hot.config).llm).maxRequestTokens),
-      route: keyRing.route('core')?.name ?? null,
+      route: chainRing.route('core')?.name ?? null,
       model: stringOrNull(roleModel(objOf(hot.config), 'core')),
     }),
   });
@@ -1485,8 +1482,8 @@ async function buildCore(
           config: () => objOf(hot.config),
           paused: () => Boolean(processState.data.paused),
           pauseReason: () => pauseControl.reason(),
-          path: (role) => rolePath(paths.privateDir, role),
-          hasKey: (role) => keyRing.route(role) !== null,
+          path: pathOf,
+          hasKey: (role) => chainRing.route(role) !== null,
           probe: () => watches?.last('memory') ?? null,
           runFailed: (role, via) =>
             via === 'api' ? roleHealth.down(hot.config, role) !== null : logins.lost(role, via),
@@ -1514,7 +1511,7 @@ async function buildCore(
       skills: skillsWiring.access,
       // `/keys` and the checked `/model set` (src/keys/commands.ts), over the key store.
       keys: { enabled: () => true, run: (name, args, dialog) => keysCommands.run(name, args, dialog) },
-      roleKey: (role) => keyRing.route(role),
+      roleKey: (role) => chainRing.route(role),
       // The backends' own accounts for `/usage` (src/subharness/usage.ts): reads of their accounts, no model run.
       backendUsage: backendUsageReader(() => {
         const base = objOf(objOf(hot.config).llm).baseUrl;
@@ -1523,7 +1520,7 @@ async function buildCore(
           now: Date.now,
           fetch,
           baseUrl: typeof base === 'string' ? base : DEFAULT_BASE_URL,
-          openRouterKey: keyRing.route('core'),
+          openRouterKey: chainRing.route('core'),
           spawn: spawnUsageChild,
           exec: execUsage,
         };
