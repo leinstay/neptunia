@@ -105,13 +105,6 @@
       "test": "none"
     },
     {
-      "path": "type-baseline.json",
-      "purpose": "The recorded type errors that may only shrink.",
-      "layer": "public",
-      "imports": [],
-      "test": "none"
-    },
-    {
       "path": "scripts/config/code-health-baseline.json",
       "purpose": "The recorded size and structure breaches that may only shrink.",
       "layer": "public",

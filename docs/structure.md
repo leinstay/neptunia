@@ -20,7 +20,6 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `tsconfig.json` | public | The TypeScript compiler options used for type checking. | nothing | none |
 | `eslint.config.ts` | public | The ESLint flat configuration. | `@eslint/js`, `globals`, `eslint-plugin-import-x`, `typescript-eslint`, `scripts/eslint-test-rules.ts` | none |
 | `eslint-suppressions.json` | public | The recorded ESLint violations that may only shrink. | nothing | none |
-| `type-baseline.json` | public | The recorded type errors that may only shrink. | nothing | none |
 | `scripts/config/code-health-baseline.json` | public | The recorded size and structure breaches that may only shrink. | nothing | none |
 | `scripts/config/prose-baseline.json` | public | The recorded prose violations that may only shrink. | nothing | none |
 | `scripts/config/structure.json` | public | This manifest of the tracked tree. | nothing | none |
