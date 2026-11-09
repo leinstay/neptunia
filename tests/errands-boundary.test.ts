@@ -49,7 +49,7 @@ test('the same call under the new name is a call of hers on both transports', ()
 test('a journal that wrote the old names is read under the new ones, and any other name comes back as it is', () => {
   assert.deepEqual(
     ['task.run', 'task.status', 'task.read', 'task.resolve', 'task.cancel', 'task.list'].map(currentToolName),
-    ['errand.run', 'errand.status', 'errand.read', 'errand.resolve', 'errand.cancel', 'errand.list']
+    ['errand.run', 'errand.list', 'errand.read', 'errand.resolve', 'errand.cancel', 'errand.list']
   );
   assert.deepEqual(['intent.set', 'intent.update', 'intent.cancel', 'intent.list'].map(currentToolName), [
     'intention.set',
@@ -58,6 +58,9 @@ test('a journal that wrote the old names is read under the new ones, and any oth
     'intention.list',
   ]);
   assert.equal(currentToolName('skills.describe'), 'tools.describe');
+  // The merged reads: a journal that wrote the old name is read under the tool that took it over.
+  assert.equal(currentToolName('errand.status'), 'errand.list');
+  assert.equal(currentToolName('memory.affinity.read'), 'memory.profile.read');
   assert.equal(currentToolName('message.create'), 'message.create');
   assert.equal(currentToolName(null), null);
 });

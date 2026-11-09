@@ -275,7 +275,7 @@ test('errand.cancel: only the requester of the task or an owner', async () => {
   });
 });
 
-test("errand.status and errand.list: the open ones, one by id, a private chat's only for its requester or an owner", async () => {
+test("errand.list: the open ones, one by id, every one with a limit, a private chat's only for its requester or an owner", async () => {
   const { env } = makeEnv();
   await withCapturedLogs(async () => {
     const group = String(
@@ -300,23 +300,23 @@ test("errand.status and errand.list: the open ones, one by id, a private chat's 
         ).data
       ).task.id
     );
-    const open = await runOp('errand.status', {}, ctx(env, OTHER) as unknown as Parameters<typeof runOp>[2]);
+    const open = await runOp('errand.list', {}, ctx(env, OTHER) as unknown as Parameters<typeof runOp>[2]);
     assert.equal(open.status, 'ok');
     assert.ok(open.summary.includes(group));
     assert.ok(!open.summary.includes(dm), "another member does not see a private chat's task");
-    const one = await runOp('errand.status', { id: dm }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2]);
+    const one = await runOp('errand.list', { id: dm }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2]);
     assert.ok(one.summary.startsWith(`${dm} scout`));
     assert.equal(
-      (await runOp('errand.status', { id: dm }, ctx(env, OTHER) as unknown as Parameters<typeof runOp>[2])).code,
+      (await runOp('errand.list', { id: dm }, ctx(env, OTHER) as unknown as Parameters<typeof runOp>[2])).code,
       'not-found'
     );
-    const listed = await runOp('errand.list', {}, ctx(env, OWNER) as unknown as Parameters<typeof runOp>[2]);
+    const listed = await runOp('errand.list', { limit: 10 }, ctx(env, OWNER) as unknown as Parameters<typeof runOp>[2]);
     assert.ok(listed.summary.includes(group) && listed.summary.includes(dm));
     assert.ok(listed.summary.split('\n')[0].startsWith(dm), 'newest first');
   });
 });
 
-test('errand.status: a finished task whose files the runner deleted says files-expired', async () => {
+test('errand.list: a finished task whose files the runner deleted says files-expired', async () => {
   const out = tempDir('nep-ops-task-out-');
   const { env, client, errands } = makeEnv({ agents: { scout: { enabled: true, out, daily: { tasks: 10 } } } });
   await withCapturedLogs(async () => {
@@ -336,12 +336,12 @@ test('errand.status: a finished task whose files the runner deleted says files-e
       usage: { usd: 0.01 },
     } as unknown as Parameters<typeof client.end>[1]);
     await errands.idle();
-    const one = await runOp('errand.status', { id }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2]);
+    const one = await runOp('errand.list', { id }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2]);
     assert.ok(one.summary.startsWith(`${id} scout done (files-expired) `), one.summary);
   });
 });
 
-// The ledger half of this test (errand.status showing a mirrored errand's `ledger: <id>`) went with the ledger mirror
+// The ledger half of this test (errand.list showing a mirrored errand's `ledger: <id>`) went with the ledger mirror
 // in PR 6e; what stays is who errand.cancel names to the service.
 test('errand.cancel tells the service who cancelled', async () => {
   const { env, errands } = makeEnv();
@@ -410,19 +410,19 @@ async function finishedTask(fixture: Untyped, goal: string, result: unknown, ext
   return id;
 }
 
-test('errand.status without an id lists the open tasks and the finished ones not read yet; errand.read marks one read', async () => {
+test('errand.list without an id lists the open tasks and the finished ones not read yet; errand.read marks one read', async () => {
   const fixture = makeEnv();
   const { env, stores } = fixture;
   await withCapturedLogs(async () => {
     const done = await finishedTask(fixture, 'first', { text: 'the answer' });
-    const listed = await runOp('errand.status', {}, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2]);
+    const listed = await runOp('errand.list', {}, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2]);
     assert.ok(listed.summary.includes(`${done} scout done`) && listed.summary.includes('(unread)'), listed.summary);
     const read = await runOp('errand.read', { id: done }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2]);
     assert.equal(read.status, 'ok');
     assert.ok(read.summary.includes('the answer'));
     assert.equal((stores.get()?.get(done)?.readAt ?? 0) > 0, true);
     assert.equal(
-      (await runOp('errand.status', {}, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2])).summary,
+      (await runOp('errand.list', {}, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2])).summary,
       'no open tasks',
       'read, so no longer listed'
     );
@@ -535,7 +535,7 @@ test('errand.resolve: closes a finished task of her view so the list drops it; a
     assert.equal(answer.summary, `task ${id}: resolved`);
     assert.equal((stores.get()?.get(id)?.resolvedAt ?? 0) > 0, true);
     assert.equal(
-      (await runOp('errand.status', {}, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2])).summary,
+      (await runOp('errand.list', {}, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2])).summary,
       'no open tasks'
     );
     assert.equal(
@@ -564,3 +564,98 @@ test('errand.resolve: closes a finished task of her view so the list drops it; a
 
 // The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
 ownedBy([OWNER]);
+
+/** The id of the errand an `errand.run` answer carries. */
+const taskIdOf = (data: unknown): string => (asRecord(data).task as { id: string }).id;
+
+/** Two group errands: the first ended `done`, the second still queued. Returns their ids. */
+async function oneDoneOneQueued(
+  env: ReturnType<typeof makeEnv>['env'],
+  client: ReturnType<typeof fakeClient>,
+  errands: { idle(): Promise<unknown> }
+) {
+  const run = async (goal: string) => {
+    const result = await runOp(
+      'errand.run',
+      { agent: 'scout', goal },
+      ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2]
+    );
+    return taskIdOf(result.data);
+  };
+  const first = await run('first errand');
+  await new Promise((r) => setImmediate(r));
+  client.end(first);
+  await errands.idle();
+  const second = await run('second errand');
+  return { first, second };
+}
+const status = (env: unknown, args: Record<string, unknown>, accountId = MEMBER) =>
+  runOp('errand.list', args, ctx(env, accountId) as unknown as Parameters<typeof runOp>[2]);
+
+test('errand.list with a state lists every errand in that state, finished ones included', async () => {
+  // Catches: with errand.status merged away, a finished and read errand can no longer be found.
+  const { env, client, errands } = makeEnv({ errandSettings: { maxOpen: 3 } });
+  await withCapturedLogs(async () => {
+    const { first, second } = await oneDoneOneQueued(env, client, errands);
+    const done = (await status(env, { state: 'done' })).summary;
+    assert.ok(done.includes(first) && !done.includes(second));
+    const queued = (await status(env, { state: 'queued' })).summary;
+    assert.ok(queued.includes(second) && !queued.includes(first));
+    assert.equal((await status(env, { state: 'failed' })).status, 'ok');
+    assert.ok(!(await status(env, { state: 'failed' })).summary.includes(first));
+  });
+});
+
+test('errand.list with a limit lists the newest errands first and stops at the limit', async () => {
+  const { env, client, errands } = makeEnv();
+  await withCapturedLogs(async () => {
+    const { first, second } = await oneDoneOneQueued(env, client, errands);
+    const one = (await status(env, { limit: 1 })).summary;
+    assert.ok(one.startsWith(second) && !one.includes(first));
+    const both = (await status(env, { limit: 5 })).summary.split('\n');
+    assert.deepEqual(
+      both.map((line: string) => line.split(' ')[0]),
+      [second, first]
+    );
+  });
+});
+
+test('errand.list with a time window lists the errands created inside it', async () => {
+  // Catches: since or until is ignored, or compared against the wrong time.
+  const { env, client, errands } = makeEnv();
+  await withCapturedLogs(async () => {
+    const { first } = await oneDoneOneQueued(env, client, errands);
+    const hour = 3600_000;
+    const past = new Date(Date.now() - hour).toISOString();
+    const future = new Date(Date.now() + hour).toISOString();
+    assert.ok((await status(env, { since: past, until: future })).summary.includes(first));
+    assert.ok(!(await status(env, { since: future })).summary.includes(first), 'created before since');
+    assert.ok(!(await status(env, { until: past })).summary.includes(first), 'created after until');
+  });
+});
+
+test("errand.list with a filter hides another member's private errand and answers empty, not an error", async () => {
+  // Catches: the listing path skips the view rule of a private chat.
+  const { env } = makeEnv();
+  await withCapturedLogs(async () => {
+    const started = await runOp(
+      'errand.run',
+      { agent: 'scout', goal: 'private errand' },
+      ctx(env, MEMBER, { dmChat: true, placeId: 'dm1' }) as unknown as Parameters<typeof runOp>[2]
+    );
+    const dm = taskIdOf(started.data);
+    const other = await status(env, { state: 'queued' }, OTHER);
+    assert.equal(other.status, 'ok');
+    assert.ok(!other.summary.includes(dm));
+    assert.ok((await status(env, { state: 'queued' }, MEMBER)).summary.includes(dm));
+  });
+});
+
+test('errand.list refuses a state, a date or a limit it cannot read', async () => {
+  const { env } = makeEnv();
+  await withCapturedLogs(async () => {
+    assert.equal((await status(env, { state: 'sleeping' })).status, 'invalid');
+    assert.equal((await status(env, { since: 'soon' })).status, 'invalid');
+    assert.equal((await status(env, { limit: 0 })).status, 'invalid');
+  });
+});

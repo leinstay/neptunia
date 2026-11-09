@@ -509,20 +509,31 @@ const ENTRIES: Array<Definition> = [
           'details',
           'episodes',
           'raw',
+          'changes',
         ]),
         limit: int(1, 100),
         order: oneOf(['rank', 'recent']),
+        since: str(),
+        until: str(),
       },
-      ['user']
+      []
     ),
     refs: { user: 'user' },
     effects: 'read',
-    toArgs: forMember((accountId, a) => ({
-      accountId,
-      section: opt(a, 'section'),
-      limit: opt(a, 'limit'),
-      order: opt(a, 'order'),
-    })),
+    // A person is needed for every section but `changes`, which lists every person's moves and takes one as a filter.
+    toArgs: (a) => {
+      const accountId = idOf(a, 'user');
+      const section = opt(a, 'section');
+      if (accountId === undefined && section !== 'changes') return null;
+      return {
+        accountId,
+        section,
+        limit: opt(a, 'limit'),
+        order: opt(a, 'order'),
+        since: opt(a, 'since'),
+        until: opt(a, 'until'),
+      };
+    },
   }),
   def('memory.channel.read', {
     traits: ['here'],
@@ -533,12 +544,6 @@ const ENTRIES: Array<Definition> = [
   }),
   def('memory.server.read', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('memory.recent.read', { params: EMPTY(), effects: 'read', toArgs: none }),
-  def('memory.affinity.read', {
-    params: USER_ONLY(),
-    refs: { user: 'user' },
-    effects: 'read',
-    toArgs: forMember((accountId) => ({ accountId })),
-  }),
   def('memory.journal.read', {
     params: obj({
       day: str(),
@@ -630,13 +635,29 @@ const ENTRIES: Array<Definition> = [
     effects: 'paid',
     toArgs: (a) => ({ agent: val(a, 'agent'), goal: val(a, 'goal') }),
   }),
-  def('errand.status', { params: obj({ id: str() }), effects: 'read', toArgs: taskStatusArgs(undefined) }),
+  def('errand.list', {
+    params: obj({
+      id: str(),
+      state: oneOf(['queued', 'running', 'done', 'failed', 'cancelled']),
+      since: str(),
+      until: str(),
+      limit: int(1, 100),
+    }),
+    effects: 'read',
+    toArgs: (a) => ({
+      id: opt(a, 'id'),
+      from: opt(a, 'from'),
+      state: opt(a, 'state'),
+      since: opt(a, 'since'),
+      until: opt(a, 'until'),
+      limit: opt(a, 'limit'),
+    }),
+  }),
   def('errand.cancel', {
     params: obj({ id: str() }, ['id']),
     effects: 'write',
     toArgs: (a) => ({ id: val(a, 'id') }),
   }),
-  def('errand.list', { params: EMPTY(), effects: 'read', toArgs: none }),
   def('errand.read', {
     params: obj({ id: str(), from: int(0, 10000000) }, ['id']),
     effects: 'read',
@@ -990,11 +1011,13 @@ export function hasTrait(name: string, trait: Trait): boolean {
 export const RENAMED_TOOLS: Readonly<Record<string, string>> = Object.freeze({
   'skills.describe': 'tools.describe',
   'task.run': 'errand.run',
-  'task.status': 'errand.status',
+  'task.status': 'errand.list',
   'task.read': 'errand.read',
   'task.resolve': 'errand.resolve',
   'task.cancel': 'errand.cancel',
   'task.list': 'errand.list',
+  'errand.status': 'errand.list',
+  'memory.affinity.read': 'memory.profile.read',
   'intent.set': 'intention.set',
   'intent.update': 'intention.update',
   'intent.cancel': 'intention.cancel',

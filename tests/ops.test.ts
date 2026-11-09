@@ -73,7 +73,6 @@ const AGREED = new Set([
   'memory.channel.read',
   'memory.server.read',
   'memory.recent.read',
-  'memory.affinity.read',
   'memory.journal.read',
   'memory.archive.read',
   'memory.restore',
@@ -85,9 +84,8 @@ const AGREED = new Set([
   'message.react.add',
   'message.react.remove',
   'errand.run',
-  'errand.status',
-  'errand.cancel',
   'errand.list',
+  'errand.cancel',
   'errand.read',
   'errand.resolve',
   'web.search',
@@ -174,7 +172,10 @@ test('ops: every registered op has a rights kind and a name in the agreed list',
   // Every name of the lists below is registered, as the line above asserts.
   for (const name of AGREED) assert.ok(byName.has(name), `${name} is not registered`);
   for (const name of OWNER_ONLY) assert.equal(byName.get(name)!.rights.ownerOnly, true, `${name} must be owner-only`);
-  assert.equal(byName.get('memory.affinity.read')!.rights.kind, 'read');
+  assert.equal(byName.get('memory.profile.read')!.rights.kind, 'read');
+  // Merged into `memory.profile.read` and `errand.list`: no operation of the old name is registered.
+  assert.equal(byName.has('memory.affinity.read'), false);
+  assert.equal(byName.has('errand.status'), false);
   assert.equal(byName.has('memory.affinity.set'), false, 'the attitude changes through the analyzer alone');
 });
 

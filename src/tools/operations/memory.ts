@@ -4,7 +4,9 @@
 
 import { internalContext } from '../../memory/db/scope.ts';
 import type { MemoryDbService } from '../../memory/db/service.ts';
-import { accountOf, placeOfChat } from '../../memory/addresses.ts';
+import { accountOf, personOfMember, placeOfChat } from '../../memory/addresses.ts';
+import { readAffinityChanges, AFFINITY_CHANGES_DEFAULT } from '../../memory/affinity-changes.ts';
+import type { AffinityChange } from '../../memory/affinity-changes.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -48,8 +50,10 @@ import {
   numberedNotes,
   archivedText,
   messageRefOf,
+  windowBound,
 } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
+import type { Env } from './env.ts';
 import { CODE } from '../codes.ts';
 import { idText, objOf, textOf } from '../types.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
@@ -116,6 +120,43 @@ function privateView(env: { memoryDb?: unknown }, args: Obj): string {
     );
   }
   return JSON.stringify(view, null, 2);
+}
+
+/**
+ * `memory.profile.read section:changes`: the attitude changes of every person, or of the one `accountId` names, newest
+ * first, narrowed by `since`, `until` and `limit` (default 25, max 100). Read only, so it works while paused.
+ */
+function affinityChanges(env: Env, args: Obj): string {
+  env.freshenIfPaused();
+  const memoryDb = env.memoryDb as MemoryDbService | null | undefined;
+  if (!memoryDb) throw invalid('the memory database is not open');
+  const since = windowBound(args.since, 'since');
+  const until = windowBound(args.until, 'until');
+  const asked = args.limit;
+  const limit = typeof asked === 'number' && Number.isInteger(asked) && asked >= 1 ? asked : AFFINITY_CHANGES_DEFAULT;
+  const accountId = idText(args.accountId);
+  const personId = accountId ? personOfMember(env.store, accountId) : null;
+  if (accountId && personId === null) throw invalid(`no person for ${accountId}`, CODE.NOT_FOUND);
+  const changes = readAffinityChanges({
+    memoryDb,
+    log,
+    filter: {
+      personId,
+      since: since === null ? null : new Date(since).toISOString(),
+      until: until === null ? null : new Date(until).toISOString(),
+      limit,
+    },
+  });
+  if (changes.length === 0) return 'no attitude changes';
+  const { resolve } = env.tokenResolver();
+  return changes.map((change) => affinityChangeLine(change, resolve)).join('\n');
+}
+
+/** One change as a line: time, person, the move, the score after and the reason. */
+function affinityChangeLine(change: AffinityChange, resolve: (text: unknown) => string): string {
+  const who = change.name ? `${change.name} (${change.personId})` : change.personId;
+  const move = `${change.applied >= 0 ? '+' : ''}${change.applied} -> ${roundScore(change.score)}`;
+  return `${change.at} ${who} ${move}${change.reason ? `: ${resolve(change.reason)}` : ''}`;
 }
 
 /** Where a restored line goes: the DM place of a private item, the place of a place item, else the persona. */
@@ -549,17 +590,6 @@ const handlers = perEnv((env) => {
     ].join('\n');
   }
 
-  /** `memory.affinity.read`: the attitude view (`affinityView`) of a member who has a profile.
-   * Read only: the attitude changes only through the memory analyzer, for nobody by hand. */
-  function cmdMemoryAffinity(args: Obj, context: OpContext) {
-    const accountId = idText(args.accountId);
-    if (!accountId) throw invalid('a user is required');
-    const placeId = requirePlaceId(context);
-    freshenIfPaused();
-    const profile = requireProfile(placeId, accountId);
-    return affinityView(profile.affinity, tokenResolver().resolve);
-  }
-
   return {
     cmdMemoryShow,
     cmdMemoryChannel,
@@ -570,14 +600,14 @@ const handlers = perEnv((env) => {
     cmdMemoryJournal,
     cmdMemorySnapshot,
     cmdPrivateShow,
-    cmdMemoryAffinity,
   };
 });
 
 defineOp({
   name: 'memory.profile.read',
   rights: { kind: 'read' },
-  run: (args, ctx) => handlers(ctx.env).cmdMemoryShow(args, ctx),
+  run: (args, ctx) =>
+    args.section === 'changes' ? affinityChanges(ctx.env, args) : handlers(ctx.env).cmdMemoryShow(args, ctx),
 });
 defineOp({
   name: 'memory.channel.read',
@@ -593,11 +623,6 @@ defineOp({
   name: 'memory.recent.read',
   rights: { kind: 'read' },
   run: (args, ctx) => handlers(ctx.env).cmdMemoryRecent(args, ctx),
-});
-defineOp({
-  name: 'memory.affinity.read',
-  rights: { kind: 'read' },
-  run: (args, ctx) => handlers(ctx.env).cmdMemoryAffinity({ accountId: args.accountId }, ctx),
 });
 defineOp({
   name: 'memory.journal.read',

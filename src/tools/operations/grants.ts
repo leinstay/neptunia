@@ -62,6 +62,17 @@ export function isOwnerCaller(
   return context?.asOwner === true || isOwnerId(config, context?.accountId);
 }
 
+/** The tools merged into another, old name to current name: a stored grant or envelope entry under the old name stands for the current tool. */
+const MERGED_INTO: Readonly<Record<string, string>> = Object.freeze({
+  'memory.affinity.read': 'memory.profile.read',
+  'errand.status': 'errand.list',
+});
+
+/** The names a stored grant or envelope entry may use for `name`: itself and every tool merged into it. */
+export function grantNamesFor(name: string): Array<string> {
+  return [name, ...Object.keys(MERGED_INTO).filter((old) => MERGED_INTO[old] === name)];
+}
+
 /**
  * True when a grant may ever open `op`: not owner-only, not `grantable: false`, not a member
  * operation (open without a grant).
@@ -97,12 +108,14 @@ export function isAllowed({
   if (rights.grantable === false) return false;
   if (!isObj(access)) return false;
 
-  const entry = access[op.name];
-  if (!isObj(entry)) return false;
-  if (entry.everyone === true) return true;
-  if (Array.isArray(entry.users) && entry.users.map(idText).includes(idText(accountId))) return true;
   const roleSet = new Set(listOf(member?.roleIds).map(idText));
-  return Array.isArray(entry.roles) && entry.roles.some((roleId) => roleSet.has(idText(roleId)));
+  return grantNamesFor(op.name).some((key) => {
+    const entry = access[key];
+    if (!isObj(entry)) return false;
+    if (entry.everyone === true) return true;
+    if (Array.isArray(entry.users) && entry.users.map(idText).includes(idText(accountId))) return true;
+    return Array.isArray(entry.roles) && entry.roles.some((roleId) => roleSet.has(idText(roleId)));
+  });
 }
 
 /**

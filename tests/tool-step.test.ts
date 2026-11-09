@@ -28,7 +28,7 @@ test('segments: consecutive reads are one parallel segment, every other call is 
     'web.read',
     'draw.create',
     'draw.create',
-    'errand.status',
+    'errand.list',
     'web.search',
   ].map((name, i) => ({ name, id: `c${i}` }));
   const out = segments(calls, isRead);
