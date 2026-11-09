@@ -180,7 +180,8 @@
     },
     "find": {
       "candidates": 5,
-      "lines": 100
+      "lines": 100,
+      "deadlineMs": 1000
     },
     "meanwhile": {
       "messages": 8,

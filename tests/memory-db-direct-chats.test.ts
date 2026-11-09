@@ -3,7 +3,8 @@
 // that person, newest first, whatever interface it is on. Words that name nobody give the people the memory graph ranks
 // for them (graph-find.ts#peopleFound), each with the handle to call again with. Whether a chat may be read is the
 // reader's rule, not this one's. Contract:
-//   directChatsOf(db: Db, ctx: Context, reference: string, settings?: Partial<FindSettings>): DirectChats
+//   directChatsOf(db: Db, ctx: Context, reference: string, settings?: Partial<FindSettings>, meaning?: FindMeaning)
+//     : DirectChats, the request's embedding ranking the people by their object vectors when words name nobody
 //   DirectChats = { kind: 'chats'; personId: string; places: Array<string> }
 //               | { kind: 'found'; people: Array<FoundPerson & { handle: string | null }> } | { kind: 'none' }
 // Synthetic names, in Greek.
@@ -11,7 +12,9 @@ import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { handleOf } from '../src/behavior/handles.ts';
 import { directChatsOf } from '../src/memory/db/direct-chats.ts';
+import { pendingObjectEmbeds } from '../src/memory/db/object-vectors.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { groupContext, internalContext } from '../src/memory/db/scope.ts';
 import { AT, addDm, addLine, addPerson, noteInterface, openWorld } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
@@ -118,4 +121,26 @@ test('a reference nothing fits finds no person', () => {
   const { w } = world();
   assert.deepEqual(directChatsOf(w.db, internalContext(), 'Θεόφιλος'), { kind: 'none' });
   assert.deepEqual(directChatsOf(w.db, internalContext(), '  '), { kind: 'none' });
+});
+
+test('words that fit nobody find a person by the vector of their names, and say no word fit in full', () => {
+  // Bug: a person named in another language than their names is never offered, so the read ends unknown.
+  const { w } = world();
+  const pending = pendingObjectEmbeds(w.db, { model: 'test/embedder', limit: 1000 }).find(
+    (one) => one.kind === 'names' && one.itemId === `person:${OWNER}`
+  );
+  assert.ok(pending, 'the owner has a name set to embed');
+  const { kind, itemId, audienceId, hash } = pending;
+  applyMemoryWrite(w.handle, {
+    kind: 'object-embedding',
+    model: 'test/embedder',
+    now: Date.parse(AT),
+    items: [{ kind, itemId, audienceId, hash, vector: [1, 0, 0] }],
+  });
+  assert.deepEqual(directChatsOf(w.db, internalContext(), 'Orestes'), { kind: 'none' });
+  const found = directChatsOf(w.db, internalContext(), 'Orestes', {}, { vector: [1, 0, 0], model: 'test/embedder' });
+  assert.equal(found.kind, 'found');
+  assert.deepEqual(found.kind === 'found' ? found.people.map((one) => [one.id, one.hasEveryWord]) : [], [
+    [OWNER, false],
+  ]);
 });

@@ -38,6 +38,8 @@ export type CreateTurnRunnerInput = {
   speech?: Untyped;
   emoji?: ReturnType<typeof createEmojiIndex>;
   embedQuery?: ((text: string) => Promise<ArrayLike<number> | null>) | null;
+  /** The embedder of the finder and media.find, purpose `recall-query`; null: they read words only. */
+  embedFind?: ((text: string) => Promise<ArrayLike<number> | null>) | null;
   dataDir?: string | null;
   getSelfName?: (placeId: string | null) => string;
   selfId?: () => string;
