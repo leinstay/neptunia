@@ -316,7 +316,7 @@ The engine proxy is described in [Proxy](proxy.md).
 | `proxy.health.everySeconds` | number | `60` | Seconds between two probes of the proxy | `src/net/proxy.ts` |
 | `proxy.health.failures` | number | `3` | Failed probes in a row that send every connection direct | `src/net/proxy.ts` |
 | `proxy.health.recoveries` | number | `2` | Good probes in a row that take the proxy back | `src/net/proxy.ts` |
-| `proxy.health.timeoutMs` | number | `8000` | How long one probe waits for an answer | `src/net/proxy.ts` |
+| `proxy.health.timeoutMs` | number | `8000` | How long one probe waits for an answer, and the shortest gap between two probes that failed requests ask for | `src/net/proxy.ts` |
 
 ## recall
 
