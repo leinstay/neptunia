@@ -167,6 +167,12 @@ function makeFixture() {
   return api;
 }
 
-export function fixture(): ReturnType<typeof makeFixture> {
-  return makeFixture();
+/**
+ * The fixture, with the stored DM place of each member in `dmMembers`: no writer makes a DM place from a person id, so a
+ * test whose DM lines need their audience stores the place first.
+ */
+export function fixture(...dmMembers: Array<string>): ReturnType<typeof makeFixture> {
+  const env = makeFixture();
+  for (const member of dmMembers) env.dmPlace(member);
+  return env;
 }
