@@ -1095,14 +1095,18 @@ test('row 5: a terminal call fails on the last loop step -- a callFailed fact sh
   chat2.script = [toolAnswer('', [call('lore.list')]), providerLimit()];
   await addressed.ask('c1', 'look at the lore');
   assert.deepEqual(addressed.factKinds(), ['callFailed']);
+  // The failed follow-up of a turn that answers someone is followed by one rescue request (lookup-loop slice 2), which
+  // fails the same way: the turns below start at request 3, not 2.
+  const { calls } = chat2.llm;
+  assert.equal(calls.length, 3, 'the reply, the failed follow-up and the failed rescue');
   chat2.script = ['<skip/>'];
   await addressed.ask('c2', 'and here?');
-  assert.ok(!requestText(chat2, 2).includes('lore.list failed'), 'not in another channel');
+  assert.ok(!requestText(chat2, 3).includes('lore.list failed'), 'not in another channel');
   await addressed.ask('c1', 'again');
   // Slice 4: the fact reaches the addressed turn in `<feedback>` (owner answer 19).
   assert.ok(
-    feedbackBlockOf(requestText(chat2, 3)).includes('call lore.list failed'),
-    feedbackBlockOf(requestText(chat2, 3))
+    feedbackBlockOf(requestText(chat2, 4)).includes('call lore.list failed'),
+    feedbackBlockOf(requestText(chat2, 4))
   );
   assert.deepEqual(addressed.factKinds(), ['callFailed:told']);
   assertNoSilentFailure(addressed);

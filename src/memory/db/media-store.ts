@@ -256,6 +256,31 @@ export function lineMedia(
   return found;
 }
 
+/** A line's media item as a request reads it: its kind and its text form, null while it has none. */
+export type LineMediaItem = { kind: string; text: string | null };
+
+/** A line's media rows as a request reads them, in position order. Pure. */
+export const lineMediaItems = (rows: ReadonlyArray<MediaRow>): Array<LineMediaItem> =>
+  rows.map((row) => ({ kind: row.kind, text: row.description }));
+
+/** A request's media items of a line in the fields of a normalized message, through mediaMessageParts. Pure. */
+export function lineItemParts(
+  items: ReadonlyArray<LineMediaItem>,
+  lineId: unknown
+): ReturnType<typeof mediaMessageParts> {
+  return mediaMessageParts(
+    items.map((item, position) => ({
+      kind: item.kind as MediaKind,
+      position,
+      nativeRef: null,
+      description: item.text,
+      availability: item.text === null ? 'unknown' : 'present',
+      extra: {},
+    })),
+    lineId
+  );
+}
+
 /** A line's text forms in position order, nothing of a bare item. */
 export function mediaText(rows: ReadonlyArray<MediaRow>): string {
   return rows
@@ -292,7 +317,7 @@ export function recordFieldsOf(db: Db, sourceId: string): { media: Array<string>
 /** A stored line's media in the fields of a normalized message, as src/format.ts renders them. Pure. */
 // health: allow complexity until 2027-04-01 -- one switch over the closed kinds
 export function mediaMessageParts(
-  rows: ReadonlyArray<MediaRow>,
+  rows: ReadonlyArray<Pick<MediaRow, 'kind' | 'position' | 'nativeRef' | 'description' | 'availability' | 'extra'>>,
   lineId: unknown
 ): { attachments: Array<Row>; links: Array<Row>; stickers: Array<Row>; emojis: Array<Row> } {
   const parts = {
