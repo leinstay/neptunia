@@ -40,8 +40,6 @@
 //       The owner's configuration of the mirrors, handed to mirror-config.ts#applyMirrorWrite.
 //   { kind: 'entry-media', id, items, dataDir }
 //       A selfreflection entry's pictures and voice file, kept as files and `media` rows (selfreflection-media.ts#applyEntryMedia).
-//   { kind: 'media-english', descriptionId, replaces, text, how, at }
-//       The English version of a stored media description and its item's text form (media-english.ts#applyMediaEnglish).
 //   { kind: 'place-address', placeId, address, at }
 //       The chat an interface opened for a place that held no address (observe.ts#applyPlaceAddress). No mode.
 //   { kind: 'unit', op, ... }
@@ -75,8 +73,6 @@
 // into a person that resolves back to `from` is refused (`MERGE_CYCLE`). The owner's merge, which moves the rows, is
 // `{ kind: 'person-merge', from, into, by, reason, now }` (person-merge.ts).
 // `{ kind: 'person-bind', accountId, personId, from, descriptions, now }` (person-bind.ts).
-// `{ kind: 'selfreflection-audience-fill', by, dryRun?, now }` (selfreflection-audience-fill.ts).
-// `{ kind: 'selfreflection-plan-fill', id, plan, now }`, a reconstructed plan on an old entry (selfreflection-plan-write.ts).
 //
 // Schema v9 (stage 3):
 //   - every new claim version writes its sources into `claim_version_sources` (`supports` for add, confirm and revise,
@@ -102,8 +98,6 @@ import { applyObjectEmbedding } from './object-vectors.ts';
 import { applyPersonLinkWrite } from './person-links.ts';
 import { applyPersonMergeWrite } from './person-merge.ts';
 import { applyPersonBindWrite } from './person-bind.ts';
-import { applySelfreflectionAudienceFill } from './selfreflection-audience-fill.ts';
-import { applySelfreflectionPlanFill } from './selfreflection-plan-write.ts';
 import { OWNER_CONSOLE_IFACE } from './identity-links.ts';
 import { applyRequestArchiveWrite, sessionRequestId, setRequestOutcome } from './request-archive.ts';
 import { randomUUID } from 'node:crypto';
@@ -140,8 +134,6 @@ import { applyPublicationWrite } from './publish.ts';
 import { applyDeliveryWrite, isDeliveryOp } from './publication-delivery.ts';
 import { applyMirrorWrite } from './mirror-config.ts';
 import { applyEntryMedia } from './selfreflection-media.ts';
-import { applyMediaBackfill } from './media-backfill.ts';
-import { applyMediaEnglish } from './media-english.ts';
 import { applyPlaceAddress } from './observe.ts';
 import { isInterfaceNames, noteRoots } from './roots.ts';
 import { applyMediaEmbed } from './media-store.ts';
@@ -964,8 +956,6 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['person-link', applyPersonLinkWrite],
   ['person-merge', applyPersonMergeWrite],
   ['person-bind', applyPersonBindWrite],
-  ['selfreflection-audience-fill', applySelfreflectionAudienceFill],
-  ['selfreflection-plan-fill', applySelfreflectionPlanFill],
   ['request-archive', applyRequestArchiveWrite],
   // The selfreflection's mirrors: the state of a send, then the owner's configuration.
   [
@@ -975,7 +965,6 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['mirror', applyMirrorWrite],
   ['semantic-embedding', applySemanticEmbedding],
   ['object-embedding', applyObjectEmbedding],
-  ['media-english', applyMediaEnglish],
   // The chat an interface opened for a direct chat that held no address (observe.ts#applyPlaceAddress).
   ['place-address', applyPlaceAddress],
   [
@@ -997,7 +986,6 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
   const update = updateGiven as Row;
   const kind = update?.kind;
   if (kind === 'media-embed') return applyMediaEmbed(handle, update);
-  if (kind === 'media-backfill') return applyMediaBackfill(handle, update);
   if (kind === 'context') return writeContext(handle, update);
   if (kind === 'description') return writeDescription(handle, update);
   // Schema v11: the writers of wake runs, the skills registry and the index policy share this one writer path.

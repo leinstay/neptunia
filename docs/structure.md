@@ -207,10 +207,8 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/memory/pings.ts` | public | A member's ping state in a place as the store keeps it, and the earlier `pingsOff` list read as `off`. Tested through the store tests. | `node:*`, `src/**` | none |
 | `src/memory/db/` | public | The memory database: schema, the single writer, sessions, wakes and the read paths. | `node:*`, `src/**` | required |
 | `src/memory/db/media-store.ts` | public | The one store of media: its read, its writes, its vectors, its search and the forward migration. Tested through the media memory tests. | `node:*`, `src/**` | none |
-| `src/memory/db/media-backfill.ts` | public | The historical backfill of media over an interface's history. Tested through `tests/media-memory-backfill.test.ts`, `tests/media-voice-backfill.test.ts` and `tests/media-backfill-dm.test.ts`. | `node:*`, `src/**` | none |
 | `src/memory/db/roots.ts` | public | The server places of the roots a `hello` names. Tested through `tests/memory-db-roots.test.ts`. | `node:*`, `src/**` | none |
 | `src/memory/db/meta-person.ts` | public | The read adapter of the meta-person: the person of an account and the accounts of a person, from `person_accounts` first and the old verified links after. Tested through `tests/memory-db-meta-person.test.ts`. | `node:*`, `src/**` | none |
-| `src/memory/db/media-english.ts` | public | The owner's run that brings stored media descriptions to English. Tested through `tests/media-english-backfill.test.ts`. | `node:*`, `src/**` | none |
 | `src/memory/db/media-stems.ts` | public | The stems of a media row. Tested through the media memory tests. | `node:*`, `src/**` | none |
 | `src/memory/db/source-current.ts` | public | Which rows of sources are a chat line as it stands now, as SQL. Tested through the recall tests. | `node:*`, `src/**` | none |
 | `src/memory/db/source-kinds.ts` | public | The kinds of a source row that are the persona's own. Tested through the memory database tests. | `node:*`, `src/**` | none |

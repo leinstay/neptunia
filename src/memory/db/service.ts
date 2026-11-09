@@ -161,8 +161,6 @@ import type { Track } from '../../loop-watch.ts';
 import { untracked } from '../../loop-watch.ts';
 import type { KeyRing } from '../../keys/ring.ts';
 import { dbOf, asText, isFiniteNumber } from './types.ts';
-import { fillMethods } from './selfreflection-fills.ts';
-import type { FillMethods } from './selfreflection-fills.ts';
 import type { Context } from './scope.ts';
 
 /** The folder of the unit writes that failed at a shutdown (stage W2b), under the data directory. */
@@ -541,8 +539,7 @@ export type MemoryDbStatus = {
 };
 
 /** What `createMemoryDb` gives its callers. */
-// `onSelfreflectionFill` and `selfreflectionAudienceFill` are declared with their wiring in selfreflection-fills.ts.
-export type MemoryDbService = FillMethods & {
+export type MemoryDbService = {
   namespace(): string | null;
   open(): Promise<void>;
   tick(): Promise<void>;
@@ -1844,7 +1841,7 @@ export function createMemoryDb({
       const deps = { db: dbOf(opened()), write: memoryWrite, llm, hot, now, selfName: selfName() ?? '' };
       return bindAccount(deps, input, confirm);
     },
-    ...fillMethods(log, memoryWrite, write),
+    memoryWrite,
     inspection,
     ...privateReads(() => dbOf(opened())),
     observe,
