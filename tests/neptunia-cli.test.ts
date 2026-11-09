@@ -181,7 +181,7 @@ test('doctor with the core down reports the socket failed and the database sound
   assert.equal(checks.get('socket'), 'fail');
   assert.equal(checks.get('database'), 'ok');
   assert.equal(checks.get('tokens'), 'ok');
-  for (const name of ['node', 'binaries', 'config', 'local-layer', 'env-keys'])
+  for (const name of ['node', 'binaries', 'config', 'local-layer', 'keys'])
     assert.ok(checks.has(name), `doctor checks ${name}`);
   assert.equal(digestOf(db), before, 'the database is read only');
   assert.equal(existsSync(lockPathOf(db)), false, 'doctor takes no writer lock');

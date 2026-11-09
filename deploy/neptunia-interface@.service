@@ -4,10 +4,9 @@
 #
 # The runner reads the client token <private>/clients/%i.token, connects to the
 # core's socket <data>/run/core.sock and keeps the interface's data under
-# <data>/interfaces/%i. It reads no .env: the platform token (DISCORD_TOKEN for
-# discord) comes from the optional environment file below, which the chat's
-# `interfaces token set` writes. It reads config.local/config.json and
-# config.local/interfaces/%i.json.
+# <data>/interfaces/%i. The platform token comes from
+# <data>/interfaces/%i/credentials.json, which the chat's `interfaces token set`
+# writes. It reads config.local/config.json and config.local/interfaces/%i.json.
 #
 # `neptunia setup` renders this template for the installing user
 # (deploy/README.md); `interfaces enable <name>` in the chat starts the unit.
@@ -29,13 +28,12 @@ Group=neptunia
 Restart=always
 RestartSec=5
 Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
-EnvironmentFile=-/opt/neptunia/data/clients/%i.env
 
 # Writes only its own data folder, and the core's files stay out of reach.
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/opt/neptunia/data/interfaces/%i
-InaccessiblePaths=-/opt/neptunia/data/.env -/opt/neptunia/data/memory.db -/opt/neptunia/data/places
+InaccessiblePaths=-/opt/neptunia/data/memory.db -/opt/neptunia/data/places
 PrivateTmp=true
 
 StandardOutput=journal

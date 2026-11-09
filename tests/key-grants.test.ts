@@ -68,19 +68,17 @@ test('keyBalances: a spend past the grant reads negative, and no llm.keys at all
   ]);
 });
 
-test('coreKeyBalances: spend recorded under the variable a key came from counts for the key, and new spend under its name', () => {
+test('coreKeyBalances: the spend recorded under a key name is taken off its grant', () => {
   const store = createKeyStore({ privateDir: tempDir('key-grants-') });
   const ring = createKeyRing({ store, failover: createKeyFailover({ now: () => T0 }) });
-  // The key as an import from `.env` stored it: its grant and the variable its spend was recorded under before.
-  store.addCore({ name: 'core-1', value: SECRET, grant: 100, resetDay: 1, from: 'OPENROUTER_CORE_KEY' });
-  const spent: Record<string, number> = { OPENROUTER_CORE_KEY: 30, 'core-1': 5 };
+  store.addCore({ name: 'core-1', value: SECRET, grant: 100, resetDay: 1 });
+  const spent: Record<string, number> = { 'core-1': 5 };
   const llm = {
     keyNames: (role: string) => ring.names(role),
     keyGrants: () => ring.grants(),
-    keyVariables: () => ring.variables(),
   };
   const usage = { keyCost: (name: string) => spent[name] ?? 0 };
   const [row] = coreKeyBalances({ llm, usage, now: T0 });
-  // Bug caught: the month's spend before the import forgotten, so the key shows a full grant again.
-  assert.equal(row?.left, 65);
+  // Bug caught: a grant shown in full although the key has spent part of it.
+  assert.equal(row?.left, 95);
 });

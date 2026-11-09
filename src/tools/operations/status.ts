@@ -617,7 +617,7 @@ const handlers = perEnv((env) => {
    * each extra key `llm.boundKeys` puts in use (`llm.roleKeys`, read by role, never holding a key
    * here) but the errand agents' (a key whose roles are all ERRAND_KEY_ROLES: no line, no read), free GETs in parallel (`llm.keyInfo`; `llm.probeTimeoutMs`, never counted against
    * `llm.maxRequestsPerDay`), with the rolling 7- and 30-day sums of each key's roles from the
-   * usage accumulator. With the management key (OPENROUTER_MANAGEMENT_KEY, `env.managementKey`,
+   * usage accumulator. With the management key (the store's `management` key, `env.managementKey`,
    * used for these GETs only) each key's activity is read alongside (`llm.activity` by its hash,
    * one GET per key) and its last 7 and 30 days come from there instead; a failed activity read
    * falls back.

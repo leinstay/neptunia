@@ -25,7 +25,6 @@ import { MINUTE_MS, DAY_MS, utcDay, utcMinute } from '../../time.ts';
 import { fill } from '../../format.ts';
 import { log as defaultLog } from '../../log.ts';
 import { IMAGE_ROLE } from '../../llm/images.ts';
-import { MAIN_KEY_NAME } from '../../llm/openrouter.ts';
 import { isObj, objOf } from '../types.ts';
 import type { Obj, Untyped } from '../types.ts';
 
@@ -58,7 +57,7 @@ export type UsageEntry = {
   role?: string | null;
   /** The interface of the turn the request belongs to; none adds no interface row. */
   iface?: string | null;
-  /** The name of the `.env` variable of the key the request went out on; none adds no key row. */
+  /** The name of the key the request went out on; none adds no key row. */
   key?: string | null;
   promptTokens?: unknown;
   cachedTokens?: unknown;
@@ -157,7 +156,7 @@ export function createUsage({
   const seam = createReadSeam({ memoryDb, log, reader: 'usage' });
   const days: Record<string, Record<string, Counters>> = {}; // day -> role -> counters
   const ifaces: Record<string, Record<string, Counters>> = {}; // day -> interface -> counters
-  const keyed: Record<string, Record<string, Counters>> = {}; // day -> key variable name -> counters
+  const keyed: Record<string, Record<string, Counters>> = {}; // day -> key name -> counters
   let dirty = false;
   let lastSaveAt = -Infinity;
   let chain: Promise<void> = Promise.resolve();
@@ -362,7 +361,7 @@ export function usageTap(usage: Pick<Usage, 'record'>): (entry: unknown) => void
     usage.record({
       role: typeof entry.role === 'string' ? entry.role : null,
       iface: typeof entry.iface === 'string' ? entry.iface : null,
-      key: typeof entry.key === 'string' ? entry.key : MAIN_KEY_NAME,
+      key: typeof entry.key === 'string' ? entry.key : null,
       promptTokens: entry.promptTokens,
       cachedTokens: entry.cachedTokens,
       completionTokens: entry.completionTokens,

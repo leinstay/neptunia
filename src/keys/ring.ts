@@ -21,13 +21,11 @@ export type KeyRing = {
   bound(): Array<{ name: string; roles: Array<string> }>;
   /** The grant of each core key that has one, by name. */
   grants(): Record<string, { grant: number; resetDay: number }>;
-  /** The `.env` variable each imported key came from, by key name. */
-  variables(): Record<string, string>;
 };
 
 /**
- * The value of the key `role` goes out on, null while there is no `keys.json`: what the modules that look their own key
- * up (the embedder, the speech synthesis, the pictures) call before they fall back to `.env`. '' when the ring has none.
+ * The value of the key `role` goes out on: what the modules that look their own key up (the embedder, the speech
+ * synthesis, the pictures) call. '' when the ring has none.
  */
 export type KeyOf = (role: string) => string | null;
 
@@ -48,7 +46,6 @@ export function createKeyRing({ store, failover }: { store: KeyStore; failover: 
     },
     failed: (role, name, status) => failover.failed(role, names(role), name, status),
     states: () => failover.states(),
-    variables: () => store.variables(),
     grants() {
       const grants: Record<string, { grant: number; resetDay: number }> = {};
       for (const row of store.list().core) {

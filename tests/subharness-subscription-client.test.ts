@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 import { createSubscriptionClient } from '../src/subharness/subscription-client.ts';
 import type { SubscriptionChild, SubscriptionProcess } from '../src/subharness/subscription-client.ts';
 import { createToolBridge } from '../src/subharness/tool-bridge.ts';
@@ -776,6 +777,25 @@ test('with fallback on, an exhausted step goes to the direct client with the sam
   assert.equal(directCalls.length, 1);
   assert.deepEqual(directCalls[0]?.messages, FIRST);
 });
+
+test(
+  'with fallback on and no keys.json, an exhausted step is reported and the direct client is not asked',
+  STEP_TIMEOUT,
+  async () => {
+    // Catches: an absent key store counted as a key the API could use, so the fallback sends a request that has no key.
+    const { client, runs, directCalls, dir } = rig({ subscription: { fallback: true } });
+    fs.rmSync(path.join(dir, 'keys.json'));
+    const asked = client.complete(FIRST, REPLY);
+    await until(() => runs.length === 1, 'the run started');
+    pushAll(runs[0], [
+      { type: 'rate_limit_event', rate_limit_info: { status: 'rejected', rateLimitType: 'seven_day' } },
+      { type: 'result', subtype: 'success', is_error: true, api_error_status: 429, result: '' },
+    ]);
+    runs[0].end(1);
+    await assert.rejects(asked, { code: 'subscription-exhausted' });
+    assert.equal(directCalls.length, 0);
+  }
+);
 
 // ---- the login state the header reads ----------------------------------------------------------------------------
 
