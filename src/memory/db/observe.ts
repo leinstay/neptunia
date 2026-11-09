@@ -3,7 +3,7 @@
 // (`OBSERVATION_VERSION`); the core resolves everything else itself, so a new interface is an adapter, not a schema.
 //
 //   { v, iface, authority, connection?, native: { kind, key, generation?, revision, subtype? }, edited?,
-//     place: { authority, key, kind, chat: 'dm' | 'group' | undefined, parent?, title?, partner? },
+//     place: { authority, key, kind, chat: 'dm' | 'group' | undefined, parent?, title?, address?, partner? },
 //     author: { kind: 'account' | 'participant' | 'self', authority?, key?, token_kind?, scope_place?, display?, generation?, account_kind? },
 //     occurredAt, observedAt, text, media?, mentions?, direct?, relations?: [{ predicate, target }],
 //     capture?: { bundle?, role, reason?, coverage? }, extra?, consoleOwner?: { person } }
@@ -51,6 +51,8 @@
 //   - a DM place observed with a partner (`place.partner`) names the partner's person, the meta-person a new partner
 //     account gets or the person its verified link names; the DM stays its own audience. A stored DM place without a
 //     partner gets it filled in;
+//   - `place.address` is the chat id the interface gave, stored as the place's `native_id` for a direct chat as for a
+//     channel and handed back as it is to read or send there. A later address replaces the stored one;
 //   - her own account (author `self`) is linked to `person:self` on any interface, and a line of the owner's command
 //     line that carries `consoleOwner` links its account, and the accounts it lists, to the owner's person before the
 //     place is resolved (identity-links.ts). Rows stored under `<iface>/global` for an interface whose native authority
@@ -182,6 +184,8 @@ const refusal = (code: string): Error & { code: string } =>
   Object.assign(new Error(`memory observe: ${code}`), { code });
 const isObject = (value: unknown): value is Row => value !== null && typeof value === 'object' && !Array.isArray(value);
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
+/** Absent, null or a filled string. */
+const optionalText = (value: unknown): boolean => value === undefined || value === null || filled(value);
 const isoOk = (value: unknown): boolean => filled(value) && Number.isFinite(Date.parse(value));
 const optInt = (value: unknown, min: number): boolean =>
   value === undefined || value === null || (isWholeNumber(value) && value >= min);
@@ -217,6 +221,8 @@ type PlaceRef = {
   parent?: string | null;
   /** The top of the tree, when a parent of its own may not know it yet. */
   top?: string | null;
+  /** The chat id the interface gave, stored as the place's `native_id`. */
+  address?: string | null;
   partner?: { key: string; authority?: string; display?: string | null } | null;
 };
 /** The author of an envelope: an account, a thread-local participant or herself. */
@@ -372,8 +378,9 @@ export function checkEnvelope(envelope: unknown): string | null {
   if (!isObject(p) || !authorityOk(e.iface, p.authority) || !filled(p.key) || !isOneOf(PLACE_KINDS, p.kind))
     return C.BAD_PLACE;
   if (
-    (p.parent !== undefined && p.parent !== null && !filled(p.parent)) ||
-    (p.title !== undefined && p.title !== null && typeof p.title !== 'string')
+    !optionalText(p.parent) ||
+    (p.title !== undefined && p.title !== null && typeof p.title !== 'string') ||
+    !optionalText(p.address)
   )
     return C.BAD_PLACE;
   if (
@@ -662,6 +669,16 @@ function fillTitle(db: Db, existing: Row, title: unknown, at: string): void {
   projectRow(db, 'places', { id: existing.id }, { at });
 }
 
+/** The address an envelope gives a place, else `fallback`. */
+const addressOr = (address: unknown, fallback: string | null): string | null => (filled(address) ? address : fallback);
+
+/** A place takes the address its envelope gives, the chat id its interface named: a stored one that differs is replaced. */
+function fillAddress(db: Db, existing: Row, address: unknown, at: string): void {
+  if (!filled(address) || existing.native_id === address) return;
+  db.prepare('UPDATE places SET native_id = ? WHERE id = ?').run(address, existing.id);
+  projectRow(db, 'places', { id: existing.id }, { at });
+}
+
 /** A DM place that just took its partner person: the rows from before the link take it too, with the audience they had. */
 function keepDmOne(db: Db, stored: Row, partnerPerson: unknown): void {
   if (typeof partnerPerson === 'string' && partnerPerson !== stored.partner_person)
@@ -680,7 +697,7 @@ function placeOf(
   const existing = id
     ? db
         .prepare(
-          'SELECT id, chat, partner_person, partner_account, parent_id, name, seen_from_at, seen_to_at FROM places WHERE id = ?'
+          'SELECT id, chat, native_id, partner_person, partner_account, parent_id, name, seen_from_at, seen_to_at FROM places WHERE id = ?'
         )
         .get(id)
     : null;
@@ -701,6 +718,7 @@ function placeOf(
     const partnerAccount = existing.partner_account ?? partner?.account ?? null;
     const parentId = existing.parent_id ?? parent ?? null;
     fillTitle(db, existing, p.title, at);
+    fillAddress(db, existing, p.address, at);
     if (
       chat !== existing.chat ||
       from !== existing.seen_from_at ||
@@ -728,7 +746,7 @@ function placeOf(
       id: placeId,
       iface: envelope.iface,
       kind: p.kind,
-      native_id: spelled.native_id,
+      native_id: addressOr(p.address, spelled.native_id),
       parent_id: parent,
       scope_kind: declared,
       name: filled(p.title) ? p.title : null,

@@ -10,7 +10,8 @@
 //   place     `channel:<id>` (a channel), `thread:<id>` (a thread), `group_dm:<id>` (a group chat) with chat
 //             `group`, each with the place that contains it as `<parentKind>:<parentId>` when it declares one (a thread
 //             with no declared kind sits in `channel:<parentId>`); `dm:<partner id>` for a direct chat with its partner, with
-//             chat `dm` (a direct chat whose partner the event does not name is not observed);
+//             chat `dm` (a direct chat whose partner the event does not name is not observed); every place carries the
+//             chat id as its `address`, which the place stores as it is for a read or a send of the chat;
 //   author    the account of the author's id, of kind `bot` when the event says bot; her own line is author `self`
 //             with her account (kind `self`);
 //   relations `replies_to` the replied message, `mentions` each mentioned member (by user id);
@@ -99,6 +100,7 @@ function placeOf(chat: EventChat | undefined, authority: string): Envelope['plac
       key: `dm:${chat.partnerId}`,
       kind: 'dm',
       chat: 'dm',
+      address: id,
       partner: { key: chat.partnerId },
     };
   }
@@ -107,6 +109,7 @@ function placeOf(chat: EventChat | undefined, authority: string): Envelope['plac
       authority,
       key: `group_dm:${id}`,
       kind: 'group_dm',
+      address: id,
       chat: 'group',
       ...(title ? { title } : {}),
       ...parentField(chat),
@@ -116,6 +119,7 @@ function placeOf(chat: EventChat | undefined, authority: string): Envelope['plac
       authority,
       key: `thread:${id}`,
       kind: 'thread',
+      address: id,
       chat: 'group',
       ...(title ? { title } : {}),
       ...parentField(chat),
@@ -126,6 +130,7 @@ function placeOf(chat: EventChat | undefined, authority: string): Envelope['plac
       authority,
       key: `channel:${id}`,
       kind: 'channel',
+      address: id,
       chat: 'group',
       ...(title ? { title } : {}),
       ...parentField(chat),

@@ -42,6 +42,8 @@
 //       A selfreflection entry's pictures and voice file, kept as files and `media` rows (selfreflection-media.ts#applyEntryMedia).
 //   { kind: 'media-english', descriptionId, replaces, text, how, at }
 //       The English version of a stored media description and its item's text form (media-english.ts#applyMediaEnglish).
+//   { kind: 'place-address', placeId, address, at }
+//       The chat an interface opened for a place that held no address (place-address.ts#applyPlaceAddress). No mode.
 //   { kind: 'unit', op, ... }
 //       The memory units (record and journal lines, the store's cache, the module stores, participation, the selfreflection,
 //       the vectors) and the projection the writers finish, handed to unit-write.ts#applyUnitWrite.
@@ -137,6 +139,7 @@ import { applyMirrorWrite } from './mirror-config.ts';
 import { applyEntryMedia } from './selfreflection-media.ts';
 import { applyMediaBackfill } from './media-backfill.ts';
 import { applyMediaEnglish } from './media-english.ts';
+import { applyPlaceAddress } from './place-address.ts';
 import { isInterfaceNames, noteRoots } from './roots.ts';
 import { applyMediaEmbed } from './media-store.ts';
 import { writeBackup } from './backup.ts';
@@ -979,6 +982,8 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['semantic-embedding', applySemanticEmbedding],
   ['object-embedding', applyObjectEmbedding],
   ['media-english', applyMediaEnglish],
+  // The chat an interface opened for a direct chat that held no address (place-address.ts).
+  ['place-address', applyPlaceAddress],
   [
     'roots',
     (handle, update) =>

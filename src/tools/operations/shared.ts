@@ -4,8 +4,8 @@
 // `treeSize` (a directory walk for the memory snapshot) and `postingChat` (a channel
 // looked up through the client it is handed).
 
-import { chatOfPlace, placeRefOf } from '../../memory/addresses.ts';
-import { nativeChatOf } from '../../memory/db/frame-reads.ts';
+import { chatOfPlace, notePlaceAddress, placeRefOf } from '../../memory/addresses.ts';
+import { chatOfStoredPlace } from '../../interface/place-chat.ts';
 import { cliChatRef } from '../../interface/cli-chat.ts';
 import { dmChatsOff } from '../../behavior/core-pause.ts';
 import fs from 'node:fs';
@@ -22,13 +22,13 @@ import { IMAGE_ROLE } from '../../llm/images.ts';
 import { oneLine } from '../../memory/clamp.ts';
 import { utcDay } from '../../time.ts';
 import { denied, invalid } from './registry.ts';
-import { CODE } from '../codes.ts';
+import { CODE, httpCode } from '../codes.ts';
 import { nestedRefusal } from '../access.ts';
 import { isObj, objOf } from '../types.ts';
 import type { Obj, Untyped } from '../types.ts';
 import type { Env } from './env.ts';
 import type { Reads } from '../../interface/reads.ts';
-import type { ChatRef, Permissions } from '../../protocol/adapter.ts';
+import type { ChatInfo, ChatRef, Permissions } from '../../protocol/adapter.ts';
 
 /** `/nep memory journal`'s `n`: default and bounds. */
 export const JOURNAL_N_DEFAULT = 20;
@@ -732,30 +732,26 @@ function checkWakePosting(context: PostingContext, capability: string | null): v
 }
 
 /**
- * The chat a stored place names on its own interface, from its row (src/memory/addresses.ts#placeRefOf): a channel or a
- * thread by its native id, a direct chat by the chat the directory holds for its partner, else the partner's id. Any
- * other id, and a place whose row holds no chat, is a chat of `iface`.
+ * The chat a stored place names on its own interface: the address its row holds (src/interface/place-chat.ts), a
+ * direct chat that holds none opened once through `dm.chat` and its answer stored on the place. An `invalid` error
+ * (`unknown-conversation`) when a stored place has no chat the interface knows. Any other id, a place with no row, is a
+ * chat of `iface`.
  */
-function refOfPlace(
-  store: unknown,
-  id: string,
-  iface: string,
-  dmChatOf: ((partnerId: string) => string | null) | null
-): ChatRef {
+async function refOfPlace(store: unknown, reads: Reads | null, id: string, iface: string): Promise<ChatRef> {
   // The command line's place id is its chat id, whether or not a chat of it was seen since the start.
   const cli = cliChatRef(id);
   if (cli !== null) return cli;
   const ref = placeRefOf(store, id);
-  const native = ref === null ? null : nativeChatOf(ref);
-  if (ref === null || native === null) return { iface, chatId: id };
-  return { iface: ref.iface, chatId: ref.kind === 'dm' ? (dmChatOf?.(native) ?? native) : native };
+  if (ref === null) return { iface, chatId: id };
+  const live = await chatOfStoredPlace({
+    placeId: id,
+    ref,
+    reads,
+    note: (placeId, address) => notePlaceAddress(store, placeId, address),
+  });
+  if (!live.ok) throw invalid(`no chat of place ${id} (${live.code})`, CODE.UNKNOWN_CONVERSATION);
+  return live.chat;
 }
-
-/** The directory's reader of a partner's direct chat, null without one. */
-const dmReaderOf = (context: PostingContext): ((partnerId: string) => string | null) | null => {
-  const { env } = context;
-  return env?.directory?.dmChatOf ?? null;
-};
 
 /**
  * Whether the direct chat `info` describes is closed: `dm.enabled` is off (read now through `context.env.hot`) and the
@@ -793,17 +789,32 @@ export async function postingRef({
   const capability = NEED_CAPABILITY[need] ?? null;
   checkWakePosting(context, capability);
   const place = context.placeId ?? null;
-  const dmChatOf = dmReaderOf(context);
-  const here = place ? chatOfPlace(store, place, dmChatOf) : null;
-  const target = chatId ? refOfPlace(store, chatId, iface, dmChatOf) : here ? { iface, chatId: here } : null;
+  const here = place ? chatOfPlace(store, place) : null;
+  const target = chatId ? await refOfPlace(store, reads, chatId, iface) : here ? { iface, chatId: here } : null;
   if (!target) throw invalid('a channel is required');
   if (capability && publicationRefusal(context.publicationBoundary, target))
     throw denied('publication-boundary', 'not-allowed');
   if (target.iface === iface && target.chatId === (here ?? '')) return target;
   if (typeof CHANNEL_NEEDS[need] !== 'function') throw new Error(`unknown channel need: ${need}`);
-  const info = reads ? ((await reads.chatInfo(target))?.chat ?? null) : null;
+  const info = await chatInfoOf(reads, target);
   refuseThere(info, need, target.chatId, context);
   return target;
+}
+
+/** The codes of an interface that knows no chat by the id it was asked. */
+const GONE_CHAT_CODES: ReadonlySet<string> = new Set([CODE.UNKNOWN_CONVERSATION, httpCode(404)]);
+
+/**
+ * The interface's description of a chat, null when it gives none. An `invalid` error (`unknown-conversation`) when the
+ * interface knows no such chat, so she reads why rather than a missing permission.
+ */
+async function chatInfoOf(reads: Reads | null, target: ChatRef): Promise<ChatInfo | null> {
+  if (!reads) return null;
+  const answer = await reads.answer('chatInfo', target);
+  if (answer.status === 'ok') return answer.chat;
+  if (GONE_CHAT_CODES.has(answer.code))
+    throw invalid(`the interface knows no chat ${target.chatId} (${answer.code})`, CODE.UNKNOWN_CONVERSATION);
+  return null;
 }
 
 /** Throws the refusal of `need` in a chat as the interface describes it (`info`), or returns when it may run. */
@@ -837,8 +848,8 @@ export async function writablePlace({
   id: string;
   context: PostingContext;
 }): Promise<ChatRef> {
-  const target = refOfPlace(store, id, iface, dmReaderOf(context));
-  const info = reads ? ((await reads.chatInfo(target))?.chat ?? null) : null;
+  const target = await refOfPlace(store, reads, id, iface);
+  const info = await chatInfoOf(reads, target);
   if (closedDirectChat(info, context)) throw denied(`direct chats are closed, ${id}`, CODE.DM_DISABLED);
   if (info === null || !CHANNEL_NEEDS.send(info.permissions))
     throw denied(`no place to begin in at ${id}`, CODE.CHANNEL_NO_PERMISSION);

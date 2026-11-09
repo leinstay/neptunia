@@ -2997,6 +2997,17 @@ function buildStore({
       ).catch((error: unknown) => log.warn('store: roots write failed', { error }));
     },
 
+    /**
+     * The chat an interface opened for a place that held no address, stored as the place's address through the one
+     * writer (src/memory/db/place-address.ts). A failed write is logged; the next read opens the chat again.
+     */
+    notePlaceAddress(placeId: string, address: string): Promise<unknown> {
+      if (typeof memoryDb.memoryWrite !== 'function') return Promise.resolve(null);
+      return Promise.resolve(
+        memoryDb.memoryWrite({ kind: 'place-address', placeId, address, at: new Date().toISOString() })
+      ).catch((error: unknown) => log.warn('store: place address write failed', { error }));
+    },
+
     /** The caption vectors of the library's entries by item id, those of `model` alone when it is named. */
     getGifVectors(model?: string | null): Map<string, Float32Array> {
       const found = new Map<string, Float32Array>();

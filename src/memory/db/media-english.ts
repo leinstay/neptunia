@@ -325,7 +325,7 @@ function linesOf(db: Db, mediaId: string): Array<Pending> {
   return db
     .prepare(
       `SELECT s.id AS id, s.native_id AS native_id, s.place_id AS place_id, s.extra AS extra, s.scope_kind AS scope_kind,
-         p.extra AS place_extra
+         p.native_id AS place_address
        FROM media_links l JOIN sources s ON s.id = l.owner_id LEFT JOIN places p ON p.id = s.place_id
        WHERE l.owner_kind = 'source' AND l.media_id = ? AND s.retired_at IS NULL
        ORDER BY s.occurred_at DESC, s.rowid DESC`

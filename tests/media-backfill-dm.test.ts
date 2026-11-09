@@ -1,5 +1,6 @@
 // The media backfill's DM lines and its refused reads. A DM line that stored no chat is read through the chat
-// the interface opens for its partner (`dmChatOf`), which the place keeps; a partner the platform refuses is `gone`. A
+// the interface opens for its partner (`dmChatOf`), which the place keeps as its address (`places.native_id`); a
+// partner the platform refuses is `gone`. A
 // read the platform refuses is told apart from one that failed by a code in `classes`, and gets no second read. Fake platform.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,7 +25,6 @@ import {
 } from './fixtures/media-memory.ts';
 import type { Env, Scope } from './fixtures/media-memory.ts';
 import type { HistoryQuery } from '../src/protocol/adapter.ts';
-import { asText } from '../src/memory/db/types.ts';
 import type { Row } from '../src/memory/db/types.ts';
 
 const IMAGE = KINDS[0];
@@ -121,8 +121,8 @@ const dmPlaceRow = (env: Env, place: string, account: string | null = null) =>
   env.db
     .prepare("INSERT INTO places (id, iface, kind, chat, partner_account) VALUES (?, 'discord', 'dm', 'dm', ?)")
     .run(place, account);
-const placeExtra = (env: Env, place: string) =>
-  JSON.parse(asText(env.db.prepare('SELECT extra FROM places WHERE id = ?').get(place)?.extra ?? '{}')) as Row;
+const placeAddress = (env: Env, place: string) =>
+  env.db.prepare('SELECT native_id FROM places WHERE id = ?').get(place)?.native_id;
 
 // ---------- the chat of a DM's partner ----------
 
@@ -140,7 +140,9 @@ test('a DM line with no stored chat is read through the one opened for its partn
     );
     assert.deepEqual([report.linked, report.bare, report.gone], [1, 0, 0]);
     assert.equal(firstRef(env, source), '2101-a');
-    assert.equal(placeExtra(env, DM).dmConversation, OPENED);
+    // The opened chat is the place's address, as every other read of the place takes it, not a key of its `extra`
+    // only the backfill read.
+    assert.equal(placeAddress(env, DM), OPENED);
   }));
 
 test('two lines of one DM open its chat once', () =>

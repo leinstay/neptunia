@@ -313,11 +313,13 @@ test('observationOf: every kind of line goes from toEvent through the envelope c
     const partnerPerson = String(
       dbOf(handle).prepare('SELECT person_id FROM accounts WHERE id = ?').get(`discord:${MEMBER}`)?.person_id
     );
+    // The DM carries the chat id the interface gave as its `address`, which the place stores for every read and send.
     assert.deepEqual(present(dm.envelope).place, {
       authority: 'discord/global',
       key: `dm:${MEMBER}`,
       kind: 'dm',
       chat: 'dm',
+      address: DM_CHANNEL,
       partner: { key: MEMBER },
     });
     assert.equal(dm.done.placeId, `discord:dm:${MEMBER}`);

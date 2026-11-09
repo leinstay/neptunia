@@ -936,16 +936,16 @@ test('executeCall: she may post in any text channel the bot may send in, another
   const away = await executeCall(direct('message.create', { place: OTHER_GUILD, text: 'γεια' }), deps(admin, port));
   assert.equal(away.status, 'ok', JSON.stringify(away));
   assert.equal(port.messagesIn(OTHER_GUILD).at(-1)?.text, 'γεια');
-  // no permission to send, a DM while private chats are off, a channel the bot cannot find: refused, nothing sent.
-  // Slice 7 of the turn frame: the DM is refused with `dm-disabled`, the code that names the switch, in place of
-  // `channel-no-permission`, so she can tell a closed direct chat from a room without permission.
-  for (const [channel, code] of [
-    [ELSEWHERE, 'channel-no-permission'],
-    [DM, 'dm-disabled'],
-    ['c-unknown', 'channel-no-permission'],
+  // No permission to send, a DM while private chats are off, a chat the bot cannot find: refused, nothing sent. The DM
+  // answers `dm-disabled` (slice 7 of the turn frame), the code that names the switch, and the unknown chat the
+  // interface's own `unknown-conversation`, so neither is told to her as a room without permission.
+  for (const [channel, status, code] of [
+    [ELSEWHERE, 'denied', 'channel-no-permission'],
+    [DM, 'denied', 'dm-disabled'],
+    ['c-unknown', 'invalid', 'unknown-conversation'],
   ]) {
     const refused = await executeCall(direct('message.create', { place: channel, text: 'γεια' }), deps(admin, port));
-    assert.deepEqual([refused.status, refused.code], ['denied', code], channel);
+    assert.deepEqual([refused.status, refused.code], [status, code], channel);
     assert.equal(port.messagesIn(channel).length, 0, channel);
   }
 });
@@ -1814,9 +1814,9 @@ test('an internal publication restriction preserves nonpublishing message deleti
 
 // ---- slice 7 of the turn frame: a message.create from the command line to a place of another interface ------------
 // The command line (`cli`, the owner's chat `owner`) and a second interface `tele` behind one router, as the core routes
-// a send by the interface its reference names. `tele` holds the direct chat with its member `555` (the chat
-// `555`) and the room `k9`, where the interface grants a read and no send. The destination is named by `place`, a place
-// id. The shape the specifier chose: a direct chat refused while `dm.enabled` is false answers the code
+// a send by the interface its reference names. `tele` holds the direct chat with its member `555` (the chat `d555`:
+// one id for both hid a send to the member's id) and the room `k9`, where the interface grants a read and no send. The
+// destination is named by `place`, a place id. The shape the specifier chose: a direct chat refused while `dm.enabled` is false answers the code
 // `dm-disabled`, which names the switch (`dm` is the one word for a one-to-one chat, owner's answer 10 of 2026-11-07).
 
 /** The chat info of `tele`'s chat `id`, a direct chat or a room, with `send` as given. */
@@ -1853,8 +1853,8 @@ function fromCommandLine(enabled: boolean) {
     public: false,
   });
   const tele = createFakeAdapter({ iface: 'tele', selfId: SELF, now: () => 1000 });
-  tele.seedChat(teleChat('555', 'dm', true));
-  tele.seedDmChat('555', '555');
+  tele.seedChat(teleChat('d555', 'dm', true));
+  tele.seedDmChat('555', 'd555');
   tele.seedChat(teleChat('k9', 'channel', false));
   const port = createIfaceRouter(
     cli,
@@ -1866,7 +1866,7 @@ function fromCommandLine(enabled: boolean) {
   // A place id names a place, and its chat, by the row that holds it (plan 2026-11-08 ids-by-links, slice 7b).
   const rows: Record<string, { iface: string; kind: string; nativeId: string | null; partnerNativeId: string | null }> =
     {
-      'tele:dm:555': { iface: 'tele', kind: 'dm', nativeId: null, partnerNativeId: '555' },
+      'tele:dm:555': { iface: 'tele', kind: 'dm', nativeId: 'd555', partnerNativeId: '555' },
       'tele:channel:k9': { iface: 'tele', kind: 'channel', nativeId: 'k9', partnerNativeId: null },
       'place:dm-opaque': { iface: 'tele', kind: 'dm', nativeId: null, partnerNativeId: '555' },
     };
@@ -1904,7 +1904,7 @@ test('message.create from the command line to a direct chat of another interface
   const result = await run('tele:dm:555');
   assert.equal(result.status, 'ok', JSON.stringify(result));
   assert.deepEqual(
-    sentIn('555').map((one) => one.text),
+    sentIn('d555').map((one) => one.text),
     ['γεια από τη γραμμή εντολών']
   );
 });
@@ -1915,7 +1915,7 @@ test('message.create from the command line to a direct chat of another interface
   const { run, sentIn } = fromCommandLine(false);
   const result = await run('tele:dm:555');
   assert.deepEqual([result.status, result.code], ['denied', 'dm-disabled']);
-  assert.equal(sentIn('555').length, 0);
+  assert.equal(sentIn('d555').length, 0);
 });
 
 test('message.create from the command line to a direct chat whose place id spells nothing is sent to the chat its row names', async () => {
@@ -1925,7 +1925,7 @@ test('message.create from the command line to a direct chat whose place id spell
   const result = await run('place:dm-opaque');
   assert.equal(result.status, 'ok', JSON.stringify(result));
   assert.deepEqual(
-    sentIn('555').map((one) => one.text),
+    sentIn('d555').map((one) => one.text),
     ['γεια από τη γραμμή εντολών']
   );
 });
