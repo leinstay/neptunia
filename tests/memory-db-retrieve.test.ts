@@ -7,13 +7,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { openMemoryDb, MIGRATIONS } from '../src/memory/db/open.ts';
+import { pendingObjectEmbeds } from '../src/memory/db/object-vectors.ts';
 import { retrieveMemory } from '../src/memory/db/retrieve.ts';
 import type { RetrieveDeps } from '../src/memory/db/retrieve.ts';
 import type { Context } from '../src/memory/db/scope.ts';
 import { groupContext } from '../src/memory/db/scope.ts';
 import type { MemoryPage, MemoryQuery, RetrievalBounds } from '../src/memory/db/semantic-types.ts';
 import { turnReadRows } from '../src/memory/db/service.ts';
-import { writeTurnReadRows } from '../src/memory/db/session-write.ts';
+import { applyMemoryWrite, writeTurnReadRows } from '../src/memory/db/session-write.ts';
 import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { estimateTokens } from '../src/llm/tokens.ts';
@@ -21,13 +22,16 @@ import { wrongly } from './fixtures/loose-types.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import {
   ALEX,
+  DM_ALEX,
   KAI,
   MIRA,
+  PUBLIC,
   START,
   addEntity,
   addSource,
   candidate,
   commit,
+  dmAudience,
   occurrence,
   partOf,
   semanticWorld,
@@ -838,6 +842,100 @@ test('a write that lands while the query embedding is out cannot leak or break t
   });
   assert.ok(page.assertions.length > 0);
   assert.ok(!JSON.stringify(page).includes(SECRET));
+  world.handle.close();
+});
+
+// ---- plain claims by meaning -----------------------------------------------------------------------------------------
+
+const EMBEDDER = 'fixture/embedding';
+const PLAIN_SCOPES = {
+  public: { kind: 'group', dm: null, audience: PUBLIC },
+  alex: { kind: 'dm', dm: ALEX, audience: dmAudience(DM_ALEX) },
+} as const;
+
+/** A learned plain claim about Alex with one version, and its object vector when one is given. */
+function plainClaim(
+  world: World,
+  where: keyof typeof PLAIN_SCOPES,
+  id: string,
+  text: string,
+  vector: ReadonlyArray<number> | null = null
+): string {
+  const scope = PLAIN_SCOPES[where];
+  const at = new Date(world.now()).toISOString();
+  world.db
+    .prepare(
+      `INSERT INTO claims (id, subject_kind, subject_id, kind, text, truth, shown, scope_kind, scope_iface, scope_dm,
+         audience_id, created_at) VALUES (?, 'person', ?, 'detail', ?, 'current', 1, ?, 'discord', ?, ?, ?)`
+    )
+    .run(id, ALEX, text, scope.kind, scope.dm, scope.audience, at);
+  const versionId = `cv:${id}`;
+  world.db
+    .prepare(
+      `INSERT INTO claim_versions (id, claim_id, revision_id, text, recorded_at, event, by, origin)
+       VALUES (?, ?, ?, ?, ?, 'add', 'her', 'session')`
+    )
+    .run(versionId, id, `rv:${id}`, text, at);
+  if (vector !== null) {
+    const pending = pendingObjectEmbeds(world.db, { model: EMBEDDER, limit: 1000 }).find((one) => one.itemId === id);
+    assert.ok(pending, `the claim ${id} is pending an embedding`);
+    const { kind, itemId, audienceId, hash } = pending;
+    applyMemoryWrite(world.handle, {
+      kind: 'object-embedding',
+      model: EMBEDDER,
+      now: START,
+      items: [{ kind, itemId, audienceId, hash, vector }],
+    });
+  }
+  return versionId;
+}
+
+const meaning = (vector: ReadonlyArray<number>): Partial<RetrieveDeps> => ({
+  model: EMBEDDER,
+  embedQuery: () => Promise.resolve(vector),
+  minSimilarity: 0.35,
+});
+
+test('an English query finds a Greek plain claim by its vector', async () => {
+  // Bug: plain claims are read by words alone, so a question in another language than the claim finds nothing.
+  const world = semanticWorld();
+  const cooks = plainClaim(world, 'public', 'clm:cooks', 'Μαγειρεύει κάθε Κυριακή', [1, 0, 0, 0]);
+  const page = await retrieve(world, world.contexts.group, query('who cooks on sundays'), meaning([1, 0, 0, 0]));
+  assert.ok(versionsOf(page).includes(cooks), 'the claim found by meaning is missing');
+  world.handle.close();
+});
+
+test('a DM plain claim never ranks by its vector in a group context and does in its own DM', async () => {
+  // Bug: the meaning list reads every claim vector, so a private claim surfaces in a public turn.
+  const world = semanticWorld();
+  const hidden = plainClaim(world, 'alex', 'clm:hidden', 'Φοβάται τα ύψη', [1, 0, 0, 0]);
+  const asked = query('what is he afraid of');
+  assert.ok(!versionsOf(await retrieve(world, world.contexts.group, asked, meaning([1, 0, 0, 0]))).includes(hidden));
+  assert.ok(versionsOf(await retrieve(world, world.contexts.alex, asked, meaning([1, 0, 0, 0]))).includes(hidden));
+  world.handle.close();
+});
+
+test('a plain claim found by words keeps its first place against one found by meaning alone', async () => {
+  // Bug: the meaning list is ranked before the words, so the claim that says the asked word drops behind a neighbour.
+  const world = semanticWorld();
+  const near = plainClaim(world, 'public', 'clm:near', 'Παίζει βιολί', [1, 0, 0, 0]);
+  const said = plainClaim(world, 'public', 'clm:said', 'plays the violin at weddings');
+  const page = await retrieve(world, world.contexts.group, query('violin'), meaning([1, 0, 0, 0]));
+  assert.deepEqual(versionsOf(page), [said, near]);
+  world.handle.close();
+});
+
+test('a page whose query vector meets no claim vector answers exactly what the words answer', async () => {
+  // Bug: the fusion reorders the word list or lets a claim under the floor in, so a lexical page changes.
+  const world = semanticWorld();
+  plainClaim(world, 'public', 'clm:a', 'violin lessons on tuesday', [0, 1, 0, 0]);
+  plainClaim(world, 'public', 'clm:b', 'sold his violin', [0, 0, 1, 0]);
+  plainClaim(world, 'public', 'clm:c', 'lessons ended in spring', [0, 0, 0, 1]);
+  plainClaim(world, 'public', 'clm:d', 'Ταξιδεύει συχνά', [0, 1, 0, 0]);
+  const asked = query('violin lessons');
+  const words = await retrieve(world, world.contexts.group, asked);
+  assert.equal(words.assertions.length, 3);
+  assert.deepEqual(await retrieve(world, world.contexts.group, asked, meaning([1, 0, 0, 0])), words);
   world.handle.close();
 });
 
