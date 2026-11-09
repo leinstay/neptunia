@@ -255,7 +255,7 @@ export async function mirrorScene({
   function desk(mirrors = publisher()) {
     const deps: ConsoleDeps = {
       runOp: () => Promise.resolve({ status: 'failed', code: 'no-op', summary: '', data: null }),
-      ownerReads: { lessons: () => '', aliases: () => '' },
+      ownerReads: { lessons: () => '' },
       places: () => ['g1'],
       selfId: () => 'self-1',
       hot: { config: { bot: { owners: [] } } },

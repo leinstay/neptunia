@@ -24,7 +24,7 @@ function withConsole(body: (rig: Rig) => Promise<void>): Promise<void> {
   const asked: Array<string> = [];
   const deps: ConsoleDeps = {
     runOp: () => Promise.resolve({ status: 'failed', code: 'NOT_HERE', summary: '', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => [],
     selfId: () => null,
     hot: { config: {}, prompts: { labels: { pairing: { ask: 'write to her on {iface}, then the code' } } } },

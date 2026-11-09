@@ -30,7 +30,6 @@ import {
   JOURNAL_N_DEFAULT,
   JOURNAL_N_MAX,
   JOURNAL_DAY_RE,
-  treeSize,
   NONE,
   isoDay,
   MEMORY_SHOW_DEFAULT_LIMIT,
@@ -456,31 +455,22 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep memory snapshot`: a consistent copy of `data/` for the tools (scripts/replay.ts): the store flushed, then every entry of `data/` but `snapshots/` copied to
-   * `data/snapshots/<UTC time>/` while the journal holds its writes (journal.withWriterLock).
-   * Owner-only (src/tools/operations/grants.ts). Nothing under `data/` is changed but the new directory.
+   * `memory.snapshot`: one consistent copy of the memory database for the tools (scripts/replay.ts), written by SQLite's
+   * `VACUUM INTO` to `data/snapshots/<UTC time>/memory.db` at mode 0600, the folder `scripts/replay.ts --snapshot` reads.
+   * It copies the database alone: keys, client tokens and every other file of `data/` stay where they are. Owner-only
+   * (src/tools/operations/grants.ts).
    */
   async function cmdMemorySnapshot() {
-    if (!dataDir) return 'the memory snapshot is not available';
-    store.flush();
-    const root = path.join(dataDir, SNAPSHOTS_DIR);
-    const dest = path.join(root, new Date().toISOString().replace(/[:.]/g, '-'));
-    const copy = async () => {
-      await fs.promises.mkdir(dest, { recursive: true });
-      for (const name of await fs.promises.readdir(dataDir)) {
-        if (name === SNAPSHOTS_DIR) continue;
-        await fs.promises.cp(path.join(dataDir, name), path.join(dest, name), {
-          recursive: true,
-          errorOnExist: true,
-          force: false,
-        });
-      }
-      return treeSize(dest);
-    };
-    const { bytes, files } =
-      typeof journal?.withWriterLock === 'function' ? await journal.withWriterLock(copy) : await copy();
-    log.info('admin: memory snapshot', { files, bytes });
-    return `Snapshot written: ${dest} (${files} files, ${bytes} bytes).`;
+    const db = (env.memoryDb as MemoryDbService | null | undefined)?.database() ?? null;
+    if (!dataDir || db === null) return 'the memory snapshot is not available';
+    const folder = path.join(dataDir, SNAPSHOTS_DIR, new Date().toISOString().replace(/[:.]/g, '-'));
+    await fs.promises.mkdir(folder, { recursive: true, mode: 0o700 });
+    const dest = path.join(folder, 'memory.db');
+    db.prepare('VACUUM INTO ?').run(dest);
+    await fs.promises.chmod(dest, 0o600);
+    const { size } = await fs.promises.stat(dest);
+    log.info('admin: memory snapshot', { bytes: size });
+    return `Snapshot written: ${dest} (${size} bytes).`;
   }
 
   /**

@@ -333,7 +333,6 @@ const CAPABILITY_MENUS = {
   skills: { title: 'Skills', command: 'skills', list: 'skills.list' },
   interfaces: { title: 'Interfaces', command: 'interfaces', list: 'interfaces.list' },
   agents: { title: 'Agents', command: 'agent', list: null },
-  plugins: { title: 'Plugins', command: null, list: null },
 } as const;
 
 /**
@@ -488,7 +487,7 @@ async function localPanel(line: string, run: Run, view: ChatView): Promise<Panel
   if (line === '/context') return contextPanel(run);
   const memory = MEMORY_PANELS[line];
   if (memory !== undefined) return memory(run);
-  if (line === '/tools' || line === '/skills' || line === '/interfaces' || line === '/agents' || line === '/plugins')
+  if (line === '/tools' || line === '/skills' || line === '/interfaces' || line === '/agents')
     return capabilityPanel(line.slice(1) as keyof typeof CAPABILITY_MENUS, run);
   // Bare `/resume` stays the command that ends a pause: only a session's id makes this one.
   if (word === '/resume' && line !== word) {

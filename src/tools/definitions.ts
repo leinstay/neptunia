@@ -417,6 +417,7 @@ const ENTRIES: Array<Definition> = [
     toArgs: (a) => ({ model: val(a, 'model'), role: opt(a, 'role') }),
   }),
   def('rule.add', {
+    traits: ['ungrantable'],
     params: obj({ text: str() }, ['text']),
     body: 'text',
     effects: 'write',
@@ -764,7 +765,6 @@ const ENTRIES: Array<Definition> = [
     effects: 'read',
     toArgs: (a) => ({ name: val(a, 'name') }),
   }),
-  def('inner.status', { params: EMPTY(), effects: 'read', toArgs: () => ({ action: 'status' }) }),
   def('web.search', {
     params: obj({ query: str(200), goal: str(300) }, ['query']),
     body: 'query',
