@@ -8,13 +8,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
-import { V10_TABLES } from '../src/memory/db/schema.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import {
   contentHash,
-  deriveAllMirrorPublications,
   grantPublication,
   markSent,
   markUnknown,
@@ -28,7 +26,6 @@ import {
   unsettled,
 } from '../src/memory/db/publish.ts';
 import { issueContext } from '../src/memory/db/scope.ts';
-import { tableHashes } from '../scripts/memory-db.ts';
 import { CHANNEL, buildDataDir, guildDir, writeJson, writeLines } from './fixtures/memory-db/datadir.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 
@@ -445,8 +442,8 @@ test('publish: a crash between queued and sent sends once (the same key returns 
 const POSTS = 51;
 const messageOf = (n: number) => `5100000000000000${String(n).padStart(2, '0')}`;
 
-/** A data directory whose diary has 51 mirrored posts (the said lines of the first ten in the record), imported at v9. */
-function importedAtV9() {
+/** A data directory whose diary has 51 mirrored posts (the said lines of the first ten in the record), in a new database. */
+function seededAtBaseline() {
   const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-v10-'));
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
@@ -478,13 +475,15 @@ function importedAtV9() {
     }))
   );
   const file = path.join(root, 'memory.db');
-  const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 9) });
+  const old = openMemoryDb(file);
   // @ts-expect-error the test fixture takes no `log` option; the test passes one and the fixture ignores it
   assert.equal(seedUnits(old, data, { log: quiet, now: () => NOW }).errors, 0);
-  assert.equal(schemaVersion(dbOf(old)), 9);
   // The diary media job has fetched the text of the first twenty posts.
   for (let n = 0; n < 20; n += 1)
-    dbOf(old).prepare('UPDATE diary SET text = ? WHERE id = ?').run(`Ημερολόγιο ${n}`, `entry-${n}`);
+    dbOf(old).prepare('UPDATE selfreflection SET text = ? WHERE id = ?').run(`Ημερολόγιο ${n}`, `entry-${n}`);
+  // The diary written again, so the publications of those posts carry the hash of their text.
+  // @ts-expect-error the test fixture takes no `log` option; the test passes one and the fixture ignores it
+  assert.equal(seedUnits(old, data, { log: quiet, now: () => NOW }).errors, 0);
   old.close();
   return { root, data, file, done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
@@ -495,72 +494,8 @@ const publicationsOf = (db: Db) =>
     .all()
     .map((row) => ({ ...row }));
 
-test('v10 migration: 51 mirrors become sent publications with their text hashes and receipts, projected; keys, foreign keys and integrity', () => {
-  const env = importedAtV9();
-  const handle = openMemoryDb(env.file);
-  const db = dbOf(handle);
-  try {
-    assert.equal(schemaVersion(db), MIGRATIONS.length);
-    assert.ok(MIGRATIONS.length >= 10);
-    for (const table of V10_TABLES)
-      assert.ok(db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(table), table);
-    assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
-    assert.equal(db.prepare('PRAGMA integrity_check').get()!.integrity_check, 'ok');
-    const mirrors = count(db, 'SELECT COUNT(*) AS n FROM selfreflection_mirrors WHERE retired_at IS NULL');
-    assert.ok((mirrors as number) >= POSTS, 'the fixture has at least the 51 mirrors');
-    const rows = publicationsOf(db);
-    assert.equal(rows.length, mirrors, 'one publication per mirror');
-    for (let n = 0; n < POSTS; n += 1) {
-      const row = rows.find((entry) => entry.row_id === `entry-${n}`)!;
-      const mirror = db.prepare('SELECT * FROM selfreflection_mirrors WHERE selfreflection_id = ?').get(`entry-${n}`)!;
-      assert.equal(row.id, mirror.id, 'the publication keeps the mirror id');
-      assert.equal(row.status, 'sent');
-      assert.equal(row.idempotency_key, `selfreflection:entry-${n}:`);
-      assert.deepEqual(JSON.parse(row.receipts as string), [
-        { authority: 'discord/global', kind: 'message', key: messageOf(n) },
-      ]);
-      assert.equal(row.owner_file, mirror.owner_file);
-      assert.equal(row.destination_place_id, null, 'the mirrors name no place');
-      if (n < 20) {
-        assert.equal(row.rendered, `Ημερολόγιο ${n}`);
-        assert.equal(row.content_hash, contentHash(`Ημερολόγιο ${n}`));
-      } else {
-        assert.equal(row.rendered, null, 'no text stored yet: no hash');
-        assert.equal(row.content_hash, null);
-      }
-    }
-    // The graph: every publication is published_as from its entry (owned by the publication unit now), and the ten whose
-    // line is stored reach it.
-    assert.equal(
-      count(
-        db,
-        "SELECT COUNT(*) AS n FROM graph_edges WHERE predicate = 'published_as' AND retired_at IS NULL AND owner_key LIKE 'publications:%'"
-      ),
-      mirrors
-    );
-    assert.equal(
-      count(
-        db,
-        "SELECT COUNT(*) AS n FROM graph_edges WHERE predicate = 'published_as' AND retired_at IS NULL AND owner_key NOT LIKE 'publications:%'"
-      ),
-      0
-    );
-    assert.equal(
-      count(db, "SELECT COUNT(*) AS n FROM graph_edges WHERE predicate = 'publication_source' AND retired_at IS NULL"),
-      10
-    );
-    // Idempotent: deriving every mirror again changes nothing.
-    const hashes = tableHashes(db, ['publications', 'graph_edges', 'graph_nodes', 'node_access']);
-    handle.transaction(() => deriveAllMirrorPublications(db, { at: '2026-10-25T00:00:00.000Z' }));
-    assert.deepEqual(tableHashes(db, ['publications', 'graph_edges', 'graph_nodes', 'node_access']), hashes);
-  } finally {
-    handle.close();
-    env.done();
-  }
-});
-
 test('v10: a rewrite of the diary keeps the publication; database rows survive', () => {
-  const env = importedAtV9();
+  const env = seededAtBaseline();
   try {
     const handle = openMemoryDb(env.file);
     const db = dbOf(handle);

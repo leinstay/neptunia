@@ -5,8 +5,7 @@
 // temporary databases, an injected clock and a fake query embedding; no model runs here.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import path from 'node:path';
-import { openMemoryDb, MIGRATIONS } from '../src/memory/db/open.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { pendingObjectEmbeds } from '../src/memory/db/object-vectors.ts';
 import { retrieveMemory } from '../src/memory/db/retrieve.ts';
 import type { RetrieveDeps } from '../src/memory/db/retrieve.ts';
@@ -19,7 +18,6 @@ import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { estimateTokens } from '../src/llm/tokens.ts';
 import { wrongly } from './fixtures/loose-types.ts';
-import { tempDir } from './fixtures/tmp.ts';
 import {
   ALEX,
   DM_ALEX,
@@ -419,30 +417,6 @@ test('a private source stays out of a group page and in its partner page', async
   assert.deepEqual((await retrieve(world, world.contexts.group, query(SECRET))).sourceIds, []);
   assert.deepEqual((await retrieve(world, world.contexts.mira, query(SECRET))).sourceIds, []);
   world.handle.close();
-});
-
-test('a fact from before the semantic tables is found, its unknown metadata left unknown', async () => {
-  // Bug: a reader fills truth and polarity from the mutable parent, inventing certainty the old row never had.
-  const file = path.join(tempDir('nep-retrieve-'), 'memory.db');
-  const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 29) });
-  const oldDb = dbOf(old);
-  oldDb.exec(`INSERT OR IGNORE INTO audiences (id, kind, iface) VALUES ('aud:group:discord', 'group', 'discord');
-    INSERT INTO claims (id, subject_kind, subject_id, kind, text, truth, shown, scope_kind, scope_iface, audience_id, created_at)
-      VALUES ('clm:old', 'person', 'person:x', 'detail', 'the zebra stayed', 'current', 1, 'group', 'discord', 'aud:group:discord', '2026-01-01T00:00:00.000Z');
-    INSERT INTO claim_versions (id, claim_id, revision_id, text, recorded_at, event, by, origin)
-      VALUES ('cv:old', 'clm:old', 'rv:old', 'the zebra stayed', '2026-01-01T00:00:00.000Z', 'add', 'her', 'session');`);
-  old.close();
-  const handle = openMemoryDb(file);
-  const page = await retrieveMemory(
-    dbOf(handle),
-    { iface: 'discord', kind: 'group', audienceColumn: true },
-    query('zebra'),
-    deps()
-  );
-  const found = page.assertions.find((one) => one.versionId === 'cv:old');
-  assert.ok(found, 'the old fact was not retrieved');
-  assert.deepEqual([found.text, found.state, found.polarity], ['the zebra stayed', 'unknown', 'unknown']);
-  handle.close();
 });
 
 test('an embedding failure leaves lexical results and no failure mark', async () => {

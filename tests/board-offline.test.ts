@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { main, tableHashes } from '../scripts/memory-db.ts';
 import { openBoard } from '../src/board/board.ts';
 import type { BoardSettings, TaskRecord, TaskView } from '../src/board/board.ts';
@@ -108,7 +108,10 @@ test('board show of an id the board does not hold exits 1', () => {
 test('board list of a memory file without its board exits 1 and creates no board', () => {
   const dir = tempDir('nep-board-offline-');
   const file = path.join(dir, 'memory.db');
-  openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 20), boardMigrations: [] }).close();
+  // A memory whose board version rows are gone reads as a memory without its board.
+  const handle = openMemoryDb(file);
+  dbOf(handle).exec('DELETE FROM board_schema_version');
+  handle.close();
   const before = hashesOf(file);
 
   assert.equal(run('board', 'list', '--db', file, '--json').code, 1);

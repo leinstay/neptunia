@@ -17,7 +17,6 @@ const INTERFACES = path.join(ROOT, 'interfaces');
 type Allowed = { file: string; pattern: RegExp; why: string };
 
 const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
-  { file: 'src/memory/db/schema.ts', pattern: /discord/i, why: 'frozen migrations and their notes' },
   {
     file: 'src/memory/db/schema-baseline.ts',
     pattern: /discord/i,

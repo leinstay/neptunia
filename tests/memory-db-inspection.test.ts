@@ -12,6 +12,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { boardVersion } from '../src/board/schema.ts';
 import { catalog, readRow, readRows } from '../src/memory/db/inspection.ts';
 import type { InspectionPage, InspectionRead, InspectionRow, RowLocator } from '../src/memory/db/inspection.ts';
@@ -221,9 +222,11 @@ test('the catalog reports the memory and board versions of the connection', () =
 });
 
 test('a database with no migrations gives a catalog of what exists and zero versions', () => {
-  const handle = openMemoryDb(':memory:', { migrations: [], boardMigrations: [] });
+  // A new database always starts at the baseline, so the empty one is a bare node:sqlite connection, which has every
+  // method Db names.
+  const handle = new DatabaseSync(':memory:');
   try {
-    const db = dbOf(handle);
+    const db = handle as unknown as Db;
     const result = catalog(db);
     assert.deepEqual(new Set(result.tables.map((table) => table.name)), new Set(actualTableNames(db)));
     assert.equal(result.memoryVersion, 0);

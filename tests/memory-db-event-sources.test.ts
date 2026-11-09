@@ -3,8 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { observeMessage } from '../src/memory/db/message-families.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
-import { openMemoryDb, MIGRATIONS, migrate } from '../src/memory/db/open.ts';
-import { insertIngest } from '../src/memory/db/ingest.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { ObserveResult } from '../src/memory/db/observe.ts';
 
@@ -156,24 +155,6 @@ test('a reply reserves its parent in the same chat before the parent arrives', (
         .get()?.n,
       1
     );
-  } finally {
-    handle.close();
-  }
-});
-
-test('the receipt source migration retains older standalone receipts without inventing a source', () => {
-  const handle = openMemoryDb(':memory:', { migrations: MIGRATIONS.slice(0, 23) });
-  try {
-    const db = dbOf(handle);
-    insertIngest(
-      db,
-      { principal: 'adapter', seq: 1, eventId: 'old-event', kind: 'message.received', chat: 'room-a' },
-      { at: NOW, keepDays: 7 }
-    );
-    migrate(db);
-    const row = db.prepare('SELECT principal, event_id, seq, source_id FROM ingest').get();
-    assert.deepEqual([row?.principal, row?.event_id, row?.seq, row?.source_id], ['adapter', 'old-event', 1, null]);
-    assert.deepEqual(db.prepare('SELECT * FROM sources').all(), []);
   } finally {
     handle.close();
   }

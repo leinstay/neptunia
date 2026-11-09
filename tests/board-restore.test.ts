@@ -7,11 +7,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { main, tableHashes } from '../scripts/memory-db.ts';
 import { openBoard } from '../src/board/board.ts';
 import type { Board, BoardSettings } from '../src/board/board.ts';
-import { BOARD_MIGRATIONS } from '../src/board/schema.ts';
 import type { BoardDb } from '../src/board/schema.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { buildDataDir } from './fixtures/memory-db/datadir.ts';
@@ -65,12 +64,8 @@ function run(...argv: Array<string>): { code: unknown; text: string } {
 }
 
 /** Opens the memory file and its board, runs `fn`, closes. */
-function withBoard(
-  env: Env,
-  fn: (board: Board, handle: Handle) => void,
-  boardMigrations?: ReadonlyArray<string>
-): void {
-  const handle = boardMigrations ? openMemoryDb(env.file, { boardMigrations }) : openMemoryDb(env.file);
+function withBoard(env: Env, fn: (board: Board, handle: Handle) => void): void {
+  const handle = openMemoryDb(env.file);
   try {
     fn(openBoard({ db: dbOf(handle), privateDir: env.root, now: () => NOW, settings: () => SETTINGS }), handle);
   } finally {
@@ -147,7 +142,10 @@ test('a memory-only restore brings her memory back from the backup and leaves ev
 
 test('a board-only restore between two board versions is refused and changes nothing', () => {
   const env = seeded();
-  withBoard(env, () => {}, [...BOARD_MIGRATIONS, 'CREATE TABLE board_later (id TEXT PRIMARY KEY);']);
+  // A board one version past the backup's.
+  withBoard(env, (_board, handle) =>
+    dbOf(handle).exec('INSERT INTO board_schema_version (version) SELECT MAX(version) + 1 FROM board_schema_version')
+  );
   const before = hashesOf(env.file);
 
   const restored = run('restore-tables', '--part', 'board', '--from', env.backup, '--db', env.file);
@@ -160,7 +158,10 @@ test('a memory-only restore between two memory versions is refused and changes n
   const older = path.join(env.root, 'older');
   fs.mkdirSync(older);
   const file = path.join(older, 'memory.db');
-  openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 20) }).close();
+  // A memory one version past the backup's.
+  const newer = openMemoryDb(file);
+  dbOf(newer).exec('INSERT INTO schema_version (version) SELECT MAX(version) + 1 FROM schema_version');
+  newer.close();
   const before = hashesOf(file);
 
   const restored = run('restore-tables', '--part', 'memory', '--from', env.backup, '--db', file);

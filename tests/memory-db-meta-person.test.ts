@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { accountsOfPerson, personOfAccount, profileOfAccount } from '../src/memory/db/meta-person.ts';
 import type { PersonAccount } from '../src/memory/db/meta-person.ts';
 import { newPersonId } from '../src/memory/db/ids.ts';
@@ -151,35 +151,6 @@ test('refuses a line whose author person nobody stored', () => {
       /FOREIGN KEY/
     );
   });
-});
-
-test('the upgrade from the version before keeps every row and fills no account and no author person', () => {
-  const file = path.join(tempDir('nep-meta-person-up-'), 'memory.db');
-  const before = MIGRATIONS.length - 1;
-  const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, before) });
-  const oldDb = dbOf(old);
-  addLegacyPerson(oldDb, 'person:chat:1');
-  addOldAccount(oldDb, 'chat:1', '1', 'person:chat:1', 'verified');
-  oldDb
-    .prepare(
-      "INSERT INTO sources (id, kind, iface, place_id, author_account, text) VALUES ('src:1', 'seen', 'chat', 'p', 'chat:1', 'hi')"
-    )
-    .run();
-  old.close();
-  const handle = openMemoryDb(file);
-  try {
-    const db = dbOf(handle);
-    assert.equal(schemaVersion(db), MIGRATIONS.length);
-    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM person_accounts').get()?.n, 0);
-    assert.deepEqual(
-      { ...db.prepare("SELECT author_account, author_person FROM sources WHERE id = 'src:1'").get() },
-      { author_account: 'chat:1', author_person: null }
-    );
-    assert.equal(db.prepare("SELECT meta FROM people WHERE id = 'person:chat:1'").get()?.meta, 0);
-    assert.equal(personOfAccount(db, 'chat:1'), 'person:chat:1');
-  } finally {
-    handle.close();
-  }
 });
 
 test('personOfAccount answers the meta-person of an account in the account table', () => {

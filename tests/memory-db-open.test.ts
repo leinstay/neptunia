@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { MIGRATIONS, lockPathOf, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
-import { V1_TABLES } from '../src/memory/db/schema.ts';
+import { BASELINE_VERSION } from '../src/memory/db/schema-baseline.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 
@@ -14,108 +14,6 @@ const names = (db: Db, type = 'table') =>
     .prepare('SELECT name FROM sqlite_master WHERE type = ? ORDER BY name')
     .all(type)
     .map((row) => row.name as string);
-
-test('a new database is migrated to the latest version with every table of schema v1', () => {
-  const handle = openMemoryDb(':memory:');
-  assert.equal(schemaVersion(dbOf(handle)), MIGRATIONS.length);
-  const tables = names(dbOf(handle));
-  // Schema v21 drops the eight reserved ledger_* tables of v1, which no code ever wrote (the board's tables replace
-  // them, src/board/schema.ts), so every other v1 table is still there.
-  for (const table of V1_TABLES.filter((name) => !name.startsWith('ledger_')))
-    assert.ok(tables.includes(table), `${table} is missing`);
-  assert.ok(!tables.includes('now'));
-  assert.ok(!tables.includes('states'));
-  handle.close();
-});
-
-// This test pinned the eight reserved ledger_* tables as present and empty. Schema v21 drops them (the board's own
-// tables replace them, spec 2026-10-31-stage-6-cut, PR 6a), so it checks the drop on a v20 file instead, and that
-// the drop takes nothing else with it.
-test('schema v21 drops the eight reserved ledger tables of a v20 file and keeps its other rows', () => {
-  const dir = tempDir('nep-memdb-');
-  const file = path.join(dir, 'memory.db');
-  const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 20) });
-  dbOf(old).prepare("INSERT INTO meta (key, value) VALUES ('kept', 'v20')").run();
-  old.close();
-  const handle = openMemoryDb(file);
-  assert.equal(schemaVersion(dbOf(handle)), MIGRATIONS.length);
-  assert.deepEqual(
-    names(dbOf(handle)).filter((name) => name.startsWith('ledger_')),
-    []
-  );
-  assert.equal(dbOf(handle).prepare("SELECT value FROM meta WHERE key = 'kept'").get()!.value, 'v20');
-  handle.close();
-});
-
-// Schema v39 renames `places.conversation` to `places.chat`. The file is opened at v38, the last step before it.
-test('schema v39 keeps the rows of a v38 file and reads the kind of chat under places.chat', () => {
-  // Catches: a column rename that rebuilds the table and drops a row, or leaves the value under the old name.
-  const file = path.join(tempDir('nep-memdb-'), 'memory.db');
-  const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 38) });
-  // The opener renames the column after every step, so a file made here already says `chat`; a file shipped at v38 says `conversation`.
-  dbOf(old).exec('ALTER TABLE places RENAME COLUMN chat TO conversation');
-  const put = dbOf(old).prepare(
-    "INSERT INTO places (id, iface, kind, native_id, parent_id, scope_kind, name, conversation) VALUES (?, 'fake', ?, ?, NULL, ?, ?, ?)"
-  );
-  put.run('fake:channel:g1', 'channel', 'g1', 'group', 'room', 'group');
-  put.run('fake:dm:u1', 'dm', 'u1', 'dm', 'partner', 'dm');
-  put.run('fake:server:s1', 'server', 's1', 'group', 'root', null);
-  old.close();
-  const handle = openMemoryDb(file);
-  const db = dbOf(handle);
-  assert.equal(schemaVersion(db), MIGRATIONS.length);
-  assert.deepEqual(
-    db
-      .prepare('SELECT id, chat FROM places ORDER BY id')
-      .all()
-      .map((row) => ({ id: row.id, chat: row.chat })),
-    [
-      { id: 'fake:channel:g1', chat: 'group' },
-      { id: 'fake:dm:u1', chat: 'dm' },
-      { id: 'fake:server:s1', chat: null },
-    ]
-  );
-  assert.ok(
-    !db
-      .prepare('PRAGMA table_info(places)')
-      .all()
-      .some((column) => column.name === 'conversation')
-  );
-  handle.close();
-  const again = openMemoryDb(file);
-  assert.equal(dbOf(again).prepare('SELECT COUNT(*) AS n FROM places').get()!.n, 3);
-  assert.equal(dbOf(again).prepare('SELECT COUNT(*) AS n FROM schema_version').get()!.n, MIGRATIONS.length);
-  again.close();
-});
-
-test('schema v39 moves the chat keys of a queued wake and a held event to the new words', () => {
-  // Catches: a queued wake of a direct chat that reads back as a group wake, or a chat reference no code can find.
-  const file = path.join(tempDir('nep-memdb-'), 'memory.db');
-  const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 38) });
-  const payload = JSON.stringify({
-    kind: 'attend',
-    conversation: { iface: 'fake', conversationId: 'c1' },
-    privateChat: true,
-    reason: 'conversation',
-  });
-  dbOf(old)
-    .prepare(
-      "INSERT INTO wakes (id, kind, due_at, queued_at, payload, state) VALUES ('w1', 'attend', 1, 1, ?, 'queued')"
-    )
-    .run(payload);
-  old.close();
-  const handle = openMemoryDb(file);
-  const moved: unknown = JSON.parse(
-    String(dbOf(handle).prepare("SELECT payload FROM wakes WHERE id = 'w1'").get()!.payload)
-  );
-  assert.deepEqual(moved, {
-    kind: 'attend',
-    chat: { iface: 'fake', chatId: 'c1' },
-    dmChat: true,
-    reason: 'conversation',
-  });
-  handle.close();
-});
 
 test('a file database runs in WAL with foreign keys on and reopens without migrating twice', () => {
   const dir = tempDir('nep-memdb-');
@@ -140,7 +38,8 @@ test('a later migration is applied on top and the shipped ones are not run again
   openMemoryDb(file).close();
   const next = [...MIGRATIONS, 'CREATE TABLE extra_table (id TEXT PRIMARY KEY);'];
   const handle = openMemoryDb(file, { migrations: next });
-  assert.equal(schemaVersion(dbOf(handle)), MIGRATIONS.length + 1);
+  // The versions count from the baseline (src/memory/db/schema-baseline.ts), one per step above it.
+  assert.equal(schemaVersion(dbOf(handle)), BASELINE_VERSION + MIGRATIONS.length + 1);
   assert.ok(names(dbOf(handle)).includes('extra_table'));
   handle.close();
 });
@@ -152,7 +51,8 @@ test('a failing migration rolls back whole and leaves the version where it was',
   const broken = [...MIGRATIONS, 'CREATE TABLE half (id TEXT); THIS IS NOT SQL;'];
   assert.throws(() => openMemoryDb(file, { migrations: broken }));
   const handle = openMemoryDb(file);
-  assert.equal(schemaVersion(dbOf(handle)), MIGRATIONS.length);
+  // The versions count from the baseline (src/memory/db/schema-baseline.ts), one per step above it.
+  assert.equal(schemaVersion(dbOf(handle)), BASELINE_VERSION + MIGRATIONS.length);
   assert.ok(!names(dbOf(handle)).includes('half'));
   handle.close();
 });

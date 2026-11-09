@@ -8,8 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
-import { V9_TABLES } from '../src/memory/db/schema.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { OBSERVATION_VERSION, observe } from '../src/memory/db/observe.ts';
@@ -20,7 +19,6 @@ import {
   graphNodeId,
   graphPending,
   inPlace,
-  projectPending,
   projectRow,
   rebuildGraph,
   repliesTo,
@@ -140,7 +138,8 @@ test('the manifest names only tables and columns the schema has, every projected
       'supersedes',
       'version_of',
     ]);
-    for (const table of V9_TABLES) assert.ok(columns(table).size > 0, table);
+    for (const table of ['graph_nodes', 'graph_edges', 'node_access', 'claim_version_sources'])
+      assert.ok(columns(table).size > 0, table);
   } finally {
     handle.close();
   }
@@ -802,154 +801,26 @@ test('claim edits: every new version keeps its sources; a stale base is refused 
 
 // ---------- the migration and the three contracts ----------
 
-/** A data directory written into a database at schema v8, with claim links the units never make (one to a line nobody stored). */
-function importedAtV8() {
-  const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-v9-'));
+/**
+ * A data directory written into a new database by the unit writer, projected whole once, as an open of an older
+ * database projected it. The unit writer of the `media.json` cache stores its rows without their graph node, so the
+ * projection runs here.
+ */
+function seededAtBaseline() {
+  const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-graph-'));
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
   const file = path.join(root, 'memory.db');
-  const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 8) });
-  assert.equal(seedUnits(old, data, wrongly({ log: quiet })).errors, 0);
-  assert.equal(schemaVersion(old.db), 8);
-  const db: Record<string, Untyped> = old.db;
-  const source = db.prepare("SELECT id FROM sources WHERE kind = 'seen' ORDER BY rowid LIMIT 1").get().id;
-  db.prepare(
-    `INSERT INTO claims (id, subject_kind, subject_id, kind, text, scope_kind, scope_iface, scope_dm, audience_id, created_at)
-    VALUES ('k-v9', 'person', 'person:discord:100000000000000001', 'detail', 'synthetic', 'group', 'discord', NULL, 'aud:group:discord', '2026-10-01T00:00:00.000Z')`
-  ).run();
-  db.prepare(
-    "INSERT INTO claim_versions (id, claim_id, text, recorded_at, event) VALUES ('kv-1', 'k-v9', 'a', '2026-10-01T00:00:00.000Z', 'add'), ('kv-2', 'k-v9', 'b', '2026-10-02T00:00:00.000Z', 'revise')"
-  ).run();
-  db.prepare(
-    "INSERT INTO claim_sources (claim_id, source_id, position) VALUES ('k-v9', ?, 0), ('k-v9', 'src:discord:never-stored:1:seen', 1), ('k-v9', ?, 2)"
-  ).run(source, source);
-  db.prepare(
-    "INSERT INTO diary_mirrors (diary_id, iface, place_id, native_ids, posted_at) VALUES ('diary-x', 'discord', 'p1', '[\"1\"]', '2026-10-03T00:00:00.000Z')"
-  ).run();
-  old.close();
-  return { root, data, file, source, done: () => fs.rmSync(root, { recursive: true, force: true }) };
+  const handle = openMemoryDb(file);
+  assert.equal(seedUnits(handle, data, wrongly({ log: quiet })).errors, 0);
+  reproject(handle);
+  handle.close();
+  return { root, data, file, done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
-test('v9 migration: durable ids, legacy evidence marked, the projection pending then done; foreign keys and integrity; timings', (t) => {
-  const env = importedAtV8();
-  try {
-    const started = performance.now();
-    const handle = openMemoryDb(env.file);
-    const migrated = performance.now() - started;
-    const db = sqlOf(handle);
-    try {
-      // The database goes to the newest schema; v9 is the ninth entry.
-      assert.equal(schemaVersion(db), MIGRATIONS.length);
-      assert.ok(MIGRATIONS.length >= 9);
-      assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
-      assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
-      for (const table of ['claim_sources', 'episode_sources', 'selfreflection_mirrors']) {
-        assert.equal(
-          count(db, `SELECT COUNT(*) AS n FROM ${table} WHERE id IS NULL`),
-          0,
-          `${table}: every link has its id`
-        );
-        assert.equal(
-          count(db, `SELECT COUNT(DISTINCT id) AS n FROM ${table}`),
-          count(db, `SELECT COUNT(*) AS n FROM ${table}`),
-          `${table}: ids are unique`
-        );
-      }
-      assert.deepEqual(
-        db
-          .prepare("SELECT id FROM claim_sources WHERE claim_id = 'k-v9' ORDER BY position")
-          .all()
-          .map((row) => row.id),
-        [
-          'cs:k-v9:s:' + env.source,
-          'cs:k-v9:s:src:discord:never-stored:1:seen',
-          `cs:k-v9:s:${env.source}#dup${db.prepare("SELECT rowid AS r FROM claim_sources WHERE claim_id = 'k-v9' AND position = 2").get().r}`,
-        ]
-      );
-      assert.equal(
-        db.prepare("SELECT id FROM selfreflection_mirrors WHERE selfreflection_id = 'diary-x'").get().id,
-        'mirror:diary-x:discord:p1'
-      );
-      db.prepare("INSERT INTO episode_sources (episode_id, source_id, position) VALUES ('ep-new', ?, 0)").run(
-        env.source
-      );
-      assert.equal(
-        db.prepare("SELECT id FROM episode_sources WHERE episode_id = 'ep-new'").get().id,
-        `es:ep-new:s:${env.source}`,
-        'a new row gets its id the same way'
-      );
-      // Claim-level links copied to the newest version, marked legacy; the unstored line stays claim-level only.
-      assert.deepEqual(
-        db
-          .prepare("SELECT version_id, source_id, role, legacy FROM claim_version_sources WHERE version_id LIKE 'kv-%'")
-          .all()
-          .map((row) => ({ ...row })),
-        [{ version_id: 'kv-2', source_id: env.source, role: 'supports', legacy: 1 }]
-      );
-      assert.equal(count(db, 'SELECT COUNT(*) AS n FROM claim_version_sources WHERE legacy = 0'), 0);
-
-      // The projection: pending after the migration, done by the next full pass, in slices.
-      assert.equal(graphPending(handle), true);
-      assert.equal(count(db, 'SELECT COUNT(*) AS n FROM graph_edges'), 0);
-      const projected = projectPending(handle, { sliceUnits: 7 });
-      assert.equal(projected.done, true);
-      assert.equal(graphPending(handle), false);
-      t.diagnostic(
-        `v9 migration of the fixture database: ${migrated.toFixed(1)} ms; the pending projection: ${projected.units} units in ${projected.ms} ms`
-      );
-      const sources = count(db, 'SELECT COUNT(*) AS n FROM sources');
-      assert.equal(
-        count(db, "SELECT COUNT(*) AS n FROM graph_nodes n JOIN sources s ON s.id = n.row_id WHERE n.kind = 'source'"),
-        sources,
-        'every line is a node'
-      );
-      assert.deepEqual(
-        {
-          ...db
-            .prepare("SELECT kind, created_at FROM graph_nodes WHERE id = 'source:src:discord:never-stored:1:seen'")
-            .get(),
-        },
-        { kind: 'source', created_at: '1970-01-01T00:00:00.000Z' },
-        'a line a claim names but nobody stored is a placeholder node'
-      );
-      assert.equal(
-        count(db, "SELECT COUNT(*) AS n FROM graph_edges WHERE predicate = 'located_in'"),
-        sources,
-        'every line is in its place'
-      );
-      assert.equal(
-        count(
-          db,
-          "SELECT COUNT(*) AS n FROM graph_edges WHERE predicate = 'derived_from' AND src = 'claim_version:kv-2'"
-        ),
-        1
-      );
-      assert.equal(
-        count(db, "SELECT COUNT(*) AS n FROM graph_edges WHERE predicate = 'derived_from' AND src = 'claim:k-v9'"),
-        2,
-        'claim-level: the stored line and the one nobody stored'
-      );
-      assert.equal(
-        count(
-          db,
-          "SELECT COUNT(*) AS n FROM graph_edges WHERE predicate = 'account_of' AND retired_at IS NULL AND audience_id = 'aud:group:discord'"
-        ),
-        count(db, "SELECT COUNT(*) AS n FROM account_person_links WHERE state = 'verified'")
-      );
-      assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
-      const timed = reproject(handle);
-      t.diagnostic(`reproject of the fixture database: ${timed.units} units, ${timed.edges} edges in ${timed.ms} ms`);
-    } finally {
-      handle.close();
-    }
-  } finally {
-    env.done();
-  }
-});
-
 test('v9 contracts: a replay of the unit writes projects the same rows; reproject idempotent; rebuild equal; the VACUUM round trip', () => {
-  const env = importedAtV8();
+  const env = seededAtBaseline();
   try {
     const handle = openMemoryDb(env.file);
     assert.equal(

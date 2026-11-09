@@ -580,7 +580,7 @@
       "path": "src/board/",
       "purpose": "The task board in the memory database: its tables, its state machine, the rights from clients.json, its operations from filing to review, and the reaper.",
       "layer": "public",
-      "imports": ["node:*", "src/board/**", "src/memory/migration/board-archive-sql.ts"],
+      "imports": ["node:*", "src/board/**"],
       "test": "required"
     },
     {
@@ -592,7 +592,7 @@
     },
     {
       "path": "src/board/archive.ts",
-      "purpose": "Her errands as rows of the board's errand lane, board v3's move of them out of the work archive, and the archive's comparison with the board. Tested through the board v3 and verify-errands tests.",
+      "purpose": "Her errands as rows of the board's errand lane. Tested through the errand board tests.",
       "layer": "public",
       "imports": ["node:*", "src/board/**"],
       "test": "none"
@@ -1547,7 +1547,7 @@
     },
     {
       "path": "src/memory/db/selfreflection-past.ts",
-      "purpose": "Schema v15's data step that makes her past messages in a selfreflection mirror's place entries. Tested through the v15 migration tests.",
+      "purpose": "Her past messages in a selfreflection mirror's place made entries, and the read of her entries. Tested through the selfreflection tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
@@ -1625,13 +1625,6 @@
     {
       "path": "src/memory/db/schema-baseline.ts",
       "purpose": "The schema a new memory database starts from, with its seed rows. Tested through `tests/memory-db-baseline.test.ts`.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "none"
-    },
-    {
-      "path": "src/memory/db/session-repair.ts",
-      "purpose": "Schema v17's data step that sets back the claims, descriptions and attitude reasons the unit sync wrote over her memory session's changes. Tested through the v17 migration tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

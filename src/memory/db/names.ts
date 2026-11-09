@@ -20,7 +20,7 @@
 //       now. graph.ts#projectRow calls it for every unit it projects, so every writer of those tables keeps the index. An
 //       account's touch also touches its person and its memberships, since their names point through the account. It
 //       returns the nodes whose rows it rewrote, whose name sets object-vectors.ts#touchNameVectors compares.
-//   rebuildNames(db)   every row again from the stored rows; the migration that makes the table runs it.
+//   rebuildNames(db)   every row again from the stored rows.
 //   namesOf(db, ctx, words)   the nodes each word names, read under `ctx` (scope.ts#audienceWhere). A word is matched by
 //       its folded exact form first, then by its stems, then by trigrams; a weaker way is tried only when the stronger
 //       found nothing, and one node is one hit per word, by its strongest match.
@@ -61,23 +61,6 @@ const TRIGRAM_MIN_CHARS = 4;
 const TRIGRAM_MIN_SIMILARITY = 0.6;
 /** The most rows one trigram query reads before the similarity is measured. */
 const TRIGRAM_CANDIDATES = 50;
-
-/** The schema of the index: the table, its indexes, the trigram table and the triggers that keep it. */
-export const NAMES_SCHEMA = `CREATE TABLE names (
-  rowid INTEGER PRIMARY KEY,
-  label TEXT NOT NULL, normalized TEXT NOT NULL, stem TEXT NOT NULL, kind TEXT NOT NULL, node_id TEXT NOT NULL,
-  audience_id TEXT NOT NULL, source_table TEXT NOT NULL, source_id TEXT NOT NULL,
-  UNIQUE (normalized, kind, node_id, source_table, source_id)
-);
-CREATE INDEX names_stem ON names(stem);
-CREATE INDEX names_source ON names(source_table, source_id);
-CREATE VIRTUAL TABLE names_tri USING fts5(normalized, content='names', content_rowid='rowid', tokenize='trigram');
-CREATE TRIGGER names_tri_insert AFTER INSERT ON names BEGIN
-  INSERT INTO names_tri(rowid, normalized) VALUES (new.rowid, new.normalized);
-END;
-CREATE TRIGGER names_tri_delete AFTER DELETE ON names BEGIN
-  INSERT INTO names_tri(names_tri, rowid, normalized) VALUES ('delete', old.rowid, old.normalized);
-END;`;
 
 type NameRow = { label: string; kind: string; nodeId: string; audienceId: string };
 

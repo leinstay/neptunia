@@ -7,7 +7,6 @@ import path from 'node:path';
 import { archivedLlm, currentRequestMeta, turnOutcome, turnService, withRequestMeta } from '../src/llm/archive.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { sessionRequestId } from '../src/memory/db/request-archive.ts';
-import { MIGRATIONS } from '../src/memory/db/schema.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { noteArchiveGap, readArchiveGaps, readRecordedRuns, taskOutcomes } from '../src/watcher/requests.ts';
@@ -160,25 +159,6 @@ test('a board task gives the outcome of the session that worked it, and an id on
   assert.equal(taskOutcomes(db, 'T-3')?.state, 'open');
   assert.equal(taskOutcomes(db, 'run-1'), null);
   handle.close();
-});
-
-test('the migration adds the columns to a database with rows, which keep their text and read as unlinked', () => {
-  // Bug: the migration rebuilds or drops the archive, or an old row with NULL columns breaks the read.
-  const file = path.join(tempDir('nep-outcomes-'), 'memory.db');
-  const before = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, -1) });
-  dbOf(before)
-    .prepare(
-      `INSERT INTO model_requests (id, schema_version, status, started_at, finished_at, system_text, messages)
-       VALUES ('old', 1, 'ok', ?, ?, 'OLD-SYSTEM', '[]')`
-    )
-    .run(new Date(MIDNIGHT + MINUTE).toISOString(), new Date(MIDNIGHT + 2 * MINUTE).toISOString());
-  before.close();
-  const after = openMemoryDb(file);
-  const [request] = readRecordedRuns(dbOf(after), WINDOW).runs.flatMap((run) => run.requests);
-  assert.equal(request?.systemText, 'OLD-SYSTEM');
-  assert.equal(request?.service, null);
-  assert.deepEqual(request?.outcome, { kind: 'none', state: 'unlinked', ref: null });
-  after.close();
 });
 
 test('a lost archive write is kept on file for the read, with ids and no content, and a dead disk never throws', () => {

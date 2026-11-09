@@ -36,7 +36,7 @@ import type { Args, SqlValue, TriageFields } from './fields.ts';
 import { APPROVAL_TARGETS, BOARD_ROLES, BoardError, CLOSED, NOTIFY, STATUSES, authorize } from './machine.ts';
 import type { BoardRole, Condition, Role, Rule, Status, Via } from './machine.ts';
 import { assessRisk, climbRisk, hasRiskRecord, refuseLowering, tellHeld } from './risk.ts';
-import { BOARD_MIGRATIONS, boardVersion } from './schema.ts';
+import { BOARD_VERSION, boardVersion } from './schema.ts';
 import type { BoardDb } from './schema.ts';
 
 // ---------- settings ----------
@@ -396,10 +396,10 @@ function findTask(db: BoardDb, id: unknown): TaskRow {
 
 function requireVersion(db: BoardDb): void {
   const version = boardVersion(db);
-  if (version !== BOARD_MIGRATIONS.length) {
+  if (version !== BOARD_VERSION) {
     throw new BoardError(
       'board-unavailable',
-      `the board is at version ${version}, the engine expects ${BOARD_MIGRATIONS.length}`
+      `the board is at version ${version}, the engine expects ${BOARD_VERSION}`
     );
   }
 }

@@ -53,11 +53,13 @@ const CLIENTS = {
   derived: ['holder', 'requester', 'answerer', 'reaper'],
 };
 
-function setUp(boardMigrations?: ReadonlyArray<string>): { board: Board; dir: string; db: BoardDb; close: () => void } {
+function setUp({ boardDown = false } = {}): { board: Board; dir: string; db: BoardDb; close: () => void } {
   const dir = tempDir('nep-board-');
   writeClients(dir, CLIENTS);
-  const handle = boardMigrations ? openMemoryDb(':memory:', { boardMigrations }) : openMemoryDb(':memory:');
+  const handle = openMemoryDb(':memory:');
   const db = dbOf(handle);
+  // A board whose version rows are gone stands at version 0, the way a memory without its board reads.
+  if (boardDown) db.exec('DELETE FROM board_schema_version');
   const board = openBoard({ db, privateDir: dir, now: () => NOW, settings: () => SETTINGS });
   return { board, dir, db, close: () => handle.close() };
 }
@@ -300,7 +302,7 @@ test('a deploy approval is recorded by the owner and refused to the reviewer', (
 });
 
 test("a memory without its board answers board-unavailable to every operation, the owner's included", () => {
-  const { board, close } = setUp([]);
+  const { board, close } = setUp({ boardDown: true });
   try {
     const ops: Array<[BoardOp, Record<string, unknown>]> = [
       ['task.list', {}],
@@ -358,7 +360,7 @@ test('a board write projects nothing into her memory graph and records no unit f
 // than the owner (attempt.end by the lead, `auto` by the lead at normal risk, an answer by the lead to the thinker's
 // question), which no generic role gives.
 
-import { BOARD_MIGRATIONS, boardVersion } from '../src/board/schema.ts';
+import { BOARD_VERSION, boardVersion } from '../src/board/schema.ts';
 import { boardSettings } from '../src/board/board.ts';
 import type { Row } from '../src/board/board.ts';
 
@@ -727,7 +729,7 @@ test('a restart keeps every task where it was, the lease included, and does not 
   const handle = openMemoryDb(file, { alive: () => false });
   t.after(() => handle.close());
   const reopened = openBoard({ db: dbOf(handle), privateDir: dir, now: clock, settings: () => SETTINGS });
-  assert.equal(boardVersion(dbOf(handle)), BOARD_MIGRATIONS.length);
+  assert.equal(boardVersion(dbOf(handle)), BOARD_VERSION);
   const h = reopened.call('lead', 'task.show', { id: held.id }).task;
   assert.equal(h.status, 'in_progress');
   assert.equal(h.lease_owner, 'dispatcher');

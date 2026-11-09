@@ -37,11 +37,6 @@
 //        attempts, questions, reviews, results, comments and latest events. Opens the database read-only. `--json`
 //        prints one line, the answer of `task.list` or `task.show`. An unknown id, or a board that is not at the
 //        engine's version, exits 1.
-//   node scripts/memory-db.ts board verify-errands --db <file> [--json]
-//        Compares every errand of the `work` archive with the errand its board task holds since board v3, field by
-//        field over the record (src/board/archive.ts#compareArchive). Opens the database read-only. `--json` prints
-//        one line, `{ checked, mismatches: [{ id, field }] }`, the field `missing` for an errand with no task. Exits 0
-//        with no mismatch, 1 with any.
 //
 // reproject, rebuild, restore-tables, index-policy --apply and media-check --apply take the database's writer lock
 // and refuse while the bot (or another tool) holds it.
@@ -56,7 +51,6 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { rebuildGraph, reproject, projectPending } from '../src/memory/db/graph.ts';
 import { checkMedia, classify as classifyIndex } from '../src/memory/db/index-policy.ts';
 import { readBoard } from '../src/board/board.ts';
-import { compareArchive } from '../src/board/archive.ts';
 import { BoardError } from '../src/board/machine.ts';
 import type { BoardDb as BoardDbShape } from '../src/board/schema.ts';
 import type { Db } from '../src/memory/db/types.ts';
@@ -425,7 +419,7 @@ function runRestoreTables(io: Io, options: Record<string, unknown>): number {
   if (!fs.existsSync(path.join(from, 'memory.db'))) throw new Error(`no memory.db in ${from}; restore refused`);
   const start = performance.now();
   // No migration of either part: a restore leaves the versions as they are, and refuses when they differ.
-  const handle = openMemoryDb(file, { migrations: [], boardMigrations: [] });
+  const handle = openMemoryDb(file, { migrations: [] });
   // node:sqlite's DatabaseSync, which open.js types as `object`, has every method BoardDb names.
   const db = sqlOf(handle) as BoardDb;
   let attached = false;
@@ -480,9 +474,7 @@ function printTask(io: Io, view: TaskView) {
 function runBoard(io: Io, options: Record<string, unknown>): number {
   need(options, 'db');
   const [sub, id, ...extra] = Array.isArray(options._) ? options._.map(String) : [];
-  if (sub === 'verify-errands') return runVerifyErrands(io, options, [id, ...extra]);
-  if (sub !== 'list' && sub !== 'show')
-    throw new Error('usage: board list|show <id>|verify-errands --db <file> [--json]');
+  if (sub !== 'list' && sub !== 'show') throw new Error('usage: board list|show <id> --db <file> [--json]');
   if (sub === 'show' && !id) throw new Error('board show needs a task id');
   const surplus = sub === 'list' ? [id, ...extra] : extra;
   if (surplus.some((arg) => arg !== undefined)) throw new Error(`unexpected argument ${String(surplus.find(Boolean))}`);
@@ -509,28 +501,6 @@ function runBoard(io: Io, options: Record<string, unknown>): number {
       return 1;
     }
     throw error;
-  } finally {
-    handle.close();
-  }
-}
-
-/**
- * `board verify-errands` over a read-only open (see the head of this file).
- * @param surplus the arguments after the subcommand, none expected
- */
-function runVerifyErrands(io: Io, options: Record<string, unknown>, surplus: Array<string | undefined>): number {
-  const extra = surplus.find((arg) => arg !== undefined);
-  if (extra !== undefined) throw new Error(`unexpected argument ${extra}`);
-  const handle = openMemoryDb(String(options.db), { readOnly: true });
-  try {
-    // node:sqlite's DatabaseSync, which open.js types as `object`, has every method BoardDb names.
-    const verdict = compareArchive(sqlOf(handle));
-    if (options.json) io.out(JSON.stringify(verdict));
-    else {
-      io.out(`verify-errands: ${verdict.checked} archived errands, ${verdict.mismatches.length} mismatches`);
-      for (const { id, field } of verdict.mismatches) io.out(`${id}  ${field}`);
-    }
-    return verdict.mismatches.length === 0 ? 0 : 1;
   } finally {
     handle.close();
   }

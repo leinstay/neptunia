@@ -1,11 +1,10 @@
-// Her errands as rows of the board's errand lane, and board v3's move of them out of the `work` archive. An errand is
+// Her errands as rows of the board's errand lane. An errand is
 // one `board_tasks` row with the errand's id, `lane` `errand`, its agent as `role`, its goal as `title`, `persona` as
 // requester and subscriber, its state as the board's status (`queued` approved, `running` in_progress, the ends as
 // they are) and its error as `close_reason`; its result text is the task's `handoff` result, and every other field of
 // the errand, with the place it belongs to, is kept in `metadata` (`{ placeId, errand }`), so the record comes back
-// exactly as the errand store (src/errands/store.ts) keeps it. MOVE_ARCHIVE_SQL is board v3's data step
-// (src/board/schema.ts); `compareArchive` is `scripts/memory-db.ts board verify-errands`. After the move `work` and
-// `work_events` are an archive the engine neither writes nor reads. Nothing here logs.
+// exactly as the errand store (src/errands/store.ts) keeps it. `work` and `work_events` are an archive the engine
+// neither writes nor reads. Nothing here logs.
 
 import type { Status } from './machine.ts';
 import type { BoardDb } from './schema.ts';
@@ -148,9 +147,6 @@ export function insertHandoff(db: BoardDb, id: string, result: Record<string, un
   ).run(`R-${id}`, id, handoffOf(result), at);
 }
 
-/** The ISO time (`2026-10-30T10:00:00.000Z`, as `Date#toISOString` writes it) of an epoch-ms SQL expression. */
-const ARCHIVED_ERRANDS = "SELECT id, record FROM work WHERE kind = 'errand' ORDER BY created_ms, rowid";
-
 /**
  * The errand a journal action line of an errand names (`name` `errand`, the id in its `input`, `target` or `result`
  * as `errandId`), the task its `day` row references; null for any other line.
@@ -161,33 +157,4 @@ export function errandIdOfLine(line: unknown): string | null {
     if (isObject(part) && typeof part.errandId === 'string' && part.errandId !== '') return part.errandId;
   }
   return null;
-}
-
-/** One difference `compareArchive` found: the errand and the record's field, or `missing` for an errand with no task. */
-export type ArchiveMismatch = { id: string; field: string };
-
-/**
- * Every `work` row of kind errand compared with the errand its board task holds, field by field over the record (the
- * JSON of each field either side has). Read-only.
- */
-export function compareArchive(db: BoardDb): { checked: number; mismatches: Array<ArchiveMismatch> } {
-  const task = db.prepare(`${TASKS_WITH_HANDOFF} WHERE t.id = ?`);
-  const mismatches: Array<ArchiveMismatch> = [];
-  let checked = 0;
-  for (const row of db.prepare(ARCHIVED_ERRANDS).all()) {
-    checked += 1;
-    const id = String(row.id);
-    const found = task.get(id);
-    const moved = found === undefined ? null : errandOf(found);
-    if (moved === null) {
-      mismatches.push({ id, field: 'missing' });
-      continue;
-    }
-    const archived = parsed(row.record);
-    const before = isObject(archived) ? archived : {};
-    for (const key of new Set([...Object.keys(before), ...Object.keys(moved)])) {
-      if (JSON.stringify(before[key]) !== JSON.stringify(moved[key])) mismatches.push({ id, field: key });
-    }
-  }
-  return { checked, mismatches };
 }

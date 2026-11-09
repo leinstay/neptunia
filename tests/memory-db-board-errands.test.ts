@@ -1,7 +1,6 @@
-// scripts/memory-db.ts over a database whose errands board v3 moved out of the `work` archive (PR 6d):
-// `board verify-errands` compares every archived errand with its board task, field by field, and names the errand
-// and the field that differ; `restore-tables --part memory` brings the archive back from a backup and leaves its
-// guards on. The archive comes from fixtures/errand-archive.ts. Temporary directories only.
+// scripts/memory-db.ts over a database that holds errands in the `work` archive: `restore-tables --part memory` brings
+// the archive back from a backup and leaves its guards on. The archive comes from fixtures/errand-archive.ts.
+// Temporary directories only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -10,9 +9,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { main, tableHashes } from '../scripts/memory-db.ts';
 import type { BoardDb } from '../src/board/schema.ts';
-import { ARCHIVE, archiveDataDir } from './fixtures/errand-archive.ts';
+import { archiveDataDir } from './fixtures/errand-archive.ts';
 
-type Verdict = { checked: number; mismatches: Array<{ id: string; field: string }> };
 type Hash = { table: string; rows: number; hash: string };
 
 // open.js types its connection as `object`; it is node:sqlite's DatabaseSync, which has every method BoardDb names.
@@ -25,7 +23,7 @@ function run(...argv: Array<string>): { code: unknown; out: Array<string>; err: 
   return { code, out, err };
 }
 
-/** The archive opened once by the current code (board v3 runs), then `change` on the open file. */
+/** The archive opened once by the current code, then `change` on the open file. */
 function moved(change: (db: BoardDb) => void = () => {}): { dataDir: string; file: string } {
   const env = archiveDataDir('nep-verify-errands-');
   const handle = openMemoryDb(env.file);
@@ -36,38 +34,6 @@ function moved(change: (db: BoardDb) => void = () => {}): { dataDir: string; fil
   }
   return env;
 }
-
-function verify(file: string): { code: unknown; verdict: Verdict } {
-  const result = run('board', 'verify-errands', '--db', file, '--json');
-  assert.equal(result.out.length, 1, result.err.join('\n'));
-  // --json prints one line, the verdict (see the brief).
-  return { code: result.code, verdict: JSON.parse(result.out[0] ?? 'null') as Verdict };
-}
-
-test('verify-errands is clean after the move and counts every archived errand', () => {
-  const { file } = moved();
-  const { code, verdict } = verify(file);
-  assert.equal(code, 0);
-  assert.deepEqual(verdict, { checked: ARCHIVE.length, mismatches: [] });
-});
-
-test('verify-errands names the errand and the field whose board task was altered after the move', () => {
-  const { file } = moved((db) => {
-    db.prepare("UPDATE board_tasks SET status = 'failed' WHERE id = 't0000e001'").run();
-  });
-  const { code, verdict } = verify(file);
-  assert.equal(code, 1);
-  assert.deepEqual(verdict.mismatches, [{ id: 't0000e001', field: 'state' }]);
-});
-
-test('verify-errands reports an archived errand the board holds no task for as missing', () => {
-  const { file } = moved((db) => {
-    db.prepare("DELETE FROM board_tasks WHERE id = 't0000e002'").run();
-  });
-  const { code, verdict } = verify(file);
-  assert.equal(code, 1);
-  assert.deepEqual(verdict.mismatches, [{ id: 't0000e002', field: 'missing' }]);
-});
 
 test('a memory-only restore brings the archive back from the backup', () => {
   const { dataDir, file } = moved();

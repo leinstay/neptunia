@@ -18,7 +18,6 @@ import type { ErrandClient, ErrandService, ErrandStores, RunOutcome } from '../s
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
-import { writeArchive } from './fixtures/errand-archive.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const OWNER = '42';
@@ -128,50 +127,6 @@ function openedAt(prefix: string, prepare: ((file: string) => void) | null = nul
   OPENED.push(opened);
   return opened.memoryDb;
 }
-
-/** Three errands of the scout run in memory: one done with a result longer than a page, one failed, one open. */
-async function inMemory(): Promise<{ memory: Rig; ids: Array<string> }> {
-  const memory = makeEnv(null);
-  const ids: Array<string> = [];
-  for (const goal of ['find the release notes', 'compare the price lists', 'look up the opening hours']) {
-    ids.push(idOf(await ask(memory.env, 'errand.run', { agent: 'scout', goal })));
-  }
-  await tick();
-  memory.client.end(ids[0] ?? '', {
-    status: 'done',
-    result: {
-      text: 'The notes list three changes, and the second one matters most of all.',
-      sources: ['https://example.org/n'],
-      files: [],
-    },
-    usage: { input: 900, output: 200, usd: 0.25, steps: 3, seconds: 4 },
-  });
-  memory.client.end(ids[1] ?? '', { status: 'failed', error: 'withheld-path' });
-  await tick();
-  return { memory, ids };
-}
-
-test('the errand tools answer over the moved errands as they answer over the same errands kept in memory', async () => {
-  await withCapturedLogs(async () => {
-    const { memory, ids } = await inMemory();
-    const records = [...(memory.stores.get()?.recent(10) ?? [])].reverse();
-    const memoryDb = openedAt('nep-errand-tools-archive-', (file) => writeArchive(file, records));
-    const board = makeEnv(memoryDb);
-    assert.equal(boardOf(memoryDb).list().length, 3, 'the open moved them to the board');
-    const asks: Array<[string, Obj]> = [
-      ['errand.status', {}],
-      ['errand.status', { id: ids[0] }],
-      ['errand.list', {}],
-      ['errand.read', { id: ids[0] }],
-      ['errand.read', { id: ids[0], from: 40 }],
-      ['errand.resolve', { id: ids[1] }],
-      ['errand.status', {}],
-    ];
-    for (const [name, args] of asks) {
-      assert.deepEqual(await ask(board.env, name, args), await ask(memory.env, name, args), `${name} ${ids.join(',')}`);
-    }
-  });
-});
 
 test('errand.run files the errand on the board as a scout task in progress once it is sent', async () => {
   await withCapturedLogs(async () => {

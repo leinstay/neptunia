@@ -1,20 +1,16 @@
-// The stored shape of semantic memory, stage S2: the tables and guards the append migration adds to the integrated
-// schema, on real temporary databases and with the SQL any writer would send. A version is sealed by inserting its
+// The stored shape of semantic memory: the tables and guards of the schema baseline (src/memory/db/schema-baseline.ts),
+// on real temporary databases and with the SQL any writer would send. A version is sealed by inserting its
 // immutable row last, so these tests hold the guards themselves; the writer's own validation is in
 // memory-db-semantic-write.test.ts. The fixture's kind and predicate are made up here on purpose, so the registry's
 // shipped list is not what makes these pass. Synthetic content only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle } from '../src/memory/db/types.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
-/** The migrations of the integrated schema this workstream appends to. Shipped entries never change. */
-type Row = Record<string, unknown>;
-
-const INTEGRATED = MIGRATIONS.slice(0, 29);
 const AT = '2026-11-05T10:00:00.000Z';
 const PUBLIC = 'aud:group:discord';
 const SEMANTIC_TABLES = [
@@ -105,94 +101,8 @@ const contentOf = (db: Db, tables: ReadonlyArray<string>): Record<string, string
   Object.fromEntries(
     tables.map((table) => [table, JSON.stringify(db.prepare(`SELECT * FROM "${table}" ORDER BY rowid`).all())])
   );
-const ownTables = (db: Db): Array<string> =>
-  db
-    .prepare(
-      `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%_fts%'
-        AND name NOT LIKE '%_tri%' AND name NOT LIKE 'semantic_%' AND name NOT IN ('meta', 'schema_version')
-        AND sql NOT LIKE '%WITHOUT ROWID%'`
-    )
-    .all()
-    .map((row) => String(row.name));
-const definitions = (db: Db): Map<string, string> =>
-  new Map(
-    db
-      .prepare("SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'semantic_%'")
-      .all()
-      .map((row): [string, string] => [String(row.name), String(row.sql)])
-  );
 
 // ---- the append migration --------------------------------------------------------------------------------------------
-
-test('an integrated database opens at the new version with every old row byte for byte and every old object as it was', () => {
-  // Bug: the migration rewrites a shipped table, drops a publication guard or touches stored text.
-  const file = path.join(tempDir('nep-semantic-schema-'), 'memory.db');
-  const old = openMemoryDb(file, { migrations: INTEGRATED });
-  seedBase(dbOf(old));
-  // B10 of the master plan renames the diary's two tables with their objects; every other table stays byte for byte.
-  const tables = ownTables(dbOf(old)).filter((table) => !table.startsWith('diary'));
-  const before = contentOf(dbOf(old), tables);
-  const objects = definitions(dbOf(old));
-  old.close();
-
-  const upgraded = openMemoryDb(file);
-  try {
-    const db = dbOf(upgraded);
-    assert.equal(schemaVersion(db), MIGRATIONS.length);
-    assert.ok(MIGRATIONS.length > INTEGRATED.length);
-    // Stage M rewrites `media` and takes `media` off `sources`, on purpose; every other shipped table stays byte for byte.
-    // A category is no place, the owner's word of 2026-11-06: `places.category` is dropped and `model_requests.blocks` added on purpose as well.
-    // Schema v40 adds `people.meta` and `sources.author_person` for the meta-person (plan 2026-11-08), on purpose too.
-    const asOfOld = (text: Record<string, string>) => {
-      const rest = { ...text };
-      delete rest.media;
-      const lines = (JSON.parse(text.sources) as Array<Row>).map((row) => {
-        const line = { ...row };
-        delete line.media;
-        delete line.author_person;
-        return line;
-      });
-      const places = (JSON.parse(text.places) as Array<Row>).map((row) => {
-        const place = { ...row };
-        delete place.category;
-        return place;
-      });
-      const people = (JSON.parse(text.people) as Array<Row>).map((row) => {
-        const person = { ...row };
-        delete person.meta;
-        return person;
-      });
-      return {
-        ...rest,
-        sources: JSON.stringify(lines),
-        places: JSON.stringify(places),
-        people: JSON.stringify(people),
-      };
-    };
-    assert.deepEqual(asOfOld(contentOf(db, tables)), asOfOld(before));
-    const after = definitions(db);
-    for (const [name, sql] of objects) {
-      if (
-        name === 'media' ||
-        name === 'sources' ||
-        name === 'places' ||
-        name === 'people' ||
-        name === 'model_requests' ||
-        name.startsWith('diary')
-      )
-        continue;
-      assert.equal(after.get(name), sql, `${name} changed its definition`);
-    }
-    const names = db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'semantic_%'").all();
-    for (const table of SEMANTIC_TABLES)
-      assert.ok(
-        names.some((row) => row.name === table),
-        `${table} is missing`
-      );
-  } finally {
-    upgraded.close();
-  }
-});
 
 test('a second open of a sealed database runs no conversion and changes no semantic row', () => {
   // Bug: the semantic step or a registry seed runs again on each start and duplicates or rewrites rows.
