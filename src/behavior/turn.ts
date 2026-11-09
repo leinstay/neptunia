@@ -550,7 +550,7 @@ export function createTurnRunner({
         : null;
     },
     // A #handle she carries names a channel of any interface the memory holds.
-    knownPlaces: () => frameReads?.chatPlaceIds?.() ?? [],
+    knownPlaces: () => frameReads?.chatPlaces?.() ?? [],
     skills,
     selfIdOf,
     clock,

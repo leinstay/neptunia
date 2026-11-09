@@ -21,7 +21,7 @@ import { CHANNEL_HANDLE_PREFIX, idText, resolveHandles, widenHandles } from '../
 import { selfreflectionPlaces, readMirrors } from '../behavior/mirror.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import { log } from '../log.ts';
-import { nativeOfAny } from '../memory/db/ids.ts';
+import { placeRefOf } from '../memory/addresses.ts';
 import { linkChannels, linkMessageNumbers } from '../memory/mentions.ts';
 import { resolveMentions } from './mentions.ts';
 import { inRoot } from './routing.ts';
@@ -206,14 +206,15 @@ export function createSends(ctx: SendsContext): Sends {
    */
   function withRefs(written: string, refs: PostRefs | null | undefined): { text: string; replyTo: string | null } {
     if (!refs || typeof written !== 'string') return { text: written, replyTo: null };
-    const here = refs.placeId.slice(0, refs.placeId.indexOf(':'));
+    const here = placeRefOf(store, refs.placeId)?.iface ?? null;
     const labels = (hot.prompts?.labels ?? {}) as Parameters<typeof outgoingRefs>[1]['labels'];
     return outgoingRefs(written, {
       placeId: refs.placeId,
       lineOf: refs.lineOf,
       linkOf: (line) => {
-        const chat = line.dm ? null : nativeOfAny(line.placeId);
-        if (!chat || !line.placeId.startsWith(`${here}:`)) return null;
+        const there = line.dm ? null : placeRefOf(store, line.placeId);
+        const chat = there === null || there.kind === 'dm' ? null : there.nativeId;
+        if (here === null || chat === null || there?.iface !== here) return null;
         return messageLinkOf(portAt(iface, { iface: here }), rootOfPlace(line.placeId), chat, line.messageId);
       },
       labels,

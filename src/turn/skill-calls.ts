@@ -36,7 +36,7 @@ import {
   valuesOf,
   WRITTEN_SKILLS,
 } from './calls.ts';
-import type { CallEnvelope, Lookup, LookupRing, SearchRefs } from './calls.ts';
+import type { CallEnvelope, KnownPlace, Lookup, LookupRing, SearchRefs } from './calls.ts';
 import { clampWithEllipsis } from '../memory/clamp.ts';
 import { journalResultOf, portError, postedOf } from './journal.ts';
 import type { JournalOp } from './journal.ts';
@@ -76,8 +76,8 @@ export type SkillCallsContext = {
   placesNamedFor?: (draft: CallsDraft | null, channel: CallChannel) => CallView['placesNamed'];
   /** The memory graph under a turn's context: the places it ranks for words that name no place (graph-find.ts#placesFound). */
   placesFoundFor?: (draft: CallsDraft | null, channel: CallChannel) => CallView['placesFound'];
-  /** The place ids of the memory's channels and threads on every interface, read at the moment of use; none while it is closed. */
-  knownPlaces?: () => ReadonlyArray<string>;
+  /** The memory's channels and threads on every interface with their native ids, read when used; none while it is closed. */
+  knownPlaces?: () => ReadonlyArray<KnownPlace>;
   skills: SkillMap | null;
   selfIdOf: () => string;
   clock: () => number;

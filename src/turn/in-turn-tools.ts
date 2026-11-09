@@ -19,7 +19,7 @@ import type { FrameLine, FrameReads } from '../memory/db/frame-reads.ts';
 import type { Seeds } from '../memory/db/mind-read.ts';
 import { peopleMemoryOf } from './request/memory-block.ts';
 import type { Labels } from './request/types.ts';
-import { placeIdParts } from '../memory/db/ids.ts';
+import { nativeChatOf } from '../memory/db/frame-reads.ts';
 import { fetchSpan, recordMessages, runConversationRead } from '../tools/conversation-read.ts';
 import type { ReadMessage } from '../tools/conversation-read.ts';
 import {
@@ -80,7 +80,7 @@ export type InTurnToolsContext = {
   chatOf: (channel: { id: string }) => ChatRef;
   turnContextOf: (draft: InTurnDraft | null | undefined, channel: ChatInfo) => unknown;
   /** The memory's reads of a place by its id, on any interface (src/memory/db/frame-reads.ts); null while closed. */
-  placeReads?: Pick<FrameReads, 'placeReadable' | 'around' | 'directChats' | 'mind' | 'account'> | null;
+  placeReads?: Pick<FrameReads, 'placeReadable' | 'around' | 'directChats' | 'mind' | 'account' | 'placeRef'> | null;
   linkCalls: JournalNotes['linkCalls'];
   drawTool: DrawGif['drawTool'];
   /** Her link tool over the account she talks with (src/interface/person-link.ts); absent, `person.link` is not offered. */
@@ -342,6 +342,13 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     }
   }
 
+  /** The chat of a stored place on its own interface, from its row (frame-reads.ts#placeRefOf); null without one. */
+  function storedChatOf(placeId: string): ChatRef | null {
+    const ref = placeReads?.placeRef?.(placeId) ?? null;
+    const chatId = ref === null ? null : nativeChatOf(ref);
+    return ref === null || chatId === null ? null : { iface: ref.iface, chatId };
+  }
+
   /**
    * One conversation.read of a place named by its place id outside the turn's snapshot, on any interface: the stored
    * lines the turn's memory context reads, joined by the interface's own history through the router when the record
@@ -351,14 +358,14 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
   async function readPlace({
     args,
     placeId,
-    parts,
+    ref,
     channel,
     selfName,
     draft,
   }: {
     args: Obj;
     placeId: string;
-    parts: NonNullable<ReturnType<typeof placeIdParts>>;
+    ref: ChatRef;
     channel: ChatInfo;
     selfName: string;
     draft: InTurnDraft | null;
@@ -367,7 +374,6 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     if (!placeReads?.placeReadable || !context) return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const config = hot.config;
     const labels = hot.prompts?.labels ?? {};
-    const ref: ChatRef = { iface: parts.iface, chatId: parts.native };
     // The stored name of the author, else the name of a member the core has been told of.
     const authorNameOf = (line: FrameLine): string =>
       line.authorName ?? (line.authorId === null ? null : memberOf(placeId, line.authorId)?.name) ?? '-';
@@ -402,7 +408,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       now: clock(),
       timezone: config.bot?.timezone ?? 'UTC',
     });
-    return withReadMemory(answer, { iface: parts.iface, placeId, channel, draft });
+    return withReadMemory(answer, { iface: ref.iface, placeId, channel, draft });
   }
 
   /**
@@ -438,13 +444,13 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     const readable = (id: string): boolean =>
       isIssuedInternalContext(context) || Boolean(placeReads.placeReadable?.(context, id));
     const chosen = others.find(readable) ?? others[0];
-    const parts = chosen === undefined ? null : placeIdParts(chosen);
-    if (chosen === undefined || parts === null) return { status: 'invalid', code: CODE.PLACE_NOT_FOUND };
+    const ref = chosen === undefined ? null : storedChatOf(chosen);
+    if (chosen === undefined || ref === null) return { status: 'invalid', code: CODE.PLACE_NOT_FOUND };
     // The read takes the chat's place id; the person and any place she wrote beside it are not its arguments.
     const rest = Object.fromEntries(
       Object.entries(args).filter(([key]) => !['person', 'place', 'placeId'].includes(key))
     );
-    return readPlace({ args: rest, placeId: chosen, parts, channel, selfName, draft });
+    return readPlace({ args: rest, placeId: chosen, ref, channel, selfName, draft });
   }
 
   /**
@@ -474,10 +480,10 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
   }): Promise<{ status: string; code?: string; reason?: string; data?: { text: string } }> {
     if (typeof args.person === 'string' && args.person.trim() !== '')
       return readPerson({ args, channel, placeId, selfName, draft });
-    const named = typeof args.placeId === 'string' ? placeIdParts(args.placeId) : null;
-    if (named && (!snapshot || named.iface !== chatOf(channel).iface || !snapshot.get(named.native)))
-      return readPlace({ args, placeId: String(args.placeId), parts: named, channel, selfName, draft });
-    const asked = named ? { ...args, placeId: named.native } : args;
+    const named = typeof args.placeId === 'string' ? storedChatOf(args.placeId) : null;
+    if (named && (!snapshot || named.iface !== chatOf(channel).iface || !snapshot.get(named.chatId)))
+      return readPlace({ args, placeId: String(args.placeId), ref: named, channel, selfName, draft });
+    const asked = named ? { ...args, placeId: named.chatId } : args;
     if (!snapshot || (!inRoot(channel) && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const config = hot.config;
     const labels = hot.prompts?.labels ?? {};

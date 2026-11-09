@@ -2,6 +2,8 @@
 // the memory store addresses. The store answers from the database; a stand-in store without these methods holds the
 // native ids as given.
 
+import type { PlaceRef } from './db/frame-reads.ts';
+
 type Chatish = {
   id?: string | null;
   iface?: string | null;
@@ -22,6 +24,7 @@ type Addressing = {
   dmHomeOf?: (accountId: string) => string | null;
   rootPlaceOf?: (placeId: string) => string | null;
   chatOfPlace?: (placeId: string, dmChatOf?: DmChatOf | null) => string | null;
+  placeRefOf?: (placeId: string) => PlaceRef | null;
 };
 
 /** The direct chat an interface saw with a member, by the member's native id. */
@@ -84,4 +87,10 @@ export function topPlaceOf(store: unknown, placeId: string): string {
 export function chatOfPlace(store: unknown, placeId: string, dmChatOf: DmChatOf | null = null): string | null {
   const addressing = store as Addressing | null | undefined;
   return addressing?.chatOfPlace ? addressing.chatOfPlace(placeId, dmChatOf) : placeId;
+}
+
+/** A stored place as its interface knows it (the store's `placeRefOf`), null when no row holds it or the store holds none. */
+export function placeRefOf(store: unknown, placeId: string): PlaceRef | null {
+  const addressing = store as Addressing | null | undefined;
+  return addressing?.placeRefOf?.(placeId) ?? null;
 }
