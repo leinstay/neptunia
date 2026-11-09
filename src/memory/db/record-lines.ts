@@ -81,11 +81,19 @@ type DayWrite = {
 // revision to tell it apart, so its id carries the line's own id (ids never collide).
 const REVISIONED_KINDS = new Set(['seen', 'said']);
 
+/** The columns of a line under each context's readers, made once per context. */
+const specs = new WeakMap<MapContext, Array<Spec>>();
+function specOf(ctx: MapContext): Array<Spec> {
+  let spec = specs.get(ctx);
+  if (!spec) specs.set(ctx, (spec = lineSpec(ctx)));
+  return spec;
+}
+
 /**
- * The columns of a line. Its author is the account its row holds, read back from that row; an author no row holds keeps
+ * The columns of a line. Its author is the account its row holds, read back from that row. An author no row holds keeps
  * the id the line gave beside the column (`exact`).
  */
-const specOf = (ctx: MapContext): Array<Spec> => [
+const lineSpec = (ctx: MapContext): Array<Spec> => [
   { col: 'kind', key: 'kind', type: 'text' },
   { col: 'native_id', key: 'messageId', type: 'text' },
   { col: 'revision', key: 'revision', type: 'num' },

@@ -80,8 +80,8 @@ export function scopeInto(
 ): Row {
   const channel = typeof oldScope?.channel === 'string' && oldScope.channel ? oldScope.channel : null;
   const placed = dmPlace ?? (privateUser ? (members.dmOfMember?.(iface, privateUser) ?? null) : null);
-  const channelPlace =
-    channel === null ? null : (members.placeOfChannel?.(iface, channel) ?? mintedChannel(iface, channel));
+  const storedPlace = channel === null ? null : (members.placeOfChannel?.(iface, channel) ?? null);
+  const channelPlace = channel === null ? null : (storedPlace ?? mintedChannel(iface, channel));
   const cols = {
     place_id: placed ? placed.id : privateUser ? null : channelPlace,
     ...(placed
@@ -95,7 +95,10 @@ export function scopeInto(
           })),
   };
   if (privateUser && channel) rest.dmChannel = channel;
-  const rebuilt = scopeFrom(cols, { ...rest }, privateUser, { channelOfPlace: members.channelOfPlace });
+  // The place found by the channel's key holds that channel, which a read finds without asking again.
+  const channelOfPlace = (id: string): string | null =>
+    id === storedPlace ? channel : (members.channelOfPlace?.(id) ?? null);
+  const rebuilt = scopeFrom(cols, { ...rest }, privateUser, { channelOfPlace });
   if (oldScope === undefined || !jsonEqual(rebuilt, oldScope)) {
     delete rest.dmChannel;
     if (oldScope === undefined) rest.$noScope = true;
