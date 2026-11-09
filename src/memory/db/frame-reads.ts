@@ -86,8 +86,8 @@ const lineOf = (row: Row): FrameLine => ({
 /** The first stored name of a line's author: its person's profile account's, else its own account's (`aa`). */
 const AUTHOR_NAME = `COALESCE(
   (SELECT json_extract(pa.names, '$[0]') FROM accounts a JOIN people p ON p.id = a.person_id
-     JOIN storage_units u ON u.id = p.owner_key JOIN accounts pa ON pa.id = u.subject_id
-   WHERE a.id = s.author_account AND u.subject_type = 'account'),
+     JOIN accounts pa ON pa.id = p.holder_id
+   WHERE a.id = s.author_account AND p.writer = 'profile'),
   json_extract(aa.names, '$[0]')) AS author_name`;
 /** Lines with their author's account row, whose `native_id` is the author's platform id. */
 const LINE_FROM = 'sources s LEFT JOIN accounts aa ON aa.id = s.author_account';

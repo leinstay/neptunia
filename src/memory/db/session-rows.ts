@@ -4,7 +4,8 @@
 // addSessionRows (called by export.ts#unitRows): a member's profile (`users/<id>.json`) and private layer
 // (`private/<id>.json`) also hold what her session wrote about that person in the unit's scope (the group of the
 // member's interface, or the stored DM place of the member's account): the live claims she shows (`shown`, truth current or disputed), the
-// episodes and the attitude moves that have no `owner_key`, and the version a description's `current_version` names.
+// episodes and the attitude moves whose writer is `session` (profile-owner.ts), and the version a description's
+// `current_version` names.
 // They follow the unit's own rows: the claims and the episodes in the order they were made, the moves merged into the
 // file's history by time.
 //
@@ -19,7 +20,7 @@
 // session took over (no `owner_key`) is never written by a unit at all (upsert.ts#writeRow).
 //
 // takeOverClaim (called by session-write.ts#applyClaim): a confirm, revise or retire of a claim makes the claim her
-// session's (`owner_key` null, its `co_owners` rows gone), in the transaction of the op.
+// session's (writer `session`, `owner_key` null, its `co_owners` rows gone), in the transaction of the op.
 
 import { legacyPersonNative } from './ids.ts';
 import { dmAudienceId } from './scope.ts';
@@ -87,7 +88,7 @@ const SESSION_SQL = {
 } as const;
 /** Her newest move of the person's attitude (the event id), or null. */
 const LAST_MOVE_SQL =
-  'SELECT id FROM affinity_events WHERE person_id = ? AND owner_key IS NULL AND retired_at IS NULL ORDER BY rowid DESC LIMIT 1';
+  "SELECT id FROM affinity_events WHERE person_id = ? AND writer = 'session' AND retired_at IS NULL ORDER BY rowid DESC LIMIT 1";
 
 const SESSION_ORDER = {
   claims: "COALESCE(created_at, first_seen_at, ''), rowid",
@@ -120,13 +121,7 @@ export function addSessionRows(connection: unknown, kind: unknown, rows: Rows, a
   const scope = personScopeOf(db, kind, rows, account);
   if (!scope) return;
   const person = rows.people?.[0];
-  const last = person
-    ? text(
-        db
-          .prepare(hasStorageUnits(db) ? LAST_MOVE_SQL : LAST_MOVE_SQL.replaceAll('owner_key', 'owner_file'))
-          .get(scope.person)?.id
-      )
-    : null;
+  const last = person ? text(db.prepare(LAST_MOVE_SQL).get(scope.person)?.id) : null;
   if (person && last !== null) {
     const rest = remainderOf(person.extra);
     const affinity = isObject(rest.affinity) ? rest.affinity : {};
@@ -138,7 +133,7 @@ export function addSessionRows(connection: unknown, kind: unknown, rows: Rows, a
     const held = new Set(own.map((row) => row.id));
     const found = db
       .prepare(
-        `${SESSION_SQL[table]} ${hasStorageUnits(db) ? 'owner_key' : 'owner_file'} IS NULL AND retired_at IS NULL AND ${scope.sql} ORDER BY ${SESSION_ORDER[table]}`
+        `${SESSION_SQL[table]} writer = 'session' AND retired_at IS NULL AND ${scope.sql} ORDER BY ${SESSION_ORDER[table]}`
       )
       .all(scope.person, ...scope.args)
       .filter((row) => !held.has(row.id))
@@ -199,10 +194,7 @@ export function sessionHold(connection: unknown, mapping: unknown): (table: stri
     if (table === 'descriptions' && descriptions.has(keyOf(table, row.id))) return without(row, ['current_version']);
     if (table === 'description_versions' && descriptions.has(keyOf(table, row.id))) return null;
     if (table !== 'people') return row;
-    const last = text(
-      db.prepare(hasStorageUnits(db) ? LAST_MOVE_SQL : LAST_MOVE_SQL.replaceAll('owner_key', 'owner_file')).get(row.id)
-        ?.id
-    );
+    const last = text(db.prepare(LAST_MOVE_SQL).get(row.id)?.id);
     const affinity = remainderOf(row.extra).affinity;
     const seen = isObject(affinity) ? text(affinity.moveId) : null;
     if (last === null || seen === last) return row;
@@ -210,7 +202,7 @@ export function sessionHold(connection: unknown, mapping: unknown): (table: stri
     if (seen === null || typeof row.affinity !== 'number') return without(kept, ['affinity', 'affinity_decayed_at']);
     const unseen = db
       .prepare(
-        `SELECT COALESCE(SUM(applied), 0) AS moved FROM affinity_events WHERE person_id = ? AND ${hasStorageUnits(db) ? 'owner_key' : 'owner_file'} IS NULL AND retired_at IS NULL
+        `SELECT COALESCE(SUM(applied), 0) AS moved FROM affinity_events WHERE person_id = ? AND writer = 'session' AND retired_at IS NULL
           AND rowid > COALESCE((SELECT rowid FROM affinity_events WHERE id = ?), 0)`
       )
       .get(row.id, seen);
@@ -222,6 +214,8 @@ export function sessionHold(connection: unknown, mapping: unknown): (table: stri
 /** Makes claim `id` her session's: no unit owns it or shares it any more (see the head of this file). */
 export function takeOverClaim(connection: unknown, id: unknown): void {
   const db = connection as Db; // the writer's node:sqlite connection, inside the op's transaction
-  db.prepare(`UPDATE claims SET ${hasStorageUnits(db) ? 'owner_key' : 'owner_file'} = NULL WHERE id = ?`).run(id);
+  db.prepare(
+    `UPDATE claims SET ${hasStorageUnits(db) ? 'owner_key' : 'owner_file'} = NULL, writer = 'session', holder_id = NULL WHERE id = ?`
+  ).run(id);
   db.prepare("DELETE FROM co_owners WHERE tbl = 'claims' AND key = ?").run(id);
 }

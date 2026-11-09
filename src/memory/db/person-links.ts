@@ -17,6 +17,8 @@ import { SELF_PERSON, survivorOf } from './ids.ts';
 import { personOfAccount } from './meta-person.ts';
 import { followAccount, hasMetaSchema, mintMetaPerson, syncPersonAccount } from './meta-person-write.ts';
 import type { AccountAddress } from '../../protocol/identity.ts';
+import { storageId } from './storage-keys.ts';
+import { profileKeyOf } from './profile-owner.ts';
 import type { StorageKey } from './storage-keys.ts';
 import type { Db, MemoryHandle } from './types.ts';
 import { dbOf } from './types.ts';
@@ -205,13 +207,13 @@ export function accountLinks(
 export function linkedProfileUnit(db: Db, accountId: string): { id: string; key: StorageKey } | null {
   const person = db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(accountId)?.person_id;
   if (typeof person !== 'string' || !person) return null;
-  const unit = db
-    .prepare(
-      `SELECT u.id, u.key_json FROM people p JOIN storage_units u ON u.id = p.owner_key
-       WHERE p.id = ? AND p.retired_at IS NULL AND u.kind = 'user' AND u.retired_at IS NULL AND u.subject_id != ?`
-    )
-    .get(survivorOf(db, person), accountId);
-  return unit ? { id: String(unit.id), key: JSON.parse(String(unit.key_json)) as StorageKey } : null;
+  // The profile that holds the person's row names its account (profile-owner.ts).
+  const holder = db
+    .prepare("SELECT holder_id FROM people WHERE id = ? AND retired_at IS NULL AND writer = 'profile'")
+    .get(survivorOf(db, person))?.holder_id;
+  if (typeof holder !== 'string') return null;
+  const key = profileKeyOf(holder);
+  return key.subject.id === accountId ? null : { id: storageId(key), key };
 }
 
 /** The account a legacy person id spells: `person:<account id>`, which S10's conversion retires. Opaque ids name none. */

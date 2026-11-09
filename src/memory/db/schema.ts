@@ -3,6 +3,7 @@
 // `MIGRATIONS` in order, one version per entry, and never edits a shipped one.
 
 import { ownLineRows } from './line-owner.ts';
+import { ownProfileRows } from './profile-owner.ts';
 import { placeLineVectors } from './line-vectors.ts';
 import { rebuildLocatorIndex } from './message-family-catalog.ts';
 import type { Db } from './types.ts';
@@ -42,6 +43,25 @@ export const MIGRATIONS: Array<Migration> = [
       db.exec(`DROP INDEX IF EXISTS "${index}"`);
     db.exec('ALTER TABLE claims ADD COLUMN writer TEXT');
     ownLineRows(db);
+  },
+  // Version 47: the rows of an account's profile, a private layer and a history of prose name their writer and holder,
+  // and the rows no unit owns in the session's tables are her session's (src/memory/db/profile-owner.ts).
+  (db: Db): void => {
+    const added: Record<string, ReadonlyArray<string>> = {
+      people: ['writer', 'holder_id'],
+      accounts: ['writer', 'holder_id'],
+      memberships: ['writer', 'holder_id'],
+      claims: ['holder_id'],
+      descriptions: ['writer', 'holder_id'],
+      description_versions: ['writer', 'holder_id'],
+      episodes: ['writer', 'holder_id'],
+      operational: ['writer', 'holder_id'],
+    };
+    for (const [table, columns] of Object.entries(added))
+      for (const column of columns) db.exec(`ALTER TABLE "${table}" ADD COLUMN ${column} TEXT`);
+    for (const table of [...Object.keys(added), 'affinity_events'])
+      db.exec(`CREATE INDEX "${table}_holder" ON "${table}"(writer, holder_id) WHERE writer IS NOT NULL`);
+    ownProfileRows(db);
   },
 ];
 

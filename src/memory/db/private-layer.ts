@@ -20,10 +20,11 @@ import { storageContext } from './map/index.ts';
 import { dmPlaceScope } from './map/scope-parts.ts';
 import { dmOfAccount } from './meta-person.ts';
 import { addSessionRows } from './session-rows.ts';
-import { accountCollection, keyText, storageId } from './storage-keys.ts';
+import { accountCollection, keyText } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit } from './storage-units.ts';
-import { ownedRowsOf, retireAbsent, writeMapping } from './upsert.ts';
+import { writeMapping } from './upsert.ts';
+import { heldRows, holdsAny, profileOwnerOf, retireProfileAbsent, stampProfileRows } from './profile-owner.ts';
 import { noteUnit } from './unit-write.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
@@ -59,9 +60,12 @@ function privateLayerRows(db: Db, key: StorageKey, value: Row, owner: string): R
   });
   if (affinity) rest.affinity = affinity;
   // The layer's operational row keeps the owner it was first stored under.
+  const holder = profileOwnerOf(key)!; // a `private` unit always has its owner columns (profile-owner.ts)
   const stored = db
-    .prepare("SELECT owner FROM operational WHERE kind = 'private' AND owner_key = ? ORDER BY rowid LIMIT 1")
-    .get(owner);
+    .prepare(
+      "SELECT owner FROM operational WHERE kind = 'private' AND writer = ? AND holder_id = ? ORDER BY rowid LIMIT 1"
+    )
+    .get(holder.writer, holder.holder_id);
   put(rows, 'operational', {
     kind: 'private',
     owner: stored ? stored.owner : person,
@@ -75,7 +79,7 @@ function privateLayerRows(db: Db, key: StorageKey, value: Row, owner: string): R
       delete row.owner_file;
       row.owner_key = owner;
     }
-  return rows;
+  return stampProfileRows(rows, holder);
 }
 
 /** The private layer its rows give back. */
@@ -114,7 +118,7 @@ export function writePrivateLayer(
   const mapping = privateLayerRows(db, key, value, id);
   if (legacyOwner) for (const list of Object.values(mapping)) for (const row of list) row.owner_file = legacyOwner;
   const upserted = writeMapping(db, mapping, id, { at });
-  const retired = retireAbsent(db, id, mapping, at);
+  const retired = retireProfileAbsent(db, profileOwnerOf(key)!, mapping, at); // as above
   noteUnit(db, id, 'private', { at });
   return { upserted, retired };
 }
@@ -150,9 +154,9 @@ export function applyPrivateLayerWrite(handle: MemoryHandle, update: Row): Priva
 
 /** The private layer the unit `key` holds, or not found when the database holds no such unit. */
 export function privateLayerValue(db: Db, key: StorageKey): { found: true; value: unknown } | { found: false } {
-  const id = storageId(key);
-  if (!db.prepare('SELECT 1 FROM storage_units WHERE id = ? AND retired_at IS NULL').get(id)) return { found: false };
-  const rows = ownedRowsOf(db, id, TABLES);
+  const holder = profileOwnerOf(key);
+  if (!holder || !holdsAny(db, holder, 'operational')) return { found: false };
+  const rows = heldRows(db, holder, TABLES);
   addSessionRows(db, 'private', rows, key.subject.type === 'account' ? key.subject.id : null);
   return { found: true, value: privateLayerOf(rows) };
 }
