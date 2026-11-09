@@ -13,7 +13,7 @@ import { createChainClient, createRouteChainOf } from './chain-client.ts';
 import type { ChainClient } from './chain-client.ts';
 import type { CompleteResult } from './openrouter.ts';
 import { roleModel } from './roles.ts';
-import { isRouteRole } from './route-text.ts';
+import { harnessEffort, isRouteRole } from './route-text.ts';
 import type { RouteRole } from './route-text.ts';
 
 type Completing = { complete(messages: unknown, options?: unknown): Promise<CompleteResult> };
@@ -49,7 +49,9 @@ export function createCoreRoutes(deps: {
   });
   const pathOf = (role: RouteRole): Path => {
     const route = client.inForce(role);
-    return route?.via === 'harness' ? { kind: 'subharness', ...route } : { kind: 'direct' };
+    return route?.via === 'harness'
+      ? { kind: 'subharness', ...route, effort: harnessEffort(route.effort) }
+      : { kind: 'direct' };
   };
   return {
     client,
