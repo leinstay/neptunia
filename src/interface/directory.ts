@@ -1,8 +1,8 @@
 // The chats an interface reported through `chat.changed`, by id, kept as whole `Chat` records:
-// the core reads the name of a chat here (the inner life names the places it shows her), the root of a
-// task or an intention, and the direct chat of a member, never a platform object. A direct chat is learned from the
-// messages seen in it (`observe`): the interface announces no change for one. `dmChatOf(partnerId)` answers the
-// one-to-one chat with that member, the newest when two were seen.
+// the core reads the name of a chat here (the inner life names the places it shows her) and the root of a
+// task or an intention, never a platform object. A direct chat is learned from the messages seen in it (`observe`):
+// the interface announces no change for one. The address of a direct chat is its place's in memory
+// (src/interface/place-chat.ts), so nothing here answers one.
 
 import type { Chat, ChatChanged, MessageReceived } from '../protocol/events.ts';
 
@@ -12,7 +12,6 @@ export function createChatDirectory(): {
   nameOf(chatId: string): string | null;
   get(chatId: string): Chat | null;
   chats(): ReadonlyArray<Chat>;
-  dmChatOf(partnerId: string): string | null;
   /** The member a direct chat is with, null for any other chat. */
   partnerOf(chatId: string): string | null;
   /** Whether the chat is a direct chat (one-to-one or group) the interface showed. */
@@ -20,8 +19,6 @@ export function createChatDirectory(): {
   ids(): ReadonlyArray<string>;
 } {
   const records = new Map<string, Chat>();
-  // partner member id -> the id of the one-to-one chat with that member.
-  const direct = new Map<string, string>();
   // chat id of a direct chat -> its partner.
   const partners = new Map<string, string>();
   // the ids of every direct chat shown, a group chat included.
@@ -35,7 +32,6 @@ export function createChatDirectory(): {
     if (chat.kind === 'dm') dmChats.add(chat.id);
     const partner = partnerOf(chat);
     if (partner === null) return;
-    direct.set(partner, chat.id);
     partners.set(chat.id, partner);
   }
 
@@ -44,8 +40,6 @@ export function createChatDirectory(): {
       const { chat } = event;
       if (event.change === 'deleted') {
         records.delete(chat.id);
-        const partner = partnerOf(chat);
-        if (partner !== null && direct.get(partner) === chat.id) direct.delete(partner);
         partners.delete(chat.id);
         dmChats.delete(chat.id);
         return;
@@ -59,7 +53,6 @@ export function createChatDirectory(): {
     nameOf: (chatId) => records.get(chatId)?.name ?? null,
     get: (chatId) => records.get(chatId) ?? null,
     chats: () => [...records.values()],
-    dmChatOf: (partnerId) => direct.get(partnerId) ?? null,
     partnerOf: (chatId) => partners.get(chatId) ?? null,
     isDm: (chatId) => dmChats.has(chatId),
     ids: () => [...records.keys()],

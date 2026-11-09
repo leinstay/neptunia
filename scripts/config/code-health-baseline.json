@@ -1767,7 +1767,7 @@
     },
     "src/memory/db/observe.ts": {
       "checkEnvelope": {
-        "complexity": 99
+        "complexity": 98
       },
       "participantOf": {
         "complexity": 25

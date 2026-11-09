@@ -16,6 +16,7 @@ import { createIntentionService } from '../../src/intentions/service.ts';
 import { createIntentionStores } from '../../src/intentions/store.ts';
 import { createJournal } from '../../src/memory/journal.ts';
 import { issueContext } from '../../src/memory/db/scope.ts';
+import { placeRefOf } from '../../src/memory/db/frame-reads.ts';
 import '../../src/tools/operations/index.ts';
 import { skillRegistry } from '../../src/tools/registry.ts';
 import type { Untyped } from '../../src/tools/types.ts';
@@ -275,6 +276,9 @@ export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
     getLore: () => [],
     getMediaCache: () => ({}),
     state: { data: {}, markDirty() {} },
+    // A place id names its chat by the row the world holds, as the memory store answers it: without it a write named by
+    // place went to the place id as a chat no interface knows.
+    placeRefOf: (id: string) => placeRefOf(mind.db, id),
   };
   const admin = createAdmin({
     hot,
