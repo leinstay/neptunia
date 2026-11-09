@@ -1,6 +1,7 @@
 // The offline model of scripts/replay.ts (`--answers-dir <dir>`): for every request, of any role and model, the tool
 // writes the request to a file and waits for the answer in another, instead of calling a provider or a harness
-// (`offlineCore`, which scripts/lib/script-routes.ts puts in place of every client). An outside agent reads `req-<n>.md` and writes `ans-<n>.txt`.
+// (`offlineCore`, which scripts/lib/script-routes.ts puts in place of every client). An outside agent reads
+// `req-<n>.md` and writes `ans-<n>.txt`.
 //
 //   <dir>/req-001.json the same request for machines, written first: { model, purpose, system, messages:
 //                      [{ role, content }] } with the exact strings (system = the system messages joined
@@ -15,7 +16,7 @@
 //   <dir>/done         written when the run ends: `exit <code>`
 //
 // Numbers count the run's answered requests from 1, zero-padded to 3. A directory that holds files of an earlier run
-// is refused. `withAnswersDir`, which sends Anthropic models alone to the files, has no caller in the scripts.
+// is refused.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -29,11 +30,6 @@ type Rec = Record<string, Untyped>;
 export const ANSWERS_POLL_MS = 2000;
 export const ANSWERS_TIMEOUT_MIN = 20;
 export const ANSWERS_SOURCE = 'answers-dir';
-
-/** Whether `model` is served by the answerer (`anthropic/claude-*`). */
-export function isAnthropicModel(model: Untyped): boolean {
-  return typeof model === 'string' && model.startsWith('anthropic/claude-');
-}
 
 /** The text of one message content: a string, or content parts joined with a newline. */
 export function contentText(content: Untyped): string {
@@ -104,7 +100,6 @@ function writeAtomic(file: string, text: string) {
 
 const pad = (n: number) => String(n).padStart(3, '0');
 
-/** @param options `firstOnly` and `all`: what withAnswersDir routes (see there). */
 export function createAnswersDir({
   dir,
   timeoutMin = ANSWERS_TIMEOUT_MIN,
@@ -112,8 +107,6 @@ export function createAnswersDir({
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   now = Date.now,
   estimate = () => 0,
-  firstOnly = false,
-  all = false,
 }: {
   dir: string;
   timeoutMin?: number;
@@ -121,8 +114,6 @@ export function createAnswersDir({
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
   estimate?: (messages: Array<Rec>) => number;
-  firstOnly?: boolean;
-  all?: boolean;
 }): {
   answer: (
     model: string,
@@ -140,8 +131,6 @@ export function createAnswersDir({
   finish: (code: Untyped) => void;
   dir: string;
   count: () => number;
-  firstOnly: boolean;
-  all: boolean;
 } {
   fs.mkdirSync(dir, { recursive: true });
   const stale = fs
@@ -219,59 +208,7 @@ export function createAnswersDir({
     writeAtomic(path.join(dir, 'done'), `exit ${code}\n`);
   }
 
-  return { answer, finish, dir, count: () => count, firstOnly, all };
-}
-
-/** What `answers` (createAnswersDir's) routes by default: `firstOnly` and `all`, each false unless set. */
-function routingOf(answers: unknown): { firstOnly: boolean; all: boolean } {
-  const given = answers as { firstOnly?: unknown; all?: unknown } | null | undefined;
-  return { firstOnly: given?.firstOnly === true, all: given?.all === true };
-}
-
-/**
- * `createLlm` that routes Anthropic models (every model with `all`) to `answers` and everything else to the real client.
- * @param answers its `firstOnly` and `all` are the defaults
- * @param modelOf The model a request without `model` uses.
- * @param opts firstOnly: only a turn's first answer goes to the files; a
- *   tool-loop step continuing it (its task text says so, labels task.continue*) goes to the real model. all: every
- *   model's requests go to the files, not only Anthropic's.
- */
-/** The language model client the engine builds: its `complete` and whatever else the real one has. */
-export type LlmClient = {
-  complete(messages: Array<Rec>, options?: Rec): Promise<{ text: string; [field: string]: Untyped }>;
-  [member: string]: Untyped;
-};
-
-/** A tool-loop step's task text (labels task.continue*): the engine re-renders the turn as one user message. */
-const CONTINUED_RE = /This is the same (inner )?turn, continued after/;
-
-export function withAnswersDir(
-  createLlm: Untyped,
-  answers: Rec,
-  modelOf: Untyped,
-  { firstOnly = routingOf(answers).firstOnly, all = routingOf(answers).all }: Rec = {}
-) {
-  return (deps: Untyped): LlmClient => {
-    const real = createLlm(deps);
-    return new Proxy(real, {
-      get(target, prop) {
-        if (prop === 'complete') {
-          return (messages: Untyped, options: Untyped = {}) => {
-            const model = options.model ?? modelOf(deps.getConfig(), options.purpose);
-            const continued =
-              firstOnly &&
-              Array.isArray(messages) &&
-              messages.some((m) => m?.role === 'assistant' || CONTINUED_RE.test(contentText(m?.content)));
-            return (all || isAnthropicModel(model)) && !continued
-              ? answers.answer(model, messages, options)
-              : target.complete(messages, options);
-          };
-        }
-        const value = Reflect.get(target, prop, target);
-        return (typeof value === 'function' ? value.bind(target) : value) as unknown;
-      },
-    });
-  };
+  return { answer, finish, dir, count: () => count };
 }
 
 /**

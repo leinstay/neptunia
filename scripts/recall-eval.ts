@@ -691,7 +691,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
     `recall-eval: ${asking} question(s); ${dry ? 'dry: no model request' : `up to ${asking * (REQUESTS_PER_QUESTION + (useWeb ? 1 : 0))} model request(s)${useWeb ? ` and ${asking} web search(es)` : ''}${meaningOn ? ` and ${asking} embedding(s)` : ''}, none asked once the cost passes ${maxUsd} USD`}\n`
   );
 
-  // The keys (the simulation key from the store, DISCORD_TOKEN, the search engine's) only when something is sent.
+  // The keys (production's model keys from the store, the Discord token, the search engine's) only when something is sent.
   let webParts: Untyped = null;
   if (useWeb) {
     const { createLookup } = await import('../src/web/lookup.ts');

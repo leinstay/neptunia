@@ -210,7 +210,7 @@ export function roleKeyCheck({
   mainKey: string;
   /** The key of the key store, '' when it has none for the role. */
   keyOf?: KeyOf;
-  /** Whether a harness carries `role`, which then needs no key (config.json: `models.harness.core`, `.memory`, `.simulation`). */
+  /** Whether a harness carries `role`, which then needs no key (config.json: `models.harness.core`, `.memory`). */
   served?: (role: string) => boolean;
 }): (role: string) => boolean {
   return (role) => {

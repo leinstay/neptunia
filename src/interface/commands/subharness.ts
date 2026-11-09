@@ -1,5 +1,5 @@
-// The owner's `/subharness`, `/agent mode` and `/simulation` commands: what the console (console.ts) runs for
-// `subharness.*`, `agent.mode` and `simulation.*` over the routing of config.json (src/subharness/routing.ts). A refused change answers `failed` with the command as
+// The owner's `/subharness` and `/agent mode` commands: what the console (console.ts) runs for `subharness.*` and
+// `agent.mode` over the routing of config.json (src/subharness/routing.ts). A refused change answers `failed` with the command as
 // the owner typed it and the reason; a change answers `ok` with what it did. The text is for the owner alone, carries a
 // key's name and never its value, and never reaches a request. Only the owner's chat reaches the console, so a mode is
 // never changed by an agent.
@@ -18,7 +18,6 @@ import {
 } from '../../subharness/subscription-path.ts';
 import type { SubscriptionRole } from '../../subharness/subscription-path.ts';
 import type { EnableDeps, SubharnessAgent, SubharnessResult } from '../../subharness/control.ts';
-import { disableSimulation, enableSimulation, simulationStatus } from '../../simulation/key.ts';
 
 /** An answer: its text and status, and on a refused change the code that says why. */
 export type SubharnessAnswer = { text: string; status: string; code?: string };
@@ -95,7 +94,7 @@ function memoryRow(privateDir: string, sources: Awaited<ReturnType<typeof subhar
   return `  memory  ${memoryPathText(path)}${unavailable}${gaps.join('')}`;
 }
 
-/** The row of the core's or the simulation's route, marked when its source cannot run now; Codex has no thinking control. */
+/** The row of the core's route, marked when its source cannot run now; Codex has no thinking control. */
 function routeRow(
   privateDir: string,
   role: SubscriptionRole,
@@ -109,7 +108,7 @@ function routeRow(
   return `  ${role}  ${subscriptionPathText(path)}${unavailable}${gap}`;
 }
 
-/** `subharness.status`: the sources, every agent's line, her memory writer's path, then the core's and the simulation's. */
+/** `subharness.status`: the sources, every agent's line, her memory writer's path, then the core's route. */
 async function statusOf(privateDir: string): Promise<string> {
   const view = await subharnessView(privateDir);
   const routes = SUBSCRIPTION_ROLES.map((role) => routeRow(privateDir, role, view.sources));
@@ -119,10 +118,7 @@ async function statusOf(privateDir: string): Promise<string> {
 const isSubscriptionRole = (value: unknown): value is SubscriptionRole =>
   SUBSCRIPTION_ROLES.some((role) => role === value);
 
-/**
- * The core's or the simulation's route: through a backend after one reply on its model and effort, or, for the
- * simulation with no backend, back to the API.
- */
+/** The core's route: through a backend after one reply on its model and effort, or with no backend back to the API. */
 async function subscriptionRoute(
   deps: EnableDeps,
   name: string,
@@ -231,28 +227,5 @@ export async function subharnessCommand(
       return agentMode(deps, name, args);
     default:
       return failed(name, args, 'no such command; type /help');
-  }
-}
-
-/** Runs `simulation.<sub>` over the routing of the private directory's config.json. */
-export function simulationCommand(
-  privateDir: string,
-  name: string,
-  args: Readonly<Record<string, unknown>>
-): Promise<SubharnessAnswer> {
-  switch (name) {
-    case 'simulation.status': {
-      const { on, key } = simulationStatus(privateDir);
-      return Promise.resolve({
-        text: on ? `simulation: on, key ${key ?? ''}` : 'simulation: off (the paid scripts refuse to run)',
-        status: 'ok',
-      });
-    }
-    case 'simulation.enable':
-      return Promise.resolve(answerOf(name, args, enableSimulation(privateDir, text(args.key))));
-    case 'simulation.disable':
-      return Promise.resolve(answerOf(name, args, disableSimulation(privateDir)));
-    default:
-      return Promise.resolve(failed(name, args, 'no such command; type /help'));
   }
 }

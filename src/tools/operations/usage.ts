@@ -502,12 +502,6 @@ const WINDOWS = Object.freeze([
   ['last30', 'last30'],
 ]);
 
-/** The simulator key's calendar periods after today, in order: the key's own field and its label. */
-const CALENDAR = Object.freeze([
-  ['usage_weekly', 'usageWeekCal'],
-  ['usage_monthly', 'usageMonthCal'],
-]);
-
 /** What the key has spent against `limit`: the budget's own figure, else the limit less what remains, else the usage of its window. */
 function spentOf(data: Untyped, budget: Untyped, limit: number, interval: unknown): number | null {
   if (isAmount(budget?.spend_usd)) return budget.spend_usd as number;
@@ -591,18 +585,6 @@ function keyUsageLine(data: Untyped, activity: Untyped, L: Untyped, fallback: ()
   return (isObj(activity) ? activityLine(data, activity, L) : null) ?? fallback();
 }
 
-/** The simulator key's usage line without its activity, all from its own GET /key `data` (the
- * bot's accumulator never sees the tools' spend): today, then the calendar week and month as
- * OpenRouter reports them, each only when reported. */
-function ownUsageLine(data: Untyped, L: Untyped): string | null {
-  if (!isObj(data)) return null;
-  const parts: Array<string | null> = [];
-  if (isAmount(data.usage_daily)) parts.push(line(L.usageToday, { usd: usd(data.usage_daily) }));
-  for (const [field, label] of CALENDAR)
-    if (isAmount(data[field])) parts.push(line(L[label], { usd: usd(data[field]) }));
-  return partsLine(parts, L);
-}
-
 /** One role row through `template`; a row with no token at all (a drawing) shows its
  * token counts as `-`; `{avg}` is the cost per request through `L.avg` (three decimals), empty
  * with no request or no label. */
@@ -633,36 +615,29 @@ function shownRoles(roles: ReadonlyArray<string>, names: unknown): Array<string>
 /**
  * The `keys.base` field's lines, every word from `labels.status.costs` (a missing
  * label leaves its line out; no `status.costs` at all gives []): per key, its limit line
- * immediately followed by its own usage line -- the main key (lead `keyLead`), the simulator key
- * (lead `simKeyLead`; the one line `simKeyNotSet` when `sim` is null), then each extra role key
+ * immediately followed by its own usage line -- the main key (lead `keyLead`), then each extra role key
  * (`llm.boundKeys`, lead `roleKeyLead` with `{roles}` joined by `roleSeparator`, each role named
  * through `roleNames` and each name once, so the errand agents' roles show as one word). A limit line is
  * `keyLimit` with its `notes` (the reset and whether BYOK counts) or `keyLimitPlain`; `keyNone` /
  * `keyNonePlain` without a limit; `keyUnavailable` on a failed read. A usage line is `usage` of
  * its parts: for the main and the role keys `usageToday` (today from the key's record) and
  * `last7` / `last30` (the key's roles' rolling sums from the accumulator, `since` when it holds
- * fewer days); for the simulator key, whose spend the accumulator never sees, `usageToday`,
- * `usageWeekCal` and `usageMonthCal` all from its own record, each only when reported (a failed
- * read: no usage line). A key with its activity (the management key's read, `activitySums`)
+ * fewer days). A key with its activity (the management key's read, `activitySums`)
  * shows instead `usageToday`, then `last7` and `last30` as today plus the completed days (no
  * `since`), when its record gives today's figure. The key's label is never read. Pure.
- * `key`, `sim` (null: not set) and each role key's `key` as `readAccount` resolves; each
+ * `key` and each role key's `key` as `readAccount` resolves; each
  *   `activity` as `activitySums` returns (null: not read); `windows` as `createUsage().sumDays`
  *   returns, the main key's over the roles no extra key takes.
  */
 export function keyCostsLines({
   key,
   activity = null,
-  sim = null,
-  simActivity = null,
   labels,
   windows = null,
   roleKeys = [],
 }: {
   key: AccountRead;
   activity?: Untyped;
-  sim?: AccountRead | null;
-  simActivity?: Untyped;
   labels: unknown;
   windows?: Untyped;
   roleKeys?: ReadonlyArray<{ roles: ReadonlyArray<string>; key: AccountRead; activity?: Untyped; windows?: Untyped }>;
@@ -671,7 +646,6 @@ export function keyCostsLines({
   if (!L) return [];
   const lines: Array<string | null> = [];
   const lead = typeof L.keyLead === 'string' ? L.keyLead : '';
-  const simLead = typeof L.simKeyLead === 'string' ? L.simKeyLead : '';
   const unavailable = (outcome: AccountRead | null | undefined, word: string): string | null =>
     line(L.keyUnavailable, {
       lead: word,
@@ -680,12 +654,6 @@ export function keyCostsLines({
   lines.push(key.ok ? keyLine(key.data, L, lead) : unavailable(key, lead));
   const dataOf = (outcome: AccountRead | null | undefined): Untyped => (outcome?.ok ? outcome.data : null);
   lines.push(keyUsageLine(dataOf(key), activity, L, () => usageLine(dataOf(key), windows, L)));
-  if (sim)
-    lines.push(
-      sim.ok ? keyLine(sim.data, L, simLead) : unavailable(sim, simLead),
-      keyUsageLine(dataOf(sim), simActivity, L, () => ownUsageLine(dataOf(sim), L))
-    );
-  else lines.push(line(L.simKeyNotSet, {}));
   for (const extra of Array.isArray(roleKeys) ? roleKeys : []) {
     const roles = Array.isArray(extra.roles) ? extra.roles : [];
     const roleLead = line(L.roleKeyLead, {

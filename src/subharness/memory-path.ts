@@ -37,8 +37,8 @@ export function memoryCheckPath(
   return path.kind === 'direct' ? path : { kind: 'subharness', backend: routeName(path.backend), model: path.model };
 }
 
-/** The config.json records of a path through a subharness: the memory writer's, the core's and the simulation's. */
-export type PathSlot = 'memory' | 'core' | 'simulation';
+/** The config.json records of a path through a subharness: the memory writer's and the core's. */
+export type PathSlot = 'memory' | 'core';
 
 /**
  * One checked write of the record `slot`: one reply on that model and effort through the backend, then the record,

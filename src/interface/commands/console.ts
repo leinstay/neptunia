@@ -53,7 +53,7 @@ import { serviceCommand } from '../../keys/services.ts';
 import { probeProxy } from '../../net/proxy.ts';
 import { proxyCommand } from './proxy.ts';
 import type { ProxyCommandDeps } from './proxy.ts';
-import { simulationCommand, subharnessCommand, subharnessDeps } from './subharness.ts';
+import { subharnessCommand, subharnessDeps } from './subharness.ts';
 import { serviceFamily } from '../../service/commands.ts';
 import type { WakeClock } from '../../service/commands.ts';
 import type { ServiceName } from '../../service/schedule.ts';
@@ -345,10 +345,9 @@ function isKeysCommand(name: string, enabled: () => boolean): boolean {
   if (name.startsWith('keys.service.')) return false;
   return name.startsWith(KEYS_PREFIX) || (name === 'model.set' && enabled());
 }
-/** The prefixes of `/subharness` and `/simulation`, which `subharnessCommand` and `simulationCommand` answer. */
+/** The prefix of `/subharness`, which `subharnessCommand` answers with `/agent mode`. */
 const SUBHARNESS_PREFIX = 'subharness.';
 const isSubharnessCommand = (name: string): boolean => name.startsWith(SUBHARNESS_PREFIX) || name === 'agent.mode';
-const SIMULATION_PREFIX = 'simulation.';
 
 /** How many stored lines `/memory conversation` prints. */
 const CHAT_LINES = 30;
@@ -462,8 +461,8 @@ function typed(name: string, args: Readonly<Record<string, unknown>>): string {
 /** The four route names in the order they are told. */
 const ROUTE_ORDER = ['api', 'claude', 'codex', 'opencode'] as const;
 
-/** What takes `--via` beside the agents: the memory writer, and the core and the simulation on a subscription. */
-const VIA_TARGETS: ReadonlyArray<string> = ['memory', 'core', 'simulation'];
+/** What takes `--via` beside the agents: the memory writer, and the core on a subscription. */
+const VIA_TARGETS: ReadonlyArray<string> = ['memory', 'core'];
 
 /**
  * The answer of a `model set` with `--via`, null when the route is `direct-api` and the role goes on as with no `--via`,
@@ -490,13 +489,11 @@ function modelSetVia(
         `${routeName('api')} cannot run an agent; use ${routeNamesText(['claude', 'codex', 'opencode'])}`,
         'backend-unsupported'
       );
-    return args.role === 'simulation'
-      ? subharnessCommand(subharnessDeps(deps), 'subharness.subscription', { role: args.role })
-      : null;
+    return null;
   }
   if (!isAgent && !VIA_TARGETS.includes(text(args.role)))
     return refuse(
-      `${text(args.role)} has no subharness path; only an agent, memory, core or simulation takes --via`,
+      `${text(args.role)} has no subharness path; only an agent, memory or core takes --via`,
       'role-unsupported'
     );
   if (!isAgent && text(args.provider) !== '') return refuse(`${text(args.role)} takes no --provider with --via`);
@@ -517,8 +514,7 @@ function modelSetVia(
 /**
  * The answer of a `model set` that neither the key commands nor the `model.set` operation take, or null. An agent's
  * model and effort live in its subharness, checked with one reply there, and so does the memory writer's with `--via`,
- * and the subscription route of the core or the simulation. `simulation` is no model role: without `--via` it takes
- * only `direct-api` (or the older `api`), which returns it to the API. `--provider` of an agent pins its opencode run to an OpenRouter provider.
+ * and the subscription route of the core. `--provider` of an agent pins its opencode run to an OpenRouter provider.
  * For any other role `--provider` and `--effort` are checked on the role's key, so they need the key commands of
  * `keys.json`.
  */
@@ -530,13 +526,6 @@ function modelSetElsewhere(deps: ConsoleDeps, args: Record<string, unknown>): Pr
   const pin = text(args.provider) === '' ? {} : { provider: args.provider };
   const viaAnswer = modelSetVia(deps, args, isAgent);
   if (viaAnswer !== undefined) return viaAnswer;
-  if (args.role === 'simulation') {
-    if (text(args.model) !== 'api' && text(args.model) !== routeName('api'))
-      return refuse(
-        `name a model with --via ${routeName('claude')} or --via ${routeName('codex')}, or ${routeName('api')}`
-      );
-    return subharnessCommand(subharnessDeps(deps), 'subharness.subscription', { role: args.role });
-  }
   if (isAgent) {
     if (text(args.model) === '') return refuse('name the model: /model set <agent> <model>');
     const given = { agent: args.role, model: args.model, ...flags, ...pin };
@@ -825,7 +814,7 @@ export function createConsole(deps: ConsoleDeps): {
     }
   }
 
-  // `/skills`, `/subharness`, `/agent mode`, `/simulation` and `/interfaces token set` have a module of their own; every other
+  // `/skills`, `/subharness`, `/agent mode` and `/interfaces token set` have a module of their own; every other
   // command is answered above.
   return {
     run: (name, args, requester, dialog = null) => {
@@ -841,7 +830,6 @@ export function createConsole(deps: ConsoleDeps): {
       if (name === 'logs.watcher') return serviceRun(deps, config, 'service.watcher.report', args);
       if (name.startsWith(SKILLS_PREFIX)) return skillsCommand(deps.skills, name, args);
       if (isSubharnessCommand(name)) return subharnessCommand(subharnessDeps(deps), name, args);
-      if (name.startsWith(SIMULATION_PREFIX)) return simulationCommand(deps.privateDir, name, args);
       if (name === 'interfaces.token.set')
         return setInterfaceToken({ privateDir: deps.privateDir, iface: text(args.name), dialog });
       return run(name, args, requester);

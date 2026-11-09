@@ -108,7 +108,6 @@ const NEXT = [
   'interfaces enable discord',
   'model set',
   'subharness claude login',
-  'simulation enable',
 ];
 
 /** The line the chat opens on. */

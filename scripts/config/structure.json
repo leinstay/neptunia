@@ -556,13 +556,6 @@
       "test": "none"
     },
     {
-      "path": "src/simulation/",
-      "purpose": "The simulation's switch and its one key reader, which the paid scripts call.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "required"
-    },
-    {
       "path": "src/setup/",
       "purpose": "`neptunia setup`: the unit templates rendered for the installing user, the nine steps, the writing of the units, and the questions for her subharness backends, her self-development repository, her three mechanics and the watcher.",
       "layer": "public",

@@ -124,7 +124,7 @@ export type KeysDeps = {
   recordCheck?(role: string, check: { selection: string; ok: boolean; code: string | null }): void;
   /** Returns `role` to its direct path: called after a direct model of `memory` or `core` is checked and saved. */
   directPath?(role: string): void;
-  /** The backend `role` runs through (core, memory, simulation), null on the API: such a role needs no key. */
+  /** The backend `role` runs through (core, memory), null on the API: such a role needs no key. */
   harnessOf?: (role: string) => string | null;
   /** The path her memory writer runs on now (keys.json, src/subharness/memory-path.ts), read at every check. */
   memoryPath?: () => MemoryCheckPath | null;

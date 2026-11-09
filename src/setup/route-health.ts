@@ -1,6 +1,6 @@
 // The `routes` check of `neptunia doctor`: every part of Neptunia checked for real on what it runs on now, and every
 // connection that is set up but used by nothing. A role on the API (`core`, `memory`, `analyzer`, `vision`, `video`,
-// `embedding`, `speech`, the simulation and quick search on `openrouter`) gets one minimal request of `checkRole`
+// `embedding`, `speech` and quick search on `openrouter`) gets one minimal request of `checkRole`
 // (src/keys/check.ts) on its own key, the extra key `llm.boundKeys` binds it to or else the first core key, with its own
 // model. One model on one key is asked once. `drawing` is named and never asked, since one request bills a picture. A
 // role or an agent on a harness gets the vendor's own status command (`sourceState`, src/subharness/sources.ts). An extra
@@ -103,15 +103,6 @@ function partLine(run: Run, role: (typeof API_ROLES)[number]): Promise<Line> {
   return onKey(run, role, role, model, keyOf(run, role));
 }
 
-function simulationLine(run: Run): Promise<Line> {
-  const record = run.sub.simulation;
-  if (record !== null) return onHarness(run, 'simulation', record.backend, record.model);
-  const { simulation } = run.routing;
-  const key = simulation.key;
-  if (key === null) return Promise.resolve({ text: 'simulation: off', bad: null });
-  return onKey(run, 'simulation', 'core', roleModel(run.deps.config, 'core') ?? '', key);
-}
-
 function searchLine(run: Run): Promise<Line> {
   const search = rec(rec(rec(run.deps.config).web).quickSearch);
   const engine = text(search.engine);
@@ -170,7 +161,7 @@ export async function routeHealth(deps: RouteHealthDeps): Promise<RouteHealth> {
   };
   const lines: Array<Line> = [];
   for (const role of API_ROLES) lines.push(await partLine(run, role));
-  lines.push(await simulationLine(run), await searchLine(run), ...(await agentLines(run)), ...(await unusedLines(run)));
+  lines.push(await searchLine(run), ...(await agentLines(run)), ...(await unusedLines(run)));
   const worst = lines.some((one) => one.bad === 'fail')
     ? 'fail'
     : lines.some((one) => one.bad === 'warn')
