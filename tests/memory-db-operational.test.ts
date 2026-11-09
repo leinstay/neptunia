@@ -39,9 +39,8 @@ function rowsOf(db: Db): Array<Row> {
     .all()
     .map((row) => {
       const unit = typeof row.owner_key === 'string' ? row.owner_key : null;
-      const subject = unit
-        ? db.prepare('SELECT subject_id FROM storage_units WHERE id = ?').get(unit)?.subject_id
-        : undefined;
+      const unitRow = unit ? db.prepare('SELECT subject_id FROM storage_units WHERE id = ?').get(unit) : undefined;
+      const subject = unitRow?.subject_id;
       const owner = String(row.owner);
       const owned = unit !== null && (owner === unit || owner.startsWith(`${unit}#`));
       return {
@@ -222,6 +221,7 @@ test('the schema step moves operational rows to their subject and leaves memory 
   const handle = openMemoryDb(seededBeforeStep());
   try {
     const db = dbOf(handle);
+    const channelUnit = db.prepare("SELECT id FROM storage_units WHERE kind = 'channel'").get();
     assert.deepEqual(
       db
         .prepare('SELECT kind, owner, value, retired_at, owner_key FROM operational ORDER BY kind, owner')
@@ -233,7 +233,7 @@ test('the schema step moves operational rows to their subject and leaves memory 
           owner: PLACE,
           value: '{"$has":[]}',
           retired_at: null,
-          owner_key: db.prepare("SELECT id FROM storage_units WHERE kind = 'channel'").get()?.id,
+          owner_key: channelUnit?.id,
         },
         { kind: 'emoji_rails', owner: PLACE, value: '{"replies":1}', retired_at: null, owner_key: null },
         { kind: 'inner', owner: PERSONA_ID, value: '{"v":1}', retired_at: null, owner_key: null },
@@ -289,7 +289,8 @@ test('the store keeps its state and emoji rails over a reopen of the database', 
   let mem = await openTestMemory();
   try {
     const first = createStore({ dataDir: mem.dataDir, memoryDb: mem.memoryDb });
-    first.state.data.llmCount = 7;
+    const { data } = first.state;
+    data.llmCount = 7;
     first.state.markDirty();
     first.setEmojiRails(PLACE, { replies: 4 });
     first.flush();
@@ -297,9 +298,11 @@ test('the store keeps its state and emoji rails over a reopen of the database', 
     await mem.close();
     mem = await openTestMemory({ dataDir: mem.dataDir });
     const second = createStore({ dataDir: mem.dataDir, memoryDb: mem.memoryDb });
-    assert.equal(second.state.data.llmCount, 7);
+    const stored = second.state.data;
+    assert.equal(stored.llmCount, 7);
     assert.deepEqual(second.getEmojiRails(PLACE), { replies: 4 });
-    const db = mem.memoryDb.readHandle()?.db as Db;
+    const { memoryDb } = mem;
+    const db = memoryDb.readHandle()?.db as Db;
     assert.deepEqual(operationalValue(db, 'emoji_rails', PLACE), { found: true, value: { replies: 4 } });
   } finally {
     await mem.close();
