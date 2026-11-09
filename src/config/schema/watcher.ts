@@ -27,4 +27,12 @@ export const WATCHER: ReadonlyArray<SchemaEntry> = [
     'text':
       'With `true` an inspection files no task: each draft it would have filed keeps the state `draft` and is listed under "Tasks filed" in its report, which is how the watcher is calibrated. Only `true` turns it on. The worker reads it when the run files, and a draft is never filed later',
   },
+  {
+    'key': 'watcher.degradedAfterMinutes',
+    'types': ['number'],
+    'reader': 'src/watcher/settings.ts',
+    'default': 60,
+    'text':
+      'Minutes a route of the core may stay down before `services watcher evidence` lists it under `routes`: the engine proxy, the YouTube check and a harness login, read from the core journal',
+  },
 ];

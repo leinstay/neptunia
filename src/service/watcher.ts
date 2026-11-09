@@ -46,6 +46,7 @@ import { selectRefusal, selectRows } from '../watcher/select.ts';
 import { watcherSettings } from '../watcher/settings.ts';
 import { readTranscriptRuns } from '../watcher/transcripts.ts';
 import { collectTrash } from '../watcher/trash.ts';
+import { readRouteFacts } from '../watcher/routes.ts';
 import type { Trash } from '../watcher/trash.ts';
 import type { ServiceAnswer, ServiceDeps } from './commands.ts';
 import { startWorker, unitFolder, unitScope } from './manager.ts';
@@ -167,10 +168,11 @@ function readMemoryAt<TResult>(dataDir: string, read: (db: ReturnType<typeof dbO
 const readMemory = <TResult>(deps: ServiceDeps, read: (db: ReturnType<typeof dbOf>) => TResult): TResult | null =>
   readMemoryAt(deps.dataDir, read);
 
-/** What only the first page of a walk carries, read once per walk: the leftovers, the mirrors, the selfreflection's facts, the standards and the audit. */
+/** What only the first page of a walk carries, read once per walk: the leftovers, the core's degraded routes, the mirrors, the selfreflection's facts, the standards and the audit. */
 async function firstPageFacts(deps: ServiceDeps, window: { from: number; to: number }) {
   return {
     trash: await trashOf(deps),
+    routes: await readRouteFacts({ run: deps.run, env: deps.env, now: deps.now(), window, config: deps.config() }),
     mirrors: readMemory(deps, mirrorFacts),
     selfreflection: readMemory(deps, selfreflectionFacts),
     standards: readMemory(deps, (db) => standardFacts(db, window)),
