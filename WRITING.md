@@ -2,14 +2,14 @@
 
 How prose is written in this repository: documentation, prompts, commit messages, pull requests, reports and replies. `AGENTS.md` carries the short defaults; this file is the full set, with the reasons and the examples. Read it before writing any text longer than a line, and read the changed text against it before handing it in. Meaning and correctness come before rhythm and punctuation. Repeating a technical term is right: a synonym makes the reader wonder whether a second thing exists.
 
-## 1. Before writing
+## Before writing
 
 - Decide who reads the text and what they will do with it: change code, run a command, merge a pull request, make a decision, answer a question.
 - Decide the one thing the text must leave them with, and put it first. In a reply the reader already has the context, so the decision comes before the reasoning, not after it.
 - Do not assume the reader shares your tacit knowledge. A name the reader has not seen gets one phrase of meaning the first time it appears; a mechanism gets one sentence of what it does before its parts are named.
 - Choose the form from the content, not from habit: prose for behaviour and reasoning, a table for a reference the reader will scan, a list only for items that are a genuine list.
 
-## 2. Sentences
+## Sentences
 
 - One thought per sentence. Break a sentence when the reader has to hold more than one open clause; keep a long one when its parts belong together. Vary the length; a text of equal sentences reads like a machine.
 - Active voice when the actor matters. "The door drops a duplicate event", not "duplicate events are dropped". Passive is fine when the actor is unknown or irrelevant.
@@ -21,7 +21,7 @@ How prose is written in this repository: documentation, prompts, commit messages
 - The new or important information goes at the end of the sentence, where the stress falls: "The outage came from a cron job that fired every minute instead of every hour."
 - Say each point once. If a sentence restates an earlier one in other words, delete it.
 
-## 3. Claims and evidence
+## Claims and evidence
 
 - Every factual claim carries what supports it: a file and line, a number you measured, a command you ran and its output, the owner's words with their date. "Significantly faster" is not a claim; "the median request fell from 35k to 24k tokens on the 41-question set" is.
 - Say what you did not check. "Not run live" is a fact the reader needs; silence about it is a lie by omission.
@@ -29,7 +29,7 @@ How prose is written in this repository: documentation, prompts, commit messages
 - Never invent a number, a citation, a source, a quote or a date. If a detail is missing, ask or write the simpler sentence without it.
 - A recommendation is marked as one, and the reasons for it are the facts, not adjectives.
 
-## 4. The habits of model prose
+## The habits of model prose
 
 A language model writes what is most likely next, so by default it makes the choice that fits any reader and any subject. A person writes for one reader and one subject, so the choices are uneven and specific. Each habit below is one form of the default choice. The first group justifies an edit on one sighting; a habit marked weak alone needs company in the same passage.
 
@@ -115,7 +115,7 @@ A language model writes what is most likely next, so by default it makes the cho
 
 A watched phrase inside a quotation, a title, a proper name or a passage that discusses the phrase stays. A person can make any of these choices on purpose: keep a specific odd detail, a mixed feeling, an aside, a first-person choice the writer can explain, and a deliberate repetition for rhythm. Several tells together are the signal; one is a hint.
 
-## 5. Documentation
+## Documentation
 
 Applies to `docs/`, the README and the root files.
 
@@ -138,7 +138,7 @@ Use
 `runTurn` opens a turn when an event passes the door. The door drops a duplicate event, so one event starts at most one turn.
 ```
 
-## 6. Prompts and labels
+## Prompts and labels
 
 Applies to `prompts/` and `config/labels.json`.
 
@@ -149,7 +149,7 @@ Applies to `prompts/` and `config/labels.json`.
 - Each fact has one home: the system prompt holds the craft, the character card who the persona is and how it talks, a task file the situation, the format file the protocol, the rules file the owner's corrections, `labels.json` the wording of what code inserts.
 - Tracked prompts are English and character-neutral; a character's own material lives in the local layer and keeps its language.
 
-## 7. Commit messages and pull requests
+## Commit messages and pull requests
 
 - The subject is imperative, under 72 characters, and says what changes: "Drop the retired agent filter", not "Updates" or "Fixed stuff".
 - The body says why, when the subject is not enough. The diff already shows what.
@@ -157,7 +157,7 @@ Applies to `prompts/` and `config/labels.json`.
 - A pull request says what changed and why, how it was tested (the command and the counts), and whether it adds a setting, a prompt file or a contract change.
 - The result, not the work: no "I then tried", no tour of the dead ends, no apology for the size.
 
-## 8. Reports and replies
+## Reports and replies
 
 - The answer first. Then only the reasons that would change whether the reader agrees.
 - A work report: the outcome, what changed, how it was checked, what is open or unverified. "Tests pass" with the command and the counts; "not run" said plainly.
@@ -168,7 +168,7 @@ Applies to `prompts/` and `config/labels.json`.
 - No praise for the question, no apology ritual, no preview of what you are about to say, no summary of what you just said, no offer of more help at the end.
 - In a chat with a person, their language; on disk, English.
 
-## 9. Accepted examples
+## Accepted examples
 
 Corrections the owner made on 2026-10-25 to this repository's own files. Each pair shows a habit and its fix.
 
@@ -234,7 +234,7 @@ Read `STYLEGUIDE.md` before writing code.
 
 A pointer promises only what the target holds.
 
-## 10. Review
+## Review
 
 - Read the changed prose once against section 4 and the section for its kind. Look at paragraph shape as well as sentences: a contrast split over two sentences, three parallel examples, the same closer after every section are the same tells at a larger scale.
 - Fix the text in place and hand back the corrected text, not a list of findings. Keep every supported claim; add no fact, name, number or date the source does not give.

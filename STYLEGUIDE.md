@@ -226,7 +226,7 @@ function firstOf<TItem, TKey extends string>(items: Array<TItem>, key: TKey): TI
 
 ### Terminology
 
-The engine's words are in [`GLOSSARY.md`](GLOSSARY.md). An identifier, a comment, a label or a config key uses them and no synonym.
+The engine's words are in the Glossary of [`AGENTS.md`](AGENTS.md#glossary). An identifier, a comment, a label or a config key uses them and no synonym.
 
 ## Comments
 
