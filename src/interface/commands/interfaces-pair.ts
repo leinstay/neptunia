@@ -1,7 +1,7 @@
 // The owner's pairing commands (plan 2026-11-08-meta-person, slice 8): `/interfaces pair open <name>` opens pairing on
-// an interface, `/interfaces pair <code>` approves a code she answered there, and `/interfaces setup <name>` ends, once
-// every required value is stored and the chat can ask, by opening pairing and asking for the code
-// (`labels.pairing.ask`, `{iface}` the interface). An empty answer leaves pairing open for `/interfaces pair <code>`.
+// an interface, `/interfaces pair <phrase>` approves a phrase she answered there, and `/interfaces setup <name>` ends, once
+// every required value is stored and the chat can ask, by opening pairing and asking for the phrase
+// (`labels.pairing.ask`, `{iface}` the interface). An empty answer leaves pairing open for `/interfaces pair <phrase>`.
 // The pairing itself is src/interface/owner-pairing.ts. Called by src/interface/commands/console.ts.
 
 import type { Dialog } from '../../keys/commands.ts';
@@ -33,7 +33,7 @@ export function isSetupComplete(ref: ModuleRef): boolean {
   return settings !== null && moduleValues(ref, settings).every((row) => !row.required || row.value != null);
 }
 
-/** `/interfaces pair <code>` and `/interfaces pair open <name>`; null for any other command. */
+/** `/interfaces pair <phrase>` and `/interfaces pair open <name>`; null for any other command. */
 export function pairCommand(
   pairing: PairCommands | null | undefined,
   name: string,
@@ -42,11 +42,11 @@ export function pairCommand(
   if (name !== 'interfaces.pair' && name !== 'interfaces.pair.open') return null;
   if (pairing == null) return Promise.resolve({ text: 'pairing runs in the core; start it first', status: 'failed' });
   if (name === 'interfaces.pair.open') return Promise.resolve({ text: pairing.open(word(args, 'name')), status: 'ok' });
-  return pairing.approve(word(args, 'code'));
+  return pairing.approve(word(args, 'phrase'));
 }
 
 /**
- * The end of a finished `/interfaces setup <name>`: pairing opens on the interface and the chat asks for the code.
+ * The end of a finished `/interfaces setup <name>`: pairing opens on the interface and the chat asks for the phrase.
  * `setupText` is the setup's own answer; a setup that left a value unset (`complete` false) or has no chat to ask in
  * ends with it alone.
  */
@@ -69,8 +69,8 @@ export async function pairAfterSetup({
   const opened = pairing.open(iface);
   const template = askLabel(hot);
   if (template === '') return { text: `${setupText}\n${opened}`, status: 'ok' };
-  const code = (await dialog.ask(fillLabel(template, { iface }))).trim();
-  if (code === '') return { text: `${setupText}\n${opened}`, status: 'ok' };
-  const approved = await pairing.approve(code);
+  const phrase = (await dialog.ask(fillLabel(template, { iface }))).trim();
+  if (phrase === '') return { text: `${setupText}\n${opened}`, status: 'ok' };
+  const approved = await pairing.approve(phrase);
   return { text: `${setupText}\n${approved.text}`, status: approved.status };
 }

@@ -824,7 +824,7 @@
           "none": "No GIFs matched."
         },
         "link": {
-          "sent": "A one-time code went to the other account in a direct message. The next message from this account here must be that code, and no other message counts. Tell them so.",
+          "sent": "A one-time phrase of six words went to the other account in a direct message. The next message from this account here must hold those six words, in any order, and no other message counts. Tell them so.",
           "already": "These two accounts are one person to you already."
         }
       },
@@ -1047,11 +1047,11 @@
       }
     },
     "pairing": {
-      "code": "Your one-time pairing code is {code}. Type /interfaces pair {code} in her command line within an hour.",
-      "ask": "Write to her in a direct message on {iface}. She answers with a one-time code: type it here, or press Enter to approve it later with /interfaces pair <code>:"
+      "code": "Your one-time pairing phrase is: {phrase}. Type /interfaces pair followed by these six words in her command line within an hour.",
+      "ask": "Write to her in a direct message on {iface}. She answers with a one-time phrase of six words: type it here, or press Enter to approve it later with /interfaces pair <phrase>:"
     },
     "link": {
-      "code": "Someone wants to link another account to this one. If that is you, send {code} from that account as your next message in the conversation where it was asked. The code works for an hour."
+      "code": "{handle} on {iface} says they are you. If that is so, send these six words from {handle} as the next message in that conversation, in any order: {phrase}. The phrase works for an hour."
     }
   }
 }

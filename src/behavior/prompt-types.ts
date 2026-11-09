@@ -6,6 +6,7 @@ import type { Lookup as RingLookup } from '../turn/calls.ts';
 import type { MeanwhileReads } from '../turn/request/meanwhile.ts';
 import type { SurroundingsInput } from '../turn/request/reader.ts';
 import type { LineOf } from '../turn/request/refs.ts';
+import type { SourceRetired } from '../turn/request/reader.ts';
 import type { BlockRecord } from '../turn/request/tail.ts';
 import type { Whereabouts } from '../turn/request/spatial.ts';
 import type { Untyped } from '../tools/types.ts';
@@ -111,6 +112,8 @@ export type BuildRequestInput = {
   surroundings?: SurroundingsInput | null;
   /** Reads a line by its identity under the turn's scope, for the references in stored texts (src/turn/request/refs.ts). */
   refLineOf?: LineOf | null;
+  /** Whether the line of a lookup's source is gone, for the sources `<recall>` leaves out (src/turn/request/reader.ts). */
+  isSourceRetired?: SourceRetired | null;
 };
 
 /** One text part of a request's user message; the cache marker is the provider's. */
