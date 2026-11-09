@@ -10,13 +10,13 @@ import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { backupsIn } from '../src/memory/db/backup.ts';
-import { openMemoryDb } from '../src/memory/db/open.ts';
-import { personaKey } from '../src/memory/db/storage-keys.ts';
-import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 import { NOT_GRANTABLE_TO_PERSONA } from '../src/tools/access.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { personaKey } from '../src/memory/db/storage-keys.ts';
+import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import {
   REPO,
