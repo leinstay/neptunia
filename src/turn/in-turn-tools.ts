@@ -16,6 +16,7 @@ import { CODE } from '../tools/codes.ts';
 import { isIssuedInternalContext } from '../memory/db/scope.ts';
 import type { Context } from '../memory/db/scope.ts';
 import type { FrameLine, FrameReads } from '../memory/db/frame-reads.ts';
+import type { FindMeaningSource } from '../memory/db/graph-find.ts';
 import type { Seeds } from '../memory/db/mind-read.ts';
 import { peopleMemoryOf } from './request/memory-block.ts';
 import type { Labels } from './request/types.ts';
@@ -25,13 +26,13 @@ import type { ReadMessage } from '../tools/conversation-read.ts';
 import {
   firstLinkIn,
   lookPerTurn,
-  runMediaFind,
+  mediaFind,
   runMediaLook,
   runMemorySearch,
   runWebRead,
   runWebSearch,
 } from '../tools/tools.ts';
-import type { LookDescriber, RecallClient, WebLookup } from '../tools/tools.ts';
+import type { LookDescriber, RecallClient, WebLookup, runMediaFind } from '../tools/tools.ts';
 import type { InTurnCall, ResolvedMessageRef } from '../tools/executors.ts';
 import { objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
@@ -83,6 +84,8 @@ export type InTurnToolsContext = {
   placeReads?: Pick<FrameReads, 'placeReadable' | 'around' | 'directChats' | 'mind' | 'account' | 'placeRef'> | null;
   linkCalls: JournalNotes['linkCalls'];
   drawTool: DrawGif['drawTool'];
+  /** The turn's embeddings for the finder and media.find, one memo per draft (graph-find.ts#createFindMeaning). */
+  findMeaningFor?: (draft: InTurnDraft | null) => FindMeaningSource | null;
   /** Her link tool over the account she talks with (src/interface/person-link.ts); absent, `person.link` is not offered. */
   personLinks?: Pick<PersonLinks, 'start'> | null;
 };
@@ -180,6 +183,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     linkCalls,
     drawTool,
     personLinks = null,
+    findMeaningFor = null,
   } = ctx;
 
   /**
@@ -259,7 +263,14 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           onRoute: routes.look,
         }),
       'media.find': (args) =>
-        runMediaFind({ store, config: hot.config, labels: hot.prompts?.labels ?? {}, placeId, args }),
+        mediaFind({
+          store,
+          config: hot.config,
+          labels: hot.prompts?.labels ?? {},
+          placeId,
+          args,
+          findMeaning: findMeaningFor?.(draft) ?? null,
+        }),
       'memory.search': (args, call) =>
         runMemorySearch({
           recall,
@@ -434,7 +445,14 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     const context = turnContextOf(draft, channel) as Context | null;
     if (!placeReads?.directChats || !context) return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const reference = String(args.person);
-    const found = placeReads.directChats(context, reference);
+    let found = placeReads.directChats(context, reference);
+    // Words that fit nobody in full are embedded once in the turn, within the finder's deadline (createFindMeaning).
+    const finder = findMeaningFor?.(draft) ?? null;
+    const fits = found.kind === 'chats' || (found.kind === 'found' && found.people.some((one) => one.hasEveryWord));
+    if (!fits && finder) {
+      const meaning = await finder.fetch(reference.trim().replace(/^@/, ''));
+      if (meaning) found = placeReads.directChats(context, reference, meaning);
+    }
     if (found.kind !== 'chats') {
       const text = found.kind === 'found' ? personChoicesText(found.people, hot.prompts?.labels, reference) : '';
       return { status: 'invalid', code: CODE.UNKNOWN_MEMBER, ...(text ? { data: { text } } : {}) };

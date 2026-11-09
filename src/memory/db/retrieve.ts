@@ -13,7 +13,9 @@
 // The reads run in one read transaction on the connection they are given, after the embedding came back. Nothing is written.
 
 import { createHash } from 'node:crypto';
+import { RECALL_DEFAULTS, fuseRanks } from '../../behavior/recall.ts';
 import { estimateTokens } from '../../llm/tokens.ts';
+import { objectMeaning } from './object-vectors.ts';
 import { dbSettings, search } from './recall.ts';
 import type { DbSettings } from './recall.ts';
 import { audienceWhere } from './scope.ts';
@@ -543,10 +545,18 @@ function plainVersion(db: Db, ctx: Context, claim: Row, query: MemoryQuery): Loa
 
 /**
  * The learned claims with no structured form whose words the query says, ranked by the words only this context's claims
- * make rare. The scan folds in code, because SQLite compares Cyrillic by bytes. Predicates and validity belong to structured
- * facts, so a filter on either leaves this stream out.
+ * make rare, fused by rank with the claims whose vector meets the query's at or above `minMeaning`. The scan folds in
+ * code, because SQLite compares Cyrillic by bytes. On a tie the word list goes first, and with no vector the page is the
+ * word list alone. Predicates and validity belong to structured facts, so a filter on either leaves this stream out.
  */
-function plainClaims(db: Db, ctx: Context, query: MemoryQuery, walk: Walk, limit: number): Array<Loaded> {
+function plainClaims(
+  db: Db,
+  ctx: Context,
+  query: MemoryQuery,
+  walk: Walk,
+  limit: number,
+  meaning: { vector: ArrayLike<number> | null; model: string | null; minMeaning: number }
+): Array<Loaded> {
   const terms = [...new Set(wordsOf(query.text))];
   if (terms.length === 0 || limit <= 0 || query.predicates.length > 0 || query.validAt !== null) return [];
   const visible = audienceWhere(ctx, 'c');
@@ -555,6 +565,8 @@ function plainClaims(db: Db, ctx: Context, query: MemoryQuery, walk: Walk, limit
     : `AND c.shown = 1 AND (c.truth IS NULL OR c.truth IN ('current', 'disputed'))`;
   const held: Array<{ id: unknown; words: Set<string> }> = [];
   const frequency = new Map<string, number>();
+  const meant = objectMeaning(db, ctx, { ...meaning, kinds: ['claim'] });
+  const standing = new Set<string>();
   let total = 0;
   for (const claim of db
     .prepare(
@@ -563,6 +575,7 @@ function plainClaims(db: Db, ctx: Context, query: MemoryQuery, walk: Walk, limit
     .iterate(...visible.params)) {
     total += 1;
     if (total % 1024 === 0 && walk.overDeadline()) break;
+    if (meant.length > 0) standing.add(String(claim.id));
     const words = new Set(wordsOf(claim.text));
     const found = terms.filter((term) => words.has(term));
     if (found.length === 0) continue;
@@ -580,10 +593,13 @@ function plainClaims(db: Db, ctx: Context, query: MemoryQuery, walk: Walk, limit
     }))
     .filter((one) => one.score > 0)
     .sort((a, b) => b.score - a.score || String(a.id).localeCompare(String(b.id)));
+  const byWords = scored.map((one) => String(one.id));
+  const byMeaning = meant.filter((hit) => standing.has(hit.itemId)).map((hit) => hit.itemId);
+  const ranked = byMeaning.length === 0 ? byWords : fuseRanks([byWords, byMeaning]).map((one) => String(one.id));
   const out: Array<Loaded> = [];
-  for (const one of scored) {
+  for (const id of ranked) {
     if (out.length >= limit) break;
-    const version = plainVersion(db, ctx, { id: one.id }, query);
+    const version = plainVersion(db, ctx, { id }, query);
     if (version && !walk.seen.has(version.versionId)) out.push(version);
   }
   return out;
@@ -727,7 +743,8 @@ function readPage(
     query,
     hits.filter((hit) => !walk.seen.has(hit.versionId))
   );
-  const plain = deps.plainClaims === false ? [] : plainClaims(db, ctx, query, walk, assertions);
+  const meaning = { vector, model: deps.model, minMeaning: deps.minSimilarity ?? RECALL_DEFAULTS.db.minMeaning };
+  const plain = deps.plainClaims === false ? [] : plainClaims(db, ctx, query, walk, assertions, meaning);
   emitDirect(walk, direct, Math.ceil(assertions / 2));
   emitDirect(walk, plain, Math.ceil(assertions / 4));
   const start = cursor?.frontier ?? seedNodes(db, ctx, query, hits, merges, walk);

@@ -71,6 +71,12 @@ function makeFixture() {
       );
       return id;
     },
+    /** The place row of a group channel, as every stored line's place has one. A row already there stays. */
+    channel(place: string, native: string) {
+      db.prepare(
+        "INSERT OR IGNORE INTO places (id, iface, kind, native_id, chat, scope_kind) VALUES (?, 'discord', 'channel', ?, 'group', 'group')"
+      ).run(place, native);
+    },
     deleted(native: string, at: number) {
       db.prepare(
         `INSERT INTO sources (id, kind, iface, native_id, place_id, occurred_at, scope_kind, scope_iface)

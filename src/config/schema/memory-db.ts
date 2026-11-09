@@ -113,6 +113,14 @@ export const MEMORY_DB: ReadonlyArray<SchemaEntry> = [
       'The most texts one embedding request of the object job carries, cut further to stay under `llm.maxRequestTokens`',
   },
   {
+    'key': 'memoryDb.retrieval.episodes',
+    'types': ['number'],
+    'reader': 'src/behavior/recall-facts.ts',
+    'default': 3,
+    'text':
+      'How many episodes a `memory.search` result lists at most, found by the meaning of its query. `0` leaves them out',
+  },
+  {
     'key': 'memoryDb.inspection.pageRows',
     'types': ['number'],
     'reader': 'src/interface/commands/memory.ts',

@@ -34,7 +34,7 @@ import { placeChainInDb } from '../memory/db/place-tree.ts';
 import { createAct } from '../turn/act.ts';
 import { createSelfreflection } from '../turn/selfreflection.ts';
 import { createDrawGif } from '../turn/draw-gif.ts';
-import { createMediaPick } from './media-pick.ts';
+import { createMediaPick, gifVectorModel } from './media-pick.ts';
 import { createFacts } from '../turn/facts.ts';
 import { createInTurnTools } from '../turn/in-turn-tools.ts';
 import { createInputs } from '../turn/inputs.ts';
@@ -60,6 +60,8 @@ import {
 import { answerOf, callViewOf, createLookupRing, lookupSettingsOf, requesterOf, searchHandles } from '../turn/calls.ts';
 import type { Lookup } from '../turn/calls.ts';
 import { frameReadsOver } from '../memory/db/frame-reads.ts';
+import { createFindMeaning, findSettingsOf } from '../memory/db/graph-find.ts';
+import type { FindMeaning, FindMeaningSource, FindMemoEntry } from '../memory/db/graph-find.ts';
 import { lookupsOfRecords } from '../memory/journal.ts';
 import type { FrameReads } from '../memory/db/frame-reads.ts';
 import type { Db } from '../memory/db/types.ts';
@@ -280,6 +282,8 @@ export function createTurnRunner({
   emoji = undefined,
   // The embedder of the media pick's candidate search (src/behavior/media-pick.ts); null: it reads the captions' words.
   embedQuery = null,
+  // The embedder of the finder and media.find (graph-find.ts#createFindMeaning); null: they read words only.
+  embedFind = null,
   // The data folder a library GIF's cached file is read from; null: no file to post.
   dataDir = null,
   getSelfName = () => 'bot',
@@ -531,6 +535,22 @@ export function createTurnRunner({
     recordOwnParticipation,
   });
   const { noteSpokeSaw } = createPulls({ spokeSaw });
+  // One memo of the finder's embeddings per attempt's draft, keyed by exact text, so a turn embeds a text once.
+  const findMeanings = new WeakMap<object, FindMeaningSource>();
+  const findMeaningFor = (draft: object | null | undefined): FindMeaningSource | null => {
+    if (!embedFind || !draft) return null;
+    let made = findMeanings.get(draft);
+    if (!made) {
+      made = createFindMeaning({
+        embed: embedFind,
+        model: gifVectorModel(hot.config),
+        deadlineMs: findSettingsOf(hot.config).deadlineMs,
+        memo: new Map<string, FindMemoEntry>(),
+      });
+      findMeanings.set(draft, made);
+    }
+    return made;
+  };
   const { callView, planToolCall, runCalls } = createSkillCalls({
     hot,
     store,
@@ -546,9 +566,10 @@ export function createTurnRunner({
     placesFoundFor: (draft, channel) => {
       const context = turnContextOf(draft, channel) as Context | null;
       return frameReads?.placesFound && context
-        ? (words: string) => frameReads.placesFound?.(context, words) ?? []
+        ? (words: string, meaning?: FindMeaning) => frameReads.placesFound?.(context, words, meaning) ?? []
         : null;
     },
+    findMeaningFor,
     // A #handle she carries names a channel of any interface the memory holds.
     knownPlaces: () => frameReads?.chatPlaces?.() ?? [],
     skills,
@@ -608,6 +629,7 @@ export function createTurnRunner({
     chatOf,
     turnContextOf: (draft, channel) => turnContextOf(draft, channel),
     placeReads: frameReads,
+    findMeaningFor,
     linkCalls,
     drawTool,
   });

@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 
 import { findGif, normalizeGifs } from '../src/memory/gifs.ts';
 import { gifLine } from '../src/behavior/prompt.ts';
-import { findGifs, mediaFindText, runMediaFind } from '../src/tools/tools.ts';
+import { createFindMeaning } from '../src/memory/db/graph-find.ts';
+import { findGifs, mediaFind, mediaFindText, runMediaFind } from '../src/tools/tools.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present } from './fixtures/loose-types.ts';
 
@@ -178,4 +179,35 @@ test('runMediaFind: nothing found is an ok with the none label; bad arguments an
     'n=1 gives one GIF'
   );
   assert.equal(mediaFindText([], { query: 'x', labels }), 'Source: media.find "x", 0 found.\nNothing matched.');
+});
+
+test('media.find finds a GIF by the vector of its description when its words find no full match', async () => {
+  // Bug: media.find reads words only, so a query in another language than the descriptions finds nothing.
+  const lib = fixture(LIBRARY);
+  const vectors = new Map([
+    ['k3', [1, 0, 0]],
+    ['k1', [0, 1, 0]],
+  ]);
+  let asked = 0;
+  const store = { ...storeOf(lib), getGifVectors: () => vectors };
+  const findMeaning = createFindMeaning({
+    embed: () => {
+      asked += 1;
+      return Promise.resolve([1, 0, 0]);
+    },
+    model: 'test/embedder',
+    deadlineMs: 1000,
+    memo: new Map(),
+  });
+  const args = { query: 'λύπη' };
+  assert.equal(runMediaFind({ store, config: {}, labels, placeId: 'G', args }).data?.text?.includes('0 found'), true);
+  const result = await mediaFind({ store, config: {}, labels, placeId: 'G', args, findMeaning });
+  const handles = present(result.data)
+    .text.split('\n')
+    .slice(1)
+    .map((line) => line.split(':')[0]);
+  assert.deepEqual(handles, ['g3']);
+  const words = await mediaFind({ store, config: {}, labels, placeId: 'G', args: { query: 'cat' }, findMeaning });
+  assert.equal(present(words.data).text.split('\n').length, 2, 'the cat is found by its words');
+  assert.equal(asked, 1, 'a query whose words find a full match sends no embedding');
 });
