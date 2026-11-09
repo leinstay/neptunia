@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { linesAroundOf, ownLinesOf, sourceRetiredOf } from '../src/memory/db/frame-reads.ts';
 import { internalContext } from '../src/memory/db/scope.ts';
-import { addRoom, noteInterface, openWorld, rootId } from './fixtures/memory-db/mind-world.ts';
+import { addLine, addRoom, noteInterface, openWorld, rootId } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
 
 const AT = '2026-11-01T10:00:00.000Z';
@@ -178,6 +178,128 @@ test("a line's author id is the native id of its author account's row", () => {
     ownLine(world, { place: room, native: 'm-52', account: 'account:opaque-self', scope: 'group' });
     const [line] = ownLinesOf(world.db, internalContext(), null, 5);
     assert.equal(line?.authorId, 'self-9');
+  } finally {
+    world.close();
+  }
+});
+
+/** A room of the `fake` interface that holds her lines under test. */
+function gardenOf(world: World): string {
+  noteInterface(world, 'fake', [{ id: 'g1', name: 'Agora' }]);
+  return addRoom(world.db, { iface: 'fake', native: 'c9', root: rootId('fake', 'g1'), name: 'garden' });
+}
+
+/** One image item with `description` (null: no text form yet) linked to the stored line `source`. */
+function pictureOn(world: World, source: string, description: string | null) {
+  world.db
+    .prepare(
+      `INSERT INTO media (id, kind, availability, description, scope_kind, scope_iface)
+       VALUES (?, 'image', ?, ?, 'group', 'fake')`
+    )
+    .run(`media:${source}`, description === null ? 'unknown' : 'present', description);
+  world.db
+    .prepare("INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('source', ?, 0, ?)")
+    .run(source, `media:${source}`);
+}
+
+test('her picture-only line is among her own lines with the description of its media', () => {
+  // Bug: a post that is only a picture has empty text, so the live-line filter dropped it and <meanwhile> never
+  // listed it, though its description was stored.
+  const world = openWorld();
+  try {
+    const room = gardenOf(world);
+    addLine(world.db, {
+      id: 'm-text',
+      iface: 'fake',
+      place: room,
+      author: 'self',
+      text: 'η αυλή',
+      at: '2026-11-01T09:00:00.000Z',
+    });
+    addLine(world.db, {
+      id: 'm-pic',
+      iface: 'fake',
+      place: room,
+      author: 'self',
+      text: '',
+      at: '2026-11-01T10:00:00.000Z',
+    });
+    pictureOn(world, 'm-pic', 'a white rabbit in a garden');
+    const lines = ownLinesOf(world.db, internalContext(), null, 5);
+    const picture = lines.find((line) => line.id === 'm-pic');
+    assert.ok(picture, 'the picture-only line is listed');
+    assert.deepEqual(
+      picture.media.map((item) => [item.kind, item.text]),
+      [['image', 'a white rabbit in a garden']]
+    );
+  } finally {
+    world.close();
+  }
+});
+
+test('a line with empty text and no media stays out of her own lines', () => {
+  // Bug: relaxing the filter for pictures must not let an empty line through as a blank entry.
+  const world = openWorld();
+  try {
+    const room = gardenOf(world);
+    addLine(world.db, {
+      id: 'm-text',
+      iface: 'fake',
+      place: room,
+      author: 'self',
+      text: 'η αυλή',
+      at: '2026-11-01T09:00:00.000Z',
+    });
+    addLine(world.db, {
+      id: 'm-empty',
+      iface: 'fake',
+      place: room,
+      author: 'self',
+      text: '',
+      at: '2026-11-01T10:00:00.000Z',
+    });
+    const ids = ownLinesOf(world.db, internalContext(), null, 5).map((line) => line.id);
+    assert.deepEqual(ids, ['m-text']);
+  } finally {
+    world.close();
+  }
+});
+
+test('a picture-only line is among the lines around a line', () => {
+  // Bug: the lines around a line of hers skipped a neighbour that was only a picture, so the window had a hole.
+  const world = openWorld();
+  try {
+    const room = gardenOf(world);
+    addLine(world.db, {
+      id: 'm-1',
+      iface: 'fake',
+      place: room,
+      author: 'self',
+      text: 'πρώτη',
+      at: '2026-11-01T09:00:00.000Z',
+    });
+    addLine(world.db, {
+      id: 'm-pic',
+      iface: 'fake',
+      place: room,
+      author: 'self',
+      text: '',
+      at: '2026-11-01T09:01:00.000Z',
+    });
+    addLine(world.db, {
+      id: 'm-3',
+      iface: 'fake',
+      place: room,
+      author: 'self',
+      text: 'τρίτη',
+      at: '2026-11-01T09:02:00.000Z',
+    });
+    pictureOn(world, 'm-pic', 'a white rabbit in a garden');
+    const lines = linesAroundOf(world.db, internalContext(), room, Date.parse('2026-11-01T09:01:00.000Z'), 1);
+    assert.deepEqual(
+      lines.map((line) => line.id),
+      ['m-1', 'm-pic', 'm-3']
+    );
   } finally {
     world.close();
   }
