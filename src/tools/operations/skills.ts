@@ -1,4 +1,4 @@
-// Operations: `/nep task skills name` -- her read skill `tools.describe`: one skill in full (its
+// Operations: `tools.describe name` -- her read skill `tools.describe`: one skill in full (its
 // title, when to use it, when not to, its arguments and whether it is switched on for her), or a
 // family (`memory`, `intent`, ...) as one line per skill. The text is the very rendering a core row of
 // her tool list gets (src/behavior/prompt.ts#skillsInventoryText over src/tools/discovery.ts#describeRows),
@@ -18,7 +18,7 @@ import type { Obj } from '../types.ts';
 const handlers = perEnv((env) => {
   const { hot } = env;
 
-  /** `/nep task skills name`. */
+  /** `tools.describe name`. */
   function cmdDescribe(args: unknown): Obj {
     const said = objOf(args).name;
     const name = typeof said === 'string' ? said.trim() : '';

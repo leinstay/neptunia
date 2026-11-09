@@ -1,8 +1,7 @@
-// Operations: the persona's in-turn tools as the owner's commands -- `web.search` (`/nep task
-// search`: one web search through the existing engines, the results raw), `web.read` (`/nep task
-// read`: one page's own text, cut, no summary), `media.look` (`/nep task look`: a picture or a
-// video of a message looked at again with a question, through the describer's second look) and
-// `memory.search` (`/nep memory search`: the server's own message history through the recall
+// Operations: the persona's in-turn tools as the owner's commands -- `web.search` (one web search
+// through the existing engines, the results raw), `web.read` (one page's own text, cut, no summary),
+// `media.look` (a picture or a video of a message looked at again with a question, through the
+// describer's second look) and `memory.search` (the server's own message history through the recall
 // runner, quoted as it was, no summary) and `conversation.read` (a channel read in order, from the
 // record and the interface's history; hers alone, no slash command: catalog.js `personaOnly`).
 // Her own calls of them run inside her turn with its context (src/behavior/turn.ts, the tool
@@ -63,7 +62,7 @@ const handlers = perEnv((env) => {
     return (await reads.chatInfo(refOf(here)))?.chat ?? null;
   }
 
-  /** `/nep task search query [goal]`. */
+  /** `web.search query [goal]`. */
   async function cmdWebSearch(args: Obj, context: OpContext) {
     const result = await runWebSearch({
       lookup: env.lookup ?? null,
@@ -90,7 +89,7 @@ const handlers = perEnv((env) => {
     );
   }
 
-  /** `/nep task read url`; the persona's call may name a message instead (`message`). */
+  /** `web.read url`; the persona's call may name a message instead (`message`). */
   async function cmdWebRead(args: Obj, context: OpContext) {
     const result = await runWebRead({
       lookup: env.lookup ?? null,
@@ -118,7 +117,7 @@ const handlers = perEnv((env) => {
     return event ? lineOf(event) : null;
   }
 
-  /** `/nep task look message question [item]`: the describer's second look with that question. */
+  /** `media.look message question [item]`: the describer's second look with that question. */
   async function cmdMediaLook(args: Obj, context: OpContext) {
     const result = await runMediaLook({
       describer: env.describer ?? null,
@@ -131,7 +130,7 @@ const handlers = perEnv((env) => {
     return asOpResult(result, 'look');
   }
 
-  /** `/nep memory search question [people] [channel] [when] [terms]`, in the channel it was typed in. */
+  /** `memory.search question [people] [channel] [when] [terms]`, in the channel it was typed in. */
   async function cmdMemorySearch(args: Obj, context: OpContext) {
     const channel = await infoOf(context);
     const placeId = resolvedPlaceId(context);
@@ -152,7 +151,7 @@ const handlers = perEnv((env) => {
     return asOpResult(result);
   }
 
-  /** `/nep task find query [n]`: her GIF library searched by the stored descriptions. */
+  /** `media.find query [n]`: her GIF library searched by the stored descriptions. */
   function cmdMediaFind(args: Obj, context: OpContext) {
     return asOpResult(
       runMediaFind({

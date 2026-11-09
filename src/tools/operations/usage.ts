@@ -1,4 +1,4 @@
-// The costs fields of the owner's `/nep status` card: `keys.base`, what each OpenRouter key of the
+// The costs fields of the owner's `status.show` card: `keys.base`, what each OpenRouter key of the
 // core allows and has spent; `costs.base`, today's requests per model role from the bot's own
 // accounting (drawing's row included); `costs.errands`, the errand agents' runs and estimated spend (scout and
 // server from the errand records, src/errands/costs.ts); `costs.development`, thinker and dev from

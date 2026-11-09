@@ -1,4 +1,4 @@
-// Operations: `/nep status [field]`: what the bot is doing now, read only. The reply is one
+// Operations: `status.show [field]`: what the bot is doing now, read only. The reply is one
 // card (`cmdStatusCard`, plain card data the interface's command handler wraps for its platform), the
 // most important field first, for a phone; `field` keeps only that field and computes nothing
 // for the others. A member (anyone the owner check refuses) gets the card without the storage line,

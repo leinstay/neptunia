@@ -1,5 +1,5 @@
 // Operations `intention.set`, `intention.update`, `intention.cancel` and `intention.list`, reached by
-// `/nep task intent action:add|update|cancel|list`: the persona's intentions
+// `intention.* action:add|update|cancel|list`: the persona's intentions
 // (src/intentions/, docs/inner-life.md). `intention.set` (a new one of hers, `pending`; its purpose
 // the body of her call), `intention.update` (accept a candidate with `state:pending`, close one with
 // `state:done`, drop it with `state:dropped` and a `reason:` (a desire she considered and let go; also

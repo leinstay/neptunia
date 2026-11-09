@@ -1,5 +1,5 @@
 // Operations `errand.run`, `errand.status`, `errand.cancel`, `errand.list`, `errand.read` and `errand.resolve`, reached by
-// `/nep task run|status|cancel|list|result|resolve`: the persona's errands handed to her agents
+// `errand.run|status|cancel|list|result|resolve`: the persona's errands handed to her agents
 // (src/errands/, src/agent-runner/). Every member may use them while `features.memberCommands`
 // is on (rights.member); the rest is ruled here, for every caller alike -- the owner's command,
 // a member's, and the persona's own call (her skills: the requester of her turn is the caller).
@@ -97,7 +97,7 @@ const handlers = perEnv((env) => {
     return { status, code, summary: `task not started: ${code}`, data: errand ? { task: errand } : null };
   }
 
-  /** `/nep task run agent goal`: a new errand, answered at once with its id and `queued`. */
+  /** `errand.run agent goal`: a new errand, answered at once with its id and `queued`. */
   function cmdRun(args: Obj, context: OpContext) {
     assertNotPaused();
     const agent = textOf(args.agent).trim();
@@ -139,7 +139,7 @@ const handlers = perEnv((env) => {
     };
   }
 
-  /** `/nep task status [id]`: one errand, or every open one. */
+  /** `errand.status [id]`: one errand, or every open one. */
   function cmdStatus(args: Obj, context: OpContext) {
     const store = errands().store();
     if (!store) throw Object.assign(new Error('no place'), { code: CODE.PLACE_REQUIRED });
@@ -227,7 +227,7 @@ const handlers = perEnv((env) => {
     return `task ${errand.id}: resolved`;
   }
 
-  /** `/nep task cancel id`: for the requester of the errand or an owner. */
+  /** `errand.cancel id`: for the requester of the errand or an owner. */
   function cmdCancel(args: Obj, context: OpContext) {
     const id = textOf(args.id).trim();
     if (!id) throw invalid('an id is required');
@@ -252,7 +252,7 @@ const handlers = perEnv((env) => {
     return `task ${id}: cancelled`;
   }
 
-  /** `/nep task list`: the latest ERRAND_LIST_COUNT errands, newest first. */
+  /** `errand.list`: the latest ERRAND_LIST_COUNT errands, newest first. */
   function cmdList(args: Obj, context: OpContext) {
     const store = errands().store();
     if (!store) throw Object.assign(new Error('no place'), { code: CODE.PLACE_REQUIRED });
