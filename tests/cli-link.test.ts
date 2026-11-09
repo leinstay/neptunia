@@ -70,7 +70,7 @@ test('an open question has no choices and a secret answer never joins the argume
   const link = openLinkOver(client, { token: 't', print: null });
   const asked: Array<[boolean, ReadonlyArray<string> | null]> = [];
   await link.ask(
-    { name: 'keys.extra.add', args: { name: 'one' } },
+    { name: 'keys.add', args: { name: 'one' } },
     {
       ask: (_prompt, secret, choices) => {
         asked.push([secret, choices]);
@@ -89,7 +89,7 @@ test('a question with nobody to answer it is refused at once', async () => {
     askFirst({ text: 'Key', status: 'ask', dialogId: 'd3', prompt: 'Key', secret: true })
   );
   const link = openLinkOver(client, { token: 't', print: null });
-  const answer = await link.ask({ name: 'keys.extra.add', args: { name: 'one' } });
+  const answer = await link.ask({ name: 'keys.add', args: { name: 'one' } });
   assert.equal(answer.status, 'invalid');
   assert.equal(commands.length, 1);
   link.close();

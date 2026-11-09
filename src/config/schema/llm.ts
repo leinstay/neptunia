@@ -88,7 +88,7 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/subharness/routing.ts',
     'default': {},
     'text':
-      'The extra key of `keys.json` each role goes out on, by role: a base model role or `search`. A role with no entry goes out on the core keys. `/keys bind <role> <name>` writes an entry and `/keys unbind <role>` removes it',
+      'The extra key of `keys.json` each role goes out on, by role: a base model role or `search`. A role with no entry goes out on the core keys. Read into the chain of a role with no `models.routes` entry',
   },
   {
     'key': 'llm.routeRetryMinutes',

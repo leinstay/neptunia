@@ -86,29 +86,6 @@ test("the memory writer's path and an agent's route land in config.json and keys
   assert.equal(keysText(dir), before);
 });
 
-test('a key bound with keys bind lands in config.json, never in keys.json', async () => {
-  // Catches: the binding kept as a `roles` section of keys.json, which the deploy moved out and nothing reads any more.
-  const { dir, store } = rig();
-  const ring = createKeyRing({ store, failover: createKeyFailover({ now: () => 0 }) });
-  const keys = createKeysCommands({
-    store,
-    ring,
-    fetch: fakeFetch().fetch,
-    baseUrl: () => BASE_URL,
-    defaults: {},
-    currentModel: () => '',
-    saveModel: () => Promise.resolve(),
-    pause: fakePause(null),
-  });
-  assert.equal((await keys.run('keys.bind', { role: 'drawing', name: 'art' }, null)).status, 'ok');
-  assert.deepEqual(configOf(dir).llm, { boundKeys: { drawing: 'art' } });
-  // The store writes its two sections only: the `variables` section of the import is gone.
-  assert.deepEqual(keysSections(dir).sort(), ['core', 'extra']);
-  assert.equal(store.boundTo('drawing'), 'art');
-  assert.equal((await keys.run('keys.unbind', { role: 'drawing' }, null)).status, 'ok');
-  assert.equal(configOf(dir).llm?.boundKeys, undefined);
-});
-
 test('a write of keys.json drops the routing sections an older file still carries', () => {
   // Catches: the store's spread of the old file writing `roles` and `subharness` back, so the secrets file never sheds them.
   const dir = tempDir('nep-config-routing-old-');
@@ -184,35 +161,6 @@ test('model set of a direct role with no key is refused at the choice and saves 
   assert.equal(answer.status, 'failed');
   assert.deepEqual(saved, []);
   assert.equal(calls.length, 0);
-});
-
-test("keys bind checks the role's model on the new key and binds nothing when the provider refuses it", async () => {
-  // Catches: a binding saved unchecked, so the role first fails at a turn on a key that cannot serve its model.
-  const dir = tempDir('nep-config-routing-bind-');
-  const store = createKeyStore({ privateDir: dir });
-  store.addCore({ name: 'core-1', value: SECRET });
-  store.addExtra({ name: 'art', value: SECRET_3 });
-  const ring = createKeyRing({ store, failover: createKeyFailover({ now: () => 0 }) });
-  const refuse = fakeFetch(() => ({ status: 403, body: { error: { message: 'no access' } } }));
-  const run = (fetch: typeof globalThis.fetch) =>
-    createKeysCommands({
-      store,
-      ring,
-      fetch,
-      baseUrl: () => BASE_URL,
-      defaults: {},
-      currentModel: (role) => `current/${role}`,
-      saveModel: () => Promise.resolve(),
-      pause: fakePause(null),
-    }).run('keys.bind', { role: 'vision', name: 'art' }, null);
-  assert.equal((await run(refuse.fetch)).status, 'failed');
-  assert.equal(refuse.calls.length, 1);
-  const [call] = refuse.calls;
-  assert.equal(call?.auth, SECRET_3);
-  assert.equal(store.boundTo('vision'), null);
-  const accept = fakeFetch();
-  assert.equal((await run(accept.fetch)).status, 'ok');
-  assert.equal(store.boundTo('vision'), 'art');
 });
 
 test("the watcher's money read lists an extra key once, by its name, past an older file's simulation section", () => {

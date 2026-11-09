@@ -46,10 +46,10 @@ const dialog = { ask: () => Promise.resolve('') };
 test('a keys command reaches the key commands with the dialog it was given, whether or not the store is in use', async () => {
   for (const enabled of [false, true]) {
     const { console_, routed, ops } = rig(enabled);
-    const answer = await console_.run('keys.core.add', { name: 'core-1' }, owner, dialog);
+    const answer = await console_.run('keys.add', { name: 'core-1' }, owner, dialog);
     assert.equal(answer.text, 'keys answered');
     // Bug caught: the dialog dropped on the way, so the key value could never be asked.
-    assert.deepEqual(routed, [{ name: 'keys.core.add', dialog }]);
+    assert.deepEqual(routed, [{ name: 'keys.add', dialog }]);
     assert.deepEqual(ops, []);
   }
 });
@@ -75,7 +75,7 @@ test('the summary names the reason of a pause the core set itself', () => {
     version: '1',
     instance: 'x',
     coreModel: 'c',
-    paused: { since: '2026-11-02T09:00:00.000Z', reason: 'no-core-key' },
+    paused: { since: '2026-11-02T09:00:00.000Z', reason: 'no-core-route' },
     spend: { requests: 0, cost: 0, coreCost: 0 },
     interfaces: [],
     failingRoles: [],
@@ -84,6 +84,6 @@ test('the summary names the reason of a pause the core set itself', () => {
     errands: { open: 0, latest: [] },
     slept: 0,
   };
-  assert.ok(statusText(facts).includes('no-core-key'));
-  assert.ok(!statusText({ ...facts, paused: { since: null } }).includes('no-core-key'));
+  assert.ok(statusText(facts).includes('no-core-route'));
+  assert.ok(!statusText({ ...facts, paused: { since: null } }).includes('no-core-route'));
 });

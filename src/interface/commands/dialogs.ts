@@ -1,5 +1,5 @@
 // The open questions of the owner's commands, in process memory. A command that needs more than its line (the key
-// value of `/keys core add`) asks through a `Dialog`: the broker answers the command's request with a question (status
+// value of `/keys add`) asks through a `Dialog`: the broker answers the command's request with a question (status
 // `ask`, a `dialogId`, the prompt, whether the answer is secret), keeps the command waiting, and hands the answer to it
 // when the chat sends a second `command.requested` with the same command name, the `dialogId` and the `answer`. That
 // request is answered by whatever comes first: the command's next question, or its result. An open question expires

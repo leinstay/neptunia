@@ -215,9 +215,9 @@ test('a missing API key names the role-specific masked key commands', async () =
   const api = source(await roleSources(deps, 'drawing'), null);
   assert.equal(api.code, 'no-key');
   assert.deepEqual(api.setup, [
-    { command: '/keys core add <name>', masked: true },
-    { command: '/keys extra add <name>', masked: true },
-    { command: '/keys bind drawing <name>', masked: false },
+    // Changed: one named key and the role's route replace the core, extra and bind commands (spec 2026-11-09).
+    { command: '/keys add <name>', masked: true },
+    { command: '/model set drawing <name>/<model>', masked: false },
   ]);
 });
 

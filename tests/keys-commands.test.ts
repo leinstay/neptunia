@@ -58,7 +58,7 @@ const BLANKS = ['', '', '', ''];
 test('the first core add asks the value without echo, then the four models with the defaults offered, and checks each', async () => {
   const { keys, store, calls, saved } = rig();
   const { dialog, asked } = scriptedDialog([SECRET, 'custom/core', '', '', '']);
-  const answer = await keys.run('keys.core.add', { name: 'core-1' }, dialog);
+  const answer = await keys.run('keys.add', { name: 'core-1' }, dialog);
   assert.equal(answer.status, 'ok');
   assert.equal(asked[0]?.secret, true, 'the value is asked as a secret');
   // Bug caught: asking the models in another order, or without the tracked default on offer.
@@ -94,7 +94,7 @@ test('the first core add refuses to finish when one mandatory model fails its ch
       : healthy(call);
   const { keys, store, saved, file } = rig(echo);
   const { dialog } = scriptedDialog([SECRET, ...BLANKS]);
-  const answer = await keys.run('keys.core.add', { name: 'core-1' }, dialog);
+  const answer = await keys.run('keys.add', { name: 'core-1' }, dialog);
   // Bug caught: the key written before the checks run, so a fresh install ends half-configured with a model that fails.
   assert.equal(answer.status, 'failed');
   assert.ok(
@@ -109,13 +109,9 @@ test('the first core add refuses to finish when one mandatory model fails its ch
 
 test('a first add with no dialog, an empty value or a pasted line sends nothing and saves nothing', async () => {
   const { keys, calls, store } = rig();
-  assert.equal((await keys.run('keys.core.add', { name: 'core-1' }, null)).status, 'invalid');
-  assert.equal((await keys.run('keys.core.add', { name: 'core-1' }, scriptedDialog(['  ']).dialog)).status, 'invalid');
-  const pasted = await keys.run(
-    'keys.core.add',
-    { name: `core-1 ${SECRET}` },
-    scriptedDialog([SECRET, ...BLANKS]).dialog
-  );
+  assert.equal((await keys.run('keys.add', { name: 'core-1' }, null)).status, 'invalid');
+  assert.equal((await keys.run('keys.add', { name: 'core-1' }, scriptedDialog(['  ']).dialog)).status, 'invalid');
+  const pasted = await keys.run('keys.add', { name: `core-1 ${SECRET}` }, scriptedDialog([SECRET, ...BLANKS]).dialog);
   // Bug caught: the owner pastes the key after the name; the refusal echoes the line and the key reaches the screen and the log.
   assert.equal(pasted.status, 'invalid');
   assert.ok(!pasted.text.includes('SECRETVALUE'));
@@ -126,7 +122,7 @@ test('a first add with no dialog, an empty value or a pasted line sends nothing 
 test('a later core add checks the key with /auth/key only, trims the paste, and saves it', async () => {
   const { keys, store, calls } = rig();
   store.addCore({ name: 'core-1', value: SECRET });
-  const answer = await keys.run('keys.core.add', { name: 'core-2' }, scriptedDialog([`  ${SECRET_2}\n`]).dialog);
+  const answer = await keys.run('keys.add', { name: 'core-2' }, scriptedDialog([`  ${SECRET_2}\n`]).dialog);
   assert.equal(answer.status, 'ok');
   assert.equal(calls.length, 1, 'one request');
   assert.ok(calls[0]?.url.endsWith('/auth/key'));
@@ -139,7 +135,7 @@ test('a later core add whose key /auth/key rejects is not saved', async () => {
     call.url.endsWith('/auth/key') ? { status: 401, body: { error: { message: 'User not found.' } } } : healthy(call)
   );
   store.addCore({ name: 'core-1', value: SECRET });
-  const answer = await keys.run('keys.core.add', { name: 'core-2' }, scriptedDialog([SECRET_2]).dialog);
+  const answer = await keys.run('keys.add', { name: 'core-2' }, scriptedDialog([SECRET_2]).dialog);
   assert.equal(answer.status, 'failed');
   assert.deepEqual(store.coreNames(), ['core-1']);
 });
@@ -148,39 +144,40 @@ test('a name already in use is refused before the value is asked or anything is 
   const { keys, store, calls } = rig();
   store.addCore({ name: 'core-1', value: SECRET });
   const { dialog, asked } = scriptedDialog([SECRET_2]);
-  const answer = await keys.run('keys.core.add', { name: 'core-1' }, dialog);
+  const answer = await keys.run('keys.add', { name: 'core-1' }, dialog);
   assert.equal(answer.status, 'invalid');
   assert.deepEqual(asked, []);
   assert.deepEqual(calls, []);
 });
 
-test('removing the last core key pauses her as no-core-key; removing another key does not', async () => {
+test('removing the last core key pauses her as no-core-route; removing another key does not', async () => {
+  // Changed: `/keys remove` replaces `/keys core remove`, and the pause is named for a core with no route.
   const { keys, store, pause } = rig();
   store.addCore({ name: 'core-1', value: SECRET });
   store.addCore({ name: 'core-2', value: SECRET_2 });
-  assert.equal((await keys.run('keys.core.remove', { name: 'core-2' }, null)).status, 'ok');
+  assert.equal((await keys.run('keys.remove', { name: 'core-2' }, null)).status, 'ok');
   assert.deepEqual(pause.pauses, [], 'one key is still there');
-  assert.equal((await keys.run('keys.core.remove', { name: 'core-1' }, null)).status, 'ok');
+  assert.equal((await keys.run('keys.remove', { name: 'core-1' }, null)).status, 'ok');
   // Bug caught: the last removal refused, or allowed without the pause, so she keeps answering with no key to answer on.
-  assert.deepEqual(pause.pauses, ['no-core-key']);
+  assert.deepEqual(pause.pauses, ['no-core-route']);
   assert.deepEqual(store.coreNames(), []);
-  assert.equal((await keys.run('keys.core.remove', { name: 'core-1' }, null)).status, 'invalid', 'an unknown name');
+  assert.equal((await keys.run('keys.remove', { name: 'core-1' }, null)).status, 'invalid', 'an unknown name');
 });
 
-test('the next core add resumes a no-core-key pause, and leaves a pause the owner gave alone', async () => {
-  const afterRemoval = rig(healthy, 'no-core-key');
-  await afterRemoval.keys.run('keys.core.add', { name: 'core-1' }, scriptedDialog([SECRET, ...BLANKS]).dialog);
+test('the next core add resumes a no-core-route pause, and leaves a pause the owner gave alone', async () => {
+  const afterRemoval = rig(healthy, 'no-core-route');
+  await afterRemoval.keys.run('keys.add', { name: 'core-1' }, scriptedDialog([SECRET, ...BLANKS]).dialog);
   assert.equal(afterRemoval.pause.resumes, 1);
 
   const owner = rig(healthy, 'owner');
   owner.store.addCore({ name: 'core-1', value: SECRET });
-  await owner.keys.run('keys.core.add', { name: 'core-2' }, scriptedDialog([SECRET_2]).dialog);
+  await owner.keys.run('keys.add', { name: 'core-2' }, scriptedDialog([SECRET_2]).dialog);
   // Bug caught: adding a key undoing a pause the owner set for editing data/.
   assert.equal(owner.pause.resumes, 0);
 });
 
-test('an owner pause given over no-core-key stays when the next core key is added', async () => {
-  // Catches: the owner's /pause after the last key's removal keeps the reason no-core-key, so the next add wakes her
+test('an owner pause given over no-core-route stays when the next core key is added', async () => {
+  // Catches: the owner's /pause after the last key's removal keeps the reason no-core-route, so the next add wakes her
   // while he edits data/.
   const state = makeStore();
   const admin = createAdmin({ hot: { config: { bot: { owners: [] } }, prompts: {} }, store: state });
@@ -199,65 +196,37 @@ test('an owner pause given over no-core-key stays when the next core key is adde
     pause,
   });
   store.addCore({ name: 'core-1', value: SECRET });
-  await keys.run('keys.core.remove', { name: 'core-1' }, null);
-  assert.equal(pause.reason(), 'no-core-key');
+  // Changed: `/keys remove`; the next add of a non-empty keys.json goes in as a named key, with no models asked.
+  store.addExtra({ name: 'spare', value: SECRET_3 });
+  await keys.run('keys.remove', { name: 'core-1' }, null);
+  assert.equal(pause.reason(), 'no-core-route');
   await admin.run('bot.pause', {}, {});
-  await keys.run('keys.core.add', { name: 'core-2' }, scriptedDialog([SECRET_2, ...BLANKS]).dialog);
-  assert.deepEqual(store.coreNames(), ['core-2']);
+  await keys.run('keys.add', { name: 'core-2' }, scriptedDialog([SECRET_2]).dialog);
+  assert.equal(store.valueOf('core-2'), SECRET_2);
   assert.equal(state.state.data.paused, true);
   assert.equal(pause.reason(), 'owner');
 });
 
-test('a failed add does not resume the no-core-key pause', async () => {
+test('a failed add does not resume the no-core-route pause', async () => {
   const { keys, pause } = rig(
     (call) => (call.url.endsWith('/embeddings') ? { status: 404, body: 'gone' } : healthy(call)),
-    'no-core-key'
+    'no-core-route'
   );
-  await keys.run('keys.core.add', { name: 'core-1' }, scriptedDialog([SECRET, ...BLANKS]).dialog);
+  await keys.run('keys.add', { name: 'core-1' }, scriptedDialog([SECRET, ...BLANKS]).dialog);
   assert.equal(pause.resumes, 0);
 });
 
-test('listings show names, last four characters, grants and bound roles, never a value', async () => {
-  const { keys, store } = rig();
-  store.addCore({ name: 'core-1', value: SECRET, grant: 200, resetDay: 22 });
-  store.addCore({ name: 'core-2', value: SECRET_2 });
-  await keys.run('keys.extra.add', { name: 'art' }, scriptedDialog([SECRET_3]).dialog);
-  store.bind('drawing', 'art');
-  const core = await keys.run('keys.core.list', {}, null);
-  const extra = await keys.run('keys.extra.list', {}, null);
-  for (const answer of [core, extra]) {
-    assert.equal(answer.status, 'ok');
-    // Bug caught: a listing that prints the stored row, value and all.
-    assert.ok(!answer.text.includes('SECRETVALUE'), 'no value');
-  }
-  assert.ok(
-    core.text.includes('core-1') &&
-      core.text.includes('WXYZ') &&
-      core.text.includes('core-2') &&
-      core.text.includes('ABCD')
-  );
-  assert.ok(core.text.includes('200') && core.text.includes('22'), 'grant and reset day');
-  assert.ok(extra.text.includes('art') && extra.text.includes('EFGH') && extra.text.includes('drawing'));
-});
-
-test('binding an unknown key name or role is refused and changes nothing; a core name is not an extra key', async () => {
+test('the listing shows every key by name and last four characters, never a value', async () => {
+  // Changed: one `/keys list` of named keys replaces the core and extra listings and their grants.
   const { keys, store } = rig();
   store.addCore({ name: 'core-1', value: SECRET });
   store.addExtra({ name: 'art', value: SECRET_3 });
-  for (const args of [
-    { role: 'drawing', name: 'nope' },
-    { role: 'drawing', name: 'core-1' },
-    { role: 'sorcery', name: 'art' },
-  ]) {
-    // Bug caught: a mistyped name accepted, so the role is bound to a key that does not exist and its requests go nowhere.
-    assert.equal((await keys.run('keys.bind', args, null)).status, 'invalid', JSON.stringify(args));
-  }
-  assert.equal(store.boundTo('drawing'), null);
-  assert.equal((await keys.run('keys.bind', { role: 'drawing', name: 'art' }, null)).status, 'ok');
-  assert.equal(store.boundTo('drawing'), 'art');
-  assert.equal((await keys.run('keys.extra.remove', { name: 'art' }, null)).status, 'invalid', 'still bound');
-  assert.equal((await keys.run('keys.unbind', { role: 'drawing' }, null)).status, 'ok');
-  assert.equal((await keys.run('keys.unbind', { role: 'drawing' }, null)).status, 'invalid', 'nothing to unbind');
+  const answer = await keys.run('keys.list', {}, null);
+  assert.equal(answer.status, 'ok');
+  // Bug caught: a listing that prints the stored row, value and all.
+  assert.ok(!answer.text.includes('SECRETVALUE'), 'no value');
+  assert.ok(answer.text.includes('core-1') && answer.text.includes('WXYZ'), answer.text);
+  assert.ok(answer.text.includes('art') && answer.text.includes('EFGH'), answer.text);
 });
 
 test("keys check sends one request on the role's own key and names model, key name and is_byok", async () => {
@@ -325,106 +294,12 @@ test('the table parses the keys commands to the names and arguments the commands
     return result.ok ? { name: result.name, args: result.args } : result.reason;
   };
   const refused = (line: string): boolean => !parseCommandLine(line).ok;
-  assert.deepEqual(parsed('/keys core add core-1'), { name: 'keys.core.add', args: { name: 'core-1' } });
-  assert.deepEqual(parsed('/keys core remove core-1'), { name: 'keys.core.remove', args: { name: 'core-1' } });
-  assert.deepEqual(parsed('/keys core list'), { name: 'keys.core.list', args: {} });
-  assert.deepEqual(parsed('/keys extra add art'), { name: 'keys.extra.add', args: { name: 'art' } });
-  assert.deepEqual(parsed('/keys extra list'), { name: 'keys.extra.list', args: {} });
-  assert.deepEqual(parsed('/keys bind drawing art'), { name: 'keys.bind', args: { role: 'drawing', name: 'art' } });
-  assert.deepEqual(parsed('/keys unbind drawing'), { name: 'keys.unbind', args: { role: 'drawing' } });
-  assert.deepEqual(parsed('/keys check vision'), { name: 'keys.check', args: { role: 'vision' } });
+  // Changed: the named-key commands replace `core`, `extra`, `bind` and `unbind`, and `check` takes a role or a key.
+  assert.deepEqual(parsed('/keys add core-1'), { name: 'keys.add', args: { name: 'core-1' } });
+  assert.deepEqual(parsed('/keys remove core-1'), { name: 'keys.remove', args: { name: 'core-1' } });
+  assert.deepEqual(parsed('/keys list'), { name: 'keys.list', args: {} });
+  assert.deepEqual(parsed('/keys check vision'), { name: 'keys.check', args: { target: 'vision' } });
   assert.deepEqual(parsed('/model set vision x/y'), { name: 'model.set', args: { role: 'vision', model: 'x/y' } });
-  for (const line of ['/keys', '/keys bind drawing', '/keys check', '/keys core add'])
+  for (const line of ['/keys', '/keys bind drawing art', '/keys check', '/keys add'])
     assert.equal(refused(line), true, `${line} is refused with a reason`);
-});
-
-// `keys core grant <name> <usd> <day>` and `keys core grant <name> none` (spec 2026-11-02, follow-up 4): the grant of a
-// stored core key changes with no value asked for and none shown.
-
-/** A dialog that fails the test when it is asked anything. */
-const silentDialog = {
-  ask: (question: string): Promise<string> => Promise.reject(new Error(`asked: ${question}`)),
-};
-
-test('the table parses keys core grant with a day, and with none', () => {
-  // Catches: the line falls through to "no subcommand" and the owner cannot change a grant from the chat.
-  const parsed = (line: string) => {
-    const result = parseCommandLine(line);
-    return result.ok ? { name: result.name, args: result.args } : result.reason;
-  };
-  assert.deepEqual(parsed('/keys core grant core-1 200 22'), {
-    name: 'keys.core.grant',
-    args: { name: 'core-1', usd: '200', day: '22' },
-  });
-  assert.deepEqual(parsed('/keys core grant core-1 none'), {
-    name: 'keys.core.grant',
-    args: { name: 'core-1', usd: 'none' },
-  });
-});
-
-test('keys core grant sets the grant and reset day of a stored key without asking for its value', async () => {
-  // Catches: the command asks for the key again, or saves the grant under the wrong key.
-  const { keys, store } = rig();
-  store.addCore({ name: 'core-1', value: SECRET });
-  const answer = await keys.run('keys.core.grant', { name: 'core-1', usd: '200', day: '22' }, silentDialog);
-  assert.equal(answer.status, 'ok');
-  assert.deepEqual(store.list().core[0], { name: 'core-1', last4: 'WXYZ', grant: 200, resetDay: 22 });
-  assert.equal(answer.text.includes('SECRETVALUE'), false);
-});
-
-test('keys core grant with none clears the grant', async () => {
-  // Catches: "none" is read as a number, fails, and an old grant can never be taken off a key.
-  const { keys, store } = rig();
-  store.addCore({ name: 'core-1', value: SECRET, grant: 200, resetDay: 22 });
-  const answer = await keys.run('keys.core.grant', { name: 'core-1', usd: 'none' }, silentDialog);
-  assert.equal(answer.status, 'ok');
-  assert.deepEqual(store.list().core[0], { name: 'core-1', last4: 'WXYZ', grant: null, resetDay: null });
-});
-
-test('keys core grant refuses a missing day, a bad amount and an unknown key, and changes nothing', async () => {
-  // Catches: a grant without a reset day is saved, and the week line divides by a day that does not exist.
-  const { keys, store } = rig();
-  store.addCore({ name: 'core-1', value: SECRET, grant: 200, resetDay: 22 });
-  for (const args of [
-    { name: 'core-1', usd: '150' },
-    { name: 'core-1', usd: 'lots', day: '3' },
-    { name: 'core-1', usd: '150', day: '0' },
-    { name: 'core-9', usd: '150', day: '3' },
-  ]) {
-    const answer = await keys.run('keys.core.grant', args, silentDialog);
-    assert.equal(answer.status, 'invalid', JSON.stringify(args));
-    assert.equal(answer.text.includes('SECRETVALUE'), false);
-  }
-  assert.deepEqual(store.list().core[0], { name: 'core-1', last4: 'WXYZ', grant: 200, resetDay: 22 });
-});
-
-test('a later core add asks the grant and the reset day, and the listing shows them', async () => {
-  const { keys, store } = rig();
-  store.addCore({ name: 'core-1', value: SECRET });
-  await keys.run('keys.core.add', { name: 'core-2' }, scriptedDialog([SECRET_2, '75.5', '15']).dialog);
-  await keys.run('keys.core.add', { name: 'core-3' }, scriptedDialog([SECRET_3, 'none']).dialog);
-  assert.deepEqual(
-    store.list().core.map((row) => [row.name, row.grant, row.resetDay]),
-    [
-      ['core-1', null, null],
-      ['core-2', 75.5, 15],
-      ['core-3', null, null],
-    ]
-  );
-  const listed = await keys.run('keys.core.list', {}, null);
-  assert.ok(listed.text.includes('75.5') && listed.text.includes('15'));
-});
-
-test('a grant that is not a number, or a reset day outside 1 to 31, is refused and nothing is saved', async () => {
-  const { keys, store } = rig();
-  store.addCore({ name: 'core-1', value: SECRET });
-  assert.equal(
-    (await keys.run('keys.core.add', { name: 'core-2' }, scriptedDialog([SECRET_2, 'lots']).dialog)).status,
-    'invalid'
-  );
-  assert.equal(
-    (await keys.run('keys.core.add', { name: 'core-2' }, scriptedDialog([SECRET_2, '10', '40']).dialog)).status,
-    'invalid'
-  );
-  assert.deepEqual(store.coreNames(), ['core-1']);
 });

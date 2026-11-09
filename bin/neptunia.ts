@@ -901,7 +901,7 @@ async function launchChat(): Promise<void> {
 }
 
 /**
- * The chat. With `firstLine` (`neptunia setup` hands it `/keys core add`) that line is typed first, and the chat
+ * The chat. With `firstLine` (`neptunia setup` hands it `/keys add`) that line is typed first, and the chat
  * returns to its caller when the input ends instead of ending the process.
  */
 async function runChat(firstLine?: string): Promise<void> {
@@ -1051,7 +1051,7 @@ function checkKeyStore(privateDir: string): Check {
     const core = createKeyStore({ privateDir }).list().core.length;
     return core > 0
       ? { name: 'keys', status: 'ok', detail: `keys.json holds ${core} core keys` }
-      : { name: 'keys', status: 'warn', detail: 'keys.json holds no core key: add one with /keys core add' };
+      : { name: 'keys', status: 'warn', detail: 'keys.json holds no key: add one with /keys add' };
   } catch {
     return { name: 'keys', status: 'fail', detail: 'keys.json does not read' };
   }
@@ -1060,7 +1060,7 @@ function checkKeyStore(privateDir: string): Check {
 /** The core keys of keys.json: a count, never a value. */
 function checkKeys(where: { rootDir: string; privateDir: string }): Check {
   if (keysFileExists(where.privateDir)) return checkKeyStore(where.privateDir);
-  return { name: 'keys', status: 'fail', detail: 'no keys.json: run neptunia setup, then /keys core add' };
+  return { name: 'keys', status: 'fail', detail: 'no keys.json: run neptunia setup, then /keys add' };
 }
 
 /** The base model roles `config` switches off with `models.base.<role>: false`. */

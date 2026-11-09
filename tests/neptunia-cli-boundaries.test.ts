@@ -127,8 +127,8 @@ const SECRET = 'sk-or-v1-zeta-SECRETVALUE-0001';
 
 /** The leaves that ask for a secret value, each with the words before the value. */
 const SECRET_LEAVES: ReadonlyArray<{ name: string; words: ReadonlyArray<string>; args: unknown }> = [
-  { name: 'keys.core.add', words: ['keys', 'core', 'add', 'k1'], args: { name: 'k1' } },
-  { name: 'keys.extra.add', words: ['keys', 'extra', 'add', 'k1'], args: { name: 'k1' } },
+  // Changed: `keys add` replaces `keys core add` and `keys extra add` (spec 2026-11-09-model-routes).
+  { name: 'keys.add', words: ['keys', 'add', 'k1'], args: { name: 'k1' } },
   { name: 'keys.service.set', words: ['keys', 'service', 'set', 'youtube'], args: { name: 'youtube' } },
   { name: 'interfaces.token.set', words: ['interfaces', 'token', 'set', 'zeta'], args: { name: 'zeta' } },
 ];
@@ -288,7 +288,7 @@ for (const { what, argv } of PANELS) {
 test('a secret given as a word exits 2 from a real argv, reaches no core and is not echoed', async () => {
   // Catches: the process prints the refused argv back, or sends the command before it is refused.
   fresh();
-  const run = await runChild(dirs, ['keys', 'core', 'add', 'k1', SECRET]);
+  const run = await runChild(dirs, ['keys', 'add', 'k1', SECRET]);
   assert.equal(run.code, 2, run.stderr.slice(0, 200));
   assert.deepEqual(core.commands, []);
   assert.equal((run.stdout + run.stderr).includes(SECRET), false);
@@ -297,7 +297,7 @@ test('a secret given as a word exits 2 from a real argv, reaches no core and is 
 test('a secret question with no terminal exits 1 at once, names the channel and leaves stdin unread', async () => {
   // Catches: the question waits on a pipe that stays open, or whatever is on the pipe is sent as the key value.
   fresh(() => ({ status: 'ask', text: SECRET_QUESTION, dialogId: 'dialog-1', prompt: SECRET_QUESTION, secret: true }));
-  const run = await runChild(dirs, ['keys', 'core', 'add', 'k1'], { input: `${SECRET}\n`, open: true, ms: PROMPTLY });
+  const run = await runChild(dirs, ['keys', 'add', 'k1'], { input: `${SECRET}\n`, open: true, ms: PROMPTLY });
   assert.equal(run.code, 1, run.stderr.slice(0, 200));
   assert.equal(run.stdout, '');
   assert.ok(run.stderr.includes(SECRET_QUESTION), 'the missing input is named');

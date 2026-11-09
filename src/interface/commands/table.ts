@@ -22,7 +22,7 @@
 // the operation's. The core's console runs it as the owner (`operationOf`); a leaf without `op` is answered by a module
 // of its own there.
 
-import { BASE_ROLES, MEMORY_ROLE, SEARCH_ROLE } from '../../llm/roles.ts';
+import { MEMORY_ROLE } from '../../llm/roles.ts';
 import { ROUTE_ROLES as CHAIN_ROLES } from '../../llm/route-text.ts';
 import { BACKEND_NAMES } from '../../agent-runner/profiles.ts';
 import { AGENT_MODES, SUBHARNESS_AGENTS } from '../../subharness/control.ts';
@@ -74,9 +74,6 @@ export type Parsed = { ok: true; name: string; args: Record<string, unknown> } |
 
 /** The roles a route names, and `any` for a route of every role. */
 const ROUTE_CHOICES: ReadonlyArray<string> = ['any', ...ROUTE_ROLES];
-
-/** The roles a key can be bound to or checked for: the base model roles, her memory session included. */
-const KEY_ROLES: ReadonlyArray<string> = [...BASE_ROLES, MEMORY_ROLE, SEARCH_ROLE];
 
 /** The roles `/model set` names: the model roles, her memory session and the agents, whose models are their subharnesses'. */
 const MODEL_SET_CHOICES: ReadonlyArray<string> = [...new Set([...MODEL_SET_ROLES, MEMORY_ROLE, ...SUBHARNESS_AGENTS])];
@@ -746,39 +743,21 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'keys',
-    help: 'Manage API keys, allowances and model role bindings',
+    help: 'Manage the named API keys and the service keys',
     args: [],
     needsSubcommand: true,
     subcommands: [
-      secretSub(
-        sub('core.add', 'Add a core key; the chat asks for the value without showing it', [arg('name')]),
-        'only'
-      ),
-      sub('core.remove', 'Remove a core key; the last one pauses her until the next add', [arg('name')]),
-      sub('core.list', 'Show core keys with their last four characters, grants and the one in use'),
-      sub('core.grant', 'Set the grant of a core key in USD and its reset day, or none to clear it', [
-        arg('name'),
-        arg('usd'),
-        arg('day', false),
-      ]),
-      secretSub(
-        sub('extra.add', 'Add an extra key; the chat asks for the value without showing it', [arg('name')]),
-        'only'
-      ),
-      sub('extra.remove', 'Remove an extra key no role is bound to', [arg('name')]),
-      sub('extra.list', 'Show extra keys with the roles bound to them'),
+      secretSub(sub('add', 'Add a named key; the chat asks for the value without showing it', [arg('name')]), 'only'),
+      sub('remove', 'Remove a key; routes that name it are skipped until it comes back', [arg('name')]),
+      sub('list', 'Show the keys with their last four characters and the roles whose chains use them'),
       sub('service.list', 'Show optional service keys: YouTube, Brave, Exa and the video proxy, each masked'),
       secretSub(
         sub('service.set', 'Set one service key; the chat asks for it without showing it', [arg('name')]),
         'only'
       ),
       sub('service.clear', 'Clear one service key', [arg('name')]),
-      sub('bind', 'Use a named extra key for one model role', [arg('role', true, KEY_ROLES), arg('name')]),
-      sub('unbind', 'Remove a role’s extra-key binding and use its default credentials', [
-        arg('role', true, KEY_ROLES),
-      ]),
-      sub('check', 'Test a model role’s credentials with one request and show how it was billed', [
-        arg('role', true, KEY_ROLES),
+      sub('check', 'Check a role’s route in force with one request, or a key with the free read of its record', [
+        arg('target'),
       ]),
     ],
   },

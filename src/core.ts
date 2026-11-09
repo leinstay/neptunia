@@ -1352,15 +1352,15 @@ async function buildCore(
     dataDir,
   });
   // The key commands: the checks go to the provider with the global `fetch` of the moment, a model is saved through the
-  // `model.set` operation, and the last core key's removal pauses her with the reason `no-core-key`.
+  // `model.set` operation, and a removal that leaves her core no route pauses her with the reason `no-core-route`.
   const asOwner = { accountId: '', roleIds: [], actor: 'owner', asOwner: true };
   const ownerOp = async (op: string, args: Record<string, unknown>): Promise<string> => {
     const result = await admin.runSkillOp(op, args, asOwner);
     if (result.status !== 'ok') throw new Error(result.summary || result.code);
     return result.summary;
   };
-  // Her pause with a reason, which the key commands and the probes set: `no-core-key` after the last core key's
-  // removal, `core-down`, `analyzer-down` or `memory-down` after a failed probe. Each lifts only its own pause, and an owner's pause given over
+  // Her pause with a reason, which the key commands and the probes set: `no-core-route` after a key removal that leaves
+  // her core no route, `core-down`, `analyzer-down` or `memory-down` after a failed probe. Each lifts only its own pause, and an owner's pause given over
   // one of them becomes his.
   const pauseControl = reasonedPause({ run: ownerOp, store });
   // One run of the installed codex or claude for a check: the subharness's `/subharness` checks and the memory probe.
