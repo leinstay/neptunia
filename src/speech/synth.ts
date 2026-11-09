@@ -1,7 +1,7 @@
 // OpenRouter's speech endpoint (`POST /api/v1/audio/speech`) for the persona's voice messages: one
 // request per message, no retry (a synthesis that was answered may have been billed). The model is
-// the `speech` role's (`models.base.speech`), the voice `speech.voice`, the key the one
-// `llm.keyByRole.speech` names (the main key without one), and the provider object is derived
+// the `speech` role's (`models.base.speech`), the voice `speech.voice`, the key the key
+// store gives the speech role (the main key without one), and the provider object is derived
 // exactly as a chat request derives it from `llm.providerByModel`.
 //
 // Logs carry the model, the character count, the estimated cost and failure reasons -- never the
@@ -10,7 +10,7 @@
 import { errorFields } from '../error-fields.ts';
 import { log } from '../log.ts';
 import { objOf } from '../tools/types.ts';
-import { apiUrl, openRouterHeaders, providerBodyOf, resolveProvider, roleApiKey } from '../llm/openrouter.ts';
+import { apiUrl, openRouterHeaders, providerBodyOf, resolveProvider } from '../llm/openrouter.ts';
 import { roleModel } from '../llm/roles.ts';
 import type { KeyOf } from '../keys/ring.ts';
 
@@ -50,14 +50,12 @@ export function speechCostOf(chars: number, config: unknown): number {
 
 /**
  * Synthesize `text` to mp3. Settings are read from the live config at the moment of use.
- * @param args.env The parsed `.env`, for `llm.keyByRole`.
  * @param args.mainKey The main OpenRouter key.
  * @param args.model The core model's id when the call is routed to it; null for the speech role's own.
  */
 export async function synthesizeSpeech({
   text,
   getConfig,
-  env = {},
   mainKey,
   keyOf = () => null,
   fetchImpl = fetch,
@@ -66,9 +64,8 @@ export async function synthesizeSpeech({
 }: {
   text: string;
   getConfig: () => unknown;
-  env?: Record<string, string | undefined>;
   mainKey: string;
-  /** The key of the key store; null while there is no `keys.json`, then `.env` serves. */
+  /** The key of the key store; null for none, then the main key serves. */
   keyOf?: KeyOf;
   fetchImpl?: typeof fetch;
   now?: () => number;
@@ -114,7 +111,7 @@ export async function synthesizeSpeech({
   try {
     response = await fetchImpl(apiUrl(llm.baseUrl, 'audio/speech'), {
       method: 'POST',
-      headers: openRouterHeaders(keyOf(SPEECH_ROLE) ?? roleApiKey(config, env, SPEECH_ROLE, mainKey)),
+      headers: openRouterHeaders(keyOf(SPEECH_ROLE) ?? mainKey),
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     });

@@ -94,7 +94,7 @@ import { emptyRecent, mergeRecent, normalizeRecent } from './recent.ts';
 import { PARTICIPATION_DEFAULTS, emptyParticipation, expireEpisodes, normalizeParticipation } from './participation.ts';
 import { ITEM_ID_PREFIX, archiveEntry, archiveRevision } from './archive.ts';
 import { normalizeAvatar } from './avatars.ts';
-import { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR, memoryRootOf } from './root.ts';
+import { SNAPSHOTS_DIR, memoryRootOf } from './root.ts';
 import { isCoreStatePath } from './migration/paths.ts';
 import { createAddressing } from './store-addresses.ts';
 
@@ -400,8 +400,8 @@ function writeTextAtomic(file: string, text: string) {
 /** The fallback cap of the recall trace (config.json `recall.traceMaxLines`). */
 const RECALL_TRACE_MAX_LINES = 500;
 
-/** `memory.vaultDir` when it is missing and the snapshots directory: src/memory/root.ts, re-exported here. */
-export { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR };
+/** The snapshots directory: src/memory/root.ts, re-exported here. */
+export { SNAPSHOTS_DIR };
 
 /**
  * A member profile nobody has written to yet: what every write starts from (`touchUser`,

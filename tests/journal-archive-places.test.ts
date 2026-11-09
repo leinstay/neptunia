@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { createAppendStore } from '../src/memory/append-store.ts';
 import { archiveEntry, createArchive } from '../src/memory/archive.ts';
 import { withIface } from '../src/memory/db/current-iface.ts';
+import { PERSONA_ID } from '../src/memory/db/storage-keys.ts';
 import { listUnits } from '../src/memory/db/storage-units.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db } from '../src/memory/db/types.ts';
@@ -76,6 +77,36 @@ test('the engine lines of the journal belong to the persona', async () => {
     assert.deepEqual(
       units.map((unit) => unit.key.subject.type),
       ['persona']
+    );
+  } finally {
+    await mem.close();
+  }
+});
+
+test('a turn with no place stores its journal rows with no place, never a place that does not exist', async () => {
+  // Bug: a service turn runs in the stand-in chat `persona:local`, and the journal scoped its lines to that chat, so the
+  // mapper spelled `<iface>:channel:persona:local` into `day.place_id` and `sources.place_id`, a place no row of `places` holds.
+  const { mem, read } = await scene();
+  try {
+    const journal = createJournal({ dataDir: mem.dataDir, memoryDb: mem.memoryDb, now: () => NOW, log: quiet });
+    const { turnId, attemptId } = journal.start(PERSONA_ID, {
+      placeId: PERSONA_ID,
+      mode: 'inner',
+      turnId: 't-service',
+    });
+    await journal.action(PERSONA_ID, { placeId: PERSONA_ID, turnId, name: 'skill', phase: 'started' });
+    await journal.turn(PERSONA_ID, { placeId: PERSONA_ID, turnId, attemptId, outcome: 'spoke', posted: ['m-1'] });
+    await journal.flush?.();
+    const rows = read()
+      .prepare(
+        `SELECT 'day' AS t, place_id FROM day WHERE turn_id = 't-service'
+         UNION ALL SELECT 'sources', place_id FROM sources WHERE turn_id = 't-service'`
+      )
+      .all();
+    assert.deepEqual(rows.map((row) => row.t).sort(), ['day', 'day', 'day', 'sources']);
+    assert.deepEqual(
+      rows.map((row) => row.place_id),
+      [null, null, null, null]
     );
   } finally {
     await mem.close();

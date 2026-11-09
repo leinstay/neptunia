@@ -125,7 +125,6 @@ function rig(local: Settings | null = null, scope: Scope = 'user'): Rig {
       PATH: bin,
       HOME: home,
       XDG_CONFIG_HOME: xdg,
-      NEPTUNIA_PRIVATE_DIR: data,
       NEPTUNIA_DATA_DIR: data,
       NEPTUNIA_UNIT_SCOPE: scope,
       FAKE_LOG: log,
@@ -360,26 +359,6 @@ test('services heartbeat setup --jitter is refused while the schedule is daily t
   assert.equal(done.code, 2, done.out.slice(0, 300));
   assert.ok(done.stderr.includes('--jitter'), done.stderr.slice(0, 300));
   assert.equal(rawSettings(where), before);
-});
-
-test('a jitter saved under the old keys survives a new interval, and the old interval key is gone', async () => {
-  // Catches: the migration drops the owner's jitter, or `everyMinutes` stays beside `schedule` as a second truth.
-  const where = rig({ heartbeat: { everyMinutes: 240, jitterMinutes: 45 } });
-  const shown = await run(where, 'heartbeat status');
-  assert.equal(shown.code, 0, shown.out.slice(0, 300));
-  assert.equal(field(shown.stdout, 'schedule'), 'every 4h jitter 45m');
-  assert.equal((await run(where, 'heartbeat setup --every 2h')).code, 0);
-  assert.deepEqual(settingsOf(where).heartbeat, { schedule: 'every 2h', jitterMinutes: 45 });
-  const again = await run(where, 'heartbeat status');
-  assert.equal(field(again.stdout, 'schedule'), 'every 2h jitter 45m');
-});
-
-test('a watcher hour saved under the old key is shown as its schedule and replaced by a new one', async () => {
-  // Catches: a deployment's `watcher.at` is forgotten on upgrade, or stays beside the new key.
-  const where = rig({ watcher: { at: '06:30' } });
-  assert.equal(field((await run(where, 'watcher status')).stdout, 'schedule'), 'at 06:30');
-  assert.equal((await run(where, 'watcher setup --at 07:00')).code, 0);
-  assert.deepEqual(settingsOf(where).watcher, { schedule: 'at 07:00' });
 });
 
 for (const { form, parse } of FORMS) {

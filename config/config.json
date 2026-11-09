@@ -67,7 +67,6 @@
       "dev": "OPENROUTER_DEV_KEY",
       "memory": "OPENROUTER_MEMORY_KEY"
     },
-    "keys": {},
     "boundKeys": {},
     "simulationKey": null,
     "cache": {
@@ -234,7 +233,6 @@
     "maxOutputTokens": 300
   },
   "memory": {
-    "vaultDir": "vault",
     "probeMinutes": 30,
     "describeAfterLines": 20
   },

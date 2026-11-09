@@ -45,15 +45,14 @@ import { createCalibrator } from './llm/tokens.ts';
 import { archivedLlm } from './llm/archive.ts';
 import type { ArchiveWriteGap } from './llm/archive.ts';
 import { noteArchiveGap } from './watcher/requests.ts';
-import { createLlm, roleApiKey } from './llm/openrouter.ts';
+import { createLlm } from './llm/openrouter.ts';
 import { createKeyFailover } from './llm/key-failover.ts';
 import { MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, SEARCH_ROLE, roleModel, searchModel } from './llm/roles.ts';
 import { statusCardKeys } from './keys/card-keys.ts';
 import { createKeysCommands, reasonedPause } from './keys/commands.ts';
-import { importKeys } from './keys/import.ts';
 import { createKeyRing } from './keys/ring.ts';
 import type { KeyOf } from './keys/ring.ts';
-import { createKeyStore, keysFileExists } from './keys/store.ts';
+import { createKeyStore } from './keys/store.ts';
 import { createRoleHealth, reportingCoreKeys, reportingLlm, roleKeyCheck } from './llm/role-health.ts';
 import { createEmbedder } from './llm/embed.ts';
 import { createGifFetcher } from './media/gif-files.ts';
@@ -128,7 +127,6 @@ import { loadPrincipals, principalOfToken } from './interface/principals.ts';
 import { claimCore } from './memory/db/open.ts';
 import { ownerPersonOf, useOwnerAccounts } from './tools/operations/grants.ts';
 import { readLocalConfig, setPath, writeLocalConfig } from './tools/operations/shared.ts';
-import { moveConfigKeys } from './config-moves.ts';
 import { createIngestRecord } from './memory/db/ingest.ts';
 import { coreSocketPath, listenSocket } from './interface/socket.ts';
 import { MAX_FRAME_BYTES, connectSocket } from './protocol/wire.ts';
@@ -483,7 +481,6 @@ async function buildCore(
     now: () => Date.now(),
     hasKey: roleKeyCheck({ hot, env, mainKey: openrouterKey, keyOf, served: (role) => harnessOf(role) !== null }),
   });
-  // `env` (the .env loaded once above): the keys `llm.keyByRole` names per role, looked up per request.
   // createLlm (src/llm/openrouter.js) declares `complete` as `Function`, which no caller's declared call accepts, so
   // the core hands the client on typed as the call the modules below make.
   // The core's own failure `keys-exhausted` (every key of its list out of credit) is told to the tracker.
@@ -497,7 +494,6 @@ async function buildCore(
     reportingCoreKeys(
       createLlm({
         apiKey: openrouterKey,
-        env,
         keys: ringNow,
         getConfig: () => hot.config,
         calibrator,
@@ -523,7 +519,7 @@ async function buildCore(
     requestArchive
   );
   // Embeddings (role embedding) on the same daily request count as the chat client.
-  const embedder = options.embedder ?? createEmbedder({ apiKey: openrouterKey, env, keyOf, state: processState });
+  const embedder = options.embedder ?? createEmbedder({ apiKey: openrouterKey, keyOf, state: processState });
   // The meaning index kept current: record lines queued above, flushed on the tick below.
   embedQueue = createEmbedQueue({
     hot,
@@ -539,10 +535,10 @@ async function buildCore(
     memoryDb,
   });
   // The persona's drawings: its own daily rails, counted on the same state. Pictures are paid with the drawing role's
-  // key (`llm.keyByRole.drawing`, the agents' key), read at each request; the main key when the role names none. The
-  // options are named first: the module does not declare `state`, the daily counter it shares with the chat client.
+  // key in the key store, read at each request. The options are named first: the module does not declare `state`, the
+  // daily counter it shares with the chat client.
   const imageOptions = {
-    apiKey: () => keyOf('drawing') ?? roleApiKey(hot.config, env, 'drawing', openrouterKey),
+    apiKey: () => keyOf('drawing') ?? '',
     getConfig: () => hot.config,
     state: processState,
   };
@@ -555,7 +551,6 @@ async function buildCore(
   const speechOptions = {
     getConfig: () => hot.config,
     getPrompts: () => hot.prompts,
-    env,
     apiKey: openrouterKey,
     keyOf,
     llm,
@@ -633,17 +628,16 @@ async function buildCore(
     const ifaces = [...new Set(interfaceClients().map((entry) => entry.iface))];
     identity.iface = ifaces[0] ?? '';
   }
-  // One setting of the private settings file, its keys of an old name settled first (src/config-moves.ts), then reloaded.
+  // One setting of the private settings file, written and reloaded.
   function writeLocalSetting(parts: ReadonlyArray<string>, value: unknown): void {
     const file = localConfigPath(paths.privateDir);
-    writeLocalConfig(file, setPath(moveConfigKeys(readLocalConfig(file)).config, parts, value));
+    writeLocalConfig(file, setPath(readLocalConfig(file), parts, value));
     settings.reloadConfig();
   }
   // The owner's switch of each interface (interfaces.<name>.enabled), written to the private settings file and reloaded,
   // as the owner commands write it (src/tools/operations/env.ts#editLocalConfig).
   function setInterfaceEnabled(name: string, enabled: boolean) {
     const file = localConfigPath(paths.privateDir);
-    // No key of an old name lies under `interfaces` (src/config-moves.ts), so the file is edited as it is.
     writeLocalConfig(file, setPath(readLocalConfig(file), ['interfaces', name, 'enabled'], enabled));
     settings.reloadConfig();
   }
@@ -1371,15 +1365,6 @@ async function buildCore(
     fetch: (input, init) => globalThis.fetch(input, init),
     baseUrl: () => String(objOf(objOf(hot.config).llm).baseUrl),
     defaults: { ...ROLE_DEFAULTS, memory: MEMORY_ROLE_DEFAULT },
-    // A deployment still on `.env` has its keys moved into the store before the first add writes anything.
-    importLegacy: () => {
-      const keyVariables = Object.entries(env).filter(
-        (entry): entry is [string, string] =>
-          /^OPENROUTER_[A-Z0-9_]+_KEY$/.test(entry[0]) && typeof entry[1] === 'string' && entry[1].trim() !== ''
-      );
-      if (keysFileExists(paths.privateDir) || keyVariables.length === 0) return null;
-      return importKeys({ env: Object.fromEntries(keyVariables), config: hot.config, store: keyStore });
-    },
     currentModel: (role) =>
       role === SEARCH_ROLE ? (searchModel(hot.config) ?? '') : (roleModel(hot.config, role) ?? ''),
     speechVoice: () => {
@@ -1962,10 +1947,6 @@ async function buildCore(
   // The meaning index caught up with what the record took while the queue was down (the last
   // CATCH_UP_HOURS of src/memory/embedder.js). Fire-and-forget; nothing while paused.
   await startupStep('embed.catchUp', () => embedQueue.catchUp());
-
-  // Once per place after the deploy that keyed access by operation: the stored grants re-expanded
-  // under the operation names, a journal record of what each covers now (src/tools/operations/access.ts).
-  await startupStep('access.migrate', () => eachServed(admin.migrateAccess), { wait: true });
 
   // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn
   // starting meanwhile is never touched (only earlier operations are), and it never sends.

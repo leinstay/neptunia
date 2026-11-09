@@ -37,8 +37,4 @@ The watcher and the development worker run in processes of their own, without a 
 
 Every agent run has `CURL_HOME` set to its harness home, `data/subharness/<backend>/home`, so curl reads the `.curlrc` there. `/proxy useragent` writes `user-agent = "<value>"` into that file for each installed backend, mode `600`, with the quotes and backslashes of the value escaped.
 
-## The stored video proxy
-
-At its start the core moves a stored `videoProxy` service to `proxy` (`migrateProxyService` in [src/keys/services.ts](../src/keys/services.ts)). A `proxy` already set wins, and the old value is dropped. The move leaves `proxy.enabled` at its value, `false` by default. The loader drops `media.video.proxy` and `media.video.proxySites` from a settings layer that still sets them.
-
 The settings of the proxy are listed in [Configuration](configuration.md#proxy).

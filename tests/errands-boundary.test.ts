@@ -29,7 +29,6 @@ import { normalizeCalls } from '../src/tools/tool-calls.ts';
 import '../src/tools/operations/index.ts';
 import { toolCallsOf } from '../src/llm/openrouter.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
-import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 import {
   dbOf,
@@ -604,22 +603,6 @@ test('a journal that wrote the old names is read under the new ones, and any oth
   assert.equal(currentToolName('skills.describe'), 'tools.describe');
   assert.equal(currentToolName('message.create'), 'message.create');
   assert.equal(currentToolName(null), null);
-});
-
-test('a local config that grants task.run to her still grants her errand.run after the load', async () => {
-  const { readConfig } = await import('../src/config.ts');
-  const { grantedSkillNames } = await import('../src/tools/discovery.ts');
-  const { skillRegistry } = await import('../src/tools/registry.ts');
-  const privateDir = tempDir('nep-boundary-private-');
-  fs.mkdirSync(path.join(privateDir, 'config'));
-  fs.writeFileSync(
-    path.join(privateDir, 'config', 'config.json'),
-    JSON.stringify({
-      bot: { owners: ['o1'], access: { 'task.run': { everyone: false, roles: [], users: ['self-1'] } } },
-    })
-  );
-  const config = readConfig(REPO, { privateDir }) as Settings;
-  assert.equal(grantedSkillNames({ config, selfId: 'self-1', registry: skillRegistry() }).includes('errand.run'), true);
 });
 
 /** Keeps the type of the helper used above in the signature of a database handle. */

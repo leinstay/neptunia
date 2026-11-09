@@ -7,26 +7,20 @@
 // administrative ones no grant opens for her yet (src/tools/access.ts#NOT_GRANTABLE_TO_PERSONA);
 // a group or `*` stores the read operations under it. She never changes her own rights: a grant or
 // revoke she makes whose target reaches her (herself, everyone, a role she holds) is refused.
-// Also, at start, the grants of renamed operations moved under their new name (RENAMED_OPS) and
-// the one-time migration of the old command-key grants (`migrateStoredGrants`), which leaves her
-// grants as they are.
 
 import {
   expandGrant,
-  migrateGrants,
   describeGrants,
   isGrantableOp,
   grant as accessGrant,
   revoke as accessRevoke,
   hasGrant,
 } from './grants.ts';
-import { log } from '../../log.ts';
 import { NONE, reloadNote } from './shared.ts';
 import { skillNames, skillRegistry } from '../registry.ts';
 import { NOT_GRANTABLE_TO_PERSONA } from '../access.ts';
 import { defineOp, perEnv, invalid, denied, listOps } from './registry.ts';
 import { CODE } from '../codes.ts';
-import type { Env } from './env.ts';
 import { idText, isObj, objOf, textOf } from '../types.ts';
 import type { Access, GrantTarget, Obj, OpContext, OpInfo } from '../types.ts';
 
@@ -43,39 +37,6 @@ export function grantKeys(ops: ReadonlyArray<OpInfo>): Array<string> {
     for (let i = 1; i < parts.length; i += 1) groups.add(parts.slice(0, i).join('.'));
   }
   return ['*', ...groups, ...ops.filter(isGrantableOp).map((op) => op.name)];
-}
-
-/** Operations merged under another name: an old grant on the key holds on the value now. */
-export const RENAMED_OPS: Readonly<Record<string, string>> = Object.freeze({
-  'talk.interject': 'message.create',
-  'talk.initiate': 'message.create',
-});
-
-/**
- * `access` with every grant on a key of `renames` moved under its new name, each target (everyone,
- * a role, a user) kept and joined with what the new name already held; null when nothing was
- * renamed. Pure; never mutates `access`.
- */
-export function renameGrants(access: unknown, renames: Readonly<Record<string, string>> = RENAMED_OPS): Access | null {
-  if (!isObj(access)) return null;
-  const old = Object.keys(renames).filter((key) => isObj(access[key]));
-  if (old.length === 0) return null;
-  let next: Access = { ...access };
-  for (const key of old) {
-    const entry = objOf(access[key]);
-    const targets: Array<GrantTarget> = [
-      ...(entry.everyone === true ? [{ everyone: true }] : []),
-      ...(Array.isArray(entry.roles)
-        ? (entry.roles as Array<unknown>).map((roleId) => ({ roleId: idText(roleId) }))
-        : []),
-      ...(Array.isArray(entry.users)
-        ? (entry.users as Array<unknown>).map((accountId) => ({ accountId: idText(accountId) }))
-        : []),
-    ];
-    delete next[key];
-    for (const what of targets) next = accessGrant(next, renames[key] ?? key, what);
-  }
-  return next;
 }
 
 /**
@@ -275,41 +236,6 @@ const handlers = perEnv((env) => {
     return lines.length === 0 ? NONE : lines.join('\n');
   }
 
-  /**
-   * Once per place (`accessMigrated: 1` in data/places/<id>/place.json): the stored grants,
-   * keyed by the old slash-command keys, re-expanded under the operation names
-   * (src/tools/operations/grants.ts#migrateGrants with `legacy`, src/config-moves.ts#legacyGrantOps), written
-   * back to the private settings file when they changed, and a journal `system` record `access-migrated`
-   * whose note lists what each grant covers now and the owner-only operations dropped.
-   */
-  async function migrateStoredGrants(
-    placeId: string | null,
-    legacy: (key: string) => { from: string | null; names: Array<string> } | null
-  ): Promise<{ migrated: boolean; note?: string }> {
-    const { store } = env;
-    // Renamed operations first, every start: a no-op once nothing is stored under an old name.
-    const renamed = renameGrants(effectiveAccess());
-    if (renamed) {
-      writeAccess(renamed);
-      log.info('access: renamed', { names: Object.keys(RENAMED_OPS).length });
-    }
-    if (!placeId || store.getPlace(placeId)?.accessMigrated === 1) return { migrated: false };
-    const before = effectiveAccess();
-    const ops = listOps();
-    // The persona's grants on skills no person may hold are hers as they are: never migrated.
-    const kept: Access = {};
-    const rest: Access = {};
-    for (const [key, entry] of Object.entries(before)) (personaOnlyKey(key, ops) ? kept : rest)[key] = entry;
-    const { access: migrated, report, note } = migrateGrants({ access: rest, ops, legacy });
-    const access = { ...migrated, ...kept };
-    if (JSON.stringify(access) !== JSON.stringify(before)) writeAccess(access);
-    store.updatePlace(placeId, { accessMigrated: 1 });
-    const dropped = report.reduce((sum, line) => sum + line.dropped.length, 0);
-    log.info('access: migrated', { placeId, grants: report.length, dropped });
-    await env.journalSystem({ event: 'access-migrated', note: note || NONE });
-    return { migrated: true, note };
-  }
-
   return {
     effectiveAccess,
     writeAccess,
@@ -317,21 +243,8 @@ const handlers = perEnv((env) => {
     cmdAccessGrant,
     cmdAccessRevoke,
     cmdAccessList,
-    migrateStoredGrants,
   };
 });
-
-/**
- * The one-time migration of the stored grants for `placeId` (see `migrateStoredGrants` above),
- * against the ops env `env` (src/tools/operations/env.ts#createOpsEnv).
- */
-export function migrateStoredGrants(
-  env: Env,
-  placeId: string | null,
-  legacy: (key: string) => { from: string | null; names: Array<string> } | null
-): Promise<{ migrated: boolean; note?: string }> {
-  return handlers(env).migrateStoredGrants(placeId, legacy);
-}
 
 defineOp({
   name: 'access.grant',

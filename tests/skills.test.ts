@@ -14,7 +14,6 @@ import { listOps } from '../src/tools/operations/registry.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { EFFECT_CLASSES, SKILL_DEFINITIONS, toolsWith } from '../src/tools/definitions.ts';
 import { PERSONA_GOVERNED_CONFIG, governsPersona } from '../src/tools/operations/rights.ts';
-import { RENAMED_OPS, renameGrants } from '../src/tools/operations/access.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import {
   loadSkills,
@@ -1201,20 +1200,6 @@ test('persona grants: she never changes her effective authority -- not herself, 
   } finally {
     t.cleanup();
   }
-});
-
-test('persona grants: an old grant on talk.interject or talk.initiate holds on message.create', () => {
-  assert.deepEqual(RENAMED_OPS, { 'talk.interject': 'message.create', 'talk.initiate': 'message.create' });
-  const before = {
-    'talk.interject': { everyone: false, roles: ['r1'], users: [SELF] },
-    'talk.initiate': { everyone: true, roles: [], users: [] },
-    'lore.list': { everyone: true, roles: [], users: [] },
-  };
-  const after = renameGrants(before);
-  assert.deepEqual(Object.keys(asRecord(after)).sort(), ['lore.list', 'message.create']);
-  assert.deepEqual(after?.['message.create'], { everyone: true, roles: ['r1'], users: [SELF] });
-  assert.equal(renameGrants(after), null, 'nothing left to rename');
-  assert.equal(before['talk.interject'].users[0], SELF, 'the input is not changed');
 });
 
 // The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).

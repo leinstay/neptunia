@@ -15,9 +15,6 @@
 
 import { createOpsEnv } from './tools/operations/env.ts';
 import { runOp, runOpPrechecked } from './tools/operations/index.ts';
-import { migrateStoredGrants } from './tools/operations/access.ts';
-import { listOps } from './tools/operations/registry.ts';
-import { legacyGrantOps } from './config-moves.ts';
 import { listAliases } from './tools/operations/alias.ts';
 import { listLessons } from './tools/operations/learning.ts';
 import { hasTrait } from './tools/definitions.ts';
@@ -120,7 +117,6 @@ export type Admin = {
   runSkillOp: (op: Untyped, args?: Untyped, context?: Untyped) => Promise<SkillOpResult>;
   runOwnSkillOp: (op: Untyped, args?: Untyped, context?: Untyped) => Promise<SkillOpResult>;
   runInitiativeSkillOp: (op: Untyped, args?: Untyped, context?: Untyped) => Promise<SkillOpResult>;
-  migrateAccess: (placeId: string) => Promise<{ migrated: boolean; note?: string }>;
   ownerReads: { lessons: (context?: Untyped) => string; aliases: (args?: Untyped, context?: Untyped) => string };
 };
 
@@ -193,19 +189,11 @@ export function createAdmin(deps: OpsDeps): Admin {
     aliases: (args = {}, context = {}) => listAliases(env, args, { ...context, env }),
   };
 
-  /** Once per place at start: the stored grants re-expanded under the operation names
-   * (src/tools/operations/access.ts#migrateStoredGrants). */
-  function migrateAccess(placeId: string) {
-    const everyOp = listOps().map((op) => op.name);
-    return migrateStoredGrants(env, placeId, (key) => legacyGrantOps(key, everyOp));
-  }
-
   return {
     run,
     runSkillOp,
     runOwnSkillOp,
     runInitiativeSkillOp,
-    migrateAccess,
     ownerReads,
   };
 }

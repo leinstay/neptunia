@@ -1,8 +1,6 @@
 // B5.1 of the master plan: quick search keeps its own settings under `web.quickSearch.*`, so that no key is spelled
 // `web.search.*` (the name belongs to the tool she calls, `web.search`, which stays). The role `search`, its key binding
-// and its model setting stay as they are; only the section moves. A local config written with the old section keeps its
-// meaning through `moveConfigKeys` (src/config-moves.ts), which the loader applies before the local file is laid over
-// config.json. No network and no real settings of a deployment.
+// and its model setting stay as they are; only the section moves. No network and no real settings of a deployment.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -12,12 +10,9 @@ import type { LookupDeps } from '../src/web/lookup.ts';
 import { searchModel } from '../src/llm/roles.ts';
 import { searchCommand } from '../src/interface/commands/search.ts';
 import { servicesStep } from '../src/setup/services.ts';
-import { readConfig } from '../src/config.ts';
-import { moveConfigKeys } from '../src/config-moves.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
 import { localConfigPath } from '../src/config/files.ts';
 import { readLocalConfig } from '../src/tools/operations/shared.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { sourceFiles, readSource, ROOT } from './fixtures/source-tree.ts';
 
@@ -118,69 +113,6 @@ test('the shipped settings and the schema name the section web.quickSearch', () 
   );
 });
 
-test('moves every key of web.search under web.quickSearch and leaves the other web settings', () => {
-  const given = {
-    web: {
-      acceptLanguage: 'en',
-      links: { readCacheHours: 6 },
-      search: { engine: 'exa', model: 'x/quick', enabled: false, results: 7, fallback: ['brave'] },
-    },
-  };
-  const { config, moved, shadowed } = moveConfigKeys(given);
-  assert.deepEqual(config, {
-    web: {
-      acceptLanguage: 'en',
-      links: { readCacheHours: 6 },
-      quickSearch: { engine: 'exa', model: 'x/quick', enabled: false, results: 7, fallback: ['brave'] },
-    },
-  });
-  assert.deepEqual(moved.map((move) => move.from).sort(), [
-    'web.search.enabled',
-    'web.search.engine',
-    'web.search.fallback',
-    'web.search.model',
-    'web.search.results',
-  ]);
-  assert.deepEqual(shadowed, []);
-});
-
-test('a key set under both spellings keeps the new one and reports the old as shadowed', () => {
-  const { config, shadowed } = moveConfigKeys({
-    web: { search: { engine: 'exa', model: 'x/old' }, quickSearch: { engine: 'brave' } },
-  });
-  assert.deepEqual(config, { web: { quickSearch: { engine: 'brave', model: 'x/old' } } });
-  assert.deepEqual(shadowed, [{ from: 'web.search.engine', to: 'web.quickSearch.engine' }]);
-});
-
-test('the move is idempotent', () => {
-  const once = moveConfigKeys({ web: { search: { engine: 'exa' } } });
-  assert.equal(once.moved.length, 1);
-  const twice = moveConfigKeys(once.config);
-  assert.deepEqual(twice.config, once.config);
-  assert.deepEqual(twice.moved, []);
-});
-
-test('the loader reads an old local web.search under its new name, and the cut keys inside it still go', async () => {
-  // Bug: a live local file with `web.search.engine` loses quick search at the first start after the rename, or keeps
-  // a key the config cut removed because the cut list still knows only the old spelling.
-  const root = tempDir('nep-quick-keys-loader-');
-  fs.mkdirSync(path.join(root, 'config'), { recursive: true });
-  fs.writeFileSync(
-    path.join(root, 'config', 'config.json'),
-    JSON.stringify({ web: { acceptLanguage: 'en', quickSearch: { enabled: true, engine: null, model: null } } })
-  );
-  fs.mkdirSync(path.join(root, 'data', 'config'), { recursive: true });
-  fs.writeFileSync(
-    path.join(root, 'data', 'config', 'config.json'),
-    JSON.stringify({ web: { search: { engine: 'exa', maxPerTurn: 3, results: 9 } } })
-  );
-  const { result } = await withCapturedLogs(
-    () => readConfig(root, { privateDir: path.join(root, 'data') }) as { web: Settings }
-  );
-  assert.deepEqual(result.web.quickSearch, { enabled: true, engine: 'exa', model: null });
-  assert.equal(Object.hasOwn(result.web, 'search'), false);
-});
-
 // ---- the lexical gate ---------------------------------------------------------------------------------------------
 
 /** The settings paths and property chains that spell the old section; the tool name `web.search` is no path. */
@@ -195,7 +127,6 @@ test('no source file reads or writes the old web.search section', () => {
   // Bug: one reader keeps the old spelling and quick search works in a test and not in the running engine.
   const found: Array<string> = [];
   for (const file of sourceFiles(['src', 'bin', 'cli', 'interfaces'])) {
-    if (file === 'src/config-moves.ts') continue;
     readSource(file)
       .split('\n')
       .forEach((line, index) => {

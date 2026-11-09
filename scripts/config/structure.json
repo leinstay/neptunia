@@ -368,13 +368,6 @@
       "test": "none"
     },
     {
-      "path": "src/config-moves.ts",
-      "purpose": "The config keys of an earlier name and the new name each one is read under, applied to the local config before it is laid over `config/config.json`.",
-      "layer": "public",
-      "imports": ["src/service/schedule.ts"],
-      "test": "required"
-    },
-    {
       "path": "src/index.ts",
       "purpose": "The entry point: reads the paths and the environment, reads where the interfaces run, loads the Discord package by path when it runs in this process, starts the core and owns the process signals and exit. It imports no Discord.",
       "layer": "public",

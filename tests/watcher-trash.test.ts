@@ -19,15 +19,7 @@ const trash = () => import('../src/watcher/trash.ts');
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 
-const CATEGORIES = [
-  'units',
-  'identities',
-  'state-folders',
-  'stray-files',
-  'dangling-symlinks',
-  'retired-config-keys',
-  'unloaded-files',
-];
+const CATEGORIES = ['units', 'identities', 'state-folders', 'stray-files', 'dangling-symlinks', 'unloaded-files'];
 
 type Answer = string | null;
 type Table = {
@@ -95,7 +87,7 @@ function folders() {
     installDir,
     unitDir,
     data,
-    env: { NEPTUNIA_PRIVATE_DIR: data, NEPTUNIA_UNIT_SCOPE: 'user', XDG_CONFIG_HOME: root } as Record<string, string>,
+    env: { NEPTUNIA_UNIT_SCOPE: 'user', XDG_CONFIG_HOME: root } as Record<string, string>,
   };
 }
 
@@ -313,32 +305,6 @@ test('a dangling symlink is listed by its relative path, and a whole one and nod
   const { result } = await collect(where, clean());
   assert.deepEqual(namesIn(result, 'dangling-symlinks'), [path.join('a', 'broken')]);
 });
-
-test('a config key of a retired name is listed by name and never with its value', async () => {
-  // Bug: a setting nothing reads looks in force to the owner, or its value is copied into the report.
-  const where = folders();
-  fs.writeFileSync(
-    localConfigPath(where.data),
-    JSON.stringify({ watcher: { at: '06:30' }, heartbeat: { enabled: true } })
-  );
-  const { result } = await collect(where, clean());
-  assert.deepEqual(namesIn(result, 'retired-config-keys'), ['watcher.at']);
-  assert.equal(JSON.stringify(result).includes('06:30'), false);
-});
-
-for (const [name, change] of [
-  ['that is not JSON', (file: string) => fs.writeFileSync(file, '{')],
-  ['that is gone', (file: string) => fs.rmSync(file)],
-] as const) {
-  test(`a settings file ${name} leaves retired keys unavailable or empty for a named reason, never a throw`, async () => {
-    // Bug: the whole collection dies on one broken file, and the watcher loses every other category.
-    const where = folders();
-    change(localConfigPath(where.data));
-    const { result } = await collect(where, clean());
-    assert.deepEqual(namesIn(result, 'retired-config-keys'), []);
-    if (name === 'that is not JSON') assert.equal(missing(result, 'retired-config-keys'), true);
-  });
-}
 
 test('prompt and agent files nothing loads are listed, and loaded ones are not', async () => {
   // Bug: a retired prompt reads as live text, and the next person edits a file no request ever sends.

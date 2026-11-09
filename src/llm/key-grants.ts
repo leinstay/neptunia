@@ -1,15 +1,15 @@
-// What is left of each key's grant. The owner sets `llm.keys.<VARIABLE_NAME>` to `{ grant, resetDay }`: the USD the key is
-// given and the day of the month (UTC) it is given again. The balance is the grant minus the cost of every request that
+// What is left of each key's grant. A core key of the key store carries `{ grant, resetDay }`: the USD the key is given
+// and the day of the month (UTC) it is given again. The balance is the grant minus the cost of every request that
 // went out on the key since the last reset moment, summed from the engine's own usage records (src/tools/operations/usage.ts,
 // by key name), never read from the provider, whose limits follow their own calendar. A key without an entry has no
 // balance (null). A `resetDay` past the end of a short month resets on that month's last day. Pure.
 
 import { DAY_MS, utcDay } from '../time.ts';
 
-/** One key's grant as `llm.keys` holds it. */
+/** One key's grant as the key store holds it. */
 export type KeyGrant = { grant: number; resetDay: number };
 
-/** One key of a role's list with its balance: `grant` is null for a key `llm.keys` does not name. */
+/** One key of a role's list with its balance: `grant` is null for a key with no grant. */
 export type KeyBalance = { name: string; left: number | null; grant: number | null; resetDay: number | null };
 
 /** The moment (ms, 00:00 UTC) of the most recent reset on or before `now` for a reset on day `resetDay` of the month. */
@@ -36,7 +36,7 @@ function grantOf(entry: unknown): KeyGrant | null {
 }
 
 /**
- * The balance of each of `names` now. `keys` is the `llm.keys` map of the live config, `spentSince(name, day)` the cost in
+ * The balance of each of `names` now. `keys` is the grants by key name, `spentSince(name, day)` the cost in
  * dollars of the requests on `name` from the UTC day `day` (`YYYY-MM-DD`) through today. A balance may be negative when the
  * records say the grant is spent.
  */
@@ -68,23 +68,12 @@ type NamesOf = {
 type SpendOf = { keyCost?: (name: string, day: string) => number };
 
 /**
- * The balances of the core's keys now. `llm` is the chat client (`keyNames`), `usage` the usage accumulator (`keyCost`),
- * `config` the live config (`llm.keys`); a source without its reader gives no key, or a spend of 0.
+ * The balances of the core's keys now. `llm` is the chat client (`keyNames`, `keyGrants`), `usage` the usage
+ * accumulator (`keyCost`); a source without its reader gives no key, or a spend of 0.
  */
-export function coreKeyBalances({
-  llm,
-  usage,
-  config,
-  now,
-}: {
-  llm: unknown;
-  usage: unknown;
-  config: unknown;
-  now: number;
-}): Array<KeyBalance> {
+export function coreKeyBalances({ llm, usage, now }: { llm: unknown; usage: unknown; now: number }): Array<KeyBalance> {
   const names = (llm as NamesOf | null)?.keyNames?.('core') ?? [];
-  // With a key store the grants are the core rows'; without one they are `llm.keys`.
-  const keys = (llm as NamesOf | null)?.keyGrants?.() ?? (config as { llm?: { keys?: unknown } } | null)?.llm?.keys;
+  const keys = (llm as NamesOf | null)?.keyGrants?.();
   const cost = (name: string, day: string): number => (usage as SpendOf | null)?.keyCost?.(name, day) ?? 0;
   // Spend recorded before the import is under the variable the key came from.
   const variables = (llm as NamesOf | null)?.keyVariables?.() ?? {};

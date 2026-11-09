@@ -1,5 +1,4 @@
-// The engine proxy as the core runs it (src/core.ts calls `startEngineProxy` once, before anything connects). A stored
-// `videoProxy` moves under `proxy` once (src/keys/services.ts#migrateProxyService), then one monitor
+// The engine proxy as the core runs it (src/core.ts calls `startEngineProxy` once, before anything connects). One monitor
 // (src/net/proxy.ts) holds the route of the core process's connections, yt-dlp's and every agent run's, and hands the
 // URL in force to Node for the whole process (src/net/global-proxy.ts). The first check puts a proxy that is on in
 // force at once; a timer checks again every few seconds, and the monitor probes once per `proxy.health.everySeconds`.
@@ -7,7 +6,6 @@
 // failure, and the log either way. The interfaces never take the proxy: they run as their own processes.
 
 import { serviceCredential } from '../keys/file.ts';
-import { migrateProxyService } from '../keys/services.ts';
 import { createGlobalProxy } from './global-proxy.ts';
 import { createProxyMonitor, probeProxy } from './proxy.ts';
 import type { ProxyMonitor, ProxyProbe, ProxySwitch } from './proxy.ts';
@@ -42,12 +40,6 @@ export function startEngineProxy({
   now: () => number;
   log: Log;
 }): EngineProxy {
-  try {
-    const moved = migrateProxyService(dataDir);
-    if (moved !== 'none') log.info('proxy: the stored video proxy is the engine proxy now', { migration: moved });
-  } catch (err) {
-    log.warn('proxy: the video proxy could not be moved', { code: (err as NodeJS.ErrnoException).code ?? null });
-  }
   let facts: Facts | null = null;
   function tell(change: ProxySwitch): void {
     log.warn('proxy: switch', { change });

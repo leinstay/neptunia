@@ -1,9 +1,9 @@
-// `scripts/config-effective.ts` is the deploy proof of PR 7d. `--snapshot <file>` writes the effective config of a private
+// `scripts/config-effective.ts` is the deploy proof of a settings change. `--snapshot <file>` writes the effective config of a private
 // layer (`--private <dir>`) and the settings objects the readers derive from it, as `{ config, settings }`, the
 // settings keyed by the reader's name (`recallSettings`, `innerSettings`, ...). `--compare <file>` derives the same from
 // the layer as it is now and prints one line per difference, `<path>: before <json>, after <json>`, ending in
-// ` (declared)` when the cut declares it: a key the cut took out of the settings, or a daily cap's field. Its last line
-// is `equal: <n>, differ: <n>, declared: <n>`, and it exits 1 on a difference the cut does not declare. Synthetic layers.
+// ` (declared)` for a daily cap's field. Its last line is `equal: <n>, differ: <n>, declared: <n>`, and it exits 1 on
+// an undeclared difference. Synthetic layers.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -62,21 +62,6 @@ test('names a derived setting that changed and exits 1', () => {
   const run = tool(['--compare', file, '--private', target.dir]);
   assert.equal(run.code, 1);
   assert.ok(run.out.split('\n').includes('settings.recallSettings.timeoutMs: before 25000, after 9000'), run.out);
-});
-
-test('marks a key the cut took out of the settings as declared and exits 0', () => {
-  const target = recallLayer(25000);
-  const file = snapshot(target);
-  const written: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
-  assert.ok(isTree(written) && isTree(written.config));
-  // The snapshot as a deploy before the cut wrote it: the tracked file still held `capture.before`.
-  written.config.capture = { ...(isTree(written.config.capture) ? written.config.capture : {}), before: 3 };
-  fs.writeFileSync(file, JSON.stringify(written));
-  const run = tool(['--compare', file, '--private', target.dir]);
-  assert.equal(run.code, 0, run.out);
-  const line = run.out.split('\n').find((one) => one.startsWith('config.capture.before:'));
-  assert.ok(line?.endsWith(' (declared)'), run.out);
-  assert.match(lastLine(run.out), /differ: 0, declared: 1$/);
 });
 
 test('refuses to run without --snapshot or --compare, and writes nothing', () => {

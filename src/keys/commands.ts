@@ -22,7 +22,6 @@ import {
 import { log } from '../log.ts';
 import { checkKey, checkRole } from './check.ts';
 import { listRoleModels } from './models.ts';
-import type { ImportReport } from './import.ts';
 import type { CheckResult } from './check.ts';
 import type { KeyRing } from './ring.ts';
 import { isKeyName, KeysError } from './store.ts';
@@ -115,11 +114,6 @@ export type KeysDeps = {
   /** Saves a role's model (the console runs the `model.set` operation). */
   saveModel(role: string, model: string): Promise<void>;
   pause: PauseControl;
-  /**
-   * Moves the `.env` keys of a deployment that has no `keys.json` into the store, and reports what it moved; null when
-   * there is nothing to move. Called before the first add, so a legacy deployment keeps its keys.
-   */
-  importLegacy?: () => ImportReport | null;
   /** The live `llm.providerByModel`. */
   routes?(): Readonly<Record<string, unknown>>;
   /** Writes one `llm.providerByModel` entry in the local config. */
@@ -167,12 +161,6 @@ export type MemoryCheckPath = { kind: 'direct' } | { kind: 'subharness'; backend
 
 /** What the probe of a subharness path answers: a pass, or a failure with its code. */
 export type MemoryCheckProbe = { ok: true; at: number } | { ok: false; code: string; at: number };
-
-/** What a legacy import moved, by name: the answer of the command that triggered it starts with it. */
-const importedLine = (report: ImportReport): string => {
-  const names = [...report.core, ...report.extra.map((row) => row.name)];
-  return `Moved ${names.length} keys from .env into keys.json first: ${names.join(', ')}.`;
-};
 
 const money = (value: number): string => `$${value.toFixed(4)}`;
 
@@ -596,10 +584,7 @@ export function createKeysCommands(deps: KeysDeps): {
   return {
     async run(name, args, dialog) {
       try {
-        const adds = dialog !== null && (name === 'keys.core.add' || name === 'keys.extra.add');
-        const imported = adds ? (deps.importLegacy?.() ?? null) : null;
-        const answer = await dispatch(name, args, dialog);
-        return imported === null ? answer : { ...answer, text: `${importedLine(imported)}\n${answer.text}` };
+        return await dispatch(name, args, dialog);
       } catch (err) {
         if (err instanceof KeysError) return invalid(name, err.message);
         log.warn('keys: command failed', { command: name, error: err });

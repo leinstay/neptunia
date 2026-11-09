@@ -5,7 +5,8 @@
 // daily cap of plan section 4.5, gone with its counter. `discord`: a key of the Discord package's own settings,
 // interfaces/discord/config.json. `rename`: a privacy switch kept under the name `to`. `wildcard`: a per-wake budget
 // kept as one entry `to` for every wake kind. `PRODUCTION_LAYER` is a local layer shaped like production's: the same
-// keys set, with synthetic ids, paths and word lists. Nothing here is read from a real local layer. The three keys
+// keys set, with synthetic ids, paths and word lists, its tool loop and heartbeat interval under the names the loader
+// reads. Nothing here is read from a real local layer. The three keys
 // spelled with the diary leave the cut by the owner's answer 13 of 2026-11-07, so the layer below sets none of them.
 
 export const CUT_GROUPS = [
@@ -605,7 +606,6 @@ export const KEPT: ReadonlyArray<string> = [
   'split.maxOutputTokens',
   // Slice 7: `elsewhere.maxPlaces`, `maxEpisodes`, `maxOutputTokens` and `pickTimeoutMs` left KEPT with the elsewhere
   // pick.
-  'memory.vaultDir',
   'media.maxOutputTokens',
   'media.recacheBefore',
   'media.video.provider',
@@ -767,7 +767,7 @@ export const PRODUCTION_LAYER = {
     },
   },
   diary: { world: true, placeId: 'c-diary', quietDayChance: 0.2 },
-  skills: { loop: { maxSteps: 10, timeBudgetMs: 150000, maxCallsPerStep: 4 }, callTimeoutMs: 150000 },
+  tools: { loop: { maxSteps: 10, timeBudgetMs: 150000, maxCallsPerStep: 4 }, callTimeoutMs: 150000 },
   mention: { pendingMinutes: 20, maxPending: 8 },
   missed: { expireMinutes: 10 },
   recall: {
@@ -784,7 +784,7 @@ export const PRODUCTION_LAYER = {
   context: { pull: { sameAudience: false }, channelMessages: 60 },
   web: { quickSearch: { fallback: [], engine: 'openrouter' } },
   wakes: { tickSeconds: 15, mode: 'live' },
-  heartbeat: { everyMinutes: 360 },
+  heartbeat: { schedule: 'every 6h' },
   agents: {
     resultRetrySeconds: 60,
     scout: { enabled: true, cost: { input: 2, output: 6 }, limits: { seconds: 600 } },

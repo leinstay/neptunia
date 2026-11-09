@@ -22,7 +22,7 @@ function line(template: unknown, values: Record<string, string>): string | null 
 }
 
 /**
- * The lines of the core keys' grants (`llm.keys`): per key `keyGrant` (`{key}`, `{left}`, `{grant}` in dollars to two
+ * The lines of the core keys' grants: per key `keyGrant` (`{key}`, `{left}`, `{grant}` in dollars to two
  * decimals, `{day}` the reset day) or, for a key with no grant, `keyUnconfigured` (`{key}`). [] without the labels. Pure.
  */
 export function keyGrantLines({ rows, labels }: { rows: ReadonlyArray<KeyBalance>; labels: unknown }): Array<string> {
@@ -48,11 +48,11 @@ export function withKeyLines(lines: ReadonlyArray<string>, sources: KeySources):
   return [...lines, ...keyStateAndGrantLines(sources)].join('\n');
 }
 
-type KeySources = { llm: unknown; usage: unknown; hot: unknown; config: unknown; now: number };
+type KeySources = { llm: unknown; usage: unknown; hot: unknown; now: number };
 
-function keyStateAndGrantLines({ llm, usage, hot, config, now }: KeySources): Array<string> {
+function keyStateAndGrantLines({ llm, usage, hot, now }: KeySources): Array<string> {
   const labels = (hot as { prompts?: { labels?: unknown } } | null)?.prompts?.labels;
   const states = (llm as KeyStates | null)?.keyStates?.() ?? [];
-  const rows = coreKeyBalances({ llm, usage, config, now });
+  const rows = coreKeyBalances({ llm, usage, now });
   return [...keyStateLines({ states, labels, when: utcMinute }), ...keyGrantLines({ labels, rows })];
 }

@@ -2,9 +2,15 @@
 // fixed instant; the spend comes from a fake of the usage records.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { keyBalances, lastResetMs } from '../src/llm/key-grants.ts';
+import { coreKeyBalances, keyBalances, lastResetMs } from '../src/llm/key-grants.ts';
+import { createKeyRing } from '../src/keys/ring.ts';
+import { createKeyStore } from '../src/keys/store.ts';
+import { createKeyFailover } from '../src/llm/key-failover.ts';
+import { SECRET } from './fixtures/keys-rig.ts';
+import { tempDir } from './fixtures/tmp.ts';
 
 const at = (iso: string): number => Date.parse(iso);
+const T0 = Date.parse('2026-11-02T09:00:00Z');
 
 test('lastResetMs: the reset day of this month once it has begun, else the one of the month before', () => {
   assert.equal(lastResetMs(at('2026-11-20T10:00:00Z'), 15), at('2026-11-15T00:00:00Z'));
@@ -60,4 +66,21 @@ test('keyBalances: a spend past the grant reads negative, and no llm.keys at all
   assert.deepEqual(keyBalances({ keys: undefined, names: ['OPENROUTER_X'], now: 0, spentSince: () => 0 }), [
     { name: 'OPENROUTER_X', left: null, grant: null, resetDay: null },
   ]);
+});
+
+test('coreKeyBalances: spend recorded under the variable a key came from counts for the key, and new spend under its name', () => {
+  const store = createKeyStore({ privateDir: tempDir('key-grants-') });
+  const ring = createKeyRing({ store, failover: createKeyFailover({ now: () => T0 }) });
+  // The key as an import from `.env` stored it: its grant and the variable its spend was recorded under before.
+  store.addCore({ name: 'core-1', value: SECRET, grant: 100, resetDay: 1, from: 'OPENROUTER_CORE_KEY' });
+  const spent: Record<string, number> = { OPENROUTER_CORE_KEY: 30, 'core-1': 5 };
+  const llm = {
+    keyNames: (role: string) => ring.names(role),
+    keyGrants: () => ring.grants(),
+    keyVariables: () => ring.variables(),
+  };
+  const usage = { keyCost: (name: string) => spent[name] ?? 0 };
+  const [row] = coreKeyBalances({ llm, usage, now: T0 });
+  // Bug caught: the month's spend before the import forgotten, so the key shows a full grant again.
+  assert.equal(row?.left, 65);
 });

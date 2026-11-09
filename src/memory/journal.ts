@@ -600,9 +600,12 @@ export function turnView({
   ].join('\n');
 }
 
-/** The record's scope: the chat it happened in, when it names one. */
+/**
+ * The record's scope: the chat it happened in, when it names one. A turn with no chat runs in her own stand-in
+ * (`PERSONA_ID`), which is no chat, so its record names none and its rows hold no place.
+ */
 function scopeOf(chatId: unknown): { channel?: string } {
-  return typeof chatId === 'string' && chatId ? { channel: chatId } : {};
+  return typeof chatId === 'string' && chatId && chatId !== PERSONA_ID ? { channel: chatId } : {};
 }
 
 /** The persona's own latest messages in a channel, as the interface reads them again. */

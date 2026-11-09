@@ -1,7 +1,7 @@
 // The one setting `<name>.schedule` (`at 06:00,18:00` or `every 6h`) reaching each mechanic's own scheduler: the
-// heartbeat's timer and the selfimprovement wake in the inner life, the diary's day plan, the watcher's settings and
-// timer, and the moves that bring a deployment's old keys to it. Each mechanic keeps its missed-wake policy, so overdue
-// wakes never stack. The inner life runs over a fake turn runner with the clock injected.
+// heartbeat's timer and the selfimprovement wake in the inner life, the diary's day plan, and the watcher's settings
+// and timer. Each mechanic keeps its missed-wake policy, so overdue wakes never stack. The inner life runs over a fake
+// turn runner with the clock injected.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -11,7 +11,6 @@ import { createInnerLife } from '../src/behavior/inner.ts';
 import { innerSettings } from '../src/behavior/inner/settings.ts';
 import { dueSlot, planDay } from '../src/behavior/selfreflection.ts';
 import { readConfig } from '../src/config.ts';
-import { moveConfigKeys } from '../src/config-moves.ts';
 import { localConfigPath } from '../src/config/files.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
@@ -333,52 +332,7 @@ test('no rendered service unit starts a retired command', () => {
   }
 });
 
-// ---- the old keys ------------------------------------------------------------------------------------------------------
-
-for (const [what, old, section, schedule] of [
-  ['watcher.at', { watcher: { at: '06:30' } }, 'watcher', 'at 06:30'],
-  ['selfimprovement.at', { selfimprovement: { at: '05:45' } }, 'selfimprovement', 'at 05:45'],
-  ['heartbeat.everyMinutes', { heartbeat: { everyMinutes: 240 } }, 'heartbeat', 'every 4h'],
-  ['heartbeat.everyMinutes of minutes', { heartbeat: { everyMinutes: 90 } }, 'heartbeat', 'every 90m'],
-  ['innerLife.heartbeat.everyMinutes', { innerLife: { heartbeat: { everyMinutes: 120 } } }, 'heartbeat', 'every 2h'],
-] as const) {
-  test(`the old ${what} becomes ${section}.schedule`, () => {
-    // Catches: the schedule of a running deployment returns to its default on upgrade.
-    const { config } = moveConfigKeys(structuredClone(old));
-    assert.deepEqual(config[section], { schedule });
-  });
-}
-
-test('the jitter stays under its key when the interval moves', () => {
-  // Catches: the move of the section takes the jitter with it, or resets it.
-  const { config } = moveConfigKeys({ heartbeat: { everyMinutes: 240, jitterMinutes: 45 } });
-  assert.deepEqual(config.heartbeat, { schedule: 'every 4h', jitterMinutes: 45 });
-});
-
-test('a new schedule wins over an old key still in the file, and the old key goes', () => {
-  // Catches: an old key left in the file overrides what `setup` saved on the next read.
-  const moved = moveConfigKeys({ watcher: { at: '06:30', schedule: 'every 6h' } });
-  assert.deepEqual(moved.config.watcher, { schedule: 'every 6h' });
-  assert.deepEqual(moved.shadowed, [{ from: 'watcher.at', to: 'watcher.schedule' }]);
-});
-
-test('an old key that is no time moves nowhere, and is dropped and told', () => {
-  // Catches: a junk value becomes a schedule the parser refuses, hiding the default behind a broken setting.
-  const moved = moveConfigKeys({ watcher: { at: 'noon' } });
-  assert.equal(moved.dropped.includes('watcher.at'), true);
-  assert.equal(JSON.stringify(moved.config).includes('noon'), false);
-});
-
-test('a deployment with the old keys reads its schedule through the settings loader', () => {
-  // Catches: the shipped default of the new key wins over the local file's old one, because the move runs too late.
-  const dir = tempDir('nep-svc-config-');
-  mkdirSync(join(dir, 'config'), { recursive: true });
-  writeFileSync(localConfigPath(dir), JSON.stringify({ watcher: { at: '06:30' }, heartbeat: { everyMinutes: 240 } }));
-  const config = readConfig(REPO, { privateDir: dir });
-  assert.deepEqual(watcherSettings(config).schedule, { kind: 'at', at: ['06:30'] });
-  assert.deepEqual(innerSettings(config).heartbeat.schedule, { kind: 'every', everyMinutes: 240 });
-  assert.equal((config.watcher as Record<string, unknown>).at, undefined);
-});
+// ---- the local file ----------------------------------------------------------------------------------------------------
 
 test('a schedule in the local file replaces the shipped one whole', () => {
   // Catches: a schedule stored as an object deep-merges with the shipped default into an `at` and an `every` at once.

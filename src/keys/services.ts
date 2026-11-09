@@ -1,8 +1,7 @@
 // The optional service credentials of the persona's `keys.json`, section `services`: the YouTube Data API key, the
 // Brave and Exa keys of quick search, and the engine proxy. `serviceCredential` in src/keys/file.ts reads them for their
 // consumers. The owner sets them through `/keys service`, the `services` step of `neptunia setup` and, for the proxy,
-// `/proxy set`. `migrateProxyService` moves a stored `videoProxy` under `proxy`. Answers name services and the last
-// four characters, never a value.
+// `/proxy set`. Answers name services and the last four characters, never a value.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -31,16 +30,10 @@ function readStore(dataDir: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-/** Changes one service through a temp file at 0600, keeping every other section of the store but the `dropped` names. */
-export function writeService(
-  dataDir: string,
-  name: ServiceName,
-  value: string | null,
-  dropped: ReadonlyArray<string> = []
-): void {
+/** Changes one service through a temp file at 0600, keeping every other section of the store. */
+export function writeService(dataDir: string, name: ServiceName, value: string | null): void {
   const store = readStore(dataDir);
   const services = { ...(store.services as Record<string, unknown> | undefined) };
-  for (const old of dropped) delete services[old];
   if (value === null) delete services[name];
   else services[name] = value;
   const file = path.join(dataDir, KEYS_FILE);
@@ -54,27 +47,6 @@ export function writeService(
     fs.rmSync(temp, { force: true });
     throw err;
   }
-}
-
-/** What `migrateProxyService` did: moved the old value, dropped it beside a newer one, or found none. */
-export type ProxyMigration = 'moved' | 'dropped' | 'none';
-
-/**
- * Moves the stored `services.videoProxy` under `services.proxy`. A `proxy` already set wins and the old value is
- * dropped. A store with no `videoProxy`, or no store at all, is left as it is.
- */
-export function migrateProxyService(dataDir: string): ProxyMigration {
-  const store = readStore(dataDir);
-  const { services } = store;
-  if (typeof services !== 'object' || services === null || !Object.hasOwn(services, 'videoProxy')) return 'none';
-  const old: unknown = Reflect.get(services, 'videoProxy');
-  const kept = serviceCredential(dataDir, 'proxy');
-  if (kept === null && typeof old === 'string' && old.trim() !== '') {
-    writeService(dataDir, 'proxy', old.trim(), ['videoProxy']);
-    return 'moved';
-  }
-  writeService(dataDir, 'proxy', kept, ['videoProxy']);
-  return 'dropped';
 }
 
 function listText(dataDir: string): string {
