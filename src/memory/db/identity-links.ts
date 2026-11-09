@@ -7,7 +7,7 @@
 // pairing (src/interface/owner-pairing.ts) or `/memory bind`. An install that
 // stored the command line under `cli/global` has those rows moved to its native authority (`cli/local`,
 // src/protocol/identity.ts#nativeAuthorityOf) when the next line arrives, so the line finds its account and its place.
-// Used by observe.ts and scripts/memory-repair-identity.ts. Counts and codes only.
+// Used by observe.ts. Counts and codes only.
 
 import { nativeAuthorityOf } from '../../protocol/identity.ts';
 import { projectRow } from './graph.ts';
