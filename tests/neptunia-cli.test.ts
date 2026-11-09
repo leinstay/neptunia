@@ -166,7 +166,7 @@ function coreDown(): { dirs: Dirs; db: string; key: string; token: string } {
   keys.addCore({ name: 'core-1', value: key });
   mkdirSync(dirs.dataDir, { recursive: true });
   const db = join(dirs.dataDir, 'memory.db');
-  openMemoryDb(db, { context: { dataDir: dirs.dataDir } }).close();
+  openMemoryDb(db).close();
   const token = readFileSync(join(dirs.privateDir, 'clients', 'cli.token'), 'utf8').trim();
   return { dirs, db, key, token };
 }

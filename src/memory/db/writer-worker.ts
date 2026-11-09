@@ -2,8 +2,8 @@
 // connection (and so the writer lock, which it takes for the process) and runs every write, so no mapper and no write
 // ever runs on the bot's main thread. One message at a time, in order.
 //
-// Messages in  { id, type: 'open', path, context }             open the database with the writer lock (`context`: what
-//                                                               a migration needs from the opener, open.ts#migrate)
+// Messages in  { id, type: 'open', path, context }             open the database with the writer lock (`context`:
+//                                                               `{ dataDir }`, which recovers the request archive)
 //              { id, type: 'turnReads', turnId, step, rows }    the turn_reads rows, resolved by the caller at assembly time
 //              { id, type: 'selfreflectionApply', update }               one selfreflection row's text and picture rows (selfreflection-media.ts)
 //              { id, type: 'memoryWrite', update }              one write of her memory session or a description review, or
@@ -61,7 +61,7 @@ const log = {
 
 const handlers: Record<string, (message: Row) => unknown> = {
   open({ path, context, now }) {
-    handle = openMemoryDb(path, { alive, context: context ?? {} });
+    handle = openMemoryDb(path, { alive });
     const dataDir = (context as Row | undefined)?.dataDir;
     if (typeof dataDir === 'string') {
       recoverRequestArchive(handle, typeof now === 'number' ? { now } : {});

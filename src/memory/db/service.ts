@@ -52,8 +52,7 @@
 //   - `writeUnit(update)` (unit-write.ts): the database writers of the memory units (record and journal lines, the
 //     store's cache, the module stores, participation, the selfreflection, the vectors) through the writer; resolves once the
 //     worker committed, rejects with a code (`DB_CLOSED` while the database is not open). Each tick also finishes the
-//     graph projection and the stems a migration left (one slice a tick). The opener's migration context is the live
-//     `selfreflection.placeId`'s place (the seed of schema v12's and v15's data steps); a selfreflection write's destination is the
+//     graph projection and the stems a migration left (one slice a tick). A selfreflection write's destination is the
 //     place of the selfreflection's first enabled mirror. The durable intent of a write that failed (spec
 //     2026-10-24-memory-authority, section 6 item 3): `keepPending(update)` (at shutdown, from unit-outbox.ts#keep)
 //     writes it to `data/memory-pending/<sha1 of the owner>.json` (`{ owner, op, value | lines, at }`; the lines of one
@@ -118,7 +117,7 @@ import type { StorageKey } from './storage-keys.ts';
 import type { OperationalWrite } from './operational.ts';
 
 import { lockPathOf, openMemoryDb } from './open.ts';
-import { channelPlaceId, nativeAuthorityOf } from './ids.ts';
+import { nativeAuthorityOf } from './ids.ts';
 import { LEGACY_IFACE, liveIface, withLiveIface } from './legacy-namespace.ts';
 import { contextRow, issueContext as issuePureContext } from './scope.ts';
 import { linkedDmScopes } from './person-links.ts';
@@ -398,15 +397,6 @@ function startWorker({
   }
 
   return engine;
-}
-
-/** What a migration needs from the opener (open.ts#migrate): the selfreflection channel as a place, and the data directory. */
-function openContextOf(config: Config, dataDir: string): { selfreflectionPlaceId: string | null; dataDir: string } {
-  const channel = config?.selfreflection?.placeId;
-  return {
-    selfreflectionPlaceId: typeof channel === 'string' && channel ? channelPlaceId(LEGACY_IFACE, channel) : null,
-    dataDir,
-  };
 }
 
 /** The record unit of an observed line: its place's day (the UTC day of the line), or null with no place. */
@@ -742,9 +732,6 @@ export function createMemoryDb({
   const pendingDir = path.join(dataDir, PENDING_DIR);
   const quarantineDir = path.join(dataDir, QUARANTINE_DIR);
 
-  // What a migration needs from the opener (openContextOf).
-  const openContext = () => openContextOf(hot.config, dataDir);
-
   let opening: Promise<void> | null = null;
   let startupPending = false;
 
@@ -755,11 +742,11 @@ export function createMemoryDb({
     try {
       if (threaded) {
         started = startWorker({ workerFile, log, codeOf });
-        await started.call('open', { path: dbPath, context: openContext(), now: now() });
+        await started.call('open', { path: dbPath, context: { dataDir }, now: now() });
         handle = openDb(dbPath, { readOnly: true });
         engine = started;
       } else {
-        handle = openDb(dbPath, { context: openContext() });
+        handle = openDb(dbPath);
         recoverRequestArchive(handle, { now: now() });
       }
       // The writes a shutdown left pending go in before anything reads (synchronous without a worker).

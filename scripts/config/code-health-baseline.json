@@ -384,10 +384,6 @@
       "deep": 1,
       "repeated": 0
     },
-    "tests/gif-library-merge.test.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
     "tests/gif-library-store.test.ts": {
       "deep": 3,
       "repeated": 0

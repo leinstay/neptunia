@@ -15,7 +15,7 @@ const iso = (ms: number): string => new Date(ms).toISOString();
 
 function fixture(): { db: DatabaseSync; close: () => void } {
   const dir = tempDir('health-core-');
-  const handle = openMemoryDb(join(dir, 'memory.db'), { context: { dataDir: dir } });
+  const handle = openMemoryDb(join(dir, 'memory.db'));
   return { db: handle.db as DatabaseSync, close: () => handle.close() };
 }
 
