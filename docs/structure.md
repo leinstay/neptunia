@@ -20,7 +20,6 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `package-lock.json` | public | The locked dependency tree. | nothing | none |
 | `tsconfig.json` | public | The TypeScript compiler options used for type checking. | nothing | none |
 | `eslint.config.ts` | public | The ESLint flat configuration. | `@eslint/js`, `globals`, `eslint-plugin-import-x`, `typescript-eslint`, `scripts/eslint-test-rules.ts` | none |
-| `scripts/config/stryker.config.json` | public | The Stryker settings that stay the same on every mutation run. | nothing | none |
 | `eslint-suppressions.json` | public | The recorded ESLint violations that may only shrink. | nothing | none |
 | `type-baseline.json` | public | The recorded type errors that may only shrink. | nothing | none |
 | `scripts/config/code-health-baseline.json` | public | The recorded size and structure breaches that may only shrink. | nothing | none |
@@ -44,7 +43,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `scripts/` | public | Scripts for development and measurement, never run by the engine. | `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `typescript`, `discord.js`, `eslint`, `estree` | none |
 | `scripts/lib/` | public | What the scripts under `scripts/` share. | `node:*`, `src/**`, `interfaces/**`, `scripts/**` | none |
 | `scripts/fixtures/` | public | Sample weeks for the virtual-week harness and the example scenarios of the replay script. | nothing | none |
-| `scripts/config/` | public | The settings of the development checks: the baselines, the structure manifest and the Stryker settings. | nothing | none |
+| `scripts/config/` | public | The settings of the development checks: the baselines, and the structure manifest. | nothing | none |
 | `src/*.ts` | public | The small modules every part uses: settings, hot reload, logging, paths, time and text formatting. | `node:*`, `src/**` | required |
 | `src/config/` | public | Where the settings and the labels live, the join and split of the labels, the settings schema and its checks. | `node:*`, `src/config/**` | required |
 | `src/config/schema/` | public | The entries of the settings schema, one file per top-level section of `config/config.json`. | `src/config/schema.ts` | none |

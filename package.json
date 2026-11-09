@@ -39,8 +39,7 @@
     "health": "node scripts/code-health.ts && node scripts/code-health.ts --check-docs",
     "health:update": "node scripts/code-health.ts --update",
     "prose": "node scripts/prose-check.ts",
-    "prose:update": "node scripts/prose-check.ts --update",
-    "mutation": "node scripts/mutation-diff.ts"
+    "prose:update": "node scripts/prose-check.ts --update"
   },
   "workspaces": [
     "interfaces/*",
@@ -49,8 +48,6 @@
   "license": "MIT",
   "devDependencies": {
     "@eslint/js": "9.39.5",
-    "@stryker-mutator/core": "10.1.1",
-    "@stryker-mutator/tap-runner": "10.1.1",
     "@types/node": "26.6.5",
     "eslint": "9.39.5",
     "eslint-plugin-import-x": "4.17.1",
