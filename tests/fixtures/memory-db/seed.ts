@@ -5,7 +5,6 @@
 // and the request dumps stay files: nothing reads them from the database; participation.json and media.json are both,
 // as the store writes them (the file, and its memory rows sent). The stems and the graph projection are
 // finished at the end, as the writers' projection job does. Synthetic fixtures only.
-import { withCurrentNames } from '../../../src/memory/migration/selfreflection-names.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { FileFormat, MapperKind } from '../../../src/memory/db/map/index.ts';
@@ -109,9 +108,6 @@ export function seedUnits(
     fillStems(handle.db as Db);
     projectPending(handle, { at: new Date(now).toISOString() });
   };
-  // B10 of the master plan: the writers speak `selfreflection`, and a database at an older schema holds the old names.
-  const db = handle.db as Db;
-  if (db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE name = 'diary'").get()) withCurrentNames(db, seed);
-  else seed();
+  seed();
   return { units: written, errors: codes.length, codes };
 }
