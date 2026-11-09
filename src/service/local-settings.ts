@@ -1,12 +1,10 @@
 // The one writer of `<private>/config.local/config.json` for a command that runs beside others: `updateLocalSettings`
-// takes the file's lock, reads it with its old keys moved (src/config-moves.ts), applies one change and renames the
-// result into place. A change that alters nothing touches neither the file nor the lock, so a repeated command wakes no
+// takes the file's lock, reads it, applies one change and renames the result into place. A change that alters nothing touches neither the file nor the lock, so a repeated command wakes no
 // reader of the hot settings. The service commands (src/service/commands.ts) and the setup steps that ask for a schedule
 // (src/setup/mechanics.ts, src/setup/watcher.ts) write through it.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { moveConfigKeys } from '../config-moves.ts';
 import { localConfigPath } from '../config/files.ts';
 import { readLocalConfig } from '../tools/operations/shared.ts';
 
@@ -41,8 +39,7 @@ function takeLock(lock: string): void {
 const same = (one: unknown, other: unknown): boolean => JSON.stringify(one) === JSON.stringify(other);
 
 /**
- * `change` over the local settings, its old keys moved first when the change touches the file. True when the file was
- * written. `change` returns the new settings and leaves its argument alone.
+ * `change` over the local settings. True when the file was written. `change` returns the new settings and leaves its argument alone.
  */
 export function updateLocalSettings(privateDir: string, change: (local: Settings) => Settings): boolean {
   const file = localConfigPath(privateDir);
@@ -53,7 +50,7 @@ export function updateLocalSettings(privateDir: string, change: (local: Settings
   takeLock(lock);
   try {
     const held = readLocalConfig(file);
-    const next = change(moveConfigKeys(held).config);
+    const next = change(held);
     if (same(next, held)) return false;
     const staged = `${file}.${process.pid}.tmp`;
     fs.writeFileSync(staged, `${JSON.stringify(next, null, 2)}\n`);

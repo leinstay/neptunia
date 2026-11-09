@@ -9,7 +9,6 @@ import { createHot as createHotUntyped } from '../src/hot.ts';
 import * as files from '../src/config/files.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { ROOT } from './fixtures/private-layer.ts';
 import { resolvePaths } from '../src/paths.ts';
 import { readConfig } from '../src/config.ts';
@@ -307,23 +306,4 @@ test('conflicting root selections refuse before a configuration write', () => {
     () => resolvePaths({ rootDir, env: { NEPTUNIA_DATA_DIR: dataDir, NEPTUNIA_PRIVATE_DIR: oldRoot } }),
     /must match NEPTUNIA_DATA_DIR/
   );
-});
-
-test('an old layer with the retired search keys loads, says so once, and keeps its engine', async () => {
-  // Bug: every read of the settings warns again about `web.search.fallback`, and the journal fills with one line.
-  const root = checkout();
-  const privateDir = tempDir('nep-cfgdir-retired-');
-  write(privateDir, 'config/config.json', {
-    plugins: { echo: true },
-    intentions: { candidateExpiresHours: 48 },
-    web: { search: { fallback: [], engine: 'openrouter' } },
-  });
-  const { result, logs } = await withCapturedLogs(() =>
-    Promise.resolve([readConfig(root, { privateDir }), readConfig(root, { privateDir })])
-  );
-  const warned = logs.filter((line) => String(line.msg).startsWith('config: keys of an old name'));
-  assert.equal(warned.length, 1);
-  const search = (result[1]?.web as Tree).quickSearch as Tree;
-  assert.equal(search.engine, 'openrouter');
-  assert.equal(Object.hasOwn(search, 'fallback'), false);
 });

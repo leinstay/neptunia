@@ -2,9 +2,9 @@
 // `selfreflection` everywhere, and only the text of the prompt files and the label values the model reads keep the
 // persona's own word for her diary. Her pictures are `media:selfreflection:` ids in `media/selfreflection`, her block is
 // `<selfreflection>`, and a deployment's local prompt files carry the new names (the deploy renames the live one), so
-// src/hot.ts maps no old file name and src/config/cut.ts lists no old key. Old names live only in the code that
-// migrates them: the shipped schema migrations and the ones that follow them (src/memory/db/schema.ts), the offline
-// converter and the data moves (src/memory/migration/), and the config moves (src/config-moves.ts).
+// src/hot.ts maps no old file name. Old names live only in the code that migrates them: the shipped schema migrations
+// and the ones that follow them (src/memory/db/schema.ts), and the offline converter and the data moves
+// (src/memory/migration/).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -72,7 +72,7 @@ test('the labels of the selfreflection wake sit in the section selfreflection', 
 
 /** Files that hold the old names because they migrate them. */
 const MIGRATING = (file: string): boolean =>
-  file === 'src/memory/db/schema.ts' || file.startsWith('src/memory/migration/') || file === 'src/config-moves.ts';
+  file === 'src/memory/db/schema.ts' || file.startsWith('src/memory/migration/');
 
 /** What stays of a line once the display name of the settings section, which the owner reads, is taken out of it. */
 function withoutPersonaWord(file: string, line: string): string {
