@@ -163,6 +163,12 @@ async function readPlace(world: World, io: Rig, place: string): Promise<ReadAnsw
   return (await handlers['conversation.read']({ placeId: place, last: 10 })) as ReadAnswer;
 }
 
+/** The address the place holds. */
+const addressOf = (world: World, place: string): unknown => {
+  const row = world.db.prepare('SELECT native_id FROM places WHERE id = ?').get(place);
+  return row?.native_id;
+};
+
 const chatsAsked = (io: Rig): Array<unknown> => io.asked('history').map((ref) => (ref as { chatId: string }).chatId);
 
 test("a read of a direct chat reaches the interface's chat through the address its place holds", async () => {
@@ -172,7 +178,8 @@ test("a read of a direct chat reaches the interface's chat through the address i
     const io = dmRig();
     const read = await readPlace(world, io, place);
     assert.equal(read.status, 'ok', JSON.stringify(read));
-    assert.ok(read.data?.text.includes(LINE), JSON.stringify(read));
+    const { data } = read;
+    assert.ok(data?.text.includes(LINE), JSON.stringify(read));
     assert.deepEqual(chatsAsked(io), [DM_CHAT]);
     assert.equal(io.asked('dmChatOf').length, 0);
   } finally {
@@ -188,8 +195,9 @@ test('a direct chat whose place holds no address is opened once through dm.chat 
     io.fake.seedDmChat(PARTNER, DM_CHAT);
     const first = await readPlace(world, io, place);
     assert.equal(first.status, 'ok', JSON.stringify(first));
-    assert.ok(first.data?.text.includes(LINE), JSON.stringify(first));
-    assert.equal(world.db.prepare('SELECT native_id FROM places WHERE id = ?').get(place)?.native_id, DM_CHAT);
+    const { data } = first;
+    assert.ok(data?.text.includes(LINE), JSON.stringify(first));
+    assert.equal(addressOf(world, place), DM_CHAT);
     const second = await readPlace(world, io, place);
     assert.equal(second.status, 'ok', JSON.stringify(second));
     assert.equal(io.asked('dmChatOf').length, 1);
@@ -256,7 +264,7 @@ test('her first post to a direct chat that holds no address opens it once throug
     assert.equal(await postTo(world, io, place), DM_CHAT);
     assert.equal(await postTo(world, io, place), DM_CHAT);
     assert.equal(io.asked('dmChatOf').length, 1);
-    assert.equal(world.db.prepare('SELECT native_id FROM places WHERE id = ?').get(place)?.native_id, DM_CHAT);
+    assert.equal(addressOf(world, place), DM_CHAT);
   } finally {
     world.close();
   }

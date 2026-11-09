@@ -1,10 +1,11 @@
 // Tests for src/memory/db/frame-reads.ts: whether a source's line is retired, found through the source row's `iface`
-// and `native_id` columns, and the source row id each line around a moment carries. No reader cuts these out of the
-// text of a source id. Synthetic SQLite rows over the mind-world fixture.
+// and `native_id` columns, the source row id each line around a moment carries, and the path and author of her own
+// lines, read from the place's and the account's rows. No reader cuts these out of the text of an id. Synthetic SQLite
+// rows over the mind-world fixture.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { insertRows } from '../src/memory/db/rows.ts';
-import { linesAroundOf, sourceRetiredOf } from '../src/memory/db/frame-reads.ts';
+import { linesAroundOf, ownLinesOf, sourceRetiredOf } from '../src/memory/db/frame-reads.ts';
 import { internalContext } from '../src/memory/db/scope.ts';
 import { addRoom, noteInterface, openWorld, rootId } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
@@ -100,6 +101,83 @@ test('a line around a moment carries the id of its source row', () => {
       lines.map((line) => [line.id, line.sourceId]),
       [['m-45', 'source:opaque-4']]
     );
+  } finally {
+    world.close();
+  }
+});
+
+/** Her line `native` in the place `place`, written by the account `account`, scoped as `scope`. */
+function ownLine(
+  world: World,
+  { place, native, account, scope }: { place: string; native: string; account: string | null; scope: 'group' | 'dm' }
+) {
+  insertRows(world.db, {
+    sources: [
+      {
+        id: `source:${native}`,
+        kind: 'said',
+        iface: 'fake',
+        native_id: native,
+        native_kind: 'message',
+        revision: 1,
+        place_id: place,
+        author_account: account,
+        author_kind: 'self',
+        occurred_at: AT,
+        recorded_at: AT,
+        text: 'η αυλή',
+        scope_kind: scope,
+        scope_iface: 'fake',
+        scope_dm: scope === 'dm' ? 'person:7e21' : null,
+      },
+    ],
+  });
+}
+
+test('her line in a room stored under an opaque id has a path that starts with the interface of its row', () => {
+  // Bug: the path took the interface from the text of the place id, so a room stored as `place:...` sat under `place`.
+  const world = openWorld();
+  try {
+    noteInterface(world, 'fake', [{ id: 'g1', name: 'Agora' }]);
+    world.db
+      .prepare(
+        `INSERT INTO places (id, iface, kind, native_id, parent_id, chat, scope_kind, name)
+         VALUES ('place:opaque-room', 'fake', 'channel', 'c8', ?, 'group', 'group', 'garden')`
+      )
+      .run(rootId('fake', 'g1'));
+    ownLine(world, { place: 'place:opaque-room', native: 'm-50', account: null, scope: 'group' });
+    const [line] = ownLinesOf(world.db, internalContext(), null, 5);
+    assert.deepEqual(line?.path, ['fake', 'Agora', 'garden']);
+  } finally {
+    world.close();
+  }
+});
+
+test("her line in a direct chat stored under an opaque id has a path that ends in the partner account's native id", () => {
+  // Bug: the path cut the partner out of the text of the place id, which an opaque DM place does not spell.
+  const world = openWorld();
+  try {
+    world.db.exec(`INSERT INTO people (id) VALUES ('person:7e21');
+      INSERT INTO accounts (id, iface, native_id, person_id) VALUES ('account:opaque-partner', 'fake', 'u-77', 'person:7e21');
+      INSERT INTO places (id, iface, kind, native_id, chat, scope_kind, partner_account, partner_person)
+        VALUES ('place:opaque-dm', 'fake', 'dm', NULL, 'dm', 'dm', 'account:opaque-partner', 'person:7e21');`);
+    ownLine(world, { place: 'place:opaque-dm', native: 'm-51', account: null, scope: 'dm' });
+    const [line] = ownLinesOf(world.db, internalContext(), null, 5);
+    assert.deepEqual([line?.path, line?.dm, line?.partner], [['fake', 'private', 'u-77'], true, 'person:7e21']);
+  } finally {
+    world.close();
+  }
+});
+
+test("a line's author id is the native id of its author account's row", () => {
+  // Bug: the author id was cut out of the text of the account id, which an opaque account does not spell.
+  const world = openWorld();
+  try {
+    const room = roomWithLine(world, { id: 'source:opaque-5', native: 'm-46' });
+    world.db.exec(`INSERT INTO accounts (id, iface, native_id) VALUES ('account:opaque-self', 'fake', 'self-9')`);
+    ownLine(world, { place: room, native: 'm-52', account: 'account:opaque-self', scope: 'group' });
+    const [line] = ownLinesOf(world.db, internalContext(), null, 5);
+    assert.equal(line?.authorId, 'self-9');
   } finally {
     world.close();
   }

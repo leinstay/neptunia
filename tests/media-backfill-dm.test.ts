@@ -20,6 +20,7 @@ import {
   GROUP_SCOPE,
   KINDS,
   NOW,
+  channelRow,
   eventOf,
   fixture,
 } from './fixtures/media-memory.ts';
@@ -35,6 +36,9 @@ const OK_OPEN = { status: 'ok', chatId: OPENED };
 
 async function withEnv(body: (env: Env) => void | Promise<void>) {
   const env = fixture();
+  // The rows of the places the lines name, as every stored line's place has one: a line is read through its row's native id, a DM's partner through its account.
+  channelRow(env, GENERAL, 'c1');
+  dmPlaceRow(env, DM);
   try {
     await body(env);
   } finally {
@@ -116,11 +120,18 @@ const stateOf = (env: Env, source: string) =>
        WHERE l.owner_kind = 'source' AND l.owner_id = ?`
     )
     .get(source)?.state;
-/** The stored row of a DM place, which a line alone does not make. */
-const dmPlaceRow = (env: Env, place: string, account: string | null = null) =>
+const BOB_ACCOUNT = 'account:bob';
+/** The stored row of a DM place and of its partner's account, which a line alone does not make. */
+function dmPlaceRow(env: Env, place: string, account: string | null = BOB_ACCOUNT): void {
   env.db
-    .prepare("INSERT INTO places (id, iface, kind, chat, partner_account) VALUES (?, 'discord', 'dm', 'dm', ?)")
+    .prepare("INSERT OR IGNORE INTO accounts (id, iface, native_id) VALUES (?, 'discord', ?)")
+    .run(BOB_ACCOUNT, BOB);
+  env.db
+    .prepare(
+      "INSERT OR IGNORE INTO places (id, iface, kind, chat, partner_account) VALUES (?, 'discord', 'dm', 'dm', ?)"
+    )
     .run(place, account);
+}
 const placeAddress = (env: Env, place: string) =>
   env.db.prepare('SELECT native_id FROM places WHERE id = ?').get(place)?.native_id;
 
@@ -182,14 +193,33 @@ test('the partner of a place whose id does not spell him is its partner account'
     assert.deepEqual(asked, ['native-of-bob']);
   }));
 
-test('a DM place no row holds is asked for by the partner its id spells, and the run goes on', () =>
+// The expectation changed with the ids-by-links plan (slice 6): no id is worked out from the text of another, so a DM
+// place no row holds names no partner. Production holds a row for every DM place with lines.
+test('a DM place no row holds names no partner: its line stays bare, nobody is asked, and the run goes on', () =>
   withEnv(async (env) => {
-    const source = bareLine(env, { native: '2113' });
+    const unstored = dmPlaceId('discord', 'u-nobody');
+    bareLine(env, { native: '2113', place: unstored });
+    const kept = bareLine(env, { native: '2114' });
     const { open, asked } = opener(OK_OPEN);
-    const report = await run(env, platform([dmEvent('2113')]).read, { dmChatOf: open });
+    const report = await run(env, platform([dmEvent('2114')]).read, { dmChatOf: open });
     assert.deepEqual(asked, [BOB]);
-    assert.equal(report.linked, 1);
-    assert.equal(firstRef(env, source), '2113-a');
+    assert.deepEqual([report.bare, report.linked], [1, 1]);
+    assert.equal(firstRef(env, kept), '2114-a');
+  }));
+
+test('a line of a channel stored under an opaque id is read through the native id of its row', () =>
+  withEnv(async (env) => {
+    env.db
+      .prepare(
+        "INSERT INTO places (id, iface, kind, native_id, chat, scope_kind) VALUES ('place:opaque-room', 'discord', 'channel', 'c7', 'group', 'group')"
+      )
+      .run();
+    const source = bareLine(env, { native: '2115', place: 'place:opaque-room', author: ALICE, scope: GROUP_SCOPE });
+    const room = { id: 'c7', kind: 'channel', rootId: 'g1', name: 'garden' };
+    const { read, reads } = platform([eventOf(IMAGE, '2115', [true, true], { chat: room })]);
+    const report = await run(env, read);
+    assert.deepEqual([reads.map((one) => one.chatId), report.linked], [['c7'], 1]);
+    assert.equal(firstRef(env, source), '2115-a');
   }));
 
 test('a line of a place with no partner stays bare and nobody is asked', () =>

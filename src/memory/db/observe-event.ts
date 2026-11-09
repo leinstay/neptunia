@@ -26,7 +26,7 @@ import { mediaItemsOf } from './media-store.ts';
 import { OBSERVATION_VERSION } from './observe.ts';
 import type { Envelope, MessageChat } from './observe.ts';
 import { isFiniteNumber } from './types.ts';
-import type { Row } from './types.ts';
+import type { Db, Row } from './types.ts';
 
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
 const isoOf = (ms: unknown): string | null => (isFiniteNumber(ms) ? new Date(ms).toISOString() : null);
@@ -77,6 +77,14 @@ export function chatPlaceKey(chat: { id?: unknown; kind?: unknown; chatType?: un
   if (chatType === 'group_dm') return `group_dm:${String(chat.id)}`;
   if (chatType === 'thread') return `thread:${String(chat.id)}`;
   return `channel:${String(chat.id)}`;
+}
+
+/** The stored place of a chat an interface names by its native id, keyed as `chatPlaceKey` keys it; null without a row. */
+export function channelPlaceOf(db: Db, authority: string, chatId: string): string | null {
+  const row = db
+    .prepare('SELECT id FROM places WHERE authority_id = ? AND native_key = ? ORDER BY generation DESC')
+    .get(authority, chatPlaceKey({ id: chatId }));
+  return typeof row?.id === 'string' ? row.id : null;
 }
 
 /** The place key of what contains a chat: `<parentKind>:<parentId>`; with no declared kind it sits in a channel. */

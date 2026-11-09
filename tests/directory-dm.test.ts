@@ -1,6 +1,6 @@
 // The chat directory of the core (src/interface/directory.ts) keeps the whole `Chat` record an interface
 // reported: `get(id)` answers the record, `chats()` every record. The address of a direct chat is the place's in
-// memory (tests/dm-chat-address.test.ts), so the directory answers none.
+// memory (tests/place-chat.test.ts), so the directory answers none.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createChatDirectory } from '../src/interface/directory.ts';

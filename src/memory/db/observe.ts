@@ -103,7 +103,7 @@ import { projectRow } from './graph.ts';
 import { nextPosition, noteUnit } from './unit-write.ts';
 import { ingestOption, insertIngest } from './ingest.ts';
 import { dbOf, asText, isWholeNumber } from './types.ts';
-import type { Db, Log, MemoryHandle, Row } from './types.ts';
+import type { Connection, Db, Log, MemoryHandle, Row } from './types.ts';
 import type { Scope } from './scope.ts';
 
 /** The version of the envelope this module reads. */
@@ -677,6 +677,20 @@ function fillAddress(db: Db, existing: Row, address: unknown, at: string): void 
   if (!filled(address) || existing.native_id === address) return;
   db.prepare('UPDATE places SET native_id = ? WHERE id = ?').run(address, existing.id);
   projectRow(db, 'places', { id: existing.id }, { at });
+}
+
+/**
+ * The writer kind `place-address` (session-write.ts): the chat an interface opened for a place that held no address,
+ * when the core asked it to open a direct chat (`dm.chat`), stored as the place's `native_id`. A place that holds an
+ * address keeps it, since a message's own address is the interface's word on it. Answers how many places took it.
+ */
+export function applyPlaceAddress(connection: Connection, update: Row): { stored: number } {
+  const { placeId, address } = update;
+  if (!filled(placeId) || !filled(address)) return { stored: 0 };
+  const result = dbOf(connection)
+    .prepare('UPDATE places SET native_id = ? WHERE id = ? AND native_id IS NULL')
+    .run(address, placeId);
+  return { stored: Number(result.changes) };
 }
 
 /** A DM place that just took its partner person: the rows from before the link take it too, with the audience they had. */

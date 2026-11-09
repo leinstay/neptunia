@@ -2999,7 +2999,7 @@ function buildStore({
 
     /**
      * The chat an interface opened for a place that held no address, stored as the place's address through the one
-     * writer (src/memory/db/place-address.ts). A failed write is logged; the next read opens the chat again.
+     * writer (src/memory/db/observe.ts#applyPlaceAddress). A failed write is logged; the next read opens the chat again.
      */
     notePlaceAddress(placeId: string, address: string): Promise<unknown> {
       if (typeof memoryDb.memoryWrite !== 'function') return Promise.resolve(null);
