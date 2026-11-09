@@ -25,8 +25,7 @@
 //   neptunia subharness <backend> login|status|logout   its account, with no core (src/subharness/account.ts)
 //   neptunia tasks <command> [options]           the task board's command line (bin/neptunia-task.ts)
 //
-// Every command reads `NEPTUNIA_PRIVATE_DIR` (the local layer) and `NEPTUNIA_DATA_DIR` (the data folder), as the core
-// does (src/paths.ts). A usage error exits 2.
+// Every command reads `NEPTUNIA_DATA_DIR` (the data folder), as the core does (src/paths.ts). A usage error exits 2.
 //
 // The chat is the `cli` interface. It connects to the core's socket `<data>/run/core.sock` with the token of the
 // client `cli` (`<private>/clients/cli.token`, scripts/client-token.ts writes it) and says hello as `iface: 'cli'`. Each

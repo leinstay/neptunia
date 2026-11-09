@@ -1,6 +1,6 @@
 // One instance of the engine as a child process for tests/second-instance.test.ts. It starts the core of the engine
-// copy named by its first argument (`startCore` of that copy's `src/core.ts`) over the folders `NEPTUNIA_PRIVATE_DIR`
-// and `NEPTUNIA_DATA_DIR` name, with a scripted model that answers `INSTANCE_ANSWER` and the fake interface of the
+// copy named by its first argument (`startCore` of that copy's `src/core.ts`) over the folder `NEPTUNIA_DATA_DIR`
+// names, with a scripted model that answers `INSTANCE_ANSWER` and the fake interface of the
 // same copy. It imports nothing of the checkout it sits in: the engine is the copy, so what the instance touches is
 // what a clone of the public repository would touch. The parent drives it over IPC (instance-protocol.ts).
 import { pathToFileURL } from 'node:url';

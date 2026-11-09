@@ -51,13 +51,12 @@ test('isWithheldPath: roots, name components and env files', () => {
   assert.equal(isWithheldPath('/home/steam/servers'), false);
 });
 
-test('withheld roots and globs: the fixed ones, then the data directory and a private directory apart from the checkout', () => {
+test('withheld roots and globs: the fixed ones, then the data directory apart from the checkout', () => {
   const apart = resolvePaths({
     rootDir: '/srv/app',
-    env: { NEPTUNIA_PRIVATE_DIR: '/srv/site/data', NEPTUNIA_DATA_DIR: '/srv/site/data' },
+    env: { NEPTUNIA_DATA_DIR: '/srv/site/data' },
   });
   const roots = withheldRootsOf({ paths: apart });
-  // The private alias cannot select a second runtime root.
   assert.equal(roots.at(-1), '/srv/site/data');
   assert.ok(roots.includes('/etc/neptunia'), '/etc/neptunia stays');
   assert.ok(!roots.some((root) => root.startsWith('/opt/neptunia')), 'no hard-coded deployment path');

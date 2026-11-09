@@ -166,12 +166,6 @@ test('the rendered core unit names the checkout, the two directories and no User
   const { options, deps, unitDir } = rig();
   await runSetup(options, deps);
   const text = fs.readFileSync(path.join(unitDir, 'neptunia-core.service'), 'utf8');
-  // A retained private environment alias must select the same canonical data root.
-  assert.ok(
-    unitValues(text, 'Environment')
-      .filter((value) => value.startsWith('NEPTUNIA_PRIVATE_DIR='))
-      .every((value) => value === `NEPTUNIA_PRIVATE_DIR=${options.dataDir}`)
-  );
   assert.ok(text.includes(`NEPTUNIA_DATA_DIR=${options.dataDir}`));
   assert.equal(/^User=/m.test(text), false);
 });
@@ -365,7 +359,6 @@ test('neptunia setup with an unknown option exits 2 and creates nothing', () => 
     env: {
       PATH: process.env.PATH ?? '',
       HOME: dir,
-      NEPTUNIA_PRIVATE_DIR: path.join(dir, 'd'),
       NEPTUNIA_DATA_DIR: path.join(dir, 'd'),
     },
     encoding: 'utf8',

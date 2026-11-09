@@ -1,13 +1,11 @@
 // Resolve the engine checkout and its one persona data root. NEPTUNIA_DATA_DIR selects the persona directory,
-// defaulting to <root>/data. privateDir is its compatibility alias; a different legacy selection requires migration.
+// defaulting to <root>/data. privateDir names the same directory.
 
 import path from 'node:path';
 // A parsed JSON value or an argument no module types yet: the alias of src/tools/types.ts, restated so this leaf
 // imports nothing from src/tools/ (src/memory/ reaches it).
 type Untyped = ReturnType<typeof JSON.parse>;
 
-/** The legacy alias of the persona data root; a conflicting value is refused. */
-export const PRIVATE_DIR_VAR = 'NEPTUNIA_PRIVATE_DIR';
 /** The variable naming the directory everything the engine writes goes under. */
 export const DATA_DIR_VAR = 'NEPTUNIA_DATA_DIR';
 
@@ -26,12 +24,7 @@ export function resolvePaths({
   env?: Record<string, string | undefined>;
 }): { rootDir: string; privateDir: string; dataDir: string } {
   const root = path.resolve(rootDir);
-  const privateValue = setValue(env, PRIVATE_DIR_VAR);
   const dataValue = setValue(env, DATA_DIR_VAR);
   const data = dataValue ? path.resolve(root, dataValue) : path.join(root, 'data');
-  if (privateValue && path.resolve(root, privateValue) !== data)
-    throw new Error(
-      'NEPTUNIA_PRIVATE_DIR must match NEPTUNIA_DATA_DIR: prepare data with scripts/persona-files-move.ts'
-    );
   return { rootDir: root, privateDir: data, dataDir: data };
 }

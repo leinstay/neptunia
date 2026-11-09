@@ -394,15 +394,10 @@ test('targeted writes and prompt watchers update the same canonical data directo
   }
 });
 
-// Silent root precedence or mixed layouts can read one persona while writing another.
-test('conflicting root selections and mixed personal layouts refuse before a configuration write', () => {
+// A mixed layout can read one persona while writing another.
+test('a mixed personal layout refuses before a configuration write', () => {
   const rootDir = checkout();
   const dataDir = tempDir('nep-canonical-conflict-');
-  const oldRoot = tempDir('nep-legacy-conflict-');
-  assert.throws(
-    () => resolvePaths({ rootDir, env: { NEPTUNIA_DATA_DIR: dataDir, NEPTUNIA_PRIVATE_DIR: oldRoot } }),
-    /persona-files-move/
-  );
   write(dataDir, 'config/config.json', { pace: { settleMs: 900 } });
   write(dataDir, 'config.local/config.json', { pace: { settleMs: 700 } });
   const before = fs.readFileSync(path.join(dataDir, 'config/config.json'), 'utf8');

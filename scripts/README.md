@@ -12,7 +12,7 @@ cd /opt/neptunia/app && sudo -u neptunia-bot node scripts/<tool>.ts ...
 
 The scripts find files as the bot does: `NEPTUNIA_DATA_DIR` names the persona folder, `data/` in the checkout by default. `--data <dir>` overrides the data path.
 
-Every script that sends model requests spends the simulation's key, read from `keys.json` in `NEPTUNIA_PRIVATE_DIR` (`simulation enable --key <name>` in the chat names it). While the simulation is off the script stops with one line and never spends a core key.
+Every script that sends model requests spends the simulation's key, read from `keys.json` in the persona folder (`simulation enable --key <name>` in the chat names it). While the simulation is off the script stops with one line and never spends a core key.
 
 ## Rules
 

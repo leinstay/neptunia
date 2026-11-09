@@ -126,7 +126,6 @@ function startChild(one: Omit<Instance, 'child'>, pending: Pending): Promise<Ins
       env: {
         PATH: process.env.PATH ?? '',
         TMPDIR: tmpdir(),
-        NEPTUNIA_PRIVATE_DIR: one.privateDir,
         NEPTUNIA_DATA_DIR: one.dataDir,
         INSTANCE_ANSWER: one.answer,
       },

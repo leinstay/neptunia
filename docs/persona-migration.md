@@ -12,7 +12,7 @@ node scripts/persona-files-move.ts --root /path/to/new/engine --private /path/to
 
 Inspect its conflicts and held files. Add `--apply` to copy accepted material. Existing conflicting destinations are not silently overwritten, and unknown material needs classification. The converter is not a substitute for a complete backup or for database migrations.
 
-The runtime refuses ambiguous legacy and canonical layouts. `NEPTUNIA_PRIVATE_DIR`, when supplied, must name the same directory as `NEPTUNIA_DATA_DIR`. Remove old launch overrides only after verifying the staged persona no longer depends on them.
+The runtime refuses ambiguous legacy and canonical layouts. `NEPTUNIA_DATA_DIR` alone names the persona directory.
 
 ## Backup and restore
 

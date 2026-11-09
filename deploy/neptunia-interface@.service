@@ -28,7 +28,6 @@ Group=neptunia
 # exits with code 1, and systemd starts it again.
 Restart=always
 RestartSec=5
-Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/data
 Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
 EnvironmentFile=-/opt/neptunia/data/clients/%i.env
 

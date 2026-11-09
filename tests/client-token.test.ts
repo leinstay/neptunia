@@ -1,7 +1,7 @@
 // Tests for scripts/client-token.ts: `add <name> --kind <kind> [--iface <iface>]` writes a client's token file
 // (`clients/<name>.token` under the private directory, mode 0600) and its entry in `clients.json`, `rotate <name>`
 // gives the client a new token, and `revoke <name>` removes the entry and the file. The tool finds the private
-// directory through NEPTUNIA_PRIVATE_DIR and never prints a token. Because the core reads `clients.json` at the moment
+// directory through NEPTUNIA_DATA_DIR and never prints a token. Because the core reads `clients.json` at the moment
 // of use, a rotated or revoked token closes the client's live link: the link over the loopback here resolves its
 // token through src/interface/principals.ts, as the core does.
 import { test } from 'node:test';
@@ -25,7 +25,7 @@ function tool(privateDir: string, args: Array<string>): { code: number | null; o
   const run = spawnSync(process.execPath, ['scripts/client-token.ts', ...args], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: { ...process.env, NEPTUNIA_PRIVATE_DIR: privateDir, NEPTUNIA_DATA_DIR: privateDir },
+    env: { ...process.env, NEPTUNIA_DATA_DIR: privateDir },
   });
   return { code: run.status, out: `${run.stdout}${run.stderr}` };
 }
