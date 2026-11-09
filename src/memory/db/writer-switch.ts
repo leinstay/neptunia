@@ -17,16 +17,15 @@
 //     the order the reviews are run: the people of her focus close set first (by their
 //     focus score), then every other flag by its age, oldest first. `skip`: description ids not to offer again today.
 //   reviewsToday(db, now) -> number    the accepted reviews written on the UTC day of `now`
-//   effectiveModels(config, env) -> [{ purpose, role, model, key }]
-//     The model and the key variable each request of the memory writer and of every other named purpose goes out on,
-//     resolved from the live config the way the callers resolve it (session.ts / describe.ts call roleModel with the
-//     role alone; the analyzer purposes with their purpose) and openrouter.js#roleApiKey picks the key: the variable
-//     `llm.keyByRole.<role>` names when it is set, else `OPENROUTER_CORE_KEY`, except the strict roles (`memory`), whose
-//     key is null when its variable is unset: no other key stands in. Names only, never a value.
+//   effectiveModels(config, ring) -> [{ purpose, role, model, key }]
+//     The model and the key each request of the memory writer and of every other named purpose goes out on, resolved
+//     from the live config the way the callers resolve it (session.ts / describe.ts call roleModel with the role alone;
+//     the analyzer purposes with their purpose), the key by the name the core's key ring routes the role to now (null
+//     without one: the request would be refused). Names only, never a value.
 //   effectiveModelsLine(list) -> string[]    `purpose=model@KEY` per entry, for the start-up log line
 
 import { entityLabels } from './semantic-read.ts';
-import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../../llm/openrouter.ts';
+import type { KeyRing } from '../../keys/ring.ts';
 import { MEMORY_PURPOSES, MEMORY_ROLE, PURPOSE_ROLES, roleModel } from '../../llm/roles.ts';
 import {
   batchOf,
@@ -49,7 +48,6 @@ import type { SweepScope } from './session-scopes.ts';
 import type { Config, Db, Log, Row } from './types.ts';
 
 const MINUTE = 60_000;
-const MAIN_KEY = 'OPENROUTER_CORE_KEY';
 const dayOf = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
 const parse = (text: unknown): Row | null => {
   try {
@@ -236,32 +234,27 @@ export function openFlags(
     .map(({ flag }) => flag);
 }
 
-/** The key variable a request of `role` goes out on (openrouter.js#roleApiKey's choice), by name; null for none. */
-function keyNameOf(config: Config, env: Row | null | undefined, role: string): string | null {
-  const keyByRole = config?.llm?.keyByRole;
-  const name = keyByRole?.[role];
-  const valid = typeof name === 'string' && ROLE_KEY_NAME.test(name);
-  const given = valid ? env?.[name] : undefined;
-  if (valid && typeof given === 'string' && given.trim()) return name;
-  return STRICT_KEY_ROLES.includes(role) ? null : MAIN_KEY;
+/** The name of the key a request of `role` goes out on now, as the key ring routes it; null without a key or a ring. */
+function keyNameOf(ring: KeyRing | null | undefined, role: string): string | null {
+  return ring?.route(role)?.name ?? null;
 }
 
 /** The effective models (see the head of this file): the memory writer's purposes first, then every other purpose. */
-/** One purpose with its role, its model and the key variable a request goes out on. */
+/** One purpose with its role, its model and the name of the key a request goes out on. */
 export type EffectiveModel = { purpose: string; role: string; model: string | null; key: string | null };
 
-export function effectiveModels(config: Config, env: Row | null | undefined): Array<EffectiveModel> {
+export function effectiveModels(config: Config, ring: KeyRing | null | undefined): Array<EffectiveModel> {
   const out: Array<EffectiveModel> = [];
   for (const purpose of MEMORY_PURPOSES) {
     out.push({
       purpose,
       role: MEMORY_ROLE,
       model: roleModel(config, MEMORY_ROLE) ?? null,
-      key: keyNameOf(config, env, MEMORY_ROLE),
+      key: keyNameOf(ring, MEMORY_ROLE),
     });
   }
   for (const [purpose, role] of Object.entries(PURPOSE_ROLES)) {
-    out.push({ purpose, role, model: roleModel(config, role, purpose) ?? null, key: keyNameOf(config, env, role) });
+    out.push({ purpose, role, model: roleModel(config, role, purpose) ?? null, key: keyNameOf(ring, role) });
   }
   return out;
 }

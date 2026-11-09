@@ -273,7 +273,7 @@
       "repeated": 0
     },
     "tests/errands-service.test.ts": {
-      "deep": 4,
+      "deep": 3,
       "repeated": 0
     },
     "tests/errands-store.test.ts": {
@@ -445,7 +445,7 @@
       "repeated": 0
     },
     "tests/inner-wakes.test.ts": {
-      "deep": 13,
+      "deep": 6,
       "repeated": 0
     },
     "tests/inner-week.test.ts": {
@@ -821,10 +821,6 @@
       "repeated": 0
     },
     "tests/model-capabilities.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
-    "tests/openrouter-role-keys.test.ts": {
       "deep": 1,
       "repeated": 0
     },
@@ -1509,7 +1505,7 @@
     "scripts/search-compare.ts": {
       "main": {
         "complexity": 31,
-        "function-length": 303
+        "function-length": 302
       }
     },
     "scripts/search-policy-eval.ts": {
@@ -1690,7 +1686,7 @@
     },
     "src/llm/openrouter.ts": {
       "createLlm": {
-        "function-length": 617
+        "function-length": 615
       },
       "createLlm>complete": {
         "complexity": 44

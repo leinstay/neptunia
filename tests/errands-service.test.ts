@@ -1,9 +1,7 @@
 // Tests for src/errands/service.ts: the secrets every run carries to its agent runner. Over a real
 // task store (a temp data/ directory) with a FAKE journal, a FAKE errand client and a FAKE log:
-// a run carries the key of its agent's model role as the bot resolves a role's key
-// (`llm.keyByRole`), never the persona's main key; the engine proxy in force goes in its http form
-// (stage Z: from the core's monitor, not MEDIA_VIDEO_PROXY); the scout agent also gets the search
-// key, the server agent not; without the role's key or a proxy no secrets go out;
+// a run with no route carries no key, never one of the persona's; the engine proxy in force goes in its http form
+// (stage Z: from the core's monitor, not MEDIA_VIDEO_PROXY); without a route key or a proxy no secrets go out;
 // and no secret reaches a log call, a journal line or the store's files. The runner's health flag
 // (over a real errand client and a fake runner socket): a runner known unreachable refuses a new
 // task at once with `runner-down`, and a ping that succeeds flips the flag back.
@@ -48,7 +46,7 @@ function memoryOf(dataDir: string) {
   return memory.memoryDb;
 }
 
-const SECRETS = ['sk-agent-SECRET', 'sk-persona-SECRET', 'pw-SECRET', 'search-SECRET', 'sk-dev-SECRET'];
+const SECRETS = ['pw-SECRET'];
 
 /** A fake errand client: records each run and ends it at once. */
 function fakeClient() {
@@ -75,18 +73,10 @@ function fakeLog() {
 }
 
 // Stage Z: the proxy comes from the core's monitor (`proxy`), never from the environment.
-function makeService(env: Untyped, { keyByRole, proxy = null }: { keyByRole?: Untyped; proxy?: string | null } = {}) {
+function makeService({ proxy = null }: { proxy?: string | null } = {}) {
   const rootDir = tempDir('nep-errands-service-');
   const hot = {
     config: {
-      llm: {
-        keyByRole: keyByRole ?? {
-          // Stage AB: the shipped map has no errand entry; this rig maps the roles to a variable of its own.
-          scout: 'OPENROUTER_AGENT_KEY',
-          server: 'OPENROUTER_AGENT_KEY',
-          dev: 'OPENROUTER_DEV_KEY',
-        },
-      },
       errands: { maxOpen: 3 },
       agents: { scout: { enabled: true, daily: { tasks: 10 } }, server: { enabled: true, daily: { tasks: 10 } } },
     },
@@ -106,7 +96,6 @@ function makeService(env: Untyped, { keyByRole, proxy = null }: { keyByRole?: Un
     client,
     stores,
     hot,
-    env,
     log,
     defer: (fn) => fn(),
     proxy: () => proxy,
@@ -132,28 +121,20 @@ function filesText(dir: string) {
     .join('\n');
 }
 
-const ENV = {
-  OPENROUTER_CORE_KEY: 'sk-persona-SECRET',
-  OPENROUTER_AGENT_KEY: 'sk-agent-SECRET',
-  OPENROUTER_DEV_KEY: 'sk-dev-SECRET',
-  MEDIA_VIDEO_PROXY: 'socks5h://user:pw-SECRET@proxy.example:1080',
-  // Stage AB: the core no longer reads this; it must reach no run.
-  OPENCODE_WEBSEARCH_KEY: 'search-SECRET',
-};
+const SOCKS_PROXY = 'socks5h://user:pw-SECRET@proxy.example:1080';
 
-test("errands service: a scout run carries its role's key, the proxy in its http form and no search key; no secret in a log, a journal line or a file", async () => {
+test('errands service: a scout run with no route carries the proxy in its http form and no key; no secret in a log, a journal line or a file', async () => {
   // Stage Z: the proxy is the engine proxy in force, handed by the core, in place of MEDIA_VIDEO_PROXY.
-  const { errands, client, log, journalLines, rootDir, cleanup } = makeService(ENV, { proxy: ENV.MEDIA_VIDEO_PROXY });
+  const { errands, client, log, journalLines, rootDir, cleanup } = makeService({ proxy: SOCKS_PROXY });
   try {
     const { logs } = await withCapturedLogs(async () => {
       assert.equal(errands.submit(ask('scout')).ok, true);
       await errands.idle();
     });
     assert.equal(client.runs.length, 1);
-    assert.deepEqual(client.runs[0].secrets, {
-      openrouterKey: 'sk-agent-SECRET',
-      proxy: 'http://user:pw-SECRET@proxy.example:1080',
-    });
+    // The key of the agent's role came from `llm.keyByRole` over `.env`, which is gone: a run spends the extra key of
+    // its route alone, and this run has none.
+    assert.deepEqual(client.runs[0].secrets, { proxy: 'http://user:pw-SECRET@proxy.example:1080' });
     assert.ok(journalLines.length >= 2, 'the task was journaled');
     assert.ok(log.calls.length > 0, 'the run was logged');
     const recorded = JSON.stringify({ calls: log.calls, journalLines, logs }) + filesText(rootDir);
@@ -163,62 +144,31 @@ test("errands service: a scout run carries its role's key, the proxy in its http
   }
 });
 
-test("errands service: a server run carries only its role's key; never the persona's or the development key", async () => {
-  const { errands, client, cleanup } = makeService(ENV);
+test('errands service: a run with no route and no proxy carries no secrets, never a key of the persona', async () => {
+  // Catches: an errand with no route of its own handed a core key, so the agent spends the persona's budget.
+  const { errands, client, cleanup } = makeService();
   try {
     await withCapturedLogs(async () => {
-      errands.submit(ask('server'));
-      await errands.idle();
-    });
-    assert.deepEqual(client.runs[0].secrets, { openrouterKey: 'sk-agent-SECRET' });
-  } finally {
-    cleanup();
-  }
-});
-
-test('errands service: the key follows llm.keyByRole read now; an http proxy is sent as it is; no search key, none sent', async () => {
-  const env = {
-    ...ENV,
-    OPENROUTER_WEB_ONLY: 'sk-web-only',
-    MEDIA_VIDEO_PROXY: 'http://proxy.example:8000',
-  };
-  // Stage Z: the proxy is the engine proxy in force, handed by the core, in place of MEDIA_VIDEO_PROXY.
-  const { errands, client, cleanup } = makeService(env, {
-    keyByRole: { scout: 'OPENROUTER_WEB_ONLY' },
-    proxy: env.MEDIA_VIDEO_PROXY,
-  });
-  try {
-    await withCapturedLogs(async () => {
-      errands.submit(ask('scout'));
-      await errands.idle();
-    });
-    assert.deepEqual(client.runs[0].secrets, { openrouterKey: 'sk-web-only', proxy: 'http://proxy.example:8000' });
-  } finally {
-    cleanup();
-  }
-});
-
-test("errands service: without the role's key no secrets are sent (never the main key); the missing name is logged, never a value", async () => {
-  const env = {
-    OPENROUTER_CORE_KEY: 'sk-persona-SECRET',
-    MEDIA_VIDEO_PROXY: 'socks5h://user:pw-SECRET@proxy.example:1080',
-  };
-  const { errands, client, log, cleanup } = makeService(env, { keyByRole: { scout: 'OPENROUTER_UNSET_AGENT_KEY' } });
-  try {
-    const { logs } = await withCapturedLogs(async () => {
       errands.submit(ask('scout'));
       errands.submit(ask('server'));
       await errands.idle();
     });
     assert.equal(client.runs.length, 2);
     for (const run of client.runs) assert.equal(Object.hasOwn(run, 'secrets'), false, run.agent);
-    const missing = logs.filter((entry) => entry.msg === 'llm: role key missing');
-    assert.deepEqual(
-      missing.map((entry) => [entry.role, entry.name]),
-      [['scout', 'OPENROUTER_UNSET_AGENT_KEY']]
-    );
-    const recorded = JSON.stringify({ calls: log.calls, logs });
-    for (const secret of SECRETS) assert.ok(!recorded.includes(secret), `${secret} never recorded`);
+  } finally {
+    cleanup();
+  }
+});
+
+test('errands service: an http proxy is sent as it is', async () => {
+  // Catches: an http proxy rewritten on its way to the runner, so the harness child cannot reach it.
+  const { errands, client, cleanup } = makeService({ proxy: 'http://proxy.example:8000' });
+  try {
+    await withCapturedLogs(async () => {
+      errands.submit(ask('scout'));
+      await errands.idle();
+    });
+    assert.deepEqual(client.runs[0].secrets, { proxy: 'http://proxy.example:8000' });
   } finally {
     cleanup();
   }
@@ -399,7 +349,7 @@ test("errands service: the connect loop's outcomes set the flag; start pings the
     );
     await errands.idle();
 
-    const plain = makeService(ENV);
+    const plain = makeService();
     try {
       assert.equal(plain.errands.submit(ask('scout')).ok, true);
       await plain.errands.idle();

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { audienceWhere } from '../src/memory/db/scope.ts';
 import { scopesOf, sweep } from '../src/memory/db/session.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
-import { baseConfig, fakeLlm, memoryBlock, prompts } from './fixtures/memory-db/session-rig.ts';
+import { baseConfig, fakeLlm, memoryBlock, memoryRing, prompts } from './fixtures/memory-db/session-rig.ts';
 import {
   ALEX,
   DM_ALEX,
@@ -123,7 +123,8 @@ test('the sweep finds a DM with an opaque partner as its own scope, and its answ
     write: (update: unknown) => Promise.resolve(applyMemoryWrite(world.handle, update)),
     llm: fakeLlm(memoryBlock(answer)),
     hot: { config: baseConfig({ mode: 'apply', settleMinutes: 0 }), prompts },
-    env: { OPENROUTER_MEMORY_KEY: 'k' },
+    env: {},
+    ring: memoryRing(),
     now: () => Date.UTC(2026, 10, 5, 12),
     log: {},
     selfName: 'Nep',

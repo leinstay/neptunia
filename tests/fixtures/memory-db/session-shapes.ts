@@ -2,6 +2,7 @@
 // script and the recorded calls of the fake llm, and the options of the context a sweep takes.
 
 export type Scope = { scope_kind: string; scope_iface: string | null; scope_dm: string | null };
+import type { KeyRing } from '../../../src/keys/ring.ts';
 import type { Db, MemoryHandle } from '../../../src/memory/db/types.ts';
 
 export type Rec = Record<string, unknown>;
@@ -41,7 +42,8 @@ export type CtxOptions = {
   llm?: { calls: Array<LlmCall>; complete(messages: LlmCall['messages'], options: LlmCall['options']): Promise<unknown> };
   config?: Rec;
   promptSet?: Rec;
-  envVars?: Record<string, string>;
+  /** The key ring the session checks its key on; null for none. */
+  ring?: KeyRing | null;
   write?: (update: unknown) => Promise<unknown>;
 };
 

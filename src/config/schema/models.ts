@@ -16,7 +16,7 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/llm/roles.ts',
     'default': 'anthropic/claude-opus-4.6',
     'text':
-      'Her memory session and description review model. Same default as `core`, not a copy. Its key is `llm.keyByRole.memory` and never falls back',
+      'Her memory session and description review model. Same default as `core`, not a copy. Its key is the extra key `llm.boundKeys` binds to `memory`, else the core keys',
   },
   {
     'key': 'models.base.analyzer',

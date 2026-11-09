@@ -18,6 +18,8 @@
 //   - `size()`                how many units wait or are under way.
 // Logs carry codes and counts only.
 
+import { operationalOfUnit } from './operational.ts';
+import type { OperationalWrite } from './operational.ts';
 import { keyText } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
 import type { Log, Row } from './types.ts';
@@ -38,8 +40,15 @@ export type UnitOutbox = {
   size: () => number;
 };
 
-/** The memory service as the outbox uses it: `writeUnit` always, `keepPending` at shutdown. */
-type OutboxMemoryDb = { writeUnit(update: Row): Promise<unknown>; keepPending?(update: Row): unknown };
+/**
+ * The memory service as the outbox uses it: `writeUnit` always, `writeOperational` for a unit of an operational kind
+ * when the service has it (operational.ts), `keepPending` at shutdown.
+ */
+type OutboxMemoryDb = {
+  writeUnit(update: Row): Promise<unknown>;
+  writeOperational?(write: OperationalWrite): Promise<unknown>;
+  keepPending?(update: Row): unknown;
+};
 
 /**
  * `name` says whose outbox it is in the logs (`store`, `intentions`, `tasks`).
@@ -79,6 +88,15 @@ export function createUnitOutbox({
       : { op: 'lines', ...target, lines: item.lines };
   };
 
+  /** The write of a waiting unit: the operational write of its subject for an operational kind, else the unit write. */
+  function send(owner: string, item: Waiting): Promise<unknown> {
+    const update = updateOf(owner, item);
+    const operational = memoryDb.writeOperational ? operationalOfUnit(update) : null;
+    return operational && memoryDb.writeOperational
+      ? memoryDb.writeOperational(operational)
+      : memoryDb.writeUnit(update);
+  }
+
   /** A failed write back in the outbox: a newer value stays; lines go in front of the ones that came meanwhile. */
   function putBack(owner: string, item: Waiting): void {
     const now = waiting.get(owner);
@@ -98,7 +116,7 @@ export function createUnitOutbox({
       if (sending.has(owner)) continue;
       waiting.delete(owner);
       const done: Promise<boolean> = Promise.resolve()
-        .then(() => memoryDb.writeUnit(updateOf(owner, item)))
+        .then(() => send(owner, item))
         .then(
           () => true,
           (error: unknown) => {

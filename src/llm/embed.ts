@@ -17,7 +17,6 @@ import {
   openRouterHeaders,
   providerBodyOf,
   resolveProvider,
-  roleApiKey,
   sleep,
 } from './openrouter.ts';
 import { roleModel } from './roles.ts';
@@ -93,16 +92,14 @@ function vectorsOf(json: unknown, count: number): Array<Float32Array> {
 }
 
 /**
- * @param deps.apiKey `OPENROUTER_CORE_KEY`, unless `llm.keyByRole.embedding` names another (`roleApiKey`).
- * @param deps.env The parsed `.env` the role key is looked up in.
- * @param deps.keyOf The key of the key store (src/keys/ring.ts#KeyOf); null while there is no `keys.json`, then `.env` serves.
+ * @param deps.apiKey The one key of an embedder with no key store (a script's).
+ * @param deps.keyOf The key of the key store (src/keys/ring.ts#KeyOf); null leaves the request on `apiKey`.
  * @param deps.state Persistent state with the daily request counter.
  * @param deps.now Clock in ms: the day of the counter, the logged duration.
  * @param deps.sleepImpl The backoff wait between retries.
  */
 export function createEmbedder({
   apiKey,
-  env = {},
   keyOf = () => null,
   state,
   fetchImpl = fetch,
@@ -110,15 +107,14 @@ export function createEmbedder({
   sleepImpl = sleep,
 }: {
   apiKey: string;
-  env?: Record<string, string | undefined>;
   keyOf?: KeyOf;
   state: { data: object; markDirty: () => void };
   fetchImpl?: typeof fetch;
   now?: () => number;
   sleepImpl?: (ms: number) => Promise<void>;
 }): { embed: (texts: unknown, options: unknown) => Promise<Array<Float32Array>> } {
-  /** The key of the embedding role: the key store's, else `.env`'s by `llm.keyByRole`. */
-  const requestKeyOf = (config: unknown): string => keyOf(EMBED_ROLE) ?? roleApiKey(config, env, EMBED_ROLE, apiKey);
+  /** The key of the embedding role: the key store's, else `apiKey`. */
+  const requestKeyOf = (): string => keyOf(EMBED_ROLE) ?? apiKey;
 
   /**
    * Embed `texts` (non-empty strings; an empty list returns [] and sends nothing) in one request.
@@ -172,7 +168,7 @@ export function createEmbedder({
     const attemptMs = timeoutMs ?? analyzerMs;
     const retries =
       typeof cfg.retries === 'number' && Number.isInteger(cfg.retries) && cfg.retries > 0 ? cfg.retries : 0;
-    const requestKey = requestKeyOf(config);
+    const requestKey = requestKeyOf();
     const startedAt = now();
 
     let lastError: unknown;

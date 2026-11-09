@@ -24,11 +24,9 @@ import {
 import * as memoryIds from '../src/memory/db/ids.ts';
 import { groupContext, whereFor } from '../src/memory/db/scope.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
-import { roleApiKey, STRICT_KEY_ROLES } from '../src/llm/openrouter.ts';
 import { estimateMessages } from '../src/llm/tokens.ts';
 import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, roleConfigKeys, roleModel } from '../src/llm/roles.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
-import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
 import {
   ADA,
@@ -38,6 +36,7 @@ import {
   MINUTE,
   NOW,
   baseConfig,
+  memoryRing,
   channelPlaceOf,
   chat,
   count,
@@ -59,7 +58,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 
-test('the memory role: its own model key, its own key variable, no other key stands in', async () => {
+// Its key variable went with `llm.keyByRole`: the key ring routes the role (tests/simulation-key-ring.test.ts).
+test('the memory role: its own model key and its own default model', () => {
   assert.deepEqual(roleConfigKeys(MEMORY_ROLE), ['models', 'base', 'memory']);
   assert.equal(roleModel({ models: { base: { memory: 'x/m', core: 'x/c' } } }, 'memory'), 'x/m');
   assert.equal(
@@ -67,28 +67,17 @@ test('the memory role: its own model key, its own key variable, no other key sta
     MEMORY_ROLE_DEFAULT,
     'unset: its own default, never the core key'
   );
-  assert.ok(STRICT_KEY_ROLES.includes('memory'));
-  const config = { llm: { keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } } };
-  assert.equal(roleApiKey(config, { OPENROUTER_MEMORY_KEY: 'mine' }, 'memory', 'main'), 'mine');
-  const { result } = await withCapturedLogs(() => roleApiKey(config, {}, 'memory', 'main'));
-  assert.equal(result, '', 'unset variable: no key, never the main key');
-  assert.equal(roleApiKey({ llm: {} }, { OPENROUTER_CORE_KEY: 'x' }, 'memory', 'main'), '', 'unmapped: no key either');
-  assert.equal(roleApiKey({ llm: {} }, {}, 'core', 'main'), 'main', 'other roles keep the main key');
 });
 
-test('refusals: off, no key, no prompt; the key state names a variable, never a value', () => {
-  const env = { OPENROUTER_MEMORY_KEY: 'secret' };
-  assert.equal(refusalOf(baseConfig({ mode: 'off' }), env, prompts), CODES.OFF);
-  assert.equal(refusalOf(baseConfig(), {}, prompts), CODES.NOT_CONFIGURED);
-  assert.equal(refusalOf(baseConfig(), { OPENROUTER_MEMORY_KEY: '  ' }, prompts), CODES.NOT_CONFIGURED);
-  assert.equal(refusalOf(baseConfig({ mode: 'apply' }), env, prompts), null);
-  assert.equal(refusalOf(baseConfig({ mode: 'shadow' }), env, prompts), null);
-  assert.equal(refusalOf(baseConfig(), env, { ...prompts, 'memory-session': '' }), CODES.NO_PROMPT);
-  assert.deepEqual(memoryKeyState(baseConfig(), env), { ok: true, name: 'OPENROUTER_MEMORY_KEY' });
-  assert.deepEqual(memoryKeyState({ llm: { keyByRole: { memory: 'sk-or-pasted-key' } } }, env), {
-    ok: false,
-    name: null,
-  });
+// The key comes from the key ring, not from a variable of `.env`: the cases pass a ring where they passed `env`.
+test('refusals: off, no key, no prompt; the key state names a key, never a value', () => {
+  const ring = memoryRing();
+  assert.equal(refusalOf(baseConfig({ mode: 'off' }), null, prompts, ring), CODES.OFF);
+  assert.equal(refusalOf(baseConfig(), null, prompts, null), CODES.NOT_CONFIGURED);
+  assert.equal(refusalOf(baseConfig({ mode: 'apply' }), null, prompts, ring), null);
+  assert.equal(refusalOf(baseConfig({ mode: 'shadow' }), null, prompts, ring), null);
+  assert.equal(refusalOf(baseConfig(), null, { ...prompts, 'memory-session': '' }, ring), CODES.NO_PROMPT);
+  assert.deepEqual(memoryKeyState(baseConfig(), null, ring), { ok: true, name: 'memory-key' });
   assert.equal(sessionSettings({}).mode, 'off');
   assert.equal(sessionSettings({ memoryDb: { session: { mode: 'bogus' } } }).mode, 'off');
 });
@@ -506,9 +495,7 @@ test('refused before any request: off, no key of its own, the daily sweep cap', 
     const llm = fakeLlm(memoryBlock({}));
     const off = await sweep(ctxOf(env, { llm, config: baseConfig({ mode: 'off' }) }));
     assert.deepEqual([off.status, off.code], ['off', 'off']);
-    const keyless = await sweep(
-      ctxOf(env, { llm, envVars: { OPENROUTER_CORE_KEY: 'main', OPENROUTER_OTHER_KEY: 'other' } })
-    );
+    const keyless = await sweep(ctxOf(env, { llm, ring: null }));
     assert.deepEqual([keyless.status, keyless.code], ['refused', 'not_configured'], 'another key never stands in');
     assert.equal(llm.calls.length, 0);
     assert.equal(count(env.db, 'session_runs'), 0);
@@ -771,22 +758,24 @@ test('the status of the session and its line', async () => {
     chat(env);
     // The cap the line shows is the per-scope one (stage W3); the test sets its own value.
     const config = baseConfig({ sweepsPerScopePerDay: 4 });
-    const envVars = { OPENROUTER_MEMORY_KEY: 'k' };
+    // The key comes from the key ring: `ring` stands where `env` held the memory variable.
+    const ring = memoryRing();
     assert.equal(
-      sessionStatus({ db: env.db, config: baseConfig({ mode: 'off' }), env: envVars, prompts, now: NOW }).state,
+      sessionStatus({ db: env.db, config: baseConfig({ mode: 'off' }), env: {}, ring, prompts, now: NOW }).state,
       'off'
     );
     assert.equal(sessionStatus({ db: env.db, config, env: {}, prompts, now: NOW }).state, 'not_configured');
     const refused = sessionStatus({
       db: env.db,
       config,
-      env: envVars,
+      env: {},
+      ring,
       prompts: { ...prompts, 'memory-session': '' },
       now: NOW,
     });
     assert.deepEqual([refused.state, refused.code], ['refused', CODES.NO_PROMPT]);
     await sweep(ctxOf(env, { llm: fakeLlm(memoryBlock({})) }));
-    const ready = sessionStatus({ db: env.db, config, env: envVars, prompts, now: NOW });
+    const ready = sessionStatus({ db: env.db, config, env: {}, ring, prompts, now: NOW });
     assert.deepEqual([ready.state, ready.sweepsToday, ready.sweepsPerDay, ready.last!.outcome], ['ready', 1, 4, 'ok']);
     const text = {
       status: {
@@ -1202,7 +1191,7 @@ test('an all_dropped answer leaves the cursor and the batch pending; after retry
       undefined,
       'the cursor did not move'
     );
-    const status = sessionStatus({ db: env.db, config, env: { OPENROUTER_MEMORY_KEY: 'k' }, prompts, now: NOW });
+    const status = sessionStatus({ db: env.db, config, env: {}, ring: memoryRing(), prompts, now: NOW });
     assert.deepEqual(
       status.pending.map((batch) => [batch.scope, batch.tries]),
       [['group:discord', 1]]
@@ -1234,7 +1223,7 @@ test('an all_dropped answer leaves the cursor and the batch pending; after retry
     assert.equal(JSON.parse(decision!.extra as string).tries, 2);
     assert.equal(count(env.db, 'meta', "key LIKE 'memory_session.pending.%'"), 0);
     assert.equal(
-      sessionStatus({ db: env.db, config, env: { OPENROUTER_MEMORY_KEY: 'k' }, prompts, now: NOW }).pending.length,
+      sessionStatus({ db: env.db, config, env: {}, ring: memoryRing(), prompts, now: NOW }).pending.length,
       0
     );
   } finally {
@@ -1966,7 +1955,6 @@ test('a batch whose request would pass the request cap is cut to its first lines
       {
         llm: {
           temperature: 1,
-          keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' },
           maxRequestTokens: Math.floor((full - 1) / 0.85),
         },
       }

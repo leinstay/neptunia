@@ -34,11 +34,11 @@
 
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
-import type { StorageKey } from '../memory/db/storage-keys.ts';
-import { PERSONA_ID, placeOrPersona } from '../memory/db/storage-keys.ts';
+import { PERSONA_ID } from '../memory/db/storage-keys.ts';
+import { operationalValue } from '../memory/db/operational.ts';
 import { placeOfChat, sharedPlaceOf } from '../memory/addresses.ts';
 
-import { createReadSeam, unitValue } from '../memory/db/readers/common.ts';
+import { createReadSeam } from '../memory/db/readers/common.ts';
 import { formatTranscript, MAX_MESSAGE_CHARS, renderTranscript, withTriggers } from '../format.ts';
 import { roleRequestOptions } from '../llm/openrouter.ts';
 import { strictJsonObject } from '../llm/parse.ts';
@@ -613,7 +613,6 @@ const freshSweep = (iface: string, placeId: string, at: number): SweepEntry => (
   iface,
   placeId,
 });
-const missedKey = (placeId: string) => placeOrPersona('missed', placeId);
 /** The journal's record of one fact, ids and no text. */
 const factRecord = (
   fact: NoteFactInput,
@@ -739,7 +738,7 @@ async function readRegistry(
   });
   const { memoryDb, seam, fs, dataDir, log, now } = deps;
   if (memoryDb) {
-    const stored = seam.run(() => unitValue(seam.db(), missedKey(placeId)));
+    const stored = seam.run(() => operationalValue(seam.db(), 'missed', placeId));
     return known(registryOf(stored.found ? stored.value : null));
   }
   const file = registryFile(dataDir, placeId);
@@ -765,11 +764,10 @@ async function writeRegistry(
   fs: NonNullable<CreateMissedInput['fs']>,
   dataDir: string,
   placeId: string,
-  key: StorageKey,
   value: unknown
 ): Promise<void> {
   if (memoryDb) {
-    await memoryDb.writeUnit({ op: 'value', key, value });
+    await memoryDb.writeOperational({ op: 'value', of: 'missed', subject: placeId, value });
     return;
   }
   const file = registryFile(dataDir, placeId);
@@ -866,7 +864,7 @@ export function createMissed({
       candidates = pruneCandidates(candidates, now());
       const owners = shelvesOf([...started], candidates, lastRecoveryAt, ownerOf);
       dirty = await writeChanged(owners, written, (place, value) =>
-        writeRegistry(memoryDb, fs, dataDir, place, missedKey(place), value)
+        writeRegistry(memoryDb, fs, dataDir, place, value)
       ).catch((error: unknown) => {
         log.warn('missed: save failed', { code: objOf(error).code ?? null });
         return true;

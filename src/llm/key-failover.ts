@@ -1,5 +1,5 @@
-// The choice of a model role's current key among its list (`llm.keyByRole[role]` as a list of variable names), kept in
-// process memory. A request that gets a budget error (HTTP 402, or 429 whose body names credits or balance) on the
+// The choice of a model role's current key among its list (the core key names of the key ring, src/keys/ring.ts), kept
+// in process memory. A request that gets a budget error (HTTP 402, or 429 whose body names credits or balance) on the
 // current key moves the role to the next one and repeats once (src/llm/openrouter.ts#createLlm). After the last key the
 // role goes back to the first, unless every key failed within the last minute: then the list is exhausted. Names only,
 // never a key value. Pure apart from the injected clock and the log line.
@@ -7,7 +7,7 @@
 import { log } from '../log.ts';
 import { MINUTE_MS } from '../time.ts';
 
-/** A role that switched keys: the variable name it is on now and when it moved (ms). */
+/** A role that switched keys: the key name it is on now and when it moved (ms). */
 export type KeyState = { role: string; key: string; switchedAt: number | null };
 
 export type KeyFailover = {

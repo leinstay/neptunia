@@ -116,11 +116,7 @@ test("the runner's engine passes the task's proxy to the child of every backend"
 });
 
 /** An errand service whose scout and server run on claude, or the scout on opencode with an extra key. */
-function errandRig(
-  proxy: () => string | null,
-  env: Record<string, string> = {},
-  scoutOn: 'claude' | 'opencode' = 'claude'
-) {
+function errandRig(proxy: () => string | null, scoutOn: 'claude' | 'opencode' = 'claude') {
   const privateDir = tempDir('nep-proxy-errands-');
   writeKeysFile(privateDir, {
     extra: { oc: 'sk-or-v1-oc-0123456789' },
@@ -154,7 +150,7 @@ function errandRig(
     cancel: () => true,
   };
   const stores = createErrandStores({ memoryDb: memory.memoryDb, config: () => hot.config, log: quiet });
-  const errands = createErrandService({ client, stores, hot, env, privateDir, log: quiet, defer: (fn) => fn(), proxy });
+  const errands = createErrandService({ client, stores, hot, privateDir, log: quiet, defer: (fn) => fn(), proxy });
   return { errands, runs };
 }
 
@@ -179,10 +175,11 @@ test('every errand carries the proxy of the moment in its secrets, whatever the 
   }
 });
 
-test('an errand sent while the engine is direct carries no proxy, and the old video proxy variable is not read', async () => {
-  // Catches: the errand still takes MEDIA_VIDEO_PROXY, or a stale value, after the health check moved the engine direct.
+test('an errand sent while the engine is direct carries no proxy', async () => {
+  // Catches: the errand still takes a stale value after the health check moved the engine direct. The errand service
+  // takes no environment, so the old MEDIA_VIDEO_PROXY variable cannot reach it.
   let inForce: string | null = PROXY;
-  const { errands, runs } = errandRig(() => inForce, { MEDIA_VIDEO_PROXY: PROXY }, 'opencode');
+  const { errands, runs } = errandRig(() => inForce, 'opencode');
   inForce = null;
   errands.submit(ask('scout'));
   await errands.idle();

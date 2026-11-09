@@ -16,9 +16,10 @@
 
 import * as nodeFs from 'node:fs';
 import path from 'node:path';
-import { personaKey } from '../../memory/db/storage-keys.ts';
+import { operationalValue } from '../../memory/db/operational.ts';
+import { PERSONA_ID } from '../../memory/db/storage-keys.ts';
 
-import { createReadSeam, unitValue } from '../../memory/db/readers/common.ts';
+import { createReadSeam } from '../../memory/db/readers/common.ts';
 import type { MemoryDbService } from '../../memory/db/service.ts';
 import { MINUTE_MS, DAY_MS, utcDay, utcMinute } from '../../time.ts';
 import { fill } from '../../format.ts';
@@ -147,7 +148,7 @@ export function createUsage({
   log = defaultLog,
 }: {
   dataDir: string;
-  memoryDb?: Pick<MemoryDbService, 'readHandle' | 'writeUnit'>;
+  memoryDb?: Pick<MemoryDbService, 'readHandle' | 'writeOperational'>;
   now?: () => number;
   fs?: typeof nodeFs;
   log?: { warn: (message: string, fields?: Obj) => void };
@@ -187,7 +188,7 @@ export function createUsage({
     try {
       parsed = memoryDb
         ? seam.run(() => {
-            const stored = unitValue(seam.db(), personaKey('usage'));
+            const stored = operationalValue(seam.db(), 'usage', PERSONA_ID);
             return stored.found ? stored.value : null;
           })
         : (JSON.parse(fs.readFileSync(file, 'utf8')) as unknown);
@@ -301,7 +302,7 @@ export function createUsage({
       ...(Object.keys(keyed).length > 0 ? { keys: keyed } : {}),
     };
     if (memoryDb) {
-      await memoryDb.writeUnit({ op: 'value', key: personaKey('usage'), value });
+      await memoryDb.writeOperational({ op: 'value', of: 'usage', subject: PERSONA_ID, value });
       return;
     }
     const text = JSON.stringify(value);
@@ -634,7 +635,7 @@ function shownRoles(roles: ReadonlyArray<string>, names: unknown): Array<string>
  * label leaves its line out; no `status.costs` at all gives []): per key, its limit line
  * immediately followed by its own usage line -- the main key (lead `keyLead`), the simulator key
  * (lead `simKeyLead`; the one line `simKeyNotSet` when `sim` is null), then each extra role key
- * (`llm.keyByRole`, lead `roleKeyLead` with `{roles}` joined by `roleSeparator`, each role named
+ * (`llm.boundKeys`, lead `roleKeyLead` with `{roles}` joined by `roleSeparator`, each role named
  * through `roleNames` and each name once, so the errand agents' roles show as one word). A limit line is
  * `keyLimit` with its `notes` (the reset and whether BYOK counts) or `keyLimitPlain`; `keyNone` /
  * `keyNonePlain` without a limit; `keyUnavailable` on a failed read. A usage line is `usage` of

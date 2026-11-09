@@ -347,10 +347,9 @@ export async function main(
       const { createLlm } = await import('../src/llm/openrouter.ts');
       const { createCalibrator } = await import('../src/llm/tokens.ts');
       const apiKey = keyOf(flags['--key'], env);
-      // Per-role keys are not looked up (env {}): the given key pays; the daily counters are a throwaway copy.
+      // The given key pays every role; the daily counters are a throwaway copy.
       llm = createLlm({
         apiKey,
-        env: {},
         getConfig: () => hot.config,
         calibrator: createCalibrator(),
         state: { data: {}, markDirty() {} },

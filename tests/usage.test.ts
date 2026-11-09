@@ -788,13 +788,12 @@ test('createLlm: activity is one GET with the hash in the query and the manageme
   const state = { data: {}, markDirty() {} };
   const llm = llmWith({
     apiKey: 'k-test',
-    env: { OPENROUTER_CORE_KEY_X: 'k-core' },
+    keys: { route: (role: string) => (role === 'core' ? { name: 'core-x', value: 'k-core' } : null) },
     getConfig: () => ({
       llm: {
         baseUrl: 'https://openrouter.ai/api/v1',
         timeoutMs: 5000,
         maxRequestsPerDay: 1,
-        keyByRole: { core: 'OPENROUTER_CORE_KEY_X' },
       },
     }),
     calibrator: { observe() {} },
@@ -806,8 +805,11 @@ test('createLlm: activity is one GET with the hash in the query and the manageme
   });
   const sha = (text: string) => crypto.createHash('sha256').update(text).digest('hex');
   assert.equal(keyHashOf('k-test'), sha('k-test'));
-  assert.equal(llm.keyHash(), sha('k-test'));
+  // The role's key comes from the key ring, which stands where `llm.keyByRole` over `.env` stood. A read without a role
+  // is the core's, so it hashes the ring's core key too.
+  assert.equal(llm.keyHash(), sha('k-core'));
   assert.equal(llm.keyHash({ role: 'core' }), sha('k-core'));
+  assert.equal(llm.keyHash({ role: 'vision' }), sha(''));
   assert.deepEqual(await llm.activity({ apiKey: 'mgmt-test', keyHash: sha('k-core'), timeoutMs: 1234 }), {
     ok: true,
     status: 200,

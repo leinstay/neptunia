@@ -518,7 +518,7 @@ test('a description review on the harness path with no key runs its draft and ch
     );
     const { llm, direct } = clientOf(deps);
     const ctx = {
-      ...ctxOf(env, { llm, config: keylessConfig(), promptSet: REVIEW_PROMPTS, envVars: {} }),
+      ...ctxOf(env, { llm, config: keylessConfig(), promptSet: REVIEW_PROMPTS, ring: null }),
       path: () => memoryPath(privateDir),
     };
     const result = await reviewDescription(env.db, { kind: 'person', id: personOf(ADA), name: 'Ada' }, 'character', {
@@ -542,7 +542,7 @@ test('a description review on the direct path with no key is refused and nothing
     const { deps, seen, privateDir } = rig(claudeAnswers(described('x')));
     const { llm, direct } = clientOf(deps);
     const ctx = {
-      ...ctxOf(env, { llm, config: keylessConfig(), promptSet: REVIEW_PROMPTS, envVars: {} }),
+      ...ctxOf(env, { llm, config: keylessConfig(), promptSet: REVIEW_PROMPTS, ring: null }),
       path: () => memoryPath(privateDir),
     };
     const result = await reviewDescription(env.db, { kind: 'person', id: personOf(ADA), name: 'Ada' }, 'character', {

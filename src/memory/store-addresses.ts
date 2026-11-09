@@ -17,6 +17,7 @@ import { lineNumberOf } from './db/chat-lines.ts';
 import { PERSONA_ID } from './db/storage-keys.ts';
 import type { StorageKind } from './db/storage-keys.ts';
 import { listUnits, subjectOf } from './db/storage-units.ts';
+import { isOperationalKind, operationalSubjects } from './db/operational.ts';
 import type { Db } from './db/types.ts';
 
 /** What the store knows of a chat it names. */
@@ -288,6 +289,7 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
     /** The subject of the first collection of `kind` the database holds, for a registry kept in one place. */
     placesHolding(kind: StorageKind): Array<string> {
       if (!readable()) return [];
+      if (isOperationalKind(kind)) return seam.run(() => operationalSubjects(seam.db(), kind));
       return seam.run(() => [...new Set(listUnits(seam.db(), { kind }).map((unit) => subjectOf(unit).id))]);
     },
 

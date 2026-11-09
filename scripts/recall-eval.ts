@@ -464,7 +464,7 @@ async function traces(flags: Flags, { dataDir, placeId, now, cwd }: RunContext) 
     let embed = null;
     if (meaningOn) {
       const { createEmbedder } = await import('../src/llm/embed.ts');
-      const embedder = createEmbedder({ apiKey: simKey(ORIGIN), env: {}, state: { data: {}, markDirty() {} } });
+      const embedder = createEmbedder({ apiKey: simKey(ORIGIN), state: { data: {}, markDirty() {} } });
       embed = (texts: Untyped, options: Untyped = {}) =>
         embedder.embed(texts, { ...options, origin: ORIGIN, countAgainstDailyCap: false });
     }
@@ -722,8 +722,8 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
     const { data: stateData } = store.state;
     const calibrator = createCalibrator(stateData?.calibration);
     sim = simulationLlm(ORIGIN, {
-      createDirect: (apiKey) =>
-        createLlm({ apiKey, env: {}, getConfig: () => hot.config, calibrator, state: counters }),
+      createDirect: (apiKey, ring) =>
+        createLlm({ apiKey, keys: ring, getConfig: () => hot.config, calibrator, state: counters }),
       getConfig: (): unknown => hot.config,
       state: counters,
     });
@@ -751,7 +751,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
     };
     // The meaning search is on whenever requests are sent; on the route with no simulation key it stays off.
     if (apiKey !== null) {
-      const embedder = createEmbedder({ apiKey, env: {}, state: counters });
+      const embedder = createEmbedder({ apiKey, state: counters });
       embed = async (texts: Untyped, options: Untyped = {}) => {
         if (usage) usage.embeddings += 1;
         return embedder.embed(texts, { ...options, origin: ORIGIN, countAgainstDailyCap: false });

@@ -13,7 +13,9 @@
 // (default `memoryDb.session.maxMessages`). The first sweep on a copy reads from its first line (or from
 // `memoryDb.session.since`).
 //
-// The simulation's key pays (scripts/lib/cli.ts#simulationLlm). Every request of a session has the role `memory`, so
+// The simulation's key pays (scripts/lib/cli.ts#simulationLlm): the client and the session take the key ring on that key
+// alone (src/simulation/key.ts#simulationRing), so no binding of `llm.boundKeys` and no core key is spent. Every
+// request of a session has the role `memory`, so
 // the simulation's subscription route never carries one: with no route stored the run stops with one line while the
 // simulation is off, and with a route stored and no key the first request is refused with `simulation-off`.
 // The core keys are never touched. The config and the prompts are read from the checkout
@@ -53,17 +55,13 @@ import type { Untyped } from '../src/tools/types.ts';
 import { sqlOf } from './lib/sql.ts';
 import type { SqlDb } from './lib/sql.ts';
 import type { MemoryHandle } from '../src/memory/db/types.ts';
+import type { KeyRing } from '../src/keys/ring.ts';
 
 /** An object read by key whose values are not typed yet. */
 type Rec = Record<string, Untyped>;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'memory-session-tool';
-/**
- * The name the simulation's key goes by inside the tool's own settings (`llm.keyByRole.memory`) and environment. It
- * passes `ROLE_KEY_NAME` (src/llm/role-keys.ts), or the session refuses `not_configured`.
- */
-const KEY_SLOT = 'OPENROUTER_MEMORY_SESSION_KEY';
 const USAGE = `usage: node scripts/memory-session.ts --db <memory.db> [--data <dir>] [--scope <scope key>] [--limit N]
        [--review <person|place|self>:<id>:<field>] [--show] [--self-name <name>] [--keep <copy.db>]`;
 const COMPARE_USAGE = `usage: node scripts/memory-session.ts compare --db <memory.db copy> [--data <dir>] --day <YYYY-MM-DD> [--shadow]
@@ -101,7 +99,8 @@ type CompareOptions = {
   handle: MemoryHandle;
   llm: Untyped;
   hot: Untyped;
-  env: Record<string, string | undefined>;
+  /** The key ring on the simulation key (scripts/lib/cli.ts#simulationLlm); null with `shadowOnly`. */
+  ring: KeyRing | null;
   day: string;
   shadowOnly?: boolean;
   scope?: string | null;
@@ -424,7 +423,7 @@ export async function runCompare({
   handle,
   llm,
   hot,
-  env,
+  ring,
   day,
   shadowOnly = false,
   scope = null,
@@ -469,7 +468,8 @@ export async function runCompare({
       write: async (update: Rec) => applyMemoryWrite(handle, update),
       llm,
       hot: { config, prompts: hot.prompts },
-      env,
+      env: {},
+      ring,
       now: () => end + (tick += 1),
       log,
       selfName,
@@ -515,22 +515,6 @@ export async function runCompare({
   return lines;
 }
 
-/**
- * The live config and the environment the tool's session runs with: `llm.keyByRole.memory` names the tool's key slot,
- * and `env` maps that slot to `apiKey` (the simulation's key), or is empty when there is none. Every other key of `live`
- * is kept. The session runs with no key ring, so it finds its key through the slot.
- */
-export function sessionKeyWiring<TConfig extends Record<string, unknown>>(
-  live: TConfig,
-  apiKey: string | null
-): { config: TConfig; env: Record<string, string> } {
-  const llm = (live.llm ?? {}) as Rec; // the live settings are an object of objects; nothing here reads a value of it
-  const keyByRole = (llm.keyByRole ?? {}) as Rec;
-  // The copy differs from `live` in one string under `llm.keyByRole`, so it keeps the live settings' type.
-  const config = { ...live, llm: { ...llm, keyByRole: { ...keyByRole, memory: KEY_SLOT } } } as TConfig;
-  return { config, env: apiKey === null ? {} : { [KEY_SLOT]: apiKey } };
-}
-
 /** The compare subcommand (see the head of this file). */
 async function compareMain(argv: Array<string>) {
   const flags = parseFlags(argv, {
@@ -553,17 +537,16 @@ async function compareMain(argv: Array<string>) {
   let handle: Awaited<ReturnType<typeof openMemoryDb>> | null = null;
   let sim: SimulationLlm | null = null;
   try {
-    const live = hot.config;
-    const config = sessionKeyWiring(live, null).config;
+    const config = hot.config;
     const counters = { data: {}, markDirty() {} };
     if (!shadowOnly) {
       const { createLlm } = await import('../src/llm/openrouter.ts');
       const { createCalibrator } = await import('../src/llm/tokens.ts');
       sim = simulationLlm('memory-session', {
-        createDirect: (apiKey) =>
+        createDirect: (apiKey, ring) =>
           createLlm({
             apiKey,
-            env: sessionKeyWiring(live, apiKey).env,
+            keys: ring,
             getConfig: () => config,
             calibrator: createCalibrator(undefined),
             state: counters,
@@ -614,12 +597,12 @@ async function compareMain(argv: Array<string>) {
       handle,
       llm,
       hot: { config, prompts: hot.prompts },
-      env: sim?.key ? sessionKeyWiring(live, sim.key).env : {},
+      ring: sim?.ring ?? null,
       day: flags['--day'],
       shadowOnly,
       scope: flags['--scope'] ?? null,
       show: flags['--show'] === true,
-      selfName: flags['--self-name'] ?? live.bot?.name ?? '',
+      selfName: flags['--self-name'] ?? config.bot?.name ?? '',
       usage,
       log: {
         info() {},
@@ -671,9 +654,8 @@ export async function main(argv: Array<string>): Promise<string> {
   try {
     // The effective config: shadow, a sweep of the tool's own, the simulation's key pays.
     const live = hot.config;
-    const wiring = sessionKeyWiring(live, null);
     const config = {
-      ...wiring.config,
+      ...live,
       memoryDb: {
         ...(live.memoryDb ?? {}),
         session: {
@@ -689,10 +671,10 @@ export async function main(argv: Array<string>): Promise<string> {
     };
     const counters = { data: {}, markDirty() {} };
     sim = simulationLlm('memory-session', {
-      createDirect: (apiKey) =>
+      createDirect: (apiKey, ring) =>
         createLlm({
           apiKey,
-          env: sessionKeyWiring(live, apiKey).env,
+          keys: ring,
           getConfig: () => config,
           calibrator: createCalibrator(undefined),
           state: counters,
@@ -702,7 +684,6 @@ export async function main(argv: Array<string>): Promise<string> {
     });
     process.stderr.write(`memory-session: ${sim.said}\n`);
     const client = sim.llm;
-    const env = sessionKeyWiring(live, sim.key).env;
     if (fs.existsSync(copy)) throw new CliError(`memory-session: ${copy} already exists`);
     await copyDatabase(source, copy);
     handle = openMemoryDb(copy);
@@ -734,7 +715,8 @@ export async function main(argv: Array<string>): Promise<string> {
       write: async (update: Rec) => applyMemoryWrite(handle, update),
       llm: { complete },
       hot: { config, prompts: hot.prompts },
-      env,
+      env: {},
+      ring: sim.ring,
       now: Date.now,
       log: {
         info() {},

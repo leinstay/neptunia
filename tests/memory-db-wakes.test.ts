@@ -233,6 +233,8 @@ function innerHarness({
   const memoryDb = {
     readHandle: () => handle,
     writeUnit: (update: Parameters<typeof applyUnitWrite>[1]) => Promise.resolve(applyUnitWrite(handle, update)),
+    writeOperational: (write: Record<string, unknown>) =>
+      Promise.resolve(applyMemoryWrite(handle, { ...write, kind: 'operational' })),
     recordWake: async (update: { op?: string }) => {
       writes.push(update);
       return applyMemoryWrite(handle, update);

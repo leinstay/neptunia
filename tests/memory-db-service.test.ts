@@ -12,6 +12,7 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { memoryDbStatusLine } from '../src/tools/operations/status.ts';
 import { CHANNEL, GUILD, HOT_ITEM, MEMBER, buildDataDir, guildDir } from './fixtures/memory-db/datadir.ts';
 import { dbOf } from '../src/memory/db/types.ts';
+import { memoryRing } from './fixtures/memory-db/session-rig.ts';
 
 const tmpRoot = () => fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-svc-'));
 
@@ -581,7 +582,8 @@ test('a failed run of a DM is told with its kind, interface and place, and no pa
   const failures: Array<Record<string, unknown>> = [];
   const env = setup({
     sessionLlm: () => ({ complete: () => Promise.reject(Object.assign(new Error('down'), { code: 'HTTP_503' })) }),
-    sessionEnv: () => ({ OPENROUTER_MEMORY_KEY: 'k' }),
+    // The memory key comes from the key ring, which stands where an `.env` variable and `llm.keyByRole` stood.
+    sessionKeys: () => memoryRing(),
     onSessionFailure: (failure: Record<string, unknown>) => failures.push(failure),
   });
   try {
@@ -592,7 +594,6 @@ test('a failed run of a DM is told with its kind, interface and place, and no pa
       config: {
         bot: { timezone: 'UTC' },
         models: { base: { memory: 'x/memory' } },
-        llm: { keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } },
         memoryDb: { ...live.memoryDb, session },
       },
       prompts: { 'memory-session': 'SESSION', 'system-prompt': 'S', 'character-card': 'C', rules: '- R', format: 'F' },
