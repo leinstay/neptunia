@@ -287,7 +287,7 @@ async function checkRoute(deps: KeysDeps, name: string, role: RouteRole, route: 
     model: route.model,
     keyName: route.key,
     value: deps.store.valueOf(route.key) ?? '',
-    ...(route.effort === null ? {} : { reasoning: { effort: route.effort } }),
+    ...(route.effort === null || route.effort === 'disabled' ? {} : { reasoning: { effort: route.effort } }),
     ...voice,
   });
   if (result.capability === 'unsupported') return null;

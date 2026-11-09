@@ -25,14 +25,27 @@ test('a colon suffix that is no effort level stays on the model id', () => {
   });
 });
 
-test('a harness route on the core reads its backend, model and a level only a CLI lists', () => {
+test('a harness route on the core reads its backend, model and effort on the standard scale', () => {
+  // Changed: one scale for every route, `disabled`, `low`, `medium`, `high` (the owner, 2026-11-09).
   // Catches: `harness:` read as a key name, so the core goes out on the API under a key called harness.
-  assert.deepEqual(parseRouteText('core', 'harness:claude/claude-opus-4-6:xhigh'), {
+  assert.deepEqual(parseRouteText('core', 'harness:claude/claude-opus-4-6:disabled'), {
     via: 'harness',
     backend: 'claude',
     model: 'claude-opus-4-6',
-    effort: 'xhigh',
+    effort: 'disabled',
   });
+});
+
+test('an effort word outside the standard scale is refused with its own code', () => {
+  // Catches: `:xhigh` or `:minimal` kept on the model id, so the provider is asked for a model that does not exist.
+  for (const word of ['minimal', 'xhigh', 'max', 'none']) {
+    assert.equal(readCode(parseRouteText('core', `harness:claude/claude-opus-4-6:${word}`)), 'effort-retired', word);
+    assert.equal(readCode(parseRouteText('analyzer', `helpers/openai/gpt-6.1-sol:${word}`)), 'effort-retired', word);
+    assert.equal(
+      readCode(readRoute('analyzer', { via: 'api', key: 'k', model: 'x/y', effort: word })),
+      'effort-retired'
+    );
+  }
 });
 
 test('a harness route on a role that runs no CLI chat step is refused as unsupported', () => {

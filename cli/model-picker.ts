@@ -373,13 +373,23 @@ const CHAIN_ROLES: ReadonlyArray<string> = [
   'drawing',
 ];
 
+/**
+ * A level of a CLI's help on the one scale of a route, `disabled`, `low`, `medium` and `high`: a level past `high`
+ * reads as `high`, one below `low` as `disabled`.
+ */
+function onRouteScale(level: string): string {
+  if (level === 'xhigh' || level === 'max') return 'high';
+  if (level === 'minimal' || level === 'none') return 'disabled';
+  return level;
+}
+
 /** The args of the commit: a chain role's one route as text, an agent's model with its route name and effort. */
 function commitArgs(state: PickerState, role: string, model: string): PickerCommand['args'] {
   const source = sourceOf(state);
   const via = source?.via ?? null;
   const effort = effortArg(state);
   if (CHAIN_ROLES.includes(role)) {
-    const level = effort === undefined || effort === 'default' ? '' : `:${effort}`;
+    const level = effort === undefined || effort === 'default' ? '' : `:${onRouteScale(effort)}`;
     const route = via === null ? `${source?.account ?? ''}/${model}` : `harness:${via}/${model}${level}`;
     return { role, model: route };
   }

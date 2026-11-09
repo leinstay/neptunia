@@ -12,8 +12,7 @@
 import type { CompleteResult } from './openrouter.ts';
 import { createRouteChain, routesOf, unavailableCode } from './route-chain.ts';
 import type { RouteChain } from './route-chain.ts';
-import { isRouteRole } from './route-text.ts';
-import { isEffortLevel } from './roles.ts';
+import { harnessEffort, isRouteEffort, isRouteRole } from './route-text.ts';
 import type { Route, RouteRole } from './route-text.ts';
 import { MINUTE_MS } from '../time.ts';
 
@@ -70,15 +69,6 @@ function purposePin(config: unknown, purpose: unknown): string | undefined {
   return typeof pin === 'string' && pin !== '' ? pin : undefined;
 }
 
-/** The value of `llm.routeEffort.<role>` that asks each route for its least effort. */
-const LOWEST = 'lowest';
-
-/**
- * The lowest effort level a harness route runs at: `low`, the lowest of EFFORT_LEVELS, which every backend takes; claude
- * and codex get `--effort low` and `-c model_reasoning_effort=low` from it.
- */
-const LOWEST_HARNESS_EFFORT = 'low';
-
 export function createChainClient(deps: ChainClientDeps): ChainClient {
   const routes = (role: RouteRole): Array<Route> =>
     deps.routes?.(role) ?? routesOf(deps.getConfig(), role, deps.keys.coreNames());
@@ -102,31 +92,33 @@ export function createChainClient(deps: ChainClientDeps): ChainClient {
     return chain.map((_, step) => (start + step) % chain.length);
   }
 
-  /**
-   * `route` with the default effort of its role (`llm.routeEffort.<role>`) when it names none. `lowest` resolves per
-   * route: none on an API route, where a request with no `reasoning` asks for the least, and the lowest level of the
-   * engine's levels through a harness (LOWEST_HARNESS_EFFORT).
-   */
+  /** `route` with the default effort of its role (`llm.routeEffort.<role>`) when it names none. */
   function withDefaultEffort(role: string, route: Route): Route {
     if (route.effort !== null) return route;
     const config = deps.getConfig();
     const llm = isRec(config) && isRec(config.llm) ? config.llm : {};
     const efforts = isRec(llm.routeEffort) ? llm.routeEffort : {};
     const effort = Object.hasOwn(efforts, role) ? efforts[role] : undefined;
-    if (effort === LOWEST) return route.via === 'harness' ? { ...route, effort: LOWEST_HARNESS_EFFORT } : route;
-    return isEffortLevel(effort) ? { ...route, effort } : route;
+    return isRouteEffort(effort) ? { ...route, effort } : route;
   }
 
-  /** The options one route sends: the route, and on the API its key, its model past the role's first and its effort. */
+  /**
+   * The options one route sends, its effort translated for it: through a harness the CLI's level (`harnessEffort`,
+   * `disabled` at the lowest one), on the API the provider's `reasoning`, none for `disabled`. On the API also its key,
+   * and its model past the role's first.
+   */
   function optionsFor(chain: ReadonlyArray<Route>, given: Route, asked: Rec, counted: boolean): Rec {
     const route = withDefaultEffort(typeof asked.role === 'string' ? asked.role : 'core', given);
-    const sent: Rec = { ...asked, chainRoute: route, ...(counted ? { countAgainstDailyCap: false } : {}) };
-    if (route.via === 'harness') return sent;
+    const counting = counted ? { countAgainstDailyCap: false } : {};
+    if (route.via === 'harness')
+      return { ...asked, chainRoute: { ...route, effort: harnessEffort(route.effort) }, ...counting };
+    const sent: Rec = { ...asked, chainRoute: route, ...counting };
     sent.routeKey = { name: route.key, value: deps.keys.valueOf(route.key) ?? '' };
     // The caller chose the model of the role's first route for its purpose; a route with another model sends its own.
     if (asked.model === undefined || given.model !== chain[0]?.model)
       sent.model = purposePin(deps.getConfig(), asked.purpose) ?? route.model;
-    if (route.effort !== null && !isRec(asked.reasoning)) sent.reasoning = { effort: route.effort };
+    if (route.effort !== null && route.effort !== 'disabled' && !isRec(asked.reasoning))
+      sent.reasoning = { effort: route.effort };
     return sent;
   }
 

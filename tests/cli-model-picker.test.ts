@@ -540,3 +540,18 @@ test('a refused commit stays on the review with the reason on the screen', async
     app.unmount();
   }
 });
+
+test('a CLI level outside the route scale commits its nearest level of the scale for a model role', () => {
+  // Catches: the selector saving `:xhigh` on the memory writer's route, which the route reader refuses as retired.
+  const proven: SourceDescriptor = { ...CODEX, effort: { evidence: 'observed', levels: ['minimal', 'xhigh'] } };
+  const high = play(atRole('main', 'memory', [proven]), [
+    ...choose('subharness', 'backend:codex', 'suggested-1', 'xhigh'),
+    { kind: 'confirm' },
+  ]);
+  assert.equal(committed(high.effects)[0]?.args.model, 'harness:codex/suggested-1:high');
+  const low = play(atRole('main', 'memory', [proven]), [
+    ...choose('subharness', 'backend:codex', 'suggested-1', 'minimal'),
+    { kind: 'confirm' },
+  ]);
+  assert.equal(committed(low.effects)[0]?.args.model, 'harness:codex/suggested-1:disabled');
+});

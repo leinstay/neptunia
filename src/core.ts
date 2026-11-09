@@ -49,6 +49,7 @@ import { createLlm } from './llm/openrouter.ts';
 import type { CompleteResult } from './llm/openrouter.ts';
 import { reportingFailures } from './llm/chain-client.ts';
 import { createCoreRoutes } from './llm/core-routes.ts';
+import { harnessEffort } from './llm/route-text.ts';
 import { createKeyFailover } from './llm/key-failover.ts';
 import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, SEARCH_ROLE, roleModel, searchModel } from './llm/roles.ts';
 import { statusCardKeys } from './keys/card-keys.ts';
@@ -1406,7 +1407,10 @@ async function buildCore(
     chainOf: (role) => chainClient.routes(role),
     saveRoutes: (role, chain) => Promise.resolve(writeLocalSetting(['models', 'routes', role], chain)),
     checkHarness: (route) =>
-      checkedRoute({ privateDir: paths.privateDir, runBackend: runSubharnessBackend, fetch: globalThis.fetch }, route),
+      checkedRoute(
+        { privateDir: paths.privateDir, runBackend: runSubharnessBackend, fetch: globalThis.fetch },
+        { ...route, effort: harnessEffort(route.effort) }
+      ),
     // `keys check memory` proves the path the writer runs on: the probe through the backend while config.json names one.
     memoryPath: routes.memoryCheckPath,
     probeMemory: () => probeMemoryRaw(clock()),

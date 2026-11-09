@@ -26,9 +26,8 @@ import { createKeyFailover } from '../../src/llm/key-failover.ts';
 import { createChainClient, createRouteChainOf } from '../../src/llm/chain-client.ts';
 import type { CompleteResult } from '../../src/llm/openrouter.ts';
 import { roleModel, searchModel } from '../../src/llm/roles.ts';
-import type { EffortLevel } from '../../src/llm/roles.ts';
-import { isRefusal, parseRouteText } from '../../src/llm/route-text.ts';
-import type { Route } from '../../src/llm/route-text.ts';
+import { harnessEffort, isRefusal, parseRouteText } from '../../src/llm/route-text.ts';
+import type { Route, RouteEffort } from '../../src/llm/route-text.ts';
 import { MAX_FRAME_BYTES, wrapSocket } from '../../src/protocol/wire.ts';
 import type { MemoryPath } from '../../src/subharness/memory-path.ts';
 import { memoryWriterClient } from '../../src/subharness/memory-writer.ts';
@@ -61,8 +60,8 @@ export type RouteRole = (typeof ROUTE_ROLES)[number];
 
 /** One role's route for this run: a key of keys.json with a model, or a connected harness with a model. */
 export type RoleRoute =
-  | { kind: 'key'; key: string; model: string; effort: EffortLevel | null }
-  | { kind: 'harness'; backend: MemoryBackend; model: string; effort: EffortLevel | null };
+  | { kind: 'key'; key: string; model: string; effort: RouteEffort | null }
+  | { kind: 'harness'; backend: MemoryBackend; model: string; effort: RouteEffort | null };
 
 /** The roles a run replaces; a role with no entry runs as production runs it. */
 export type Variant = Partial<Record<RouteRole, RoleRoute>>;
@@ -344,7 +343,7 @@ export async function scriptRouting<C>(tool: string, deps: ScriptRoutingDeps<C>)
   const memoryPath = (): MemoryPath => {
     const route = chain.inForce('memory');
     return route?.via === 'harness'
-      ? { kind: 'subharness', backend: route.backend, model: route.model, effort: route.effort }
+      ? { kind: 'subharness', backend: route.backend, model: route.model, effort: harnessEffort(route.effort) }
       : { kind: 'direct' };
   };
   const said = deps.roles.map((role) => saidOf(role, chain.inForce(role), { config: getConfig(), offline }));

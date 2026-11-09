@@ -293,12 +293,23 @@ test('an effort the route names wins over the default of llm.routeEffort', async
   assert.deepEqual(optionsOf(asked, 0).reasoning, { effort: 'high' });
 });
 
-test('the default lowest sends no reasoning on an API route and the lowest level through a harness', async () => {
-  // Catches: `lowest` read as `low`, which adds provider reasoning to a core that sent none, more than the minimum.
-  const config = { ...CORE_CHAIN, llm: { routeEffort: { core: 'lowest' } } };
+test('disabled sends no reasoning on an API route and the lowest level a harness takes', async () => {
+  // Changed: `disabled` of the standard scale replaces `lowest` (the owner, 2026-11-09).
+  // Catches: `disabled` sent to the provider as an effort it does not know, or reasoning added to a core that sent none.
+  const config = { ...CORE_CHAIN, llm: { routeEffort: { core: 'disabled' } } };
   const { client, asked } = rig(config, { core: [coded('subscription-exhausted')] });
   await client.complete(MESSAGES, { role: 'core' });
   assert.equal((optionsOf(asked, 0).chainRoute as { effort?: unknown }).effort, 'low');
   assert.equal(optionsOf(asked, 1).reasoning, undefined);
-  assert.equal((optionsOf(asked, 1).chainRoute as { effort?: unknown }).effort, null);
+});
+
+test('an explicit disabled on a route wins over a default effort of llm.routeEffort', async () => {
+  // Catches: a route the owner set to `:disabled` still sent with the role's default reasoning.
+  const config = {
+    models: { routes: { analyzer: [{ via: 'api', key: 'helpers', model: 'x/a', effort: 'disabled' }] } },
+    llm: { routeEffort: { analyzer: 'high' } },
+  };
+  const { client, asked } = rig(config);
+  await client.complete(MESSAGES, { role: 'analyzer' });
+  assert.equal(optionsOf(asked, 0).reasoning, undefined);
 });
