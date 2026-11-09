@@ -1,15 +1,18 @@
 // Her link tool (src/interface/person-link.ts, plan 2026-11-08-meta-person "Linking accounts by her own tool"): in a
-// conversation with account A she names the meta-person she believes the person is, and a one-time code goes to an
-// account B of that meta-person in a direct message. The next message from A in that conversation is checked by the
-// door: the right code merges A's meta-person into B's (B winning, the private layers joined), anything else merges
-// nothing. Hermes's limits hold, a closed direct chat refuses, and the owner's meta-person is never touched. A real
-// temporary memory database, a recording port and synthetic ids only.
+// conversation with account A she names the meta-person she believes the person is, and a one-time phrase of six
+// words goes to an account B of that meta-person in a direct message, naming A. The next message from A in that
+// conversation is checked by the door: the six words in any order merge A's meta-person into B's (B winning, the private layers joined), anything else merges
+// nothing. Hermes's limits hold, a closed direct chat refuses, the owner's meta-person is never touched, and a
+// restart keeps the waiting phrase and the limits. A real temporary memory database, a recording port, synthetic
+// words and synthetic ids only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import { createPersonLinks } from '../src/interface/person-link.ts';
 import type { PersonLinks } from '../src/interface/person-link.ts';
 import { hasCodeLine } from '../src/interface/owner-pairing.ts';
+import { createPhraseCodes } from '../src/interface/phrase-codes.ts';
 import { handleOf } from '../src/behavior/handles.ts';
 import { onLog } from '../src/log.ts';
 import { personOfAccount } from '../src/memory/db/meta-person.ts';
@@ -31,9 +34,10 @@ const START = Date.parse('2026-11-08T12:00:00Z');
 const OWNER = 'person:0a1b0000-owner';
 const KNOWN = 'person:7a1e0000-known';
 const NEW = 'person:3c9d0000-new';
-const CODE = /[A-HJ-NP-Z2-9]{8}/;
+const CODE = /your link phrase is (.+)$/;
+const WORDS = ['amber', 'birch', 'cedar', 'dune', 'ember', 'fjord', 'grove', 'heath', 'inlet', 'jade', 'kelp', 'loam'];
 const LABELS = {
-  link: { code: 'your link code is {code}' },
+  link: { code: 'from {handle} on {iface}: your link phrase is {phrase}' },
   tools: {
     tools: { link: { sent: 'SENT-MARK the next message from this account must be the code', already: 'SAME' } },
   },
@@ -42,6 +46,9 @@ const LABELS = {
 type Sent = { chat: ChatRef; text: string };
 type Rig = {
   links: PersonLinks;
+  /** The links built again over the same database and state file, as after a restart. */
+  restart: () => PersonLinks;
+  file: string;
   sent: Array<Sent>;
   db: Db;
   at: (ms: number) => void;
@@ -100,10 +107,19 @@ async function withLinks(body: (rig: Rig) => Promise<void>): Promise<void> {
       return Promise.resolve({ status: 'ok', ref: null, parts: [], at: now, idempotencyKey: 'k', error: null });
     },
   };
-  let turn = 0;
-  const links = createPersonLinks({ hot, memoryDb, port, now: () => now, rng: () => ((turn += 3) % 10) / 10 });
+  const phrases = createPhraseCodes({ words: () => WORDS, matcher: () => ({ stem: (word) => word, endings: [] }) });
+  const file = path.join(tempDir('nep-person-link-state-'), 'link-codes.json');
+  const build = (): PersonLinks => createPersonLinks({ hot, memoryDb, port, now: () => now, phrases, file });
   try {
-    await body({ links, sent, db, at: (ms) => (now = START + ms), closeDirect: () => (closed = true) });
+    await body({
+      links: build(),
+      restart: build,
+      file,
+      sent,
+      db,
+      at: (ms) => (now = START + ms),
+      closeDirect: () => (closed = true),
+    });
   } finally {
     handle.close();
   }
@@ -119,8 +135,8 @@ const ASK = { iface: 'chatnet', native: 'a1', chatId: 'c1', person: KNOWN };
 
 function codeIn(sent: ReadonlyArray<Sent>): string {
   const found = CODE.exec(sent.at(-1)?.text ?? '');
-  assert.ok(found, `no code in ${JSON.stringify(sent)}`);
-  return found[0];
+  assert.ok(found, `no phrase in ${JSON.stringify(sent)}`);
+  return found[1] ?? '';
 }
 
 test('sends a code to the known person account in a direct chat and tells her only the rule of the next message', async () => {
@@ -131,7 +147,14 @@ test('sends a code to the known person account in a direct chat and tells her on
       sent.map((one) => one.chat),
       [{ iface: 'farnet', chatId: 'dm-farnet-b1' }]
     );
-    assert.match(sent[0]?.text ?? '', /^your link code is [A-HJ-NP-Z2-9]{8}$/);
+    // The owner's decision of 2026-11-08: six words of the list, and the message names account A and its interface.
+    assert.match(sent[0]?.text ?? '', /^from a1 on chatnet: your link phrase is /);
+    assert.equal(
+      codeIn(sent)
+        .split(' ')
+        .filter((word) => WORDS.includes(word)).length,
+      6
+    );
     assert.match(result.data?.text ?? '', /SENT-MARK/);
     assert.equal(JSON.stringify(result).includes(codeIn(sent)), false);
   });
@@ -140,7 +163,8 @@ test('sends a code to the known person account in a direct chat and tells her on
 test('the right code as the next message of the account merges its meta-person into the known one', async () => {
   await withLinks(async ({ links, sent, db }) => {
     await links.start(ASK);
-    assert.equal(await links.screen(line('a1', 'm1', ` ${codeIn(sent)} `)), 'drop');
+    const reordered = codeIn(sent).split(' ').reverse().join(', ');
+    assert.equal(await links.screen(line('a1', 'm1', `it is me: ${reordered}`)), 'drop');
     // The message that carried the code stays out of every chat a turn reads.
     assert.equal(links.isWithheld('chatnet', 'c1', 'm1'), true);
     assert.equal(links.isWithheld('chatnet', 'c1', 'm2'), false);
@@ -158,6 +182,54 @@ test('after the merge the private layers join: the known person holds both accou
     const members = personMembers(db, KNOWN, { ownerMergesOnly: true });
     const accounts = members.accounts.map((one) => one.id);
     assert.deepEqual([...accounts].sort(), ['account:a1', 'account:b1']);
+  });
+});
+
+test('a phrase answered once merges nothing when it comes again', async () => {
+  await withLinks(async ({ links, sent }) => {
+    await links.start(ASK);
+    const code = codeIn(sent);
+    assert.equal(await links.screen(line('a1', 'm1', code)), 'drop');
+    assert.equal(await links.screen(line('a1', 'm2', code)), 'pass');
+  });
+});
+
+test('five of the six words merge nothing', async () => {
+  await withLinks(async ({ links, sent, db }) => {
+    await links.start(ASK);
+    assert.equal(await links.screen(line('a1', 'm1', codeIn(sent).split(' ').slice(1).join(' '))), 'pass');
+    assert.equal(personOfAccount(db, 'account:a1'), NEW);
+  });
+});
+
+test('a restart mid-challenge keeps the waiting phrase', async () => {
+  await withLinks(async ({ links, restart, sent, db }) => {
+    await links.start(ASK);
+    const code = codeIn(sent);
+    assert.equal(await restart().screen(line('a1', 'm1', code)), 'drop');
+    assert.equal(personOfAccount(db, 'account:a1'), KNOWN);
+  });
+});
+
+test('a restart reopens neither an ended attempt nor the ten-minute limit', async () => {
+  await withLinks(async ({ links, restart, sent, db }) => {
+    await links.start(ASK);
+    const code = codeIn(sent);
+    assert.equal(await links.screen(line('a1', 'm1', 'what phrase?')), 'pass');
+    const after = restart();
+    assert.equal(await after.screen(line('a1', 'm2', code)), 'pass');
+    assert.equal(personOfAccount(db, 'account:a1'), NEW);
+    assert.deepEqual([(await after.start(ASK)).code], ['cooldown']);
+  });
+});
+
+test('a restart keeps the message that carried the phrase out of every chat a turn reads', async () => {
+  await withLinks(async ({ links, restart, sent, file }) => {
+    await links.start(ASK);
+    const code = codeIn(sent);
+    await links.screen(line('a1', 'm1', code));
+    assert.equal(restart().isWithheld('chatnet', 'c1', 'm1'), true);
+    assert.equal(fs.readFileSync(file, 'utf8').includes(code), false);
   });
 });
 
@@ -272,7 +344,7 @@ test('the code reaches no log line, and her line that carries it is told apart',
       assert.equal(links.isCodeLine(sent[0]?.text), true);
       // The history a turn reads drops her line with the code by the same labels.
       assert.equal(hasCodeLine({ labels: LABELS }, sent[0]?.text), true);
-      assert.equal(links.isCodeLine('your link code is late'), false);
+      assert.equal(links.isCodeLine('from a1 on chatnet: your link phrase is late'), false);
     });
   } finally {
     stop();

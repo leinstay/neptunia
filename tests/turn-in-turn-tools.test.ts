@@ -249,7 +249,11 @@ test('repeating one source-free native quote keeps its original handle usable fo
 });
 
 /** A turn on the `tele` interface whose in-turn tools read the stored places of every interface from `world`. */
-function crossReadScene(world: World, memberOf: (placeId: string, accountId: string) => { name: string } | null) {
+function crossReadScene(
+  world: World,
+  memberOf: (placeId: string, accountId: string) => { name: string } | null,
+  draft: InTurnDraft = {}
+) {
   const io = rig();
   const hot = { config: { bot: { timezone: 'UTC' }, features: { coreTools: true } }, prompts: { labels } };
   const tools = createInTurnTools({
@@ -279,7 +283,7 @@ function crossReadScene(world: World, memberOf: (placeId: string, accountId: str
     selfId: 'self',
     selfName: 'Synthetic persona',
     history: [],
-    draft: {},
+    draft,
   });
 }
 
@@ -391,6 +395,33 @@ test("a read of another interface's place names a linked account by its person's
     assert.match(text, /Zoe\b[^\n]*line of zoe/);
     assert.doesNotMatch(text, /zz-second/);
     assert.match(text, /Guest\b[^\n]*line of a guest/);
+  } finally {
+    world.close();
+  }
+});
+
+test("a read of another interface's place keeps a message id that holds a colon whole", async () => {
+  // Bug: the read cut a line's id at its last colon, so a platform whose message ids hold colons got handles naming a
+  // message that does not exist.
+  const world = openWorld();
+  try {
+    const room = roomOf(world);
+    addLine(world.db, {
+      id: 'thread-3:m-9',
+      iface: 'fake',
+      place: room,
+      author: 'self',
+      text: 'line with a long id',
+      at: '2026-11-02T09:00:00.000Z',
+    });
+    const draft: InTurnDraft = {};
+    await readText(
+      crossReadScene(world, () => null, draft),
+      room
+    );
+    const shown = draft.searchRefs?.byNumber;
+    const ids = [...(shown?.values() ?? [])].map((ref) => String(ref.id));
+    assert.deepEqual(ids, ['thread-3:m-9']);
   } finally {
     world.close();
   }

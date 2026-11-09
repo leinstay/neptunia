@@ -351,11 +351,7 @@ export function searchHandles(draft: {
         // The turn's one registry holds the handle too, so a reference to it in her stored words reads back.
         const stored = ref.stored;
         if (stored && draft.handles)
-          draft.handles.take(
-            ref.n,
-            'search',
-            targetOfSource(stored.sourceId, stored.placeId, String(stored.native?.messageId ?? ref.id))
-          );
+          draft.handles.take(ref.n, 'search', targetOfSource(stored, String(stored.native?.messageId ?? ref.id)));
       }
     },
   };

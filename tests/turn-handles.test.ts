@@ -1,7 +1,8 @@
 // Tests for src/turn/handles.ts: the turn's one handle registry. Every `#n` of a request is issued here, and `canonical`
 // replaces each reference in a text bound for a durable row by the line's identity `src:<iface>:<message id>:<revision>`
 // and cuts a number that resolves to nothing. Plan 2026-11-06-turn-frame, slice 2 (f), and "References that survive
-// the turn". Pure.
+// the turn". The identity is written from the target's interface, message id and revision, the columns of the line's
+// source row, never from the text of its source id. Pure.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHandles } from '../src/turn/handles.ts';
@@ -14,7 +15,13 @@ function fifteenLines() {
   const numbers: Array<number> = [];
   for (let i = 1; i <= 15; i += 1)
     numbers.push(
-      handles.issue('chat', { sourceId: `src:discord:m-${i}:1:seen`, placeId: PLACE, messageId: `m-${i}`, revision: 1 })
+      handles.issue('chat', {
+        sourceId: `src:discord:m-${i}:1:seen`,
+        iface: 'discord',
+        placeId: PLACE,
+        messageId: `m-${i}`,
+        revision: 1,
+      })
     );
   assert.deepEqual(
     numbers,
@@ -29,24 +36,28 @@ test('canonical replaces a chat line, a reply parent, a pulled line and a search
   const handles = createHandles();
   const chat = handles.issue('chat', {
     sourceId: 'src:discord:m-1:1:seen',
+    iface: 'discord',
     placeId: PLACE,
     messageId: 'm-1',
     revision: 1,
   });
   const parent = handles.issue('parent', {
     sourceId: 'src:discord:m-2:3:seen',
+    iface: 'discord',
     placeId: PLACE,
     messageId: 'm-2',
     revision: 3,
   });
   const pulled = handles.issue('pulled', {
     sourceId: 'src:telegram:m-3:1:seen',
+    iface: 'telegram',
     placeId: 'telegram:channel:g-9',
     messageId: 'm-3',
     revision: 1,
   });
   const search = handles.issue('search', {
     sourceId: 'src:discord:m-4:2:said',
+    iface: 'discord',
     placeId: PLACE,
     messageId: 'm-4',
     revision: 2,
@@ -74,4 +85,38 @@ test('canonical reads a bare number, a number in parentheses and a range as refe
   const range = handles.canonical('#12-#15');
   assert.ok(range.includes('src:discord:m-12:1') && range.includes('src:discord:m-15:1'), range);
   assert.ok(!range.includes('#'), range);
+});
+
+test("canonical writes a line's identity from its interface, message id and revision, whatever its source id spells", () => {
+  // Bug: the identity was cut out of the source id's text, so a source stored under an opaque id or an older spelling
+  // left her words naming a line no reader finds.
+  const handles = createHandles();
+  const opaque = handles.issue('chat', {
+    sourceId: 'source:7f3a',
+    iface: 'discord',
+    placeId: PLACE,
+    messageId: 'm-8',
+    revision: 2,
+  });
+  const respelled = handles.issue('search', {
+    sourceId: 'src:discord:family-key:1:seen',
+    iface: 'discord',
+    placeId: PLACE,
+    messageId: 'm-9',
+    revision: 3,
+  });
+  assert.equal(handles.canonical(`#${opaque} #${respelled}`), 'src:discord:m-8:2 src:discord:m-9:3');
+});
+
+test('canonical keeps the source id of a line whose interface nobody stored', () => {
+  // Bug: a line with no interface became `src:null:...`, an identity that names nothing.
+  const handles = createHandles();
+  const n = handles.issue('search', {
+    sourceId: 'source:legacy-1',
+    iface: null,
+    placeId: PLACE,
+    messageId: 'm-1',
+    revision: 1,
+  });
+  assert.equal(handles.canonical(`#${n}`), 'source:legacy-1');
 });

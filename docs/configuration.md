@@ -21,6 +21,7 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 |---|---|---|---|---|
 | `bot.timezone` | string | `"UTC"` | Timezone for model timestamps | `src/behavior/selfreflection.ts` |
 | `bot.ownerPerson` | string | `""` | The owner's meta-person, whose bound accounts are the owner: the command line's account, and every account paired with `/interfaces pair` or bound with `/memory bind`. The first line of the command line on a raw install writes it, and so does `/memory bind <iface> <account> owner` while it is empty. See [Owner identity](memory.md#owner-identity) | `src/tools/operations/grants.ts` |
+| `bot.phraseWords` | string | `"phrase-words-en.txt"` | The word list of the one-time phrases that prove an account, a file of `config/` with one word per line. The same file in `data/config/` replaces it, so a deployment supplies a list in its audience's language there. The shipped list is BIP-39's English list. See [Phrase codes](interfaces.md#phrase-codes) | `src/interface/phrase-codes.ts` |
 | `bot.access` | map | `{}` | Who besides owners may run which operations, written by `/tools grant` and `/tools revoke`. See [Access](cli.md#access) | `src/behavior/sandbox.ts` |
 
 ## models.base

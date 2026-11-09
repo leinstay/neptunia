@@ -147,6 +147,7 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     errandResult: own.errandsText.result,
     nameOf,
     lineOf: given.refLineOf ?? null,
+    isSourceRetired: given.isSourceRetired ?? null,
     live: liveOf(base, frame, given.now),
     chatHandles: base.handleById,
     currentChannelId: given.currentChannelId ?? null,
