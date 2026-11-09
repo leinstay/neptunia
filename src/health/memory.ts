@@ -1,12 +1,11 @@
 // The memory part of `/doctor`, read from the memory database: the people who spoke within the window and about whom
 // nothing was written in it, the claims whose versions change too often, the members' lines her memory session has
-// not read, and the newest finished backup. A person counts as written about when a claim about them was created or
-// seen, a version of such a claim was recorded, or a description of them got a version in the window. The owner's
-// console (src/interface/commands/console.ts) calls `memoryHealth` for `/doctor memory` with `days: 7` over the
-// core's read connection. Pure over the database and the backups folder.
+// not read. A person counts as written about when a claim about them was created or seen, a version of such a claim was
+// recorded, or a description of them got a version in the window. The owner's console
+// (src/interface/commands/console.ts) calls `memoryHealth` for `/doctor memory` with `days: 7` over the core's read
+// connection. Pure over the database.
 
 import type { DatabaseSync } from 'node:sqlite';
-import { backupsIn } from '../memory/db/backup.ts';
 import { worse } from './server.ts';
 import type { HealthStatus } from './server.ts';
 
@@ -17,7 +16,6 @@ export type MemoryHealth = {
   silent: ReadonlyArray<{ personId: string; lastSpokeAt: string }>;
   churning: ReadonlyArray<{ claimId: string; versions: number }>;
   backlog: number;
-  lastBackup: { name: string } | null;
 };
 
 /** More versions of one claim than this within the window is churn (owner's table of 2026-10-27: "too often"). */
@@ -35,11 +33,8 @@ function rows(db: DatabaseSync, sql: string, ...params: Array<string | number>):
   }
 }
 
-/** The memory's health at `now` over the last `days` days; `backupsDir` null reads no backup. */
-export function memoryHealth(
-  db: DatabaseSync,
-  options: { now: number; days: number; backupsDir: string | null }
-): MemoryHealth {
+/** The memory's health at `now` over the last `days` days. */
+export function memoryHealth(db: DatabaseSync, options: { now: number; days: number }): MemoryHealth {
   const since = new Date(options.now - options.days * DAY_MS).toISOString();
   const silent = rows(
     db,
@@ -71,8 +66,6 @@ export function memoryHealth(
      AND rowid > COALESCE((SELECT MAX(cursor_to) FROM session_runs WHERE applied = 1), 0)`
   );
   const backlog = typeof backlogRow?.n === 'number' ? backlogRow.n : 0;
-  const newest = options.backupsDir === null ? undefined : backupsIn(options.backupsDir).at(-1);
-  const lastBackup = newest === undefined ? null : { name: newest };
   let status: HealthStatus = 'ok';
   if (silent.length > 0 || churning.length > 0) status = worse(status, 'warn');
   const lines = [
@@ -84,7 +77,6 @@ export function memoryHealth(
       ? 'claims changing too often: none'
       : `claims changing too often: ${churning.map((row) => `${row.claimId} (${row.versions} versions)`).join(', ')}`,
     `lines her memory session has not read: ${backlog}`,
-    `last backup: ${lastBackup?.name ?? 'none'}`,
   ];
-  return { part: 'memory', status, text: lines.join('\n'), silent, churning, backlog, lastBackup };
+  return { part: 'memory', status, text: lines.join('\n'), silent, churning, backlog };
 }

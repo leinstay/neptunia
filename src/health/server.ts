@@ -1,5 +1,5 @@
-// The server part of `/doctor`: the disk under the data folder, the load, the systemd units of the engine, the last
-// memory backup and the firewall when `ufw` exists. `serverHealth` judges what a probe reports and is pure;
+// The server part of `/doctor`: the disk under the data folder, the load, the systemd units of the engine and the
+// firewall when `ufw` exists. `serverHealth` judges what a probe reports and is pure;
 // `systemProbe` is the real probe over `statfs`, `node:os`, `systemctl` and `ufw`, a `ufw` that refuses to answer
 // counting as none. The owner's console
 // (src/interface/commands/console.ts) calls both for `/doctor server`, and the daily watcher reads it through
@@ -8,7 +8,6 @@
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
-import { backupSettings, backupsIn } from '../memory/db/backup.ts';
 
 export type HealthStatus = 'ok' | 'warn' | 'fail';
 
@@ -16,7 +15,6 @@ export type ServerProbe = {
   disk(): Promise<{ path: string; freeBytes: number; totalBytes: number }>;
   load(): { one: number; five: number; fifteen: number; cpus: number };
   units(): Promise<ReadonlyArray<{ name: string; active: boolean }>>;
-  lastBackup(): { name: string } | null;
   /** Null when `ufw` does not exist on the machine. */
   firewall(): Promise<{ active: boolean } | null>;
 };
@@ -28,7 +26,6 @@ export type ServerHealth = {
   disk: { path: string; freeBytes: number; totalBytes: number };
   load: { one: number; five: number; fifteen: number; cpus: number };
   units: ReadonlyArray<{ name: string; active: boolean }>;
-  lastBackup: { name: string } | null;
   firewall: { active: boolean } | null;
 };
 
@@ -57,7 +54,6 @@ const gib = (bytes: number): string => `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 export async function serverHealth(probe: ServerProbe, options: { now: number }): Promise<ServerHealth> {
   const [disk, units, firewall] = await Promise.all([probe.disk(), probe.units(), probe.firewall()]);
   const load = probe.load();
-  const lastBackup = probe.lastBackup();
   let status: HealthStatus = 'ok';
   const lines: Array<string> = [];
   const share = disk.totalBytes > 0 ? disk.freeBytes / disk.totalBytes : 0;
@@ -72,11 +68,10 @@ export async function serverHealth(probe: ServerProbe, options: { now: number })
       ? 'units: none found'
       : `units: ${units.map((unit) => `${unit.name} ${unit.active ? 'active' : 'not active'}`).join(', ')}`
   );
-  lines.push(`last memory backup: ${lastBackup?.name ?? 'none'}`);
   if (firewall !== null && !firewall.active) status = worse(status, 'warn');
   lines.push(`firewall: ${firewall === null ? 'no ufw' : firewall.active ? 'active' : 'inactive'}`);
   lines.unshift(`server ${status} at ${new Date(options.now).toISOString().slice(0, 16).replace('T', ' ')} UTC`);
-  return { part: 'server', status, text: lines.join('\n'), disk, load, units, lastBackup, firewall };
+  return { part: 'server', status, text: lines.join('\n'), disk, load, units, firewall };
 }
 
 /** How the probe runs a program: its exit code and stdout, or null when it does not exist or fails to start. */
@@ -95,8 +90,8 @@ function run(file: string, args: ReadonlyArray<string>): Promise<{ code: number;
   });
 }
 
-/** The real probe of the machine the core runs on, over the data folder `dataDir` and the live `config`, its commands through `exec`. */
-export function systemProbe(config: unknown, dataDir: string, exec: Exec = run): ServerProbe {
+/** The real probe of the machine the core runs on, over the data folder `dataDir`, its commands through `exec`. */
+export function systemProbe(dataDir: string, exec: Exec = run): ServerProbe {
   return {
     async disk() {
       const stat = await fs.promises.statfs(dataDir);
@@ -119,11 +114,6 @@ export function systemProbe(config: unknown, dataDir: string, exec: Exec = run):
         const state = states[index];
         return { name, active: state?.stdout.trim() === 'active' };
       });
-    },
-    lastBackup() {
-      const kept = backupsIn(backupSettings(config, dataDir).dir);
-      const newest = kept.at(-1);
-      return newest === undefined ? null : { name: newest };
     },
     async firewall() {
       // `ufw status` needs root: a refusal tells nothing about the firewall, so it reads as no ufw.

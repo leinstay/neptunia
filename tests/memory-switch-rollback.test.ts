@@ -1,6 +1,6 @@
 // The paired switch of code, database and config at the cutover, and its rollback, rehearsed on a copy (plan
-// 2026-11-05-master-plan, S10.7). A closed v28 database and its config are copied into a data folder, backed up with
-// `backupDatabase`, converted by the offline converter and swapped in. The new code then opens them (the database
+// 2026-11-05-master-plan, S10.7). A closed v28 database and its config are copied into a data folder, backed up the
+// way the server's backup timer does it (`backUp`), converted by the offline converter and swapped in. The new code then opens them (the database
 // directly, then the core with a fake interface unit on its socket). A rollback is the operator's: stop the core,
 // preserve what the new database took in, put the backed-up database and config back. A second group of tests holds the
 // writer the way a maintenance tool does (`acquireLock`) while a message reaches the interface unit.
@@ -13,7 +13,7 @@ import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { backupDatabase, checkBackup } from '../src/memory/db/backup.ts';
+import { DatabaseSync } from 'node:sqlite';
 import { MIGRATIONS, acquireLock, lockPathOf, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import {
@@ -56,6 +56,32 @@ const countOf = (dirs: Dirs, sql: string): number => Number(query(dirs, sql)[0]?
 /** Every ordinary table of a database file and its rows, in a stable order. */
 function snapshot(file: string): Record<string, Array<Record<string, unknown>>> {
   return Object.fromEntries(tablesOf(file).map((table) => [table, rowsOf(file, table)]));
+}
+
+/**
+ * A backup the way the server's backup timer takes one: `VACUUM INTO <to>/memory.db` over a read-only connection, and
+ * the data folder's settings copied beside it.
+ */
+function backUp(db: string, to: string, dataDir: string): void {
+  fs.mkdirSync(to, { recursive: true });
+  const source = new DatabaseSync(db, { readOnly: true });
+  try {
+    source.prepare('VACUUM INTO ?').run(path.join(to, 'memory.db'));
+  } finally {
+    source.close();
+  }
+  fs.cpSync(path.join(dataDir, 'config'), path.join(to, 'config'), { recursive: true });
+}
+
+/** The schema version and the number of `sources` rows of a backed-up database. */
+function backedUp(dir: string): { version: number; sources: number } {
+  const handle = openMemoryDb(path.join(dir, 'memory.db'), { readOnly: true });
+  try {
+    const sources = dbOf(handle).prepare('SELECT COUNT(*) AS n FROM sources').get()?.n;
+    return { version: schemaVersion(dbOf(handle)), sources: Number(sources ?? 0) };
+  } finally {
+    handle.close();
+  }
 }
 
 /** One install: the live data folder holding the old v28 database and config, and the files a switch moves around. */
@@ -105,7 +131,7 @@ function world(rig: Rig): World {
 function switchOver(w: World): Report {
   // The lead: the rig's folders get a name, so the reads stay three segments deep (R.2).
   const { dirs } = w.rig;
-  backupDatabase({ db: w.db, to: w.backup, data: dirs.dataDir });
+  backUp(w.db, w.backup, dirs.dataDir);
   const { status, stderr } = convert(w.work);
   assert.equal(status, 0, stderr);
   for (const suffix of ['', '-wal', '-shm']) fs.rmSync(`${w.db}${suffix}`, { force: true });
@@ -117,7 +143,6 @@ function switchOver(w: World): Report {
 
 /** The rollback: the backed-up database and config go back; whatever the new config added goes with it. */
 function rollBack(w: World): void {
-  checkBackup(w.backup);
   for (const suffix of ['', '-wal', '-shm', '.lock']) fs.rmSync(`${w.db}${suffix}`, { force: true });
   fs.rmSync(w.config, { recursive: true });
   fs.copyFileSync(path.join(w.backup, 'memory.db'), w.db);
@@ -199,10 +224,10 @@ test('a backup taken before the rollback holds the lines the new code wrote afte
     await resumed(w);
     const { dirs: rigDirs } = w.rig;
     const preserved = path.join(rigDirs.root, 'backup', 'post-switch');
-    const live = backupDatabase({ db: w.db, to: preserved, data: rigDirs.dataDir });
-    assert.equal(checkBackup(preserved).schemaVersion, MIGRATIONS.length);
-    const pre = checkBackup(w.backup);
-    assert.ok((live.rows?.sources ?? 0) > (pre.rows?.sources ?? 0), 'the preserved copy has the new lines');
+    backUp(w.db, preserved, rigDirs.dataDir);
+    const live = backedUp(preserved);
+    assert.equal(live.version, MIGRATIONS.length);
+    assert.ok(live.sources > backedUp(w.backup).sources, 'the preserved copy has the new lines');
     const handle = openMemoryDb(path.join(preserved, 'memory.db'), { readOnly: true });
     try {
       const texts = dbOf(handle)

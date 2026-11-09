@@ -87,7 +87,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/board/fields.ts` | public | The checks of a board operation's arguments and the auto-triage settings. Tested through the board tests. | `node:*`, `src/board/**` | none |
 | `src/board/text.ts` | public | The plain text of a board answer, as the ledger's command line printed it. Tested through the board commands tests. | `node:*`, `src/board/**` | none |
 | `src/board/writer.ts` | public | The board's writes as writes of the memory writer, and the core's board port over them. Tested through the core board socket tests. | `node:*`, `src/board/**` | none |
-| `src/health/` | public | The three parts of the owner's `/doctor`: the server, the core and the memory, each judged by a pure function over a probe or the memory database. | `node:*`, `src/health/**`, `src/memory/db/backup.ts` | required |
+| `src/health/` | public | The three parts of the owner's `/doctor`: the server, the core and the memory, each judged by a pure function over a probe or the memory database. | `node:*`, `src/health/**` | required |
 | `src/behavior/` | public | What a turn does: the pipeline, triggers, prefetch, prompt assembly, recall, the inner turn and the heartbeat. | `node:*`, `src/**` | required |
 | `src/behavior/mirror-desk.ts` | public | What the owner's mirror commands read and change. Tested through the mirror command tests. | `node:*`, `src/**` | none |
 | `src/behavior/mirror-drain.ts` | public | One drain of the selfreflection's mirrors: expired claims, adapter lookups, lost entries, queued sends and backfill slots. Tested through the mirror delivery and backfill tests. | `node:*`, `src/**` | none |
@@ -227,7 +227,6 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/memory/db/frame-reads.ts` | public | The reads of a request on the turn frame beside the graph reader: her lines elsewhere and the lines around one, a line by its identity, a place's stored fields and an interface's names. | `node:*`, `src/**` | none |
 | `src/memory/db/reader-worker.ts` | public | The reader thread of the memory database: one read-only connection and the searches of recall. Tested through the recall-off-main tests. | `node:*`, `src/**` | none |
 | `src/memory/db/reader-client.ts` | public | The service's side of the reader thread: the queue of searches, abandoning one and restarting a dead thread. Tested through the recall-off-main tests. | `node:*`, `src/**` | none |
-| `src/memory/db/backup-worker.ts` | public | The thread of one owner's backup. Tested through the backup-off-main tests. | `node:*`, `src/**` | none |
 | `src/memory/db/inspection-export.ts` | public | The owner's inspection export on its own thread. Tested through the inspect-export-off-main test. | `node:*`, `src/**` | none |
 | `src/memory/db/inspection-export-worker.ts` | public | The thread of one owner's inspection export. Tested through the inspect-export-off-main test. | `node:*`, `src/**` | none |
 | `src/memory/db/types.ts` | public | The shapes the memory database files share: a row, the connection, the handle and the settings, with the helpers that read them. Types only, tested through the modules that use them. | `node:*`, `src/**` | none |

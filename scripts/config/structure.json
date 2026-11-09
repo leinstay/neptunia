@@ -650,7 +650,7 @@
       "path": "src/health/",
       "purpose": "The three parts of the owner's `/doctor`: the server, the core and the memory, each judged by a pure function over a probe or the memory database.",
       "layer": "public",
-      "imports": ["node:*", "src/health/**", "src/memory/db/backup.ts"],
+      "imports": ["node:*", "src/health/**"],
       "test": "required"
     },
     {
@@ -1632,13 +1632,6 @@
     {
       "path": "src/memory/db/reader-client.ts",
       "purpose": "The service's side of the reader thread: the queue of searches, abandoning one and restarting a dead thread. Tested through the recall-off-main tests.",
-      "layer": "public",
-      "imports": ["node:*", "src/**"],
-      "test": "none"
-    },
-    {
-      "path": "src/memory/db/backup-worker.ts",
-      "purpose": "The thread of one owner's backup. Tested through the backup-off-main tests.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
