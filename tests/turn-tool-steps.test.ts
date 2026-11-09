@@ -304,7 +304,7 @@ test('revocation mid-turn: a grant removed after her calls were planned, while a
   assert.equal(toolResults(run.llm, 1).length, 2);
 });
 
-test('steps spent: the last of the maxSteps requests is announced and final; its calls are loop-cap, journaled only, its speech held and a loopCut fact kept', async () => {
+test('steps spent: the last of the maxSteps requests is announced and final; its calls are loop-cap, journaled only, its speech posted and a loopCut fact kept', async () => {
   const { journal, lines } = journalOverMemory();
   const run = await coreTurn({
     answers: [
@@ -318,7 +318,9 @@ test('steps spent: the last of the maxSteps requests is announced and final; its
   assert.equal(run.llm.calls.length, 3, 'the reply and two requests; none after the final answer');
   assert.ok(noteText(run.llm, 2).includes(labels.task.step.last), noteText(run.llm, 2));
   assert.ok(!noteText(run.llm, 1).includes(labels.task.step.last), 'not announced before it is the last');
-  assert.deepEqual(texts(run), [], 'the final answer had a call: its speech is held');
+  // The final answer is her reply (lookup-loop slice 2): a final answer with a call posts its speech, where it was held
+  // before and a reply turn could end with nothing sent.
+  assert.deepEqual(texts(run), ['ποτέ'], 'the final answer had a call: its speech goes out');
   assert.deepEqual(called(run), ['lore.list:ok', 'memory.server.read:ok', 'lore.list:invalid/loop-cap']);
   const cap = run.logs.find((entry) => entry.msg === 'skills: loop cap');
   assert.deepEqual([cap?.reason, cap?.dropped], ['steps', 1]);
