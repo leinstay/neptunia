@@ -1,6 +1,7 @@
 // The reads of a request built on the turn frame beside the graph reader (src/memory/db/mind-read.ts): her own last
-// lines in other places and the lines around one line for `<meanwhile>`, one stored line by its identity for a
-// reference in a stored text, whether a lookup's source is retired, the stored fields of a place for `<surroundings>`,
+// lines in other places and the lines around one line for `<meanwhile>`, each with its media, the descriptions of the
+// media of a place's lines for a read of lines the platform gives, one stored line by its identity for a reference in a
+// stored text, whether a lookup's source is retired, the stored fields of a place for `<surroundings>`,
 // a place as its interface knows it (its interface, kind and native ids, for a call that speaks to the interface),
 // an interface's name and nouns and her past selfreflection entries for a selfreflection request's `<selfreflection>`.
 // Each read applies the turn's context (`whereFor`), so nothing a scope may not read leaves here. Read only.
@@ -11,6 +12,8 @@ import { findSettingsOf, peopleFound, placesFound } from './graph-find.ts';
 import type { FindMeaning, FoundPerson, FoundPlace } from './graph-find.ts';
 import { mindOf, mindSettingsOf } from './mind-read.ts';
 import type { Mind, Seeds } from './mind-read.ts';
+import { lineMedia, lineMediaItems } from './media-store.ts';
+import type { LineMediaItem } from './media-store.ts';
 import { interfaceNouns, placesNamed } from './names.ts';
 import { ownerAccountOfPlace } from './person-links.ts';
 import { placeChainInDb } from './place-tree.ts';
@@ -23,7 +26,7 @@ import type { Db, Row } from './types.ts';
 
 /**
  * A stored chat line as a request reads it: the platform's message id, the id of its source row, its place, epoch ms,
- * the author's platform id and stored name.
+ * the author's platform id and stored name, its text and its media in position order.
  */
 export type FrameLine = {
   id: string;
@@ -35,6 +38,7 @@ export type FrameLine = {
   authorName: string | null;
   self: boolean;
   text: string;
+  media: ReadonlyArray<LineMediaItem>;
 };
 
 /** The word a path takes for a one-to-one chat, between the interface and the partner's id. A path segment, no label. */
@@ -72,8 +76,17 @@ export function placePathOf(db: Db, placeId: string): PlacePath {
   return { path: [iface, ...names.reverse()], dm: false, partner: null };
 }
 
-const lineOf = (row: Row): FrameLine => ({
-  id: String(row.native_id ?? row.id),
+/** The platform's message id of a line row, else its source id. */
+const messageIdOf = (row: Row): string => String(row.native_id ?? row.id);
+
+/** The first row of each key, in order: a message's newest revision when the rows come newest revision first. */
+function firstOf(rows: ReadonlyArray<Row>, keyOf: (row: Row) => string): Array<Row> {
+  const seen = new Set<string>();
+  return rows.filter((row) => !seen.has(keyOf(row)) && Boolean(seen.add(keyOf(row))));
+}
+
+const lineOf = (row: Row, media: ReadonlyArray<LineMediaItem> = []): FrameLine => ({
+  id: messageIdOf(row),
   sourceId: String(row.id),
   placeId: text(row.place_id) ?? '',
   at: Date.parse(text(row.occurred_at) ?? ''),
@@ -81,7 +94,18 @@ const lineOf = (row: Row): FrameLine => ({
   authorName: text(row.author_name),
   self: row.author_kind === 'self',
   text: text(row.text) ?? '',
+  media,
 });
+
+/** Each row as its line, with the media the context reads of every row in one read (media-store.ts#lineMedia). */
+function linesOf(db: Db, ctx: Context, rows: ReadonlyArray<Row>): Array<FrameLine> {
+  const media = lineMedia(
+    db,
+    rows.map((row) => String(row.id)),
+    ctx
+  );
+  return rows.map((row) => lineOf(row, lineMediaItems(media.get(String(row.id)) ?? [])));
+}
 
 /** The first stored name of a line's author: its person's profile account's, else its own account's (`aa`). */
 const AUTHOR_NAME = `COALESCE(
@@ -93,7 +117,9 @@ const AUTHOR_NAME = `COALESCE(
 const LINE_FROM = 'sources s LEFT JOIN accounts aa ON aa.id = s.author_account';
 const LINE_COLUMNS = `s.id, s.native_id, s.place_id, s.occurred_at, s.author_account, s.author_kind, s.text,
   aa.native_id AS author_native, ${AUTHOR_NAME}`;
-const LIVE_LINE = `s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND length(COALESCE(s.text, '')) > 0`;
+/** A line that says something: its text, or a media item linked to it, as a post of a picture alone. */
+const LIVE_LINE = `s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND (length(COALESCE(s.text, '')) > 0
+  OR EXISTS (SELECT 1 FROM media_links ml WHERE ml.owner_kind = 'source' AND ml.owner_id = s.id))`;
 
 /**
  * Her newest lines the context reads outside `exceptPlace`, newest first, at most `limit`, one per message (its newest
@@ -113,13 +139,10 @@ export function ownLinesOf(
        ORDER BY s.occurred_at DESC, s.revision DESC LIMIT ?`
     )
     .all(exceptPlace, ...where.params, Math.max(0, limit) * 2);
-  const seen = new Set<string>();
   const paths = new Map<string, PlacePath>();
   const out: Array<FrameLine & PlacePath> = [];
-  for (const row of rows) {
-    const line = lineOf(row);
-    if (seen.has(`${line.placeId}\u0000${line.id}`) || out.length >= limit) continue;
-    seen.add(`${line.placeId}\u0000${line.id}`);
+  const kept = firstOf(rows, (row) => `${text(row.place_id) ?? ''}\u0000${messageIdOf(row)}`);
+  for (const line of linesOf(db, ctx, kept.slice(0, Math.max(0, limit)))) {
     if (!paths.has(line.placeId)) paths.set(line.placeId, placePathOf(db, line.placeId));
     out.push({ ...line, ...(paths.get(line.placeId) ?? { path: [], dm: false, partner: null }) });
   }
@@ -140,8 +163,43 @@ export function linesAroundOf(db: Db, ctx: Context, placeId: string, at: number,
       .all(placeId, iso, ...where.params, n);
   const before = read('DESC', '<=', count + 1).reverse();
   const after = read('ASC', '>', count);
-  const seen = new Set<string>();
-  return [...before, ...after].map(lineOf).filter((line) => !seen.has(line.id) && Boolean(seen.add(line.id)));
+  return linesOf(db, ctx, firstOf([...before, ...after], messageIdOf));
+}
+
+/**
+ * The text forms of the media of the stored lines of `placeId` with these message ids (a message's family key counts as
+ * its id), by the item's platform reference: what a read of lines the platform gives renders for a picture the memory
+ * has described. One read; a media item is read only through a line the context reads.
+ */
+export function mediaTextsOf(
+  db: Db,
+  ctx: Context,
+  placeId: string,
+  messageIds: ReadonlyArray<string>
+): Map<string, string> {
+  const found = new Map<string, string>();
+  if (messageIds.length === 0) return found;
+  const where = whereFor(ctx, 's');
+  const ids = JSON.stringify(messageIds);
+  const rows = db
+    .prepare(
+      `SELECT m.native_ref AS ref, m.description AS description
+       FROM sources s JOIN media_links l ON l.owner_kind = 'source' AND l.owner_id = s.id
+         JOIN media m ON m.id = l.media_id
+       WHERE s.place_id = ? AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND ${where.sql}
+         AND (s.native_id IN (SELECT value FROM json_each(?))
+           OR s.native_id IN (SELECT f.native_key FROM message_families f
+             WHERE f.iface = s.iface AND f.message_id IN (SELECT value FROM json_each(?))))
+         AND m.retired_at IS NULL AND m.native_ref IS NOT NULL AND m.description IS NOT NULL
+       ORDER BY s.revision`
+    )
+    .all(placeId, ...where.params, ids, ids);
+  for (const row of rows) {
+    const ref = text(row.ref);
+    const description = text(row.description);
+    if (ref !== null && description !== null) found.set(ref, description);
+  }
+  return found;
 }
 
 /** Whether the context reads the stored place `placeId`, retired or live: a gone room keeps its read handle. */
@@ -367,6 +425,8 @@ export type FrameReads = {
   peopleFound?(ctx: Context, words: string, meaning?: FindMeaning): Array<FoundPerson>;
   /** The direct chats of the person a reference names, newest first, or the people its words fit (direct-chats.ts). */
   directChats?(ctx: Context, reference: string, meaning?: FindMeaning): DirectChats;
+  /** The described media of stored lines of a place by platform reference (mediaTextsOf). */
+  mediaTexts?(ctx: Context, placeId: string, messageIds: ReadonlyArray<string>): Map<string, string>;
   /** Whether the context reads a stored place (placeReadableOf). */
   placeReadable?(ctx: Context, placeId: string): boolean;
   /** Every stored channel and thread with its native id (chatPlacesOf). */
@@ -418,6 +478,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
       over<DirectChats>({ kind: 'none' }, (db) =>
         directChatsOf(db, ctx, reference, findSettingsOf(configOf()), meaning)
       ),
+    mediaTexts: (ctx, placeId, messageIds) => over(new Map(), (db) => mediaTextsOf(db, ctx, placeId, messageIds)),
     placeReadable: (ctx, placeId) => over(false, (db) => placeReadableOf(db, ctx, placeId)),
     chatPlaces: () => over([], (db) => chatPlacesOf(db)),
     placeRef: (placeId) => over(null, (db) => placeRefOf(db, placeId)),
