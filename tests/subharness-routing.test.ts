@@ -1,7 +1,7 @@
 // Which part of Neptunia runs on what lives in the private config.json, and keys.json holds secrets alone
-// (docs/keys.md): a route chosen with `/model set`, a key bound with `/keys bind` and the simulation's key land under
-// `models.harness`, `models.agents`, `llm.boundKeys` and `llm.simulationKey`, and no write of the code leaves `roles`,
-// `subharness` or `simulation` in keys.json. The private folder is a temp dir; the backend runner, the vendor CLI and
+// (docs/keys.md): a route chosen with `/model set` and a key bound with `/keys bind` land under `models.harness`,
+// `models.agents` and `llm.boundKeys`, and no write of the code leaves `roles`, `subharness` or an older file's
+// `simulation` in keys.json. The private folder is a temp dir; the backend runner, the vendor CLI and
 // fetch are fakes, so no model is asked and no request leaves the process.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -19,7 +19,6 @@ import { setAgentModel, setAgentMode } from '../src/subharness/control.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
 import { setMemoryPath } from '../src/subharness/memory-path.ts';
 import { harnessBackend, setSubscriptionPath } from '../src/subharness/subscription-path.ts';
-import { enableSimulation } from '../src/simulation/key.ts';
 import { moneyKeysOf } from '../src/watcher/money.ts';
 import { BASE_URL, SECRET, SECRET_3, fakeFetch, fakePause } from './fixtures/keys-rig.ts';
 import { fakeVendor } from './fixtures/fake-vendor.ts';
@@ -87,7 +86,7 @@ test("the memory writer's path and an agent's route land in config.json and keys
   assert.equal(keysText(dir), before);
 });
 
-test('a key bound with keys bind and the simulation key land in config.json, never in keys.json', async () => {
+test('a key bound with keys bind lands in config.json, never in keys.json', async () => {
   // Catches: the binding kept as a `roles` section of keys.json, which the deploy moved out and nothing reads any more.
   const { dir, store } = rig();
   const ring = createKeyRing({ store, failover: createKeyFailover({ now: () => 0 }) });
@@ -102,8 +101,7 @@ test('a key bound with keys bind and the simulation key land in config.json, nev
     pause: fakePause(null),
   });
   assert.equal((await keys.run('keys.bind', { role: 'drawing', name: 'art' }, null)).status, 'ok');
-  assert.equal(enableSimulation(dir, 'art').ok, true);
-  assert.deepEqual(configOf(dir).llm, { boundKeys: { drawing: 'art' }, simulationKey: 'art' });
+  assert.deepEqual(configOf(dir).llm, { boundKeys: { drawing: 'art' } });
   assert.deepEqual(keysSections(dir).sort(), ['core', 'extra', 'variables']);
   assert.equal(store.boundTo('drawing'), 'art');
   assert.equal((await keys.run('keys.unbind', { role: 'drawing' }, null)).status, 'ok');
@@ -216,8 +214,9 @@ test("keys bind checks the role's model on the new key and binds nothing when th
   assert.equal(store.boundTo('vision'), 'art');
 });
 
-test("the watcher's money read lists the simulation's key once, by its name, and never sends the name as a key", () => {
-  // Catches: the simulation's key name read as a key value, so the balance read goes to OpenRouter with a name as bearer.
+test("the watcher's money read lists an extra key once, by its name, past an older file's simulation section", () => {
+  // Catches: the key name an older file's `simulation` section holds read as a key value, so the balance read goes to
+  // OpenRouter with a name as bearer.
   const dir = tempDir('nep-config-routing-money-');
   const old = { core: [], extra: { sim: SECRET_3 }, simulation: { key: 'sim' } };
   fs.writeFileSync(path.join(dir, 'keys.json'), JSON.stringify(old), { mode: 0o600 });

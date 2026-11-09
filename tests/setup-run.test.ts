@@ -135,7 +135,6 @@ test('setup writes an empty keys.json at 600 with no key in it', async () => {
   assert.deepEqual(stored.extra, {});
   // Changed: availability is install and login, so a store written today holds no list of backends.
   assert.equal(Object.hasOwn(stored.subharness, 'backends'), false);
-  assert.equal(stored.simulation.key, null);
 });
 
 test('a keys.json that exists keeps its content, and a loose mode is tightened to 600', async () => {
@@ -223,7 +222,6 @@ test('the report lists every step done and the commands that come next, in the o
     'model set',
     // Changed: the account command replaced the enable step.
     'subharness claude login',
-    'simulation enable',
   ]);
 });
 

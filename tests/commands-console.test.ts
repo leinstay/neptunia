@@ -61,7 +61,6 @@ const TABLE = [
   'agent',
   // Changed: `/search` holds quick search's targeted settings.
   'search',
-  'simulation',
   // Changed: `/mirror` is the owner's family over the diary's mirrors.
   'mirror',
   'help',

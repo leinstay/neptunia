@@ -528,7 +528,6 @@ import {
   serviceKeys,
   serviceKey,
   platformToken,
-  simKey,
   CliError,
   REFUSED_EXIT,
   defaultDataDir,
@@ -2995,14 +2994,6 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
 }
 
 // ---- a selfreflection day (--selfreflection-day) ---------------------------------------------------
-
-/**
- * The simulation's key (scripts/lib/cli.ts#simKey), a CliError while the simulation is off. No replay mode spends it:
- * a `--selfreflection-day` run takes its keys from its routing. It leaves with the simulation key. Never printed.
- */
-export function selfreflectionDayKey(_draw: string, env: Record<string, string | undefined> = process.env): string {
-  return simKey('replay-cli', env);
-}
 
 /** The file extension of a picture's media type. */
 function pictureExtension(mediaType: string | null | undefined) {

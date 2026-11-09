@@ -42,7 +42,7 @@ Which backend, model, effort, provider and mode each agent runs on, and the extr
 
 ## models.harness
 
-The paths of her core, her memory writer and the simulation through a subharness. `src/subharness/routing.ts` reads them at each request, and `/model set <role> <model> --via <route>` writes them after one reply. See [Keys and models](keys.md#her-core-on-a-subscription).
+The paths of her core and her memory writer through a subharness. `src/subharness/routing.ts` reads them at each request, and `/model set <role> <model> --via <route>` writes them after one reply. See [Keys and models](keys.md#her-core-on-a-subscription).
 
 <!-- settings: models.harness -->
 

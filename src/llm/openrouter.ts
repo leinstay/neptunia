@@ -1848,7 +1848,7 @@ export function createLlm({
   /**
    * The API key's own record (`<llm.baseUrl>/key`: its limit, reset, budgets and usage), one free
    * GET (see `getFree`). For the costs field of the owner's `/nep status` card. `apiKey` reads
-   * another key's record (the simulator key's), `role` the record of the key that model role goes out on
+   * another key's record, `role` the record of the key that model role goes out on
    * (the key ring's route), for this one GET only.
    */
   const keyInfo: Llm['keyInfo'] = (options) => getFree('key', options);

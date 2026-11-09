@@ -291,8 +291,6 @@ export const labels = {
     probe: 'Reply with one word: pong',
     costs: {
       keyLead: 'main',
-      simKeyLead: 'sim',
-      simKeyNotSet: 'sim: not set',
       roleKeyLead: '{roles} key',
       roleSeparator: ', ',
       keyLimit: '{lead} {spent}/{limit} USD ({notes})',
@@ -311,8 +309,6 @@ export const labels = {
       usageToday: 'day {usd}',
       last7: 'last 7 days {usd}{since}',
       last30: 'last 30 days {usd}{since}',
-      usageWeekCal: 'week {usd}',
-      usageMonthCal: 'month {usd}',
       since: ' (since {day})',
       partSeparator: ', ',
       reasons: { timeout: 'timeout', network: 'network', http: 'HTTP {status}', noClient: 'no client', badAnswer: 'bad answer' },

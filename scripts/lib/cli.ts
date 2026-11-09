@@ -1,5 +1,6 @@
-// What every script under scripts/ shares: flag parsing, the UTC day range, the deployment's data
-// and private directories (src/paths.ts), the guild of a data directory, the OpenRouter key slot of the tools, the llm of a paid script (scripts/lib/simulation-llm.ts), the spend gate, and the entry point (print the result, or the error and exit 1).
+// What every script under scripts/ shares: flag parsing, the UTC day range, the deployment's data and private
+// directories (src/paths.ts), the guild of a data directory, the service credentials of the tools, the spend gate,
+// and the entry point (print the result, or the error and exit 1).
 // The spend gate is the one rule for a tool that sends model requests: it prints its estimate
 // first and refuses unless `--spend <usd>` covers it.
 
@@ -7,18 +8,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePaths } from '../../src/paths.ts';
-import { simulationKey } from '../../src/simulation/key.ts';
 import { serviceCredential } from '../../src/keys/file.ts';
 import { interfaceCredential } from '../../src/config/files.ts';
-import type { Untyped } from '../../src/tools/types.ts';
 import { CliError } from './cli-args.ts';
 import type { Flags } from './cli-args.ts';
 export { CliError, parseFlags, runCli } from './cli-args.ts';
 export type { Flags } from './cli-args.ts';
-export { simulationLlm } from './simulation-llm.ts';
-export type { SimulationLlm } from './simulation-llm.ts';
-
-/** An object read by key whose values are not typed yet. */
 
 /** The text of a value flag, or undefined when it was not given (a value flag is never `true`). */
 export function flagText(flags: Flags, name: string): string | undefined {
@@ -59,21 +54,6 @@ export function platformToken(
   const token = interfaceCredential(privateDirOf(rootDir, env), name);
   if (!token) throw new CliError(`missing data/interfaces/${name}/credentials.json token`);
   return token;
-}
-
-/**
- * The OpenRouter key a tool spends: the simulation's key of `<private dir>/keys.json` (src/simulation/key.ts), the
- * private dir being the data folder of `NEPTUNIA_DATA_DIR` in `env`. While the simulation is off, or its key has left the store, the
- * tool stops with a CliError of one line that names it. A tool never spends a core key. The value is never printed.
- */
-export function simKey(tool: Untyped, env: Record<string, string | undefined> = process.env): string {
-  try {
-    return simulationKey(privateDirOf(ROOT, env));
-  } catch (err) {
-    throw new CliError(
-      `${tool}: ${err instanceof Error ? err.message.split('\n')[0] : 'the simulation key cannot be read'}`
-    );
-  }
 }
 
 /** Exit code of a run refused by the spend gate. */

@@ -46,8 +46,7 @@
     },
     "harness": {
       "core": null,
-      "memory": null,
-      "simulation": null
+      "memory": null
     }
   },
   "llm": {
@@ -63,7 +62,6 @@
     "providerByModel": {},
     "reasoningByRole": {},
     "boundKeys": {},
-    "simulationKey": null,
     "cache": {
       "ttl": "1h",
       "roles": ["core"],

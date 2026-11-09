@@ -60,7 +60,7 @@ test('the description review follows the key store the same way as the sweep', (
   assert.equal(reviewRefusal(baseConfig(), { OPENROUTER_MEMORY_KEY: 'v' }, reviewPrompts, empty), CODES.NOT_CONFIGURED);
 });
 
-// scripts/memory-session.ts gives the session the simulation's key ring: tests/simulation-key-ring.test.ts.
+// scripts/memory-session.ts gives the session production's key ring: tests/scripts-lib-script-routes.test.ts.
 
 // The owner's word of 2026-11-06 and 2026-11-08: a role that runs through a harness needs no API key, and no check at
 // the moment of use asks for one. The memory writer on `claude` or `codex` sends no key, so neither its sweep nor its

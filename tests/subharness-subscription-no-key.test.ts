@@ -66,7 +66,6 @@ function rig(options: { keys: boolean; fallback: boolean }) {
   const { spawn, started } = failingSpawn();
   const client = createSubscriptionClient({
     privateDir: dir,
-    route: 'core',
     direct,
     bridge: createToolBridge({ token: () => `tok-${(tokens += 1)}` }),
     spawn,

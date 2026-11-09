@@ -5,7 +5,7 @@
 // disagreements, latency and cost -- instead of by a few live turns.
 //
 //   cd /opt/neptunia/app && node scripts/search-policy-eval.ts <sheet.jsonl> --out <dir>
-//        [--key <ENV_NAME>] [--model <id>] [--limit N] [--max-usd 1] [--concurrency 4]
+//        [--model <id>] [--limit N] [--max-usd 1] [--concurrency 4]
 //        [--self-name <name>] [--dry-run]
 //
 // The sheet (scripts/lib/search-policy-eval.ts#parseSheet): one JSON row per line, `{ id, source,
@@ -37,8 +37,7 @@
 // copy; at most `--concurrency` (default 4) at once; no row is started once the summed cost has
 // passed `--max-usd` (default 1). The keys: production's, as the core
 // routes them (scripts/lib/script-routes.ts); `--<role> <key>/<model>` replaces a role for this run, and the
-// start lines on stderr name each role's key. `--key` names a variable of the private .env whose key every role
-// spends instead. Nothing under data/ is read or
+// start lines on stderr name each role's key. Nothing under data/ is read or
 // written; `--out` may not point there.
 //
 // Output in `--out`: `results.jsonl` (per row `{ id, source, tier, decision, query, forms, who,
@@ -49,7 +48,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CliError, defaultDataDir, flagText, parseFlags, privateDirOf, runCli } from './lib/cli.ts';
+import { CliError, defaultDataDir, parseFlags, privateDirOf, runCli } from './lib/cli.ts';
 import { routesText, scriptRouting, takeRoutes } from './lib/script-routes.ts';
 import type { Variant } from './lib/script-routes.ts';
 import { costOf } from './lib/recall-eval.ts';
@@ -59,10 +58,9 @@ import type { Untyped } from '../src/tools/types.ts';
 import type { Hot } from '../src/hot.ts';
 
 const USAGE =
-  'usage: node scripts/search-policy-eval.ts <sheet.jsonl> --out <dir> [--key <ENV_NAME>] [--model <id>] [--limit N] [--max-usd 1] [--concurrency 4] [--self-name <name>] [--dry-run]';
+  'usage: node scripts/search-policy-eval.ts <sheet.jsonl> --out <dir> [--model <id>] [--limit N] [--max-usd 1] [--concurrency 4] [--self-name <name>] [--dry-run]';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'search-policy-eval';
-const ENV_NAME_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 const DEFAULT_MAX_USD = 1;
 const DEFAULT_CONCURRENCY = 4;
 
@@ -78,27 +76,15 @@ function numberFlag(
   return n;
 }
 
-/** The key the variable `name` of `env` holds, for `--key`. Never printed. */
-function namedKey(name: string, env: Record<string, string | undefined>): string {
-  if (!ENV_NAME_RE.test(name)) throw new CliError(`${ORIGIN}: --key takes the name of a variable, not a key\n${USAGE}`);
-  const value = env[name];
-  if (typeof value !== 'string' || !value.trim()) throw new CliError(`${ORIGIN}: ${name} is not set (.env)`);
-  return value.trim();
-}
-
 /**
- * The live client of a run: every role on the key of the variable `named` names, or each role on production's routing
- * with the roles `routes` replaces (scripts/lib/script-routes.ts), said on stderr. The daily counters are a throwaway copy.
+ * The live client of a run: each role on production's routing with the roles `routes` replaces
+ * (scripts/lib/script-routes.ts), said on stderr. The daily counters are a throwaway copy.
  */
 async function liveClient({
-  named,
-  env,
   privateDir,
   routes,
   getConfig,
 }: {
-  named: string | undefined;
-  env: Record<string, string | undefined>;
   privateDir: string;
   routes: Variant;
   getConfig: () => Untyped;
@@ -107,7 +93,6 @@ async function liveClient({
   const { createCalibrator } = await import('../src/llm/tokens.ts');
   const state = { data: {}, markDirty() {} };
   const calibrator = createCalibrator();
-  if (named !== undefined) return createLlm({ apiKey: namedKey(named, env), getConfig, calibrator, state });
   const routing = await scriptRouting(ORIGIN, {
     privateDir,
     roles: ['analyzer'],
@@ -151,7 +136,7 @@ export async function main(
 ): Promise<string> {
   const taken = takeRoutes(ORIGIN, argv);
   const flags = parseFlags(taken.argv, {
-    values: ['--out', '--key', '--model', '--limit', '--max-usd', '--concurrency', '--self-name'],
+    values: ['--out', '--model', '--limit', '--max-usd', '--concurrency', '--self-name'],
     switches: ['--dry-run'],
     usage: USAGE,
   });
@@ -235,8 +220,6 @@ export async function main(
     const llm: Untyped =
       llmClient ??
       (await liveClient({
-        named: flagText(flags, '--key'),
-        env,
         privateDir: privateDirOf(rootDir, env),
         routes: taken.routes,
         getConfig: configNow,

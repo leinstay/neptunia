@@ -62,7 +62,7 @@
 //
 // `doctor` writes nothing and asks no model without `--live`: it checks Node, the binaries the engine runs, config.json and
 // config.local.json, the local layer, the key store's keys of the enabled roles, the client tokens, the features (the
-// subharness and the simulation, a warning while either is off), the memory database (read only, with no lock) and the socket. `runtime` is the core's reading of the server, itself and the memory
+// subharness, a warning while it is off), the memory database (read only, with no lock) and the socket. `runtime` is the core's reading of the server, itself and the memory
 // (`/doctor server`, `core` and `memory` read one each), `skipped` when no core answers in time. `--live` adds `providers` in its place, the core's probes of the model roles, which is
 // `skipped` when no core answers, since the command line holds no key. `--json` prints
 // `{ checks: [{ name, status, detail }] }`. A check is `ok`, `warn`, `fail` or `skipped`, and any `fail` exits 1. No
@@ -1186,8 +1186,8 @@ async function checkRuntime(ask: ((command: Command) => Promise<Answer>) | null)
 }
 
 /**
- * The two features the owner switches on from the chat, the subharness and the simulation (src/subharness/summary.ts):
- * `warn` naming each one that is off with the command that turns it on, never `fail`.
+ * The feature the owner switches on from the chat, the subharness (src/subharness/summary.ts): `warn` naming it while
+ * it is off with the command that turns it on, never `fail`.
  */
 async function checkFeatures(where: { privateDir: string }): Promise<Check> {
   let rows: Awaited<ReturnType<typeof featureRows>>;
@@ -1197,7 +1197,7 @@ async function checkFeatures(where: { privateDir: string }): Promise<Check> {
     return { name: 'features', status: 'warn', detail: `keys.json cannot be read: ${(err as Error).message}` };
   }
   const off = rows.filter((row) => !row.available);
-  if (off.length === 0) return { name: 'features', status: 'ok', detail: 'the subharness and the simulation are on' };
+  if (off.length === 0) return { name: 'features', status: 'ok', detail: 'the subharness is on' };
   return {
     name: 'features',
     status: 'warn',

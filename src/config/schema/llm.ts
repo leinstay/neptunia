@@ -91,14 +91,6 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
       'The extra key of `keys.json` each role goes out on, by role: a base model role or `search`. A role with no entry goes out on the core keys. `/keys bind <role> <name>` writes an entry and `/keys unbind <role>` removes it',
   },
   {
-    'key': 'llm.simulationKey',
-    'types': ['string', 'null'],
-    'reader': 'src/subharness/routing.ts',
-    'default': null,
-    'text':
-      'An extra key of `keys.json` that `simulation enable --key <name>` names and `simulation disable` clears. No paid script spends it',
-  },
-  {
     'key': 'llm.cache.ttl',
     'types': ['string'],
     'reader': 'src/llm/openrouter.ts',

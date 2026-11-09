@@ -173,12 +173,4 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
     'text':
       "The memory writer's path through a subharness, in the shape of `models.harness.core`. Null is the direct path on the memory role's key. `/model set memory <model> --via <route>` writes it after one reply",
   },
-  {
-    'key': 'models.harness.simulation',
-    'types': ['map', 'null'],
-    'reader': 'src/subharness/routing.ts',
-    'default': null,
-    'text':
-      'A subscription route in the shape of `models.harness.core` that `/model set simulation <model> --via <route>` writes. No paid script reads it',
-  },
 ];

@@ -945,8 +945,6 @@
     "status": {
       "costs": {
         "keyLead": "main key",
-        "simKeyLead": "dedicated simulator key",
-        "simKeyNotSet": "dedicated simulator key: not set",
         "roleKeyLead": "dedicated {roles} key",
         "roleSeparator": ", ",
         "keyState": "{role} runs on {key}{since}",
@@ -979,8 +977,6 @@
         "usageToday": "today {usd}",
         "last7": "last 7 days {usd}",
         "last30": "last 30 days {usd}",
-        "usageWeekCal": "this week {usd}",
-        "usageMonthCal": "this month {usd}",
         "since": " (since {day})",
         "partSeparator": " · ",
         "reasons": {

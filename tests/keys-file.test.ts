@@ -1,4 +1,4 @@
-// src/keys/file.ts: the synchronous read and write of keys.json that the subharness, the simulation and setup
+// src/keys/file.ts: the synchronous read and write of keys.json that the subharness and setup
 // share. A missing file is the empty store, a damaged one is refused without quoting its content, a write is mode 600
 // and keeps the sections it was given.
 import { test } from 'node:test';

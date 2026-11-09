@@ -82,9 +82,6 @@ const KEY_ROLES: ReadonlyArray<string> = [...BASE_ROLES, MEMORY_ROLE, SEARCH_ROL
 /** The roles `/model set` names: the model roles, her memory session and the agents, whose models are their subharnesses'. */
 const MODEL_SET_CHOICES: ReadonlyArray<string> = [...new Set([...MODEL_SET_ROLES, MEMORY_ROLE, ...SUBHARNESS_AGENTS])];
 
-/** What `/model set` takes: the roles above and `simulation`, no model role, whose route is a subscription or the API. */
-const MODEL_SET_TARGETS: ReadonlyArray<string> = [...MODEL_SET_CHOICES, 'simulation'];
-
 /** A yes or no argument. */
 const FLAGS: ReadonlyArray<string> = ['true', 'false'];
 
@@ -528,7 +525,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
       ),
       runs(
         sub('set', 'Choose a role’s model and source, test it with one reply and optionally set provider or effort', [
-          arg('role', true, MODEL_SET_TARGETS),
+          arg('role', true, MODEL_SET_CHOICES),
           arg('model', false),
           flagArg('provider', false),
           flagArg('effort', false),
@@ -799,17 +796,6 @@ export const COMMANDS: ReadonlyArray<Command> = [
         arg('agent', true, SUBHARNESS_AGENTS),
         arg('mode', false, AGENT_MODES),
       ]),
-    ],
-  },
-  {
-    name: 'simulation',
-    help: 'Control paid test runs and the key they use',
-    args: [],
-    defaultSubcommand: 'status',
-    subcommands: [
-      sub('status', 'Whether the simulation is on and the name of its key'),
-      sub('enable', 'Allow paid test scripts to use the named extra key', [flagArg('key', true)]),
-      sub('disable', 'Switch the simulation off: the scripts refuse to run'),
     ],
   },
   { name: 'help', help: 'Browse commands and their descriptions', args: [], subcommands: [] },
