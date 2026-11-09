@@ -75,8 +75,8 @@
 //     `memoryDb.session.reviewsPerDay` accepted or failed a UTC day; describe.ts#reviewDescription). Never two at once;
 //     every write through the writer. A run that fails (`llm_error`, `bad_answer`, `build_error`, `write_failed`,
 //     `not_configured`, `skipped`) is a warning (`memory session: run failed`, the code and the scope kind), the
-//     status's `session.lastFailure`, and one `onSessionFailure({ scopeKey, scopeKind, partner, code, lines, at })` per
-//     failing scope until that scope runs fine again (src/index.ts tells her: a `memoryFailed` fact); a failed review
+//     status's `session.lastFailure`, and one `onSessionFailure({ scopeKey, scopeKind, iface, place, code, lines, at })`
+//     per failing scope, with the kind, interface and DM place the run names, until that scope runs fine again (src/index.ts tells her: a `memoryFailed` fact); a failed review
 //     is a warning and the status's `session.lastFailure`, and its flag waits for the next day.
 //   - `inspection()` is the owner's port of snapshots over read-only connections of their own (inspection-snapshots.ts), null
 //     while the database is closed. Each tick closes the expired ones, and a close of the database ends them all.
@@ -1389,21 +1389,21 @@ export function createMemoryDb({
     return reportEffectiveModels(hot.config, sessionEnv?.() ?? null, log);
   }
 
-  /** One failing scope told once (`onSessionFailure`) until it runs fine again. */
+  /** One failing scope told once (`onSessionFailure`) until it runs fine again, with the scope the run names. */
   function sessionFailed(run: Row, at: number): void {
     const code = run.outcome;
-    sessionState.lastFailure = { code, at, scope: asText(run.scope ?? '').split(':')[0] || null };
-    log.warn('memory session: run failed', { code, scope: sessionState.lastFailure.scope, lines: run.lines ?? 0 });
+    const scopeKind = typeof run.scopeKind === 'string' ? run.scopeKind : null;
+    sessionState.lastFailure = { code, at, scope: scopeKind };
+    log.warn('memory session: run failed', { code, scope: scopeKind, lines: run.lines ?? 0 });
     if (sessionState.told.has(run.scope)) return;
     sessionState.told.add(run.scope);
     if (typeof onSessionFailure !== 'function') return;
-    const [scopeKind, iface, ...rest] = asText(run.scope ?? '').split(':');
     try {
       onSessionFailure({
         scopeKey: run.scope,
         scopeKind,
-        iface: iface ?? null,
-        partner: scopeKind === 'dm' ? rest.join(':') || null : null,
+        iface: run.iface ?? null,
+        place: scopeKind === 'dm' ? (run.place ?? null) : null,
         code,
         lines: run.lines ?? 0,
         at,

@@ -53,8 +53,8 @@ import { SELF_PERSON, shortHash } from './ids.ts';
 import { storedMediaTags } from '../../format.ts';
 import { LINE_HOLDS_TOLD_MEDIA, lineMedia, mediaMessageParts } from './media-store.ts';
 import { contextRow, internalContext, issueContext, scopeWhere } from './scope.ts';
-import { scopesOf } from './session-scopes.ts';
-import type { SweepScope } from './session-scopes.ts';
+import { runColumns, scopesOf } from './session-scopes.ts';
+import type { RunColumns, SweepScope } from './session-scopes.ts';
 import { columnsOf } from './rows.ts';
 import { turnReadRows } from './service.ts';
 import { MEMORY_LIMITS, RELATIONSHIP_LIMITS } from '../text-limits.ts';
@@ -1226,8 +1226,8 @@ const codeOf = (error: unknown): string => {
   return code ?? name ?? 'ERROR';
 };
 
-/** One run of a sweep: the scope it covered, how it ended and the lines it read. */
-export type SweepRun = Row & { scope: string; outcome: string; lines: number; errors?: Array<string> };
+/** One run of a sweep: the scope's key, how it ended, the lines it read and the scope's columns (runColumns). */
+export type SweepRun = Row & RunColumns & { scope: string; outcome: string; lines: number; errors?: Array<string> };
 
 /** What a model call answers: the text and the tokens it took. */
 export type Completion = {
@@ -1413,10 +1413,10 @@ export async function sweep(
   const runs: Array<SweepRun> = [];
   let ran = 0;
   let capped = 0;
-
   for (const swept of scopesOf(db, { audienceColumn: true })) {
     if (options.scope && options.scope !== swept.key) continue;
     if (options.scopes instanceof Set && !options.scopes.has(swept.key)) continue;
+    const add = (...done: Array<SweepRun>) => runs.push(...done.map((run) => ({ ...run, ...runColumns(swept) })));
     const key = cursorKey(settings.mode, swept.key);
     const cursor = Number(metaOf(db, key) ?? 0);
     const batch = (ctx.track ?? untracked)('session.batch', () =>
@@ -1429,7 +1429,7 @@ export async function sweep(
       })
     );
     if (batch.length < Math.min(settings.minMessages, maxMessages)) {
-      runs.push({ scope: swept.key, outcome: 'quiet', lines: batch.length });
+      add({ scope: swept.key, outcome: 'quiet', lines: batch.length });
       // A quiet scope reads old media lines it never saw, under the media pass's own daily cap.
       if (
         settings.mediaPass &&
@@ -1442,14 +1442,14 @@ export async function sweep(
         if (old.length > 0) {
           ran += 1;
           const pass = { cursor: passCursor, key: passKey, sweepId: `${sweepId}${MEDIA_PASS_MARK}`, settings };
-          runs.push(...(await runBatch(ctx, { scope: swept, batch: old, ...pass })));
+          add(...(await runBatch(ctx, { scope: swept, batch: old, ...pass })));
         }
       }
       continue;
     }
     // Small sessions wait and join the next batch of their scope: no request, no run row, the cursor stays.
     if (!joinOf(batch, settings, now()).write) {
-      runs.push({ scope: swept.key, outcome: 'waiting', lines: batch.length });
+      add({ scope: swept.key, outcome: 'waiting', lines: batch.length });
       continue;
     }
     if (
@@ -1457,11 +1457,11 @@ export async function sweep(
       scopeSweepsToday(db, swept.key, started, settings.mode) >= settings.sweepsPerScopePerDay
     ) {
       capped += 1;
-      runs.push({ scope: swept.key, outcome: 'capped', lines: batch.length });
+      add({ scope: swept.key, outcome: 'capped', lines: batch.length });
       continue;
     }
     ran += 1;
-    runs.push(...(await runBatch(ctx, { scope: swept, batch, cursor, key, sweepId, settings })));
+    add(...(await runBatch(ctx, { scope: swept, batch, cursor, key, sweepId, settings })));
   }
   // Every scope with work is at its daily cap: the sweep did nothing.
   if (ran === 0 && capped > 0) return { status: 'refused', code: CODES.SWEEP_CAP, runs };
