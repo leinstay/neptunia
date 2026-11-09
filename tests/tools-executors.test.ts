@@ -1863,8 +1863,7 @@ function fromCommandLine(enabled: boolean) {
   );
   const quiet = { info() {}, warn() {}, error() {}, debug() {} };
   const cfg = { ...config(), dm: { enabled } };
-  // The stored places of the other interface. A place id names a place when a row holds it, and its chat comes from that
-  // row: the call and the operation no longer parse them out of the id (plan 2026-11-08 ids-by-links, slice 7b).
+  // A place id names a place, and its chat, by the row that holds it (plan 2026-11-08 ids-by-links, slice 7b).
   const rows: Record<string, { iface: string; kind: string; nativeId: string | null; partnerNativeId: string | null }> =
     {
       'tele:dm:555': { iface: 'tele', kind: 'dm', nativeId: null, partnerNativeId: '555' },
