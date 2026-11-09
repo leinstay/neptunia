@@ -1,4 +1,4 @@
-// The shape production had on 2026-11-05, in synthetic rows, for `scripts/memory-repair-audit.ts` and the sweep of one DM.
+// The shape production had on 2026-11-05, in synthetic rows, for the sweep of one DM.
 // The owner's command line holds one DM place, `cli:dm:owner`, whose account is linked to the owner's person since then,
 // so the place names that person as its partner. Its rows carry three values of `scope_dm`: none (a line seen before the
 // link), the person the legacy importer spelled for the command line, and (for new lines) the owner's person. The memory

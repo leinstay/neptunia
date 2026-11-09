@@ -1458,11 +1458,6 @@
         "function-length": 333
       }
     },
-    "scripts/lib/report.ts": {
-      "tally": {
-        "complexity": 34
-      }
-    },
     "scripts/lib/vision-compare.ts": {
       "describeOne": {
         "complexity": 29
