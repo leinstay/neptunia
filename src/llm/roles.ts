@@ -57,6 +57,8 @@ export const SEARCH_ROLE = 'search';
 
 /** The model of quick search and of the scout's web search; undefined until the owner sets one, as it has no default. */
 export function searchModel(config: unknown): string | undefined {
+  const routed = chainModel(objOf(config).models, SEARCH_ROLE);
+  if (routed !== undefined) return routed ?? undefined;
   const model = objOf(objOf(objOf(config).web).quickSearch).model;
   return typeof model === 'string' && model !== '' ? model : undefined;
 }
@@ -211,12 +213,27 @@ export function roleModel(config: unknown, role: string, purpose?: string): stri
     const pinned = byPurpose[purpose];
     if (typeof pinned === 'string' && pinned) return pinned;
   }
+  const routed = chainModel(models, role);
+  if (routed !== undefined)
+    return routed ?? (MANDATORY_ROLES.some((one) => one === role) ? ROLE_DEFAULTS[role] : undefined);
   const group = roleGroup(role);
   if (!group) return undefined;
   const groupMap = objOf(models)[group];
   const map = isObj(models) && Object.hasOwn(models, group) && isObj(groupMap) ? groupMap : undefined;
   const own = map && Object.hasOwn(map, role) ? map[role] : undefined;
   return typeof own === 'string' && own ? own : role === MEMORY_ROLE ? MEMORY_ROLE_DEFAULT : ROLE_DEFAULTS[role];
+}
+
+/**
+ * The model of the first route of `models.routes.<role>` (src/llm/route-chain.ts) when the role has a chain there:
+ * null for an empty chain, undefined while the role has none, so the old `models.base` entry still answers.
+ */
+function chainModel(models: unknown, role: string): string | null | undefined {
+  const routes = objOf(objOf(models).routes);
+  const chain: unknown = Object.hasOwn(routes, role) ? routes[role] : undefined;
+  if (!Array.isArray(chain)) return undefined;
+  const model: unknown = objOf(chain[0]).model;
+  return typeof model === 'string' && model !== '' ? model : null;
 }
 
 /**
@@ -227,6 +244,8 @@ export function roleModel(config: unknown, role: string, purpose?: string): stri
  */
 export function roleOn(config: unknown, role: string): boolean {
   if (!OPTIONAL_ROLES.includes(role as (typeof OPTIONAL_ROLES)[number])) return true;
+  const routed = chainModel(objOf(config).models, role);
+  if (routed !== undefined) return routed !== null;
   const base = objOf(objOf(config).models).base;
   if (!isObj(base) || !Object.hasOwn(base, role)) return true;
   const own = base[role];

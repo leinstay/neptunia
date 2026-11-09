@@ -385,7 +385,7 @@ When a result's `values.reason` has wording in `tools.result.params.reason`, `re
 | `dm-off` | failed | - | `wake.feedback.codes.dm-off` |
 | `not-writable` | failed | - | `wake.feedback.codes.not-writable` |
 | `unavailable` | failed | - | `wake.feedback.codes.unavailable` |
-| `keys-exhausted` | failed | - | `wake.feedback.codes.keys-exhausted` |
+| `routes-exhausted` | failed | - | `wake.feedback.codes.routes-exhausted` |
 | `proxy-down` | failed | - | `wake.feedback.codes.proxy-down` |
 | `proxy-back` | ok | - | `wake.feedback.codes.proxy-back` |
 | `memory-pending-quarantined` | failed | - | `wake.feedback.codes.memory-pending-quarantined` |

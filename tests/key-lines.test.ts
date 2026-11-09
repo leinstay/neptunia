@@ -1,4 +1,4 @@
-// Tests for the key lines and the core health: the core's `keys-exhausted` reaching the role tracker
+// Tests for the key lines and the core health: the core's `routes-exhausted` reaching the role tracker
 // (src/llm/role-health.ts#reportingCoreKeys) and the grant lines of the status card (src/tools/operations/key-lines.ts#keyGrantLines).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -6,18 +6,19 @@ import { createRoleHealth, reportingCoreKeys } from '../src/llm/role-health.ts';
 import { keyGrantLines } from '../src/tools/operations/key-lines.ts';
 
 const CONFIG = { models: { base: { core: 'x/core', vision: 'x/eyes' } } };
-const exhausted = () => Object.assign(new Error('out'), { code: 'keys-exhausted' });
+// The chain client's code replaces keys-exhausted (spec 2026-11-09-model-routes).
+const exhausted = () => Object.assign(new Error('out'), { code: 'routes-exhausted' });
 
 function rig(complete: (messages?: unknown, options?: unknown) => Promise<unknown>) {
   const health = createRoleHealth({ now: () => Date.parse('2026-11-02T09:00:00Z'), hasKey: () => true });
   return { health, llm: reportingCoreKeys({ complete }, health) };
 }
 
-test('reportingCoreKeys: a core request that fails with keys-exhausted puts the core down, the next answer clears it', async () => {
+test('reportingCoreKeys: a core request that fails with routes-exhausted puts the core down, the next answer clears it', async () => {
   let fail = true;
   const { health, llm } = rig(() => (fail ? Promise.reject(exhausted()) : Promise.resolve({ text: 'hi' })));
-  await assert.rejects(llm.complete([], { role: 'core' }), { code: 'keys-exhausted' });
-  assert.equal(health.down(CONFIG, 'core')?.reason, 'keys-exhausted');
+  await assert.rejects(llm.complete([], { role: 'core' }), { code: 'routes-exhausted' });
+  assert.equal(health.down(CONFIG, 'core')?.reason, 'routes-exhausted');
   fail = false;
   await llm.complete([], { role: 'core' });
   assert.equal(health.down(CONFIG, 'core'), null);

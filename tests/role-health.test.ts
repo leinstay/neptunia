@@ -124,35 +124,36 @@ test('a failing role is retried after 1, 5, 15 and then every 60 minutes, and cl
   assert.equal(health.down(CONFIG, 'drawing')?.retryAt, clock.at + MINUTE, 'a new failure starts at one minute');
 });
 
-/** The error `complete` throws once every key of a role's list has failed on a budget error. */
+// The chain client's code replaces keys-exhausted (spec 2026-11-09-model-routes): every route of the chain unavailable.
+/** The error the chain client throws once every route of a role's chain was unavailable. */
 const keysExhausted = (): Error =>
-  Object.assign(new Error('llm: every key of the role is out of credit'), { code: 'keys-exhausted' });
+  Object.assign(new Error('llm: every route of the role is unavailable'), { code: 'routes-exhausted' });
 
-test('keys-exhausted puts the role down until the next UTC day, whatever the backoff would say', () => {
+test('routes-exhausted puts the role down until the next UTC day, whatever the backoff would say', () => {
   const { clock, health } = tracker();
   health.failed('core', keysExhausted());
   const down = health.down(CONFIG, 'core');
-  assert.equal(down?.reason, 'keys-exhausted');
+  assert.equal(down?.reason, 'routes-exhausted');
   assert.equal(down?.retryAt, Date.parse('2026-11-01T00:00:00Z'));
   // Bug caught: the 1-minute backoff of a payment error waking her against two empty keys every minute.
   clock.at += 14 * 60 * MINUTE;
-  assert.equal(health.down(CONFIG, 'core')?.reason, 'keys-exhausted', '23:00 UTC is still the same day');
+  assert.equal(health.down(CONFIG, 'core')?.reason, 'routes-exhausted', '23:00 UTC is still the same day');
   clock.at = Date.parse('2026-11-01T00:00:00Z');
   assert.equal(health.down(CONFIG, 'core'), null, 'a call is let through at 00:00 UTC');
 });
 
-test('keys-exhausted lists in failing() and clears on the first success', () => {
+test('routes-exhausted lists in failing() and clears on the first success', () => {
   const { health } = tracker();
   health.failed('core', keysExhausted());
   assert.deepEqual(
     health.failing(CONFIG).map((row) => [row.role, row.reason]),
-    [['core', 'keys-exhausted']]
+    [['core', 'routes-exhausted']]
   );
   health.succeeded('core');
   assert.equal(health.down(CONFIG, 'core'), null);
 });
 
-test('a failure that is not keys-exhausted and has no status leaves the role up', () => {
+test('a failure that is not routes-exhausted and has no status leaves the role up', () => {
   const { health } = tracker();
   health.failed('core', Object.assign(new Error('x'), { code: 'something-else' }));
   assert.equal(health.down(CONFIG, 'core'), null);

@@ -1,8 +1,8 @@
 // Which model roles are globally failing, kept in memory per role for the life of the process. A role is down when
 // its model is switched off (`models.base.<role>: false`), when its key is missing (`hasKey`, the key ring's route
 // of the role), after a 401, a 402 or a 404, after a 429 whose answer says the daily limit is spent
-// (src/llm/openrouter.ts#providerLimitOf), after three malformed answers in a row, or when every key of its list is out
-// of credit (`keys-exhausted`, src/llm/key-failover.ts), which keeps it down until 00:00 UTC. One failed request of any
+// (src/llm/openrouter.ts#providerLimitOf), after three malformed answers in a row, or when every route of its chain is
+// unavailable (`routes-exhausted`, src/llm/chain-client.ts), which keeps it down until 00:00 UTC. One failed request of any
 // other kind leaves the role up. A failing role is tried again on a backoff of 1, 5, 15 and then every 60 minutes, and it
 // clears on its first success. src/core.ts builds one tracker and hands it to the turn runner, the admin and the
 // describer's model client; the tool gateway (src/tools/gateway.ts#abilityRoute) reads it to route a tool role's call,
@@ -15,7 +15,7 @@ import type { KeyOf } from '../keys/ring.ts';
 
 /** Why a role is down. */
 export type RoleDownReason =
-  'no-model' | 'no-key' | 'unauthorized' | 'payment' | 'not-found' | 'daily-limit' | 'malformed' | 'keys-exhausted';
+  'no-model' | 'no-key' | 'unauthorized' | 'payment' | 'not-found' | 'daily-limit' | 'malformed' | 'routes-exhausted';
 
 /** A role that is down: why, and when it may be called again (null while the config or the key keeps it down). */
 export type RoleDown = { role: string; reason: RoleDownReason; retryAt: number | null };
@@ -79,9 +79,8 @@ export function createRoleHealth({
   const failures = new Map<string, Failure>();
   const malformedRuns = new Map<string, number>();
 
-  // The error `complete` throws once every key of a role's list failed on a budget error.
-  const exhausted = (err: unknown): boolean =>
-    err !== null && typeof err === 'object' && Reflect.get(err, 'code') === 'keys-exhausted';
+  // The error `complete` throws once every route of a role's chain was unavailable.
+  const exhausted = (err: unknown): boolean => isExhausted(err);
 
   function fail(role: string, reason: RoleDownReason): void {
     const tries = (failures.get(role)?.tries ?? 0) + 1;
@@ -94,7 +93,7 @@ export function createRoleHealth({
       if (exhausted(err)) {
         // The credits come back with the day: no backoff tries before then.
         const tries = (failures.get(role)?.tries ?? 0) + 1;
-        failures.set(role, { reason: 'keys-exhausted', tries, retryAt: (Math.floor(now() / DAY_MS) + 1) * DAY_MS });
+        failures.set(role, { reason: 'routes-exhausted', tries, retryAt: (Math.floor(now() / DAY_MS) + 1) * DAY_MS });
         return;
       }
       const reason = globalReasonOf(err);
@@ -172,8 +171,8 @@ export function reportingLlm<TClient extends Completing>(
 }
 
 /**
- * `llm` with the one failure of the core's requests that `health` tracks: `keys-exhausted`, every key of the core's list out
- * of credit. That failure puts the core down until 00:00 UTC, and its next answer clears it. Any other failure, and every
+ * `llm` with the one failure of the core's requests that `health` tracks: `routes-exhausted`, every route of the core's
+ * chain unavailable, or `keys-exhausted`, which the key ring's own failover in src/llm/openrouter.ts still throws. That failure puts the core down until 00:00 UTC, and its next answer clears it. Any other failure, and every
  * empty answer, is not told to `health`. Everything else about the request passes through unchanged.
  */
 export function reportingCoreKeys<TClient extends Completing>(llm: TClient, health: RoleHealth): TClient {
@@ -185,12 +184,17 @@ export function reportingCoreKeys<TClient extends Completing>(llm: TClient, heal
       if (isCore) health.succeeded(CORE_ROLE);
       return answer;
     } catch (err) {
-      if (isCore && err !== null && typeof err === 'object' && Reflect.get(err, 'code') === 'keys-exhausted')
-        health.failed(CORE_ROLE, err);
+      if (isCore && isExhausted(err)) health.failed(CORE_ROLE, err);
       throw err;
     }
   };
   return Object.assign(Object.create(llm) as TClient, { complete });
+}
+
+/** Whether `err` says every route of a role's chain, or every key of the key ring's list, failed. */
+function isExhausted(err: unknown): boolean {
+  const code: unknown = err !== null && typeof err === 'object' ? Reflect.get(err, 'code') : undefined;
+  return code === 'routes-exhausted' || code === 'keys-exhausted';
 }
 
 /** The live config of `hot` (`{ config, prompts }`), read at the call. */

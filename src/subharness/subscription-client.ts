@@ -7,8 +7,10 @@
 // waiting calls with the step's results, and reads the stream again until the next model call stops. Only requests of
 // the role `core` take the route; every other role goes to the direct client unchanged. Each step passes the same two
 // rails as an API request before anything starts, records its usage at no cost and returns the backend, so the archive
-// keeps one row per step. A failure rejects with an Error whose `code` is one of `SUBSCRIPTION_CODES`, and goes to the
-// direct client only while `llm.subscription.fallback` is true. Logs carry the backend, counts and codes, never text.
+// keeps one row per step. A failure rejects with an Error whose `code` is one of `SUBSCRIPTION_CODES`. A request that
+// brings the route the chain client chose (`chainRoute`, src/llm/chain-client.ts) takes that route, and its failure goes
+// back to the chain, which moves on; any other request takes the stored route and goes to the direct client on a
+// failure only while `llm.subscription.fallback` is true. Logs carry the backend, counts and codes, never text.
 
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -20,6 +22,7 @@ import { childEnvOf, outputLimitEnv } from '../agent-runner/backend.ts';
 import { killTree } from '../agent-runner/opencode.ts';
 import { SUBSCRIPTION_CODES, TokenLimitError, countLlmRequest, toolCallsOf } from '../llm/openrouter.ts';
 import type { CompleteResult } from '../llm/openrouter.ts';
+import { isListedEffort } from '../llm/roles.ts';
 import { estimateMessages, estimateTools } from '../llm/tokens.ts';
 import { coreSocketPath } from '../interface/socket.ts';
 import { createKeyStore } from '../keys/store.ts';
@@ -594,6 +597,16 @@ function resume(
   return next;
 }
 
+/** The route of the chain client's `chainRoute` (src/llm/route-text.ts) as a path, null for a request without one. */
+function chainPathOf(value: unknown): SubscriptionPath | null {
+  if (!isRec(value)) return null;
+  if (value.via === 'api') return { kind: 'api' };
+  const backend = value.backend === 'claude' || value.backend === 'codex' ? value.backend : null;
+  if (value.via !== 'harness' || backend === null || typeof value.model !== 'string') return null;
+  const effort = isListedEffort(value.effort) ? value.effort : null;
+  return { kind: 'subharness', backend, model: value.model, effort };
+}
+
 /** The client in front of `deps.direct`. */
 export function createSubscriptionClient(deps: SubscriptionClientDeps): {
   complete(messages: unknown, options?: unknown): Promise<CompleteResult>;
@@ -753,7 +766,8 @@ export function createSubscriptionClient(deps: SubscriptionClientDeps): {
   async function onRoute(messages: Array<Rec>, options: Rec): Promise<CompleteResult> {
     const results = laterStep(messages);
     const session = results === null ? null : sessionOf(results);
-    const route = session?.route ?? deps.fixedPath ?? subscriptionPath(deps.privateDir, 'core');
+    const chosen = chainPathOf(options.chainRoute);
+    const route = session?.route ?? chosen ?? deps.fixedPath ?? subscriptionPath(deps.privateDir, 'core');
     if (route.kind === 'api') return deps.direct.complete(messages, options);
     const estimated = rails(messages, options);
     try {
@@ -765,7 +779,8 @@ export function createSubscriptionClient(deps: SubscriptionClientDeps): {
       return resultOf(route, answer, estimated, options);
     } catch (error) {
       if (isSubscriptionFailure(error)) deps.ran?.(route.backend, runOutcomeOf(error));
-      if (!isSubscriptionFailure(error) || !settingsOf(llmOf(deps)).fallback || !apiKeyExists()) throw error;
+      if (chosen !== null || !isSubscriptionFailure(error) || !settingsOf(llmOf(deps)).fallback || !apiKeyExists())
+        throw error;
       log.warn('subscription: step goes to the api', { code: str(rec(error).code) });
       return deps.direct.complete(messages, { ...options, countAgainstDailyCap: false });
     }
