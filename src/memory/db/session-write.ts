@@ -142,6 +142,7 @@ import { applyChannelEntryWrite } from './channel-entry.ts';
 import { applyPlaceLoreWrite } from './place-lore.ts';
 import { applyParticipationWrite } from './participation-episodes.ts';
 import { applyRecentLinesWrite } from './recent-lines.ts';
+import { applySelfreflectionWrite } from './selfreflection-entries.ts';
 import { applyOperationalWrite } from './operational.ts';
 import { applyUnitWrite } from './unit-write.ts';
 import { applyPublicationWrite } from './publish.ts';
@@ -997,6 +998,8 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['place-lore', applyPlaceLoreWrite],
   ['participation-episodes', applyParticipationWrite],
   ['recent-lines', applyRecentLinesWrite],
+  // Her selfreflection: a whole value or one appended post (selfreflection-entries.ts).
+  ['selfreflection-entries', applySelfreflectionWrite],
   // The selfreflection's mirrors: the state of a send, then the owner's configuration.
   [
     'publication',

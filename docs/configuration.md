@@ -84,6 +84,14 @@ The paths of her core and her memory writer through a subharness. `src/subharnes
 | `models.harness.core` | map, null | `null` | Her core's subscription route, `{ "backend": "claude" or "codex", "model": id, "effort": level or null }`. Null is the OpenRouter API. `/model set core <model> --via <route>` writes it after one reply, and `/model set core <model>` clears it | `src/subharness/routing.ts` |
 | `models.harness.memory` | map, null | `null` | The memory writer's path through a subharness, in the shape of `models.harness.core`. Null is the direct path on the memory role's key. `/model set memory <model> --via <route>` writes it after one reply | `src/subharness/routing.ts` |
 
+## models.routes
+
+The chain of routes each model role runs on. `src/llm/route-chain.ts` reads it at each request; a role with no entry runs on the routes its `models.base`, `models.harness`, `llm.boundKeys` and core keys give it. See [Keys and models](keys.md#chains-of-routes).
+
+| Key | Type | Default | What it does | Read by |
+|---|---|---|---|---|
+| `models.routes` | map | `{}` | The chain of routes of each model role, by role (`core`, `memory`, `analyzer`, `vision`, `video`, `embedding`, `speech`, `drawing`, `search`): an array of `{ "via": "api", "key": name, "model": id, "effort": level }` or `{ "via": "harness", "backend": "claude" or "codex", "model": id, "effort": level }`, tried in order. A role with no entry runs on the routes its older settings give it. An empty array turns an optional role off | `src/llm/route-chain.ts` |
+
 ## llm
 
 | Key | Type | Default | What it does | Read by |
@@ -100,6 +108,7 @@ The paths of her core and her memory writer through a subharness. `src/subharnes
 | `llm.providerByModel` | map | `{}` | Per-model provider routing. See the resolution order below | `src/llm/embed.ts` |
 | `llm.reasoningByRole` | map | `{}` | The reasoning effort of a role by role name, `{ "effort": "low" }`, `medium` or `high`, sent as `reasoning` on each request of the role that has no reasoning of its own. Read for `memory`, `analyzer`, `vision` and `video`, never for the core. `/model set <role> <model> --effort <level>` writes it | `src/llm/roles.ts` |
 | `llm.boundKeys` | map | `{}` | The extra key of `keys.json` each role goes out on, by role: a base model role or `search`. A role with no entry goes out on the core keys. `/keys bind <role> <name>` writes an entry and `/keys unbind <role>` removes it | `src/subharness/routing.ts` |
+| `llm.routeRetryMinutes` | number | `30` | How long a role stays on a later route of its chain after a route was unavailable, before its next request tries the first route again (minutes). Read at each request | `src/llm/chain-client.ts` |
 | `llm.cache.ttl` | string | `"1h"` | Cache TTL for the markers on the system message and the stable user prefix: `"1h"` or `"5m"` | `src/llm/openrouter.ts` |
 | `llm.cache.roles` | array | `["core"]` | Model roles whose requests get the cache marker. Add `analyzer` to cache its requests too | `src/llm/openrouter.ts` |
 | `llm.cache.models` | array | `["anthropic/"]` | Model id prefixes whose provider accepts the `cache_control` marker | `src/llm/openrouter.ts` |

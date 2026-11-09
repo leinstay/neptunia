@@ -493,7 +493,7 @@
           "dm-off": "private messages are off",
           "not-writable": "you cannot write there",
           "unavailable": "the place is not reachable",
-          "keys-exhausted": "every key you run on is out of credit until the reset",
+          "routes-exhausted": "every key and subscription you run on is unavailable for now",
           "proxy-down": "the proxy stopped answering, so your requests, video downloads and agents go out from the server's own address until it answers again",
           "proxy-back": "the proxy answers again, and your requests, video downloads and agents go through it",
           "memory-pending-quarantined": "it failed again when your memory reopened, so it is set aside until the owner replays it"
@@ -752,7 +752,7 @@
             "not-found": "its model was not found",
             "daily-limit": "its daily limit is used up",
             "malformed": "its model keeps answering with nothing usable",
-            "keys-exhausted": "every key it can run on is out of credit"
+            "routes-exhausted": "every key and subscription it can run on is unavailable"
           }
         }
       },

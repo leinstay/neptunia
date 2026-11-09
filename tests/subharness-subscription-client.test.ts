@@ -685,6 +685,47 @@ test('the core goes to the direct client while its route is the API', STEP_TIMEO
   assert.equal(runs.length, 0);
 });
 
+test('the chain route of a request wins over the stored route', STEP_TIMEOUT, async () => {
+  // Catches: the chain client choosing the harness while config.json still says API, and the turn going to the API.
+  const { client, runs, directCalls } = rig({ core: null });
+  const asked = client.complete(FIRST, {
+    ...REPLY,
+    chainRoute: { via: 'harness', backend: 'claude', model: 'claude-opus-4-8', effort: null },
+  });
+  await until(() => runs.length === 1, 'the run started');
+  finishClaude(runs[0]);
+  await asked;
+  assert.equal(directCalls.length, 0);
+  const [run] = runs;
+  assert.equal(valueAfter(run?.child.args ?? [], '--model'), 'claude-opus-4-8');
+});
+
+test(
+  'an API chain route sends the core request to the direct client though a harness is stored',
+  STEP_TIMEOUT,
+  async () => {
+    // Catches: a fallback route of the chain started as a second CLI run on the spent window.
+    const { client, runs, directCalls } = rig();
+    await client.complete(FIRST, { ...REPLY, chainRoute: { via: 'api', key: 'helpers', model: 'x/y', effort: null } });
+    assert.equal(directCalls.length, 1);
+    assert.equal(runs.length, 0);
+  }
+);
+
+test('a failed step on a chain route is thrown for the chain, whatever the fallback says', STEP_TIMEOUT, async () => {
+  // Catches: the old fallback and the chain both repeating the step, so one failure spends two API requests.
+  const { client, runs, directCalls } = rig({ subscription: { fallback: true } });
+  const asked = client.complete(FIRST, {
+    ...REPLY,
+    chainRoute: { via: 'harness', backend: 'claude', model: 'claude-opus-4-8', effort: null },
+  });
+  await until(() => runs.length === 1, 'the run started');
+  pushAll(runs[0], [{ type: 'result', subtype: 'success', is_error: true, api_error_status: 429, result: '' }]);
+  runs[0].end(1);
+  await assert.rejects(asked, { code: 'subscription-exhausted' });
+  assert.equal(directCalls.length, 0);
+});
+
 // ---- the rails -----------------------------------------------------------------------------------------------------
 
 test('a step above the request token cap is refused before any process starts', STEP_TIMEOUT, async () => {

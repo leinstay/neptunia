@@ -18,8 +18,7 @@ import { parseExtra } from './map/common.ts';
 
 import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
 import { qualify, retireAbsent, writeMapping } from './upsert.ts';
-import { unitRows, isMediaDescriptionEntry, mediaDescriptionId } from './export.ts';
-import { assignSelfreflectionDestination } from './publish.ts';
+import { isMediaDescriptionEntry, mediaDescriptionId } from './export.ts';
 import { graphPending, projectPending, projectRow } from './graph.ts';
 import { storeHeld } from './media-stems.ts';
 import { fillStems, markStemsPending, stemsPending } from './stems.ts';
@@ -45,6 +44,7 @@ import { proseVersionsValueOf, writeProseVersions } from './prose-versions.ts';
 import { isPrivateLayerKey, privateLayerWriteOf, writePrivateLayer } from './private-layer.ts';
 import { isPlaceNotesKey, placeNotesWriteOf, writePlaceNotes } from './place-notes.ts';
 import { channelEntryWriteOf, isChannelEntryKey, writeChannelEntry } from './channel-entry.ts';
+import { appendSelfreflectionPost, selfreflectionOfUnit, writeSelfreflectionValue } from './selfreflection-entries.ts';
 import { isPlaceLoreKey, placeLoreWriteOf, writePlaceLore } from './place-lore.ts';
 import { isParticipationKey, participationWriteOf, writeParticipation } from './participation-episodes.ts';
 import { isRecentLinesKey, recentLinesWriteOf, writeRecentLines } from './recent-lines.ts';
@@ -312,35 +312,19 @@ function writeValue(db: Db, update: Row, at: string): Row {
   const retired = retireAbsent(db, unit.full, mapping, at);
   if (unit.kind === 'gifs' && storeHeld(db)) adoptLibraryRows(db, unit.full, at);
   noteUnit(db, unit.full, unit.kind, { at });
-  const destinations =
-    unit.kind === 'selfreflection' && filled(update.destination)
-      ? assignSelfreflectionDestination(db, update.destination, { owner: unit.full, at })
-      : 0;
-  return { upserted, retired, ...(unit.kind === 'selfreflection' ? { destinations } : {}) };
+  return { upserted, retired };
 }
 
-function writeSelfreflection(db: Db, update: Row, at: string): Row {
-  const unit = updateUnit(db, update);
-  if (unit.kind !== 'selfreflection') throw coded('UNIT_UNMAPPED');
-  const rows = unitRows(db, unit.full);
-  const held = (rows.operational.length > 0 ? unit.mapper.fromRows(rows) : { posts: [] }) as { posts?: unknown };
-  const posts = [
-    ...(Array.isArray(held.posts) ? (held.posts as Array<unknown>) : []),
-    ...(update.post && typeof update.post === 'object' ? [update.post] : []),
-  ];
-  const max = isWholeNumber(update.max) && update.max > 0 ? update.max : posts.length;
-  const value = {
-    posts: posts.slice(-max),
-    updatedAt: isFiniteNumber(update.updatedAt) ? update.updatedAt : Date.parse(at),
-  };
-  const mapping = qualify(unit.mapper.toRows(unit.rel, value, { iface: ifaceOf(update) }), unit);
-  const upserted = writeMapping(db, mapping, unit.full, { at });
-  const retired = retireAbsent(db, unit.full, mapping, at);
-  noteUnit(db, unit.full, unit.kind, { at });
-  const destinations = filled(update.destination)
-    ? assignSelfreflectionDestination(db, update.destination, { owner: unit.full, at })
-    : 0;
-  return { upserted, retired, posts: value.posts.length, destinations };
+/** One post appended to her selfreflection (op `selfreflection`, selfreflection-entries.ts#appendSelfreflectionPost). */
+function writeSelfreflection(db: Db, update: Row, at: string): unknown {
+  const keyed = withKey(db, update);
+  if ((keyed?.key as StorageKey | undefined)?.kind !== 'selfreflection') throw coded('UNIT_UNMAPPED');
+  const legacyOwner = typeof update.owner === 'string' && !update.key ? { legacyOwner: update.owner } : {};
+  return appendSelfreflectionPost(
+    db,
+    { post: update.post, max: update.max, updatedAt: update.updatedAt },
+    { at, iface: ifaceOf(update), destination: update.destination, ...legacyOwner }
+  );
 }
 
 /**
@@ -499,6 +483,11 @@ function ownValueWrite(db: Db, update: Row, keyed: Row, at: string): (() => unkn
   if (isPrivateLayerKey(key)) {
     const { value } = privateLayerWriteOf({ accountId: key.subject.id, value: keyed.value ?? {} });
     return () => writePrivateLayer(db, key, value, { at, ...legacyOwner });
+  }
+  const entries = selfreflectionOfUnit(keyed);
+  if (entries && 'value' in entries) {
+    const opts = { at, iface: ifaceOf(update), destination: update.destination, ...legacyOwner };
+    return () => writeSelfreflectionValue(db, entries.value, opts);
   }
   if (isPlaceNotesKey(key) && key.subject.type === 'place') {
     const { value } = placeNotesWriteOf({ placeId: key.subject.id, value: keyed.value ?? {} });

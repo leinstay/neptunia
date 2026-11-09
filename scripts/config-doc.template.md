@@ -46,6 +46,12 @@ The paths of her core and her memory writer through a subharness. `src/subharnes
 
 <!-- settings: models.harness -->
 
+## models.routes
+
+The chain of routes each model role runs on. `src/llm/route-chain.ts` reads it at each request; a role with no entry runs on the routes its `models.base`, `models.harness`, `llm.boundKeys` and core keys give it. See [Keys and models](keys.md#chains-of-routes).
+
+<!-- settings: models.routes -->
+
 ## llm
 
 <!-- settings: llm -->

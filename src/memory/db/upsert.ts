@@ -19,7 +19,7 @@ import { projectRow } from './graph.ts';
 import { deriveMirrorPublication } from './publish.ts';
 import { resolveParticipationSources } from './participation-sources.ts';
 import { sessionHold } from './session-rows.ts';
-import { isPlaceWriter, sharePlaceRow, unsharePlaceRow } from './place-owner.ts';
+import { isPlaceWriter, placeOfHolder, sharePlaceRow, unsharePlaceRow } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
 import { parseExtra } from './map/common.ts';
 import { hasMessageFamilies } from './message-family-catalog.ts';
@@ -166,7 +166,7 @@ const isOwned = (found: Row): boolean =>
 
 /** The place a found row belongs to: the holder of a place's row, else the place of its unit. */
 const placeOfFound = (db: Db, found: Row): string | null =>
-  isPlaceWriter(found.writer) ? asText(found.holder_id) : placeOfOwner(db, found.owner_key);
+  isPlaceWriter(found.writer) ? placeOfHolder(found) : placeOfOwner(db, found.owner_key);
 
 /**
  * Whether a unit write leaves the found row of `given` alone: a row the database wrote (no owner) stays as it is, and a
@@ -182,7 +182,7 @@ function leavesAlone(
   if (!isOwned(found) && !observedRow(table, found, given)) return true;
   if (mine || found.retired_at !== null) return false;
   const theirs = placeOfFound(db, found);
-  const ours = holder ? holder.holder_id : placeOfOwner(db, given.owner_key);
+  const ours = holder ? placeOfHolder(holder) : placeOfOwner(db, given.owner_key);
   if (theirs === null || ours === null || theirs === ours) return false;
   if (holder) sharePlaceRow(db, table, keyOf(table, given), holder, given.owner_key);
   else

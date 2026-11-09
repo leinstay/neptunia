@@ -3,7 +3,8 @@
 // system text in place of the backend's own and the answer read by the same `parseSessionAnswer`. Nothing else of the
 // writer changes. `memoryWriterClient` is the model client of every memory-role request, the session's, the description
 // review's and the bind merge's: at every call it reads the path in config.json (src/subharness/memory-path.ts) and
-// sends the request either to the direct client or through the backend. A run that
+// sends the request either to the direct client or through the backend, or takes the route the chain client chose
+// (`chainRoute`). A run that
 // fails rejects with an Error whose `code` says why, `not-logged-in` when claude asks for a login, which the sweep records
 // as it records a failed request. The child gets the backend's home and the plain variables of `childEnvOf`, never a key
 // of the core. Log lines carry the backend, the exit code and the tokens, never the text. `memoryCapabilities` says where a path differs from the direct
@@ -14,6 +15,7 @@
 import fs from 'node:fs';
 import nodePath from 'node:path';
 import { childEnvOf, outputLimitEnv, tokensOf } from '../agent-runner/backend.ts';
+import { isListedEffort } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import type { Completion, SessionContext } from '../memory/db/session.ts';
 import type { MemoryBackend } from './routing.ts';
@@ -247,6 +249,20 @@ function splitMessages(messages: ReadonlyArray<Record<string, unknown>>): { syst
   return { system: of('system'), user: of('user') };
 }
 
+/** The route of the chain client's `chainRoute` (src/llm/chain-client.ts) as a path, null for a request without one. */
+function chainPathOf(value: unknown): MemoryPath | null {
+  if (!isRecord(value)) return null;
+  if (value.via === 'api') return { kind: 'direct' };
+  const backend = value.backend === 'claude' || value.backend === 'codex' ? value.backend : null;
+  if (value.via !== 'harness' || backend === null || typeof value.model !== 'string') return null;
+  return {
+    kind: 'subharness',
+    backend,
+    model: value.model,
+    effort: isListedEffort(value.effort) ? value.effort : null,
+  };
+}
+
 /**
  * The memory role's model client: the direct client or the subharness, by the path in config.json at each call. Every
  * request of the role takes the path: the sweep's (purpose `memory-session`), the description review's draft and check
@@ -276,7 +292,7 @@ export function memoryWriterClient(deps: {
   return {
     complete(messages, options) {
       return told(async () => {
-        const path = deps.path?.() ?? memoryPath(writer.privateDir);
+        const path = chainPathOf(options.chainRoute) ?? deps.path?.() ?? memoryPath(writer.privateDir);
         if (path.kind === 'direct') return direct.complete(messages, options);
         const timeout = Number(options.timeoutMs);
         let completion: Completion;
