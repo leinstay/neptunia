@@ -59,8 +59,9 @@
 // upstream cost per completion, else its `cost`; embeddings are not priced.
 //
 // Rails: concurrency 1; `--limit N` questions; no question is asked once the summed cost has
-// passed `--max-usd` (default 3); the model and embedding clients spend the simulation key
-// (scripts/lib/cli.ts#simulationLlm), every request `origin: 'recall-eval'`, never counted against
+// passed `--max-usd` (default 3); the model and embedding clients spend production's keys as the core routes them
+// (scripts/lib/script-routes.ts; `--core`, `--analyzer` or `--embedding <key>/<model>` replaces a role for this run, and
+// the start lines on stderr name each role's key), every request `origin: 'recall-eval'`, never counted against
 // llm.maxRequestsPerDay, no calibration, no prompt-cache marker; the daily counters (the
 // requests, recall.maxPerDay) are throwaway copies, fresh per question. Nothing under
 // data/guilds/ is written: the store is read through its read methods only and never flushed,
@@ -104,18 +105,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { interfaceCredential } from '../src/config/files.ts';
 import type { Flags } from './lib/cli.ts';
-import {
-  serviceKeys,
-  CliError,
-  defaultDataDir,
-  parseFlags,
-  privateDirOf,
-  resolveGuildId,
-  runCli,
-  simKey,
-  simulationLlm,
-} from './lib/cli.ts';
-import type { SimulationLlm } from './lib/cli.ts';
+import { serviceKeys, CliError, defaultDataDir, parseFlags, privateDirOf, resolveGuildId, runCli } from './lib/cli.ts';
+import { routedHot, routesText, scriptRouting, takeRoutes } from './lib/script-routes.ts';
+import type { ScriptRouting, Variant } from './lib/script-routes.ts';
 import { cachedChannel, discordReads, recallScope } from './lib/platform-objects.ts';
 import {
   HIT_AT,
@@ -325,7 +317,7 @@ async function connectDiscord({ token, placeId }: Rec) {
 }
 
 /** Where a subcommand runs: the data folder, the guild, the clock and the folder the flags' paths are read from. */
-type RunContext = { dataDir: string; placeId: string; now: () => number; cwd: string };
+type RunContext = { dataDir: string; placeId: string; now: () => number; cwd: string; routes: Variant };
 
 /** The `sample` subcommand. */
 async function sample(flags: Flags, { dataDir, placeId, now, cwd }: RunContext) {
@@ -432,7 +424,7 @@ function traceLines(file: string): Array<TraceLine> {
 }
 
 /** The `traces` subcommand (see the header). */
-async function traces(flags: Flags, { dataDir, placeId, now, cwd }: RunContext) {
+async function traces(flags: Flags, { dataDir, placeId, now, cwd, routes }: RunContext) {
   const dry = flags['--dry'] === true;
   const noDeadline = flags['--no-deadline'] === true;
   const file = flags._[1] ? path.resolve(cwd, flags._[1]) : path.join(dataDir, 'guilds', placeId, 'recall-trace.jsonl');
@@ -444,7 +436,7 @@ async function traces(flags: Flags, { dataDir, placeId, now, cwd }: RunContext) 
   const { createHot } = await import('../src/hot.ts');
   const { createRecall } = await import('../src/behavior/recall-run.ts');
   const { prefetchLanes } = await import('../src/behavior/prefetch.ts');
-  const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
+  const hot = routedHot(createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) }), routes);
   let sources = null;
   try {
     const evalHot = {
@@ -459,12 +451,22 @@ async function traces(flags: Flags, { dataDir, placeId, now, cwd }: RunContext) 
     const settings = await recallSettingsOf(config);
     const meaningOn = !dry;
     process.stderr.write(
-      `recall-eval: ${runs.length} live recall run(s)${meaningOn ? `, up to ${runs.length} embedding(s) on the simulator key` : ', no request'}\n`
+      `recall-eval: ${runs.length} live recall run(s)${meaningOn ? `, up to ${runs.length} embedding(s)` : ', no request'}\n`
     );
     let embed = null;
     if (meaningOn) {
       const { createEmbedder } = await import('../src/llm/embed.ts');
-      const embedder = createEmbedder({ apiKey: simKey(ORIGIN), state: { data: {}, markDirty() {} } });
+      const state = { data: {}, markDirty() {} };
+      const routing = await scriptRouting(ORIGIN, {
+        privateDir: privateDirOf(ROOT),
+        roles: ['embedding'],
+        variant: routes,
+        getConfig: (): unknown => hot.config,
+        createDirect: () => ({ complete: () => Promise.reject(new Error('recall-eval: traces send no chat request')) }),
+        state,
+      });
+      process.stderr.write(routesText(ORIGIN, routing.said));
+      const embedder = createEmbedder({ apiKey: '', keyOf: routing.keyOf, state });
       embed = (texts: Untyped, options: Untyped = {}) =>
         embedder.embed(texts, { ...options, origin: ORIGIN, countAgainstDailyCap: false });
     }
@@ -607,7 +609,9 @@ type Opts = { cwd?: string; now?: () => number };
 /** The whole tool: the markdown summary on stdout (or the `sample` line). */
 // health: allow function-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
 export async function main(argv: Array<string>, { cwd = process.cwd(), now = Date.now }: Opts = {}): Promise<string> {
-  const flags = parseFlags(argv, {
+  const taken = takeRoutes(ORIGIN, argv);
+  const { routes } = taken;
+  const flags = parseFlags(taken.argv, {
     values: [
       '--limit',
       '--max-usd',
@@ -626,9 +630,9 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   const dataDir = flags['--data'] ? path.resolve(cwd, flags['--data']) : defaultDataDir(ROOT);
   if (!fs.existsSync(path.join(dataDir, 'guilds'))) throw new CliError(`recall-eval: no guilds/ under ${dataDir}`);
   const placeId = resolveGuildId(dataDir, flags['--guild']);
-  if (flags._[0] === 'sample') return sample(flags, { dataDir, placeId, now, cwd });
+  if (flags._[0] === 'sample') return sample(flags, { dataDir, placeId, now, cwd, routes });
   if (flags._.length > 2 || (flags._.length === 2 && flags._[0] !== 'traces')) throw new CliError(USAGE);
-  if (flags._[0] === 'traces') return traces(flags, { dataDir, placeId, now, cwd });
+  if (flags._[0] === 'traces') return traces(flags, { dataDir, placeId, now, cwd, routes });
 
   const questionsFile = flags._[0] ? path.resolve(cwd, flags._[0]) : evalPath(dataDir, 'questions.json');
   let raw;
@@ -665,7 +669,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   const { roleModel } = await import('../src/llm/roles.ts');
   const { zonedDay } = await import('../src/time.ts');
 
-  const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
+  const hot = routedHot(createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) }), routes);
   // The recall's own trace switched on for this process only: its lines are caught in memory below.
   const evalHot = {
     get config() {
@@ -705,12 +709,12 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   const names = namesOf(store);
   const nameOf = (id: Untyped) => names.get(String(id)) ?? null;
 
-  // The model clients on throwaway counters; per-role keys are not looked up (env {}): the simulator key pays.
+  // The model clients on throwaway counters, each role on the key production gives it or the one its flag names.
   const counters = { data: {}, markDirty() {} };
   let usage: Untyped = null;
   let llm: Untyped;
   let embed: Untyped = null;
-  let sim: SimulationLlm | null = null;
+  let routing: ScriptRouting | null = null;
   if (dry) {
     llm = {
       capLeft: () => Infinity,
@@ -721,15 +725,17 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   } else {
     const { data: stateData } = store.state;
     const calibrator = createCalibrator(stateData?.calibration);
-    sim = simulationLlm(ORIGIN, {
-      createDirect: (apiKey, ring) =>
-        createLlm({ apiKey, keys: ring, getConfig: () => hot.config, calibrator, state: counters }),
+    routing = await scriptRouting(ORIGIN, {
+      privateDir: privateDirOf(ROOT),
+      roles: ['core', 'analyzer', 'embedding'],
+      variant: routes,
       getConfig: (): unknown => hot.config,
+      createDirect: (keys) => createLlm({ apiKey: '', keys, getConfig: () => hot.config, calibrator, state: counters }),
       state: counters,
     });
-    process.stderr.write(`${ORIGIN}: ${sim.said}\n`);
-    const realLlm = sim.llm;
-    const apiKey = sim.key;
+    process.stderr.write(routesText(ORIGIN, routing.said));
+    const realLlm = routing.llm;
+    const { keyOf } = routing;
     llm = {
       capLeft: () => Infinity,
       async complete(messages: Untyped, options: Untyped = {}) {
@@ -749,9 +755,9 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
         return completion;
       },
     };
-    // The meaning search is on whenever requests are sent; on the route with no simulation key it stays off.
-    if (apiKey !== null) {
-      const embedder = createEmbedder({ apiKey, state: counters });
+    // The meaning search is on whenever requests are sent and the embedding role has a key.
+    if (keyOf('embedding') !== null) {
+      const embedder = createEmbedder({ apiKey: '', keyOf, state: counters });
       embed = async (texts: Untyped, options: Untyped = {}) => {
         if (usage) usage.embeddings += 1;
         return embedder.embed(texts, { ...options, origin: ORIGIN, countAgainstDailyCap: false });
@@ -1115,7 +1121,7 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
     if (connection) await connection.client.destroy().catch(() => {});
     sources.close();
     hot.close?.();
-    await sim?.close();
+    await routing?.close();
   }
 
   const summary = summarize(outcome.results);

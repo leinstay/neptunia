@@ -1386,8 +1386,8 @@
     },
     "scripts/lib/replay-args.ts": {
       "parseArgs": {
-        "complexity": 248,
-        "function-length": 333
+        "complexity": 247,
+        "function-length": 331
       }
     },
     "scripts/lib/vision-compare.ts": {
@@ -1399,9 +1399,6 @@
       }
     },
     "scripts/memory-session.ts": {
-      "main": {
-        "complexity": 33
-      },
       "runCompare": {
         "complexity": 21
       }
@@ -1468,8 +1465,7 @@
     },
     "scripts/search-compare.ts": {
       "main": {
-        "complexity": 31,
-        "function-length": 302
+        "complexity": 31
       }
     },
     "scripts/search-policy-eval.ts": {

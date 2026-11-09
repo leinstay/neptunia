@@ -7,6 +7,7 @@
 //   cd /opt/neptunia/app && node scripts/vision-compare.ts <modelA> <modelB> [more models...]
 //        (--media <file.json> | --from-cache N) [--kinds picture,gif,video,emoji,sticker]
 //        [--out <file.html>] [--max-usd 2] [--reasoning <effort>] [--guild <id>] [--data <dir>]
+//        [--vision <route>] [--video <route>]
 //
 // Media. `--media`: a JSON list `[{ kind, url, label? }]` (scripts/lib/vision-compare.ts#parseMediaList;
 // a GIF's url is its animation, a video's a video file or a link of `media.video.sites`).
@@ -23,8 +24,9 @@
 // watched first and falls back to one frame as live; `describeVideo` with `force` for a video)
 // over a tool-local hot view whose `models.base.vision` and `models.base.video` are the model (the live
 // config is never changed), provider routing as configured (`llm.providerByModel`), an empty
-// in-memory media cache and throwaway daily counters. Requests spend the simulation key
-// (scripts/lib/cli.ts#simKey), are marked `origin: vision-compare` and never count against
+// in-memory media cache and throwaway daily counters. Requests go out on the keys production uses for `vision` and
+// `video` (scripts/lib/script-routes.ts; `--vision <key>/<model>` or `--video <key>/<model>` replaces a role for this run,
+// and the start lines on stderr name each role's key), are marked `origin: vision-compare` and never count against
 // `llm.maxRequestsPerDay`; the per-request token caps stay on. `--reasoning <effort>` sends
 // `{ effort }` as the reasoning settings of every request.
 //
@@ -37,7 +39,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { interfaceCredential } from '../src/config/files.ts';
-import { serviceKey, CliError, defaultDataDir, privateDirOf, resolveGuildId, runCli, simKey } from './lib/cli.ts';
+import { serviceKey, CliError, defaultDataDir, privateDirOf, resolveGuildId, runCli } from './lib/cli.ts';
+import { routesText, scriptRouting, takeRoutes } from './lib/script-routes.ts';
 import {
   ORIGIN,
   describeOne,
@@ -234,14 +237,15 @@ export async function main(
   argv: Array<string>,
   { cwd = process.cwd(), now = Date.now }: { cwd?: string; now?: () => number } = {}
 ): Promise<string> {
-  const args = parseArgs(argv);
+  const taken = takeRoutes(ORIGIN, argv);
+  const args = parseArgs(taken.argv);
   const dataDir = args.data ? path.resolve(cwd, args.data) : defaultDataDir(ROOT);
   const file = outPath(dataDir, cwd, args.out, now());
 
   const { createHot } = await import('../src/hot.ts');
   const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
   try {
-    // The keys (the simulation key from the store, DISCORD_TOKEN, YOUTUBE_API_KEY) from .env; never printed.
+    // The keys (production's model keys from the store, the Discord token, the YouTube key); never printed.
     const configuredGuild = hot.config.bot?.placeId || undefined;
     let placeId;
     let items;
@@ -280,16 +284,20 @@ export async function main(
     const { createCalibrator } = await import('../src/llm/tokens.ts');
     const { createImageFetcher } = await import('../src/media/fetch-image.ts');
     const { createVideoFetcher } = await import('../src/media/fetch-video.ts');
-    const apiKey = simKey(ORIGIN);
     const stored = readJson(path.join(dataDir, 'state.json'), {});
     const calibrator = createCalibrator(stored?.calibration);
-    // Throwaway counters; the simulator key pays every role.
-    const llm = createLlm({
-      apiKey,
+    // Throwaway counters; each role on the key production gives it, or the one its flag names.
+    const state = { data: {}, markDirty() {} };
+    const routing = await scriptRouting(ORIGIN, {
+      privateDir: privateDirOf(ROOT),
+      roles: ['vision', 'video'],
+      variant: taken.routes,
       getConfig: () => hot.config,
-      calibrator,
-      state: { data: {}, markDirty() {} },
+      createDirect: (keys, getConfig) => createLlm({ apiKey: '', keys, getConfig, calibrator, state }),
+      state,
     });
+    process.stderr.write(routesText(ORIGIN, routing.said));
+    const { llm } = routing;
     const imageFetcher = createImageFetcher();
     const videoFetcher = createVideoFetcher();
     const youtubeApiKey = serviceKey('youtube');
