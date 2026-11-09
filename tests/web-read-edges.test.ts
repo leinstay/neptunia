@@ -8,6 +8,7 @@ import { createLookup } from '../src/web/lookup.ts';
 import type { LookupDeps } from '../src/web/lookup.ts';
 import { runWebRead } from '../src/tools/tools.ts';
 import { labels } from './fixtures/labels.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 const PUBLIC = '93.184.216.34';
 
@@ -36,7 +37,7 @@ function reader(routes: Record<string, Route>) {
   const cache: Record<string, unknown> = {};
   const lookup = createLookup({
     hot: { config: { web: { links: { fetchTimeoutMs: 1000, readCacheHours: 24 } } }, prompts: {} },
-    store: { getMediaCache: () => cache, markMediaCacheDirty: () => {} },
+    store: { ...objectMediaCache(cache) },
     llm: { complete: () => Promise.reject(new Error('web.read sends no model request')) },
     pageFetcher,
     now: () => 1000,

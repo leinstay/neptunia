@@ -35,6 +35,7 @@ import {
   gistOf,
   partOf,
 } from './fixtures/selfreflection-frame.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -176,7 +177,7 @@ function fakeStore({ posts = [], data = {} }: { posts?: Array<Rec>; data?: Rec }
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     getSelfreflection: () => ({ posts, updatedAt: 0 }),
     appendSelfreflectionPost: (post: Untyped, opts: Untyped) => appended.push({ post, opts }),
     state: { data: { ...data }, markDirty() {} },

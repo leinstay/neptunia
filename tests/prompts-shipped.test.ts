@@ -46,6 +46,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import { buildRequest } from './fixtures/built-request.ts';
 import { loose } from './fixtures/as-options.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 /** The fixed words of a label before its first placeholder. */
 const labelHead = (label: string) => label.split('{')[0];
@@ -1298,8 +1299,7 @@ test('createTurnRunner: a reply turn fills the describer and turn requests', asy
     listUserProfiles: () => Object.values(PROFILES),
     listChannels: () => CHANNELS,
     getLore: () => LORE,
-    getMediaCache: () => mediaCache,
-    markMediaCacheDirty() {},
+    ...objectMediaCache(mediaCache),
     getGifs: () => ({ nextId: 1, entries: {} }),
     getRecent: () => ({ lines: RECENT_LINES }),
   };
@@ -1424,7 +1424,7 @@ function bareStore() {
     listUserProfiles: () => [],
     listChannels: () => [],
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
   };
 }
 

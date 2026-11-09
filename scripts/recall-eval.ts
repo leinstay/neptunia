@@ -99,6 +99,7 @@
 // days) with their three neighbours on each side, the raw material for writing questions.
 // The record holds no picture captions, so a picture without text is never a candidate.
 
+import { objectMediaCache } from '../src/memory/store-media.ts';
 import { placeOfRoot } from '../src/memory/addresses.ts';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -181,7 +182,7 @@ export function webSearchReady({
   };
   const lookup = createLookup({
     hot,
-    store: { getMediaCache: refuse, markMediaCacheDirty: refuse },
+    store: { mediaEntry: refuse, putMediaEntry: refuse, dropMediaEntry: refuse },
     llm: { complete: async () => refuse() },
     searches,
     keys: webSearchKeys(env),
@@ -771,8 +772,8 @@ export async function main(argv: Array<string>, { cwd = process.cwd(), now = Dat
   if (useWeb) {
     const { createLookup, searches } = webParts;
     const { createPageFetcher } = await import('../src/web/fetch-page.ts');
-    const media = { ...(store.getMediaCache(placeOfRoot(store, placeId)) ?? {}) };
-    const webStore = { getMediaCache: () => media, markMediaCacheDirty() {} };
+    const media = { ...(store.mediaEntries(placeOfRoot(store, placeId)) ?? {}) };
+    const webStore = objectMediaCache(media);
     const pageFetcher = createPageFetcher();
     const keys = webSearchKeys(process.env);
     webSearch = (query: Rec) =>

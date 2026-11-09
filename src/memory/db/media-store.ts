@@ -5,7 +5,7 @@
 // `extra`. Audience comes only from a link: an item is read through an owner the reader may open.
 //
 // `lineMedia` is the one read of a line's or an entry's media, `tellMedia` the one write of a text form, and the describer's
-// cache (`src/memory/describe.ts`, through `writeMediaCache` and `tellFromCacheKey`) writes the same rows. A text form is
+// cache (`src/memory/describe.ts`, through the write kind `media-entry`) keeps its entries on the same rows. A text form is
 // stemmed and embedded once on its row: `media_fts`, `media_tri` and a vector whose `chunk_key` names the row. `mediaHits` turns
 // the rows a search finds into one hit per item, with its use count and its latest visible use, grouping re-uploads by `sha1`.
 
@@ -18,6 +18,7 @@ import { CURRENT_SOURCE } from './source-current.ts';
 import { safeFileName } from '../../media/classify.ts';
 import { keptPathOf } from '../../media/kept-files.ts';
 import { mediaStamp } from './media-stems.ts';
+import { preparedPlace } from './place-owner.ts';
 import { loadStemmer } from './stems.ts';
 import { asText, dbOf, isFiniteNumber, transactionOf } from './types.ts';
 import type { Connection, Db, Row } from './types.ts';
@@ -355,28 +356,6 @@ export function mediaMessageParts(
   return parts;
 }
 
-/**
- * The cache keys of every item a live owner links: the trim of the describer's cache leaves these alone. A row's own cap lives in
- * writeMediaCache, and these keep the in-memory cache from forgetting them too.
- */
-export function linkedAttachmentIds(db: Db): Set<string> {
-  const keys = new Set<string>();
-  for (const row of db
-    .prepare(
-      `SELECT DISTINCT m.native_ref AS ref, m.kind AS kind FROM media_links l JOIN media m ON m.id = l.media_id
-       WHERE m.native_ref IS NOT NULL AND m.retired_at IS NULL`
-    )
-    .all()) {
-    const ref = asText(row.ref);
-    keys.add(ref);
-    if (row.kind === 'video' || row.kind === 'link') keys.add(`video:${ref}`);
-    if (row.kind === 'sticker') keys.add(`sticker:${ref}`);
-    if (row.kind === 'emoji') keys.add(`emoji:${ref}`);
-    if (row.kind === 'link') keys.add(`link:${ref}`);
-  }
-  return keys;
-}
-
 /** The items of a selfreflection entry in its order, with what its post keeps of each. */
 export function entryMedia(db: Db, entryId: string): Array<Row> {
   return db
@@ -570,11 +549,6 @@ export function tellFromCacheKey(
   if (!row) return 0;
   const watched = itemByRef(db, iface, key) === undefined && cacheKeyParts(key).watched;
   return writeText(db, row, { text, origin: originOf(row.kind, watched), at }) ? 1 : 0;
-}
-
-/** Whether the item a describer's key names holds a text form on this interface. */
-export function itemTold(db: Db, iface: unknown, key: string): boolean {
-  return filled(mediaRowOfCacheKey(db, iface, key)?.description);
 }
 
 const BARE_ID = (sourceId: unknown, position: number): string => `media:bare:${asText(sourceId)}:${position}`;
@@ -821,80 +795,295 @@ export function unlinkedLineItems(db: Db): Array<{ sourceId: string; mediaId: st
 }
 
 // ---------- the describer's cache ----------
+//
+// The describer's cache (src/memory/describe.ts, src/web/lookup.ts) keeps one entry per key on the row of the item the
+// key names, in `extra.cache[key]`, and nowhere else: a caption with its stamps, a miss, a link's read or a search's
+// answer. A key names a reference and, by its prefix, a kind (`cacheKeyParts`), and every place of an interface reads
+// the same rows. A write puts one entry and stamps the row with `writer` `media`, the place as `holder_id` and the
+// moment as `used_at`, unless the GIF library holds the row (`writer` `gifs`). The rows a place holds are capped at
+// `MEDIA_CACHE_ENTRIES` by last use, the rows a line or a selfreflection entry links aside.
 
-/** The fields of a cache entry kept on its row beside the text. */
-const entryRest = (entry: Row): Row => {
-  const rest = { ...entry };
-  if (filled(rest.text)) delete rest.text;
-  return rest;
+/** Successful describer payloads: a caption, or a question's answer, with their stamp. */
+export type MediaDescriptionEntry =
+  | { text: string; ts: number; [field: string]: unknown }
+  | { answer: string; question: string; ts: number; [field: string]: unknown };
+
+/** Whether a cache entry is a successful description. */
+export function isMediaDescriptionEntry(value: unknown): value is MediaDescriptionEntry {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const entry = value as Row;
+  return (
+    !entry.miss &&
+    isFiniteNumber(entry.ts) &&
+    ((typeof entry.text === 'string' && entry.text.length > 0) ||
+      (typeof entry.answer === 'string' && entry.answer.length > 0 && typeof entry.question === 'string'))
+  );
+}
+
+/** The rows of a place's cache nothing links are capped at this. Production value, config cut of 2026-10-31. */
+export const MEDIA_CACHE_ENTRIES = 5000;
+
+/** The keys of a lookup's own entries (src/web/lookup.ts): a saved description is never one of them. */
+const LOOKUP_KEY = /^(?:preview|search|results|page):/;
+
+/** The cache entries a row's `extra` holds. */
+const cacheOf = (extra: Row): Row =>
+  extra.cache !== null && typeof extra.cache === 'object' && !Array.isArray(extra.cache)
+    ? { ...(extra.cache as Row) }
+    : {};
+
+/** The parsed `extra` of a row a read selected, parsed once however often the read asks. */
+const parsedExtra = new WeakMap<Row, Row>();
+function extraOf(row: Row): Row {
+  let extra = parsedExtra.get(row);
+  if (!extra) parsedExtra.set(row, (extra = parsedObject(row.extra)));
+  return extra;
+}
+
+/** The references a key may be stored under: the key itself and the reference after its prefix. */
+const refsOf = (key: string): Array<string> => {
+  const { ref } = cacheKeyParts(key);
+  return ref === key ? [key] : [key, ref];
 };
 
-/**
- * The describer's cache of a place written onto the items: an entry becomes the text form of its item, or a new row the
- * observation of its message will find by reference. A key absent from `value` is trimmed, unless an owner links its row.
- */
-export function writeMediaCache(
-  db: Db,
-  { owner, iface, value, at }: { owner: string; iface: unknown; value: Row; at: unknown }
-): { upserted: number; retired: number } {
-  const groupOf = groupScope(iface === null ? null : asText(iface));
-  const kept = new Set<string>();
-  let upserted = 0;
-  /** A key whose message was not observed yet: a row its observation will find by reference. */
-  const newCacheRow = (key: string): Row => {
-    const { ref, kinds } = cacheKeyParts(key);
-    const id = NEW_ID(iface, key);
-    const scope = audienceOf(groupOf);
-    ensureAudience(db, scope);
-    db.prepare(
-      `INSERT OR IGNORE INTO media (id, kind, native_ref, availability, extra, scope_kind, scope_iface, scope_dm, audience_id, owner_key)
-       VALUES (?, ?, ?, 'unknown', '{}', ?, ?, ?, ?, ?)`
-    ).run(
-      id,
-      kinds?.[0] ?? 'image',
-      ref,
-      scope.scope_kind,
-      scope.scope_iface,
-      scope.scope_dm,
-      scope.audience_id,
-      owner
-    );
-    return db.prepare('SELECT * FROM media WHERE id = ?').get(id) as Row;
-  };
-  for (const [key, given] of Object.entries(value)) {
-    const entry: Row =
-      given !== null && typeof given === 'object' && !Array.isArray(given) ? (given as Row) : { $raw: given };
-    const { watched } = cacheKeyParts(key);
-    const row = mediaRowOfCacheKey(db, iface, key) ?? newCacheRow(key);
-    kept.add(String(row.id));
-    const extra = parsedObject(row.extra);
-    const entries = { ...((extra.cache as Row | undefined) ?? {}), [key]: entryRest(entry) };
-    db.prepare('UPDATE media SET extra = ?, owner_key = ? WHERE id = ?').run(
-      JSON.stringify({ ...extra, cache: entries }),
-      owner,
-      row.id
-    );
-    if (filled(entry.text)) {
-      const fresh = db.prepare('SELECT * FROM media WHERE id = ?').get(row.id) as Row;
-      const isExact = fresh.native_ref === key;
-      writeText(db, fresh, {
-        text: entry.text,
-        origin: originOf(fresh.kind, !isExact && watched),
-        at: isFiniteNumber(entry.ts) ? entry.ts : at,
-      });
-    }
-    upserted += 1;
+/** The entry `key` holds on `row`, as the cache reads it: the row's text form under the entry's own fields. */
+function entryOfRow(row: Row, key: string): Row | undefined {
+  const extra = extraOf(row);
+  const cache = extra.cache as Row | undefined;
+  if (cache === null || typeof cache !== 'object' || Array.isArray(cache) || !Object.hasOwn(cache, key))
+    return undefined;
+  const entry = cache[key];
+  if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return undefined;
+  if (Object.hasOwn(entry, '$raw')) return (entry as Row).$raw as Row;
+  const prefixed = cacheKeyParts(key).kinds !== null && key !== row.native_ref;
+  const isFrame = row.kind === 'video' && !prefixed && extra.watched === true;
+  const text = isFrame ? extra.frame : row.description;
+  return { ...(filled(text) ? { text } : {}), ...(entry as Row) };
+}
+
+/** The columns a read of the cache takes of a row. */
+const CACHE_COLUMNS = 'rowid AS row_order, id, kind, native_ref, description, extra, writer, retired_at';
+const ROWS_UNDER = `SELECT ${CACHE_COLUMNS} FROM media WHERE scope_iface IS ? AND native_ref IN (SELECT value FROM json_each(?))`;
+
+/** The rows of an interface stored under any of `refs`, oldest first: the live ones, or with `retired` every one. */
+const rowsUnder = (db: Db, iface: unknown, refs: ReadonlyArray<string>, { retired = false } = {}): Array<Row> =>
+  preparedPlace(db, `${ROWS_UNDER}${retired ? '' : ' AND retired_at IS NULL'} ORDER BY rowid`).all(
+    iface,
+    JSON.stringify(refs)
+  );
+
+/** Rows by their reference, each list oldest first. */
+function byRefOf(rows: ReadonlyArray<Row>): Map<unknown, Array<Row>> {
+  const byRef = new Map<unknown, Array<Row>>();
+  for (const row of rows) {
+    const list = byRef.get(row.native_ref);
+    if (list) list.push(row);
+    else byRef.set(row.native_ref, [row]);
   }
-  const absent = db
+  return byRef;
+}
+
+/** The rows under the references of `key`, oldest first. */
+function candidatesOf(byRef: Map<unknown, Array<Row>>, key: string): Array<Row> {
+  const refs = refsOf(key);
+  if (refs.length === 1) return byRef.get(key) ?? [];
+  return [...(byRef.get(refs[0]) ?? []), ...(byRef.get(refs[1]) ?? [])].sort(
+    (a, b) => Number(a.row_order) - Number(b.row_order)
+  );
+}
+
+/**
+ * The live row of `key` among `rows` (the live rows under its references, oldest first): the one a write targets
+ * (`mediaRowOfCacheKey`) when it holds the key, else the first that holds it.
+ */
+function holderOf(rows: ReadonlyArray<Row>, key: string): Row | undefined {
+  const { ref, kinds } = cacheKeyParts(key);
+  const exact = rows.find((row) => row.native_ref === key);
+  const first = rows.find((row) => row.native_ref === ref);
+  const target = exact ?? (kinds !== null && first && kinds.includes(first.kind as MediaKind) ? first : undefined);
+  if (target && entryOfRow(target, key)) return target;
+  return rows.find((row) => entryOfRow(row, key) !== undefined);
+}
+
+/** The cache's entry under `key` on this interface, or undefined. One query. */
+export function mediaCacheEntry(db: Db, { iface, key }: { iface: unknown; key: string }): Row | undefined {
+  const row = holderOf(rowsUnder(db, iface, refsOf(key)), key);
+  return row ? entryOfRow(row, key) : undefined;
+}
+
+/**
+ * The cache's entries under `keys` on this interface, each key that holds one; without `keys` every entry of the live
+ * rows of the interface. One query.
+ */
+export function mediaCacheEntries(
+  db: Db,
+  { iface, keys }: { iface: unknown; keys?: Iterable<string> }
+): Record<string, Row> {
+  const out: Record<string, Row> = {};
+  const wanted = keys === undefined ? null : [...new Set(keys)];
+  if (wanted?.length === 0) return out;
+  const rows = wanted
+    ? rowsUnder(db, iface, [...new Set(wanted.flatMap(refsOf))])
+    : preparedPlace(
+        db,
+        `SELECT ${CACHE_COLUMNS} FROM media WHERE scope_iface IS ? AND retired_at IS NULL AND json_type(extra, '$.cache') = 'object' ORDER BY rowid`
+      ).all(iface);
+  const byRef = byRefOf(rows);
+  const asked = wanted ?? [...new Set(rows.flatMap((row) => Object.keys(cacheOf(extraOf(row)))))];
+  for (const key of asked) {
+    const holder = holderOf(candidatesOf(byRef, key), key);
+    const entry = holder ? entryOfRow(holder, key) : undefined;
+    if (entry !== undefined) out[key] = entry;
+  }
+  return out;
+}
+
+/**
+ * The successful description `key` holds on this interface, live or on a row the trim retired: what the describer
+ * takes up again rather than describing the item anew. Null for a miss, a lookup's entry or no entry.
+ */
+export function savedMediaDescription(
+  db: Db,
+  { iface, key }: { iface: unknown; key: string }
+): MediaDescriptionEntry | null {
+  if (LOOKUP_KEY.test(key)) return null;
+  const rows = rowsUnder(db, iface, refsOf(key), { retired: true }).sort(
+    (a, b) => Number(a.retired_at !== null) - Number(b.retired_at !== null)
+  );
+  for (const row of rows) {
+    const entry = entryOfRow(row, key);
+    if (isMediaDescriptionEntry(entry)) return entry;
+  }
+  return null;
+}
+
+/** Retires the oldest rows of the place nothing links past the cap, by last use. Returns how many. */
+function trimPlace(db: Db, placeId: string, at: unknown): number {
+  const held = Number(
+    db
+      .prepare("SELECT count(*) AS n FROM media WHERE writer = 'media' AND holder_id = ? AND retired_at IS NULL")
+      .get(placeId)?.n ?? 0
+  );
+  if (held <= MEDIA_CACHE_ENTRIES) return 0;
+  const victims = db
     .prepare(
-      `SELECT id FROM media WHERE owner_key = ? AND retired_at IS NULL
-       AND NOT EXISTS (SELECT 1 FROM media_links l WHERE l.media_id = media.id)`
+      `SELECT id FROM media WHERE writer = 'media' AND holder_id = ? AND retired_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM media_links l WHERE l.media_id = media.id)
+       ORDER BY used_at, rowid LIMIT ?`
     )
-    .all(owner)
-    .filter((row) => !kept.has(String(row.id)));
+    .all(placeId, held - MEDIA_CACHE_ENTRIES);
   const retire = db.prepare('UPDATE media SET retired_at = ? WHERE id = ?');
-  for (const row of absent) retire.run(iso(at), row.id);
-  return { upserted, retired: absent.length };
+  for (const victim of victims) {
+    retire.run(iso(at), victim.id);
+    projectRow(db, 'media', { id: victim.id }, { at });
+  }
+  return victims.length;
+}
+
+/** A key no live row holds: a row its item's observation finds by reference, made when none is retired. */
+function cacheRowFor(db: Db, iface: unknown, key: string): { row: Row; isNew: boolean } {
+  const retired = rowsUnder(db, iface, refsOf(key), { retired: true }).find(
+    (row) => row.retired_at !== null && entryOfRow(row, key) !== undefined
+  );
+  if (retired) return { row: retired, isNew: true };
+  const { ref, kinds } = cacheKeyParts(key);
+  const id = NEW_ID(iface, key);
+  const scope = audienceOf(groupScope(iface === null ? null : asText(iface)));
+  ensureAudience(db, scope);
+  db.prepare(
+    `INSERT OR IGNORE INTO media (id, kind, native_ref, availability, extra, scope_kind, scope_iface, scope_dm, audience_id)
+     VALUES (?, ?, ?, 'unknown', '{}', ?, ?, ?, ?)`
+  ).run(id, kinds?.[0] ?? 'image', ref, scope.scope_kind, scope.scope_iface, scope.scope_dm, scope.audience_id);
+  return { row: db.prepare('SELECT * FROM media WHERE id = ?').get(id) as Row, isNew: true };
+}
+
+/** One write of the describer's cache: an entry put on its row, or a key dropped. */
+export type MediaEntryWrite =
+  { op: 'put'; placeId: string; key: string; entry: Row } | { op: 'drop'; placeId: string; key: string };
+
+/**
+ * Puts `entry` under `key` on the row of its item, in the caller's transaction: the row is revived when the trim had
+ * retired it, the entry's text becomes the row's text form when nothing better is held, and the row gets its graph node.
+ * A row that came back or is new may push the place's oldest row past the cap.
+ */
+export function writeMediaEntry(
+  db: Db,
+  { placeId, iface, key, entry, at }: { placeId: string; iface: unknown; key: string; entry: Row; at: number }
+): { written: number; retired: number } {
+  const live = mediaRowOfCacheKey(db, iface, key) ?? holderOf(rowsUnder(db, iface, refsOf(key)), key);
+  const { row, isNew } = live ? { row: live, isNew: false } : cacheRowFor(db, iface, key);
+  const extra = parsedObject(row.extra);
+  const cache = { ...cacheOf(extra), [key]: entry };
+  db.prepare(
+    `UPDATE media SET extra = ?, retired_at = NULL, used_at = ?,
+       writer = CASE WHEN writer = 'gifs' THEN writer ELSE 'media' END,
+       holder_id = CASE WHEN writer = 'gifs' THEN holder_id ELSE ? END
+     WHERE id = ?`
+  ).run(JSON.stringify({ ...extra, cache }), at, placeId, row.id);
+  if (filled(entry.text)) {
+    const fresh = db.prepare('SELECT * FROM media WHERE id = ?').get(row.id) as Row;
+    writeText(db, fresh, {
+      text: entry.text,
+      origin: originOf(fresh.kind, fresh.native_ref !== key && cacheKeyParts(key).watched),
+      at: isFiniteNumber(entry.ts) ? entry.ts : at,
+    });
+  }
+  projectRow(db, 'media', { id: row.id }, { at });
+  return { written: 1, retired: isNew ? trimPlace(db, placeId, at) : 0 };
+}
+
+/** Drops `key` from the row that holds it; a cache row left with no key and no link is retired. */
+export function dropMediaEntry(
+  db: Db,
+  { iface, key, at }: { iface: unknown; key: string; at: number }
+): { written: number; retired: number } {
+  const row = holderOf(rowsUnder(db, iface, refsOf(key)), key);
+  if (!row) return { written: 0, retired: 0 };
+  const extra = parsedObject(row.extra);
+  const cache = cacheOf(extra);
+  delete cache[key];
+  db.prepare('UPDATE media SET extra = ? WHERE id = ?').run(JSON.stringify({ ...extra, cache }), row.id);
+  const empty =
+    Object.keys(cache).length === 0 &&
+    row.writer === 'media' &&
+    db.prepare('SELECT 1 FROM media_links WHERE media_id = ? LIMIT 1').get(row.id) === undefined;
+  if (empty) db.prepare('UPDATE media SET retired_at = ? WHERE id = ?').run(iso(at), row.id);
+  projectRow(db, 'media', { id: row.id }, { at });
+  return { written: 1, retired: empty ? 1 : 0 };
+}
+
+/** A write of the kind as the writer receives it, checked. */
+function mediaEntryWriteOf(update: Row): MediaEntryWrite {
+  const coded = (code: string): Error => Object.assign(new Error(code), { code });
+  if (!filled(update.placeId) || !filled(update.key)) throw coded('MEDIA_ENTRY_KEY');
+  if (update.op === 'drop') return { op: 'drop', placeId: update.placeId, key: update.key };
+  const entry = update.entry;
+  if (update.op !== 'put' || entry === null || typeof entry !== 'object' || Array.isArray(entry))
+    throw coded('MEDIA_ENTRY_OP');
+  return { op: 'put', placeId: update.placeId, key: update.key, entry: entry as Row };
+}
+
+/**
+ * The interface whose rows hold a place's cache: the place's own row's, else the interface the write names (a place
+ * with no row, such as the persona's own), else none.
+ */
+export function cacheIface(db: Db, placeId: string, named: string | null): string | null {
+  const iface = preparedPlace(db, 'SELECT iface FROM places WHERE id = ?').get(placeId)?.iface;
+  return filled(iface) ? iface : named;
+}
+
+/** The write kind `media-entry` on the writer connection (session-write.ts). */
+export function applyMediaEntryWrite(connection: Connection, update: Row): { written: number; retired: number } {
+  const write = mediaEntryWriteOf(update);
+  const at = isFiniteNumber(update.now) ? update.now : Date.now();
+  const named = filled(update.iface) ? update.iface : null;
+  return transactionOf(connection)(() => {
+    const db = dbOf(connection);
+    const iface = cacheIface(db, write.placeId, named);
+    return write.op === 'put'
+      ? writeMediaEntry(db, { placeId: write.placeId, iface, key: write.key, entry: write.entry, at })
+      : dropMediaEntry(db, { iface, key: write.key, at });
+  });
 }
 
 /** Fields a library's mapper does not hold, which its write must not lose: the row is an item too. */

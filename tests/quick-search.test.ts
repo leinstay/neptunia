@@ -14,6 +14,7 @@ import { searchCommand } from '../src/interface/commands/search.ts';
 import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 const ROOT = path.join(import.meta.dirname, '..');
 const QUERY = 'the opening hours';
@@ -58,7 +59,7 @@ function rig({
   const cache = {};
   const deps = {
     hot: { config, prompts: {} },
-    store: { getMediaCache: () => cache, markMediaCacheDirty: () => {} },
+    store: { ...objectMediaCache(cache) },
     llm: {
       complete: (messages: unknown, options: Record<string, unknown>) => {
         requests.push(options);

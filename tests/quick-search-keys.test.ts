@@ -14,6 +14,7 @@ import { localConfigPath } from '../src/config/files.ts';
 import { readLocalConfig } from '../src/tools/operations/shared.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { sourceFiles, readSource, ROOT } from './fixtures/source-tree.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 type Settings = Record<string, unknown>;
 
@@ -27,7 +28,7 @@ function lookupOver(web: Settings) {
   const searched: Array<string> = [];
   const deps = {
     hot: { config: { web, llm: { timeoutMs: 1000 } }, prompts: {} },
-    store: { getMediaCache: () => ({}), markMediaCacheDirty: () => {} },
+    store: { ...objectMediaCache({}) },
     llm: { complete: () => Promise.resolve({ text: 'unread', usage: {}, estimated: 1 }) },
     pageFetcher: { fetchText: () => Promise.resolve({ ok: false, reason: 'network' }) },
     searches: {

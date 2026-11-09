@@ -1,26 +1,11 @@
-// Tests for src/web/cache.ts: the media cache helpers of the web lookup (LRU order, trimming).
-// Pure: plain objects in, plain objects out.
+// The keys of the shared media cache (src/web/cache.ts): a page read and a search are stored under a key made from
+// their text, and a stored entry is found again only while the key comes out the same.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { touchKey, trimCache } from '../src/web/cache.ts';
+import { hashedKey } from '../src/web/cache.ts';
 
-test('touchKey: a new key is appended; an existing one moves to the end with its new value', () => {
-  const cache = { a: 1, b: 2, c: 3 };
-  touchKey(cache, 'a', 10);
-  assert.deepEqual(Object.keys(cache), ['b', 'c', 'a']);
-  assert.equal(cache.a, 10);
-  touchKey(cache, 'd', 4);
-  assert.deepEqual(Object.keys(cache), ['b', 'c', 'a', 'd']);
-});
-
-test('trimCache: drops the oldest entries past maxEntries; a negative max empties it', () => {
-  const cache = { a: 1, b: 2, c: 3, d: 4 };
-  trimCache(cache, 2);
-  assert.deepEqual(cache, { c: 3, d: 4 });
-  trimCache(cache, 5);
-  assert.deepEqual(cache, { c: 3, d: 4 });
-  trimCache(cache, Infinity);
-  assert.deepEqual(cache, { c: 3, d: 4 });
-  trimCache(cache, -1);
-  assert.deepEqual(cache, {});
+// Bug: a changed hash or cut gives every page read and search a new key, so the stored entries are never found again
+// and each is fetched and paid for anew.
+test('a text keeps the key it was stored under: the prefix and 16 hex characters of its sha1', () => {
+  assert.equal(hashedKey('page', 'https://example.invalid/page'), 'page:c9b243af7f06fc93');
 });

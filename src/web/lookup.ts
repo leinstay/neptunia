@@ -32,8 +32,8 @@
 //   because it is the link's text form: every link to that address holds this text instead of its preview, with no fetch.
 //   A transcript shows it cut at `LINK_EXCERPT_CHARS` (src/format.ts), so a request grows no more than by a preview.
 //
-// Both share the media cache (data/places/<id>/media.json, LRU-trimmed to
-// `MEDIA_CACHE_ENTRIES` of src/web/cache.ts): `preview:<link id>` holds an excerpt `{ text, ts }` or a
+// Both share the describer's cache (one row of `media` per entry, capped by last use at
+// `MEDIA_CACHE_ENTRIES` of src/memory/db/media-store.ts): `preview:<link id>` holds an excerpt `{ text, ts }` or a
 // miss `{ miss, ts, reason }` skipped for 6 hours (never for a refusal by
 // `llm.maxRequestsPerDay`); `search:<sha1 prefix of the
 // normalized query>` holds `{ query, text, sources, ts }`, served while younger
@@ -53,7 +53,7 @@ import { roleRequestOptions, railReason } from '../llm/openrouter.ts';
 import { clampText, oneLine } from '../memory/clamp.ts';
 import { log } from '../log.ts';
 import { MINUTE_MS, utcDay } from '../time.ts';
-import { LINK_EXCERPT_CHARS, MEDIA_CACHE_ENTRIES, hashedKey, touchKey, trimCache } from './cache.ts';
+import { LINK_EXCERPT_CHARS, hashedKey } from './cache.ts';
 import { truncateText } from './readable.ts';
 import { CODE } from '../tools/codes.ts';
 import { errorFields } from '../error-fields.ts';
@@ -103,9 +103,9 @@ type LinkItem = { id: string; url: string; site?: string; title?: string; kind?:
 export type LookupDeps = {
   hot: { config: LookupConfig; prompts?: { 'search-summary'?: string } };
   store: {
-    getMediaCache: (placeId: string) => Record<string, CacheEntry>;
-    markMediaCacheDirty: (placeId: string) => void;
-    linkedMediaKeys?: () => ReadonlySet<string>;
+    mediaEntry: (placeId: string, key: string) => CacheEntry | undefined;
+    putMediaEntry: (placeId: string, key: string, entry: CacheEntry) => void;
+    dropMediaEntry: (placeId: string, key: string) => void;
   };
   llm: {
     complete: (messages: Array<ChatMessage>, options?: CompleteOptions) => Promise<CompleteResult>;
@@ -358,7 +358,7 @@ export { renderResults };
 
 /**
  * @param deps.hot Live config + prompts; read at the moment of use.
- * @param deps.store getMediaCache / markMediaCacheDirty (src/memory/store.ts).
+ * @param deps.store mediaEntry / putMediaEntry / dropMediaEntry (src/memory/store.ts).
  * @param deps.llm From createLlm().
  * @param deps.pageFetcher From createPageFetcher() (src/web/fetch-page.ts).
  * @param deps.searches The search clients: createBraveSearch()
@@ -374,10 +374,7 @@ export function createLookup(deps: LookupDeps): Lookup {
   const inFlight = new Map<string, Promise<Fetched>>();
 
   function putEntry(placeId: string, key: string, value: CacheEntry): void {
-    const cache = store.getMediaCache(placeId);
-    touchKey(cache, key, value);
-    trimCache(cache, MEDIA_CACHE_ENTRIES, () => store.linkedMediaKeys?.() ?? new Set<string>());
-    store.markMediaCacheDirty(placeId);
+    store.putMediaEntry(placeId, key, value);
   }
 
   /** Today's UTC date `YYYY-MM-DD` on the injected clock (the daily counter and `{{today}}`). */
@@ -408,13 +405,11 @@ export function createLookup(deps: LookupDeps): Lookup {
 
   /** The cached state of a link: `{ text }` (LRU-touched), `'miss'` (still fresh) or null. */
   function cachedRead(placeId: string, key: string): { text: string } | 'miss' | null {
-    const cache = store.getMediaCache(placeId);
-    const entry = cache[key];
+    const entry = store.mediaEntry(placeId, key);
     if (!entry) return null;
     if (entry.miss) return now() - entry.ts < READ_MISS_TTL_MS ? 'miss' : null;
     if (typeof entry.text !== 'string') return null;
-    touchKey(cache, key, entry);
-    store.markMediaCacheDirty(placeId);
+    store.putMediaEntry(placeId, key, entry);
     return { text: entry.text };
   }
 
@@ -541,19 +536,16 @@ export function createLookup(deps: LookupDeps): Lookup {
 
     const report = (outcome: string, reason: string | null = null, extra: object = {}): void =>
       log.info('lookup: search', { state: outcome, reason, ...extra });
-    const cache = store.getMediaCache(placeId);
     const key = searchKey(asked);
-    const hit = cache[key];
+    const hit = store.mediaEntry(placeId, key);
     if (hit && typeof hit.text === 'string') {
       const maxAgeMs = positiveOr(searchCfg.cacheHours, SEARCH_CACHE_HOURS_FALLBACK) * 60 * MINUTE_MS;
       if (now() - hit.ts < maxAgeMs) {
-        touchKey(cache, key, hit);
-        store.markMediaCacheDirty(placeId);
+        store.putMediaEntry(placeId, key, hit);
         report(hit.text ? 'found' : 'nothing', null, { cached: true, results: hit.sources?.length ?? 0 });
         return { query: hit.query ?? asked, text: hit.text, sources: hit.sources ?? [], cached: true };
       }
-      delete cache[key];
-      store.markMediaCacheDirty(placeId);
+      store.dropMediaEntry(placeId, key);
     }
 
     // The summary request would be refused: no search, no slot.
@@ -688,19 +680,16 @@ export function createLookup(deps: LookupDeps): Lookup {
 
     const report = (outcome: string, reason: string | null = null, extra: object = {}): void =>
       log.info('lookup: search', { state: outcome, reason, raw: true, ...extra });
-    const cache = store.getMediaCache(placeId);
     const key = hashedKey('results', normalizeQuery(asked));
-    const hit = cache[key];
+    const hit = store.mediaEntry(placeId, key);
     if (hit && Array.isArray(hit.results)) {
       const maxAgeMs = positiveOr(searchCfg.cacheHours, SEARCH_CACHE_HOURS_FALLBACK) * 60 * MINUTE_MS;
       if (now() - hit.ts < maxAgeMs) {
-        touchKey(cache, key, hit);
-        store.markMediaCacheDirty(placeId);
+        store.putMediaEntry(placeId, key, hit);
         report(hit.results.length ? 'found' : 'nothing', null, { cached: true, results: hit.results.length });
         return { query: hit.query ?? asked, results: hit.results, cached: true };
       }
-      delete cache[key];
-      store.markMediaCacheDirty(placeId);
+      store.dropMediaEntry(placeId, key);
     }
 
     // Only the `openrouter` engine sends a model request.
@@ -814,13 +803,11 @@ export function createLookup(deps: LookupDeps): Lookup {
     const location = safeLocation(asked);
     const report = (outcome: string, reason: string | null = null, extra: object = {}): void =>
       log.info('lookup: page', { state: outcome, reason, location, ...extra });
-    const cache = store.getMediaCache(placeId);
     const key = pageKey(asked);
-    const hit = cache[key];
+    const hit = store.mediaEntry(placeId, key);
     if (hit && typeof hit.text === 'string') {
       if (now() - hit.ts < positiveOr(linksCfg.readCacheHours, PAGE_CACHE_HOURS_FALLBACK) * 60 * MINUTE_MS) {
-        touchKey(cache, key, hit);
-        store.markMediaCacheDirty(placeId);
+        store.putMediaEntry(placeId, key, hit);
         report('read', null, { cached: true, chars: hit.text.length });
         return {
           ok: true,

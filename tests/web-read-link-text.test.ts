@@ -9,6 +9,7 @@ import { runWebRead } from '../src/tools/tools.ts';
 import { createLookup } from '../src/web/lookup.ts';
 import type { LookupDeps } from '../src/web/lookup.ts';
 import { labels } from './fixtures/labels.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 const PLACE = 'g1';
 const URL_A = 'https://example.org/a';
@@ -25,7 +26,7 @@ function rig(pages: Record<string, Page> = { [URL_A]: { ok: true, text: WHOLE, t
   const cache: Record<string, unknown> = {};
   const lookup = createLookup({
     hot: { config: { web: { links: { fetchTimeoutMs: 1000, readCacheHours: 2 } } }, prompts: {} },
-    store: { getMediaCache: () => cache, markMediaCacheDirty: () => {} },
+    store: { ...objectMediaCache(cache) },
     llm: { complete: () => Promise.reject(new Error('reading a page sends no model request')) },
     pageFetcher: {
       fetchText: (url: string) => {

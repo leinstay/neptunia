@@ -879,7 +879,7 @@ test('createReplayTools: web.search and web.read through the lookup and memory.s
   };
   const createLookup = ({ llm: client, state, store: cache }: Untyped) => {
     seen.webState = state;
-    cache.getMediaCache().touched = true;
+    cache.putMediaEntry('g1', 'touched', { text: 'touched' });
     return {
       hasSearch: () => true,
       webCapLeft: () => 5,
@@ -1606,7 +1606,7 @@ test('createReplayTools: media.look looks again through the describer over the m
   };
   const created: Array<Untyped> = [];
   const createDescriber = ({ llm: client, store: cache }: Untyped) => {
-    created.push(cache.getMediaCache());
+    created.push(cache.mediaEntries('g1'));
     return {
       relookImage: async (placeId: string, item: unknown, question: unknown) => (
         await client.complete([], {}),

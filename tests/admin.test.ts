@@ -2952,7 +2952,7 @@ test('run: gifs.status counts the library by caption format: watched with fields
     entries: Object.fromEntries([1, 2, 3, 4].map((n) => [`m${n}#e0`, entry(n)])),
     backfill: null,
   });
-  store.getMediaCache = () => ({
+  store.mediaEntries = () => ({
     'm1#e0': {
       text: 'a cat lifts its chin',
       reaction: 'agreement',

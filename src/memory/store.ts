@@ -41,11 +41,11 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { accountCollection, keyText, personaKey, placeCollection } from './db/storage-keys.ts';
-import type { StorageKey, StorageKind, StorageSelector } from './db/storage-keys.ts';
-import { isMediaDescriptionEntry, mediaDescriptionOf } from './db/export.ts';
-import { entryPictureDescriptions, linkedAttachmentIds } from './db/media-store.ts';
-import type { MediaDescriptionEntry } from './db/export.ts';
+import { accountCollection, personaKey, placeCollection } from './db/storage-keys.ts';
+import type { StorageKind, StorageSelector } from './db/storage-keys.ts';
+import { entryPictureDescriptions } from './db/media-store.ts';
+import type { MediaDescriptionEntry } from './db/media-store.ts';
+import { createStoreMedia } from './store-media.ts';
 import type { InterfaceNames } from './db/roots.ts';
 
 import { linkedProfileUnit } from './db/person-links.ts';
@@ -1167,43 +1167,8 @@ function buildStore({
   // The memory units this store reads and writes, and their one way to the writer (src/memory/store-writes.ts).
   const writes = createStoreWrites({ memoryDb, seam });
   const { address, collection, entry } = writes;
-  const seededMedia = new Set<string>();
-  const pendingMedia = new Map<string, { key: StorageKey; entry: MediaDescriptionEntry }>();
-
-  function mediaDescriptionKey(placeId: string, cacheKey: string): StorageKey {
-    return placeCollection('versions', placeId, { selector: { versionKind: 'media', itemId: cacheKey } });
-  }
-
-  function rememberMedia(placeId: string, cacheKey: string, value: MediaDescriptionEntry, seed = false): void {
-    if (!writes.writable()) return;
-    const key = mediaDescriptionKey(placeId, cacheKey);
-    const text = keyText(key);
-    if (seed && (pendingMedia.has(text) || mediaDescriptionOf(seam.db(), key))) return;
-    const snapshot = structuredClone(value);
-    pendingMedia.set(text, { key, entry: snapshot });
-    writes.lines(key, [{ op: seed ? 'seed' : 'described', id: newId(), entry: snapshot }]);
-  }
-
-  function currentMedia(placeId: string, cacheKey: string): MediaDescriptionEntry | null {
-    if (!writes.writable()) return null;
-    const key = mediaDescriptionKey(placeId, cacheKey);
-    const text = keyText(key);
-    const pending = pendingMedia.get(text);
-    if (pending && writes.holds(key)) return structuredClone(pending.entry);
-    pendingMedia.delete(text);
-    return seam.run(() => mediaDescriptionOf(seam.db(), key));
-  }
-
-  function seedMedia(placeId: string, file: string, described: StoredRecord): void {
-    if (!writes.writable() || seededMedia.has(file)) return;
-    seededMedia.add(file);
-    for (const [key, value] of Object.entries(described)) {
-      if (!isMediaDescriptionEntry(value) || /^(?:preview|search|results|page):/.test(key)) continue;
-      const provenance = isFiniteNumber(value.describedAt) && typeof value.model === 'string' && value.model !== '';
-      const answer = /^(?:video|image|gif):.+:q:[a-f0-9]+$/.test(key) && typeof value.answer === 'string';
-      if (provenance || answer) rememberMedia(placeId, key, value, true);
-    }
-  }
+  // The describer's cache, one row of `media` per entry (src/memory/store-media.ts).
+  const media = createStoreMedia({ memoryDb, seam });
 
   // ---- The archive (src/memory/archive.ts): nothing leaves a hot list without a copy ----
   //
@@ -1598,6 +1563,7 @@ function buildStore({
 
   /** Every changed value sent to the writer (store-writes.ts#flushAll); how many were written, failed and held. */
   function flushAll({ force = false } = {}) {
+    media.flush();
     return track('store.flushAll', () => writes.flushAll({ force }));
   }
 
@@ -1634,7 +1600,6 @@ function buildStore({
   const channelsDir = () => collection('channel');
   const channelFile = (placeId: string) => address(placeCollection('channel', placeId));
   const placeUnitFile = (kind: StorageKind, placeId: string) => address(placeCollection(kind, placeId));
-  const mediaCacheFile = (placeId: string) => placeUnitFile('media', placeId);
   const loreFile = (placeId: string) => placeUnitFile('lore', placeId);
   const gifsFile = () => address(personaKey('gifs'));
   const emojiRailsFile = (placeId: string) => placeUnitFile('emoji_rails', placeId);
@@ -2816,39 +2781,32 @@ function buildStore({
     },
 
     /**
-     * The describer's cache for one place (src/memory/describe.ts): a plain
-     * object map keyed by attachment/embed id, insertion order doubling as
-     * LRU recency order. Callers mutate the returned object directly (same
-     * pattern as `state.data`) and call `markMediaCacheDirty` afterwards.
+     * The describer's cache (src/memory/describe.ts, src/web/lookup.ts): the entry under `key` (an attachment, an embed, a
+     * `video:`, `emoji:` or `link:` key, a lookup's `page:`, `search:` or `results:` key), read from its row of
+     * `media` (src/memory/store-media.ts); undefined when none holds it.
      */
-    getMediaCache(placeId: string): StoredRecord {
-      const file = mediaCacheFile(placeId);
-      // Kept for the life of the store: the describer changes the map it was given and marks it afterwards.
-      const value = writes.pin(file, () => ({})).value as StoredRecord;
-      seedMedia(placeId, file, value);
-      return value;
+    mediaEntry(placeId: string, key: string): StoredRecord | undefined {
+      return media.entry(placeId, key);
     },
 
-    /** The attachment ids stored lines and selfreflection posts link: what the media cache's cap leaves alone (src/web/cache.ts#trimCache). */
-    linkedMediaKeys(): ReadonlySet<string> {
-      return seam.run(() => linkedAttachmentIds(seam.db()));
+    /** The cache's entries under `keys`, each key that holds one; every entry of the place's cache without `keys`. */
+    mediaEntries(placeId: string, keys?: Iterable<string>): Record<string, StoredRecord> {
+      return media.entries(placeId, keys);
     },
 
-    getMediaDescription: currentMedia,
-    rememberMediaDescription(placeId: string, cacheKey: string, value: MediaDescriptionEntry): void {
-      rememberMedia(placeId, cacheKey, value);
-    },
-    markMediaDescriptionRefreshFailed(placeId: string, cacheKey: string, at: number): void {
-      const previous = currentMedia(placeId, cacheKey);
-      if (!previous || !writes.writable()) return;
-      const key = mediaDescriptionKey(placeId, cacheKey);
-      pendingMedia.set(keyText(key), { key, entry: { ...previous, refreshFailedAt: at } });
-      writes.lines(key, [{ op: 'refresh-failed', at }]);
+    /** The cache's entry under `key` written to its row: a new one, a touched one (`usedAt`) or a changed one. */
+    putMediaEntry(placeId: string, key: string, value: unknown): void {
+      media.put(placeId, key, value);
     },
 
-    markMediaCacheDirty(placeId: string) {
-      const item = writes.inUse(mediaCacheFile(placeId));
-      if (item) item.dirty = true;
+    /** The cache's entry under `key` dropped. */
+    dropMediaEntry(placeId: string, key: string): void {
+      media.drop(placeId, key);
+    },
+
+    /** The successful description under `key`, also one the cache's cap took out: what the describer takes up again. */
+    getMediaDescription(placeId: string, key: string): MediaDescriptionEntry | null {
+      return media.saved(placeId, key);
     },
 
     /**
@@ -3309,7 +3267,8 @@ function buildStore({
       if (held > 0) log.warn('store: flushed held', { files: held });
       if (writes.writable()) {
         counts.waiting = await writes.settle({ final, ...(isFiniteNumber(timeoutMs) ? { timeoutMs } : {}) });
-        for (const [text, pending] of pendingMedia) if (!writes.holds(pending.key)) pendingMedia.delete(text);
+        const lost = await media.settle({ final, ...(isFiniteNumber(timeoutMs) ? { timeoutMs } : {}) });
+        counts.waiting = Number(counts.waiting ?? 0) + lost;
       }
       return counts;
     },
@@ -3482,7 +3441,6 @@ export type Store = Omit<
   | 'listUserProfiles'
   | 'listChannels'
   | 'updateChannel'
-  | 'getMediaCache'
   | 'getLore'
 > & {
   getUser: (...args: Parameters<StoreView['getUser']>) => object | null;
@@ -3493,7 +3451,6 @@ export type Store = Omit<
   listUserProfiles: () => Array<object>;
   listChannels: (placeId: Untyped) => Array<object>;
   updateChannel: (...args: Parameters<StoreView['updateChannel']>) => object;
-  getMediaCache: StoreView['getMediaCache'];
   getLore: (placeId: Untyped) => Array<object>;
 };
 

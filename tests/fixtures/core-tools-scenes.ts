@@ -12,6 +12,7 @@ import { labels } from './labels.ts';
 import { completionOf } from './tool-answers.ts';
 import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 import { chainsOnDefaults } from './chains.ts';
+import { objectMediaCache } from '../../src/memory/store-media.ts';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 
@@ -78,7 +79,7 @@ function fakeStore() {
     listUserProfiles: () => [],
     countUsers: () => 0,
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };
 }

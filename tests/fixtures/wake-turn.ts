@@ -19,6 +19,7 @@ import { completionOf } from './tool-answers.ts';
 import { onWorld, useIface, world } from './turn-world.ts';
 import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 import { chainsOnDefaults } from './chains.ts';
+import { objectMediaCache } from '../../src/memory/store-media.ts';
 
 useIface('fake');
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
@@ -189,7 +190,7 @@ export async function wakeTurn({
     listUserProfiles: () => [],
     countUsers: () => 0,
     getLore: () => lore,
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };
   const admin = createAdmin({

@@ -64,7 +64,6 @@ const MAPPED: Array<[string, string, ListName]> = [
   [`${G}/intentions-archive.jsonl`, 'intentions', 'memory'],
   [`${G}/errands.json`, 'errands', 'memory'],
   [`${G}/errands.jsonl`, 'errands', 'memory'],
-  [`${G}/media.json`, 'media', 'memory'],
   [`${G}/gifs.json`, 'gifs', 'memory'],
   [`${G}/recall-trace.jsonl`, 'verbatim', 'operational'],
   [`${G}/voice.json`, 'verbatim', 'memory'],

@@ -29,8 +29,7 @@ const TENOR_A = 'https://tenor.com/view/cat-dance-1';
 const TENOR_B = 'https://tenor.com/view/wave-2';
 
 /** The store with the library typed as it is kept: `getGifs` answers entries of the library, not bare objects. */
-type GifStore = Omit<Store, 'getGifs' | 'getMediaCache'> & {
-  getMediaCache(placeId: string): Record<string, Untyped>;
+type GifStore = Omit<Store, 'getGifs'> & {
   getGifs(): {
     nextId: number;
     entries: Record<string, GifEntry>;
@@ -312,10 +311,7 @@ test('gif backfill run: describes the top backfillDescribe entries without a cac
     const describer: Record<string, Untyped> = fakeDescriber();
     const hot = fakeHot();
     // The most used gif already has a caption (its first embed id): it is skipped, not re-described.
-    wrongly<Record<string, unknown>>(store.getMediaCache('g1'))['1001#e0'] = {
-      text: 'a cat dancing',
-      ts: T0,
-    };
+    store.putMediaEntry('g1', '1001#e0', { text: 'a cat dancing', ts: T0 });
     const backfill = createGifBackfill(
       wrongly({
         ...depsOf(fakeClient(standardChannels())),

@@ -28,6 +28,7 @@ import {
   rabbitAnswers,
 } from './fixtures/recall-run-kit.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 const LIMITS = { maxChars: 100, maxOutputTokens: 50 };
 
@@ -221,7 +222,7 @@ test('a web search whose summary answers none gives her no text', async () => {
         },
         prompts: { 'search-summary': 'The query: {{query}}. Up to {{maxChars}} characters.' },
       },
-      store: { getMediaCache: () => ({}), markMediaCacheDirty() {} },
+      store: { ...objectMediaCache({}) },
       llm: { complete: () => Promise.resolve({ text: 'none', usage: {}, estimated: 5 }) },
       state: { data: {}, markDirty() {} },
       pageFetcher: { fetchText: () => Promise.reject(new Error('no page in this test')) },

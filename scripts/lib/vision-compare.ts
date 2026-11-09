@@ -6,6 +6,7 @@
 // persona's senses use, before the owner switches the `vision` and `video` chains.
 // No clock or randomness of its own: `now` is injected.
 
+import { objectMediaCache } from '../../src/memory/store-media.ts';
 import { CliError, parseFlags } from './cli.ts';
 import { escapeHtml } from './pair.ts';
 import { costOf, percentile } from './recall-eval.ts';
@@ -381,7 +382,7 @@ export async function describeOne({
 }): Promise<Cell> {
   const hot = toolHot(base, { model });
   const cache: Rec = {};
-  const store = { getMediaCache: () => cache, markMediaCacheDirty() {} };
+  const store = objectMediaCache(cache);
   const state = { data: {}, markDirty() {} };
   const usage = { requests: 0, promptTokens: 0, completionTokens: 0, costUsd: 0 };
   const sentModels = new Set<string | null>();

@@ -44,6 +44,7 @@
 // `results.jsonl`, `blind.md` and `blind-key.json` quote chat: keep them on the server. Logs carry
 // ids, engines and outcomes only.
 
+import { objectMediaCache } from '../src/memory/store-media.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -272,7 +273,7 @@ export async function main(
       };
       const lookup = createLookup({
         hot: view,
-        store: { getMediaCache: () => ({}), markMediaCacheDirty() {} },
+        store: objectMediaCache({}),
         llm: wrappedLlm,
         ...{ state: { data: {}, markDirty() {} } }, // the lookup takes no `state`; this tool has always passed one
         pageFetcher: { fetchText: async () => ({ ok: false, reason: 'network' }) },

@@ -32,6 +32,7 @@ import { onWorld, world } from './turn-world.ts';
 import type { Fake } from './turn-world.ts';
 import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 import { chainsOnDefaults } from './chains.ts';
+import { objectMediaCache } from '../../src/memory/store-media.ts';
 
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 
@@ -275,7 +276,7 @@ export async function serviceTurn(spec: ServiceTurnSpec): Promise<ServiceRun> {
     listUserProfiles: () => [],
     countUsers: () => 0,
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
     // A place id names its chat by the row the world holds, as the memory store answers it: without it a write named by
     // place went to the place id as a chat no interface knows.

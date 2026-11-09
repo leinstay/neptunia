@@ -84,7 +84,7 @@ export type PhaseStore = Parameters<typeof recordEntry>[0]['store'] & {
   listChannels: (placeId: string) => unknown;
   getLore: (placeId: string) => unknown;
   getGifs?: () => unknown;
-  getMediaCache: (placeId: string) => unknown;
+  mediaEntry: (placeId: string, key: string) => object | undefined;
   getParticipation: (placeId: string) => unknown;
 };
 

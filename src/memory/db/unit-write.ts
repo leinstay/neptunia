@@ -14,15 +14,13 @@ import { classify } from '../migration/classify.ts';
 import { legacyStorageKey, currentUnitPath } from '../migration/paths.ts';
 import type { StorageKey } from './storage-keys.ts';
 import type { MapContext } from './map/common.ts';
-import { parseExtra } from './map/common.ts';
 
 import { ifaceOrLegacy as ifaceOf, namedIface } from './legacy-namespace.ts';
 import { qualify, retireAbsent, writeMapping } from './upsert.ts';
-import { isMediaDescriptionEntry, mediaDescriptionId } from './export.ts';
 import { graphPending, projectPending, projectRow } from './graph.ts';
 import { storeHeld } from './media-stems.ts';
 import { fillStems, markStemsPending, stemsPending } from './stems.ts';
-import { adoptLibraryRows, keepItemFields, tellFromCacheKey, writeMediaCache } from './media-store.ts';
+import { adoptLibraryRows, keepItemFields } from './media-store.ts';
 import { applyErrandUnit, skippedErrandUnit } from '../../board/errands.ts';
 import { dbOf, asText, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
@@ -38,7 +36,7 @@ import { writeJournalDay } from './journal-lines.ts';
 import { writeArchiveMonth } from './archive-lines.ts';
 import { operationalOfUnit, writeOperational } from './operational.ts';
 import { accountProfileWriteOf, isAccountProfileKey, writeAccountProfile } from './account-profile.ts';
-import { SESSION_COLUMNS, profileOwnerOf, stampProfileRows } from './profile-owner.ts';
+import { SESSION_COLUMNS } from './profile-owner.ts';
 import { proseVersionsValueOf, writeProseVersions } from './prose-versions.ts';
 import { isPrivateLayerKey, privateLayerWriteOf, writePrivateLayer } from './private-layer.ts';
 import { isPlaceNotesKey, placeNotesWriteOf, writePlaceNotes } from './place-notes.ts';
@@ -47,7 +45,6 @@ import { appendSelfreflectionPost, selfreflectionOfUnit, writeSelfreflectionValu
 import { isPlaceLoreKey, placeLoreWriteOf, writePlaceLore } from './place-lore.ts';
 import { isParticipationKey, participationWriteOf, writeParticipation } from './participation-episodes.ts';
 import { isRecentLinesKey, recentLinesWriteOf, writeRecentLines } from './recent-lines.ts';
-import { storageContext } from './map/index.ts';
 
 /** Tables of an owned unit whose rows carry a `position`. */
 const POSITIONED = [
@@ -179,9 +176,6 @@ function writeLine(
 
 function writeLines(db: Db, update: Row, at: string): { written: number; duplicates: number; adopted: number } {
   const unit = updateUnit(db, update);
-  const unitKey = unit.key;
-  if (unitKey?.kind === 'versions' && unitKey.selector?.versionKind === 'media')
-    return writeMediaDescriptions(db, unit, update.lines, at);
   if (unit.format !== 'jsonl' || !LINE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
   const lines = (Array.isArray(update.lines) ? (update.lines as Array<unknown>) : []).filter(
     (line): line is Row => line !== null && typeof line === 'object' && !Array.isArray(line)
@@ -201,112 +195,20 @@ function writeLines(db: Db, update: Row, at: string): { written: number; duplica
   return result;
 }
 
-/** Media generations append independently of the active cache's replacement writes. */
-function writeMediaDescriptions(db: Db, unit: Unit, given: unknown, at: string) {
-  const key = unit.key!;
-  const holder = profileOwnerOf(key)!; // a `versions` unit always has its owner columns (profile-owner.ts)
-  const descriptionId = mediaDescriptionId(key);
-  let written = 0;
-  let duplicates = 0;
-  for (const event of Array.isArray(given) ? given : []) {
-    if (!event || typeof event !== 'object') throw coded('UNIT_BAD_OP');
-    const line = event as Row;
-    const current = db
-      .prepare(
-        `SELECT v.id,v.extra FROM descriptions d JOIN description_versions v ON v.id=d.current_version
-       WHERE d.id=? AND d.writer=? AND d.holder_id=?`
-      )
-      .get(descriptionId, holder.writer, holder.holder_id);
-    if (line.op === 'refresh-failed') {
-      if (current && isFiniteNumber(line.at)) {
-        const extra = parseExtra(current.extra);
-        db.prepare('UPDATE description_versions SET extra=? WHERE id=?').run(
-          JSON.stringify({ ...extra, refreshFailedAt: line.at }),
-          current.id
-        );
-        written += 1;
-      }
-      continue;
-    }
-    if (!isMediaDescriptionEntry(line.entry) || !filled(line.id)) throw coded('UNIT_BAD_OP');
-    const versionId = `${descriptionId}:${line.id}`;
-    if ((line.op === 'seed' && current) || db.prepare('SELECT 1 FROM description_versions WHERE id=?').get(versionId)) {
-      duplicates += 1;
-      continue;
-    }
-    const version = Number(
-      db
-        .prepare(
-          'SELECT COALESCE(MAX(position),0)+1 AS version FROM description_versions WHERE writer=? AND holder_id=?'
-        )
-        .get(holder.writer, holder.holder_id)?.version
-    );
-    const text = typeof line.entry.text === 'string' ? line.entry.text : line.entry.answer;
-    writeMapping(
-      db,
-      stampProfileRows(
-        {
-          description_versions: [
-            {
-              id: versionId,
-              description_id: descriptionId,
-              text,
-              written_at: isoOf(line.entry.ts),
-              origin: 'media',
-              extra: JSON.stringify({ entry: line.entry }),
-              owner_key: unit.full,
-              position: version,
-            },
-          ],
-          descriptions: [
-            {
-              id: descriptionId,
-              subject_kind: 'media',
-              subject_id: key.selector?.itemId,
-              field: 'description',
-              current_version: versionId,
-              owner_key: unit.full,
-              ...groupScope(storageContext(db, key).iface ?? null),
-            },
-          ],
-          operational: [
-            {
-              kind: 'versions',
-              owner: unit.full,
-              owner_key: unit.full,
-              value: JSON.stringify({ $has: { media: descriptionId } }),
-            },
-          ],
-        },
-        holder
-      ),
-      unit.full,
-      { at }
-    );
-    if (storeHeld(db) && filled(key.selector?.itemId) && typeof text === 'string' && text !== '') {
-      tellFromCacheKey(db, { iface: storageContext(db, key).iface ?? null, key: key.selector.itemId, text, at });
-    }
-    written += 1;
-  }
-  noteUnit(db, unit.full, unit.kind, { at });
-  return { written, duplicates, adopted: 0 };
-}
-
 /** The kinds of JSON unit op `value` does not write (the request dumps: a step source needs its turn's answer). */
 const NOT_VALUE_KINDS = new Set(['requests']);
 
 function writeValue(db: Db, update: Row, at: string): Row {
   const unit = updateUnit(db, update);
   if (unit.format !== 'json' || NOT_VALUE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
-  // The describer's cache lives on the items: an entry is the text form of its row, and a linked row is never trimmed.
-  if (unit.kind === 'media' && storeHeld(db)) {
-    const iface = (unit.key ? storageContext(db, unit.key).iface : null) ?? ifaceOf(update);
-    const cached = writeMediaCache(db, { owner: unit.full, iface, value: (update.value ?? {}) as Row, at });
-    noteUnit(db, unit.full, unit.kind, { at });
-    return { ...cached, destinations: [] };
-  }
   const mapping = qualify(unit.mapper.toRows(unit.rel, update.value ?? {}, { iface: ifaceOf(update) }), unit);
-  if (unit.kind === 'gifs' && storeHeld(db)) keepItemFields(db, mapping.media ?? []);
+  if (unit.kind === 'gifs' && storeHeld(db)) {
+    keepItemFields(db, mapping.media ?? []);
+    // The library's rows name it as their writer, held by the subject of its unit (media-owner.ts).
+    const subject = unit.key?.subject;
+    const holder = subject?.id ?? null;
+    for (const row of mapping.media ?? []) Object.assign(row, { writer: 'gifs', holder_id: holder });
+  }
   const upserted = writeMapping(db, mapping, unit.full, { at });
   const retired = retireAbsent(db, unit.full, mapping, at);
   if (unit.kind === 'gifs' && storeHeld(db)) adoptLibraryRows(db, unit.full, at);

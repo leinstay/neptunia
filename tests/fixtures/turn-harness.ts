@@ -27,6 +27,8 @@ import type { RunOutcome, RunRequest } from '../../src/errands/types.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
 import { chainsOnDefaults } from './chains.ts';
+import { objectMediaCache } from '../../src/memory/store-media.ts';
+import type { MediaCachePort } from '../../src/memory/store-media.ts';
 
 // The turn's chats are held by a fake interface of the world of the test, named `fake`.
 useIface('fake');
@@ -111,7 +113,7 @@ const KNOWN = new WeakMap<object, { world: World; channel: Channel }>();
 type Profile = { id: string } & Record<string, unknown>;
 
 /** A store that holds only the `profiles` it is given. */
-type FakeStore = {
+type FakeStore = MediaCachePort & {
   topPlaces: () => Array<string>;
   getPlace: () => object;
   getUser: (id: string) => Profile | null;
@@ -120,7 +122,6 @@ type FakeStore = {
   listUserProfiles: () => Array<Profile>;
   countUsers: () => number;
   getLore: () => Array<unknown>;
-  getMediaCache: () => object;
   state: { data: object; markDirty(): void };
 };
 
@@ -134,7 +135,7 @@ export function fakeStore({ profiles = [] }: { profiles?: Array<Profile> } = {})
     listUserProfiles: () => profiles,
     countUsers: () => profiles.length,
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };
 }

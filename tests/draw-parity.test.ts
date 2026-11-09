@@ -17,6 +17,7 @@ import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { planAnswerText } from './fixtures/plan-answer.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -150,7 +151,7 @@ function store() {
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     getSelfreflection: () => ({ posts: [], updatedAt: 0 }),
     appendSelfreflectionPost: () => ({ dropped: [] }),
     state: { data: {}, markDirty() {} },

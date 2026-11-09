@@ -24,7 +24,7 @@ export {
   gifCaption,
   gifFieldChars,
   gifFields,
-  gifFieldsMap,
+  gifFieldsLookup,
   gifLine,
 } from '../turn/request/emoji-gifs.ts';
 import type { Untyped } from '../tools/types.ts';

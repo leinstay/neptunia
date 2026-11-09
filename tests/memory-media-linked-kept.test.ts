@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { OBSERVATION_VERSION } from '../src/memory/db/observe.ts';
 import { createDescriber } from '../src/memory/describe.ts';
 import { createStore } from '../src/memory/store.ts';
-import { MEDIA_CACHE_ENTRIES } from '../src/web/cache.ts';
+import { MEDIA_CACHE_ENTRIES } from '../src/memory/db/media-store.ts';
 import { fakeImageFetcher, fakeLlm, fakeState, fakeVideoFetcher } from './fixtures/describe-fakes.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { chainsOf } from './fixtures/chains.ts';
@@ -67,9 +67,8 @@ async function trimmed(linkAttachments: ReadonlyArray<string>, selfreflectionAtt
     db.close();
   }
   const store = createStore({ dataDir: memory.dataDir, memoryDb: memory.memoryDb });
-  const cache = store.getMediaCache(PLACE) as Record<string, unknown>;
-  for (let i = 0; i < MEDIA_CACHE_ENTRIES; i += 1) cache[`a${i}`] = { text: 'a picture', ts: NOW - 1000 };
-  store.markMediaCacheDirty(PLACE);
+  for (let i = 0; i < MEDIA_CACHE_ENTRIES; i += 1)
+    store.putMediaEntry(PLACE, `a${i}`, { text: 'a picture', ts: NOW - 1000 });
   await store.flushSettled({ final: true });
 
   const describer = createDescriber({

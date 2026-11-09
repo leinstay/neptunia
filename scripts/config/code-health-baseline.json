@@ -608,10 +608,6 @@
       "deep": 6,
       "repeated": 1
     },
-    "tests/memory-db-map-media.test.ts": {
-      "deep": 4,
-      "repeated": 0
-    },
     "tests/memory-db-map-verbatim.test.ts": {
       "deep": 9,
       "repeated": 0
@@ -1872,7 +1868,7 @@
     },
     "src/web/lookup.ts": {
       "createLookup": {
-        "function-length": 506
+        "function-length": 493
       }
     },
     "src/web/readable.ts": {

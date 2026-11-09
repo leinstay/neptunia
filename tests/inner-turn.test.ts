@@ -49,6 +49,7 @@ import type { Untyped } from '../src/tools/types.ts';
 import type { JournalLinesWrite } from '../src/memory/db/journal-lines.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
 import { chainsOnDefaults } from './fixtures/chains.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 /** What an inner turn reports, the fields these tests read. */
 type InnerResult = {
@@ -116,7 +117,7 @@ function fakeStore() {
     listUserProfiles: () => [],
     countUsers: () => 0,
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };
 }

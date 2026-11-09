@@ -134,7 +134,7 @@ export type SandboxToolsetResult = {
  * @param [input.customEmoji]  The served place's
  *   custom emoji (src/behavior/emoji-index.ts#createEmojiIndex `list()`).
  * @param [input.gifs]  The GIF library (store.getGifs); omitted, the transcript's GIFs carry no handle.
- * @param [input.mediaCache]  The describer cache (store.getMediaCache), read only, for both lists' captions.
+ * @param [input.mediaCache]  The describer cache (store.mediaEntries), read only, for both lists' captions.
  * @param [input.elsewhereDestination]  The channel `<senses>` names for a call from a read-only channel; omitted, no
  *   such line.
  * @param [input.searchAvailable]  Whether a web search key is configured (the lookup's

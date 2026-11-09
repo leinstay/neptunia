@@ -225,6 +225,11 @@ export function normalizeGifs(value: unknown): GifLibrary {
   return { nextId, entries, backfill: normalizeBackfillStamp(src.backfill), backfills };
 }
 
+/** The item ids of a library's entries: the keys of their captions in the describer's cache. */
+export function gifItemIds(gifs: unknown): Array<string> {
+  return Object.values(normalizeGifs(gifs).entries).map((entry) => entry.itemId);
+}
+
 /** `gifs` with this place's history backfill stamped. Never mutates `gifs`. */
 export function stampGifBackfill(gifs: unknown, placeId: string, stamp: BackfillStamp): GifLibrary {
   const next = normalizeGifs(gifs);

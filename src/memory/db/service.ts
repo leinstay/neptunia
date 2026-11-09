@@ -70,6 +70,7 @@
 //   - `writePlaceLore(write)`, `writeParticipation(write)`, `writeRecentLines(write)` (place-lore.ts,
 //     participation-episodes.ts, recent-lines.ts): a place's whole lorebook, participation or recent lines.
 //   - `writeSelfreflection(write)` (selfreflection-entries.ts): her whole selfreflection, or one appended post.
+//   - `writeMediaEntry(write)` (media-store.ts): one entry of the describer's cache put on its row, or one key dropped.
 //   - her memory session is the memory writer (spec 2026-10-24-memory-authority, section 6 item 7). Each open logs the
 //     effective models (`memory db: effective models`: purpose, model id and key variable of the memory session, the
 //     description review and every other purpose; writer-switch.ts#effectiveModels). With `memoryDb.session.mode`
@@ -118,6 +119,7 @@ import type { PrivateLayerWrite } from './private-layer.ts';
 import type { PlaceNotesWrite } from './place-notes.ts';
 import type { ChannelEntryWrite } from './channel-entry.ts';
 import type { PlaceLoreWrite } from './place-lore.ts';
+import type { MediaEntryWrite } from './media-store.ts';
 import type { ParticipationWrite } from './participation-episodes.ts';
 import type { RecentLinesWrite } from './recent-lines.ts';
 import type { SelfreflectionWrite } from './selfreflection-entries.ts';
@@ -562,6 +564,8 @@ export type MemoryDbService = {
   writeRecentLines(write: RecentLinesWrite): Promise<unknown>;
   /** Her whole selfreflection or one appended post (selfreflection-entries.ts): resolves the rows it wrote and retired. */
   writeSelfreflection(write: SelfreflectionWrite): Promise<unknown>;
+  /** One entry of the describer's cache put on its row, or one key dropped (media-store.ts): resolves the rows it wrote and retired. */
+  writeMediaEntry(write: MediaEntryWrite): Promise<unknown>;
   recordWake(update: unknown): Promise<unknown> | null;
   issueContext(spec?: Parameters<typeof issuePureContext>[0]): Context;
   /** The budget of one retrieval from the settings read now; null while they are absent. */
@@ -1753,6 +1757,8 @@ export function createMemoryDb({
       write(withLiveIface({ ...lines, kind: 'recent-lines', now: now() }, iface)),
     writeSelfreflection: (entries: SelfreflectionWrite) =>
       write(withLiveIface({ ...entries, kind: 'selfreflection-entries', now: now() }, iface)),
+    writeMediaEntry: (entry: MediaEntryWrite) =>
+      write(withLiveIface({ ...entry, kind: 'media-entry', now: now() }, iface)),
     recordWake,
     issueContext,
     retrievalBoundsFor,

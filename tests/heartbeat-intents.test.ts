@@ -22,6 +22,7 @@ import { onWorld, useIface, world } from './fixtures/turn-world.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 // The chat is held by a fake interface named `fake`.
 useIface('fake');
@@ -66,7 +67,7 @@ function fakeStore() {
     listUserProfiles: () => [],
     countUsers: () => 0,
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };
 }

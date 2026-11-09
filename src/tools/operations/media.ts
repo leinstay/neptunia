@@ -14,7 +14,7 @@ import {
 } from './shared.ts';
 import { defineOp, perEnv, invalid } from './registry.ts';
 import type { Obj, OpContext, Untyped } from '../types.ts';
-import { GIF_HALF_LIFE_DAYS } from '../../memory/gifs.ts';
+import { GIF_HALF_LIFE_DAYS, gifItemIds } from '../../memory/gifs.ts';
 import { EMOJI_HALF_LIFE_DAYS } from '../../memory/emoji-usage.ts';
 
 /** The handler of `args.kind` among `byKindHandlers`, or an `invalid` error naming the kinds. */
@@ -71,7 +71,7 @@ const handlers = perEnv((env) => {
 
     const library = store.getGifs();
     const ranked = rankGifs(library, GIF_HALF_LIFE_DAYS) as Array<Untyped>;
-    const cache = store.getMediaCache(placeId);
+    const cache = store.mediaEntries(placeId, gifItemIds(library));
     const captionOf = (entry: Untyped): string => {
       const cached = (cache as Record<string, { miss?: boolean; text?: unknown } | undefined> | null)?.[entry.itemId];
       return cached && !cached.miss && typeof cached.text === 'string' ? cached.text.trim() : '';

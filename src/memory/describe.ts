@@ -5,8 +5,8 @@
 // default). One request per NEW picture: two callers reaching the same new
 // picture at once (a message prefill and a turn) share one download and one
 // request. Results are cached per
-// attachment/embed id in data/places/<id>/media.json (src/memory/store.ts),
-// LRU-trimmed to `MEDIA_CACHE_ENTRIES` (src/web/cache.ts), what a stored line or selfreflection post links
+// attachment/embed id on the item's row of `media` (src/memory/store-media.ts), the rows of a place capped by last
+// use at `MEDIA_CACHE_ENTRIES` (src/memory/db/media-store.ts), what a stored line or selfreflection post links
 // never trimmed. A failure is cached as a miss for an
 // hour, so a broken picture is not retried on every turn/batch -- except a
 // refusal by `llm.maxRequestsPerDay`, which says nothing about the picture.
@@ -142,18 +142,16 @@ import { createYoutubeCheck } from './youtube-check.ts';
 import { gifWatchBlocker as gifWatchBlockerOf, gifWatchPrompt } from './gif-watch.ts';
 import { log } from '../log.ts';
 import { MINUTE_MS, utcDay } from '../time.ts';
-import { MEDIA_CACHE_ENTRIES, hashedKey, touchKey, trimCache } from '../web/cache.ts';
+import { hashedKey } from '../web/cache.ts';
 import { normalizeQuery } from '../web/lookup.ts';
 import { isOffScript } from './text-standard.ts';
 import type { StoredRecord, Untyped } from './types.ts';
 import type { StoreView } from './store.ts';
 import type { Track } from '../loop-watch.ts';
 import { untracked } from '../loop-watch.ts';
-import { isMediaDescriptionEntry } from './db/export.ts';
 
 const MISS_TTL_MS = 60 * MINUTE_MS;
 /** What a store with no database links. */
-const NO_LINKS: ReadonlySet<string> = new Set();
 // Only when media.video.errorRetryMinutes is missing or invalid (config.json always has it).
 const VIDEO_ERROR_RETRY_MINUTES_FALLBACK = 60;
 // The describer's measures. Production values, config cut of 2026-10-31.
@@ -503,13 +501,8 @@ type DescribeManyOptions = {
 
 type DescriberDeps = {
   hot: { readonly config: Untyped; readonly prompts: Untyped };
-  store: Pick<StoreView, 'getMediaCache' | 'markMediaCacheDirty' | 'state'> &
-    Partial<
-      Pick<
-        StoreView,
-        'getMediaDescription' | 'rememberMediaDescription' | 'markMediaDescriptionRefreshFailed' | 'linkedMediaKeys'
-      >
-    >;
+  store: Pick<StoreView, 'mediaEntry' | 'putMediaEntry' | 'dropMediaEntry' | 'state'> &
+    Partial<Pick<StoreView, 'getMediaDescription'>>;
   llm: Untyped;
   now?: () => number;
   imageFetcher?: Untyped;
@@ -574,21 +567,19 @@ function mediaCacheAccess({ store, hot, now }: Pick<DescriberDeps, 'store' | 'ho
     return !(typeof failedAt === 'number' && isFiniteNumber(failedAt) && now() - failedAt < ttlMs);
   }
 
-  /** A cache hit: LRU-touched and stamped `usedAt`, the place's cache marked dirty. */
-  function touchHit(placeId: string, cache: Untyped, key: string, entry: Untyped) {
+  /** A cache hit: stamped `usedAt` and written, which makes it the place's most recently used row. */
+  function touchHit(placeId: string, key: string, entry: Untyped) {
     entry.usedAt = now();
-    touchKey(cache, key, entry);
-    store.markMediaCacheDirty(placeId);
+    store.putMediaEntry(placeId, key, entry);
   }
 
+  /** The entry under `key`, else the saved description the cache's cap took out, written back. */
   function readEntry(placeId: string, key: string): Untyped {
-    const cache = store.getMediaCache(placeId);
-    if (Object.hasOwn(cache, key)) return cache[key];
+    const held = store.mediaEntry(placeId, key);
+    if (held !== undefined) return held;
     const saved = store.getMediaDescription?.(placeId, key);
     if (!saved) return undefined;
-    touchKey(cache, key, saved);
-    trimCache(cache, MEDIA_CACHE_ENTRIES, () => store.linkedMediaKeys?.() ?? NO_LINKS);
-    store.markMediaCacheDirty(placeId);
+    store.putMediaEntry(placeId, key, saved);
     return saved;
   }
   return { dueForRecache, touchHit, readEntry };
@@ -641,14 +632,13 @@ function buildDescriber({
    * remembered, or null when it must be described.
    */
   function cachedPicture(placeId: string, itemId: string, retryMisses = false) {
-    const cache = store.getMediaCache(placeId);
     const cached = readEntry(placeId, itemId);
     if (!cached) return null;
     if (cached.miss) {
       if (isRefused(cached)) return FRESH_MISS;
       return !retryMisses && now() - cached.ts < MISS_TTL_MS ? FRESH_MISS : null;
     }
-    touchHit(placeId, cache, itemId, cached);
+    touchHit(placeId, itemId, cached);
     const result = { text: cached.text, usage: null, estimated: 0, cached: true };
     return { result, stale: dueForRecache(cached, MISS_TTL_MS), entry: cached };
   }
@@ -741,14 +731,11 @@ function buildDescriber({
     if (!promptText) return null;
     const mediaCfg = hot.config.media ?? {};
     const descriptionChars = DESCRIPTION_CHARS;
-    const cache = store.getMediaCache(placeId);
 
     // The old caption kept on a failure, its entry stamped when `mark` is set.
     const keepPrevious = (mark: Untyped) => {
       if (mark) {
-        store.markMediaDescriptionRefreshFailed?.(placeId, item.itemId, now());
-        touchKey(cache, item.itemId, { ...previous, refreshFailedAt: now() });
-        store.markMediaCacheDirty(placeId);
+        store.putMediaEntry(placeId, item.itemId, { ...previous, refreshFailedAt: now() });
       }
       return { text: previous.text, usage: null, estimated: 0, cached: true, kept: true };
     };
@@ -774,9 +761,7 @@ function buildDescriber({
     const fail = (mark = true) => {
       if (previous) return keepPrevious(mark);
       if (mark) {
-        touchKey(cache, item.itemId, { miss: true, ts: now() });
-        trimCache(cache, MEDIA_CACHE_ENTRIES, () => store.linkedMediaKeys?.() ?? NO_LINKS);
-        store.markMediaCacheDirty(placeId);
+        store.putMediaEntry(placeId, item.itemId, { miss: true, ts: now() });
       }
       return null;
     };
@@ -859,10 +844,7 @@ function buildDescriber({
     const entry: Record<string, Untyped> = { text, ts, describedAt: ts, model, ...standard.marks };
     if (item.kind === 'gif') entry.gif = true;
     if (watchFailed) entry.watchFailed = entry.ts;
-    if (isMediaDescriptionEntry(entry)) store.rememberMediaDescription?.(placeId, item.itemId, entry);
-    touchKey(cache, item.itemId, entry);
-    trimCache(cache, MEDIA_CACHE_ENTRIES, () => store.linkedMediaKeys?.() ?? NO_LINKS);
-    store.markMediaCacheDirty(placeId);
+    store.putMediaEntry(placeId, item.itemId, entry);
     return { text, usage: standard.answer.usage ?? null, estimated };
   }
 
@@ -879,18 +861,11 @@ function buildDescriber({
       videoRequestOptions(settings, { seconds }, { maxOutputTokens: settings.maxOutputTokens, model: asModel(model) }),
     failureReason: (error) => String(requestFailureReason(error)),
     keep: (item, entry) => {
-      const cache = store.getMediaCache(placeId);
-      if (isMediaDescriptionEntry(entry)) store.rememberMediaDescription?.(placeId, item.itemId, entry);
-      touchKey(cache, item.itemId, entry);
-      trimCache(cache, MEDIA_CACHE_ENTRIES, () => store.linkedMediaKeys?.() ?? NO_LINKS);
-      store.markMediaCacheDirty(placeId);
+      store.putMediaEntry(placeId, item.itemId, entry);
     },
     miss: (item, reason) => {
-      const cache = store.getMediaCache(placeId);
       log.warn('describe: failed', { kind: item.kind, reason });
-      touchKey(cache, item.itemId, { miss: true, ts: now(), reason });
-      trimCache(cache, MEDIA_CACHE_ENTRIES, () => store.linkedMediaKeys?.() ?? NO_LINKS);
-      store.markMediaCacheDirty(placeId);
+      store.putMediaEntry(placeId, item.itemId, { miss: true, ts: now(), reason });
       return null;
     },
     now,
@@ -1064,8 +1039,7 @@ function buildDescriber({
 
   /** Mark a GIF's cache entry as a failed watch (`watchFailed`): its caption, if any, is kept. */
   function markGifWatchFailed(placeId: string, itemId: string) {
-    const cache = store.getMediaCache(placeId);
-    const entry = cache[itemId];
+    const entry = store.mediaEntry(placeId, itemId);
     const ts = now();
     const next =
       entry && !entry.miss && typeof entry.text === 'string' && entry.text
@@ -1186,11 +1160,10 @@ function buildDescriber({
   function cachedDescriptions(placeId: string, items: Array<MediaItem>): Map<string, string> {
     const descriptions = new Map();
     if (!hot.prompts?.describe) return descriptions;
-    const cache = store.getMediaCache(placeId);
     for (const item of items ?? []) {
       const entry = item?.itemId ? readEntry(placeId, item.itemId) : undefined;
       if (!entry || entry.miss || typeof entry.text !== 'string' || !entry.text) continue;
-      touchHit(placeId, cache, item.itemId, entry);
+      touchHit(placeId, item.itemId, entry);
       descriptions.set(item.itemId, entry.text);
     }
     return descriptions;
@@ -1200,13 +1173,9 @@ function buildDescriber({
   // reach the same new video at once share one request.
   const inFlight = new Map();
 
-  /** Store a video cache entry, LRU-touched and trimmed like the picture entries. */
-  function putVideoEntry(placeId: string, key: string, value: Untyped, generated = false) {
-    if (generated && isMediaDescriptionEntry(value)) store.rememberMediaDescription?.(placeId, key, value);
-    const cache = store.getMediaCache(placeId);
-    touchKey(cache, key, value);
-    trimCache(cache, MEDIA_CACHE_ENTRIES, () => store.linkedMediaKeys?.() ?? NO_LINKS);
-    store.markMediaCacheDirty(placeId);
+  /** Store a video cache entry, written like the picture entries. */
+  function putVideoEntry(placeId: string, key: string, value: Untyped) {
+    store.putMediaEntry(placeId, key, value);
   }
 
   /**
@@ -1220,12 +1189,11 @@ function buildDescriber({
    * cache entry.
    */
   function cachedVideo(placeId: string, key: string, item: MediaItem, force = false) {
-    const cache = store.getMediaCache(placeId);
     const entry = readEntry(placeId, key);
     if (!entry) return null;
     const lasting = videoStateFromCache(entry, hot.config, item);
     if (lasting?.state === 'watched') {
-      touchHit(placeId, cache, key, entry);
+      touchHit(placeId, key, entry);
       const result = { ...lasting, usage: null, estimated: 0, cached: true };
       return dueForRecache(entry, videoErrorTtlMs()) ? { ...result, stale: entry } : result;
     }
@@ -1416,7 +1384,6 @@ function buildDescriber({
     };
     // The stale summary kept, its entry stamped so it waits the error retry time.
     const keepPrevious = () => {
-      store.markMediaDescriptionRefreshFailed?.(placeId, key, now());
       putVideoEntry(placeId, key, { ...previous.entry, refreshFailedAt: now() });
       return previous.result;
     };
@@ -1515,7 +1482,7 @@ function buildDescriber({
       entry.watchedSeconds = media.seconds;
       if (typeof media.totalSeconds === 'number') entry.totalSeconds = media.totalSeconds;
     }
-    putVideoEntry(placeId, key, entry, true);
+    putVideoEntry(placeId, key, entry);
     const result = { state: 'watched', text, usage: standard.answer.usage ?? null, estimated };
     Object.assign(result, watchedLengths(entry));
     report(result, sizes);
@@ -1664,18 +1631,15 @@ function buildDescriber({
       });
     };
 
-    const cache = store.getMediaCache(placeId);
     const key = questionKey(item.itemId, asked);
     const hit = readEntry(placeId, key);
     if (hit && typeof hit.answer === 'string') {
       if (now() - hit.ts < REWATCH_TTL_MS) {
-        touchKey(cache, key, hit);
-        store.markMediaCacheDirty(placeId);
+        store.putMediaEntry(placeId, key, hit);
         report('answered', { cached: true });
         return { question: hit.question ?? asked, text: hit.answer };
       }
-      delete cache[key];
-      store.markMediaCacheDirty(placeId);
+      store.dropMediaEntry(placeId, key);
     }
 
     // The request would be refused: no fetch, no slot.
@@ -1753,18 +1717,15 @@ function buildDescriber({
       });
     };
 
-    const cache = store.getMediaCache(placeId);
     const key = questionKey(item.itemId, asked, 'image');
     const hit = readEntry(placeId, key);
     if (hit && typeof hit.answer === 'string') {
       if (now() - hit.ts < REWATCH_TTL_MS) {
-        touchKey(cache, key, hit);
-        store.markMediaCacheDirty(placeId);
+        store.putMediaEntry(placeId, key, hit);
         report('answered', { cached: true });
         return { question: hit.question ?? asked, text: hit.answer };
       }
-      delete cache[key];
-      store.markMediaCacheDirty(placeId);
+      store.dropMediaEntry(placeId, key);
     }
 
     // The request would be refused: no download, no slot.
@@ -1884,18 +1845,15 @@ function buildDescriber({
       });
     };
 
-    const cache = store.getMediaCache(placeId);
     const key = questionKey(item.itemId, asked, 'gif');
     const hit = readEntry(placeId, key);
     if (hit && typeof hit.answer === 'string') {
       if (now() - hit.ts < REWATCH_TTL_MS) {
-        touchKey(cache, key, hit);
-        store.markMediaCacheDirty(placeId);
+        store.putMediaEntry(placeId, key, hit);
         report('answered', { cached: true });
         return { question: hit.question ?? asked, text: hit.answer };
       }
-      delete cache[key];
-      store.markMediaCacheDirty(placeId);
+      store.dropMediaEntry(placeId, key);
     }
 
     // The request would be refused: no fetch, no slot.

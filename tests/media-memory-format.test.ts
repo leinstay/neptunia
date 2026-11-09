@@ -15,8 +15,7 @@ import { observe } from '../src/memory/db/observe.ts';
 import { rootPlaceInDb } from '../src/memory/db/place-tree.ts';
 import { dbSettings, quotesOf, search } from '../src/memory/db/recall.ts';
 import { groupContext, internalContext } from '../src/memory/db/scope.ts';
-import { placeCollection } from '../src/memory/db/storage-keys.ts';
-import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { createRecord, toRecordLine } from '../src/memory/record.ts';
 import {
   AT,
@@ -260,11 +259,14 @@ const rootOf = (env: Env, source: string) => {
 test("the describer's write tells the item, and every line that links it reads it", () =>
   withEnv((env) => {
     const one = observeLine(env, KINDS[0], 'absent', { native: 'pic' });
-    applyUnitWrite(env.handle, {
-      op: 'lines',
+    applyMemoryWrite(env.handle, {
+      kind: 'media-entry',
+      op: 'put',
+      placeId: rootOf(env, one),
+      key: 'pic-a',
+      entry: { text: 'a lighthouse', ts: AT },
+      iface: 'discord',
       now: AT,
-      key: placeCollection('versions', rootOf(env, one), { selector: { versionKind: 'media', itemId: 'pic-a' } }),
-      lines: [{ op: 'described', id: 'v1', entry: { text: 'a lighthouse', ts: AT } }],
     });
     const [first, second] = rowsOf(env, one);
     assert.deepEqual(
@@ -282,18 +284,6 @@ test("a page she read becomes its link's text form", () =>
     tellMedia(env.handle, { iface: 'discord', nativeRef: 'pic-a', description: 'the page says this', origin: 'page' });
     const [row] = rowsOf(env, source);
     assert.deepEqual([row.description, row.extra.textOrigin], ['the page says this', 'page']);
-  }));
-
-test("a linked item is never trimmed by the cache's cap", () =>
-  withEnv((env) => {
-    const source = observeLine(env, KINDS[0], 'full');
-    applyUnitWrite(env.handle, {
-      op: 'value',
-      now: AT,
-      key: placeCollection('media', rootOf(env, source)),
-      value: { other: { text: 'something else', ts: AT } },
-    });
-    assert.equal(rowsOf(env, source)[0].description, 'a retelling with a lighthouse in it');
   }));
 
 // ---------- her own voice message ----------

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { auditMemory } from '../src/memory/db/audit.ts';
-import { writeMediaCache } from '../src/memory/db/media-store.ts';
+import { writeMediaEntry } from '../src/memory/db/media-store.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -14,11 +14,12 @@ test('a cached description of an item not observed yet makes a row in the audien
   const handle = openMemoryDb(path.join(tempDir('nep-media-cache-'), 'memory.db'));
   try {
     const db = dbOf(handle);
-    writeMediaCache(db, {
-      owner: 'unit:media-cache',
+    writeMediaEntry(db, {
+      placeId: 'chat:place:1',
       iface: 'chat',
-      value: { 'ref-1': { text: 'a synthetic description', ts: 1 } },
-      at: '2026-11-05T10:00:00.000Z',
+      key: 'ref-1',
+      entry: { text: 'a synthetic description', ts: 1 },
+      at: Date.parse('2026-11-05T10:00:00.000Z'),
     });
     const row = db.prepare("SELECT scope_kind, scope_iface, audience_id FROM media WHERE native_ref = 'ref-1'").get();
     assert.deepEqual({ ...row }, { scope_kind: 'group', scope_iface: 'chat', audience_id: 'aud:group:chat' });

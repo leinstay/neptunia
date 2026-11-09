@@ -17,6 +17,7 @@ import { labels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 // The chats are held by a fake interface named `fake`.
 useIface('fake');
@@ -112,7 +113,7 @@ function fakeStore() {
     listUserProfiles: () => profiles,
     countUsers: () => profiles.length,
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };
 }

@@ -34,7 +34,7 @@ function rig({
 } = {}) {
   const { dir, memoryDb } = memDataDir();
   const store = createStore({ dataDir: dir, memoryDb });
-  const cacheOf = (placeId: string) => store.getMediaCache(placeId) as Record<string, unknown>;
+  const put = (placeId: string, key: string, entry: object) => store.putMediaEntry(placeId, key, entry);
   const embedded: Array<string> = [];
   const described: Array<string> = [];
   const keeper = createGifKeeper({
@@ -49,14 +49,14 @@ function rig({
       describeMany: (placeId: string, items: Array<MediaItem>) => {
         for (const item of items) {
           described.push(String(item.itemId));
-          cacheOf(placeId)[String(item.itemId)] = { text: 'μια γάτα χορεύει', ts: T0 };
+          put(placeId, String(item.itemId), { text: 'μια γάτα χορεύει', ts: T0 });
         }
         return Promise.resolve({});
       },
     },
     log: SILENT,
   });
-  return { dir, store, cacheOf, keeper, embedded, described };
+  return { dir, store, put, keeper, embedded, described };
 }
 
 test('a counted GIF gets its caption, its vector and its file, and the search then finds it', async () => {
@@ -90,9 +90,9 @@ test('a failed download and a failed embedding leave the caption the search can 
 });
 
 test('settle fills an entry from the cache with no message and no second description', async () => {
-  const { store, cacheOf, keeper, described, embedded } = rig();
+  const { store, put, keeper, described, embedded } = rig();
   store.recordGifs(PLACE, [attached('m1')]);
-  cacheOf(PLACE)['att-1'] = { text: 'μια γάτα', ts: T0 };
+  put(PLACE, 'att-1', { text: 'μια γάτα', ts: T0 });
   await keeper.settle(PLACE);
   assert.deepEqual(described, []);
   assert.deepEqual(embedded, ['μια γάτα']);

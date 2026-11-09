@@ -7,25 +7,35 @@ import { clampWithEllipsis } from '../../memory/clamp.ts';
 import { HOUR_MS } from '../../time.ts';
 import type { Labels } from './types.ts';
 
-/** The describer cache (store.getMediaCache), read only: a caption, or a three-field GIF description, per item id. */
-export type MediaCache = {
-  readonly [itemId: string]:
-    | {
-        readonly miss?: unknown;
-        readonly text?: unknown;
-        readonly reaction?: unknown;
-        readonly action?: unknown;
-        readonly screen?: unknown;
-      }
-    | undefined;
+/** One entry of the describer's cache, read only: a caption, or a three-field GIF description. */
+export type MediaCacheEntry = {
+  readonly miss?: unknown;
+  readonly text?: unknown;
+  readonly reaction?: unknown;
+  readonly action?: unknown;
+  readonly screen?: unknown;
 };
+
+/** Entries of the describer cache a caller holds (store.mediaEntries), read only, per item id. */
+export type MediaCache = { readonly [itemId: string]: MediaCacheEntry | undefined };
+
+/** A read of the describer's cache by key (store.mediaEntry). */
+export type MediaLookup = (key: string) => MediaCacheEntry | undefined;
+
+/** The read by key of a cache as its callers hand it: a lookup as it is, an object of entries by its own keys. */
+export function mediaLookupOf(given: MediaLookup | object | null | undefined): MediaLookup | null {
+  if (typeof given === 'function') return given as MediaLookup;
+  if (!given || typeof given !== 'object') return null;
+  const cache = given as MediaCache;
+  return (key) => (Object.hasOwn(cache, key) ? cache[key] : undefined);
+}
 
 /** One GIF of the library (src/memory/gifs.ts): its handle, its media item and when the persona last posted it. */
 export type GifEntry = { readonly id: string; readonly itemId: string; readonly ownLast?: number };
 
-/** The describer cache as its callers hand it (store.getMediaCache), read through MediaCache's shape. */
-const cacheOf = (mediaCache: object | null | undefined): MediaCache | null | undefined =>
-  mediaCache as MediaCache | null | undefined;
+/** The entry of `itemId` in the describer cache as its callers hand it (mediaLookupOf). */
+const cachedOf = (mediaCache: MediaLookup | object | null | undefined, itemId: string): MediaCacheEntry | undefined =>
+  mediaLookupOf(mediaCache)?.(itemId);
 
 /** What freezePerBucket holds under a key for the bucket it was computed in. */
 export type Held<T> = { bucket: number; signature: string; value: T };
@@ -78,14 +88,14 @@ export function gifFieldChars(): { reactionChars: number; actionChars: number } 
  * (src/memory/clamp.ts#clampWithEllipsis, a hard limit); '' when there is
  * none. Render time only, so a caption stored whole or stored cut renders the
  * same way. Pure.
- * `mediaCache` is the describer cache (store.getMediaCache), read only.
+ * `mediaCache` is the describer cache (a read by key, or the entries a caller holds), read only.
  */
 export function gifCaption(
   entry: { readonly itemId: string },
-  mediaCache: object | null | undefined,
+  mediaCache: MediaLookup | object | null | undefined,
   actionChars: number
 ): string {
-  const cached = cacheOf(mediaCache)?.[entry?.itemId];
+  const cached = cachedOf(mediaCache, entry?.itemId);
   return cached && !cached.miss && typeof cached.text === 'string' ? clampWithEllipsis(cached.text, actionChars) : '';
 }
 
@@ -99,10 +109,10 @@ export function gifCaption(
  */
 export function gifFields(
   entry: { readonly itemId: string },
-  mediaCache: object | null | undefined,
+  mediaCache: MediaLookup | object | null | undefined,
   { reactionChars, actionChars }: { reactionChars: number; actionChars: number }
 ): { reaction: string; action: string; text: string } | null {
-  const cached = cacheOf(mediaCache)?.[entry?.itemId];
+  const cached = cachedOf(mediaCache, entry?.itemId);
   if (!cached || cached.miss || (typeof cached.reaction !== 'string' && typeof cached.screen !== 'string')) return null;
   const field = (value: unknown, chars: number) => (typeof value === 'string' ? clampWithEllipsis(value, chars) : '');
   const fields = {
@@ -113,24 +123,34 @@ export function gifFields(
   return fields.reaction || fields.action || fields.text ? fields : null;
 }
 
+/** The three caption fields of one item as the transcript takes them. */
+export type GifFieldsOfItem = { reaction: string; action: string; screen: string };
+
 /**
- * The transcript's view of the three-field GIF captions: every entry of the
- * describer cache in that format (gifFields, cut per field by `chars`) as cache key -> `{ reaction, action, screen }`, ready
- * for formatTranscript's `gifFields` option (src/format.js renders
- * `transcript.gifKnownFields` with them for a GIF of the library). Keys are
- * the item ids the transcript and `descriptions` use. Pure.
- * `mediaCache` is the describer cache (store.getMediaCache), read only, and `chars` come from gifFieldChars.
+ * The transcript's view of the three-field GIF captions: the fields of an item id described in that format (gifFields,
+ * cut per field by `chars`) as `{ reaction, action, screen }`, read from the describer cache the first time the item
+ * is asked for and held after, ready for formatTranscript's `gifFields` option (src/format.ts renders
+ * `transcript.gifKnownFields` with them for a GIF of the library). Pure but for the cache's read.
+ * `mediaCache` is the describer cache (a read by key, or the entries a caller holds), read only, and `chars` come
+ * from gifFieldChars.
  */
-export function gifFieldsMap(
-  mediaCache: object | null | undefined,
+export function gifFieldsLookup(
+  mediaCache: MediaLookup | object | null | undefined,
   chars: { reactionChars: number; actionChars: number }
-): Map<string, { reaction: string; action: string; screen: string }> {
-  const map = new Map<string, { reaction: string; action: string; screen: string }>();
-  for (const itemId of Object.keys(mediaCache ?? {})) {
-    const fields = gifFields({ itemId }, mediaCache, chars);
-    if (fields) map.set(itemId, { reaction: fields.reaction, action: fields.action, screen: fields.text });
-  }
-  return map;
+): { get: (itemId: string) => GifFieldsOfItem | undefined } {
+  const held = new Map<string, GifFieldsOfItem | undefined>();
+  return {
+    get(itemId) {
+      if (!held.has(itemId)) {
+        const fields = gifFields({ itemId }, mediaCache, chars);
+        held.set(
+          itemId,
+          fields ? { reaction: fields.reaction, action: fields.action, screen: fields.text } : undefined
+        );
+      }
+      return held.get(itemId);
+    },
+  };
 }
 
 /**
@@ -148,7 +168,7 @@ export function gifFieldsMap(
  */
 export function gifLine(
   entry: GifEntry,
-  mediaCache: object | null | undefined,
+  mediaCache: MediaLookup | object | null | undefined,
   labelsGiven: object,
   {
     reactionChars,

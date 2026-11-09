@@ -10,24 +10,24 @@ import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
 const HOUR = 60 * 60_000;
 
+/** The describer's cache of each place as an object of entries (store-media.ts#objectMediaCache), and the object itself. */
 function fakeStore() {
-  const caches = new Map();
-  let dirty = 0;
+  const caches = new Map<string, Record<string, Untyped>>();
+  const cacheOf = (placeId: string): Record<string, Untyped> => {
+    if (!caches.has(placeId)) caches.set(placeId, {});
+    return caches.get(placeId)!;
+  };
   return {
-    getMediaCache(placeId: string) {
-      if (!caches.has(placeId)) caches.set(placeId, {});
-      return caches.get(placeId);
-    },
-    markMediaCacheDirty() {
-      dirty += 1;
-    },
-    get dirty() {
-      return dirty;
-    },
+    cacheOf,
+    mediaEntry: (placeId: string, key: string) => objectMediaCache(cacheOf(placeId)).mediaEntry(placeId, key),
+    putMediaEntry: (placeId: string, key: string, entry: unknown) =>
+      objectMediaCache(cacheOf(placeId)).putMediaEntry(placeId, key, entry),
+    dropMediaEntry: (placeId: string, key: string) => objectMediaCache(cacheOf(placeId)).dropMediaEntry(placeId, key),
   };
 }
 
@@ -176,7 +176,7 @@ test('readLinks: web.acceptLanguage is read at the moment of use and handed to t
 
 test('readLinks: a cached excerpt is free -- no fetch, no LLM call, no daily slot', async () => {
   const { lookup, llm, pageFetcher, store } = setup();
-  store.getMediaCache(placeOfRoot(store, 'g1'))['preview:m1#e0'] = { text: 'déjà lu', ts: NOW - HOUR };
+  store.cacheOf(placeOfRoot(store, 'g1'))['preview:m1#e0'] = { text: 'déjà lu', ts: NOW - HOUR };
   assert.equal(await readOne(lookup, LINK), 'déjà lu');
   assert.equal(pageFetcher.calls.length, 0);
   assert.equal(llm.calls.length, 0);
@@ -189,7 +189,7 @@ test('readLinks: a failed fetch is cached as a miss with its reason and skipped 
     now: () => now,
   });
   assert.equal(await readOne(lookup, LINK), null);
-  assert.deepEqual(store.getMediaCache(placeOfRoot(store, 'g1'))['preview:m1#e0'], {
+  assert.deepEqual(store.cacheOf(placeOfRoot(store, 'g1'))['preview:m1#e0'], {
     miss: true,
     ts: NOW,
     reason: 'http',
@@ -313,7 +313,7 @@ test('readLinks: every attempt counts toward maxNew; cache hits are free; past m
         ? { ok: false, reason: 'http', status: 500 }
         : { ok: true, text: 'Testo della pagina.', title: '' },
   });
-  store.getMediaCache(placeOfRoot(store, 'g1'))['preview:c'] = { text: 'in cache', ts: NOW };
+  store.cacheOf(placeOfRoot(store, 'g1'))['preview:c'] = { text: 'in cache', ts: NOW };
   const links = [
     { id: 'a', url: 'https://example.org/a', site: 'example.org', title: '' },
     { id: 'c', url: 'https://example.org/c', site: 'example.org', title: '' },
@@ -341,7 +341,7 @@ test('readLinks: the same link twice is read once', async () => {
 
 test('cachedReads: only what the cache holds -- no fetch, no model request, no web slot, no miss recorded', () => {
   const { lookup, pageFetcher, llm, store } = setup();
-  const cache = store.getMediaCache(placeOfRoot(store, 'g1'));
+  const cache = store.cacheOf(placeOfRoot(store, 'g1'));
   cache['preview:c'] = { text: 'già letto', ts: NOW - HOUR };
   cache['preview:m'] = { miss: true, ts: NOW - HOUR, reason: 'http' };
   cache['preview:v'] = { text: 'a video excerpt', ts: NOW - HOUR };
@@ -389,9 +389,9 @@ test('search: Brave results are condensed on the analyzer model; sources carry t
   assert.equal(options.role, 'search', 'its own key binding');
   assert.equal(options.maxOutputTokens, 400);
   assert.equal(options.skipCalibration, true);
-  const key = Object.keys(store.getMediaCache(placeOfRoot(store, 'g1'))).find((k) => k.startsWith('search:'));
+  const key = Object.keys(store.cacheOf(placeOfRoot(store, 'g1'))).find((k) => k.startsWith('search:'));
   assert.ok(key);
-  assert.deepEqual(store.getMediaCache(placeOfRoot(store, 'g1'))[key].sources, result.sources);
+  assert.deepEqual(store.cacheOf(placeOfRoot(store, 'g1'))[key].sources, result.sources);
 });
 
 test('search: the cache is keyed by the normalised query and served while younger than cacheHours', async () => {
@@ -496,18 +496,18 @@ test('search: a safety-rail refusal of the summary is logged with a kebab-case r
     const line = logs.find((l) => l.msg === 'lookup: search');
     assert.equal(present(line).state, 'error');
     assert.equal(present(line).reason, reason);
-    assert.deepEqual(Object.keys(store.getMediaCache(placeOfRoot(store, 'g1'))), []);
+    assert.deepEqual(Object.keys(store.cacheOf(placeOfRoot(store, 'g1'))), []);
   }
 });
 
 test('search: a Brave failure or an LLM failure -> null, nothing cached', async () => {
   const failing = setup({ brave: { ok: false, reason: 'http', status: 429 } });
   assert.equal(await failing.lookup.search('g1', 'x y'), null);
-  assert.deepEqual(Object.keys(failing.store.getMediaCache(placeOfRoot(failing.store, 'g1'))), []);
+  assert.deepEqual(Object.keys(failing.store.cacheOf(placeOfRoot(failing.store, 'g1'))), []);
 
   const llmFailing = setup({ llmText: new Error('boom') });
   assert.equal(await llmFailing.lookup.search('g1', 'x y'), null);
-  assert.deepEqual(Object.keys(llmFailing.store.getMediaCache(placeOfRoot(llmFailing.store, 'g1'))), []);
+  assert.deepEqual(Object.keys(llmFailing.store.cacheOf(placeOfRoot(llmFailing.store, 'g1'))), []);
 });
 
 test('search: search.enabled off, no prompt or a blank query -> null, zero calls', async () => {
@@ -614,7 +614,7 @@ test('search: engine openrouter -- one analyzer request with the Exa web plugin;
   assert.equal(options.role, 'search');
   assert.equal(options.purpose, 'search-summary');
   assert.equal(options.isRoleRequest, false, 'never hedged: the search is billed once');
-  assert.ok(Object.keys(store.getMediaCache(placeOfRoot(store, 'g1'))).some((k) => k.startsWith('search:')));
+  assert.ok(Object.keys(store.cacheOf(placeOfRoot(store, 'g1'))).some((k) => k.startsWith('search:')));
 
   const bare = engineSetup({ engine: 'openrouter' });
   assert.deepEqual(present(await bare.lookup.search('g1', 'x y')).sources, [], 'no annotations -> no sources');
@@ -723,7 +723,7 @@ test('searchResults: Brave results come back raw -- title, url, site, snippet, d
   });
   assert.equal(llm.calls.length, 0, 'no summary request');
   assert.deepEqual(braveSearch.calls[0].options, { apiKey: 'test-key', count: 5, timeoutMs: 10_000 });
-  const keys = Object.keys(store.getMediaCache(placeOfRoot(store, 'g1')));
+  const keys = Object.keys(store.cacheOf(placeOfRoot(store, 'g1')));
   assert.ok(keys.some((k) => k.startsWith('results:')) && !keys.some((k) => k.startsWith('search:')), keys.join(','));
   const line = logs.find((entry) => entry.msg === 'lookup: search');
   assert.deepEqual([present(line).state, present(line).raw, present(line).results], ['found', true, 2]);
@@ -812,7 +812,7 @@ test('readPage: the page text as extracted, cut at web.links.readChars, with its
     timeoutMs: 10_000,
     acceptLanguage: 'el,en;q=0.5',
   });
-  assert.ok(Object.keys(store.getMediaCache(placeOfRoot(store, 'g1'))).some((k) => k.startsWith('page:')));
+  assert.ok(Object.keys(store.cacheOf(placeOfRoot(store, 'g1'))).some((k) => k.startsWith('page:')));
   assert.ok(
     !JSON.stringify(logs).includes('mot') && !JSON.stringify(logs).includes('x=1'),
     'never page text or a query string in the log'
@@ -830,11 +830,7 @@ test('readPage: a short page is not cut; failures say why and are not cached', a
 
   const blocked = setup({ page: { ok: false, reason: 'private' } });
   assert.deepEqual(await blocked.lookup.readPage('g1', 'http://10.0.0.1/'), { ok: false, reason: 'private' });
-  assert.deepEqual(
-    Object.keys(blocked.store.getMediaCache(placeOfRoot(blocked.store, 'g1'))),
-    [],
-    'a failure is not cached'
-  );
+  assert.deepEqual(Object.keys(blocked.store.cacheOf(placeOfRoot(blocked.store, 'g1'))), [], 'a failure is not cached');
   assert.deepEqual(
     await setup({ page: { ok: false, reason: 'http', status: 404 } }).lookup.readPage('g1', 'https://example.org/x'),
     { ok: false, reason: 'http', status: 404 }
@@ -858,7 +854,7 @@ test('readLinks: the preview is the opening of the page text, no helper request'
   const preview = present(await readOne(run.lookup, LINK));
   assert.ok(preview.startsWith('Una ricetta semplice.') && preview.length <= 700, preview);
   assert.equal(run.llm.calls.length, 0, 'no condensing request (and no read-link prompt needed)');
-  const cache = run.store.getMediaCache(placeOfRoot(run.store, 'g1'));
+  const cache = run.store.cacheOf(placeOfRoot(run.store, 'g1'));
   assert.equal(cache['preview:m1#e0'].text, preview);
   assert.deepEqual(
     [...run.lookup.cachedReads('g1', [LINK]).values()],

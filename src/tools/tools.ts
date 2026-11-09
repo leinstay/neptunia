@@ -36,7 +36,7 @@ import { RECALL_DEFAULTS, fuseRanks, memorySearchPlan, recallSettings } from '..
 import { collectPictures, collectVideos } from '../media/classify.ts';
 import { videoSiteFor, videoUrlCacheKey } from '../media/video-sites.ts';
 import { foldText } from '../memory/recent.ts';
-import { GIF_HALF_LIFE_DAYS, rankGifs } from '../memory/gifs.ts';
+import { GIF_HALF_LIFE_DAYS, gifItemIds, rankGifs } from '../memory/gifs.ts';
 import { gifFieldChars, gifFields, gifLine } from '../behavior/prompt.ts';
 import { IN_TURN_TOOLS } from './discovery.ts';
 import { CODE, FEATURE, WHAT, isCode } from './codes.ts';
@@ -1120,7 +1120,7 @@ function gifMatches(
  * best match of each query word counts, the reaction field double); entries scoring nothing are left
  * out, ties keep the library's own rank (most used and most recent first). At most `n` (1..FIND_MAX,
  * FIND_DEFAULT when not a number). With `meaning`, the captions' vectors rank a second list (gifMatches). Pure.
- * `gifs` is the stored library (store.getGifs) and `mediaCache` the describer cache (store.getMediaCache), read only.
+ * `gifs` is the stored library (store.getGifs) and `mediaCache` the describer cache's entries of its GIFs (store.mediaEntries), read only.
  * The entries come back best first, `id` the handle.
  */
 export function findGifs(
@@ -1163,7 +1163,7 @@ export function mediaFindText(
 
 type MediaFindStore = {
   getGifs?: () => unknown;
-  getMediaCache?: (placeId: string) => unknown;
+  mediaEntries?: (placeId: string, keys?: Iterable<string>) => unknown;
   getGifVectors?: (model?: string | null) => ReadonlyMap<string, ArrayLike<number>>;
 } | null;
 type MediaFindInput = {
@@ -1194,8 +1194,10 @@ function mediaFindArgs({
     (!Number.isInteger(Number(given)) || Number(given) < 1 || Number(given) > FIND_MAX)
   )
     return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.n:range' };
-  const cache = typeof store.getMediaCache === 'function' ? store.getMediaCache(placeId) : null;
-  return { query, given, gifs: store.getGifs(), mediaCache: isObj(cache) ? cache : null };
+  const gifs = store.getGifs();
+  // The captions of the library's GIFs, read by their item ids in one query.
+  const cache = typeof store.mediaEntries === 'function' ? store.mediaEntries(placeId, gifItemIds(gifs)) : null;
+  return { query, given, gifs, mediaCache: isObj(cache) ? cache : null };
 }
 
 /**

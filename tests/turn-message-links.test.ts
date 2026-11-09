@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { labels } from './fixtures/labels.ts';
 import { world } from './fixtures/turn-world.ts';
 import { createTurnRunner } from './fixtures/turn-runner.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
 const MESSAGE_ID = '900000000000000001';
@@ -60,7 +61,7 @@ function fakeStore() {
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     state: { data: {}, markDirty() {} },
   };
 }

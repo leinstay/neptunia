@@ -1082,29 +1082,6 @@ test('getChannel: a tally or a check stamp a hand edit broke is made safe to rea
   assert.deepEqual(writeLines(store, 'c1', 'έψιλον', 1, WRITERS_T0 + 6000).topWriters[0], { id: 'έψιλον', count: 5 });
 });
 
-// --- media cache (src/memory/describe.ts's storage) --------------------------
-
-test('getMediaCache: the same live object is returned on every call, mutation-friendly', () => {
-  const dir = tmpDataDir();
-  const store = createStore(memoryAt(dir));
-  const cache = store.getMediaCache(placeOfRoot(store, 'g1'));
-  asRecord(cache).a1 = { text: 'a cat', ts: 1000 };
-  assert.deepEqual(store.getMediaCache(placeOfRoot(store, 'g1')), { a1: { text: 'a cat', ts: 1000 } });
-});
-
-test('media cache: persists across store instances', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const storeA = createStore({ dataDir: dir, memoryDb });
-  const cache = storeA.getMediaCache(placeOfRoot(storeA, 'g1'));
-  asRecord(cache).a1 = { text: 'a dog', ts: 2000 };
-  storeA.markMediaCacheDirty(placeOfRoot(storeA, 'g1'));
-  storeA.flush();
-  await storeA.flushSettled({});
-
-  const storeB = createStore({ dataDir: dir, memoryDb });
-  assert.deepEqual(storeB.getMediaCache(placeOfRoot(storeB, 'g1')), { a1: { text: 'a dog', ts: 2000 } });
-});
-
 test('adjustAffinity: persists across store instances', async () => {
   const { dir, memoryDb } = memDataDir();
   const storeA = createStore({ dataDir: dir, memoryDb });
@@ -1583,9 +1560,7 @@ function seedGuild(store: Untyped) {
       now: 1000,
     }
   );
-  const cache = store.getMediaCache(placeOfRoot(store, 'g1'));
-  cache.a1 = { text: 'a cat', ts: 1000 };
-  store.markMediaCacheDirty(placeOfRoot(store, 'g1'));
+  store.putMediaEntry(placeOfRoot(store, 'g1'), 'a1', { text: 'a cat', ts: 1000 });
   store.state.data.job = { done: false, channels: { c1: { batchesDone: 2 } } };
   store.state.data.llmDay = '2026-09-20';
   store.state.data.llmCount = 7;

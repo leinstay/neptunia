@@ -16,7 +16,7 @@ import type { PlaceMemory } from './server.ts';
 import type { SkillRow } from './senses.ts';
 import type { Tasks } from './task.ts';
 import type { PreviousThink } from './wake.ts';
-import type { MediaCache } from './emoji-gifs.ts';
+import type { MediaCache, MediaLookup } from './emoji-gifs.ts';
 import type { SelfreflectionInput } from './selfreflection.ts';
 import type { Whereabouts } from './spatial.ts';
 
@@ -338,7 +338,7 @@ export type RequestInput = {
   readonly drawOn?: boolean;
   readonly customEmoji?: unknown;
   readonly mediaPickText?: string | null;
-  readonly mediaCache?: MediaCache | null;
+  readonly mediaCache?: MediaLookup | MediaCache | null;
   readonly gifs?: unknown;
   readonly tasks?: Tasks | null;
   readonly elsewhereDestination?: { readonly name?: string } | null;

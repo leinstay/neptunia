@@ -789,7 +789,7 @@ test('the pick: an unknown handle posts the text as written', async () => {
 test('turn request: the library does not reach her request', async () => {
   const on = await withStore(async (store: Record<string, Untyped>) => {
     seedLibrary(store);
-    store.getMediaCache(placeOfRoot(store, 'g1'))['m-old#e0'] = { text: 'a cat dancing', ts: NOW };
+    store.putMediaEntry(placeOfRoot(store, 'g1'), 'm-old#e0', { text: 'a cat dancing', ts: NOW });
     const raw = rawMessage('m1');
     const channel = fakeChannel({ historyMessages: [raw] });
     const seen: Array<Untyped> = [];

@@ -3,6 +3,7 @@
 // `MIGRATIONS` in order, one version per entry, and never edits a shipped one.
 
 import { ownLineRows } from './line-owner.ts';
+import { ownMediaRows } from './media-owner.ts';
 import { ownProfileRows } from './profile-owner.ts';
 import { ownPlaceListRows, ownPlaceRows, ownSelfreflectionRows } from './place-owner.ts';
 import { placeLineVectors } from './line-vectors.ts';
@@ -96,6 +97,15 @@ export const MIGRATIONS: Array<Migration> = [
     WHERE writer = 'record' AND author_account IS NOT NULL AND instr(author_account, ':') > 0
       AND NOT EXISTS (SELECT 1 FROM accounts a WHERE a.id = sources.author_account)
       AND (extra IS NULL OR (json_valid(extra) AND json_extract(extra, '$."$kept:by"') IS NULL))`,
+  // Version 52: the rows of a place's media cache and of the GIF library name their writer and holder, a cache row the
+  // moment it was last written, and the describer's saved descriptions live on their rows alone
+  // (src/memory/db/media-owner.ts).
+  (db: Db): void => {
+    for (const column of ['writer TEXT', 'holder_id TEXT', 'used_at INTEGER'])
+      db.exec(`ALTER TABLE media ADD COLUMN ${column}`);
+    db.exec('CREATE INDEX "media_holder" ON media(writer, holder_id, used_at) WHERE writer IS NOT NULL');
+    ownMediaRows(db);
+  },
 ];
 
 /** The tables that carry a scope and its `audience_id`. */

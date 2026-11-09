@@ -13,8 +13,8 @@ import { rulesPromptOf } from '../../rules-list.ts';
 import { cacheTtlMs } from '../../llm/openrouter.ts';
 import { gifHandleMap, normalizeGifs } from '../../memory/index.ts';
 import { accountIdOf } from '../../memory/recent.ts';
-import { freezePerBucket, gifFieldChars, gifFieldsMap } from './emoji-gifs.ts';
-import type { Held, MediaCache } from './emoji-gifs.ts';
+import { freezePerBucket, gifFieldChars, gifFieldsLookup, mediaLookupOf } from './emoji-gifs.ts';
+import type { Held, MediaLookup } from './emoji-gifs.ts';
 import { orderedHistory } from '../history.ts';
 import { spatialAwarenessText } from './spatial.ts';
 import { nowBlock } from './tail.ts';
@@ -75,8 +75,8 @@ function withEmojiCaptions(
   history: ReadonlyArray<Message>,
   mediaCache: unknown
 ): Map<string, string> | undefined {
-  const cache = mediaCache as MediaCache | null | undefined;
-  if (!cache) return descriptions;
+  const cached = mediaLookupOf(mediaCache as MediaLookup | object | null | undefined);
+  if (!cached) return descriptions;
   const known = new Map(descriptions ?? []);
   for (const message of history) {
     for (const emoji of [
@@ -84,9 +84,9 @@ function withEmojiCaptions(
       ...(message.forwarded ?? []).flatMap((part) => part?.emojis ?? []),
     ]) {
       const key = `emoji:${emoji?.id}`;
-      const cached = cache[key];
-      if (!known.has(key) && cached && !cached.miss && typeof cached.text === 'string' && cached.text.trim())
-        known.set(key, cached.text.trim());
+      const entry = cached(key);
+      if (!known.has(key) && entry && !entry.miss && typeof entry.text === 'string' && entry.text.trim())
+        known.set(key, entry.text.trim());
     }
   }
   return known;
@@ -208,7 +208,7 @@ export function requestHead(given: RequestInput): Base {
     // ...and its three caption fields, cut for display (transcript.gifKnownFields).
     gifFields:
       gifsOn && labels.transcript?.gifKnownFields && given.mediaCache
-        ? gifFieldsMap(given.mediaCache, gifFieldChars())
+        ? gifFieldsLookup(given.mediaCache, gifFieldChars())
         : undefined,
   };
 

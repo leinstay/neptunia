@@ -21,6 +21,7 @@ import { present, wrongly } from './fixtures/loose-types.ts';
 import { planAnswerText } from './fixtures/plan-answer.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { objectMediaCache } from '../src/memory/store-media.ts';
 
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 
@@ -150,7 +151,7 @@ function store() {
     listChannels: () => [],
     listUserProfiles: () => [],
     getLore: () => [],
-    getMediaCache: () => ({}),
+    ...objectMediaCache({}),
     getSelfreflection: () => ({ posts: [], updatedAt: 0 }),
     appendSelfreflectionPost: () => ({ dropped: [] }),
     state: { data: {}, markDirty() {} },

@@ -742,8 +742,7 @@ test('root state and participation, GIF and media caches persist through the wri
       },
       { now: NOW }
     );
-    run.store.getMediaCache(placeOfRoot(run.store, GUILD)).photo = { text: 'a café terrace', ts: NOW };
-    run.store.markMediaCacheDirty(placeOfRoot(run.store, GUILD));
+    run.store.putMediaEntry(placeOfRoot(run.store, GUILD), 'photo', { text: 'a café terrace', ts: NOW });
     assert.equal(
       run.store.recordGifs(placeOfRoot(run.store, GUILD), [
         {
@@ -778,7 +777,7 @@ test('root state and participation, GIF and media caches persist through the wri
     assert.equal(run.store.state.data.afterReload, 'persisted after reload');
     assert.deepEqual(run.store.getParticipation(placeOfRoot(run.store, GUILD)), participation);
     assert.deepEqual(run.store.getGifs(), gifs);
-    assert.deepEqual(run.store.getMediaCache(placeOfRoot(run.store, GUILD)).photo, {
+    assert.deepEqual(run.store.mediaEntry(placeOfRoot(run.store, GUILD), 'photo'), {
       text: 'a café terrace',
       ts: NOW,
     });

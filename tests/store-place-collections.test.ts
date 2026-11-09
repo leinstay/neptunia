@@ -4,7 +4,7 @@
 // Contract, plan 2026-11-04-cli-and-memory task 5:
 //   store.getPlace(placeId), store.updatePlace(placeId, fields, opts?)
 //   store.getLore(placeId), store.setLore(placeId, incoming, opts)
-//   store.getMediaCache(placeId), store.getRecent(placeId), store.getParticipation(placeId)
+//   store.mediaEntry(placeId, key), store.getRecent(placeId), store.getParticipation(placeId)
 //   store.listChildren(placeId): the stored child places of a place, one level of `places.parent_id` down
 //   store.rootPlaceOf(placeId): the top of its tree, the place itself when it has no parent, null for an unknown id
 // A function takes `placeId` alone: there is no `rootId` and no `rootPlaceId` argument. A whole-server operation passes
