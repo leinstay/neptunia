@@ -153,13 +153,13 @@ export type IntentionStore = {
   add: (record: Intention) => Created;
   update: (id: unknown, move: (record: Intention) => Moved) => Moved;
   archived: () => Array<Intention>;
-  flush: (options?: { final?: boolean }) => Promise<FlushCounts>;
+  flush: (options?: { final?: boolean; timeoutMs?: number }) => Promise<FlushCounts>;
 };
 
 /** One store per place. */
 export type IntentionStores = {
   get: () => IntentionStore | null;
-  flush: (options?: { final?: boolean }) => Promise<FlushCounts>;
+  flush: (options?: { final?: boolean; timeoutMs?: number }) => Promise<FlushCounts>;
 };
 
 /** What her `intention.set` (or an owner's command, or the engine) hands the service. */

@@ -15,7 +15,8 @@ export const MEMORY_DB: ReadonlyArray<SchemaEntry> = [
     'types': ['number'],
     'reader': 'src/memory/db/service.ts',
     'default': 10000,
-    'text': 'At shutdown, how long to wait for the pass under way before the worker is terminated',
+    'text':
+      'At shutdown, how long each store waits for its memory writes under way, and how long the database waits for the pass under way before the worker is terminated',
   },
   {
     'key': 'memoryDb.observeTimeoutMs',

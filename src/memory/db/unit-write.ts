@@ -536,8 +536,7 @@ export function applyUnitWrite(handle: MemoryHandle, update: Row): unknown {
   const op = update?.op;
   if (op === 'project') return project(handle, update, at);
   const db = dbOf(handle);
-  // A unit of an operational kind or of the intentions, such as a write kept pending by an older outbox, is the direct
-  // write of its kind.
+  // A unit of an operational kind or of the intentions is the direct write of its kind.
   const keyed = op === 'value' || op === 'lines' ? withKey(db, update) : null;
   // An operational row of an older schema, which a seed of old files writes, keeps its unit.
   const operational = keyed && hasStorageUnits(db) ? operationalOfUnit(keyed) : null;

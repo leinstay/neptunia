@@ -1840,9 +1840,11 @@ async function buildCore(
     await embedQueue.close().catch((err: Untyped) => log.warn('index: embed queue close failed', { error: err }));
     // archive.holdMaxMs: how long a file held for the archive may wait before it is written anyway.
     const holdMaxMs = hot.config.archive?.holdMaxMs ?? 5000;
+    // memoryDb.closeTimeoutMs: how long the shutdown waits for the memory writes under way, each store in turn.
+    const writeWaitMs = Number(objOf(objOf(hot.config)['memoryDb'])['closeTimeoutMs'] ?? 10_000);
     hot.close();
-    // `final`: the unit writes that still fail are logged as lost.
-    await store.flushSettled({ holdMaxMs, final: true });
+    // `final`: the memory writes under way are awaited up to `writeWaitMs`, and those that still fail logged as lost.
+    await store.flushSettled({ holdMaxMs, final: true, timeoutMs: writeWaitMs });
     await metrics.save({ force: true });
     await usage.save({ force: true });
     // The journal's `stop` record (journal on), then the run marker goes: this stop was clean.
@@ -1851,9 +1853,11 @@ async function buildCore(
     await archiveAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
     // The intention and task writes still waiting, then those still failing logged as lost.
     await intentionStores
-      .flush({ final: true })
+      .flush({ final: true, timeoutMs: writeWaitMs })
       .catch((err) => log.warn('index: intentions flush failed', { error: err }));
-    await taskStores.flush({ final: true }).catch((err) => log.warn('index: tasks flush failed', { error: err }));
+    await taskStores
+      .flush({ final: true, timeoutMs: writeWaitMs })
+      .catch((err) => log.warn('index: tasks flush failed', { error: err }));
     // After the last flush of every store the database closes and releases its lock.
     await memoryDb.close().catch((err) => log.warn('index: memory db close failed', { error: err }));
     // The interface closes its end of the link and its client, then the core's end and the socket close, and the

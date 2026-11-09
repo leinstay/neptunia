@@ -101,7 +101,7 @@ The chain of routes each model role runs on, the one place a role's key, harness
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `memoryDb.file` | string | `"memory.db"` | The database file under `data/`. Tools open it read-only | `src/memory/db/service.ts` |
-| `memoryDb.closeTimeoutMs` | number | `10000` | At shutdown, how long to wait for the pass under way before the worker is terminated | `src/memory/db/service.ts` |
+| `memoryDb.closeTimeoutMs` | number | `10000` | At shutdown, how long each store waits for its memory writes under way, and how long the database waits for the pass under way before the worker is terminated | `src/memory/db/service.ts` |
 | `memoryDb.observeTimeoutMs` | number | `5000` | How long the message handler waits for an observation's commit before going on | `src/behavior/pipeline.ts` |
 | `memoryDb.ingestKeepDays` | number | `7` | How many days the `ingest` table keeps an event the core took, the window in which a redelivered event is still a duplicate after a restart | `src/memory/db/ingest.ts` |
 | `memoryDb.retrieval.seeds` | number | `12` | Seeds one retrieval starts from: its anchors first, then the names and matches of its text | `src/memory/retrieval-input.ts` |

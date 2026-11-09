@@ -1,5 +1,5 @@
-// Persistent memory: the memory database (src/memory/db/service.ts) holds it, this module caches it -- it survives
-// restarts, hot reloads and prompt edits; nothing in the codebase ever wipes it. Each cached value is one unit of the
+// Persistent memory: the memory database (src/memory/db/service.ts) holds it, this module reads and changes it -- it
+// survives restarts, hot reloads and prompt edits; nothing in the codebase ever wipes it. Each value is one unit of the
 // database, named by the path it had under data/ (`places/<g>/users/<u>.json`; the mappers of src/memory/db/map/
 // turn a unit into rows and back); the operational files beside it stay JSON files under data/. The units:
 //
@@ -10,10 +10,10 @@
 //                     selfreflection
 //
 // The errand tasks (src/errands/store.ts) and the intentions (src/intentions/store.ts) are units of their own
-// stores, not cached here. Everything is cached in memory (src/memory/unit-cache.ts), marked dirty on change and flushed
-// on a timer and on shutdown: a memory unit's whole value goes to the database's writer through the cache's outbox,
-// an operational file is written atomically (temp file + rename; when the OS refuses the rename the file is written
-// in place instead, with a warning, see writeJsonAtomic).
+// stores, not kept here. A value is read from the database when it is asked for and kept only while it is in use
+// (src/memory/store-writes.ts); a change is marked dirty, and at the end of its tick the unit's whole value goes
+// straight to the database's writer. An operational file is written atomically (temp file + rename; when the OS
+// refuses the rename the file is written in place instead, with a warning, see writeJsonAtomic).
 //
 // Nothing here forgets a member: there is no forget, purge or wipe. `removeLore` takes one lorebook entry out on
 // the owner's word (`/nep lore remove`).
@@ -37,7 +37,7 @@
 // finish the removal. So no unit here loses an item before the archive holds it
 // (see "The archive" inside createStore).
 
-// health: allow file-length until 2027-04-01 -- one store over the cache, grown only by the typed signatures of its methods
+// health: allow file-length until 2027-04-01 -- one store over the memory units, grown only by the typed signatures of its methods
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -98,8 +98,8 @@ import { SNAPSHOTS_DIR, memoryRootOf } from './root.ts';
 import { isCoreStatePath } from './migration/paths.ts';
 import { createAddressing } from './store-addresses.ts';
 
-import { createUnitCache } from './unit-cache.ts';
-import type { CacheItem } from './unit-cache.ts';
+import { createStoreWrites } from './store-writes.ts';
+import type { StoreItem } from './store-writes.ts';
 import type { StoredRecord, MemoryDb, Untyped } from './types.ts';
 import type { Track } from '../loop-watch.ts';
 import { untracked } from '../loop-watch.ts';
@@ -297,15 +297,6 @@ function rankedEvent(
     if (base !== key && kept.some((item) => normalizeTopic(item?.topic) === base)) return 'merged';
   }
   return 'evicted';
-}
-
-function readJson(file: string, fallback: Untyped) {
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (err) {
-    if (propOf(err, 'code') !== 'ENOENT') log.warn('store: unreadable file, using fallback', { file, error: err });
-    return fallback;
-  }
 }
 
 /** Every `.json` file under `dir`, recursively; never throws on a missing directory. */
@@ -1014,7 +1005,7 @@ function normalizeChannel(channel: Untyped) {
 }
 
 /** A cached profile's value field by field: every stored value here is a profile object. */
-const entryRecord = (item: CacheItem): StoredRecord => item.value as StoredRecord;
+const entryRecord = (item: StoreItem): StoredRecord => item.value as StoredRecord;
 
 /** `names` with `name`: first when it is the newest touch, else last when unseen. A list keeps five names. */
 function withName(names: unknown, name: string, isNewest: boolean): Array<string> {
@@ -1024,7 +1015,7 @@ function withName(names: unknown, name: string, isNewest: boolean): Array<string
 }
 
 /** What a linked account reads: the person's profile with the account's own id, names, address and avatar. */
-function linkedProfile(person: CacheItem, account: CacheItem | null, id: string): StoredRecord {
+function linkedProfile(person: StoreItem, account: StoreItem | null, id: string): StoredRecord {
   const own = account ? entryRecord(account) : {};
   const profile: StoredRecord = { ...entryRecord(person), id, names: own.names ?? [] };
   for (const field of ['addressedAs', 'avatar']) {
@@ -1148,7 +1139,7 @@ type SelfreflectionCopy = {
 };
 
 type HoldVictimsInput = {
-  item: CacheItem;
+  item: StoreItem;
   file: string;
   path: Array<string>;
   strings?: boolean;
@@ -1161,7 +1152,7 @@ type HoldVictimsInput = {
   accountId?: string | null;
 };
 
-// health: allow function-length until 2027-04-01 -- one closure over the cache, grown only by the typed signatures of its methods
+// health: allow function-length until 2027-04-01 -- one closure over the memory units, grown only by the typed signatures of its methods
 function buildStore({
   dataDir,
   newId = randomUUID,
@@ -1173,9 +1164,9 @@ function buildStore({
   track = untracked,
 }: StoreDeps) {
   const seam = readSeamOf(memoryDb, log, 'store');
-  // The memory units and files this store holds, and their one way to the writer.
-  const cache = createUnitCache({ memoryDb, seam, files: { read: readJson, write: writeJsonAtomic } });
-  const { address, collection, entry } = cache;
+  // The memory units this store reads and writes, and their one way to the writer (src/memory/store-writes.ts).
+  const writes = createStoreWrites({ memoryDb, seam });
+  const { address, collection, entry } = writes;
   const seededMedia = new Set<string>();
   const pendingMedia = new Map<string, { key: StorageKey; entry: MediaDescriptionEntry }>();
 
@@ -1184,27 +1175,27 @@ function buildStore({
   }
 
   function rememberMedia(placeId: string, cacheKey: string, value: MediaDescriptionEntry, seed = false): void {
-    if (!cache.writable()) return;
+    if (!writes.writable()) return;
     const key = mediaDescriptionKey(placeId, cacheKey);
     const text = keyText(key);
     if (seed && (pendingMedia.has(text) || mediaDescriptionOf(seam.db(), key))) return;
     const snapshot = structuredClone(value);
     pendingMedia.set(text, { key, entry: snapshot });
-    cache.lines(key, [{ op: seed ? 'seed' : 'described', id: newId(), entry: snapshot }]);
+    writes.lines(key, [{ op: seed ? 'seed' : 'described', id: newId(), entry: snapshot }]);
   }
 
   function currentMedia(placeId: string, cacheKey: string): MediaDescriptionEntry | null {
-    if (!cache.writable()) return null;
+    if (!writes.writable()) return null;
     const key = mediaDescriptionKey(placeId, cacheKey);
     const text = keyText(key);
     const pending = pendingMedia.get(text);
-    if (pending && cache.holds(key)) return structuredClone(pending.entry);
+    if (pending && writes.holds(key)) return structuredClone(pending.entry);
     pendingMedia.delete(text);
     return seam.run(() => mediaDescriptionOf(seam.db(), key));
   }
 
   function seedMedia(placeId: string, file: string, described: StoredRecord): void {
-    if (!cache.writable() || seededMedia.has(file)) return;
+    if (!writes.writable() || seededMedia.has(file)) return;
     seededMedia.add(file);
     for (const [key, value] of Object.entries(described)) {
       if (!isMediaDescriptionEntry(value) || /^(?:preview|search|results|page):/.test(key)) continue;
@@ -1506,12 +1497,8 @@ function buildStore({
         keep.push(held);
         continue;
       }
-      const item = cache.cached(held.file);
-      // A file not in the cache (unloaded by a pause) is trimmed once it is read again.
-      if (!item) {
-        keep.push(held);
-        continue;
-      }
+      // The value as the database or the store's change in use holds it.
+      const item = writes.entry(held.file, () => null);
       const where = listAt(item.value, held.path);
       const list = where && Array.isArray(where.holder[where.key]) ? where.holder[where.key] : null;
       const index = list ? list.findIndex((value: Untyped) => identOf(held.strings, value) === held.ident) : -1;
@@ -1526,8 +1513,8 @@ function buildStore({
     return trimmed;
   }
 
-  /** The cache entry of what belongs to the account itself (names, avatar, address), created empty and normalised. */
-  function accountEntry(accountId: string): CacheItem & { value: StoredRecord } {
+  /** The value in use of what belongs to the account itself (names, avatar, address), created empty and normalised. */
+  function accountEntry(accountId: string): StoreItem & { value: StoredRecord } {
     const item = entry(accountFile(accountId), () => emptyProfile(addressing.nativeOfRow('accounts', accountId)));
     normalizeProfile(item.value);
     return item;
@@ -1541,7 +1528,7 @@ function buildStore({
     const member = (keys: Untyped) => {
       if (!accountId) return null;
       if (isPrivate) return { item: hasPrivate(accountId) ? privateEntry(accountId) : null, path: keys };
-      return { item: store.getUser(accountId) ? cache.cached(userFile(accountId)) : null, path: keys };
+      return { item: store.getUser(accountId) ? writes.inUse(userFile(accountId)) : null, path: keys };
     };
     const place = (keys: Untyped, strings = false) => {
       const item = entry(placeFile(placeId), emptyPlace);
@@ -1605,13 +1592,13 @@ function buildStore({
     }
   }
 
-  /** Whether a unit has a value, cached or stored (see unit-cache.ts#known), an operational file on disk. */
-  const known = (file: string) => cache.known(file, fs.existsSync);
-  const idsUnder = cache.idsUnder;
+  /** Whether a unit has a value, in use or stored (store-writes.ts#known). */
+  const known = (file: string) => writes.known(file);
+  const idsUnder = writes.idsUnder;
 
-  /** Flush every dirty cache entry (`flushEntry`); returns how many were written, failed and held. */
+  /** Every changed value sent to the writer (store-writes.ts#flushAll); how many were written, failed and held. */
   function flushAll({ force = false } = {}) {
-    return track('store.flushAll', () => cache.flushAll({ force }));
+    return track('store.flushAll', () => writes.flushAll({ force }));
   }
 
   const addressing = createAddressing({ memoryDb, seam });
@@ -1671,9 +1658,9 @@ function buildStore({
   };
   const stateFile = address(personaKey('state'));
 
-  const stateEntry = entry(stateFile, () => ({}));
+  const stateEntry = writes.pin(stateFile, () => ({}));
 
-  /** The cache entry of a member's private file, created empty when missing, normalised. A file
+  /** The value in use of a member's private file, created empty when missing, normalised. A file
    * that parses to something other than an object (null, an array, a string -- a hand edit gone
    * wrong) is replaced by the empty shape in the cache, so the private pass never stalls on it;
    * the disk copy is only rewritten by the next change, like any other entry. */
@@ -1687,7 +1674,7 @@ function buildStore({
     return item;
   }
 
-  /** The cache entry of one channel of the server map, created empty when missing, normalised in
+  /** The value in use of one channel of the server map, created empty when missing, normalised in
    * place (`normalizeChannel`); never marked dirty by reading, so a tally seeded for an old file
    * is written only by the next change. */
   function channelEntry(placeId: string) {
@@ -1696,7 +1683,7 @@ function buildStore({
     return item;
   }
 
-  /** The cache entry of one version file, `{}` when missing; a file that is not an object (a
+  /** The value in use of one version file, `{}` when missing; a file that is not an object (a
    * hand edit gone wrong) reads as `{}` in the cache. Never marked dirty by reading. */
   function versionsEntry(placeId: string | null, kind: string, id: string) {
     const item = entry(versionsFile(placeId, kind, id), () => ({}));
@@ -1782,7 +1769,7 @@ function buildStore({
    * @returns `dropped`: the evicted episodes, each with an itemId.
    */
   function mergeEpisodesInto(
-    item: CacheItem,
+    item: StoreItem,
     incoming: unknown,
     opts: Untyped,
     owner: { accountId: string; layer?: 'private' } | null = null
@@ -1858,16 +1845,17 @@ function buildStore({
     });
   }
 
-  /** Whether a channel has an entry, cached or on disk (no side effects on the cache). */
+  /** Whether a channel has an entry, in use or stored (no side effects on the cache). */
   function hasChannel(placeId: string) {
     const file = channelFile(placeId);
     return known(file);
   }
 
-  /** The cache entry of the shared GIF library, created empty when missing, normalised in place of
+  /** The value in use of the shared GIF library, created empty when missing, normalised in place of
    * the cached value (src/memory/gifs.ts#normalizeGifs); never marked dirty by reading. */
   function gifsEntry() {
-    const item = entry(gifsFile(), emptyGifs);
+    // Kept for the life of the store: its callers change the library they were given.
+    const item = writes.pin(gifsFile(), emptyGifs);
     item.value = normalizeGifs(item.value);
     return item;
   }
@@ -1879,22 +1867,22 @@ function buildStore({
     return gifVectors;
   }
 
-  /** Whether a member has a private file, cached or on disk (no side effects on the cache). */
+  /** Whether a member has a private file, in use or stored (no side effects on the cache). */
   function hasPrivate(accountId: string) {
     const file = privateFile(accountId);
     return known(file);
   }
 
-  /** The cache entry of a place's recent store, the empty store when there is no file, normalised
+  /** The value in use of a place's recent store, the empty store when there is no file, normalised
    * in place of the cached value (src/memory/recent.ts#normalizeRecent); never marked dirty by
    * reading, so a healed hand edit is written only by the next change. On the read that loads the
    * file, lines normalising leaves out (a hand edit, a file from another version) are logged as a
    * count, `store: recent lines dropped`, and a value that is not a store (not an object, or
    * `lines` not a list) as `store: recent store replaced`: the next write makes the loss
-   * permanent. An unparsable file reads as empty with `readJson`'s warning. */
+   * permanent. */
   function recentEntry(placeId: string) {
     const file = recentFile(placeId);
-    const loading = !cache.cached(file);
+    const loading = !writes.inUse(file);
     const item = entry(file, emptyRecent);
     const raw = item.value;
     const recent = normalizeRecent(raw);
@@ -1907,15 +1895,14 @@ function buildStore({
     return item;
   }
 
-  /** The cache entry of a place's participation store, the empty store when there is no file,
-   * normalised in place of the cached value (src/memory/participation.ts#normalizeParticipation);
+  /** The value in use of a place's participation store, the empty store when there is no file,
+   * normalised in place of the value in use (src/memory/participation.ts#normalizeParticipation);
    * never marked dirty by reading. On the read that loads the file, episodes normalising leaves out
    * are logged as a count, `store: participation episodes dropped`, and a value that is not a store
-   * (not an object, or `episodes` not a list) as `store: participation store replaced`. An
-   * unparsable file reads as empty with `readJson`'s warning. */
+   * (not an object, or `episodes` not a list) as `store: participation store replaced`. */
   function participationEntry(placeId: string) {
     const file = participationFile(placeId);
-    const loading = !cache.cached(file);
+    const loading = !writes.inUse(file);
     const item = entry(file, emptyParticipation);
     const raw = item.value;
     const participation = normalizeParticipation(raw);
@@ -1931,7 +1918,7 @@ function buildStore({
     return item;
   }
 
-  /** The cache entry of a place's selfreflection, the empty selfreflection when there is no file; a value that is not
+  /** The value in use of a place's selfreflection, the empty selfreflection when there is no file; a value that is not
    * a selfreflection (not an object, or `posts` not a list) is replaced by the empty one in the cache, and
    * the disk copy is only rewritten by the next change. */
   function selfreflectionEntry() {
@@ -2285,7 +2272,7 @@ function buildStore({
       cfg: { decayPerDay?: number; decayPower?: number }
     ): { profiles: number; decayed: number } {
       const counts = { profiles: 0, decayed: 0 };
-      const sweep = (item: CacheItem) => {
+      const sweep = (item: StoreItem) => {
         counts.profiles += 1;
         const current = item.value.affinity;
         if (!current || typeof current !== 'object' || Array.isArray(current)) return;
@@ -2413,19 +2400,19 @@ function buildStore({
     },
 
     /**
-     * Ids of every member with a private layer in a place, cached or on disk.
+     * Ids of every member with a private layer in a place, in use or stored.
      */
     listPrivate(): Array<string> {
       return idsUnder(privateDir());
     },
 
-    /** How many member profiles a place has, cached or on disk (a profile not flushed yet included). */
+    /** How many member profiles a place has, in use or stored (a profile not flushed yet included). */
     countUsers() {
       return idsUnder(usersDir()).length;
     },
 
     /**
-     * Every member profile stored for a place, cached or on disk -- the pool
+     * Every member profile stored for a place, in use or stored -- the pool
      * a turn scans to pull a silent member into `<people>` by name/alias (see
      * src/behavior/prompt.js and docs/prompt-contract.md, "Aliases").
      * Same normalize-on-read guarantee as `getUser`.
@@ -2545,7 +2532,7 @@ function buildStore({
         item.dirty = true;
       }
       // Written at once: the place unit goes to the database now, not at the next flush.
-      cache.writeNow(placeFile(placeId), item);
+      writes.writeNow(placeFile(placeId), item);
       return pingStateOf(place.pings, accountId);
     },
 
@@ -2749,7 +2736,7 @@ function buildStore({
       return channelEntry(placeId).value;
     },
 
-    /** Every channel entry stored for a place, cached or on disk; normalised on read like `getChannel`. */
+    /** Every channel entry stored for a place, in use or stored; normalised on read like `getChannel`. */
     listChannels(placeId: string): Array<StoredRecord> {
       return idsUnder(channelsDir())
         .filter((id) => addressing.inViewOf(id, placeId))
@@ -2836,7 +2823,8 @@ function buildStore({
      */
     getMediaCache(placeId: string): StoredRecord {
       const file = mediaCacheFile(placeId);
-      const value = entry(file, () => ({})).value as StoredRecord;
+      // Kept for the life of the store: the describer changes the map it was given and marks it afterwards.
+      const value = writes.pin(file, () => ({})).value as StoredRecord;
       seedMedia(placeId, file, value);
       return value;
     },
@@ -2852,14 +2840,14 @@ function buildStore({
     },
     markMediaDescriptionRefreshFailed(placeId: string, cacheKey: string, at: number): void {
       const previous = currentMedia(placeId, cacheKey);
-      if (!previous || !cache.writable()) return;
+      if (!previous || !writes.writable()) return;
       const key = mediaDescriptionKey(placeId, cacheKey);
       pendingMedia.set(keyText(key), { key, entry: { ...previous, refreshFailedAt: at } });
-      cache.lines(key, [{ op: 'refresh-failed', at }]);
+      writes.lines(key, [{ op: 'refresh-failed', at }]);
     },
 
     markMediaCacheDirty(placeId: string) {
-      const item = cache.cached(mediaCacheFile(placeId));
+      const item = writes.inUse(mediaCacheFile(placeId));
       if (item) item.dirty = true;
     },
 
@@ -3105,8 +3093,8 @@ function buildStore({
       opts: { max?: number; now?: number } = {}
     ): { dropped: Array<object> } {
       const done = writeSelfreflection([...selfreflectionEntry().value.posts, structuredClone(post)], opts);
-      // The post goes to the database at once; a failed write waits in the outbox for the next flush.
-      cache.writeNow(selfreflectionFile(), selfreflectionEntry());
+      // The post goes to the database at once; a failed write goes again at the next flush.
+      writes.writeNow(selfreflectionFile(), selfreflectionEntry());
       return done;
     },
 
@@ -3265,13 +3253,13 @@ function buildStore({
     appendRecallTrace(placeId: string, record: StoredRecord, { maxLines }: { maxLines?: number } = {}) {
       const cap = isFiniteNumber(maxLines) && maxLines >= 1 ? Math.floor(maxLines) : RECALL_TRACE_MAX_LINES;
       const line = { record: JSON.parse(JSON.stringify(record)) as StoredRecord, maxLines: cap };
-      if (!cache.lines(placeCollection('recall_trace', placeId), [line]))
+      if (!writes.lines(placeCollection('recall_trace', placeId), [line]))
         throw Object.assign(new Error('Memory writer unavailable'), { code: 'DB_CLOSED' });
-      cache.push();
+      writes.push();
     },
 
     /**
-     * Write every dirty cache entry that is not held for the archive (see `flushEntry`).
+     * Send every changed value that is not held for the archive (store-writes.ts#flushAll).
      */
     flush(): { written: number; failed: number; held: number } {
       return flushAll();
@@ -3281,16 +3269,21 @@ function buildStore({
      * The flush before a shutdown or a pause: waits up to `holdMaxMs` (`archive.holdMaxMs`,
      * config.json's 5000 when missing) for the archive to take what holds files back, then writes
      * everything, held or not; files written while still held are logged as `store: flushed held`. It then
-     * waits for the database to take what the flush handed over (unit-outbox.ts#flush) and, with `final`
-     * (the shutdown), logs what still fails as lost (`waiting` counts it).
+     * waits for the database to take what the flush sent (store-writes.ts#settle) and, with `final`
+     * (the shutdown), logs what still fails as lost (`waiting` counts it). With `final` and `timeoutMs` the wait
+     * for the writes under way ends after `timeoutMs`, logged as `store: writes still under way at shutdown`.
      */
-    async flushSettled({ holdMaxMs, final = false }: { holdMaxMs?: number; final?: boolean } = {}): Promise<{
+    async flushSettled({
+      holdMaxMs,
+      final = false,
+      timeoutMs,
+    }: { holdMaxMs?: number; final?: boolean; timeoutMs?: number } = {}): Promise<{
       written: number;
       failed: number;
       held: number;
       waiting?: number;
     }> {
-      const heldFiles = () => cache.held();
+      const heldFiles = () => writes.held();
       if (heldFiles() > 0) {
         const waitMs = isFiniteNumber(holdMaxMs) && holdMaxMs >= 0 ? holdMaxMs : DEFAULT_HOLD_MAX_MS;
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -3314,9 +3307,9 @@ function buildStore({
         force: true,
       });
       if (held > 0) log.warn('store: flushed held', { files: held });
-      if (cache.writable()) {
-        counts.waiting = await cache.settle({ final });
-        for (const [text, pending] of pendingMedia) if (!cache.holds(pending.key)) pendingMedia.delete(text);
+      if (writes.writable()) {
+        counts.waiting = await writes.settle({ final, ...(isFiniteNumber(timeoutMs) ? { timeoutMs } : {}) });
+        for (const [text, pending] of pendingMedia) if (!writes.holds(pending.key)) pendingMedia.delete(text);
       }
       return counts;
     },
@@ -3388,7 +3381,7 @@ function buildStore({
 
     /**
      * Take every victim the archive confirmed out of its list now (it runs by itself after each
-     * append and drain). Not while paused, and not for a file the cache does not hold.
+     * append and drain). Not while paused.
      * @returns How many items went.
      */
     trimArchived(): number {
@@ -3443,14 +3436,14 @@ function buildStore({
     ...addressing.methods(),
 
     /**
-     * Drop every cached entry except her state and those the outbox still holds (`/nep pause`): called right after a
+     * Take every value out of use except her state and those whose write is under way (`/nep pause`): called right after a
      * flush, so nothing stale is written from memory while the owner edits the memory, and the next read of a unit
-     * takes the stored value like a fresh process. The state stays cached because it carries the `paused` flag;
+     * takes the stored value like a fresh process. The state stays in use because it carries the `paused` flag;
      * `reloadState` reads it again at `/nep resume`.
-     * @returns how many cache entries were dropped
+     * @returns how many values went out of use
      */
     dropCaches(): number {
-      return cache.drop(stateFile);
+      return writes.drop(stateFile);
     },
 
     /**
@@ -3458,7 +3451,7 @@ function buildStore({
      * Any unflushed in-memory change is discarded. The supplied database is authoritative.
      */
     reloadState() {
-      cache.reload(stateFile, stateEntry);
+      writes.reload(stateFile, stateEntry);
     },
 
     /**
@@ -3516,15 +3509,14 @@ export type Store = Omit<
  *   write; src/index.js passes features.archive exactly true) nothing leaves a hot list on disk
  *   before its copy is in the archive -- see "The archive" inside, `settleArchive`,
  *   `drainArchive` and `trimArchived`.
- *   `memoryDb` (the memory database service, required): every memory unit of the cache (users, private layers, channels, the
- *   place, lore, recent, versions, the selfreflection) is loaded from it and flushed to its writer through the unit
- *   cache (src/memory/unit-cache.ts), which also reconciles its entries with her session's attitude moves and the
- *   owner's selfreflection fills. Core state, participation, GIFs and media
- *   use the database with their existing unit owners. Other operational files retain their file backend.
+ *   `memoryDb` (the memory database service, required): every memory unit (users, private layers, channels, the
+ *   place, lore, recent, versions, the selfreflection, her state, participation, GIFs and media) is read from it and
+ *   written to its writer at the end of the tick that changed it (src/memory/store-writes.ts). Other operational
+ *   files retain their file backend.
  *   A selfreflection post is sent at once (`appendSelfreflectionPost` flushes the selfreflection: its
- *   row and its mirror's `sent` publication). `flushSettled({ final: true })` (the shutdown) waits for the outbox and
- *   logs what still fails as lost;
- *   `dropCaches` keeps the entries the outbox holds; `validate` (`/nep resume`) checks the operational JSON files.
+ *   row and its mirror's `sent` publication). `flushSettled({ final: true, timeoutMs })` (the shutdown) waits for the
+ *   writes under way, at most `timeoutMs`, and logs what still fails as lost;
+ *   `dropCaches` keeps the values whose write is under way; `validate` (`/nep resume`) checks the operational JSON files.
  */
 export function createStore(deps: Parameters<typeof buildStore>[0]): Store {
   return buildStore(deps);

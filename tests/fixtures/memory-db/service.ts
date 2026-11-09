@@ -94,7 +94,7 @@ export async function openTestMemory({
 
 /**
  * The opened service over `dataDir` (a new temporary one when omitted), open when this returns: `{ memoryDb, dataDir,
- * close() }`. The unit writes it takes land a microtask later (the outbox of a module sends them then).
+ * close() }`. The unit writes it takes land a microtask later.
  */
 export function openTestMemorySync({
   dataDir = tempDataDir(),

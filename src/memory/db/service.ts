@@ -20,8 +20,7 @@
 //   - `memoryWrite` is the one way her memory session and the description review write (session-write.ts): a message to
 //     the worker, so the bot's loop never holds a write transaction. The service stamps `audienceColumn` (the target check
 //     reads through `audience_id`) into every write. After an apply, its committed attitude moves are told
-//     once to the subscribers of `onAffinityMoves(fn)` (the store's unit cache, src/memory/unit-cache.ts, whose cached
-//     profiles would otherwise write an older score over them).
+//     once to the subscribers of `onAffinityMoves(fn)`.
 //   - `status().observe` counts the observations waiting for the database (`queued`), under way (`writing`) and lost
 //     (`dropped`: the bounded queue's oldest, a write that failed every retry, one the shutdown could not write);
 //     `waitObservations()` writes the waiting ones and awaits them.
@@ -54,6 +53,8 @@
 //     worker committed, rejects with a code (`DB_CLOSED` while the database is not open). Each tick also finishes the
 //     graph projection and the stems a migration left (one slice a tick). A selfreflection write's destination is the
 //     place of the selfreflection's first enabled mirror.
+//   - `writeGeneration()` counts the settled writes of other writers than the store that reach rows a store unit
+//     reads (UNIT_ROW_WRITES, and a unit write of a kind in STORE_READ_KINDS), so the store reads such a unit again.
 //   - `writeOperational(write)` (operational.ts): the engine's own state, usage, metrics, inner state, missed
 //     registries, emoji rails and recall trace lines, by kind and subject, through the writer.
 //   - `writeIntentions(write)` (intentions-write.ts): her list of intentions and the records moved to its archive.
@@ -171,6 +172,41 @@ import { dbOf, asText, isFiniteNumber } from './types.ts';
 import type { Context } from './scope.ts';
 
 const DEFAULT_FILE = 'memory.db';
+/**
+ * The write kinds of other writers than the store that reach rows a store unit reads back (a profile, a private layer, a
+ * place's notes and channels, the selfreflection): `writeGeneration` counts them, and the store reads a unit again after
+ * one (src/memory/store-writes.ts). The store's own kinds are not here: it knows what it wrote.
+ */
+const UNIT_ROW_WRITES = new Set([
+  'session',
+  'description',
+  'person-link',
+  'person-merge',
+  'person-bind',
+  'roots',
+  'place-address',
+  'publication',
+  'mirror',
+  'entry-media',
+  // The selfreflection media job's text and pictures (selfreflection-media.ts).
+  'selfreflection-media',
+]);
+/**
+ * The unit kinds the store reads back through its last read (src/memory/store-writes.ts): a unit write of one of them
+ * by another writer, such as the owner's console, counts for `writeGeneration`. The store sends these kinds through
+ * their direct writes, so a unit write of them is never its own.
+ */
+const STORE_READ_KINDS = new Set([
+  'user',
+  'private',
+  'place',
+  'channel',
+  'lore',
+  'participation',
+  'recent',
+  'selfreflection',
+  'versions',
+]);
 const DEFAULT_CLOSE_TIMEOUT_MS = 10_000;
 /** The inner turn's time budget when `wakes.loop.timeBudgetMs` is not set (config.json's value). */
 const DEFAULT_TURN_BUDGET_MS = 180_000;
@@ -492,6 +528,8 @@ export type MemoryDbService = {
     readerKind?: unknown;
   }): void;
   memoryWrite(update: unknown): Promise<unknown>;
+  /** How many writes of other writers than the store reached rows a store unit reads, since the open (UNIT_ROW_WRITES). */
+  writeGeneration(): number;
   onAffinityMoves(fn: (moves: Array<Row>) => void): () => void;
   writeUnit(update: unknown): Promise<unknown>;
   /** The engine's own state by kind and subject (operational.ts). */
@@ -786,7 +824,12 @@ export function createMemoryDb({
   const selfreflectionJob = createSelfreflectionMedia({
     db: () => (handle ? dbOf(handle) : null),
     apply: (update: Row) =>
-      engine ? engine.call('selfreflectionApply', { update }) : applySelfreflectionUpdate(opened(), update),
+      counted<unknown>(
+        { kind: 'selfreflection-media' },
+        engine
+          ? engine.call('selfreflectionApply', { update })
+          : Promise.resolve().then(() => applySelfreflectionUpdate(opened(), update))
+      ),
     port: () => selfreflectionMediaDeps?.()?.port ?? null,
     imageFetcher: () => selfreflectionMediaDeps?.()?.imageFetcher ?? null,
     config: () => hot.config,
@@ -823,8 +866,26 @@ export function createMemoryDb({
   function write(update: Row): Promise<Row> {
     if (!handle || closing)
       return Promise.reject(Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' }));
-    if (engine) return engine.call('memoryWrite', { update });
-    return Promise.resolve().then(() => applyMemoryWrite(opened(), update) as Row);
+    const done = engine
+      ? engine.call('memoryWrite', { update })
+      : Promise.resolve().then(() => applyMemoryWrite(opened(), update) as Row);
+    return counted(update, done);
+  }
+
+  // How many writes of another writer than the store reached rows a store unit reads (`writeGeneration`).
+  let generation = 0;
+  /** `done`, counted once it settled when its kind reaches such rows. */
+  function counted<T>(update: Row, done: Promise<T>): Promise<T> {
+    const keyKind = (update?.key as Row | undefined)?.kind;
+    const unitKind = typeof keyKind === 'string' ? keyKind : null;
+    const reaches =
+      update?.kind === 'unit'
+        ? (update.op === 'value' || update.op === 'lines') && (unitKind === null || STORE_READ_KINDS.has(unitKind))
+        : UNIT_ROW_WRITES.has(asText(update?.kind));
+    if (!reaches) return done;
+    return done.finally(() => {
+      generation += 1;
+    });
   }
 
   /** What each open does once (schema v11): stale wake runs interrupted. */
@@ -968,8 +1029,8 @@ export function createMemoryDb({
     const update = given as Row;
     if (!handle || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
     const stamped = stampUnit(update);
-    if (engine) return noteSkipped(log, await engine.call('memoryWrite', { update: stamped }));
-    return noteSkipped(log, applyMemoryWrite(handle, stamped) as Row);
+    if (engine) return noteSkipped(log, await counted(stamped, engine.call('memoryWrite', { update: stamped })));
+    return noteSkipped(log, await counted(stamped, Promise.resolve(applyMemoryWrite(handle, stamped) as Row)));
   }
 
   // The graph projection a migration left pending and the stems of new lines: the writer finishes them, one slice per
@@ -1521,8 +1582,8 @@ export function createMemoryDb({
       touchSources(update.reads.filter((row: Row) => row?.row_kind === 'sources').map((row: Row) => row.row_id));
     const applies = update?.kind === 'session' && update.mode === 'apply';
     try {
-      if (engine) return await engine.call('memoryWrite', { update: stamped });
-      return applyMemoryWrite(handle, stamped);
+      if (engine) return await counted(stamped, engine.call('memoryWrite', { update: stamped }));
+      return await counted(stamped, Promise.resolve(applyMemoryWrite(handle, stamped)));
     } finally {
       if (applies) tellAffinityMoves((update.run as { id?: unknown } | undefined)?.id);
     }
@@ -1706,6 +1767,7 @@ export function createMemoryDb({
       return bindAccount(deps, input, confirm);
     },
     memoryWrite,
+    writeGeneration: () => generation,
     inspection,
     ...privateReads(() => dbOf(opened())),
     observe,
