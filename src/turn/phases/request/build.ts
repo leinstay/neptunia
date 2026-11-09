@@ -97,7 +97,7 @@ function chainOfTurn(
 
 /** Somebody the interface names by a native id, as the store holds them. */
 function partyOf(store: PhaseContext['store'], nativeId: string, name: string | null): FrameParty {
-  return { personId: personOfMember(store, nativeId), accountId: accountOf(store, nativeId), name };
+  return { personId: personOfMember(store, nativeId), accountId: accountOf(store, nativeId), nativeId, name };
 }
 
 /** The frame of a turn, from what the turn runner holds. */
@@ -208,6 +208,7 @@ type FramedInputs = {
   surroundings: SurroundingsInput | null;
   refLineOf: LineOf | null;
   isSourceRetired: SourceRetired | null;
+  chatIdOf: ((placeId: string) => string | null) | null;
 };
 
 const NO_FRAMED: FramedInputs = {
@@ -217,7 +218,20 @@ const NO_FRAMED: FramedInputs = {
   surroundings: null,
   refLineOf: null,
   isSourceRetired: null,
+  chatIdOf: null,
 };
+
+/** The chat id of a stored place from its row, null for a DM and a place no row holds; each place read once a request. */
+function chatIdReader(reads: Pick<FrameReads, 'placeRef'>): (placeId: string) => string | null {
+  const known = new Map<string, string | null>();
+  return (placeId) => {
+    if (!known.has(placeId)) {
+      const ref = reads.placeRef?.(placeId) ?? null;
+      known.set(placeId, ref === null || ref.kind === 'dm' ? null : ref.nativeId);
+    }
+    return known.get(placeId) ?? null;
+  };
+}
 
 /**
  * The person she answers as the memory stores them: the account row of their platform id and its person. Null when no
@@ -359,6 +373,7 @@ function framedInputsOf(
     },
     refLineOf,
     isSourceRetired,
+    chatIdOf: chatIdReader(reads),
   };
 }
 
@@ -465,7 +480,15 @@ function serviceInputsOf(
     const line = reads.line(memoryContext, key);
     return line ? { ...line, messageId: line.id } : null;
   };
-  return { mind, lookups: [], meanwhileReads, surroundings: null, refLineOf, isSourceRetired: null };
+  return {
+    mind,
+    lookups: [],
+    meanwhileReads,
+    surroundings: null,
+    refLineOf,
+    isSourceRetired: null,
+    chatIdOf: chatIdReader(reads),
+  };
 }
 
 /**

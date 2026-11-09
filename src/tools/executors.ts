@@ -18,7 +18,8 @@ import type { PublicationBoundary } from './publication.ts';
 import type { NativeMessageLocator, ResolvedRecallAnchor, StoredSourceRef } from '../memory/db/recall.ts';
 import type { FindMeaning } from '../memory/db/graph-find.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
-import { placeIdParts } from '../memory/db/ids.ts';
+import { cliChatRef } from '../interface/cli-chat.ts';
+import type { PlaceRef } from '../memory/db/frame-reads.ts';
 import { channelCore, matchChannel, occursAsWholeWord } from '../memory/mentions.ts';
 import { foldText } from '../memory/recent.ts';
 import { CODE, INVALID_CODES, NOT_CONFIGURED_CODES, WHAT } from './codes.ts';
@@ -71,6 +72,8 @@ export type CallView = {
     known: (text: string) => FindMeaning | null;
     fetch: (text: string) => Promise<FindMeaning | null>;
   } | null;
+  /** A stored place by its id as its interface knows it, null without a row (frame-reads.ts#placeRefOf). */
+  placeRef?: ((placeId: string) => PlaceRef | null) | null;
   channelHandles?: ReadonlyMap<string, string> | null;
   memberHandles?: ReadonlyMap<string, string> | null;
   links?: ReadonlyMap<string, { chatId: string; messageId: string } | null> | null;
@@ -303,7 +306,7 @@ function graphFoundOf(given: string, view: CallView | undefined, misses: Set<str
   // Words no candidate holds in full are worth an embedding (resolveCallWithMeaning); a full match is answer enough.
   if (meaning === null && view.findMeaning && !found.some((place) => place.hasEveryWord === true)) misses?.add(words);
   return foundPlaces(found, (id) => {
-    return handles.get(id) ?? handles.get(placeIdParts(id)?.native ?? '') ?? null;
+    return handles.get(id) ?? handles.get(view.placeRef?.(id)?.nativeId ?? '') ?? null;
   });
 }
 
@@ -336,8 +339,10 @@ function channelOf(
   view: CallView | undefined,
   misses: Set<string> | null
 ): { id: string } | Refusal {
-  // A place id names a place on any interface; the operation asks that interface whether she may act there.
-  if (placeIdParts(given.trim()) !== null) return { id: given.trim() };
+  // A stored place's id names it on any interface, and the command line's place id names his chat whether or not a row
+  // holds it yet; the operation asks that interface whether she may act there.
+  const asPlace = given.trim();
+  if (cliChatRef(asPlace) !== null || (view?.placeRef?.(asPlace) ?? null) !== null) return { id: asPlace };
   if (READ_PLACE_SKILLS.includes(skill) && view?.places) return placeOf(given, option, view, misses);
   const id = chatIdOf(given, view?.chats, view?.channelHandles);
   if (id === 'ambiguous') return refused(CODE.TARGET_AMBIGUOUS, 'chat');

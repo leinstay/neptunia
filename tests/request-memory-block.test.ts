@@ -24,7 +24,9 @@ import { shippedLabels } from './fixtures/shipped-labels.ts';
 
 const ELENI = personEntry('111', 'Ελένη', { evidence: 'counterpart', relation: 'ΣΧΕΣΗ-ΕΛΕΝΗΣ' });
 const NIKOS = personEntry('222', 'Νίκος', { evidence: 'author', relation: 'ΣΧΕΣΗ-ΝΙΚΟΥ' });
-const AS_ELENI: FrameParty = { personId: ELENI.personId, accountId: 'fake:111', name: 'Ελένη' };
+// A party carries the id the interface names them by (plan 2026-11-08 ids-by-links, slice 7b): the request no longer
+// parses it out of the account id.
+const AS_ELENI: FrameParty = { personId: ELENI.personId, accountId: 'fake:111', nativeId: '111', name: 'Ελένη' };
 
 const nameOf = (id: string): string | null => (id === 'place:room' ? 'γενικά' : null);
 

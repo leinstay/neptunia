@@ -572,6 +572,7 @@ export function createTurnRunner({
     findMeaningFor,
     // A #handle she carries names a channel of any interface the memory holds.
     knownPlaces: () => frameReads?.chatPlaces?.() ?? [],
+    placeRef: (placeId) => frameReads?.placeRef?.(placeId) ?? null,
     skills,
     selfIdOf,
     clock,

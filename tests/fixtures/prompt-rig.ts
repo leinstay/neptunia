@@ -90,8 +90,9 @@ export function frameOfInput(input: Record<string, unknown>): Frame {
   const trigger = input.trigger as { id?: unknown; authorId?: unknown; authorName?: unknown } | null | undefined;
   const rawId = trigger?.authorId;
   const authorId = typeof rawId === 'string' || typeof rawId === 'number' ? String(rawId) : '';
+  // The party carries the id the interface names them by, which the request no longer parses out of the account id.
   const author = trigger
-    ? { personId: `person:${authorId}`, accountId: authorId, name: text(trigger.authorName) }
+    ? { personId: `person:${authorId}`, accountId: authorId, nativeId: authorId, name: text(trigger.authorName) }
     : null;
   const dm = Boolean(input.dmChat);
   return frameOf(

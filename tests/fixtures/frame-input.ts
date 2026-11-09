@@ -13,8 +13,10 @@ export const ROOM_CHAIN: FrameInput['chain'] = [
 /** The chain of a one-to-one chat: a single row with no name. */
 export const DM_CHAIN: FrameInput['chain'] = [{ id: 'place:dm', kind: 'dm', name: null }];
 
-export const AUTHOR = { personId: 'person:eleni', accountId: 'account:eleni', name: 'Eleni' };
-export const PARTNER = { personId: 'person:zoe', accountId: 'account:zoe', name: 'Zoé' };
+// A party carries the id the interface names them by (plan 2026-11-08 ids-by-links, slice 7b): the request no longer
+// parses it out of the account id.
+export const AUTHOR = { personId: 'person:eleni', accountId: 'account:eleni', nativeId: '1111', name: 'Eleni' };
+export const PARTNER = { personId: 'person:zoe', accountId: 'account:zoe', nativeId: '1234', name: 'Zoé' };
 
 /** What a one-to-one chat adds: the interface's word for it and the partner with the partner's native id. */
 export const DM: NonNullable<FrameInput['dm']> = { word: 'private', nativeId: '1234', partner: PARTNER };

@@ -4,8 +4,8 @@
 // `treeSize` (a directory walk for the memory snapshot) and `postingChat` (a channel
 // looked up through the client it is handed).
 
-import { chatOfPlace } from '../../memory/addresses.ts';
-import { placeIdParts } from '../../memory/db/ids.ts';
+import { chatOfPlace, placeRefOf } from '../../memory/addresses.ts';
+import { nativeChatOf } from '../../memory/db/frame-reads.ts';
 import { cliChatRef } from '../../interface/cli-chat.ts';
 import { dmChatsOff } from '../../behavior/core-pause.ts';
 import fs from 'node:fs';
@@ -732,18 +732,23 @@ function checkWakePosting(context: PostingContext, capability: string | null): v
 }
 
 /**
- * The chat a place id names (src/memory/db/ids.ts#placeIdParts) on its own interface: a channel or a thread by
- * its native id, a direct chat by the chat the directory holds for its partner. Any other id is a chat
- * of `iface`.
+ * The chat a stored place names on its own interface, from its row (src/memory/addresses.ts#placeRefOf): a channel or a
+ * thread by its native id, a direct chat by the chat the directory holds for its partner, else the partner's id. Any
+ * other id, and a place whose row holds no chat, is a chat of `iface`.
  */
-function refOfPlace(id: string, iface: string, dmChatOf: ((partnerId: string) => string | null) | null): ChatRef {
+function refOfPlace(
+  store: unknown,
+  id: string,
+  iface: string,
+  dmChatOf: ((partnerId: string) => string | null) | null
+): ChatRef {
   // The command line's place id is its chat id, whether or not a chat of it was seen since the start.
   const cli = cliChatRef(id);
   if (cli !== null) return cli;
-  const parts = placeIdParts(id);
-  if (parts === null) return { iface, chatId: id };
-  const chatId = parts.kind === 'dm' ? (dmChatOf?.(parts.native) ?? parts.native) : parts.native;
-  return { iface: parts.iface, chatId };
+  const ref = placeRefOf(store, id);
+  const native = ref === null ? null : nativeChatOf(ref);
+  if (ref === null || native === null) return { iface, chatId: id };
+  return { iface: ref.iface, chatId: ref.kind === 'dm' ? (dmChatOf?.(native) ?? native) : native };
 }
 
 /** The directory's reader of a partner's direct chat, null without one. */
@@ -790,7 +795,7 @@ export async function postingRef({
   const place = context.placeId ?? null;
   const dmChatOf = dmReaderOf(context);
   const here = place ? chatOfPlace(store, place, dmChatOf) : null;
-  const target = chatId ? refOfPlace(chatId, iface, dmChatOf) : here ? { iface, chatId: here } : null;
+  const target = chatId ? refOfPlace(store, chatId, iface, dmChatOf) : here ? { iface, chatId: here } : null;
   if (!target) throw invalid('a channel is required');
   if (capability && publicationRefusal(context.publicationBoundary, target))
     throw denied('publication-boundary', 'not-allowed');
@@ -821,16 +826,18 @@ function refuseThere(
  */
 export async function writablePlace({
   reads,
+  store,
   iface,
   id,
   context,
 }: {
   reads: Reads | null;
+  store: unknown;
   iface: string;
   id: string;
   context: PostingContext;
 }): Promise<ChatRef> {
-  const target = refOfPlace(id, iface, dmReaderOf(context));
+  const target = refOfPlace(store, id, iface, dmReaderOf(context));
   const info = reads ? ((await reads.chatInfo(target))?.chat ?? null) : null;
   if (closedDirectChat(info, context)) throw denied(`direct chats are closed, ${id}`, CODE.DM_DISABLED);
   if (info === null || !CHANNEL_NEEDS.send(info.permissions))

@@ -19,8 +19,8 @@ import { innerBlockOf } from './inner-block.ts';
 import type { InnerParts } from './inner-block.ts';
 import { meanwhileSettingsOf, meanwhileText, meanwhileWindows, windowText } from './meanwhile.ts';
 import type { MeanwhileReads, MeanwhileWindow } from './meanwhile.ts';
-import { MEMORY_SUBTAGS, channelIdOf, factItemsOf, memoryItemsOf, renderMemory } from './memory-block.ts';
-import type { LiveOf, MemoryItem, StoredFact } from './memory-block.ts';
+import { MEMORY_SUBTAGS, factItemsOf, memoryItemsOf, renderMemory } from './memory-block.ts';
+import type { ChatIdOf, LiveOf, MemoryItem, StoredFact } from './memory-block.ts';
 import { recallBlockOf } from './recall-block.ts';
 import { refResolverOf } from './refs.ts';
 import type { LineOf } from './refs.ts';
@@ -81,6 +81,8 @@ export type ReaderInput = {
   chatHandles: Map<string, string> | null;
   /** The chat id of the turn's place: it gets a channel handle with the places memory and meanwhile show. */
   currentChannelId: string | null;
+  /** The chat id of a stored place memory and meanwhile show, from its row; null for a DM and without a reader. */
+  chatIdOf?: ChatIdOf | null;
 };
 
 /** The frame's request: its parts, the archive's record, the fit, the chat lines kept and the handles given. */
@@ -228,16 +230,20 @@ function answersLine(given: ReaderInput): string {
   return typeof n === 'number' ? fill(l.answers ?? '', { name, n }) : fill(l.answersOutside ?? '', { name });
 }
 
+/** The request's reader of a stored place's chat id; without one no stored place gets a channel handle. */
+const chatIdOfInput = (given: ReaderInput): ChatIdOf => given.chatIdOf ?? (() => null);
+
 /** The channel handles of the request: the current place, then the places `<memory>` and `<meanwhile>` kept. */
 function channelHandlesOf(
   current: string | null,
   places: ReadonlyArray<MemoryItem>,
-  windows: ReadonlyArray<MeanwhileWindow>
+  windows: ReadonlyArray<MeanwhileWindow>,
+  chatIdOf: ChatIdOf
 ): Map<string, string> {
   const ids = [
     current,
-    ...places.map((one) => (one.placeId ? channelIdOf(one.placeId, null) : null)),
-    ...windows.map((window) => (window.dm ? null : channelIdOf(window.placeId, null))),
+    ...places.map((one) => one.chatId ?? null),
+    ...windows.map((window) => (window.dm ? null : chatIdOf(window.placeId))),
   ].filter((id): id is string => typeof id === 'string' && id !== '');
   return assignChannelHandles(ids);
 }
@@ -259,7 +265,7 @@ function offeredOf(given: ReaderInput): Offered {
     spatial: [given.spatialText, answersLine(given), given.awayText].filter(Boolean).join('\n'),
     surroundings: given.surroundingsText,
     memory: [
-      ...memoryItemsOf(mind, frame, labels, given.nameOf, given.live, given.selfreflectionIds),
+      ...memoryItemsOf(mind, frame, labels, given.nameOf, given.live, given.selfreflectionIds, chatIdOfInput(given)),
       ...factItemsOf(given.facts ?? [], labels),
     ],
     recall: recallBlockOf(lookups, { retired: retiredOf(given.lookups, given.isSourceRetired) }, labels, timezone),
@@ -364,16 +370,16 @@ export function readerRequest(given: ReaderInput): ReaderResult {
   const named = given.selfreflection === null || given.selfreflection === undefined;
   const handleById = named ? handlesOf(given.chatHandles, people, keptWindows) : null;
   const channelHandleById = named
-    ? channelHandlesOf(given.currentChannelId, keptMemory, keptWindows)
+    ? channelHandlesOf(given.currentChannelId, keptMemory, keptWindows, chatIdOfInput(given))
     : new Map<string, string>();
   const withHandle = (one: MemoryItem): MemoryItem => {
-    const channel = one.placeId ? channelHandleById.get(channelIdOf(one.placeId, null) ?? '') : undefined;
+    const channel = one.chatId ? channelHandleById.get(one.chatId) : undefined;
     if (channel) return { ...one, text: `#${channel} ${one.text}` };
     const handle = one.handleIds.map((id) => handleById?.get(id)).find(Boolean);
     return handle ? { ...one, text: `@${handle} ${one.text}` } : one;
   };
   const windowHandle = (window: MeanwhileWindow): string | null =>
-    window.dm ? null : (channelHandleById.get(channelIdOf(window.placeId, null) ?? '') ?? null);
+    window.dm ? null : (channelHandleById.get(chatIdOfInput(given)(window.placeId) ?? '') ?? null);
   const { stats } = fit;
   const cutBy = Object.fromEntries(
     MEMORY_SUBTAGS.map((subtag) => [subtag, (mind.leftOut[subtag] ?? 0) + (stats[subtag]?.dropped ?? 0)])

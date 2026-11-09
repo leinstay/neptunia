@@ -35,6 +35,7 @@ export function personEntry(native: string, name: string, over: Partial<PersonEn
     realName: null,
     affinity: null,
     accounts: [`fake:${native}`],
+    platformAccounts: [{ id: `fake:${native}`, iface: 'fake', platformId: native }],
     profileAccounts: [],
     relation: null,
     character: null,

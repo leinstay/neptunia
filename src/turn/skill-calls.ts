@@ -80,6 +80,8 @@ export type SkillCallsContext = {
   findMeaningFor?: (draft: CallsDraft | null) => CallView['findMeaning'];
   /** The memory's channels and threads on every interface with their native ids, read when used; none while it is closed. */
   knownPlaces?: () => ReadonlyArray<KnownPlace>;
+  /** A stored place by its id as its interface knows it (frame-reads.ts#placeRefOf), null without a row or a memory. */
+  placeRef?: CallView['placeRef'];
   skills: SkillMap | null;
   selfIdOf: () => string;
   clock: () => number;
@@ -331,6 +333,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     placesFoundFor = () => null,
     findMeaningFor = () => null,
     knownPlaces = () => [],
+    placeRef = null,
     skills,
     selfIdOf,
     clock,
@@ -438,6 +441,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       placesFound: placesFoundFor(draft, channel) ?? null,
       findMeaning: findMeaningFor(draft) ?? null,
       knownPlaces: knownPlaces(),
+      placeRef,
     });
   }
 

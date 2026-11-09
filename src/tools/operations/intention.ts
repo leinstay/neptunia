@@ -261,7 +261,7 @@ const handlers = perEnv((env) => {
     if (!place) return;
     const port = env.port as { iface?: unknown } | null | undefined;
     const iface = typeof port?.iface === 'string' ? port.iface : '';
-    await writablePlace({ reads: env.reads, iface, id: place, context });
+    await writablePlace({ reads: env.reads, store: env.store, iface, id: place, context });
   }
 
   /**
