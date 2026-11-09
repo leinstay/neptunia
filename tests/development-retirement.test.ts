@@ -93,7 +93,7 @@ test('neptunia worker selfimprovement is a usage error', () => {
     cwd: ROOT,
     encoding: 'utf8',
     timeout: 8000,
-    env: { PATH: process.env.PATH, TMPDIR: dir, NEPTUNIA_PRIVATE_DIR: dir, NEPTUNIA_DATA_DIR: dir },
+    env: { PATH: process.env.PATH, TMPDIR: dir, NEPTUNIA_DATA_DIR: dir },
   });
   assert.equal(done.status, 2, done.stdout + done.stderr);
   assert.match(done.stderr, /usage/i);
@@ -106,7 +106,7 @@ test('neptunia worker development exists, and says why when it has no way to the
     cwd: ROOT,
     encoding: 'utf8',
     timeout: 8000,
-    env: { PATH: process.env.PATH, TMPDIR: dir, NEPTUNIA_PRIVATE_DIR: dir, NEPTUNIA_DATA_DIR: dir },
+    env: { PATH: process.env.PATH, TMPDIR: dir, NEPTUNIA_DATA_DIR: dir },
   });
   assert.equal(done.status, 1, done.stdout + done.stderr);
   assert.match(done.stderr, /board/);

@@ -290,7 +290,7 @@
 // replaces it whole, labels.json included); `--skills --prompts` and
 // `--pair-prompts` lay it the same way but merge labels.json and tools.json
 // (overlayPromptsHot). The live config.local.json and prompts.local/ are the
-// private directory's (NEPTUNIA_PRIVATE_DIR, else the checkout; privateDirOf).
+// data folder's (NEPTUNIA_DATA_DIR, else data/ of the checkout; privateDirOf).
 // Nothing in the checkout changes. A prompts.local/ (or a
 // directory given) that is a link -- a separate checkout linking to the live
 // layer -- is read through it and copied as files, never linked to or written.

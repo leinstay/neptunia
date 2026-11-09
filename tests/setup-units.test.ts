@@ -51,11 +51,6 @@ for (const field of ['rootDir', 'privateDir', 'dataDir'] as const) {
     const text = renderUnit(template('neptunia-core.service'), 'user', vars);
     assert.deepEqual(valuesOf(text, 'WorkingDirectory'), [vars.rootDir]);
     const env = valuesOf(text, 'Environment');
-    assert.ok(
-      env
-        .filter((value) => value.startsWith('NEPTUNIA_PRIVATE_DIR='))
-        .every((value) => value === `NEPTUNIA_PRIVATE_DIR=${vars.dataDir}`)
-    );
     assert.ok(env.includes(`NEPTUNIA_DATA_DIR=${vars.dataDir}`));
     const dirs = (env.find((value) => value.startsWith('PATH=')) ?? '').slice(5).split(':');
     assert.ok(dirs.includes(`${vars.home}/.local/bin`));
@@ -104,12 +99,6 @@ for (const scope of ['user', 'system'] as const) {
       assert.ok(valuesOf(text, 'ExecStart')[0]?.startsWith(`${VARS.node} `), name);
       assert.deepEqual(valuesOf(text, 'WorkingDirectory'), [VARS.rootDir], name);
       const env = valuesOf(text, 'Environment');
-      assert.ok(
-        env
-          .filter((value) => value.startsWith('NEPTUNIA_PRIVATE_DIR='))
-          .every((value) => value === `NEPTUNIA_PRIVATE_DIR=${VARS.dataDir}`),
-        name
-      );
       assert.ok(env.includes(`NEPTUNIA_DATA_DIR=${VARS.dataDir}`), name);
     }
   });

@@ -176,7 +176,7 @@ test('the worker with no token says which file is missing and to run setup, and 
     cwd: ROOT,
     encoding: 'utf8',
     timeout: 8000,
-    env: { PATH: process.env.PATH, TMPDIR: dir, NEPTUNIA_PRIVATE_DIR: dir, NEPTUNIA_DATA_DIR: dir },
+    env: { PATH: process.env.PATH, TMPDIR: dir, NEPTUNIA_DATA_DIR: dir },
   });
   assert.equal(done.status, 1, done.stdout + done.stderr);
   assert.match(done.stderr, /clients\/development\.token/);

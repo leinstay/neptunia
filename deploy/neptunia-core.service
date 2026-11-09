@@ -25,7 +25,6 @@ User=neptunia-bot
 Group=neptunia
 Restart=on-failure
 RestartSec=5
-Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/data
 Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
 # The subharness backend runs from its folder in the private directory; node's
 # folder and the user's own tools go on the PATH.

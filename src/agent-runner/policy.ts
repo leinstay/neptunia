@@ -21,9 +21,8 @@
 // - `redactSecrets(text)`: key-, token- and password-looking strings,
 //   private-key blocks, SSH key material and URL credentials become
 //   `[redacted]`.
-// Both pure. The withheld roots include the deployment's data directory and,
-// when apart from the checkout, its private directory, resolved once at load
-// from NEPTUNIA_DATA_DIR / NEPTUNIA_PRIVATE_DIR (src/paths.ts), so the policy
+// Both pure. The withheld roots include the deployment's data directory,
+// resolved once at load from NEPTUNIA_DATA_DIR (src/paths.ts), so the policy
 // follows the layout the unit sets.
 
 import path from 'node:path';
@@ -64,11 +63,9 @@ function deploymentRootsOf(paths: { rootDir: string; privateDir: string; dataDir
   return paths.privateDir === paths.rootDir ? [paths.dataDir] : [paths.dataDir, paths.privateDir];
 }
 
-/** Denials include an explicit legacy root without selecting it as a runtime persona. */
+/** This checkout's directories, resolved from the process environment. */
 function defaultPaths(): { rootDir: string; privateDir: string; dataDir: string } {
-  const paths = resolvePaths({ rootDir: ROOT_DIR, env: { ...process.env, NEPTUNIA_PRIVATE_DIR: undefined } });
-  const legacy = process.env.NEPTUNIA_PRIVATE_DIR?.trim();
-  return { ...paths, privateDir: legacy ? path.resolve(ROOT_DIR, legacy) : paths.dataDir };
+  return resolvePaths({ rootDir: ROOT_DIR });
 }
 
 /**

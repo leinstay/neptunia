@@ -150,7 +150,6 @@ test('the real command line answers a select with spaces in its statement, with 
         PATH: process.env.PATH ?? '',
         HOME: tempDir('nep-watcher-dev-rails-home-'),
         TMPDIR: process.env.TMPDIR,
-        NEPTUNIA_PRIVATE_DIR: data,
         NEPTUNIA_DATA_DIR: data,
       },
     }

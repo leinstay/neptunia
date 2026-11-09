@@ -299,7 +299,6 @@ test('the real worker writes a report with the board unreachable and marks the f
         PATH: '/usr/bin:/bin',
         HOME: home,
         TMPDIR: process.env.TMPDIR,
-        NEPTUNIA_PRIVATE_DIR: where.data,
         NEPTUNIA_DATA_DIR: where.data,
         NEPTUNIA_TASK_CLIENT: 'watcher',
       },

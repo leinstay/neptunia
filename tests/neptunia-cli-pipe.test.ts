@@ -36,7 +36,7 @@ function spawnPiped(
 ): { child: ChildProcess; exited: Promise<Exit> } {
   const child = spawn(process.execPath, [BIN, ...argv], {
     cwd: REPO,
-    env: { ...process.env, NEPTUNIA_PRIVATE_DIR: dirs.privateDir, NEPTUNIA_DATA_DIR: dirs.dataDir, ...extra },
+    env: { ...process.env, NEPTUNIA_DATA_DIR: dirs.dataDir, ...extra },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const exited = new Promise<Exit>((resolve) => child.once('exit', (code, signal) => resolve({ code, signal })));

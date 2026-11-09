@@ -186,7 +186,7 @@ function trashOf(deps: ServiceDeps): Promise<Trash> {
   return collectTrash({
     installDir: deps.rootDir,
     unitDir: unitFolder(deps.env),
-    env: { ...deps.env, NEPTUNIA_PRIVATE_DIR: deps.privateDir, NEPTUNIA_UNIT_SCOPE: unitScope(deps.env) },
+    env: { ...deps.env, NEPTUNIA_UNIT_SCOPE: unitScope(deps.env) },
     run: deps.run,
   });
 }

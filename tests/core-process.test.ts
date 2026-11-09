@@ -111,7 +111,7 @@ function addFakeClient(privateDir: string): void {
     {
       cwd: REPO,
       encoding: 'utf8',
-      env: { ...process.env, NEPTUNIA_PRIVATE_DIR: privateDir, NEPTUNIA_DATA_DIR: privateDir },
+      env: { ...process.env, NEPTUNIA_DATA_DIR: privateDir },
     }
   );
   assert.equal(run.status, 0, `client-token add failed: ${run.stderr}`);
@@ -190,10 +190,10 @@ type Unit = {
   kill(signal?: NodeJS.Signals): Promise<void>;
 };
 
-function spawnUnit(dirs: Dirs, privateDir = dirs.privateDir): Unit {
+function spawnUnit(dirs: Dirs): Unit {
   const child = spawn(process.execPath, [BIN, 'interface', 'run', 'fake', '--interfaces-dir', INTERFACES_DIR], {
     cwd: REPO,
-    env: { ...process.env, NEPTUNIA_PRIVATE_DIR: privateDir, NEPTUNIA_DATA_DIR: dirs.dataDir },
+    env: { ...process.env, NEPTUNIA_DATA_DIR: dirs.dataDir },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
   let out = '';
@@ -271,8 +271,8 @@ function spawnUnit(dirs: Dirs, privateDir = dirs.privateDir): Unit {
 }
 
 /** A unit that started and holds the chat c1. */
-async function startedUnit(dirs: Dirs, privateDir = dirs.privateDir): Promise<Unit> {
-  const unit = spawnUnit(dirs, privateDir);
+async function startedUnit(dirs: Dirs): Promise<Unit> {
+  const unit = spawnUnit(dirs);
   await unit.told('started');
   await unit.ask({ op: 'seed-chat', info: channelInfo('c1') }, 'done');
   return unit;

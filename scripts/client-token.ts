@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The clients of the core and their tokens, in the private layer (`NEPTUNIA_PRIVATE_DIR`, else the checkout). Each
+// The clients of the core and their tokens, in the data folder (`NEPTUNIA_DATA_DIR`, else `data/` of the checkout). Each
 // client is an entry of `clients.json` (src/interface/principals.ts) and a token file `clients/<name>.token` of mode
 // 0600, in a folder of mode 0700. The core reads both at every envelope, so a change applies to the next one and a
 // rotated or revoked token closes that client's live link.

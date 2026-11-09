@@ -13,7 +13,6 @@
 # the public code only and stays read-only to the service.
 #   /opt/neptunia/
 #     app/    the engine checkout (root-owned, read-only to the service)
-#     etc/    .env, config.local/, prompts.local/       (NEPTUNIA_PRIVATE_DIR)
 #     data/   everything the bot writes                 (NEPTUNIA_DATA_DIR)
 # `neptunia setup` does not render this unit: it is the template of the in-process mode, installed by hand.
 
@@ -29,7 +28,6 @@ ExecStart=/opt/node/bin/node src/index.ts
 User=neptunia-bot
 Restart=on-failure
 RestartSec=5
-Environment=NEPTUNIA_PRIVATE_DIR=/opt/neptunia/data
 Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
 
 # Hardening: the process needs write access only to its own data and

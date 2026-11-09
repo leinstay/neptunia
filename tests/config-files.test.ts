@@ -296,14 +296,3 @@ test('targeted writes and prompt watchers update the same canonical data directo
     hot.close();
   }
 });
-
-// Silent root precedence can read one persona while writing another.
-test('conflicting root selections refuse before a configuration write', () => {
-  const rootDir = checkout();
-  const dataDir = tempDir('nep-canonical-conflict-');
-  const oldRoot = tempDir('nep-legacy-conflict-');
-  assert.throws(
-    () => resolvePaths({ rootDir, env: { NEPTUNIA_DATA_DIR: dataDir, NEPTUNIA_PRIVATE_DIR: oldRoot } }),
-    /must match NEPTUNIA_DATA_DIR/
-  );
-});

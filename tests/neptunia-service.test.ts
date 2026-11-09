@@ -125,7 +125,6 @@ function rig(local: Settings | null = null, scope: Scope = 'user'): Rig {
       PATH: bin,
       HOME: home,
       XDG_CONFIG_HOME: xdg,
-      NEPTUNIA_PRIVATE_DIR: data,
       NEPTUNIA_DATA_DIR: data,
       NEPTUNIA_UNIT_SCOPE: scope,
       FAKE_LOG: log,

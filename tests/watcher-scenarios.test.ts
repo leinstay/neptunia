@@ -38,7 +38,7 @@ function family(data: string, action: string, args: Record<string, unknown> = {}
       dataDir: data,
       config: () => readConfig(REPO, { privateDir: data }),
       now: () => NOW,
-      env: { NEPTUNIA_PRIVATE_DIR: data, NEPTUNIA_UNIT_SCOPE: 'user', XDG_CONFIG_HOME: data },
+      env: { NEPTUNIA_UNIT_SCOPE: 'user', XDG_CONFIG_HOME: data },
       coreUp: false,
       run: () => Promise.resolve({ code: 1, stdout: '', stderr: 'permission denied' }),
     },

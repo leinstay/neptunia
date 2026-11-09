@@ -717,7 +717,7 @@ test('hot: onReload fires with the layer name', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// The private layer apart from the checkout (src/paths.ts: NEPTUNIA_PRIVATE_DIR)
+// The private layer apart from the checkout (src/paths.ts)
 // ---------------------------------------------------------------------------
 
 test('createHot: a privateDir apart from rootDir supplies config/config.json and prompts/, a writeLocalPath lands there, and its watcher reloads', async () => {
