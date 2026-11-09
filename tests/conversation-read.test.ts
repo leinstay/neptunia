@@ -439,14 +439,16 @@ function placeScene(world: World) {
     history: [],
     draft,
   });
+  const { calls } = io.fake;
   const seedPlatform = (id: string, minute: number, text: string): void =>
     io.fake.seedEvent(eventOf(channel('c7'), id, PLACE_AT(minute), text, { authorId: 'u1', authorName: 'Eleni' }));
   /** The queries that reached the interface's history read, in order. */
   const historyQueries = (): Array<HistoryQuery> =>
-    io.fake.calls.filter((call) => call.op === 'history').map((call) => call.args[1] as HistoryQuery);
+    calls.filter((call) => call.op === 'history').map((call) => call.args[1] as HistoryQuery);
   /** The number a read handed out for the line with `text`: her `#N`. */
   const numberOf = (text: string): number => {
-    const found = [...(draft.searchRefs?.byNumber.entries() ?? [])].filter(([, ref]) =>
+    const { searchRefs } = draft;
+    const found = [...(searchRefs?.byNumber.entries() ?? [])].filter(([, ref]) =>
       String(loose(ref.message).content).includes(text)
     );
     assert.equal(found.length, 1, `one number for ${text}`);
