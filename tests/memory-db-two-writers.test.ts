@@ -147,6 +147,17 @@ function seededDataDir(): string {
          VALUES (?, 'discord', 'dm', NULL, 'dm', 'dm', ?, ?)`
       )
       .run(`discord:dm:${MEMBER}`, `discord:${MEMBER}`, PERSON);
+    // Changed with legacy-removal slice 33: no writer spells the member's person or cuts a native id out of an id, so
+    // the member's account with the person memory holds and the root are stored first, as the observation and the
+    // interface's hello leave them.
+    sqlOfHandle(handle).exec(`
+      INSERT OR IGNORE INTO interfaces (id, name, contract) VALUES ('discord', 'discord', 1);
+      INSERT OR IGNORE INTO authorities (id, iface, namespace) VALUES ('discord/global', 'discord', 'global');
+      INSERT INTO people (id, first_seen_at) VALUES ('${PERSON}', '2026-09-01T00:00:00.000Z');
+      INSERT INTO accounts (id, iface, native_id, native_key, authority_id, generation, kind, person_id, link)
+        VALUES ('discord:${MEMBER}', 'discord', '${MEMBER}', '${MEMBER}', 'discord/global', 1, 'user', '${PERSON}', 'verified');
+      INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, chat, scope_kind)
+        VALUES ('discord:guild:${GUILD}', 'discord', 'server', '${GUILD}', 'server:${GUILD}', 'discord/global', 1, NULL, 'group');`);
     assert.equal(seedUnits(handle, data, { now: () => NOW - 86_400_000 }).errors, 0);
   } finally {
     handle.close();
@@ -445,14 +456,17 @@ test('F5: claims and an episode her session added are in the profile of their sc
 test('F6: a move for a person spelled in another interface keeps its score and reason through the flush of a changed profile', async () => {
   const env = await scene('nebula');
   const member = '100000000000000077';
-  const person = `person:nebula:${member}`;
   try {
     env.store.touchUser(accountOf(env.store, member), 'Νόρα', NOW - 3_600_000);
     await flush(env.store);
-    assert.ok(
-      env.db().prepare('SELECT 1 AS ok FROM people WHERE id = ?').get(person),
-      'the profile is stored under its interface'
-    );
+    // The profile of an account no row held makes the account under its interface, with a meta-person of its own.
+    const account = env
+      .db()
+      .prepare('SELECT iface, person_id FROM accounts WHERE id = ?')
+      .get(accountOf(env.store, member));
+    assert.equal(account?.iface, 'nebula', 'the profile is stored under its interface');
+    const person = String(account?.person_id);
+    assert.ok(env.db().prepare('SELECT 1 AS ok FROM people WHERE id = ?').get(person), 'the person is stored');
     env.store.touchUser(accountOf(env.store, member), 'Νόρα', NOW);
     const counts = await sessionApply(env.service, {
       affinity: [{ personId: person, delta: 3, reason: 'brought pastries', sources: [env.sourceOf(GROUP_LINE)] }],
