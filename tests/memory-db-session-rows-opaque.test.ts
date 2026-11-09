@@ -1,5 +1,5 @@
 // A private unit of an account whose person is opaque, through the writer and the session overlay
-// (src/memory/db/session-rows.ts, map/private.ts): the rows carry the actual DM place as their audience, and the session's
+// (src/memory/db/session-rows.ts, private-layer.ts): the rows carry the actual DM place as their audience, and the session's
 // own rows stay on top after another writer flushes the unit. Plan 2026-11-04-cli-and-memory task 4.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
