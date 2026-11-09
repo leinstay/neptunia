@@ -66,7 +66,9 @@ function sourceFiles(dir: string): Array<string> {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name !== 'node_modules') files.push(...sourceFiles(full));
+      // Changed: src/mnemonic/ holds word lists, which are data and no code, so no word of this file's checks applies to it.
+      if (entry.name !== 'node_modules' && !(entry.name === 'mnemonic' && path.basename(path.dirname(full)) === 'src'))
+        files.push(...sourceFiles(full));
     } else files.push(full);
   }
   return files;

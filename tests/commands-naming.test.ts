@@ -59,6 +59,8 @@ test('the table holds the plural collections and none of the retired singular or
       'logs',
       'memory',
       'mirror',
+      // The owner's `/mnemonic` shows and switches the language of the phrase codes.
+      'mnemonic',
       'model',
       'pause',
       // Stage Z: the engine proxy's commands.

@@ -1,5 +1,3 @@
-# The English word list of BIP-39 (https://github.com/bitcoin/bips/blob/master/bip-0039/english.txt), 2048 words.
-# BIP-39 is published under the MIT License. The one-time phrases of src/interface/phrase-codes.ts draw from it.
 abandon
 ability
 able

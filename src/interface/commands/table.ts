@@ -731,6 +731,12 @@ export const COMMANDS: ReadonlyArray<Command> = [
       ]),
     ],
   },
+  {
+    name: 'mnemonic',
+    help: 'Show or switch the language of the word list of the phrase codes, en or ru',
+    args: [arg('language', false, ['en', 'ru'])],
+    subcommands: [],
+  },
   { name: 'help', help: 'Browse commands and their descriptions', args: [], subcommands: [] },
   { name: 'clear', help: 'Clear the chat display without deleting stored memory', args: [], subcommands: [] },
 ];

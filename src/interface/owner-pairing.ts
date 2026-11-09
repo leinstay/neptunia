@@ -26,7 +26,7 @@ import { PHRASE_PATTERN, phraseCodesOf } from './phrase-codes.ts';
 const CONSOLE_IFACE = 'cli';
 
 export type OwnerPairingDeps = {
-  /** The live config, prompts and layers: `bot.ownerPerson`, `bot.phraseWords` and `labels.pairing`, read at each use. */
+  /** The live config, prompts and layers: `bot.ownerPerson`, `bot.mnemonic` and `labels.pairing`, read at each use. */
   hot: {
     readonly config: unknown;
     readonly prompts?: unknown;

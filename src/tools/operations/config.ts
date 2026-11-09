@@ -22,7 +22,7 @@ import type { Obj, OpContext } from '../types.ts';
 const handlers = perEnv((env) => {
   const { hot, editLocalConfig, writeLocalPath } = env;
 
-  /** Refuses a change under `bot.ownerPerson` or `bot.access` (see OWNER_ONLY_CONFIG_PATHS) unless the
+  /** Refuses a change under `bot.ownerPerson`, `bot.access` or `bot.mnemonic` (see OWNER_ONLY_CONFIG_PATHS) unless the
    * caller is an owner: a member granted `set` must never make themselves one. Made by the persona
    * (`context.actor`, her skills) a change of any key that governs authorization or her own
    * controls (src/tools/operations/rights.ts#governsPersona) is refused whoever asked. */
