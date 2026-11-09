@@ -179,3 +179,18 @@ test("a posted line of hers with an identity of a line in the window renders tha
   assert.ok(mine?.includes(`#${n}`), mine ?? 'no line of hers');
   assert.doesNotMatch(block(built, 'chat'), /src:fake/);
 });
+
+test('a lookup whose source row names a deleted line is absent from <recall>, whatever its source id spells', () => {
+  // Bug: the line was found by cutting the source id's text, so a source stored under an opaque id was never checked
+  // and a deleted line kept its lookup in <recall>.
+  const lookups = [{ ...LOOKUP, sourceIds: ['source:opaque-50'] }];
+  const built = request({ lookups, isSourceRetired: (id: string) => id === 'source:opaque-50' });
+  assert.doesNotMatch(block(built, 'recall'), /ΑΠΟΣΠΑΣΜΑ-ΚΗΠΟΥ/);
+});
+
+test('a lookup whose source row names a live line stays in <recall>, whatever its source id spells', () => {
+  // Bug: a source id that is not spelled `src:` counts as retired and a valid result leaves <recall>.
+  const lookups = [{ ...LOOKUP, sourceIds: ['source:opaque-50'] }];
+  const built = request({ lookups, isSourceRetired: (id: string) => id !== 'source:opaque-50' });
+  assert.match(block(built, 'recall'), /ΑΠΟΣΠΑΣΜΑ-ΚΗΠΟΥ/);
+});
