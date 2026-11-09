@@ -24,6 +24,7 @@ import {
   KINDS,
   NOW,
   SETTINGS,
+  channelRow,
   eventOf,
   fixture,
   group,
@@ -161,6 +162,9 @@ const rowsOf = (env: Env, source: string) => lineMedia(env.db, [source], interna
 
 async function withEnv(body: (env: Env) => void | Promise<void>) {
   const env = fixture();
+  // The rows of the places the lines name, as every stored line's place has one: a line is read through its row's native id.
+  channelRow(env, GENERAL, 'c1');
+  channelRow(env, OTHER, 'c2');
   try {
     await body(env);
   } finally {

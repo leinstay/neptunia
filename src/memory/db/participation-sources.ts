@@ -1,6 +1,5 @@
 // Resolves participation evidence before the unit writer replaces episode rows.
 
-import { nativeOfAny } from './ids.ts';
 import { parseExtra } from './map/common.ts';
 import type { Db, Row, Rows } from './types.ts';
 
@@ -26,10 +25,16 @@ function capturedSource(db: Db, episode: Row, link: Row): unknown {
 
 type SourceSchema = { catalog: boolean; tuple: boolean };
 
+/**
+ * The source a mapper's reference `src:<iface>:<message id>` names in the episode's chat, on the interface and under the
+ * native id of the chat's row (`places.iface`, `native_id`). Null when no row holds the chat or the reference names
+ * another interface.
+ */
 function qualifiedSource(db: Db, episode: Row, reference: string, schema: SourceSchema): unknown {
-  const iface = typeof episode.place_id === 'string' ? episode.place_id.split(':')[0] : '';
+  const place = db.prepare('SELECT iface, native_id FROM places WHERE id = ?').get(episode.place_id);
+  const iface = typeof place?.iface === 'string' && place.iface !== '' ? place.iface : null;
   const prefix = `src:${iface}:`;
-  if (!reference.startsWith(prefix)) return null;
+  if (iface === null || !reference.startsWith(prefix)) return null;
   const message = reference.slice(prefix.length);
   const source = schema.catalog
     ? db
@@ -41,7 +46,7 @@ function qualifiedSource(db: Db, episode: Row, reference: string, schema: Source
     AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL
     ORDER BY s.revision DESC LIMIT 1`
         )
-        .get(iface, nativeOfAny(episode.place_id), message)
+        .get(iface, place?.native_id ?? null, message)
     : null;
   if (source) return source.id;
   // Record-only sources can predate indexed family adoption. Their actual stored route remains authoritative.

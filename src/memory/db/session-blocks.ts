@@ -3,7 +3,7 @@
 
 import { concernsMember, isOpen } from '../../intentions/model.ts';
 import type { Intention } from '../../intentions/types.ts';
-import { nativeOf } from './ids.ts';
+import { nativeChatOf, placeRefOf } from './frame-reads.ts';
 import { scopeWhere } from './scope.ts';
 import type { Context } from './scope.ts';
 import { asText } from './types.ts';
@@ -57,6 +57,12 @@ export function intentionLinesOf(
   read: Read
 ): Array<string> {
   const lines: Array<string> = [];
+  // The chats the batch's places name on their interfaces, from their rows: a room's own id, a DM's partner's.
+  const chats = placeIds.flatMap((id) => {
+    const ref = placeRefOf(db, id);
+    const chat = ref === null ? null : nativeChatOf(ref);
+    return chat === null ? [] : [chat];
+  });
   const intentionScope = scopeWhere(ctx, 'i');
   const records = db
     .prepare(
@@ -68,7 +74,7 @@ export function intentionLinesOf(
     if (!record || !isOpen(record.status)) continue;
     const concerns =
       shown.some((person) => concernsMember(record, { accountId: person.native, names: [person.name] })) ||
-      placeIds.some((id) => JSON.stringify(record).includes(nativeOf(id) ?? '\u0000'));
+      chats.some((chat) => JSON.stringify(record).includes(chat));
     if (concerns && typeof record.purpose === 'string') {
       lines.push(`${record.status}: ${record.purpose}`);
       read('intention', row.id, 'intentions');
