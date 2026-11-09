@@ -201,7 +201,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/llm/` | public | The language model calls: OpenRouter, roles, budgets, token counts, limits and output parsing. | `node:*`, `src/**` | required |
 | `src/llm/role-keys.ts` | public | How a request finds its key in `.env` and `llm.keyByRole`, while a deployment has no `keys.json`. Re-exported by `src/llm/openrouter.ts`; tested through the role key tests of the client. | `node:*`, `src/**` | none |
 | `src/media/` | public | Pictures, video, audio, GIFs and drawing on the core side. | `node:*`, `src/**` | required |
-| `src/memory/migration/` | public | The offline conversion to places and the only decoders of the ids and paths a shipped database spells. | `node:*`, `src/**` | none |
+| `src/memory/migration/` | public | The only decoders of the ids and paths a shipped database spells. | `node:*`, `src/**` | none |
 | `src/memory/` | public | The memory modules above the database: records, lore, episodes, recall ranking, vectors and backfills. | `node:*`, `src/**` | required |
 | `src/memory/types.ts` | public | The types the memory modules share: untyped JSON, the settings handle, the logger and the memory database. Types and two small guards, tested through the modules that use them. | `node:*`, `src/**` | none |
 | `src/memory/pings.ts` | public | A member's ping state in a place as the store keeps it, and the earlier `pingsOff` list read as `off`. Tested through the store tests. | `node:*`, `src/**` | none |

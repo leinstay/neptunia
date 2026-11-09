@@ -389,7 +389,7 @@
       "repeated": 0
     },
     "tests/gif-library-merge.test.ts": {
-      "deep": 3,
+      "deep": 2,
       "repeated": 0
     },
     "tests/gif-library-store.test.ts": {
@@ -586,10 +586,6 @@
     },
     "tests/media-voice-backfill.test.ts": {
       "deep": 2,
-      "repeated": 0
-    },
-    "tests/memory-convert-places.test.ts": {
-      "deep": 1,
       "repeated": 0
     },
     "tests/memory-db-audience.test.ts": {

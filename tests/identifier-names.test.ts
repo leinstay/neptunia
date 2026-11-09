@@ -1,6 +1,6 @@
 // The gate of plan 2026-11-04-cli-and-memory B0: one name per identity. An account is `accountId` and a place is `placeId`
 // everywhere outside the Discord adapter, which keeps the SDK's words and converts at the protocol. Stored data under the
-// old words is rewritten by the offline converter and the shipped migrations, so those stay out of the count.
+// old words is rewritten by the shipped migrations and read by the legacy decoders, so those stay out of the count.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';

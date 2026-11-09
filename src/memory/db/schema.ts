@@ -1401,8 +1401,8 @@ function V27(db: Db): void {
 }
 
 /**
- * Version 29: a community partition of the storage units is refused, because the engine reads none. The one offline
- * conversion (scripts/memory-convert-places.ts) carries a shipped database over; the wake queue's index loses the community.
+ * Version 29: a community partition of the storage units is refused, because the engine reads none. The wake queue's
+ * index loses the community.
  */
 function refuseUnconverted(db: Db): void {
   const held = db.prepare('SELECT 1 AS held FROM storage_units WHERE scope_place_id IS NOT NULL LIMIT 1').get();

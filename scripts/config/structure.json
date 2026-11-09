@@ -1456,7 +1456,7 @@
     },
     {
       "path": "src/memory/migration/",
-      "purpose": "The offline conversion to places and the only decoders of the ids and paths a shipped database spells.",
+      "purpose": "The only decoders of the ids and paths a shipped database spells.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"
