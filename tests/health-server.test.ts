@@ -8,7 +8,7 @@ import type { ServerProbe } from '../src/health/server.ts';
 const NOW = Date.parse('2026-10-31T12:00:00Z');
 const GB = 1024 ** 3;
 
-/** A healthy machine: half the disk free, a low load, every unit active, a backup of last night, ufw active. */
+/** A healthy machine: half the disk free, a low load, every unit active, ufw active. */
 function probe(change: Partial<ServerProbe> = {}): ServerProbe {
   return {
     disk: () => Promise.resolve({ path: '/opt/neptunia/data', freeBytes: 50 * GB, totalBytes: 100 * GB }),
@@ -18,7 +18,6 @@ function probe(change: Partial<ServerProbe> = {}): ServerProbe {
         { name: 'neptunia-core.service', active: true },
         { name: 'neptunia-interface@discord.service', active: true },
       ]),
-    lastBackup: () => ({ name: '2026-10-31-030000-memory' }),
     firewall: () => Promise.resolve({ active: true }),
     ...change,
   };

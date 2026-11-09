@@ -47,9 +47,6 @@
 //   { kind: 'unit', op, ... }
 //       The memory units (record and journal lines, the store's cache, the module stores, participation, the selfreflection,
 //       the vectors) and the projection the writers finish, handed to unit-write.ts#applyUnitWrite.
-//   { kind: 'backup', to, dataDir, now, commit, configHash }
-//       The daily backup (backup.ts#writeBackup) taken on this connection, the writer's, by `VACUUM INTO`:
-//       a consistent copy, no WAL file copied. Not a memory write: no mode; returns the manifest.
 //
 // Every row with the scope triple is written with its `audience_id` from the one resolver (scope.ts#audienceOf, through
 // rows.ts), and her answer rows with their authority, author kind and `observed_at`. `update.audienceColumn` (stamped
@@ -148,7 +145,6 @@ import { applyMediaEnglish } from './media-english.ts';
 import { applyPlaceAddress } from './observe.ts';
 import { isInterfaceNames, noteRoots } from './roots.ts';
 import { applyMediaEmbed } from './media-store.ts';
-import { writeBackup } from './backup.ts';
 import { applyIngestWrite } from './ingest.ts';
 import { applyWakeQueueWrite } from './wake-queue.ts';
 import { applyBoardWrite } from '../../board/writer.ts';
@@ -1015,15 +1011,6 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
   // Schema v18: the inner life's wake queue and leases (wake-queue.ts); the task board (src/board/writer.ts).
   const whole = WHOLE_WRITES.get(asText(kind));
   if (whole) return whole(handle, update);
-  if (kind === 'backup') {
-    return writeBackup(handle, {
-      to: update.to as string,
-      dataDir: update.dataDir as string,
-      now: () => (update.now as number | undefined) ?? Date.now(),
-      commit: update.commit ?? null,
-      configHash: update.configHash ?? null,
-    });
-  }
   if (kind !== 'session') throw coded('BAD_UPDATE');
   const { mode } = update;
   const run = update.run as SessionRunRow | null | undefined;

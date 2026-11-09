@@ -142,11 +142,6 @@
     "consistencyDays": 28,
     "consistencyCap": 8
   },
-  "backupSettings": {
-    "hour": 3,
-    "keep": 7,
-    "dir": "/srv/backups/memory"
-  },
   "boardSettings": {
     "leaseTtlMinutes": 30,
     "autoTriage": {

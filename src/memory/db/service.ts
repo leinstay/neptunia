@@ -2,7 +2,7 @@
 //
 // `createMemoryDb({ hot, dataDir, log, now })` opens `data/<memoryDb.file>` with the writer lock and keeps it open while
 // the bot runs; every memory module reads it and writes it through this service:
-//   - `open()` imports core state and replays pending writes before exposing readers. Core startup awaits it before
+//   - `open()` closes interrupted request records and replays pending writes before exposing readers. Core startup awaits it before
 //     constructing durable stores. It runs no maintenance jobs. `tick()` retries a refused open (logged once per code)
 //     and runs maintenance after the core is constructed.
 //   - `readHandle()` is the read-only connection while the database is open (null otherwise): what the memory modules'
@@ -78,15 +78,6 @@
 //     status's `session.lastFailure`, and one `onSessionFailure({ scopeKey, scopeKind, partner, code, lines, at })` per
 //     failing scope until that scope runs fine again (src/index.ts tells her: a `memoryFailed` fact); a failed review
 //     is a warning and the status's `session.lastFailure`, and its flag waits for the next day.
-//   - the daily backup (backup.ts), while `memoryDb.backup.enabled` is exactly true (read at each tick). At a tick at
-//     or after `memoryDb.backup.hour` (UTC) on a UTC day with no finished backup in `memoryDb.backup.dir` (resolved
-//     against the data directory; default `../backups/memory`, outside `data/`), the writer takes it (`{ kind: 'backup' }`:
-//     `VACUUM INTO` on the writer connection, the selfreflection media, the manifest with the schema version, the engine commit
-//     (`commit`, else `git rev-parse HEAD`), the hash of the live config and the row count of every table) into
-//     `<YYYY-MM-DD-HHMMSS>-memory.partial/`, renamed to its name once whole; then all but the newest
-//     `memoryDb.backup.keep` backups and every other unfinished one are deleted. Never two at once. A failure is a
-//     warning (`memory db: backup failed`, the code), the status's `backup.lastFailure`, and one
-//     `onBackupFailure({ code, at })` per UTC day (her fact); it is tried again an hour later.
 //   - `inspection()` is the owner's port of snapshots over read-only connections of their own (inspection-snapshots.ts), null
 //     while the database is closed. Each tick closes the expired ones, and a close of the database ends them all.
 //   - `close()` ends the reader first (a read-only connection closing last would leave the WAL behind), waits for the
@@ -123,7 +114,6 @@ import {
 import type { QuarantinedPending, QuarantineStatus } from './pending-quarantine.ts';
 import type { StorageKey } from './storage-keys.ts';
 
-import { importCoreJsonState } from '../migration/core-state-import.ts';
 import { lockPathOf, openMemoryDb } from './open.ts';
 import { channelPlaceId, nativeAuthorityOf } from './ids.ts';
 import { LEGACY_IFACE, liveIface, withLiveIface } from './legacy-namespace.ts';
@@ -158,7 +148,6 @@ import { observe as observeEnvelope } from './observe.ts';
 import { channelPlaceOf } from './observe-event.ts';
 import { graphPending } from './graph.ts';
 import { stemsPending } from './stems.ts';
-import { backupName, backupOn, backupSettings, configHash, partialOf, pruneBackups } from './backup.ts';
 import { createReaderClient, SEARCH_ABANDONED, type ReaderClient } from './reader-client.ts';
 import { search } from './recall.ts';
 import type { SearchInput, SearchResult } from './recall.ts';
@@ -185,8 +174,6 @@ const DEFAULT_CLOSE_TIMEOUT_MS = 10_000;
 const DEFAULT_TURN_BUDGET_MS = 180_000;
 /** The least time between two runs of the re-embed job. */
 const REEMBED_EVERY_MS = 60_000;
-/** The least time between a failed daily backup and the next try. */
-const BACKUP_RETRY_MS = 3_600_000;
 const ENGINE_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 
 /** The engine's commit (`git rev-parse HEAD` in the checkout), or 'unknown'. */
@@ -485,15 +472,6 @@ function keepUnitPending(given: unknown, pendingDir: string, now: () => number):
   return file;
 }
 
-/** What the daily backup has done and failed at. */
-type BackupState = {
-  doneDay: string | null;
-  lastAt: number | null;
-  lastName: string | null;
-  lastFailure: { code: string; at: number } | null;
-  failedAt: number | null;
-  toldDay: string | null;
-};
 /** What her memory session's schedule has done, failed at and told. */
 type SessionState = {
   lastAt: number | null;
@@ -550,12 +528,6 @@ export type MemoryDbStatus = {
   openedAt: number | null;
   files: number | null;
   rows: number | null;
-  backup: {
-    running: boolean;
-    lastAt: number | null;
-    lastName: string | null;
-    lastFailure: { code: string; at: number } | null;
-  };
   observe: { queued: number; writing: number; dropped: number };
   session: {
     running: boolean;
@@ -631,7 +603,6 @@ export type MemoryDbService = FillMethods & {
   status(): MemoryDbStatus;
   close(): Promise<void>;
   waitSession(): Promise<void>;
-  waitBackup(): Promise<void>;
 };
 
 /**
@@ -639,7 +610,7 @@ export type MemoryDbService = FillMethods & {
  * `selfreflectionMediaDeps` (read at each tick) gives the interface port and the image fetcher the selfreflection media job needs
  * (selfreflection-media.ts); without it the job does nothing. `defer` runs a function on the next turn of the event loop
  * (setImmediate), injected by the tests. `embed` is the embedding client's `embed(texts, { config, purpose })` (the
- * re-embed job; none: the job does nothing), `commit` the engine commit for the backup manifest (default
+ * re-embed job; none: the job does nothing), `commit` the engine commit an inspection snapshot names (default
  * `git rev-parse HEAD`), `selfName()` her name in a rebuilt embedding input.
  */
 export type MemoryDbOptions = {
@@ -667,7 +638,6 @@ export type MemoryDbOptions = {
   sessionPath?: () => MemoryPath;
   onSessionFailure?: ((failure: Row) => void) | null;
   sessionLookMs?: number;
-  onBackupFailure?: ((failure: Row) => void) | null;
   /** Told once per open that quarantined pending writes: `{ count, code: 'memory-pending-quarantined', cause }`. */
   onPendingQuarantined?: ((info: { count: number; code: string; cause: string | null }) => void) | null;
   iface?: () => string | null;
@@ -685,12 +655,6 @@ function privateReads(db: () => Db): Pick<MemoryDbService, 'privateByPerson' | '
     privateByPerson: (personId, context) => privateByPerson(db(), personId, context),
     privateByPlace: (placeId, context) => privateByPlace(db(), placeId, context),
   };
-}
-
-/** What an open writer brings in once: the core's old JSON state, and the request archive's recovery. */
-function importOnOpen(handle: MemoryHandle, where: { dataDir: string; now: number }): void {
-  importCoreJsonState(handle, where);
-  recoverRequestArchive(handle, where);
 }
 
 function databaseSettings(config: Config) {
@@ -748,7 +712,6 @@ export function createMemoryDb({
   sessionPath = (): MemoryPath => ({ kind: 'direct' }),
   onSessionFailure = null,
   sessionLookMs = 60_000,
-  onBackupFailure = null,
   onPendingQuarantined = null,
   iface = () => null,
 }: MemoryDbOptions): MemoryDbService {
@@ -795,7 +758,7 @@ export function createMemoryDb({
         engine = started;
       } else {
         handle = openDb(dbPath, { context: openContext() });
-        importOnOpen(handle, { dataDir, now: now() });
+        recoverRequestArchive(handle, { now: now() });
       }
       // The writes a shutdown left pending go in before anything reads (synchronous without a worker).
       await replayPending();
@@ -1405,100 +1368,6 @@ export function createMemoryDb({
     }
   }
 
-  // The daily backup through the writer (see the head of this file).
-  let backupRun: Promise<void> | null = null;
-  const backupState: BackupState = {
-    doneDay: null,
-    lastAt: null,
-    lastName: null,
-    lastFailure: null,
-    failedAt: null,
-    toldDay: null,
-  };
-
-  /** One failed backup: a warning, the status, and her fact once per UTC day. */
-  function backupFailed(code: string, at: number): void {
-    backupState.lastFailure = { code, at };
-    backupState.failedAt = at;
-    log.warn('memory db: backup failed', { code });
-    const day = utcDay(at);
-    if (backupState.toldDay === day || typeof onBackupFailure !== 'function') return;
-    backupState.toldDay = day;
-    try {
-      onBackupFailure({ code, at });
-    } catch (error) {
-      log.warn('memory db: the backup failure could not be told', { code: codeOf(error) });
-    }
-  }
-
-  /** The tick's look: a backup when one is due today, never two at once. */
-  function startBackup() {
-    if (closing || !handle || backupRun || engine?.dead) return;
-    if (hot.config?.memoryDb?.backup?.enabled !== true) return;
-    const at = now();
-    const day = utcDay(at);
-    if (backupState.doneDay === day) return;
-    const { hour, dir, keep } = backupSettings(hot.config, dataDir);
-    if (new Date(at).getUTCHours() < hour) return;
-    if (
-      backupState.failedAt !== null &&
-      utcDay(backupState.failedAt) === day &&
-      at - backupState.failedAt < BACKUP_RETRY_MS
-    )
-      return;
-    let done = null;
-    try {
-      done = backupOn(dir, day);
-    } catch {
-      done = null;
-    }
-    if (done) {
-      backupState.doneDay = day;
-      return;
-    }
-    const name = backupName(at);
-    const partial = path.join(dir, partialOf(name));
-    backupRun = (async () => {
-      try {
-        await fs.promises.rm(partial, { recursive: true, force: true });
-        fs.mkdirSync(dir, { recursive: true });
-        const update = {
-          kind: 'backup',
-          to: partial,
-          dataDir,
-          now: at,
-          commit: typeof commit === 'string' ? commit : engineCommit(),
-          configHash: configHash(hot.config),
-        };
-        const manifest = await track('backup', () => write(update));
-        fs.renameSync(partial, path.join(dir, name));
-        backupState.doneDay = day;
-        backupState.lastAt = at;
-        backupState.lastName = name;
-        backupState.lastFailure = null;
-        backupState.failedAt = null;
-        let removed = 0;
-        try {
-          removed = await track('backup.prune', () => pruneBackups(dir, keep));
-        } catch (error) {
-          log.warn('memory db: backup prune failed', { code: codeOf(error) });
-        }
-        log.info('memory db: backup', {
-          files: (manifest?.files as Array<unknown> | undefined)?.length ?? 0,
-          tables: Object.keys((manifest?.rows as Row | undefined) ?? {}).length,
-          removed,
-        });
-      } catch (error) {
-        await fs.promises.rm(partial, { recursive: true, force: true }).catch(() => {
-          /* removed at the next prune */
-        });
-        backupFailed(codeOf(error), at);
-      }
-    })().finally(() => {
-      backupRun = null;
-    });
-  }
-
   // The effective models and her memory session's schedule (see the head of this file).
   let modelsLogged = false;
   let sessionRun: Promise<void> | null = null;
@@ -1665,7 +1534,6 @@ export function createMemoryDb({
     startMediaEmbed();
     for (const key of ['embedDocuments', 'embedObjects'] as const) startRetrievalEmbed(key);
     startSession();
-    startBackup();
   }
 
   /** The database for recall (src/memory/db/recall.ts): the read-only connection while it is open, else null. */
@@ -1881,7 +1749,7 @@ export function createMemoryDb({
     return ctx;
   }
 
-  /** The state for the status card: whether it is open, its units and rows, the backup, the observations, her session. */
+  /** The state for the status card: whether it is open, its units and rows, the observations, her session. */
   function status(): MemoryDbStatus {
     const current = handle;
     const open = current !== null;
@@ -1913,12 +1781,6 @@ export function createMemoryDb({
       openedAt,
       files,
       rows,
-      backup: {
-        running: backupRun !== null,
-        lastAt: backupState.lastAt,
-        lastName: backupState.lastName,
-        lastFailure: backupState.lastFailure,
-      },
       observe: { queued: observeQueue.length, writing: observing.size, dropped: observeDropped },
       session: {
         running: sessionRun !== null,
@@ -1945,7 +1807,6 @@ export function createMemoryDb({
     for (const job of Object.values(embedJobs)) await waitFor(job.run, Math.max(0, deadline - performance.now()));
     await waitFor(projectRun, Math.max(0, deadline - performance.now()));
     await waitFor(sessionRun, Math.max(0, deadline - performance.now()));
-    await waitFor(backupRun, Math.max(0, deadline - performance.now()));
     await flushTurnReads(Math.max(0, deadline - performance.now()));
     await flushObservations(Math.max(0, deadline - performance.now()));
     await closeNow(Math.max(0, deadline - performance.now()));
@@ -1956,8 +1817,6 @@ export function createMemoryDb({
 
   /** The scheduled session look under way, or a resolved promise: its end. */
   const waitSession = () => sessionRun ?? Promise.resolve();
-  /** The daily backup under way, or a resolved promise: its end. */
-  const waitBackup = () => backupRun ?? Promise.resolve();
 
   return {
     namespace: () => iface(),
@@ -1995,6 +1854,5 @@ export function createMemoryDb({
     status,
     close,
     waitSession,
-    waitBackup,
   };
 }

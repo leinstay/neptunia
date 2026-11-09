@@ -9,11 +9,13 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { backupsIn } from '../src/memory/db/backup.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 import { NOT_GRANTABLE_TO_PERSONA } from '../src/tools/access.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { personaKey } from '../src/memory/db/storage-keys.ts';
+import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import {
   REPO,
@@ -118,7 +120,7 @@ async function withoutFetch(body: () => Promise<void>): Promise<Array<string>> {
   return asked;
 }
 
-/** Today's usage rows in `data/usage.json` before the core starts: two roles with costs no label holds. */
+/** Today's usage rows in the persona's `usage` unit before the core starts: two roles with costs no label holds. */
 function seedUsage(dirs: Dirs): void {
   mkdirSync(dirs.dataDir, { recursive: true });
   const today = new Date().toISOString().slice(0, 10);
@@ -129,10 +131,13 @@ function seedUsage(dirs: Dirs): void {
     completionTokens: 10 * requests,
     cost,
   });
-  writeFileSync(
-    join(dirs.dataDir, 'usage.json'),
-    JSON.stringify({ v: 1, days: { [today]: { vision: row(3, 0.4321), analyzer: row(2, 0.0123) } } })
-  );
+  const seed = openMemoryDb(join(dirs.dataDir, 'memory.db'));
+  applyUnitWrite(seed, {
+    op: 'value',
+    key: personaKey('usage'),
+    value: { v: 1, days: { [today]: { vision: row(3, 0.4321), analyzer: row(2, 0.0123) } } },
+  });
+  seed.close();
 }
 
 // Spec case 1.
@@ -354,17 +359,6 @@ test('/config set without a value exits 2 and leaves the local layer as it was',
     assert.equal(run.code, 2);
     assert.notEqual(run.stderr.trim(), '', 'a refused parse says why on stderr');
     assert.equal(digestOf(join(dirs.privateDir, 'config', 'config.json')), before);
-  });
-});
-
-test('/memory backup makes one backup in the backups folder and names it', async () => {
-  await withRig({ config: { memoryDb: { backup: { dir: '../b' } } } }, async ({ dirs, llm, cores }) => {
-    cores.push(await startUnitsCore(dirs, llm, () => T0));
-    const run = await p(dirs, '/memory backup');
-    assert.equal(run.code, 0, run.stdout + run.stderr.slice(-2000));
-    const made = backupsIn(join(dirs.root, 'b'));
-    assert.equal(made.length, 1);
-    assert.ok(run.stdout.includes(made[0] ?? '?'), 'the answer lists the backup');
   });
 });
 

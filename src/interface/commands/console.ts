@@ -28,11 +28,9 @@ import { memoryHealth } from '../../health/memory.ts';
 import { serverHealth, systemProbe, worse } from '../../health/server.ts';
 import type { HealthStatus } from '../../health/server.ts';
 import type { Dialog } from '../../keys/commands.ts';
-import { untracked } from '../../loop-watch.ts';
 import type { Track } from '../../loop-watch.ts';
 import { setInterfaceToken } from './interface-token.ts';
 import { DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../../llm/roles.ts';
-import { backupInWorker, backupName, backupSettings, backupsIn, partialOf } from '../../memory/db/backup.ts';
 import { grantedSkillNames } from '../../tools/discovery.ts';
 import { ownerPersonOf } from '../../tools/operations/grants.ts';
 import { ownValueAt, splitPath } from '../../tools/operations/shared.ts';
@@ -676,10 +674,6 @@ export function createConsole(deps: ConsoleDeps): {
   const database = (): DatabaseSync | null => (callMethod(deps.memoryDb, 'database') as DatabaseSync | null) ?? null;
   const replyDurations = (): Array<number> =>
     listOf(callMethod(deps.metrics, 'samples', 'reply', 24)).filter((ms): ms is number => typeof ms === 'number');
-  const memoryFile = (): string => {
-    const file = objOf(objOf(config()).memoryDb).file;
-    return path.join(deps.dataDir, typeof file === 'string' && file !== '' ? file : 'memory.db');
-  };
 
   const ownerContext = (requester: { id: string }, args: Record<string, unknown> = {}): Record<string, unknown> =>
     ownerContextOf(deps, requester, args);
@@ -733,18 +727,14 @@ export function createConsole(deps: ConsoleDeps): {
 
   async function health(part: string): Promise<Answer> {
     const db = database();
-    const settings = config();
     const parts: Array<{ status: HealthStatus; text: string }> = [];
     const now = deps.now();
     if (part === '' || part === 'server')
-      parts.push(await serverHealth(systemProbe(settings, deps.dataDir, deps.serviceManager), { now }));
+      parts.push(await serverHealth(systemProbe(deps.dataDir, deps.serviceManager), { now }));
     if (part === '' || part === 'core' || part === 'memory') {
       if (db === null) return { text: 'the memory database is not open', status: 'failed' };
       if (part !== 'memory') parts.push(coreHealth(db, { now, turnDurationsMs: replyDurations() }));
-      if (part !== 'core') {
-        const backupsDir = backupSettings(settings, deps.dataDir).dir;
-        parts.push(memoryHealth(db, { now, days: HEALTH_DAYS, backupsDir }));
-      }
+      if (part !== 'core') parts.push(memoryHealth(db, { now, days: HEALTH_DAYS }));
     }
     const status = parts.reduce<HealthStatus>((all, one) => worse(all, one.status), 'ok');
     return { text: parts.map((one) => one.text).join('\n\n'), status: status === 'fail' ? 'failed' : 'ok' };
@@ -778,28 +768,6 @@ export function createConsole(deps: ConsoleDeps): {
     const setting = ownValueAt(settings, splitPath(text(args.path), settings));
     if (!setting.found) return refused(name, args, 'no such setting');
     return { text: JSON.stringify(setting.value, null, 2) ?? 'null', status: 'ok' };
-  }
-
-  /** The owner's backup: on its own thread, because it copies the whole data folder (backup.ts). */
-  async function memoryBackup(name: string, args: Record<string, unknown>): Promise<Answer> {
-    const { dir } = backupSettings(config(), deps.dataDir);
-    const at = deps.now();
-    const made = backupName(at);
-    const partial = path.join(dir, partialOf(made));
-    try {
-      fs.mkdirSync(dir, { recursive: true });
-      await (deps.track ?? untracked)('memory.backup', () =>
-        backupInWorker({ db: memoryFile(), to: partial, data: deps.dataDir, at })
-      );
-      fs.renameSync(partial, path.join(dir, made));
-    } catch (err) {
-      await fs.promises.rm(partial, { recursive: true, force: true });
-      return refused(name, args, err instanceof Error ? err.message : String(err), 'failed');
-    }
-    return {
-      text: [`backup ${made} in ${dir}`, 'kept:', ...backupsIn(dir).map((one) => `  ${one}`)].join('\n'),
-      status: 'ok',
-    };
   }
 
   function memoryChat(args: Record<string, unknown>): Answer {
@@ -871,8 +839,6 @@ export function createConsole(deps: ConsoleDeps): {
         return intentionShow(name, args, requester);
       case 'config.get':
         return configGet(name, args);
-      case 'memory.backup':
-        return memoryBackup(name, args);
       case 'memory.conversation':
         return memoryChat(args);
       case 'memory.lessons.list':
