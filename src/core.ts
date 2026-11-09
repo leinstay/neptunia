@@ -15,7 +15,7 @@ import path from 'node:path';
 import { serviceCredential } from './keys/file.ts';
 import { startEngineProxy } from './net/engine-proxy.ts';
 
-import { assertPersonaLayout, localConfigPath, readInterfaceConfig } from './config/files.ts';
+import { localConfigPath, readInterfaceConfig } from './config/files.ts';
 import { createHot } from './hot.ts';
 import { log, onLog } from './log.ts';
 import { createLoopWatch, loopStallMs } from './loop-watch.ts';
@@ -262,9 +262,7 @@ async function buildCore(
   cleanups: Array<() => unknown>
 ): ReturnType<typeof startCore> {
   const { paths, env, interfaces } = options;
-  if (path.resolve(paths.privateDir) !== path.resolve(paths.dataDir))
-    fail('privateDir must match dataDir: prepare the persona with scripts/persona-files-move.ts');
-  assertPersonaLayout(paths.dataDir, paths.rootDir);
+  if (path.resolve(paths.privateDir) !== path.resolve(paths.dataDir)) fail('privateDir must match dataDir');
   const clock = options.now ?? Date.now;
   // The checkout and canonical persona data root are logged once. privateDir aliases dataDir.
   log.info('index: paths', { rootDir: paths.rootDir, privateDir: paths.privateDir, dataDir: paths.dataDir });

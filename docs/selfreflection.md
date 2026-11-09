@@ -2,7 +2,7 @@
 
 Selfreflection turns selected experience into a dated entry, with an optional illustration and publication. It is part of the persona's memory and travels with its `data/` directory. The engine calls the mechanism `selfreflection` in its modules, settings, tables, purposes and request blocks. The text of its prompts and labels says she keeps a diary, the persona's own word for it.
 
-An entry records its text and media references in the database. Original media lives under `data/media/selfreflection/`. Copying only the database leaves these references without their files. [Backup and restore](persona-migration.md#backup-and-restore) includes both.
+An entry records its text and media references in the database. Original media lives under `data/media/selfreflection/`. Copying only the database leaves these references without their files, so a backup copies the whole `data/` folder.
 
 The group-memory context of an entry excludes DMs and internal material. A mirror is a publication destination, not another copy of the persona's memory.
 

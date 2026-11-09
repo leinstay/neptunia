@@ -36,7 +36,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readConfig } from '../config.ts';
-import { assertPersonaLayout } from '../config/files.ts';
 import { selfimprovementSettings } from '../selfimprovement/settings.ts';
 import { emptyKeys, writeKeys } from '../keys/file.ts';
 import type { GhRunner } from '../selfimprovement/repository.ts';
@@ -338,8 +337,7 @@ async function stepOutcome(step: SetupStep, options: SetupOptions, deps: SetupDe
 /** Runs the steps (one with `only`), the chat last after a full run. Resolves with the report; never rejects for a failed step. */
 export async function runSetup(options: SetupOptions, deps: SetupDeps): Promise<SetupReport> {
   if (path.resolve(options.privateDir) !== path.resolve(options.dataDir))
-    throw new SetupUsageError('privateDir must match dataDir: use scripts/persona-files-move.ts');
-  assertPersonaLayout(options.dataDir, options.rootDir);
+    throw new SetupUsageError('privateDir must match dataDir');
   const steps: SetupReport['steps'] = [];
   let stopped = false;
   for (const step of SETUP_STEPS) {
