@@ -12,11 +12,13 @@
 // the recent lines (`ownPlaceListRows`).
 
 import { projectRow } from './graph.ts';
+import { deriveMirrorPublication } from './publish.ts';
 import type { StorageKey } from './storage-keys.ts';
+import { asText } from './types.ts';
 import type { Db, Row, Rows } from './types.ts';
 
 /** The writers whose rows own themselves through these columns. */
-export type PlaceWriter = 'place' | 'channel' | 'lore' | 'participation' | 'recent';
+export type PlaceWriter = 'place' | 'channel' | 'lore' | 'participation' | 'recent' | 'selfreflection';
 
 /** The owner columns of a place's row. */
 export type PlaceOwner = { writer: PlaceWriter; holder_id: string };
@@ -28,7 +30,26 @@ const TABLES_OF: Record<PlaceWriter, ReadonlyArray<string>> = {
   lore: ['claims'],
   participation: ['episodes', 'operational'],
   recent: ['claims', 'operational'],
+  selfreflection: ['selfreflection', 'operational'],
 };
+
+/** The links a writer's rows hold under them: the table, its parent table, the parent's column and a link's key. */
+type Links = { table: string; parent: string; link: string; key: ReadonlyArray<string> };
+const LINKS_OF: Partial<Record<PlaceWriter, Links>> = {
+  participation: { table: 'episode_sources', parent: 'episodes', link: 'episode_id', key: ['episode_id', 'position'] },
+  selfreflection: {
+    table: 'selfreflection_mirrors',
+    parent: 'selfreflection',
+    link: 'selfreflection_id',
+    key: ['selfreflection_id', 'iface', 'place_id'],
+  },
+};
+
+/** The place a holder of `owner` is, null for the persona, whose selfreflection no place shares. */
+export const placeOfHolder = (owner: { writer?: unknown; holder_id?: unknown }): string | null =>
+  isPlaceWriter(owner.writer) && owner.writer !== 'selfreflection' && typeof owner.holder_id === 'string'
+    ? owner.holder_id
+    : null;
 
 /** The primary key of each place table. */
 const keyOf = (table: string): ReadonlyArray<string> => (table === 'operational' ? ['kind', 'owner'] : ['id']);
@@ -149,24 +170,25 @@ function handOver(db: Db, table: string, row: Row, owner: PlaceOwner): boolean {
 }
 
 /**
- * Retires the live message links `owner` holds that `mapping` no longer holds, unless another owner holds their live
- * episode. A link is told apart by its episode and its position. Returns how many it retired.
+ * Retires the live links `owner` holds that `mapping` no longer holds, unless another owner holds their live parent. A
+ * link is told apart by its key (an episode's message by its episode and position, a mirror by its entry, interface and
+ * place); a retired mirror takes its publication with it. Returns how many it retired.
  */
-function retireLinksAbsent(db: Db, owner: PlaceOwner, mapping: Rows, at: string): number {
-  const keep = new Set(
-    (mapping.episode_sources ?? []).map((row) => `${String(row.episode_id)}\u0000${String(row.position)}`)
-  );
+function retireLinksAbsent(db: Db, owner: PlaceOwner, links: Links, mapping: Rows, at: string): number {
+  const keyOf = (row: Row): string => links.key.map((col) => (row[col] == null ? '' : asText(row[col]))).join('\u0000');
+  const keep = new Set((mapping[links.table] ?? []).map(keyOf));
   let count = 0;
   for (const row of preparedPlace(
     db,
-    `SELECT rowid, episode_id, position FROM episode_sources c WHERE writer = ? AND holder_id = ? AND retired_at IS NULL
-       AND NOT EXISTS (SELECT 1 FROM episodes p WHERE p.id = c.episode_id AND p.retired_at IS NULL
+    `SELECT rowid, ${links.key.join(', ')} FROM "${links.table}" c WHERE writer = ? AND holder_id = ? AND retired_at IS NULL
+       AND NOT EXISTS (SELECT 1 FROM "${links.parent}" p WHERE p.id = c."${links.link}" AND p.retired_at IS NULL
          AND (p.owner_key IS NOT NULL OR (p.writer IS NOT NULL AND p.writer != 'session'))
          AND NOT (p.writer IS ? AND p.holder_id IS ?))`
   ).all(owner.writer, owner.holder_id, owner.writer, owner.holder_id)) {
-    if (keep.has(`${String(row.episode_id)}\u0000${String(row.position)}`)) continue;
-    preparedPlace(db, 'UPDATE episode_sources SET retired_at = ? WHERE rowid = ?').run(at, row.rowid);
-    projectRow(db, 'episode_sources', row, { at });
+    if (keep.has(keyOf(row))) continue;
+    preparedPlace(db, `UPDATE "${links.table}" SET retired_at = ? WHERE rowid = ?`).run(at, row.rowid);
+    if (links.table === 'selfreflection_mirrors') deriveMirrorPublication(db, row, { at });
+    projectRow(db, links.table, row, { at });
     count += 1;
   }
   return count;
@@ -201,7 +223,8 @@ export function retirePlaceAbsent(db: Db, owner: PlaceOwner, mapping: Rows, at: 
     ).all(table, owner.writer, owner.holder_id))
       if (!keep.has(String(shared.key))) unsharePlaceRow(db, table, String(shared.key), owner);
   }
-  return owner.writer === 'participation' ? count + retireLinksAbsent(db, owner, mapping, at) : count;
+  const links = LINKS_OF[owner.writer];
+  return links ? count + retireLinksAbsent(db, owner, links, mapping, at) : count;
 }
 
 /**
@@ -222,4 +245,14 @@ export function ownPlaceListRows(db: Db): void {
   for (const table of ['claims', 'episodes', 'episode_sources', 'operational', 'co_owners'])
     db.exec(`UPDATE "${table}" SET writer = u.kind, holder_id = u.subject_id
       FROM storage_units u WHERE u.id = "${table}".owner_key AND u.kind IN ('lore', 'participation', 'recent')`);
+}
+
+/**
+ * Version step 50: every row the selfreflection unit owns, its mirrors, the publications they derived and its
+ * `co_owners` rows take that unit's owner columns.
+ */
+export function ownSelfreflectionRows(db: Db): void {
+  for (const table of ['selfreflection', 'selfreflection_mirrors', 'operational', 'publications', 'co_owners'])
+    db.exec(`UPDATE "${table}" SET writer = u.kind, holder_id = u.subject_id
+      FROM storage_units u WHERE u.id = "${table}".owner_key AND u.kind = 'selfreflection'`);
 }
