@@ -47,7 +47,7 @@ function rig(seed: (db: Db) => void = seedBrowser, memory: { closed: boolean } =
       ops.push(op);
       return Promise.resolve({ status: 'failed', code: 'NOT_FOR_A_BROWSER_READ', summary: '', data: null });
     },
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => [],
     selfId: () => null,
     hot: { config: { memoryDb: { file: 'memory.db', inspection: BOUNDS } } },

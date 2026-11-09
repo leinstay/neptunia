@@ -108,7 +108,7 @@ test('the console writes the token file for interface.token.set over its private
   const privateDir = tempDir('iface-token-');
   const deps: ConsoleDeps = {
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: '', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => [],
     selfId: () => null,
     hot: { config: {} },

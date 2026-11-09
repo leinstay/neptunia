@@ -15,7 +15,6 @@
 
 import { createOpsEnv } from './tools/operations/env.ts';
 import { runOp, runOpPrechecked } from './tools/operations/index.ts';
-import { listAliases } from './tools/operations/alias.ts';
 import { listLessons } from './tools/operations/learning.ts';
 import { hasTrait } from './tools/definitions.ts';
 import { CODE } from './tools/codes.ts';
@@ -97,8 +96,8 @@ export {
  *   operations submit to and read. Absent -> those report they are not available.
  * `intentions` — from createIntentionService() (src/intentions/service.ts), optional: what the
  *   `intention.*` operations change and read. Absent -> those report they are not available.
- * `inner` — from createInnerLife() (src/behavior/inner.ts), optional: what `inner.status` reports.
- *   Absent -> it reports the inner life is not running.
+ * `inner` — from createInnerLife() (src/behavior/inner.ts), optional: the `inner` field of the owner's status
+ *   card. Absent -> that field says the inner life is not running.
  * `now` — the clock of the status card's coverage cache (default `Date.now`).
  * `dataDir` — the data directory `memory.snapshot` copies: src/index.ts passes the one it
  *   resolved (src/paths.ts, `NEPTUNIA_DATA_DIR`); default `<hot.rootDir>/data`.
@@ -115,7 +114,7 @@ export type Admin = {
   runSkillOp: (op: Untyped, args?: Untyped, context?: Untyped) => Promise<SkillOpResult>;
   runOwnSkillOp: (op: Untyped, args?: Untyped, context?: Untyped) => Promise<SkillOpResult>;
   runInitiativeSkillOp: (op: Untyped, args?: Untyped, context?: Untyped) => Promise<SkillOpResult>;
-  ownerReads: { lessons: (context?: Untyped) => string; aliases: (args?: Untyped, context?: Untyped) => string };
+  ownerReads: { lessons: (context?: Untyped) => string };
 };
 
 export function createAdmin(deps: OpsDeps): Admin {
@@ -180,11 +179,10 @@ export function createAdmin(deps: OpsDeps): Admin {
 
   /**
    * The owner's console reads that are no operation, so no tool of hers (src/interface/commands/console.ts):
-   * `lessons(context)` and `aliases({ accountId }, context)`, each the reply text or a thrown operator-facing `Error`.
+   * `lessons(context)`, the reply text or a thrown operator-facing `Error`.
    */
   const ownerReads = {
     lessons: (context = {}) => listLessons(env, { ...context, env }),
-    aliases: (args = {}, context = {}) => listAliases(env, args, { ...context, env }),
   };
 
   return {

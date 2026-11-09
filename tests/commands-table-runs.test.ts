@@ -29,6 +29,13 @@ test('a leaf answered by a module of its own declares no operation', () => {
   assert.equal(operationOf('tools.grant', { tool: 'web.search' }), null);
 });
 
+test('/tools grants runs the whole grant table, access.list', () => {
+  // Bug: the owner had no read of the grants members hold, only her own in `/tools list`.
+  const parsed = parseCommandLine('/tools grants');
+  assert.ok(parsed.ok, parsed.ok ? '' : parsed.reason);
+  assert.deepEqual(operationOf(parsed.name, parsed.args), { op: 'access.list', args: {} });
+});
+
 test('a name no leaf has declares no operation', () => {
   // Catches: a retired name or a stray client word finds an operation by a partial match.
   assert.equal(operationOf('wakes.stop', {}), null);
@@ -48,7 +55,7 @@ function everyLine(): Array<string> {
       .filter((one) => one.required)
       .flatMap((one) => (one.flag === undefined ? [one.choices?.[0] ?? '1'] : [one.flag, one.choices?.[0] ?? '1']));
   return COMMANDS.flatMap((command) => {
-    const subs = [...command.subcommands, ...(command.otherwise === undefined ? [] : [command.otherwise])];
+    const subs = command.subcommands;
     if (subs.length === 0) return [['/' + command.name, ...filled(command.args)].join(' ')];
     return subs.map((one) => ['/' + command.name, ...one.name.split('.'), ...filled(one.args)].join(' '));
   });
@@ -59,7 +66,7 @@ test('the console answers every leaf of the table that reaches it', async () => 
   const dir = tempDir('nep-table-runs-');
   const desk = createConsole({
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] } } },
