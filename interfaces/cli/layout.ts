@@ -1,6 +1,6 @@
 // Terminal geometry as pure functions: graphemes, cell widths, wrapping with offsets into the original text, the caret's
 // cell, the composer's viewport and the transcript's budget. Fonts and pixels belong to the emulator, so everything here
-// counts cells. cli/composer.ts, cli/transcript.ts, cli/mouse.ts and cli/chat-view.ts read it.
+// counts cells. interfaces/cli/composer.ts, interfaces/cli/transcript.ts, interfaces/cli/mouse.ts and interfaces/cli/chat-view.ts read it.
 
 export type WrappedRow = { text: string; start: number; end: number };
 

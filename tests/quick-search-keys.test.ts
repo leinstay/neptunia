@@ -117,7 +117,7 @@ const OLD_SECTION: ReadonlyArray<RegExp> = [
 test('no source file reads or writes the old web.search section', () => {
   // Bug: one reader keeps the old spelling and quick search works in a test and not in the running engine.
   const found: Array<string> = [];
-  for (const file of sourceFiles(['src', 'bin', 'cli', 'interfaces'])) {
+  for (const file of sourceFiles(['src', 'bin', 'interfaces'])) {
     readSource(file)
       .split('\n')
       .forEach((line, index) => {

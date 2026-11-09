@@ -4,7 +4,7 @@
 // `TERM_PROGRAM` or `LC_TERMINAL` names iTerm2. The replies come on stdin, and `replyFilter` takes them out before Ink
 // sees them, so none reaches the draft. Ink writes the whole frame again on each change, which wipes a Sixel or iTerm2
 // picture, so `graphicsOverlay` draws the placed picture again after each write, at its screen position, with the cursor
-// saved and restored. cli/index.ts wires both, and cli/chat-controller.ts places the picture.
+// saved and restored. interfaces/cli/index.ts wires both, and interfaces/cli/chat-controller.ts places the picture.
 import { Readable } from 'node:stream';
 import { DEFAULT_CELL, kittyDelete } from './terminal-graphics.ts';
 import type { Size } from './terminal-graphics.ts';
@@ -25,7 +25,7 @@ const PARTIAL = /\u001b(?:_[^\u001b]*\u001b?|\[\??[\d;]*)$/;
 const DA1 = /\u001b\[\?([\d;]*)c/;
 // eslint-disable-next-line no-control-regex
 const CELL = /\u001b\[6;(\d+);(\d+)t/;
-/** As long as the mouse filter waits for the rest of a split sequence (cli/mouse.ts). */
+/** As long as the mouse filter waits for the rest of a split sequence (interfaces/cli/mouse.ts). */
 const PARTIAL_WAIT_MS = 20;
 
 /** What the replies say the terminal draws with. kitty first, as it takes a PNG at once; Sixel last. */

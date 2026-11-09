@@ -1,4 +1,4 @@
-// The facts the owner's chat reads for its header (cli/state.ts `statusLine`), from what the core already holds: the pause,
+// The facts the owner's chat reads for its header (interfaces/cli/state.ts `statusLine`), from what the core already holds: the pause,
 // the memory session's mode and last probe, the interfaces, and for the core, memory and the analyzer the model and the
 // route each runs on. A role on a harness names that harness and the model the harness runs. A role on the API names
 // `direct-api`, its configured model and whether a key carries it. Either reads as unbound while `runFailed` says what

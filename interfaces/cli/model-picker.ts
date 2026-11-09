@@ -4,7 +4,7 @@
 // commit is the checked `model.set` command, which saves a model role's one route, or an agent's source, model and
 // effort, together or not at all. A setup detour
 // runs one of the commands a source lists and comes back to the same role and source. `ModelPicker` draws it with
-// cli/selector.ts; bin/chat-panels.ts gives it the reads and the commit. No key value enters this state.
+// interfaces/cli/selector.ts; bin/chat-panels.ts gives it the reads and the commit. No key value enters this state.
 import { createElement as h, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';

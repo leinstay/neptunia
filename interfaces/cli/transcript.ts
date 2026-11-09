@@ -2,7 +2,7 @@
 // rows that fits the budget. Following the tail and reading further up are different views: an off-tail view is anchored
 // to an entry and a row inside it, so new entries and a resize leave the reader where they are. An expanded last entry may
 // go past the budget while the tail is followed. The rows of an entry are kept until its width or folding changes, so a
-// keystroke in a long session stays cheap. cli/app.ts draws the window, and the full text stays in its entries.
+// keystroke in a long session stays cheap. interfaces/cli/app.ts draws the window, and the full text stays in its entries.
 import { cellWidth, wrapWords } from './layout.ts';
 import { foldedText } from './state.ts';
 

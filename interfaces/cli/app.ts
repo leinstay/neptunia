@@ -1,8 +1,8 @@
 // The interactive chat's screen, written with `React.createElement`, so no build step appears: the header, the rows of the
 // transcript that fit, the command window with every slash command's answer and the live panel of the newest (`/help`,
 // `/config` with a search, the model selector for `/model`), and the input with its slash menu. A closed question is a
-// selector over its choices. What each key does and what each row holds comes from cli/chat-controller.ts, and
-// cli/index.ts starts it.
+// selector over its choices. What each key does and what each row holds comes from interfaces/cli/chat-controller.ts, and
+// interfaces/cli/index.ts starts it.
 
 import { createElement as h, useEffect, useReducer, useRef, useState } from 'react';
 import type { ReactElement } from 'react';

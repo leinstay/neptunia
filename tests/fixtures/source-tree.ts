@@ -1,4 +1,4 @@
-// The files of the active source tree, for the tests that gate a name (a lexical check over `src/`, `bin/`, `cli/` and
+// The files of the active source tree, for the tests that gate a name (a lexical check over `src/`, `bin/` and
 // `interfaces/`). Paths come back relative to the repository root with forward slashes.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';

@@ -40,7 +40,7 @@ const SAMPLES: Readonly<Record<string, ReadonlyArray<string>>> = {
   dependencies: [
     'package.json',
     'package-lock.json',
-    'cli/package.json',
+    'interfaces/cli/package.json',
     'interfaces/discord/package.json',
     'interfaces/discord/package-lock.json',
     'pnpm-lock.yaml',

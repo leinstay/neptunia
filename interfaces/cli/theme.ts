@@ -1,7 +1,7 @@
 // The chat's semantic colour and weight tokens, the one place a colour is named. A token asks the terminal for an ANSI
 // style, and the emulator's palette and font decide how it looks. Every status and selection also carries text or a shape,
 // so nothing here is the only sign of anything. The values are this project's choice of 2026-11-05, with no capture of
-// another program behind them, and the owner's red is his word of 2026-11-08. cli/chat-view.ts draws with them.
+// another program behind them, and the owner's red is his word of 2026-11-08. interfaces/cli/chat-view.ts draws with them.
 
 /** One colour for the owner's lines, the header's title and its galaxy. */
 const OWNER_COLOUR = 'red';

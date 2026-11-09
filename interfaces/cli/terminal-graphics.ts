@@ -2,8 +2,8 @@
 // GIF (its first frame), BMP or WebP, a box of cells that keeps its proportions, and the sequences of the three graphics
 // protocols. Jimp's format packages decode the first four and the WebP decoder of jSquash the last, both loaded on the
 // first picture so the chat starts without them. kitty and iTerm2 take the pixels encoded as PNG and scale them to the box
-// themselves, and Sixel gets them scaled and mapped to a 6x6x6 colour cube. cli/terminal-replies.ts asks the terminal
-// which protocol it speaks, and cli/chat-controller.ts places the picture in the command window.
+// themselves, and Sixel gets them scaled and mapped to a 6x6x6 colour cube. interfaces/cli/terminal-replies.ts asks the terminal
+// which protocol it speaks, and interfaces/cli/chat-controller.ts places the picture in the command window.
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 

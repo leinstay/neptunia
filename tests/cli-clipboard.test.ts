@@ -1,8 +1,8 @@
-// cli/clipboard.ts and cli/attachment-actions.ts: acquiring an image and handling a received one, with fake processes.
+// interfaces/cli/clipboard.ts and interfaces/cli/attachment-actions.ts: acquiring an image and handling a received one, with fake processes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createAttachmentActions } from '../cli/attachment-actions.ts';
-import { createClipboard } from '../cli/clipboard.ts';
+import { createAttachmentActions } from '../interfaces/cli/attachment-actions.ts';
+import { createClipboard } from '../interfaces/cli/clipboard.ts';
 import { syntheticPng } from './fixtures/synthetic-png.ts';
 
 const png = syntheticPng();

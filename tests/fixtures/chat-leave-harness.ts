@@ -4,8 +4,8 @@
 // It prints `ready` once the first frame is drawn. With `key` it types Ctrl-C itself, with `signal` and `term` it waits
 // for the SIGINT or SIGTERM its parent sends, and with `crash` it throws an uncaught error. When `runInteractive` returns
 // it prints the report as one JSON line and exits 0. A crash never returns, so the report is printed as the process exits.
-import { runInteractive } from '../../cli/index.ts';
-import type { ChatEnv } from '../../cli/index.ts';
+import { runInteractive } from '../../interfaces/cli/index.ts';
+import type { ChatEnv } from '../../interfaces/cli/index.ts';
 import { leaveRig } from './chat-leave-rig.ts';
 
 const [mouse, how] = process.argv.slice(2);

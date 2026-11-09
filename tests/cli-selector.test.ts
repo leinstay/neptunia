@@ -1,4 +1,4 @@
-// The selector's pure reducer (cli/selector.ts): it owns the selected stable id, the query, the loading state, the overlay
+// The selector's pure reducer (interfaces/cli/selector.ts): it owns the selected stable id, the query, the loading state, the overlay
 // id and the generation, so a result that belongs to a closed or replaced overlay is refused by its identifiers. Browsing
 // has no effect, and a commit leaves as one effect carrying the row's original value. `SelectorView` draws the states
 // through Ink.
@@ -8,8 +8,14 @@ import { Writable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
 import { createElement } from 'react';
 import { render } from 'ink';
-import { SelectorView, closedSelector, selectorReduce, selectorViewport, visibleRows } from '../cli/selector.ts';
-import type { SelectorEffect, SelectorEvent, SelectorRow, SelectorState } from '../cli/selector.ts';
+import {
+  SelectorView,
+  closedSelector,
+  selectorReduce,
+  selectorViewport,
+  visibleRows,
+} from '../interfaces/cli/selector.ts';
+import type { SelectorEffect, SelectorEvent, SelectorRow, SelectorState } from '../interfaces/cli/selector.ts';
 
 const row = (id: string, over: Partial<SelectorRow> = {}): SelectorRow => ({
   id,

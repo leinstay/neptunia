@@ -1,7 +1,7 @@
 // The draft of the chat's input as ordered parts: text, pastes, attachments and a reply marker, each with its own id. A paste over the
 // limits draws as a chip and keeps its whole payload, so two identical pastes stay two parts and the submitted turn gets
 // the exact text. The caret is an offset into what is drawn and never stands inside a chip. A removed part keeps its place
-// until it is restored. Pure functions over plain values: cli/app.ts holds the draft and cli/editor-actions.ts its undo.
+// until it is restored. Pure functions over plain values: interfaces/cli/app.ts holds the draft and interfaces/cli/editor-actions.ts its undo.
 import { graphemes } from './layout.ts';
 
 export type PasteLimits = { collapseLines: number; collapseChars: number };

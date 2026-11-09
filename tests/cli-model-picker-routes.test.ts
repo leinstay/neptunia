@@ -1,4 +1,4 @@
-// The source step of the model selector (cli/model-picker.ts) offers the four route names, `direct-api`,
+// The source step of the model selector (interfaces/cli/model-picker.ts) offers the four route names, `direct-api`,
 // `claude-harness`, `codex-harness` and `opencode-harness`, and commits the name it showed as `--via`, because the
 // command takes only those. The sources are fixed descriptors; the stored backend word stays the key of a descriptor
 // (`via: 'codex'`) and of the role's current record.
@@ -6,8 +6,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { modelRoleRegistry } from '../src/subharness/model-capabilities.ts';
 import type { RoleSources, SourceDescriptor } from '../src/subharness/model-capabilities.ts';
-import { openPicker, pickerReduce, pickerRows } from '../cli/model-picker.ts';
-import type { PickerEffect, PickerEvent, PickerState } from '../cli/model-picker.ts';
+import { openPicker, pickerReduce, pickerRows } from '../interfaces/cli/model-picker.ts';
+import type { PickerEffect, PickerEvent, PickerState } from '../interfaces/cli/model-picker.ts';
 
 const API: SourceDescriptor = {
   id: 'api:openrouter',

@@ -1,7 +1,7 @@
 // What `/attach open` shows of a file in the command window, through the terminal alone and with no process: a picture
-// drawn with the graphics protocol the terminal speaks (cli/terminal-graphics.ts), a text file's content, and for any
+// drawn with the graphics protocol the terminal speaks (interfaces/cli/terminal-graphics.ts), a text file's content, and for any
 // other file, or a picture the terminal cannot draw, plain sentences that say so with the path of the stored file.
-// cli/chat-controller.ts puts the answer in the window and places the picture.
+// interfaces/cli/chat-controller.ts puts the answer in the window and places the picture.
 import type { KeptRead } from './attachment-actions.ts';
 import {
   decodeImage,
