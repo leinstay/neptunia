@@ -67,6 +67,7 @@
 //     be moved keeps its file, logs `memory db: pending replay failed` and fails the open (`PENDING_REPLAY`).
 //   - `writeOperational(write)` (operational.ts): the engine's own state, usage, metrics, inner state, missed
 //     registries, emoji rails and recall trace lines, by kind and subject, through the writer.
+//   - `writeIntentions(write)` (intentions-write.ts): her list of intentions and the records moved to its archive.
 //   - her memory session is the memory writer (spec 2026-10-24-memory-authority, section 6 item 7). Each open logs the
 //     effective models (`memory db: effective models`: purpose, model id and key variable of the memory session, the
 //     description review and every other purpose; writer-switch.ts#effectiveModels). With `memoryDb.session.mode`
@@ -115,6 +116,7 @@ import {
 } from './pending-quarantine.ts';
 import type { QuarantinedPending, QuarantineStatus } from './pending-quarantine.ts';
 import type { StorageKey } from './storage-keys.ts';
+import type { IntentionsWrite } from './intentions-write.ts';
 import type { OperationalWrite } from './operational.ts';
 
 import { lockPathOf, openMemoryDb } from './open.ts';
@@ -563,6 +565,8 @@ export type MemoryDbService = {
   writeUnit(update: unknown): Promise<unknown>;
   /** The engine's own state by kind and subject (operational.ts). */
   writeOperational(write: OperationalWrite): Promise<unknown>;
+  /** Her intentions and their archive (intentions-write.ts). */
+  writeIntentions(write: IntentionsWrite): Promise<unknown>;
   keepPending(update: unknown): string;
   /** The writes in the quarantine, by name, with the code each failed with and when it moved. */
   quarantinedPending(): Array<QuarantinedPending>;
@@ -1830,6 +1834,7 @@ export function createMemoryDb({
     onAffinityMoves,
     writeUnit,
     writeOperational: (operational: OperationalWrite) => write({ ...operational, kind: 'operational', now: now() }),
+    writeIntentions: (intentions: IntentionsWrite) => write({ ...intentions, kind: 'intentions', now: now() }),
     keepPending,
     quarantinedPending: () => quarantinedIn(quarantineDir),
     replayQuarantinedPending,

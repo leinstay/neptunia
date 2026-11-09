@@ -20,7 +20,6 @@ import {
 import { ensureAccountPerson, linkedProfileUnit } from '../person-links.ts';
 import { accountCollection, storageId } from '../storage-keys.ts';
 import type { StorageKey } from '../storage-keys.ts';
-import * as intentions from './intentions.ts';
 import * as journal from './journal.ts';
 import * as lore from './lore.ts';
 import * as media from './media.ts';
@@ -68,7 +67,6 @@ export const MAPPERS = {
   participation,
   recent,
   selfreflection,
-  intentions,
   errands,
   archive,
   versions,

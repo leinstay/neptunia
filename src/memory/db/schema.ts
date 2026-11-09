@@ -20,6 +20,7 @@ import { dropCategoryPlaces } from './category-places.ts';
 import { NAMES_SCHEMA, rebuildNames } from './names.ts';
 import { SELF_SOURCE_KINDS } from './source-kinds.ts';
 import { moveOperationalOwners } from './operational.ts';
+import { moveIntentionOwners } from './intentions-write.ts';
 import { importWakeQueues } from '../migration/wake-import.ts';
 import {
   moveSelfreflectionMediaIds,
@@ -1619,6 +1620,8 @@ export const MIGRATIONS: Array<Migration> = [
    CREATE INDEX IF NOT EXISTS places_partner_person ON places(partner_person) WHERE partner_person IS NOT NULL;`,
   // Version 43: the engine's own state is owned by its kind and subject, not by a unit (src/memory/db/operational.ts).
   moveOperationalOwners,
+  // Version 44: her intentions are rows of their own, not of a unit (src/memory/db/intentions-write.ts).
+  moveIntentionOwners,
 ];
 
 /** Every table schema v8 adds. */

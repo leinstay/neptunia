@@ -154,12 +154,8 @@ test('migration and reopening preserve populated rows, ownership, evidence and a
         unitLines(db, key).map((line) => json(line)),
         expectedLines
       );
-      assert.deepEqual(
-        listUnits(db, { kind: 'intentions' })
-          .map((unit) => unit.key.selector?.collection)
-          .sort(),
-        ['active', 'archive']
-      );
+      // Schema v44 takes the intentions off their units (src/memory/db/intentions-write.ts): none is live.
+      assert.deepEqual(listUnits(db, { kind: 'intentions' }), []);
       assert.deepEqual(
         listUnits(db, { kind: 'errands' })
           .map((unit) => unit.key.selector?.collection)

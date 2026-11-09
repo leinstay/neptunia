@@ -41,6 +41,7 @@ import type { Scope } from './scope.ts';
 import { ensureAudience } from './rows.ts';
 import { legacyPersonNative } from './ids.ts';
 import { writeGifVector } from './gif-vectors.ts';
+import { intentionsOfUnit, writeIntentions } from './intentions-write.ts';
 import { operationalOfUnit, writeOperational } from './operational.ts';
 import { storageContext } from './map/index.ts';
 
@@ -60,7 +61,7 @@ const POSITIONED = [
   'work_events',
 ];
 /** The kinds of JSONL unit op `lines` writes. */
-const LINE_KINDS = new Set(['record', 'journal', 'archive', 'intentions', 'errands']);
+const LINE_KINDS = new Set(['record', 'journal', 'archive', 'errands']);
 
 const coded = (code: string): Error & { code: string } => Object.assign(new Error(code), { code });
 const isoOf = (ms: unknown): string => new Date(isFiniteNumber(ms) ? ms : Date.now()).toISOString();
@@ -729,6 +730,18 @@ function writeOwnerName(db: Db, update: Row, at: string): { personId: string; na
   return { personId, name, stored: true };
 }
 
+/** The update with the storage key its owner path spells, when it names a path and no key; null when none maps. */
+function withKey(db: Db, update: Row): Row | null {
+  if (update.key) return update;
+  if (typeof update.owner !== 'string') return null;
+  try {
+    return { ...update, key: legacyStorageKey(update.owner, ifaceOf(update)) };
+  } catch {
+    // An owner no path maps is the unit write's to refuse.
+    return null;
+  }
+}
+
 /**
  * One write of an append-like memory unit (see the head of this file). `handle` is the writer.
  */
@@ -737,9 +750,14 @@ export function applyUnitWrite(handle: MemoryHandle, update: Row): unknown {
   const op = update?.op;
   if (op === 'project') return project(handle, update, at);
   const db = dbOf(handle);
-  // A unit of an operational kind (a write kept pending by an older outbox) is the operational write of its subject.
-  const operational = op === 'value' || op === 'lines' ? operationalOfUnit(update) : null;
+  // A unit of an operational kind or of the intentions, such as a write kept pending by an older outbox, is the direct
+  // write of its kind.
+  const keyed = op === 'value' || op === 'lines' ? withKey(db, update) : null;
+  // An operational row of an older schema, which a seed of old files writes, keeps its unit.
+  const operational = keyed && hasStorageUnits(db) ? operationalOfUnit(keyed) : null;
   if (operational) return handle.transaction(() => writeOperational(db, operational));
+  const intentions = keyed ? intentionsOfUnit(keyed) : null;
+  if (intentions) return handle.transaction(() => writeIntentions(db, intentions, at));
   const runs: Record<string, (() => unknown) | undefined> = {
     lines: () => skippedErrandUnit(db, update, () => update.key ?? unitOf(update.owner)) ?? writeLines(db, update, at),
     value: () => skippedErrandUnit(db, update, () => update.key ?? unitOf(update.owner)) ?? writeValue(db, update, at),

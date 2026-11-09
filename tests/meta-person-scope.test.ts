@@ -13,7 +13,7 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { allowedAudience, dmAudienceId, dmUserOf, issueContext, readContextSpec } from '../src/memory/db/scope.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
-import { journalKey, personaKey, placeCollection, storageId } from '../src/memory/db/storage-keys.ts';
+import { journalKey, placeCollection, storageId } from '../src/memory/db/storage-keys.ts';
 import { resolveRow } from '../src/memory/db/rows.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle, Row } from '../src/memory/db/types.ts';
@@ -336,12 +336,13 @@ test('an intention for one member with no stored direct chat is internal, never 
   // Bug: `stringScope` falls back to the spelled person when the member has no stored direct chat.
   withDb((db, handle) => {
     seeInGroup(handle, '701');
-    const key = personaKey('intentions');
-    const { mapper } = storageMapper(db, key, storageId(key));
-    const value: Row = {
+    // The intentions write stores the row (src/memory/db/intentions-write.ts), which the mapper built before.
+    applyMemoryWrite(handle, {
+      kind: 'intentions',
+      op: 'value',
       intentions: [{ id: 'i1', status: 'open', provenance: { scope: 'dm', participants: ['701'] } }],
-    };
-    const [row] = mapper.toRows('i', value, {}).intentions ?? [];
+    });
+    const row = db.prepare('SELECT scope_kind, scope_dm FROM intentions WHERE id = ?').get('i1');
     assert.equal(row?.scope_kind, 'internal');
     assert.equal(row?.scope_dm, null);
   });
