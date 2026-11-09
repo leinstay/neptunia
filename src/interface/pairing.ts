@@ -1,18 +1,17 @@
-// The one-time codes that prove an account belongs to someone, by the rules of Hermes's gateway/pairing.py: eight
-// characters from an alphabet with no look-alikes, alive one hour, kept only as a hash. `createPairing` holds the
-// codes of the owner's pairing of a new interface: a code is given only while the owner opened pairing there
-// (`open`, one hour), at most three wait per interface, an account asks once per ten minutes, and five wrong approvals
-// lock the approvals for an hour. An approval closes pairing on its interface and voids its other codes. The state
-// lives in the process: a restart drops every waiting code. Pure over the injected clock and randomness; called by
-// src/interface/owner-pairing.ts, and `newCode`, `hashCode` and `CODE_PATTERN` by her link tool.
+// The one-time phrases of the owner's pairing of a new interface, with the limits of Hermes's gateway/pairing.py. A
+// phrase is six words of the word list (src/interface/phrase-codes.ts), kept only as its seal. `createPairing` gives
+// a phrase only while the owner opened pairing on that interface (`open`, one hour); a phrase lives an hour, at most
+// three wait per interface, an account asks once per ten minutes, and five wrong approvals lock the approvals for an
+// hour. An approval closes pairing on its interface and voids its other phrases. Every change is written to the
+// state file when one is given, so a restart neither drops a waiting phrase nor reopens a used one or a lock.
+// `createCodeFile` is that file, also used by her link tool (src/interface/person-link.ts). Pure over the injected
+// clock and phrases apart from the file; called by src/interface/owner-pairing.ts.
 
-import { createHash, randomInt } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
-/** Hermes's alphabet: capital letters and digits without 0, O, 1 and I. */
-export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-export const CODE_LENGTH = 8;
-/** One code in a text, for a line that carries one. */
-export const CODE_PATTERN = `[${CODE_ALPHABET}]{${CODE_LENGTH}}`;
+import { log } from '../log.ts';
+import type { PhraseCodes, Seal } from './phrase-codes.ts';
 
 // Hermes's limits (gateway/pairing.py): a code lives an hour, three wait per platform, an account asks once per ten
 // minutes, five failures lock for an hour. The pairing window is the owner's hour to write from the new account.
@@ -24,28 +23,41 @@ export const MAX_FAILURES = 5;
 export const LOCK_MS = HOUR_MS;
 const OPEN_MS = HOUR_MS;
 
-/** A number in [0, 1) from the system's secure source, as Hermes draws its codes from `secrets`. */
-export const secureRandom = (): number => randomInt(0, 2 ** 32) / 2 ** 32;
-
-/** A fresh code of `CODE_LENGTH` characters of `CODE_ALPHABET`, `rng` giving numbers in [0, 1). */
-export function newCode(rng: () => number): string {
-  let code = '';
-  for (let at = 0; at < CODE_LENGTH; at += 1)
-    code += CODE_ALPHABET[Math.floor(rng() * CODE_ALPHABET.length) % CODE_ALPHABET.length];
-  return code;
+/** The state file `name` in the data directory, which is the private layer `hot.privateDir`; none without one. */
+export function codesFileOf(hot: { readonly privateDir?: string }, name: string): string | null {
+  return hot.privateDir === undefined ? null : path.join(hot.privateDir, name);
 }
 
-/** A code as typed, without the spaces around it and in capitals. */
-export const normalizeCode = (text: string): string => text.trim().toUpperCase();
+/** A state kept in a JSON file: read once at creation, written whole after each change. */
+export type CodeFile<TState> = { load(): TState; save(state: TState): void };
 
-/** The hash a code is kept under, of its normalized form. */
-export const hashCode = (code: string): string => createHash('sha256').update(normalizeCode(code)).digest('hex');
+/** The JSON file at `file`, private to its user; none kept when `file` is null. A file that will not parse reads as `empty`. */
+export function createCodeFile<TState>(file: string | null, empty: () => TState): CodeFile<TState> {
+  return {
+    load() {
+      if (file === null || !fs.existsSync(file)) return empty();
+      try {
+        return { ...empty(), ...(JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<TState>) };
+      } catch {
+        log.warn('codes: state file unreadable, starting empty', { file: path.basename(file) });
+        return empty();
+      }
+    },
+    save(state) {
+      if (file === null) return;
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const temporary = `${file}.${process.pid}.tmp`;
+      fs.writeFileSync(temporary, JSON.stringify(state), { mode: 0o600 });
+      fs.renameSync(temporary, file);
+    },
+  };
+}
 
 /** An account on an interface, by its platform id. */
 export type PairingAccount = { iface: string; native: string };
-/** What an account's message gets: a code, or none because pairing is closed, it asked lately, or three wait. */
-export type CodeRequest = { kind: 'code'; code: string } | { kind: 'closed' | 'pending' | 'full' };
-/** What the owner's approval of a code comes to. */
+/** What an account's message gets: a phrase, or none because pairing is closed, it asked lately, three wait or no list. */
+export type CodeRequest = { kind: 'code'; phrase: string } | { kind: 'closed' | 'pending' | 'full' | 'no-words' };
+/** What the owner's approval of a phrase comes to. */
 export type CodeApproval = { kind: 'approved'; account: PairingAccount } | { kind: 'wrong' | 'locked' };
 
 export type Pairing = {
@@ -53,61 +65,86 @@ export type Pairing = {
   open(iface: string): void;
   isOpen(iface: string): boolean;
   request(account: PairingAccount): CodeRequest;
-  approve(code: string): CodeApproval;
+  /** Approves the waiting phrase whose six words `text` holds. */
+  approve(text: string): CodeApproval;
 };
 
-type Waiting = { hash: string; account: PairingAccount; at: number };
+type Waiting = { seal: Seal; account: PairingAccount; at: number };
+type PairingState = {
+  openUntil: Record<string, number>;
+  waiting: Array<Waiting>;
+  askedAt: Record<string, number>;
+  failures: number;
+  lockedUntil: number;
+};
 
-export function createPairing({ now, rng = secureRandom }: { now: () => number; rng?: () => number }): Pairing {
-  const openUntil = new Map<string, number>();
-  let waiting: Array<Waiting> = [];
-  const askedAt = new Map<string, number>();
-  let failures = 0;
-  let lockedUntil = 0;
+const emptyState = (): PairingState => ({ openUntil: {}, waiting: [], askedAt: {}, failures: 0, lockedUntil: 0 });
+
+export function createPairing({
+  now,
+  phrases,
+  file = null,
+}: {
+  now: () => number;
+  phrases: PhraseCodes;
+  /** Where the state survives a restart; kept in the process alone when null. */
+  file?: string | null;
+}): Pairing {
+  const store = createCodeFile(file, emptyState);
+  const state = store.load();
   const keyOf = (account: PairingAccount): string => JSON.stringify([account.iface, account.native]);
+  const save = (): void => store.save(state);
 
   function prune(): void {
     const at = now();
-    waiting = waiting.filter((one) => at - one.at <= CODE_TTL_MS);
+    state.waiting = state.waiting.filter((one) => at - one.at <= CODE_TTL_MS);
   }
 
   function isOpen(iface: string): boolean {
-    return (openUntil.get(iface) ?? 0) >= now();
+    return (state.openUntil[iface] ?? 0) >= now();
   }
 
   return {
     open(iface) {
-      openUntil.set(iface, now() + OPEN_MS);
+      state.openUntil[iface] = now() + OPEN_MS;
+      save();
     },
     isOpen,
     request(account) {
       if (!isOpen(account.iface)) return { kind: 'closed' };
       prune();
       const key = keyOf(account);
-      const last = askedAt.get(key);
+      const last = state.askedAt[key];
       if (last !== undefined && now() - last <= REQUEST_EVERY_MS) return { kind: 'pending' };
-      if (waiting.filter((one) => one.account.iface === account.iface).length >= MAX_PENDING) return { kind: 'full' };
-      const code = newCode(rng);
-      waiting = [...waiting.filter((one) => keyOf(one.account) !== key), { hash: hashCode(code), account, at: now() }];
-      askedAt.set(key, now());
-      return { kind: 'code', code };
+      if (state.waiting.filter((one) => one.account.iface === account.iface).length >= MAX_PENDING)
+        return { kind: 'full' };
+      const issued = phrases.issue();
+      if (issued === null) return { kind: 'no-words' };
+      state.waiting = [
+        ...state.waiting.filter((one) => keyOf(one.account) !== key),
+        { seal: issued.seal, account, at: now() },
+      ];
+      state.askedAt[key] = now();
+      save();
+      return { kind: 'code', phrase: issued.phrase };
     },
-    approve(code) {
-      if (lockedUntil > now()) return { kind: 'locked' };
+    approve(text) {
+      if (state.lockedUntil > now()) return { kind: 'locked' };
       prune();
-      const hash = hashCode(code);
-      const found = waiting.find((one) => one.hash === hash);
+      const found = state.waiting.find((one) => phrases.holds(one.seal, text));
       if (found === undefined) {
-        failures += 1;
-        if (failures >= MAX_FAILURES) {
-          lockedUntil = now() + LOCK_MS;
-          failures = 0;
+        state.failures += 1;
+        if (state.failures >= MAX_FAILURES) {
+          state.lockedUntil = now() + LOCK_MS;
+          state.failures = 0;
         }
+        save();
         return { kind: 'wrong' };
       }
-      failures = 0;
-      waiting = waiting.filter((one) => one.account.iface !== found.account.iface);
-      openUntil.delete(found.account.iface);
+      state.failures = 0;
+      state.waiting = state.waiting.filter((one) => one.account.iface !== found.account.iface);
+      delete state.openUntil[found.account.iface];
+      save();
       return { kind: 'approved', account: found.account };
     },
   };

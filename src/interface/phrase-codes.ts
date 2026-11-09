@@ -23,6 +23,8 @@ import { indexWords } from '../memory/record-index.ts';
 export const PHRASE_WORDS = 6;
 /** The most words of the list a message may hold and still be checked. */
 export const MAX_DICTIONARY_WORDS = 18;
+/** A phrase as a label shows it, six words joined by one space, for a line that carries one. */
+export const PHRASE_PATTERN = '[\\p{L}\\p{N}]+(?: [\\p{L}\\p{N}]+){5}';
 /** The most distinct list words a message may match; past it the sets of six to hash grow too many. */
 const MAX_CANDIDATES = 24;
 /** Draws before the issue gives up finding six words that no shared key confuses. */
@@ -85,6 +87,20 @@ export function wordListOf(hot: { readonly config: unknown; rootDir: string; pri
     if (fs.existsSync(file)) return readWordList(fs.readFileSync(file, 'utf8'));
   }
   return [];
+}
+
+/** The phrase codes of the running core: the list `bot.phraseWords` names and the memory's stemmer, both read at use. */
+export function phraseCodesOf(
+  hot: { readonly config: unknown; readonly rootDir?: string; readonly privateDir?: string },
+  database: () => Db | null
+): PhraseCodes {
+  return createPhraseCodes({
+    words: () =>
+      hot.rootDir === undefined
+        ? []
+        : wordListOf({ config: hot.config, rootDir: hot.rootDir, privateDir: hot.privateDir ?? hot.rootDir }),
+    matcher: () => matcherOf(database()),
+  });
 }
 
 /** The hash of six list words under a salt, in list order so that the order typed does not count. */
