@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner-dark.png">
-    <img src=".github/assets/banner.png" width="700" alt="Neptunia - AI character engine for Discord">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/leinstay/neptunia/refs/heads/assets/banner-dark.png">
+    <img src="https://raw.githubusercontent.com/leinstay/neptunia/refs/heads/assets/banner.png" width="700" alt="Neptunia - AI character engine for Discord">
   </picture>
 </p>
 <p align="center">
@@ -20,4 +20,4 @@ A fully vibe-coded harness for building unique neuropersonas in different chat i
 
 All built-in tools focus on making a believable human-like companion. Out of the box, the persona can write and later edit or delete its own messages, react with emoji, see images and videos, search the web, read pages behind links, find information, images and files on the internet through an errand agent, send GIFs and custom server emoji, record voice messages, and draw itself in different outfits while keeping a consistent look and a consistent world. It remembers people and keeps its own attitude to each of them, keeps a diary, sets its own intentions and wakes on its own heartbeat to keep promises, and talks in private messages with a separate private memory. Think of [Hermes Agent](https://github.com/NousResearch/hermes-agent) meets [SillyTavern](https://github.com/SillyTavern/SillyTavern) with [OpenViking](https://github.com/volcengine/OpenViking)'s modified memory.
 
-<p align="center"><img src=".github/assets/hero.webp" width="100%" alt="A pink-haired girl in a purple hoodie tending potted plants on a night rooftop"></p>
+<p align="center"><img src="https://raw.githubusercontent.com/leinstay/neptunia/refs/heads/assets/hero.webp" width="100%" alt="A pink-haired girl in a purple hoodie tending potted plants on a night rooftop"></p>
