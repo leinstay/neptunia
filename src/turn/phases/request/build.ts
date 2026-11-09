@@ -259,7 +259,7 @@ function seedsOf(
   // command line reads every interface), so it is resolved on its own place's interface first.
   const hits = (Array.isArray(excerpts) ? excerpts : []).flatMap((excerpt: unknown) => {
     const ids: unknown = excerpt && typeof excerpt === 'object' ? Reflect.get(excerpt, 'hitIds') : null;
-    const found: unknown = excerpt && typeof excerpt === 'object' ? Reflect.get(excerpt, 'placeId') : null;
+    const found: unknown = excerpt && typeof excerpt === 'object' ? Reflect.get(excerpt, 'place') : null;
     const placeId = typeof found === 'string' && found !== '' ? found : null;
     const named = Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string' && id !== '') : [];
     return named.map(

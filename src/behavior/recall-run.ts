@@ -1996,6 +1996,8 @@ export function createRecall({
       rendered.push({
         source: 'history',
         placeId: window.placeId,
+        // The stored place of the stretch, read from its lines: a turn finds a hit's stored line by it.
+        place: window.messages.find((m: Untyped) => typeof m?.stored?.placeId === 'string')?.stored?.placeId ?? null,
         channelName: window.channelName ?? null,
         startTs: lines[0].ts,
         endTs: lines[lines.length - 1].ts,
