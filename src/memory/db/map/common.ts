@@ -24,18 +24,10 @@ export type MapContext = {
   subjectId?: string;
   subjectNativeId?: string;
   subjectPersonId?: string;
-  /** The person a member's description versions belong to: the one whose `people` row the member's profile unit owns. */
-  profilePersonId?: string;
-  /** The link columns an account row keeps: the database's once the account has a person. */
-  accountLink?: Row;
-  /** A linked account whose person's profile is another unit's: its unit holds only what is the account's own. */
-  accountOnly?: boolean;
   /** The stored row of a place subject, null when the place has none yet. */
   subjectPlace?: Row | null;
   /** The subject's id when it is a DM place. */
   dmPlaceId?: string;
-  /** The membership row of a user unit, as stored. */
-  membership?: { id: string; placeId: string | null } | null;
   /** The DM place of the unit (its subject, or a private unit's account's), with the partner person the place names. */
   dmPlace?: { id: string; partnerPerson: string | null } | null;
   privateAccountId?: string | null;

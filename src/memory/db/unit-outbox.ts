@@ -18,10 +18,14 @@
 //   - `size()`                how many units wait or are under way.
 // Logs carry codes and counts only.
 
+import { accountProfileOfUnit } from './account-profile.ts';
+import type { AccountProfileWrite } from './account-profile.ts';
 import { intentionsOfUnit } from './intentions-write.ts';
 import type { IntentionsWrite } from './intentions-write.ts';
 import { operationalOfUnit } from './operational.ts';
 import type { OperationalWrite } from './operational.ts';
+import { proseVersionsOfUnit } from './prose-versions.ts';
+import type { ProseVersionsWrite } from './prose-versions.ts';
 import { keyText } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
 import type { Log, Row } from './types.ts';
@@ -43,14 +47,17 @@ export type UnitOutbox = {
 };
 
 /**
- * The memory service as the outbox uses it: `writeUnit` always, `writeOperational` for a unit of an operational kind
- * and `writeIntentions` for a unit of the intentions when the service has them (operational.ts, intentions-write.ts),
- * `keepPending` at shutdown.
+ * The memory service as the outbox uses it: `writeUnit` always, `writeOperational` for a unit of an operational kind,
+ * `writeIntentions` for a unit of the intentions, `writeAccountProfile` for an account's profile and
+ * `writeProseVersions` for a history of prose when the service has them (operational.ts, intentions-write.ts,
+ * account-profile.ts, prose-versions.ts), `keepPending` at shutdown.
  */
 type OutboxMemoryDb = {
   writeUnit(update: Row): Promise<unknown>;
   writeOperational?(write: OperationalWrite): Promise<unknown>;
   writeIntentions?(write: IntentionsWrite): Promise<unknown>;
+  writeAccountProfile?(write: AccountProfileWrite): Promise<unknown>;
+  writeProseVersions?(write: ProseVersionsWrite): Promise<unknown>;
   keepPending?(update: Row): unknown;
 };
 
@@ -99,6 +106,10 @@ export function createUnitOutbox({
     if (operational && memoryDb.writeOperational) return memoryDb.writeOperational(operational);
     const intentions = memoryDb.writeIntentions ? intentionsOfUnit(update) : null;
     if (intentions && memoryDb.writeIntentions) return memoryDb.writeIntentions(intentions);
+    const profile = memoryDb.writeAccountProfile ? accountProfileOfUnit(update) : null;
+    if (profile && memoryDb.writeAccountProfile) return memoryDb.writeAccountProfile(profile);
+    const versions = memoryDb.writeProseVersions ? proseVersionsOfUnit(update) : null;
+    if (versions && memoryDb.writeProseVersions) return memoryDb.writeProseVersions(versions);
     return memoryDb.writeUnit(update);
   }
 

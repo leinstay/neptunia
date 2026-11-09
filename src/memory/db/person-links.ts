@@ -200,7 +200,7 @@ export function accountLinks(
 /**
  * The profile unit of the person an account is linked to, when another account's unit holds it: the unit that owns the
  * person's `people` row. Null for an account with no person, a person whose row no unit owns, and a row its own account
- * owns in another root. What a linked account writes through its own unit stays account-specific (map/user.ts).
+ * owns in another root. What a linked account writes through its own unit stays account-specific (account-profile.ts).
  */
 export function linkedProfileUnit(db: Db, accountId: string): { id: string; key: StorageKey } | null {
   const person = db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(accountId)?.person_id;

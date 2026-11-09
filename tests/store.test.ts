@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createStore, writeJsonAtomic } from '../src/memory/store.ts';
-import { personaKey } from '../src/memory/db/storage-keys.ts';
+import { accountCollection, personaKey } from '../src/memory/db/storage-keys.ts';
+import type { AccountProfileWrite } from '../src/memory/db/account-profile.ts';
 import { legacyStorageKey } from '../src/memory/migration/paths.ts';
 import { mergeEpisodes } from '../src/memory/episodes.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
@@ -656,11 +657,16 @@ test('flush + a new store instance over the same database: profiles and guild me
 test('flush: only writes the units that are dirty', async () => {
   const { dir, memoryDb } = memDataDir();
   const writes: Array<Untyped> = [];
+  // A profile has its own write kind (account-profile.ts): its write is counted under the key of its unit.
   const counted = {
     ...memoryDb,
     writeUnit: (update: Untyped) => {
       writes.push(update.key);
       return memoryDb.writeUnit(update);
+    },
+    writeAccountProfile: (write: AccountProfileWrite) => {
+      writes.push(accountCollection('user', write.accountId));
+      return memoryDb.writeAccountProfile(write);
     },
   };
   const store = createStore({ dataDir: dir, memoryDb: counted });

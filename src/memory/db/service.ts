@@ -71,6 +71,8 @@
 //   - `writeRecordLines(write)` (record-lines.ts): the lines of the record of a place, each in its day's unit.
 //   - `writeJournalLines(write)` (journal-lines.ts): the lines of the journal of a place, each in its day's unit.
 //   - `writeArchiveLines(write)` (archive-lines.ts): the entries of one month of a place's archive.
+//   - `writeAccountProfile(write)` (account-profile.ts): the whole profile of one account.
+//   - `writeProseVersions(write)` (prose-versions.ts): the previous texts of one prose owner.
 //   - her memory session is the memory writer (spec 2026-10-24-memory-authority, section 6 item 7). Each open logs the
 //     effective models (`memory db: effective models`: purpose, model id and key variable of the memory session, the
 //     description review and every other purpose; writer-switch.ts#effectiveModels). With `memoryDb.session.mode`
@@ -124,6 +126,8 @@ import type { LineVectorsWrite } from './line-vectors.ts';
 import type { RecordLinesWrite } from './record-lines.ts';
 import type { JournalLinesWrite } from './journal-lines.ts';
 import type { ArchiveLinesWrite } from './archive-lines.ts';
+import type { AccountProfileWrite } from './account-profile.ts';
+import type { ProseVersionsWrite } from './prose-versions.ts';
 import type { OperationalWrite } from './operational.ts';
 
 import { lockPathOf, openMemoryDb } from './open.ts';
@@ -573,6 +577,10 @@ export type MemoryDbService = {
   writeJournalLines(write: JournalLinesWrite): Promise<unknown>;
   /** The entries of one month of a place's archive (archive-lines.ts): resolves how many it wrote. */
   writeArchiveLines(write: ArchiveLinesWrite): Promise<unknown>;
+  /** The whole profile of one account (account-profile.ts): resolves the rows it wrote and retired. */
+  writeAccountProfile(write: AccountProfileWrite): Promise<unknown>;
+  /** The previous texts of one prose owner (prose-versions.ts): resolves the rows it wrote and retired. */
+  writeProseVersions(write: ProseVersionsWrite): Promise<unknown>;
   keepPending(update: unknown): string;
   /** The writes in the quarantine, by name, with the code each failed with and when it moved. */
   quarantinedPending(): Array<QuarantinedPending>;
@@ -1845,6 +1853,10 @@ export function createMemoryDb({
       write(withLiveIface({ ...lines, kind: 'journal-lines', now: now() }, iface)),
     writeArchiveLines: (entries: ArchiveLinesWrite) =>
       write(withLiveIface({ ...entries, kind: 'archive-lines', now: now() }, iface)),
+    writeAccountProfile: (profile: AccountProfileWrite) =>
+      write(withLiveIface({ ...profile, kind: 'account-profile', now: now() }, iface)),
+    writeProseVersions: (versions: ProseVersionsWrite) =>
+      write(withLiveIface({ ...versions, kind: 'prose-versions', now: now() }, iface)),
     keepPending,
     quarantinedPending: () => quarantinedIn(quarantineDir),
     replayQuarantinedPending,

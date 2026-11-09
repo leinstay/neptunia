@@ -1,8 +1,10 @@
 // The memory writer applies semantic unit updates in one transaction. Value writes replace a collection while
 // preserving protected session rows; lines append in catalog order. A day of the record or of the journal and a month
-// of the archive are that kind's lines write (record-lines.ts, journal-lines.ts, archive-lines.ts). Selfreflection and vector operations keep their existing publication and index behavior. Catalog owner keys are
-// independent of source IDs and visibility. Historical owner strings are accepted by the explicit import and
-// pending compatibility boundary, which preserves their provenance without using it for live ownership.
+// of the archive are that kind's lines write (record-lines.ts, journal-lines.ts, archive-lines.ts), and an account's
+// profile and a history of prose that kind's value write (account-profile.ts, prose-versions.ts). Selfreflection and
+// vector operations keep their existing publication and index behavior. Catalog owner keys are independent of source
+// IDs and visibility. Historical owner strings are accepted by the explicit import and pending compatibility boundary,
+// which preserves their provenance without using it for live ownership.
 
 import { ensureUnit, hasStorageUnits } from './storage-units.ts';
 import { storageMapper } from './map/index.ts';
@@ -35,6 +37,8 @@ import { writeRecordDay } from './record-lines.ts';
 import { writeJournalDay } from './journal-lines.ts';
 import { writeArchiveMonth } from './archive-lines.ts';
 import { operationalOfUnit, writeOperational } from './operational.ts';
+import { accountProfileWriteOf, isAccountProfileKey, writeAccountProfile } from './account-profile.ts';
+import { proseVersionsValueOf, writeProseVersions } from './prose-versions.ts';
 import { storageContext } from './map/index.ts';
 
 /** Tables of an owned unit whose rows carry a `position`. */
@@ -369,7 +373,7 @@ function project(handle: MemoryHandle, update: Row, at: string): { units: number
 
 /**
  * The scope of a name the owner gives a person: the groups of the person's interface, the scope a member's profile gives
- * its aliases (map/user.ts). `iface` is the interface the command came from, for a person with no account and no spelled
+ * its aliases (account-profile.ts). `iface` is the interface the command came from, for a person with no account and no spelled
  * interface; with none of those the name is internal. Which interface of several makes no difference to who reads it:
  * every group audience reads alike (scope.ts#allowedAudience).
  */
@@ -453,6 +457,23 @@ function withKey(db: Db, update: Row): Row | null {
 }
 
 /**
+ * The write of a keyed value update whose kind has its own value write (an account's profile, a history of prose:
+ * account-profile.ts, prose-versions.ts), to run in the writer's transaction; else null.
+ */
+function ownValueWrite(db: Db, update: Row, keyed: Row, at: string): (() => unknown) | null {
+  const key = keyed.key as StorageKey;
+  // An update that names an owner path and no key is an older release's: its rows keep the path.
+  const legacyOwner = typeof update.owner === 'string' && !update.key ? { legacyOwner: update.owner } : {};
+  if (isAccountProfileKey(key)) {
+    const { value } = accountProfileWriteOf({ accountId: key.subject.id, value: keyed.value ?? {} });
+    return () => writeAccountProfile(db, key, value, { at, ...legacyOwner });
+  }
+  if (key.kind !== 'versions') return null;
+  const value = proseVersionsValueOf(keyed.value ?? {});
+  return () => writeProseVersions(db, key, value, { at, ...legacyOwner });
+}
+
+/**
  * One write of an append-like memory unit (see the head of this file). `handle` is the writer.
  */
 export function applyUnitWrite(handle: MemoryHandle, update: Row): unknown {
@@ -468,6 +489,9 @@ export function applyUnitWrite(handle: MemoryHandle, update: Row): unknown {
   if (operational) return handle.transaction(() => writeOperational(db, operational));
   const intentions = keyed ? intentionsOfUnit(keyed) : null;
   if (intentions) return handle.transaction(() => writeIntentions(db, intentions, at));
+  // An account's profile or a history of prose, such as a write kept pending by an older release, is that kind's write.
+  const own = op === 'value' && keyed && hasStorageUnits(db) ? ownValueWrite(db, update, keyed, at) : null;
+  if (own) return handle.transaction(own);
   // A record or journal day or an archive month, such as a write kept pending by an older release, is that kind's write.
   if (op === 'lines' && keyed && dayKindOf(db, keyed)) return handle.transaction(() => writeDay(db, update, keyed, at));
   const runs: Record<string, (() => unknown) | undefined> = {

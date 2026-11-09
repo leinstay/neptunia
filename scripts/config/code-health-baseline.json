@@ -625,7 +625,7 @@
       "repeated": 0
     },
     "tests/memory-db-map-user.test.ts": {
-      "deep": 9,
+      "deep": 2,
       "repeated": 0
     },
     "tests/memory-db-map-verbatim.test.ts": {
@@ -1965,7 +1965,6 @@
       "src/memory/db/map/requests.ts",
       "src/memory/db/map/scope-parts.ts",
       "src/memory/db/map/scope-string.ts",
-      "src/memory/db/map/versions.ts",
       "src/memory/db/readers/common.ts",
       "src/memory/db/rows.ts",
       "src/memory/db/schema.ts",

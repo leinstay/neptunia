@@ -3,6 +3,8 @@ import type { LineVectorsWrite } from './db/line-vectors.ts';
 import type { RecordLinesWrite } from './db/record-lines.ts';
 import type { JournalLinesWrite } from './db/journal-lines.ts';
 import type { ArchiveLinesWrite } from './db/archive-lines.ts';
+import type { AccountProfileWrite } from './db/account-profile.ts';
+import type { ProseVersionsWrite } from './db/prose-versions.ts';
 import type { OperationalWrite } from './db/operational.ts';
 import type { MemoryHandle, Row } from './db/types.ts';
 // The shapes the memory modules share: the live settings handle a module reads at the moment of use, and the logger
@@ -62,6 +64,8 @@ export type MemoryDb = {
   writeRecordLines?: (write: RecordLinesWrite) => Promise<unknown>;
   writeJournalLines?: (write: JournalLinesWrite) => Promise<unknown>;
   writeArchiveLines?: (write: ArchiveLinesWrite) => Promise<unknown>;
+  writeAccountProfile?: (write: AccountProfileWrite) => Promise<unknown>;
+  writeProseVersions?: (write: ProseVersionsWrite) => Promise<unknown>;
   memoryWrite?: (update: unknown) => Promise<unknown>;
   keepPending?: (update: unknown) => string;
   onAffinityMoves?: (listener: (moves: Array<Row>) => void) => () => void;

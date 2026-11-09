@@ -1,7 +1,7 @@
 // Mapper: a member's private layer `private/<id>.json` (what she learned in direct messages) <-> rows, every row
 // scoped to that member's DM. No `people` or `accounts` row: those belong to the public file of the same member.
 //
-//   claims, episodes, descriptions (relationship), affinity_events    as in src/memory/db/map/user.ts, scope dm, under
+//   claims, episodes, descriptions (relationship), affinity_events    as in account-profile.ts, scope dm, under
 //                                the stored DM place of the account when its person's id spells no such place
 //   operational (kind private)   the rest: the affinity score, reason and decay stamp, first/last seen, detailsSeq,
 //                                relationshipScore, `replies`, `buffer`, ...
