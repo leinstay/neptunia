@@ -1,11 +1,20 @@
 // The shapes the replay script builds and reports: scenarios, trigger lines, tool runs and the run and loop records.
 
+import type { Variant } from './script-routes.ts';
+
 type Untyped = ReturnType<typeof JSON.parse>;
 
 export type Rec = Record<string, Untyped>;
 
-/** What `main` hands `runMain` besides the options: the engine's root, the abort signal, the random source and the answers directory. */
-export type RunEnv = { root: string; signal?: AbortSignal; rng: () => number; answers: Untyped };
+/** What `main` hands `runMain` besides the options: the engine's root, the abort signal, the random source and the answers directory and the replaced roles. */
+export type RunEnv = {
+  root: string;
+  signal?: AbortSignal;
+  rng: () => number;
+  answers: Untyped;
+  /** The roles the run's role flags replace (scripts/lib/script-routes.ts). */
+  routes: Variant;
+};
 
 /** What an inner wake carries as the turn reads it: its kind, the items it holds and the chain it belongs to. */
 export type WakeInfo = {

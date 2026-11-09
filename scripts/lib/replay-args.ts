@@ -19,7 +19,7 @@ export const USAGE =
   '       node scripts/replay.ts --loop-triggers (--triggers <file> | <placeId> <triggerMessageId>) [--transport native|text] [--no-cache] [--before 40] [--as-of-moment] [--snapshot <dir>] [--out <dir>] [--spend <usd>]\n' +
   '       node scripts/replay.ts --selfreflection-day [--seed <text>] [--date YYYY-MM-DD] [--draw fake|live] [--max-pictures <n>] [--out <dir>] [--spend <usd>]   (cwd: the bot directory)\n' +
   '       node scripts/replay.ts --inner <intention_due|errand_deadline|heartbeat> [--intention <id>] [--snapshot <dir>] [--show-request] [--samples n] [--prompts <dir>] [--out <file>] [--spend <usd>] [--hide-channel <id>]... [--hide-message <id>]...\n' +
-  '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-first-only] [--answers-all] [--answers-timeout-min 20]])';
+  '       (any mode that sends requests also takes: [--answers-dir <dir> [--answers-timeout-min 20]])';
 
 /** The wake kinds `--inner` runs (src/behavior/inner.ts#WAKE_KINDS). */
 export const INNER_KINDS = Object.freeze(['intention_due', 'errand_deadline', 'heartbeat']);
@@ -98,11 +98,9 @@ export type ReplayArgs = {
   hideChannels: Array<string>;
   hideMessages: Array<string>;
   answersDir: string | null;
-  answersFirstOnly: boolean;
   answersTimeoutMin: number;
   placeId?: string | null;
   triggerId?: string | null;
-  answersAll?: boolean;
   selfreflectionOwnHistory?: boolean;
 };
 
@@ -172,7 +170,6 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     hideChannels: [],
     hideMessages: [],
     answersDir: null,
-    answersFirstOnly: false,
     answersTimeoutMin: ANSWERS_TIMEOUT_MIN,
   };
   const positional = [];
@@ -192,7 +189,6 @@ export function parseArgs(argv: Array<string>): ReplayArgs {
     else if (arg === '--out') out.outDir = pathValue(argv[(i += 1)]);
     else if (arg === '--spend') out.spend = pathValue(argv[(i += 1)]);
     else if (arg === '--answers-dir') out.answersDir = pathValue(argv[(i += 1)]);
-    else if (arg === '--answers-first-only') out.answersFirstOnly = true;
     else if (arg === '--answers-timeout-min') out.answersTimeoutMin = intFlag(argv[(i += 1)], 1, 1440);
     else if (arg === '--skills') out.skills = pathValue(argv[(i += 1)]);
     else if (arg === '--dry') out.dry = true;

@@ -33,9 +33,10 @@
 //
 // Rails: requests marked `origin: 'search-compare'`, never counted against llm.maxRequestsPerDay,
 // no calibration, the daily counters a throwaway copy; one search at a time; no row is started
-// once the summed cost has passed `--max-usd` (default 2). The key: the variable `--key` names
-// (read from the private .env), else the simulation key (scripts/lib/cli.ts#simKey). Nothing under
-// data/ is read or written; `--out` may not point there.
+// once the summed cost has passed `--max-usd` (default 2). The keys: production's, as the core
+// routes them (scripts/lib/script-routes.ts); `--<role> <key>/<model>` replaces a role for this run, and the
+// start lines on stderr name each role's key. `--key` names a variable of the private .env whose key every role
+// spends instead. Nothing under data/ is read or written; `--out` may not point there.
 //
 // Output in `--out`: `results.jsonl` (per row, engine and run `{ id, engine, ok, reason,
 // ms_search, ms_summary, ms_total, results, cost, text, sources }`, plus `run` with `--repeat`
@@ -47,7 +48,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { serviceKeys, CliError, defaultDataDir, parseFlags, privateDirOf, runCli, simKey } from './lib/cli.ts';
+import { serviceKeys, CliError, defaultDataDir, flagText, parseFlags, privateDirOf, runCli } from './lib/cli.ts';
+import { routesText, scriptRouting, takeRoutes } from './lib/script-routes.ts';
+import type { Variant } from './lib/script-routes.ts';
 import { costOf } from './lib/recall-eval.ts';
 import { outcomeOf, parseQueries, renderBlind, renderSummary, summarize } from './lib/search-compare.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -60,10 +63,10 @@ const USAGE =
   'usage: node scripts/search-compare.ts <queries.jsonl> --out <dir> [--engines brave,exa,openrouter] [--key <ENV_NAME>] [--repeat N] [--max-usd 2] [--seed <text>] [--dry-run]';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'search-compare';
+const ENV_NAME_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 const DEFAULT_ENGINES = ['brave', 'exa', 'openrouter'];
 const DEFAULT_MAX_USD = 2;
 const MAX_REPEAT = 20;
-const ENV_NAME_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 const GUILD = 'search-compare';
 // The stand-in answers of a dry run: never sent anywhere, only there so the lookup reaches its summary request.
 const DRY_RESULT = { title: 'dry run', url: 'https://example.com/', snippet: 'dry run' };
@@ -77,19 +80,51 @@ function numberFlag(value: Untyped, fallback: Untyped, { min = 0, max = Infinity
   return n;
 }
 
+/**
+ * The live client of a run: every role on the key of the variable `named` names, or each role on production's routing
+ * with the roles `routes` replaces (scripts/lib/script-routes.ts), said on stderr. The daily counters are a throwaway copy.
+ */
+async function liveClient({
+  named,
+  env,
+  privateDir,
+  routes,
+  getConfig,
+}: {
+  named: string | undefined;
+  env: Record<string, string | undefined>;
+  privateDir: string;
+  routes: Variant;
+  getConfig: () => Untyped;
+}): Promise<Untyped> {
+  const { createLlm } = await import('../src/llm/openrouter.ts');
+  const { createCalibrator } = await import('../src/llm/tokens.ts');
+  const state = { data: {}, markDirty() {} };
+  const calibrator = createCalibrator();
+  if (named !== undefined) return createLlm({ apiKey: namedKey(named, env), getConfig, calibrator, state });
+  const routing = await scriptRouting(ORIGIN, {
+    privateDir,
+    roles: ['search'],
+    variant: routes,
+    getConfig,
+    createDirect: (keys, configOf) => createLlm({ apiKey: '', keys, getConfig: configOf, calibrator, state }),
+    state,
+  });
+  process.stderr.write(routesText(ORIGIN, routing.said));
+  return routing.llm;
+}
+
 /** Whether `file` is `dir` or inside it. */
 function inside(file: string, dir: string) {
   const rel = path.relative(dir, file);
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
-/** The key the run spends: the variable `name` names, else the simulator key (simKey). Never printed. */
-function keyOf(name: string | undefined, env: Record<string, string | undefined>) {
-  if (name === undefined) return simKey(ORIGIN, env);
-  if (!ENV_NAME_RE.test(name))
-    throw new CliError(`search-compare: --key takes the name of a variable, not a key\n${USAGE}`);
+/** The key the variable `name` of `env` holds, for `--key`. Never printed. */
+function namedKey(name: string, env: Record<string, string | undefined>): string {
+  if (!ENV_NAME_RE.test(name)) throw new CliError(`${ORIGIN}: --key takes the name of a variable, not a key\n${USAGE}`);
   const value = env[name];
-  if (typeof value !== 'string' || !value.trim()) throw new CliError(`search-compare: ${name} is not set (.env)`);
+  if (typeof value !== 'string' || !value.trim()) throw new CliError(`${ORIGIN}: ${name} is not set (.env)`);
   return value.trim();
 }
 
@@ -152,7 +187,8 @@ export async function main(
     rootDir = REPO_ROOT,
   }: Opts = {}
 ): Promise<string> {
-  const flags = parseFlags(argv, {
+  const taken = takeRoutes(ORIGIN, argv);
+  const flags = parseFlags(taken.argv, {
     values: ['--out', '--engines', '--key', '--repeat', '--max-usd', '--seed'],
     switches: ['--dry-run'],
     usage: USAGE,
@@ -342,19 +378,15 @@ export async function main(
       return `${out.join('\n')}`;
     }
 
-    let llm = llmClient;
-    if (!llm) {
-      const { createLlm } = await import('../src/llm/openrouter.ts');
-      const { createCalibrator } = await import('../src/llm/tokens.ts');
-      const apiKey = keyOf(flags['--key'], env);
-      // The given key pays every role; the daily counters are a throwaway copy.
-      llm = createLlm({
-        apiKey,
+    const llm: Untyped =
+      llmClient ??
+      (await liveClient({
+        named: flagText(flags, '--key'),
+        env,
+        privateDir: privateDirOf(rootDir, env),
+        routes: taken.routes,
         getConfig: () => hot.config,
-        calibrator: createCalibrator(),
-        state: { data: {}, markDirty() {} },
-      });
-    }
+      }));
     let searches = givenSearches;
     if (!searches) {
       const { createBraveSearch } = await import('../src/web/brave.ts');
