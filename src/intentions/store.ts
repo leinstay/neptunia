@@ -1,10 +1,10 @@
-// The persona's intentions, one store per place: the unit `places/<id>/intentions.json` of the memory database
-// holds `{ intentions: [...] }` (the records of src/intentions/model.ts), written whole on every change, so a restart
-// reads back exactly what was there. The list keeps every open intention and the latest KEEP_CLOSED closed ones (done,
-// cancelled, expired, dropped). An older closed record is never deleted: it moves to the unit
-// `intentions-archive.jsonl` (append-only, one record per line), which only tools read (`archived`). A record that
-// breaks the model's invariants is left out on load (counted in the log). The store moves nothing by itself: every
-// change is a pure transition of the model applied through `update`. Logs carry ids and counts, never text.
+// The persona's intentions: the `intentions` rows of the memory database hold the records of src/intentions/model.ts
+// (src/memory/db/intentions-write.ts), the list written whole on every change, so a restart reads back exactly what
+// was there. The list keeps every open intention and the latest KEEP_CLOSED closed ones (done, cancelled, expired,
+// dropped). An older closed record is never deleted: it moves to the archive (append-only), which only tools read
+// (`archived`). A record that breaks the model's invariants is left out on load (counted in the log). The store moves
+// nothing by itself: every change is a pure transition of the model applied through `update`. Logs carry ids and
+// counts, never text.
 
 import { personaKey } from '../memory/db/storage-keys.ts';
 import { log as defaultLog } from '../log.ts';
@@ -23,9 +23,9 @@ export const KEEP_CLOSED = 50;
 
 /**
  * `memoryDb` (the memory database service): the list is loaded from the database and `archived` reads it there
- * (src/memory/db/readers/intentions.ts; a failed read throws, with a code). Each change hands the whole list
- * (`intentions.json`, op `value`) and the records it moved out (`intentions-archive.jsonl`, op `lines`) to an outbox
- * (src/memory/db/unit-outbox.ts) that sends them through the database's writer. The list in memory stays the truth
+ * (src/memory/db/readers/intentions.ts; a failed read throws, with a code). Each change hands the whole list and the
+ * records it moved out to an outbox (src/memory/db/unit-outbox.ts) that sends them through the database's writer as
+ * the write kind `intentions`. The list in memory stays the truth
  * meanwhile, so `add` and `update` answer at once; a write that failed waits in the outbox and goes again at the
  * next change or `flush`, and `flush({ final: true })` (the shutdown) keeps what still fails in `memory-pending/`,
  * replayed by the service at its next start. Without a `memoryDb` (tests, a tool) nothing is read or written:
