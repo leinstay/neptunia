@@ -6,7 +6,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { storageMapper } from '../src/memory/db/map/index.ts';
+import { storageContext, storageMapper } from '../src/memory/db/map/index.ts';
+import { journalLineOf, journalRows } from '../src/memory/db/journal-lines.ts';
 import { personOfAccount } from '../src/memory/db/meta-person.ts';
 import { observe, OBSERVATION_VERSION } from '../src/memory/db/observe.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
@@ -16,7 +17,7 @@ import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { journalKey, placeCollection, storageId } from '../src/memory/db/storage-keys.ts';
 import { resolveRow } from '../src/memory/db/rows.ts';
 import { dbOf } from '../src/memory/db/types.ts';
-import type { Db, MemoryHandle, Row } from '../src/memory/db/types.ts';
+import type { Db, MemoryHandle, Row, Rows } from '../src/memory/db/types.ts';
 import { addAccount } from './fixtures/memory-db/opaque-people.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
@@ -63,9 +64,15 @@ const answerLine = (native: string): Row => ({
   posted: ['m1'],
 });
 
+/** A journal line's rows and the line back, in a day unit of a place, as the journal writer and reader build them. */
 const journalMapper = (db: Db) => {
   const key = journalKey('discord:channel:c1', '2026-11-08');
-  return storageMapper(db, key, storageId(key)).mapper;
+  const ctx = storageContext(db, key);
+  return {
+    toRows: (_rel: string, line: Row, { position }: { position: number }) =>
+      journalRows(line, ctx, { id: storageId(key), position }),
+    fromRows: (rows: Rows) => journalLineOf(rows, ctx),
+  };
 };
 
 function withDb(body: (db: Db, handle: MemoryHandle) => void): void {

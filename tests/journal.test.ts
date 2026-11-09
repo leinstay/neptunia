@@ -12,10 +12,10 @@ import {
   triggerLinksOf,
 } from '../src/memory/journal.ts';
 import { tempDir } from './fixtures/tmp.ts';
-import { journalLabel, openTestMemory, openTestMemorySync } from './fixtures/memory-db/service.ts';
+import { journalLineLabel, openTestMemory, openTestMemorySync } from './fixtures/memory-db/service.ts';
+import type { JournalLinesWrite } from '../src/memory/db/journal-lines.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
-import type { StorageKey } from '../src/memory/db/storage-keys.ts';
 
 const DATA = path.join('fake-root', 'data');
 const DAY_D = Date.UTC(2026, 9, 13, 23, 59, 50);
@@ -58,13 +58,12 @@ function recordingMemory(lines: Array<Line>) {
   OPENED.push(mem);
   return {
     ...mem.memoryDb,
-    writeUnit: (update: unknown) => {
-      const unit = wrongly<{ key: StorageKey; lines?: Array<unknown> }>(update);
-      for (const line of unit.lines ?? []) {
-        // File labels are a test export projection. The real writer receives the original semantic update.
-        lines.push({ file: journalLabel(DATA, unit.key), line: JSON.stringify(line) });
+    writeJournalLines: (write: JournalLinesWrite) => {
+      for (const line of write.lines) {
+        // File labels are a test export projection. The real writer receives the original write.
+        lines.push({ file: journalLineLabel(DATA, write.placeId, line), line: JSON.stringify(line) });
       }
-      return mem.memoryDb.writeUnit(update);
+      return mem.memoryDb.writeJournalLines(write);
     },
   };
 }

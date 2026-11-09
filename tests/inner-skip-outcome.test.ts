@@ -15,6 +15,7 @@ import { createJournal } from '../src/memory/journal.ts';
 import '../src/tools/operations/index.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { JournalLinesWrite } from '../src/memory/db/journal-lines.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { labels } from './fixtures/labels.ts';
@@ -158,9 +159,9 @@ async function innerTurn({
   const journal = createJournal({
     memoryDb: {
       ...memory.memoryDb,
-      writeUnit: (update: unknown) => {
-        for (const line of (update as { lines?: ReadonlyArray<{ outcome?: unknown }> }).lines ?? []) lines.push(line);
-        return memory.memoryDb.writeUnit(update);
+      writeJournalLines: (write: JournalLinesWrite) => {
+        for (const line of write.lines) lines.push(line);
+        return memory.memoryDb.writeJournalLines(write);
       },
     },
     dataDir: 'fake-data',

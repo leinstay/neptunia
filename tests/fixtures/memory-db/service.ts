@@ -20,6 +20,7 @@ import { listUnits } from '../../../src/memory/db/storage-units.ts';
 import { isOperationalKind } from '../../../src/memory/db/operational.ts';
 import { unitValue, unitLines } from '../../../src/memory/db/readers/common.ts';
 import type { StorageKey } from '../../../src/memory/db/storage-keys.ts';
+import { placeOrPersona } from '../../../src/memory/db/storage-keys.ts';
 
 const silent = { info() {}, debug() {}, warn() {}, error() {} };
 
@@ -144,4 +145,9 @@ export function unitFile(memoryDb: Pick<MemoryDbService, 'readHandle'>, rel: str
 /** A journal's test label projected from its actual key, with no change to the writer update. */
 export function journalLabel(dataDir: string, key: StorageKey): string {
   return path.join(dataDir, 'places', key.subject.id, 'journal', `${key.partition}.jsonl`);
+}
+
+/** The label of a journal line a write kind `journal-lines` write carries: its place's day, as `journalLabel` names it. */
+export function journalLineLabel(dataDir: string, placeId: string | null, line: { occurredAt?: unknown }): string {
+  return journalLabel(dataDir, placeOrPersona('journal', placeId, { partition: String(line.occurredAt).slice(0, 10) }));
 }

@@ -10,8 +10,8 @@ import { createDiscordInterface } from '../../interfaces/discord/index.ts';
 import { createJournal } from '../../src/memory/journal.ts';
 import { createErrandStores } from '../../src/errands/store.ts';
 import { createErrandService } from '../../src/errands/service.ts';
-import { openTestMemorySync, journalLabel } from './memory-db/service.ts';
-import type { StorageKey } from '../../src/memory/db/storage-keys.ts';
+import { openTestMemorySync, journalLineLabel } from './memory-db/service.ts';
+import type { JournalLinesWrite } from '../../src/memory/db/journal-lines.ts';
 import '../../src/tools/operations/index.ts';
 import { skillRegistry } from '../../src/tools/registry.ts';
 import { createAdmin } from '../../src/admin.ts';
@@ -248,10 +248,9 @@ export function journalOverMemory(): { journal: ReturnType<typeof createJournal>
   OPENED_MEMORY.push(mem);
   const memoryDb = {
     ...mem.memoryDb,
-    writeUnit: (given: unknown) => {
-      const update = given as { key: StorageKey; lines?: Array<unknown> };
-      for (const line of update.lines ?? []) lines.push({ file: journalLabel('fake-data', update.key), record: line });
-      return mem.memoryDb.writeUnit(update);
+    writeJournalLines: (write: JournalLinesWrite) => {
+      for (const line of write.lines) lines.push({ file: journalLineLabel('fake-data', write.placeId, line), record: line });
+      return mem.memoryDb.writeJournalLines(write);
     },
   };
   let n = 0;

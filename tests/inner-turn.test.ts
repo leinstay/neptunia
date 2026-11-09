@@ -46,6 +46,7 @@ useIface('fake');
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { JournalLinesWrite } from '../src/memory/db/journal-lines.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
 
 /** What an inner turn reports, the fields these tests read. */
@@ -185,9 +186,9 @@ function journalOverMemory() {
   OPENED_MEMORY.push(mem);
   const memoryDb = {
     ...mem.memoryDb,
-    writeUnit: (update: Untyped) => {
-      for (const line of update.lines ?? []) lines.push(line);
-      return mem.memoryDb.writeUnit(update);
+    writeJournalLines: (write: JournalLinesWrite) => {
+      for (const line of write.lines) lines.push(line);
+      return mem.memoryDb.writeJournalLines(write);
     },
   };
   let n = 0;

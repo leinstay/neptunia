@@ -14,7 +14,7 @@ import type { MappedPath } from '../migration/classify.ts';
 import { OWNED } from './upsert.ts';
 import { addSessionRows } from './session-rows.ts';
 import { addSourceMedia } from './record-lines.ts';
-import { asText, dbOf, isFiniteNumber } from './types.ts';
+import { dbOf, isFiniteNumber } from './types.ts';
 import type { Connection, Db, Row, Rows } from './types.ts';
 
 export type MediaDescriptionEntry =
@@ -148,33 +148,6 @@ function linesOf(kind: string, mapper: Mapper, rows: Rows): Array<unknown> {
       return [...rows.operational]
         .sort((a, b) => positionOfOwner(a) - positionOfOwner(b))
         .map((row) => one('operational', row));
-    case 'journal': {
-      const answers = new Map(rows.sources.map((row): [unknown, Row] => [row.id, row]));
-      const items: Array<{ position: unknown; build: () => unknown }> = [
-        ...rows.day.map((row) => ({
-          position: row.position,
-          build: () =>
-            mapper.fromRows({
-              day: [row],
-              sources: answers.has(row.source_id) ? [answers.get(row.source_id) as Row] : [],
-            }),
-        })),
-        ...rows.decisions.map((row) => ({
-          position: row.position,
-          build: () =>
-            mapper.fromRows({
-              decisions: [row],
-              affinity_events: rows.affinity_events.filter((event) =>
-                String(event.id).startsWith(`aff:${asText(row.id)}:`)
-              ),
-            }),
-        })),
-      ];
-      return items
-        .map((item, index): [(typeof items)[number], number] => [item, index])
-        .sort((a, b) => Number(a[0].position ?? 0) - Number(b[0].position ?? 0) || a[1] - b[1])
-        .map(([item]) => item.build());
-    }
     default:
       throw new Error(`no line export for kind ${kind}`);
   }

@@ -41,7 +41,8 @@ import type { TriggerKind } from '../src/turn/triggers.ts';
 import type { TurnParams } from '../src/turn/outcome.ts';
 import { createTurnRunner } from './fixtures/turn-runner.ts';
 import { declarePick, gifStore, pickLlm, withPick } from './fixtures/turn-pick.ts';
-import { openTestMemorySync, journalLabel } from './fixtures/memory-db/service.ts';
+import { openTestMemorySync, journalLineLabel } from './fixtures/memory-db/service.ts';
+import type { JournalLinesWrite } from '../src/memory/db/journal-lines.ts';
 import { addClaim, addPerson, openWorld } from './fixtures/memory-db/mind-world.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
@@ -4176,10 +4177,11 @@ function journalOverMemory() {
   OPENED_MEMORY.push(mem);
   const memoryDb = {
     ...mem.memoryDb,
-    writeUnit: (update: Untyped) => {
-      // Legacy labels are fixture export projections of the actual semantic keys.
-      for (const line of update.lines ?? []) lines.push({ file: journalLabel('fake-data', update.key), record: line });
-      return mem.memoryDb.writeUnit(update);
+    writeJournalLines: (write: JournalLinesWrite) => {
+      // Legacy labels are fixture export projections of the actual place and day.
+      for (const line of write.lines)
+        lines.push({ file: journalLineLabel('fake-data', write.placeId, line), record: line });
+      return mem.memoryDb.writeJournalLines(write);
     },
   };
   let n = 0;

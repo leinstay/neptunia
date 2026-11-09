@@ -132,6 +132,7 @@ import { applyIndexWrite } from './index-policy.ts';
 import { applyIntentionsWrite } from './intentions-write.ts';
 import { applyLineVectorsWrite } from './line-vectors.ts';
 import { applyRecordLinesWrite } from './record-lines.ts';
+import { applyJournalLinesWrite } from './journal-lines.ts';
 import { applyOperationalWrite } from './operational.ts';
 import { applyUnitWrite } from './unit-write.ts';
 import { applyPublicationWrite } from './publish.ts';
@@ -969,6 +970,8 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['line-vectors', applyLineVectorsWrite],
   // The lines of the record: what she saw and said, deletions and feelings (record-lines.ts).
   ['record-lines', applyRecordLinesWrite],
+  // The lines of the journal: her turns, actions, events and the analyzer's decisions (journal-lines.ts).
+  ['journal-lines', applyJournalLinesWrite],
   // The selfreflection's mirrors: the state of a send, then the owner's configuration.
   [
     'publication',
