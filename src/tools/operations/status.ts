@@ -699,7 +699,7 @@ const handlers = perEnv((env) => {
       windows: windowsOf({ except: taken }),
       roleKeys,
     });
-    return lines.length > 0 ? withKeyLines(lines, { llm, usage, hot, config: cfg, now: clock() }) : '-';
+    return lines.length > 0 ? withKeyLines(lines, { llm, usage, hot, now: clock() }) : '-';
   }
 
   /** The owner's `costs.base` field (src/tools/operations/usage.ts#roleCostsLines): today's requests

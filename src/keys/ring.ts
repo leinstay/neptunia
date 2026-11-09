@@ -19,7 +19,7 @@ export type KeyRing = {
   states(): Array<KeyState>;
   /** The extra keys some role is bound to, each with its roles. Names only. */
   bound(): Array<{ name: string; roles: Array<string> }>;
-  /** The grant of each core key that has one, by name: what `llm.keys` gave by variable name before. */
+  /** The grant of each core key that has one, by name. */
   grants(): Record<string, { grant: number; resetDay: number }>;
   /** The `.env` variable each imported key came from, by key name. */
   variables(): Record<string, string>;

@@ -608,7 +608,6 @@ export const KEPT: ReadonlyArray<string> = [
   'split.maxOutputTokens',
   // Slice 7: `elsewhere.maxPlaces`, `maxEpisodes`, `maxOutputTokens` and `pickTimeoutMs` left KEPT with the elsewhere
   // pick.
-  'memory.vaultDir',
   'media.maxOutputTokens',
   'media.recacheBefore',
   'media.video.provider',

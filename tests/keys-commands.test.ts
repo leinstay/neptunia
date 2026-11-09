@@ -397,3 +397,34 @@ test('keys core grant refuses a missing day, a bad amount and an unknown key, an
   }
   assert.deepEqual(store.list().core[0], { name: 'core-1', last4: 'WXYZ', grant: 200, resetDay: 22 });
 });
+
+test('a later core add asks the grant and the reset day, and the listing shows them', async () => {
+  const { keys, store } = rig();
+  store.addCore({ name: 'core-1', value: SECRET });
+  await keys.run('keys.core.add', { name: 'core-2' }, scriptedDialog([SECRET_2, '75.5', '15']).dialog);
+  await keys.run('keys.core.add', { name: 'core-3' }, scriptedDialog([SECRET_3, 'none']).dialog);
+  assert.deepEqual(
+    store.list().core.map((row) => [row.name, row.grant, row.resetDay]),
+    [
+      ['core-1', null, null],
+      ['core-2', 75.5, 15],
+      ['core-3', null, null],
+    ]
+  );
+  const listed = await keys.run('keys.core.list', {}, null);
+  assert.ok(listed.text.includes('75.5') && listed.text.includes('15'));
+});
+
+test('a grant that is not a number, or a reset day outside 1 to 31, is refused and nothing is saved', async () => {
+  const { keys, store } = rig();
+  store.addCore({ name: 'core-1', value: SECRET });
+  assert.equal(
+    (await keys.run('keys.core.add', { name: 'core-2' }, scriptedDialog([SECRET_2, 'lots']).dialog)).status,
+    'invalid'
+  );
+  assert.equal(
+    (await keys.run('keys.core.add', { name: 'core-2' }, scriptedDialog([SECRET_2, '10', '40']).dialog)).status,
+    'invalid'
+  );
+  assert.deepEqual(store.coreNames(), ['core-1']);
+});

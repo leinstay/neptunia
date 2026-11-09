@@ -45,15 +45,14 @@ import { createCalibrator } from './llm/tokens.ts';
 import { archivedLlm } from './llm/archive.ts';
 import type { ArchiveWriteGap } from './llm/archive.ts';
 import { noteArchiveGap } from './watcher/requests.ts';
-import { createLlm, roleApiKey } from './llm/openrouter.ts';
+import { createLlm } from './llm/openrouter.ts';
 import { createKeyFailover } from './llm/key-failover.ts';
 import { MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, SEARCH_ROLE, roleModel, searchModel } from './llm/roles.ts';
 import { statusCardKeys } from './keys/card-keys.ts';
 import { createKeysCommands, reasonedPause } from './keys/commands.ts';
-import { importKeys } from './keys/import.ts';
 import { createKeyRing } from './keys/ring.ts';
 import type { KeyOf } from './keys/ring.ts';
-import { createKeyStore, keysFileExists } from './keys/store.ts';
+import { createKeyStore } from './keys/store.ts';
 import { createRoleHealth, reportingCoreKeys, reportingLlm, roleKeyCheck } from './llm/role-health.ts';
 import { createEmbedder } from './llm/embed.ts';
 import { createGifFetcher } from './media/gif-files.ts';
@@ -482,7 +481,6 @@ async function buildCore(
     now: () => Date.now(),
     hasKey: roleKeyCheck({ hot, env, mainKey: openrouterKey, keyOf, served: (role) => harnessOf(role) !== null }),
   });
-  // `env` (the .env loaded once above): the keys `llm.keyByRole` names per role, looked up per request.
   // createLlm (src/llm/openrouter.js) declares `complete` as `Function`, which no caller's declared call accepts, so
   // the core hands the client on typed as the call the modules below make.
   // The core's own failure `keys-exhausted` (every key of its list out of credit) is told to the tracker.
@@ -496,7 +494,6 @@ async function buildCore(
     reportingCoreKeys(
       createLlm({
         apiKey: openrouterKey,
-        env,
         keys: ringNow,
         getConfig: () => hot.config,
         calibrator,
@@ -522,7 +519,7 @@ async function buildCore(
     requestArchive
   );
   // Embeddings (role embedding) on the same daily request count as the chat client.
-  const embedder = options.embedder ?? createEmbedder({ apiKey: openrouterKey, env, keyOf, state: processState });
+  const embedder = options.embedder ?? createEmbedder({ apiKey: openrouterKey, keyOf, state: processState });
   // The meaning index kept current: record lines queued above, flushed on the tick below.
   embedQueue = createEmbedQueue({
     hot,
@@ -538,10 +535,10 @@ async function buildCore(
     memoryDb,
   });
   // The persona's drawings: its own daily rails, counted on the same state. Pictures are paid with the drawing role's
-  // key (`llm.keyByRole.drawing`, the agents' key), read at each request; the main key when the role names none. The
-  // options are named first: the module does not declare `state`, the daily counter it shares with the chat client.
+  // key in the key store, read at each request. The options are named first: the module does not declare `state`, the
+  // daily counter it shares with the chat client.
   const imageOptions = {
-    apiKey: () => keyOf('drawing') ?? roleApiKey(hot.config, env, 'drawing', openrouterKey),
+    apiKey: () => keyOf('drawing') ?? '',
     getConfig: () => hot.config,
     state: processState,
   };
@@ -554,7 +551,6 @@ async function buildCore(
   const speechOptions = {
     getConfig: () => hot.config,
     getPrompts: () => hot.prompts,
-    env,
     apiKey: openrouterKey,
     keyOf,
     llm,
@@ -1369,15 +1365,6 @@ async function buildCore(
     fetch: (input, init) => globalThis.fetch(input, init),
     baseUrl: () => String(objOf(objOf(hot.config).llm).baseUrl),
     defaults: { ...ROLE_DEFAULTS, memory: MEMORY_ROLE_DEFAULT },
-    // A deployment still on `.env` has its keys moved into the store before the first add writes anything.
-    importLegacy: () => {
-      const keyVariables = Object.entries(env).filter(
-        (entry): entry is [string, string] =>
-          /^OPENROUTER_[A-Z0-9_]+_KEY$/.test(entry[0]) && typeof entry[1] === 'string' && entry[1].trim() !== ''
-      );
-      if (keysFileExists(paths.privateDir) || keyVariables.length === 0) return null;
-      return importKeys({ env: Object.fromEntries(keyVariables), config: hot.config, store: keyStore });
-    },
     currentModel: (role) =>
       role === SEARCH_ROLE ? (searchModel(hot.config) ?? '') : (roleModel(hot.config, role) ?? ''),
     speechVoice: () => {

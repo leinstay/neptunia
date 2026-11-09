@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { DEFAULT_VAULT_DIR, SNAPSHOTS_DIR, memoryRootOf } from '../src/memory/root.ts';
+import { SNAPSHOTS_DIR, memoryRootOf } from '../src/memory/root.ts';
 import * as store from '../src/memory/store.ts';
 
 const dataDir = path.join(path.sep, 'srv', 'bot', 'data');
@@ -25,18 +25,6 @@ test('memoryRootOf: the state file and the snapshots root sit at the top of data
   assert.equal(SNAPSHOTS_DIR, 'snapshots');
 });
 
-test('memoryRootOf: the vault resolves under data/ by default and keeps an absolute path', () => {
-  assert.equal(DEFAULT_VAULT_DIR, 'vault');
-  // @ts-expect-error no argument, on purpose: the vault falls back to its default
-  assert.equal(root.vaultDir(), path.resolve(dataDir, 'vault'));
-  assert.equal(root.vaultDir(''), path.resolve(dataDir, 'vault'));
-  assert.equal(root.vaultDir('   '), path.resolve(dataDir, 'vault'));
-  assert.equal(root.vaultDir(7), path.resolve(dataDir, 'vault'));
-  assert.equal(root.vaultDir('keep'), path.resolve(dataDir, 'keep'));
-  const absolute = path.join(path.sep, 'mnt', 'vault');
-  assert.equal(root.vaultDir(absolute), path.resolve(absolute));
-});
-
 test('memoryRootOf: resolve is path.resolve against data/', () => {
   assert.equal(root.resolve('vault/copy-42-x'), path.resolve(dataDir, 'vault/copy-42-x'));
 });
@@ -51,11 +39,8 @@ test('memoryRootOf: a relative data directory maps the same way', () => {
   const rel = memoryRootOf('data');
   assert.equal(rel.placeDir('1'), path.join('data', 'places', '1'));
   assert.equal(rel.stateFile, path.join('data', 'state.json'));
-  // @ts-expect-error no argument, on purpose: the vault falls back to its default
-  assert.equal(rel.vaultDir(), path.resolve('data', 'vault'));
 });
 
-test('memoryRootOf: store.js still exports the vault and snapshot constants', () => {
-  assert.equal(store.DEFAULT_VAULT_DIR, DEFAULT_VAULT_DIR);
+test('memoryRootOf: store.js still exports the snapshot constant', () => {
   assert.equal(store.SNAPSHOTS_DIR, SNAPSHOTS_DIR);
 });

@@ -17,7 +17,6 @@ import {
   archiveEntry,
   journalLine,
   turnView,
-  DEFAULT_VAULT_DIR,
   SNAPSHOTS_DIR,
 } from '../../memory/index.ts';
 import { JOURNAL_KINDS, MEMORY_SHOW_SECTIONS } from './catalog.ts';
@@ -457,7 +456,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep memory snapshot`: a consistent copy of `data/` for the tools (scripts/replay.ts): the store flushed, then every entry of `data/` but `snapshots/` and the vault copied to
+   * `/nep memory snapshot`: a consistent copy of `data/` for the tools (scripts/replay.ts): the store flushed, then every entry of `data/` but `snapshots/` copied to
    * `data/snapshots/<UTC time>/` while the journal holds its writes (journal.withWriterLock).
    * Owner-only (src/tools/operations/grants.ts). Nothing under `data/` is changed but the new directory.
    */
@@ -466,14 +465,10 @@ const handlers = perEnv((env) => {
     store.flush();
     const root = path.join(dataDir, SNAPSHOTS_DIR);
     const dest = path.join(root, new Date().toISOString().replace(/[:.]/g, '-'));
-    // The vault (memory.vaultDir, read now) is the owner's copy of what was forgotten: never copied.
-    const vaultTop = path
-      .relative(dataDir, path.resolve(dataDir, hot.config?.memory?.vaultDir ?? DEFAULT_VAULT_DIR))
-      .split(path.sep)[0];
     const copy = async () => {
       await fs.promises.mkdir(dest, { recursive: true });
       for (const name of await fs.promises.readdir(dataDir)) {
-        if (name === SNAPSHOTS_DIR || name === vaultTop) continue;
+        if (name === SNAPSHOTS_DIR) continue;
         await fs.promises.cp(path.join(dataDir, name), path.join(dest, name), {
           recursive: true,
           errorOnExist: true,

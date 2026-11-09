@@ -56,14 +56,12 @@ export type SpeechMade = {
 /**
  * @param deps.getConfig The live config (hot-reloaded).
  * @param deps.getPrompts The live prompts (`hot.prompts`).
- * @param deps.env The parsed `.env`, for `llm.keyByRole`.
  * @param deps.apiKey The main OpenRouter key.
  * @param deps.keyOf The key of the key store (src/keys/ring.ts#KeyOf); null while there is no `keys.json`.
  */
 export function createSpeech({
   getConfig,
   getPrompts = () => ({}),
-  env = {},
   apiKey,
   keyOf = () => null,
   llm,
@@ -73,7 +71,6 @@ export function createSpeech({
 }: {
   getConfig: () => unknown;
   getPrompts?: () => object;
-  env?: Record<string, string | undefined>;
   apiKey: string;
   keyOf?: KeyOf;
   llm: { complete: Parameters<typeof prepareSpeech>[0]['complete'] };
@@ -111,7 +108,6 @@ export function createSpeech({
       made = await synthesizeSpeech({
         text: pass.text,
         getConfig,
-        env,
         mainKey: apiKey,
         keyOf,
         fetchImpl,
