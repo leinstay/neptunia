@@ -25,6 +25,8 @@ import type { IntentionsWrite } from './intentions-write.ts';
 import { operationalOfUnit } from './operational.ts';
 import type { OperationalWrite } from './operational.ts';
 import { proseVersionsOfUnit } from './prose-versions.ts';
+import type { PrivateLayerWrite } from './private-layer.ts';
+import { privateLayerOfUnit } from './private-layer.ts';
 import type { ProseVersionsWrite } from './prose-versions.ts';
 import { keyText } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
@@ -48,9 +50,10 @@ export type UnitOutbox = {
 
 /**
  * The memory service as the outbox uses it: `writeUnit` always, `writeOperational` for a unit of an operational kind,
- * `writeIntentions` for a unit of the intentions, `writeAccountProfile` for an account's profile and
- * `writeProseVersions` for a history of prose when the service has them (operational.ts, intentions-write.ts,
- * account-profile.ts, prose-versions.ts), `keepPending` at shutdown.
+ * `writeIntentions` for a unit of the intentions, `writeAccountProfile` for an account's profile,
+ * `writeProseVersions` for a history of prose and `writePrivateLayer` for a private layer when the service has them
+ * (operational.ts, intentions-write.ts, account-profile.ts, prose-versions.ts, private-layer.ts), `keepPending` at
+ * shutdown.
  */
 type OutboxMemoryDb = {
   writeUnit(update: Row): Promise<unknown>;
@@ -58,6 +61,7 @@ type OutboxMemoryDb = {
   writeIntentions?(write: IntentionsWrite): Promise<unknown>;
   writeAccountProfile?(write: AccountProfileWrite): Promise<unknown>;
   writeProseVersions?(write: ProseVersionsWrite): Promise<unknown>;
+  writePrivateLayer?(write: PrivateLayerWrite): Promise<unknown>;
   keepPending?(update: Row): unknown;
 };
 
@@ -110,6 +114,8 @@ export function createUnitOutbox({
     if (profile && memoryDb.writeAccountProfile) return memoryDb.writeAccountProfile(profile);
     const versions = memoryDb.writeProseVersions ? proseVersionsOfUnit(update) : null;
     if (versions && memoryDb.writeProseVersions) return memoryDb.writeProseVersions(versions);
+    const layer = memoryDb.writePrivateLayer ? privateLayerOfUnit(update) : null;
+    if (layer && memoryDb.writePrivateLayer) return memoryDb.writePrivateLayer(layer);
     return memoryDb.writeUnit(update);
   }
 

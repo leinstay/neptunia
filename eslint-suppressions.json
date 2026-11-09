@@ -3288,11 +3288,6 @@
       "count": 1
     }
   },
-  "tests/memory-db-map-user.test.ts": {
-    "tests/assertion-in-test": {
-      "count": 1
-    }
-  },
   "tests/memory-db-map-vectors.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 3

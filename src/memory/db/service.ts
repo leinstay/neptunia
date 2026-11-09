@@ -73,6 +73,7 @@
 //   - `writeArchiveLines(write)` (archive-lines.ts): the entries of one month of a place's archive.
 //   - `writeAccountProfile(write)` (account-profile.ts): the whole profile of one account.
 //   - `writeProseVersions(write)` (prose-versions.ts): the previous texts of one prose owner.
+//   - `writePrivateLayer(write)` (private-layer.ts): the whole private layer of one account.
 //   - her memory session is the memory writer (spec 2026-10-24-memory-authority, section 6 item 7). Each open logs the
 //     effective models (`memory db: effective models`: purpose, model id and key variable of the memory session, the
 //     description review and every other purpose; writer-switch.ts#effectiveModels). With `memoryDb.session.mode`
@@ -128,6 +129,7 @@ import type { JournalLinesWrite } from './journal-lines.ts';
 import type { ArchiveLinesWrite } from './archive-lines.ts';
 import type { AccountProfileWrite } from './account-profile.ts';
 import type { ProseVersionsWrite } from './prose-versions.ts';
+import type { PrivateLayerWrite } from './private-layer.ts';
 import type { OperationalWrite } from './operational.ts';
 
 import { lockPathOf, openMemoryDb } from './open.ts';
@@ -581,6 +583,8 @@ export type MemoryDbService = {
   writeAccountProfile(write: AccountProfileWrite): Promise<unknown>;
   /** The previous texts of one prose owner (prose-versions.ts): resolves the rows it wrote and retired. */
   writeProseVersions(write: ProseVersionsWrite): Promise<unknown>;
+  /** The whole private layer of one account (private-layer.ts): resolves the rows it wrote and retired. */
+  writePrivateLayer(write: PrivateLayerWrite): Promise<unknown>;
   keepPending(update: unknown): string;
   /** The writes in the quarantine, by name, with the code each failed with and when it moved. */
   quarantinedPending(): Array<QuarantinedPending>;
@@ -1857,6 +1861,8 @@ export function createMemoryDb({
       write(withLiveIface({ ...profile, kind: 'account-profile', now: now() }, iface)),
     writeProseVersions: (versions: ProseVersionsWrite) =>
       write(withLiveIface({ ...versions, kind: 'prose-versions', now: now() }, iface)),
+    writePrivateLayer: (layer: PrivateLayerWrite) =>
+      write(withLiveIface({ ...layer, kind: 'private-layer', now: now() }, iface)),
     keepPending,
     quarantinedPending: () => quarantinedIn(quarantineDir),
     replayQuarantinedPending,

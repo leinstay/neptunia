@@ -9,7 +9,6 @@ import type { MapContext } from './common.ts';
 import type { Db, Row, Rows } from '../types.ts';
 import { dmPartnerOfPlace, nativeOfAny, personId } from '../ids.ts';
 import {
-  dmOfAccount,
   dmOfPlatformId,
   partnerOfDmAudience,
   partnerPersonOfPlace,
@@ -21,7 +20,6 @@ import * as lore from './lore.ts';
 import * as media from './media.ts';
 import * as participation from './participation.ts';
 import * as place from './place.ts';
-import * as privateLayer from './private.ts';
 import * as recent from './recent.ts';
 import * as requests from './requests.ts';
 import * as verbatim from './verbatim.ts';
@@ -36,7 +34,6 @@ export type Mapper = {
 };
 
 export const MAPPERS = {
-  private: privateLayer,
   channel,
   place,
   lore,
@@ -140,7 +137,6 @@ export function storageContext(db: Db, key: StorageKey): MapContext {
     ...(key.subject.type === 'place' && partner !== null
       ? { dmPlaceId: key.subject.id, dmPlace: dmPlaceOfSubject(db, key.subject.id, subject.row) }
       : {}),
-    ...(key.kind === 'private' && key.subject.type === 'account' ? { dmPlace: dmOfAccount(db, key.subject.id) } : {}),
   };
 }
 

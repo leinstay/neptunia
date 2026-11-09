@@ -1,7 +1,8 @@
 // The memory writer applies semantic unit updates in one transaction. Value writes replace a collection while
 // preserving protected session rows; lines append in catalog order. A day of the record or of the journal and a month
 // of the archive are that kind's lines write (record-lines.ts, journal-lines.ts, archive-lines.ts), and an account's
-// profile and a history of prose that kind's value write (account-profile.ts, prose-versions.ts). Selfreflection and
+// profile, a private layer and a history of prose that kind's value write (account-profile.ts, private-layer.ts,
+// prose-versions.ts). Selfreflection and
 // vector operations keep their existing publication and index behavior. Catalog owner keys are independent of source
 // IDs and visibility. Historical owner strings are accepted by the explicit import and pending compatibility boundary,
 // which preserves their provenance without using it for live ownership.
@@ -39,6 +40,7 @@ import { writeArchiveMonth } from './archive-lines.ts';
 import { operationalOfUnit, writeOperational } from './operational.ts';
 import { accountProfileWriteOf, isAccountProfileKey, writeAccountProfile } from './account-profile.ts';
 import { proseVersionsValueOf, writeProseVersions } from './prose-versions.ts';
+import { isPrivateLayerKey, privateLayerWriteOf, writePrivateLayer } from './private-layer.ts';
 import { storageContext } from './map/index.ts';
 
 /** Tables of an owned unit whose rows carry a `position`. */
@@ -457,8 +459,9 @@ function withKey(db: Db, update: Row): Row | null {
 }
 
 /**
- * The write of a keyed value update whose kind has its own value write (an account's profile, a history of prose:
- * account-profile.ts, prose-versions.ts), to run in the writer's transaction; else null.
+ * The write of a keyed value update whose kind has its own value write (an account's profile, a private layer, a
+ * history of prose: account-profile.ts, private-layer.ts, prose-versions.ts), to run in the writer's transaction; else
+ * null.
  */
 function ownValueWrite(db: Db, update: Row, keyed: Row, at: string): (() => unknown) | null {
   const key = keyed.key as StorageKey;
@@ -467,6 +470,10 @@ function ownValueWrite(db: Db, update: Row, keyed: Row, at: string): (() => unkn
   if (isAccountProfileKey(key)) {
     const { value } = accountProfileWriteOf({ accountId: key.subject.id, value: keyed.value ?? {} });
     return () => writeAccountProfile(db, key, value, { at, ...legacyOwner });
+  }
+  if (isPrivateLayerKey(key)) {
+    const { value } = privateLayerWriteOf({ accountId: key.subject.id, value: keyed.value ?? {} });
+    return () => writePrivateLayer(db, key, value, { at, ...legacyOwner });
   }
   if (key.kind !== 'versions') return null;
   const value = proseVersionsValueOf(keyed.value ?? {});

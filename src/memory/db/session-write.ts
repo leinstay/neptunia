@@ -136,6 +136,7 @@ import { applyJournalLinesWrite } from './journal-lines.ts';
 import { applyArchiveLinesWrite } from './archive-lines.ts';
 import { applyAccountProfileWrite } from './account-profile.ts';
 import { applyProseVersionsWrite } from './prose-versions.ts';
+import { applyPrivateLayerWrite } from './private-layer.ts';
 import { applyOperationalWrite } from './operational.ts';
 import { applyUnitWrite } from './unit-write.ts';
 import { applyPublicationWrite } from './publish.ts';
@@ -981,6 +982,8 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['account-profile', applyAccountProfileWrite],
   // The previous texts of a profile, a channel, a place's notes or a lorebook entry (prose-versions.ts).
   ['prose-versions', applyProseVersionsWrite],
+  // What she learned about a member in their direct chat (private-layer.ts).
+  ['private-layer', applyPrivateLayerWrite],
   // The selfreflection's mirrors: the state of a send, then the owner's configuration.
   [
     'publication',

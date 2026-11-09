@@ -1,8 +1,8 @@
 // Shared semantic readers and the ready database seam. Core modules read complete values and ordered lines by
 // StorageKey. A key of an operational kind reads its row by kind and subject (operational.ts), a key of the intentions
 // reads their rows (readers/intentions.ts), a day of the record or of the journal and a month of the archive their
-// lines (record-lines.ts, journal-lines.ts, archive-lines.ts), and an account's profile and a history of prose (a
-// picture's descriptions too) their value (account-profile.ts, prose-versions.ts). The explicit legacy export adapter
+// lines (record-lines.ts, journal-lines.ts, archive-lines.ts), and an account's profile, a private layer and a history
+// of prose (a picture's descriptions too) their value (account-profile.ts, private-layer.ts, prose-versions.ts). The explicit legacy export adapter
 // understands historical owner strings. A closed service refuses reads with DB_CLOSED; failures are logged once with
 // their reader and code, without stored contents.
 
@@ -13,6 +13,7 @@ import { journalLines } from '../journal-lines.ts';
 import { archiveUnitLines } from '../archive-lines.ts';
 import { accountProfileValue } from '../account-profile.ts';
 import { proseVersionsValue } from '../prose-versions.ts';
+import { privateLayerValue } from '../private-layer.ts';
 import { hasStorageUnits } from '../storage-units.ts';
 import { storageId } from '../storage-keys.ts';
 import type { StorageKey } from '../storage-keys.ts';
@@ -59,7 +60,7 @@ function directKey(db: Db, given: StorageKey | string): StorageKey | null {
   }
   return key &&
     (isOperationalKind(key.kind) ||
-      ['intentions', 'record', 'journal', 'archive', 'user', 'versions'].includes(key.kind))
+      ['intentions', 'record', 'journal', 'archive', 'user', 'versions', 'private'].includes(key.kind))
     ? key
     : null;
 }
@@ -98,6 +99,7 @@ export function unitValue(
   if (direct?.kind === 'intentions') return intentionsValue(db);
   if (direct?.kind === 'user') return accountProfileValue(db, direct);
   if (direct?.kind === 'versions') return proseVersionsValue(db, direct);
+  if (direct?.kind === 'private') return privateLayerValue(db, direct);
   if (hasStorageUnits(db)) {
     const key = typeof ownerGiven === 'string' ? legacyStorageKey(ownerGiven) : ownerGiven;
     const unit = db.prepare('SELECT 1 FROM storage_units WHERE id=? AND retired_at IS NULL').get(storageId(key));
