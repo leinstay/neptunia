@@ -1,8 +1,7 @@
 // Pure functions and constants of the owner operations (src/tools/operations/*.ts), moved from src/admin.js:
 // the rules-file and config-path functions, the profile views, the ping/route formatters, the
 // media wording tables and the line formatters several operations share. No I/O but
-// `treeSize` (a directory walk for the memory snapshot) and `postingChat` (a channel
-// looked up through the client it is handed).
+// `postingChat` (a channel looked up through the client it is handed).
 
 import { chatOfPlace, notePlaceAddress, placeRefOf } from '../../memory/addresses.ts';
 import { chatOfStoredPlace } from '../../interface/place-chat.ts';
@@ -34,24 +33,6 @@ import type { ChatInfo, ChatRef, Permissions } from '../../protocol/adapter.ts';
 export const JOURNAL_N_DEFAULT = 20;
 export const JOURNAL_N_MAX = 50;
 export const JOURNAL_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-/** Files and bytes under `dir`, walked recursively. */
-export async function treeSize(dir: string): Promise<{ bytes: number; files: number }> {
-  let bytes = 0;
-  let files = 0;
-  for (const entry of await fs.promises.readdir(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      const inner = await treeSize(full);
-      bytes += inner.bytes;
-      files += inner.files;
-    } else if (entry.isFile()) {
-      bytes += (await fs.promises.stat(full)).size;
-      files += 1;
-    }
-  }
-  return { bytes, files };
-}
 
 export const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 

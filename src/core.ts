@@ -418,7 +418,6 @@ async function buildCore(
   });
   // The record (src/memory/record.js): every observed message, the persona's own lines and her
   // feelings, written while features.record is exactly true (read at each write).
-  // A snapshot holds the record's appends with the journal's writer lock (journal.withWriterLock).
   const recordWriter = createRecord({ dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
   // The meaning index (src/memory/vectors.js): its writers wait on the same writer lock.
   const vectors = createVectors({ dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
@@ -1332,7 +1331,7 @@ async function buildCore(
     // /nep status: each key's activity for its last 7 and 30 days (GETs only), with the management key read from
     // keys.json at the moment of the card. Never logged.
     cardKeys: () => statusCardKeys(paths.privateDir),
-    // /nep memory snapshot: the data directory it copies.
+    // memory.snapshot: the data directory it writes its copy of the memory database under.
     dataDir,
   });
   // The key commands: the checks go to the provider with the global `fetch` of the moment, a model is saved through the
