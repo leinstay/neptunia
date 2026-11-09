@@ -1,7 +1,6 @@
 // The watcher's report (src/watcher/report.ts): exactly the twelve headings in order, each with a line, no key or
 // token anywhere, and a report committed only when the text passes. A refused text leaves no file.
-// Changed: `writeReport` had no caller left, so its cases now hold `commitReport`, which every report goes through. The lines
-// under "Tasks filed" are asserted through an inspection in tests/watcher-filing-board.test.ts.
+// Changed: `writeReport` had no caller left, so its cases now hold `commitReport`, which every report goes through.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

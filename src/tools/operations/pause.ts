@@ -21,7 +21,7 @@ const handlers = perEnv((env) => {
    * GIF recache in flight. Only once
    * all are idle does it flush everything and drop every cache except state.json itself. The pending pings wait for
    * the resume, which hands them back. A second call reports the state, and a pause the core set with a reason
-   * (`no-core-key`, `core-down`, `analyzer-down`, `memory-down`) becomes the owner's, so only his resume lifts it. Then the journal's `pause` record; nothing is posted to the chat (the persona learns
+   * (`no-core-route`, `core-down`, `analyzer-down`, `memory-down`) becomes the owner's, so only his resume lifts it. Then the journal's `pause` record; nothing is posted to the chat (the persona learns
    * of the pause from the journal, src/memory/journal.ts#offPeriods).
    */
   async function cmdPause(context: OpContext): Promise<string> {

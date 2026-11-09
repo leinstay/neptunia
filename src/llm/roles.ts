@@ -50,8 +50,8 @@ export const MEMORY_ROLE = 'memory';
 export const MEMORY_ROLE_DEFAULT = 'anthropic/claude-opus-4.6';
 
 /**
- * Quick search's own binding target and request role: a key bound to it (`/keys bind search <name>`) leaves the analyzer's
- * key alone, and unbinding it goes back to the core keys. Its model is the setting `web.quickSearch.model`.
+ * Quick search's own request role, with a chain of routes of its own (`/model set search <key>/<model>`), apart from the
+ * analyzer's. Its model is the first route's, else the setting `web.quickSearch.model`.
  */
 export const SEARCH_ROLE = 'search';
 

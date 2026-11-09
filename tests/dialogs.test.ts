@@ -25,7 +25,7 @@ const questionOf = (reply: unknown): Question => {
 test('a command with two questions answers its request with the first, the second request with the next, the third with the result', async () => {
   const { dialogs } = broker();
   const first = questionOf(
-    await dialogs.start('keys.core.add', async (dialog) => {
+    await dialogs.start('keys.add', async (dialog) => {
       const value = await dialog.ask('value?', { secret: true });
       const model = await dialog.ask('model?', { fallback: 'x/y' });
       return { text: `saved ${value.length} chars on ${model}`, status: 'ok' };
@@ -33,10 +33,10 @@ test('a command with two questions answers its request with the first, the secon
   );
   assert.equal(first.prompt, 'value?');
   assert.equal(first.secret, true);
-  const second = questionOf(await dialogs.answer('keys.core.add', first.dialogId, SECRET));
+  const second = questionOf(await dialogs.answer('keys.add', first.dialogId, SECRET));
   assert.equal(second.prompt, 'model?');
   assert.equal(second.secret, false);
-  const result = await dialogs.answer('keys.core.add', second.dialogId, 'm/n');
+  const result = await dialogs.answer('keys.add', second.dialogId, 'm/n');
   // Bug caught: the answer text placed in a question or a result by the broker itself.
   assert.deepEqual(result, { text: `saved ${SECRET.length} chars on m/n`, status: 'ok' });
   assert.ok(!JSON.stringify([first, second]).includes('SECRETVALUE'));
@@ -53,7 +53,7 @@ test('a command that asks nothing answers its first request with its result', as
 test('a command that throws before asking fails its request', async () => {
   const { dialogs } = broker();
   await assert.rejects(
-    dialogs.start('keys.core.add', () => Promise.reject(new Error('no store'))),
+    dialogs.start('keys.add', () => Promise.reject(new Error('no store'))),
     /no store/
   );
 });
@@ -62,7 +62,7 @@ test('an answer past the expiry, for another command or for an unknown dialog is
   const { dialogs, clock } = broker();
   let ended: unknown = null;
   const question = questionOf(
-    await dialogs.start('keys.core.add', async (dialog) => {
+    await dialogs.start('keys.add', async (dialog) => {
       try {
         return { text: await dialog.ask('value?', { secret: true }), status: 'ok' };
       } catch (err) {
@@ -71,11 +71,11 @@ test('an answer past the expiry, for another command or for an unknown dialog is
       }
     })
   );
-  assert.equal(dialogs.answer('keys.extra.add', question.dialogId, SECRET), null, 'another command');
-  assert.equal(dialogs.answer('keys.core.add', 'nope', SECRET), null, 'an unknown dialog');
+  assert.equal(dialogs.answer('keys.service.set', question.dialogId, SECRET), null, 'another command');
+  assert.equal(dialogs.answer('keys.add', 'nope', SECRET), null, 'an unknown dialog');
   clock.at += DIALOG_EXPIRY_MS;
   // Bug caught: a question that waits for ever, so a key typed an hour later is stored by a command long forgotten.
-  assert.equal(dialogs.answer('keys.core.add', question.dialogId, SECRET), null, 'expired');
+  assert.equal(dialogs.answer('keys.add', question.dialogId, SECRET), null, 'expired');
   await new Promise((resolve) => setImmediate(resolve));
   assert.ok(ended instanceof Error, 'the waiting command was ended');
 });
@@ -106,7 +106,7 @@ function desk(seen: { args: Array<Record<string, unknown>> }) {
 }
 
 const event = (extra: Partial<CommandEvent> = {}): CommandEvent => ({
-  name: 'keys.core.add',
+  name: 'keys.add',
   args: { name: 'core-1' },
   chat: { id: 'cli:dm:owner' },
   requester: { id: 'owner', roles: [] },
@@ -137,7 +137,7 @@ test('a command.requested with an answer needs its dialog, and a command.result 
     at: 1,
     id: 'cli:command:r1',
     chat: { id: 'cli:dm:owner', kind: 'dm', rootId: null, name: 'owner', partnerId: 'owner' },
-    name: 'keys.core.add',
+    name: 'keys.add',
     args: { name: 'core-1' },
     requester: { id: 'owner', name: 'owner', roles: [], owner: true },
     replyRef: 'r1',

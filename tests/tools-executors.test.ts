@@ -210,7 +210,7 @@ test('resolveCall: each skill declares the argument its main text fills; an erra
     'text',
     'text',
   ]);
-  for (const name of ['errand.status', 'errand.cancel', 'message.delete', 'memory.journal.read', 'rule.remove'])
+  for (const name of ['errand.list', 'errand.cancel', 'message.delete', 'memory.journal.read', 'rule.remove'])
     assert.equal(bodyOf(name), null, name);
   const goal = 'read the git history of the server and say what changed this week';
   const errand = resolve('errand.run', { agent: 'server', goal });

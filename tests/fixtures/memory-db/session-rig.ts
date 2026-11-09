@@ -183,7 +183,6 @@ export function memoryRing(): KeyRing {
     failed: () => null,
     states: () => [],
     bound: () => [{ name: route.name, roles: ['memory'] }],
-    grants: () => ({}),
   };
 }
 

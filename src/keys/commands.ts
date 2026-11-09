@@ -1,7 +1,6 @@
-// The owner's key commands of the chat: `keys core|extra add|remove|list`, `keys core grant`, `keys bind|unbind|check`
-// and `model set`. A binding is a choice of connection: it is written to `llm.boundKeys` of config.json through the key
-// store, after one request of the role's model on the bound key.
-// The console (src/interface/commands/console.ts) routes them here. A key value is never an argument: every add asks
+// The owner's key commands of the chat: `keys add|remove|list|check` over the named keys of keys.json, and the chain
+// commands `model show|set|add|remove`, which write a role's chain of routes to `models.routes` of config.json after one
+// check of the route. The console (src/interface/commands/console.ts) routes them here. A key value is never an argument: every add asks
 // for it through the dialog the link gives (a secret prompt, src/interface/commands/dialogs.ts), so the value reaches
 // neither the typed line, the chat's history file nor a refusal. A key is checked before it is saved (the first core
 // key with the four mandatory model roles, a later one with `/auth/key`), and a failed check saves nothing. An answer
@@ -32,8 +31,8 @@ import type { KeyStore } from './store.ts';
 /** The model roles a core key must serve before the first add finishes, in the order they are asked. */
 export const MANDATORY_ROLES: ReadonlyArray<string> = ['core', 'memory', 'analyzer', 'embedding'];
 
-/** The pause reason that `keys core remove` of the last key sets and the next `keys core add` lifts. */
-const NO_CORE_KEY = 'no-core-key';
+/** The pause reason of a core left with no usable route by `keys remove`; the `keys add` that gives it one lifts it. */
+const NO_CORE_ROUTE = 'no-core-route';
 
 /** The model roles whose model OpenCode runs: they are not OpenRouter ids, so no request checks them. */
 const UNCHECKED_ROLES: ReadonlyArray<string> = ['scout', 'server', 'thinker', 'dev'];
@@ -144,24 +143,7 @@ export type KeysDeps = {
 function servedByHarness(deps: KeysDeps, name: string, role: string): Answer | null {
   const harness = deps.harnessOf?.(role) ?? null;
   if (harness === null) return null;
-  if (name === 'keys.core.remove')
-    return {
-      text: `The last core key is removed. Her core runs through ${harness} and needs no key, so she keeps running.`,
-      status: 'ok',
-    };
   return { text: `${typed(name)}: the ${role} role runs through ${harness} and needs no key`, status: 'ok' };
-}
-
-/** The last core key is gone: she keeps running when a harness carries her core, else she is paused as `no-core-key`. */
-async function lastCoreRemoved(deps: KeysDeps, name: string): Promise<Answer> {
-  const kept = servedByHarness(deps, name, CORE_ROLE);
-  if (kept !== null) return kept;
-  const { pause: pauseControl } = deps;
-  await pauseControl.pause(NO_CORE_KEY);
-  return {
-    text: 'The last core key is removed. She is paused (no-core-key) until you add a core key.',
-    status: 'ok',
-  };
 }
 
 /** The path `keys check memory` is asked about: the direct request, or one backend and model. */
@@ -273,42 +255,6 @@ async function saveFlags(deps: KeysDeps, flags: ModelFlags & { model: string }):
   return lines;
 }
 
-/**
- * `keys bind <role> <name>`: the choice of the key a role goes out on, written to config.json after one request of
- * the role's model on that key. A refusal binds nothing. A role that is off binds with nothing sent, and a role no
- * cheap request can check binds unverified.
- */
-async function bindRole(deps: KeysDeps, name: string, args: Record<string, unknown>): Promise<Answer> {
-  const { store } = deps;
-  const role = text(args.role);
-  const key = text(args.name);
-  if (roleGroup(role) !== 'base' && role !== SEARCH_ROLE) throw new KeysError('unknown-role');
-  if (!store.list().extra.some((row) => row.name === key)) throw new KeysError('unknown-key');
-  const bound = `The ${role} role goes out on key ${key} alone.`;
-  const model = deps.currentModel(role);
-  if (model === '' || voiceOf(deps, role).voice === '') {
-    store.bind(role, key);
-    return { text: `${bound} The role is off, so nothing was checked.`, status: 'ok' };
-  }
-  const result = await checkRole({
-    fetch: deps.fetch,
-    baseUrl: deps.baseUrl(),
-    role,
-    model,
-    keyName: key,
-    value: store.valueOf(key) ?? '',
-    ...voiceOf(deps, role),
-  });
-  if (result.capability === 'unsupported') {
-    store.bind(role, key);
-    return { text: `${bound} ${unsupportedLine(role)} The binding is saved unverified.`, status: 'ok' };
-  }
-  if (!result.ok) return failed(name, `${checkLine(result)}\nThe role is not bound.`);
-  store.bind(role, key);
-  deps.recordCheck?.(role, checkRecord(result));
-  return { text: [checkLine(result), bound].join('\n'), status: 'ok' };
-}
-
 /** The roles that run with no route at all: a chain of theirs never loses its last route. */
 const ROUTE_REQUIRED: ReadonlyArray<string> = MANDATORY_ROLES;
 
@@ -340,7 +286,7 @@ async function checkRoute(deps: KeysDeps, name: string, role: RouteRole, route: 
     model: route.model,
     keyName: route.key,
     value: deps.store.valueOf(route.key) ?? '',
-    ...(route.effort === null ? {} : { reasoning: { effort: route.effort } }),
+    ...(route.effort === null || route.effort === 'disabled' ? {} : { reasoning: { effort: route.effort } }),
     ...voice,
   });
   if (result.capability === 'unsupported') return null;
@@ -412,10 +358,15 @@ export function createKeysCommands(deps: KeysDeps): {
 } {
   const { store, ring, pause: pauseControl } = deps;
 
-  /** Lifts the pause the last removal set, and only that one. */
-  async function resumeIfNoKey(): Promise<boolean> {
-    if (pauseControl.reason() !== NO_CORE_KEY) return false;
-    await pauseControl.resume(NO_CORE_KEY);
+  /** Whether her core has a route it can take: a harness, or a key keys.json holds. */
+  const coreHasRoute = (): boolean =>
+    (deps.chainOf?.('core') ?? []).some((route) => route.via === 'harness' || store.valueOf(route.key) !== null) ||
+    (deps.chainOf === undefined && store.coreNames().length > 0);
+
+  /** Lifts the pause a removal set once her core has a route again, and only that pause. */
+  async function resumeIfNoRoute(): Promise<boolean> {
+    if (pauseControl.reason() !== NO_CORE_ROUTE || !coreHasRoute()) return false;
+    await pauseControl.resume(NO_CORE_ROUTE);
     return true;
   }
 
@@ -427,22 +378,6 @@ export function createKeysCommands(deps: KeysDeps): {
     if ([...listing.core, ...listing.extra].some((row) => row.name === key))
       return invalid(name, new KeysError('duplicate-name').message);
     return null;
-  }
-
-  /** The grant and reset day asked after the value: both optional, `none` or a blank answer for no grant. */
-  async function askGrant(dialog: Dialog, key: string): Promise<{ grant?: number; resetDay?: number } | string> {
-    const none = (answer: string): boolean => answer === '' || answer.toLowerCase() === 'none';
-    const given = pasted(await dialog.ask(`Grant of ${key} in USD (blank or none for no grant):`, { fallback: '' }));
-    if (none(given)) return {};
-    const grant = Number(given);
-    if (!Number.isFinite(grant) || grant < 0) return 'the grant is a number of dollars from 0 up, or none';
-    const day = pasted(
-      await dialog.ask(`Day of the month (1 to 31) the grant of ${key} is given again:`, { fallback: '' })
-    );
-    const resetDay = Number(day);
-    if (day === '' || !Number.isInteger(resetDay) || resetDay < 1 || resetDay > 31)
-      return 'the reset day is a whole day of the month from 1 to 31';
-    return { grant, resetDay };
   }
 
   async function askValue(dialog: Dialog, key: string): Promise<string> {
@@ -460,8 +395,6 @@ export function createKeysCommands(deps: KeysDeps): {
       if (model === '' || /\s/.test(model)) return invalid(name, `no usable model for the ${role} role`);
       models.set(role, model);
     }
-    const granted = await askGrant(dialog, key);
-    if (typeof granted === 'string') return invalid(name, granted);
     const results = await Promise.all(
       [...models].map(([role, model]) =>
         checkRole({ fetch: deps.fetch, baseUrl: deps.baseUrl(), role, model, keyName: key, value })
@@ -470,14 +403,14 @@ export function createKeysCommands(deps: KeysDeps): {
     const bad = results.filter((result) => !result.ok);
     if (bad.length > 0)
       return failed(name, ['nothing is saved, no key and no model.', ...bad.map(checkLine)].join('\n'));
-    store.addCore({ name: key, value, ...granted });
+    store.addCore({ name: key, value });
     for (const [role, model] of models) await deps.saveModel(role, model);
     for (const result of results) deps.recordCheck?.(result.role, checkRecord(result));
-    const resumed = await resumeIfNoKey();
+    const resumed = await resumeIfNoRoute();
     const cost = results.reduce((sum, result) => sum + result.cost, 0);
     return {
       text: [
-        `${key} is the first core key. The models are saved:`,
+        `${key} is the first key. The models are saved:`,
         ...results.map(checkLine),
         `The four checks cost ${money(cost)}.${resumed ? ' She is running again.' : ''}`,
       ].join('\n'),
@@ -485,70 +418,16 @@ export function createKeysCommands(deps: KeysDeps): {
     };
   }
 
-  async function addCore(name: string, args: Record<string, unknown>, dialog: Dialog | null): Promise<Answer> {
+  /** `keys add <name>`: the first key of an empty keys.json asks the four models too; any other is checked and named. */
+  async function addKey(name: string, args: Record<string, unknown>, dialog: Dialog | null): Promise<Answer> {
     const key = text(args.name);
     const refused = beforeAsking(name, key, dialog);
     if (refused !== null || dialog === null) return refused ?? invalid(name, 'no dialog');
     const value = await askValue(dialog, key);
     const problem = valueProblem(value);
     if (problem !== null) return invalid(name, problem);
-    if (store.coreNames().length === 0) return firstCoreKey(name, key, value, dialog);
-    const granted = await askGrant(dialog, key);
-    if (typeof granted === 'string') return invalid(name, granted);
-    const info = await checkKey({ fetch: deps.fetch, baseUrl: deps.baseUrl(), value });
-    if (!info.ok)
-      return failed(
-        name,
-        `the provider refused the key${info.status === null ? '' : ` (HTTP ${info.status})`}: ${info.error ?? 'no reason given'}`
-      );
-    store.addCore({ name: key, value, ...granted });
-    const resumed = await resumeIfNoKey();
-    return { text: `${key} is added to the core keys.${resumed ? ' She is running again.' : ''}`, status: 'ok' };
-  }
-
-  async function removeCore(name: string, args: Record<string, unknown>): Promise<Answer> {
-    const { left } = store.removeCore(text(args.name));
-    if (left > 0) return { text: `The core key is removed. ${left} left.`, status: 'ok' };
-    return lastCoreRemoved(deps, name);
-  }
-
-  /** `keys core grant <name> <usd> <day>` sets the grant of a stored core key, `<name> none` clears it; no value is asked. */
-  function grantCore(name: string, args: Record<string, unknown>): Answer {
-    const key = text(args.name);
-    const usd = text(args.usd).trim();
-    if (usd.toLowerCase() === 'none') {
-      store.setGrant(key, null);
-      return { text: `${key} has no grant.`, status: 'ok' };
-    }
-    const grant = usd === '' ? Number.NaN : Number(usd);
-    if (!Number.isFinite(grant) || grant < 0)
-      return invalid(name, 'the grant is a number of dollars from 0 up, or none');
-    const day = text(args.day).trim();
-    const resetDay = /^\d{1,2}$/.test(day) ? Number(day) : Number.NaN;
-    if (!(resetDay >= 1 && resetDay <= 31))
-      return invalid(name, 'give the day of the month (1 to 31) the grant resets');
-    store.setGrant(key, { grant, resetDay });
-    return { text: `${key} has a grant of $${grant}, given again on day ${resetDay}.`, status: 'ok' };
-  }
-
-  function listCore(): Answer {
-    const rows = store.list().core;
-    if (rows.length === 0) return { text: 'No core key. Add one with /keys core add <name>.', status: 'ok' };
-    const on = ring.route('core')?.name ?? null;
-    const lines = rows.map((row) => {
-      const grant = row.grant === null ? 'no grant' : `grant $${row.grant}, resets on day ${String(row.resetDay)}`;
-      return `${row.name}  ...${row.last4}  ${grant}${row.name === on ? '  (in use)' : ''}`;
-    });
-    return { text: lines.join('\n'), status: 'ok' };
-  }
-
-  async function addExtra(name: string, args: Record<string, unknown>, dialog: Dialog | null): Promise<Answer> {
-    const key = text(args.name);
-    const refused = beforeAsking(name, key, dialog);
-    if (refused !== null || dialog === null) return refused ?? invalid(name, 'no dialog');
-    const value = await askValue(dialog, key);
-    const problem = valueProblem(value);
-    if (problem !== null) return invalid(name, problem);
+    const listing = store.list();
+    if (listing.core.length + listing.extra.length === 0) return firstCoreKey(name, key, value, dialog);
     const info = await checkKey({ fetch: deps.fetch, baseUrl: deps.baseUrl(), value });
     if (!info.ok)
       return failed(
@@ -556,20 +435,69 @@ export function createKeysCommands(deps: KeysDeps): {
         `the provider refused the key${info.status === null ? '' : ` (HTTP ${info.status})`}: ${info.error ?? 'no reason given'}`
       );
     store.addExtra({ name: key, value });
+    const resumed = await resumeIfNoRoute();
+    const hint = `Put a role on it with /model set <role> ${key}/<model>.`;
+    return { text: `${key} is added. ${hint}${resumed ? ' She is running again.' : ''}`, status: 'ok' };
+  }
+
+  /** The roles whose chain names `key`, in display order. */
+  const rolesOn = (key: string): Array<RouteRole> =>
+    ROUTE_ROLES.filter((role) =>
+      (deps.chainOf?.(role) ?? []).some((route) => route.via === 'api' && route.key === key)
+    );
+
+  /**
+   * `keys remove <name>`: the key leaves keys.json. A chain that named it keeps the route, which is skipped until a key of
+   * that name comes back, so its chain is written to config.json first; a core left with no usable route pauses her.
+   */
+  async function removeKey(name: string, args: Record<string, unknown>): Promise<Answer> {
+    const key = text(args.name);
+    const listing = store.list();
+    const inCore = listing.core.some((row) => row.name === key);
+    const extra = listing.extra.find((row) => row.name === key);
+    if (!inCore && extra === undefined) throw new KeysError('unknown-key');
+    const roles = rolesOn(key);
+    if (extra !== undefined) {
+      for (const role of roles) await deps.saveRoutes?.(role, deps.chainOf?.(role) ?? []);
+      for (const role of extra.roles) store.unbind(role);
+      store.removeExtra(key);
+    } else store.removeCore(key);
+    const left = roles.length === 0 ? '' : ` Routes of ${roles.join(', ')} named it and are skipped now.`;
+    const harness = deps.harnessOf?.(CORE_ROLE) ?? null;
+    const kept =
+      inCore && harness !== null ? ` Her core runs through ${harness} and needs no key, so she keeps running.` : '';
+    if (coreHasRoute()) return { text: `${key} is removed.${left}${kept}`, status: 'ok' };
+    await pauseControl.pause(NO_CORE_ROUTE);
     return {
-      text: `${key} is added to the extra keys. Bind a role to it with /keys bind <role> ${key}.`,
+      text: `${key} is removed.${left} Her core has no route left, so she is paused (${NO_CORE_ROUTE}).`,
       status: 'ok',
     };
   }
 
-  function listExtra(): Answer {
-    const rows = store.list().extra;
-    if (rows.length === 0) return { text: 'No extra key.', status: 'ok' };
-    const lines = rows.map(
-      (row) =>
-        `${row.name}  ...${row.last4}  ${row.roles.length === 0 ? 'bound to no role' : `bound to ${row.roles.join(', ')}`}`
-    );
+  /** `keys list`: every key by name and last four characters, with the roles whose chain names it. */
+  function listKeys(): Answer {
+    const listing = store.list();
+    const rows = [...listing.core, ...listing.extra];
+    if (rows.length === 0) return { text: 'No key. Add one with /keys add <name>.', status: 'ok' };
+    const lines = rows.map((row) => {
+      const roles = rolesOn(row.name);
+      return `${row.name}  ...${row.last4}  ${roles.length === 0 ? 'used by no route' : `used by ${roles.join(', ')}`}`;
+    });
     return { text: lines.join('\n'), status: 'ok' };
+  }
+
+  /** `keys check <name|role>`: a role's route in force with one request, or a key with the free read of its record. */
+  async function checkTarget(name: string, target: string): Promise<Answer> {
+    if (roleGroup(target) === 'base' || target === SEARCH_ROLE) return checkOne(name, target);
+    const value = store.valueOf(target);
+    if (value === null) return invalid(name, `${target} is no model role and no key of keys.json`, 'unknown-target');
+    const info = await checkKey({ fetch: deps.fetch, baseUrl: deps.baseUrl(), value });
+    return info.ok
+      ? { text: `${target}: the provider knows the key`, status: 'ok' }
+      : failed(
+          name,
+          `${target}: refused${info.status === null ? '' : ` (HTTP ${info.status})`}: ${info.error ?? 'no reason given'}`
+        );
   }
 
   async function checkOne(name: string, role: string): Promise<Answer> {
@@ -654,32 +582,14 @@ export function createKeysCommands(deps: KeysDeps): {
 
   async function dispatch(name: string, args: Record<string, unknown>, dialog: Dialog | null): Promise<Answer> {
     switch (name) {
-      case 'keys.core.add':
-        return addCore(name, args, dialog);
-      case 'keys.core.remove':
-        return removeCore(name, args);
-      case 'keys.core.list':
-        return listCore();
-      case 'keys.core.grant':
-        return grantCore(name, args);
-      case 'keys.extra.add':
-        return addExtra(name, args, dialog);
-      case 'keys.extra.remove':
-        store.removeExtra(text(args.name));
-        return { text: 'The extra key is removed.', status: 'ok' };
-      case 'keys.extra.list':
-        return listExtra();
-      case 'keys.bind':
-        return bindRole(deps, name, args);
-      case 'keys.unbind':
-        store.unbind(text(args.role));
-        return { text: `The ${text(args.role)} role is back on the core keys.`, status: 'ok' };
-      case 'keys.check': {
-        const role = text(args.role);
-        if (roleGroup(role) !== 'base' && role !== SEARCH_ROLE)
-          return invalid(name, new KeysError('unknown-role').message);
-        return checkOne(name, role);
-      }
+      case 'keys.add':
+        return addKey(name, args, dialog);
+      case 'keys.remove':
+        return removeKey(name, args);
+      case 'keys.list':
+        return listKeys();
+      case 'keys.check':
+        return checkTarget(name, text(args.target ?? args.role));
       case 'model.set':
         return chainCommand(deps, name, args) ?? setModel(name, args, dialog);
       case 'model.add':

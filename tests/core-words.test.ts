@@ -27,7 +27,8 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
   // Qualified message writes keep the upsert module independent from a platform namespace.
   {
     file: 'src/setup/run.ts',
-    pattern: /'interfaces (token set|enable) discord'/,
+    // Changed: the token goes through the interface's own `token` setting (CLI audit 2026-11-09).
+    pattern: /'interfaces (set discord token|enable discord)'/,
     why: 'the setup guide names the interface the owner enables first',
   },
   { file: 'src/web/lookup.ts', pattern: /discordapp\.(com|net)/, why: 'media hosts the link reader never reads' },

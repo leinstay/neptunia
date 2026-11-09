@@ -40,14 +40,14 @@ function store(dirs: Dirs, harness: boolean, keys = true): void {
 const p = (dirs: Dirs, line: string): ReturnType<typeof runCli> => runCli(dirs, ['-p', line]);
 
 test('removing the last core key while her core runs on a harness leaves her running and says the harness needs no key', async () => {
-  // Catches: the last removal pausing her with no-core-key although claude answers her turns on its own login.
+  // Catches: the last removal pausing her with no-core-route although claude answers her turns on its own login.
   await withRig({}, async ({ dirs, llm, cores }) => {
     store(dirs, true);
     cores.push(await start(dirs, llm));
-    const removed = await p(dirs, '/keys core remove core-1');
+    const removed = await p(dirs, '/keys remove core-1');
     assert.equal(removed.code, 0, removed.stderr.slice(-1000));
     assert.match(removed.stdout, /claude/, 'the answer names the harness');
-    assert.ok(!removed.stdout.includes('no-core-key'), removed.stdout);
+    assert.ok(!removed.stdout.includes('no-core-route'), removed.stdout);
     const status = await p(dirs, '/status');
     assert.ok(!status.stdout.includes('paused'), status.stdout);
     const file = readKeysFile(dirs.privateDir);
@@ -56,15 +56,15 @@ test('removing the last core key while her core runs on a harness leaves her run
   });
 });
 
-test('removing the last core key while her core runs on the API still pauses her as no-core-key', async () => {
+test('removing the last core key while her core runs on the API still pauses her as no-core-route', async () => {
   // Catches: the harness exemption widened to every core, so a direct core with no key keeps answering into errors.
   await withRig({}, async ({ dirs, llm, cores }) => {
     store(dirs, false);
     cores.push(await start(dirs, llm));
-    const removed = await p(dirs, '/keys core remove core-1');
+    const removed = await p(dirs, '/keys remove core-1');
     assert.equal(removed.code, 0, removed.stderr.slice(-1000));
     const status = await p(dirs, '/status');
-    assert.ok(status.stdout.includes('paused') && status.stdout.includes('no-core-key'), status.stdout);
+    assert.ok(status.stdout.includes('paused') && status.stdout.includes('no-core-route'), status.stdout);
   });
 });
 
@@ -77,7 +77,7 @@ test('a core with a harness route and no core key starts and stays running, not 
     const status = await p(dirs, '/status');
     assert.equal(status.code, 0, status.stderr.slice(-1000));
     assert.ok(!status.stdout.includes('paused'), status.stdout);
-    assert.ok(!status.stdout.includes('no-core-key'), status.stdout);
+    assert.ok(!status.stdout.includes('no-core-route'), status.stdout);
   });
 });
 

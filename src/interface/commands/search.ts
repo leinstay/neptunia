@@ -1,5 +1,5 @@
-// `/search`: quick search's targeted settings, written to the persona's settings file like setup writes them. Its key is
-// bound with `/keys bind search <name>` and checked with `/keys check search`. Deep search through the scout is a
+// `/search`: quick search's targeted settings, written to the persona's settings file like setup writes them. Its route is
+// set with `/model set search <key>/<model>` and checked with `/keys check search`. Deep search through the scout is a
 // separate agent and these commands do not touch it. Reading a known page stays on whatever quick search is set to.
 // Quick search has no built-in engine or model: it is off until `/search engine` or setup chooses one.
 // Called by src/interface/commands/console.ts.

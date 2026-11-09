@@ -18,7 +18,6 @@ import { backendOfAgent } from '../subharness/control.ts';
 import { subharnessPlace } from '../subharness/place.ts';
 import { readSessionMap } from '../subharness/sessions.ts';
 import { analyzerFacts } from '../watcher/analyzer-facts.ts';
-import { readFilings } from '../watcher/filing.ts';
 import {
   WATCHER_RUN_TIMEOUT_MS,
   claimRun,
@@ -306,13 +305,6 @@ function sourceText(deps: ServiceDeps): string {
   }
 }
 
-/** How the last report's drafts stand: the count per state, `none` when it had none. */
-function filingText(deps: ServiceDeps, run: RunRecord | null): string {
-  const states = run === null ? [] : readFilings(path.dirname(reportsDir(deps)), run.runId).map((one) => one.state);
-  const counted = [...new Set(states)].map((state) => `${state} ${states.filter((one) => one === state).length}`);
-  return counted.length === 0 ? 'none' : counted.join(', ');
-}
-
 /** The answers the newest run asked for: more than one means its first answer was refused. */
 function attemptsText(current: RunRecord | null, success: RunRecord | null, failure: RunRecord | null): string {
   const finished = [success, failure].filter((run) => run !== null).sort((a, b) => a.claimedAt - b.claimedAt);
@@ -334,7 +326,6 @@ export function watcherStatusFields(deps: ServiceDeps): Array<readonly [string, 
       lastFailure === null ? 'none' : `${lastFailure.runId} ${lastFailure.code ?? 'failed'} ${at(lastFailure)}`,
     ],
     ['attempts', attemptsText(current, lastSuccess, lastFailure)],
-    ['filing', filingText(deps, lastSuccess)],
     ['source', sourceText(deps)],
     ['run timeout', `${WATCHER_RUN_TIMEOUT_MS / 60_000}m`],
   ];

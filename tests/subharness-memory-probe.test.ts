@@ -257,12 +257,12 @@ test('a passing probe never lifts a pause of the owner', async () => {
   assert.equal(pause.reason(), 'owner');
 });
 
-test('a passing probe never lifts the no-core-key pause', async () => {
+test('a passing probe never lifts the no-core-route pause', async () => {
   // Catches: a subharness probe passing while no core key is left, which wakes her with no key for her turns.
-  const { watch, pause } = watchRig({ results: [true], reason: 'no-core-key' });
+  const { watch, pause } = watchRig({ results: [true], reason: 'no-core-route' });
   await watch.start();
   assert.equal(pause.resumes, 0);
-  assert.equal(pause.reason(), 'no-core-key');
+  assert.equal(pause.reason(), 'no-core-route');
 });
 
 test('a probe that throws counts as failed and pauses her', async () => {

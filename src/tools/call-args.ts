@@ -12,7 +12,7 @@ const SHOWN: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
   'media.find': ['query', 'n'],
   'memory.search': ['question', 'people', 'place', 'when', 'terms', 'entity', 'predicate', 'as_of', 'historical'],
   'conversation.read': ['place', 'around', 'before', 'after', 'since', 'last'],
-  'memory.profile.read': ['user', 'section', 'limit'],
+  'memory.profile.read': ['user', 'section', 'limit', 'since', 'until'],
   'memory.journal.read': ['day', 'kind', 'n', 'message'],
 
   'memory.archive.read': ['user', 'kind', 'n'],
@@ -25,7 +25,7 @@ const SHOWN: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
   'voice.say': ['text'],
   'errand.run': ['agent', 'goal'],
   'errand.read': ['id', 'from'],
-  'errand.status': ['id', 'from'],
+  'errand.list': ['id', 'from', 'state', 'since', 'until', 'limit'],
   'errand.cancel': ['id'],
   'errand.resolve': ['id', 'from'],
   'task.propose': ['title'],

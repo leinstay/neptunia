@@ -76,6 +76,11 @@ export function interfacePackageDir(rootDir: string, dataDir: string, name: stri
 }
 
 /** One interface receives only its own platform token, independently of core model credentials. */
+/** The variable an interface reads its platform token from: `my-chat` -> `MY_CHAT_TOKEN`, dashes become `_`. */
+export function tokenVariableOf(iface: string): string {
+  return `${iface.toUpperCase().replaceAll('-', '_')}_TOKEN`;
+}
+
 export function interfaceCredential(dataDir: string, name: string): string | null {
   try {
     const value: unknown = JSON.parse(

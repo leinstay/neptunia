@@ -172,13 +172,17 @@ function coreDown(): { dirs: Dirs; db: string; key: string; token: string } {
 }
 
 // Case 4 of PR D.
-test('doctor with the core down reports the socket failed and the database sound, and changes nothing', async () => {
+test('doctor with the core down reports it once, in readiness, and the database sound, and changes nothing', async () => {
+  // Changed: the core down was reported three times, as `socket`, `readiness` and a skipped `runtime` (CLI audit
+  // 2026-11-09); `readiness` names it and its repair alone.
   const { dirs, db, key, token } = coreDown();
   const before = digestOf(db);
   const run = await runCli(dirs, ['doctor', '--json']);
   assert.equal(run.code, 1, 'a failed check ends doctor with 1');
   const checks = checksOf(run.stdout);
-  assert.equal(checks.get('socket'), 'fail');
+  assert.equal(checks.get('readiness'), 'fail');
+  assert.equal(checks.has('socket'), false);
+  assert.equal(checks.has('runtime'), false);
   assert.equal(checks.get('database'), 'ok');
   assert.equal(checks.get('tokens'), 'ok');
   for (const name of ['node', 'binaries', 'config', 'local-layer', 'keys'])
@@ -189,6 +193,15 @@ test('doctor with the core down reports the socket failed and the database sound
   const printed = run.stdout + run.stderr;
   assert.equal(printed.includes(key), false, 'no key value is printed');
   assert.equal(printed.includes(token), false, 'no token is printed');
+});
+
+test('doctor counts a key store that holds only former extra keys as holding keys', async () => {
+  // Catches: the keys check counting the old core list alone, so a store of named keys warns it holds no key.
+  const dirs = folders({});
+  addClient(dirs.privateDir, CLI_CLIENT);
+  createKeyStore({ privateDir: dirs.dataDir }).addExtra({ name: 'helpers', value: 'sk-or-test-helpers-not-real' });
+  const run = await runCli(dirs, ['doctor', '--json']);
+  assert.equal(checksOf(run.stdout).get('keys'), 'ok');
 });
 
 // Case 4 of PR D, the error path.
@@ -208,7 +221,8 @@ test('doctor --live with the core down reports the provider probes skipped and p
   const run = await runCli(dirs, ['doctor', '--live', '--json']);
   const checks = checksOf(run.stdout);
   assert.equal(checks.get('providers'), 'skipped');
-  assert.equal(checks.get('socket'), 'fail', 'the core is down');
+  // Changed: `providers` says the core is down; no separate `socket` row repeats it.
+  assert.equal(checks.has('socket'), false);
   assert.equal((run.stdout + run.stderr).includes(key), false, 'no key value is printed');
 });
 

@@ -58,7 +58,7 @@ function rig({ answers = {}, refuse = {} }: RigOptions = {}) {
   };
   const askCore = (command: { name: string; args: Record<string, unknown> }) => {
     commands.push(command);
-    if (command.name === 'keys.core.add')
+    if (command.name === 'keys.add')
       createKeyStore({ privateDir: options.privateDir }).addCore({ name: String(command.args.name), value: 'value' });
     state.checked = true;
     return Promise.resolve({ status: 'ok', text: 'done' });
@@ -124,14 +124,14 @@ test('with no terminal the same folder is setup-required, and nothing is provisi
 
 test('the first core key goes through the chat command, by the name the owner gives', async () => {
   // Catches: the flow writing a key itself, past the check the command runs on it.
-  const r = rig({ answers: { 'first core key': 'main-key' } });
+  const r = rig({ answers: { 'first key': 'main-key' } });
   await r.flow();
-  assert.deepEqual(r.commands, [{ name: 'keys.core.add', args: { name: 'main-key' } }]);
+  assert.deepEqual(r.commands, [{ name: 'keys.add', args: { name: 'main-key' } }]);
 });
 
 test('an empty name for the first core key cancels the flow where it is', async () => {
   // Catches: a key named "" sent to the core, or a cancelled question reported as a failure.
-  const r = rig({ answers: { 'first core key': '  ' } });
+  const r = rig({ answers: { 'first key': '  ' } });
   const outcome = await r.flow();
   assert.deepEqual([outcome.status, outcome.at], ['cancelled', 'core-model']);
   assert.deepEqual(r.commands, []);

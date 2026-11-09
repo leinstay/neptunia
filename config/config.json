@@ -63,6 +63,7 @@
     "reasoningByRole": {},
     "boundKeys": {},
     "routeRetryMinutes": 30,
+    "routeEffort": { "core": "disabled" },
     "cache": {
       "ttl": "1h",
       "roles": ["core"],
@@ -381,7 +382,6 @@
   "watcher": {
     "enabled": false,
     "schedule": "at 00:00",
-    "draftsOnly": false,
     "degradedAfterMinutes": 60
   },
   "selfimprovement": {

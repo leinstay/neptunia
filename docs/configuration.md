@@ -107,8 +107,9 @@ The chain of routes each model role runs on. `src/llm/route-chain.ts` reads it a
 | `llm.provider` | map, null | `null` | OpenRouter `provider` routing object, passed verbatim | `src/llm/openrouter.ts` |
 | `llm.providerByModel` | map | `{}` | Per-model provider routing. See the resolution order below | `src/llm/embed.ts` |
 | `llm.reasoningByRole` | map | `{}` | The reasoning effort of a role by role name, `{ "effort": "low" }`, `medium` or `high`, sent as `reasoning` on each request of the role that has no reasoning of its own. Read for `memory`, `analyzer`, `vision` and `video`, never for the core. `/model set <role> <model> --effort <level>` writes it | `src/llm/roles.ts` |
-| `llm.boundKeys` | map | `{}` | The extra key of `keys.json` each role goes out on, by role: a base model role or `search`. A role with no entry goes out on the core keys. `/keys bind <role> <name>` writes an entry and `/keys unbind <role>` removes it | `src/subharness/routing.ts` |
+| `llm.boundKeys` | map | `{}` | The extra key of `keys.json` each role goes out on, by role: a base model role or `search`. A role with no entry goes out on the core keys. Read into the chain of a role with no `models.routes` entry | `src/subharness/routing.ts` |
 | `llm.routeRetryMinutes` | number | `30` | How long a role stays on a later route of its chain after a route was unavailable, before its next request tries the first route again (minutes). Read at each request | `src/llm/chain-client.ts` |
+| `llm.routeEffort` | map | `{ "core": "disabled" }` | The effort a route of a role takes when its text names none, by role, on the scale `disabled`, `low`, `medium`, `high`. On an API route `disabled` sends no `reasoning` and a level sends it as `reasoning.effort`. A harness cannot turn its thinking off, so `disabled` runs it at `low`, its lowest level (`--effort low` for claude, `model_reasoning_effort=low` for codex), and a level runs it at that level. Shipped with `core` at `disabled`. An effort the route names wins. Read at each request | `src/llm/chain-client.ts` |
 | `llm.cache.ttl` | string | `"1h"` | Cache TTL for the markers on the system message and the stable user prefix: `"1h"` or `"5m"` | `src/llm/openrouter.ts` |
 | `llm.cache.roles` | array | `["core"]` | Model roles whose requests get the cache marker. Add `analyzer` to cache its requests too | `src/llm/openrouter.ts` |
 | `llm.cache.models` | array | `["anthropic/"]` | Model id prefixes whose provider accepts the `cache_control` marker | `src/llm/openrouter.ts` |
@@ -395,9 +396,8 @@ The engine proxy is described in [Proxy](proxy.md).
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
-| `watcher.enabled` | boolean | `false` | Whether the deployment runs the watcher, which only `true` turns on. `neptunia services watcher enable` and `disable` move it with the timer. While it is off the selfimprovement wake carries no watcher report | `src/watcher/settings.ts` |
+| `watcher.enabled` | boolean | `false` | Whether the deployment runs the watcher, which only `true` turns on. `neptunia services watcher enable` and `disable` move it with the timer | `src/watcher/settings.ts` |
 | `watcher.schedule` | string | `"at 00:00"` | When the watcher runs: daily UTC times such as `at 00:00,12:00`, or `every 6h`. `neptunia services watcher setup` writes it and renders `neptunia-watcher.timer`, and a value that means nothing reads as the default | `src/watcher/settings.ts` |
-| `watcher.draftsOnly` | boolean | `false` | With `true` an inspection files no task: each draft it would have filed keeps the state `draft` and is listed under "Tasks filed" in its report, which is how the watcher is calibrated. Only `true` turns it on. The worker reads it when the run files, and a draft is never filed later | `src/watcher/settings.ts` |
 | `watcher.degradedAfterMinutes` | number | `60` | Minutes a route of the core may stay down before `services watcher evidence` lists it under `routes`: the engine proxy, the YouTube check and a harness login, read from the core journal | `src/watcher/settings.ts` |
 
 ## selfimprovement

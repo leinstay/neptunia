@@ -310,14 +310,16 @@ test('/interfaces keeps its leaves', () => {
   assert.ok(endsWith(assertAccepted(parseCommandLine('/interfaces enable zeta71')).name, 'enable'));
 });
 
-test('an interface token never goes on the command line of the renamed family, and stdin takes it', () => {
-  // Catches: the secret leaf loses its mark in the rename, so the value is parsed, echoed in a reason or kept in history.
-  const reason = assertRefused(parseRequest(['interfaces', 'token', 'set', 'zeta71', 'sekret-71']).parsed);
+test('a key never goes on the command line of keys add, and stdin takes it', () => {
+  // Changed: `/interfaces token set` is gone (the interface's own `token` setting takes it), so `keys add` stands for
+  // the leaf that only asks its secret.
+  // Catches: the secret leaf loses its mark, so the value is parsed, echoed in a reason or kept in history.
+  const reason = assertRefused(parseRequest(['keys', 'add', 'zeta71', 'sekret-71']).parsed);
   assert.equal(reason.includes('sekret-71'), false, reason);
-  const stdin = parseRequest(['interfaces', 'token', 'set', 'zeta71', '--secret-stdin']);
+  const stdin = parseRequest(['keys', 'add', 'zeta71', '--secret-stdin']);
   assert.equal(stdin.secretStdin, true);
   assert.equal(assertAccepted(stdin.parsed).args.name, 'zeta71');
-  assert.equal(parseRequest(['interfaces', 'token', 'set', 'zeta71']).secretStdin, false);
+  assert.equal(parseRequest(['keys', 'add', 'zeta71']).secretStdin, false);
 });
 
 test('--secret-stdin on a leaf that asks for no secret stays plain text', () => {

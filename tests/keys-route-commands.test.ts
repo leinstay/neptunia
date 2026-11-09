@@ -30,6 +30,7 @@ function rig(chains: Partial<Record<RouteRole, Array<Route>>> = {}, answer: (cal
   const held: Partial<Record<RouteRole, Array<Route>>> = { ...chains };
   const harnessChecks: Array<Route> = [];
   let harnessOk = true;
+  const pause = fakePause(null);
   const keys = createKeysCommands({
     store,
     ring,
@@ -38,7 +39,7 @@ function rig(chains: Partial<Record<RouteRole, Array<Route>>> = {}, answer: (cal
     defaults: {},
     currentModel: (role) => (isRouteRole(role) ? firstModel(held[role]) : ''),
     saveModel: () => Promise.resolve(),
-    pause: fakePause(null),
+    pause,
     chainOf: (role) => held[role] ?? [],
     saveRoutes: (role, routes) => {
       held[role] = routes;
@@ -51,6 +52,7 @@ function rig(chains: Partial<Record<RouteRole, Array<Route>>> = {}, answer: (cal
   });
   return {
     keys,
+    pause,
     held,
     calls,
     harnessChecks,
@@ -151,4 +153,31 @@ test('model show names every chain in the text form and never a key value', asyn
   assert.ok(core?.includes('harness:claude/claude-opus-4-6'), answer.text);
   assert.ok(core?.includes('helpers/x/core'), answer.text);
   assert.equal(answer.text.includes(SECRET), false);
+});
+
+test('keys remove keeps the routes that named the key, writes their chains and pauses a core left with no route', async () => {
+  // Catches: a removal that unbinds a role onto other keys unseen, or one that leaves her core with nothing to run on awake.
+  const { keys, held, pause } = rig({ core: [api('helpers', 'x/core')], analyzer: [api('helpers', 'x/analyzer')] });
+  const answer = await keys.run('keys.remove', { name: 'helpers' }, null);
+  assert.equal(answer.status, 'ok', answer.text);
+  assert.deepEqual(held.analyzer, [api('helpers', 'x/analyzer')]);
+  assert.deepEqual(pause.pauses, ['no-core-route']);
+});
+
+test('keys remove of a key her core does not need leaves her running', async () => {
+  // Catches: every removal pausing her, though her core runs on a harness.
+  const { keys, pause } = rig({ core: [harness('claude-opus-4-6')], analyzer: [api('spare', 'x/analyzer')] });
+  assert.equal((await keys.run('keys.remove', { name: 'spare' }, null)).status, 'ok');
+  assert.deepEqual(pause.pauses, []);
+});
+
+test('keys list names the roles whose chains use each key, and keys check reads a key by name', async () => {
+  // Catches: a listing that hides which role a removal would leave without its key, or a check that takes a key for a role.
+  const { keys, calls } = rig({ core: [harness('claude-opus-4-6')], analyzer: [api('helpers', 'x/analyzer')] });
+  const listed = await keys.run('keys.list', {}, null);
+  const line = listed.text.split('\n').find((one) => one.startsWith('helpers'));
+  assert.ok(line?.includes('analyzer'), listed.text);
+  const checked = await keys.run('keys.check', { target: 'spare' }, null);
+  assert.equal(checked.status, 'ok', checked.text);
+  assert.ok(calls.some((call) => call.url.endsWith('/auth/key') && call.auth === SECRET_2));
 });

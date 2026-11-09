@@ -407,7 +407,7 @@
         "expired": "done, files gone"
       },
       "unread": "(not read yet)",
-      "unreadMore": "{count} more finished errands not read yet. Use errand.status to list them.",
+      "unreadMore": "{count} more finished errands not read yet. Use errand.list to list them.",
       "resultTurnFailed": "(result turn did not complete)",
       "result": {
         "header": "Your errand {id} for the {agent} agent has ended: {state}. It was: {goal}",
@@ -537,10 +537,7 @@
         "questionAnswered": " (answered)",
         "review": "A review of {task}: {decision} {scope}{note}",
         "reviewNote": ": {note}",
-        "board": "The board's word on {task}: {kind} {status}{reason}",
-        "watcher": "What the watcher filed in its report of {day}:\n{findings}",
-        "watcherFinding": "{title} ({state}{task})",
-        "watcherTask": ", task {task}"
+        "board": "The board's word on {task}: {kind} {status}{reason}"
       }
     },
     "journal": {
@@ -949,8 +946,6 @@
         "roleSeparator": ", ",
         "keyState": "{role} runs on {key}{since}",
         "keySince": ", switched {when}",
-        "keyGrant": "{key}: {left} of {grant} USD left, resets on day {day}",
-        "keyUnconfigured": "{key}: no grant set",
         "roleNames": {
           "scout": "errands",
           "server": "errands",

@@ -12,7 +12,7 @@
 import type { CompleteResult } from './openrouter.ts';
 import { createRouteChain, routesOf, unavailableCode } from './route-chain.ts';
 import type { RouteChain } from './route-chain.ts';
-import { isRouteRole } from './route-text.ts';
+import { harnessEffort, isRouteEffort, isRouteRole } from './route-text.ts';
 import type { Route, RouteRole } from './route-text.ts';
 import { MINUTE_MS } from '../time.ts';
 
@@ -92,15 +92,33 @@ export function createChainClient(deps: ChainClientDeps): ChainClient {
     return chain.map((_, step) => (start + step) % chain.length);
   }
 
-  /** The options one route sends: the route, and on the API its key, its model past the role's first and its effort. */
-  function optionsFor(chain: ReadonlyArray<Route>, route: Route, asked: Rec, counted: boolean): Rec {
-    const sent: Rec = { ...asked, chainRoute: route, ...(counted ? { countAgainstDailyCap: false } : {}) };
-    if (route.via === 'harness') return sent;
+  /** `route` with the default effort of its role (`llm.routeEffort.<role>`) when it names none. */
+  function withDefaultEffort(role: string, route: Route): Route {
+    if (route.effort !== null) return route;
+    const config = deps.getConfig();
+    const llm = isRec(config) && isRec(config.llm) ? config.llm : {};
+    const efforts = isRec(llm.routeEffort) ? llm.routeEffort : {};
+    const effort = Object.hasOwn(efforts, role) ? efforts[role] : undefined;
+    return isRouteEffort(effort) ? { ...route, effort } : route;
+  }
+
+  /**
+   * The options one route sends, its effort translated for it: through a harness the CLI's level (`harnessEffort`,
+   * `disabled` at the lowest one), on the API the provider's `reasoning`, none for `disabled`. On the API also its key,
+   * and its model past the role's first.
+   */
+  function optionsFor(chain: ReadonlyArray<Route>, given: Route, asked: Rec, counted: boolean): Rec {
+    const route = withDefaultEffort(typeof asked.role === 'string' ? asked.role : 'core', given);
+    const counting = counted ? { countAgainstDailyCap: false } : {};
+    if (route.via === 'harness')
+      return { ...asked, chainRoute: { ...route, effort: harnessEffort(route.effort) }, ...counting };
+    const sent: Rec = { ...asked, chainRoute: route, ...counting };
     sent.routeKey = { name: route.key, value: deps.keys.valueOf(route.key) ?? '' };
     // The caller chose the model of the role's first route for its purpose; a route with another model sends its own.
-    if (asked.model === undefined || route.model !== chain[0]?.model)
+    if (asked.model === undefined || given.model !== chain[0]?.model)
       sent.model = purposePin(deps.getConfig(), asked.purpose) ?? route.model;
-    if (route.effort !== null && !isRec(asked.reasoning)) sent.reasoning = { effort: route.effort };
+    if (route.effort !== null && route.effort !== 'disabled' && !isRec(asked.reasoning))
+      sent.reasoning = { effort: route.effort };
     return sent;
   }
 

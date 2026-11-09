@@ -15,12 +15,13 @@ function setup() {
 
 const modeOf = (file: string): number => fs.statSync(file).mode & 0o777;
 
-test('a listing shows name, last four characters, grant and reset day, and never a value', () => {
+test('a listing shows name and last four characters, and never a value', () => {
+  // Changed: the grant and reset day of a core key are gone (spec 2026-11-09-model-routes, slice 3).
   const { store } = setup();
-  store.addCore({ name: 'core-1', value: SECRET, grant: 200, resetDay: 22 });
+  store.addCore({ name: 'core-1', value: SECRET });
   store.addExtra({ name: 'sim', value: SECRET_2 });
   const listing = store.list();
-  assert.deepEqual(listing.core, [{ name: 'core-1', last4: 'WXYZ', grant: 200, resetDay: 22 }]);
+  assert.deepEqual(listing.core, [{ name: 'core-1', last4: 'WXYZ' }]);
   assert.deepEqual(listing.extra, [{ name: 'sim', last4: 'ABCD', roles: [] }]);
   // Bug caught: a listing that returns the stored rows as they are, value included.
   const printed = JSON.stringify(listing);
@@ -107,10 +108,6 @@ test('a name is unique across core and extra keys, and a bad name or value is re
     (err: unknown) => err instanceof KeysError && err.code === 'bad-value' && !err.message.includes('SECRETVALUE')
   );
   assert.throws(() => store.addCore({ name: 'core-2', value: '  ' }), { code: 'bad-value' });
-  assert.throws(() => store.addCore({ name: 'core-2', value: SECRET_3, grant: 200 }), { code: 'bad-grant' });
-  assert.throws(() => store.addCore({ name: 'core-2', value: SECRET_3, grant: 200, resetDay: 40 }), {
-    code: 'bad-grant',
-  });
   assert.deepEqual(store.coreNames(), ['core-1'], 'a refused add writes nothing');
   assert.ok(!fs.readFileSync(file, 'utf8').includes('SECRETVALUE-0003'));
 });
@@ -150,56 +147,12 @@ test('a folder with no keys.json lists nothing and holds no key', () => {
 
 // `setGrant` (spec 2026-11-02, follow-up 4): the grant of a stored core key changes without its value being typed again.
 
-test('setting a grant on a core key keeps its value and its place in the list', () => {
-  // Catches: the grant is set by removing and re-adding the key, which moves it off the primary place or loses the value.
-  const { store } = setup();
-  store.addCore({ name: 'core-1', value: SECRET });
-  store.addCore({ name: 'core-2', value: SECRET_2 });
-  store.setGrant('core-1', { grant: 150, resetDay: 9 });
-  assert.deepEqual(store.list().core, [
-    { name: 'core-1', last4: 'WXYZ', grant: 150, resetDay: 9 },
-    { name: 'core-2', last4: 'ABCD', grant: null, resetDay: null },
-  ]);
-  assert.equal(store.valueOf('core-1'), SECRET);
-});
-
-test('a null grant clears the grant and the reset day together', () => {
-  // Catches: clearing leaves the reset day behind, and the week line counts a grant of zero dollars.
-  const { store } = setup();
-  store.addCore({ name: 'core-1', value: SECRET, grant: 200, resetDay: 22 });
-  store.setGrant('core-1', null);
-  assert.deepEqual(store.list().core[0], { name: 'core-1', last4: 'WXYZ', grant: null, resetDay: null });
-});
-
-test('a grant for an extra key or an unknown name is unknown-key, and a reset day of 32 is bad-grant; nothing is written', () => {
-  // Catches: a grant lands on an extra key the failover never uses, or a day no month has is saved.
+test('a grant an older keys.json holds on a core key is dropped at the next write, and the key stays', () => {
+  // Catches: a file written before the grants went refused as unreadable, or the grant kept for ever in the file.
   const { store, file } = setup();
-  store.addCore({ name: 'core-1', value: SECRET, grant: 200, resetDay: 22 });
+  fs.writeFileSync(file, JSON.stringify({ core: [{ name: 'core-1', value: SECRET, grant: 200, resetDay: 22 }] }));
+  assert.deepEqual(store.coreNames(), ['core-1']);
   store.addExtra({ name: 'sim', value: SECRET_3 });
-  const before = fs.readFileSync(file, 'utf8');
-  const codeOf = (fn: () => void): string | null => {
-    try {
-      fn();
-      return null;
-    } catch (err) {
-      return err instanceof KeysError ? err.code : 'other';
-    }
-  };
-  assert.equal(
-    codeOf(() => store.setGrant('sim', { grant: 10, resetDay: 1 })),
-    'unknown-key'
-  );
-  assert.equal(
-    codeOf(() => store.setGrant('core-9', { grant: 10, resetDay: 1 })),
-    'unknown-key'
-  );
-  assert.equal(
-    codeOf(() => store.setGrant('core-1', { grant: 10, resetDay: 32 })),
-    'bad-grant'
-  );
-  assert.equal(
-    codeOf(() => store.setGrant('core-1', { grant: -1, resetDay: 1 })),
-    'bad-grant'
-  );
-  assert.equal(fs.readFileSync(file, 'utf8'), before);
+  const written = JSON.parse(fs.readFileSync(file, 'utf8')) as { core: Array<Record<string, unknown>> };
+  assert.deepEqual(written.core, [{ name: 'core-1', value: SECRET }]);
 });

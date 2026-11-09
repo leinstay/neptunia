@@ -29,7 +29,6 @@ import { serverHealth, systemProbe, worse } from '../../health/server.ts';
 import type { HealthStatus } from '../../health/server.ts';
 import type { Dialog } from '../../keys/commands.ts';
 import type { Track } from '../../loop-watch.ts';
-import { setInterfaceToken } from './interface-token.ts';
 import { DEVELOPMENT_ROLES, ERRAND_ROLES, MEMORY_ROLE } from '../../llm/roles.ts';
 import { grantedSkillNames } from '../../tools/discovery.ts';
 import { ownerPersonOf } from '../../tools/operations/grants.ts';
@@ -803,7 +802,7 @@ export function createConsole(deps: ConsoleDeps): {
     }
   }
 
-  // `/skills`, `/subharness`, `/agent mode` and `/interfaces token set` have a module of their own; every other
+  // `/skills`, `/subharness` and `/agent mode` have a module of their own; every other
   // command is answered above.
   return {
     run: (name, args, requester, dialog = null) => {
@@ -819,8 +818,6 @@ export function createConsole(deps: ConsoleDeps): {
       if (name === 'logs.watcher') return serviceRun(deps, config, 'service.watcher.report', args);
       if (name.startsWith(SKILLS_PREFIX)) return skillsCommand(deps.skills, name, args);
       if (isSubharnessCommand(name)) return subharnessCommand(subharnessDeps(deps), name, args);
-      if (name === 'interfaces.token.set')
-        return setInterfaceToken({ privateDir: deps.privateDir, iface: text(args.name), dialog });
       return run(name, args, requester);
     },
   };

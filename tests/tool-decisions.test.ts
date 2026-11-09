@@ -17,7 +17,7 @@ const TOOL_ALIASES: Readonly<Record<string, string>> = {
   'skills.safeMode': 'tools.safeMode',
   'skills.destructiveCooldownMinutes': 'tools.destructiveCooldownMinutes',
   'task.run': 'errand.run',
-  'task.status': 'errand.status',
+  'task.status': 'errand.list',
   'task.read': 'errand.read',
   'task.resolve': 'errand.resolve',
   'task.cancel': 'errand.cancel',
@@ -67,5 +67,6 @@ test('the committed table holds a row per tool of the registry and a verdict per
   // `inner.stop` and `inner.start` left with `/wakes`.
   // `person.link`, her link tool, is the 76th (plan 2026-11-08-meta-person slice 8).
   // `inner.status` left: it repeated the `inner` field of the owner's status card.
-  assert.equal(committed.tools.length, 75);
+  // `memory.affinity.read` and `errand.status` merged into `memory.profile.read` and `errand.list`.
+  assert.equal(committed.tools.length, 73);
 });

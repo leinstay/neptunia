@@ -296,3 +296,9 @@ test('targeted writes and prompt watchers update the same canonical data directo
     hot.close();
   }
 });
+
+test('the token variable of an interface is its name in capitals with _TOKEN', () => {
+  // Catches: the token handed to the interface under a variable the Discord package never reads, so it starts without one.
+  assert.equal(files.tokenVariableOf('discord'), 'DISCORD_TOKEN');
+  assert.equal(files.tokenVariableOf('my-chat'), 'MY_CHAT_TOKEN');
+});

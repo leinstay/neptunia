@@ -10,6 +10,7 @@ import path from 'node:path';
 import { SETUP_STEPS, SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/run.ts';
 import type { RunResult, SetupDeps, SetupOptions } from '../src/setup/run.ts';
 import { DEVELOPMENT_UNIT_FILES, UNIT_FILES } from '../src/setup/units.ts';
+import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { keysPath, readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
 import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -197,8 +198,8 @@ test('setup opens the chat last, on keys core add, and only once', async () => {
   // Bug: the chat opens before the core runs, so the first line gets "no core listens".
   const { options, deps, events, chat } = rig();
   await runSetup(options, deps);
-  assert.deepEqual(chat, ['/keys core add']);
-  assert.equal(events[events.length - 1], 'chat /keys core add');
+  assert.deepEqual(chat, ['/keys add']);
+  assert.equal(events[events.length - 1], 'chat /keys add');
   const enable = events.findIndex((line) => line.includes('enable --now'));
   assert.ok(enable >= 0 && enable < events.length - 1);
 });
@@ -215,14 +216,27 @@ test('the report lists every step done and the commands that come next, in the o
     report.steps.map((step) => [step.step, step.state]),
     SETUP_STEPS.map((step) => [step, asking.includes(step) ? 'skipped' : 'done'])
   );
+  // Changed: every line is one the table accepts once its placeholders are filled (CLI audit 2026-11-09): the token
+  // through the interface's own setting, the core's model as a route.
   assert.deepEqual(report.next, [
-    'keys core add',
-    'interfaces token set discord',
+    'keys add <name>',
+    'interfaces set discord token',
     'interfaces enable discord',
-    'model set',
+    'model set core <name>/<model>',
     // Changed: the account command replaced the enable step.
     'subharness claude login',
   ]);
+});
+
+test('every command setup names next parses in the chat once its placeholders are filled', async () => {
+  // Catches: setup ending on a command the table refuses, so the owner's first line is an error.
+  const { options, deps } = rig();
+  const report = await runSetup(options, deps);
+  for (const line of report.next) {
+    const filled = `/${line.replace('<name>/<model>', 'main/vendor/model').replace('<name>', 'main')}`;
+    const parsed = parseCommandLine(filled);
+    assert.equal(parsed.ok, true, `${filled}: ${parsed.ok ? '' : parsed.reason}`);
+  }
 });
 
 test('a core that does not start fails the last step, stops there and opens no chat', async () => {
@@ -263,7 +277,7 @@ test('a rerun after a failure resumes: earlier steps are already done and the co
       ['core', 'done'],
     ]
   );
-  assert.deepEqual(chat, ['/keys core add']);
+  assert.deepEqual(chat, ['/keys add']);
 });
 
 test('a unit file edited by hand is rewritten by the next setup', async () => {
@@ -486,7 +500,7 @@ test('a refused self-development step leaves the run ok, stores no repository an
   });
   assert.equal(report.ok, true);
   assert.equal(report.steps.find((step) => step.step === 'selfimprovement')?.state, 'refused');
-  assert.deepEqual(chat, ['/keys core add']);
+  assert.deepEqual(chat, ['/keys add']);
   const local = JSON.parse(fs.readFileSync(path.join(options.privateDir, 'config', 'config.json'), 'utf8')) as {
     selfimprovement: Record<string, unknown>;
   };
@@ -517,7 +531,7 @@ test('without a terminal the subharness, mechanics and watcher steps are skipped
   const stateOf = (step: string): string | undefined => report.steps.find((one) => one.step === step)?.state;
   assert.deepEqual(['subharness', 'mechanics', 'watcher'].map(stateOf), ['skipped', 'skipped', 'skipped']);
   assert.equal(report.ok, true);
-  assert.deepEqual(chat, ['/keys core add']);
+  assert.deepEqual(chat, ['/keys add']);
 });
 
 test('the watcher hour given in a setup run is in the timer the same run writes', async () => {

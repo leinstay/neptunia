@@ -2,10 +2,10 @@
 // run of a subscription CLI with a model. The text form is what commands and script flags take and print,
 // `<key>/<model>[:<effort>]` and `harness:<claude|codex>/<model>[:<effort>]`; the record form is what
 // `models.routes.<role>` of config.json holds. Both read into the same route, and each refusal is a code with a reason
-// that holds no key value. A harness carries only the roles that run as a CLI chat step, and an effort on an API route
-// only the roles of REASONING_ROLES, so the core never gets provider reasoning (the owner's rule, 2026-10-19). Pure.
+// that holds no key value. A harness carries only the roles that run as a CLI chat step. Every route of every role takes
+// an effort on one scale, `disabled`, `low`, `medium` and `high` (the owner, 2026-11-09), which src/llm/chain-client.ts
+// translates per route; the older words of a CLI or a provider are refused with `effort-retired`. Pure.
 
-import { isEffortLevel, isListedEffort, REASONING_ROLES } from './roles.ts';
 import type { EffortLevel } from './roles.ts';
 
 /** The model roles that run on a chain of routes, in display order. */
@@ -29,11 +29,27 @@ export type HarnessBackend = (typeof HARNESS_BACKENDS)[number];
 /** The roles that run as a CLI chat step: her turns and the memory writer. */
 export const HARNESS_ROLES: ReadonlyArray<string> = ['core', 'memory'];
 
-export type ApiRoute = { via: 'api'; key: string; model: string; effort: EffortLevel | null };
-export type HarnessRoute = { via: 'harness'; backend: HarnessBackend; model: string; effort: EffortLevel | null };
+/** The one effort scale of a route, for every role and route. */
+export const ROUTE_EFFORTS = ['disabled', 'low', 'medium', 'high'] as const;
+export type RouteEffort = (typeof ROUTE_EFFORTS)[number];
+
+/** The effort words of a CLI or a provider that the scale left out. */
+const RETIRED_EFFORTS: ReadonlyArray<string> = ['minimal', 'xhigh', 'max', 'none'];
+
+export const isRouteEffort = (value: unknown): value is RouteEffort => ROUTE_EFFORTS.some((one) => one === value);
+
+/**
+ * The level a harness runs `effort` at: the level itself, and for `disabled` the lowest every CLI takes, `low`, since
+ * neither claude nor codex can switch its thinking off. Null leaves the CLI at its own default.
+ */
+export const harnessEffort = (effort: RouteEffort | null): EffortLevel | null =>
+  effort === null ? null : effort === 'disabled' ? 'low' : effort;
+
+export type ApiRoute = { via: 'api'; key: string; model: string; effort: RouteEffort | null };
+export type HarnessRoute = { via: 'harness'; backend: HarnessBackend; model: string; effort: RouteEffort | null };
 export type Route = ApiRoute | HarnessRoute;
 
-export type RouteRefusal = { code: 'route-malformed' | 'route-unsupported'; reason: string };
+export type RouteRefusal = { code: 'route-malformed' | 'route-unsupported' | 'effort-retired'; reason: string };
 
 /** The key names keys.json accepts. */
 const KEY_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -44,12 +60,20 @@ export const isRefusal = (value: Route | RouteRefusal): value is RouteRefusal =>
 
 const malformed = (reason = SHAPE): RouteRefusal => ({ code: 'route-malformed', reason });
 const unsupported = (reason: string): RouteRefusal => ({ code: 'route-unsupported', reason });
+const retired = (word: string): RouteRefusal => ({
+  code: 'effort-retired',
+  reason: `${word} is no effort of the scale; use ${ROUTE_EFFORTS.join(', ')}`,
+});
 
-/** The model id and the effort of `rest`: a last `:<level>` is the effort when `isLevel` accepts it. */
-function modelAndEffort(rest: string, isLevel: (value: unknown) => value is EffortLevel) {
+/**
+ * The model id and the effort of `rest`: a last `:<level>` of the scale is the effort, a retired word is refused, and
+ * any other suffix (a provider variant such as `:free`) stays on the model id.
+ */
+function modelAndEffort(rest: string): { model: string; effort: RouteEffort | null } | RouteRefusal {
   const colon = rest.lastIndexOf(':');
   const tail = colon === -1 ? '' : rest.slice(colon + 1);
-  return isLevel(tail) ? { model: rest.slice(0, colon), effort: tail } : { model: rest, effort: null };
+  if (RETIRED_EFFORTS.includes(tail)) return retired(tail);
+  return isRouteEffort(tail) ? { model: rest.slice(0, colon), effort: tail } : { model: rest, effort: null };
 }
 
 /** The checks every route passes whatever form it came in: the role may take it, and an API effort its requests. */
@@ -60,10 +84,7 @@ function checked(role: string, route: Route): Route | RouteRefusal {
       return unsupported(`${role} runs on a key only; a harness carries ${HARNESS_ROLES.join(' and ')}`);
     return route;
   }
-  if (!KEY_NAME.test(route.key)) return malformed();
-  if (route.effort !== null && !REASONING_ROLES.includes(role))
-    return unsupported(`${role} takes no effort on the API; the roles that do are ${REASONING_ROLES.join(', ')}`);
-  return route;
+  return KEY_NAME.test(route.key) ? route : malformed();
 }
 
 /** The route of `text` for `role`, or why it is refused. */
@@ -76,13 +97,15 @@ export function parseRouteText(role: string, text: string): Route | RouteRefusal
     const backend = HARNESS_BACKENDS.find((one) => one === name);
     if (backend === undefined)
       return unsupported(`${name || 'that'} carries no route; the harnesses are ${HARNESS_BACKENDS.join(' and ')}`);
-    const { model, effort } = modelAndEffort(body.slice(slash + 1), isListedEffort);
-    return checked(role, { via: 'harness', backend, model, effort });
+    const read = modelAndEffort(body.slice(slash + 1));
+    if ('code' in read) return read;
+    return checked(role, { via: 'harness', backend, ...read });
   }
   const slash = text.indexOf('/');
   if (slash === -1) return malformed();
-  const { model, effort } = modelAndEffort(text.slice(slash + 1), isEffortLevel);
-  return checked(role, { via: 'api', key: text.slice(0, slash), model, effort });
+  const read = modelAndEffort(text.slice(slash + 1));
+  if ('code' in read) return read;
+  return checked(role, { via: 'api', key: text.slice(0, slash), ...read });
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -92,14 +115,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 export function readRoute(role: string, value: unknown): Route | RouteRefusal {
   if (!isRecord(value) || typeof value.model !== 'string') return malformed('a route is a record with via and model');
   const effort = value.effort ?? null;
-  if (effort !== null && !isListedEffort(effort)) return malformed(`${JSON.stringify(effort)} is no effort level`);
+  if (typeof effort === 'string' && RETIRED_EFFORTS.includes(effort)) return retired(effort);
+  if (effort !== null && !isRouteEffort(effort)) return malformed(`${JSON.stringify(effort)} is no effort level`);
   if (value.via === 'harness') {
     const backend = HARNESS_BACKENDS.find((one) => one === value.backend);
     if (backend === undefined) return unsupported(`the harnesses are ${HARNESS_BACKENDS.join(' and ')}`);
     return checked(role, { via: 'harness', backend, model: value.model, effort });
   }
   if (value.via !== 'api' || typeof value.key !== 'string') return malformed('via is api with a key, or harness');
-  if (effort !== null && !isEffortLevel(effort)) return unsupported(`${effort} is an effort of a CLI only`);
   return checked(role, { via: 'api', key: value.key, model: value.model, effort });
 }
 

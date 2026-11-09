@@ -8,7 +8,7 @@ Use `neptunia tasks` for task commands. Clients authenticate through the core so
 
 A claimed task has a lease and progress records. Results can include a pull request or another artifact. Approval and completion are explicit board transitions. A saved unfinished task is evidence for later work, not permission to repeat an interrupted external action.
 
-The [watcher](watcher.md) can file diagnostic tasks, which stay `proposed` until the owner or a reviewer approves them. An approved top-level dev task starts the [development worker](selfimprovement.md) whoever filed it, and it stays attributed to its requester. The worker is the builtin principal `development`, with the roles `reviewer` and `worker`. A dev task filed with `--parent` closes through the machine's `child` rule, `in_progress` to `done` by its holder, because the parent is what gets reviewed. Neither path needs a second memory database.
+An approved top-level dev task starts the [development worker](selfimprovement.md) whoever filed it, and it stays attributed to its requester. The worker is the builtin principal `development`, with the roles `reviewer` and `worker`. A dev task filed with `--parent` closes through the machine's `child` rule, `in_progress` to `done` by its holder, because the parent is what gets reviewed. Neither path needs a second memory database.
 
 Questions and blocks of development reach the persona. `task.block` on a dev task writes an outbox row of kind `blocked` to `persona:self` with its `reason`, whoever filed the task. `task.ask` addressed to `persona:self` writes a row of kind `needs_answer` to her whoever subscribed. The requester of a blocked task may unblock it, next to the owner and a reviewer.
 

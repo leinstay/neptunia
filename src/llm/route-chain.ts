@@ -15,7 +15,12 @@ import { isBudgetError } from './key-failover.ts';
 import { SUBSCRIPTION_CODES } from './openrouter.ts';
 import { isListedEffort, reasoningOf, roleModel, searchModel } from './roles.ts';
 import { HARNESS_BACKENDS, isRefusal, readRoute, routeText } from './route-text.ts';
-import type { ApiRoute, Route, RouteRole } from './route-text.ts';
+import type { ApiRoute, Route, RouteEffort, RouteRole } from './route-text.ts';
+import type { EffortLevel } from './roles.ts';
+
+/** A level an older setting holds on the scale of a route: `xhigh` and `max` of a CLI read as `high`. */
+const onScale = (level: EffortLevel | null): RouteEffort | null =>
+  level === 'xhigh' || level === 'max' ? 'high' : level;
 
 type Tree = Record<string, unknown>;
 const isTree = (value: unknown): value is Tree => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -28,7 +33,7 @@ function harnessRecordOf(value: unknown): Route | null {
   const effort = value.effort ?? null;
   if (backend === undefined || typeof value.model !== 'string' || value.model.trim() === '') return null;
   if (effort !== null && !isListedEffort(effort)) return null;
-  return { via: 'harness', backend, model: value.model, effort };
+  return { via: 'harness', backend, model: value.model, effort: onScale(effort) };
 }
 
 /** The routes the old settings gave `role`. */
@@ -38,7 +43,7 @@ function translatedRoutes(config: unknown, role: RouteRole, coreKeyNames: Readon
   const llm = treeOf(treeOf(config).llm);
   const bound = treeOf(llm.boundKeys)[role];
   const keys = typeof bound === 'string' && bound !== '' ? [bound] : coreKeyNames;
-  const effort = reasoningOf(config, role)?.effort ?? null;
+  const effort = onScale(reasoningOf(config, role)?.effort ?? null);
   const apis = keys.map((key): ApiRoute => ({ via: 'api', key, model, effort }));
   if (role !== 'core' && role !== 'memory') return apis;
   const harness = harnessRecordOf(treeOf(treeOf(treeOf(config).models).harness)[role]);
