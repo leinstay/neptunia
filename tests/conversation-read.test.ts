@@ -552,3 +552,20 @@ test('a read after a number of a stored line that has a platform id reaches the 
     world.close();
   }
 });
+
+test('a read after a number of a stored line with no route sends its native id as the anchor when that id is the platform one', async () => {
+  // Regression (2026-11-09): lines stored before message routes keep the platform's id in `native_id` and no route;
+  // their anchors went to the platform and worked, and must keep doing so.
+  const world = openWorld();
+  try {
+    const rows = ROWS.map((one, i) => ({ ...one, uuid: `11827364509182736${40 + i}`, platform: null }));
+    const room = seedRoom(world, rows);
+    const scene = placeScene(world);
+    await scene.read({ placeId: room, last: 10 });
+    await scene.readAfter(scene.numberOf('the olive harvest'));
+    const anchors = scene.historyQueries().flatMap((query) => (query.after === undefined ? [] : [query.after]));
+    assert.deepEqual(anchors, ['1182736450918273640']);
+  } finally {
+    world.close();
+  }
+});

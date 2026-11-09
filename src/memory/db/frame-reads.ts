@@ -13,7 +13,7 @@ import type { FindMeaning, FoundPerson, FoundPlace } from './graph-find.ts';
 import { mindOf, mindSettingsOf } from './mind-read.ts';
 import type { Mind, Seeds } from './mind-read.ts';
 import { lineMedia, lineMediaItems } from './media-store.ts';
-import { routeMessageSql } from './message-locator.ts';
+import { interfaceTakes, routeMessageSql } from './message-locator.ts';
 import type { LineMediaItem } from './media-store.ts';
 import { interfaceNouns, placesNamed } from './names.ts';
 import { ownerAccountOfPlace } from './person-links.ts';
@@ -28,12 +28,12 @@ import type { Db, Row } from './types.ts';
 /**
  * A stored chat line as a request reads it: its message id, the id of its source row, its place, epoch ms, the author's
  * platform id and stored name, its text and its media in position order. The message id is the platform's from the row's
- * message route, else the row's `native_id`, else its source id. `routed` says whether the route gave it, so whether an
- * interface takes it as an anchor: a line the core wrote itself holds only a key of its own.
+ * message route, else the row's `native_id`, else its source id. `platformId` says whether its interface takes that id
+ * as an anchor (message-locator.ts#interfaceTakes): the route gave it, or `native_id` holds no uuid the core made.
  */
 export type FrameLine = {
   id: string;
-  routed: boolean;
+  platformId: boolean;
   sourceId: string;
   placeId: string;
   at: number;
@@ -91,7 +91,7 @@ function firstOf(rows: ReadonlyArray<Row>, keyOf: (row: Row) => string): Array<R
 
 const lineOf = (row: Row, media: ReadonlyArray<LineMediaItem> = []): FrameLine => ({
   id: messageIdOf(row),
-  routed: text(row.route_message) !== null,
+  platformId: interfaceTakes(row.route_message, row.native_id),
   sourceId: String(row.id),
   placeId: text(row.place_id) ?? '',
   at: Date.parse(text(row.occurred_at) ?? ''),

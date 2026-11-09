@@ -584,15 +584,6 @@ test('a line the platform returns renders the description the memory holds for i
       at: '2026-11-02T09:01:00.000Z',
     });
     pictureOn(world, 'p1', 'att-77', 'a white rabbit in a garden');
-    // Both lines carry the message route a line the platform gave holds: a stored line without one has no id the
-    // platform takes, and a read anchored on it is answered from the stored lines alone.
-    for (const id of ['a1', 'p1'])
-      world.db.prepare('UPDATE sources SET extra = ? WHERE id = ?').run(
-        JSON.stringify({
-          $messageLocator: { v: 1, origin: 'protocol-message', iface: 'fake', chatId: 'c7', messageId: id },
-        }),
-        id
-      );
     const io = rig();
     const chat = channel('c7');
     io.fake.seedChat(chat);
