@@ -18,6 +18,8 @@ import type { Adapter, MessageEvent } from '../src/protocol/adapter.ts';
 const PLACE = 'cli:dm:owner';
 const CHAT = { iface: 'cli', chatId: PLACE };
 const quiet = { info() {}, warn() {}, error() {} };
+/** The partner's native id of the one stored direct chat, as its place row's partner account holds it. */
+const partnerOf = (placeId: string): string | null => (placeId === PLACE ? 'owner' : null);
 
 const stored = (n: number, who: 'owner' | 'her', at: number): SourceLine => ({
   id: `src-${n}`,
@@ -83,7 +85,7 @@ async function chatOf(adapter: Adapter, limit: number, before?: string) {
 test('a turn after a restart reads the stored earlier lines of the command line chat', async () => {
   // Bug: the chat block held only the line that started the turn, and she called it the first message of the chat.
   const lines = [stored(1, 'owner', 10), stored(2, 'her', 20)];
-  const adapter = withStoredHistory(freshClient([clientLine('n3', 'the newest line', 30)]), () => lines);
+  const adapter = withStoredHistory(freshClient([clientLine('n3', 'the newest line', 30)]), () => lines, partnerOf);
   assert.deepEqual(await chatOf(adapter, 100), [
     { id: 'n1', content: 'stored 1', self: false },
     { id: 'n2', content: 'stored 2', self: true },
@@ -95,7 +97,7 @@ test('a line both stored and held by the chat client appears once, with the atta
   // Bug: the line that started the turn shows twice, or loses the image the owner sent with it.
   const image = { id: 'a1', kind: 'image', url: 'staged:a1', name: 'a.png', contentType: 'image/png' };
   const lines = [stored(1, 'owner', 10), stored(2, 'owner', 20)];
-  const adapter = withStoredHistory(freshClient([clientLine('n2', 'stored 2', 20, [image])]), () => lines);
+  const adapter = withStoredHistory(freshClient([clientLine('n2', 'stored 2', 20, [image])]), () => lines, partnerOf);
   const read = await createReads(adapter, quiet).history(CHAT, { limit: 100 });
   assert.deepEqual(
     read?.events.map(({ message }) => [message.id, message.attachments?.length ?? 0]),
@@ -109,7 +111,7 @@ test('a line both stored and held by the chat client appears once, with the atta
 test("a stored line's number in the owner's chat never reaches the history her turn reads", async () => {
   // Bug: the `#N` the owner's chat draws goes into her request, where she reads it as part of the line or repeats it.
   const lines = [{ ...stored(1, 'owner', 10), number: 1333 }];
-  const adapter = withStoredHistory(freshClient([]), () => lines);
+  const adapter = withStoredHistory(freshClient([]), () => lines, partnerOf);
   const read = await adapter.history(CHAT, { limit: 100 });
   assert.equal(read.status, 'ok');
   assert.equal(JSON.stringify(read).includes('1333'), false);
@@ -119,7 +121,7 @@ test("a stored line's number in the owner's chat never reaches the history her t
 test('the history keeps the newest lines up to the limit the turn asks for', async () => {
   // Bug: the whole stored chat goes into the request past `context.channelMessages`.
   const lines = [1, 2, 3, 4, 5].map((n) => stored(n, n % 2 === 0 ? 'her' : 'owner', n * 10));
-  const adapter = withStoredHistory(freshClient([]), () => lines);
+  const adapter = withStoredHistory(freshClient([]), () => lines, partnerOf);
   assert.deepEqual(
     (await chatOf(adapter, 3)).map((line) => line.id),
     ['n3', 'n4', 'n5']
@@ -129,7 +131,7 @@ test('the history keeps the newest lines up to the limit the turn asks for', asy
 test('a page before a line holds the lines just before it', async () => {
   // Bug: a page further back repeats the newest lines.
   const lines = [1, 2, 3, 4].map((n) => stored(n, 'owner', n * 10));
-  const adapter = withStoredHistory(freshClient([]), () => lines);
+  const adapter = withStoredHistory(freshClient([]), () => lines, partnerOf);
   assert.deepEqual(
     (await chatOf(adapter, 2, 'n4')).map((line) => line.id),
     ['n2', 'n3']
@@ -138,7 +140,7 @@ test('a page before a line holds the lines just before it', async () => {
 
 test('the stored lines answer while no chat client is connected', async () => {
   // Bug: a wake in the owner's chat with the client away reads no history at all.
-  const adapter = withStoredHistory(closedAdapter(), () => [stored(1, 'owner', 10)]);
+  const adapter = withStoredHistory(closedAdapter(), () => [stored(1, 'owner', 10)], partnerOf);
   assert.deepEqual(
     (await chatOf(adapter, 100)).map((line) => line.id),
     ['n1']
@@ -146,14 +148,18 @@ test('the stored lines answer while no chat client is connected', async () => {
 });
 
 test('a chat with no stored line and no line in the client has an empty history', async () => {
-  const adapter = withStoredHistory(freshClient([]), () => []);
+  const adapter = withStoredHistory(freshClient([]), () => [], partnerOf);
   assert.deepEqual(await chatOf(adapter, 100), []);
 });
 
 test('the history of another chat holds none of the stored lines of the owner chat', async () => {
   // Bug: the stored lines of the owner's chat leak into a chat they do not belong to.
   const lines = [stored(1, 'owner', 10)];
-  const adapter = withStoredHistory(freshClient([]), (placeId) => lines.filter((line) => line.placeId === placeId));
+  const adapter = withStoredHistory(
+    freshClient([]),
+    (placeId) => lines.filter((line) => line.placeId === placeId),
+    partnerOf
+  );
   const read = await createReads(adapter, quiet).history({ iface: 'cli', chatId: 'cli:dm:someone' }, { limit: 10 });
   assert.deepEqual(read?.events ?? [], []);
 });
@@ -182,7 +188,7 @@ function storedPicture(t: { after: (fn: () => void) => void }, description: stri
 test('a picture of a stored line comes back with its kept file and its description after a fresh client', async (t) => {
   // Bug: after a restart a line the owner sent with a picture reads as text only, and she no longer sees the picture.
   const { db, kept } = storedPicture(t, 'A red kite over a wheat field.');
-  const adapter = withStoredHistory(freshClient([]), (placeId) => chatLines(db, placeId));
+  const adapter = withStoredHistory(freshClient([]), (placeId) => chatLines(db, placeId), partnerOf);
   const [line] = await historyLines(createReads(adapter, quiet), CHAT, { limit: 100 });
   const attachments = (line?.attachments ?? []) as Array<{ id?: string; url?: string; told?: { text?: string } }>;
   assert.deepEqual(
@@ -227,7 +233,7 @@ test('her line the chat client still holds takes the stored files it lacks', asy
       author: { id: 'self', name: null, self: true, bot: false },
     },
   };
-  const adapter = withStoredHistory(freshClient([held]), () => [withFile]);
+  const adapter = withStoredHistory(freshClient([held]), () => [withFile], partnerOf);
   const read = await createReads(adapter, quiet).history(CHAT, { limit: 100 });
   const first = read?.events[0];
   const attachments = (first?.message.attachments ?? []) as Array<{ id?: string; url?: string }>;
@@ -240,7 +246,7 @@ test('her line the chat client still holds takes the stored files it lacks', asy
 test('a stored reply reaches her chat as a reply to the line it answers', async () => {
   // Bug: after a restart her chat read every stored line as a reply to nothing.
   const lines = [stored(1, 'owner', 10), { ...stored(2, 'her', 20), replyToId: 'n1' }];
-  const adapter = withStoredHistory(freshClient([]), () => lines);
+  const adapter = withStoredHistory(freshClient([]), () => lines, partnerOf);
   const read = await adapter.history(CHAT, { limit: 100 });
   const events = read.status === 'ok' ? read.events : [];
   assert.deepEqual(
@@ -261,6 +267,7 @@ test("the owner's lines and his chat carry his person's name when one is known",
   const adapter = withStoredHistory(
     freshClient([clientLine('n3', 'the newest line', 30)]),
     () => lines,
+    partnerOf,
     () => 'Robin'
   );
   const read = await adapter.history(CHAT, { limit: 100 });
@@ -282,9 +289,27 @@ test("with no name known the owner's lines keep the name they came with", async 
   const adapter = withStoredHistory(
     freshClient([clientLine('n3', 'the newest line', 30)]),
     () => [],
+    partnerOf,
     () => null
   );
   const read = await adapter.history(CHAT, { limit: 100 });
   const [first] = read.status === 'ok' ? read.events : [];
   assert.equal(first === undefined ? null : authorOf(first), 'owner');
+});
+
+test('a direct chat stored under an opaque place id is answered from its stored lines, its partner read from the row', async () => {
+  // Bug: the partner was cut out of the text of the chat id, so a DM place that spells none read no stored line.
+  const opaque = 'place:opaque-owner-chat';
+  const line = { ...stored(1, 'owner', 10), placeId: opaque };
+  const adapter = withStoredHistory(
+    freshClient([]),
+    (placeId) => (placeId === opaque ? [line] : []),
+    (placeId) => (placeId === opaque ? 'owner' : null)
+  );
+  const read = await adapter.history({ iface: 'cli', chatId: opaque }, { limit: 10 });
+  const events = read.status === 'ok' ? read.events : [];
+  assert.deepEqual(
+    events.map(({ message }) => [message.id, message.author?.id]),
+    [['n1', 'owner']]
+  );
 });
