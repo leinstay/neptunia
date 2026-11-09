@@ -1,6 +1,6 @@
 // Which model roles are globally failing, kept in memory per role for the life of the process. A role is down when
-// its model is switched off (`models.base.<role>: false`), when its key is missing (`hasKey`, the core's own
-// resolution of `llm.keyByRole`), after a 401, a 402 or a 404, after a 429 whose answer says the daily limit is spent
+// its model is switched off (`models.base.<role>: false`), when its key is missing (`hasKey`, the key ring's route
+// of the role), after a 401, a 402 or a 404, after a 429 whose answer says the daily limit is spent
 // (src/llm/openrouter.ts#providerLimitOf), after three malformed answers in a row, or when every key of its list is out
 // of credit (`keys-exhausted`, src/llm/key-failover.ts), which keeps it down until 00:00 UTC. One failed request of any
 // other kind leaves the role up. A failing role is tried again on a backoff of 1, 5, 15 and then every 60 minutes, and it
@@ -10,7 +10,7 @@
 
 import { BASE_ROLES, CORE_ROLE, OPTIONAL_ROLES, roleModel } from './roles.ts';
 import { DAY_MS } from '../time.ts';
-import { providerLimitOf, roleApiKey } from './openrouter.ts';
+import { providerLimitOf } from './openrouter.ts';
 import type { KeyOf } from '../keys/ring.ts';
 
 /** Why a role is down. */
@@ -199,31 +199,22 @@ function configOf(hot: unknown): unknown {
 }
 
 /**
- * The `hasKey` of the core's tracker: whether the key a request of `role` goes out on (src/llm/openrouter.ts#roleApiKey
- * over `llm.keyByRole` in the live config of `hot`, the parsed `.env` and the main key) is set.
+ * The `hasKey` of the core's tracker: whether the key a request of `role` goes out on is set, the key store's
+ * (`keyOf`, src/keys/ring.ts), else `mainKey`.
  */
 export function roleKeyCheck({
-  hot,
-  env,
   mainKey,
   keyOf = () => null,
   served = () => false,
 }: {
-  hot: unknown;
-  env: Readonly<Record<string, string | undefined>>;
   mainKey: string;
-  /** The key of the key store; null while there is no `keys.json`, then `.env` decides. */
+  /** The key of the key store, '' when it has none for the role. */
   keyOf?: KeyOf;
   /** Whether a harness carries `role`, which then needs no key (config.json: `models.harness.core`, `.memory`, `.simulation`). */
   served?: (role: string) => boolean;
 }): (role: string) => boolean {
   return (role) => {
     if (served(role)) return true;
-    const stored = keyOf(role);
-    if (stored !== null) return stored !== '';
-    const config = configOf(hot);
-    // roleApiKey reads the config as a loose object and copes with any shape.
-    const key: unknown = roleApiKey(config, env, role, mainKey);
-    return typeof key === 'string' && key !== '';
+    return (keyOf(role) ?? mainKey) !== '';
   };
 }

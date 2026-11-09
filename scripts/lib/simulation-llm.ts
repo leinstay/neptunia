@@ -1,7 +1,8 @@
 // The llm of a paid script (scripts/replay.ts, scripts/inner-week.ts, scripts/memory-session.ts,
 // scripts/recall-eval.ts), re-exported by scripts/lib/cli.ts. The script reads the simulation's route of keys.json
 // (`models.harness.simulation`, src/subharness/subscription-path.ts) once at its start. With no route stored, every request
-// spends the simulation key through the direct client. With a route stored, requests of the role `core` run through
+// spends the simulation key through the direct client, built on a key ring that holds that key alone
+// (src/simulation/key.ts#simulationRing). With a route stored, requests of the role `core` run through
 // `claude` or `codex` (src/subharness/subscription-client.ts), and every other role (the analyzer, the describers, the
 // embedder) spends the simulation key when one is set and is refused with `simulation-off` when none is. A core step
 // with tools reaches the CLI through `bin/neptunia-mcp.ts`, which connects to a tool bridge the script serves on a
@@ -18,7 +19,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePaths } from '../../src/paths.ts';
 import { MAX_FRAME_BYTES, wrapSocket } from '../../src/protocol/wire.ts';
-import { simulationKey } from '../../src/simulation/key.ts';
+import type { KeyRing } from '../../src/keys/ring.ts';
+import { simulationRing, simulationRoute } from '../../src/simulation/key.ts';
 import { createSubscriptionClient, spawnSubscriptionChild } from '../../src/subharness/subscription-client.ts';
 import type { SubscriptionClientDeps } from '../../src/subharness/subscription-client.ts';
 import { subscriptionPath, subscriptionPathText } from '../../src/subharness/subscription-path.ts';
@@ -35,8 +37,11 @@ type Direct = SubscriptionClientDeps['direct'];
 export type SimulationDeps<TDirect extends Direct> = {
   /** Where `NEPTUNIA_DATA_DIR` names the persona folder; the process's own by default. */
   env?: Record<string, string | undefined>;
-  /** The direct client on `apiKey`, built only when the simulation key is set. */
-  createDirect(apiKey: string): TDirect;
+  /**
+   * The direct client on `apiKey`, built only when the simulation key is set. `ring` routes every role to that key
+   * (src/simulation/key.ts#simulationRing), for a client that takes its key from a ring.
+   */
+  createDirect(apiKey: string, ring: KeyRing): TDirect;
   /** The script's live settings; the client reads their `llm` object. */
   getConfig(): unknown;
   /** The script's counters, for the daily request count of a step on the route. */
@@ -59,6 +64,8 @@ export type SimulationLlm = {
   said: string;
   /** The simulation key for the script's embedder and pictures, or null when the route runs without one. */
   key: string | null;
+  /** The key ring on the simulation key, for a session that checks its key on a ring; null when the route has no key. */
+  ring: KeyRing | null;
   /** The direct client on the key; on the route a `complete` that sends each request by its role. */
   llm: Direct;
   /** Stops the tool bridge's socket and removes its folder. */
@@ -133,14 +140,14 @@ function onRoute<TDirect extends Direct>(
   deps: SimulationDeps<TDirect>,
   privateDir: string,
   fixed: SubscriptionPath,
-  key: { value: string | null; reason: string }
+  key: { value: string | null; ring: KeyRing | null; reason: string }
 ): SimulationLlm {
   // Built on the first request of another role, so a run of core steps alone never makes a client on the key.
   let helpers: TDirect | null = null;
   const direct: Direct = {
     complete(messages, options) {
-      if (key.value === null) return refused(tool, key.reason);
-      helpers ??= deps.createDirect(key.value);
+      if (key.value === null || key.ring === null) return refused(tool, key.reason);
+      helpers ??= deps.createDirect(key.value, key.ring);
       return helpers.complete(messages, options);
     },
   };
@@ -152,6 +159,7 @@ function onRoute<TDirect extends Direct>(
       route: 'subscription',
       said: `core requests answered offline in place of ${subscriptionPathText(fixed)}, ${helpersSaid}`,
       key: key.value,
+      ring: key.ring,
       llm: { complete: (messages, options) => (isCore(options) ? offline : direct).complete(messages, options) },
       close: () => Promise.resolve(),
     };
@@ -186,6 +194,7 @@ function onRoute<TDirect extends Direct>(
     route: 'subscription',
     said: `core requests ${subscriptionPathText(fixed)}, ${helpersSaid}`,
     key: key.value,
+    ring: key.ring,
     llm: { complete },
     close: () => socket.close(),
   };
@@ -204,19 +213,21 @@ export function simulationLlm<TDirect extends Direct>(tool: string, deps: Simula
   } catch (err) {
     throw new CliError(`${tool}: ${firstLine(err, 'the simulation route cannot be read')}`);
   }
-  let key: { value: string | null; reason: string };
+  let key: { value: string | null; ring: KeyRing | null; reason: string };
   try {
-    key = { value: simulationKey(privateDir), reason: '' };
+    const route = simulationRoute(privateDir);
+    key = { value: route.value, ring: simulationRing(route), reason: '' };
   } catch (err) {
-    key = { value: null, reason: firstLine(err, 'the simulation key cannot be read') };
+    key = { value: null, ring: null, reason: firstLine(err, 'the simulation key cannot be read') };
   }
   if (fixed.kind === 'subharness') return onRoute(tool, deps, privateDir, fixed, key);
-  if (key.value === null) throw new CliError(`${tool}: ${key.reason}`);
+  if (key.value === null || key.ring === null) throw new CliError(`${tool}: ${key.reason}`);
   return {
     route: 'key',
     said: 'every request on the simulation key',
     key: key.value,
-    llm: deps.createDirect(key.value),
+    ring: key.ring,
+    llm: deps.createDirect(key.value, key.ring),
     close: () => Promise.resolve(),
   };
 }

@@ -2018,7 +2018,7 @@ function replaySimulation(
   answers: Untyped
 ): SimulationLlm {
   const sim = simulationLlm('replay-cli', {
-    createDirect: (apiKey) => createLlm({ apiKey, getConfig: () => hot.config, calibrator, state }),
+    createDirect: (apiKey, ring) => createLlm({ apiKey, keys: ring, getConfig: () => hot.config, calibrator, state }),
     getConfig: () => hot.config,
     state,
     // `--answers-dir` answers a core request on a stored subscription route from the files too.
@@ -6500,7 +6500,7 @@ async function loopDepsOf({
   let embed = null;
   if (openrouterKey) {
     const { createEmbedder } = await load('llm/embed.ts');
-    const embedder = createEmbedder({ apiKey: openrouterKey, env: {}, state: { data: {}, markDirty() {} } });
+    const embedder = createEmbedder({ apiKey: openrouterKey, state: { data: {}, markDirty() {} } });
     embed = (texts: Untyped, options: Untyped = {}) =>
       embedder.embed(texts, { ...options, origin: 'replay', countAgainstDailyCap: false });
   }

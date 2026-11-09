@@ -669,10 +669,10 @@ const codeOf = (error: unknown): string => {
 };
 
 /** Report effective model choices after the core's dependencies are available. */
-function reportEffectiveModels(config: Config, env: Row | null, log: Log): Promise<void> {
+function reportEffectiveModels(config: Config, ring: KeyRing | null, log: Log): Promise<void> {
   return import('./writer-switch.ts')
     .then(({ effectiveModels, effectiveModelsLine }) =>
-      log.info('memory db: effective models', { purposes: effectiveModelsLine(effectiveModels(config, env)) })
+      log.info('memory db: effective models', { purposes: effectiveModelsLine(effectiveModels(config, ring)) })
     )
     .catch((error) => log.warn('memory db: effective models failed', { code: codeOf(error) }));
 }
@@ -1383,7 +1383,7 @@ export function createMemoryDb({
   function logEffectiveModels() {
     if (modelsLogged) return Promise.resolve();
     modelsLogged = true;
-    return reportEffectiveModels(hot.config, sessionEnv?.() ?? null, log);
+    return reportEffectiveModels(hot.config, sessionKeys(), log);
   }
 
   /** One failing scope told once (`onSessionFailure`) until it runs fine again, with the scope the run names. */

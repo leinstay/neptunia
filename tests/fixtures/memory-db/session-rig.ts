@@ -9,6 +9,7 @@ import { batchOf, buildSessionRequest, scopesOf, type sweep } from '../../../src
 import * as memoryIds from '../../../src/memory/db/ids.ts';
 import { labels } from '../labels.ts';
 import { dbOf, type Db } from '../../../src/memory/db/types.ts';
+import type { KeyRing } from '../../../src/keys/ring.ts';
 import type { ClaimArgs, CtxOptions, FakeLlm, Fixture, LlmCall, LlmScript, Rec, SayArgs, Scope } from './session-shapes.ts';
 // The ids of the Discord namespace the fixtures of this file write.
 export const personOf = (id: string): string => memoryIds.personId('discord', id);
@@ -38,7 +39,6 @@ export const prompts = {
 export const baseConfig = (session: Rec = {}, extra: Rec = {}): Rec => ({
   bot: { timezone: 'UTC' },
   models: { base: { memory: 'x/memory' } },
-  llm: { keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } },
   memoryDb: { session: { mode: 'shadow', minMessages: 1, minLines: 0, ...session } },
   ...extra,
 });
@@ -173,9 +173,23 @@ export function chat(env: Fixture): Record<string, string> {
 
 let clock = 0;
 
+/** A key ring that routes every role to one memory key, as the core's ring does for a bound `memory`. */
+export function memoryRing(): KeyRing {
+  const route = { name: 'memory-key', value: 'k' };
+  return {
+    route: () => route,
+    names: () => [route.name],
+    failed: () => null,
+    states: () => [],
+    bound: () => [{ name: route.name, roles: ['memory'] }],
+    grants: () => ({}),
+    variables: () => ({}),
+  };
+}
+
 export function ctxOf(
   env: Fixture,
-  { llm, config = baseConfig(), promptSet = prompts, envVars = { OPENROUTER_MEMORY_KEY: 'k' }, write }: CtxOptions = {}
+  { llm, config = baseConfig(), promptSet = prompts, ring = memoryRing(), write }: CtxOptions = {}
 ): Parameters<typeof sweep>[0] {
   fillEnvAudiences(env); // PR 7d: the session reads through `audience_id`, so the fixture's rows carry it.
   return {
@@ -183,7 +197,8 @@ export function ctxOf(
     write: write ?? ((update: unknown) => new Promise((resolve) => resolve(applyMemoryWrite(env.handle, update)))),
     llm,
     hot: { config, prompts: promptSet },
-    env: envVars,
+    env: {},
+    ring,
     now: () => NOW + (clock += 1000),
     log: {},
     selfName: 'Nep',

@@ -199,7 +199,6 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/interface/commands/mirror.ts` | public | The owner's `/mirror` commands. Tested through the mirror command tests. | `node:*`, `src/**` | none |
 | `src/keys/` | public | The model keys of a deployment: the key store (`keys.json`), the core key list with its failover, the probes that check a key and a model, the owner's key commands and the one-time import of the old `.env` variables. The binding of a role to a key goes through `src/subharness/routing.ts`. | `node:*`, `src/keys/**`, `src/agent-runner/profiles.ts`, `src/llm/key-failover.ts`, `src/llm/openrouter.ts`, `src/llm/roles.ts`, `src/log.ts`, `src/subharness/routing.ts`, `src/time.ts` | required |
 | `src/llm/` | public | The language model calls: OpenRouter, roles, budgets, token counts, limits and output parsing. | `node:*`, `src/**` | required |
-| `src/llm/role-keys.ts` | public | How a request finds its key in `.env` and `llm.keyByRole`, while a deployment has no `keys.json`. Re-exported by `src/llm/openrouter.ts`; tested through the role key tests of the client. | `node:*`, `src/**` | none |
 | `src/media/` | public | Pictures, video, audio, GIFs and drawing on the core side. | `node:*`, `src/**` | required |
 | `src/memory/migration/` | public | The only decoders of the ids and paths a shipped database spells. | `node:*`, `src/**` | none |
 | `src/memory/` | public | The memory modules above the database: records, lore, episodes, recall ranking, vectors and backfills. | `node:*`, `src/**` | required |

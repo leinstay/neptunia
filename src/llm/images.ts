@@ -155,7 +155,7 @@ function buildBody({
 
 /**
  * @param deps.apiKey The key, or a function giving it, read at each request
- *   (the key `llm.keyByRole.drawing` names, src/llm/openrouter.ts#roleApiKey).
+ *   (the key the key ring routes `drawing` to, src/keys/ring.ts).
  * @param deps.getConfig Returns the live config (hot-reloaded).
  * @param deps.now Clock in ms.
  */

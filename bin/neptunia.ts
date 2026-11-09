@@ -134,7 +134,6 @@ import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
 import { BASE_ROLES, MEMORY_ROLE } from '../src/llm/roles.ts';
 import { createKeyStore, keysFileExists } from '../src/keys/store.ts';
-import { ROLE_KEY_NAME, STRICT_KEY_ROLES } from '../src/llm/openrouter.ts';
 import { log, logToStderr } from '../src/log.ts';
 import { resolvePaths } from '../src/paths.ts';
 import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
@@ -1060,7 +1059,7 @@ function checkKeyStore(privateDir: string): Check {
   }
 }
 
-/** The `.env` keys the enabled roles name (`llm.keyByRole`), beside the core's own: names only, never a value. */
+/** The core keys of keys.json: a count, never a value. */
 function checkEnvKeys(where: { rootDir: string; privateDir: string }): Check {
   if (keysFileExists(where.privateDir)) return checkKeyStore(where.privateDir);
   return { name: 'env-keys', status: 'fail', detail: 'no keys.json: run neptunia setup, then /keys core add' };
@@ -1074,33 +1073,19 @@ function rolesOff(config: Settings): Array<string> {
 }
 
 /**
- * The model roles that cannot run: switched off (`models.base.<role>: false`), or one whose key never falls back to
- * the main key (`STRICT_KEY_ROLES`) without its `llm.keyByRole` variable in `.env`. Either is `warn`. Names only.
+ * The model roles that cannot run: switched off (`models.base.<role>: false`), which is `warn`. Whether a role has a key
+ * is the key store's check (`env-keys`). Names only.
  */
 function checkRoles(where: { rootDir: string; privateDir: string }): Check {
   let config: Settings;
-  let names: Set<string>;
   try {
     config = readConfig(where.rootDir, { privateDir: where.privateDir });
-    names = new Set();
   } catch {
     return { name: 'roles', status: 'warn', detail: 'not checked: the config does not read' };
   }
-  const byRole = isObject(config.llm) && isObject(config.llm.keyByRole) ? config.llm.keyByRole : {};
-  // With a key store a role goes out on a core key or its bound key; the store's own check says whether there is one.
-  const noKey = keysFileExists(where.privateDir)
-    ? []
-    : STRICT_KEY_ROLES.filter((role) => {
-        const entry = byRole[role];
-        const listed = Array.isArray(entry) ? entry : [entry];
-        return !listed.some((name) => typeof name === 'string' && ROLE_KEY_NAME.test(name) && names.has(name));
-      });
-  const problems = [
-    ...rolesOff(config).map((role) => `${role} has no model`),
-    ...noKey.map((role) => `${role} has no key`),
-  ];
+  const problems = rolesOff(config).map((role) => `${role} has no model`);
   return problems.length === 0
-    ? { name: 'roles', status: 'ok', detail: 'every model role has a model and a key' }
+    ? { name: 'roles', status: 'ok', detail: 'every model role has a model' }
     : { name: 'roles', status: 'warn', detail: problems.join(', ') };
 }
 
