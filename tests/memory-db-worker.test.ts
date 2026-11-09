@@ -421,14 +421,9 @@ test('worker: the unit writers and the observation write through the worker (buf
         ['said', 1],
       ]
     );
-    const vectorUnits = listUnits(db, {
-      kind: 'vectors',
-      subject: { type: 'place', id: place },
-      partition: '2026-11',
-    });
-    assert.equal(vectorUnits.length, 1);
+    // A month of vectors is rows of its place (src/memory/db/line-vectors.ts), its bytes crossed the thread whole.
     assert.deepEqual(
-      [...(db.prepare('SELECT bytes FROM vectors WHERE owner_key = ?').get(vectorUnits[0].id)!.bytes as Uint8Array)],
+      [...(db.prepare('SELECT bytes FROM vectors WHERE place_id = ?').get(place)!.bytes as Uint8Array)],
       [1, 2, 3, 4]
     );
   } finally {

@@ -11,7 +11,6 @@ import { storageMapper } from './map/index.ts';
 
 import type { Mapper } from './map/index.ts';
 import type { MappedPath } from '../migration/classify.ts';
-import { filesOf } from './map/vectors.ts';
 import { OWNED } from './upsert.ts';
 import { addSessionRows } from './session-rows.ts';
 import { recordFieldsOf } from './media-store.ts';
@@ -218,13 +217,8 @@ export function filesOfUnit(
   const unitFull = unitFullGiven as string;
   const rows = unitRows(db, unitFull);
   const { kind, mapper, format } = info;
-  if (format === 'vectors') {
-    if (!rows.operational.length) return [];
-    return filesOf(`${unitRel}/manifest.json`, mapper.fromRows(rows) as Row).map((file) => ({
-      rel: file.rel,
-      data: file.data,
-    }));
-  }
+  // The line vectors are rows of a place, not month units (line-vectors.ts): no unit holds a month's files.
+  if (format === 'vectors') return [];
   if (format === 'jsonl') {
     const lines = linesOf(kind, mapper, rows).map((line) => `${JSON.stringify(line)}\n`);
     return [{ rel: unitRel, data: Buffer.from(lines.join(''), 'utf8') }];

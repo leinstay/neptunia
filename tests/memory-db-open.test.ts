@@ -25,9 +25,9 @@ test('a file database runs in WAL with foreign keys on and reopens without migra
   dbOf(first).prepare("INSERT INTO meta (key, value) VALUES ('k', 'v')").run();
   first.close();
   const second = openMemoryDb(file);
-  // A new database starts at the baseline with one version row (src/memory/db/schema-baseline.ts), where the chain
-  // wrote one row per step; a second migration would add a row.
-  assert.equal(dbOf(second).prepare('SELECT COUNT(*) AS n FROM schema_version').get()!.n, 1);
+  // A new database starts at the baseline with one version row (src/memory/db/schema-baseline.ts) and one more per step
+  // above it; a second migration would add rows.
+  assert.equal(dbOf(second).prepare('SELECT COUNT(*) AS n FROM schema_version').get()!.n, 1 + MIGRATIONS.length);
   assert.equal(dbOf(second).prepare("SELECT value FROM meta WHERE key = 'k'").get()!.value, 'v');
   second.close();
 });

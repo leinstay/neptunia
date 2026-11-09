@@ -167,7 +167,7 @@ test('an embedding of a text the claim no longer holds writes nothing', () => {
   assert.equal(rowCount(w.db, pending.chunkKey), 0);
 });
 
-test('object vectors are counted by no month manifest and keep their audience', async () => {
+test('object vectors keep their audience', async () => {
   // Bug: an object vector is filed under a month, so the month's manifest no longer counts what it holds, or the row
   // carries an audience its scope does not resolve to.
   let written = 0;
@@ -179,7 +179,6 @@ test('object vectors are counted by no month manifest and keep their audience', 
   const db = new DatabaseSync(file, { readOnly: true });
   try {
     const { checks } = auditMemory(db);
-    assert.equal(checks.vectorManifests, 0);
     assert.equal(checks.audienceDerived, 0);
   } finally {
     db.close();

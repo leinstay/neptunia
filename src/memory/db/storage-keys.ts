@@ -122,34 +122,6 @@ export const placeOrPersona = (
     ? { ...personaKey(kind), ...options }
     : placeCollection(kind, placeId, options);
 
-/** Per-vector-store handles capture semantic identity when a collection is selected. */
-export function vectorAddresses(): {
-  baseDir: (placeId: string) => string;
-  monthDir: (base: string, month: string) => string;
-  vectorKey: (address: string) => StorageKey;
-} {
-  const addresses = new Map<string, StorageKey>();
-  function baseDir(placeId: string): string {
-    const key = placeCollection('vectors', placeId);
-    const address = encodeURIComponent(keyText(key));
-    addresses.set(address, key);
-    return address;
-  }
-  function monthDir(base: string, month: string): string {
-    const key = { ...addresses.get(base)!, partition: month };
-    const address = encodeURIComponent(keyText(key));
-    addresses.set(address, key);
-    return address;
-  }
-  function vectorKey(address: string): StorageKey {
-    const key = addresses.get(address);
-    if (!key) throw Object.assign(new Error('UNIT_UNMAPPED'), { code: 'UNIT_UNMAPPED' });
-    return key;
-  }
-
-  return { baseDir, monthDir, vectorKey };
-}
-
 /** A journal day of one place. */
 export const journalKey = (placeId: string, day: string): StorageKey =>
   placeCollection('journal', placeId, { partition: day });

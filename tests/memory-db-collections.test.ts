@@ -6,7 +6,6 @@
 //   placeCollection(kind, placeId, options?): StorageKey         subject { type: 'place', id }
 //   journalKey(placeId, day): StorageKey
 //   errandKey(itemId): StorageKey                                a persona collection
-//   vectorAddresses().baseDir(placeId)
 // `options` is { partition?, selector? }. An empty id throws code `BAD_COLLECTION_ID`.
 // Appendix entries: src/memory/db/storage-keys.ts, src/memory/db/storage-units.ts, src/memory/db/unit-write.ts,
 // src/memory/db/upsert.ts.
@@ -23,7 +22,6 @@ import {
   personCollection,
   placeCollection,
   storageId,
-  vectorAddresses,
 } from '../src/memory/db/storage-keys.ts';
 import { ensureUnit, listUnits, unitById } from '../src/memory/db/storage-units.ts';
 import { dbOf } from '../src/memory/db/types.ts';
@@ -90,10 +88,6 @@ test('the journal of a day belongs to its place, an errand to the persona, vecto
   });
   assert.equal(errandKey('task-1').subject.type, 'persona');
   assert.deepEqual(errandKey('task-1').selector, { collection: 'value', itemId: 'task-1' });
-  const vectors = vectorAddresses();
-  const key = vectors.vectorKey(vectors.baseDir('place:dm-a11'));
-  assert.deepEqual(key.subject, { type: 'place', id: 'place:dm-a11' });
-  assert.equal(key.scopePlaceId, undefined);
 });
 
 test('no constructor that takes a root remains', () => {

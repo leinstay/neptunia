@@ -30,30 +30,16 @@ import * as recent from './recent.ts';
 import * as record from './record.ts';
 import * as requests from './requests.ts';
 import * as user from './user.ts';
-import * as vectors from './vectors.ts';
 import * as verbatim from './verbatim.ts';
 import * as versions from './versions.ts';
 
 /**
- * What every mapper module offers the unit sync: the rows of a file, the file back from its rows, and (the vectors
- * mapper only) the rows of the part of a month that came after the stored ones. The methods are written as methods so
- * a module may take the narrower value its own file holds.
+ * What every mapper module offers the unit sync: the rows of a file and the file back from its rows. The methods are
+ * written as methods so a module may take the narrower value its own file holds.
  */
 export type Mapper = {
   toRows(rel: string, value: unknown, ctx: MapContext): Rows;
   fromRows(rows: Rows, ctx?: MapContext): unknown;
-  appendRows?(
-    rel: string,
-    delta: never,
-    state: {
-      previous: never;
-      keys: Iterable<string>;
-      iface?: string;
-      privateAccountId?: string | null;
-      dmPlace?: MapContext['dmPlace'];
-      dmOfMember?: MapContext['dmOfMember'];
-    }
-  ): Rows | null;
 };
 
 export const MAPPERS = {
@@ -70,7 +56,6 @@ export const MAPPERS = {
   errands,
   archive,
   versions,
-  vectors,
   media,
   gifs,
   requests,
@@ -284,20 +269,6 @@ export function storageMapper(
     mapper: {
       ...original,
       toRows,
-      ...(original.appendRows
-        ? {
-            appendRows: (rel, delta, state) => {
-              const rows = original.appendRows!(rel, delta, {
-                ...state,
-                iface: base.iface,
-                privateAccountId: base.privateAccountId,
-                dmPlace: base.dmPlace,
-                dmOfMember: base.dmOfMember,
-              });
-              return rows ? ownedRows(db, rows, id, undefined, legacyOwner) : null;
-            },
-          }
-        : {}),
       fromRows: (rows) => original.fromRows(rows, base),
     },
   };

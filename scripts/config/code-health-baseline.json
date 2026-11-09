@@ -640,10 +640,6 @@
       "deep": 9,
       "repeated": 0
     },
-    "tests/memory-db-map-vectors.test.ts": {
-      "deep": 8,
-      "repeated": 0
-    },
     "tests/memory-db-map-verbatim.test.ts": {
       "deep": 9,
       "repeated": 0
@@ -1807,9 +1803,6 @@
       }
     },
     "src/memory/vectors.ts": {
-      "createVectors": {
-        "function-length": 459
-      },
       "createVectors>search": {
         "complexity": 35
       }

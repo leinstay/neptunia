@@ -1,0 +1,375 @@
+// The write kind `line-vectors` (src/memory/db/line-vectors.ts): the vectors of the lines she saw and said, written as
+// `vectors` rows of a place directly instead of as month units with a manifest. The first tests write the same lines
+// through the unit write of a month and through the write kind and compare the stored rows column by column. The
+// ownership columns `owner_key`, `owner_file` and `place_id` are the one difference the plan makes, and the unit path's
+// `operational` manifest row is not written. Then the readers, and the vector index over a reopen.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { createVectors } from '../src/memory/vectors.ts';
+import { lineVectorKeys, lineVectorMonth, lineVectorMonths } from '../src/memory/db/line-vectors.ts';
+import { OBSERVATION_VERSION } from '../src/memory/db/observe.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { placeCollection } from '../src/memory/db/storage-keys.ts';
+import { ensureUnit } from '../src/memory/db/storage-units.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import type { Db, Row } from '../src/memory/db/types.ts';
+import { openTestMemory } from './fixtures/memory-db/service.ts';
+import { tempDir } from './fixtures/tmp.ts';
+
+const DIMS = 4;
+const MODEL = 'test/embedder';
+const GROUP = 'discord:guild:1';
+const NOW = Date.parse('2026-11-09T10:00:00.000Z');
+
+/** A stored line of the index: what src/memory/vectors.ts writes for a row, with its int8 bytes. */
+type Stored = { line: Row; bytes: Uint8Array };
+
+function stored(id: string, row: number, occurredAt: string, fill: number, extra: Row = {}): Stored {
+  return {
+    line: {
+      row,
+      kind: 'record',
+      id,
+      revision: 1,
+      occurredAt,
+      placeId: 'discord:channel:10',
+      by: 'owner',
+      participants: ['owner'],
+      sourceIds: [id],
+      scale: 0.01 * fill,
+      norm: 1 + fill,
+      ...extra,
+    },
+    bytes: Uint8Array.from({ length: DIMS }, (_, i) => fill + i),
+  };
+}
+
+/** The month files of stored lines, as the unit write of a month takes them. */
+function monthFiles(lines: ReadonlyArray<Stored>, rows: number): Row {
+  return {
+    manifest: {
+      v: 1,
+      gen: 1,
+      rows,
+      bytes: rows * DIMS,
+      metaBytes: 0,
+      model: MODEL,
+      dims: DIMS,
+      checksum: 'fnv1a32:00000000:00000000',
+    },
+    meta: lines.map((one) => `${JSON.stringify(one.line)}\n`).join(''),
+    i8: Buffer.concat(lines.map((one) => Buffer.from(one.bytes))),
+  };
+}
+
+/** An observed line of a direct chat, which makes its DM place. */
+const dmLine = (native: string) => ({
+  v: OBSERVATION_VERSION,
+  iface: 'discord',
+  authority: 'discord/global',
+  native: { kind: 'message', key: `${native}:1`, revision: 1 },
+  place: { authority: 'discord/global', key: `dm:${native}`, kind: 'dm', chat: 'dm' },
+  author: { kind: 'account', key: native },
+  occurredAt: '2026-11-03T10:00:00.000Z',
+  observedAt: '2026-11-03T10:00:01.000Z',
+  text: 'a synthetic line',
+  mentions: [],
+  direct: true,
+  relations: [],
+});
+
+type Fresh = {
+  env: Awaited<ReturnType<typeof openTestMemory>>;
+  memoryDb: Awaited<ReturnType<typeof openTestMemory>>['memoryDb'];
+  dm: string;
+  db: () => Db;
+};
+
+async function fresh(): Promise<Fresh> {
+  const env = await openTestMemory();
+  const { memoryDb } = env;
+  const seen = (await memoryDb.observe(dmLine('7'), null)) as { placeId: string };
+  return { env, memoryDb, dm: seen.placeId, db: () => dbOf(memoryDb.readHandle()!) };
+}
+
+/** The vectors rows without their ownership, in chunk key order, a retirement as true or false. */
+function rowsOf(db: Db): Array<Row> {
+  return db
+    .prepare('SELECT * FROM vectors ORDER BY chunk_key')
+    .all()
+    .map((row) => {
+      const out: Row = { ...row };
+      for (const column of ['owner_key', 'owner_file', 'place_id']) delete out[column];
+      // Each service stamps a retirement with its own clock: whether a row is retired is the fact.
+      out.retired_at = out.retired_at !== null;
+      return out;
+    });
+}
+
+type Step = { place: 'group' | 'dm'; month: string; op: 'append' | 'month'; lines: Array<Stored>; before: number };
+
+async function writeBoth(steps: ReadonlyArray<Step>): Promise<[Array<Row>, Array<Row>]> {
+  const viaUnit = await fresh();
+  const direct = await fresh();
+  try {
+    for (const step of steps) {
+      const unitPlace = step.place === 'dm' ? viaUnit.dm : GROUP;
+      const key = { ...placeCollection('vectors', unitPlace), partition: step.month };
+      const files = monthFiles(step.lines, step.before + step.lines.length);
+      await viaUnit.memoryDb.writeUnit({
+        op: 'vectors',
+        key,
+        ...(step.op === 'append' ? { delta: files } : { value: files }),
+      });
+      await direct.memoryDb.writeLineVectors({
+        op: step.op,
+        placeId: step.place === 'dm' ? direct.dm : GROUP,
+        month: step.month,
+        model: MODEL,
+        lines: step.lines,
+      });
+    }
+    return [rowsOf(viaUnit.db()), rowsOf(direct.db())];
+  } finally {
+    await viaUnit.env.close();
+    await direct.env.close();
+  }
+}
+
+const OCT = '2026-10-05T10:00:00.000Z';
+const NOV = '2026-11-03T10:00:00.000Z';
+
+const CASES: Array<{ name: string; steps: Array<Step> }> = [
+  {
+    name: 'two appends to one month of a group place and one to the next month',
+    steps: [
+      {
+        place: 'group',
+        month: '2026-10',
+        op: 'append',
+        before: 0,
+        lines: [stored('m1', 0, OCT, 1), stored('m2', 1, OCT, 2)],
+      },
+      { place: 'group', month: '2026-10', op: 'append', before: 2, lines: [stored('m3', 2, OCT, 3)] },
+      { place: 'group', month: '2026-11', op: 'append', before: 0, lines: [stored('m4', 0, NOV, 4)] },
+    ],
+  },
+  {
+    name: 'appends to a direct chat, with the line its observation stored',
+    steps: [
+      {
+        place: 'dm',
+        month: '2026-11',
+        op: 'append',
+        before: 0,
+        lines: [stored('7:1', 0, NOV, 1), stored('d2', 1, NOV, 2)],
+      },
+      { place: 'dm', month: '2026-11', op: 'append', before: 2, lines: [stored('d3', 2, NOV, 3)] },
+    ],
+  },
+  {
+    name: 'a month that names one line twice',
+    steps: [
+      {
+        place: 'group',
+        month: '2026-11',
+        op: 'append',
+        before: 0,
+        lines: [stored('m1', 0, NOV, 1), stored('m1', 1, NOV, 2)],
+      },
+      { place: 'group', month: '2026-11', op: 'append', before: 2, lines: [stored('m1', 2, NOV, 3)] },
+    ],
+  },
+  {
+    name: 'a whole month written again with one line fewer',
+    steps: [
+      {
+        place: 'group',
+        month: '2026-11',
+        op: 'month',
+        before: 0,
+        lines: [stored('m1', 0, NOV, 1), stored('m2', 1, NOV, 2)],
+      },
+      { place: 'group', month: '2026-11', op: 'month', before: 0, lines: [stored('m2', 0, NOV, 2)] },
+    ],
+  },
+  {
+    name: 'a line whose keys are in an order of its own',
+    steps: [
+      {
+        place: 'group',
+        month: '2026-11',
+        op: 'append',
+        before: 0,
+        lines: [
+          {
+            line: { id: 'k1', row: 0, kind: 'record', revision: 1, occurredAt: NOV, extra: 'x', scale: 0.1, norm: 2 },
+            bytes: Uint8Array.of(1, 2, 3, 4),
+          },
+        ],
+      },
+    ],
+  },
+];
+
+for (const { name, steps } of CASES) {
+  test(`the line vectors write stores ${name} as the unit write does`, async () => {
+    // Catches: a direct write that stores another chunk key, scope, model, context, link or retirement.
+    const [viaUnit, direct] = await writeBoth(steps);
+    assert.ok(direct.length > 0);
+    assert.deepEqual(direct, viaUnit);
+  });
+}
+
+test('the readers give the months, the lines in row order with their bytes, and the chunk keys of a place', async () => {
+  // Catches: a reader that mixes places, loses the row order, or answers a retired line.
+  const { env, db } = await fresh();
+  try {
+    await env.memoryDb.writeLineVectors({
+      op: 'append',
+      placeId: GROUP,
+      month: '2026-11',
+      model: MODEL,
+      lines: [stored('m2', 0, NOV, 2), stored('m1', 1, NOV, 1)],
+    });
+    await env.memoryDb.writeLineVectors({
+      op: 'append',
+      placeId: GROUP,
+      month: '2026-10',
+      model: MODEL,
+      lines: [stored('o1', 0, OCT, 5)],
+    });
+    await env.memoryDb.writeLineVectors({
+      op: 'append',
+      placeId: 'discord:guild:2',
+      month: '2026-09',
+      model: MODEL,
+      lines: [stored('x1', 0, '2026-09-01T00:00:00.000Z', 6)],
+    });
+    assert.deepEqual(lineVectorMonths(db(), GROUP), ['2026-10', '2026-11']);
+    const month = lineVectorMonth(db(), GROUP, '2026-11');
+    assert.deepEqual(
+      month?.metas.map((meta) => meta.id),
+      ['m2', 'm1']
+    );
+    assert.deepEqual(month?.metas[0], stored('m2', 0, NOV, 2).line);
+    assert.deepEqual([...(month?.data ?? [])], [2, 3, 4, 5, 1, 2, 3, 4]);
+    assert.deepEqual([...lineVectorKeys(db(), GROUP, '2026-11')].sort(), ['record:m1:1', 'record:m2:1']);
+  } finally {
+    await env.close();
+  }
+});
+
+test('the vector index finds what it appended after the database reopens', async () => {
+  // Catches: rows the index writes that no new index can find once the first one and its cache are gone.
+  let env = await openTestMemory();
+  try {
+    const first = createVectors({ dataDir: env.dataDir, memoryDb: env.memoryDb, now: () => NOW });
+    await first.append(
+      GROUP,
+      [
+        { meta: { kind: 'record', id: 'm1', revision: 1, occurredAt: NOV }, vector: [1, 0, 0, 0] },
+        { meta: { kind: 'record', id: 'm2', revision: 1, occurredAt: NOV }, vector: [0, 1, 0, 0] },
+      ],
+      { model: MODEL }
+    );
+    await env.close();
+    env = await openTestMemory({ dataDir: env.dataDir });
+    const second = createVectors({ dataDir: env.dataDir, memoryDb: env.memoryDb, now: () => NOW });
+    const found = await second.search(GROUP, [1, 0.1, 0, 0], { k: 2 });
+    assert.deepEqual(
+      found.map((hit) => (hit.meta as { id: string }).id),
+      ['m1', 'm2']
+    );
+    assert.deepEqual([...(await second.has(GROUP, '2026-11'))].sort(), ['record:m1:1', 'record:m2:1']);
+    assert.deepEqual(await second.stats(GROUP), { months: 1, rows: 2, bytes: (await second.stats(GROUP)).bytes });
+  } finally {
+    await env.close();
+    fs.rmSync(env.dataDir, { recursive: true, force: true });
+  }
+});
+
+/** A database at the baseline, holding a month of the group's index as the unit path left it. */
+function seededAtBaseline(): string {
+  const file = path.join(tempDir('line-vectors-step'), 'memory.db');
+  const old = openMemoryDb(file, { migrations: [] });
+  const db = dbOf(old);
+  const unit = ensureUnit(db, { ...placeCollection('vectors', GROUP), partition: '2026-11' });
+  const insert = db.prepare(
+    `INSERT INTO vectors (chunk_key, item_id, occurred_at, model, dims, scale, norm, bytes, context, scope_kind,
+       scope_iface, owner_key) VALUES (?, ?, ?, ?, 4, 0.01, 1, ?, ?, 'group', 'discord', ?)`
+  );
+  insert.run(
+    'record:m1:1',
+    'm1',
+    NOV,
+    MODEL,
+    Uint8Array.of(1, 2, 3, 4),
+    '{"row":1,"kind":"record","revision":1}',
+    unit
+  );
+  insert.run(
+    'record:m0:1',
+    'm0',
+    NOV,
+    MODEL,
+    Uint8Array.of(5, 6, 7, 8),
+    '{"row":0,"kind":"record","revision":1}',
+    unit
+  );
+  // An object vector belongs to no month and keeps no place.
+  db.prepare(
+    "INSERT INTO vectors (chunk_key, item_id, model, dims, bytes, scope_kind) VALUES ('claim:c1:aud:m', 'c1', ?, 4, ?, 'internal')"
+  ).run(MODEL, Uint8Array.of(1, 1, 1, 1));
+  db.prepare("INSERT INTO operational (kind, owner, value, owner_key) VALUES ('vectors', ?, '{}', ?)").run(unit, unit);
+  old.close();
+  return file;
+}
+
+test('the schema step gives each line vector the place of its month and leaves its content as it was', () => {
+  // Catches: rows the new readers cannot find after the deploy, an object vector given a place, or a manifest left.
+  const handle = openMemoryDb(seededAtBaseline());
+  try {
+    const db = dbOf(handle);
+    assert.deepEqual(
+      db
+        .prepare('SELECT chunk_key, place_id, owner_key FROM vectors ORDER BY chunk_key')
+        .all()
+        .map((row) => ({ ...row })),
+      [
+        { chunk_key: 'claim:c1:aud:m', place_id: null, owner_key: null },
+        { chunk_key: 'record:m0:1', place_id: GROUP, owner_key: null },
+        { chunk_key: 'record:m1:1', place_id: GROUP, owner_key: null },
+      ]
+    );
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM operational WHERE kind = 'vectors'").get()?.n, 0);
+    assert.equal(
+      db.prepare("SELECT COUNT(*) AS n FROM storage_units WHERE kind = 'vectors' AND retired_at IS NULL").get()?.n,
+      0
+    );
+    assert.deepEqual(
+      lineVectorMonth(db, GROUP, '2026-11')?.metas.map((meta) => meta.id),
+      ['m0', 'm1']
+    );
+  } finally {
+    handle.close();
+  }
+});
+
+test('a line found by its stored address is searched through its index after the schema step', () => {
+  // Catches: an index over other expressions than the query's, so finding an old line scans every line.
+  const handle = openMemoryDb(seededAtBaseline());
+  try {
+    const plan = dbOf(handle)
+      .prepare(
+        `EXPLAIN QUERY PLAN SELECT * FROM sources WHERE iface = ? AND CASE WHEN json_valid(extra) THEN COALESCE(json_extract(extra, '$."$messageLocator".chatId'), json_extract(extra, '$."$messageLocator".conversationId')) END = ? AND CASE WHEN json_valid(extra) THEN json_extract(extra, '$."$messageLocator".messageId') END = ? AND generation = ?`
+      )
+      .all('discord', 'c', 'm', 1)
+      .map((row) => String(row.detail));
+    assert.match(plan.join(' | '), /USING INDEX sources_message_locator/);
+  } finally {
+    handle.close();
+  }
+});

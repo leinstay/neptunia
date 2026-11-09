@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { openMemoryDb } from '../src/memory/db/open.ts';
+import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
 import { BASELINE_VERSION } from '../src/memory/db/schema-baseline.ts';
 import { INITIAL_ENTITY_KINDS, INITIAL_PREDICATES } from '../src/memory/db/semantic-registry.ts';
 import { BOARD_VERSION, boardVersion } from '../src/board/schema.ts';
@@ -19,6 +19,9 @@ const versions = (handle: ReturnType<typeof openMemoryDb>): Array<number> =>
     .all()
     .map((row) => Number(row.version));
 
+/** The versions a current database holds: the baseline's, then one per step above it. */
+const CURRENT = [BASELINE_VERSION, ...MIGRATIONS.map((_, step) => BASELINE_VERSION + step + 1)];
+
 test('a new database starts at the baseline with the seed rows a new install needs', () => {
   // Catches: a lost seed row, which leaves a new install without her own person, an audience, an interface's
   // authority, a registry entry or the board.
@@ -30,7 +33,7 @@ test('a new database starts at the baseline with the seed rows a new install nee
         .prepare(sql)
         .all()
         .map((row) => Object.values(row)[0]);
-    assert.deepEqual(versions(fresh), [BASELINE_VERSION]);
+    assert.deepEqual(versions(fresh), CURRENT);
     assert.deepEqual(column("SELECT kind FROM people WHERE id = 'person:self'"), ['self']);
     assert.deepEqual(column('SELECT id FROM audiences ORDER BY id'), ['aud:internal', 'aud:none']);
     assert.deepEqual(column('SELECT id FROM interfaces ORDER BY id'), ['cli', 'core', 'discord']);
@@ -65,7 +68,7 @@ test('a database at the baseline opens with its schema, rows and version unchang
   try {
     assert.deepEqual(schemaShape(dbOf(again)), shape);
     assert.deepEqual(filledRows(dbOf(again)), rows);
-    assert.deepEqual(versions(again), [BASELINE_VERSION]);
+    assert.deepEqual(versions(again), CURRENT);
     assert.equal(dbOf(again).prepare('PRAGMA quick_check').get()?.quick_check, 'ok');
   } finally {
     again.close();
