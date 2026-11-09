@@ -165,7 +165,7 @@ function consoleOver(ran: Array<string> = []): { dir: string; run: (line: string
       ran.push(op);
       return Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null });
     },
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => ['g1'],
     selfId: () => 'self-1',
     hot: {
@@ -246,7 +246,7 @@ test('a failed setup in the chat writes nothing', async () => {
   const { dir } = consoleOver();
   const desk = createConsole({
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: {} },

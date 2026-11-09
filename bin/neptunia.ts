@@ -704,7 +704,6 @@ async function runInkChat(
       { name: 'branch', help: 'Continue this chat from an earlier line' },
       { name: 'checkpoints', help: "Preview and restore a development task's files" },
       { name: 'approvals', help: 'Approve or reject what waits on the task board' },
-      { name: 'plugins', help: 'Plugins, which no operation installs yet' },
       ...COMMANDS.flatMap((command) => [
         { name: command.name, help: command.help },
         ...command.subcommands.map((sub) => ({

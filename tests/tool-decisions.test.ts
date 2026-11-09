@@ -66,5 +66,6 @@ test('the committed table holds a row per tool of the registry and a verdict per
   // `task.unblock` joined the registry with the task-started development run.
   // `inner.stop` and `inner.start` left with `/wakes`.
   // `person.link`, her link tool, is the 76th (plan 2026-11-08-meta-person slice 8).
-  assert.equal(committed.tools.length, 76);
+  // `inner.status` left: it repeated the `inner` field of the owner's status card.
+  assert.equal(committed.tools.length, 75);
 });

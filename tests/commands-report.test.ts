@@ -31,7 +31,7 @@ test('a word, a path or two words where a date goes read no file', async () => {
   writeFileSync(join(reports, 'yesterday.md'), 'zeta-word\n');
   const desk = createConsole({
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: {} },

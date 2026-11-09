@@ -18,7 +18,7 @@ A flag `--<role> <route>` replaces one role for that run alone and writes nothin
 
 ## Rules
 
-- **Read-only on `data/`.** No script writes under `data/guilds/`. A script that needs to change memory works on a copy made by `/nep memory snapshot`. `recall-eval.ts` writes under `data/recall-eval/` only. `vision-compare.ts` writes under `data/vision-compare/` only.
+- **Read-only on `data/`.** No script writes under `data/guilds/`. A script that needs to change memory works on a copy of the memory database made by the `memory.snapshot` operation. `recall-eval.ts` writes under `data/recall-eval/` only. `vision-compare.ts` writes under `data/vision-compare/` only.
 - **Side effects off.** Nothing is posted to Discord. Discord is read over REST without a gateway session. The engine's daily counters are private copies. Requests are marked with the tool's own `origin` and never count against `llm.maxRequestsPerDay`.
 - **Spending needs a word.** A script that sends model requests prints an estimate and refuses with exit code 2 unless `--spend <usd>` covers it.
 - **Output.** Reports go to stdout, logs and estimates to stderr. Reports that quote memory or chat are for the owner's eyes on the server: never paste them into an issue, a commit or a chat.
@@ -54,7 +54,7 @@ Pure helpers live in `scripts/lib/` and are tested by `tests/tools-*.test.js`.
 
 ## A typical measurement
 
-1. `/nep memory snapshot` in Discord; note the path.
+1. Ask her for `memory.snapshot`, the owner-only operation that copies the memory database, and note the path.
 2. Let the bot run for a day with the change under test.
 3. `node scripts/cache-report.ts --from <day> --to <day>` for the day's cache numbers.
 4. `node scripts/replay.ts --pair data/prompts <candidate-dir> --triggers triggers.txt --out /tmp/pair-1` to read the estimate, then again with `--spend <usd>`.
