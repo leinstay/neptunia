@@ -1,17 +1,18 @@
 // Her tool `person.link` (plan 2026-11-08-meta-person, "Linking accounts by her own tool"), after Hermes's pairing. In
-// a conversation with account A she names the meta-person she believes the person is. `start` sends a one-time code
-// (`labels.link.code`) in a direct message to an account of that meta-person, B, on any interface that reaches one,
-// and answers her with the rule of the next message (`labels.tools.tools.link.sent`), never with the code. The door
-// hands every new line to `screen` first: the next message of A in that conversation ends the attempt. The right code
-// is dropped before memory or a turn sees it, its message id is withheld from every chat a turn reads, and the bind
+// a conversation with account A she names the meta-person she believes the person is. `start` sends a one-time phrase
+// of six words (`labels.link.code`, naming A's handle and interface) in a direct message to an account of that
+// meta-person, B, on any interface that reaches one, and answers her with the rule of the next message
+// (`labels.tools.tools.link.sent`), never with the phrase. The door hands every new line to `screen` first: the next
+// message of A in that conversation ends the attempt. A message that holds the six words in any order and any form
+// (src/interface/phrase-codes.ts) is dropped before memory or a turn sees it, its message id is withheld from every chat a turn reads, and the bind
 // of `/memory bind` runs (src/memory/db/person-bind.ts, `by` `code`): B's meta-person wins, A's merges into it, and the
 // private layers join. Any other message is passed on and counted as a failure.
 //
 // Hermes's limits (gateway/pairing.py): a code lives an hour, an account asks once per ten minutes, five failures lock
 // it for an hour. The owner's meta-person is never touched, neither as B nor as A's. A closed direct chat, or no
-// interface that reaches B, is refused and nothing waits. The state lives in the process: a restart drops every
-// waiting code. Logs carry interfaces and outcomes, never the code. Built by src/core.ts; the codes are
-// src/interface/pairing.ts.
+// interface that reaches B, is refused and nothing waits. The waiting seals, the limits and the withheld message ids
+// are written to the state file, so a restart neither drops a waiting phrase nor reopens an ended attempt. Logs carry
+// interfaces and outcomes, never the phrase. Built by src/core.ts; the limits and the file are src/interface/pairing.ts.
 
 import { log } from '../log.ts';
 import { peopleOfHandle } from '../memory/db/direct-chats.ts';
@@ -26,7 +27,9 @@ import { CODE } from '../tools/codes.ts';
 import { ownerPersonOf } from '../tools/operations/grants.ts';
 import { fillLabel, hasCodeLine } from './owner-pairing.ts';
 import type { OwnerPairing } from './owner-pairing.ts';
-import { CODE_TTL_MS, LOCK_MS, MAX_FAILURES, REQUEST_EVERY_MS, hashCode, newCode, secureRandom } from './pairing.ts';
+import { CODE_TTL_MS, LOCK_MS, MAX_FAILURES, REQUEST_EVERY_MS, codesFileOf, createCodeFile } from './pairing.ts';
+import { phraseCodesOf } from './phrase-codes.ts';
+import type { PhraseCodes, Seal } from './phrase-codes.ts';
 
 /** The interface of the owner's command line, which reaches nobody else. */
 const CONSOLE_IFACE = 'cli';
@@ -34,15 +37,23 @@ const CONSOLE_IFACE = 'cli';
 const WITHHELD_KEPT = 1000;
 
 export type PersonLinksDeps = {
-  /** The live config and prompts: `bot.ownerPerson`, `labels.link` and `labels.tools.tools.link`, read at each use. */
-  hot: { readonly config: unknown; readonly prompts?: unknown };
+  /** The live config, prompts and layers: `bot.ownerPerson`, `bot.phraseWords` and the link labels, read at each use. */
+  hot: {
+    readonly config: unknown;
+    readonly prompts?: unknown;
+    readonly rootDir?: string;
+    readonly privateDir?: string;
+  };
   memoryDb: {
     database(): Db | null;
     personBind(input: BindInput, confirm: BindConfirm | null): Promise<BindResult>;
   } | null;
   port: Pick<Adapter, 'send' | 'dmChatOf'>;
   now?: () => number;
-  rng?: () => number;
+  /** The phrases; the list `bot.phraseWords` names and the memory's stemmer when absent. */
+  phrases?: PhraseCodes;
+  /** Where the waiting seals, the limits and the withheld message ids survive a restart: `link-codes.json` of the data directory. */
+  file?: string | null;
 };
 
 /** What she asked: the account she talks with (its interface, platform id and conversation) and the meta-person. */
@@ -60,12 +71,15 @@ export type PersonLinks = {
   /** What the door does with a new line: drop the right code of the account that asked, or pass it on. */
   screen(event: MessageEvent): Promise<'pass' | 'drop'>;
   isCodeLine(content: unknown): boolean;
-  /** True for a message that carried a code, kept out of every chat a turn reads. */
+  /** True for a message that carried a phrase, kept out of every chat a turn reads. */
   isWithheld(iface: string, chatId: string, messageId: string): boolean;
 };
 
-type Waiting = { chatId: string; accountId: string; person: string; hash: string; at: number };
+type Waiting = { chatId: string; accountId: string; person: string; seal: Seal; at: number };
 type Limits = { askedAt: number; failures: number; lockedUntil: number };
+type LinkState = { waiting: Record<string, Waiting>; limits: Record<string, Limits>; withheld: Array<string> };
+
+const emptyState = (): LinkState => ({ waiting: {}, limits: {}, withheld: [] });
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -98,6 +112,13 @@ function reachableAccounts(db: Db, person: string, except: string): Array<{ ifac
 
 const keyOf = (iface: string, native: string): string => JSON.stringify([iface, native]);
 
+/** How the message names account A: its handle, else its display name, else its platform id. */
+function handleOfAccount(db: Db, accountId: string, native: string): string {
+  const row = db.prepare('SELECT handle, display_name FROM person_accounts WHERE id = ?').get(accountId);
+  for (const value of [row?.handle, row?.display_name]) if (typeof value === 'string' && value !== '') return value;
+  return native;
+}
+
 /** The person she named: the id of a stored person as she reads it, or the member handle of exactly one person's account. */
 function personNamed(db: Db, reference: string): string | null {
   const given = reference.trim().replace(/^@/, '');
@@ -111,35 +132,35 @@ export function createPersonLinks({
   memoryDb,
   port,
   now = Date.now,
-  rng = secureRandom,
+  phrases = phraseCodesOf(hot, () => memoryDb?.database() ?? null),
+  file = codesFileOf(hot, 'link-codes.json'),
 }: PersonLinksDeps): PersonLinks {
-  const waiting = new Map<string, Waiting>();
-  const limits = new Map<string, Limits>();
-  const withheld = new Set<string>();
+  const store = createCodeFile(file, emptyState);
+  const state = store.load();
+  const save = (): void => store.save(state);
 
   function limitsOf(key: string): Limits {
-    const found = limits.get(key) ?? { askedAt: Number.NEGATIVE_INFINITY, failures: 0, lockedUntil: 0 };
-    limits.set(key, found);
+    // The ten-minute limit starts at the first ask; a past far enough away stands for never.
+    const found = state.limits[key] ?? { askedAt: -REQUEST_EVERY_MS - 1, failures: 0, lockedUntil: 0 };
+    state.limits[key] = found;
     return found;
   }
 
   function withhold(event: MessageEvent): void {
-    withheld.add(JSON.stringify([event.iface, event.chat.id, event.message.id]));
-    // The set is past its cap, so it has a first value.
-    if (withheld.size > WITHHELD_KEPT) withheld.delete(withheld.values().next().value as string);
+    state.withheld = [...state.withheld, JSON.stringify([event.iface, event.chat.id, event.message.id])].slice(
+      -WITHHELD_KEPT
+    );
   }
 
-  /** Sends the code to the first account of `person` an interface reaches; whether one took it. */
-  async function sendCode(db: Db, person: string, accountId: string, code: string): Promise<boolean> {
-    const template = labelAt(hot.prompts, ['link', 'code']);
-    if (template === '') return false;
+  /** Sends the phrase to the first account of `person` an interface reaches; whether one took it. */
+  async function sendCode(db: Db, person: string, accountId: string, text: string): Promise<boolean> {
     for (const target of reachableAccounts(db, person, accountId)) {
       try {
         const chat = await port.dmChatOf({ iface: target.iface, accountId: target.native });
         if (chat.status !== 'ok') continue;
         const delivery = await port.send(
           { iface: target.iface, chatId: chat.chatId },
-          { text: fillLabel(template, { code }), mentions: { users: [], repliedUser: false } }
+          { text, mentions: { users: [], repliedUser: false } }
         );
         if (delivery.status === 'ok') return true;
       } catch {
@@ -181,12 +202,23 @@ export function createPersonLinks({
       return { status: 'denied', code: CODE.COOLDOWN };
     }
     limit.askedAt = now();
-    const code = newCode(rng);
-    if (!(await sendCode(db, target, accountId, code))) {
-      log.info('link: not sent', { iface: ask.iface });
+    save();
+    const template = labelAt(hot.prompts, ['link', 'code']);
+    const issued = template === '' ? null : phrases.issue();
+    const text =
+      issued === null
+        ? ''
+        : fillLabel(template, {
+            handle: handleOfAccount(db, accountId, ask.native),
+            iface: ask.iface,
+            phrase: issued.phrase,
+          });
+    if (issued === null || !(await sendCode(db, target, accountId, text))) {
+      log.info('link: not sent', { iface: ask.iface, phrase: issued !== null });
       return { status: 'failed', code: CODE.CHAT_CLOSED };
     }
-    waiting.set(key, { chatId: ask.chatId, accountId, person: target, hash: hashCode(code), at: now() });
+    state.waiting[key] = { chatId: ask.chatId, accountId, person: target, seal: issued.seal, at: now() };
+    save();
     log.info('link: code sent', { iface: ask.iface });
     return { status: 'ok', data: { text: labelAt(hot.prompts, ['tools', 'tools', 'link', 'sent']) } };
   }
@@ -195,10 +227,10 @@ export function createPersonLinks({
     const author = event.message.author;
     if (author === undefined || author.self === true || author.bot) return 'pass';
     const key = keyOf(event.iface, String(author.id));
-    const asked = waiting.get(key);
+    const asked = state.waiting[key];
     if (asked === undefined || asked.chatId !== event.chat.id) return 'pass';
-    waiting.delete(key);
-    const isRight = now() - asked.at <= CODE_TTL_MS && hashCode(String(event.message.content ?? '')) === asked.hash;
+    delete state.waiting[key];
+    const isRight = now() - asked.at <= CODE_TTL_MS && phrases.holds(asked.seal, event.message.content);
     if (!isRight) {
       const limit = limitsOf(key);
       limit.failures += 1;
@@ -206,16 +238,18 @@ export function createPersonLinks({
         limit.lockedUntil = now() + LOCK_MS;
         limit.failures = 0;
       }
+      save();
       log.info('link: wrong answer', { iface: event.iface, locked: limit.lockedUntil > now() });
       return 'pass';
     }
     withhold(event);
+    save();
     const result =
       memoryDb === null
         ? { status: 'failed' as const }
         : await memoryDb.personBind(
             { accountId: asked.accountId, personId: asked.person, by: 'code' },
-            // The code is the person's proof, so the merge needs no second question.
+            // The phrase is the person's proof, so the merge needs no second question.
             () => Promise.resolve(true)
           );
     log.info('link: answered', {
@@ -230,7 +264,7 @@ export function createPersonLinks({
     start,
     screen,
     isCodeLine: (content) => hasCodeLine(hot.prompts, content),
-    isWithheld: (iface, chatId, messageId) => withheld.has(JSON.stringify([iface, chatId, messageId])),
+    isWithheld: (iface, chatId, messageId) => state.withheld.includes(JSON.stringify([iface, chatId, messageId])),
   };
 }
 

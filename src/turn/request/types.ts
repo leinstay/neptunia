@@ -8,6 +8,7 @@ import type { Lookup as RingLookup } from '../calls.ts';
 import type { MeanwhileReads } from './meanwhile.ts';
 import type { SurroundingsInput } from './reader.ts';
 import type { LineOf } from './refs.ts';
+import type { SourceRetired } from './reader.ts';
 import type { CallMark } from '../../behavior/lines.ts';
 import type { formatTranscript } from '../../format.ts';
 import type { Prefetch } from './recall.ts';
@@ -376,4 +377,6 @@ export type RequestInput = {
   readonly surroundings?: SurroundingsInput | null;
   /** Reads a line by its identity under the turn's scope, for the references in stored texts (src/turn/request/refs.ts). */
   readonly refLineOf?: LineOf | null;
+  /** Whether the line of a lookup's source is gone, for the sources `<recall>` leaves out (src/turn/request/reader.ts). */
+  readonly isSourceRetired?: SourceRetired | null;
 };
