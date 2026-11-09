@@ -1413,6 +1413,7 @@
         "src/llm/key-failover.ts",
         "src/llm/openrouter.ts",
         "src/llm/roles.ts",
+        "src/llm/route-text.ts",
         "src/log.ts",
         "src/subharness/routing.ts",
         "src/time.ts"

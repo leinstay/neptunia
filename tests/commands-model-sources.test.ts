@@ -13,7 +13,6 @@ import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { COMMANDS, parseCommandLine, parseCommandWords } from '../src/interface/commands/table.ts';
 import { subharnessCommand } from '../src/interface/commands/subharness.ts';
-import { clearMemoryPath } from '../src/subharness/memory-path.ts';
 import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
 import type { KeysFile } from './fixtures/keys-file.ts';
@@ -139,24 +138,6 @@ for (const role of ['scout', 'server', 'dev', 'watcher', 'thinker']) {
   });
 }
 
-test('/model set memory --via stores the record with a backend the old list omits', async () => {
-  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
-  // Catches: the old connected-list gate left in the memory path after every other role moved off it.
-  const { desk, privateDir } = rig({ backends: [] });
-  fakeVendor(privateDir, 'claude', { loggedIn: true });
-  const answer = await desk.run(
-    'model.set',
-    { role: 'memory', model: 'claude-opus-4-6', via: 'claude-harness' },
-    OWNER
-  );
-  assert.equal(answer.status, 'ok', answer.text);
-  assert.deepEqual(readKeysFile(privateDir).subharness.memory, {
-    backend: 'claude',
-    model: 'claude-opus-4-6',
-    effort: null,
-  });
-});
-
 test('a missing install, a missing login and a provider rejection are three answers, and none saves', async () => {
   // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: "gave no reply" for all three, or a model request spent on a backend that cannot answer.
@@ -195,7 +176,8 @@ for (const role of ['speech', 'drawing']) {
     const { desk, privateDir, checks } = rig();
     fakeVendor(privateDir, 'claude', { loggedIn: true });
     const answer = await desk.run('model.set', { role, model: 'opus', via: 'claude-harness' }, OWNER);
-    assert.equal(answer.code, 'role-unsupported');
+    // Changed: a model role takes no --via at all; its chain's routes name the harness (spec 2026-11-09-model-routes).
+    assert.equal(answer.code, 'flag-retired');
     assert.deepEqual(checks, []);
   });
 }
@@ -220,21 +202,6 @@ test('a stale check of an agent never overwrites the choice made while it ran', 
   const stored = readKeysFile(privateDir).subharness;
   assert.equal(stored.uses?.dev, 'codex');
   assert.equal(stored.models?.dev, 'quick');
-});
-
-test('a stale check of memory never overwrites a return to the direct path', async () => {
-  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
-  // Catches: the writer jumps back onto a subscription the owner just left.
-  let release: (value: BackendResult) => void = () => {};
-  const held = new Promise<BackendResult>((resolve) => (release = resolve));
-  const { desk, privateDir } = rig({ backends: ['claude'] }, () => held);
-  fakeVendor(privateDir, 'claude', { loggedIn: true });
-  const slow = desk.run('model.set', { role: 'memory', model: 'claude-opus-4-6', via: 'claude-harness' }, OWNER);
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  clearMemoryPath(privateDir);
-  release({ ok: true, text: 'ok', exitCode: 0 });
-  assert.equal((await slow).code, 'selection-changed');
-  assert.equal(readKeysFile(privateDir).subharness.memory ?? null, null);
 });
 
 test('a logout while the check runs keeps the selection from being saved', async () => {

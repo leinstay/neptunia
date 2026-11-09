@@ -173,23 +173,6 @@ function consoleOver(dir: string, subharness: ConsoleDeps['subharness']) {
   return { desk: createConsole(deps), ops, keysCalls };
 }
 
-test('model set core with --via goes through the subharness and stores the core route', async () => {
-  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
-  // Catches: --via on core refused as role-unsupported, or handed to the key commands, which check a CLI id on OpenRouter.
-  const { dir, deps, ran } = rig();
-  const { desk, ops, keysCalls } = consoleOver(dir, consoleSubharness(deps));
-  const answer = await desk.run(
-    'model.set',
-    { role: 'core', via: 'claude-harness', model: 'claude-opus-4-6', effort: 'low' },
-    { id: 'owner' }
-  );
-  assert.equal(answer.status, 'ok', answer.text);
-  assert.deepEqual(ops, []);
-  assert.deepEqual(keysCalls, []);
-  assert.deepEqual(ran, [{ name: 'claude', model: 'claude-opus-4-6', effort: 'low' }]);
-  assert.deepEqual(readKeysFile(dir).subharness.core, { backend: 'claude', model: 'claude-opus-4-6', effort: 'low' });
-});
-
 test('model set core without --via stays with the key commands', async () => {
   // Catches: every core model set routed to the subharness, so her API model can no longer be changed.
   const { dir, deps, ran } = rig();

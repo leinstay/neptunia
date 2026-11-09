@@ -3,6 +3,7 @@
 // test hands the flow, and the core's commands are a fake that records what the step sends.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import { runSetupFlow, setupFlowSteps } from '../src/setup/flow.ts';
 import type { ReadinessHealth } from '../src/setup/readiness.ts';
@@ -13,7 +14,7 @@ import { tempDir } from './fixtures/tmp.ts';
 const SELECTION = 'openrouter:vendor/core-1';
 const ON_CLAUDE = { backend: 'claude', model: 'claude-opus-4-6', effort: null };
 
-function rig(harness: boolean) {
+function rig(harness: boolean, chain: Array<object> | null = null) {
   const base = tempDir('nep-flow-harness-');
   const options: SetupOptions = {
     system: false,
@@ -29,6 +30,11 @@ function rig(harness: boolean) {
   writeKeysFile(options.privateDir, {
     subharness: { key: null, modes: {}, ...(harness ? { core: ON_CLAUDE } : {}) },
   });
+  if (chain !== null) {
+    const file = path.join(options.privateDir, 'config', 'config.json');
+    const stored = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    fs.writeFileSync(file, JSON.stringify({ ...stored, models: { routes: { core: chain } } }));
+  }
   const commands: Array<{ name: string; args: Record<string, unknown> }> = [];
   const asked: Array<string> = [];
   let checked = false;
@@ -83,4 +89,12 @@ test('with her core on the API and no core key, the flow asks for the first core
     r.asked.some((question) => question.includes('first core key')),
     r.asked.join('\n')
   );
+});
+
+test('with her core chain starting on a harness and no key, the flow never asks for a first key', async () => {
+  // Catches: setup reading only the old harness record, so a core set to claude with /model set is asked for a key.
+  const r = rig(false, [{ via: 'harness', backend: 'claude', model: 'claude-opus-4-6' }]);
+  const outcome = await r.flow();
+  assert.equal(outcome.status, 'ready', outcome.detail);
+  assert.ok(!r.asked.some((question) => question.includes('first core key')), r.asked.join('\n'));
 });

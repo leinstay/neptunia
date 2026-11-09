@@ -20,7 +20,7 @@ const API: SourceDescriptor = {
   providerType: 'api',
   via: null,
   label: 'OpenRouter',
-  account: 'core key one',
+  account: 'helpers',
   code: 'ok',
   setup: [],
   listing: 'observed',
@@ -123,13 +123,14 @@ test('the steps run in the agreed order, and opening asks nothing', () => {
   assert.equal(play(answered.state, choose('api', 'api:openrouter')).state.step, 'model');
 });
 
-test('Main, Voice, API, the route and a model commit the speech role, whose key is models.base.speech', () => {
+test('Main, Voice, API, the route and a model commit the speech role on a route of its key', () => {
   // Catches: the display name reaching the setter, a write to a key that nothing reads.
+  // Changed: a model role is set as one route of its chain, `<key>/<model>` (spec 2026-11-09-model-routes).
   const at = play(atRole('main', 'speech', [API]), choose('api', 'api:openrouter', 'vendor/voice-1'));
   assert.equal(at.state.step, 'review');
   const saved = play(at.state, [{ kind: 'confirm' }]);
   assert.deepEqual(committed(saved.effects), [
-    { name: 'model.set', args: { role: 'speech', model: 'vendor/voice-1' } },
+    { name: 'model.set', args: { role: 'speech', model: 'helpers/vendor/voice-1' } },
   ]);
   // roleConfigKeys answers the path as parts, as tests/roles.test.ts pins, so the spec's includes of a dotted string could never hold.
   assert.equal(roleConfigKeys(committed(saved.effects)[0]?.args.role)?.join('.'), 'models.base.speech');
@@ -257,17 +258,18 @@ test('unsupported effort skips the step and commits no effort', () => {
 
 test("keep on the memory writer sends its stored effort, because the setter's omission clears it", () => {
   // Catches: an omitted field deciding, so keeping the writer's effort silently resets it.
+  // Changed: the memory writer is set as one route of its chain, with the effort in the route's text.
   const current = { via: 'codex', model: 'old', effort: 'high' } as const;
   const steps = play(atRole('main', 'memory', [CODEX], current), [
     ...choose('subharness', 'backend:codex', 'suggested-1', 'keep'),
     { kind: 'confirm' },
   ]);
-  assert.equal(committed(steps.effects)[0]?.args.effort, 'high');
+  assert.equal(committed(steps.effects)[0]?.args.model, 'harness:codex/suggested-1:high');
   const reset = play(atRole('main', 'memory', [CODEX], current), [
     ...choose('subharness', 'backend:codex', 'suggested-1', 'default'),
     { kind: 'confirm' },
   ]);
-  assert.equal(committed(reset.effects)[0]?.args.effort, undefined);
+  assert.equal(committed(reset.effects)[0]?.args.model, 'harness:codex/suggested-1');
 });
 
 // Stale answers
@@ -489,7 +491,8 @@ test('the keys walk the screen to one commit of the speech role, double Enter on
     rig.type(ENTER);
     // The second Enter changes nothing on the saved screen, so only a fixed wait lets a second commit show.
     await pause();
-    assert.deepEqual(commits, [{ name: 'model.set', args: { role: 'speech', model: 'vendor/voice-1' } }]);
+    // Changed: a model role is set as one route of its chain, `<key>/<model>` (spec 2026-11-09-model-routes).
+    assert.deepEqual(commits, [{ name: 'model.set', args: { role: 'speech', model: 'helpers/vendor/voice-1' } }]);
     assert.equal(closes(), 0);
     assert.ok(rig.screen().includes('saved it'), rig.screen());
   } finally {

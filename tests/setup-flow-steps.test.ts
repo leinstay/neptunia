@@ -145,7 +145,8 @@ test('with a core key there, a blank model checks the one set and a typed one is
   assert.equal((await blank.flow()).status, 'ready');
   assert.deepEqual(blank.commands, [{ name: 'keys.check', args: { role: 'core' } }]);
 
-  const typed = rig({ answers: { 'core model': 'vendor/core-1' } });
+  // Changed: the step asks for the core's route, `<key>/<model>` (spec 2026-11-09-model-routes).
+  const typed = rig({ answers: { 'core route': 'vendor/core-1' } });
   await installed(typed);
   typed.state.checked = false;
   assert.equal((await typed.flow()).status, 'ready');

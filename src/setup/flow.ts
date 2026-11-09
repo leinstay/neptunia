@@ -12,7 +12,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createKeyStore } from '../keys/store.ts';
-import { subscriptionPath, subscriptionPathText } from '../subharness/subscription-path.ts';
+import { ROOT_DIR, readConfig } from '../config.ts';
+import { routesOf } from '../llm/route-chain.ts';
+import { routeText } from '../llm/route-text.ts';
 import { CLI_CLIENT, OWNER_CLIENT, provisionClients } from './clients.ts';
 import type { Ask } from './mechanics.ts';
 import { REPAIRS, REQUIREMENTS, evaluateReadiness } from './readiness.ts';
@@ -103,24 +105,22 @@ async function commanded(askCore: LinkAsk, command: Parameters<LinkAsk>[0]): Pro
   return answer.status === 'ok' ? 'done' : { failed: answer.text };
 }
 
-/** The first core key, whose command asks for the models too; or the model of the core role, checked before it is saved. */
+/** The first core key, whose command asks for the models too; or the core's route, checked before it is saved. */
 async function coreModelStep(options: SetupOptions, askCore: LinkAsk, context: FlowContext) {
-  if (
-    createKeyStore({ privateDir: options.privateDir }).coreNames().length === 0 &&
-    subscriptionPath(options.privateDir, 'core').kind === 'api'
-  ) {
+  const names = createKeyStore({ privateDir: options.privateDir }).coreNames();
+  const chain = routesOf(readConfig(ROOT_DIR, { privateDir: options.privateDir }), 'core', names);
+  if (names.length === 0 && chain[0]?.via !== 'harness') {
     const name = (await context.ask('The name of the first core key:', 'core-1')).trim();
     if (name === '') return 'cancelled';
     return commanded(askCore, { name: 'keys.core.add', args: { name } });
   }
   const offered = context.remembered(MODEL_ANSWER);
-  const route = subscriptionPath(options.privateDir, 'core');
-  const onRoute =
-    route.kind === 'api'
-      ? ''
-      : ` Her turns run ${subscriptionPathText(route)} now; a model named here moves them back to direct-api.`;
+  const onRoute = chain.length === 0 ? '' : ` It runs on ${chain.map(routeText).join(', then ')} now.`;
   const model = (
-    await context.ask(`The core model, as OpenRouter names it (blank checks the one set):${onRoute}`, offered)
+    await context.ask(
+      `The core route, <key>/<model> or harness:<claude|codex>/<model> (blank checks the one set):${onRoute}`,
+      offered
+    )
   ).trim();
   if (model === '') return commanded(askCore, { name: 'keys.check', args: { role: 'core' } });
   context.remember(MODEL_ANSWER, model);

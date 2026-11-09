@@ -25,6 +25,8 @@ import { listRoleModels } from './models.ts';
 import type { CheckResult } from './check.ts';
 import type { KeyRing } from './ring.ts';
 import { isKeyName, KeysError } from './store.ts';
+import { isRefusal, isRouteRole, parseRouteText, routeText, ROUTE_ROLES } from '../llm/route-text.ts';
+import type { HarnessRoute, Route, RouteRole } from '../llm/route-text.ts';
 import type { KeyStore } from './store.ts';
 
 /** The model roles a core key must serve before the first add finishes, in the order they are asked. */
@@ -130,6 +132,12 @@ export type KeysDeps = {
   memoryPath?: () => MemoryCheckPath | null;
   /** One probe through the subharness path of the memory writer (src/subharness/memory-probe.ts#memoryProbe). */
   probeMemory?: () => Promise<MemoryCheckProbe>;
+  /** The chain of `role` now (src/llm/route-chain.ts); with `saveRoutes` the `/model` commands work on chains. */
+  chainOf?: (role: RouteRole) => Array<Route>;
+  /** Writes the chain of `role` to `models.routes.<role>` of config.json. */
+  saveRoutes?: (role: RouteRole, routes: Array<Route>) => Promise<void>;
+  /** One reply through the harness of `route`, as `/model set --via` checks a source (src/subharness/selection.ts). */
+  checkHarness?: (route: HarnessRoute) => Promise<{ ok: boolean; code: string }>;
 };
 
 /** The answer for a role that a harness serves and that has no key, null when it runs on the API. */
@@ -299,6 +307,104 @@ async function bindRole(deps: KeysDeps, name: string, args: Record<string, unkno
   store.bind(role, key);
   deps.recordCheck?.(role, checkRecord(result));
   return { text: [checkLine(result), bound].join('\n'), status: 'ok' };
+}
+
+/** The roles that run with no route at all: a chain of theirs never loses its last route. */
+const ROUTE_REQUIRED: ReadonlyArray<string> = MANDATORY_ROLES;
+
+/** Why a route of `/model set` or `/model add` is refused before anything is sent, or the route. */
+function routeOfLine(deps: KeysDeps, name: string, role: RouteRole, line: string): Route | Answer {
+  const route = parseRouteText(role, line);
+  if (isRefusal(route)) return invalid(name, route.reason, route.code);
+  if (route.via === 'api' && deps.store.valueOf(route.key) === null)
+    return invalid(
+      name,
+      `keys.json holds no key named ${route.key}; add it with /keys add ${route.key}`,
+      'key-unknown'
+    );
+  return route;
+}
+
+/** One check of `route` for `role`: null when it answered or no cheap request proves it, else the refusal. */
+async function checkRoute(deps: KeysDeps, name: string, role: RouteRole, route: Route): Promise<Answer | null> {
+  if (route.via === 'harness') {
+    const result = (await deps.checkHarness?.(route)) ?? { ok: false, code: 'harness-unchecked' };
+    return result.ok ? null : failed(name, `${routeText(route)} did not answer (${result.code}); nothing was changed`);
+  }
+  const voice = voiceOf(deps, role);
+  if (role === 'speech' && (deps.speechVoice?.() ?? '') === '') return null;
+  const result = await checkRole({
+    fetch: deps.fetch,
+    baseUrl: deps.baseUrl(),
+    role,
+    model: route.model,
+    keyName: route.key,
+    value: deps.store.valueOf(route.key) ?? '',
+    ...(route.effort === null ? {} : { reasoning: { effort: route.effort } }),
+    ...voice,
+  });
+  if (result.capability === 'unsupported') return null;
+  if (!result.ok) return failed(name, `${checkLine(result)}\nNothing was changed.`);
+  deps.recordCheck?.(role, checkRecord(result));
+  return null;
+}
+
+/** `/model set <role> <route>` and `/model add <role> <route>`: the route checked, then the chain written. */
+async function writeRoute(deps: KeysDeps, name: string, role: RouteRole, line: string): Promise<Answer> {
+  const { chainOf, saveRoutes } = deps;
+  if (chainOf === undefined || saveRoutes === undefined) return failed(name, 'the chains cannot be written here');
+  const route = routeOfLine(deps, name, role, line);
+  if (!('via' in route)) return route;
+  const chain = chainOf(role);
+  const adding = name === 'model.add';
+  if (adding && chain.some((one) => routeText(one) === routeText(route)))
+    return invalid(name, `${routeText(route)} is in the chain already`, 'route-duplicate');
+  if (adding && role === 'embedding' && chain.some((one) => one.model !== route.model))
+    return invalid(
+      name,
+      'every route of embedding names one model, since vectors of two models do not compare',
+      'route-model-mismatch'
+    );
+  const refused = await checkRoute(deps, name, role, route);
+  if (refused !== null) return refused;
+  const next = adding ? [...chain, route] : [route];
+  await saveRoutes(role, next);
+  return { text: `${role}: ${chainText(next)}`, status: 'ok' };
+}
+
+/** `/model remove <role> <n>`: the n-th route of the chain, counted from 1. */
+async function removeRoute(deps: KeysDeps, name: string, role: RouteRole, index: string): Promise<Answer> {
+  const { chainOf, saveRoutes } = deps;
+  if (chainOf === undefined || saveRoutes === undefined) return failed(name, 'the chains cannot be written here');
+  const chain = chainOf(role);
+  const at = /^\d+$/.test(index) ? Number(index) - 1 : -1;
+  if (at < 0 || at >= chain.length)
+    return invalid(name, `the ${role} chain has ${chain.length} route(s); give a number from 1`, 'route-unknown');
+  if (chain.length === 1 && ROUTE_REQUIRED.includes(role))
+    return invalid(name, `${role} cannot run with no route; set another with /model set first`, 'route-required');
+  const next = chain.filter((_, i) => i !== at);
+  await saveRoutes(role, next);
+  return { text: `${role}: ${chainText(next)}`, status: 'ok' };
+}
+
+/** A chain in the text form `/model set` takes, its routes in order; `off` for none. */
+const chainText = (chain: ReadonlyArray<Route>): string =>
+  chain.length === 0 ? 'off' : chain.map(routeText).join(', then ');
+
+/** `/model show`: every chain in the text form. */
+function showChains(deps: KeysDeps): Answer {
+  const { chainOf } = deps;
+  if (chainOf === undefined) return failed('model.show', 'the chains cannot be read here');
+  return { text: ROUTE_ROLES.map((role) => `${role}: ${chainText(chainOf(role))}`).join('\n'), status: 'ok' };
+}
+
+/** The answer of a chain command, or null for one the chains do not take (an agent's `/model set`, an unknown role). */
+function chainCommand(deps: KeysDeps, name: string, args: Record<string, unknown>): Promise<Answer> | null {
+  if (name === 'model.show') return Promise.resolve(showChains(deps));
+  const role = text(args.role);
+  if (!isRouteRole(role) || (name === 'model.set' && deps.saveRoutes === undefined)) return null;
+  if (name === 'model.remove') return removeRoute(deps, name, role, text(args.index));
+  return writeRoute(deps, name, role, text(args.model));
 }
 
 export function createKeysCommands(deps: KeysDeps): {
@@ -575,7 +681,11 @@ export function createKeysCommands(deps: KeysDeps): {
         return checkOne(name, role);
       }
       case 'model.set':
-        return setModel(name, args, dialog);
+        return chainCommand(deps, name, args) ?? setModel(name, args, dialog);
+      case 'model.add':
+      case 'model.remove':
+      case 'model.show':
+        return chainCommand(deps, name, args) ?? invalid(name, `the roles are ${ROUTE_ROLES.join(', ')}`);
       default:
         return invalid(name, 'no such command; type /help');
     }
