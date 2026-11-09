@@ -626,12 +626,6 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('list', 'Every interface, whether it is enabled and whether it is connected'),
       sub('enable', 'Enable an interface', [arg('name')]),
       sub('disable', 'Disable an interface', [arg('name')]),
-      secretSub(
-        sub('token.set', 'Save the platform token of an interface; the chat asks for it without showing it', [
-          arg('name'),
-        ]),
-        'only'
-      ),
       sub('pair.open', 'Open pairing on an interface for an hour: write to her there and she answers with a phrase', [
         arg('name'),
       ]),

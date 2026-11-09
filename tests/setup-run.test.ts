@@ -10,6 +10,7 @@ import path from 'node:path';
 import { SETUP_STEPS, SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/run.ts';
 import type { RunResult, SetupDeps, SetupOptions } from '../src/setup/run.ts';
 import { DEVELOPMENT_UNIT_FILES, UNIT_FILES } from '../src/setup/units.ts';
+import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { keysPath, readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
 import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -215,14 +216,27 @@ test('the report lists every step done and the commands that come next, in the o
     report.steps.map((step) => [step.step, step.state]),
     SETUP_STEPS.map((step) => [step, asking.includes(step) ? 'skipped' : 'done'])
   );
+  // Changed: every line is one the table accepts once its placeholders are filled (CLI audit 2026-11-09): the token
+  // through the interface's own setting, the core's model as a route.
   assert.deepEqual(report.next, [
     'keys add <name>',
-    'interfaces token set discord',
+    'interfaces set discord token',
     'interfaces enable discord',
-    'model set',
+    'model set core <name>/<model>',
     // Changed: the account command replaced the enable step.
     'subharness claude login',
   ]);
+});
+
+test('every command setup names next parses in the chat once its placeholders are filled', async () => {
+  // Catches: setup ending on a command the table refuses, so the owner's first line is an error.
+  const { options, deps } = rig();
+  const report = await runSetup(options, deps);
+  for (const line of report.next) {
+    const filled = `/${line.replace('<name>/<model>', 'main/vendor/model').replace('<name>', 'main')}`;
+    const parsed = parseCommandLine(filled);
+    assert.equal(parsed.ok, true, `${filled}: ${parsed.ok ? '' : parsed.reason}`);
+  }
 });
 
 test('a core that does not start fails the last step, stops there and opens no chat', async () => {
