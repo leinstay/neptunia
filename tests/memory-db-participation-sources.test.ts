@@ -269,7 +269,8 @@ test('evidence in a room stored under an opaque id resolves by the room row, not
       episode_sources: [{ episode_id: 'episode-opaque', source_id: 'src:fake:m-9', position: 0 }],
     };
     resolveParticipationSources(db, mapping);
-    assert.equal(mapping.episode_sources?.[0]?.source_id, 'source:opaque-line');
+    const [link] = mapping.episode_sources ?? [];
+    assert.equal(link?.source_id, 'source:opaque-line');
   } finally {
     handle.close();
   }

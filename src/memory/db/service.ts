@@ -155,12 +155,11 @@ import {
   observeMessage as observeMessageEnvelope,
 } from './message-families.ts';
 import { observe as observeEnvelope } from './observe.ts';
-import { chatPlaceKey } from './observe-event.ts';
+import { channelPlaceOf } from './observe-event.ts';
 import { graphPending } from './graph.ts';
 import { stemsPending } from './stems.ts';
 import { backupName, backupOn, backupSettings, configHash, partialOf, pruneBackups } from './backup.ts';
-import { createReaderClient, SEARCH_ABANDONED } from './reader-client.ts';
-import type { ReaderClient } from './reader-client.ts';
+import { createReaderClient, SEARCH_ABANDONED, type ReaderClient } from './reader-client.ts';
 import { search } from './recall.ts';
 import type { SearchInput, SearchResult } from './recall.ts';
 import { mirrorPlaces, readMirrors } from './mirrors.ts';
@@ -268,11 +267,6 @@ export function turnReadRows(
   const latestMessage = db.prepare(
     "SELECT id FROM sources WHERE native_id = ? AND authority_id IS ? AND kind IN ('seen', 'said') AND retired_at IS NULL ORDER BY revision DESC LIMIT 1"
   );
-  // A channel a read names by its native id is the place its row holds on the turn's interface, keyed as an observation
-  // keys it (observe-event.ts#chatPlaceKey); none without a row.
-  const channelPlace = db.prepare(
-    'SELECT id FROM places WHERE authority_id IS ? AND native_key = ? ORDER BY generation DESC'
-  );
   // A null entry has no id, so the check below skips it.
   for (const read of (Array.isArray(reads) ? reads : []) as Array<Row>) {
     at += 1;
@@ -281,7 +275,7 @@ export function turnReadRows(
     const direct = DIRECT_READS[asText(read.kind)];
     if (direct !== undefined) put(direct, id, read);
     else if (read.kind === 'lore') put('claims', `lore:${id}`, read);
-    else if (read.kind === 'channel') put('places', channelPlace.get(authority, chatPlaceKey({ id }))?.id, read);
+    else if (read.kind === 'channel') put('places', channelPlaceOf(db, authority, id), read);
     else if (read.kind === 'place_note' && placeId) put('descriptions', `desc:${placeId}:${id}`, read);
     else if (read.kind === 'item' && hasRow('claims', id)) put('claims', id, read);
     else if (read.kind === 'item' && hasRow('episodes', id)) put('episodes', id, read);
