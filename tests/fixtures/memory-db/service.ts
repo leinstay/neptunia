@@ -17,6 +17,7 @@ import { filesOfUnit } from '../../../src/memory/db/export.ts';
 import { seedUnits } from './seed.ts';
 import { legacyStorageKey } from '../../../src/memory/migration/paths.ts';
 import { listUnits } from '../../../src/memory/db/storage-units.ts';
+import { isOperationalKind } from '../../../src/memory/db/operational.ts';
 import { unitValue, unitLines } from '../../../src/memory/db/readers/common.ts';
 import type { StorageKey } from '../../../src/memory/db/storage-keys.ts';
 
@@ -124,9 +125,12 @@ export function unitFile(memoryDb: Pick<MemoryDbService, 'readHandle'>, rel: str
   const full = info.guildId === undefined ? info.unit : `guilds/${info.guildId}/${info.unit}`;
   // This fixture accepts a legacy export label. Fresh semantic units need no provenance alias.
   const key = legacyStorageKey(full);
-  if (listUnits(db, key).length === 0) return null;
+  // A kind with rows of its own (an operational kind, the intentions) has no unit: its rows are the answer.
+  const direct = key.kind === 'intentions' || isOperationalKind(key.kind);
+  if (!direct && listUnits(db, key).length === 0) return null;
   if (info.format === 'jsonl') {
     const lines = unitLines(db, key);
+    if (direct && lines.length === 0) return null;
     return lines.join('\n') + (lines.length ? '\n' : '');
   }
   if (info.format === 'json') {

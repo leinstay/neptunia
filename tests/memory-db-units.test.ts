@@ -30,7 +30,6 @@ import { unitValue } from '../src/memory/db/readers/common.ts';
 import { BOARD_MIGRATIONS } from '../src/board/schema.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 import {} from '../src/memory/db/ids.ts';
-import { listUnits } from '../src/memory/db/storage-units.ts';
 import { keyText, type StorageKey } from '../src/memory/db/storage-keys.ts';
 
 type Service = ReturnType<typeof createMemoryDb>;
@@ -384,18 +383,9 @@ test('a day of writes with the memory files gone writes every kind of unit to th
       // takes no write (it asserted the errands.jsonl lines in `work_events` before).
       assert.deepEqual(errandEvents(dbOf(right), 'find the café hours'), ['approved', 'in_progress', 'done']);
       assert.equal(count('SELECT COUNT(*) AS n FROM work') + count('SELECT COUNT(*) AS n FROM work_events'), 0);
-      // Runtime ownership follows the catalog's semantic collection, including scope and active/archive selection.
-      const units = listUnits(dbOf(right), {
-        kind: 'intentions',
-        subject: { type: 'persona', id: 'persona:local' },
-        selector: { collection: 'active' },
-      });
-      assert.equal(units.length, 1);
+      // Her intentions are rows of their own (src/memory/db/intentions-write.ts): the day's intention is in the list.
       assert.equal(
-        count(
-          "SELECT COUNT(*) AS n FROM intentions WHERE owner_key = ? AND id LIKE '%i2%' AND retired_at IS NULL",
-          units[0].id
-        ),
+        count("SELECT COUNT(*) AS n FROM intentions WHERE archived = 0 AND id LIKE '%i2%' AND retired_at IS NULL"),
         1
       );
       assert.ok(
@@ -619,6 +609,15 @@ test('a task transition or an intention whose write committed and whose answer w
       ...service,
       writeUnit: async (update: { op: string }) => {
         const done = await service.writeUnit(update);
+        if (lost > 0 && (lostOp === null || lostOp(update))) {
+          lost -= 1;
+          throw Object.assign(new Error('the answer was lost'), { code: 'WORKER_EXIT' });
+        }
+        return done;
+      },
+      // Her intentions go through their own write kind (src/memory/db/intentions-write.ts), lost the same way.
+      writeIntentions: async (update: Parameters<typeof service.writeIntentions>[0]) => {
+        const done = await service.writeIntentions(update);
         if (lost > 0 && (lostOp === null || lostOp(update))) {
           lost -= 1;
           throw Object.assign(new Error('the answer was lost'), { code: 'WORKER_EXIT' });

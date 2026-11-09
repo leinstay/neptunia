@@ -1,74 +1,9 @@
-// Round trips of intentions.js and errands.js through the real schema.
+// Round trips of errands.js through the real schema: the errand units an older release wrote, which the board's
+// schema imports.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as intentions from '../src/memory/db/map/intentions.ts';
 import * as errands from '../src/memory/db/map/errands.ts';
 import { assertRoundTrip, roundTrip } from './fixtures/memory-db/roundtrip.ts';
-
-const intention = (id: string, extra = {}) => ({
-  id,
-  purpose: 'ask about the trip',
-  status: 'open',
-  createdAt: 1792000000000,
-  updatedAt: 1792000001000,
-  dueAt: null,
-  every: null,
-  expiresAt: 1793000000000,
-  awaitingErrandId: null,
-  waitDeadline: null,
-  destination: null,
-  completionCondition: null,
-  chainId: null,
-  attend: null,
-  provenance: { kind: 'self', turnId: 't-1', placeId: '200000000000000001', scope: 'group' },
-  history: [{ at: 1792000000000, to: 'open', by: 'persona' }],
-  ...extra,
-});
-
-test('intentions: the record is kept whole and its fields copied to columns', () => {
-  const file = {
-    intentions: [
-      intention('i1', { dueAt: 1792100000000 }),
-      intention('i2', { status: 'done', outcome: { errandId: 't', state: 'done', at: 3 } }),
-    ],
-  };
-  const rows = assertRoundTrip(intentions, 'intentions.json', file);
-  const [row] = rows.intentions;
-  assert.equal(row.id, 'i1');
-  assert.equal(row.status, 'open');
-  assert.equal(row.due_ms, 1792100000000);
-  assert.equal(row.created_ms, 1792000000000);
-  assert.equal(row.updated_ms, 1792000001000);
-  assert.equal(row.scope_kind, 'group');
-  assert.equal(row.archived, 0);
-  assert.equal(JSON.parse(String(row.record)).purpose, 'ask about the trip');
-});
-
-test('intentions: a DM intention is scoped to its one participant, and to nobody outward with several', () => {
-  const dm = intention('i3', { provenance: { kind: 'self', scope: 'dm', participants: ['100000000000000001'] } });
-  const many = intention('i4', {
-    provenance: { kind: 'self', scope: 'dm', participants: ['100000000000000001', '100000000000000002'] },
-  });
-  const rows = assertRoundTrip(intentions, 'intentions.json', { intentions: [dm, many] });
-  assert.deepEqual(
-    [rows.intentions[0].scope_kind, rows.intentions[0].scope_dm],
-    ['dm', 'person:discord:100000000000000001']
-  );
-  assert.equal(rows.intentions[1].scope_kind, 'internal');
-});
-
-test('intentions: an archive line is an archived row, and odd files survive', () => {
-  const { rows, back } = roundTrip(intentions, 'intentions-archive.jsonl', intention('i9', { status: 'expired' }), {
-    position: 4,
-  });
-  assert.equal(rows.intentions[0].archived, 1);
-  assert.equal(rows.intentions[0].position, 4);
-  assert.deepEqual(back, intention('i9', { status: 'expired' }));
-  assertRoundTrip(intentions, 'intentions-archive.jsonl', 'not a record', { position: 1 });
-  assertRoundTrip(intentions, 'intentions.json', { intentions: [] });
-  assertRoundTrip(intentions, 'intentions.json', { intentions: [{ id: 'same' }, { id: 'same' }], other: 1 });
-  assertRoundTrip(intentions, 'intentions.json', { intentions: [{ status: 'open' }] });
-});
 
 const task = (id: string, extra = {}) => ({
   id,

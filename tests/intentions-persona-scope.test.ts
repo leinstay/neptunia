@@ -10,7 +10,7 @@ import { createIntention } from '../src/intentions/model.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStore, createIntentionStores } from '../src/intentions/store.ts';
 import type { Intention } from '../src/intentions/types.ts';
-import { listUnits } from '../src/memory/db/storage-units.ts';
+import { intentionsValue } from '../src/memory/db/readers/intentions.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { hotWith } from './fixtures/inner-rig.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
@@ -41,9 +41,11 @@ test('the intentions are one persona collection, and an intention born in a DM k
     store.add(made('i1'));
     await store.flush();
     const db = dbOf(wrongly<Parameters<typeof dbOf>[0]>(mem.memoryDb.readHandle()));
+    // The list is the persona's rows, under no root (src/memory/db/intentions-write.ts).
+    const stored = intentionsValue(db);
     assert.deepEqual(
-      listUnits(db, { kind: 'intentions' }).map((unit) => unit.key.subject),
-      [{ type: 'persona', id: 'persona:local' }]
+      stored.found ? (stored.value as { intentions: Array<{ id: string }> }).intentions.map((one) => one.id) : [],
+      ['i1']
     );
     const reopened = createIntentionStore({ memoryDb: mem.memoryDb, log: silent });
     assert.equal(reopened.get('i1')?.destination, 'native-dm');
