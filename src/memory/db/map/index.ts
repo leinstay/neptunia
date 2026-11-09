@@ -1,7 +1,6 @@
 // The mappers by kind. Each mapper module exports `toRows(rel, value, ctx)` and `fromRows(rows, ctx)`; the pair is an exact
 // round trip of the stored value (key order aside).
 
-import * as channel from './channel.ts';
 import * as selfreflection from './selfreflection.ts';
 import * as errands from './errands.ts';
 import * as gifs from './gifs.ts';
@@ -19,7 +18,6 @@ import type { StorageKey } from '../storage-keys.ts';
 import * as lore from './lore.ts';
 import * as media from './media.ts';
 import * as participation from './participation.ts';
-import * as place from './place.ts';
 import * as recent from './recent.ts';
 import * as requests from './requests.ts';
 import * as verbatim from './verbatim.ts';
@@ -34,8 +32,6 @@ export type Mapper = {
 };
 
 export const MAPPERS = {
-  channel,
-  place,
   lore,
   participation,
   recent,

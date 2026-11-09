@@ -1,0 +1,167 @@
+// Synthetic places, their notes and their channel entries, for the tests of the write kinds `place-notes` and
+// `channel-entry` and of the owner columns of their rows (tests/memory-db-place-notes.test.ts,
+// tests/memory-db-channel-entry.test.ts, tests/memory-db-place-owner.test.ts). `writeBothWays` runs the same writes
+// through the unit write and through the write kinds over copies of one seeded database, derives the owner columns of
+// the unit way with version step 48, and returns every table of each.
+import fs from 'node:fs';
+import path from 'node:path';
+import { openMemoryDb } from '../../../src/memory/db/open.ts';
+import { ownPlaceRows } from '../../../src/memory/db/place-owner.ts';
+import { applyMemoryWrite } from '../../../src/memory/db/session-write.ts';
+import { placeCollection } from '../../../src/memory/db/storage-keys.ts';
+import { dbOf } from '../../../src/memory/db/types.ts';
+import type { Db, MemoryHandle, Row } from '../../../src/memory/db/types.ts';
+import { tempDataDir } from './service.ts';
+
+export const NOW = Date.parse('2026-11-09T10:00:00.000Z');
+export const ROOT = 'discord:guild:300000000000000001';
+export const OTHER_ROOT = 'discord:guild:300000000000000002';
+export const DM = 'discord:dm:100000000000000007';
+export const CHANNEL = 'discord:channel:200000000000000001';
+export const THREAD = 'discord:channel:200000000000000002';
+export const TEACHER = '100000000000000001';
+
+/** One write of a test: a place's notes, a channel's entry, or her session's review of a root's patterns. */
+export type PlaceStep =
+  | { kind: 'place'; placeId: string; value: Row }
+  | { kind: 'channel'; placeId: string; value: Row }
+  | { kind: 'review' };
+
+export const notes = (extra: Row = {}): Row => ({
+  patterns: 'Speaks in short bursts.',
+  starters: 'Τι λέμε σήμερα;',
+  purpose: 'Μια παρέα για παιχνίδια.',
+  injokes: ['the lamp incident', 'Πέμπτη'],
+  self: ['likes rain', 'is a night owl'],
+  learnedNextId: 2,
+  learned: [
+    { id: 1, text: 'the bridge is closed', weight: 2, firstSeen: '2026-09-01', lastSeen: '2026-09-02', from: `<@${TEACHER}>`, itemId: 'ln-1' },
+    { id: 2, text: 'dinner is at eight', weight: 1, firstSeen: '2026-09-03', lastSeen: '2026-09-03', from: 'the owner' },
+  ],
+  emojiUsage: { '500000000000000001': { name: 'smile', count: 3, last: 1759400000000 } },
+  pings: { [TEACHER]: { off: true } },
+  updatedAt: '2026-10-01T00:00:00.000Z',
+  ...extra,
+});
+
+export const entry = (extra: Row = {}): Row => ({
+  id: '200000000000000001',
+  name: 'général',
+  topic: null,
+  purpose: 'Everyday talk.',
+  topics: 'games, food',
+  tone: 'relaxed',
+  days: { '2026-10-01': 12 },
+  messageCount: 12,
+  firstMessageAt: 1759300000000,
+  lastMessageAt: null,
+  writers: { [TEACHER]: { count: 9, last: 1759400000000 } },
+  updatedAt: '2026-10-02T00:00:00.000Z',
+  ...extra,
+});
+
+/** Every table but the full-text indexes, each row as stored, in rowid order. */
+export function tablesOf(db: Db): string {
+  const out: Record<string, Array<Row>> = {};
+  const names = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND sql NOT LIKE 'CREATE VIRTUAL%' ORDER BY name")
+    .all()
+    .map((row) => String(row.name))
+    .filter((name) => !/_(fts|tri)(_|$)/.test(name));
+  for (const name of names) out[name] = db.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all();
+  return JSON.stringify(out, null, 1);
+}
+
+/**
+ * A database with two roots, a channel under the first, a thread no channel entry made, a direct chat and the
+ * teacher's account with its person, as the interface reported them. Returns the database file.
+ */
+export function seededPlaces(): string {
+  const file = path.join(tempDataDir('nep-places-seed-'), 'memory.db');
+  const handle = openMemoryDb(file);
+  const db = dbOf(handle);
+  db.prepare("INSERT INTO people (id, kind) VALUES ('person:teacher', 'member')").run();
+  db.prepare(
+    `INSERT INTO accounts (id, iface, native_id, native_key, kind, person_id, link) VALUES (?, 'discord', ?, ?, 'user', 'person:teacher', 'verified')`
+  ).run(`discord:${TEACHER}`, TEACHER, TEACHER);
+  db.prepare("INSERT INTO people (id, kind) VALUES ('person:partner', 'member')").run();
+  db.prepare(
+    `INSERT INTO accounts (id, iface, native_id, native_key, kind, person_id, link) VALUES ('discord:100000000000000007', 'discord', '100000000000000007', '100000000000000007', 'user', 'person:partner', 'verified')`
+  ).run();
+  const place = db.prepare(
+    `INSERT INTO places (id, iface, kind, native_id, parent_id, scope_kind, name, chat, partner_account, partner_person) VALUES (?, 'discord', ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  place.run(ROOT, 'server', '300000000000000001', null, 'group', 'Первый', null, null, null);
+  place.run(OTHER_ROOT, 'server', '300000000000000002', null, 'group', 'Second', null, null, null);
+  place.run(CHANNEL, 'channel', '200000000000000001', ROOT, 'group', 'général', 'group', null, null);
+  place.run(THREAD, 'thread', '200000000000000002', CHANNEL, 'group', 'a thread', 'group', null, null);
+  place.run(DM, 'dm', 'dm:100000000000000007', null, 'dm', null, 'dm', 'discord:100000000000000007', 'person:partner');
+  handle.close();
+  return file;
+}
+
+/** Her session's review of the first root's patterns: a version of hers becomes the description's current one. */
+function review(db: Db): void {
+  db.prepare(
+    `INSERT INTO description_versions (id, description_id, text, author, written_at, chars, origin)
+     VALUES ('dv:review:1', ?, 'Reviewed by her.', 'her', '2026-11-01T00:00:00.000Z', 16, 'review')`
+  ).run(`desc:${ROOT}:patterns`);
+  db.prepare("UPDATE descriptions SET current_version = 'dv:review:1' WHERE id = ?").run(`desc:${ROOT}:patterns`);
+}
+
+/** Runs one step through the unit write. */
+export function writeUnit(handle: MemoryHandle, step: PlaceStep): unknown {
+  if (step.kind === 'review') return review(dbOf(handle));
+  return applyMemoryWrite(handle, {
+    kind: 'unit',
+    op: 'value',
+    key: placeCollection(step.kind, step.placeId),
+    value: step.value,
+    iface: 'discord',
+    now: NOW,
+  });
+}
+
+/** Runs one step through its write kind. */
+export function writeDirect(handle: MemoryHandle, step: PlaceStep): unknown {
+  if (step.kind === 'review') return review(dbOf(handle));
+  return applyMemoryWrite(handle, {
+    kind: step.kind === 'place' ? 'place-notes' : 'channel-entry',
+    placeId: step.placeId,
+    value: step.value,
+    iface: 'discord',
+    now: NOW,
+  });
+}
+
+/** A copy of the seeded database, opened. */
+export function copyOf(seed: string): MemoryHandle {
+  const file = path.join(tempDataDir('nep-places-copy-'), 'memory.db');
+  fs.copyFileSync(seed, file);
+  return openMemoryDb(file);
+}
+
+/**
+ * Runs the steps through both ways over copies of one seed; returns every table of each and the answers. The unit way
+ * gets its owner columns from version step 48 (place-owner.ts#ownPlaceRows) after its writes.
+ */
+export function writeBothWays(steps: ReadonlyArray<PlaceStep>): {
+  unit: [string, Array<unknown>];
+  direct: [string, Array<unknown>];
+} {
+  const seed = seededPlaces();
+  const viaUnit = copyOf(seed);
+  const direct = copyOf(seed);
+  try {
+    const unitAnswers = steps.map((step) => writeUnit(viaUnit, step));
+    ownPlaceRows(dbOf(viaUnit));
+    const directAnswers = steps.map((step) => writeDirect(direct, step));
+    return {
+      unit: [tablesOf(dbOf(viaUnit)), unitAnswers],
+      direct: [tablesOf(dbOf(direct)), directAnswers],
+    };
+  } finally {
+    viaUnit.close();
+    direct.close();
+  }
+}

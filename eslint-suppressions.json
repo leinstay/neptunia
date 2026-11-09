@@ -3262,16 +3262,10 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-call": {
       "count": 1
     },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 6
-    },
     "tests/assertion-in-test": {
-      "count": 3
+      "count": 1
     }
   },
   "tests/memory-db-map-record.test.ts": {

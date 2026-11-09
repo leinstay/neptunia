@@ -27,6 +27,10 @@ import type { OperationalWrite } from './operational.ts';
 import { proseVersionsOfUnit } from './prose-versions.ts';
 import type { PrivateLayerWrite } from './private-layer.ts';
 import { privateLayerOfUnit } from './private-layer.ts';
+import type { PlaceNotesWrite } from './place-notes.ts';
+import { placeNotesOfUnit } from './place-notes.ts';
+import type { ChannelEntryWrite } from './channel-entry.ts';
+import { channelEntryOfUnit } from './channel-entry.ts';
 import type { ProseVersionsWrite } from './prose-versions.ts';
 import { keyText } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
@@ -51,19 +55,35 @@ export type UnitOutbox = {
 /**
  * The memory service as the outbox uses it: `writeUnit` always, `writeOperational` for a unit of an operational kind,
  * `writeIntentions` for a unit of the intentions, `writeAccountProfile` for an account's profile,
- * `writeProseVersions` for a history of prose and `writePrivateLayer` for a private layer when the service has them
- * (operational.ts, intentions-write.ts, account-profile.ts, prose-versions.ts, private-layer.ts), `keepPending` at
+ * `writeProseVersions` for a history of prose, `writePrivateLayer` for a private layer, `writePlaceNotes` for a place's
+ * notes and `writeChannelEntry` for a channel's entry when the service has them (operational.ts, intentions-write.ts,
+ * account-profile.ts, prose-versions.ts, private-layer.ts, place-notes.ts, channel-entry.ts), `keepPending` at
  * shutdown.
  */
 type OutboxMemoryDb = {
   writeUnit(update: Row): Promise<unknown>;
-  writeOperational?(write: OperationalWrite): Promise<unknown>;
-  writeIntentions?(write: IntentionsWrite): Promise<unknown>;
-  writeAccountProfile?(write: AccountProfileWrite): Promise<unknown>;
-  writeProseVersions?(write: ProseVersionsWrite): Promise<unknown>;
-  writePrivateLayer?(write: PrivateLayerWrite): Promise<unknown>;
+  writeOperational?(this: void, write: OperationalWrite): Promise<unknown>;
+  writeIntentions?(this: void, write: IntentionsWrite): Promise<unknown>;
+  writeAccountProfile?(this: void, write: AccountProfileWrite): Promise<unknown>;
+  writeProseVersions?(this: void, write: ProseVersionsWrite): Promise<unknown>;
+  writePrivateLayer?(this: void, write: PrivateLayerWrite): Promise<unknown>;
+  writePlaceNotes?(this: void, write: PlaceNotesWrite): Promise<unknown>;
+  writeChannelEntry?(this: void, write: ChannelEntryWrite): Promise<unknown>;
   keepPending?(update: Row): unknown;
 };
+
+/** The direct writes of the service, in the order a waiting unit is matched against them, each with its unit's write. */
+const DIRECT_WRITES: ReadonlyArray<
+  [Exclude<keyof OutboxMemoryDb, 'writeUnit' | 'keepPending'>, (update: Row) => object | null]
+> = [
+  ['writeOperational', operationalOfUnit],
+  ['writeIntentions', intentionsOfUnit],
+  ['writeAccountProfile', accountProfileOfUnit],
+  ['writeProseVersions', proseVersionsOfUnit],
+  ['writePrivateLayer', privateLayerOfUnit],
+  ['writePlaceNotes', placeNotesOfUnit],
+  ['writeChannelEntry', channelEntryOfUnit],
+];
 
 /**
  * `name` says whose outbox it is in the logs (`store`, `intentions`, `tasks`).
@@ -106,16 +126,12 @@ export function createUnitOutbox({
   /** The write of a waiting unit: the direct write of its kind where the service has one, else the unit write. */
   function send(owner: string, item: Waiting): Promise<unknown> {
     const update = updateOf(owner, item);
-    const operational = memoryDb.writeOperational ? operationalOfUnit(update) : null;
-    if (operational && memoryDb.writeOperational) return memoryDb.writeOperational(operational);
-    const intentions = memoryDb.writeIntentions ? intentionsOfUnit(update) : null;
-    if (intentions && memoryDb.writeIntentions) return memoryDb.writeIntentions(intentions);
-    const profile = memoryDb.writeAccountProfile ? accountProfileOfUnit(update) : null;
-    if (profile && memoryDb.writeAccountProfile) return memoryDb.writeAccountProfile(profile);
-    const versions = memoryDb.writeProseVersions ? proseVersionsOfUnit(update) : null;
-    if (versions && memoryDb.writeProseVersions) return memoryDb.writeProseVersions(versions);
-    const layer = memoryDb.writePrivateLayer ? privateLayerOfUnit(update) : null;
-    if (layer && memoryDb.writePrivateLayer) return memoryDb.writePrivateLayer(layer);
+    for (const [method, directOf] of DIRECT_WRITES) {
+      // Each method takes the write its own `directOf` gives; the table pairs them.
+      const write = memoryDb[method] as ((this: void, given: object) => Promise<unknown>) | undefined;
+      const direct = write ? directOf(update) : null;
+      if (write && direct) return write(direct);
+    }
     return memoryDb.writeUnit(update);
   }
 

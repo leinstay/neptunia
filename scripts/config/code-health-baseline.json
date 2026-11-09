@@ -620,10 +620,6 @@
       "deep": 4,
       "repeated": 0
     },
-    "tests/memory-db-map-place.test.ts": {
-      "deep": 7,
-      "repeated": 0
-    },
     "tests/memory-db-map-verbatim.test.ts": {
       "deep": 9,
       "repeated": 0
@@ -1953,7 +1949,6 @@
       "src/media/gif-post.ts",
       "src/memory/avatar-queue.ts",
       "src/memory/db/graph-manifest.ts",
-      "src/memory/db/map/channel.ts",
       "src/memory/db/map/common.ts",
       "src/memory/db/map/errands.ts",
       "src/memory/db/map/index.ts",

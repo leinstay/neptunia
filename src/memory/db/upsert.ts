@@ -1,6 +1,7 @@
-// Unit writes preserve primary and shared ownership through catalog owner keys. A row shared across semantic
-// root scopes keeps its original owner until retirement hands it to a surviving co-owner. Session-owned rows
-// and child links have no owner key and remain protected. Derived identity, graph projection, publication state and
+// Unit writes preserve primary and shared ownership through catalog owner keys, and a place's notes and a channel's
+// entry through the owner columns of their rows (place-owner.ts). A row shared across semantic root scopes keeps its
+// original owner until retirement hands it to a surviving co-owner. Session-owned rows and child links have no owner
+// and remain protected. Derived identity, graph projection, publication state and
 // session-held fields are updated within the caller's writer transaction. Historical imports retain their original
 // column contract and frozen path provenance through the explicit compatibility adapter.
 
@@ -18,6 +19,8 @@ import { projectRow } from './graph.ts';
 import { deriveMirrorPublication } from './publish.ts';
 import { resolveParticipationSources } from './participation-sources.ts';
 import { sessionHold } from './session-rows.ts';
+import { isPlaceWriter, sharePlaceRow, unsharePlaceRow } from './place-owner.ts';
+import type { PlaceOwner } from './place-owner.ts';
 import { parseExtra } from './map/common.ts';
 import { hasMessageFamilies } from './message-family-catalog.ts';
 import { asText } from './types.ts';
@@ -123,13 +126,17 @@ function upsert(db: Db, table: string, row: Row, { ignore = false }: { ignore?: 
 
 const keyOf = (table: string, row: Row): string => OWNED[table].map((col) => row[col]).join('\u0000');
 
-/** The existing row of a mapped row's primary key: { owner_key, retired_at, origin?, kind? } or undefined. */
+/**
+ * The existing row of a mapped row's primary key: { owner_key, retired_at, origin?, kind?, writer?, holder_id? } or
+ * undefined.
+ */
 function existingOf(db: Db, table: string, row: Row): Row | undefined {
   const key = OWNED[table];
   const origin = table === 'sources' ? ', origin' : table === 'people' ? ', kind' : '';
+  const owner = columnsOf(db, table).has('holder_id') ? ', writer, holder_id' : '';
   return prepared(
     db,
-    `SELECT owner_key, retired_at${origin} FROM ${quote(table)} WHERE ${key.map((col) => `${quote(col)} = ?`).join(' AND ')}`
+    `SELECT owner_key, retired_at${origin}${owner} FROM ${quote(table)} WHERE ${key.map((col) => `${quote(col)} = ?`).join(' AND ')}`
   ).get(...key.map((col) => bind(row[col])));
 }
 
@@ -153,28 +160,62 @@ const placeOfOwner = (db: Db, owner: unknown): string | null => {
   return subject?.type === 'place' ? subject.id : null;
 };
 
+/** Whether a found row has an owner: a place's writer (place-owner.ts) or a unit. */
+const isOwned = (found: Row): boolean =>
+  isPlaceWriter(found.writer) || (found.owner_key !== null && found.owner_key !== undefined);
+
+/** The place a found row belongs to: the holder of a place's row, else the place of its unit. */
+const placeOfFound = (db: Db, found: Row): string | null =>
+  isPlaceWriter(found.writer) ? asText(found.holder_id) : placeOfOwner(db, found.owner_key);
+
 /**
- * Writes one mapped row of a unit, keeping the ownership rules: a row the database wrote (no owner) is left alone;
- * a live row of another place's unit is shared (listed in `co_owners`, not rewritten); anything else is upserted.
- * Returns true when the row is now this unit's to write (false: skipped).
+ * Whether a unit write leaves the found row of `given` alone: a row the database wrote (no owner) stays as it is, and a
+ * live row of another place's unit is shared (listed in `co_owners`, not rewritten).
  */
-function writeRow(db: Db, table: string, row: Row, opts: { ignore?: boolean; at?: string }): boolean {
-  const found = existingOf(db, table, row);
-  if (found) {
-    if ((found.owner_key === null || found.owner_key === undefined) && !observedRow(table, found, row)) return false;
-    const mine = row.owner_key;
-    if (found.owner_key !== mine && found.retired_at === null) {
-      const theirs = placeOfOwner(db, found.owner_key);
-      if (theirs !== null && placeOfOwner(db, mine) !== null && theirs !== placeOfOwner(db, mine)) {
-        prepared(db, 'INSERT OR IGNORE INTO co_owners (tbl, key, owner_key) VALUES (?, ?, ?)').run(
-          table,
-          keyOf(table, row),
-          mine
-        );
-        return false;
-      }
-    }
-  }
+function leavesAlone(
+  db: Db,
+  table: string,
+  found: Row,
+  given: Row,
+  { holder, mine }: { holder: PlaceOwner | undefined; mine: boolean }
+): boolean {
+  if (!isOwned(found) && !observedRow(table, found, given)) return true;
+  if (mine || found.retired_at !== null) return false;
+  const theirs = placeOfFound(db, found);
+  const ours = holder ? holder.holder_id : placeOfOwner(db, given.owner_key);
+  if (theirs === null || ours === null || theirs === ours) return false;
+  if (holder) sharePlaceRow(db, table, keyOf(table, given), holder, given.owner_key);
+  else
+    prepared(db, 'INSERT OR IGNORE INTO co_owners (tbl, key, owner_key) VALUES (?, ?, ?)').run(
+      table,
+      keyOf(table, given),
+      given.owner_key
+    );
+  return true;
+}
+
+/**
+ * Writes one mapped row of a unit, keeping the ownership rules (`leavesAlone`); anything else is upserted. `holder`
+ * names the owner columns of a place's notes or a channel's entry, which own their rows through them; a row such an
+ * owner held that another unit takes loses them. Returns true when the row is now this unit's to write (false:
+ * skipped).
+ */
+function writeRow(
+  db: Db,
+  table: string,
+  given: Row,
+  opts: { ignore?: boolean; at?: string; holder?: PlaceOwner }
+): boolean {
+  const { holder } = opts;
+  const found = existingOf(db, table, given);
+  const mine = holder
+    ? found?.writer === holder.writer && found?.holder_id === holder.holder_id
+    : found?.owner_key === given.owner_key;
+  if (found && leavesAlone(db, table, found, given, { holder, mine })) return false;
+  const row =
+    found && !holder && isPlaceWriter(found.writer) && !Object.hasOwn(given, 'writer')
+      ? { ...given, writer: null, holder_id: null }
+      : given;
   // The v7 derived columns (audience, authority, native key, ...) come from the row itself, so a remap re-derives them.
   const derived = deriveRow(db, table, row);
   upsert(db, table, derived, opts);
@@ -185,12 +226,14 @@ function writeRow(db: Db, table: string, row: Row, opts: { ignore?: boolean; at?
   if (table === 'sources') ensureRelations(db, derived, { at: opts.at });
   else projectRow(db, table, derived, { at: opts.at });
   if (table === 'selfreflection') restrictSelfreflectionMedia(db, derived, opts.at);
-  if (found && found.owner_key !== row.owner_key) {
-    prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_key = ?').run(
-      table,
-      keyOf(table, row),
-      row.owner_key
-    );
+  if (found && !mine) {
+    if (holder) unsharePlaceRow(db, table, keyOf(table, row), holder);
+    else
+      prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_key = ?').run(
+        table,
+        keyOf(table, row),
+        row.owner_key
+      );
   }
   return true;
 }
@@ -199,15 +242,17 @@ function writeRow(db: Db, table: string, row: Row, opts: { ignore?: boolean; at?
 function handOver(db: Db, table: string, key: Row, owner: string): boolean {
   const heir = prepared(
     db,
-    `SELECT c.owner_key FROM co_owners c JOIN ${hasStorageUnits(db) ? 'storage_units' : 'files'} f ON f.${hasStorageUnits(db) ? 'id' : 'path'} = c.owner_key
+    `SELECT c.owner_key${columnsOf(db, 'co_owners').has('holder_id') ? ', c.writer, c.holder_id' : ''} FROM co_owners c JOIN ${hasStorageUnits(db) ? 'storage_units' : 'files'} f ON f.${hasStorageUnits(db) ? 'id' : 'path'} = c.owner_key
      WHERE c.tbl = ? AND c.key = ? AND c.owner_key != ? AND f.${hasStorageUnits(db) ? 'retired_at' : 'gone_at'} IS NULL ORDER BY c.owner_key LIMIT 1`
   ).get(table, keyOf(table, key), owner);
   if (!heir) return false;
   const cols = OWNED[table];
+  // A place's notes that inherit the row own it through its owner columns (place-owner.ts).
+  const columns = isPlaceWriter(heir.writer) ? ', writer = ?, holder_id = ?' : '';
   prepared(
     db,
-    `UPDATE ${quote(table)} SET owner_key = ? WHERE ${cols.map((col) => `${quote(col)} = ?`).join(' AND ')}`
-  ).run(heir.owner_key, ...cols.map((col) => key[col]));
+    `UPDATE ${quote(table)} SET owner_key = ?${columns} WHERE ${cols.map((col) => `${quote(col)} = ?`).join(' AND ')}`
+  ).run(heir.owner_key, ...(columns ? [heir.writer, heir.holder_id] : []), ...cols.map((col) => key[col]));
   prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_key = ?').run(
     table,
     keyOf(table, key),
@@ -345,12 +390,12 @@ function mappingOwner(db: Db, mapping: Rows, owner: string): string {
   return id;
 }
 
-/** Writes a mapping (table -> rows) of the unit `owner`. */
+/** Writes a mapping (table -> rows) of the unit `owner`; `holder` names the owner columns of a place's rows. */
 export function writeMapping(
   db: Db,
   mapping: Rows,
   owner: string,
-  { ignoreClaims = false, at }: { ignoreClaims?: boolean; at?: string } = {}
+  { ignoreClaims = false, at, holder }: { ignoreClaims?: boolean; at?: string; holder?: PlaceOwner } = {}
 ): number {
   owner = mappingOwner(db, mapping, owner);
   resolveParticipationSources(db, mapping);
@@ -361,7 +406,7 @@ export function writeMapping(
     if (CHILDREN[table] || !rows.length) continue;
     for (const row of rows) {
       const kept = hold(table, row);
-      if (kept && writeRow(db, table, kept, { ignore: table === 'claims' && ignoreClaims, at })) count += 1;
+      if (kept && writeRow(db, table, kept, { ignore: table === 'claims' && ignoreClaims, at, holder })) count += 1;
       else if (Object.values(CHILDREN).some(([parent]) => parent === table))
         skippedParents.add(`${table}\u0000${asText(row.id)}`);
     }

@@ -4,6 +4,7 @@
 
 import { ownLineRows } from './line-owner.ts';
 import { ownProfileRows } from './profile-owner.ts';
+import { ownPlaceRows } from './place-owner.ts';
 import { placeLineVectors } from './line-vectors.ts';
 import { rebuildLocatorIndex } from './message-family-catalog.ts';
 import type { Db } from './types.ts';
@@ -62,6 +63,15 @@ export const MIGRATIONS: Array<Migration> = [
     for (const table of [...Object.keys(added), 'affinity_events'])
       db.exec(`CREATE INDEX "${table}_holder" ON "${table}"(writer, holder_id) WHERE writer IS NOT NULL`);
     ownProfileRows(db);
+  },
+  // Version 48: the rows of a place's notes and a channel's entry, and the places that share one of them, name their
+  // writer and holder (src/memory/db/place-owner.ts).
+  (db: Db): void => {
+    for (const table of ['places', 'co_owners'])
+      for (const column of ['writer', 'holder_id']) db.exec(`ALTER TABLE "${table}" ADD COLUMN ${column} TEXT`);
+    db.exec('CREATE INDEX "places_holder" ON "places"(writer, holder_id) WHERE writer IS NOT NULL');
+    db.exec('CREATE INDEX "co_owners_holder" ON "co_owners"(tbl, writer, holder_id) WHERE writer IS NOT NULL');
+    ownPlaceRows(db);
   },
 ];
 

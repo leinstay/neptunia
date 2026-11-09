@@ -137,6 +137,8 @@ import { applyArchiveLinesWrite } from './archive-lines.ts';
 import { applyAccountProfileWrite } from './account-profile.ts';
 import { applyProseVersionsWrite } from './prose-versions.ts';
 import { applyPrivateLayerWrite } from './private-layer.ts';
+import { applyPlaceNotesWrite } from './place-notes.ts';
+import { applyChannelEntryWrite } from './channel-entry.ts';
 import { applyOperationalWrite } from './operational.ts';
 import { applyUnitWrite } from './unit-write.ts';
 import { applyPublicationWrite } from './publish.ts';
@@ -984,6 +986,9 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['prose-versions', applyProseVersionsWrite],
   // What she learned about a member in their direct chat (private-layer.ts).
   ['private-layer', applyPrivateLayerWrite],
+  // The notes of a root or a direct chat (place-notes.ts), and a channel's entry of the server map (channel-entry.ts).
+  ['place-notes', applyPlaceNotesWrite],
+  ['channel-entry', applyChannelEntryWrite],
   // The selfreflection's mirrors: the state of a send, then the owner's configuration.
   [
     'publication',
