@@ -1549,7 +1549,7 @@
     },
     "src/behavior/wake.ts": {
       "feedbackFactText": {
-        "complexity": 32
+        "complexity": 31
       }
     },
     "src/errands/blocks.ts": {
@@ -1567,7 +1567,7 @@
     },
     "src/errands/store.ts": {
       "createErrandStore": {
-        "function-length": 497
+        "function-length": 496
       }
     },
     "src/format.ts": {

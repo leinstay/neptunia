@@ -81,7 +81,6 @@ export type MemoryDb = {
   writeRecentLines?: (write: RecentLinesWrite) => Promise<unknown>;
   writeSelfreflection?: (write: SelfreflectionWrite) => Promise<unknown>;
   memoryWrite?: (update: unknown) => Promise<unknown>;
-  keepPending?: (update: unknown) => string;
   onAffinityMoves?: (listener: (moves: Array<Row>) => void) => () => void;
 };
 

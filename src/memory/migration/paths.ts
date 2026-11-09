@@ -6,8 +6,8 @@
 //                         state outside the inventoried root and guild units, the
 //                         recall trace, the journal's `.running` marker and request dumps (`journal/` is a mixed
 //                         directory: only its day files retire), the backfill folders and the backfill cursor
-//                         (`record/backfill.json`), the archive's pending queue, the vault, the snapshots, the unit
-//                         writes a shutdown could not make (`memory-pending/`), her selfreflection media (`media/selfreflection/`, `media/diary/` until the migration moves it), the
+//                         (`record/backfill.json`), the archive's pending queue, the vault, the snapshots, her
+//                         selfreflection media (`media/selfreflection/`, `media/diary/` until the migration moves it), the
 //                         database's own files (`memory.db*`), the tools' output folders, and the leftovers of any file
 //                         (`*.bak*`, `*.unreadable-*`, `*.tmp`, `*.tmp-*`, `*.torn-*`).
 //   MEMORY_PATTERNS       the memory paths, which no module writes as a file any more (the database holds their units;
@@ -70,7 +70,6 @@ export const OPERATIONAL_PATTERNS = Object.freeze([
   pattern('guilds/*/[private/*/]archive/pending*.jsonl', `${G}${P}archive/pending[^/]*\\.jsonl`),
   pattern('vault/**', 'vault/.+'),
   pattern('snapshots/**', 'snapshots/.+'),
-  pattern('memory-pending/**', 'memory-pending/.+'),
   pattern('media/diary/**', 'media/diary/.+'),
   pattern('media/selfreflection/**', 'media/selfreflection/.+'),
   pattern('memory.db*', 'memory\\.db[^/]*'),

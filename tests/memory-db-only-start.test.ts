@@ -205,13 +205,8 @@ test('the memory starts from memory.db and the operational files alone, writes o
       'no memory file'
     );
     assert.ok(
-      after.every((rel: string) => DB_FILES.has(rel) || isOperational(rel) || rel.startsWith('memory-pending/')),
+      after.every((rel: string) => DB_FILES.has(rel) || isOperational(rel)),
       `${after}`
-    );
-    assert.deepEqual(
-      after.filter((rel: string) => rel.startsWith('memory-pending/')),
-      [],
-      'nothing waits for a next start'
     );
     assert.deepEqual(
       warnings.filter((entry) => /failed|refused|pending|lost/.test(entry.message)),
