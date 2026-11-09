@@ -409,10 +409,16 @@ const POSITIONED = new Set(['claims', 'description_versions', 'episodes', 'affin
 export function ownedRowsOf(db: Db, owner: string, tables: ReadonlyArray<string>): Rows {
   const rows: Rows = {};
   for (const table of tables) {
-    const key = OWNED[table].map(quote).join(' || char(0) || ');
+    const [first, second] = OWNED[table];
+    // A shared row of a two-column key (`operational`) is found through its key's parts, so the lookup stays on the
+    // primary key instead of scanning the table.
+    const shared = second
+      ? `rowid IN (SELECT t.rowid FROM co_owners c JOIN ${quote(table)} t ON t.${quote(first)} = substr(c.key, 1, instr(c.key, char(0)) - 1)
+          AND t.${quote(second)} = substr(c.key, instr(c.key, char(0)) + 1) WHERE c.tbl = ? AND c.owner_key = ?)`
+      : `${quote(first)} IN (SELECT key FROM co_owners WHERE tbl = ? AND owner_key = ?)`;
     rows[table] = prepared(
       db,
-      `SELECT * FROM ${quote(table)} WHERE (owner_key = ? OR ${key} IN (SELECT key FROM co_owners WHERE tbl = ? AND owner_key = ?))
+      `SELECT * FROM ${quote(table)} WHERE (owner_key = ? OR ${shared})
        AND retired_at IS NULL ORDER BY ${POSITIONED.has(table) ? 'position, rowid' : 'rowid'}`
     )
       .all(owner, table, owner)
