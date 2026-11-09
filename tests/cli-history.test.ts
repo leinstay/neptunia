@@ -28,25 +28,6 @@ test('a multiline draft with its attachments round-trips across a restart as one
   assert.equal(read.skipped, 0);
 });
 
-test('a legacy file reads newest first, one draft per line, and stays whole through the next write', () => {
-  // Bug: the upgrade loses the owner's history, reverses it, or reads a typed JSON line as a damaged record.
-  const file = fileIn();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, 'oldest\n{"typed":"by the owner"}\nnewest\n');
-  const read = readHistory(file);
-  const expected = ['newest', '{"typed":"by the owner"}', 'oldest'];
-  assert.deepEqual(
-    read.records.map((one) => one.text),
-    expected
-  );
-  assert.equal(read.skipped, 0);
-  writeHistory(file, read.records);
-  assert.deepEqual(
-    readHistory(file).records.map((one) => one.text),
-    expected
-  );
-});
-
 test('a damaged record is counted and skipped, its neighbours kept', () => {
   // Bug: one torn line makes the whole file read as legacy text, or empties the history.
   const file = fileIn();

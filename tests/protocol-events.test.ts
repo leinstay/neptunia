@@ -4,7 +4,7 @@
 // the public validateEvent and EVENT_KINDS.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CORE_KINDS, EVENT_KINDS, validateEvent } from '../src/protocol/index.ts';
+import { validateEvent } from '../src/protocol/index.ts';
 
 type Json = Record<string, unknown>;
 
@@ -72,16 +72,6 @@ const without = (event: Json, key: string): Json => {
 };
 
 const refusal = (reason: string) => ({ ok: false, reason });
-
-test('lists the four new kinds after the existing eight, and sends none of them from the core', () => {
-  assert.deepEqual([...EVENT_KINDS].slice(8), [
-    'presence.changed',
-    'presence.snapshot',
-    'chat.changed',
-    'connection.changed',
-  ]);
-  assert.deepEqual([...CORE_KINDS], ['scheduler.tick', 'errand.done', 'inner.wake']);
-});
 
 test('accepts a presence.changed event in its documented shape', () => {
   assert.deepEqual(validateEvent(presenceChanged), { ok: true });

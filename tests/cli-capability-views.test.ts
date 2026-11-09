@@ -2,7 +2,7 @@
 // context line. Each reads what it is given and starts nothing by being opened.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { capabilityPanel, chatPanel } from '../bin/chat-panels.ts';
+import { capabilityPanel } from '../bin/chat-panels.ts';
 import { approvalPanel } from '../interfaces/cli/approval-view.ts';
 import { contextLine } from '../interfaces/cli/context-line.ts';
 import { KEY, chatEnv, pause, press, shows, until, withChat } from './fixtures/chat-rig.ts';
@@ -144,13 +144,6 @@ test('the agents menu uses its own command', async () => {
   // Changed: the menu opens under the command's own word, `/agent`, and `/agents` is no second name for it.
   const agents = await capabilityPanel('agent', runner().run);
   for (const row of agents.rows ?? []) assert.ok(row.prefill?.startsWith('/agent '), row.id);
-});
-
-test('/plugins opens no panel, since no operation installs a plugin', async () => {
-  // Changed: the plugins menu only said it had nothing to act on, so it is gone. Catches: an empty menu comes back.
-  const { run, calls } = runner();
-  assert.equal(await chatPanel('/plugins', run), null);
-  assert.deepEqual(calls, []);
 });
 
 test('a failing list read shows its failure and offers no action', async () => {

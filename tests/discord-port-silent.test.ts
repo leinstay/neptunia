@@ -221,3 +221,75 @@ test('send: switching the key between two sends changes the second only', async 
   assert.equal(mentionsOf(sent[1]).repliedUser, false);
   assert.equal(sent[2].flags, undefined);
 });
+
+// The Discord port with `discord.silent` and a member's own ping state (interfaces/discord/port.ts). The turn decides who
+// a message concerns and hands the answer in `mentions.asked`: the named members whose state is `on`, and whether the
+// replied author's state is `on`. In silent mode the port sends exactly that, never adds the suppress flag (the owner's
+// word of 2026-11-06: the switch stops pings and nothing else) and keeps a voice flag. A message with `notify` and no
+// `asked` is sent as given, one with neither pings nobody. The key is read at each send.
+
+// The lead: the first sent payload's mentions get a name, so each assertion reads three segments deep (R.2).
+const mentionsOfFirst = <T extends { allowedMentions?: unknown }>(sent: Array<T>) =>
+  sent[0]?.allowedMentions as { users?: Array<string>; repliedUser?: boolean } | undefined;
+
+type PingsPayload = {
+  content?: string;
+  flags?: number;
+  reply?: unknown;
+  allowedMentions?: { parse?: Array<string>; users?: Array<string>; repliedUser?: boolean };
+};
+
+function pingsPortOver(sent: Array<PingsPayload>, config: () => object) {
+  const channel = {
+    id: 'c1',
+    send: (payload: PingsPayload) => {
+      sent.push(payload);
+      return Promise.resolve({ id: `m${sent.length}`, createdTimestamp: 1 });
+    },
+  };
+  const client = { user: { id: 'self' }, channels: { cache: new Map([['c1', channel]]) } };
+  return createDiscordAdapter({
+    client: client as unknown as Parameters<typeof createDiscordAdapter>[0]['client'],
+    config,
+  });
+}
+const silent = () => ({ discord: { silent: true } });
+const loud = () => ({ discord: { silent: false } });
+// The flag is "set" when the suppress bit is among the flags; a payload with no flags has none.
+const suppressed = (payload: PingsPayload | undefined): boolean => ((payload?.flags ?? 0) & SILENT) !== 0;
+
+test('silent mode: a stray notify with nobody to notify pings nobody', async () => {
+  // Bug: a stray notify with no users and no replied author is believed, and an empty ping list is sent as everyone.
+  const sent: Array<PingsPayload> = [];
+  await pingsPortOver(sent, silent).send(chat, {
+    text: 'hi',
+    mentions: { users: [], repliedUser: false, notify: true },
+  });
+  assert.equal(suppressed(sent[0]), false);
+  assert.deepEqual(mentionsOfFirst(sent)?.users ?? [], []);
+  assert.equal(mentionsOfFirst(sent)?.repliedUser, false);
+});
+
+test('loud mode: asked is ignored, the mentions go out as given', async () => {
+  // Bug: the new field leaks into the default path and alters the payload of every server that is not silent.
+  const sent: Array<PingsPayload> = [];
+  await pingsPortOver(sent, loud).send(chat, {
+    text: 'hey <@42> <@43>',
+    replyTo,
+    mentions: { users: ['42', '43'], repliedUser: true, asked: { users: ['42'], repliedUser: false } },
+  });
+  assert.equal(suppressed(sent[0]), false);
+  assert.deepEqual(sent[0]?.allowedMentions, { parse: [], users: ['42', '43'], repliedUser: true });
+});
+
+test('loud mode: notify changes nothing, the mentions go out as given', async () => {
+  // Bug: the new field leaks into the default path and alters the payload of every server that is not silent.
+  const sent: Array<PingsPayload> = [];
+  await pingsPortOver(sent, loud).send(chat, {
+    text: 'hey <@42>',
+    replyTo,
+    mentions: { users: ['42'], repliedUser: true, notify: true },
+  });
+  assert.equal(suppressed(sent[0]), false);
+  assert.deepEqual(sent[0]?.allowedMentions, { parse: [], users: ['42'], repliedUser: true });
+});

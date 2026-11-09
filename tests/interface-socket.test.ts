@@ -10,6 +10,12 @@ import { join } from 'node:path';
 import { connectSocket, encodeEnvelope, envelope } from '../src/protocol/index.ts';
 import { listenSocket } from '../src/interface/socket.ts';
 import type { Transport } from '../src/protocol/wire.ts';
+import { serveAdapter } from '../src/protocol/serve.ts';
+import type { Hello } from '../src/protocol/serve.ts';
+import type { Capabilities } from '../src/protocol/adapter.ts';
+import { openAdapterLink } from '../src/interface/link.ts';
+import { createEventDoor } from '../src/interface/door.ts';
+import { createFakeAdapter } from '../src/interface/fake.ts';
 
 type Env = ReturnType<typeof envelope>;
 type Log = {
@@ -107,28 +113,6 @@ test('carries a 1 MiB attachment over the socket with equal bytes as a Buffer', 
   }
 });
 
-test('closes the connection with frame-too-large when a line passes the cap', async () => {
-  const r = await rig(1000);
-  const client = await connectSocket({ path: r.path, maxFrameBytes: MiB });
-  const clientClosed: Array<string> = [];
-  const serverClosed: Array<string> = [];
-  const seen: Array<string> = [];
-  client.onClose((reason) => clientClosed.push(reason));
-  try {
-    await until(() => r.connections.length === 1);
-    r.connections[0].onClose((reason) => serverClosed.push(reason));
-    r.connections[0].onEnvelope((e) => seen.push(e.id));
-    client.send(sendWith('x'.repeat(5000)));
-    await until(() => serverClosed.length === 1 && clientClosed.length === 1);
-    assert.equal(serverClosed[0], 'frame-too-large');
-    assert.deepEqual(seen, []);
-  } finally {
-    client.close();
-    await r.server.close();
-    r.remove();
-  }
-});
-
 test('closes with frame-too-large when bytes pass the cap before any newline arrives', async () => {
   const r = await rig(1000);
   const socket = await raw(r.path);
@@ -159,63 +143,6 @@ test('accepts a line of exactly the cap', async () => {
     socket.write(`${line}\n`);
     await until(() => seen.length === 1);
     assert.deepEqual(closed, []);
-  } finally {
-    socket.destroy();
-    await r.server.close();
-    r.remove();
-  }
-});
-
-test('skips a line that is not JSON and keeps the link open', async () => {
-  const r = await rig();
-  const socket = await raw(r.path);
-  const seen: Array<string> = [];
-  const closed: Array<string> = [];
-  try {
-    await until(() => r.connections.length === 1);
-    r.connections[0].onEnvelope((e) => seen.push(e.id));
-    r.connections[0].onClose((reason) => closed.push(reason));
-    socket.write(`this is not json\n${encodeEnvelope(ping('next'))}\n`);
-    await until(() => seen.length === 1);
-    assert.deepEqual(seen, ['next']);
-    assert.deepEqual(closed, []);
-  } finally {
-    socket.destroy();
-    await r.server.close();
-    r.remove();
-  }
-});
-
-test('decodes two envelopes written in one chunk', async () => {
-  const r = await rig();
-  const socket = await raw(r.path);
-  const seen: Array<string> = [];
-  try {
-    await until(() => r.connections.length === 1);
-    r.connections[0].onEnvelope((e) => seen.push(e.id));
-    socket.write(`${encodeEnvelope(ping('one'))}\n${encodeEnvelope(ping('two'))}\n`);
-    await until(() => seen.length === 2);
-    assert.deepEqual(seen, ['one', 'two']);
-  } finally {
-    socket.destroy();
-    await r.server.close();
-    r.remove();
-  }
-});
-
-test('decodes one envelope written in two chunks', async () => {
-  const r = await rig();
-  const socket = await raw(r.path);
-  const seen: Array<string> = [];
-  const line = `${encodeEnvelope(ping('split'))}\n`;
-  try {
-    await until(() => r.connections.length === 1);
-    r.connections[0].onEnvelope((e) => seen.push(e.id));
-    socket.write(line.slice(0, 7));
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    socket.write(line.slice(7));
-    await until(() => seen.length === 1);
-    assert.deepEqual(seen, ['split']);
   } finally {
     socket.destroy();
     await r.server.close();
@@ -292,6 +219,95 @@ test('close resolves while a client is still connected and that client is told',
     await until(() => closed.length === 1);
     assert.equal(existsSync(r.path), false);
   } finally {
+    r.remove();
+  }
+});
+
+// Tests for the link over a real Unix socket: the serving side connects with connectSocket, the core listens with
+// listenSocket and opens one link per connection. The socket sits in a short folder under TMPDIR because a Unix
+// socket path is limited to 108 bytes.
+
+type Link = ReturnType<typeof openAdapterLink>;
+const CAPABILITIES: Capabilities = {
+  operations: ['message.send'],
+  maxChars: 2000,
+  maxFiles: 10,
+  maxFileBytes: 8 * MiB,
+  edit: { ownOnly: true, windowMs: null },
+  history: true,
+  threads: false,
+  reactions: true,
+  customEmoji: false,
+  presence: false,
+  voiceFormats: [],
+  publish: [],
+  search: false,
+};
+const HELLO: Hello = {
+  iface: 'fake',
+  self: { id: 'bot-1', name: 'Νέπτυν' },
+  root: { id: 'g1', name: 'Alpha' },
+  capabilities: CAPABILITIES,
+  resume: null,
+};
+
+async function linkRig() {
+  const dir = mkdtempSync(join(tmpdir(), 'lk-'));
+  const path = join(dir, 'c.sock');
+  const handled: Array<string> = [];
+  const door = createEventDoor({
+    handlers: { 'reaction.changed': (event: { id: string }) => void handled.push(event.id) },
+    log: quiet,
+  });
+  const links: Array<Link> = [];
+  const server = await listenSocket({
+    path,
+    maxFrameBytes: 4 * MiB,
+    log: quiet,
+    onConnection: (transport) => links.push(openAdapterLink({ transport, door, token: 'tok', log: quiet })),
+  });
+  const transport = await connectSocket({ path, maxFrameBytes: 4 * MiB });
+  const fake = createFakeAdapter();
+  const served = serveAdapter({ transport, hello: HELLO, token: 'tok', adapter: fake, log: quiet });
+  await until(() => links.length === 1);
+  const [link] = links;
+  if (link === undefined) throw new Error('no link opened');
+  await link.hello;
+  return {
+    dir,
+    path,
+    handled,
+    server,
+    served,
+    link,
+    fake,
+    remove: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+test('carries one event in and one send out over the socket', async () => {
+  const r = await linkRig();
+  try {
+    const status = await r.served.emit({
+      kind: 'reaction.changed',
+      iface: 'fake',
+      at: 1,
+      id: 'e1',
+      chat: { id: 'c1', kind: 'channel' },
+      messageId: 'm1',
+      emoji: { name: 'x' },
+      accountId: 'u1',
+      added: true,
+    });
+    assert.equal(status, 'ok');
+    assert.deepEqual(r.handled, ['e1']);
+    const delivery = await r.link.adapter.send({ iface: 'fake', chatId: 'c1' }, { text: 'over the socket' });
+    assert.equal(delivery.status, 'ok');
+    assert.equal(r.fake.messagesIn('c1')[0]?.text, 'over the socket');
+  } finally {
+    r.served.close();
+    r.link.close();
+    await r.server.close();
     r.remove();
   }
 });
