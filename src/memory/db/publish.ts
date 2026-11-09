@@ -25,15 +25,15 @@
 //       or a timeout hid; `reconcile(handle, id, found)` makes it `sent` with the receipts found, never sending again,
 //       or `failed` when the interface has no trace of it.
 //   grantPublication / revokeGrant   the owner's exceptions; a grant is immutable but for its revocation.
-// The selfreflection's mirrors (`selfreflection_mirrors`, written by the sync from the selfreflection unit) derive their publication rows here too
+// The selfreflection's mirrors (`selfreflection_mirrors`, written with her entries, selfreflection-entries.ts) derive their publication rows here too
 // (`deriveMirrorPublication`), on the one path every mirror write takes (the sync, rows.ts#insertRows, the v10
 // migration), so a remap keeps the row and never makes a second one.
 //
 // `assignSelfreflectionDestination` gives the selfreflection's publications that name no destination the deployment's selfreflection channel (the
-// v12 data step for the legacy mirrors, and the selfreflection writer under authority `db`, unit-write.ts).
+// v12 data step for the legacy mirrors, and her selfreflection's writer, selfreflection-entries.ts).
 // Every write projects the publication into the graph in the same transaction (graph.ts#projectRow). No live writer
 // uses preparePublication but the selfreflection's mirrors (src/behavior/mirror.ts); the legacy selfreflection posts derive their
-// `sent` publications on the selfreflection's own write like the sync (unit-write.ts). Logs: none; a caller logs codes.
+// `sent` publications on the selfreflection's own write (selfreflection-entries.ts). Logs: none; a caller logs codes.
 
 import { createHash } from 'node:crypto';
 import { ownershipRow, hasStorageUnits, ownershipSql } from './storage-units.ts';
@@ -528,7 +528,8 @@ export function mirrorReceipts(
 /**
  * The publication row a selfreflection mirror derives (pure): the mirror's id, the selfreflection entry, the entry's text and its hash
  * (null until the text is known), the mirror's place as the destination when that place exists, `sent` with the
- * mirror's message ids as receipts, the key `selfreflection:<entry>:<place>`, the mirror's owner and retirement.
+ * mirror's message ids as receipts, the key `selfreflection:<entry>:<place>`, the mirror's owner (its unit and its owner
+ * columns, place-owner.ts) and retirement.
  */
 export function mirrorPublicationRow(
   mirror: Row,
@@ -550,8 +551,56 @@ export function mirrorPublicationRow(
     created_at: filled(mirror.posted_at) ? mirror.posted_at : at,
     sent_at: filled(mirror.posted_at) ? mirror.posted_at : null,
     owner_key: mirror.owner_key ?? null,
+    ...(Object.hasOwn(mirror, 'holder_id')
+      ? { writer: mirror.writer ?? null, holder_id: mirror.holder_id ?? null }
+      : {}),
     retired_at: mirror.retired_at ?? null,
   };
+}
+
+/** The stored mirror a mirror names: by its rowid, its id, or its entry, interface and place as the sync keys it. */
+function storedMirror(db: Db, mirror: Row | undefined): Row | undefined {
+  const direct = Number.isInteger(mirror?.rowid)
+    ? db.prepare('SELECT * FROM selfreflection_mirrors WHERE rowid = ?').get(mirror?.rowid)
+    : filled(mirror?.id)
+      ? db.prepare('SELECT * FROM selfreflection_mirrors WHERE id = ?').get(mirror.id)
+      : undefined;
+  if (direct || !filled(mirror?.selfreflection_id)) return direct;
+  return db
+    .prepare(
+      ownershipSql(
+        db,
+        "SELECT * FROM selfreflection_mirrors WHERE selfreflection_id = ? AND iface IS ? AND COALESCE(place_id, '') = ? ORDER BY owner_key IS NULL DESC, rowid LIMIT 1"
+      )
+    )
+    .get(mirror.selfreflection_id, mirror.iface ?? null, mirror.place_id ?? '');
+}
+
+/**
+ * The mirror's own publication follows its mirror: receipts, owner and retirement, a destination or a text that was not
+ * known before. The content is filled once, never rewritten (a trigger guards it).
+ */
+function followMirror(db: Db, row: Row, id: unknown): void {
+  const owned = Object.hasOwn(row, 'holder_id');
+  db.prepare(
+    ownershipSql(
+      db,
+      `UPDATE publications SET receipts = ?, owner_key = ?, retired_at = ?,${owned ? ' writer = ?, holder_id = ?,' : ''}
+      destination_place_id = COALESCE(destination_place_id, ?),
+      rendered = CASE WHEN content_hash IS NULL THEN ? ELSE rendered END,
+      content_hash = CASE WHEN content_hash IS NULL THEN ? ELSE content_hash END
+    WHERE id = ?`
+    )
+  ).run(
+    row.receipts,
+    row.owner_key,
+    row.retired_at,
+    ...(owned ? [row.writer, row.holder_id] : []),
+    row.destination_place_id,
+    row.rendered,
+    row.content_hash,
+    id
+  );
 }
 
 /**
@@ -568,20 +617,7 @@ export function deriveMirrorPublication(
 ): unknown {
   const db = dbOf(handle);
   if (!hasPublications(db)) return null;
-  let found: Row | undefined;
-  if (Number.isInteger(mirror?.rowid))
-    found = db.prepare('SELECT * FROM selfreflection_mirrors WHERE rowid = ?').get(mirror?.rowid);
-  else if (filled(mirror?.id)) found = db.prepare('SELECT * FROM selfreflection_mirrors WHERE id = ?').get(mirror.id);
-  if (!found && filled(mirror?.selfreflection_id)) {
-    found = db
-      .prepare(
-        ownershipSql(
-          db,
-          "SELECT * FROM selfreflection_mirrors WHERE selfreflection_id = ? AND iface IS ? AND COALESCE(place_id, '') = ? ORDER BY owner_key IS NULL DESC, rowid LIMIT 1"
-        )
-      )
-      .get(mirror.selfreflection_id, mirror.iface ?? null, mirror.place_id ?? '');
-  }
+  const found = storedMirror(db, mirror);
   if (!found || !filled(found.id) || !filled(found.selfreflection_id)) return null;
   const text =
     (db.prepare('SELECT text FROM selfreflection WHERE id = ?').get(found.selfreflection_id)?.text as
@@ -594,8 +630,11 @@ export function deriveMirrorPublication(
     placeExists,
     at: stamp,
   });
+  const owned = Object.hasOwn(row, 'holder_id');
   const existing = db
-    .prepare(ownershipSql(db, 'SELECT id, owner_key FROM publications WHERE idempotency_key = ?'))
+    .prepare(
+      ownershipSql(db, `SELECT id, owner_key${owned ? ', writer' : ''} FROM publications WHERE idempotency_key = ?`)
+    )
     .get(row.idempotency_key);
   if (!existing) {
     const stored = ownershipRow(db, row);
@@ -603,26 +642,8 @@ export function deriveMirrorPublication(
     db.prepare(
       `INSERT INTO publications (${cols.map((col) => `"${col}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
     ).run(...cols.map((col) => stored[col]));
-  } else if ((hasStorageUnits(db) ? existing.owner_key : existing.owner_file) != null) {
-    // Only the mirror's own publication follows it; the content is filled once, never rewritten (a trigger guards it).
-    db.prepare(
-      ownershipSql(
-        db,
-        `UPDATE publications SET receipts = ?, owner_key = ?, retired_at = ?,
-        destination_place_id = COALESCE(destination_place_id, ?),
-        rendered = CASE WHEN content_hash IS NULL THEN ? ELSE rendered END,
-        content_hash = CASE WHEN content_hash IS NULL THEN ? ELSE content_hash END
-      WHERE id = ?`
-      )
-    ).run(
-      row.receipts,
-      row.owner_key,
-      row.retired_at,
-      row.destination_place_id,
-      row.rendered,
-      row.content_hash,
-      existing.id
-    );
+  } else if ((hasStorageUnits(db) ? existing.owner_key : existing.owner_file) != null || existing.writer != null) {
+    followMirror(db, row, existing.id);
   } else {
     return existing.id;
   }
@@ -634,13 +655,17 @@ export function deriveMirrorPublication(
 /**
  * The deployment's selfreflection channel as the destination of the selfreflection's publications that name none (schema v12's data
  * step for the legacy mirrors, and every selfreflection write under authority `db`, stage W2a): `placeId` (the channel's place)
- * is set on every `selfreflection` publication without a destination (of the unit `owner` only, when given), when that place is
+ * is set on every `selfreflection` publication without a destination (of the owner columns `holder` only, when given), when that place is
  * stored; nothing else of a publication changes. Returns how many were set.
  */
 export function assignSelfreflectionDestination(
   handle: Connection,
   placeId: string,
-  { owner = null, at, project = true }: { owner?: string | null; at?: string; project?: boolean } = {}
+  {
+    holder = null,
+    at,
+    project = true,
+  }: { holder?: { writer: string; holder_id: string } | null; at?: string; project?: boolean } = {}
 ): number {
   const db = dbOf(handle);
   if (!hasPublications(db) || !filled(placeId)) return 0;
@@ -649,10 +674,10 @@ export function assignSelfreflectionDestination(
     .prepare(
       ownershipSql(
         db,
-        `UPDATE publications SET destination_place_id = ? WHERE row_kind = 'selfreflection' AND destination_place_id IS NULL${filled(owner) ? ' AND owner_key = ?' : ''} RETURNING id`
+        `UPDATE publications SET destination_place_id = ? WHERE row_kind = 'selfreflection' AND destination_place_id IS NULL${holder ? ' AND writer = ? AND holder_id = ?' : ''} RETURNING id`
       )
     )
-    .all(...(filled(owner) ? [placeId, owner] : [placeId]))
+    .all(...(holder ? [placeId, holder.writer, holder.holder_id] : [placeId]))
     .map((row) => row.id);
   if (project) for (const id of ids) projectRow(db, 'publications', { id }, { at });
   return ids.length;

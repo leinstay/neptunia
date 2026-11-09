@@ -37,6 +37,8 @@ import type { ParticipationWrite } from './participation-episodes.ts';
 import { participationOfUnit } from './participation-episodes.ts';
 import type { RecentLinesWrite } from './recent-lines.ts';
 import { recentLinesOfUnit } from './recent-lines.ts';
+import type { SelfreflectionWrite } from './selfreflection-entries.ts';
+import { selfreflectionOfUnit } from './selfreflection-entries.ts';
 import type { ProseVersionsWrite } from './prose-versions.ts';
 import { keyText } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
@@ -63,7 +65,8 @@ export type UnitOutbox = {
  * `writeIntentions` for a unit of the intentions, `writeAccountProfile` for an account's profile,
  * `writeProseVersions` for a history of prose, `writePrivateLayer` for a private layer, `writePlaceNotes` for a place's
  * notes, `writeChannelEntry` for a channel's entry, and `writePlaceLore`, `writeParticipation` and `writeRecentLines` for
- * a place's lorebook, participation and recent lines when the service has them (operational.ts, intentions-write.ts,
+ * a place's lorebook, participation and recent lines, and `writeSelfreflection` for her selfreflection when the service
+ * has them (operational.ts, intentions-write.ts,
  * account-profile.ts, prose-versions.ts, private-layer.ts, place-notes.ts, channel-entry.ts), `keepPending` at
  * shutdown.
  */
@@ -79,6 +82,7 @@ type OutboxMemoryDb = {
   writePlaceLore?(this: void, write: PlaceLoreWrite): Promise<unknown>;
   writeParticipation?(this: void, write: ParticipationWrite): Promise<unknown>;
   writeRecentLines?(this: void, write: RecentLinesWrite): Promise<unknown>;
+  writeSelfreflection?(this: void, write: SelfreflectionWrite): Promise<unknown>;
   keepPending?(update: Row): unknown;
 };
 
@@ -96,6 +100,7 @@ const DIRECT_WRITES: ReadonlyArray<
   ['writePlaceLore', placeLoreOfUnit],
   ['writeParticipation', participationOfUnit],
   ['writeRecentLines', recentLinesOfUnit],
+  ['writeSelfreflection', selfreflectionOfUnit],
 ];
 
 /**
