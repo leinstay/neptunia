@@ -248,9 +248,10 @@ test('neptunia logs errors still reads the core journal at priority err', async 
 
 // ---- secrets ---------------------------------------------------------------------------------------------------------
 
+// Changed: `/interfaces token set` is gone (the interface's own `token` setting takes it), so the secret leaf is `keys add`.
 for (const argv of [
-  ['interfaces', 'token', 'set', 'zeta71', 'sekret-71'],
-  ['-p', '/interfaces token set zeta71 sekret-71'],
+  ['keys', 'add', 'zeta71', 'sekret-71'],
+  ['-p', '/keys add zeta71 sekret-71'],
 ]) {
   test(`neptunia ${argv.slice(0, -1).join(' ')} <value> refuses a token on the command line and never echoes it`, async () => {
     // Catches: the renamed family takes the token as an argument, or a refusal prints it into a log or a terminal.

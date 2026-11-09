@@ -60,11 +60,13 @@
 // docs/selfimprovement.md) as the client `development`: a filed task starts a thinker, and a finished one a pull request.
 // `worker development held` lists the tasks older than its boundary. It exits 1 when the board is not reachable.
 //
-// `doctor` writes nothing and asks no model without `--live`: it checks Node, the binaries the engine runs, config.json and
-// config.local.json, the local layer, the key store's keys of the enabled roles, the client tokens, the features (the
-// subharness, a warning while it is off), the memory database (read only, with no lock) and the socket. `runtime` is the core's reading of the server, itself and the memory
-// (`/doctor server`, `core` and `memory` read one each), `skipped` when no core answers in time. `--live` adds `providers` in its place, the core's probes of the model roles, which is
-// `skipped` when no core answers, since the command line holds no key. `--json` prints
+// `doctor` writes nothing but asks for real: its `routes` check sends one minimal request on every route of each chain
+// (src/setup/route-health.ts, the owner's word of 2026-11-08). It checks Node, the binaries the engine runs, config.json,
+// the local layer, keys.json, the client tokens, the features (the subharness, a warning while it is off), the routes,
+// the memory database (read only, with no lock) and whether a chat would open (`readiness`, which names a core that is
+// down). `runtime` is the core's reading of the server, itself and the memory (`/doctor server`, `core` and `memory`
+// read one each), left out while no core answers. `--live` holds `providers` in its place, the core's probes of the
+// model roles, `skipped` while no core answers. `--json` prints
 // `{ checks: [{ name, status, detail }] }`. A check is `ok`, `warn`, `fail` or `skipped`, and any `fail` exits 1. No
 // key or token value is ever printed.
 //
@@ -90,8 +92,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
-import { tokenVariableOf } from '../src/interface/commands/interface-token.ts';
-import { interfaceCredential } from '../src/config/files.ts';
+import { interfaceCredential, tokenVariableOf } from '../src/config/files.ts';
 import { interfacePackageDir } from '../src/config/files.ts';
 import { createRunnerServer } from '../src/agent-runner/server.ts';
 import { DEFAULT_OPENCODE_PATH } from '../src/agent-runner/opencode.ts';
@@ -1134,6 +1135,7 @@ function checkDatabase(where: { rootDir: string; privateDir: string; dataDir: st
   }
 }
 
+/** Whether the core's socket answers: what a launch reads while the owner's link cannot open (`healthLink`). */
 function checkSocket(where: { dataDir: string }): Promise<Check> {
   const file = coreSocketPath(where.dataDir);
   return new Promise((resolve) => {
@@ -1154,7 +1156,7 @@ function checkSocket(where: { dataDir: string }): Promise<Check> {
 
 /**
  * The probe of every model role, run by the core (`doctor.live`, the status card's probes): `ok`, `warn` when a probe
- * failed, and `skipped` without a core, since the command line holds no key.
+ * failed, and `skipped` without a core.
  */
 async function checkProviders(ask: ((command: Command) => Promise<Answer>) | null): Promise<Check> {
   if (ask === null) return { name: 'providers', status: 'skipped', detail: 'the core is down: only it holds the keys' };
@@ -1167,9 +1169,8 @@ async function checkProviders(ask: ((command: Command) => Promise<Answer>) | nul
 const RUNTIME_WAIT_MS = 5000;
 
 /** The core's reading of the server, itself and the memory (the console's `doctor`), `skipped` when none answers in time. */
-async function checkRuntime(ask: ((command: Command) => Promise<Answer>) | null): Promise<Check> {
+async function checkRuntime(ask: (command: Command) => Promise<Answer>): Promise<Check> {
   const skipped: Check = { name: 'runtime', status: 'skipped', detail: 'no core answers: its reads need it' };
-  if (ask === null) return skipped;
   let timer: NodeJS.Timeout | undefined;
   const late = new Promise<null>((resolve) => {
     timer = setTimeout(() => resolve(null), RUNTIME_WAIT_MS);
@@ -1243,11 +1244,14 @@ async function doctorChecks(
     await checkFeatures(where),
     await checkRoutes(where),
     checkDatabase(where),
-    await checkSocket(where),
   ];
-  // `live` is the providers' own read; the plain doctor says whether a chat would open.
-  if (!live) checks.push(await checkReadiness(where));
-  checks.push(live ? await checkProviders(ask) : await checkRuntime(ask));
+  // `live` is the providers' own read; the plain doctor says whether a chat would open, a core that is down included,
+  // and the core's reading of itself while one answers.
+  if (live) checks.push(await checkProviders(ask));
+  else {
+    checks.push(await checkReadiness(where));
+    if (ask !== null) checks.push(await checkRuntime(ask));
+  }
   return checks;
 }
 
