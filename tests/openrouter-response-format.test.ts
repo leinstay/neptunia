@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { roleRequestOptions } from '../src/llm/openrouter.ts';
 import type { CompleteOptions } from '../src/llm/openrouter.ts';
 import { createLlm } from './fixtures/llm.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 type Rec = Record<string, unknown>;
 
@@ -34,7 +35,7 @@ function config(hedge: Rec | null = null) {
     retries: 0,
   };
   if (hedge) llm.hedge = hedge;
-  return { models: { base: { core: 'test-model' } }, llm, context: { vision: { tokensPerImage: 1600 } } };
+  return { models: { routes: chainsOf({ core: 'test-model' }) }, llm, context: { vision: { tokensPerImage: 1600 } } };
 }
 
 function fakeState() {

@@ -7,10 +7,11 @@ import { createLlm, withCacheMarker } from '../src/llm/openrouter.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { wrongly } from './fixtures/loose-types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 function baseConfig() {
   return {
-    models: { base: { core: 'test-model' } },
+    models: { routes: chainsOf({ core: 'test-model' }) },
     llm: {
       baseUrl: 'https://openrouter.ai/api/v1',
       temperature: 1,

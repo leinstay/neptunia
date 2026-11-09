@@ -11,7 +11,7 @@
 
 import type { CompleteResult } from './openrouter.ts';
 import { createRouteChain, routesOf, unavailableCode } from './route-chain.ts';
-import type { RouteChain } from './route-chain.ts';
+import type { RouteChain, RouteState } from './route-chain.ts';
 import { harnessEffort, isRouteEffort, isRouteRole } from './route-text.ts';
 import type { Route, RouteRole } from './route-text.ts';
 import { MINUTE_MS } from '../time.ts';
@@ -22,8 +22,8 @@ type Completing = { complete(messages: unknown, options?: unknown): Promise<Comp
 export type ChainClientDeps = {
   /** The live config, read at each request. */
   getConfig(): unknown;
-  /** keys.json now: the core key names in their order, and the value of a key by name. */
-  keys: { coreNames(): Array<string>; valueOf(name: string): string | null };
+  /** keys.json now: the value of a named key. */
+  keys: { valueOf(name: string): string | null };
   chain: RouteChain;
   /** The client a request of `role` goes to: the subscription client for `core`, the memory writer for `memory`. */
   executor(role: string): Completing;
@@ -49,6 +49,8 @@ export type ChainClient = {
   report(role: string, error: unknown): void;
   /** The route in force of `role` was found down with `code` (a probe): the role moves on; true when another is in force. */
   moveOn(role: RouteRole, code: string): boolean;
+  /** The roles that switched and have not gone back to their first route. */
+  states(): Array<RouteState>;
 };
 
 const isRec = (value: unknown): value is Rec => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -70,8 +72,7 @@ function purposePin(config: unknown, purpose: unknown): string | undefined {
 }
 
 export function createChainClient(deps: ChainClientDeps): ChainClient {
-  const routes = (role: RouteRole): Array<Route> =>
-    deps.routes?.(role) ?? routesOf(deps.getConfig(), role, deps.keys.coreNames());
+  const routes = (role: RouteRole): Array<Route> => deps.routes?.(role) ?? routesOf(deps.getConfig(), role);
   const isUsable = (route: Route): boolean => route.via === 'harness' || deps.keys.valueOf(route.key) !== null;
 
   /** The first API route of `role` whose key keys.json holds, from the route in force, with that key. */
@@ -182,6 +183,7 @@ export function createChainClient(deps: ChainClientDeps): ChainClient {
       deps.chain.failed(role, chain, index, code);
       return deps.chain.inForce(role, chain) !== index;
     },
+    states: () => deps.chain.states(),
   };
 }
 

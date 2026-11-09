@@ -133,8 +133,9 @@ import type { ChatAttachment, ChatEntry, KeyBinding, PasteLimits, Question, Stat
 import { chatPanel } from './chat-panels.ts';
 import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
-import { BASE_ROLES, MEMORY_ROLE } from '../src/llm/roles.ts';
-import { createKeyStore, keysFileExists } from '../src/keys/store.ts';
+import { MANDATORY_ROLES } from '../src/llm/roles.ts';
+import { routesOf } from '../src/llm/route-chain.ts';
+import { createKeyStore, KeysError, keysFileExists } from '../src/keys/store.ts';
 import { log, logToStderr } from '../src/log.ts';
 import { resolvePaths } from '../src/paths.ts';
 import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
@@ -1046,15 +1047,16 @@ function checkLocalLayer(where: { privateDir: string }): Check {
   };
 }
 
-/** The model keys of a deployment with a `keys.json`: how many named keys it holds, any section. Counts only. */
+/** The model keys of a deployment with a `keys.json`: how many named keys it holds. Counts only. */
 function checkKeyStore(privateDir: string): Check {
   try {
-    const listing = createKeyStore({ privateDir }).list();
-    const count = listing.core.length + listing.extra.length;
+    const count = createKeyStore({ privateDir }).list().length;
     return count > 0
       ? { name: 'keys', status: 'ok', detail: `keys.json holds ${count} key${count === 1 ? '' : 's'}` }
       : { name: 'keys', status: 'warn', detail: 'keys.json holds no key: add one with /keys add' };
-  } catch {
+  } catch (err) {
+    if (err instanceof KeysError && err.code === 'old-layout')
+      return { name: 'keys', status: 'fail', detail: err.message };
     return { name: 'keys', status: 'fail', detail: 'keys.json does not read' };
   }
 }
@@ -1065,16 +1067,14 @@ function checkKeys(where: { rootDir: string; privateDir: string }): Check {
   return { name: 'keys', status: 'fail', detail: 'no keys.json: run neptunia setup, then /keys add' };
 }
 
-/** The base model roles `config` switches off with `models.base.<role>: false`. */
+/** The mandatory model roles whose chain in `models.routes` holds no route: nothing can carry their requests. */
 function rolesOff(config: Settings): Array<string> {
-  const models = isObject(config.models) ? config.models : {};
-  const base = isObject(models.base) ? models.base : {};
-  return [...BASE_ROLES, MEMORY_ROLE].filter((role) => base[role] === false);
+  return MANDATORY_ROLES.filter((role) => routesOf(config, role).length === 0);
 }
 
 /**
- * The model roles that cannot run: switched off (`models.base.<role>: false`), which is `warn`. Whether a role has a key
- * is the key store's check (`keys`). Names only.
+ * The mandatory model roles that cannot run: a chain with no route, which is `warn`. Whether a route's key answers is
+ * the `routes` check. Names only.
  */
 function checkRoles(where: { rootDir: string; privateDir: string }): Check {
   let config: Settings;
@@ -1083,9 +1083,9 @@ function checkRoles(where: { rootDir: string; privateDir: string }): Check {
   } catch {
     return { name: 'roles', status: 'warn', detail: 'not checked: the config does not read' };
   }
-  const problems = rolesOff(config).map((role) => `${role} has no model`);
+  const problems = rolesOff(config).map((role) => `${role} has no route`);
   return problems.length === 0
-    ? { name: 'roles', status: 'ok', detail: 'every model role has a model' }
+    ? { name: 'roles', status: 'ok', detail: 'every mandatory model role has a route' }
     : { name: 'roles', status: 'warn', detail: problems.join(', ') };
 }
 

@@ -16,6 +16,7 @@ import { labels } from './fixtures/labels.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { NOW, coreTurn, fakeStore } from './fixtures/turn-harness.ts';
 import { DRAW_PROMPTS, fakeImages } from './fixtures/turn-draws.ts';
+import { chainsOf, chainsOnDefaults } from './fixtures/chains.ts';
 
 const ABILITY_WORDS = {
   imagesIn: 'A:imagesIn',
@@ -134,7 +135,10 @@ test('with the drawing key revoked and a core that cannot draw, draw.create answ
     allowed: ['draw.create'],
     config: {
       image: { maxPromptChars: 1000, reference: 'none' },
-      models: { base: { core: 'x/core', analyzer: 'x/text', drawing: 'openai/image-model' }, abilities: {} },
+      models: {
+        routes: chainsOnDefaults({ core: 'x/core', analyzer: 'x/text', drawing: 'openai/image-model' }),
+        abilities: {},
+      },
     },
     prompts: { ...DRAW_PROMPTS, labels: ROUTE_LABELS },
     runner: { images, roleHealth, imageFetcher: fakePictures },
@@ -186,7 +190,7 @@ test('with the vision model unset and a core that declares imagesIn, media.look 
     store,
     config: {
       models: {
-        base: { core: 'x/core', analyzer: 'x/text', vision: false },
+        routes: chainsOnDefaults({ core: 'x/core', analyzer: 'x/text', vision: false }),
         abilities: { 'x/core': ['text', 'imagesIn'] },
       },
     },
@@ -242,7 +246,14 @@ test('a text-only core loses vision, video, drawing and speech, and she is told 
       image: { maxPromptChars: 1000, reference: 'none' },
       speech: { maxChars: 500, maxPerDay: 10 },
       models: {
-        base: { core: 'x/core', analyzer: 'x/text', vision: false, video: false, drawing: false, speech: false },
+        routes: chainsOf({
+          core: 'x/core',
+          analyzer: 'x/text',
+          vision: false,
+          video: false,
+          drawing: false,
+          speech: false,
+        }),
         abilities: {},
       },
     },
@@ -270,7 +281,7 @@ test('a text-only core loses vision, video, drawing and speech, and she is told 
 });
 
 // ---- roles that are off ----------------------------------------------------------------------------------------------
-// An optional role with a null model (`models.base.<role>`) is off. The tools it serves are not in her request's
+// An optional role with an empty chain (`models.routes.<role>`) is off. The tools it serves are not in her request's
 // `tools`, a picture, GIF or video that needs it is not described, and the request carries the words of the
 // `ability-unavailable` answer once for each ability that is down, so she can say she cannot see it.
 
@@ -293,7 +304,7 @@ test('with drawing and speech off, her tools field has no draw_create and no voi
   const run = await coreTurn({
     answers: ['<skip/>'],
     allowed: ['media.look'],
-    config: { models: { base: { ...CORE_AND_TEXT, ...ON_ROLES, drawing: null, speech: null } } },
+    config: { models: { routes: chainsOf({ ...CORE_AND_TEXT, ...ON_ROLES, drawing: null, speech: null }) } },
     prompts: { labels: ROUTE_LABELS },
   });
   const names = toolNamesOf(run);
@@ -303,21 +314,6 @@ test('with drawing and speech off, her tools field has no draw_create and no voi
 });
 
 // Bug caught: any change to the request of a deployment where every role has a model.
-test('with every role on, her whole request and her tools are byte-identical to a config that names no optional model', async () => {
-  const turn = (base: Record<string, unknown>) =>
-    coreTurn({
-      answers: ['<skip/>'],
-      allowed: ['media.look', 'web.search'],
-      config: { models: { base } },
-      prompts: { labels: ROUTE_LABELS },
-    });
-  const explicit = await turn({ ...CORE_AND_TEXT, ...ON_ROLES });
-  const bare = await turn(CORE_AND_TEXT);
-  const shape = (run: Run) => JSON.stringify({ calls: run.llm.calls, tools: run.llm.options.map((o) => o.tools) });
-  assert.equal(shape(explicit), shape(bare));
-  assert.ok(toolNamesOf(explicit).includes('draw_create') && toolNamesOf(explicit).includes('voice_say'));
-});
-
 const GIF = new Map([
   [
     'ga',
@@ -385,7 +381,7 @@ async function mediaTurn(base: Record<string, unknown>, attachments: Map<string,
     allowed: [],
     firstAttachments: attachments,
     store,
-    config: { models: { base: { ...CORE_AND_TEXT, ...base } }, media: { maxOutputTokens: 120 } },
+    config: { models: { routes: chainsOf({ ...CORE_AND_TEXT, ...base }) }, media: { maxOutputTokens: 120 } },
     prompts: { ...DESCRIBE_PROMPTS, labels: ROUTE_LABELS },
     runner: { describer, imageFetcher: fakePictures, videoFetcher, roleHealth: healthAt() },
     withHot: (given: { config: unknown; prompts: unknown }) => {

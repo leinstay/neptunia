@@ -7,8 +7,9 @@ import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ANSWER, query, spawnCli, startUnitsCore, until, withRig } from './fixtures/core-units.ts';
 import { syntheticPng } from './fixtures/synthetic-png.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
-const VISION = { models: { base: { vision: 'example/vision-model' } } };
+const VISION = { models: { routes: chainsOf({ vision: 'example/vision-model' }) } };
 
 const visionRequests = (llm: { requests: Array<unknown>; options: Array<unknown> }): Array<string> =>
   llm.requests.flatMap((request, index) =>

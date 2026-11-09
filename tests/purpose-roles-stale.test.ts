@@ -6,8 +6,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { effectiveModels } from '../src/memory/db/writer-switch.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
-const CONFIG = { models: { base: { analyzer: 'x/analyzer', core: 'x/core' } } };
+const CONFIG = { models: { routes: chainsOf({ analyzer: 'x/analyzer', core: 'x/core' }) } };
 
 /** The role each purpose resolves to, as the effective-models list gives it. */
 function rolesByPurpose(): Map<string, Array<string>> {

@@ -8,7 +8,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ROUTE_NAMES, backendOfRouteName, routeName } from '../src/subharness/route-names.ts';
-import { subscriptionPath, subscriptionPathText } from '../src/subharness/subscription-path.ts';
+import { harnessPathOf, memoryPathText } from '../src/subharness/memory-path.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
 import { subharnessCommand } from '../src/interface/commands/subharness.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
@@ -99,9 +99,10 @@ test('backendOfRouteName reads an old backend word, an empty word and a stranger
 
 test('the route in words names the harness, and direct-api for the API', () => {
   // Catches: the setup line and the script line printing the stored word the owner is told not to type.
-  const text = subscriptionPathText({ kind: 'subharness', backend: 'claude', model: 'claude-opus-4-6', effort: 'low' });
+  // Changed: the core's path and the memory writer's share one text (slice 4), so this reads `memoryPathText`.
+  const text = memoryPathText({ kind: 'subharness', backend: 'claude', model: 'claude-opus-4-6', effort: 'low' });
   assert.equal(text, 'via claude-harness claude-opus-4-6 effort low');
-  assert.equal(subscriptionPathText({ kind: 'api' }), 'direct-api');
+  assert.equal(memoryPathText({ kind: 'direct' }), 'direct-api');
 });
 
 // what the owner reads
@@ -143,7 +144,7 @@ test('the stored record keeps its backend word after the status renders the rout
   const { dir, deps } = rig({ core });
   await subharnessCommand(deps, 'subharness.status', {});
   assert.deepEqual(readKeysFile(dir).subharness.core, core);
-  assert.equal(subscriptionPath(dir, 'core').kind, 'subharness');
+  assert.equal(harnessPathOf(dir, 'core').kind, 'subharness');
 });
 
 // what the owner types

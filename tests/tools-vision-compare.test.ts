@@ -17,6 +17,7 @@ import { CliError } from '../scripts/lib/cli.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -27,7 +28,7 @@ const MP4 = `data:video/mp4;base64,${Buffer.from('clip').toString('base64')}`;
 function liveHot() {
   const config = {
     models: {
-      base: { core: 'live/voice', vision: 'live/vision', video: 'live/video' },
+      routes: chainsOf({ core: 'live/voice', vision: 'live/vision', video: 'live/video' }),
       byPurpose: { describe: 'pinned/describe', reply: 'pinned/reply' },
     },
     features: { mediaDescriptions: false },
@@ -195,8 +196,12 @@ test('vision-compare toolHot: the model is overridden in the tool view only', ()
   const base = liveHot();
   const before = structuredClone(base.config);
   const view = toolHot(base, { model: 'cand/model' });
-  assert.equal(asRecord(view.config).models.base.vision, 'cand/model');
-  assert.equal(asRecord(view.config).models.base.video, 'cand/model');
+  // Changed: the vision and video models are their chains' (spec 2026-11-09-model-routes, slice 4).
+  const routes: unknown = asRecord(view.config).models.routes;
+  assert.deepEqual(routes, {
+    ...chainsOf({ core: 'live/voice' }),
+    ...chainsOf({ vision: 'cand/model', video: 'cand/model' }),
+  });
   assert.equal(asRecord(view.config).models.byPurpose.describe, undefined);
   assert.equal(asRecord(view.config).models.byPurpose.reply, 'pinned/reply');
   assert.equal(view.prompts, base.prompts);

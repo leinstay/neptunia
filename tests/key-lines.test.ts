@@ -3,8 +3,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRoleHealth, reportingCoreKeys } from '../src/llm/role-health.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
-const CONFIG = { models: { base: { core: 'x/core', vision: 'x/eyes' } } };
+const CONFIG = { models: { routes: chainsOf({ core: 'x/core', vision: 'x/eyes' }) } };
 // The chain client's code replaces keys-exhausted (spec 2026-11-09-model-routes).
 const exhausted = () => Object.assign(new Error('out'), { code: 'routes-exhausted' });
 

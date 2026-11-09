@@ -19,6 +19,7 @@ import { lockPathOf, openMemoryDb } from '../src/memory/db/open.ts';
 import { applyWakeQueueWrite } from '../src/memory/db/wake-queue.ts';
 import { ANSWER, channelInfo, lineEvent } from './fixtures/core-over-fake.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 type Row = Record<string, unknown>;
 type Db = { prepare(sql: string): { all(...args: Array<unknown>): Array<Row> } };
@@ -35,7 +36,7 @@ const T0 = Date.parse('2026-10-31T12:00:00Z');
 const BASE_CONFIG: Settings = {
   bot: { timezone: 'UTC', owners: [], placeId: 'g1' },
   // No video role, so the start sends no canary probe to YouTube.
-  models: { base: { video: false } },
+  models: { routes: chainsOf({ video: false }) },
   interfaces: { mode: 'units', drainMs: 2000 },
   pace: { settleMs: 0, settleMaxMs: 0 },
   typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },

@@ -12,13 +12,14 @@ import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const SILENT = { info() {}, warn() {}, error() {} };
 // A request that never settles fails here and not at the runner's two minutes.
 const LIMIT = { timeout: 5000 };
 
 const settings = () => ({
-  models: { base: { core: 'x/core', analyzer: 'x/analyzer', embedding: 'x/embed' } },
+  models: { routes: chainsOf({ core: 'x/core', analyzer: 'x/analyzer', embedding: 'x/embed' }) },
   features: { participation: true },
   llm: {
     baseUrl: 'https://openrouter.test/api/v1',

@@ -162,7 +162,7 @@ function modelOnDisk(privateDir: string, dataDir: string): ReadinessHealth['mode
 /** `harness` while her chain starts on a subscription backend; a config.json that cannot be read says nothing. */
 function coreRoute(privateDir: string): { harness?: true } {
   try {
-    const [first] = routesOf(readConfig(ROOT_DIR, { privateDir }), 'core', []);
+    const [first] = routesOf(readConfig(ROOT_DIR, { privateDir }), 'core');
     return first?.via === 'harness' ? { harness: true } : {};
   } catch {
     return {};

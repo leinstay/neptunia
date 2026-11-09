@@ -121,7 +121,7 @@ const moduleSubcommands = (kind: string): ReadonlyArray<Subcommand> => [
   sub('remove', `Remove an item from a ${kind} list setting`, [arg('name'), arg('key'), arg('value')]),
 ];
 
-/** The account commands of one subharness: opencode's login names the extra key it runs on, the others have a vendor's. */
+/** The account commands of one subharness: opencode's login names the key it runs on, the others have a vendor's. */
 const accountSubcommands = (backend: string): ReadonlyArray<Subcommand> => [
   sub(
     `${backend}.login`,
@@ -672,7 +672,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('enable', 'Turn quick search on'),
       sub('disable', 'Turn quick search off; reading a known page stays'),
       sub('engine', 'Choose the engine of quick search', [arg('name', true, ['openrouter', 'brave', 'exa'])]),
-      sub('model', 'Choose the model of the openrouter engine', [arg('id')]),
+      sub('model', 'Put another model on each route of quick search', [arg('id')]),
     ],
   },
   {

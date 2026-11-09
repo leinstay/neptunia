@@ -11,12 +11,13 @@ import { createStore } from '../src/memory/store.ts';
 import { MEDIA_CACHE_ENTRIES } from '../src/web/cache.ts';
 import { fakeImageFetcher, fakeLlm, fakeState, fakeVideoFetcher } from './fixtures/describe-fakes.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const NOW = Date.parse('2026-11-05T10:00:00.000Z');
 const PLACE = 'discord:channel:room';
 const HOT = {
   config: {
-    models: { base: { vision: 'x/vision' } },
+    models: { routes: chainsOf({ vision: 'x/vision' }) },
     media: { maxOutputTokens: 120 },
     context: { vision: { fetchTimeoutMs: 10_000 } },
   },

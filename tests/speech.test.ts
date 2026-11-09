@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSpeech, SpeechError } from '../src/speech/index.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const NOW = Date.parse('2026-10-31T12:00:00Z');
 
@@ -14,7 +15,7 @@ test('speech.say: a hundred and one voice messages in one day all reach the synt
   // `state` is a stale option of an earlier client; the options variable keeps it out of the excess property check.
   const options = {
     getConfig: () => ({
-      models: { base: { speech: 'vendor-d/voice' } },
+      models: { routes: chainsOf({ speech: 'vendor-d/voice' }) },
       speech: { voice: 'voice-1', timeoutMs: 1000, maxChars: 1500, maxPerDay: 2 },
       llm: { baseUrl: 'https://openrouter.ai/api/v1' },
     }),

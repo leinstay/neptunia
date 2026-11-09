@@ -54,6 +54,7 @@ import type { Untyped } from '../src/tools/types.ts';
 import type { Scenario } from '../scripts/lib/replay-types.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -476,7 +477,7 @@ function sequenceConfig(grants: Untyped) {
         caps: { interlocutor: 2500, aboutChat: 2500, people: 4000, neighbors: 3000 },
         vision: { maxImages: 2, tokensPerImage: 400, imageSize: 512, recentImages: 0, recentImageMinutes: 0 },
       },
-      models: { base: { core: 'x/chat' } },
+      models: { routes: chainsOf({ core: 'x/chat' }) },
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 1000 },
       tools: { safeMode: false },
     },

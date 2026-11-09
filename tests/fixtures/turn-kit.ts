@@ -12,6 +12,7 @@ import type { TriggerKind } from '../../src/turn/triggers.ts';
 import type { TurnParams } from '../../src/turn/outcome.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import { createDiscordInterface } from '../../interfaces/discord/index.ts';
+import { chainsOnDefaults } from './chains.ts';
 
 // The Discord interface's capabilities object, as src/index.ts injects it.
 const DISCORD = createDiscordInterface().capabilities;
@@ -186,6 +187,9 @@ export function fakeHot(
       features: { ...featureOverrides },
       media: { maxPerTurn: 6, filePreviewChars: 500 },
       gifs: { maxPerDay: 40 },
+      // Changed: an optional role is on by its chain (spec 2026-11-09-model-routes, slice 4); a config that named no
+      // model had them on, each on its built-in default.
+      models: { routes: chainsOnDefaults({}) },
       ...configOverrides,
     },
     prompts: {
@@ -318,7 +322,7 @@ export function lookupHot(
     { webLookup: true, ...features },
     {},
     {
-      models: { base: { analyzer: 'x/text' } },
+      models: { routes: chainsOnDefaults({ analyzer: 'x/text' }) },
       media: { maxPerTurn: 6, filePreviewChars: 500, video: { sites: ['youtube.com'] } },
       web: {
         maxPerDay: 60,

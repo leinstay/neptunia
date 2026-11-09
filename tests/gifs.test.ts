@@ -34,6 +34,7 @@ import type { GifLibrary } from '../src/memory/gifs.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { present, wrongly } from './fixtures/loose-types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
 
@@ -684,7 +685,7 @@ async function runGifTurn({
     port.capabilities = () => ({ ...declared(), mediaPick: { gifForms: ['file', 'link'] } });
     const hot: Untyped = fakeHot();
     Object.assign(hot.prompts, { 'media-pick': 'Pick for {{name}}.' });
-    hot.config.models = { base: { analyzer: 'cheap/classifier' } };
+    hot.config.models = { routes: chainsOf({ analyzer: 'cheap/classifier' }) };
     const llm = {
       complete: (_messages: Untyped, options: Untyped) =>
         Promise.resolve({ text: options?.purpose === 'media-pick' ? pick : output, usage: {}, estimated: 10 }),

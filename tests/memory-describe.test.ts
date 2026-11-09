@@ -1,4 +1,4 @@
-// Tests for src/memory/describe.ts when a media role is off (`models.base.vision` or `models.base.video` is null).
+// Tests for src/memory/describe.ts when a media role is off (its chain in `models.routes` is empty).
 // A picture, sticker, link thumbnail or custom emoji needs the vision role; a GIF or a video needs the video role. An
 // item whose role is off is not described: no download, no model request, no cache entry. The turn then tells her
 // (tests/turn-ability-route.test.ts). The rest of the describer is in tests/describe.test.ts.
@@ -9,6 +9,7 @@ import { createDescriber } from '../src/memory/describe.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { fakeImageFetcher, fakeLlm, fakeState, fakeVideoFetcher } from './fixtures/describe-fakes.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
+import { chainsOnDefaults } from './fixtures/chains.ts';
 
 const loose = (value: unknown): Record<string, unknown> => value as Record<string, unknown>;
 
@@ -24,11 +25,15 @@ const VIDEO_CFG = {
   errorRetryMinutes: 60,
 };
 
-/** A describer over fakes whose `models.base` holds `base`; the fakes record every request and download. */
+/**
+ * A describer over fakes whose roles run on the models of `base`, an optional role left out on its default; the fakes
+ * record every request and download.
+ * Changed: a role's model is its chain's (spec 2026-11-09-model-routes, slice 4).
+ */
 function rig(base: Record<string, unknown>) {
   const hot = {
     config: {
-      models: { base },
+      models: { routes: chainsOnDefaults(base) },
       media: { maxOutputTokens: 120, video: VIDEO_CFG },
       context: { vision: { fetchTimeoutMs: 10_000 } },
     },

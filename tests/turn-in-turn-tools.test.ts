@@ -15,6 +15,7 @@ import { insertRows } from '../src/memory/db/rows.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
 import { rig, channel } from './fixtures/reads-rig.ts';
 import { labels } from './fixtures/labels.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00Z');
 
@@ -25,7 +26,7 @@ function cacheScene() {
   const hot = {
     config: {
       features: { vision: true, mediaDescriptions: true, videoDescriptions: true, coreTools: true },
-      models: { base: { vision: 'test/vision' } },
+      models: { routes: chainsOf({ vision: 'test/vision' }) },
     },
     prompts: { labels },
   };

@@ -119,7 +119,8 @@ export function createEmbedder({
   /**
    * Embed `texts` (non-empty strings; an empty list returns [] and sends nothing) in one request.
    * The model is `roleModel(config, 'embedding', purpose)` (a
-   * `models.byPurpose` entry, else `models.base.embedding`, else its default); no model throws before any request.
+   * `models.byPurpose` entry, else the first route of the embedding chain, else its default); no model throws before
+   * any request.
    * Body: `{ model, input, dimensions }` (`embed.dimensions`, default 1024) plus the provider
    * routing `resolveProvider` picks for the model and the model role (without its `byok` mark, see
    * `providerBodyOf`). Rails, in order, before anything
@@ -145,7 +146,7 @@ export function createEmbedder({
     if (texts.length === 0) return [];
     const cfg = objOf(objOf(config).llm);
     const model = roleModel(config, EMBED_ROLE, purpose);
-    if (!model) throw new Error('embed: no embedding model configured (models.base.embedding)');
+    if (!model) throw new Error('embed: no embedding model configured (models.routes.embedding)');
 
     const estimated = texts.reduce((sum, text) => sum + estimateTokens(text), 0);
     const cap = cfg.maxRequestTokens;

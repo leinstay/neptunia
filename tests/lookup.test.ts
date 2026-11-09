@@ -9,6 +9,7 @@ import { DailyCapError, roleRequestOptions, TokenLimitError } from '../src/llm/o
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 12, 0, 0);
 const HOUR = 60 * 60_000;
@@ -45,7 +46,8 @@ function fakeHot({
   return {
     config: {
       llm: { timeoutMs: 300_000 },
-      models: { base: { analyzer: 'x/reason', vision: 'x/media' } },
+      // Changed: quick search's model is its chain's, `models.routes.search` (spec 2026-11-09-model-routes, slice 4).
+      models: { routes: chainsOf({ analyzer: 'x/reason', vision: 'x/media', search: 'x/search' }) },
       media: { video: { sites: ['youtube.com', 'youtu.be'] } },
       web: {
         acceptLanguage: 'el,en;q=0.5',
@@ -53,7 +55,6 @@ function fakeHot({
         quickSearch: {
           enabled: true,
           engine: 'brave',
-          model: 'x/search',
           maxOutputTokens: 400,
           cacheHours: 24,
           timeoutMs: 10_000,

@@ -74,6 +74,8 @@ const CONFIG = {
   memoryDb: {
     session: { mode: 'apply', minMessages: 1, minLines: 0, everyMinutes: 1, reviewsPerDay: 0 },
   },
+  // Changed: the memory role runs on its chain (spec 2026-11-09-model-routes, slice 4), here on the one key.
+  models: { routes: { memory: [{ via: 'api', key: 'core-1', model: 'anthropic/claude-opus-4.6', effort: null }] } },
 };
 
 const textOf = (messages: unknown): string =>
@@ -219,9 +221,9 @@ let logsDone: Promise<unknown> = Promise.resolve();
 before(async () => {
   const dirs = folders(CONFIG);
   for (const client of [FAKE_CLIENT, CLI_CLIENT]) addClient(dirs.privateDir, client);
-  // The memory role runs on the core list of the key store. Its probe at the start is the only request to a provider,
-  // and a fake answers it.
-  writeKeysFile(dirs.privateDir, { core: [{ name: 'OPENROUTER_CORE_KEY', value: 'test-core-key' }] });
+  // The memory role runs on the key its chain names. Its probe at the start is the only request to a provider, and a
+  // fake answers it.
+  writeKeysFile(dirs.privateDir, { core: [{ name: 'core-1', value: 'test-core-key' }] });
   Date.now = fastNow;
   realFetch = globalThis.fetch;
   globalThis.fetch = (input) => {

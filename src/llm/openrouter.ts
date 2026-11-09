@@ -31,10 +31,8 @@ import { objOf, scalarText } from '../tools/types.ts';
 import { HOUR_MS, MINUTE_MS, bumpDaily, countToday, dailyCounter } from '../time.ts';
 import { log } from '../log.ts';
 import type { LimitsSink } from './limits.ts';
-import { reasoningOf, roleModel } from './roles.ts';
-import { isBudgetError } from './key-failover.ts';
-import type { KeyState } from './key-failover.ts';
-import type { KeyRing } from '../keys/ring.ts';
+import { roleModel } from './roles.ts';
+import type { KeyRing, KeyState } from '../keys/ring.ts';
 
 /**
  * The SHA-256 hex digest of an API key: how OpenRouter's activity endpoint names a key (`api_key_hash`), so the status
@@ -387,7 +385,7 @@ export function dailyCapOf(value: unknown, key: string): number {
 
 /**
  * The `llm.complete` options that name the persona's reply (src/behavior/turn.ts, and its replay
- * in src/behavior/sandbox.ts): role `core`, the one model role on `models.base.core`, purpose `reply`. Spread
+ * in src/behavior/sandbox.ts): role `core`, the one model role that speaks as the persona, purpose `reply`. Spread
  * into a request's own options, never mutated.
  */
 export const REPLY_REQUEST = Object.freeze({ role: 'core', purpose: 'reply' });
@@ -887,7 +885,7 @@ export function errorCodeOf(
   err: unknown
 ): 'provider-limit' | 'provider-error' | 'timeout' | 'routes-exhausted' | SubscriptionCode | 'error' {
   const { statusCode: status, name, message } = errorFields(err);
-  if (isKeysExhausted(err) || (isRec(err) && err.code === 'routes-exhausted')) return 'routes-exhausted';
+  if (isRec(err) && err.code === 'routes-exhausted') return 'routes-exhausted';
   const own = SUBSCRIPTION_CODES.find((code) => isRec(err) && err.code === code);
   if (own !== undefined) return own;
   if (typeof status === 'number' && Number.isInteger(status))
@@ -915,22 +913,12 @@ function retryLimitFields(err: unknown): { limitSource?: string; provider?: stri
 // The error of a non-ok answer: the status on `.statusCode`, the full (untrimmed) body on `.body`
 // for a caller that needs more than the 500-char message allows -- e.g. `/nep ping` picking
 // OpenRouter's `routing_funnel` diagnostic out of a "No endpoints found" error.
-/** Where one request of a role goes out: its key, the name a usage line gives it, and how a budget error moves it on. */
+/** Where one request of a role goes out: its key, and the name a usage line gives it. */
 type KeyRoute = {
   /** The key value the next send uses. */
   key(): string;
   /** `fields` of a usage line with `key`, the name of the request's key, when the key has one. */
   named<T extends object>(fields: T): T | (T & { key: string });
-  /**
-   * An answer that was not ok: on a budget error of a listed role the role moves to its next key and `send` runs again
-   * with it, one time. The answer and error to go on with; `keys-exhausted` is thrown when no key is left.
-   */
-  failOver(
-    first: Response,
-    firstError: HttpError,
-    send: (signal: AbortSignal) => Promise<Response>,
-    signal: AbortSignal
-  ): Promise<{ response: Response; error: HttpError }>;
 };
 
 /** The route of a client built on the one key `mainKey` with no key ring: every role on it, with no other key to move to. */
@@ -939,7 +927,6 @@ function createSingleKeyRoute(mainKey: string): KeyRoute {
   return {
     key: () => mainKey,
     named: (fields) => fields,
-    failOver: (first, firstError) => Promise.resolve({ response: first, error: firstError }),
   };
 }
 
@@ -959,11 +946,21 @@ function createChosenKeyRoute(chosen: { name: string; value: string }): KeyRoute
   return {
     key: () => chosen.value,
     named: (fields) => ({ ...fields, key: chosen.name }),
-    failOver: (first, firstError) => Promise.resolve({ response: first, error: firstError }),
   };
 }
 
-/** The error of a request whose role has no key: no core key and no binding. */
+/** The words of a 429 body that say the account is out of credit rather than rate limited. */
+const BUDGET_WORDS = /credit|balance/i;
+
+/** Whether an answer with `status` and `body` means the key's credit is spent: a 402, or a 429 that names credits or balance. */
+export function isBudgetError(status: unknown, body: unknown): boolean {
+  if (status === 402) return true;
+  if (status !== 429) return false;
+  const text = typeof body === 'string' ? body : body === undefined || body === null ? '' : JSON.stringify(body);
+  return BUDGET_WORDS.test(text);
+}
+
+/** The error of a request whose role has no key: its chain names none keys.json holds. */
 function roleKeyMissing(): Error {
   return Object.assign(new Error('llm: no key for this role'), {
     code: 'ROLE_KEY_MISSING',
@@ -971,49 +968,11 @@ function roleKeyMissing(): Error {
   });
 }
 
-/**
- * The key route over the key ring (src/keys/ring.ts): the key of the role is read now, a usage line names it, and a budget
- * error moves a role with a list of core keys on and repeats once.
- */
+/** The key route over the key ring (src/keys/ring.ts): the key of the role is read now, and a usage line names it. */
 function createRingRoute({ keys, role: givenRole }: { keys: KeyRing; role: unknown }): KeyRoute {
-  const role = typeof givenRole === 'string' ? givenRole : '';
-  let current = keys.route(role);
+  const current = keys.route(typeof givenRole === 'string' ? givenRole : '');
   if (current === null) throw roleKeyMissing();
-  const listed = keys.names(role).length >= 2;
-  /** After a budget error on the current key: the ring's next key; `keys-exhausted` when none is left. */
-  const moveOn = (status: number): void => {
-    if (current === null || keys.failed(role, current.name, status) === null) throw keysExhausted(role);
-    current = keys.route(role);
-    if (current === null) throw roleKeyMissing();
-  };
-  return {
-    key: () => current?.value ?? '',
-    named: (fields) => ({ ...fields, key: current?.name ?? '' }),
-    async failOver(first, firstError, send, signal) {
-      if (!listed || !isBudgetError(first.status, firstError.body)) return { response: first, error: firstError };
-      moveOn(first.status);
-      const again = await send(signal);
-      if (again.ok) return { response: again, error: firstError };
-      const error = await httpErrorOf(again);
-      // The repeat failed on a budget error too: with every key failed within a minute, the list is spent.
-      if (isBudgetError(again.status, error.body)) moveOn(again.status);
-      return { response: again, error };
-    },
-  };
-}
-
-/** The roles with two or more names and the key each is on: names only. */
-function ringStatesOf(keys: KeyRing): Array<KeyState> {
-  const switched = keys.states();
-  const roles = new Set(['core', ...switched.map((state) => state.role)]);
-  const states: Array<KeyState> = [];
-  for (const role of roles) {
-    if (keys.names(role).length < 2) continue;
-    const on = keys.route(role);
-    const state = switched.find((entry) => entry.role === role);
-    if (on !== null) states.push({ role, key: on.name, switchedAt: state?.key === on.name ? state.switchedAt : null });
-  }
-  return states;
+  return { key: () => current.value, named: (fields) => ({ ...fields, key: current.name }) };
 }
 
 /** The key ring a client was given, or the one its function gives now: null for a client on its one key. */
@@ -1039,7 +998,7 @@ function createKeyLookup({ keys, mainKey }: { keys: KeyRing | (() => KeyRing | n
       const keyRing = ring();
       return keyRing ? (keyRing.route(role || 'core')?.value ?? '') : mainKey;
     },
-    /** The extra keys in use as the roles on each: the ring's bindings, none without a ring. */
+    /** The keys roles other than the core are on, as the roles on each: the ring's, none without a ring. */
     roleKeys(): Array<{ roles: Array<string> }> {
       return (ring()?.bound() ?? []).map(({ roles }) => ({ roles }));
     },
@@ -1048,23 +1007,10 @@ function createKeyLookup({ keys, mainKey }: { keys: KeyRing | (() => KeyRing | n
       keyNames: (role: string): Array<string> => ring()?.names(role) ?? [],
       keyStates(): Array<KeyState> {
         const keyRing = ring();
-        return keyRing ? ringStatesOf(keyRing) : [];
+        return keyRing ? keyRing.states() : [];
       },
     },
   };
-}
-
-/** Whether `err` is the error `keysExhausted` makes. */
-const isKeysExhausted = (err: unknown): boolean => isRec(err) && err.code === 'keys-exhausted';
-
-/** The error of a role whose every key failed on a budget error: `code: 'keys-exhausted'`, read by the role health. */
-function keysExhausted(role: string): Error {
-  return Object.assign(new Error(`llm: every key of the ${role || 'request'} role is out of credit`), {
-    code: 'keys-exhausted',
-    name: 'KeysExhaustedError',
-    // A payment failure, so the retry loop passes it on at once.
-    statusCode: 402,
-  });
 }
 
 type HttpError = Error & { statusCode: number; body: string };
@@ -1241,11 +1187,9 @@ export type CompleteResult = {
   toolCalls?: Array<unknown>;
 };
 
-/** The `reasoning` of a body: a call's own object wins, else the role's `llm.reasoningByRole` entry (never the core's). */
-function reasoningField(options: { reasoning?: unknown; role?: unknown }, config: unknown): { reasoning?: Rec } {
-  if (isRec(options.reasoning)) return { reasoning: options.reasoning };
-  const own = typeof options.role === 'string' ? reasoningOf(config, options.role) : undefined;
-  return own === undefined ? {} : { reasoning: own };
+/** The `reasoning` of a body: the call's own object, which the chain client sets from its route's effort. */
+function reasoningField(options: { reasoning?: unknown }): { reasoning?: Rec } {
+  return isRec(options.reasoning) ? { reasoning: options.reasoning } : {};
 }
 
 /** The `response_format` of a body: the caller's schema as a strict JSON schema, nothing without one. */
@@ -1464,7 +1408,7 @@ export function createLlm({
    * may hold an assistant message with `tool_calls` (content may be null) and `role: 'tool'`
    * messages (`tool_call_id`, `content`), sent as given. Without `tools` nothing changes.
    * `options.model` / `options.maxOutputTokens` / `options.temperature`
-   * override the config defaults (`models.base.core`, `llm.maxOutputTokens`, `llm.temperature`).
+   * override the config defaults (the core's model, `llm.maxOutputTokens`, `llm.temperature`).
    *
    * Retries (`llm.retries`): a network failure, a timed-out attempt and an
    * HTTP status in `RETRY_STATUS` are retried after `backoffMs`, each retried
@@ -1571,7 +1515,7 @@ export function createLlm({
    * (e.g. `{ enabled: false }`); a plain object is sent verbatim as
    * `body.reasoning`, anything else omits the field. Used by the video
    * describer (`media.video.reasoning`), whose model otherwise spends the
-   * output budget on reasoning. Without it, the role's `llm.reasoningByRole`.
+   * output budget on reasoning. The chain client sets it from the route's effort.
    * `options.plugins` — OpenRouter's plugins for this one call (e.g. `[{ id: 'web', engine:
    *   'exa', max_results: 5 }]`); a non-empty array is sent verbatim as `body.plugins`,
    *   anything else omits the field. Used by the web lookup's `openrouter` engine
@@ -1638,7 +1582,7 @@ export function createLlm({
       countRequest(cfg.maxRequestsPerDay);
     }
 
-    // No model of its own: the core's model (`models.base.core`, or a `models.byPurpose` entry for the purpose).
+    // No model of its own: the core's model (its chain's first route, or a `models.byPurpose` entry for the purpose).
     const model = options.model ?? roleModel(getConfig(), 'core', options.purpose);
     const body: RequestBody = {
       model,
@@ -1663,7 +1607,7 @@ export function createLlm({
       role: options.role,
     });
     if (provider) body.provider = providerBodyOf(provider);
-    Object.assign(body, reasoningField(options, getConfig()), responseFormatField(options.responseFormat));
+    Object.assign(body, reasoningField(options), responseFormatField(options.responseFormat));
     // Native tool calling, only when asked for: the definitions, the choice ('auto' unless given) and
     // whether the model may call several at once (sent only when given).
     if (tools) {
@@ -1781,8 +1725,7 @@ export function createLlm({
         response = await send(signal);
 
         if (!response.ok) {
-          let error = await httpErrorOf(response);
-          ({ response, error } = await route.failOver(response, error, send, signal));
+          const error = await httpErrorOf(response);
           // A spent key on the chain's route: the chain moves to its next route, so no retry holds the caller.
           if (!response.ok && options.routeKey !== undefined && isBudgetError(response.status, error.body)) {
             notRetried = error;
@@ -1872,7 +1815,7 @@ export function createLlm({
   const credits: Llm['credits'] = (options) => getFree('credits', options);
 
   /**
-   * The extra keys the key ring's bindings put in use now, each as the model roles on it --
+   * The keys the chains of roles other than the core are on now, each as the model roles on it --
    * never the key itself. The status card reads each one's record with `keyInfo({ role })`.
    */
   const roleKeys: Llm['roleKeys'] = () => lookup.roleKeys();

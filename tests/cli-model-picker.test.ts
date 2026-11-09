@@ -8,7 +8,6 @@ import { Readable, Writable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
 import { createElement } from 'react';
 import { render } from 'ink';
-import { roleConfigKeys } from '../src/llm/roles.ts';
 import { modelRoleRegistry } from '../src/subharness/model-capabilities.ts';
 import type { RoleSources, SourceDescriptor } from '../src/subharness/model-capabilities.ts';
 import { ModelPicker, openPicker, pickerReduce, pickerReview, pickerRows } from '../cli/model-picker.ts';
@@ -132,8 +131,7 @@ test('Main, Voice, API, the route and a model commit the speech role on a route 
   assert.deepEqual(committed(saved.effects), [
     { name: 'model.set', args: { role: 'speech', model: 'helpers/vendor/voice-1' } },
   ]);
-  // roleConfigKeys answers the path as parts, as tests/roles.test.ts pins, so the spec's includes of a dotted string could never hold.
-  assert.equal(roleConfigKeys(committed(saved.effects)[0]?.args.role)?.join('.'), 'models.base.speech');
+  // Changed: a base role has no config key of its own, its model being its chain's (slice 4), so the path check is deleted.
 });
 
 test('nothing commits before the confirmation, and a double confirmation commits once', () => {

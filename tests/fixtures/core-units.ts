@@ -25,6 +25,7 @@ import { openMemoryDb } from '../../src/memory/db/open.ts';
 import { ANSWER, channelInfo, lineEvent } from './core-over-fake.ts';
 import { withCapturedLogs } from './capture-logs.ts';
 import type { MessageEvent } from '../../src/protocol/adapter.ts';
+import { chainsOnDefaults } from './chains.ts';
 
 export { ANSWER };
 
@@ -50,7 +51,7 @@ const BASE_CONFIG: Settings = {
   // provider (owner, 2026-11-08).
   llm: { baseUrl: 'http://127.0.0.1:9/api/v1' },
   // No video role, so the start sends no canary probe to YouTube.
-  models: { base: { video: false } },
+  models: { routes: chainsOnDefaults({ video: false }) },
   interfaces: { mode: 'units', drainMs: 2000 },
   pace: { settleMs: 0, settleMaxMs: 0 },
   typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },

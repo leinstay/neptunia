@@ -27,11 +27,23 @@ function startOnKeyStore(dirs: Dirs, llm: Llm): Promise<Core> {
 
 const p = (dirs: Dirs, line: string): ReturnType<typeof runCli> => runCli(dirs, ['-p', line]);
 
+// Changed: her core runs on its chain (spec 2026-11-09-model-routes, slice 4), here one route on each of the two keys.
+const ON_BOTH_KEYS = {
+  models: {
+    routes: {
+      core: [
+        { via: 'api', key: 'core-1', model: 'x/core', effort: null },
+        { via: 'api', key: 'core-2', model: 'x/core', effort: null },
+      ],
+    },
+  },
+};
+
 test('a core with a keys.json starts without a key in its environment, lists keys by name and last four, and the last removal pauses her', async () => {
-  await withRig({}, async ({ dirs, llm, cores }) => {
+  await withRig({ config: ON_BOTH_KEYS }, async ({ dirs, llm, cores }) => {
     const store = createKeyStore({ privateDir: dirs.privateDir });
-    store.addCore({ name: 'core-1', value: VALUE_1 });
-    store.addCore({ name: 'core-2', value: VALUE_2 });
+    store.add({ name: 'core-1', value: VALUE_1 });
+    store.add({ name: 'core-2', value: VALUE_2 });
     // Bug caught: the core refusing to start for want of OPENROUTER_CORE_KEY although the key store holds the keys.
     cores.push(await startOnKeyStore(dirs, llm));
 
@@ -47,7 +59,7 @@ test('a core with a keys.json starts without a key in its environment, lists key
     const paused = await p(dirs, '/status');
     // Bug caught: the last removal leaving her running with no key, or pausing without saying why.
     assert.ok(paused.stdout.includes('paused') && paused.stdout.includes('no-core-route'), paused.stdout);
-    assert.deepEqual(store.coreNames(), []);
+    assert.deepEqual(store.names(), []);
 
     assert.equal((await p(dirs, '/resume')).code, 0);
     assert.ok(!(await p(dirs, '/status')).stdout.includes('no-core-route'));
@@ -61,10 +73,10 @@ test('a core with a keys.json starts without a key in its environment, lists key
 
 test('a key command that asks for a value with no terminal to ask in is refused and writes nothing', async () => {
   await withRig({}, async ({ dirs, llm, cores }) => {
-    createKeyStore({ privateDir: dirs.privateDir }).addCore({ name: 'core-1', value: VALUE_1 });
+    createKeyStore({ privateDir: dirs.privateDir }).add({ name: 'core-1', value: VALUE_1 });
     cores.push(await startOnKeyStore(dirs, llm));
     const run = await p(dirs, '/keys add art');
     assert.equal(run.code, 1);
-    assert.deepEqual(createKeyStore({ privateDir: dirs.privateDir }).list().extra, []);
+    assert.deepEqual(createKeyStore({ privateDir: dirs.privateDir }).names(), ['core-1']);
   });
 });

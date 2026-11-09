@@ -39,6 +39,7 @@ import { createExaSearch } from '../src/web/exa.ts';
 import { webSearchKeys, webSearchReady } from '../scripts/recall-eval.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -503,7 +504,11 @@ test('recall-eval: a record line becomes a chat message with its link previews, 
 
 test('recall-eval: --web readiness follows web.quickSearch.engine through the lookup, not the Brave key alone', () => {
   const searches = { brave: createBraveSearch(), exa: createExaSearch() };
-  const hotOf = (engine: string) => ({ config: { web: { quickSearch: { engine, model: 'x/quick' } } }, prompts: {} });
+  // Changed: quick search's model is its chain's, `models.routes.search` (spec 2026-11-09-model-routes, slice 4).
+  const hotOf = (engine: string) => ({
+    config: { models: { routes: chainsOf({ search: 'x/quick' }) }, web: { quickSearch: { engine } } },
+    prompts: {},
+  });
   // Readiness reads service credentials from the selected prepared persona, not environment secret values.
   const envFor = (services: Record<string, string>) => {
     const dataDir = tempDir('nep-eval-service-');

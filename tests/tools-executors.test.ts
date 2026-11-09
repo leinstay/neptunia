@@ -903,7 +903,7 @@ test('executeCall: draw.create without a channel posts its picture here, once; w
     },
     quota: () => ({ spent: false, userSpent: false }),
   };
-  const cfg = { ...config(), models: { base: { drawing: 'openai/gpt-image' } } };
+  const cfg = { ...config(), models: { routes: { drawing: [{ via: 'api', key: 'k', model: 'openai/gpt-image' }] } } };
   const { admin, port } = makeAdmin({ cfg, extra: { images } });
   const here = await executeCall(resolve('draw.create', {}, 'a lighthouse at dusk'), deps(admin, port));
   assert.equal(here.status, 'ok', JSON.stringify(here));
@@ -1008,7 +1008,7 @@ test('executeCall: draw.create to a channel without Attach Files is refused befo
     quota: () => ({ spent: false, userSpent: false }),
   };
   const { admin, port } = makeAdmin({
-    cfg: { ...config(), models: { base: { drawing: 'openai/gpt-image' } } },
+    cfg: { ...config(), models: { routes: { drawing: [{ via: 'api', key: 'main', model: 'openai/gpt-image' }] } } },
     extra: { images },
   });
   const refused = await executeCall(
@@ -1746,7 +1746,7 @@ test('an internal turn refuses an outward drawing before image generation', asyn
     quota: () => ({ spent: false, userSpent: false }),
   };
   const { admin, port } = makeAdmin({
-    cfg: { ...config(), models: { base: { drawing: 'openai/gpt-image' } } },
+    cfg: { ...config(), models: { routes: { drawing: [{ via: 'api', key: 'main', model: 'openai/gpt-image' }] } } },
     extra: { images },
   });
   const result = await executeCall(resolve('draw.create', { place: '#νέα', text: 'private drawing' }), {

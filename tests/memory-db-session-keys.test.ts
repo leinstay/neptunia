@@ -7,39 +7,44 @@ import { CODES, memoryKeyState, refusalOf, sweep } from '../src/memory/db/sessio
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { CHECK_PURPOSE, DRAFT_PURPOSE, reviewRefusal } from '../src/memory/db/describe.ts';
-import { createKeyRing } from '../src/keys/ring.ts';
 import type { KeyRing } from '../src/keys/ring.ts';
 import { createKeyStore } from '../src/keys/store.ts';
-import { createKeyFailover } from '../src/llm/key-failover.ts';
+import { chainRing } from './fixtures/keys-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { NOW, baseConfig, prompts } from './fixtures/memory-db/session-rig.ts';
-// The memory key from the key store (spec 2026-11-02, follow-up 1): the memory session goes out on the key `memory` is
-// bound to, else the core list, like every other role; a variable of `.env` never counts.
+// The memory key from the key store (spec 2026-11-02, follow-up 1): the memory session goes out on the key of its
+// route, like every other role; a variable of `.env` never counts.
+// Changed: a role's key is the route of its chain (spec 2026-11-09-model-routes, slice 4), so the ring is read off a
+// memory chain that names `keys`, every key of the store when none is given.
 
 /** A key ring over a fresh keys.json in a temp folder, with `fill` run on its store first. */
-function ringWith(fill: (store: ReturnType<typeof createKeyStore>) => void): KeyRing {
+function ringWith(fill: (store: ReturnType<typeof createKeyStore>) => void, keys?: Array<string>): KeyRing {
   const store = createKeyStore({ privateDir: tempDir('memory-ring-') });
   fill(store);
-  return createKeyRing({ store, failover: createKeyFailover({ now: () => NOW }) });
+  const chain = (keys ?? store.names()).map((key) => ({ via: 'api', key }));
+  const ring = chainRing(store, (role) => (role === 'memory' ? chain : []));
+  return { ...ring, names: () => [], states: () => [], bound: () => [] };
 }
 
 const reviewPrompts = { ...prompts, [DRAFT_PURPOSE]: 'DRAFT', [CHECK_PURPOSE]: 'CHECK' };
 
 test('with a key store and no memory variable in .env, the memory session runs on the core key in use', () => {
   // Catches: the session stays not_configured after the deploy because it still looks for llm.keyByRole.memory in .env.
-  const ring = ringWith((store) => store.addCore({ name: 'core-1', value: 'v-core-0001' }));
+  const ring = ringWith((store) => store.add({ name: 'core-1', value: 'v-core-0001' }));
   const config = baseConfig({}, { llm: {} });
   assert.deepEqual(memoryKeyState(config, {}, ring), { ok: true, name: 'core-1' });
   assert.equal(refusalOf(config, {}, prompts, ring), null);
 });
 
-test('with a key store the memory role bound to an extra key is named by that key', () => {
-  // Catches: a binding of the memory role is ignored and the state names a core key it does not go out on.
-  const ring = ringWith((store) => {
-    store.addCore({ name: 'core-1', value: 'v-core-0001' });
-    store.addExtra({ name: 'mem-own', value: 'v-mem-0002' });
-    store.bind('memory', 'mem-own');
-  });
+test('with a key store the memory role whose chain names another key is named by that key', () => {
+  // Catches: the memory chain ignored, and the state names the first key of the file it does not go out on.
+  const ring = ringWith(
+    (store) => {
+      store.add({ name: 'core-1', value: 'v-core-0001' });
+      store.add({ name: 'mem-own', value: 'v-mem-0002' });
+    },
+    ['mem-own']
+  );
   assert.deepEqual(memoryKeyState(baseConfig(), {}, ring), { ok: true, name: 'mem-own' });
 });
 
@@ -54,7 +59,7 @@ test('with an empty key store the session refuses even when .env still holds the
 test('the description review follows the key store the same way as the sweep', () => {
   // Catches: the sweep runs on the store while the review still refuses not_configured for want of a .env variable.
   const empty = ringWith(() => undefined);
-  const full = ringWith((store) => store.addCore({ name: 'core-1', value: 'v-core-0001' }));
+  const full = ringWith((store) => store.add({ name: 'core-1', value: 'v-core-0001' }));
   const config = baseConfig({}, { llm: {} });
   assert.equal(reviewRefusal(config, {}, reviewPrompts, full), null);
   assert.equal(reviewRefusal(baseConfig(), { OPENROUTER_MEMORY_KEY: 'v' }, reviewPrompts, empty), CODES.NOT_CONFIGURED);

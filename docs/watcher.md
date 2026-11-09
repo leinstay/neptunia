@@ -78,7 +78,7 @@ Each recorded answer is read by the function's own parser, so `decisions` counts
 
 `moneyFacts` in `src/watcher/money.ts` gives the brief its `<money>` block. The worker gathers it before the agent starts, over a read-only connection to `memory.db`, and a read that fails leaves the block out. Every key is named by its slot, and no key value reaches the block, a log line or the report.
 
-`moneyKeysOf` takes the keys from `keys.json`. The core pool is `core`, or `core:<name>` for each key of a pool of several. Every extra key goes by its name, and each paid service of `services` goes by its name. `llm.boundKeys` of `config.json` names the extra key each role spends on, and a role with none spends on `core`.
+`moneyKeysOf` takes the keys from `keys.json`. Every named key goes by its name, and each paid service of `services` goes by its name. `chainKeyNames` in `src/llm/route-chain.ts` names the key each role spends on, the first key of its chain in `models.routes`, and a role with none spends on `none`.
 
 `spend` covers the 24 hours before the run, from `model_requests.usage`. `byKey` holds it by key slot, `byRole` by role and `byModel` by model, each row with `requests`, `tokens`, `credits` and `byok`. A BYOK answer adds its `cost_details.upstream_inference_cost` to `byok`, and any other answer adds its `usage.cost` to `credits`. Runs on the `claude` and `codex` backends cost no dollars per request, and `subscription` counts them by requests and tokens alone.
 

@@ -207,7 +207,7 @@ Tool calls have no such panel, because nothing asks. An agent's mode (`read`, `w
 
 `/config` opens settings with readable names and descriptions, grouped into tabs. Search accepts both these names and the underlying configuration keys. Use Left and Right or Tab to change tabs, Up and Down to select a row, and Enter to toggle a boolean or edit a value. Typing filters settings across all tabs. In an editor, Enter saves through the normal command handler, Ctrl+U clears the input and Esc cancels.
 
-`/setup` offers core and extra keys, service credentials, interface setup, skill setup and search configuration. Opening it performs no installation or provider check. Selecting an action uses its existing command and any required secret dialog. Model and backend actions prepare the targeted command in the input for you to complete.
+`/setup` offers named keys, service credentials, interface setup, skill setup and search configuration. Opening it performs no installation or provider check. Selecting an action uses its existing command and any required secret dialog. Model and backend actions prepare the targeted command in the input for you to complete.
 
 `/model` opens the nested model selector described in [Keys and models](keys.md#the-model-selector). `/model show`, `/model set`, `/model add` and `/model remove` stay commands. For an agent, `/model set <agent> <model> --via opencode-harness --provider <slug>` pins its OpenCode runs to one OpenRouter provider with no fallback, `/subharness status` shows the pin on the agent's row, and a `/model set` for the agent without `--provider` drops it. The details are in [errands](errands.md#the-provider-of-an-opencode-route). A model role runs on a chain of routes: `/model set <role> <route>`, `/model add <role> <route>` and `/model remove <role> <n>` change it, as [Keys and models](keys.md#setting-a-chain) describes. `/model set core harness:claude/<model>` puts her turns on a subscription CLI.
 
@@ -281,7 +281,7 @@ A page shortens a cell over 4 KiB, and the cell's `excerpt` gives `totalBytes`, 
 |---|---|---|
 | `codex` | `codex app-server` with `account/read`, `account/rateLimits/read` and `account/usage/read` under the persona's home | The email and plan, used percentage, reset time, window, lifetime and daily tokens |
 | `claude` | `claude auth status` | Whether the account can be read by hand. Its `/usage` is an interactive screen, so the block is `unsupported` and names the command to open it |
-| `opencode` | `opencode stats` under the persona's home | Sessions, messages, days, dollars and tokens, under the name of its extra key |
+| `opencode` | `opencode stats` under the persona's home | Sessions, messages, days, dollars and tokens, under the name of its key |
 | `openrouter` | `GET /key` on the core role's key | Spend, limit and what remains, under the key's name |
 
 Each block names its source, its account and its observation time. A value the source did not report prints `unknown`, never zero. Subscription tokens carry no price. A failed read of the same known account keeps the last numbers until the core restarts, each marked `(stale)` under its own observation time, and a logout or another account drops them. The blocks are never added together, because the `openrouter` spend of a key already holds what `opencode` spent on that key.

@@ -1,7 +1,7 @@
 // src/setup/services.ts: the optional YouTube key of `neptunia setup`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { serviceCredential } from '../src/keys/file.ts';
+import { serviceCredential, writeKeys } from '../src/keys/file.ts';
 import { servicesStep } from '../src/setup/services.ts';
 import { readLocalConfig } from '../src/tools/operations/shared.ts';
 import { localConfigPath } from '../src/config/files.ts';
@@ -15,6 +15,10 @@ const scripted = (answers: ReadonlyArray<string>) => {
 
 const searchSettings = (dataDir: string): unknown =>
   (readLocalConfig(localConfigPath(dataDir)) as { web?: { quickSearch?: unknown } }).web?.quickSearch;
+
+/** The `search` chain the settings file holds. */
+const searchChain = (dataDir: string): unknown =>
+  (readLocalConfig(localConfigPath(dataDir)) as { models?: { routes?: { search?: unknown } } }).models?.routes?.search;
 
 test('the step shows the link, takes the key without echo, and an empty answer skips it', async () => {
   // Bug: the owner is asked for a key with no way to learn where it comes from, or the key is echoed.
@@ -41,9 +45,15 @@ test('quick search stays off when the owner answers nothing, and no engine is wr
 
 test('a chosen engine goes in with what it needs, and without it the engine stays out', async () => {
   // Bug: the engine is written with an empty key or model, and quick search looks set up while it refuses every search.
+  // Changed: `openrouter` needs a route on a named key, written as the `search` chain (slice 4).
   const given = tempDir('nep-setup-search-');
-  await servicesStep({ dataDir: given }, { ask: scripted(['', 'openrouter', 'x/quick']) });
-  assert.deepEqual(searchSettings(given), { model: 'x/quick', engine: 'openrouter' });
+  writeKeys(given, { keys: { main: 'sk-or-v1-main' } });
+  await servicesStep({ dataDir: given }, { ask: scripted(['', 'openrouter', 'main/x/quick']) });
+  assert.deepEqual(searchSettings(given), { engine: 'openrouter' });
+  assert.deepEqual(searchChain(given), [{ via: 'api', key: 'main', model: 'x/quick', effort: null }]);
+  const unknown = tempDir('nep-setup-search-');
+  await servicesStep({ dataDir: unknown }, { ask: scripted(['', 'openrouter', 'nosuch/x/quick']) });
+  assert.equal(searchSettings(unknown), undefined, 'a route on a key keys.json lacks leaves the engine out');
   const keyed = tempDir('nep-setup-search-');
   await servicesStep({ dataDir: keyed }, { ask: scripted(['', 'exa', 'exa-key']) });
   assert.deepEqual(searchSettings(keyed), { engine: 'exa' });

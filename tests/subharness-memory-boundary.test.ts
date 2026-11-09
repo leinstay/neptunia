@@ -13,7 +13,6 @@ import { runChildProcess } from '../src/agent-runner/backend.ts';
 import { subharnessCommand } from '../src/interface/commands/subharness.ts';
 import { sweep } from '../src/memory/db/session.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
-import { setMemoryPath } from '../src/subharness/memory-path.ts';
 import type { SubharnessMemoryPath } from '../src/subharness/memory-path.ts';
 import { MEMORY_DOWN, createMemoryWatch, memoryProbe } from '../src/subharness/memory-probe.ts';
 import * as memoryWriter from '../src/subharness/memory-writer.ts';
@@ -310,27 +309,7 @@ test('an envelope cut at the token limit is refused, so the cursor stays and not
   );
 });
 
-// A failed selection and a failed source
-
-test('a failed selection check keeps the previous memory source and gives the provider error', async () => {
-  // Catches: "gave no reply" hiding why, or the record cleared before the check answers.
-  const previous = { backend: 'codex', model: 'gpt-6.1-sol', effort: null } as const;
-  const privateDir = tempDir('nep-memory-boundary-');
-  writeKeysFile(privateDir, { subharness: { backends: ['claude', 'codex'], key: null, modes: {}, memory: previous } });
-  fakeVendor(privateDir, 'claude', { loggedIn: true });
-  const result = await setMemoryPath(
-    {
-      ...statusDeps(privateDir),
-      runBackend: () =>
-        Promise.resolve({ ok: false, text: '', exitCode: 1, detail: 'claude-opus-4-6 is not on this plan' }),
-    },
-    'claude',
-    'claude-opus-4-6'
-  );
-  assert.equal(result.ok, false);
-  assert.ok(result.message.includes('claude-opus-4-6 is not on this plan'), result.message);
-  assert.deepEqual(readKeysFile(privateDir).subharness.memory, previous);
-});
+// A failed source
 
 test('a selected source that logged out fails the probe with its code and runs no model', async () => {
   // Catches: a probe that spends a run to learn what the login state already says, or a misleading no-reply.

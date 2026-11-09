@@ -3,10 +3,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { statusBrief } from '../src/interface/commands/status-brief.ts';
 import type { StatusBriefDeps } from '../src/interface/commands/status-brief.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const CONFIG = {
   models: {
-    base: { core: 'anthropic/claude-opus-4.6', memory: 'anthropic/claude-opus-4.6', analyzer: 'google/flash' },
+    routes: chainsOf({
+      core: 'anthropic/claude-opus-4.6',
+      memory: 'anthropic/claude-opus-4.6',
+      analyzer: 'google/flash',
+    }),
   },
   memoryDb: { session: { mode: 'apply' } },
 };

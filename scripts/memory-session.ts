@@ -14,9 +14,8 @@
 // (default `memoryDb.session.maxMessages`). The first sweep on a copy reads from its first line (or from
 // `memoryDb.session.since`).
 //
-// The memory role runs as production runs it (scripts/lib/script-routes.ts): on the key `llm.boundKeys` binds to it,
-// else the core keys, or through the harness of `models.harness.memory`, and the session checks its key on the same
-// ring. `--memory <key>/<model>[:<effort>]` or `--memory harness:<claude|codex>/<model>[:<effort>]` replaces the role for
+// The memory role runs as production runs it (scripts/lib/script-routes.ts): along its chain of routes
+// (`models.routes.memory`), on a key or through a harness, and the session checks its key on the same ring. `--memory <key>/<model>[:<effort>]` or `--memory harness:<claude|codex>/<model>[:<effort>]` replaces the role for
 // this run alone, and the start line on stderr names its key or harness and model. `--variant "<flags>"` (repeatable)
 // runs the session once per variant, each on its own fresh copy, and prints every scope once with each variant's result
 // beneath it; `--keep` takes no variant, and `compare` takes the role flags and no variant. The config and the prompts

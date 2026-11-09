@@ -9,6 +9,7 @@ import { mediaDescriptionVersions } from '../src/memory/db/export.ts';
 import { hashedKey, MEDIA_CACHE_ENTRIES } from '../src/web/cache.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { fakeImageFetcher, fakeLlm, fakeVideoFetcher } from './fixtures/describe-fakes.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const HOUR = 3_600_000;
 const T = Date.parse('2026-11-03T12:00:00Z');
@@ -20,7 +21,7 @@ async function fixture(responses: Parameters<typeof fakeLlm>[0]) {
   const clock = { at: T };
   const hot = {
     config: {
-      models: { base: { vision: 'fake/vision', video: 'fake/video' } },
+      models: { routes: chainsOf({ vision: 'fake/vision', video: 'fake/video' }) },
       media: { maxOutputTokens: 120, recacheBefore: null as string | null, video: { errorRetryMinutes: 60 } },
     },
     prompts: { describe: 'Describe.', 'describe-video': 'Summarize.', 'rewatch-answer': 'Answer {{question}}.' },

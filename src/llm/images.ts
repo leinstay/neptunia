@@ -83,7 +83,7 @@ export class ImageGenError extends Error {
   }
 }
 
-/** `models.base.drawing` belongs to no supported family; refused before any request or count. */
+/** The drawing model belongs to no supported family; refused before any request or count. */
 export class UnsupportedImageModelError extends Error {
   constructor(model: unknown) {
     super(`unsupported image model: ${String(model)}`);

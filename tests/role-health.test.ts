@@ -1,5 +1,5 @@
 // Tests for src/llm/role-health.ts: which model roles are globally failing, kept in memory per role. A role is
-// down when its model is switched off (`models.base.<role>: false`), when its key is missing, after a 401, 402 or
+// down when its model is switched off (an empty chain in `models.routes.<role>`), when its key is missing, after a 401, 402 or
 // 404, after a 429 that says the daily limit is spent, or after three malformed answers in a row. One failed
 // request of another kind is not global. A failing role is retried on a backoff of 1, 5, 15 and then 60 minutes
 // and clears on its first success. The errors are shaped as src/llm/openrouter.ts throws them (`statusCode`,
@@ -7,10 +7,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRoleHealth } from '../src/llm/role-health.ts';
+import { chainsOnDefaults } from './fixtures/chains.ts';
 
 const T0 = Date.parse('2026-10-31T09:00:00Z');
 const MINUTE = 60_000;
-const CONFIG = { models: { base: { core: 'x/core', drawing: 'x/draw', vision: 'x/eyes', speech: 'x/voice' } } };
+const CONFIG = {
+  models: { routes: chainsOnDefaults({ core: 'x/core', drawing: 'x/draw', vision: 'x/eyes', speech: 'x/voice' }) },
+};
 
 /** An error of a non-ok answer, as the chat and image clients throw it. */
 function httpError(status: number, body = ''): Error {
@@ -73,7 +76,9 @@ test('three malformed answers in a row put the role down, a success between them
 
 test('a role switched off in the config or without its key is down with no retry time; a null model is off', () => {
   const { health } = tracker((role) => role !== 'speech');
-  const config = { models: { base: { core: 'x/core', vision: false, video: null, speech: 'x/voice' } } };
+  const config = {
+    models: { routes: chainsOnDefaults({ core: 'x/core', vision: false, video: null, speech: 'x/voice' }) },
+  };
   assert.deepEqual(health.down(config, 'vision'), { role: 'vision', reason: 'no-model', retryAt: null });
   assert.deepEqual(health.down(config, 'speech'), { role: 'speech', reason: 'no-key', retryAt: null });
   assert.deepEqual(health.down(config, 'video'), { role: 'video', reason: 'no-model', retryAt: null }, 'null is off');

@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ROOT, SELF_ID, member, rig } from './fixtures/reads-rig.ts';
 import { createAvatarQueue } from '../src/memory/avatar-queue.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 type Profile = { id: string; names: Array<string>; avatar?: unknown };
 const NOW = Date.UTC(2026, 9, 15, 12, 0, 0);
@@ -26,7 +27,7 @@ function setup(options: { reads?: ReadonlyArray<string>; profiles?: Array<Profil
         avatars: { intervalMs: 0, maxPerDay: 60, descriptionChars: 200 },
         context: { vision: { maxBytes: 1000, fetchTimeoutMs: 500 } },
         media: { maxOutputTokens: 300 },
-        models: { base: { vision: 'v/model' } },
+        models: { routes: chainsOf({ vision: 'v/model' }) },
       },
       prompts: { avatar: 'Describe the avatar in at most {{maxChars}} characters.' },
     },

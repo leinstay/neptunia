@@ -43,7 +43,7 @@ function rowsOf(stdout: string): Map<string, number | null> {
   return rows;
 }
 
-/** OpenCode's statistics now, named by the extra key it runs on. */
+/** OpenCode's statistics now, named by the key it runs on. */
 export async function readOpenCodeUsage(deps: OpenCodeUsageDeps): Promise<BackendUsage> {
   const answer = (over: Partial<Observation>): BackendUsage => ({
     variant: 'api',

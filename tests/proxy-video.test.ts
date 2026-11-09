@@ -12,6 +12,7 @@ import { createYoutubeCheck } from '../src/memory/youtube-check.ts';
 import { fakeImageFetcher, fakeLlm, fakeState, fakeVideoFetcher } from './fixtures/describe-fakes.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const PROXY = 'socks5h://login:pass-word@proxy.example:1080';
 
@@ -32,7 +33,7 @@ const VIDEO = {
 
 const hot = {
   config: {
-    models: { base: { vision: 'x/haiku', video: 'x/video-model' } },
+    models: { routes: chainsOf({ vision: 'x/haiku', video: 'x/video-model' }) },
     media: { maxOutputTokens: 120, video: VIDEO },
     context: { vision: { fetchTimeoutMs: 10_000 } },
   },

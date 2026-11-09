@@ -30,6 +30,7 @@ import { wrongly, removeField } from './fixtures/loose-types.ts';
 import type { GifEntry } from '../src/memory/gifs.ts';
 import type { Store } from '../src/memory/store.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const T0 = Date.UTC(2026, 8, 1);
 const TENOR = (n: number) => `https://tenor.com/view/danse-${n}`;
@@ -683,7 +684,7 @@ function mediaHot(media = {}) {
   return {
     config: {
       media: { ...media },
-      models: { base: { vision: MODELS.vision, video: MODELS.video } },
+      models: { routes: chainsOf({ vision: MODELS.vision, video: MODELS.video }) },
     },
   };
 }

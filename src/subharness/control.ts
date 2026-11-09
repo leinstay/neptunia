@@ -173,7 +173,7 @@ export async function setAgentModel(
   const unsupported = providerUnsupported(provider, backend);
   if (unsupported !== null) return unsupported;
   const { key } = store.subharness;
-  const value = key === null ? '' : (readKeys(deps.privateDir).extra[key] ?? '');
+  const value = key === null ? '' : (readKeys(deps.privateDir).keys[key] ?? '');
   const model = modelOfBackend(backend, typed);
   return checkedSelection(
     deps,

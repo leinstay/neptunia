@@ -43,7 +43,10 @@ const valueAtKey = (config: Untyped, key: string): unknown =>
 
 /**
  * Config keys a deployment may still carry that are no longer read, each with what is read
- * instead: `memory.voiceModel` (the memory wording runs on `models.base.core`, the persona's one model);
+ * instead: `memory.voiceModel` (the memory wording runs on the core's chain, `models.routes.core`); the settings
+ * that routed the model roles before their chains, `models.base`, `models.harness`, `llm.boundKeys`,
+ * `llm.subscription.fallback`, `llm.reasoningByRole` and `web.quickSearch.model` (every role runs on its chain in
+ * `models.routes`, its default effort in `llm.routeEffort`);
  * `features.vision` and `features.attachedDescriptions` (pictures never go into the persona's own
  * request: she sees through the describer's captions and her second look, both on the `vision` model
  * role); `wakes.loop.strayFollowUps`
@@ -54,7 +57,13 @@ const valueAtKey = (config: Untyped, key: string): unknown =>
  */
 const RETIRED_CONFIG_KEYS = Object.freeze(
   [
-    { key: 'memory.voiceModel', use: 'models.base.core' },
+    { key: 'memory.voiceModel', use: 'models.routes.core' },
+    { key: 'models.base', use: 'models.routes' },
+    { key: 'models.harness', use: 'models.routes' },
+    { key: 'llm.boundKeys', use: 'models.routes' },
+    { key: 'llm.subscription.fallback', use: 'models.routes.core' },
+    { key: 'llm.reasoningByRole', use: 'llm.routeEffort' },
+    { key: 'web.quickSearch.model', use: 'models.routes.search' },
     { key: 'features.vision', use: null },
     { key: 'features.attachedDescriptions', use: null },
     { key: 'wakes.loop.strayFollowUps', use: 'wakes.loop.maxSteps' },

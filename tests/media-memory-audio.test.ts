@@ -15,6 +15,7 @@ import { tempDir } from './fixtures/tmp.ts';
 import type { Rec } from './fixtures/describe-fakes.ts';
 import type { Row } from '../src/memory/db/types.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const AUDIO_CLIP = 'data:video/mp4;base64,YXVkaW8=';
 const VIDEO_PROVIDER = { order: ['test-host'], allow_fallbacks: false };
@@ -41,7 +42,7 @@ function audioRig({
   };
   const hot = {
     config: {
-      models: { base: { vision: 'x/vision', video } },
+      models: { routes: chainsOf({ vision: 'x/vision', video }) },
       media: { maxOutputTokens: 120, video: { provider: VIDEO_PROVIDER } },
       context: { vision: { fetchTimeoutMs: 10_000 } },
     },
@@ -144,7 +145,7 @@ test('a text file is kept as its text form from its own words, with no model', a
   const store = createStore(memoryAt(tempDir('nep-media-memory-')));
   const llm = fakeLlm({ text: 'never asked' });
   const describer = createDescriber({
-    hot: { config: { models: { base: { vision: 'x/vision' } } }, prompts: { describe: 'Describe.' } },
+    hot: { config: { models: { routes: chainsOf({ vision: 'x/vision' }) } }, prompts: { describe: 'Describe.' } },
     store,
     llm,
     fetchText: () => Promise.resolve({ ok: true, text: 'marzipan recipes' }),
@@ -198,7 +199,7 @@ function pictureRig(answers: Array<Rec>) {
   const llm = fakeLlm(answers);
   const describer = createDescriber({
     hot: {
-      config: { models: { base: { vision: 'x/vision' } }, media: { maxOutputTokens: 120 } },
+      config: { models: { routes: chainsOf({ vision: 'x/vision' }) }, media: { maxOutputTokens: 120 } },
       prompts: { describe: 'Describe.' },
     },
     store,

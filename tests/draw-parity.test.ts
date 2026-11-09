@@ -16,6 +16,7 @@ import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { planAnswerText } from './fixtures/plan-answer.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -59,7 +60,7 @@ function hot() {
         pull: { sameAudience: true },
       },
       llm: { maxRequestTokens: 50000 },
-      models: { base: { drawing: 'openai/image-model' } },
+      models: { routes: chainsOf({ drawing: 'openai/image-model' }) },
       typing: { reactionDelayMs: [0, 0], msPerChar: [0, 0], minMs: 0, maxMs: 0, betweenMessagesMs: [0, 0] },
       image: { maxPromptChars: 1000, reference: 'avatar', referenceMaxBytes: 4_000_000 },
       selfreflection: { placeId: 'd1', world: false, planMaxOutputTokens: 250, planTimeoutMs: 15000 },

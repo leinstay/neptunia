@@ -1,9 +1,10 @@
 // The services step of `neptunia setup` (src/setup/run.ts): the optional YouTube Data API key, offered with the link
 // that says how to get one, then optional quick search. Quick search has no built-in engine, so it is off until the
 // owner names one here or with `/search engine`. An empty answer declines each question. An engine goes in only with what
-// it needs: the service key of `brave` or `exa`, the model of `openrouter`.
+// it needs: the service key of `brave` or `exa`, the route of `openrouter` on a named key of keys.json.
 
-import { searchCommand } from '../interface/commands/search.ts';
+import { searchCommand, setSearchRoute } from '../interface/commands/search.ts';
+import { readKeys } from '../keys/file.ts';
 import { readLocalConfig } from '../tools/operations/shared.ts';
 import { objOf } from '../tools/types.ts';
 import { localConfigPath } from '../config/files.ts';
@@ -32,9 +33,10 @@ async function quickSearchStep(dataDir: string, ask: ServicesStepDeps['ask']): P
     await ask('Quick search, one engine: openrouter, brave or exa. Optional, empty leaves it off:', null)
   ).trim();
   if (engine === 'openrouter') {
-    const model = (await ask('The model of quick search, an OpenRouter id. Empty leaves it off:', null)).trim();
-    if (model === '') return declined;
-    searchCommand(dataDir, 'search.model', { id: model });
+    const text = (await ask('The route of quick search, <key>/<model>. Empty leaves it off:', null)).trim();
+    if (text === '') return declined;
+    const set = setSearchRoute(dataDir, text, Object.keys(readKeys(dataDir).keys));
+    if (!set.ok) return { state: 'already', detail: `quick search is off: ${set.reason}` };
   } else if (engine === 'brave' || engine === 'exa') {
     if (serviceCredential(dataDir, engine) === null) {
       const key = (await ask(`${SERVICES[engine]}. Empty leaves it off:`, null, { secret: true })).trim();

@@ -13,6 +13,7 @@ import { start } from '../src/interface/fake-interface.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { ROOT, SELF, channelInfo, lineEvent, settle, until } from './fixtures/core-over-fake.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const STORED = 'the red book is on the shelf';
@@ -23,7 +24,7 @@ const CONFIG = {
     owners: ['u1'],
     access: { 'conversation.read': { everyone: false, roles: [], users: [SELF.id] } },
   },
-  models: { base: { video: false } },
+  models: { routes: chainsOf({ video: false }) },
   pace: { settleMs: 0, settleMaxMs: 0 },
   typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },
   gifs: { backfillMessages: 0 },

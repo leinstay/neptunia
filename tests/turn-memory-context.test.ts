@@ -31,6 +31,7 @@ import {
   manualSchedule,
   runSplitTurn,
 } from './fixtures/turn-split.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const DISCORD = createDiscordInterface().capabilities;
 
@@ -156,7 +157,7 @@ for (const replacement of ['author', 'shorter'] as const) {
       config: {
         bot: { timezone: 'UTC' },
         mention: { neverIgnore: [], repeatWindowMinutes: 0, maxPending: 10 },
-        models: { base: { analyzer: 'test/analyzer' } },
+        models: { routes: chainsOf({ analyzer: 'test/analyzer' }) },
         llm: { maxRequestTokens: 50000, maxRequestsPerDay: 100, timeoutMs: 1000 },
       },
       prompts: { labels, merge: 'Choose an item or new. {{items}} {{message}}' },

@@ -2,7 +2,7 @@
 // run through, each installed into her place (src/subharness/install.ts) and logged in. The owner names none, one,
 // several or all. A backend not yet logged in goes through the same login as `neptunia subharness <backend> login`
 // (src/subharness/account.ts), at the owner's terminal; `opencode` is copied in from a path the owner gives and names one
-// extra key. A backend whose install or login fails stays out, and the ones available before it stay. One that can run
+// named key of keys.json. A backend whose install or login fails stays out, and the ones available before it stay. One that can run
 // already is left alone, and no role and no model moves. No detail holds a key value.
 
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
@@ -63,7 +63,7 @@ async function setUpOne(privateDir: string, name: BackendName, deps: SubharnessS
   if (installed.state === 'failed') return { name, state: 'failed', detail: `${name}: ${installed.detail}` };
   if (name === 'opencode') {
     const stored = readRouting(privateDir).subharness.key;
-    const answer = (await deps.ask('The name of the extra key opencode runs on:', stored)).trim();
+    const answer = (await deps.ask('The name of the key opencode runs on:', stored)).trim();
     const given = await accountCommand(
       { privateDir, hostEnv: deps.hostEnv, install: deps.install, ask: null },
       name,

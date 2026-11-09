@@ -10,12 +10,13 @@ import { parseSplitAnswer, SPLIT_DEFAULTS } from '../src/behavior/split.ts';
 import { rig } from './fixtures/reads-rig.ts';
 import { labels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const NOW = Date.UTC(2026, 10, 6, 12, 0, 0);
 
 const CONFIG = {
   bot: { timezone: 'UTC' },
-  models: { base: { analyzer: 'small/analyzer' } },
+  models: { routes: chainsOf({ analyzer: 'small/analyzer' }) },
   llm: { analyzerTimeoutMs: 1000 },
   split: { maxOutputTokens: 50 },
 };

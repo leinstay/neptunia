@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { createMediaPick, mediaPickFormat, parseMediaPick } from '../src/behavior/media-pick.ts';
 import type { MediaPickArgs } from '../src/behavior/media-pick.ts';
 import { labels } from './fixtures/labels.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const NOW = Date.UTC(2026, 10, 6, 12, 0, 0);
 const PLACE = 'place:room-1';
@@ -42,7 +43,7 @@ async function pickWith(text: string, capability: Capability = BOTH) {
     hot: {
       config: {
         bot: { timezone: 'UTC' },
-        models: { base: { analyzer: 'cheap/classifier' } },
+        models: { routes: chainsOf({ analyzer: 'cheap/classifier' }) },
         media: {
           pick: { maxOutputTokens: 17, candidates: 5, emojiCandidates: 5, emojiPerReplies: 0, emojiCooldownMinutes: 0 },
         },

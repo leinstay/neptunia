@@ -17,6 +17,7 @@ import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import { channel as channelInfo, privateChannel, rig } from './fixtures/reads-rig.ts';
 import { lineEvent } from './fixtures/core-over-fake.ts';
 import { labels } from './fixtures/labels.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const DAY = 86400000;
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
@@ -82,7 +83,11 @@ function runner(env: ReturnType<typeof fixture>) {
   config.bot = { ...objectOf(config.bot ?? {}), timezone: 'UTC' };
   config.features = { ...objectOf(config.features ?? {}), meaningSearch: false, recall: true };
   const models = objectOf(config.models ?? {});
-  config.models = { ...models, base: { ...objectOf(models.base ?? {}), embedding: 'test/embedder' } };
+  // Changed: a role's model is its chain's (spec 2026-11-09-model-routes, slice 4).
+  config.models = {
+    ...models,
+    routes: { ...objectOf(models.routes ?? {}), ...chainsOf({ embedding: 'test/embedder' }) },
+  };
   const channel = channelInfo('c1', { name: 'general' });
   const secret = { ...privateChannel('c4', []), name: 'secret' };
   const snapshot = snapshotOf('g1', { chats: [channel, secret], groups: [] });

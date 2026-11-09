@@ -672,7 +672,7 @@ test('answerReply: the sandbox never runs the server search, so <senses> never o
 test('answerReply: samples 1 and 2 carry the same marked user part', async () => {
   const cachedHot = () => {
     const hot = fakeHot();
-    hot.config.models.base.core = 'anthropic/claude-test';
+    hot.config.models.routes.core = [{ via: 'api', key: 'main', model: 'anthropic/claude-test', effort: null }];
     return hot;
   };
   const view = liveView({ hot: cachedHot(), store: fakeStore(), placeId: 'g1' });

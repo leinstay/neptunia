@@ -10,7 +10,7 @@ import { createTagHistory } from '../src/behavior/mention.ts';
 import { MessageReferenceType, PermissionFlagsBits } from 'discord.js';
 import { deepMerge } from '../src/config.ts';
 import { DailyCapError } from '../src/llm/openrouter.ts';
-import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
+import { ROLE_DEFAULTS, roleModel } from '../src/llm/roles.ts';
 import { labels } from './fixtures/labels.ts';
 import {
   DEFAULT_CONFIG,
@@ -59,6 +59,7 @@ import { table, wrongly, present } from './fixtures/loose-types.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
 import { topPlaceSpelled } from '../src/memory/db/ids.ts';
 import { OWNER_PERSON, ownedBy } from './fixtures/owner-accounts.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // Plan 2026-11-04-cli-and-memory B1: `address.attentionMinutes` of the config these tests run under, and a run of `no`
 // verdicts for the tests that show it no longer closes anything.
@@ -1201,7 +1202,7 @@ test('follow-up: the classifier request is address.md as system and a <candidate
   assert.ok(messages[1].content.includes('is this for you'));
   assert.ok(messages[1].content.includes('earlier message'), 'the channel context is included');
   assert.equal(options.maxOutputTokens, config.mention.followUpMaxOutputTokens, 'mention.followUpMaxOutputTokens');
-  assert.equal(options.model, config.models.base.analyzer, 'models.base.analyzer');
+  assert.equal(options.model, roleModel(config, 'analyzer'), "the analyzer chain's model");
   assert.equal(options.role, 'analyzer', 'routed as the analyzer');
   assert.equal(options.countAgainstDailyCap, true);
   assert.equal(options.skipCalibration, true);
@@ -1252,20 +1253,20 @@ test('follow-up: the address classifier timeout is llm.analyzerTimeoutMs, read a
   );
 });
 
-test('follow-up: the address classifier model is models.base.analyzer over the deprecated keys, its own default when it is null', async () => {
+test("follow-up: the address classifier model is the analyzer chain's over the deprecated keys, its own default with none", async () => {
   const cases: Array<{ label: string; overrides: Untyped; expected: (config: Record<string, Untyped>) => string }> = [
     {
-      label: 'models.base.analyzer wins over the deprecated llm.classifierModel and mention.followUpModel',
+      label: 'the analyzer chain wins over the deprecated llm.classifierModel and mention.followUpModel',
       overrides: {
-        models: { base: { analyzer: 'x/classifier' } },
+        models: { routes: chainsOf({ analyzer: 'x/classifier' }) },
         llm: { classifierModel: 'x/old' },
         mention: { followUpModel: 'x/older' },
       },
       expected: () => 'x/classifier',
     },
     {
-      label: 'models.base.analyzer null is the analyzer default, never the vision model',
-      overrides: { models: { base: { analyzer: null, vision: 'x/vision' } } },
+      label: 'an empty analyzer chain is the analyzer default, never the vision model',
+      overrides: { models: { routes: chainsOf({ analyzer: null, vision: 'x/vision' }) } },
       expected: () => ROLE_DEFAULTS.analyzer,
     },
   ];
@@ -1303,7 +1304,7 @@ test('follow-up: an empty or blank classifier answer is logged as a failure with
     const llm = fakeFollowUpLlm();
     const turns = recordingTurns();
     const spontaneous = fakeSpontaneous();
-    const config = baseConfig({ models: { base: { analyzer: 'x/text' } } });
+    const config = baseConfig({ models: { routes: chainsOf({ analyzer: 'x/text' }) } });
     const handler = makeHandler({ config, turns, spontaneous, llm, prompts: fakeAddressPrompts() });
     const guild = fakeGuild();
     const channel = fakeChannelWithHistory('c1', guild, []);

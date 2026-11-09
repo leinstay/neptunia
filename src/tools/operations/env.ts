@@ -242,7 +242,7 @@ function buildEnv({
     return profile;
   }
 
-  /** The drawing model (`models.base.drawing`) for status and model show, `-` when unset, flagged when src/llm/images.ts
+  /** The drawing model (the first route of `models.routes.drawing`) for status and model show, `-` when unset, flagged when src/llm/images.ts
    * has no request mapping for its family (every generation would be refused). */
   function imageModelLabel(cfg: object): string {
     const model = roleModel(cfg, 'drawing');

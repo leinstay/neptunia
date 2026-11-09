@@ -26,6 +26,7 @@ import type { CreateTurnRunnerInput } from '../../src/behavior/turn-types.ts';
 import type { RunOutcome, RunRequest } from '../../src/errands/types.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
+import { chainsOnDefaults } from './chains.ts';
 
 // The turn's chats are held by a fake interface of the world of the test, named `fake`.
 useIface('fake');
@@ -169,7 +170,7 @@ export function hotWith({
       },
       llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      models: { base: { analyzer: 'x/text' } },
+      models: { routes: chainsOnDefaults({ analyzer: 'x/text' }) },
       tools: { safeMode: false, resultMaxChars: 2000, callTimeoutMs: 120000, ...tools },
       ...config,
     },

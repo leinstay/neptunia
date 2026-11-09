@@ -8,10 +8,8 @@ import path from 'node:path';
 import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { createKeysCommands } from '../src/keys/commands.ts';
-import { createKeyRing } from '../src/keys/ring.ts';
 import { createKeyStore } from '../src/keys/store.ts';
-import { createKeyFailover } from '../src/llm/key-failover.ts';
-import { BASE_URL, fakeFetch, fakePause, scriptedDialog } from './fixtures/keys-rig.ts';
+import { BASE_URL, chainRing, everyKeyChains, fakeFetch, fakePause, scriptedDialog } from './fixtures/keys-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const EXA_VALUE = 'exa-SECRETVALUE-0001-WXYZ';
@@ -19,10 +17,14 @@ const EXA_VALUE = 'exa-SECRETVALUE-0001-WXYZ';
 function rig() {
   const dir = tempDir('console-keys-service-');
   const store = createKeyStore({ privateDir: dir });
-  const ring = createKeyRing({ store, failover: createKeyFailover({ now: () => 0 }) });
+  // Changed: every role runs on its chain (slice 4); here every role's chain names every key of the store.
+  const chainOf = everyKeyChains(store, (role) => `current/${role}`);
+  const ring = chainRing(store, chainOf);
   const keys = createKeysCommands({
     store,
     ring,
+    chainOf,
+    saveRoutes: () => Promise.resolve(),
     fetch: fakeFetch().fetch,
     baseUrl: () => BASE_URL,
     defaults: {},

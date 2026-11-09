@@ -36,6 +36,7 @@ import {
   fakeState,
   fakeVideoFetcher,
 } from './fixtures/describe-fakes.ts';
+import { chainsOf, chainsOnDefaults } from './fixtures/chains.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -60,7 +61,7 @@ function tmpDataDir() {
 function fakeHot(overrides = {}) {
   return {
     config: {
-      models: { base: { vision: 'x/haiku' } },
+      models: { routes: chainsOf({ vision: 'x/haiku' }) },
       media: { maxOutputTokens: 120 },
       context: { vision: { fetchTimeoutMs: 10_000 } },
       ...loose(overrides).config,
@@ -411,7 +412,7 @@ test('describe: a helper request -- llm.analyzerTimeoutMs, never llm.timeoutMs, 
   assert.equal(unset.timeoutMs, roleRequestOptions({}).timeoutMs, 'the helper fallback, not the reply timeout');
 });
 
-test('describe: the picture model is models.base.vision; the deprecated media.model is ignored', async () => {
+test("describe: the picture model is the vision chain's; the deprecated media.model is ignored", async () => {
   const run = async (config: Untyped) => {
     const hot = fakeHot({ config });
     const llm = fakeLlm({ text: 'a cat' });
@@ -424,9 +425,9 @@ test('describe: the picture model is models.base.vision; the deprecated media.mo
     await describer.describe('g1', pictureItem('a1'));
     return llm.calls[0].options.model;
   };
-  assert.equal(await run({ models: { base: { vision: 'x/vision' } } }), 'x/vision');
+  assert.equal(await run({ models: { routes: chainsOf({ vision: 'x/vision' }) } }), 'x/vision');
   const stale = {
-    models: { base: {} },
+    models: { routes: chainsOnDefaults({}) },
     media: { model: 'x/old-media', maxOutputTokens: 120 },
   };
   assert.equal(
@@ -718,7 +719,7 @@ const VIDEO_CFG = {
 function videoHot({ video = {}, prompts = {} }: Opts = {}) {
   return {
     config: {
-      models: { base: { vision: 'x/haiku', video: 'x/video-model' } },
+      models: { routes: chainsOf({ vision: 'x/haiku', video: 'x/video-model' }) },
       media: { maxOutputTokens: 120, video: { ...VIDEO_CFG, ...video } },
       context: { vision: { fetchTimeoutMs: 10_000 } },
     },
@@ -814,15 +815,15 @@ test('describeVideo: attachment is watched through a data URL with the video set
   assert.equal(options.countAgainstDailyCap, true);
 });
 
-test('describeVideo: the video model is models.base.video; the deprecated media.video.model is ignored', async () => {
+test("describeVideo: the video model is the video chain's; the deprecated media.video.model is ignored", async () => {
   const withNew = videoHot();
-  withNew.config.models = { base: { video: 'x/new-video', vision: 'x/vision' } };
+  withNew.config.models = { routes: chainsOf({ video: 'x/new-video', vision: 'x/vision' }) };
   const fresh = videoDescriber({ hot: withNew });
   await fresh.describer.describeVideo('g1', videoAttachment());
   assert.equal(fresh.llm.calls[0].options.model, 'x/new-video');
 
   const withOld: Untyped = videoHot({ video: { model: 'x/old-video' } });
-  withOld.config.models = { base: { vision: 'x/vision' } };
+  withOld.config.models = { routes: chainsOnDefaults({ vision: 'x/vision' }) };
   const old = videoDescriber({ hot: withOld });
   await old.describer.describeVideo('g1', videoAttachment());
   assert.equal(
@@ -1849,7 +1850,7 @@ test('rewatchVideo: one fetch and one video request with the question and answer
     { type: 'video_url', video_url: { url: CLIP_DATA_URL } },
   ]);
   const options = llm.calls[0].options;
-  assert.equal(options.model, 'x/video-model', 'the second look uses the video model (models.base.video)');
+  assert.equal(options.model, 'x/video-model', 'the second look uses the video model (the video chain)');
   assert.equal(options.maxOutputTokens, 600);
   assert.equal(options.maxRequestTokens, 60_000);
   assert.equal(options.videoSeconds, 12);
@@ -1971,7 +1972,7 @@ test('relookImage: one download and one vision request with the question; the an
     { type: 'image_url', image_url: { url: SUCCESSFUL_DOWNLOAD.dataUrl } },
   ]);
   const options = llm.calls[0].options;
-  assert.equal(options.model, 'x/haiku', 'the picture is looked at by the vision model (models.base.vision)');
+  assert.equal(options.model, 'x/haiku', 'the picture is looked at by the vision model (the vision chain)');
   assert.equal(options.role, 'vision');
   assert.equal(options.purpose, 'relook');
   assert.equal(options.maxOutputTokens, 600, 'media.video.rewatch.maxOutputTokens');

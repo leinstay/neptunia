@@ -7,6 +7,7 @@ import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import { DailyCapError, NotByokError, TokenLimitError, llmCountToday } from '../src/llm/openrouter.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -25,7 +26,10 @@ function config(overrides = {}) {
       ...loose(overrides).llm,
     },
     models: {
-      base: { analyzer: 'x/text', embedding: 'openai/text-embedding-3-large', ...loose(overrides).models?.base },
+      routes: {
+        ...chainsOf({ analyzer: 'x/text', embedding: 'openai/text-embedding-3-large' }),
+        ...loose(overrides).models?.routes,
+      },
       byPurpose: { ...loose(overrides).models?.byPurpose },
     },
     embed: { dimensions: 4, ...loose(overrides).embed },
@@ -217,10 +221,10 @@ test('embed: nothing to embed sends nothing; an empty text is an error before an
   assert.equal(llmCountToday(state.data, DAY), 0);
 });
 
-test("embed: an unset models.base.embedding goes out on the role default, never on another role's model", async () => {
+test("embed: an empty embedding chain goes out on the role default, never on another role's model", async () => {
   const { embedder, sent } = makeEmbedder([embeddingsOf([[1, 0, 0, 0]])]);
   await embedder.embed(['a'], {
-    config: config({ models: { base: { analyzer: 'x/text', embedding: null } } }),
+    config: config({ models: { routes: chainsOf({ analyzer: 'x/text', embedding: null }) } }),
     purpose: 'search',
   });
   assert.equal(sent[0].body.model, ROLE_DEFAULTS.embedding);

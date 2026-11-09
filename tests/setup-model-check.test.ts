@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { coreSelection, readCoreCheck, recordCoreCheck } from '../src/setup/model-check.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const SELECTION = 'openrouter:vendor/core-1';
 
@@ -29,6 +30,6 @@ test('a record that cannot be read is no check at all', () => {
 
 test('the selection follows the model of the core role', () => {
   // Catches: a selection that stays the same when the owner changes the model, so a stale check reads as current.
-  assert.equal(coreSelection({ models: { base: { core: 'vendor/core-1' } } }), SELECTION);
-  assert.notEqual(coreSelection({ models: { base: { core: 'vendor/core-2' } } }), SELECTION);
+  assert.equal(coreSelection({ models: { routes: chainsOf({ core: 'vendor/core-1' }) } }), SELECTION);
+  assert.notEqual(coreSelection({ models: { routes: chainsOf({ core: 'vendor/core-2' }) } }), SELECTION);
 });

@@ -575,7 +575,7 @@ function rowLine(template: unknown, row: RoleRow, L: Untyped): string | null {
   });
 }
 
-/** The roles of an extra key as its lead names them: each through `names` (`roleNames`, a role ->
+/** The roles of a role key as its lead names them: each through `names` (`roleNames`, a role ->
  * shown name map; a role it lacks shows as itself), each shown name once, in order. */
 function shownRoles(roles: ReadonlyArray<string>, names: unknown): Array<string> {
   const nameOf = (role: string): string => {
@@ -588,8 +588,8 @@ function shownRoles(roles: ReadonlyArray<string>, names: unknown): Array<string>
 /**
  * The `keys.base` field's lines, every word from `labels.status.costs` (a missing
  * label leaves its line out; no `status.costs` at all gives []): per key, its limit line
- * immediately followed by its own usage line -- the main key (lead `keyLead`), then each extra role key
- * (`llm.boundKeys`, lead `roleKeyLead` with `{roles}` joined by `roleSeparator`, each role named
+ * immediately followed by its own usage line -- the main key (lead `keyLead`), then each role key
+ * (a key the chains of other roles are on, lead `roleKeyLead` with `{roles}` joined by `roleSeparator`, each role named
  * through `roleNames` and each name once, so the errand agents' roles show as one word). A limit line is
  * `keyLimit` with its `notes` (the reset and whether BYOK counts) or `keyLimitPlain`; `keyNone` /
  * `keyNonePlain` without a limit; `keyUnavailable` on a failed read. A usage line is `usage` of
@@ -600,7 +600,7 @@ function shownRoles(roles: ReadonlyArray<string>, names: unknown): Array<string>
  * `since`), when its record gives today's figure. The key's label is never read. Pure.
  * `key` and each role key's `key` as `readAccount` resolves; each
  *   `activity` as `activitySums` returns (null: not read); `windows` as `createUsage().sumDays`
- *   returns, the main key's over the roles no extra key takes.
+ *   returns, the main key's over the roles no role key takes.
  */
 export function keyCostsLines({
   key,

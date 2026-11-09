@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { MEDIA_PICK_DEFAULTS, createMediaPick, mediaPickSettings, parseMediaPick } from '../src/behavior/media-pick.ts';
 import { userText } from '../src/behavior/prompt.ts';
 import { labels } from './fixtures/labels.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
 const HOUR = 3_600_000;
@@ -114,7 +115,7 @@ function rig({
   const hot = {
     config: {
       bot: { timezone: 'UTC' },
-      models: { base: { analyzer: 'cheap/classifier' } },
+      models: { routes: chainsOf({ analyzer: 'cheap/classifier' }) },
       media: { pick: { maxOutputTokens: 17, candidates: 5, ...pickConfig } },
     },
     prompts: { labels, ...(prompt === null ? {} : { 'media-pick': prompt }) },

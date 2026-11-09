@@ -9,7 +9,7 @@
 // without one. At start the errands a restart left open are failed (`restarted`): the runner sends
 // an errand's end on the connection that brought it, which is gone. Every run carries the errand's
 // secrets (`secrets` of src/agent-runner/protocol.ts), since every key lives in the core and the
-// runner cannot read it: the extra key of an opencode route (never the persona's core keys); the engine proxy of the moment (`proxy`, the core's
+// runner cannot read it: the named key of an opencode route (never a key of her model roles); the engine proxy of the moment (`proxy`, the core's
 // monitor, src/net/proxy.ts) in its http form for every agent, so no harness child goes out from
 // the server's own address while the proxy is on; the stored Exa key (keys.json `services.exa`) for an
 // agent that searches with exa on an opencode route (`searchKey`). A run with none of them carries no secrets. Settings are read at the moment of
@@ -85,8 +85,8 @@ function limitsFor(agent: string, config: Untyped, agentPaths?: AgentPaths): Lim
 
 /**
  * The secrets an errand of `agent` carries to its runner: `{ openrouterKey?, proxy?, searchKey? }`, or null when it has
- * none. The key is `routeKey`, the extra key keys.json names for the agent's route, and a run with no such key carries
- * none (a claude or codex agent brings its own login, and a core key is never passed). `proxy` is the engine proxy in force now, null on the direct path. `searchKey` is the
+ * none. The key is `routeKey`, the named key keys.json holds for the agent's route, and a run with no such key carries
+ * none (a claude or codex agent brings its own login, and a key of her model roles is never passed). `proxy` is the engine proxy in force now, null on the direct path. `searchKey` is the
  * stored Exa key in `privateDir`, for a run on `route` that searches with exa (`exaKeyOf`).
  */
 function secretsFor(
@@ -131,7 +131,7 @@ type Dispatch = { route: TaskRoute | null; key: string | null; error?: string };
 
 /**
  * The route and the key of `agent`'s errand, read from config.json and keys.json now, since the runner's unit may hide
- * those files. The key is the extra key `models.agents.opencodeKey` names, on an opencode route only: claude and codex agents search with their
+ * those files. The key is the named key `models.agents.opencodeKey` names, on an opencode route only: claude and codex agents search with their
  * harness's own tools and carry none. `route: null` while the agent has no
  * source (the runner then refuses with `subharness-off`), and an `error` code when either file cannot be read or an
  * opencode route has no key to spend.

@@ -4,64 +4,6 @@ import type { SchemaEntry } from '../schema.ts';
 
 export const MODELS: ReadonlyArray<SchemaEntry> = [
   {
-    'key': 'models.base.core',
-    'types': ['string', 'boolean'],
-    'reader': 'src/llm/openrouter.ts',
-    'default': 'anthropic/claude-opus-4.6',
-    'text': "The persona's model. Purposes: `reply`, `memory-voice`",
-  },
-  {
-    'key': 'models.base.memory',
-    'types': ['string', 'boolean'],
-    'reader': 'src/llm/roles.ts',
-    'default': 'anthropic/claude-opus-4.6',
-    'text':
-      'Her memory session and description review model. Same default as `core`, not a copy. Its key is the extra key `llm.boundKeys` binds to `memory`, else the core keys',
-  },
-  {
-    'key': 'models.base.analyzer',
-    'types': ['string', 'boolean'],
-    'reader': 'src/behavior/mention.ts',
-    'default': 'openai/gpt-6.1-sol',
-    'text':
-      'Picks options (address, room, route, split, media-pick, missed, etc.), plans searches and turns sources into notes. Pin one purpose to another model with `byPurpose`',
-  },
-  {
-    'key': 'models.base.vision',
-    'types': ['string', 'boolean', 'null'],
-    'reader': 'src/behavior/mention.ts',
-    'default': null,
-    'text': 'Describes pictures (describe, relook, avatar). Off while null',
-  },
-  {
-    'key': 'models.base.video',
-    'types': ['string', 'boolean', 'null'],
-    'reader': 'src/behavior/mention.ts',
-    'default': null,
-    'text': 'Watches video and GIFs, looks again on questions. Off while null',
-  },
-  {
-    'key': 'models.base.embedding',
-    'types': ['string', 'boolean'],
-    'reader': 'src/llm/embed.ts',
-    'default': 'openai/text-embedding-3-large',
-    'text': 'Turns text into vectors for meaning search. `embed.dimensions` sets the width',
-  },
-  {
-    'key': 'models.base.speech',
-    'types': ['string', 'boolean', 'null'],
-    'reader': 'src/speech/synth.ts',
-    'default': null,
-    'text': 'Speaks her text aloud through the speech endpoint. Named on the status card, never probed. Off while null',
-  },
-  {
-    'key': 'models.base.drawing',
-    'types': ['string', 'boolean', 'null'],
-    'reader': 'src/llm/images.ts',
-    'default': null,
-    'text': 'Generates pictures through the Images API. Only `openai/*` and `google/*` families. Off while null',
-  },
-  {
     'key': 'models.byPurpose',
     'types': ['map'],
     'reader': 'src/llm/embed.ts',
@@ -155,23 +97,7 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/subharness/routing.ts',
     'default': null,
     'text':
-      'The extra key of `keys.json` that `opencode` runs on. Null while `opencode` has no login. `neptunia subharness opencode login --key <name>` sets it',
-  },
-  {
-    'key': 'models.harness.core',
-    'types': ['map', 'null'],
-    'reader': 'src/subharness/routing.ts',
-    'default': null,
-    'text':
-      'Her core\'s subscription route, `{ "backend": "claude" or "codex", "model": id, "effort": level or null }`. Null is the OpenRouter API. `/model set core <model> --via <route>` writes it after one reply, and `/model set core <model>` clears it',
-  },
-  {
-    'key': 'models.harness.memory',
-    'types': ['map', 'null'],
-    'reader': 'src/subharness/routing.ts',
-    'default': null,
-    'text':
-      "The memory writer's path through a subharness, in the shape of `models.harness.core`. Null is the direct path on the memory role's key. `/model set memory <model> --via <route>` writes it after one reply",
+      'The named key of `keys.json` that `opencode` runs on. Null while `opencode` has no login. `neptunia subharness opencode login --key <name>` sets it',
   },
   {
     'key': 'models.routes',
@@ -179,6 +105,6 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/llm/route-chain.ts',
     'default': {},
     'text':
-      'The chain of routes of each model role, by role (`core`, `memory`, `analyzer`, `vision`, `video`, `embedding`, `speech`, `drawing`, `search`): an array of `{ "via": "api", "key": name, "model": id, "effort": level }` or `{ "via": "harness", "backend": "claude" or "codex", "model": id, "effort": level }`, tried in order. A role with no entry runs on the routes its older settings give it. An empty array turns an optional role off',
+      'The chain of routes of each model role, by role (`core`, `memory`, `analyzer`, `vision`, `video`, `embedding`, `speech`, `drawing`, `search`): an array of `{ "via": "api", "key": name, "model": id, "effort": level }` or `{ "via": "harness", "backend": "claude" or "codex", "model": id, "effort": level }`, tried in order. A role\'s model is the model of its first route. A role with no entry has no route, and an optional role with no entry or an empty array is off. `/model set`, `/model add` and `/model remove` write it',
   },
 ];

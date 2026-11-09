@@ -17,6 +17,7 @@ import type { Untyped } from '../src/tools/types.ts';
 import type { Hot } from '../src/hot.ts';
 import { wrongly } from './fixtures/loose-types.ts';
 import { asRecord } from './fixtures/records.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -31,12 +32,12 @@ const ENV = { brave: 'brave-test-key', exa: 'exa-test-key' };
 function hotFixture() {
   return {
     config: {
-      models: { base: { analyzer: 'test/analyzer' } },
+      // Changed: quick search's model is its chain's, `models.routes.search` (spec 2026-11-09-model-routes, slice 4).
+      models: { routes: chainsOf({ analyzer: 'test/analyzer', search: 'test/search' }) },
       llm: { analyzerTimeoutMs: 9000 },
       web: {
         maxPerDay: 0,
         quickSearch: {
-          model: 'test/search',
           engine: 'brave',
           results: 5,
           summaryChars: 900,

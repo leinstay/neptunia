@@ -1,20 +1,17 @@
-// Which part of Neptunia runs on what: the extra key a role is bound to, the source, model, effort, mode and provider of
-// each agent, the extra key opencode runs on, and the paths of her core and her memory writer through a subharness.
-// All of it lives in the private settings file `config/config.json`
+// Which agent runs on what: the source, model, effort, mode and provider of each agent and the named key opencode runs
+// on. The model roles run on their chains of routes in `models.routes` (src/llm/route-chain.ts), which this module does
+// not touch. All of it lives in the private settings file `config/config.json`
 // (src/config/files.ts), never in keys.json, which holds the secrets alone (src/keys/file.ts). Each read
 // goes to the file at the moment of use, so a choice from the chat acts on the next request; each write goes through the
 // locked writer of src/service/local-settings.ts and leaves every other setting as it was.
 //
 // The settings and the record each maps to:
-//   llm.boundKeys            roles                  the extra key each base role and `search` goes out on
 //   models.agents.via        subharness.uses        the backend each agent runs through
 //   models.agents.model      subharness.models      the model each agent runs on
 //   models.agents.effort     subharness.efforts     the reasoning effort each agent runs at
 //   models.agents.provider   subharness.providers   the OpenRouter provider each opencode agent is pinned to
 //   models.agents.mode       subharness.modes       what each agent may do (src/subharness/control.ts#AGENT_MODES)
-//   models.agents.opencodeKey subharness.key        the extra key opencode runs on
-//   models.harness.core      subharness.core        her core's subscription route; null is the API
-//   models.harness.memory    subharness.memory      the memory writer's path; null is the direct path
+//   models.agents.opencodeKey subharness.key        the named key of keys.json opencode runs on
 // An empty map or a null record leaves the file, so a deployment that chose nothing keeps a file with no routing in it.
 
 import path from 'node:path';
@@ -35,12 +32,9 @@ export type SubharnessAgent = (typeof SUBHARNESS_AGENTS)[number];
 export const MEMORY_BACKENDS = ['codex', 'claude'] as const;
 export type MemoryBackend = (typeof MEMORY_BACKENDS)[number];
 
-/** `models.harness.memory` and `.core`: the backend, model and effort a path runs on. */
-export type MemoryPathRecord = { backend: MemoryBackend; model: string; effort: EffortLevel | null };
-
-/** The agents' routes and the two paths through a subharness. */
+/** The agents' routes. */
 export type SubharnessRouting = {
-  /** the extra key opencode runs on; null while opencode has no login */
+  /** the named key opencode runs on; null while opencode has no login */
   key: string | null;
   modes: Record<string, string>;
   /** the model each agent runs on, by agent; an agent with none runs on the backend's own default */
@@ -51,18 +45,10 @@ export type SubharnessRouting = {
   uses: Record<string, BackendName>;
   /** the OpenRouter provider each opencode agent is pinned to, by agent; an agent with none runs at any provider */
   providers: Record<string, string>;
-  /** the memory writer's path through a subharness (src/subharness/memory-path.ts); null is the direct path */
-  memory: MemoryPathRecord | null;
-  /** her core's subscription route (src/subharness/subscription-path.ts); null is the API */
-  core: MemoryPathRecord | null;
 };
 
-/** Which part runs on what, as the private settings file holds it. */
-export type Routing = {
-  /** the extra key each role is bound to, by role */
-  roles: Record<string, string>;
-  subharness: SubharnessRouting;
-};
+/** Which agent runs on what, as the private settings file holds it. */
+export type Routing = { subharness: SubharnessRouting };
 
 type Tree = Record<string, unknown>;
 
@@ -94,29 +80,10 @@ function effortsOf(value: unknown): Record<string, EffortLevel> {
   return efforts;
 }
 
-/**
- * A path record, or null for one whose backend cannot carry it, whose model is no non-empty string or whose effort is
- * neither null nor an effort level. It is kept apart from the agents' backends, so a path never runs through a backend
- * nobody chose for it.
- */
-function recordOf(value: unknown): MemoryPathRecord | null {
-  if (!isTree(value)) return null;
-  const backend = MEMORY_BACKENDS.find((name) => name === value.backend);
-  const { model } = value;
-  const effort = value.effort ?? null;
-  if (backend === undefined || typeof model !== 'string' || model.trim() === '') return null;
-  if (effort !== null && !isListedEffort(effort)) return null;
-  return { backend, model, effort };
-}
-
 /** The routing of a settings tree. */
 function routingOf(config: Tree): Routing {
-  const llm = treeOf(config.llm);
-  const models = treeOf(config.models);
-  const agents = treeOf(models.agents);
-  const harness = treeOf(models.harness);
+  const agents = treeOf(treeOf(config.models).agents);
   return {
-    roles: textMap(llm.boundKeys),
     subharness: {
       key: textOrNull(agents.opencodeKey),
       modes: textMap(agents.mode),
@@ -124,8 +91,6 @@ function routingOf(config: Tree): Routing {
       efforts: effortsOf(agents.effort),
       uses: usesOf(agents.via),
       providers: textMap(agents.provider),
-      memory: recordOf(harness.memory),
-      core: recordOf(harness.core),
     },
   };
 }
@@ -147,13 +112,7 @@ function withRouting(config: Tree, routing: Routing): Tree {
   agents = placed(agents, 'provider', sub.providers);
   agents = placed(agents, 'mode', sub.modes);
   agents = placed(agents, 'opencodeKey', sub.key);
-  let harness = treeOf(treeOf(config.models).harness);
-  harness = placed(harness, 'core', sub.core);
-  harness = placed(harness, 'memory', sub.memory);
-  const models = placed(placed(treeOf(config.models), 'agents', agents), 'harness', harness);
-  let llm = treeOf(config.llm);
-  llm = placed(llm, 'boundKeys', routing.roles);
-  return placed(placed(config, 'models', models), 'llm', llm);
+  return placed(config, 'models', placed(treeOf(config.models), 'agents', agents));
 }
 
 /** The routing nobody has chosen yet. */
@@ -171,14 +130,14 @@ export function readRouting(privateDir: string): Routing {
 }
 
 /**
- * The extra key opencode runs on (`models.agents.opencodeKey`) with its value from keys.json, or null while it names
+ * The named key opencode runs on (`models.agents.opencodeKey`) with its value from keys.json, or null while it names
  * none or a key that left the store.
  */
 export function opencodeKey(privateDir: string): { name: string; value: string } | null {
   const name = readRouting(privateDir).subharness.key;
   if (name === null) return null;
-  const { extra } = readKeys(privateDir);
-  return Object.hasOwn(extra, name) ? { name, value: extra[name] ?? '' } : null;
+  const { keys } = readKeys(privateDir);
+  return Object.hasOwn(keys, name) ? { name, value: keys[name] ?? '' } : null;
 }
 
 /** Applies `change` to the routing under the settings file's lock; a change that alters nothing writes nothing. */

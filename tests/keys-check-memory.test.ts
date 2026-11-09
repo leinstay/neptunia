@@ -7,10 +7,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createKeysCommands } from '../src/keys/commands.ts';
 import type { KeysDeps } from '../src/keys/commands.ts';
-import { createKeyRing } from '../src/keys/ring.ts';
 import { createKeyStore } from '../src/keys/store.ts';
-import { createKeyFailover } from '../src/llm/key-failover.ts';
-import { BASE_URL, SECRET, fakeFetch, fakePause } from './fixtures/keys-rig.ts';
+import { BASE_URL, SECRET, chainRing, everyKeyChains, fakeFetch, fakePause } from './fixtures/keys-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const T0 = Date.parse('2026-11-05T09:00:00Z');
@@ -27,14 +25,18 @@ function rig({
   withKey?: boolean;
 }) {
   const store = createKeyStore({ privateDir: tempDir('keys-memory-') });
-  if (withKey) store.addCore({ name: 'core-1', value: SECRET });
-  const ring = createKeyRing({ store, failover: createKeyFailover({ now: () => T0 }) });
+  if (withKey) store.add({ name: 'core-1', value: SECRET });
+  // Changed: every role runs on its chain (slice 4); here every role's chain names every key of the store.
+  const chainOf = everyKeyChains(store, (role) => `current/${role}`);
+  const ring = chainRing(store, chainOf);
   const { fetch, calls } = fakeFetch();
   const probes: Array<number> = [];
   const recorded: Array<string> = [];
   const keys = createKeysCommands({
     store,
     ring,
+    chainOf,
+    saveRoutes: () => Promise.resolve(),
     fetch,
     baseUrl: () => BASE_URL,
     defaults: {},

@@ -33,7 +33,7 @@ export type KeyBalance = {
   usage_monthly: number | null;
   is_free_tier: boolean | null;
   resetAt: string | null;
-  /** The credits spent through this slot in the last 24 hours; a key of the core pool counts the whole pool. */
+  /** The credits spent through this slot in the last 24 hours. */
   spent24h: number;
   runway: Runway | null;
 };
@@ -72,8 +72,8 @@ type Fetch = (url: string, init: { headers: Record<string, string>; signal?: Abo
 export const KEY_ENDPOINT = 'https://openrouter.ai/api/v1/key';
 /** The backends that run on a subscription: counted by requests and tokens, never in dollars. */
 const SUBSCRIPTION_BACKENDS: ReadonlyArray<string> = ['claude', 'codex'];
-/** The slot of the core pool, which every role without a key of its own spends on. */
-const CORE_SLOT = 'core';
+/** The slot of a request whose role has no key in its chain: a run on a harness or a role off. */
+const NO_KEY_SLOT = 'none';
 const KEY_READ_TIMEOUT_MS = 10_000;
 /** The error code a subscription run gets when its window is spent (src/subharness/subscription-client.ts). */
 const EXHAUSTED = 'subscription-exhausted';
@@ -177,15 +177,12 @@ function spendOf(rows: ReadonlyArray<Row>, roleSlots: Readonly<Record<string, st
     apiRequests += 1;
     const role = typeof row.role === 'string' ? row.role : 'unknown';
     const cost = costOf(usage);
-    add(byKey, roleSlots[role] ?? CORE_SLOT, tokens, cost);
+    add(byKey, roleSlots[role] ?? NO_KEY_SLOT, tokens, cost);
     add(byRole, role, tokens, cost);
     add(byModel, typeof row.model === 'string' ? row.model : 'unknown', tokens, cost);
   }
   return { spend: { byKey, byRole, byModel, subscription }, subscriptionRefusals, apiRequests };
 }
-
-/** The spend slot of a key: a key of the core pool spends from the pool, since a request names no key of it. */
-const spendSlot = (slot: string): string => (slot.startsWith(`${CORE_SLOT}:`) ? CORE_SLOT : slot);
 
 /** One key's balance, or the code of why it could not be read. The key goes in the header to the key endpoint and nowhere else. */
 async function readKey(
@@ -232,7 +229,8 @@ async function readKey(
 
 /**
  * The money fact over the requests of the 24 hours before `now`: the spend, each key's balance, the rails and their
- * runways. `roleSlots` names the extra key a role spends on (`llm.boundKeys` of config.json); a role with none spends on `core`.
+ * runways. `roleSlots` names the key a role spends on, the first key of its chain (src/llm/route-chain.ts#chainKeyNames);
+ * a role with none spends on `none`.
  * `requestsToday` is the engine's count against `llm.maxRequestsPerDay`, whose day ends at midnight UTC.
  */
 export async function moneyFacts(input: {
@@ -254,7 +252,7 @@ export async function moneyFacts(input: {
       unavailable.push({ slot: key.slot, service: key.service, code: 'no-balance-read' });
       continue;
     }
-    const keySpend = spend.byKey[spendSlot(key.slot)];
+    const keySpend = spend.byKey[key.slot];
     const spent = keySpend?.credits ?? 0;
     const read = await readKey(key, input.fetch, spent, now);
     if ('code' in read) unavailable.push({ slot: key.slot, service: key.service, code: read.code });
@@ -285,21 +283,12 @@ export async function moneyFacts(input: {
 }
 
 /**
- * The keys of keys.json as named slots: the core pool (`core`, or `core:<name>` for each key of a pool of several), every
- * extra key by its name and the paid services (`services.<name>`). Each OpenRouter key is read for its
- * balance, and a service with no balance read is named as unavailable.
+ * The keys of keys.json as named slots: every named key by its name and the paid services (`services.<name>`). Each
+ * OpenRouter key is read for its balance, and a service with no balance read is named as unavailable.
  */
 export function moneyKeysOf(store: KeyStore): Array<MoneyKey> {
   const keys: Array<MoneyKey> = [];
-  const core = store.core.filter((row) => typeof row.value === 'string' && row.value.trim() !== '');
-  for (const row of core) {
-    keys.push({
-      slot: core.length === 1 ? CORE_SLOT : `${CORE_SLOT}:${row.name}`,
-      service: 'openrouter',
-      value: row.value,
-    });
-  }
-  for (const [name, value] of Object.entries(store.extra)) {
+  for (const [name, value] of Object.entries(store.keys)) {
     if (value.trim() !== '') keys.push({ slot: name, service: 'openrouter', value });
   }
   const { services } = store;

@@ -24,6 +24,7 @@ import { openTestMemorySync } from './fixtures/memory-db/service.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { call, completionOf, toolAnswer } from './fixtures/tool-answers.ts';
 import { onWorld, useIface, world } from './fixtures/turn-world.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 useIface('fake');
 const createTurnRunner = onWorld(wrongly(createRealTurnRunner));
@@ -84,7 +85,7 @@ async function innerTurn({
       },
       llm: { maxRequestTokens: 50000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
-      models: { base: { analyzer: 'x/text' } },
+      models: { routes: chainsOf({ analyzer: 'x/text' }) },
       tools: {
         safeMode: false,
         resultMaxChars: 2000,

@@ -45,6 +45,7 @@ import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { buildRequest } from './fixtures/built-request.ts';
 import { loose } from './fixtures/as-options.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 /** The fixed words of a label before its first placeholder. */
 const labelHead = (label: string) => label.split('{')[0];
@@ -218,7 +219,9 @@ const LOADS = {
 
 /** The shipped config.json with `overrides` deep-merged over a fresh copy. */
 function shippedConfig(overrides: Record<string, unknown> = {}) {
-  const on = { models: { base: { vision: 'x/vision', video: 'x/video', drawing: 'x/drawing', speech: 'x/speech' } } }; // off when shipped
+  const on = {
+    models: { routes: chainsOf({ vision: 'x/vision', video: 'x/video', drawing: 'x/drawing', speech: 'x/speech' }) },
+  }; // off when shipped
   return deepMerge(deepMerge(structuredClone(SHIPPED.config), on), overrides);
 }
 

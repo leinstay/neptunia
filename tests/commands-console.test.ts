@@ -30,6 +30,7 @@ import {
   withRig,
 } from './fixtures/core-units.ts';
 import type { Dirs, Rig, Settings } from './fixtures/core-units.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const T0 = Date.parse('2026-10-31T12:00:00Z');
 
@@ -225,7 +226,7 @@ test('-p exits 2 for a line the table refuses', async () => {
 
 // Spec case 2. The card's fields became sections of text: the models of every role and today's costs per role.
 test('/status full holds the models of every role and the costs of the day, and /status only the summary', async () => {
-  const config = { models: { base: { core: 'zeta/core-71', drawing: 'zeta/draw-72' } } };
+  const config = { models: { routes: chainsOf({ core: 'zeta/core-71', drawing: 'zeta/draw-72' }) } };
   await withRig({ config }, async ({ dirs, llm, cores }) => {
     seedUsage(dirs);
     cores.push(await startUnitsCore(dirs, llm, () => T0));

@@ -14,10 +14,6 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 <!-- settings: bot -->
 
-## models.base
-
-<!-- settings: models.base -->
-
 ## models.abilities
 
 <!-- settings: models.abilities -->
@@ -36,19 +32,13 @@ To update this reference after a schema change, run `node scripts/config-doc.ts 
 
 ## models.agents
 
-Which backend, model, effort, provider and mode each agent runs on, and the extra key `opencode` runs on. `src/subharness/routing.ts` reads them at each run, and `/model set` and `/subharness mode` write them. See [Keys and models](keys.md#model-sources).
+Which backend, model, effort, provider and mode each agent runs on, and the named key `opencode` runs on. `src/subharness/routing.ts` reads them at each run, and `/model set` and `/subharness mode` write them. See [Keys and models](keys.md#model-sources).
 
 <!-- settings: models.agents -->
 
-## models.harness
-
-The paths of her core and her memory writer through a subharness. `src/subharness/routing.ts` reads them at each request, and `/model set <role> <model> --via <route>` writes them after one reply. See [Keys and models](keys.md#her-core-on-a-subscription).
-
-<!-- settings: models.harness -->
-
 ## models.routes
 
-The chain of routes each model role runs on. `src/llm/route-chain.ts` reads it at each request; a role with no entry runs on the routes its `models.base`, `models.harness`, `llm.boundKeys` and core keys give it. See [Keys and models](keys.md#chains-of-routes).
+The chain of routes each model role runs on, the one place a role's key, harness, model and effort live. `src/llm/route-chain.ts` reads it at each request, and a role with no entry has no route. `/model set`, `/model add` and `/model remove` write it. See [Keys and models](keys.md#chains-of-routes).
 
 <!-- settings: models.routes -->
 

@@ -3,18 +3,16 @@
 // once for the chain to move on, with no retry and no failover of its own. `fetch` is a fake that answers by key.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createKeyFailover } from '../src/llm/key-failover.ts';
-import { createKeyRing } from '../src/keys/ring.ts';
 import { createKeyStore } from '../src/keys/store.ts';
 import { createLlm } from './fixtures/llm.ts';
-import { BASE_URL, SECRET, SECRET_2, SECRET_3, fakeFetch } from './fixtures/keys-rig.ts';
+import { BASE_URL, SECRET, SECRET_2, SECRET_3, chainRing, everyKeyChains, fakeFetch } from './fixtures/keys-rig.ts';
 import type { Reply } from './fixtures/keys-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const ask = [{ role: 'user', content: 'hello' }];
 const FINE: Reply = { status: 200, body: { choices: [{ message: { content: 'ok' } }], usage: { prompt_tokens: 5 } } };
 const config = {
-  models: { base: { core: 'x/core', vision: 'x/vision' } },
+  models: {},
   llm: {
     baseUrl: BASE_URL,
     maxOutputTokens: 100,
@@ -27,9 +25,18 @@ const config = {
 
 function rig(reply: (auth: string) => Reply) {
   const store = createKeyStore({ privateDir: tempDir('route-key-') });
-  store.addCore({ name: 'core-1', value: SECRET });
-  store.addCore({ name: 'core-2', value: SECRET_2 });
-  const ring = createKeyRing({ store, failover: createKeyFailover({ now: () => 0 }) });
+  store.add({ name: 'core-1', value: SECRET });
+  store.add({ name: 'core-2', value: SECRET_2 });
+  // Changed: the ring is read off the chains (slice 4); here every role's chain names both keys of the store.
+  const ring = {
+    ...chainRing(
+      store,
+      everyKeyChains(store, (role) => `x/${role}`)
+    ),
+    names: () => [],
+    states: () => [],
+    bound: () => [],
+  };
   const { fetch, calls } = fakeFetch((call) => reply(call.auth));
   const llm = createLlm({
     keys: ring,

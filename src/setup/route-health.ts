@@ -3,7 +3,7 @@
 // `memory`, `analyzer`, `vision`, `video`, `embedding`, `speech` and quick search on `openrouter`) gets one minimal
 // request of `checkRole` (src/keys/check.ts) on that key with that model. One model on one key is asked once. `drawing`
 // is named and never asked, since one request bills a picture. A route or an agent on a harness gets the vendor's own
-// status command (`sourceState`, src/subharness/sources.ts). An extra key no route uses gets the free read of its record
+// status command (`sourceState`, src/subharness/sources.ts). A key no route uses gets the free read of its record
 // (`checkKey`), and a harness no role or agent uses gets its status command. A role of the core, the memory writer or the
 // analyzer whose every route failed fails the check, a failed route with another that answers warns. Lines
 // carry names and models, never a key value. The owner's word of 2026-11-08: the doctor is a diagnosis he asked for,
@@ -16,7 +16,7 @@ import type { CheckResult } from '../keys/check.ts';
 import { createKeyStore } from '../keys/store.ts';
 import { routesOf } from '../llm/route-chain.ts';
 import type { RouteRole } from '../llm/route-text.ts';
-import { roleModel } from '../llm/roles.ts';
+import { roleModel, searchModel } from '../llm/roles.ts';
 import { routeName } from '../subharness/route-names.ts';
 import { readRouting, SUBHARNESS_AGENTS } from '../subharness/routing.ts';
 import { sourceProblem, sourceState } from '../subharness/sources.ts';
@@ -48,7 +48,7 @@ type Run = {
   voice: string;
   sources: Map<BackendName, Promise<SourceState>>;
   probes: Map<string, Promise<CheckResult>>;
-  /** the extra keys some line used */
+  /** the keys some line used */
   used: Set<string>;
 };
 
@@ -95,9 +95,8 @@ async function onKey(run: Run, part: string, role: string, model: string, keyNam
 
 /** One line per route of the chain of `role`; a role whose every route failed keeps its badness, else it warns. */
 async function chainLines(run: Run, role: RouteRole): Promise<Array<Line>> {
-  const chain = routesOf(run.deps.config, role, run.store.coreNames());
-  const model =
-    role === 'search' ? text(rec(rec(rec(run.deps.config).web).quickSearch).model) : roleModel(run.deps.config, role);
+  const chain = routesOf(run.deps.config, role);
+  const model = role === 'search' ? searchModel(run.deps.config) : roleModel(run.deps.config, role);
   if (chain.length === 0)
     return [
       model === undefined || model === ''
@@ -138,18 +137,18 @@ async function agentLines(run: Run): Promise<Array<Line>> {
   return lines;
 }
 
-/** The extra keys bound to nothing and the installed harnesses no line asked: used by nothing. */
+/** The keys no route named and the installed harnesses no line asked: used by nothing. */
 async function unusedLines(run: Run): Promise<Array<Line>> {
   const lines: Array<Line> = [];
-  for (const row of run.store.list().extra) {
-    if (run.used.has(row.name) || row.roles.length > 0) continue;
+  for (const row of run.store.list()) {
+    if (run.used.has(row.name)) continue;
     const info = await checkKey({
       fetch: run.deps.fetch,
       baseUrl: run.baseUrl,
       value: run.store.valueOf(row.name) ?? '',
     });
     const said = info.ok ? 'answers' : `refused: ${info.error ?? 'no answer'}`;
-    lines.push({ text: `${row.name}: bound to nothing · ${said}`, bad: info.ok ? null : 'warn' });
+    lines.push({ text: `${row.name}: used by no route · ${said}`, bad: info.ok ? null : 'warn' });
   }
   for (const backend of BACKEND_NAMES) {
     if (run.sources.has(backend)) continue;

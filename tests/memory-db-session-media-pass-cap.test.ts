@@ -18,6 +18,7 @@ import { memoryBlock, memoryRing, prompts } from './fixtures/memory-db/session-r
 import { AT, GENERAL, KINDS, fixture, observeLine } from './fixtures/media-memory.ts';
 import type { Env } from './fixtures/media-memory.ts';
 import { ROOT } from './fixtures/private-layer.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const MINUTE = 60_000;
 const DAY_START = Date.parse('2026-11-05T09:00:00.000Z');
@@ -40,7 +41,7 @@ type Session = {
 function configOf(session: Session): Config {
   return {
     bot: { timezone: 'UTC' },
-    models: { base: { memory: 'x/memory' } },
+    models: { routes: chainsOf({ memory: 'x/memory' }) },
     memoryDb: {
       session: {
         mode: MODE,

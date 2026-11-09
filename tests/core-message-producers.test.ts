@@ -15,6 +15,7 @@ import { addClient, CLI_CLIENT, FAKE_CLIENT, folders, query, runCli } from './fi
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import type { Completion } from './fixtures/tool-answers.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00Z');
 const NATIVE = 'same-native-message';
@@ -28,7 +29,7 @@ function event(eventId: string, room: string, text: string, edit = false): Messa
 async function boot(complete?: (messages: unknown, options?: unknown) => Promise<Completion>) {
   const dirs = folders({
     bot: { timezone: 'UTC', placeId: 'g1', owners: ['u1'] },
-    models: { base: { video: false } },
+    models: { routes: chainsOf({ video: false }) },
     gifs: { backfillMessages: 0 },
     features: {
       spontaneous: false,

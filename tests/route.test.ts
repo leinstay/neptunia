@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { localPath, madeLocalPath } from './fixtures/config-local.ts';
 import { makeAdmin, makeHotWithMedia, makeRoot, mayRun, readLocal } from './fixtures/admin-rig.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
+import { chainsOnDefaults } from './fixtures/chains.ts';
 
 // The operations of src/tools/operations/route.ts: route.list, route.set and route.remove over llm.providerByModel.
 
@@ -135,14 +136,14 @@ function hotForRoutes(rootDir: string) {
   const hot = makeHotWithMedia(rootDir);
   hot.config.llm = { ...(hot.config.llm as object), provider: null };
   hot.config.models = {
-    base: {
+    routes: chainsOnDefaults({
       core: 'anthropic/claude-opus-4.6',
       analyzer: 'google/gemini-3.8-flash',
       vision: 'google/gemini-3.8-flash',
       video: 'google/gemini-3.8-flash',
       embedding: 'openai/text-embedding-x',
       drawing: 'openai/gpt-image-x',
-    },
+    }),
   };
   hot.config.image = { provider: { only: ['openai'] } };
   hot.config.media = { video: { provider: { order: ['google-ai-studio'], allow_fallbacks: false } } };

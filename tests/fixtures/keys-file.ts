@@ -2,9 +2,11 @@
 // `<privateDir>/keys.json` and which part runs on what in `<privateDir>/config/config.json`, written and read here as
 // plain JSON in the shapes `src/keys/` and `src/subharness/routing.ts` write, so a test of those modules does not depend on
 // their own code. A test hands one `KeysFile` in the shape keys.json once had, and `writeKeysFile` puts each section
-// where it lives: `core` and `extra` in keys.json, `roles` under `llm.boundKeys`, the agents' maps under
-// `models.agents` and the two paths under `models.harness`.
-// `readKeysFile` reads both files back into that one shape. Mode 600 like the real files.
+// where it lives: the `core` and `extra` keys as named keys under `keys` of keys.json, the agents' maps under
+// `models.agents` and the two paths as a chain of one harness route under `models.routes.core` and `.memory`.
+// `readKeysFile` reads both files back into that one shape, the named keys as `extra`. Mode 600 like the real files.
+// Changed: keys.json holds named keys and the paths are chains (spec 2026-11-09-model-routes, slice 4); the bindings of
+// `roles` are gone with `llm.boundKeys`, so a test that bound a role writes that role's chain itself.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -20,7 +22,6 @@ type PathRecord = { backend: string; model: string; effort: string | null };
 export type KeysFile = {
   core: Array<CoreKeyRow>;
   extra: Record<string, string>;
-  roles: Record<string, string>;
   subharness: {
     /** the old single backend: every agent that names no backend runs through it */
     backend?: Backend | null;
@@ -46,7 +47,6 @@ export type KeysFile = {
 export const EMPTY_KEYS: KeysFile = {
   core: [],
   extra: {},
-  roles: {},
   subharness: { backend: null, key: null, modes: {} },
 };
 
@@ -78,10 +78,18 @@ function writeJson(file: string, value: unknown): void {
   fs.chmodSync(file, 0o600);
 }
 
+/** The chain of one harness route a path record stands for, with an effort past `high` read as `high`. */
+function chainOfRecord(record: PathRecord | null | undefined): Array<Tree> | undefined {
+  if (record === undefined || record === null) return undefined;
+  const effort = record.effort === 'xhigh' || record.effort === 'max' ? 'high' : record.effort;
+  return [{ via: 'harness', backend: record.backend, model: record.model, effort }];
+}
+
 /** Writes keys.json and the routing of config.json with `changes` laid over the empty store; other settings stay. */
 export function writeKeysFile(privateDir: string, changes: Partial<KeysFile> = {}): void {
-  const { roles, subharness: sub, ...secrets } = { ...EMPTY_KEYS, ...changes };
-  writeJson(keysPath(privateDir), secrets);
+  const { core, extra, subharness: sub, ...secrets } = { ...EMPTY_KEYS, ...changes };
+  const named = { ...Object.fromEntries(core.map((row) => [row.name, row.value])), ...extra };
+  writeJson(keysPath(privateDir), { ...secrets, keys: named });
   let config: Tree = {};
   try {
     config = treeOf(JSON.parse(fs.readFileSync(routingPath(privateDir), 'utf8')));
@@ -95,16 +103,16 @@ export function writeKeysFile(privateDir: string, changes: Partial<KeysFile> = {
   agents = placed(agents, 'provider', sub.providers);
   agents = placed(agents, 'mode', sub.modes);
   agents = placed(agents, 'opencodeKey', sub.key);
-  let harness: Tree = {};
-  for (const slot of ['core', 'memory'] as const) harness = placed(harness, slot, sub[slot]);
-  const models = placed(placed(treeOf(config.models), 'agents', agents), 'harness', harness);
-  const llm = placed(treeOf(config.llm), 'boundKeys', roles);
-  writeJson(routingPath(privateDir), placed(placed(config, 'models', models), 'llm', llm));
+  let routes = treeOf(treeOf(config.models).routes);
+  for (const slot of ['core', 'memory'] as const)
+    if (Object.hasOwn(sub, slot)) routes = placed(routes, slot, chainOfRecord(sub[slot]));
+  const models = placed(placed(treeOf(config.models), 'agents', agents), 'routes', routes);
+  writeJson(routingPath(privateDir), placed(config, 'models', models));
 }
 
 /** keys.json and the routing of config.json as they are on disk now, in one object. */
 export function readKeysFile(privateDir: string): KeysFile {
-  const secrets = JSON.parse(fs.readFileSync(keysPath(privateDir), 'utf8')) as Tree;
+  const { keys, ...secrets } = JSON.parse(fs.readFileSync(keysPath(privateDir), 'utf8')) as Tree;
   let config: Tree = {};
   try {
     config = treeOf(JSON.parse(fs.readFileSync(routingPath(privateDir), 'utf8')));
@@ -112,14 +120,17 @@ export function readKeysFile(privateDir: string): KeysFile {
     // no settings: no routing
   }
   const agents = treeOf(treeOf(config.models).agents);
-  const harness = treeOf(treeOf(config.models).harness);
-  const llm = treeOf(config.llm);
-  const record = (value: unknown): PathRecord | null => (isTree(value) ? (value as PathRecord) : null);
+  const routes = treeOf(treeOf(config.models).routes);
+  /** The path record of a chain whose first route is a harness, null for any other chain. */
+  const record = (value: unknown): PathRecord | null => {
+    const first = treeOf(Array.isArray(value) ? value[0] : undefined);
+    if (first.via !== 'harness') return null;
+    return { backend: String(first.backend), model: String(first.model), effort: (first.effort as string) ?? null };
+  };
   return {
     ...secrets,
-    core: Array.isArray(secrets.core) ? (secrets.core as Array<CoreKeyRow>) : [],
-    extra: treeOf(secrets.extra) as Record<string, string>,
-    roles: treeOf(llm.boundKeys) as Record<string, string>,
+    core: [],
+    extra: treeOf(keys) as Record<string, string>,
     subharness: {
       key: typeof agents.opencodeKey === 'string' ? agents.opencodeKey : null,
       modes: treeOf(agents.mode) as Record<string, string>,
@@ -127,8 +138,8 @@ export function readKeysFile(privateDir: string): KeysFile {
       efforts: treeOf(agents.effort) as Record<string, string>,
       uses: treeOf(agents.via) as Record<string, Backend>,
       providers: treeOf(agents.provider) as Record<string, string>,
-      memory: record(harness.memory),
-      core: record(harness.core),
+      memory: record(routes.memory),
+      core: record(routes.core),
     },
   };
 }

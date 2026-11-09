@@ -11,6 +11,7 @@ import { createReads } from '../../src/interface/reads.ts';
 import { labels } from './labels.ts';
 import { completionOf } from './tool-answers.ts';
 import { OWNER_PERSON, ownedBy } from './owner-accounts.ts';
+import { chainsOnDefaults } from './chains.ts';
 
 const NOW = Date.parse('2026-10-17T12:00:00Z');
 
@@ -103,7 +104,7 @@ function sceneHot({ coreTools, access = {} }: { coreTools?: boolean; access?: ob
       llm: { maxRequestTokens: 50000, safetyMargin: 0.9, timeoutMs: 300_000, analyzerTimeoutMs: 25_000 },
       typing: { reactionDelayMs: [0, 0], msPerChar: [1, 1], minMs: 0, maxMs: 100, betweenMessagesMs: [0, 0] },
       features,
-      models: { base: { analyzer: 'x/text' } },
+      models: { routes: chainsOnDefaults({ analyzer: 'x/text' }) },
       media: { maxPerTurn: 6, filePreviewChars: 500, video: { sites: ['youtube.com'] } },
       web: { maxPerDay: 60, links: { enabled: true, maxPerTurn: 2 }, quickSearch: { enabled: true, maxPerTurn: 1, contextMessages: 50 } },
       gifs: { maxPerDay: 40 },

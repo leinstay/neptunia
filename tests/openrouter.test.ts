@@ -33,10 +33,10 @@ import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { createLimits } from '../src/llm/limits.ts';
 import { createLlm, partsOf } from './fixtures/llm.ts';
 import type { Cfg, Err, FetchInit, HedgeOpts, Loose, MarkedPart, Opts, Rec, ToolCall } from './fixtures/llm.ts';
-/** `model` is the voice model (`models.base.core`), the one a request without a model goes out on. */
+/** `model` is the voice model (the core chain's), the one a request without a model goes out on. */
 function baseConfig({ model = 'test-model', ...overrides }: { model?: string; [key: string]: unknown } = {}) {
   return {
-    models: { base: { core: model } },
+    models: { routes: { core: [{ via: 'api', key: 'main', model }] } },
     llm: {
       baseUrl: 'https://openrouter.ai/api/v1',
       maxOutputTokens: 100,
@@ -2167,7 +2167,7 @@ test("complete: with promptCache off or the role not listed the body is byte-ide
   for (const config of configs) {
     const { llm, sent } = cachingLlm(() => config);
     for (const role of ['core', 'vision', 'analyzer', 'video', undefined]) await llm.complete(messages, { role });
-    for (const body of sent) assert.equal(body, today(config.models.base.core));
+    for (const body of sent) assert.equal(body, today(config.models.routes.core[0]?.model ?? ''));
   }
   const { llm, sent } = cachingLlm(() => cachingConfig());
   for (const role of ['vision', 'analyzer', 'video', undefined]) await llm.complete(messages, { role });

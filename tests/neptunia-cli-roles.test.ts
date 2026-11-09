@@ -5,9 +5,10 @@ import assert from 'node:assert/strict';
 import { statusFactsOf, statusText } from '../src/interface/neptunia-cli.ts';
 import type { FactSources } from '../src/interface/neptunia-cli.ts';
 import { createRoleHealth } from '../src/llm/role-health.ts';
+import { chainsOnDefaults } from './fixtures/chains.ts';
 
 const NOW = Date.parse('2026-10-31T09:00:00Z');
-const CONFIG = { models: { base: { core: 'x/core', drawing: 'x/draw' } } };
+const CONFIG = { models: { routes: chainsOnDefaults({ core: 'x/core', drawing: 'x/draw' }) } };
 
 function sources(health: ReturnType<typeof createRoleHealth>): FactSources {
   return {

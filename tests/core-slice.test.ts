@@ -17,6 +17,7 @@ import { start } from '../src/interface/fake-interface.ts';
 import { lockPathOf, openMemoryDb } from '../src/memory/db/open.ts';
 import { channelInfo, deliver } from './fixtures/core-over-fake.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 type Running = Awaited<ReturnType<typeof start>>;
 type Row = Record<string, unknown>;
@@ -28,7 +29,7 @@ const ANSWER = 'γεια σου, καλημέρα';
 const PRIVATE_CONFIG = {
   bot: { timezone: 'UTC', owners: [], placeId: 'g1' },
   // No video role, so the start sends no canary probe to YouTube.
-  models: { base: { video: false } },
+  models: { routes: chainsOf({ video: false }) },
   pace: { settleMs: 0, settleMaxMs: 0 },
   typing: { reactionDelayMs: [0, 0], betweenMessagesMs: [0, 0], minMs: 0, maxMs: 0 },
   features: {
@@ -69,7 +70,7 @@ function folders(extra: Record<string, unknown> = {}) {
   const privateDir = dataDir;
   mkdirSync(join(dataDir, 'config'), { recursive: true });
   writeFileSync(join(dataDir, 'config', 'config.json'), JSON.stringify({ ...PRIVATE_CONFIG, ...extra }));
-  createKeyStore({ privateDir: dataDir }).addCore({ name: 'core-1', value: 'test-key' });
+  createKeyStore({ privateDir: dataDir }).add({ name: 'core-1', value: 'test-key' });
   return { root, dataDir, privateDir, paths: { rootDir: REPO, privateDir, dataDir } };
 }
 
@@ -260,7 +261,7 @@ test('a core whose video role is off starts no yt-dlp probe of the YouTube canar
           await new Promise((resolve) => setTimeout(resolve, 600));
           assert.equal(existsSync(marker), false);
         },
-        { models: { base: { video: false } }, media: { video: { ytdlpPath: script } } }
+        { models: { routes: chainsOf({ video: false }) }, media: { video: { ytdlpPath: script } } }
       )
     );
   } finally {

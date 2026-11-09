@@ -164,7 +164,7 @@ export type RequestConfig = {
   };
   readonly selfreflection?: { readonly entries?: number; readonly sceneChars?: number };
   readonly media?: { readonly video?: { readonly sites?: ReadonlyArray<string> } };
-  readonly models?: { readonly base?: Record<string, unknown> };
+  readonly models?: { readonly routes?: Record<string, unknown> };
 };
 
 /** `context.customEmoji`: how many custom emoji `<emoji>` lists and how fast their use fades. */

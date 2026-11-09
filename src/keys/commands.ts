@@ -2,25 +2,14 @@
 // commands `model show|set|add|remove`, which write a role's chain of routes to `models.routes` of config.json after one
 // check of the route. The console (src/interface/commands/console.ts) routes them here. A key value is never an argument: every add asks
 // for it through the dialog the link gives (a secret prompt, src/interface/commands/dialogs.ts), so the value reaches
-// neither the typed line, the chat's history file nor a refusal. A key is checked before it is saved (the first core
-// key with the four mandatory model roles, a later one with `/auth/key`), and a failed check saves nothing. An answer
-// names keys by name and last four characters and never holds a value; a refusal names the store's code, never the word
-// that was refused.
+// neither the typed line, the chat's history file nor a refusal. A key is checked before it is saved (the first key with
+// the four mandatory model roles, whose chains it then carries, a later one with `/auth/key`), and a failed check saves
+// nothing. An answer names keys by name and last four characters and never holds a value; a refusal names the store's
+// code, never the word that was refused.
 
-import { matchRoute } from '../llm/openrouter.ts';
-import {
-  CORE_ROLE,
-  EFFORT_LEVELS,
-  MEMORY_ROLE,
-  REASONING_ROLES,
-  SEARCH_ROLE,
-  directSelectionOf,
-  isEffortLevel,
-  roleGroup,
-} from '../llm/roles.ts';
+import { CORE_ROLE, SEARCH_ROLE, directSelectionOf, roleGroup } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import { checkKey, checkRole } from './check.ts';
-import { listRoleModels } from './models.ts';
 import type { CheckResult } from './check.ts';
 import type { KeyRing } from './ring.ts';
 import { isKeyName, KeysError } from './store.ts';
@@ -28,14 +17,11 @@ import { isRefusal, isRouteRole, parseRouteText, routeText, ROUTE_ROLES } from '
 import type { HarnessRoute, Route, RouteRole } from '../llm/route-text.ts';
 import type { KeyStore } from './store.ts';
 
-/** The model roles a core key must serve before the first add finishes, in the order they are asked. */
-export const MANDATORY_ROLES: ReadonlyArray<string> = ['core', 'memory', 'analyzer', 'embedding'];
+/** The model roles the first key must serve before its add finishes, in the order they are asked. */
+export const MANDATORY_ROLES: ReadonlyArray<RouteRole> = ['core', 'memory', 'analyzer', 'embedding'];
 
 /** The pause reason of a core left with no usable route by `keys remove`; the `keys add` that gives it one lifts it. */
 const NO_CORE_ROUTE = 'no-core-route';
-
-/** The model roles whose model OpenCode runs: they are not OpenRouter ids, so no request checks them. */
-const UNCHECKED_ROLES: ReadonlyArray<string> = ['scout', 'server', 'thinker', 'dev'];
 
 /** What the chat can ask in the middle of a command. */
 export type Dialog = {
@@ -98,12 +84,10 @@ export function reasonedPause(deps: ReasonedPauseDeps): PauseControl {
  */
 export type Answer = { text: string; status: string; code?: string };
 
-/** A provider slug of OpenRouter, as `/routes set` takes it (src/tools/operations/route.ts). */
-const PROVIDER_SLUG = /^[a-z0-9-]+$/;
-
 export type KeysDeps = {
   store: KeyStore;
-  ring: KeyRing;
+  /** The key of a role's route in force (src/keys/ring.ts#chainRing). */
+  ring: Pick<KeyRing, 'route'>;
   fetch: typeof fetch;
   baseUrl(): string;
   /** The tracked model of each mandatory role, offered by the first add. */
@@ -112,29 +96,21 @@ export type KeysDeps = {
   currentModel(role: string): string;
   /** The live `speech.voice`, which `checkRole` probes the speech role with. */
   speechVoice?(): string;
-  /** Saves a role's model (the console runs the `model.set` operation). */
+  /** Saves an agent's model (the console runs the `model.set` operation). */
   saveModel(role: string, model: string): Promise<void>;
   pause: PauseControl;
-  /** The live `llm.providerByModel`. */
-  routes?(): Readonly<Record<string, unknown>>;
-  /** Writes one `llm.providerByModel` entry in the local config. */
-  saveRoute?(key: string, value: Record<string, unknown>): Promise<void>;
-  /** Writes one setting by its dotted path in the local config. */
-  saveSetting?(path: string, value: unknown): Promise<void>;
   /** Told what a check of `role` came to, so a launch's readiness (src/setup/readiness.ts) needs no request of its own. */
   recordCheck?(role: string, check: { selection: string; ok: boolean; code: string | null }): void;
-  /** Returns `role` to its direct path: called after a direct model of `memory` or `core` is checked and saved. */
-  directPath?(role: string): void;
   /** The backend `role` runs through (core, memory), null on the API: such a role needs no key. */
   harnessOf?: (role: string) => string | null;
-  /** The path her memory writer runs on now (keys.json, src/subharness/memory-path.ts), read at every check. */
+  /** The path her memory writer runs on now (its chain's route in force), read at every check. */
   memoryPath?: () => MemoryCheckPath | null;
   /** One probe through the subharness path of the memory writer (src/subharness/memory-probe.ts#memoryProbe). */
   probeMemory?: () => Promise<MemoryCheckProbe>;
-  /** The chain of `role` now (src/llm/route-chain.ts); with `saveRoutes` the `/model` commands work on chains. */
-  chainOf?: (role: RouteRole) => Array<Route>;
+  /** The chain of `role` now (src/llm/route-chain.ts). */
+  chainOf: (role: RouteRole) => Array<Route>;
   /** Writes the chain of `role` to `models.routes.<role>` of config.json. */
-  saveRoutes?: (role: RouteRole, routes: Array<Route>) => Promise<void>;
+  saveRoutes: (role: RouteRole, routes: Array<Route>) => Promise<void>;
   /** One reply through the harness of `route`, as `/model set --via` checks a source (src/subharness/selection.ts). */
   checkHarness?: (route: HarnessRoute) => Promise<{ ok: boolean; code: string }>;
 };
@@ -207,54 +183,6 @@ async function checkMemoryBackend(
   return result.ok ? { text: `${head}: answered`, status: 'ok' } : failed(name, `${head}: failed: ${result.code}`);
 }
 
-/** The `--provider` and `--effort` of one model set, by name. */
-type ModelFlags = { role: string; provider: string; effort: string };
-
-/** Why the `--provider` and `--effort` of a model set are refused before anything is sent, or null. */
-function flagsProblem(deps: KeysDeps, name: string, flags: ModelFlags): Answer | null {
-  const { role, provider, effort } = flags;
-  if (provider !== '' && !PROVIDER_SLUG.test(provider))
-    return invalid(name, 'a provider is one slug of lowercase letters, digits and dashes', 'bad-provider');
-  if (effort !== '' && !isEffortLevel(effort))
-    return invalid(name, `the effort is one of ${EFFORT_LEVELS.join(', ')}`, 'unknown-effort');
-  // The core is not among them: its thinking is her own `<think>`, never provider reasoning (owner, 2026-10-19).
-  if (effort !== '' && !REASONING_ROLES.includes(role))
-    return invalid(name, `the ${role} role takes no effort; ${REASONING_ROLES.join(', ')} do`, 'effort-unsupported');
-  if (provider !== '' && deps.saveRoute === undefined) return failed(name, 'provider routes cannot be written here');
-  if (effort !== '' && deps.saveSetting === undefined) return failed(name, 'the effort cannot be written here');
-  return null;
-}
-
-/** The model to set: the typed one, else the answer to a question offering the role's models from `/models`. */
-async function modelToSet(
-  deps: KeysDeps,
-  input: { args: Record<string, unknown>; role: string; value: string; dialog: Dialog | null }
-): Promise<string> {
-  const typedModel = text(input.args.model);
-  if (typedModel !== '' || input.dialog === null) return typedModel;
-  const choices = await listRoleModels({ fetch: deps.fetch, baseUrl: deps.baseUrl(), value: input.value }, input.role);
-  const question = `Model for the ${input.role} role (one of the list, or any other OpenRouter id):`;
-  return pasted(await input.dialog.ask(question, choices.length === 0 ? {} : { choices }));
-}
-
-/** Writes the route and the effort of a model that answered its check; the lines that say what was written. */
-async function saveFlags(deps: KeysDeps, flags: ModelFlags & { model: string }): Promise<Array<string>> {
-  const { role, model, provider, effort } = flags;
-  const lines: Array<string> = [];
-  if (provider !== '' && deps.saveRoute !== undefined) {
-    // A provider change keeps the BYOK mark of the route that applies now, so the role never moves to credit unseen.
-    const isByok = matchRoute(model, deps.routes?.() ?? {}, role)?.value.byok === true;
-    const route = { only: [provider], allow_fallbacks: false, ...(isByok ? { byok: true } : {}) };
-    await deps.saveRoute(`${model}@${role}`, route);
-    lines.push(`It goes out through ${provider} alone${isByok ? ', billed as BYOK' : ''}.`);
-  }
-  if (isEffortLevel(effort) && deps.saveSetting !== undefined) {
-    await deps.saveSetting(`llm.reasoningByRole.${role}`, { effort });
-    lines.push(`Its requests ask for ${effort} reasoning effort.`);
-  }
-  return lines;
-}
-
 /** The roles that run with no route at all: a chain of theirs never loses its last route. */
 const ROUTE_REQUIRED: ReadonlyArray<string> = MANDATORY_ROLES;
 
@@ -298,7 +226,6 @@ async function checkRoute(deps: KeysDeps, name: string, role: RouteRole, route: 
 /** `/model set <role> <route>` and `/model add <role> <route>`: the route checked, then the chain written. */
 async function writeRoute(deps: KeysDeps, name: string, role: RouteRole, line: string): Promise<Answer> {
   const { chainOf, saveRoutes } = deps;
-  if (chainOf === undefined || saveRoutes === undefined) return failed(name, 'the chains cannot be written here');
   const route = routeOfLine(deps, name, role, line);
   if (!('via' in route)) return route;
   const chain = chainOf(role);
@@ -321,7 +248,6 @@ async function writeRoute(deps: KeysDeps, name: string, role: RouteRole, line: s
 /** `/model remove <role> <n>`: the n-th route of the chain, counted from 1. */
 async function removeRoute(deps: KeysDeps, name: string, role: RouteRole, index: string): Promise<Answer> {
   const { chainOf, saveRoutes } = deps;
-  if (chainOf === undefined || saveRoutes === undefined) return failed(name, 'the chains cannot be written here');
   const chain = chainOf(role);
   const at = /^\d+$/.test(index) ? Number(index) - 1 : -1;
   if (at < 0 || at >= chain.length)
@@ -339,16 +265,14 @@ const chainText = (chain: ReadonlyArray<Route>): string =>
 
 /** `/model show`: every chain in the text form. */
 function showChains(deps: KeysDeps): Answer {
-  const { chainOf } = deps;
-  if (chainOf === undefined) return failed('model.show', 'the chains cannot be read here');
-  return { text: ROUTE_ROLES.map((role) => `${role}: ${chainText(chainOf(role))}`).join('\n'), status: 'ok' };
+  return { text: ROUTE_ROLES.map((role) => `${role}: ${chainText(deps.chainOf(role))}`).join('\n'), status: 'ok' };
 }
 
 /** The answer of a chain command, or null for one the chains do not take (an agent's `/model set`, an unknown role). */
 function chainCommand(deps: KeysDeps, name: string, args: Record<string, unknown>): Promise<Answer> | null {
   if (name === 'model.show') return Promise.resolve(showChains(deps));
   const role = text(args.role);
-  if (!isRouteRole(role) || (name === 'model.set' && deps.saveRoutes === undefined)) return null;
+  if (!isRouteRole(role)) return null;
   if (name === 'model.remove') return removeRoute(deps, name, role, text(args.index));
   return writeRoute(deps, name, role, text(args.model));
 }
@@ -360,8 +284,7 @@ export function createKeysCommands(deps: KeysDeps): {
 
   /** Whether her core has a route it can take: a harness, or a key keys.json holds. */
   const coreHasRoute = (): boolean =>
-    (deps.chainOf?.('core') ?? []).some((route) => route.via === 'harness' || store.valueOf(route.key) !== null) ||
-    (deps.chainOf === undefined && store.coreNames().length > 0);
+    deps.chainOf('core').some((route) => route.via === 'harness' || store.valueOf(route.key) !== null);
 
   /** Lifts the pause a removal set once her core has a route again, and only that pause. */
   async function resumeIfNoRoute(): Promise<boolean> {
@@ -374,9 +297,7 @@ export function createKeysCommands(deps: KeysDeps): {
   function beforeAsking(name: string, key: string, dialog: Dialog | null): Answer | null {
     if (!isKeyName(key)) return invalid(name, new KeysError('bad-name').message);
     if (dialog === null) return invalid(name, 'the key value is asked in the chat: run this command there');
-    const listing = store.list();
-    if ([...listing.core, ...listing.extra].some((row) => row.name === key))
-      return invalid(name, new KeysError('duplicate-name').message);
+    if (store.names().includes(key)) return invalid(name, new KeysError('duplicate-name').message);
     return null;
   }
 
@@ -384,9 +305,12 @@ export function createKeysCommands(deps: KeysDeps): {
     return pasted(await dialog.ask(`Paste the key ${key}. Nothing is shown while you type.`, { secret: true }));
   }
 
-  /** The first core key: the value, the four models, one request per model on the new key, and only then the save. */
-  async function firstCoreKey(name: string, key: string, value: string, dialog: Dialog): Promise<Answer> {
-    const models = new Map<string, string>();
+  /**
+   * The first key: the value, the four models, one request per model on the new key, and only then the save of the key
+   * and of each mandatory role's chain, one route on the new key.
+   */
+  async function firstKey(name: string, key: string, value: string, dialog: Dialog): Promise<Answer> {
+    const models = new Map<RouteRole, string>();
     for (const role of MANDATORY_ROLES) {
       const fallback = deps.defaults[role] ?? '';
       const offered = fallback === '' ? '' : ` (blank takes ${fallback})`;
@@ -403,8 +327,8 @@ export function createKeysCommands(deps: KeysDeps): {
     const bad = results.filter((result) => !result.ok);
     if (bad.length > 0)
       return failed(name, ['nothing is saved, no key and no model.', ...bad.map(checkLine)].join('\n'));
-    store.addCore({ name: key, value });
-    for (const [role, model] of models) await deps.saveModel(role, model);
+    store.add({ name: key, value });
+    for (const [role, model] of models) await deps.saveRoutes(role, [{ via: 'api', key, model, effort: null }]);
     for (const result of results) deps.recordCheck?.(result.role, checkRecord(result));
     const resumed = await resumeIfNoRoute();
     const cost = results.reduce((sum, result) => sum + result.cost, 0);
@@ -426,15 +350,14 @@ export function createKeysCommands(deps: KeysDeps): {
     const value = await askValue(dialog, key);
     const problem = valueProblem(value);
     if (problem !== null) return invalid(name, problem);
-    const listing = store.list();
-    if (listing.core.length + listing.extra.length === 0) return firstCoreKey(name, key, value, dialog);
+    if (store.names().length === 0) return firstKey(name, key, value, dialog);
     const info = await checkKey({ fetch: deps.fetch, baseUrl: deps.baseUrl(), value });
     if (!info.ok)
       return failed(
         name,
         `the provider refused the key${info.status === null ? '' : ` (HTTP ${info.status})`}: ${info.error ?? 'no reason given'}`
       );
-    store.addExtra({ name: key, value });
+    store.add({ name: key, value });
     const resumed = await resumeIfNoRoute();
     const hint = `Put a role on it with /model set <role> ${key}/<model>.`;
     return { text: `${key} is added. ${hint}${resumed ? ' She is running again.' : ''}`, status: 'ok' };
@@ -442,9 +365,7 @@ export function createKeysCommands(deps: KeysDeps): {
 
   /** The roles whose chain names `key`, in display order. */
   const rolesOn = (key: string): Array<RouteRole> =>
-    ROUTE_ROLES.filter((role) =>
-      (deps.chainOf?.(role) ?? []).some((route) => route.via === 'api' && route.key === key)
-    );
+    ROUTE_ROLES.filter((role) => deps.chainOf(role).some((route) => route.via === 'api' && route.key === key));
 
   /**
    * `keys remove <name>`: the key leaves keys.json. A chain that named it keeps the route, which is skipped until a key of
@@ -452,20 +373,13 @@ export function createKeysCommands(deps: KeysDeps): {
    */
   async function removeKey(name: string, args: Record<string, unknown>): Promise<Answer> {
     const key = text(args.name);
-    const listing = store.list();
-    const inCore = listing.core.some((row) => row.name === key);
-    const extra = listing.extra.find((row) => row.name === key);
-    if (!inCore && extra === undefined) throw new KeysError('unknown-key');
+    if (!store.names().includes(key)) throw new KeysError('unknown-key');
     const roles = rolesOn(key);
-    if (extra !== undefined) {
-      for (const role of roles) await deps.saveRoutes?.(role, deps.chainOf?.(role) ?? []);
-      for (const role of extra.roles) store.unbind(role);
-      store.removeExtra(key);
-    } else store.removeCore(key);
+    for (const role of roles) await deps.saveRoutes(role, deps.chainOf(role));
+    store.remove(key);
     const left = roles.length === 0 ? '' : ` Routes of ${roles.join(', ')} named it and are skipped now.`;
     const harness = deps.harnessOf?.(CORE_ROLE) ?? null;
-    const kept =
-      inCore && harness !== null ? ` Her core runs through ${harness} and needs no key, so she keeps running.` : '';
+    const kept = harness !== null ? ` Her core runs through ${harness} and needs no key, so she keeps running.` : '';
     if (coreHasRoute()) return { text: `${key} is removed.${left}${kept}`, status: 'ok' };
     await pauseControl.pause(NO_CORE_ROUTE);
     return {
@@ -476,8 +390,7 @@ export function createKeysCommands(deps: KeysDeps): {
 
   /** `keys list`: every key by name and last four characters, with the roles whose chain names it. */
   function listKeys(): Answer {
-    const listing = store.list();
-    const rows = [...listing.core, ...listing.extra];
+    const rows = store.list();
     if (rows.length === 0) return { text: 'No key. Add one with /keys add <name>.', status: 'ok' };
     const lines = rows.map((row) => {
       const roles = rolesOn(row.name);
@@ -514,7 +427,10 @@ export function createKeysCommands(deps: KeysDeps): {
     if (route === null)
       return (
         servedByHarness(deps, name, role) ??
-        failed(name, `the ${role} role has no key: add a core key or bind the role to an extra key`)
+        failed(
+          name,
+          `the ${role} role has no key: its chain names no key keys.json holds; /model set ${role} <key>/<model>`
+        )
       );
     const result = await checkRole({
       fetch: deps.fetch,
@@ -531,53 +447,17 @@ export function createKeysCommands(deps: KeysDeps): {
     return { text: line, status: result.ok ? 'ok' : 'failed' };
   }
 
-  async function setModel(name: string, args: Record<string, unknown>, dialog: Dialog | null): Promise<Answer> {
+  /** `model set` of an agent: its model is an OpenCode id, no OpenRouter model id, so it is saved with no check. */
+  async function setAgentModel(name: string, args: Record<string, unknown>): Promise<Answer> {
     const role = text(args.role);
-    const provider = text(args.provider);
-    const effort = text(args.effort);
+    const model = text(args.model);
     const group = roleGroup(role);
-    if (group === undefined) return invalid(name, 'a role and a model are needed');
-    const problem = flagsProblem(deps, name, { role, provider, effort });
-    if (problem !== null) return problem;
-    if (group !== 'base' || UNCHECKED_ROLES.includes(role)) {
-      const model = text(args.model);
-      if (model === '') return invalid(name, 'a role and a model are needed');
-      if (provider !== '') return invalid(name, `the ${role} role takes no provider route`);
-      await deps.saveModel(role, model);
-      return { text: `The ${role} model is ${model}. Its id is not checked here.`, status: 'ok' };
-    }
-    const route = ring.route(role);
-    if (route === null)
-      return failed(name, `the ${role} role has no key: add a core key or bind the role to an extra key`);
-    const model = await modelToSet(deps, { args, role, value: route.value, dialog });
-    if (model === '' || /\s/.test(model)) return invalid(name, 'a role and a model are needed');
-    const routing = provider === '' ? undefined : { only: [provider], allow_fallbacks: false };
-    const result = await checkRole({
-      fetch: deps.fetch,
-      baseUrl: deps.baseUrl(),
-      role,
-      model,
-      keyName: route.name,
-      value: route.value,
-      ...(routing === undefined ? {} : { provider: routing }),
-      ...(isEffortLevel(effort) ? { reasoning: { effort } } : {}),
-      ...voiceOf(deps, role),
-    });
-    if (result.capability === 'unsupported') {
-      await deps.saveModel(role, model);
-      const saved = await saveFlags(deps, { role, model, provider, effort });
-      return {
-        text: [`${unsupportedLine(role)} The ${role} model is saved unverified.`, ...saved].join('\n'),
-        status: 'ok',
-      };
-    }
-    if (!result.ok) return failed(name, `${checkLine(result)}\nThe model is not saved.`);
+    if (group !== 'errands' && group !== 'development') return invalid(name, `the roles are ${ROUTE_ROLES.join(', ')}`);
+    if (model === '') return invalid(name, 'a role and a model are needed');
+    if (text(args.provider) !== '' || text(args.effort) !== '')
+      return invalid(name, `the ${role} role takes no provider and no effort here`);
     await deps.saveModel(role, model);
-    // A refused model saves nothing, so the check of the selection in force stands; only this success replaces it.
-    deps.recordCheck?.(role, checkRecord(result));
-    if (role === MEMORY_ROLE || role === CORE_ROLE) deps.directPath?.(role);
-    const saved = await saveFlags(deps, { role, model, provider, effort });
-    return { text: [checkLine(result), `The ${role} model is saved.`, ...saved].join('\n'), status: 'ok' };
+    return { text: `The ${role} model is ${model}. Its id is not checked here.`, status: 'ok' };
   }
 
   async function dispatch(name: string, args: Record<string, unknown>, dialog: Dialog | null): Promise<Answer> {
@@ -591,7 +471,7 @@ export function createKeysCommands(deps: KeysDeps): {
       case 'keys.check':
         return checkTarget(name, text(args.target ?? args.role));
       case 'model.set':
-        return chainCommand(deps, name, args) ?? setModel(name, args, dialog);
+        return chainCommand(deps, name, args) ?? setAgentModel(name, args);
       case 'model.add':
       case 'model.remove':
       case 'model.show':

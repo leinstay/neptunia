@@ -8,14 +8,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createConsole } from '../src/interface/commands/console.ts';
 import { createKeysCommands } from '../src/keys/commands.ts';
-import { createKeyRing } from '../src/keys/ring.ts';
 import { createKeyStore } from '../src/keys/store.ts';
-import { createKeyFailover } from '../src/llm/key-failover.ts';
 import { recordCoreCheck } from '../src/setup/model-check.ts';
 import { decideLaunch, evaluateReadiness, gatherHealth } from '../src/setup/readiness.ts';
 import type { ReadinessHealth, Requirement } from '../src/setup/readiness.ts';
-import { BASE_URL, SECRET, fakeFetch, fakePause } from './fixtures/keys-rig.ts';
+import { BASE_URL, SECRET, chainRing, everyKeyChains, fakeFetch, fakePause } from './fixtures/keys-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const SELECTION = 'openrouter:vendor/core-1';
 
@@ -196,8 +195,10 @@ test('with the link up the model and memory come from one read-only command of t
 function keysRig(status: number) {
   const privateDir = tempDir('nep-readiness-keys-');
   const store = createKeyStore({ privateDir });
-  store.addCore({ name: 'core-1', value: SECRET });
-  const ring = createKeyRing({ store, failover: createKeyFailover({ now: () => 1 }) });
+  store.add({ name: 'core-1', value: SECRET });
+  // Changed: every role runs on its chain (slice 4); here every role's chain names every key of the store.
+  const chainOf = everyKeyChains(store, (role) => `current/${role}`);
+  const ring = chainRing(store, chainOf);
   const { fetch, calls } = fakeFetch(() => ({
     status,
     body: { choices: [{ message: { content: 'ok' } }], usage: { cost: 0 } },
@@ -206,6 +207,8 @@ function keysRig(status: number) {
   const keys = createKeysCommands({
     store,
     ring,
+    chainOf,
+    saveRoutes: () => Promise.resolve(),
     fetch,
     baseUrl: () => BASE_URL,
     defaults: {},
@@ -220,7 +223,8 @@ function keysRig(status: number) {
 test('/model set core records the check it ran, for that selection', async () => {
   // Catches: a model saved and checked, and readiness still asking for a check that already happened.
   const { keys, recorded, calls } = keysRig(200);
-  const answer = await keys.run('model.set', { role: 'core', model: 'vendor/core-2' }, null);
+  // Changed: a model role is set as one route of its chain (slice 4), so the route names its key.
+  const answer = await keys.run('model.set', { role: 'core', model: 'core-1/vendor/core-2' }, null);
   assert.equal(answer.status, 'ok', answer.text);
   assert.equal(calls.length, 1);
   assert.deepEqual(recorded, [{ role: 'core', selection: 'openrouter:vendor/core-2', ok: true, code: null }]);
@@ -243,7 +247,7 @@ test('status.readiness answers from what the core holds and sends no request', a
     ownerReads: { lessons: () => '' },
     places: () => ['g1'],
     selfId: () => 'self-1',
-    hot: { config: { bot: { owners: [] }, models: { base: { core: 'vendor/core-1' } } } },
+    hot: { config: { bot: { owners: [] }, models: { routes: chainsOf({ core: 'vendor/core-1' }) } } },
     privateDir: dir,
     dataDir: dir,
     memoryDb: null,

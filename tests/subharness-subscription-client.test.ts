@@ -6,7 +6,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import path from 'node:path';
 import { createSubscriptionClient } from '../src/subharness/subscription-client.ts';
 import type { SubscriptionChild, SubscriptionProcess } from '../src/subharness/subscription-client.ts';
 import { createToolBridge } from '../src/subharness/tool-bridge.ts';
@@ -142,13 +141,12 @@ function rig(
   options: {
     core?: RouteRecord | null;
     installed?: Array<'codex' | 'claude'>;
-    subscription?: { fallback?: boolean; thinking?: boolean };
+    subscription?: { thinking?: boolean };
     llm?: { maxRequestTokens?: number; maxRequestsPerDay?: number };
   } = {}
 ) {
   const dir = tempDir('nep-subscription-client-');
   writeKeysFile(dir, {
-    // The lead: fallback reaches the API only with a key there (owner, 2026-11-06).
     core: [{ name: 'core-1', value: 'sk-or-v1-never-leaves' }],
     subharness: {
       key: null,
@@ -180,7 +178,7 @@ function rig(
     maxRequestTokens: options.llm?.maxRequestTokens ?? 50_000,
     maxOutputTokens: 900,
     maxRequestsPerDay: options.llm?.maxRequestsPerDay ?? 5000,
-    subscription: { fallback: false, thinking: false, holdMs: HOLD_MS, ...options.subscription },
+    subscription: { thinking: false, holdMs: HOLD_MS, ...options.subscription },
   };
   const client = createSubscriptionClient({
     privateDir: dir,
@@ -712,9 +710,9 @@ test(
   }
 );
 
-test('a failed step on a chain route is thrown for the chain, whatever the fallback says', STEP_TIMEOUT, async () => {
-  // Catches: the old fallback and the chain both repeating the step, so one failure spends two API requests.
-  const { client, runs, directCalls } = rig({ subscription: { fallback: true } });
+test('a failed step on a chain route is thrown for the chain', STEP_TIMEOUT, async () => {
+  // Catches: the subscription client and the chain both repeating the step, so one failure spends two API requests.
+  const { client, runs, directCalls } = rig();
   const asked = client.complete(FIRST, {
     ...REPLY,
     chainRoute: { via: 'harness', backend: 'claude', model: 'claude-opus-4-8', effort: null },
@@ -803,29 +801,13 @@ test('a route whose backend is not installed fails with not-installed and starts
   assert.equal(runs.length, 0);
 });
 
-test('with fallback on, an exhausted step goes to the direct client with the same messages', STEP_TIMEOUT, async () => {
-  // Catches: fallback that loses the step's history, or none at all when the owner switched it on.
-  const { client, runs, directCalls } = rig({ subscription: { fallback: true } });
-  const asked = client.complete(FIRST, REPLY);
-  await until(() => runs.length === 1, 'the run started');
-  pushAll(runs[0], [
-    { type: 'rate_limit_event', rate_limit_info: { status: 'rejected', rateLimitType: 'seven_day' } },
-    { type: 'result', subtype: 'success', is_error: true, api_error_status: 429, result: '' },
-  ]);
-  runs[0].end(1);
-  const answer = await asked;
-  assert.equal(answer.text, '<msg>from the api</msg>');
-  assert.equal(directCalls.length, 1);
-  assert.deepEqual(directCalls[0]?.messages, FIRST);
-});
-
 test(
-  'with fallback on and no keys.json, an exhausted step is reported and the direct client is not asked',
+  'an exhausted step off a chain route fails with its code, and the direct client is not asked',
   STEP_TIMEOUT,
   async () => {
-    // Catches: an absent key store counted as a key the API could use, so the fallback sends a request that has no key.
-    const { client, runs, directCalls, dir } = rig({ subscription: { fallback: true } });
-    fs.rmSync(path.join(dir, 'keys.json'));
+    // Catches: a failed harness step sent to the API behind the chain's back, so a spent window spends a key nobody chose.
+    // Changed: `llm.subscription.fallback` is retired; the next route of the core's chain is the fallback (slice 4).
+    const { client, runs, directCalls } = rig();
     const asked = client.complete(FIRST, REPLY);
     await until(() => runs.length === 1, 'the run started');
     pushAll(runs[0], [
@@ -858,17 +840,6 @@ test(
     assert.deepEqual(outcomes, ['claude:login', 'claude:ok']);
   }
 );
-
-test('with fallback on, a lost login is reported though the API answers the step', STEP_TIMEOUT, async () => {
-  // Catches: a fallback that hides the dropped login, so the header stays active while the harness never answers.
-  const { client, runs, outcomes } = rig({ subscription: { fallback: true } });
-  const asked = client.complete(FIRST, REPLY);
-  await until(() => runs.length === 1, 'the run started');
-  runs[0].push({ type: 'result', subtype: 'success', is_error: true, result: 'Not logged in · Please run /login' });
-  runs[0].end(1);
-  assert.equal((await asked).text, '<msg>from the api</msg>');
-  assert.deepEqual(outcomes, ['claude:login']);
-});
 
 test('a request of another role or on the API route reports nothing', STEP_TIMEOUT, async () => {
   // Catches: an answer of the analyzer or of the API counted as proof that the harness is logged in again.

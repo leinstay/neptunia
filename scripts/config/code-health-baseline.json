@@ -277,7 +277,7 @@
       "repeated": 0
     },
     "tests/events.test.ts": {
-      "deep": 165,
+      "deep": 164,
       "repeated": 3
     },
     "tests/exa.test.ts": {
@@ -945,7 +945,7 @@
       "repeated": 0
     },
     "tests/roles.test.ts": {
-      "deep": 4,
+      "deep": 2,
       "repeated": 0
     },
     "tests/rules-list.test.ts": {
@@ -1169,7 +1169,7 @@
       "repeated": 0
     },
     "tests/turn-ability-route.test.ts": {
-      "deep": 5,
+      "deep": 4,
       "repeated": 0
     },
     "tests/turn-calls.test.ts": {
@@ -1225,7 +1225,7 @@
       "repeated": 0
     },
     "tests/turn-request-senses.test.ts": {
-      "deep": 6,
+      "deep": 4,
       "repeated": 0
     },
     "tests/turn-think-standard.test.ts": {
@@ -1634,7 +1634,7 @@
     },
     "src/llm/openrouter.ts": {
       "createLlm": {
-        "function-length": 610
+        "function-length": 609
       },
       "createLlm>complete": {
         "complexity": 41

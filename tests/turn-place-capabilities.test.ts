@@ -21,6 +21,7 @@ import {
   normalizedTrigger,
   rawMessage,
 } from './fixtures/turn-kit.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const SERVED_TEXT = 'SERVED-EMOJI-TEXT';
 const CLI_TEXT = 'CLI-EMOJI-TEXT';
@@ -98,7 +99,7 @@ async function runScene({ place, cliPick = null, reply = '<msg>ναι, έλα</m
         filePreviewChars: 500,
         pick: { maxOutputTokens: 17, candidates: 5, emojiCandidates: 5, emojiPerReplies: 0, emojiCooldownMinutes: 0 },
       },
-      models: { base: { analyzer: 'cheap/classifier' } },
+      models: { routes: chainsOf({ analyzer: 'cheap/classifier' }) },
     }
   );
   Object.assign(hot.prompts, { 'media-pick': 'Pick for {{name}}.', labels });

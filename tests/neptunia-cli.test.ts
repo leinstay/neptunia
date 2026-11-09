@@ -163,7 +163,7 @@ function coreDown(): { dirs: Dirs; db: string; key: string; token: string } {
   addClient(dirs.privateDir, CLI_CLIENT);
   const key = 'sk-or-test-zeta-not-a-real-key';
   const keys = createKeyStore({ privateDir: dirs.dataDir });
-  keys.addCore({ name: 'core-1', value: key });
+  keys.add({ name: 'core-1', value: key });
   mkdirSync(dirs.dataDir, { recursive: true });
   const db = join(dirs.dataDir, 'memory.db');
   openMemoryDb(db).close();
@@ -199,7 +199,7 @@ test('doctor counts a key store that holds only former extra keys as holding key
   // Catches: the keys check counting the old core list alone, so a store of named keys warns it holds no key.
   const dirs = folders({});
   addClient(dirs.privateDir, CLI_CLIENT);
-  createKeyStore({ privateDir: dirs.dataDir }).addExtra({ name: 'helpers', value: 'sk-or-test-helpers-not-real' });
+  createKeyStore({ privateDir: dirs.dataDir }).add({ name: 'helpers', value: 'sk-or-test-helpers-not-real' });
   const run = await runCli(dirs, ['doctor', '--json']);
   assert.equal(checksOf(run.stdout).get('keys'), 'ok');
 });

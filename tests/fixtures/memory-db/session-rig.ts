@@ -11,6 +11,7 @@ import { labels } from '../labels.ts';
 import { dbOf, type Db } from '../../../src/memory/db/types.ts';
 import type { KeyRing } from '../../../src/keys/ring.ts';
 import type { ClaimArgs, CtxOptions, FakeLlm, Fixture, LlmCall, LlmScript, Rec, SayArgs, Scope } from './session-shapes.ts';
+import { chainsOf } from '../chains.ts';
 // The ids of the Discord namespace the fixtures of this file write.
 export const personOf = (id: string): string => memoryIds.personId('discord', id);
 export const dmPlaceOf = (id: string): string => memoryIds.dmPlaceId('discord', id);
@@ -38,7 +39,7 @@ export const prompts = {
 };
 export const baseConfig = (session: Rec = {}, extra: Rec = {}): Rec => ({
   bot: { timezone: 'UTC' },
-  models: { base: { memory: 'x/memory' } },
+  models: { routes: chainsOf({ memory: 'x/memory' }) },
   memoryDb: { session: { mode: 'shadow', minMessages: 1, minLines: 0, ...session } },
   ...extra,
 });
@@ -179,7 +180,6 @@ export function memoryRing(): KeyRing {
   return {
     route: () => route,
     names: () => [route.name],
-    failed: () => null,
     states: () => [],
     bound: () => [{ name: route.name, roles: ['memory'] }],
   };

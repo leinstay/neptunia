@@ -10,6 +10,7 @@ import { createStore } from '../src/memory/store.ts';
 import { fakeImageFetcher, fakeLlm, fakeState, fakeVideoFetcher } from './fixtures/describe-fakes.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const GREEK = 'Μια γκρίζα γάτα κοιμάται στον καναπέ';
 const ENGLISH = 'A grey cat sleeps on a sofa';
@@ -17,7 +18,7 @@ type Entry = { text?: string; redescribed?: boolean; offScript?: boolean; reacti
 
 const HOT = {
   config: {
-    models: { base: { vision: 'x/vision', video: 'x/video' } },
+    models: { routes: chainsOf({ vision: 'x/vision', video: 'x/video' }) },
     media: { maxOutputTokens: 120, gif: { maxSeconds: 15 }, video: { sites: [], maxOutputTokens: 120 } },
     context: { vision: { fetchTimeoutMs: 10_000 } },
   },

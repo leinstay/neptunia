@@ -6,6 +6,7 @@ import type { Line, PendingQueue, PipelineTurns } from '../src/pipeline/types.ts
 import { issueContext } from '../src/memory/db/scope.ts';
 import { channelInfo } from './fixtures/core-over-fake.ts';
 import { labels } from './fixtures/labels.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00Z');
 const channel = channelInfo('cli:dm:owner', { iface: 'cli', kind: 'dm', rootId: null, partnerId: 'owner' });
@@ -38,7 +39,7 @@ function setup(parts: Array<{ index: number; text: string }> = []) {
   const config = {
     bot: { timezone: 'UTC' },
     mention: { neverIgnore: [], repeatWindowMinutes: 0, maxPending: 10 },
-    models: { base: { analyzer: 'test/analyzer' } },
+    models: { routes: chainsOf({ analyzer: 'test/analyzer' }) },
     llm: { maxRequestTokens: 50000, maxRequestsPerDay: 100, timeoutMs: 1000 },
   };
   const hot = { config, prompts: { labels, merge: 'Choose an item or new. {{items}} {{message}}' } };
