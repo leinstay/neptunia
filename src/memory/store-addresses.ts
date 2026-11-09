@@ -4,6 +4,8 @@
 // its person or native id, reads a stored row or what this store named the id from, and never the text of the id.
 
 import { currentIface } from './db/current-iface.ts';
+import { placeRefOf } from './db/frame-reads.ts';
+import type { PlaceRef } from './db/frame-reads.ts';
 import { interfaceAccountId, interfacePlaceOf, nativeAuthorityOf, topPlaceSpelled } from './db/ids.ts';
 import { LEGACY_IFACE } from './db/legacy-namespace.ts';
 import { chatPlaceKey } from './db/observe-event.ts';
@@ -268,6 +270,11 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
       const partner = typeof row.partner_account === 'string' ? nativeOfRow('accounts', row.partner_account) : null;
       const open = partner === null ? null : (dmChatOf?.(partner) ?? null);
       return open ?? known ?? keptDmChat(row.extra);
+    },
+
+    /** A stored place as its interface knows it (frame-reads.ts#placeRefOf), null without a row or a database. */
+    placeRefOf(placeId: string): PlaceRef | null {
+      return readable() ? seam.run(() => placeRefOf(seam.db(), placeId)) : null;
     },
 
     /** The stored child places of a place, one level of `places.parent_id` down, in id order. */

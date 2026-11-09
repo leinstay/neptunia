@@ -37,7 +37,9 @@ test('a replayed reply is placed in the stored chain of the channel, with the au
   );
   assert.equal(frame?.place?.id, 'p-c1');
   assert.equal(frame?.root?.id, 'p-root');
-  assert.deepEqual(frame?.counterpart, { personId: 'person-1', accountId: 'a-u1', name: 'Zoé' });
+  // The counterpart carries the id the interface names them by (plan 2026-11-08 ids-by-links, slice 7b), so the request
+  // reads it from the frame and never parses it out of the account id.
+  assert.deepEqual(frame?.counterpart, { personId: 'person-1', accountId: 'a-u1', nativeId: 'u1', name: 'Zoé' });
   assert.equal(whereabouts?.kind, 'place');
 });
 

@@ -63,7 +63,6 @@ import {
 import { log } from '../../log.ts';
 import { foldText } from '../recent.ts';
 import { indexWords } from '../record-index.ts';
-import { nativeOf } from './ids.ts';
 import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
 import { canRead, scopeWhere, whereFor } from './scope.ts';
 import { loadStemmer } from './stems.ts';
@@ -153,6 +152,8 @@ type Reader = {
   channelNameOf: (placeId: unknown) => string | null;
   /** The interface of a stored place; null for a place no row holds. */
   ifaceOf: (placeId: unknown) => string | null;
+  /** The chat a stored place's interface knows it by; null for a place no row holds or whose row names none. */
+  chatOf: (placeId: unknown) => string | null;
   mediaOf: (sourceId: string) => ReadonlyArray<MediaRow>;
 };
 /** The settings of a db recall: the recall settings with the keys of `recall.db` lifted out. */
@@ -206,7 +207,15 @@ const parseJson = (text: unknown): unknown => {
 const str = (value: unknown): string => (typeof value === 'string' ? value : '');
 
 type AccountName = { nativeId: string | null; iface: string; name: string | null };
-type PlaceName = { nativeId: string | null; iface: string; name: string | null; private: boolean; retired: boolean };
+/** A stored place as a read names it; `chat` is the chat its interface knows it by: its own native id, a DM's partner's. */
+type PlaceName = {
+  nativeId: string | null;
+  chat: string | null;
+  iface: string;
+  name: string | null;
+  private: boolean;
+  retired: boolean;
+};
 
 /** Account names retain their exact identity when native IDs collide across interfaces. */
 function accountNames(db: Db): Map<unknown, AccountName> {
@@ -226,9 +235,16 @@ function accountNames(db: Db): Map<unknown, AccountName> {
 /** Exact place metadata gates private names before consulting an interface's snapshot. */
 function placeNames(db: Db): Map<unknown, PlaceName> {
   const names = new Map<unknown, PlaceName>();
-  for (const row of db.prepare('SELECT id, native_id, name, iface, scope_kind, chat, retired_at FROM places').all()) {
+  const rows = db
+    .prepare(
+      `SELECT p.id, p.native_id, p.name, p.iface, p.scope_kind, p.chat, p.kind, p.retired_at, a.native_id AS partner
+       FROM places p LEFT JOIN accounts a ON a.id = p.partner_account`
+    )
+    .all();
+  for (const row of rows) {
     names.set(row.id, {
       nativeId: str(row.native_id) || null,
+      chat: (row.kind === 'dm' ? str(row.partner) : str(row.native_id)) || null,
       iface: str(row.iface),
       name: str(row.name) || null,
       private: row.scope_kind === 'dm' || row.scope_kind === 'internal' || row.chat === 'dm',
@@ -238,10 +254,13 @@ function placeNames(db: Db): Map<unknown, PlaceName> {
   return names;
 }
 
-/** The channel id a source row belongs to: its place's, or the private channel the record line carried. */
-function channelOf(row: Row, extra: Row): string {
+/**
+ * The channel id a source row belongs to: the private channel the record line carried, else the chat its place row
+ * names, else the place id as stored for a place no row holds.
+ */
+function channelOf(row: Row, extra: Row, chatOf: Reader['chatOf']): string {
   const dm = typeof extra?.dmChannel === 'string' && extra.dmChannel ? extra.dmChannel : null;
-  return dm ?? nativeOf(row.place_id) ?? asText(row.place_id ?? '');
+  return dm ?? chatOf(row.place_id) ?? asText(row.place_id ?? '');
 }
 
 function storedRefOf(row: Row, extra: Row): StoredSourceRef {
@@ -260,7 +279,7 @@ const shownName = (name: string | null): string => (name ?? '').replace(/\s+/g, 
 /** One source row as a normalized chat message (the shape renderRecallWindows reads). */
 function messageOf(
   row: Row,
-  { authorOf, selfName, mediaOf }: Pick<Reader, 'authorOf' | 'selfName' | 'mediaOf'>
+  { authorOf, selfName, mediaOf, chatOf }: Pick<Reader, 'authorOf' | 'selfName' | 'mediaOf' | 'chatOf'>
 ): RecallMessage {
   const extra = (parseJson(row.extra) ?? {}) as Row;
   const self = row.kind === 'said';
@@ -274,7 +293,7 @@ function messageOf(
     id: row.native_id,
     ...(!self && author.nameKey !== null ? { nameKey: author.nameKey } : {}),
     stored: storedRefOf(row, extra),
-    placeId: channelOf(row, extra),
+    placeId: channelOf(row, extra, chatOf),
     authorId: author.id,
     authorName: shownName(name),
     self,
@@ -986,6 +1005,7 @@ function readerOf(
       return { id: account.nativeId, name: given || account.name, nameKey: marks ? own : null };
     },
     ifaceOf: (placeId) => placeOf(placeId)?.iface || null,
+    chatOf: (placeId) => placeOf(placeId)?.chat ?? null,
     channelNameOf: (placeId: unknown): string | null => {
       const place = placeOf(placeId);
       if (!place || place.retired || (place.private && ctx.internal !== true)) return null;

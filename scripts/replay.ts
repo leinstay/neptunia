@@ -91,8 +91,9 @@
 // timeout) for `<dir>/ans-<n>.txt`, whose content is the model's text (and, optionally, `<dir>/ans-<n>.tool-calls.json`:
 // a JSON array of `{ id?, name, arguments }` -- `arguments` an object or a string -- for the answer's native tool calls; a
 // request that had tools also lists them, with its tool choice, in `req-<n>.json`) (no cost; the result carries
-// `answersDir: { dir, requests }`). `<dir>/done` (`exit <code>`) is written when the run ends. Other
-// models still go to OpenRouter (none with `--answers-all`). The directory must hold no files of an earlier run. Such a
+// `answersDir: { dir, requests }`). `<dir>/done` (`exit <code>`) is written when the run ends. While a subscription
+// route (`models.harness.simulation`) is stored, every core request answers from the files whatever its model, and no
+// CLI starts. Other models still go to OpenRouter (none with `--answers-all`). The directory must hold no files of an earlier run. Such a
 // run needs no `--spend` (only other models are billed; with `--spend` they are capped as usual).
 // The spend gate (scripts/lib/cli.ts#spendGate): every mode that sends model
 // requests prints its estimate first (~USD_PER_ANSWER per request: a persona
@@ -522,7 +523,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 // CliError: an operator-facing failure, printed as is, exit code `exitCode` (1 unless the spend gate refused: 2).
-import { createAnswersDir, withAnswersDir } from './lib/answers-dir.ts';
+import { createAnswersDir, offlineCore, withAnswersDir } from './lib/answers-dir.ts';
 import {
   serviceKeys,
   serviceKey,
@@ -563,6 +564,7 @@ import {
   requesterOfChannel,
 } from './lib/platform-objects.ts';
 import { MAX_MESSAGE_CHARS } from '../src/format.ts';
+import { roleModel } from '../src/llm/roles.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { ReplayArgs } from './lib/replay-args.ts';
 import type { SimulationLlm } from './lib/cli.ts';
@@ -2013,18 +2015,21 @@ function replaySimulation(
   createLlm: Untyped,
   hot: Untyped,
   calibrator: unknown,
-  state: { data: object; markDirty(): void }
+  state: { data: object; markDirty(): void },
+  answers: Untyped
 ): SimulationLlm {
   const sim = simulationLlm('replay-cli', {
     createDirect: (apiKey) => createLlm({ apiKey, getConfig: () => hot.config, calibrator, state }),
     getConfig: () => hot.config,
     state,
+    // `--answers-dir` answers a core request on a stored subscription route from the files too.
+    ...(answers ? { offline: offlineCore(answers, (why) => roleModel(hot.config, 'core', why)) } : {}),
   });
   process.stderr.write(`replay-cli: ${sim.said}\n`);
   return sim;
 }
 
-async function runSelfreflection({ args, root, load, hot: liveHot, createHot, log, signal, rng }: ModeCtx) {
+async function runSelfreflection({ args, root, load, hot: liveHot, createHot, log, signal, rng, answers }: ModeCtx) {
   const mods = await loadSelfreflectionMods(load);
   const { SELFREFLECTION_KINDS, selfreflectionTopic, isPictureKind, isSetKind, stripUrls, validatePlan } = mods;
   const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild } = mods;
@@ -2074,7 +2079,7 @@ async function runSelfreflection({ args, root, load, hot: liveHot, createHot, lo
 
     // The model clients: every request the tool's own, recorded with its purpose.
     const calibrator = createCalibrator(state.data.calibration);
-    const sim = replaySimulation(createLlm, hot, calibrator, state);
+    const sim = replaySimulation(createLlm, hot, calibrator, state, answers);
     const calls: Array<Untyped> = [];
     const llm = recordingLlm(sim.llm, calls, { noCache: args.count === 1 });
     // No key: only quota and familyOf are used below, and generate, the one call that sends, is replaced.
@@ -2644,7 +2649,7 @@ export function innerReportMarkdown(result: Untyped): string {
  * The `--inner` mode (see the header): one inner turn for one wake (`--samples` times), in shadow, against the
  * live data (or `--snapshot`) read only. Returns `{ code, result }`.
  */
-async function runInner({ args, root, load, hot: liveHot, createHot, log, budget = null }: ModeCtx) {
+async function runInner({ args, root, load, hot: liveHot, createHot, log, budget = null, answers }: ModeCtx) {
   const mods = {
     ...(await loadSelfreflectionMods(load)),
     ...(await load('behavior/inner.ts')),
@@ -2695,7 +2700,7 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     const timezone = config.bot?.timezone ?? 'UTC';
     const { store, state } = unflushedStore(createStore({ dataDir, memoryDb: storeMemoryFor(dataDir) }));
     const calibrator = createCalibrator(state.data.calibration);
-    const sim = replaySimulation(createLlm, hot, calibrator, state);
+    const sim = replaySimulation(createLlm, hot, calibrator, state, answers);
     const calls: Array<Untyped> = [];
     const requests: Array<Untyped> = [];
     const recorded = recordingLlm(sim.llm, calls, { noCache: true, errorCodeOf: mods.errorCodeOf });
@@ -6707,7 +6712,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
   }
   if (args.selfreflection) {
     try {
-      return await runSelfreflection({ args, root, load, hot, createHot, log, signal, rng });
+      return await runSelfreflection({ args, root, load, hot, createHot, log, signal, rng, answers });
     } finally {
       hot.close();
     }
@@ -6721,7 +6726,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
   }
   if (args.inner) {
     try {
-      return await runInner({ args, root, load, hot, createHot, log, budget: spendBudget });
+      return await runInner({ args, root, load, hot, createHot, log, budget: spendBudget, answers });
     } finally {
       hot.close();
     }
@@ -6901,7 +6906,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
     const stateData = store.state.data;
     const calibrator = createCalibrator(stateData.calibration);
     const llmState = { data: { llmDay: stateData.llmDay, llmCount: stateData.llmCount }, markDirty() {} };
-    const sim = keyNeeded ? replaySimulation(createLlm, hot, calibrator, llmState) : null;
+    const sim = keyNeeded ? replaySimulation(createLlm, hot, calibrator, llmState, answers) : null;
     // Absent on a dry run or a shown request, neither of which sends a request.
     const realLlm: Untyped = sim?.llm;
     const openrouterKey = sim?.key;

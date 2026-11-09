@@ -1863,9 +1863,23 @@ function fromCommandLine(enabled: boolean) {
   );
   const quiet = { info() {}, warn() {}, error() {}, debug() {} };
   const cfg = { ...config(), dm: { enabled } };
+  // A place id names a place, and its chat, by the row that holds it (plan 2026-11-08 ids-by-links, slice 7b).
+  const rows: Record<string, { iface: string; kind: string; nativeId: string | null; partnerNativeId: string | null }> =
+    {
+      'tele:dm:555': { iface: 'tele', kind: 'dm', nativeId: null, partnerNativeId: '555' },
+      'tele:channel:k9': { iface: 'tele', kind: 'channel', nativeId: 'k9', partnerNativeId: null },
+      'place:dm-opaque': { iface: 'tele', kind: 'dm', nativeId: null, partnerNativeId: '555' },
+    };
+  const placeRef = (id: string) => rows[id] ?? null;
   const admin = createAdmin({
     hot: { config: cfg, prompts: { labels: {} } },
-    store: { state: { data: {}, markDirty() {} }, getUser: () => null, getPlace: () => ({}), rootPlaceOf: () => null },
+    store: {
+      state: { data: {}, markDirty() {} },
+      getUser: () => null,
+      getPlace: () => ({}),
+      rootPlaceOf: () => null,
+      placeRefOf: placeRef,
+    },
     client: { user: { id: SELF } },
     isServedRoot: () => false,
     reads: createReads(port, quiet),
@@ -1873,7 +1887,7 @@ function fromCommandLine(enabled: boolean) {
   });
   const run = (place: string) =>
     executeCall(
-      resolve('message.create', { place }, 'γεια από τη γραμμή εντολών'),
+      resolve('message.create', { place }, 'γεια από τη γραμμή εντολών', { placeRef }),
       deps(admin, port, {
         here: { iface: 'cli', chatId: 'owner' },
         opContext: { placeId: 'cli:dm:owner' },
@@ -1902,6 +1916,18 @@ test('message.create from the command line to a direct chat of another interface
   const result = await run('tele:dm:555');
   assert.deepEqual([result.status, result.code], ['denied', 'dm-disabled']);
   assert.equal(sentIn('555').length, 0);
+});
+
+test('message.create from the command line to a direct chat whose place id spells nothing is sent to the chat its row names', async () => {
+  // Bug: the call took a place id for one only when it spelled an interface and a chat, and the operation parsed the
+  // partner out of it, so a DM place with an opaque id was refused or written to the command line.
+  const { run, sentIn } = fromCommandLine(true);
+  const result = await run('place:dm-opaque');
+  assert.equal(result.status, 'ok', JSON.stringify(result));
+  assert.deepEqual(
+    sentIn('555').map((one) => one.text),
+    ['γεια από τη γραμμή εντολών']
+  );
 });
 
 test('message.create from the command line to a room where the interface grants no send is refused by that answer', async () => {

@@ -36,7 +36,7 @@ import {
   valuesOf,
   WRITTEN_SKILLS,
 } from './calls.ts';
-import type { CallEnvelope, Lookup, LookupRing, SearchRefs } from './calls.ts';
+import type { CallEnvelope, KnownPlace, Lookup, LookupRing, SearchRefs } from './calls.ts';
 import { clampWithEllipsis } from '../memory/clamp.ts';
 import { journalResultOf, portError, postedOf } from './journal.ts';
 import type { JournalOp } from './journal.ts';
@@ -78,8 +78,10 @@ export type SkillCallsContext = {
   placesFoundFor?: (draft: CallsDraft | null, channel: CallChannel) => CallView['placesFound'];
   /** The turn's embeddings for the finder, one memo per draft (graph-find.ts#createFindMeaning). */
   findMeaningFor?: (draft: CallsDraft | null) => CallView['findMeaning'];
-  /** The place ids of the memory's channels and threads on every interface, read at the moment of use; none while it is closed. */
-  knownPlaces?: () => ReadonlyArray<string>;
+  /** The memory's channels and threads on every interface with their native ids, read when used; none while it is closed. */
+  knownPlaces?: () => ReadonlyArray<KnownPlace>;
+  /** A stored place by its id as its interface knows it (frame-reads.ts#placeRefOf), null without a row or a memory. */
+  placeRef?: CallView['placeRef'];
   skills: SkillMap | null;
   selfIdOf: () => string;
   clock: () => number;
@@ -331,6 +333,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
     placesFoundFor = () => null,
     findMeaningFor = () => null,
     knownPlaces = () => [],
+    placeRef = null,
     skills,
     selfIdOf,
     clock,
@@ -438,6 +441,7 @@ export function createSkillCalls(ctx: SkillCallsContext): SkillCalls {
       placesFound: placesFoundFor(draft, channel) ?? null,
       findMeaning: findMeaningFor(draft) ?? null,
       knownPlaces: knownPlaces(),
+      placeRef,
     });
   }
 

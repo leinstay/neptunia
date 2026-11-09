@@ -192,14 +192,22 @@ test("lets a post reach the owner's command line while direct chats are off", as
 
 test("takes the owner's command line as an intention's place while direct chats are off", async () => {
   // Bug: she could not promise the owner a reminder in his own chat while direct chats were off.
-  const target = await writablePlace({ reads: cliReads(), iface: IFACE, id: 'cli:dm:owner', context: dmOff });
+  // writablePlace reads a place's chat from its row through the store (plan 2026-11-08 ids-by-links, slice 7b); this
+  // case needs none.
+  const target = await writablePlace({
+    reads: cliReads(),
+    store: null,
+    iface: IFACE,
+    id: 'cli:dm:owner',
+    context: dmOff,
+  });
   assert.deepEqual(target, { iface: 'cli', chatId: 'cli:dm:owner' });
 });
 
 test('still refuses an intention in a direct chat of another interface while direct chats are off', async () => {
   const { reads, fake } = rig();
   fake.seedChat(channel('dm2', { kind: 'dm', rootId: null, partnerId: 'u9' }));
-  await assert.rejects(writablePlace({ reads, iface: IFACE, id: 'dm2', context: dmOff }), {
+  await assert.rejects(writablePlace({ reads, store: null, iface: IFACE, id: 'dm2', context: dmOff }), {
     status: 'denied',
     code: 'dm-disabled',
   });

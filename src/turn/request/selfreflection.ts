@@ -84,7 +84,7 @@ export function publicationPlacesBody(known: KnownPlaces | undefined, labels: La
       fill(line, {
         place: `place:${place.id}`,
         name: place.name ?? '',
-        iface: `interface:${place.iface ?? place.id.slice(0, Math.max(0, place.id.indexOf(':')))}`,
+        iface: `interface:${place.iface ?? ''}`,
       }).trim()
     ),
   ]

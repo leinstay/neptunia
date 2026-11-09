@@ -88,7 +88,11 @@ test('a direct chat reply shows the groups and the same person linked chat, and 
       frameInput({
         now: NOW,
         chain: [{ id: here, kind: 'dm', name: null }],
-        dm: { word: 'private', nativeId: '5678', partner: { personId: ZOE, accountId: 'fake:5678', name: 'Ζωή' } },
+        dm: {
+          word: 'private',
+          nativeId: '5678',
+          partner: { personId: ZOE, accountId: 'fake:5678', nativeId: '5678', name: 'Ζωή' },
+        },
       })
     );
     const reads = {

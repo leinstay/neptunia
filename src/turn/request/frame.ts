@@ -44,7 +44,13 @@ export type FramePlace = {
  * Somebody she talks to. The person is null when no stored row links one to the account, and a name is null until the
  * interface has given one.
  */
-export type FrameParty = { readonly personId: string | null; readonly accountId: string; readonly name: string | null };
+/** Somebody of the turn: their stored person, their account row, the id the interface names them by and their name. */
+export type FrameParty = {
+  readonly personId: string | null;
+  readonly accountId: string;
+  readonly nativeId: string;
+  readonly name: string | null;
+};
 
 export type FrameAnswers = { readonly messageId: string; readonly authorId: string };
 

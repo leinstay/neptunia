@@ -5,7 +5,10 @@
 // asked, no key is spent.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { CliError, simulationLlm } from '../scripts/lib/cli.ts';
+import { createAnswersDir, offlineCore } from '../scripts/lib/answers-dir.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
 import type { SubscriptionChild, SubscriptionProcess } from '../src/subharness/subscription-client.ts';
 import type { CompleteResult } from '../src/llm/openrouter.ts';
@@ -195,4 +198,18 @@ test("the route's record is the simulation's, never the core's", async () => {
   assert.equal(sim.route, 'key');
   await sim.llm.complete(FIRST, CORE);
   assert.equal(children.length, 0);
+});
+
+test('a replay with an answers dir and a stored harness route answers the core request from the files and starts no CLI', async () => {
+  // Catches: `--answers-dir` wrapping only the direct client, so a copy whose config routes the simulation through
+  // claude sends her requests to the live subscription model.
+  const { deps, children, directCalls } = rig({ route: CLAUDE_SONNET });
+  const answers = createAnswersDir({ dir: tempDir('nep-simulation-llm-answers-'), pollMs: 1 });
+  fs.writeFileSync(path.join(answers.dir, 'ans-001.txt'), '<msg>from the files</msg>');
+  const sim = simulationLlm('replay-cli', { ...deps, offline: offlineCore(answers, () => 'anthropic/claude-test') });
+  const answer = await sim.llm.complete(FIRST, CORE);
+  assert.equal(answer.text, '<msg>from the files</msg>');
+  assert.equal(answers.count(), 1);
+  assert.equal(children.length, 0);
+  assert.equal(directCalls.length, 0);
 });

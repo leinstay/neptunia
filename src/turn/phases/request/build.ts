@@ -33,7 +33,7 @@ import type { PlaceLink } from '../../request/spatial.ts';
 import type { PhaseContext, PhaseParams } from '../context.ts';
 import type { Prepared } from '../request.ts';
 import type { Handles } from '../../handles.ts';
-import { accountId, messageSourceId, placeIdParts } from '../../../memory/db/ids.ts';
+import { messageSourceId } from '../../../memory/db/ids.ts';
 import type { Mind, Seeds } from '../../../memory/db/mind-read.ts';
 import type { FrameReads } from '../../../memory/db/frame-reads.ts';
 import type { Context } from '../../../memory/db/scope.ts';
@@ -97,7 +97,7 @@ function chainOfTurn(
 
 /** Somebody the interface names by a native id, as the store holds them. */
 function partyOf(store: PhaseContext['store'], nativeId: string, name: string | null): FrameParty {
-  return { personId: personOfMember(store, nativeId), accountId: accountOf(store, nativeId), name };
+  return { personId: personOfMember(store, nativeId), accountId: accountOf(store, nativeId), nativeId, name };
 }
 
 /** The frame of a turn, from what the turn runner holds. */
@@ -208,6 +208,7 @@ type FramedInputs = {
   surroundings: SurroundingsInput | null;
   refLineOf: LineOf | null;
   isSourceRetired: SourceRetired | null;
+  chatIdOf: ((placeId: string) => string | null) | null;
 };
 
 const NO_FRAMED: FramedInputs = {
@@ -217,7 +218,20 @@ const NO_FRAMED: FramedInputs = {
   surroundings: null,
   refLineOf: null,
   isSourceRetired: null,
+  chatIdOf: null,
 };
+
+/** The chat id of a stored place from its row, null for a DM and a place no row holds; each place read once a request. */
+function chatIdReader(reads: Pick<FrameReads, 'placeRef'>): (placeId: string) => string | null {
+  const known = new Map<string, string | null>();
+  return (placeId) => {
+    if (!known.has(placeId)) {
+      const ref = reads.placeRef?.(placeId) ?? null;
+      known.set(placeId, ref === null || ref.kind === 'dm' ? null : ref.nativeId);
+    }
+    return known.get(placeId) ?? null;
+  };
+}
 
 /**
  * The person she answers as the memory stores them: the account row of their platform id and its person. Null when no
@@ -252,14 +266,14 @@ function seedsOf(
     );
   };
   const byId = new Map(lines.map((line) => [line.id, sourceOf(line)]));
-  // A platform id as the memory's account row, the spelled form when none is stored yet.
-  const accountOf = (native: string): string => reads.account(iface, native) ?? accountId(iface, native);
+  // A platform id as the memory's account row, null when none is stored yet.
+  const accountOf = (native: string): string | null => reads.account(iface, native);
   const excerpts: unknown = prefetch && typeof prefetch === 'object' ? Reflect.get(prefetch, 'excerpts') : null;
   // A find is a message id of the place it was found in, which may be on another interface than this turn's (the
   // command line reads every interface), so it is resolved on its own place's interface first.
   const hits = (Array.isArray(excerpts) ? excerpts : []).flatMap((excerpt: unknown) => {
     const ids: unknown = excerpt && typeof excerpt === 'object' ? Reflect.get(excerpt, 'hitIds') : null;
-    const found: unknown = excerpt && typeof excerpt === 'object' ? Reflect.get(excerpt, 'placeId') : null;
+    const found: unknown = excerpt && typeof excerpt === 'object' ? Reflect.get(excerpt, 'place') : null;
     const placeId = typeof found === 'string' && found !== '' ? found : null;
     const named = Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string' && id !== '') : [];
     return named.map(
@@ -273,7 +287,7 @@ function seedsOf(
       authorAccount: line.self || !line.authorId ? null : accountOf(line.authorId),
       placeId: frame.place?.id ?? null,
       replyTo: line.replyToId ? (byId.get(line.replyToId) ?? null) : null,
-      mentions: (line.mentionedAccountIds ?? []).map(accountOf),
+      mentions: (line.mentionedAccountIds ?? []).flatMap((native) => accountOf(native) ?? []),
       text: line.content ?? '',
       trigger: line.id === trigger?.id,
     })),
@@ -359,6 +373,7 @@ function framedInputsOf(
     },
     refLineOf,
     isSourceRetired,
+    chatIdOf: chatIdReader(reads),
   };
 }
 
@@ -371,7 +386,7 @@ const IDENTITY = /\bsrc:([\w-]+):((?:[\w.-]+:)*?[\w.-]+):\d+(?!\w|[.:]\w|-(?!src
  */
 function intentionCandidatesOf(
   refs: { texts: ReadonlyArray<string>; places: ReadonlyArray<string> },
-  reads: Pick<FrameReads, 'line' | 'account' | 'person' | 'sourceInPlace'>,
+  reads: Pick<FrameReads, 'line' | 'account' | 'person' | 'sourceInPlace' | 'placeRef'>,
   ctx: Context
 ): Seeds['candidates'] {
   const out: Seeds['candidates'] = [];
@@ -389,7 +404,7 @@ function intentionCandidatesOf(
       const person = account === null ? null : reads.person(account);
       if (person !== null) add(`person:${person}`, sourceId === null ? [] : [sourceId]);
     }
-  for (const place of refs.places) if (placeIdParts(place) !== null) add(`place:${place}`);
+  for (const place of refs.places) if ((reads.placeRef?.(place) ?? null) !== null) add(`place:${place}`);
   return out;
 }
 
@@ -400,20 +415,26 @@ function intentionCandidatesOf(
  */
 function serviceSeedsOf(
   windows: ReadonlyArray<MeanwhileWindow>,
-  reads: Pick<FrameReads, 'account' | 'sourceInPlace'>,
+  reads: Pick<FrameReads, 'account' | 'sourceInPlace' | 'placeRef'>,
   candidates: Seeds['candidates']
 ): Seeds {
   const lines = windows.flatMap((window) => window.lines).sort((a, b) => a.at - b.at);
+  // Each place's interface from its row, read once per place of the windows.
+  const ifaces = new Map<string, string | null>();
+  const ifaceOf = (placeId: string): string | null => {
+    if (!ifaces.has(placeId)) ifaces.set(placeId, reads.placeRef?.(placeId)?.iface ?? null);
+    return ifaces.get(placeId) ?? null;
+  };
   return {
     messages: lines.flatMap((line) => {
-      const iface = line.placeId.slice(0, Math.max(0, line.placeId.indexOf(':')));
+      const iface = ifaceOf(line.placeId);
       const native = line.authorId;
       const id = reads.sourceInPlace?.(line.placeId, line.id) ?? line.sourceId ?? null;
       if (id === null) return [];
       return {
         id,
         at: new Date(line.at).toISOString(),
-        authorAccount: line.self || native === null ? null : (reads.account(iface, native) ?? accountId(iface, native)),
+        authorAccount: line.self || native === null || iface === null ? null : reads.account(iface, native),
         placeId: line.placeId,
         replyTo: null,
         mentions: [],
@@ -459,7 +480,15 @@ function serviceInputsOf(
     const line = reads.line(memoryContext, key);
     return line ? { ...line, messageId: line.id } : null;
   };
-  return { mind, lookups: [], meanwhileReads, surroundings: null, refLineOf, isSourceRetired: null };
+  return {
+    mind,
+    lookups: [],
+    meanwhileReads,
+    surroundings: null,
+    refLineOf,
+    isSourceRetired: null,
+    chatIdOf: chatIdReader(reads),
+  };
 }
 
 /**

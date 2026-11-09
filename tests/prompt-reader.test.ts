@@ -25,7 +25,9 @@ import { shippedLabels } from './fixtures/shipped-labels.ts';
 
 const TIMEZONE = 'Europe/Moscow';
 const ELENI = personEntry('111', 'Ελένη', { evidence: 'counterpart', relation: 'ΣΧΕΣΗ-ΕΛΕΝΗΣ' });
-const AS_ELENI: FrameParty = { personId: ELENI.personId, accountId: 'fake:111', name: 'Ελένη' };
+// A party carries the id the interface names them by (plan 2026-11-08 ids-by-links, slice 7b): the request no longer
+// parses it out of the account id.
+const AS_ELENI: FrameParty = { personId: ELENI.personId, accountId: 'fake:111', nativeId: '111', name: 'Ελένη' };
 const CLUB = placeEntry('place:club', 'λέσχη', { purpose: 'ΣΚΟΠΟΣ-ΛΕΣΧΗΣ' });
 
 const FRAME = frameOf(
@@ -193,4 +195,37 @@ test('a lookup whose source row names a live line stays in <recall>, whatever it
   const lookups = [{ ...LOOKUP, sourceIds: ['source:opaque-50'] }];
   const built = request({ lookups, isSourceRetired: (id: string) => id !== 'source:opaque-50' });
   assert.match(block(built, 'recall'), /ΑΠΟΣΠΑΣΜΑ-ΚΗΠΟΥ/);
+});
+
+test('a person whose account id spells no platform id takes the @handle of the platform id the account row holds', () => {
+  // Bug: the handle was given to the text after the account id's first colon, so a person under an opaque account id
+  // got a handle no member of the interface has and her mention reached nobody.
+  const zoe = personEntry('333', 'Ζωή', {
+    accounts: ['account:opaque-zoe'],
+    platformAccounts: [{ id: 'account:opaque-zoe', iface: 'fake', platformId: '333' }],
+  });
+  const built = request({ mind: mindOfEntries({ people: [ELENI, zoe] }) });
+  const handled = new Set(built.handles?.values() ?? []);
+  assert.ok(handled.has('333'), [...handled].join(', '));
+  assert.equal(handled.has('opaque-zoe'), false);
+});
+
+test('a counterpart the reader did not raise takes the @handle of the id the interface named them by', () => {
+  // Bug: the stranger's handle came from the text of the account id, which an opaque account id does not hold.
+  const ana: FrameParty = { personId: null, accountId: 'account:opaque-ana', nativeId: '444', name: 'Άννα' };
+  const frame = frameOf(
+    frameInput({ now: NOW, timezone: TIMEZONE, author: ana, trigger: { messageId: 'm1', authorId: '444' } })
+  );
+  const built = request({ frame, mind: mindOfEntries({}) });
+  const handled = new Set(built.handles?.values() ?? []);
+  assert.ok(handled.has('444'), [...handled].join(', '));
+});
+
+test('a place in <memory> takes the channel handle of the chat its row holds, never the text of its id', () => {
+  // Bug: the channel handle of a stored place stood for the text after the place id's first colon, so a place with an
+  // opaque id got a handle for a chat that does not exist.
+  const built = request({ chatIdOf: (placeId: string) => (placeId === 'place:club' ? 'c-club' : null) });
+  const chats = new Set(built.channelHandles?.values() ?? []);
+  assert.ok(chats.has('c-club'), [...chats].join(', '));
+  assert.equal(chats.has('club'), false);
 });

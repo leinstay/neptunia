@@ -70,6 +70,7 @@ export const TURN_INPUT_KEYS: ReadonlyArray<string> = Object.freeze([
   'meanwhileReads',
   'surroundings',
   'refLineOf',
+  'chatIdOf',
   'isSourceRetired',
 ]);
 

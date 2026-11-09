@@ -5,7 +5,6 @@
 // request builder (src/turn/request/reader.ts) fits the items to the budget and renders what stayed. Pure.
 
 import { fill, formatDate } from '../../format.ts';
-import { nativeOfAny } from '../../memory/db/ids.ts';
 import { factStateWords } from '../../memory/retrieval-input.ts';
 import type {
   ClaimEntry,
@@ -16,6 +15,7 @@ import type {
   PersonEntry,
   PlaceEntry,
 } from '../../memory/db/mind-read.ts';
+import type { PersonAccount } from '../../memory/db/meta-person.ts';
 import type { Frame } from './frame.ts';
 import { block, escapeStored, pathText } from './text.ts';
 import type { LabelGroup, Labels, MemoryRead, NameOf } from './types.ts';
@@ -35,13 +35,16 @@ export type MemoryItem = {
   /** The name a person goes by, null for anything else. */
   readonly name: string | null;
   readonly handleIds: ReadonlyArray<string>;
-  /** The place a channel handle is given for once it is shown; null for anything else and a DM. */
-  readonly placeId?: string | null;
+  /** The chat id a channel handle is given for once it is shown; null for anything else and a DM. */
+  readonly chatId?: string | null;
   readonly reads: ReadonlyArray<MemoryRead>;
 };
 
-/** What is live about a person now (their status, their voice seat), one line; null when nothing is. */
-export type LiveOf = (accounts: ReadonlyArray<string>) => string | null;
+/** The chat id a stored place's channel handle stands for, from its row; null for a DM and a place no row holds. */
+export type ChatIdOf = (placeId: string) => string | null;
+
+/** What is live about a person now (their status, their voice seat) by their platform ids, one line; null when nothing is. */
+export type LiveOf = (nativeIds: ReadonlyArray<string>) => string | null;
 
 /** What of the frame an entry's words read: the interface of its handles, the clock of its dates, the person answered. */
 export type FrameView = Pick<Frame, 'interface' | 'timezone' | 'counterpart'>;
@@ -60,11 +63,10 @@ function heading(w: Words, name: string, origin: string, candidate: boolean): st
   return fill(w.l.entry ?? '{name} ({origin})', { name: escapeStored(name), origin: why });
 }
 
-/** The platform id of an account row on the frame's interface, else of its first account. */
-function nativeIds(accounts: ReadonlyArray<string>, iface: string): Array<string> {
-  const native = (account: string): string => account.slice(account.indexOf(':') + 1);
-  const here = accounts.filter((account) => account.startsWith(`${iface}:`));
-  return (here.length > 0 ? here : accounts.slice(0, 1)).map(native).filter(Boolean);
+/** The platform ids of a person's stored accounts on the frame's interface, else of their first account. */
+function nativeIds(accounts: ReadonlyArray<PersonAccount>, iface: string): Array<string> {
+  const here = accounts.filter((account) => account.iface === iface);
+  return (here.length > 0 ? here : accounts.slice(0, 1)).map((account) => account.platformId).filter(Boolean);
 }
 
 const readsOf = (entry: { sources: ReadonlyArray<{ table: string; id: string }> }): Array<MemoryRead> =>
@@ -139,12 +141,6 @@ function excerptText(w: Words, excerpt: ExcerptEntry): string {
   });
 }
 
-/** The chat id of a stored place, which its channel handle stands for; null for a one-to-one chat. */
-export function channelIdOf(placeId: string, kind: string | null): string | null {
-  if (kind === 'dm') return null;
-  return nativeOfAny(placeId) ?? placeId;
-}
-
 /** Whether `person` is the one the frame answers: the same person, or one of their accounts. */
 function answers(frame: FrameView, person: PersonEntry): boolean {
   const them = frame.counterpart;
@@ -155,10 +151,10 @@ function answers(frame: FrameView, person: PersonEntry): boolean {
 function peopleItems(w: Words, mind: Mind, live: LiveOf | null): Array<MemoryItem> {
   const item = (person: PersonEntry, counterpart: boolean): MemoryItem => ({
     subtag: 'people',
-    text: personText(w, person, counterpart, live ? live(person.accounts) : null),
+    text: personText(w, person, counterpart, live ? live(nativeIds(person.platformAccounts, w.frame.interface)) : null),
     counterpart,
     name: person.name,
-    handleIds: nativeIds(person.accounts, w.frame.interface),
+    handleIds: nativeIds(person.platformAccounts, w.frame.interface),
     reads: readsOf(person),
   });
   const seen = new Set<string>();
@@ -169,7 +165,7 @@ function peopleItems(w: Words, mind: Mind, live: LiveOf | null): Array<MemoryIte
   if (found) first.push(item(found, true));
   else if (them !== null) {
     const name = them.name ?? them.accountId;
-    const now = live ? live([them.accountId]) : null;
+    const now = live ? live([them.nativeId]) : null;
     first.push({
       subtag: 'people',
       text: [heading(w, name, w.l.counterpart ?? '', false), now ? valueLine(w.l.live, now) : '']
@@ -177,7 +173,7 @@ function peopleItems(w: Words, mind: Mind, live: LiveOf | null): Array<MemoryIte
         .join('\n'),
       counterpart: true,
       name: them.name,
-      handleIds: nativeIds([them.accountId], w.frame.interface),
+      handleIds: [them.nativeId].filter(Boolean),
       reads: [],
     });
   }
@@ -219,10 +215,12 @@ export function memoryItemsOf(
   labels: Labels,
   nameOf: NameOf,
   live: LiveOf | null = null,
-  selfreflectionIds: ReadonlySet<string> = new Set()
+  selfreflectionIds: ReadonlySet<string> = new Set(),
+  chatIdOf: ChatIdOf = () => null
 ): Array<MemoryItem> {
   const l = labels.memory ?? {};
-  const mine = (place: PlaceEntry): boolean => selfreflectionIds.has(channelIdOf(place.placeId, place.kind) ?? '');
+  const chatOf = (place: PlaceEntry): string | null => (place.kind === 'dm' ? null : chatIdOf(place.placeId));
+  const mine = (place: PlaceEntry): boolean => selfreflectionIds.has(chatOf(place) ?? '');
   const w: Words = { l, origin: l.origin ?? {}, frame, nameOf, locale: labels.locale };
   const plain = (subtag: MemorySubtag, text: string, reads: Array<MemoryRead>): MemoryItem => ({
     subtag,
@@ -237,7 +235,7 @@ export function memoryItemsOf(
     ...mind.interfaces.map((entry) => plain('places', interfaceText(w, entry), readsOf(entry))),
     ...mind.places.map((place) => ({
       ...plain('places', placeText(w, place, mine(place)), readsOf(place)),
-      placeId: place.kind === 'dm' ? null : place.placeId,
+      chatId: chatOf(place),
     })),
     ...mind.lore.map((claim) => plain('lore', loreText(w, claim), readsOf(claim))),
     ...mind.recent.map((episode) => plain('recent', episodeText(w, episode), readsOf(episode))),
@@ -297,7 +295,7 @@ export function peopleMemoryOf(
     text: personText(w, person, false, null),
     counterpart: false,
     name: person.name,
-    handleIds: nativeIds(person.accounts, view.interface),
+    handleIds: nativeIds(person.platformAccounts, view.interface),
     reads: readsOf(person),
   }));
   const body = renderMemory(items, leftOut > 0 ? { people: leftOut } : {}, labels);

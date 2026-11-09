@@ -104,7 +104,10 @@ const NIKOS = personEntry('222', 'Νίκος', { evidence: 'author' });
 
 /** A request whose `<memory>` holds Eléni and Níkos as the turn answering Eléni renders them. */
 function memoryRequest(): string {
-  const frame = frameOf(frameInput({ author: { personId: ELENI.personId, accountId: 'fake:111', name: 'Ελένη' } }));
+  // The party carries the id the interface names them by (plan 2026-11-08 ids-by-links, slice 7b).
+  const frame = frameOf(
+    frameInput({ author: { personId: ELENI.personId, accountId: 'fake:111', nativeId: '111', name: 'Ελένη' } })
+  );
   const mind = mindOfEntries({ people: [NIKOS, ELENI] });
   return block('memory', memoryBlockOf(mind, frame, shippedLabels, () => null).text);
 }

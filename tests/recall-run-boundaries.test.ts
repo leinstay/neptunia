@@ -30,9 +30,10 @@ const lanes = [{ kind: 'message', text: 'rabbit', words: 'rabbit' }];
 type Quotes = { outcome: { kind: string }; quotes: Array<{ channelName: string | null; lines: string }> };
 
 function scene(env: ReturnType<typeof fixture>, store: object = {}) {
+  // The recall fixture stores the default place's row itself (plan 2026-11-08 ids-by-links, slice 7).
   env.db
     .prepare(
-      "INSERT INTO places (id, iface, kind, native_id, scope_kind) VALUES (?, 'discord', 'channel', 'main', 'group')"
+      "INSERT OR IGNORE INTO places (id, iface, kind, native_id, scope_kind) VALUES (?, 'discord', 'channel', 'main', 'group')"
     )
     .run(PLACE);
   env.say({ native: 'boundary-before', at: NOW - 120000, text: 'rabbit boundary evidence' });
