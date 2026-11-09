@@ -6,7 +6,7 @@ import path from 'node:path';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import type { MemoryDbService } from '../src/memory/db/service.ts';
-import { accountCollection, personaKey } from '../src/memory/db/storage-keys.ts';
+import { accountCollection } from '../src/memory/db/storage-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { readSeamOf } from '../src/memory/types.ts';
 import type { MemoryDb } from '../src/memory/types.ts';
@@ -41,11 +41,6 @@ function service(): MemoryDbService {
 
 /** A field of a cached value, read without trusting its shape. */
 const fieldOf = (value: unknown, name: string): unknown => Reflect.get(Object(value), name);
-/** The plan of the first post of a cached selfreflection value. */
-const firstPlan = (value: unknown): unknown => {
-  const posts = fieldOf(value, 'posts');
-  return Array.isArray(posts) ? fieldOf(posts[0], 'plan') : undefined;
-};
 
 function cacheOver(memoryDb: MemoryDb) {
   return createUnitCache({ memoryDb, seam: readSeamOf(memoryDb, SILENT, 'store'), files: FILES });
@@ -86,28 +81,6 @@ test('a moved profile with unflushed changes is read again only after its own wr
   const again = cache.entry(file, () => ({}));
   assert.notEqual(again, item);
   assert.deepEqual(fieldOf(again.value, 'names'), ['Άννα']);
-});
-
-test("an owner's fill reaches a selfreflection whose write is still pending, and is written with it", async () => {
-  // Bug: the next write of the cached selfreflection drops the plan a fill put on an old entry.
-  const memoryDb = service();
-  const cache = cacheOver(memoryDb);
-  const file = cache.address(personaKey('selfreflection'));
-  const post = { at: 1000, kind: 'status', gist: 'a quiet pier', text: 'a quiet pier', picture: null, search: null };
-  const plan = { brief: 'the pier at dusk', seeds: [['a harbour town']], seed: 1 };
-  const item = cache.entry(file, () => ({ posts: [], updatedAt: 0 }));
-  item.value = { posts: [{ ...post, itemId: 'selfreflection:old', plan }], updatedAt: 1000 };
-  item.dirty = true;
-  cache.flushAll();
-  await cache.settle();
-  item.value = { posts: [{ ...post, itemId: 'selfreflection:old' }], updatedAt: 1000 };
-  item.dirty = true;
-  assert.equal(cache.selfreflectionFilled(), true);
-  assert.deepEqual(firstPlan(item.value), plan);
-  await cache.settle();
-  const fresh = cacheOver(memoryDb);
-  const stored = fresh.entry(fresh.address(personaKey('selfreflection')), () => ({ posts: [] }));
-  assert.deepEqual(firstPlan(stored.value), plan);
 });
 
 test('a database without a writer keeps a flushed unit dirty', () => {

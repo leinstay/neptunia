@@ -97,9 +97,6 @@ const LABELS = SHIPPED.prompts.labels as typeof contractLabels;
 /** Tracked prompt files no request here can build, each with the reason. */
 const NOT_BUILT = {
   'describe-audio': 'a voice message needs a fetcher of the file: tests/media-memory-audio.test.ts builds it',
-  // The owner's plan fill builds it over the memory database, with a scripted model in tests/selfreflection-plan-fill.test.ts.
-  'selfreflection-plan-fill':
-    'built by the plan fill (src/memory/db/selfreflection-plan-fill.ts), checked in tests/selfreflection-plan-fill.test.ts',
   // The voice-message preparation pass (src/speech/prepare.ts) runs inside the speech pipeline, whose request tests/speech-prepare.test.js checks.
   'speech-prepare': 'built by the speech pipeline (src/speech/prepare.ts), checked in tests/speech-prepare.test.js',
   // Built inside the createMessageHandler closure of src/behavior/pipeline.ts (buildFollowUpRequest),

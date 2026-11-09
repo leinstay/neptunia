@@ -55,7 +55,6 @@ export type MemoryDb = {
   memoryWrite?: (update: unknown) => Promise<unknown>;
   keepPending?: (update: unknown) => string;
   onAffinityMoves?: (listener: (moves: Array<Row>) => void) => () => void;
-  onSelfreflectionFill?: (listener: () => void) => () => void;
 };
 
 /** Whether the database can take a unit write: the outbox of a store or a journal exists only then. */
