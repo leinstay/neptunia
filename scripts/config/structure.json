@@ -233,9 +233,18 @@
     },
     {
       "path": "interfaces/cli/",
-      "purpose": "The interactive presentation of the chat: Ink, written with createElement, importing nothing of the engine.",
+      "purpose": "The owner's chat in his terminal: the Ink presentation, written with createElement, and the link that serves the `cli` adapter. It reads the core's media classifier, a pure module, and nothing else of the engine beyond the protocol.",
       "layer": "public",
-      "imports": ["ink", "react", "@jimp/*", "@jsquash/webp", "node:*", "interfaces/cli/**"],
+      "imports": [
+        "ink",
+        "react",
+        "@jimp/*",
+        "@jsquash/webp",
+        "node:*",
+        "src/media/classify.ts",
+        "src/protocol/**",
+        "interfaces/cli/**"
+      ],
       "test": "none"
     },
     {

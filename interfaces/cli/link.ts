@@ -1,19 +1,27 @@
 // The owner client's link to the core: the `cli` interface's hello and adapter on one transport, the chat of the
 // chat, and the commands with their answers by `replyRef`. `openLinkOver` serves any transport, so the question bridge is
 // tested over the real protocol without a socket. A question a command asks reaches `answers` with its prompt, whether it
-// is secret and its choices, and the answer goes back once, as a dialog answer and never as an argument. bin/neptunia.ts
-// opens it on the core's socket.
+// is secret and its choices, and the answer goes back once, as a dialog answer and never as an argument. `start` is the
+// package's entry of the interface contract, and bin/neptunia.ts calls it over the core's socket.
 
 import { randomUUID } from 'node:crypto';
-import type { Adapter, Capabilities, ChatInfo, Delivery, HistoryQuery, MessageEvent } from '../src/protocol/adapter.ts';
-import { serveAdapter } from '../src/protocol/serve.ts';
-import type { CommandResult, Logger } from '../src/protocol/serve.ts';
-import { TURN_EVENT_STATUS, readTurnEvent } from '../src/protocol/turn-control.ts';
-import type { TurnEvent } from '../src/protocol/turn-control.ts';
-import type { Transport } from '../src/protocol/wire.ts';
-import { classifyAttachment } from '../src/media/classify.ts';
-import type { Attachment } from '../src/protocol/actions.ts';
-import { UnansweredQuestion, unansweredText } from './neptunia-request.ts';
+import type {
+  Adapter,
+  Capabilities,
+  ChatInfo,
+  Delivery,
+  HistoryQuery,
+  MessageEvent,
+} from '../../src/protocol/adapter.ts';
+import { serveAdapter } from '../../src/protocol/serve.ts';
+import type { CommandResult, Logger } from '../../src/protocol/serve.ts';
+import { TURN_EVENT_STATUS, readTurnEvent } from '../../src/protocol/turn-control.ts';
+import type { TurnEvent } from '../../src/protocol/turn-control.ts';
+import type { Transport } from '../../src/protocol/wire.ts';
+import { classifyAttachment } from '../../src/media/classify.ts';
+import type { Attachment } from '../../src/protocol/actions.ts';
+import type { InterfaceHost, RunningInterface } from '../../src/protocol/host.ts';
+import { UnansweredQuestion, unansweredText } from './questions.ts';
 
 /** The owner's command line: its client, its namespace and its one chat. */
 export const CLI_CLIENT = 'cli';
@@ -379,5 +387,54 @@ export function openLinkOver(
     },
     closed,
     close: () => served.close(),
+  };
+}
+
+/** What `start` takes: the host's connection and token, and what a terminal adds to them. */
+export type CliHost = Pick<InterfaceHost, 'connect' | 'token'> & {
+  print: Print | null;
+  deliver?: ((file: Attachment) => Promise<void>) | null;
+  onTurnEvent?: ((event: TurnEvent) => void) | null;
+  /** The lines the core's history reads answer from, kept across a reconnect. */
+  transcript?: Array<MessageEvent>;
+};
+
+/** The running command line: the interface contract's handle, and the console over the link it holds now. */
+export type RunningCli = RunningInterface & CliLink & { reconnect(): Promise<void> };
+
+/**
+ * The `cli` interface over `host.connect()` (src/protocol/host.ts). It holds no event before `open()`, because a line
+ * goes out only when the owner sends it, and it keeps no outbox: a line the core does not take stays in the input.
+ * `reconnect()` opens a new link with the same transcript, and `closed` is always the current link's.
+ */
+export async function start(host: CliHost): Promise<RunningCli> {
+  const options = {
+    token: host.token,
+    print: host.print,
+    deliver: host.deliver ?? null,
+    onTurnEvent: host.onTurnEvent ?? null,
+    transcript: host.transcript ?? [],
+  };
+  let link = openLinkOver(await host.connect(), options);
+  return {
+    iface: CLI_IFACE,
+    open() {},
+    async stop() {
+      link.close();
+      await link.closed;
+    },
+    async reconnect() {
+      const next = openLinkOver(await host.connect(), options);
+      link.close();
+      link = next;
+    },
+    say: (text, images, replyTo) => link.say(text, images, replyTo),
+    turn: (text, images) => link.turn(text, images),
+    showLines: (lines) => link.showLines(lines),
+    ask: (command, answers) => link.ask(command, answers),
+    get closed() {
+      return link.closed;
+    },
+    close: () => link.close(),
   };
 }

@@ -1,10 +1,10 @@
 // Where the core's command intake (src/interface/neptunia-cli.ts) sends her posts in the owner's command line chat:
 // to the client that sent the last line while it is connected, else to an open chat, a client that asked for the turn
-// events with `turn.replay`. The clients are the real owner client (bin/cli-link.ts) over a loopback to the core's end
+// events with `turn.replay`. The clients are the real owner client (interfaces/cli/link.ts) over a loopback to the core's end
 // of the link (src/interface/link.ts).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openLinkOver } from '../bin/cli-link.ts';
+import { openLinkOver } from '../interfaces/cli/link.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { openAdapterLink } from '../src/interface/link.ts';
 import type { AdapterLink } from '../src/interface/link.ts';

@@ -320,3 +320,15 @@ test('the real handler stores a token given through --secret-stdin, and prints n
     assert.equal((run.stdout + run.stderr).includes(SECRET), false);
   });
 });
+
+test('interface run cli exits 2, says to run neptunia and connects to no core', async () => {
+  // Catches: the unit runner starting the owner's terminal chat as a unit with no terminal, now that the package
+  // exports start(host).
+  fresh();
+  const before = core.connections();
+  const run = await runChild(dirs, ['interface', 'run', 'cli'], { ms: PROMPTLY });
+  assert.equal(run.code, 2, run.stderr.slice(0, 200));
+  assert.equal(run.stdout, '');
+  assert.ok(run.stderr.includes('run neptunia'), run.stderr);
+  assert.equal(core.connections(), before, 'no link was opened');
+});
