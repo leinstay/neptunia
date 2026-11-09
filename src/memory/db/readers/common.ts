@@ -1,7 +1,7 @@
 // Shared semantic readers and the ready database seam. Core modules read complete values and ordered lines by
 // StorageKey. A key of an operational kind reads its row by kind and subject (operational.ts), a key of the
-// intentions reads their rows (readers/intentions.ts), and a day of the record or of the journal its lines
-// (record-lines.ts, journal-lines.ts). The explicit legacy export adapter understands historical owner
+// intentions reads their rows (readers/intentions.ts), a day of the record or of the journal and a month of the
+// archive their lines (record-lines.ts, journal-lines.ts, archive-lines.ts). The explicit legacy export adapter understands historical owner
 // strings. A closed service refuses reads with DB_CLOSED; failures are logged once with their reader and code, without
 // stored contents.
 
@@ -9,6 +9,7 @@ import { isOperationalKind, operationalLines, operationalValue } from '../operat
 import { intentionsArchiveLines, intentionsValue } from './intentions.ts';
 import { recordLines } from '../record-lines.ts';
 import { journalLines } from '../journal-lines.ts';
+import { archiveUnitLines } from '../archive-lines.ts';
 import { hasStorageUnits } from '../storage-units.ts';
 import { storageId } from '../storage-keys.ts';
 import type { StorageKey } from '../storage-keys.ts';
@@ -40,7 +41,7 @@ const unitRelOf = (owner: string) => /^[^/]+\/[^/]+\/(.+)$/.exec(owner)?.[1] ?? 
 
 /**
  * The key of a unit whose kind its own reader answers (an operational kind, the intentions, a day of the record or of
- * the journal), else
+ * the journal, a month of the archive), else
  * null; a path spells it.
  */
 function directKey(db: Db, given: StorageKey | string): StorageKey | null {
@@ -53,8 +54,7 @@ function directKey(db: Db, given: StorageKey | string): StorageKey | null {
       key = null;
     }
   }
-  return key &&
-    (isOperationalKind(key.kind) || key.kind === 'intentions' || key.kind === 'record' || key.kind === 'journal')
+  return key && (isOperationalKind(key.kind) || ['intentions', 'record', 'journal', 'archive'].includes(key.kind))
     ? key
     : null;
 }
@@ -70,6 +70,7 @@ export function unitLines(dbGiven: unknown, key: StorageKey | string): Array<str
   if (direct?.kind === 'intentions') return intentionsArchiveLines(db);
   if (direct?.kind === 'record') return recordLines(db, direct);
   if (direct?.kind === 'journal') return journalLines(db, direct);
+  if (direct?.kind === 'archive') return archiveUnitLines(db, direct);
   if (hasStorageUnits(db)) return storageLines(db, typeof key === 'string' ? legacyStorageKey(key) : key);
   const owner = typeof key === 'string' ? key : storageId(key);
   const info = infoOf(owner, 'jsonl');

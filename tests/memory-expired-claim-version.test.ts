@@ -1,5 +1,5 @@
 // An episode of the participation store that expires leaves an archive line, which the database keeps as a
-// `claim_versions` row naming the episode (`claim_id` = its `pt-` item id, src/memory/db/map/archive.ts). The episode
+// `claim_versions` row naming the episode (`claim_id` = its `pt-` item id, src/memory/db/archive-lines.ts). The episode
 // stays as a retired row of `episodes`, so the version must resolve to a row that exists (a claim or an episode) and the
 // memory audit's `danglingLinks` must stay 0. Which side moves, the audit's parent set or a stub claim, is the fix's
 // choice; the test holds both. Synthetic data only.

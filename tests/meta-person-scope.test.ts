@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { storageContext, storageMapper } from '../src/memory/db/map/index.ts';
 import { journalLineOf, journalRows } from '../src/memory/db/journal-lines.ts';
+import { archiveRows } from '../src/memory/db/archive-lines.ts';
 import { personOfAccount } from '../src/memory/db/meta-person.ts';
 import { observe, OBSERVATION_VERSION } from '../src/memory/db/observe.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
@@ -360,9 +361,9 @@ test("an archived item of a member with no stored direct chat names the member's
   withDb((db, handle) => {
     seeInGroup(handle, '701');
     const key = placeCollection('archive', 'discord:channel:c1', { partition: '2026-11' });
-    const { mapper } = storageMapper(db, key, storageId(key));
     const entry: Row = { id: 'ar1', kind: 'archive', event: 'expired', itemId: 'c9', scope: { user: '701' } };
-    const [stub] = mapper.toRows('a', entry, { hotClaimIds: new Set<string>() }).claims ?? [];
+    const owner = { id: storageId(key), position: 0 };
+    const [stub] = archiveRows(entry, storageContext(db, key), owner, new Set<string>()).claims ?? [];
     assert.equal(stub?.subject_id, personOf(db, 'discord:701'));
     assert.equal(stub?.scope_kind, 'internal');
   });
