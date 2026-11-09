@@ -99,6 +99,14 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
       'How long a role stays on a later route of its chain after a route was unavailable, before its next request tries the first route again (minutes). Read at each request',
   },
   {
+    'key': 'llm.routeEffort',
+    'types': ['map'],
+    'reader': 'src/llm/chain-client.ts',
+    'default': { 'core': 'low' },
+    'text':
+      'The effort a route of a role takes when its text names none, by role: `low`, `medium` or `high`. Shipped with `core` at `low`, the lowest the providers offer. Read at each request',
+  },
+  {
     'key': 'llm.cache.ttl',
     'types': ['string'],
     'reader': 'src/llm/openrouter.ts',

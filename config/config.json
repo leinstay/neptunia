@@ -63,6 +63,7 @@
     "reasoningByRole": {},
     "boundKeys": {},
     "routeRetryMinutes": 30,
+    "routeEffort": { "core": "low" },
     "cache": {
       "ttl": "1h",
       "roles": ["core"],

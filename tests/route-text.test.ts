@@ -45,10 +45,16 @@ test('opencode is refused as a harness', () => {
   assert.equal(readCode(parseRouteText('core', 'harness:opencode/anthropic/claude-opus-4.6')), 'route-unsupported');
 });
 
-test('an effort on an API route of the core is refused, the core never gets provider reasoning', () => {
-  // Catches: `helpers/anthropic/claude-opus-4.6:high` on the core sending `reasoning`, against the owner's rule.
-  assert.equal(readCode(parseRouteText('core', 'helpers/anthropic/claude-opus-4.6:high')), 'route-unsupported');
-  assert.equal(readCode(parseRouteText('embedding', 'helpers/openai/text-embedding-3-large:low')), 'route-unsupported');
+test('an effort on an API route is read for every role, the core included', () => {
+  // Changed: the owner's correction of 2026-11-09 lifts the role exception; the core's default is a setting instead.
+  // Catches: `:high` on the core refused, or left on the model id so the provider is asked for a model that does not exist.
+  assert.deepEqual(parseRouteText('core', 'helpers/anthropic/claude-opus-4.6:high'), {
+    via: 'api',
+    key: 'helpers',
+    model: 'anthropic/claude-opus-4.6',
+    effort: 'high',
+  });
+  assert.equal(readCode(parseRouteText('embedding', 'helpers/openai/text-embedding-3-large:low')), null);
 });
 
 test('a route with no model or a bad key name is malformed', () => {

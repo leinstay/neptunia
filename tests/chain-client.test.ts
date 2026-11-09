@@ -272,3 +272,23 @@ test('a client wrapped for its role reports each failed call and passes the answ
   await assert.rejects(client.embed(true), (error) => error === failure);
   assert.deepEqual(reported, [['embedding', failure]]);
 });
+
+test("a role's route with no effort takes the default effort of llm.routeEffort, on a key or a harness", async () => {
+  // Catches: the core's routes sent with no effort although the shipped setting names the lowest one.
+  const config = { ...CORE_CHAIN, llm: { routeEffort: { core: 'low' } } };
+  const { client, asked } = rig(config, { core: [coded('subscription-exhausted')] });
+  await client.complete(MESSAGES, { role: 'core' });
+  assert.equal((optionsOf(asked, 0).chainRoute as { effort?: unknown }).effort, 'low');
+  assert.deepEqual(optionsOf(asked, 1).reasoning, { effort: 'low' });
+});
+
+test('an effort the route names wins over the default of llm.routeEffort', async () => {
+  // Catches: the setting overriding the owner's own `:high` on a route.
+  const config = {
+    models: { routes: { core: [{ via: 'api', key: 'helpers', model: 'x/core', effort: 'high' }] } },
+    llm: { routeEffort: { core: 'low' } },
+  };
+  const { client, asked } = rig(config);
+  await client.complete(MESSAGES, { role: 'core' });
+  assert.deepEqual(optionsOf(asked, 0).reasoning, { effort: 'high' });
+});
