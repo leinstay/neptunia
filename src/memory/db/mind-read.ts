@@ -30,12 +30,13 @@
 
 import { estimateTokens } from '../../llm/tokens.ts';
 import { indexWords } from '../record-index.ts';
+import { graphNodeId } from './graph.ts';
 import { SELF_PERSON } from './ids.ts';
 import { profileAccountsOf } from './meta-person.ts';
 import type { PersonAccount, ProfileAccount } from './meta-person.ts';
 import { loadStemmer } from './stems.ts';
 import { interfaceNouns, matchName, normalName, phrasesOf, namesIn } from './names.ts';
-import type { NameHitRow, NameMatch } from './names.ts';
+import type { NameHitRow, NameMatch, NodeRef } from './names.ts';
 import { placeChainInDb } from './place-tree.ts';
 import { allowedAudience, audienceWhere, dmAudienceId, groupAudienceId, AUD_INTERNAL } from './scope.ts';
 import type { Context } from './scope.ts';
@@ -115,14 +116,14 @@ export type SeedMessage = {
   text: string;
   trigger: boolean;
 };
-/** A seed of an earlier turn of this chat, by its graph node. */
-export type EntryRef = { nodeId: string };
+/** A seed of an earlier turn of this chat, by its graph node's kind and row. */
+export type EntryRef = NodeRef;
 export type Seeds = {
   messages: Array<SeedMessage>;
   counterpart: { personId: string; accountId: string } | null;
   place: string | null;
   previous: Array<EntryRef>;
-  candidates: Array<{ nodeId: string; sourceIds: Array<string>; from: 'prefetch' | 'query' }>;
+  candidates: Array<NodeRef & { sourceIds: Array<string>; from: 'prefetch' | 'query' }>;
 };
 export type MindSettings = {
   windowMessages: number;
@@ -187,15 +188,19 @@ type Subtag = (typeof SUBTAGS)[number];
 const rankOf = (evidence: Evidence): number => EVIDENCE_ORDER.indexOf(evidence);
 
 const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() !== '' ? value : null);
-const rowIdOf = (nodeId: string, kind: string): string => nodeId.slice(kind.length + 1);
-const nodeKindOf = (nodeId: string): string => nodeId.slice(0, nodeId.indexOf(':'));
-const node = (kind: string, id: string): string => `${kind}:${id}`;
+/** A graph node with its kind and row: the node id is never read back for either. */
+type Node = NodeRef & { nodeId: string };
+/** The node of a row the caller holds, by `graphNodeId`. */
+const nodeOf = (kind: string, rowId: string): Node => ({ nodeId: graphNodeId(kind, rowId), kind, rowId });
+/** The node a query read with its `graph_nodes` row, as `node`, `kind` and `row_id`. */
+const readNode = (row: Row): Node => ({ nodeId: String(row.node), kind: String(row.kind), rowId: String(row.row_id) });
 const tokensOf = (rendered: string): number => (rendered === '' ? 0 : estimateTokens(rendered) + 2);
 
 /** A raised node before its rows are read. */
 type Raised = {
   nodeId: string;
   kind: 'person' | 'place' | 'interface';
+  rowId: string;
   evidence: Evidence;
   hop: number;
   anchor: string | null;
@@ -206,7 +211,7 @@ type Raised = {
   own: boolean;
   sources: Array<EntrySource>;
 };
-type Raise = Omit<Raised, 'kind' | 'sources' | 'own'> & { sources?: Array<EntrySource>; own?: boolean };
+type Raise = Omit<Raised, 'kind' | 'sources' | 'own'> & { kind: string; sources?: Array<EntrySource>; own?: boolean };
 type Sql = { sql: string; params: Array<string | number> };
 const RAISED_KINDS = new Set(['person', 'place', 'interface']);
 
@@ -234,13 +239,10 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
   const counterpartPerson = seeds.counterpart?.personId ?? null;
 
   /** Whether a node may be shown: a place by its own audience, an interface always, anything else by `node_access`. */
-  function visible(nodeId: string): boolean {
-    const kind = nodeKindOf(nodeId);
+  function visible({ nodeId, kind, rowId }: Node): boolean {
     if (kind === 'interface' || ctx.internal === true) return true;
     if (kind === 'place') {
-      const place = db
-        .prepare('SELECT id, iface, kind, chat, retired_at FROM places WHERE id = ?')
-        .get(rowIdOf(nodeId, 'place'));
+      const place = db.prepare('SELECT id, iface, kind, chat, retired_at FROM places WHERE id = ?').get(rowId);
       if (!place || place.retired_at !== null) return false;
       const own =
         place.chat === 'dm' || place.kind === 'dm'
@@ -255,11 +257,11 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
   }
 
   function raise(given: Raise): void {
-    const kind = nodeKindOf(given.nodeId);
-    if (!RAISED_KINDS.has(kind) || given.nodeId === node('person', SELF_PERSON)) return;
+    const { kind } = given;
+    if (!RAISED_KINDS.has(kind) || (kind === 'person' && given.rowId === SELF_PERSON)) return;
     const found = raised.get(given.nodeId);
     if (found === undefined) {
-      if (!visible(given.nodeId)) return;
+      if (!visible(given)) return;
       raised.set(given.nodeId, {
         ...given,
         kind: kind as Raised['kind'],
@@ -281,19 +283,19 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
     found.sources.push(...(given.sources ?? []));
   }
 
-  /** The person an account belongs to, through its live verified link. */
-  function personOfAccount(accountId: string): string | null {
+  /** The person an account's node belongs to, through its live verified link. */
+  function personOfAccount(accountNode: string): Node | null {
     const edge = aud('e');
     const from = nodeOk('e.src', 'a1');
     const to = nodeOk('e.dst', 'a2');
-    const rows = all(
+    const [row] = all(
       'account_of',
-      `SELECT e.dst AS node FROM graph_edges e
+      `SELECT e.dst AS node, n.kind, n.row_id FROM graph_edges e JOIN graph_nodes n ON n.id = e.dst
        WHERE e.src = ? AND e.predicate = 'account_of' AND ${live('e')} AND ${edge.sql} AND ${from.sql} AND ${to.sql}
        ORDER BY e.recorded_at DESC, e.dst LIMIT 1`,
-      [node('account', accountId), ...edge.params, ...from.params, ...to.params]
+      [accountNode, ...edge.params, ...from.params, ...to.params]
     );
-    return text(rows[0]?.node);
+    return row === undefined ? null : readNode(row);
   }
 
   /** The account row ids of a person, through live links the context reads. */
@@ -310,14 +312,15 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
   }
 
   /** The places of a person's memberships, over all of the person's accounts, newest first. */
-  function membershipPlaces(personNode: string): Array<string> {
+  function membershipPlaces(personNode: string): Array<Node> {
     const [ao, hm, mi] = [aud('ao'), aud('hm'), aud('mi')];
     const [account, membership] = [nodeOk('ao.src', 'a1'), nodeOk('hm.dst', 'a2')];
     return all(
       'memberships',
-      `SELECT mi.dst AS node, MAX(mi.recorded_at) AS at FROM graph_edges ao
+      `SELECT mi.dst AS node, pn.kind, pn.row_id, MAX(mi.recorded_at) AS at FROM graph_edges ao
        JOIN graph_edges hm ON hm.src = ao.src AND hm.predicate = 'has_membership' AND ${live('hm')} AND ${hm.sql}
        JOIN graph_edges mi ON mi.src = hm.dst AND mi.predicate = 'membership_in' AND ${live('mi')} AND ${mi.sql}
+       JOIN graph_nodes pn ON pn.id = mi.dst
        WHERE ao.dst = ? AND ao.predicate = 'account_of' AND ${live('ao')} AND ${ao.sql} AND ${account.sql} AND ${membership.sql}
        GROUP BY mi.dst ORDER BY at DESC, mi.dst LIMIT ?`,
       [
@@ -329,11 +332,11 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
         ...membership.params,
         settings.fanOut.memberships,
       ]
-    ).map((row) => String(row.node));
+    ).map(readNode);
   }
 
   /** The rooms of a root, by her own line count in each, then by id. */
-  function roomsOf(rootId: string): Array<string> {
+  function roomsOf(rootId: string): Array<Node> {
     const lines = aud('s');
     return all(
       'rooms',
@@ -341,17 +344,17 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
          AND s.retired_at IS NULL AND ${lines.sql}) AS mine
        FROM places p WHERE p.parent_id = ? AND p.retired_at IS NULL ORDER BY mine DESC, p.id LIMIT ?`,
       [...lines.params, rootId, settings.fanOut.rooms]
-    ).map((row) => node('place', String(row.id)));
+    ).map((row) => nodeOf('place', String(row.id)));
   }
 
   /** The members of a root, by her affinity to each (none last), then by id; she and the counterpart are not listed. */
-  function membersOf(rootNode: string): Array<string> {
+  function membersOf(rootNode: string): Array<Node> {
     const [mi, hm, ao] = [aud('mi'), aud('hm'), aud('ao')];
     const [membership, person] = [nodeOk('mi.src', 'a1'), nodeOk('ao.dst', 'a2')];
     const skip = [SELF_PERSON, counterpartPerson ?? SELF_PERSON];
     return all(
       'members',
-      `SELECT ao.dst AS node, MAX(pe.affinity) AS affinity FROM graph_edges mi
+      `SELECT ao.dst AS node, pn.kind, pn.row_id, MAX(pe.affinity) AS affinity FROM graph_edges mi
        JOIN graph_edges hm ON hm.dst = mi.src AND hm.predicate = 'has_membership' AND ${live('hm')} AND ${hm.sql}
        JOIN graph_edges ao ON ao.src = hm.src AND ao.predicate = 'account_of' AND ${live('ao')} AND ${ao.sql}
        JOIN graph_nodes pn ON pn.id = ao.dst JOIN people pe ON pe.id = pn.row_id AND pe.retired_at IS NULL
@@ -368,21 +371,21 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
         ...skip,
         settings.fanOut.members,
       ]
-    ).map((row) => String(row.node));
+    ).map(readNode);
   }
 
   /** The top places of an interface, a direct chat excepted. */
-  function rootsOf(iface: string): Array<string> {
+  function rootsOf(iface: string): Array<Node> {
     return all(
       'roots',
       `SELECT id FROM places WHERE iface = ? AND parent_id IS NULL AND retired_at IS NULL
          AND COALESCE(chat, '') <> 'dm' AND kind <> 'dm' ORDER BY id LIMIT ?`,
       [iface, settings.maxNodesRead]
-    ).map((row) => node('place', String(row.id)));
+    ).map((row) => nodeOf('place', String(row.id)));
   }
 
   /** The places of one kind on an interface, by her own line count. */
-  function placesOfKind(iface: string, kind: string): Array<string> {
+  function placesOfKind(iface: string, kind: string): Array<Node> {
     const lines = aud('s');
     return all(
       'kind',
@@ -390,11 +393,11 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
          AND s.retired_at IS NULL AND ${lines.sql}) AS mine
        FROM places p WHERE p.iface = ? AND p.kind = ? AND p.retired_at IS NULL ORDER BY mine DESC, p.id LIMIT ?`,
       [...lines.params, iface, kind, settings.fanOut.rooms]
-    ).map((row) => node('place', String(row.id)));
+    ).map((row) => nodeOf('place', String(row.id)));
   }
 
   /** The places she wrote in lately, newest first. */
-  function ownPlaces(): Array<string> {
+  function ownPlaces(): Array<Node> {
     const lines = aud('s');
     return all(
       'own',
@@ -402,7 +405,7 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
        WHERE s.author_kind = 'self' AND s.retired_at IS NULL AND s.place_id IS NOT NULL AND ${lines.sql}
        GROUP BY s.place_id ORDER BY last DESC, s.place_id LIMIT ?`,
       [...lines.params, settings.fanOut.rooms]
-    ).map((row) => node('place', String(row.place_id)));
+    ).map((row) => nodeOf('place', String(row.place_id)));
   }
 
   /** A stored line the context reads: its author, place, time and text. */
@@ -425,7 +428,7 @@ function walkerOf(db: Db, ctx: Context, settings: MindSettings, seeds: Seeds) {
       `SELECT n.row_id FROM graph_edges e JOIN graph_nodes n ON n.id = e.src
        WHERE e.dst = ? AND e.predicate = 'replies_to' AND e.retired_at IS NULL AND ${edge.sql} AND ${from.sql}
        ORDER BY e.recorded_at DESC, e.src LIMIT ?`,
-      [node('source', sourceId), ...edge.params, ...from.params, settings.fanOut.replies]
+      [graphNodeId('source', sourceId), ...edge.params, ...from.params, settings.fanOut.replies]
     ).map((row) => String(row.row_id));
   }
 
@@ -479,22 +482,23 @@ function wordHits(
   walker: Walker,
   settings: MindSettings,
   phrase: string,
-  present: (nodeId: string) => boolean,
+  present: (target: Node) => boolean,
   only?: ReadonlyArray<NameMatch>
-): { nouns: Array<NameHitRow>; nodes: Array<{ nodeId: string; match: NameMatch }>; candidate: boolean } {
+): { nouns: Array<NameHitRow>; nodes: Array<{ target: Node; match: NameMatch }>; candidate: boolean } {
   const hits = matchName(db, ctx, phrase, only, walker.stem);
   const nouns = hits.filter((hit) => hit.kind === 'interface_noun');
-  const byNode = new Map<string, NameMatch>();
+  const byNode = new Map<string, { target: Node; match: NameMatch }>();
   for (const hit of hits) {
-    if (hit.kind === 'interface_noun') continue;
+    if (hit.kind === 'interface_noun' || hit.node === null) continue;
     const target =
-      nodeKindOf(hit.nodeId) === 'account' ? walker.personOfAccount(rowIdOf(hit.nodeId, 'account')) : hit.nodeId;
-    if (target === null || target === node('person', SELF_PERSON) || byNode.has(target)) continue;
-    byNode.set(target, hit.match);
+      hit.node.kind === 'account' ? walker.personOfAccount(hit.nodeId) : { nodeId: hit.nodeId, ...hit.node };
+    if (target === null || (target.kind === 'person' && target.rowId === SELF_PERSON) || byNode.has(target.nodeId))
+      continue;
+    byNode.set(target.nodeId, { target, match: hit.match });
   }
-  let nodes = [...byNode].map(([nodeId, match]) => ({ nodeId, match }));
+  let nodes = [...byNode.values()];
   if (nodes.length > 1) {
-    const near = nodes.filter((one) => present(one.nodeId));
+    const near = nodes.filter((one) => present(one.target));
     if (near.length > 0) nodes = near;
   }
   if (nodes.length > settings.commonWordEntries) return { nouns, nodes: [], candidate: false };
@@ -503,13 +507,13 @@ function wordHits(
 }
 
 /** The places of the current root and the people already raised as present: what narrows an ambiguous word. */
-function presenceOf(db: Db, walker: Walker, place: string | null): (nodeId: string) => boolean {
+function presenceOf(db: Db, walker: Walker, place: string | null): (target: Node) => boolean {
   const root = place === null ? null : (placeChainInDb(db, place).at(-1)?.id ?? null);
-  return (nodeId) => {
-    const found = walker.raised.get(nodeId);
+  return (target) => {
+    const found = walker.raised.get(target.nodeId);
     if (found !== undefined && ['counterpart', 'author', 'native', 'reply'].includes(found.evidence)) return true;
-    if (root === null || nodeKindOf(nodeId) !== 'place') return false;
-    return placeChainInDb(db, rowIdOf(nodeId, 'place')).some((one) => one.id === root);
+    if (root === null || target.kind !== 'place') return false;
+    return placeChainInDb(db, target.rowId).some((one) => one.id === root);
   };
 }
 
@@ -535,7 +539,7 @@ function seedWords(
       for (const one of found.nodes)
         walker.raise({
           ...base,
-          nodeId: one.nodeId,
+          ...one.target,
           candidate: found.candidate,
           named: !found.candidate,
           keep: message.trigger && !found.candidate,
@@ -552,12 +556,13 @@ function raiseKind(
   noun: NameHitRow,
   base: { evidence: Evidence; hop: number; anchor: string; anchorAt: string }
 ): void {
-  const iface = rowIdOf(noun.nodeId, 'interface');
+  if (noun.node?.kind !== 'interface') return;
+  const iface = noun.node.rowId;
   const extra = db.prepare('SELECT extra FROM interfaces WHERE id = ?').get(iface)?.extra;
   const kind = Object.entries(interfaceNouns(extra)).find(([, word]) => normalName(word) === noun.normalized)?.[0];
   if (kind === undefined) return;
   for (const placeNode of walker.placesOfKind(iface, kind))
-    walker.raise({ ...base, nodeId: placeNode, candidate: false, named: false, keep: false });
+    walker.raise({ ...base, ...placeNode, candidate: false, named: false, keep: false });
 }
 
 /** The seeds that are no words: the counterpart, the place, the authors, mentions and replies, earlier seeds, finds. */
@@ -569,7 +574,7 @@ function seedTies(walker: Walker, seeds: Seeds, window: Array<SeedMessage>, foun
   if (seeds.counterpart !== null)
     walker.raise({
       ...quiet,
-      nodeId: node('person', seeds.counterpart.personId),
+      ...nodeOf('person', seeds.counterpart.personId),
       evidence: 'counterpart',
       anchor: trigger?.id ?? null,
       anchorAt: at,
@@ -578,7 +583,7 @@ function seedTies(walker: Walker, seeds: Seeds, window: Array<SeedMessage>, foun
   if (seeds.place !== null)
     walker.raise({
       ...quiet,
-      nodeId: node('place', seeds.place),
+      ...nodeOf('place', seeds.place),
       evidence: 'place',
       anchor: null,
       anchorAt: '',
@@ -586,10 +591,17 @@ function seedTies(walker: Walker, seeds: Seeds, window: Array<SeedMessage>, foun
     });
   for (const message of window) seedMessageTies(walker, message, windowIds, found);
   for (const ref of seeds.previous)
-    walker.raise({ ...quiet, nodeId: ref.nodeId, evidence: 'edge', anchor: null, anchorAt: '', keep: false });
+    walker.raise({
+      ...quiet,
+      ...nodeOf(ref.kind, ref.rowId),
+      evidence: 'edge',
+      anchor: null,
+      anchorAt: '',
+      keep: false,
+    });
   seedCandidates(walker, seeds.candidates, found);
   for (const placeNode of walker.ownPlaces())
-    walker.raise({ ...quiet, nodeId: placeNode, evidence: 'edge', anchor: null, anchorAt: '', keep: false, own: true });
+    walker.raise({ ...quiet, ...placeNode, evidence: 'edge', anchor: null, anchorAt: '', keep: false, own: true });
 }
 
 /** The ties of one line of the window: its author, its place, its mentions and the replies around it. */
@@ -602,12 +614,12 @@ function seedMessageTies(
   const quiet = { hop: 0, candidate: false, named: false };
   const anchor = { anchor: message.id, anchorAt: message.at };
   const person = (account: string | null, evidence: Evidence, keep: boolean): void => {
-    const target = account === null ? null : walker.personOfAccount(account);
-    if (target !== null) walker.raise({ ...quiet, ...anchor, nodeId: target, evidence, keep });
+    const target = account === null ? null : walker.personOfAccount(graphNodeId('account', account));
+    if (target !== null) walker.raise({ ...quiet, ...anchor, ...target, evidence, keep });
   };
   person(message.authorAccount, 'author', true);
   if (message.placeId !== null)
-    walker.raise({ ...quiet, ...anchor, nodeId: node('place', message.placeId), evidence: 'place', keep: false });
+    walker.raise({ ...quiet, ...anchor, ...nodeOf('place', message.placeId), evidence: 'place', keep: false });
   for (const mention of message.mentions) person(mention, message.trigger ? 'native' : 'edge', message.trigger);
   const replies =
     message.replyTo === null ? [] : [{ id: message.replyTo, evidence: message.trigger ? 'reply' : 'edge' }];
@@ -632,13 +644,13 @@ function seedCandidates(walker: Walker, candidates: Seeds['candidates'], found: 
   const quiet = { hop: 0, candidate: false, named: false };
   for (const candidate of candidates) {
     const sources = candidate.sourceIds.map((id) => ({ table: 'sources', id, version: null }));
-    if (nodeKindOf(candidate.nodeId) === 'source') {
-      const sourceId = rowIdOf(candidate.nodeId, 'source');
+    if (candidate.kind === 'source') {
+      const sourceId = candidate.rowId;
       found.set(sourceId, { sourceId, evidence: 'edge', anchor: null, anchorAt: '', from: candidate.from, sources });
     } else
       walker.raise({
         ...quiet,
-        nodeId: candidate.nodeId,
+        ...nodeOf(candidate.kind, candidate.rowId),
         evidence: 'edge',
         anchor: null,
         anchorAt: '',
@@ -663,22 +675,22 @@ function expand(db: Db, walker: Walker, settings: MindSettings, from: Raised): v
   const further = from.hop + 1 <= settings.maxHops && !from.candidate;
   if (from.kind === 'person' && further) {
     for (const placeNode of walker.membershipPlaces(from.nodeId))
-      walker.raise({ ...next, nodeId: placeNode, evidence: 'edge', hop: from.hop + 1 });
+      walker.raise({ ...next, ...placeNode, evidence: 'edge', hop: from.hop + 1 });
     return;
   }
   if (from.kind === 'interface' && further) {
-    for (const placeNode of walker.rootsOf(rowIdOf(from.nodeId, 'interface')))
-      walker.raise({ ...next, nodeId: placeNode, evidence: 'edge', hop: from.hop + 1 });
+    for (const placeNode of walker.rootsOf(from.rowId))
+      walker.raise({ ...next, ...placeNode, evidence: 'edge', hop: from.hop + 1 });
     return;
   }
   if (from.kind !== 'place') return;
-  const place = db.prepare('SELECT parent_id FROM places WHERE id = ?').get(rowIdOf(from.nodeId, 'place'));
+  const place = db.prepare('SELECT parent_id FROM places WHERE id = ?').get(from.rowId);
   const parent = text(place?.parent_id);
   if (parent !== null) {
     const evidence = from.evidence === 'place' ? 'place' : 'edge';
     walker.raise({
       ...next,
-      nodeId: node('place', parent),
+      ...nodeOf('place', parent),
       evidence,
       hop: from.hop,
       keep: from.keep && evidence === 'place',
@@ -686,10 +698,10 @@ function expand(db: Db, walker: Walker, settings: MindSettings, from: Raised): v
     return;
   }
   if (!from.named || !further) return;
-  for (const room of walker.roomsOf(rowIdOf(from.nodeId, 'place')))
-    walker.raise({ ...next, nodeId: room, evidence: 'edge', hop: from.hop + 1 });
+  for (const room of walker.roomsOf(from.rowId))
+    walker.raise({ ...next, ...room, evidence: 'edge', hop: from.hop + 1 });
   for (const member of walker.membersOf(from.nodeId))
-    walker.raise({ ...next, nodeId: member, evidence: 'edge', hop: from.hop + 1 });
+    walker.raise({ ...next, ...member, evidence: 'edge', hop: from.hop + 1 });
 }
 
 /** Every raised node expanded once, the nearest first, until the hops or the rows read run out. */
@@ -762,10 +774,10 @@ function personOf(
   trigger: ReadonlySet<string>,
   recent: Map<string, Raised>
 ): Built | null {
-  const personId = rowIdOf(raised.nodeId, 'person');
+  const personId = raised.rowId;
   const person = db.prepare('SELECT id, real_name, affinity, retired_at FROM people WHERE id = ?').get(personId);
   if (!person || person.retired_at !== null) return null;
-  const profileAccounts = profileAccountsOf(db, personId).filter((one) => walker.visible(node('account', one.id)));
+  const profileAccounts = profileAccountsOf(db, personId).filter((one) => walker.visible(nodeOf('account', one.id)));
   const accounts = [...new Set([...walker.accountsOf(raised.nodeId), ...profileAccounts.map((one) => one.id)])].sort();
   const marks = accounts.map(() => '?').join(', ');
   const accountRows =
@@ -827,7 +839,7 @@ function placeOf(
   recent: Map<string, Raised>,
   trigger: ReadonlySet<string>
 ): Built | null {
-  const placeId = rowIdOf(raised.nodeId, 'place');
+  const placeId = raised.rowId;
   const place = db
     .prepare('SELECT id, iface, kind, native_id, name, chat, retired_at FROM places WHERE id = ?')
     .get(placeId);
@@ -936,7 +948,7 @@ function promoteStrongest(built: ReadonlyArray<Built>): void {
 }
 
 function interfaceOf(db: Db, raised: Raised): Built {
-  const iface = rowIdOf(raised.nodeId, 'interface');
+  const iface = raised.rowId;
   const row = db.prepare('SELECT name FROM interfaces WHERE id = ?').get(iface);
   const entry: InterfaceEntry = {
     ...baseOf(raised),
@@ -977,8 +989,9 @@ function excerptsOf(walker: Walker, found: Map<string, ExcerptSeed>): Array<Buil
     const row = walker.line(seed.sourceId);
     if (row === undefined) continue;
     const raised: Raised = {
-      nodeId: node('source', seed.sourceId),
+      nodeId: graphNodeId('source', seed.sourceId),
       kind: 'place',
+      rowId: seed.sourceId,
       evidence: seed.evidence,
       hop: 0,
       anchor: seed.anchor,
@@ -1015,10 +1028,10 @@ function seedProse(db: Db, ctx: Context, walker: Walker, settings: MindSettings,
         const found = wordHits(db, ctx, walker, settings, phrase, () => false, ['exact']);
         if (found.candidate) continue;
         for (const hit of found.nodes)
-          if (!walker.raised.has(hit.nodeId))
+          if (!walker.raised.has(hit.target.nodeId))
             walker.raise({
               ...anchor,
-              nodeId: hit.nodeId,
+              ...hit.target,
               evidence: 'prose',
               hop: one.raised.hop + 1,
               candidate: false,

@@ -294,7 +294,7 @@ function seedsOf(
     counterpart: counterpartOf(frame, reads),
     place: frame.place?.id ?? null,
     previous: [],
-    candidates: hits.map((id) => ({ nodeId: `source:${id}`, sourceIds: [id], from: 'prefetch' as const })),
+    candidates: hits.map((id) => ({ kind: 'source', rowId: id, sourceIds: [id], from: 'prefetch' as const })),
   };
 }
 
@@ -390,21 +390,22 @@ function intentionCandidatesOf(
   ctx: Context
 ): Seeds['candidates'] {
   const out: Seeds['candidates'] = [];
-  const add = (nodeId: string, sourceIds: Array<string> = []): void => {
-    if (!out.some((one) => one.nodeId === nodeId)) out.push({ nodeId, sourceIds, from: 'query' });
+  const add = (kind: string, rowId: string, sourceIds: Array<string> = []): void => {
+    if (!out.some((one) => one.kind === kind && one.rowId === rowId))
+      out.push({ kind, rowId, sourceIds, from: 'query' });
   };
   for (const text of refs.texts)
     for (const [, iface = '', messageId = ''] of text.matchAll(IDENTITY)) {
       const line = reads.line(ctx, `src:${iface}:${messageId}`);
       if (line === null || line.deleted) continue;
       const sourceId = reads.sourceInPlace?.(line.placeId, line.id) ?? null;
-      if (sourceId !== null) add(`source:${sourceId}`, [sourceId]);
-      add(`place:${line.placeId}`, sourceId === null ? [] : [sourceId]);
+      if (sourceId !== null) add('source', sourceId, [sourceId]);
+      add('place', line.placeId, sourceId === null ? [] : [sourceId]);
       const account = line.authorId === null ? null : reads.account(iface, line.authorId);
       const person = account === null ? null : reads.person(account);
-      if (person !== null) add(`person:${person}`, sourceId === null ? [] : [sourceId]);
+      if (person !== null) add('person', person, sourceId === null ? [] : [sourceId]);
     }
-  for (const place of refs.places) if ((reads.placeRef?.(place) ?? null) !== null) add(`place:${place}`);
+  for (const place of refs.places) if ((reads.placeRef?.(place) ?? null) !== null) add('place', place);
   return out;
 }
 

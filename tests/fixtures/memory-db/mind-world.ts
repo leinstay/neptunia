@@ -181,3 +181,18 @@ export function seedStemmer(db: Db, endings: ReadonlyArray<string>, productivity
     "INSERT INTO meta (key, value) VALUES ('stemmer', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
   ).run(JSON.stringify({ count: 0, endings, productivity }));
 }
+
+/**
+ * Gives a graph node an id that spells neither its kind nor its row. The node keeps its kind and row in `graph_nodes`,
+ * and every edge, access row and name that pointed at the old id points at the new one.
+ */
+export function rekeyNode(db: Db, nodeId: string, opaque: string): void {
+  db.prepare(
+    'INSERT INTO graph_nodes (id, kind, row_id, created_at) SELECT ?, kind, row_id, created_at FROM graph_nodes WHERE id = ?'
+  ).run(opaque, nodeId);
+  db.prepare('UPDATE graph_edges SET src = ? WHERE src = ?').run(opaque, nodeId);
+  db.prepare('UPDATE graph_edges SET dst = ? WHERE dst = ?').run(opaque, nodeId);
+  db.prepare('UPDATE node_access SET node_id = ? WHERE node_id = ?').run(opaque, nodeId);
+  db.prepare('UPDATE names SET node_id = ? WHERE node_id = ?').run(opaque, nodeId);
+  db.prepare('DELETE FROM graph_nodes WHERE id = ?').run(nodeId);
+}
