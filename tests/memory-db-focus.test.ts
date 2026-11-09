@@ -129,6 +129,20 @@ test('recountDaily: addressed both ways from the stored lines, meaningful when b
   try {
     const day = START + 10 * DAY;
     const dm = { scope_kind: 'dm', scope_iface: 'discord', scope_dm: person(1), place_id: null };
+    // Changed with ids-by-links slice 3: no writer makes person 1's DM place from the person id, so it is stored first.
+    insertRows(db, {
+      places: [
+        {
+          id: `discord:dm:${native(1)}`,
+          iface: 'discord',
+          kind: 'dm',
+          native_id: null,
+          scope_kind: 'dm',
+          partner_person: person(1),
+          partner_account: account(1),
+        },
+      ],
+    });
     const herLine = line('said', day + HOUR, { native_id: 'her-1', id: 'src:discord:her-1:1:said' });
     insertRows(
       db,

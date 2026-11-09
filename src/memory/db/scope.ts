@@ -12,10 +12,12 @@
 // Audiences (schema v7, spec 2026-10-24-memory-schema-v7 sections 2 and 11.2): every scoped row also carries
 // `audience_id`, the normalised twin of its three columns: `aud:none`, `aud:internal`, `aud:group:<iface>` and
 // `aud:dm:<DM place id>` (a DM audience is the chat, not the person). `audienceOf(scope)` is the one resolver
-// every writer fills both from; `scopeOfAudience(id)` goes back. A malformed triple resolves to `aud:internal`.
+// every writer fills both from; `scopeOfAudience(id)` goes back. A malformed triple resolves to `aud:internal`. A DM
+// audience names its chat through the stored place its writer passes and goes back through that place's row: no place,
+// interface or partner is worked out from the text of a person or place id.
 
 import { randomUUID } from 'node:crypto';
-import { dmPartnerOfPlace, dmPlaceOfPerson, legacyPersonNative, personId, placeIdParts } from './ids.ts';
+import { dmPartnerOfPlace, legacyPersonNative, personId, placeIdParts } from './ids.ts';
 import { LEGACY_IFACE } from './legacy-namespace.ts';
 
 /** The three scope columns of a row. */
@@ -285,10 +287,10 @@ const isGroupInterface = (value: unknown): value is string => filled(value) && !
 
 /**
  * The one resolver: a scope (its three columns) and its audience id, `{ scope_kind, scope_iface, scope_dm, audience_id }`.
- * The triple comes back as given (it stays the compatibility projection). A DM scope resolves to the DM place of its
- * partner on that interface (`opts.dmPlace` when the writer knows it: then a DM whose partner is no known person, schema
- * v8's observed DM with an account nobody linked, is still its chat); a triple that names no valid audience (an
- * unknown kind, a group without an interface, a DM with neither a partner nor a known place) is `aud:internal`.
+ * The triple comes back as given (it stays the compatibility projection). A DM scope resolves to the stored DM place its
+ * writer found (`opts.dmPlace`, as rows.ts#resolveRow finds it in `places`: then a DM whose partner is no known person,
+ * schema v8's observed DM with an account nobody linked, is still its chat); a triple that names no valid audience (an
+ * unknown kind, a group without an interface, a DM without a stored place) is `aud:internal`.
  */
 export function audienceOf(
   value: unknown,
@@ -306,10 +308,7 @@ export function audienceOf(
   };
   if (kind === 'none') out.audience_id = AUD_NONE;
   else if (kind === 'group' && isGroupInterface(iface)) out.audience_id = groupAudienceId(iface);
-  else if (kind === 'dm' && filled(iface) && (filled(dm) || filled(dmPlace))) {
-    const place = filled(dmPlace) ? dmPlace : dmPlaceOfPerson(dm, iface);
-    if (place) out.audience_id = dmAudienceId(place);
-  }
+  else if (kind === 'dm' && filled(iface) && filled(dmPlace)) out.audience_id = dmAudienceId(dmPlace);
   return out;
 }
 
@@ -326,8 +325,8 @@ export function wellFormed(scope: unknown): boolean {
 }
 
 /**
- * The parts of an audience id: `{ id, kind, iface, place_id }`. A DM audience's interface comes from its place
- * (`lookup(placeId)` -> `{ iface }` when given, else the legacy place spelling). Null for an id of no known shape.
+ * The parts of an audience id: `{ id, kind, iface, place_id }`. A DM audience's interface comes from its place row
+ * (`lookup(placeId)` -> `{ iface }`), null without a reader or a row. Null for an id of no known shape.
  */
 export function audienceParts(id: unknown, lookup: unknown = null): AudienceParts | null {
   const look = lookup as Lookup;
@@ -338,10 +337,7 @@ export function audienceParts(id: unknown, lookup: unknown = null): AudiencePart
     return { id: value, kind: 'group', iface: value.slice('aud:group:'.length), place_id: null };
   if (value.startsWith('aud:dm:') && value.length > 'aud:dm:'.length) {
     const place = value.slice('aud:dm:'.length);
-    const iface =
-      (typeof look === 'function' ? (look(place)?.iface as string | undefined) : null) ??
-      dmPartnerOfPlace(place)?.iface ??
-      null;
+    const iface = (typeof look === 'function' ? (look(place)?.iface as string | undefined) : null) ?? null;
     return { id: value, kind: 'dm', iface, place_id: place };
   }
   return null;
@@ -349,8 +345,8 @@ export function audienceParts(id: unknown, lookup: unknown = null): AudiencePart
 
 /**
  * The three columns of an audience id (the compatibility projection). A DM audience names its partner through its
- * place (`lookup(placeId)` -> `{ iface, partner_person }`, else the legacy place spelling); a stored place with no partner
- * person is a DM nobody linked, whose rows name none; an unknown id is internal.
+ * place row (`lookup(placeId)` -> `{ iface, partner_person }`), and is internal without a reader or a row; a stored place
+ * with no partner person is a DM nobody linked, whose rows name none; an unknown id is internal.
  */
 export function scopeOfAudience(id: unknown, lookup: unknown = null): Scope {
   const look = lookup as Lookup;
@@ -359,12 +355,10 @@ export function scopeOfAudience(id: unknown, lookup: unknown = null): Scope {
   if (parts.kind === 'none') return { ...SCOPE_NONE };
   if (parts.kind === 'group') return groupScope(parts.iface);
   const found = typeof look === 'function' && parts.place_id !== null ? look(parts.place_id) : null;
-  if (found && !found.partner_person && filled(found.iface))
-    return { scope_kind: 'dm', scope_iface: found.iface, scope_dm: null };
-  const partner = found?.partner_person
-    ? { iface: found.iface as string, person: found.partner_person as string }
-    : dmPartnerOfPlace(parts.place_id);
-  return partner ? dmScope(partner.person, partner.iface) : { ...SCOPE_INTERNAL };
+  if (!found || !filled(found.iface)) return { ...SCOPE_INTERNAL };
+  return filled(found.partner_person)
+    ? dmScope(found.partner_person, found.iface)
+    : { scope_kind: 'dm', scope_iface: found.iface, scope_dm: null };
 }
 
 /** The exact private audiences of a DM context, its own and the person's other DMs; none in group contexts. */

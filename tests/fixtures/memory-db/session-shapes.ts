@@ -51,6 +51,7 @@ export type Fixture = {
   group: Scope;
   say(args: SayArgs): string;
   claim(args: ClaimArgs): void;
+  storeDmPlace(member: string): void;
   done(): void;
 };
 export type FakeLlm = {

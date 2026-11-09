@@ -127,14 +127,15 @@ export function scopeOfContext(readCtx: Context | undefined): Scope {
 
 /**
  * The id of the description of `subject` and `field` in `scope`: the stored row's, else the scoped id of a new one.
- * `audienceColumn`: the stored row is found by its `audience_id` (the scope's audience), else by the triple.
+ * `audienceColumn`: the stored row is found by its `audience_id` (the scope's audience, a DM's through the context's
+ * place `dmPlace`), else by the triple.
  */
 export function descriptionIdFor(
   db: Db,
   subject: { id: unknown },
   field: unknown,
   scope: Scope,
-  { audienceColumn = false }: { audienceColumn?: boolean } = {}
+  { audienceColumn = false, dmPlace = null }: { audienceColumn?: boolean; dmPlace?: unknown } = {}
 ): string {
   const found =
     audienceColumn === true
@@ -142,7 +143,7 @@ export function descriptionIdFor(
           .prepare(
             'SELECT id FROM descriptions WHERE subject_id = ? AND field = ? AND audience_id = ? AND retired_at IS NULL ORDER BY id LIMIT 1'
           )
-          .get(subject.id, field, audienceOf(scope).audience_id)
+          .get(subject.id, field, audienceOf(scope, { dmPlace }).audience_id)
       : db
           .prepare(
             `SELECT id FROM descriptions WHERE subject_id = ? AND field = ? AND scope_kind IS ? AND scope_iface IS ? AND scope_dm IS ? AND retired_at IS NULL ORDER BY id LIMIT 1`
@@ -248,6 +249,7 @@ export function gatherReview(
   const scopeColumns = scopeOfContext(readCtx);
   const descriptionId = descriptionIdFor(db, subject, field, scopeColumns, {
     audienceColumn: readCtx?.audienceColumn === true,
+    dmPlace: readCtx.place,
   });
   const sourceIds = new Set<unknown>();
   const timezone = config?.bot?.timezone ?? 'UTC';
