@@ -60,8 +60,16 @@ type Plan = { forms: Array<string>; who: Array<string>; from: number | null; to:
 
 const planOf = (extra: Partial<Plan> = {}): Plan => ({ forms: [], who: [], from: null, to: null, ...extra });
 const theDay = (extra: Partial<Plan> = {}): Plan => planOf({ from: DAY_START, to: DAY_END, ...extra });
-const sampling = (env: Env, plan: Plan, rest: Record<string, unknown> = {}, ctx: unknown = group) =>
-  search(env.db, { ctx, plan, now: NOW, settings: SETTINGS, sampleTime: true, ...rest });
+/** The channels' place rows, as every stored line's place has one: a search finds a named channel by its native id. */
+function channelRows(env: Env): void {
+  env.channel(GENERAL, 'c1');
+  env.channel(SECRET, 'c4');
+  env.channel(OTHER, 'c9');
+}
+const sampling = (env: Env, plan: Plan, rest: Record<string, unknown> = {}, ctx: unknown = group) => {
+  channelRows(env);
+  return search(env.db, { ctx, plan, now: NOW, settings: SETTINGS, sampleTime: true, ...rest });
+};
 const lineIds = (found: { windows: Array<{ messages: Array<{ id: unknown }> }> }) =>
   found.windows.flatMap((window) => window.messages.map((message) => message.id));
 const hitIds = (found: { hits: Array<{ messageId: unknown }> }) => found.hits.map((hit) => hit.messageId);
@@ -857,6 +865,7 @@ test('asking for the time stream changes nothing about a search whose words matc
   const env = fixture();
   try {
     wordFixture(env);
+    channelRows(env);
     for (const plan of [
       planOf({ forms: ['ποδηλατο'] }),
       theDay({ forms: ['ποδηλατο'] }),

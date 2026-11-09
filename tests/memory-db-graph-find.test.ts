@@ -7,15 +7,21 @@
 //   peopleFound(db: Db, ctx: Context, request: string, settings?: Partial<FindSettings>): Array<FoundPerson>
 //   FoundPlace = { id; name; about: string | null; score: number }, FoundPerson = { id; name; about; score }
 //   FindSettings = { candidates: number; lines: number }
+//   both take a fifth argument FindMeaning = { vector: ArrayLike<number> | null; model: string | null }: the request's
+//   embedding, ranked against the object vectors of each candidate (object-vectors.ts) and fused with the words by rank
 // Synthetic names, in Greek.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { peopleFound, placesFound } from '../src/memory/db/graph-find.ts';
+import type { FindMeaning } from '../src/memory/db/graph-find.ts';
+import { pendingObjectEmbeds } from '../src/memory/db/object-vectors.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { dmContext, groupContext } from '../src/memory/db/scope.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import {
   AT,
+  NOW,
   addClaim,
   addDm,
   addLine,
@@ -261,5 +267,91 @@ test('a person is found by an alias only where the alias may be read', () => {
   assert.deepEqual(
     peopleFound(w.db, dmContext('person:s1', 'discord', dm), 'Σταυράκης').map((person) => person.id),
     ['person:s1']
+  );
+});
+
+// ---- meaning -----------------------------------------------------------------------------------------------------------
+
+const EMBEDDER = 'test/embedder';
+const ASKED = [1, 0, 0, 0];
+const AWAY = [0, 1, 0, 0];
+const meaning: FindMeaning = { vector: ASKED, model: EMBEDDER };
+
+/** Stores the vector of one object, a name set chosen by its audience when `audience` is given. */
+function embedObject(w: World, itemId: string, vector: ReadonlyArray<number>, audience: string | null = null): void {
+  const pending = pendingObjectEmbeds(w.db, { model: EMBEDDER, limit: 1000 }).find(
+    (one) => one.itemId === itemId && (audience === null || one.audienceId === audience)
+  );
+  assert.ok(pending, `${itemId} is pending an embedding`);
+  const { kind, audienceId, hash } = pending;
+  applyMemoryWrite(w.handle, {
+    kind: 'object-embedding',
+    model: EMBEDDER,
+    now: NOW,
+    items: [{ kind, itemId, audienceId, hash, vector }],
+  });
+}
+
+test('a place with Greek fields ranks first for an English request by the vector of its purpose', () => {
+  // Bug: the finder reads words only, so a request in another language than the place's fields finds no place.
+  const w = world();
+  const { sounds } = rooms(w);
+  embedObject(w, 'd:c1:p', ASKED);
+  embedObject(w, 'd:c2:p', AWAY);
+  embedObject(w, 'd:c3:p', AWAY);
+  assert.deepEqual(placesFound(w.db, GROUP, 'music and songs'), []);
+  assert.equal(placesFound(w.db, GROUP, 'music and songs', {}, meaning)[0]?.id, sounds);
+});
+
+test('a place found first by a Greek request keeps first place when another place is nearer in meaning', () => {
+  // Bug: the fused rank lets a neighbour by meaning overtake the place whose fields say every asked word.
+  const w = world();
+  const { sounds, player } = rooms(w);
+  embedObject(w, 'd:c1:p', AWAY);
+  embedObject(w, 'd:c2:p', ASKED);
+  assert.equal(placesFound(w.db, GROUP, 'μουσική')[0]?.id, sounds);
+  const found = placesFound(w.db, GROUP, 'μουσική', {}, meaning).map((place) => place.id);
+  assert.deepEqual(found.slice(0, 2), [sounds, player]);
+});
+
+test("a person's name set from a direct chat never ranks them in a group context", () => {
+  // Bug: the meaning list reads every name set, so an alias learned in private finds the person in public.
+  const w = world();
+  addPerson(w.db, {
+    id: 'person:s1',
+    accounts: [{ id: 'discord:s1', iface: 'discord', native: 's1', names: ['Σταύρος'] }],
+  });
+  const dm = addDm(w.db, { iface: 'discord', native: 's1', person: 'person:s1', account: 'discord:s1' });
+  addClaim(w.db, {
+    id: 'claim:alias:s1',
+    person: 'person:s1',
+    kind: 'alias',
+    text: 'Σταυράκης',
+    audience: { dm, iface: 'discord', person: 'person:s1' },
+  });
+  const sets = pendingObjectEmbeds(w.db, { model: EMBEDDER, limit: 1000 }).filter(
+    (one) => one.kind === 'names' && one.itemId === 'person:person:s1'
+  );
+  const privateSet = sets.find((one) => one.audienceId === `aud:dm:${dm}`);
+  const groupSet = sets.find((one) => one.audienceId !== `aud:dm:${dm}`);
+  assert.ok(privateSet && groupSet, 'the person has a group set and a direct chat set');
+  embedObject(w, 'person:person:s1', ASKED, privateSet.audienceId);
+  embedObject(w, 'person:person:s1', AWAY, groupSet.audienceId);
+  assert.deepEqual(peopleFound(w.db, GROUP, 'little Stavros', {}, meaning), []);
+  assert.deepEqual(
+    peopleFound(w.db, dmContext('person:s1', 'discord', dm), 'little Stavros', {}, meaning).map((one) => one.id),
+    ['person:s1']
+  );
+});
+
+test('a place under the meaning floor whose fields hold no asked word stays out', () => {
+  // Bug: every place with a vector joins the list at some rank, so a weak neighbour reads as a candidate.
+  const w = world();
+  const { sounds } = rooms(w);
+  embedObject(w, 'd:c1:p', ASKED);
+  embedObject(w, 'd:c3:p', [0.3, 0.954, 0, 0]);
+  assert.deepEqual(
+    placesFound(w.db, GROUP, 'music', {}, meaning).map((place) => place.id),
+    [sounds]
   );
 });

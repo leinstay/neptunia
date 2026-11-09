@@ -55,9 +55,9 @@ export const CONTEXT: ReadonlyArray<SchemaEntry> = [
     'key': 'context.find',
     'types': ['map'],
     'reader': 'src/memory/db/graph-find.ts',
-    'default': { 'candidates': 5, 'lines': 100 },
+    'default': { 'candidates': 5, 'lines': 100, 'deadlineMs': 1000 },
     'text':
-      'The finder of a place or a person named in words that name none (`placesFound`, `peopleFound`): how many candidates a tool result lists at most, and how many of a place\'s last lines are read for its people and its words. Described in `docs/memory.md`, "Finding a place or a person". A missing or broken key counts as its default',
+      'The finder of a place or a person named in words that name none (`placesFound`, `peopleFound`): how many candidates a tool result lists at most, how many of a place\'s last lines are read for its people and its words, and how long a call waits for the embedding of words that fit no candidate in full before it answers with the words alone (`deadlineMs`). Described in `docs/memory.md`, "Finding a place or a person". A missing or broken key counts as its default',
   },
   {
     'key': 'context.meanwhile.messages',

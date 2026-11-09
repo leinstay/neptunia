@@ -19,6 +19,14 @@ export const BOT: ReadonlyArray<SchemaEntry> = [
       "The owner's meta-person, whose bound accounts are the owner: the command line's account, and every account paired with `/interfaces pair` or bound with `/memory bind`. The first line of the command line on a raw install writes it, and so does `/memory bind <iface> <account> owner` while it is empty. See [Owner identity](memory.md#owner-identity)",
   },
   {
+    'key': 'bot.phraseWords',
+    'types': ['string'],
+    'reader': 'src/interface/phrase-codes.ts',
+    'default': 'phrase-words-en.txt',
+    'text':
+      "The word list of the one-time phrases that prove an account, a file of `config/` with one word per line. The same file in `data/config/` replaces it, so a deployment supplies a list in its audience's language there. The shipped list is BIP-39's English list. See [Phrase codes](interfaces.md#phrase-codes)",
+  },
+  {
     'key': 'bot.access',
     'types': ['map'],
     'reader': 'src/behavior/sandbox.ts',

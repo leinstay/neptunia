@@ -1,8 +1,8 @@
 // Places and people found by the memory graph for a name or a description in her words (docs/memory.md, "Finding a
 // place or a person"). Code ranks, she decides: the finder lists candidates best first and never picks one for her.
 //
-//   placesFound(db, ctx, request, settings) -> Array<FoundPlace>
-//   peopleFound(db, ctx, request, settings) -> Array<FoundPerson>
+//   placesFound(db, ctx, request, settings, meaning?) -> Array<FoundPlace>
+//   peopleFound(db, ctx, request, settings, meaning?) -> Array<FoundPerson>
 //
 // A place is read as the fields the graph holds about it: its name and the names of the index that point at it, its
 // stored purpose, topics and tone, the names of the people who wrote its last `lines` lines, and the words of those
@@ -14,25 +14,44 @@
 // word (an inflected form the stemmer has not learned). A field counts its matches with a saturation, a field weighs by
 // FIELD_WEIGHTS, and a word of the request weighs by how few candidates it fits (inverse document frequency), so a
 // word every candidate holds weighs nothing. A candidate below RELATIVE_FLOOR of the best one's score is left out, and
-// at most `candidates` come back. No model takes part. Read only.
+// at most `candidates` come back.
+//
+// Given the request's embedding (`FindMeaning`), a second list ranks each candidate by its best cosine at or above
+// `minMeaning` over its object vectors (object-vectors.ts#objectMeaning): its name sets, its descriptions, the claims
+// about it and its episodes. The two lists fuse by reciprocal rank and the floor applies to the fused score. A candidate
+// whose fields hold every word of the request comes first in the order of the words, whatever the floor, so a request
+// the words answer keeps its answer. With no embedding, or none that meets a vector, the result is the words' alone.
+// No model takes part. Read only.
 
+import { RECALL_DEFAULTS, fuseRanks } from '../../behavior/recall.ts';
 import { indexWords } from '../record-index.ts';
 import { placeAudience } from './graph.ts';
 import { SELF_PERSON } from './ids.ts';
+import { OBJECT_KINDS, objectMeaning } from './object-vectors.ts';
 import { allowedAudience, audienceWhere, whereFor } from './scope.ts';
 import type { Context } from './scope.ts';
 import { loadStemmer } from './stems.ts';
 import type { Db, Row } from './types.ts';
 
-/** A place that fits a request: its id, its stored name, its purpose when one is stored, and its score. */
-export type FoundPlace = { id: string; name: string; about: string | null; score: number };
-/** A person who fits a request: their id, their first name, their character when one is stored, and their score. */
-export type FoundPerson = { id: string; name: string; about: string | null; score: number };
+/**
+ * A place that fits a request: its id, its stored name, its purpose when one is stored, its score, and whether its
+ * fields hold every word of the request.
+ */
+export type FoundPlace = { id: string; name: string; about: string | null; score: number; hasEveryWord: boolean };
+/** A person who fits a request: their id, their first name, their character when one is stored, their score and fit. */
+export type FoundPerson = { id: string; name: string; about: string | null; score: number; hasEveryWord: boolean };
+/** The request's embedding and its model; null for both when the caller has none. */
+export type FindMeaning = { vector: ArrayLike<number> | null; model: string | null };
+const NO_MEANING: FindMeaning = Object.freeze({ vector: null, model: null });
 /** How many candidates come back at most, and how many of a place's last lines are read. */
-export type FindSettings = { candidates: number; lines: number };
+export type FindSettings = { candidates: number; lines: number; deadlineMs: number };
 
 /** The shipped values of `context.find` in config/config.json, for a key the live settings lack. */
-export const FIND_DEFAULTS: Readonly<FindSettings> = Object.freeze({ candidates: 5, lines: 100 });
+export const FIND_DEFAULTS: Readonly<FindSettings> = Object.freeze({
+  candidates: 5,
+  lines: 100,
+  deadlineMs: 1000,
+});
 
 /** The shortest beginning two words share for a partial match, and the credit of one. */
 const MIN_SHARED = 4;
@@ -72,6 +91,7 @@ export function findSettingsOf(config: unknown): FindSettings {
   return {
     candidates: count(find.candidates, FIND_DEFAULTS.candidates),
     lines: count(find.lines, FIND_DEFAULTS.lines),
+    deadlineMs: count(find.deadlineMs, FIND_DEFAULTS.deadlineMs),
   };
 }
 
@@ -130,14 +150,21 @@ function fitOf(doc: Doc, credits: ReadonlyMap<string, number>): number {
 /** The weight of a word that `df` of `n` candidates fit; a word every candidate of several holds tells none apart. */
 const idfOf = (n: number, df: number): number => (n > 1 && df >= n ? 0 : Math.log(1 + (n - df + 0.5) / (df + 0.5)));
 
-/** The candidates ranked against `request`, best first, with their scores; those that fit nothing are left out. */
-function rank(
+type Ranked = Array<{ id: string; score: number }>;
+
+/**
+ * The candidates ranked against `request` by words, best first with their scores, those that fit nothing left out and
+ * no floor applied, and the candidates whose fields fit every word of the request.
+ */
+function byWords(
   docs: ReadonlyArray<Doc>,
   request: string,
   stem: (word: string) => string
-): Array<{ id: string; score: number }> {
+): { ranked: Ranked; full: Set<string> } {
   const queries = [...new Set(indexWords(request))];
-  if (queries.length === 0 || docs.length === 0) return [];
+  const full = new Set<string>();
+  if (queries.length === 0 || docs.length === 0) return { ranked: [], full };
+  const fitted = new Map<string, number>();
   const vocabulary = new Set<string>();
   for (const doc of docs)
     for (const counts of doc.fields.values()) for (const word of counts.keys()) vocabulary.add(word);
@@ -147,14 +174,135 @@ function rank(
     if (credits.size === 0) continue;
     const fits = docs.map((doc) => ({ id: doc.id, fit: fitOf(doc, credits) })).filter((one) => one.fit > 0);
     const idf = idfOf(docs.length, fits.length);
-    for (const { id, fit } of fits) scores.set(id, (scores.get(id) ?? 0) + idf * fit);
+    for (const { id, fit } of fits) {
+      scores.set(id, (scores.get(id) ?? 0) + idf * fit);
+      fitted.set(id, (fitted.get(id) ?? 0) + 1);
+    }
   }
   const ranked = [...scores]
     .filter(([, score]) => score > 0)
     .map(([id, score]) => ({ id, score }))
     .sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  for (const { id } of ranked) if (fitted.get(id) === queries.length) full.add(id);
+  return { ranked, full };
+}
+
+/** A ranked list from RELATIVE_FLOOR of its best score, with the ids of `kept` whatever their score. */
+function floored(ranked: Ranked, kept: ReadonlySet<string> = new Set()): Ranked {
   const best = ranked[0]?.score ?? 0;
-  return ranked.filter((one) => one.score >= best * RELATIVE_FLOOR);
+  return ranked.filter((one) => one.score >= best * RELATIVE_FLOOR || kept.has(one.id));
+}
+
+/** The candidates of a kind whose object vectors meet the request's embedding, best cosine first. */
+function byMeaning(
+  db: Db,
+  ctx: Context,
+  meaning: FindMeaning,
+  about: 'place' | 'person',
+  ids: ReadonlySet<string>
+): Array<string> {
+  const minMeaning = RECALL_DEFAULTS.db.minMeaning;
+  const prefix = `${about}:`;
+  const out = new Set<string>();
+  for (const hit of objectMeaning(db, ctx, { ...meaning, kinds: OBJECT_KINDS, minMeaning, about }))
+    for (const node of hit.nodes) {
+      const id = node.startsWith(prefix) ? node.slice(prefix.length) : null;
+      if (id !== null && ids.has(id)) out.add(id);
+    }
+  return [...out];
+}
+
+/**
+ * The words' ranking alone when nothing is meant, else both lists fused by rank under the floor, with every candidate
+ * that fits all the words first and in the words' order.
+ */
+function rank(words: { ranked: Ranked; full: Set<string> }, meant: ReadonlyArray<string>): Ranked {
+  if (meant.length === 0) return floored(words.ranked);
+  const fused = floored(
+    fuseRanks([words.ranked.map((one) => one.id), [...meant]]).map((one) => ({ id: String(one.id), score: one.score })),
+    words.full
+  );
+  const scoreOf = new Map(fused.map((one) => [one.id, one.score]));
+  const first = words.ranked.filter((one) => words.full.has(one.id)).map((one) => one.id);
+  const rest = fused.filter((one) => !words.full.has(one.id)).map((one) => one.id);
+  return [...first, ...rest].map((id) => ({ id, score: scoreOf.get(id) ?? 0 }));
+}
+
+/** The first `candidates` of the ranking, with what each shows and whether it fits every word. */
+function found(
+  words: { ranked: Ranked; full: Set<string> },
+  meant: ReadonlyArray<string>,
+  shown: ReadonlyMap<string, { name: string; about: string | null }>,
+  candidates: number
+): Array<FoundPlace> {
+  return rank(words, meant)
+    .slice(0, candidates)
+    .map(({ id, score }) => ({
+      id,
+      name: shown.get(id)?.name ?? id,
+      about: shown.get(id)?.about ?? null,
+      score,
+      hasEveryWord: words.full.has(id),
+    }));
+}
+
+/** One embedding of the finder's memo: the request's vector once it came back, null while out or after a failure. */
+export type FindMemoEntry = { pending: Promise<ArrayLike<number> | null>; vector: ArrayLike<number> | null };
+/** The embeddings for the finder: the one already made for a text, and one made now within the deadline. */
+export type FindMeaningSource = {
+  known: (text: string) => FindMeaning | null;
+  fetch: (text: string) => Promise<FindMeaning | null>;
+};
+
+/**
+ * The finder's embeddings over one memo, keyed by the exact text: a text embeds once, and a caller waits for it at most
+ * `deadlineMs`, after which it answers with the words alone while the vector may still land in the memo for a later
+ * call. A failure or an empty answer leaves no vector. No model, no embedding.
+ */
+export function createFindMeaning({
+  embed,
+  model,
+  deadlineMs,
+  memo,
+}: {
+  embed: (text: string) => Promise<ArrayLike<number> | null | undefined>;
+  model: string | null;
+  deadlineMs: number;
+  memo: Map<string, FindMemoEntry>;
+}): FindMeaningSource {
+  const meaningOf = (vector: ArrayLike<number> | null): FindMeaning | null =>
+    vector !== null && model !== null ? { vector, model } : null;
+  return {
+    known: (text) => meaningOf(memo.get(text)?.vector ?? null),
+    async fetch(text) {
+      if (model === null || text.trim() === '') return null;
+      let entry = memo.get(text);
+      if (!entry) {
+        const made: FindMemoEntry = { pending: Promise.resolve(null), vector: null };
+        made.pending = Promise.resolve()
+          .then(() => embed(text))
+          .then(
+            (vector) => {
+              made.vector = vector && vector.length > 0 ? vector : null;
+              return made.vector;
+            },
+            () => null
+          );
+        memo.set(text, made);
+        entry = made;
+      }
+      let timer: NodeJS.Timeout | undefined;
+      const late = new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), deadlineMs);
+        timer.unref?.();
+      });
+      try {
+        return meaningOf(await Promise.race([entry.pending, late]));
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  };
 }
 
 /** A stored text clipped to ABOUT_CHARS. */
@@ -222,7 +370,8 @@ export function placesFound(
   db: Db,
   ctx: Context,
   request: string,
-  settings: Partial<FindSettings> = {}
+  settings: Partial<FindSettings> = {},
+  meaning: FindMeaning = NO_MEANING
 ): Array<FoundPlace> {
   const { candidates, lines } = { ...FIND_DEFAULTS, ...settings };
   if (candidates === 0 || indexWords(request).length === 0) return [];
@@ -256,9 +405,12 @@ export function placesFound(
     shown.set(id, { name, about: aboutOf(purpose) });
     return doc;
   });
-  return rank(docs, request, loadStemmer(db).stem)
-    .slice(0, candidates)
-    .map(({ id, score }) => ({ id, name: shown.get(id)?.name ?? id, about: shown.get(id)?.about ?? null, score }));
+  return found(
+    byWords(docs, request, loadStemmer(db).stem),
+    byMeaning(db, ctx, meaning, 'place', new Set(shown.keys())),
+    shown,
+    candidates
+  );
 }
 
 /** The people that fit `request` under the context, best first, at most `settings.candidates`; never herself. */
@@ -266,7 +418,8 @@ export function peopleFound(
   db: Db,
   ctx: Context,
   request: string,
-  settings: Partial<FindSettings> = {}
+  settings: Partial<FindSettings> = {},
+  meaning: FindMeaning = NO_MEANING
 ): Array<FoundPerson> {
   const { candidates } = { ...FIND_DEFAULTS, ...settings };
   if (candidates === 0 || indexWords(request).length === 0) return [];
@@ -298,7 +451,10 @@ export function peopleFound(
     shown.set(id, { name: labels[0] ?? id, about: aboutOf(character) });
     return doc;
   });
-  return rank(docs, request, loadStemmer(db).stem)
-    .slice(0, candidates)
-    .map(({ id, score }) => ({ id, name: shown.get(id)?.name ?? id, about: shown.get(id)?.about ?? null, score }));
+  return found(
+    byWords(docs, request, loadStemmer(db).stem),
+    byMeaning(db, ctx, meaning, 'person', new Set(people)),
+    shown,
+    candidates
+  );
 }

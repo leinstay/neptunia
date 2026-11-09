@@ -982,8 +982,7 @@ async function buildCore(
   // Both stores send their writes to the database; `flush` is their retry and shutdown step.
   const intentionStores = createIntentionStores({ log, memoryDb });
   const intentions = createIntentionService({ stores: intentionStores, hot, errands, log });
-  // The chats the interface reported (`chat.changed`) and the direct chats it showed in messages:
-  // their names for the inner life and the turn, the direct chat of a member for a memory session failure.
+  // Chats the interface reported and dms it showed: names for the inner life and the turn, a dm on a session failure.
   const directory = createChatDirectory();
   // When the interface's link to its platform last came back, for /nep status.
   const connection: { lastReconnectAt: number | null } = { lastReconnectAt: null };
@@ -1014,6 +1013,7 @@ async function buildCore(
     dataDir,
     fetchImpl: keptFetch,
     embedQuery: embedOne('media-pick'),
+    embedFind: embedOne('recall-query'),
     // A cancel and the steps of a turn over a line of the owner's chat (src/interface/chat-turns.ts).
     cancelOf: (triggerId: string | null) => intake.cancelOf(triggerId),
     noteProgress: (triggerId: string | null, step: { name: string; detail: string }) =>
