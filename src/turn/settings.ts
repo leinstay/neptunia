@@ -88,8 +88,14 @@ export const LOOP_MIN_CALL_MS = 2000;
 export const INNER_TERMINAL_SKILLS = Object.freeze(['message.create', ...HEARTBEAT_INTENT_SKILLS]);
 /** An inner turn's loop end state when no tool loop ran (`inner.loop`). */
 export const NO_LOOP = Object.freeze({ steps: 0, cut: null, droppedCalls: 0 });
-/** Why a call of a step did not run (`loop-cap`): too many in one answer, or the steps, the time or the room spent. For the journal and the log. */
-export const LOOP_WHY = Object.freeze({ extraCall: 'extra-call', steps: 'steps', time: 'time', tokens: 'tokens' });
+/** Why a call of a step did not run (`loop-cap`): too many in one answer, the steps, the time or the room spent, or a call in the rescue answer. For the journal and the log. */
+export const LOOP_WHY = Object.freeze({
+  extraCall: 'extra-call',
+  steps: 'steps',
+  time: 'time',
+  tokens: 'tokens',
+  rescue: 'rescue',
+});
 /** The intention calls of an inner turn that name an intention (`id`, or the id alone in the body). */
 export const INTENT_ID_SKILLS = Object.freeze(['intention.update', 'intention.cancel']);
 
