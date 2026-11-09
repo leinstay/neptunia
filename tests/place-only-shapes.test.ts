@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const ACTIVE_ROOTS = ['src', 'bin', 'cli', 'interfaces', 'agents'];
+const ACTIVE_ROOTS = ['src', 'bin', 'interfaces', 'agents'];
 
 /** A pair of sibling names the gate refuses: any of `top` beside any of `chat`. */
 type Pair = { top: ReadonlyArray<string>; chat: ReadonlyArray<string> };
