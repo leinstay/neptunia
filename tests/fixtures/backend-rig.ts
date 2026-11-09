@@ -8,6 +8,11 @@ import { fileURLToPath } from 'node:url';
 /** The stub that mimics `codex exec` and `claude -p`. */
 export const STUB = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fake-cli.ts');
 
+// The mutation run (scripts/mutation-diff.ts) tests a sandbox copy that Stryker rewrites file by file, and the
+// rewritten stub loses its executable bit. Without it the backend reports `backend-missing` and every test that runs
+// the stub fails in Stryker's dry run, though it passes in the checkout.
+fs.chmodSync(STUB, 0o755);
+
 /** What the stub reports in mode `report`. */
 export type StubReport = {
   argv: Array<string>;
