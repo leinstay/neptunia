@@ -1046,19 +1046,20 @@ function checkLocalLayer(where: { privateDir: string }): Check {
   };
 }
 
-/** The model keys of a deployment with a `keys.json`: how many core keys it holds. Names and counts only. */
+/** The model keys of a deployment with a `keys.json`: how many named keys it holds, any section. Counts only. */
 function checkKeyStore(privateDir: string): Check {
   try {
-    const core = createKeyStore({ privateDir }).list().core.length;
-    return core > 0
-      ? { name: 'keys', status: 'ok', detail: `keys.json holds ${core} core keys` }
+    const listing = createKeyStore({ privateDir }).list();
+    const count = listing.core.length + listing.extra.length;
+    return count > 0
+      ? { name: 'keys', status: 'ok', detail: `keys.json holds ${count} key${count === 1 ? '' : 's'}` }
       : { name: 'keys', status: 'warn', detail: 'keys.json holds no key: add one with /keys add' };
   } catch {
     return { name: 'keys', status: 'fail', detail: 'keys.json does not read' };
   }
 }
 
-/** The core keys of keys.json: a count, never a value. */
+/** The keys of keys.json: a count, never a value. */
 function checkKeys(where: { rootDir: string; privateDir: string }): Check {
   if (keysFileExists(where.privateDir)) return checkKeyStore(where.privateDir);
   return { name: 'keys', status: 'fail', detail: 'no keys.json: run neptunia setup, then /keys add' };

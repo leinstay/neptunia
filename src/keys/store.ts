@@ -19,7 +19,6 @@ export const KEYS_FILE = 'keys.json';
 export type KeysErrorCode =
   | 'bad-name'
   | 'bad-value'
-  | 'bad-grant'
   | 'duplicate-name'
   | 'unknown-key'
   | 'unknown-role'
@@ -31,8 +30,6 @@ export type KeysErrorCode =
 const REASONS: Readonly<Record<KeysErrorCode, string>> = {
   'bad-name': 'a key name is lowercase letters, digits and dashes, 1 to 32 characters, starting with a letter or digit',
   'bad-value': 'a key value is not blank and holds no whitespace',
-  'bad-grant':
-    'a grant is a number of dollars from 0 up, a reset day a whole day of the month from 1 to 31, and both or neither',
   'duplicate-name': 'a key name is used once, across the core and the extra keys',
   'unknown-key': 'no such key of that kind',
   'unknown-role': 'only a base model role can be bound to a key',
@@ -52,7 +49,7 @@ export class KeysError extends Error {
   }
 }
 
-export type CoreKeyRow = { name: string; last4: string; grant: number | null; resetDay: number | null };
+export type CoreKeyRow = { name: string; last4: string };
 
 export type KeyListing = {
   /** In file order: the first is the primary. */
@@ -62,17 +59,15 @@ export type KeyListing = {
 };
 
 export type KeyStore = {
-  /** Names, last four characters, grants and bindings; never a value. */
+  /** Names, last four characters and bindings; never a value. */
   list(): KeyListing;
   coreNames(): Array<string>;
   /** The extra key a role is bound to. */
   boundTo(role: string): string | null;
   /** The value of a core or extra key. Only the key ring and the check call it. */
   valueOf(name: string): string | null;
-  addCore(input: { name: string; value: string; grant?: number; resetDay?: number }): void;
+  addCore(input: { name: string; value: string }): void;
   removeCore(name: string): { left: number };
-  /** Sets (an object) or clears (null) the grant and reset day of a core key; the value is untouched. */
-  setGrant(name: string, grant: { grant: number; resetDay: number } | null): void;
   addExtra(input: { name: string; value: string }): void;
   removeExtra(name: string): void;
   /** Binds a base role to an extra key, in config.json. */
@@ -80,7 +75,7 @@ export type KeyStore = {
   unbind(role: string): void;
 };
 
-type CoreRow = { name: string; value: string; grant: number | null; resetDay: number | null };
+type CoreRow = { name: string; value: string };
 type Content = {
   core: Array<CoreRow>;
   extra: Record<string, string>;
@@ -91,21 +86,14 @@ const NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
-const isGrant = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
-const isResetDay = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 31;
-
-/** The core rows of the file, or null when a row is not `{ name, value, grant?, resetDay? }`. */
+/** The core rows of the file, or null when a row is not `{ name, value }`; a grant an older file holds is dropped. */
 function coreRowsOf(value: unknown): Array<CoreRow> | null {
   if (value === undefined) return [];
   if (!Array.isArray(value)) return null;
   const rows: Array<CoreRow> = [];
   for (const entry of value as Array<unknown>) {
     if (!isRecord(entry) || typeof entry.name !== 'string' || typeof entry.value !== 'string') return null;
-    const grant = entry.grant ?? null;
-    const resetDay = entry.resetDay ?? null;
-    if ((grant !== null && !isGrant(grant)) || (resetDay !== null && !isResetDay(resetDay))) return null;
-    rows.push({ name: entry.name, value: entry.value, grant, resetDay });
+    rows.push({ name: entry.name, value: entry.value });
   }
   return rows;
 }
@@ -188,8 +176,6 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
         core: core.map((row) => ({
           name: row.name,
           last4: last4(row.value),
-          grant: row.grant,
-          resetDay: row.resetDay,
         })),
         extra: Object.entries(extra).map(([name, value]) => ({
           name,
@@ -212,12 +198,10 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
       if (row !== undefined) return row.value;
       return Object.hasOwn(extra, name) ? (extra[name] ?? null) : null;
     },
-    addCore({ name, value, grant, resetDay }) {
+    addCore({ name, value }) {
       const content = read();
       checkNew(content, name, value);
-      if ((grant === undefined) !== (resetDay === undefined)) throw new KeysError('bad-grant');
-      if (grant !== undefined && (!isGrant(grant) || !isResetDay(resetDay))) throw new KeysError('bad-grant');
-      content.core.push({ name, value, grant: grant ?? null, resetDay: resetDay ?? null });
+      content.core.push({ name, value });
       write(content);
     },
     removeCore(name) {
@@ -226,15 +210,6 @@ export function createKeyStore({ privateDir }: { privateDir: string }): KeyStore
       content.core = content.core.filter((row) => row.name !== name);
       write(content);
       return { left: content.core.length };
-    },
-    setGrant(name, limit) {
-      const content = read();
-      const row = content.core.find((one) => one.name === name);
-      if (row === undefined) throw new KeysError('unknown-key');
-      if (limit !== null && (!isGrant(limit.grant) || !isResetDay(limit.resetDay))) throw new KeysError('bad-grant');
-      row.grant = limit?.grant ?? null;
-      row.resetDay = limit?.resetDay ?? null;
-      write(content);
     },
     addExtra({ name, value }) {
       const content = read();

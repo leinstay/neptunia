@@ -57,8 +57,6 @@ export type UsageEntry = {
   role?: string | null;
   /** The interface of the turn the request belongs to; none adds no interface row. */
   iface?: string | null;
-  /** The name of the key the request went out on; none adds no key row. */
-  key?: string | null;
   promptTokens?: unknown;
   cachedTokens?: unknown;
   completionTokens?: unknown;
@@ -70,8 +68,6 @@ export type Usage = {
   record(entry?: UsageEntry): void;
   byRole(): Array<RoleRow>;
   sumDays(days: number, filter?: { only?: ReadonlyArray<string>; except?: ReadonlyArray<string> }): DaysSum;
-  /** The dollars the requests on the key `name` cost from the UTC day `sinceDay` (`YYYY-MM-DD`) through today. */
-  keyCost(name: string, sinceDay: string): number;
   save(opts?: { force?: boolean }): Promise<boolean>;
 };
 
@@ -156,7 +152,6 @@ export function createUsage({
   const seam = createReadSeam({ memoryDb, log, reader: 'usage' });
   const days: Record<string, Record<string, Counters>> = {}; // day -> role -> counters
   const ifaces: Record<string, Record<string, Counters>> = {}; // day -> interface -> counters
-  const keyed: Record<string, Record<string, Counters>> = {}; // day -> key name -> counters
   let dirty = false;
   let lastSaveAt = -Infinity;
   let chain: Promise<void> = Promise.resolve();
@@ -166,7 +161,7 @@ export function createUsage({
     const nowMs = now();
     const today = utcDay(nowMs);
     const first = utcDay(nowMs - (KEEP_DAYS - 1) * DAY_MS);
-    for (const kept of [days, ifaces, keyed])
+    for (const kept of [days, ifaces])
       for (const day of Object.keys(kept)) if (!DAY_KEY.test(day) || day < first || day > today) delete kept[day];
   }
 
@@ -203,20 +198,10 @@ export function createUsage({
     // A file written before the interface rows has none: the days load as they are.
     const byIface = objOf(parsed).interfaces;
     if (isObj(byIface)) readDays(byIface, ifaces);
-    const byKey = objOf(parsed).keys;
-    if (isObj(byKey)) readDays(byKey, keyed);
     prune();
   }
 
-  function record({
-    role,
-    iface,
-    key: keyName,
-    promptTokens,
-    cachedTokens,
-    completionTokens,
-    cost,
-  }: UsageEntry = {}): void {
+  function record({ role, iface, promptTokens, cachedTokens, completionTokens, cost }: UsageEntry = {}): void {
     const day = utcDay(now());
     const add = (row: Counters): void => {
       row.requests += 1;
@@ -228,7 +213,6 @@ export function createUsage({
     const key = typeof role === 'string' && role ? role : NO_ROLE;
     add(((days[day] ??= {})[key] ??= cleanRow(null)));
     if (typeof iface === 'string' && iface) add(((ifaces[day] ??= {})[iface] ??= cleanRow(null)));
-    if (typeof keyName === 'string' && keyName) add(((keyed[day] ??= {})[keyName] ??= cleanRow(null)));
     prune();
     dirty = true;
   }
@@ -236,14 +220,6 @@ export function createUsage({
   function byRole(): Array<RoleRow> {
     const today = days[utcDay(now())] ?? {};
     return sortRows(Object.entries(today).map(([role, row]) => ({ role, ...row })));
-  }
-
-  function keyCost(name: string, sinceDay: string): number {
-    const today = utcDay(now());
-    let sum = 0;
-    for (const [day, rows] of Object.entries(keyed))
-      if (day >= sinceDay && day <= today && Object.hasOwn(rows, name)) sum += amountOr0(rows[name]?.cost);
-    return sum;
   }
 
   /** The interface rows of the days from `start` to `today`, by cost, then requests, then name. */
@@ -298,7 +274,6 @@ export function createUsage({
       v: VERSION,
       days,
       ...(Object.keys(ifaces).length > 0 ? { interfaces: ifaces } : {}),
-      ...(Object.keys(keyed).length > 0 ? { keys: keyed } : {}),
     };
     if (memoryDb) {
       await memoryDb.writeOperational({ op: 'value', of: 'usage', subject: PERSONA_ID, value });
@@ -333,7 +308,7 @@ export function createUsage({
   }
 
   load();
-  return { record, byRole, sumDays, keyCost, save };
+  return { record, byRole, sumDays, save };
 }
 
 /**
@@ -361,7 +336,6 @@ export function usageTap(usage: Pick<Usage, 'record'>): (entry: unknown) => void
     usage.record({
       role: typeof entry.role === 'string' ? entry.role : null,
       iface: typeof entry.iface === 'string' ? entry.iface : null,
-      key: typeof entry.key === 'string' ? entry.key : null,
       promptTokens: entry.promptTokens,
       cachedTokens: entry.cachedTokens,
       completionTokens: entry.completionTokens,

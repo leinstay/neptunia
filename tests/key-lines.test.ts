@@ -1,9 +1,8 @@
-// Tests for the key lines and the core health: the core's `routes-exhausted` reaching the role tracker
-// (src/llm/role-health.ts#reportingCoreKeys) and the grant lines of the status card (src/tools/operations/key-lines.ts#keyGrantLines).
+// Tests for the core health: the core's `routes-exhausted` reaching the role tracker
+// (src/llm/role-health.ts#reportingCoreKeys).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRoleHealth, reportingCoreKeys } from '../src/llm/role-health.ts';
-import { keyGrantLines } from '../src/tools/operations/key-lines.ts';
 
 const CONFIG = { models: { base: { core: 'x/core', vision: 'x/eyes' } } };
 // The chain client's code replaces keys-exhausted (spec 2026-11-09-model-routes).
@@ -32,24 +31,4 @@ test('reportingCoreKeys: other failures and other roles tell the tracker nothing
   const other = rig(() => Promise.reject(exhausted()));
   await assert.rejects(other.llm.complete([], { role: 'vision' }));
   assert.equal(other.health.down(CONFIG, 'vision'), null);
-});
-
-test('keyGrantLines: a key with a grant shows what is left and its reset day, a key without one is named unconfigured', () => {
-  const labels = {
-    status: {
-      costs: {
-        keyGrant: '{key}: {left} of {grant} USD left, resets on day {day}',
-        keyUnconfigured: '{key}: no grant set in llm.keys',
-      },
-    },
-  };
-  const rows = [
-    { name: 'OPENROUTER_CORE_KEY', left: 161.5, grant: 200, resetDay: 15 },
-    { name: 'OPENROUTER_CORE_BACKUP_KEY', left: null, grant: null, resetDay: null },
-  ];
-  assert.deepEqual(keyGrantLines({ rows, labels }), [
-    'OPENROUTER_CORE_KEY: 161.50 of 200.00 USD left, resets on day 15',
-    'OPENROUTER_CORE_BACKUP_KEY: no grant set in llm.keys',
-  ]);
-  assert.deepEqual(keyGrantLines({ rows, labels: {} }), []);
 });

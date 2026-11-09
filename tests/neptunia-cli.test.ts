@@ -195,6 +195,15 @@ test('doctor with the core down reports it once, in readiness, and the database 
   assert.equal(printed.includes(token), false, 'no token is printed');
 });
 
+test('doctor counts a key store that holds only former extra keys as holding keys', async () => {
+  // Catches: the keys check counting the old core list alone, so a store of named keys warns it holds no key.
+  const dirs = folders({});
+  addClient(dirs.privateDir, CLI_CLIENT);
+  createKeyStore({ privateDir: dirs.dataDir }).addExtra({ name: 'helpers', value: 'sk-or-test-helpers-not-real' });
+  const run = await runCli(dirs, ['doctor', '--json']);
+  assert.equal(checksOf(run.stdout).get('keys'), 'ok');
+});
+
 // Case 4 of PR D, the error path.
 test('doctor reports a database that is not one as failed and leaves the file as it was', async () => {
   const { dirs, db } = coreDown();
