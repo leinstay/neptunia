@@ -89,7 +89,7 @@ const listsOf = (ctx: MapContext): Array<ListDef & { subject: string }> => [
 
 /** What the notes of a place are shown to: its partner in a direct chat, the groups elsewhere. */
 function notesScope(iface: string, ctx: MapContext): Row {
-  if (!ctx.dmPlace || !ctx.privateAccountId) return groupScope(iface);
+  if (!ctx.dmPlace) return groupScope(iface);
   return dmPlaceScope(iface, ctx.dmPlace);
 }
 

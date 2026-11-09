@@ -44,7 +44,7 @@ export type MapContext = {
   /** The interface's own id of a stored account, null when no row holds it. */
   memberOfAccount?: (accountId: string) => string | null;
   /** The stored place of a channel an interface names by its id, null when no row holds it. */
-  placeOfChannel?: (iface: string, channelId: string) => string | null;
+  placeOfChannel?: (iface: string, native: string) => string | null;
   /** The interface's own id of a stored channel, null for a place that is no stored channel. */
   channelOfPlace?: (placeId: string) => string | null;
   collection?: string;

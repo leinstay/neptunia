@@ -94,7 +94,7 @@ function claimStub(entry: Row, ctx: MapContext, owner: Owner): Row {
     from_person: null,
     truth: 'historical',
     shown: 0,
-    ...(ctx.dmPlace && ctx.privateAccountId
+    ...(ctx.dmPlace
       ? dmPlaceScope(ifaceOf(ctx), ctx.dmPlace)
       : scopeColumns(entry.scope, {
           privateUser: null,

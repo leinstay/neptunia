@@ -79,7 +79,7 @@ export function scopeInto(
   members: MemberReads = {}
 ): Row {
   const channel = typeof oldScope?.channel === 'string' && oldScope.channel ? oldScope.channel : null;
-  const placed = privateUser ? (dmPlace ?? members.dmOfMember?.(iface, privateUser) ?? null) : null;
+  const placed = dmPlace ?? (privateUser ? (members.dmOfMember?.(iface, privateUser) ?? null) : null);
   const channelPlace =
     channel === null ? null : (members.placeOfChannel?.(iface, channel) ?? mintedChannel(iface, channel));
   const cols = {
