@@ -32,7 +32,8 @@ function deskOf(mnemonic: unknown): { run: ReturnType<typeof createConsole>['run
     serviceManager: () => Promise.resolve({ code: 0, stdout: '', stderr: '' }),
     startWatcher: () => null,
   };
-  return { run: createConsole(deps).run, calls };
+  const desk = createConsole(deps);
+  return { run: (...given) => desk.run(...given), calls };
 }
 
 test('parses /mnemonic with no language, en or ru, and refuses another language', () => {
@@ -61,9 +62,10 @@ test('switches the language through config.set of bot.mnemonic as the owner', as
   const answer = await run('mnemonic', { language: 'ru' }, { id: 'owner-1' });
   assert.equal(answer.status, 'ok');
   assert.equal(calls.length, 1);
-  assert.equal(calls[0]?.op, 'config.set');
-  assert.deepEqual(calls[0]?.args, { path: 'bot.mnemonic', value: 'ru' });
-  assert.equal(calls[0]?.context.asOwner, true);
+  const call = calls[0];
+  assert.equal(call?.op, 'config.set');
+  assert.deepEqual(call?.args, { path: 'bot.mnemonic', value: 'ru' });
+  assert.equal(call?.context.asOwner, true);
 });
 
 test('reports a switch that config.set refused', async () => {

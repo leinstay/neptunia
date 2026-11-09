@@ -1676,6 +1676,13 @@
       "test": "required"
     },
     {
+      "path": "src/mnemonic/",
+      "purpose": "The word lists of the phrase codes, `bip-en` and `bip-ru`, with 2048 words each and one word per line. Data, read by `src/interface/phrase-codes.ts`.",
+      "layer": "public",
+      "imports": [],
+      "test": "none"
+    },
+    {
       "path": "src/tools/operations/",
       "purpose": "The typed operations behind the owner's commands and the persona's tools.",
       "layer": "public",

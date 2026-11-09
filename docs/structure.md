@@ -232,6 +232,7 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/memory/db/semantic-types.ts` | public | The shapes of semantic memory: references, arguments, candidates, resolved writes and the retrieval page. Types only: nothing runs, so nothing is tested. | `node:*`, `src/**` | none |
 | `src/memory/db/map/` | public | The mapping of memory rows to records and back. | `node:*`, `src/**` | required |
 | `src/memory/db/readers/` | public | The read queries of the memory database. | `node:*`, `src/**` | required |
+| `src/mnemonic/` | public | The word lists of the phrase codes, `bip-en` and `bip-ru`, with 2048 words each and one word per line. Data, read by `src/interface/phrase-codes.ts`. | nothing | none |
 | `src/tools/operations/` | public | The typed operations behind the owner's commands and the persona's tools. | `node:*`, `src/**` | required |
 | `src/protocol/` | public | The neutral protocol of events, actions and envelopes between the core and its interfaces, and the serving side of the link. | `node:*`, `src/**` | required |
 | `src/protocol/host.ts` | public | The types of what the core hands an interface when it starts one and what the interface hands back. Types only. | `src/protocol/**` | none |
