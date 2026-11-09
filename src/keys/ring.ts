@@ -19,8 +19,6 @@ export type KeyRing = {
   states(): Array<KeyState>;
   /** The extra keys some role is bound to, each with its roles. Names only. */
   bound(): Array<{ name: string; roles: Array<string> }>;
-  /** The grant of each core key that has one, by name. */
-  grants(): Record<string, { grant: number; resetDay: number }>;
 };
 
 /**
@@ -46,14 +44,6 @@ export function createKeyRing({ store, failover }: { store: KeyStore; failover: 
     },
     failed: (role, name, status) => failover.failed(role, names(role), name, status),
     states: () => failover.states(),
-    grants() {
-      const grants: Record<string, { grant: number; resetDay: number }> = {};
-      for (const row of store.list().core) {
-        if (row.grant !== null && row.resetDay !== null)
-          grants[row.name] = { grant: row.grant, resetDay: row.resetDay };
-      }
-      return grants;
-    },
     bound: () =>
       store
         .list()

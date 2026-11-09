@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 /** A key of the core list; only the name is read here. */
-export type CoreKeyRow = { name: string; value: string; grant?: number; resetDay?: number };
+export type CoreKeyRow = { name: string; value: string };
 
 /** keys.json: the secrets, and any other section the keys command keeps there. */
 export type KeyStore = {

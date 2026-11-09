@@ -1,7 +1,6 @@
-// The owner's key commands of the chat: `keys core|extra add|remove|list`, `keys core grant`, `keys bind|unbind|check`
-// and `model set`. A binding is a choice of connection: it is written to `llm.boundKeys` of config.json through the key
-// store, after one request of the role's model on the bound key.
-// The console (src/interface/commands/console.ts) routes them here. A key value is never an argument: every add asks
+// The owner's key commands of the chat: `keys add|remove|list|check` over the named keys of keys.json, and the chain
+// commands `model show|set|add|remove`, which write a role's chain of routes to `models.routes` of config.json after one
+// check of the route. The console (src/interface/commands/console.ts) routes them here. A key value is never an argument: every add asks
 // for it through the dialog the link gives (a secret prompt, src/interface/commands/dialogs.ts), so the value reaches
 // neither the typed line, the chat's history file nor a refusal. A key is checked before it is saved (the first core
 // key with the four mandatory model roles, a later one with `/auth/key`), and a failed check saves nothing. An answer

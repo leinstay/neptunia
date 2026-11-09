@@ -949,8 +949,6 @@
         "roleSeparator": ", ",
         "keyState": "{role} runs on {key}{since}",
         "keySince": ", switched {when}",
-        "keyGrant": "{key}: {left} of {grant} USD left, resets on day {day}",
-        "keyUnconfigured": "{key}: no grant set",
         "roleNames": {
           "scout": "errands",
           "server": "errands",
