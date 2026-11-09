@@ -1,6 +1,6 @@
-// The memory database at the baseline, schema version 42: every table, index and trigger a new database starts with,
+// The memory database at the baseline, schema version 43: every table, index and trigger a new database starts with,
 // and the seed rows a new install needs. src/memory/db/open.ts creates a new database from it, and the board's own
-// migrations (src/board/schema.ts) add the board's tables after it. A database production opened at version 42 holds
+// migrations (src/board/schema.ts) add the board's tables after it. A database production opened at version 43 holds
 // the same objects, which tests/memory-db-baseline.test.ts compares with the version chain. A later change to the
 // schema is a step in `MIGRATIONS` of src/memory/db/schema.ts above this version, never an edit of the text below.
 
@@ -8,11 +8,11 @@ import { INITIAL_ENTITY_KINDS, INITIAL_PREDICATES, entityKindJson, predicateJson
 import type { Db } from './types.ts';
 
 /** The schema version a new database starts at. */
-export const BASELINE_VERSION = 42;
+export const BASELINE_VERSION = 43;
 
 // One block per table in alphabetical order, each with its indexes and triggers in the order production created them:
 // the query planner breaks a tie between two indexes of a table by that order. The texts are production's
-// `sqlite_master` at version 42, folded to lines, so a column added by `ALTER TABLE` stands at the end of its table.
+// `sqlite_master` at version 43, folded to lines, so a column added by `ALTER TABLE` stands at the end of its table.
 const SCHEMA = `
 CREATE TABLE account_person_links (
   id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id),
