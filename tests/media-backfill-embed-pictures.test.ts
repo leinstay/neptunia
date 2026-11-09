@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { applyMediaBackfill, backfillMedia } from '../src/memory/db/media-backfill.ts';
 import { lineMedia } from '../src/memory/db/media-store.ts';
 import { internalContext } from '../src/memory/db/scope.ts';
-import { ALICE, AT, GENERAL, NOW, fixture, heldItem } from './fixtures/media-memory.ts';
+import { ALICE, AT, GENERAL, NOW, channelRow, fixture, heldItem } from './fixtures/media-memory.ts';
 import type { Env } from './fixtures/media-memory.ts';
 import type { HistoryQuery } from '../src/protocol/adapter.ts';
 import type { Row } from '../src/memory/db/types.ts';
@@ -94,6 +94,8 @@ const rowsNaming = (env: Env, ref: string) =>
 
 async function withEnv(body: (env: Env) => void | Promise<void>) {
   const env = fixture();
+  // The rows of the places the lines name, as every stored line's place has one: a line is read through its row's native id.
+  channelRow(env, GENERAL, 'c1');
   try {
     await body(env);
   } finally {

@@ -308,6 +308,25 @@ test('turn reads: nothing without a turn id or reads', async () => {
   }
 });
 
+test("turnReadRows: a channel read names the room's stored row, never a place spelled from the channel id", () => {
+  // Bug: the read was recorded under `<iface>:channel:<id>`, a place no row holds when the room's id is opaque.
+  const handle = openMemoryDb(':memory:');
+  try {
+    dbOf(handle)
+      .exec(`INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, chat, scope_kind)
+      VALUES ('place:opaque-room', 'discord', 'channel', 'c9', 'channel:c9', 'discord/global', 1, 'group', 'group')`);
+    assert.deepEqual(
+      turnReadRows(dbOf(handle), [{ kind: 'channel', id: 'c9' }], { iface: 'discord' }).map((row) => [
+        row.row_kind,
+        row.row_id,
+      ]),
+      [['places', 'place:opaque-room']]
+    );
+  } finally {
+    handle.close();
+  }
+});
+
 test('turnReadRows: a guild note needs the guild; unknown kinds are ignored', () => {
   const handle = openMemoryDb(':memory:');
   try {

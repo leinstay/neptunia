@@ -43,6 +43,19 @@ export const BOB_PERSON = personId('discord', BOB);
 export const BOB_SCOPE = dmScope(BOB_PERSON, 'discord');
 export const GROUP_SCOPE = groupScope('discord');
 export const group = groupContext('discord');
+/**
+ * The row of a channel of the `discord` interface, keyed as an observation keys it, so a later observation of the
+ * channel finds it: every stored line's place has one, and a line is read through its row's native id.
+ */
+export function channelRow(env: Env, id: string, native: string): void {
+  env.db
+    .prepare(
+      `INSERT OR IGNORE INTO places (id, iface, kind, native_id, native_key, authority_id, generation, chat, scope_kind)
+       VALUES (?, 'discord', 'channel', ?, ?, 'discord/global', 1, 'group', 'group')`
+    )
+    .run(id, native, `channel:${native}`);
+}
+
 export const SETTINGS = { ...dbSettings({})!, candidates: 40, minMeaning: 0.5, recordContext: 0, followMessages: 0 };
 
 /**
