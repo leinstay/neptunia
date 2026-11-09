@@ -7,7 +7,7 @@
 //   { skipped: true, reason }                  not memory (instance state, tools' output, backups)
 //   null                                       unknown: the walker reports it and leaves it alone
 
-import { MAPPERS } from '../db/map/index.ts';
+import { MAPPERS, mapperKindOf } from '../db/map/index.ts';
 import type { FileFormat, Mapper, MapperKind } from '../db/map/index.ts';
 
 const PRIVATE = '(?:private\\/[^/]+\\/)?';
@@ -21,8 +21,11 @@ const SKIPPED: Array<[RegExp, string]> = [
   [/\.unreadable-[^/]*$/, 'unreadable copy'],
 ];
 
+/** A kind a path names that has its own write kind and no mapper (src/memory/db/intentions-write.ts). */
+type DirectKind = 'intentions';
+
 /** [pattern, kind, format] for a path inside a guild's data directory; the first match wins. */
-const KINDS: Array<[RegExp, MapperKind, FileFormat]> = [
+const KINDS: Array<[RegExp, MapperKind | DirectKind, FileFormat]> = [
   [re(`${PRIVATE}record\\/\\d{4}-\\d{2}\\/\\d{4}-\\d{2}-\\d{2}\\.jsonl`), 'record', 'jsonl'],
   [re(`${PRIVATE}record\\/\\d{4}-\\d{2}\\/ids\\.json`), 'verbatim', 'json'],
   [re('record\\/backfill\\.json'), 'verbatim', 'json'],
@@ -60,7 +63,7 @@ const KINDS: Array<[RegExp, MapperKind, FileFormat]> = [
  * The mapper kind of a path relative to a guild's data directory, or null. Record and journal paths (a guild's or a
  * private layer's day files) are lines, the others whole files.
  */
-export function kindOfPath(rel: string): MapperKind | null {
+export function kindOfPath(rel: string): MapperKind | DirectKind | null {
   const found = KINDS.find(([pattern]) => pattern.test(String(rel)));
   return found ? found[1] : null;
 }
@@ -70,7 +73,7 @@ const vectorsUnit = (path: string): string => path.replace(/\/[^/]+$/, '');
 
 /** A path the mappers know: its kind and mapper, its format and the unit it belongs to. */
 export type MappedPath = {
-  kind: MapperKind;
+  kind: MapperKind | DirectKind;
   mapper: Mapper;
   format: FileFormat;
   unit: string;
@@ -93,7 +96,7 @@ export function classify(rel: string): Classified | null {
   const [, kind, format] = found;
   const out: MappedPath = {
     kind,
-    mapper: MAPPERS[kind],
+    mapper: MAPPERS[mapperKindOf(kind)],
     format,
     unit: format === 'vectors' ? vectorsUnit(path) : path,
   };
