@@ -28,11 +28,11 @@ test('a merge written by a session gives neither side the DMs of the other', () 
     mergePeople(handle, BORIS, ANNA, { by: 'session', now: 1000 });
     const db = dbOf(handle);
     assert.equal(
-      linkedDmScopes(db, 'discord', ANNA).some((one) => one.place === BORIS_PLACE),
+      linkedDmScopes(db, ANNA, null).some((one) => one.place === BORIS_PLACE),
       false
     );
     assert.deepEqual(
-      linkedDmScopes(db, 'telegram', BORIS).map((one) => one.place),
+      linkedDmScopes(db, BORIS, null).map((one) => one.place),
       [BORIS_PLACE]
     );
   });
@@ -42,7 +42,7 @@ test('a merge written by the owner gives the survivor the DMs of the merged pers
   // Bug: the owner's own decision never reaches a DM context.
   withWorld((handle) => {
     mergePeople(handle, BORIS, ANNA, { by: 'owner', now: 1000 });
-    assert.ok(linkedDmScopes(dbOf(handle), 'discord', ANNA).some((one) => one.place === BORIS_PLACE));
+    assert.ok(linkedDmScopes(dbOf(handle), ANNA, null).some((one) => one.place === BORIS_PLACE));
   });
 });
 

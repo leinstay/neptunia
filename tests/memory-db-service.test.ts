@@ -430,7 +430,12 @@ test('issued contexts: recorded while the database is open, a pure object when i
     const first = env.service.tick();
     await env.flushQueue();
     await first;
-    const ctx = env.service.issueContext({ kind: 'dm', person: `person:discord:${MEMBER}` });
+    // The caller names the DM place it found in `places`: the partner's person id no longer spells it.
+    const ctx = env.service.issueContext({
+      kind: 'dm',
+      person: `person:discord:${MEMBER}`,
+      place: `discord:dm:${MEMBER}`,
+    });
     assert.deepEqual(
       [ctx.place, ctx.audienceColumn, ctx.issuedAt],
       [`discord:dm:${MEMBER}`, true, new Date(Date.UTC(2026, 9, 24, 12, 0, 0)).toISOString()]

@@ -67,9 +67,9 @@ const SCOPES: Record<string, Untyped> = {
 const CONTEXTS = {
   group: groupContext('discord'),
   groupOther: groupContext('other'),
-  dmAlice: dmContext(ALICE, 'discord'),
-  dmBob: dmContext(BOB, 'discord'),
-  dmAliceOther: dmContext(ALICE_OTHER, 'other'),
+  dmAlice: dmContext(ALICE, 'discord', dmPlaceId('discord', 'u-alice')),
+  dmBob: dmContext(BOB, 'discord', dmPlaceId('discord', 'u-bob')),
+  dmAliceOther: dmContext(ALICE_OTHER, 'other', dmPlaceId('other', 'u-alice')),
   internal: internalContext(),
 };
 const viaAudience = (ctx: Record<string, Untyped>) => ({ ...ctx, audienceColumn: true });
@@ -286,7 +286,7 @@ test('the groups-only selector excludes its own DM even when the context retains
   // Catches private identity fields overriding an explicit groups-only read restriction.
   const handle = openMemoryDb(':memory:');
   const db = dbOf(handle);
-  const ctx = { ...dmContext(ALICE, 'discord'), ...groupsContext() };
+  const ctx = { ...dmContext(ALICE, 'discord', dmPlaceId('discord', 'u-alice')), ...groupsContext() };
   const rows = [
     { id: 'group', ...audienceOf(groupScope('other')) },
     { id: 'private', ...audienceOf(dmScope(ALICE, 'discord')) },
@@ -327,7 +327,8 @@ test('the groups-only selector excludes its own DM even when the context retains
 test('issueContext: an id, the mode, the DM place of the partner; contexts stay valid read contexts', () => {
   let n = 0;
   const newId = () => `ctx:test-${(n += 1)}`;
-  const dm = issueContext({ kind: 'dm', person: ALICE, now: () => NOW, newId });
+  // The caller names the DM place it found in `places`: the partner's person id no longer spells it.
+  const dm = issueContext({ kind: 'dm', person: ALICE, place: dmPlaceId('discord', 'u-alice'), now: () => NOW, newId });
   assert.deepEqual(
     [dm.id, dm.mode, dm.kind, dm.place, dm.destination, dm.issuedAt],
     [
@@ -689,6 +690,7 @@ test('recorded contexts use policy 2 without rewriting a historical context vers
       kind: 'dm',
       iface: 'discord',
       person: ALICE,
+      place: dmPlaceId('discord', 'u-alice'),
       now: () => NOW,
       newId: () => 'ctx:current',
     });
@@ -723,7 +725,11 @@ test('group audience predicates reject literal NUL bytes and keep encoded percen
   try {
     db.exec('CREATE TABLE probe (id TEXT, audience_id TEXT)');
     for (const row of rows) db.prepare('INSERT INTO probe VALUES (?, ?)').run(row.id, row.audience_id);
-    for (const ctx of [groupContext('discord'), dmContext(ALICE, 'discord'), groupsContext()]) {
+    for (const ctx of [
+      groupContext('discord'),
+      dmContext(ALICE, 'discord', dmPlaceId('discord', 'u-alice')),
+      groupsContext(),
+    ]) {
       assert.deepEqual(
         rows.filter((row) => allowedAudience(row, ctx)).map((row) => row.id),
         ['encoded']

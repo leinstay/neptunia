@@ -4,16 +4,7 @@
 // later leaves the scope and its cursor where they are.
 
 import { dmPartnerOfPlace } from './ids.ts';
-import {
-  audienceOf,
-  audienceParts,
-  dmAudienceId,
-  dmContext,
-  dmContextPerson,
-  groupContext,
-  namesNoPlaceOn,
-  wellFormed,
-} from './scope.ts';
+import { audienceOf, audienceParts, dmAudienceId, dmContext, groupContext, wellFormed } from './scope.ts';
 import type { Context, Scope } from './scope.ts';
 import { asText } from './types.ts';
 import type { Db, Row } from './types.ts';
@@ -34,20 +25,10 @@ function placedScope(row: Row, iface: string, place: Row, audienceColumn: boolea
   if (person === null && !place.partner_account) return null;
   const scope: Scope = { scope_kind: 'dm', scope_iface: iface, scope_dm: person };
   const key = dmScopeKey(iface, placeId);
-  const ctx = dmContext(dmContextPerson(person, iface, placeId), iface, placeId);
+  const ctx = dmContext(person, iface, placeId);
   if (!audienceColumn && person !== null && audienceOf(scope).audience_id === dmAudienceId(placeId))
     return { key, scope, ctx };
   return { key, scope, ctx: { ...ctx, audienceColumn: true }, audienceId: dmAudienceId(placeId) };
-}
-
-/** A DM whose audience names no stored place: its partner's spelling is all there is, and an id that spells none is internal. */
-function spelledScope(row: Row, iface: string, audienceColumn: boolean): SweepScope | null {
-  if (!wellFormed(row) || namesNoPlaceOn(row.scope_dm, iface)) return null;
-  const person = row.scope_dm as string;
-  const scope: Scope = { scope_kind: 'dm', scope_iface: iface, scope_dm: person };
-  const entry = { key: `dm:${asText(iface)}:${asText(person)}`, scope, ctx: dmContext(person, iface) };
-  if (!audienceColumn) return entry;
-  return { ...entry, audienceId: audienceOf(scope).audience_id, ctx: { ...entry.ctx, audienceColumn: true } };
 }
 
 function groupOf(iface: string, audienceColumn: boolean): SweepScope {
@@ -59,8 +40,7 @@ function groupOf(iface: string, audienceColumn: boolean): SweepScope {
 
 /**
  * The scopes that have chat lines, group first, in a stable order. `audienceColumn`: read them through `audience_id`.
- * A triple that names no valid audience and no stored DM place is not a scope of its own: its lines are internal
- * (scope.ts#audienceOf), never read as a chat.
+ * A DM line whose audience names no stored DM place is not a scope of its own: no chat is worked out of its partner's id.
  */
 export function scopesOf(
   dbGiven: unknown,
@@ -86,7 +66,7 @@ export function scopesOf(
     }
     const parts = audienceParts(row.audience_id);
     const place = parts?.kind === 'dm' ? placeOf.get(parts.place_id) : undefined;
-    const scope = place ? placedScope(row, iface, place, audienceColumn) : spelledScope(row, iface, audienceColumn);
+    const scope = place ? placedScope(row, iface, place, audienceColumn) : null;
     if (scope !== null) scopes.push(scope);
   }
   return [...new Map(scopes.map((one): [string, SweepScope] => [one.key, one])).values()];

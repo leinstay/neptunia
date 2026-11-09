@@ -23,6 +23,7 @@ import {
 } from '../src/memory/db/session.ts';
 import * as memoryIds from '../src/memory/db/ids.ts';
 import { groupContext, whereFor } from '../src/memory/db/scope.ts';
+import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import { roleApiKey, STRICT_KEY_ROLES } from '../src/llm/openrouter.ts';
 import { estimateMessages } from '../src/llm/tokens.ts';
 import { MEMORY_ROLE, MEMORY_ROLE_DEFAULT, roleConfigKeys, roleModel } from '../src/llm/roles.ts';
@@ -592,6 +593,14 @@ test('private chats are scopes of their own: one request each, the partner only,
     env.say({ native: 'd2', minutesAgo: 45, text: 'private reply', scope: dm, place: dmPlaceOf(ADA), kind: 'said' });
     env.claim({ id: 'cl-dm', subjectId: personOf(ADA), text: 'only in private', scope: dm });
     env.claim({ id: 'cl-pub', subjectId: personOf(ADA), text: 'public one' });
+    // The DM is a stored place and its lines carry its audience, as the observer writes them: the sweep finds a DM
+    // through the place its lines' audience names, never one spelled from the partner's id.
+    env.db
+      .prepare(
+        "INSERT INTO places (id, iface, kind, chat, scope_kind, partner_account, partner_person) VALUES (?, 'discord', 'dm', 'dm', 'dm', ?, ?)"
+      )
+      .run(dmPlaceOf(ADA), `discord:${ADA}`, personOf(ADA));
+    fillEnvAudiences(env);
     assert.deepEqual(
       scopesOf(env.db).map((scope) => scope.key),
       ['dm:discord:person:discord:u-ada', 'group:discord']

@@ -85,17 +85,12 @@ export const dmScope = <P extends string, T extends string | null>(person: P, if
 });
 
 export const groupContext = <T extends string>(iface: T): Context => ({ iface, kind: 'group' });
-/** A DM context; `place` is the DM place, resolved from the partner as the resolver does when it is not given. */
-export const dmContext = <P extends string, T extends string>(
-  person: P,
-  iface: T,
-  place: string | null = null
-): Context => ({
-  iface,
-  kind: 'dm',
-  person,
-  place: place ?? dmPlaceOfPerson(person, iface),
-});
+/**
+ * A DM context: the DM place the caller found in `places` and the partner person. A DM nobody linked has no person,
+ * and a person no stored DM place holds has no place: that context reads the groups and its linked DMs only.
+ */
+export const dmContext = (person: string | null, iface: string, place: string | null): Context =>
+  filled(person) ? { iface, kind: 'dm', person, place } : { iface, kind: 'dm', place };
 export const internalContext = (): Context => ({ internal: true });
 /**
  * What a read's context is issued for: the DM of `privateAccountId`, else the group of `placeId`, on the channel's
@@ -193,7 +188,7 @@ function check(value: unknown): asserts value is Context {
   const ctx = value as Context;
   if (ctx.internal === true || ctx.groups === true) return;
   if (ctx.kind === 'group' && typeof ctx.iface === 'string' && ctx.iface) return;
-  if (ctx.kind === 'dm' && typeof ctx.iface === 'string' && ctx.iface && typeof ctx.person === 'string' && ctx.person)
+  if (ctx.kind === 'dm' && typeof ctx.iface === 'string' && ctx.iface && (filled(ctx.person) || filled(ctx.place)))
     return;
   throw new Error('memory db: a read needs a valid scope context');
 }
@@ -210,7 +205,7 @@ export function allowed(value: unknown, ctx: unknown): boolean {
   if (kind === 'dm')
     return (
       ctx.kind === 'dm' &&
-      ((row?.scope_iface === ctx.iface && row?.scope_dm === ctx.person) ||
+      ((filled(ctx.person) && row?.scope_iface === ctx.iface && row?.scope_dm === ctx.person) ||
         (ctx.linked ?? []).some((one) => row?.scope_iface === one.iface && row?.scope_dm === one.person))
     );
   return false;
@@ -227,8 +222,10 @@ export function whereFor(ctx: unknown, alias = ''): { sql: string; params: Array
   let sql = `(${p}scope_kind = 'none' OR (${p}scope_kind = 'group' AND ${p}scope_iface IS NOT NULL AND ${p}scope_iface <> '' AND instr(${p}scope_iface, char(0)) = 0)`;
   const params: Array<string> = [];
   if (ctx.groups !== true && ctx.kind === 'dm') {
-    sql += ` OR (${p}scope_kind = 'dm' AND ${p}scope_iface = ? AND ${p}scope_dm = ?)`;
-    params.push(ctx.iface ?? '', ctx.person ?? '');
+    if (filled(ctx.person)) {
+      sql += ` OR (${p}scope_kind = 'dm' AND ${p}scope_iface = ? AND ${p}scope_dm = ?)`;
+      params.push(ctx.iface ?? '', ctx.person);
+    }
     for (const one of ctx.linked ?? []) {
       sql += ` OR (${p}scope_kind = 'dm' AND ${p}scope_iface = ? AND ${p}scope_dm = ?)`;
       params.push(one.iface, one.person);
@@ -312,28 +309,14 @@ export function audienceOf(
 }
 
 /**
- * Whether `person` is a person id that spells no DM place on `iface`: an opaque one, or one spelled for another interface
- * (an account of the command line linked to the owner's person on a chat platform). Only `places` finds that DM.
- */
-export const namesNoPlaceOn = (person: unknown, iface: unknown): boolean =>
-  typeof person === 'string' && person.startsWith('person:') && dmPlaceOfPerson(person, iface) === null;
-
-/**
- * The person a context of a DM place names. A DM nobody linked has none, so the context carries the partner its place
- * spells: `check` needs a name, and a read through `audience_id` tells the DM by its place.
- */
-export const dmContextPerson = (person: string | null | undefined, iface: string, place: string): string =>
-  person ?? dmPartnerOfPlace(place)?.person ?? personId(iface, place);
-
-/**
- * Whether a triple is one of the four well-formed kinds (a malformed one resolves to internal). A DM whose partner spells
- * no place on its interface is well formed: its audience comes from its stored DM place, which the triple cannot spell.
+ * Whether a triple is one of the four well-formed kinds (a malformed one resolves to internal). A DM with an interface
+ * and a partner is well formed: its audience comes from its stored DM place, which the triple does not name.
  */
 export function wellFormed(scope: unknown): boolean {
   const row = scope as Partial3 | null | undefined;
   const kind = row?.scope_kind ?? null;
   if (kind === 'internal') return true;
-  if (kind === 'dm' && filled(row?.scope_iface) && namesNoPlaceOn(row?.scope_dm, row?.scope_iface)) return true;
+  if (kind === 'dm') return filled(row?.scope_iface) && filled(row?.scope_dm);
   return audienceOf(scope).audience_id !== AUD_INTERNAL;
 }
 
@@ -382,8 +365,7 @@ export function scopeOfAudience(id: unknown, lookup: unknown = null): Scope {
 /** The exact private audiences of a DM context, its own and the person's other DMs; none in group contexts. */
 function privateAudiences(ctx: Context): Array<string> {
   if (ctx.groups === true || ctx.kind !== 'dm') return [];
-  const place = filled(ctx.place) ? ctx.place : dmPlaceOfPerson(ctx.person, ctx.iface ?? '');
-  return [place, ...(ctx.linked ?? []).map((one) => one.place)]
+  return [ctx.place, ...(ctx.linked ?? []).map((one) => one.place)]
     .filter((one) => filled(one))
     .map((one) => dmAudienceId(one));
 }
@@ -489,7 +471,7 @@ export function issueContext({
 } = {}): Context {
   let base: Context;
   if (kind === 'group') base = groupContext(iface);
-  else if (kind === 'dm') base = dmContext(person ?? '', iface, place);
+  else if (kind === 'dm') base = dmContext(person, iface, place);
   else base = internalContext();
   check(base);
   const ctx: Context = {

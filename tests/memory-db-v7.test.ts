@@ -459,6 +459,7 @@ test('v7 contexts: an issued context is recorded once, and turn reads carry its 
     const ctx = issueContext({
       kind: 'dm',
       person: personId('discord', 'u1'),
+      place: 'discord:dm:u1',
       now: () => Date.parse('2026-10-24T12:00:00.000Z'),
       newId: () => 'ctx:one',
     });

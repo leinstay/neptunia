@@ -19,7 +19,7 @@ import { insertRows } from '../src/memory/db/rows.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import { channelPlaceId, dmPlaceId, messageSourceId, personId } from '../src/memory/db/ids.ts';
 import { dmContext, dmScope, groupContext, groupScope, internalContext } from '../src/memory/db/scope.ts';
-import { fixture } from './fixtures/memory-db-recall.ts';
+import { dmOfMember, dmSpecOf, fixture, storedDmOf, storedPersonOf } from './fixtures/memory-db-recall.ts';
 import { labels } from './fixtures/labels.ts';
 import { buildDataDir, guildDir, MEMBER, CHANNEL } from './fixtures/memory-db/datadir.ts';
 import { dbOf, type Db, type Statement } from '../src/memory/db/types.ts';
@@ -55,7 +55,6 @@ const OTHER = channelPlaceId('discord', 'other');
 const ALICE = 'u-alice';
 const BOB = 'u-bob';
 const CAROL = 'u-carol';
-const storedPersonOf = (id: string) => ([ALICE, BOB, CAROL].includes(id) ? personId('discord', id) : null);
 const group = groupContext('discord');
 
 const plan = (forms: Array<string>, extra: Record<string, unknown> = {}) => ({
@@ -407,7 +406,7 @@ test('scope: a DM line is never in a group result; the group is told a better ma
     assert.equal(wide.stats.words, 1, 'the DM lines are not counted');
     // The owner of the DM reads it in their DM, and sees no marker.
     const own = search(env.db, {
-      ctx: dmContext(personId('discord', ALICE), 'discord'),
+      ctx: dmOfMember(ALICE),
       plan: plan(['σπιτι του δασκαλου']),
       now: NOW,
     });
@@ -415,7 +414,7 @@ test('scope: a DM line is never in a group result; the group is told a better ma
     assert.equal(own.hidden, false);
     // Someone else's DM and the internal context.
     const other = search(env.db, {
-      ctx: dmContext(personId('discord', BOB), 'discord'),
+      ctx: dmOfMember(BOB),
       plan: plan(['σπιτι του δασκαλου']),
       now: NOW,
     });
@@ -532,7 +531,7 @@ test('window: a line the context may not open ends the read there and is never c
     assert.ok(!JSON.stringify([up, down]).includes('κρυφη'));
     // The partner of that DM reads straight through.
     const through = window(env.db, {
-      ctx: dmContext(personId('discord', ALICE), 'discord'),
+      ctx: dmOfMember(ALICE),
       anchor: 'h6',
       move: 'up',
       messages: 5,
@@ -676,6 +675,7 @@ function runner(
     },
     listUserProfiles: () => [],
     personOfAccount: storedPersonOf,
+    dmHomeOf: storedDmOf,
   };
   const llmCalls: Array<Array<unknown>> = [];
   const llm = {
@@ -1388,7 +1388,7 @@ test('window: the text of a line the context may not open is never loaded, at a 
     });
     assert.equal(leaked(), false, "a hit's stretch, its reply parent and its neighbours");
     // Control: the partner of that DM does read it, so the recorder sees the text.
-    window(seen.db, { ctx: dmContext(personId('discord', ALICE), 'discord'), anchor: 'h6', move: 'up', messages: 5 });
+    window(seen.db, { ctx: dmOfMember(ALICE), anchor: 'h6', move: 'up', messages: 5 });
     assert.equal(leaked(), true);
   } finally {
     env.done();
@@ -1415,7 +1415,7 @@ test('names: an alias claim resolves only through verified accounts and only whe
     const who = (name: string, ctx = group) => ids(search(env.db, { ctx, plan: plan([], { who: [name] }), now: NOW }));
     assert.deepEqual(who('Λικα'), ['a1']);
     assert.deepEqual(who('Μπομπακι'), [], 'a claim of a DM is no alias for the group');
-    assert.deepEqual(who('Μπομπακι', dmContext(personId('discord', ALICE), 'discord')), ['b1']);
+    assert.deepEqual(who('Μπομπακι', dmOfMember(ALICE)), ['b1']);
     env.db.prepare("UPDATE accounts SET link = 'pending' WHERE id = ?").run(`discord:${ALICE}`);
     assert.deepEqual(who('Λικα'), [], 'an unverified link resolves nothing');
     assert.deepEqual(who('Αλίκη'), ['a1'], "the account's own name still does");
@@ -1469,7 +1469,7 @@ test('recall finds another interface group before a candidate cap without exposi
     env.stem();
     fillEnvAudiences(env);
     const settings = { ...dbSettings({})!, gateShare: 0, candidates: 2, wordPool: 2 };
-    for (const ctx of [groupContext('discord'), dmContext(personId('discord', ALICE), 'discord')]) {
+    for (const ctx of [groupContext('discord'), dmOfMember(ALICE)]) {
       const found = search(env.db, {
         ctx: { ...ctx, audienceColumn: true },
         plan: plan(['σπιτι']),
@@ -1756,7 +1756,7 @@ for (const kind of ['group', 'dm'] as const) {
           },
         ],
       });
-      const context = kind === 'dm' ? dmContext(personId('discord', BOB), 'discord') : groupContext('discord');
+      const context = kind === 'dm' ? dmOfMember(BOB) : groupContext('discord');
       assert.deepEqual(ids(run(env, ['κουνέλι'], {}, { ...context, audienceColumn: true })).sort(), [
         'offline-anchor',
         'offline-before',
@@ -1971,7 +1971,7 @@ for (const supplied of ['other-dm', 'group', 'current-dm'] as const) {
       const memoryContext = issueContext({
         ...(supplied === 'group'
           ? { kind: 'group' as const }
-          : { kind: 'dm' as const, person: personId('discord', supplied === 'other-dm' ? CAROL : BOB) }),
+          : { kind: 'dm' as const, ...dmSpecOf(supplied === 'other-dm' ? CAROL : BOB) }),
         iface: 'discord',
         newId: () => `ctx:supplied-${supplied}`,
         now: () => NOW,

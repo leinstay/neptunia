@@ -17,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { mindOf, mindSettingsOf } from '../src/memory/db/mind-read.ts';
 import type { Mind, SeedMessage, Seeds } from '../src/memory/db/mind-read.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { dmContext, dmContextPerson, groupContext, internalContext } from '../src/memory/db/scope.ts';
+import { dmContext, groupContext, internalContext } from '../src/memory/db/scope.ts';
 import type { Context } from '../src/memory/db/scope.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, Row } from '../src/memory/db/types.ts';
@@ -96,8 +96,7 @@ function seedMessages(db: Db, place: Row, ids: Array<string>): Array<SeedMessage
 function contextOf(place: Row): Context {
   const iface = String(place.iface);
   if (iface === 'cli') return internalContext();
-  if (place.chat === 'dm' || place.kind === 'dm')
-    return dmContext(dmContextPerson(text(place.partner_person), iface, String(place.id)), iface, String(place.id));
+  if (place.chat === 'dm' || place.kind === 'dm') return dmContext(text(place.partner_person), iface, String(place.id));
   return groupContext(iface);
 }
 

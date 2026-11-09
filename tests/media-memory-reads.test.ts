@@ -15,6 +15,7 @@ import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import { baseConfig, prompts as sessionPrompts, textOf } from './fixtures/memory-db/session-rig.ts';
 import {
   AT,
+  BOB_DM,
   BOB_PERSON,
   GENERAL,
   HER,
@@ -132,7 +133,11 @@ for (const kind of KINDS) {
       fillStems(env.db);
       const rig = recallRig(env);
       const word = kind.first.word;
-      const own = domainDetail(env.db, { family: 'sources', id: source, context: dmContext(BOB_PERSON, 'discord') });
+      const own = domainDetail(env.db, {
+        family: 'sources',
+        id: source,
+        context: dmContext(BOB_PERSON, 'discord', BOB_DM),
+      });
       assert.ok(JSON.stringify((own as Row).media ?? []).includes(word), 'its own DM reads it');
 
       const fragment = await rig.ask({ terms: kind.first.fragment });
