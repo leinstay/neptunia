@@ -3,7 +3,8 @@
 // reads under the turn's context, ranks by evidence and cuts to a budget. No model takes part. Contract:
 //   mindOf(db: Db, ctx: Context, seeds: Seeds, settings: MindSettings, now: number): Mind
 //   Seeds = { messages: Array<SeedMessage>; counterpart: { personId; accountId } | null; place: string | null;
-//     previous: Array<EntryRef>; candidates: Array<{ nodeId; sourceIds: Array<string>; from: 'prefetch' | 'query' }> }
+//     previous: Array<NodeRef>; candidates: Array<NodeRef & { sourceIds: Array<string>; from: 'prefetch' | 'query' }> }
+//   NodeRef = { kind: string; rowId: string }      a graph node by its kind and the id of its row, never by its node id
 //   SeedMessage = { id; at; authorAccount: string | null; placeId: string | null; replyTo: string | null;
 //     mentions: Array<string>; text; trigger: boolean }     ids are stored row ids, `at` an ISO time, mentions account ids
 //   MindSettings = context.memory of config/config.json: windowMessages, maxHops, maxNodesRead, budgetTokens, shares,
@@ -36,6 +37,7 @@ import {
   openWorld,
   personNode,
   placeNode,
+  rekeyNode,
   rootId,
 } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
@@ -511,4 +513,63 @@ test('the Telegram case: a friend asks about a server of another interface and g
   assert.deepEqual(raised, [true, true, false], 'the two members she is closest to');
   for (const entry of [...mind.people, ...mind.places])
     assert.ok(entry.sources.length > 0, `${entry.nodeId} has a source`);
+});
+
+// ---- nodes by kind and row --------------------------------------------------------------------------------------------
+// A node's kind and row come from `graph_nodes` or from the caller, never from the text of its id: every case below gives
+// a node an id that spells neither.
+
+test("a word naming a person raises them whatever their graph node's id spells", () => {
+  // Bug: the kind of a name's node was cut out of its id, so a person whose node id does not spell `person:` was no
+  // person and the word raised nothing.
+  const w = world();
+  const person = 'person:discord:p1';
+  addPerson(w.db, { id: person, accounts: [{ id: 'discord:p1', iface: 'discord', native: 'p1', names: ['Pétros'] }] });
+  rekeyNode(w.db, personNode(person), 'node-p1');
+  const trigger = strangerSays(w, 'src:m1', 'είδες τον Pétros;', { trigger: true });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  const entry = mind.people.find((one) => one.nodeId === 'node-p1');
+  assert.deepEqual([entry?.personId, entry?.evidence], [person, 'word']);
+});
+
+test("a person's membership raises its root whatever the root's graph node id spells", () => {
+  // Bug: the place a membership edge reached was cut out of the edge's node id, so a root whose node id does not spell
+  // `place:` was dropped from the walk.
+  const w = world();
+  const person = 'person:discord:p1';
+  addPerson(w.db, { id: person, accounts: [{ id: 'discord:p1', iface: 'discord', native: 'p1', names: ['Pétros'] }] });
+  addMembership(w.db, { account: 'discord:p1', place: PORTICO });
+  rekeyNode(w.db, placeNode(PORTICO), 'node-portico');
+  const trigger = strangerSays(w, 'src:m1', 'πώς πάει;', { trigger: true, mentions: ['discord:p1'] });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  assert.equal(mind.places.find((one) => one.nodeId === 'node-portico')?.placeId, PORTICO);
+});
+
+test("an interface's name raises the interface and its top places whatever its graph node id spells", () => {
+  // Bug: the interface was cut out of its node id, so a name of an interface whose node id does not spell `interface:`
+  // raised nothing.
+  const w = world();
+  rekeyNode(w.db, interfaceNode('discord'), 'node-discord');
+  const trigger = strangerSays(w, 'src:m1', 'είσαι στο Discord;', { trigger: true });
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room }), SETTINGS, NOW);
+  assert.equal(mind.interfaces.find((one) => one.nodeId === 'node-discord')?.iface, 'discord');
+  assert.ok(placeIds(mind).includes(placeNode(STOA)), 'a top place of the interface');
+});
+
+test('a prefetched line given by its kind and row is an excerpt, and a place given so is raised', () => {
+  // Bug: a candidate came as a node id the caller spelled and the reader cut apart again, so its kind and row were
+  // guessed from text.
+  const w = world();
+  addLine(w.db, { id: 'src:old', iface: 'discord', place: w.room, author: 'discord:x1', text: 'παλιά κουβέντα' });
+  const trigger = strangerSays(w, 'src:m1', 'θυμάσαι;', { trigger: true });
+  const candidates: Seeds['candidates'] = [
+    { kind: 'source', rowId: 'src:old', sourceIds: ['src:old'], from: 'prefetch' },
+    { kind: 'place', rowId: PORTICO, sourceIds: [], from: 'query' },
+  ];
+  const mind = mindOf(w.db, GROUP, seedsOf([trigger], { place: w.room, candidates }), SETTINGS, NOW);
+  assert.deepEqual(
+    mind.found.map((one) => [one.sourceId, one.from]),
+    [['src:old', 'prefetch']]
+  );
+  assert.ok(placeIds(mind).includes(placeNode(PORTICO)), 'the place candidate');
 });

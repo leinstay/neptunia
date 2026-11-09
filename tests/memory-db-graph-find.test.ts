@@ -12,6 +12,7 @@
 // Synthetic names, in Greek.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { graphNodeId } from '../src/memory/db/graph.ts';
 import { peopleFound, placesFound } from '../src/memory/db/graph-find.ts';
 import type { FindMeaning } from '../src/memory/db/graph-find.ts';
 import { pendingObjectEmbeds } from '../src/memory/db/object-vectors.ts';
@@ -29,6 +30,7 @@ import {
   addRoom,
   noteInterface,
   openWorld,
+  rekeyNode,
   rootId,
 } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
@@ -248,6 +250,22 @@ test('a person is found by their stored character when the words differ from the
   assert.equal(found[0]?.name, 'Ανδρέας');
 });
 
+test("a person is found by name whatever their graph node's id spells", () => {
+  // Bug: the person was cut out of the text of each name's graph node id, so a node whose id does not spell
+  // `person:<row id>` was nobody. The node's row id is stored in `graph_nodes.row_id`.
+  const w = world();
+  addPerson(w.db, {
+    id: 'person:a1',
+    accounts: [{ id: 'discord:a1', iface: 'discord', native: 'a1', names: ['Ανδρέας'] }],
+  });
+  rekeyNode(w.db, graphNodeId('person', 'person:a1'), 'node-a1');
+  const found = peopleFound(w.db, GROUP, 'Ανδρέας');
+  assert.deepEqual(
+    found.map((person) => [person.id, person.name]),
+    [['person:a1', 'Ανδρέας']]
+  );
+});
+
 test('a person is found by an alias only where the alias may be read', () => {
   // Bug: an alias learned in a direct chat finds the person from a group turn.
   const w = world();
@@ -353,5 +371,21 @@ test('a place under the meaning floor whose fields hold no asked word stays out'
   assert.deepEqual(
     placesFound(w.db, GROUP, 'music', {}, meaning).map((place) => place.id),
     [sounds]
+  );
+});
+
+test("a person's name set is embedded and ranks them by meaning whatever their graph node's id spells", () => {
+  // Bug: a name set was told a person's or a place's by the text of its node id, so a node whose id does not spell its
+  // kind was never embedded and never met a request by meaning. The node's kind is stored in `graph_nodes.kind`.
+  const w = world();
+  addPerson(w.db, {
+    id: 'person:a1',
+    accounts: [{ id: 'discord:a1', iface: 'discord', native: 'a1', names: ['Ανδρέας'] }],
+  });
+  rekeyNode(w.db, graphNodeId('person', 'person:a1'), 'node-a1');
+  embedObject(w, 'node-a1', ASKED);
+  assert.deepEqual(
+    peopleFound(w.db, GROUP, 'Andreas', {}, meaning).map((person) => person.id),
+    ['person:a1']
   );
 });

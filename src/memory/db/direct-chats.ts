@@ -25,8 +25,6 @@ export type DirectChats =
   | { kind: 'found'; people: Array<FoundPersonRef> }
   | { kind: 'none' };
 
-const PERSON_NODE = 'person:';
-
 /** The people whose account has the member handle `handle` (its prefix and base-36 digits). */
 export function peopleOfHandle(db: Db, handle: string): Set<string> {
   const people = new Set<string>();
@@ -92,9 +90,7 @@ export function directChatsOf(
   let people = peopleOfHandle(db, given);
   if (people.size === 0)
     people = new Set(
-      matchName(db, ctx, given, ['exact'])
-        .filter((hit) => hit.nodeId.startsWith(PERSON_NODE))
-        .map((hit) => hit.nodeId.slice(PERSON_NODE.length))
+      matchName(db, ctx, given, ['exact']).flatMap((hit) => (hit.node?.kind === 'person' ? [hit.node.rowId] : []))
     );
   const [only] = [...people];
   if (people.size === 1 && only !== undefined)

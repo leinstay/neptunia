@@ -38,8 +38,13 @@ import type { Db, Row } from './types.ts';
 export type NameMatch = 'exact' | 'stem' | 'trigram';
 /** One node a word names: the graph node, the kind of name, the name as stored, how it matched and its audience. */
 export type NameHit = { nodeId: string; kind: string; label: string; match: NameMatch; audienceId: string };
-/** A hit with the folded name it matched, for a reader that needs the form (an interface's noun). */
-export type NameHitRow = NameHit & { normalized: string };
+/** A graph node by its kind and the id of its row, as `graph_nodes` holds them. */
+export type NodeRef = { kind: string; rowId: string };
+/**
+ * A hit with the folded name it matched, for a reader that needs the form (an interface's noun), and its node's kind and
+ * row from `graph_nodes`, null for a name whose node has no row there.
+ */
+export type NameHitRow = NameHit & { normalized: string; node: NodeRef | null };
 
 /** The tables the index reads names from. */
 export const NAME_SOURCES: ReadonlySet<string> = new Set([
@@ -312,7 +317,24 @@ function similarity(a: string, b: string): number {
   return (2 * shared) / (left.size + right.size);
 }
 
-const HIT_COLUMNS = 'n.label, n.normalized, n.kind, n.node_id, n.audience_id';
+const HIT_COLUMNS =
+  'n.label, n.normalized, n.kind, n.node_id, n.audience_id, g.kind AS node_kind, g.row_id AS node_row';
+const NODE_JOIN = 'LEFT JOIN graph_nodes g ON g.id = n.node_id';
+/**
+ * The lookups of one connection, prepared once: the graph reader matches every phrase of a turn's window. A statement's
+ * text varies only with the number of direct chats a context reads, so the map stays small.
+ */
+const statements = new WeakMap<Db, Map<string, ReturnType<Db['prepare']>>>();
+function prepared(db: Db, sql: string): ReturnType<Db['prepare']> {
+  let map = statements.get(db);
+  if (!map) statements.set(db, (map = new Map<string, ReturnType<Db['prepare']>>()));
+  let statement = map.get(sql);
+  if (!statement) {
+    statement = db.prepare(sql);
+    map.set(sql, statement);
+  }
+  return statement;
+}
 const hitOf = (row: Row, match: NameMatch): NameHitRow => ({
   nodeId: String(row.node_id),
   kind: String(row.kind),
@@ -320,18 +342,18 @@ const hitOf = (row: Row, match: NameMatch): NameHitRow => ({
   match,
   audienceId: String(row.audience_id),
   normalized: String(row.normalized),
+  node: filled(row.node_kind) && filled(row.node_row) ? { kind: row.node_kind, rowId: row.node_row } : null,
 });
 
 function trigramHits(db: Db, ctx: Context, folded: string): Array<NameHitRow> {
   if ([...folded].length < TRIGRAM_MIN_CHARS || folded.includes(' ')) return [];
   const query = [...trigramsOf(folded)].map((gram) => `"${gram.replace(/"/g, '""')}"`).join(' OR ');
   const filter = audienceWhere(ctx, 'n');
-  const rows = db
-    .prepare(
-      `SELECT ${HIT_COLUMNS} FROM names_tri JOIN names n ON n.rowid = names_tri.rowid
+  const rows = prepared(
+    db,
+    `SELECT ${HIT_COLUMNS} FROM names_tri JOIN names n ON n.rowid = names_tri.rowid ${NODE_JOIN}
        WHERE names_tri MATCH ? AND ${filter.sql} ORDER BY n.normalized, n.node_id LIMIT ?`
-    )
-    .all(query, ...filter.params, TRIGRAM_CANDIDATES);
+  ).all(query, ...filter.params, TRIGRAM_CANDIDATES);
   return rows
     .filter((row) => {
       const words = [String(row.normalized), ...String(row.normalized).split(' ')];
@@ -348,7 +370,7 @@ function onePerNode(hits: Array<NameHitRow>): Array<NameHitRow> {
 
 /**
  * The names one word or phrase matches under `ctx`: exact, else by stems, else by trigrams (`only` limits the ways).
- * Each hit keeps its folded name. A caller matching many words passes `stem` once (stems.ts#loadStemmer reads the
+ * Each hit keeps its folded name and its node's kind and row as `graph_nodes` holds them. A caller matching many words passes `stem` once (stems.ts#loadStemmer reads the
  * stored stemmer on every call).
  */
 export function matchName(
@@ -362,9 +384,10 @@ export function matchName(
   if (folded === '' || !hasNames(db)) return [];
   const filter = audienceWhere(ctx, 'n');
   const select = (column: string, value: string): Array<Row> =>
-    db
-      .prepare(`SELECT ${HIT_COLUMNS} FROM names n WHERE n.${column} = ? AND ${filter.sql} ORDER BY n.node_id, n.kind`)
-      .all(value, ...filter.params);
+    prepared(
+      db,
+      `SELECT ${HIT_COLUMNS} FROM names n ${NODE_JOIN} WHERE n.${column} = ? AND ${filter.sql} ORDER BY n.node_id, n.kind`
+    ).all(value, ...filter.params);
   if (only.includes('exact')) {
     const exact = select('normalized', folded);
     if (exact.length > 0) return onePerNode(exact.map((row) => hitOf(row, 'exact')));
@@ -393,11 +416,10 @@ export function namesOf(db: Db, ctx: Context, words: Array<string>): Array<NameH
 
 /** The live places `name` names under `ctx`, by exact form or stems: each place once, with its stored name. */
 export function placesNamed(db: Db, ctx: Context, name: string): Array<{ id: string; name: string }> {
-  const prefix = 'place:';
   const ids = new Set(
-    matchName(db, ctx, name.replace(/^#/, ''), ['exact', 'stem'])
-      .filter((hit) => hit.nodeId.startsWith(prefix))
-      .map((hit) => hit.nodeId.slice(prefix.length))
+    matchName(db, ctx, name.replace(/^#/, ''), ['exact', 'stem']).flatMap((hit) =>
+      hit.node?.kind === 'place' ? [hit.node.rowId] : []
+    )
   );
   const read = db.prepare('SELECT id, name FROM places WHERE id = ? AND retired_at IS NULL');
   return [...ids].flatMap((id) => {
