@@ -8,16 +8,11 @@ import path from 'node:path';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ROUTE_NAMES, backendOfRouteName, routeName } from '../src/subharness/route-names.ts';
-import { clearSubscriptionPath, subscriptionPath, subscriptionPathText } from '../src/subharness/subscription-path.ts';
+import { subscriptionPath, subscriptionPathText } from '../src/subharness/subscription-path.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
 import { subharnessCommand } from '../src/interface/commands/subharness.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
 import type { Answer, ConsoleDeps } from '../src/interface/commands/console.ts';
-import { createKeysCommands } from '../src/keys/commands.ts';
-import { createKeyRing } from '../src/keys/ring.ts';
-import { createKeyStore } from '../src/keys/store.ts';
-import { createKeyFailover } from '../src/llm/key-failover.ts';
-import { BASE_URL, SECRET, fakeFetch, fakePause, healthy } from './fixtures/keys-rig.ts';
 import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
 import type { KeysFile } from './fixtures/keys-file.ts';
 import { fakeVendor } from './fixtures/fake-vendor.ts';
@@ -153,48 +148,6 @@ test('the stored record keeps its backend word after the status renders the rout
 
 // what the owner types
 
-test('model set core --via claude-harness stores backend claude and answers in the new name', async () => {
-  // Catches: the new name passed on to the backend lookup as is, which refuses it as unknown.
-  const { dir, deps, ran } = rig();
-  const answer = await consoleOver(dir, deps).run(
-    'model.set',
-    { role: 'core', via: 'claude-harness', model: 'claude-opus-4-6' },
-    OWNER
-  );
-  assert.equal(answer.status, 'ok', answer.text);
-  assert.deepEqual(readKeysFile(dir).subharness.core, {
-    backend: 'claude',
-    model: 'claude-opus-4-6',
-    effort: null,
-  });
-  assert.deepEqual(ran, [{ name: 'claude', model: 'claude-opus-4-6' }]);
-  assert.ok(answer.text.includes('claude-harness'), answer.text);
-});
-
-test('model set core --via codex-harness stores backend codex', async () => {
-  // Catches: only the claude route taking the new names, while codex still wants the old word.
-  const { dir, deps } = rig();
-  const answer = await consoleOver(dir, deps).run(
-    'model.set',
-    { role: 'core', via: 'codex-harness', model: 'gpt-6.1-sol' },
-    OWNER
-  );
-  assert.equal(answer.status, 'ok', answer.text);
-  assert.deepEqual(readKeysFile(dir).subharness.core, { backend: 'codex', model: 'gpt-6.1-sol', effort: null });
-});
-
-test('model set memory --via claude-harness stores backend claude', async () => {
-  // Catches: the memory writer's `--via` left on the old words.
-  const { dir, deps } = rig();
-  const answer = await consoleOver(dir, deps).run(
-    'model.set',
-    { role: 'memory', via: 'claude-harness', model: 'claude-opus-4-6' },
-    OWNER
-  );
-  assert.equal(answer.status, 'ok', answer.text);
-  assert.deepEqual(readKeysFile(dir).subharness.memory, { backend: 'claude', model: 'claude-opus-4-6', effort: null });
-});
-
 test('model set scout --via opencode-harness stores uses opencode for the agent', async () => {
   // Catches: the agent path (setAgentModel) comparing the typed word with the stored names and refusing the new one.
   // The lead: opencode is installed and logged in on an extra key here, as tests/subharness-provider.test.ts does,
@@ -214,7 +167,8 @@ test('model set scout --via opencode-harness stores uses opencode for the agent'
   assert.equal(readKeysFile(dir).subharness.uses?.scout, 'opencode');
 });
 
-for (const role of ['core', 'memory', 'scout']) {
+// Agents alone take --via: a model role runs on a chain whose routes name their harness (spec 2026-11-09-model-routes).
+for (const role of ['scout']) {
   for (const old of ['claude', 'codex', 'opencode']) {
     test(`model set ${role} --via ${old} is refused as an unknown backend that names the four names`, async () => {
       // Catches: the old word still accepted, or refused with a code the owner's tools do not know.
@@ -233,36 +187,3 @@ for (const role of ['core', 'memory', 'scout']) {
     });
   }
 }
-
-test('model set core --via direct-api clears the core record, as model set core does', async () => {
-  // Catches: `direct-api` refused as an unknown backend, or accepted with no effect so her turns stay on the CLI.
-  const { dir, deps, ran } = rig({ core: { backend: 'claude', model: 'claude-opus-4-6', effort: null } });
-  const store = createKeyStore({ privateDir: tempDir('nep-route-names-keys-') });
-  store.addCore({ name: 'core-1', value: SECRET });
-  const ring = createKeyRing({ store, failover: createKeyFailover({ now: () => 0 }) });
-  const keys = createKeysCommands({
-    store,
-    ring,
-    fetch: fakeFetch(healthy).fetch,
-    baseUrl: () => BASE_URL,
-    defaults: {},
-    currentModel: (role) => `current/${role}`,
-    saveModel: () => Promise.resolve(),
-    pause: fakePause(),
-    directPath: (role) => {
-      if (role === 'core') clearSubscriptionPath(dir, role);
-    },
-  });
-  const desk = consoleOver(dir, deps, {
-    enabled: () => true,
-    run: (name, args, dialog) => keys.run(name, args, dialog),
-  });
-  const answer = await desk.run(
-    'model.set',
-    { role: 'core', via: 'direct-api', model: 'anthropic/claude-opus-4.6' },
-    OWNER
-  );
-  assert.equal(answer.status, 'ok', answer.text);
-  assert.deepEqual(subscriptionPath(dir, 'core'), { kind: 'api' });
-  assert.deepEqual(ran, []);
-});

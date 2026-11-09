@@ -23,6 +23,7 @@
 // of its own there.
 
 import { BASE_ROLES, MEMORY_ROLE, SEARCH_ROLE } from '../../llm/roles.ts';
+import { ROUTE_ROLES as CHAIN_ROLES } from '../../llm/route-text.ts';
 import { BACKEND_NAMES } from '../../agent-runner/profiles.ts';
 import { AGENT_MODES, SUBHARNESS_AGENTS } from '../../subharness/control.ts';
 import { SERVICE_NAMES, setupRefusal } from '../../service/schedule.ts';
@@ -511,27 +512,39 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'model',
-    help: 'Choose the model and reasoning effort for each role',
+    help: 'Choose the chain of routes each role runs on, and the model of each agent',
     args: [],
     defaultSubcommand: 'show',
     subcommands: [
-      runs(sub('show', 'Show model of every model role'), 'model.show'),
+      runs(sub('show', 'Show the chain of routes of every model role'), 'model.show'),
       sub(
         'sources',
         'Show what can serve a role, with its evidence and setup commands, as JSON, with no model request',
         [arg('role', true, MODEL_SET_CHOICES)]
       ),
       runs(
-        sub('set', 'Choose a role’s model and source, test it with one reply and optionally set provider or effort', [
-          arg('role', true, MODEL_SET_CHOICES),
-          arg('model', false),
-          flagArg('provider', false),
-          flagArg('effort', false),
-          flagArg('via', false),
-        ]),
+        sub(
+          'set',
+          'Run a role on one route, <key>/<model> or harness:<claude|codex>/<model>, after one reply on it; an agent takes <model> --via',
+          [
+            arg('role', true, MODEL_SET_CHOICES),
+            arg('model', false),
+            flagArg('provider', false),
+            flagArg('effort', false),
+            flagArg('via', false),
+          ]
+        ),
         'model.set',
         (args) => ({ role: args.role, id: args.model })
       ),
+      sub('add', 'Add a fallback route to the end of a role’s chain, after one reply on it', [
+        arg('role', true, CHAIN_ROLES),
+        arg('model'),
+      ]),
+      sub('remove', 'Remove the n-th route of a role’s chain, counted from 1', [
+        arg('role', true, CHAIN_ROLES),
+        arg('index'),
+      ]),
     ],
   },
   {

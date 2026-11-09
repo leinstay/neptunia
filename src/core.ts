@@ -160,12 +160,11 @@ import { DEFAULT_BASE_URL } from './subharness/models.ts';
 import { backendUsageReader, execUsage, spawnUsageChild } from './subharness/usage.ts';
 import { deferModeToUnit } from './setup/install.ts';
 import { REPLY_CHECK_MS } from './subharness/control.ts';
-import { clearMemoryPath } from './subharness/memory-path.ts';
-import { clearSubscriptionPath } from './subharness/subscription-path.ts';
 import { coreSubscription } from './subharness/subscription-client.ts';
 import { createLoginState } from './subharness/login-state.ts';
 import { memoryWriterClient } from './subharness/memory-writer.ts';
 import { routeProbe } from './subharness/memory-probe.ts';
+import { checkedRoute } from './subharness/selection.ts';
 import { createRouteWatches, probeWord } from './subharness/route-watch.ts';
 import type { RouteWatches } from './subharness/route-watch.ts';
 import { recordCoreCheck } from './setup/model-check.ts';
@@ -1403,12 +1402,11 @@ async function buildCore(
     recordCheck: (role, check) => {
       if (role === 'core') recordCoreCheck(paths.dataDir, { ...check, at: clock() });
     },
-    // `/model set memory|core <model>` returns the writer or her turns to the direct path once the model passed its check.
-    directPath: (role) => {
-      if (role === 'memory') clearMemoryPath(paths.privateDir);
-      if (role === 'core') clearSubscriptionPath(paths.privateDir, 'core');
-    },
     harnessOf,
+    chainOf: (role) => chainClient.routes(role),
+    saveRoutes: (role, chain) => Promise.resolve(writeLocalSetting(['models', 'routes', role], chain)),
+    checkHarness: (route) =>
+      checkedRoute({ privateDir: paths.privateDir, runBackend: runSubharnessBackend, fetch: globalThis.fetch }, route),
     // `keys check memory` proves the path the writer runs on: the probe through the backend while config.json names one.
     memoryPath: routes.memoryCheckPath,
     probeMemory: () => probeMemoryRaw(clock()),
