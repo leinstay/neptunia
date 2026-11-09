@@ -4297,7 +4297,8 @@ test('turn: one execution context per turn; its id goes with the memory rows the
     discord: DISCORD,
     createPort: createDiscordAdapter,
     hot,
-    store: fakeStore(),
+    // The store's place of the chat, as `placeOfChat` reads it from its row.
+    store: Object.assign(fakeStore(), { placeOfChat: () => 'place:room-1' }),
     llm: usageLlm('<think>x</think><msg reply="#1">γεια</msg>', () => 700),
     calibrator: identityCalibrator(),
     client: fakeClient(),
@@ -4314,7 +4315,9 @@ test('turn: one execution context per turn; its id goes with the memory rows the
   await turns.runTurn({ channel, mode: 'reply', trigger: normalizedTrigger(raw), triggerKind: 'mention' });
   assert.equal(calls.length, 1);
   assert.equal(issued.length, 1, 'one context for the turn');
-  assert.deepEqual(issued[0], { kind: 'group', destination: `discord:channel:${channel.id}` });
+  // The expectation changed with the ids-by-links plan (slice 6): the destination is the place the store holds for the
+  // chat, never one spelled from the chat id.
+  assert.deepEqual(issued[0], { kind: 'group', destination: 'place:room-1' });
   assert.equal(calls[0].contextId, 'ctx:1');
 });
 
