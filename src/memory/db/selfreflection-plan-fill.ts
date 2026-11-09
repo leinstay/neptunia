@@ -237,7 +237,7 @@ type Llm = { complete(messages: Array<{ role: string; content: string }>, option
 type Hot = { config: unknown; prompts: unknown };
 
 /**
- * The owner's command over a run, like `createEnglishDesk` (media-english.ts): one at a time, in the background, its last
+ * The owner's command over a run: one at a time, in the background, its last
  * state held for `status`. A dry run answers at once; a run asked while one goes answers that one's state. Requests go on
  * the `analyzer` role with `selfreflection.planMaxOutputTokens` and `selfreflection.planTimeoutMs`; the settings and the
  * prompts are read at each request.
