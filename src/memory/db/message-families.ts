@@ -13,6 +13,7 @@ import { dbOf } from './types.ts';
 import { addKey, deriveRow, ensureAuthority } from './rows.ts';
 import { nodeId, canonicalKey } from './ids.ts';
 import { nextPosition, noteUnit } from './unit-write.ts';
+import { lineColumns, lineOwnerOfUnit, nextLinePosition } from './line-owner.ts';
 import { projectRow } from './graph.ts';
 import { markStemsPending } from './stems.ts';
 import type { Db, Log, MemoryHandle, Row } from './types.ts';
@@ -237,7 +238,8 @@ function writeDeletion(db: Db, input: MessageDeletion, options: MessageWriteOpti
   const place = resolveObservationPlace(db, { ...input, place: deletionPlace(input) }, at);
   const { scope, audience } = observationAudience(input.iface, place);
   const owner = storageOwner(db, options.owner ?? null);
-  const position = owner ? nextPosition(db, owner) : null;
+  const line = lineOwnerOfUnit(db, owner);
+  const position = line ? nextLinePosition(db, line) : owner ? nextPosition(db, owner) : null;
   const row = deriveRow(
     db,
     'sources',
@@ -258,6 +260,7 @@ function writeDeletion(db: Db, input: MessageDeletion, options: MessageWriteOpti
       recorded_at: input.observedAt,
       origin: 'observation',
       owner_key: owner,
+      ...lineColumns(line),
       position,
       extra: JSON.stringify({ $messageLocator: input.messageLocator }),
     },

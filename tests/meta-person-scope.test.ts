@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { storageContext, storageMapper } from '../src/memory/db/map/index.ts';
+import { lineOwnerOf } from '../src/memory/db/line-owner.ts';
 import { journalLineOf, journalRows } from '../src/memory/db/journal-lines.ts';
 import { archiveRows } from '../src/memory/db/archive-lines.ts';
 import { personOfAccount } from '../src/memory/db/meta-person.ts';
@@ -69,9 +70,11 @@ const answerLine = (native: string): Row => ({
 const journalMapper = (db: Db) => {
   const key = journalKey('discord:channel:c1', '2026-11-08');
   const ctx = storageContext(db, key);
+  // A journal day's key always names its owner columns (line-owner.ts#lineOwnerOf).
+  const owner = lineOwnerOf(key)!;
   return {
     toRows: (_rel: string, line: Row, { position }: { position: number }) =>
-      journalRows(line, ctx, { id: storageId(key), position }),
+      journalRows(line, ctx, { id: storageId(key), line: owner, position }),
     fromRows: (rows: Rows) => journalLineOf(rows, ctx),
   };
 };
@@ -362,7 +365,8 @@ test("an archived item of a member with no stored direct chat names the member's
     seeInGroup(handle, '701');
     const key = placeCollection('archive', 'discord:channel:c1', { partition: '2026-11' });
     const entry: Row = { id: 'ar1', kind: 'archive', event: 'expired', itemId: 'c9', scope: { user: '701' } };
-    const owner = { id: storageId(key), position: 0 };
+    // An archive month's key always names its owner columns (line-owner.ts#lineOwnerOf).
+    const owner = { id: storageId(key), line: lineOwnerOf(key)!, position: 0 };
     const [stub] = archiveRows(entry, storageContext(db, key), owner, new Set<string>()).claims ?? [];
     assert.equal(stub?.subject_id, personOf(db, 'discord:701'));
     assert.equal(stub?.scope_kind, 'internal');

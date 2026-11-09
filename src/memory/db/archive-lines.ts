@@ -19,11 +19,13 @@ import { storageContext } from './map/index.ts';
 import { dmPlaceScope, memberDmOf, storedDmOf } from './map/scope-parts.ts';
 import { LEGACY_IFACE, ifaceOrLegacy } from './legacy-namespace.ts';
 import { markStemsPending } from './stems.ts';
-import { placeOrPersona, storageId } from './storage-keys.ts';
+import { PERSONA_ID, placeOrPersona } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit, listUnits, subjectOf } from './storage-units.ts';
+import { ensureUnit } from './storage-units.ts';
+import { lineColumns, lineOwnerOf, linePeriods, lineRows, nextLinePosition } from './line-owner.ts';
+import type { LineOwner } from './line-owner.ts';
 import { hotClaimIds, writeMapping } from './upsert.ts';
-import { nextPosition, noteUnit } from './unit-write.ts';
+import { noteUnit } from './unit-write.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
 
@@ -47,8 +49,11 @@ const MONTH_RE = /^\d{4}-\d{2}$/;
 const coded = (code: string): Error & { code: string } => Object.assign(new Error(code), { code });
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
 
-/** Where an entry's rows belong: the unit's id, the entry's position in it and, from an older release, its owner path. */
-type Owner = { id: string; position: number; legacyOwner?: string };
+/**
+ * Where an entry's rows belong: the unit's id, the month's owner columns (line-owner.ts), the entry's position in it
+ * and, from an older release, its owner path.
+ */
+type Owner = { id: string; line: LineOwner; position: number; legacyOwner?: string };
 
 const owned = (owner: Owner): Row => ({
   owner_key: owner.id,
@@ -97,6 +102,7 @@ function claimStub(entry: Row, ctx: MapContext, owner: Owner): Row {
     retired_at: typeof entry.recordedAt === 'string' ? entry.recordedAt : null,
     origin_file: owner.id,
     ...owned(owner),
+    writer: 'archive',
     position: null,
   };
 }
@@ -119,6 +125,7 @@ export function archiveRows(entry: unknown, ctx: MapContext, owner: Owner, hot: 
       by: null,
       origin: null,
       ...owned(owner),
+      ...lineColumns(owner.line),
       position: owner.position,
     });
     return rows;
@@ -137,7 +144,14 @@ export function archiveRows(entry: unknown, ctx: MapContext, owner: Owner, hot: 
     cols.id = `cv:${shortHash(JSON.stringify(entry))}:${owner.position}`;
     rest.$noId = true;
   }
-  put(rows, 'claim_versions', { ...cols, text, extra: extraText(rest), ...owned(owner), position: owner.position });
+  put(rows, 'claim_versions', {
+    ...cols,
+    text,
+    extra: extraText(rest),
+    ...owned(owner),
+    ...lineColumns(owner.line),
+    position: owner.position,
+  });
   const item = entry.itemId;
   if (filled(item) && !hot.has(item)) put(rows, 'claims', claimStub(entry, ctx, owner));
   return rows;
@@ -174,11 +188,16 @@ export function writeArchiveMonth(
   const base = storageContext(db, key);
   const ctx: MapContext = { ...base, iface: base.iface ?? iface };
   const hot = hotClaimIds(db);
-  let position = nextPosition(db, id);
+  const month = lineOwnerOf(key);
+  if (!month) throw coded('ARCHIVE_LINES_MONTH');
+  let position = nextLinePosition(db, month);
   let written = 0;
   for (const line of lines) {
     if (line === null || typeof line !== 'object' || Array.isArray(line)) continue;
-    writeMapping(db, archiveRows(line, ctx, { id, position, legacyOwner }, hot), id, { at, ignoreClaims: true });
+    writeMapping(db, archiveRows(line, ctx, { id, line: month, position, legacyOwner }, hot), id, {
+      at,
+      ignoreClaims: true,
+    });
     written += 1;
     position += 1;
   }
@@ -205,12 +224,12 @@ export function applyArchiveLinesWrite(handle: MemoryHandle, update: Row): Archi
   );
 }
 
+/** The holder id of a place's archive (the persona's with null). */
+const holderOf = (placeId: string | null): string => placeOrPersona('archive', placeId).subject.id;
+
 /** The months of a place's archive (the persona's with null), in order. */
 export function archiveMonths(db: Db, placeId: string | null): Array<string> {
-  return listUnits(db, { kind: 'archive', subject: placeOrPersona('archive', placeId).subject })
-    .map((unit) => unit.key.partition!)
-    .filter(Boolean)
-    .sort();
+  return linePeriods(db, 'archive', holderOf(placeId)).map((row) => row.period);
 }
 
 /** The entries (JSON text) of one month of a place's archive, in the order they were written. */
@@ -220,22 +239,14 @@ export function archiveLines(db: Db, placeId: string | null, month: string): Arr
 
 /** The entries (JSON text) of one archive month's unit `key`, in the order they were written. */
 export function archiveUnitLines(db: Db, key: StorageKey): Array<string> {
-  const id = storageId(key);
-  return db
-    .prepare(
-      `SELECT * FROM claim_versions WHERE (owner_key = ? OR id IN (SELECT key FROM co_owners WHERE tbl = 'claim_versions' AND owner_key = ?))
-       AND retired_at IS NULL ORDER BY position, rowid`
-    )
-    .all(id, id)
-    .map((row) => JSON.stringify(archiveEntryOf({ ...row })));
+  const owner = lineOwnerOf(key);
+  if (!owner) return [];
+  return lineRows(db, owner, 'claim_versions').map((row) => JSON.stringify(archiveEntryOf(row)));
 }
 
 /** Every holder of an archive: the places, and null for the persona's own. */
 export function archiveHolders(db: Db): Array<string | null> {
   const holders = new Set<string | null>();
-  for (const unit of listUnits(db, { kind: 'archive' })) {
-    const subject = subjectOf(unit);
-    holders.add(subject.type === 'persona' ? null : subject.id);
-  }
+  for (const row of linePeriods(db, 'archive')) holders.add(row.holder === PERSONA_ID ? null : row.holder);
   return [...holders].sort((a, b) => String(a).localeCompare(String(b)));
 }

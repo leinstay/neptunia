@@ -433,7 +433,7 @@ export function hotClaimIds(db: Db): Set<string> {
   for (const row of db
     .prepare(
       hasStorageUnits(db)
-        ? "SELECT c.id FROM claims c LEFT JOIN storage_units u ON u.id=c.owner_key WHERE c.retired_at IS NULL AND (u.kind IS NULL OR u.kind != 'archive')"
+        ? "SELECT id FROM claims WHERE retired_at IS NULL AND (writer IS NULL OR writer != 'archive')"
         : "SELECT id FROM claims WHERE retired_at IS NULL AND owner_file NOT GLOB '*archive/*'"
     )
     .all())
