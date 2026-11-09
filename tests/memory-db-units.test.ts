@@ -87,6 +87,30 @@ const configOf = (memoryDb = {}) => ({
  * The data directory with the fixture already in its database. `archived`: the fixture's errand is filed on the board
  * too; the unit writer itself skips the errand units.
  */
+/**
+ * The rows the interface's hello and the observation of the fixture's lines store before any unit names them: the
+ * root, its channel and the member's account with the person memory holds for it. A unit write reads a subject's
+ * interface and native id from its row only.
+ */
+function storedSubjects(db: Db): void {
+  const root = legacyServerPlaceId('discord', GUILD);
+  db.exec(`INSERT OR IGNORE INTO interfaces (id, name, contract) VALUES ('discord', 'discord', 1);
+    INSERT OR IGNORE INTO authorities (id, iface, namespace) VALUES ('discord/global', 'discord', 'global');`);
+  const place = db.prepare(
+    `INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, parent_id, chat, scope_kind)
+     VALUES (?, 'discord', ?, ?, ?, 'discord/global', 1, ?, ?, 'group')`
+  );
+  place.run(root, 'server', GUILD, `server:${GUILD}`, null, null);
+  place.run(`discord:channel:${CHANNEL}`, 'channel', CHANNEL, `channel:${CHANNEL}`, root, 'group');
+  db.prepare("INSERT INTO people (id, first_seen_at) VALUES (?, '2026-10-01T00:00:00.000Z')").run(
+    `person:discord:${MEMBER}`
+  );
+  db.prepare(
+    `INSERT INTO accounts (id, iface, native_id, native_key, authority_id, generation, kind, person_id, link)
+     VALUES (?, 'discord', ?, ?, 'discord/global', 1, 'user', ?, 'verified')`
+  ).run(`discord:${MEMBER}`, MEMBER, MEMBER, `person:discord:${MEMBER}`);
+}
+
 function prepared({ archived = false } = {}) {
   const root = tmpRoot();
   const data = path.join(root, 'data');
@@ -94,6 +118,7 @@ function prepared({ archived = false } = {}) {
   buildDataDir(data);
   const handle = openMemoryDb(path.join(data, 'memory.db'));
   try {
+    storedSubjects(dbOf(handle));
     seedUnits(handle, data, { now: () => NOW - DAY_MS });
     if (archived) fileFixtureErrand(dbOf(handle));
   } finally {

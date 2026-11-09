@@ -2,7 +2,6 @@
 // `people:add` names, and the people the request shows in `<people>`. Her own account names her lines and is never one
 // of the people she reads about, nor an author to add (identity-links.ts). Pure reads on the connection it is given.
 
-import { nativeOf } from './ids.ts';
 import type { Db, Row } from './types.ts';
 
 const parseJson = (text: unknown): unknown => {
@@ -35,7 +34,7 @@ function batchAccountsOf(db: Db, batch: ReadonlyArray<Row>): Map<string, BatchAc
     accounts.set(id, {
       personId: isSelf ? null : row.person_id,
       isSelf,
-      native: (row.native_id ?? nativeOf(id)) as string,
+      native: typeof row.native_id === 'string' ? row.native_id : '',
       name:
         Array.isArray(names) && typeof names[0] === 'string' && names[0] ? names[0] : ((row.native_id ?? id) as string),
     });

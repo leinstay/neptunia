@@ -1,11 +1,12 @@
 // How a line or file scope (`{ channel }`, `{ place }`, `{ user }`) becomes a place and the three scope
 // columns, and back. A private layer's rows belong to the member's DM place; the channel id such a line carried is
-// kept in the remainder (`dmChannel`). When the columns cannot rebuild the old scope exactly, the old scope is kept
-// verbatim in the remainder (`scope`), or `$noScope` marks that the line had none, so the round trip is exact either way.
+// kept in the remainder (`dmChannel`). A channel is the place its row holds, and reads back from that row. When the
+// columns cannot rebuild the old scope exactly, the old scope is kept verbatim in the remainder (`scope`), or `$noScope`
+// marks that the line had none, so the round trip is exact either way.
 
-import { channelPlaceId, dmPlaceId, personId } from '../ids.ts';
 import { LEGACY_IFACE } from '../legacy-namespace.ts';
-import { dmAudienceId, dmScope, dmUserOf, scopeColumns } from '../scope.ts';
+import { mintedChannel } from '../native-rows.ts';
+import { SCOPE_INTERNAL, dmAudienceId, dmUserOf, scopeColumns } from '../scope.ts';
 import type { DmScope } from '../scope.ts';
 import { jsonEqual } from './common.ts';
 import type { MapContext } from './common.ts';
@@ -18,8 +19,11 @@ export function privateUserOf(rel: string): string | null {
   return match ? match[1] : null;
 }
 
-/** How a mapper reaches a member's stored DM by platform id, and a stored DM place by its id. */
-export type MemberReads = Pick<MapContext, 'dmOfMember' | 'dmPlaceOf'>;
+/** How a mapper reaches a member's stored DM by platform id, a stored DM place by its id, and a channel's place. */
+export type MemberReads = Pick<MapContext, 'dmOfMember' | 'dmPlaceOf' | 'placeOfChannel' | 'channelOfPlace'>;
+
+/** How a scope is read back from its columns: a DM audience's partner and a place's channel. */
+export type ScopeReads = Pick<MapContext, 'partnerOfDm' | 'channelOfPlace'>;
 
 /**
  * The scope of a row of a stored DM place: the place's own audience and the partner person the place names, the pair
@@ -56,23 +60,15 @@ export function storedDmOf(
   };
 }
 
-/**
- * The place and scope of a private layer no stored DM holds. Such a layer is a legacy file of the member's direct chat,
- * imported before its place exists: it keeps the place and the partner its member id spells (legacy-namespace.ts),
- * which the writer stores with it. A private layer of a live member always finds its stored DM.
- */
-export function legacyPrivateScope(iface: string, privateUser: string): { place: string; scope: DmScope } {
-  return { place: dmPlaceId(iface, privateUser), scope: dmScope(personId(iface, privateUser), iface) };
-}
-
 /** The `scope` object of a line: the chat it names, the place it belongs to, or the user. */
 export type OldScope = { user?: unknown; channel?: unknown; place?: unknown };
 
 /**
  * The place and scope columns for an old scope. Notes in `rest` whatever the columns cannot rebuild. A unit of a DM place
  * (`dmPlace`) keeps its rows on that place and in its audience, whatever the partner's native id spells. A private layer
- * of no DM place unit takes the member's stored DM, else its legacy spelling (`legacyPrivateScope`). A scope that names a
- * member takes the member's stored DM (`members`), and is internal with none stored.
+ * of no DM place unit takes the member's stored DM, and is internal with none stored. A scope that names a member takes
+ * the member's stored DM (`members`), and is internal with none stored. A channel is its stored place, else the id the
+ * observation would give it (`members.placeOfChannel`).
  */
 export function scopeInto(
   rest: Row,
@@ -84,13 +80,14 @@ export function scopeInto(
 ): Row {
   const channel = typeof oldScope?.channel === 'string' && oldScope.channel ? oldScope.channel : null;
   const placed = privateUser ? (dmPlace ?? members.dmOfMember?.(iface, privateUser) ?? null) : null;
-  const legacy = privateUser && !placed ? legacyPrivateScope(iface, privateUser) : null;
+  const channelPlace =
+    channel === null ? null : (members.placeOfChannel?.(iface, channel) ?? mintedChannel(iface, channel));
   const cols = {
-    place_id: placed ? placed.id : legacy ? legacy.place : channel ? channelPlaceId(iface, channel) : null,
+    place_id: placed ? placed.id : privateUser ? null : channelPlace,
     ...(placed
       ? dmPlaceScope(iface, placed)
-      : legacy
-        ? legacy.scope
+      : privateUser
+        ? { ...SCOPE_INTERNAL }
         : scopeColumns(oldScope, {
             iface,
             dmOf: memberDmOf(iface, members.dmOfMember),
@@ -98,7 +95,7 @@ export function scopeInto(
           })),
   };
   if (privateUser && channel) rest.dmChannel = channel;
-  const rebuilt = scopeFrom(cols, { ...rest }, privateUser, iface);
+  const rebuilt = scopeFrom(cols, { ...rest }, privateUser, { channelOfPlace: members.channelOfPlace });
   if (oldScope === undefined || !jsonEqual(rebuilt, oldScope)) {
     delete rest.dmChannel;
     if (oldScope === undefined) rest.$noScope = true;
@@ -108,15 +105,14 @@ export function scopeInto(
 }
 
 /**
- * The old scope from the columns and the remainder; removes the scope markers from `rest`. `partnerOfDm` reads the
- * partner's platform id of a DM audience from the stored place.
+ * The old scope from the columns and the remainder; removes the scope markers from `rest`. `reads.partnerOfDm` reads
+ * the partner's platform id of a DM audience and `reads.channelOfPlace` the channel of a place from their stored rows.
  */
 export function scopeFrom(
   cols: Row,
   rest: Row,
   privateUser: string | null | undefined,
-  iface = LEGACY_IFACE,
-  partnerOfDm: MapContext['partnerOfDm'] = undefined
+  reads: ScopeReads = {}
 ): OldScope | undefined {
   const verbatim = Object.hasOwn(rest, 'scope');
   const verbatimScope = rest.scope as OldScope | undefined; // a file's own scope object, handed back as it was read
@@ -131,9 +127,10 @@ export function scopeFrom(
   const place = asText(cols.place_id ?? '');
   if (privateUser) {
     if (typeof dmChannel === 'string') scope.channel = dmChannel;
-  } else if (place.startsWith(`${iface}:channel:`)) {
-    scope.channel = place.slice(`${iface}:channel:`.length);
+  } else {
+    const channel = place === '' ? null : (reads.channelOfPlace?.(place) ?? null);
+    if (channel !== null) scope.channel = channel;
   }
-  if (!privateUser && cols.scope_kind === 'dm') scope.user = dmUserOf(cols, partnerOfDm);
+  if (!privateUser && cols.scope_kind === 'dm') scope.user = dmUserOf(cols, reads.partnerOfDm);
   return scope;
 }

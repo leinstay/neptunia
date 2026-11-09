@@ -89,6 +89,13 @@ export const MIGRATIONS: Array<Migration> = [
     }
     ownSelfreflectionRows(db);
   },
+  // Version 51: a record line whose author no account row holds keeps the author's id beside its column, since the
+  // record reads an author back from the account's row (src/memory/db/record-lines.ts). The id is the one the line
+  // was written with, after the interface's prefix of the account id it was stored under.
+  `UPDATE sources SET extra = json_set(COALESCE(extra, '{}'), '$."$kept:by"', substr(author_account, instr(author_account, ':') + 1))
+    WHERE writer = 'record' AND author_account IS NOT NULL AND instr(author_account, ':') > 0
+      AND NOT EXISTS (SELECT 1 FROM accounts a WHERE a.id = sources.author_account)
+      AND (extra IS NULL OR (json_valid(extra) AND json_extract(extra, '$."$kept:by"') IS NULL))`,
 ];
 
 /** The tables that carry a scope and its `audience_id`. */

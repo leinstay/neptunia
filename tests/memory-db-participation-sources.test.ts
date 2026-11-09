@@ -264,9 +264,18 @@ test('evidence in a room stored under an opaque id resolves by the room row, not
           scope_kind, scope_iface)
         VALUES ('source:opaque-line', 'seen', 'fake', 'm-9', 'message', 1, 1, 'place:opaque-room',
           '2026-10-24T11:00:00.000Z', 'ναι', 'group', 'fake');`);
+    // A link names its message by its position in the episode's messages, as the participation writer stores them; its
+    // reference is not read, so one that spells nothing resolves the same.
     const mapping: Rows = {
-      episodes: [{ id: 'episode-opaque', kind: 'participation', place_id: 'place:opaque-room' }],
-      episode_sources: [{ episode_id: 'episode-opaque', source_id: 'src:fake:m-9', position: 0 }],
+      episodes: [
+        {
+          id: 'episode-opaque',
+          kind: 'participation',
+          place_id: 'place:opaque-room',
+          extra: JSON.stringify({ messages: [{ id: 'm-9' }] }),
+        },
+      ],
+      episode_sources: [{ episode_id: 'episode-opaque', source_id: 'reference:unread', position: 0 }],
     };
     resolveParticipationSources(db, mapping);
     const [link] = mapping.episode_sources ?? [];

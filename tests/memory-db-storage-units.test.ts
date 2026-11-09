@@ -11,7 +11,6 @@ import { unitLines } from '../src/memory/db/readers/common.ts';
 import { unitRows } from '../src/memory/db/export.ts';
 import { listUnits } from '../src/memory/db/storage-units.ts';
 import type { StorageKey } from '../src/memory/db/storage-keys.ts';
-import { personId } from '../src/memory/db/ids.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 import { fixture, NOW } from './fixtures/memory-db/session-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -41,6 +40,8 @@ test('collection replacement retains session-owned rows, evidence and held affin
   const env = fixture();
   try {
     applyUnitWrite(env.handle, { op: 'value', key: a, value: profile });
+    // The profile of an account no row held made the account's meta-person; her session writes about that person.
+    const person = String(env.db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(a.subject.id)?.person_id);
     const source = env.say({ native: 'session-evidence', minutesAgo: 1, text: 'a synthetic source', author: 'u1' });
     applyMemoryWrite(env.handle, {
       kind: 'session',
@@ -67,7 +68,7 @@ test('collection replacement retains session-owned rows, evidence and held affin
           {
             op: 'add',
             subjectKind: 'person',
-            subjectId: personId('discord', 'u1'),
+            subjectId: person,
             kind: 'detail',
             text: 'session fact',
             how: 'said',
@@ -77,7 +78,7 @@ test('collection replacement retains session-owned rows, evidence and held affin
         ],
         episodes: [],
         descriptions: [],
-        affinity: [{ personId: personId('discord', 'u1'), delta: 3, reason: 'session reason', sources: [source] }],
+        affinity: [{ personId: person, delta: 3, reason: 'session reason', sources: [source] }],
       },
     });
     const claim = env.db.prepare("SELECT id, owner_key FROM claims WHERE text = 'session fact'").get();
@@ -90,10 +91,7 @@ test('collection replacement retains session-owned rows, evidence and held affin
     );
     applyUnitWrite(env.handle, { op: 'value', key: a, value: profile });
     assert.deepEqual(evidence(env.db, claim.id), links);
-    assert.equal(
-      env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(personId('discord', 'u1'))?.affinity,
-      5
-    );
+    assert.equal(env.db.prepare('SELECT affinity FROM people WHERE id = ?').get(person)?.affinity, 5);
     assert.equal(
       unitRows(env.db, a).claims.some((row) => row.id === claim.id),
       true

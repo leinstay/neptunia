@@ -39,6 +39,14 @@ export type MapContext = {
   dmPlaceOf?: (placeId: string) => { id: string; partnerPerson: string | null } | null;
   /** The platform id of the partner account of the stored DM place an audience names, null when none is stored. */
   partnerOfDm?: (audienceId: string) => string | null;
+  /** The stored account of a member an interface names by its id, null when no row holds it. */
+  accountOfMember?: (iface: string, platformId: string) => string | null;
+  /** The interface's own id of a stored account, null when no row holds it. */
+  memberOfAccount?: (accountId: string) => string | null;
+  /** The stored place of a channel an interface names by its id, null when no row holds it. */
+  placeOfChannel?: (iface: string, channelId: string) => string | null;
+  /** The interface's own id of a stored channel, null for a place that is no stored channel. */
+  channelOfPlace?: (placeId: string) => string | null;
   collection?: string;
   versionKind?: string;
   itemId?: string;

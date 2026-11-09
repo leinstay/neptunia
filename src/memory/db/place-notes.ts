@@ -13,7 +13,7 @@
 // shares them (place-owner.ts#retirePlaceAbsent), and a description her session reviewed keeps her version while the
 // notes bring the text they had (session-rows.ts#sessionHold).
 
-import { SELF_PERSON, personId } from './ids.ts';
+import { SELF_PERSON } from './ids.ts';
 import { groupScope } from './scope.ts';
 import { claimItems, claimRows } from './map/lists.ts';
 import type { ListDef } from './map/lists.ts';
@@ -31,6 +31,7 @@ import {
 } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
 import { placeCollection, keyText } from './storage-keys.ts';
+import { namedIface } from './legacy-namespace.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
@@ -67,10 +68,7 @@ const learnedSpec = (ctx: MapContext): Array<Spec> => [
     key: 'from',
     type: 'text',
     ok: (v: unknown) => /^<@\d+>$/.test(String(v)),
-    enc: (v: unknown) => {
-      const platformId = String(v).slice(2, -1);
-      return ctx.personOfMember ? ctx.personOfMember(ifaceOf(ctx), platformId) : personId(ifaceOf(ctx), platformId);
-    },
+    enc: (v: unknown) => ctx.personOfMember?.(ifaceOf(ctx), String(v).slice(2, -1)) ?? null,
     dec: () => null,
     exact: true,
   },
@@ -95,7 +93,10 @@ function notesScope(iface: string, ctx: MapContext): Row {
   return dmPlaceScope(iface, ctx.dmPlace);
 }
 
-/** The place row of the notes: the stored row as it is, or a new one when no row holds the place yet. */
+/**
+ * The place row of the notes: the stored row as it is, or a new one when no row holds the place yet. A new row knows no
+ * native id: the observation of the place's interface gives it one.
+ */
 function placeRow(ctx: MapContext, placeId: string, iface: string, owner: string): Row {
   if (ctx.subjectPlace) {
     // The unit owns the row it adopted, so a write that left it out would retire it.
@@ -107,7 +108,7 @@ function placeRow(ctx: MapContext, placeId: string, iface: string, owner: string
     id: placeId,
     iface,
     kind: ctx.dmPlace ? 'dm' : 'server',
-    native_id: ctx.subjectNativeId ?? placeId,
+    native_id: null,
     parent_id: null,
     scope_kind: ctx.dmPlace ? 'dm' : 'group',
     name: null,
@@ -119,8 +120,15 @@ function placeRow(ctx: MapContext, placeId: string, iface: string, owner: string
 }
 
 /** The rows of the notes `value` of the unit `key`, owned by `owner` (the unit's id) and `holder`. */
-function placeNotesRows(db: Db, key: StorageKey, value: Row, owner: string, holder: PlaceOwner): Rows {
-  const ctx = storageContext(db, key);
+function placeNotesRows(
+  db: Db,
+  key: StorageKey,
+  value: Row,
+  owner: string,
+  holder: PlaceOwner,
+  writeIface?: string
+): Rows {
+  const ctx = storageContext(db, key, writeIface);
   const iface = ifaceOf(ctx);
   const placeId = ctx.subjectId ?? owner;
   const rows: Rows = {};
@@ -224,7 +232,7 @@ export function writePlaceNotes(
   db: Db,
   key: StorageKey,
   value: Row,
-  { at, legacyOwner }: { at: string; legacyOwner?: string }
+  { at, iface, legacyOwner }: { at: string; iface?: string; legacyOwner?: string }
 ): PlaceNotesResult {
   const id = ensureUnit(db, key);
   if (legacyOwner) {
@@ -232,7 +240,7 @@ export function writePlaceNotes(
     db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, 'place');
   }
   const holder = placeOwnerOf(key)!; // a `place` unit always has its owner columns (place-owner.ts)
-  const mapping = placeNotesRows(db, key, value, id, holder);
+  const mapping = placeNotesRows(db, key, value, id, holder, iface);
   if (legacyOwner) for (const list of Object.values(mapping)) for (const row of list) row.owner_file = legacyOwner;
   const upserted = writeMapping(db, mapping, id, { at, holder });
   const retired = retirePlaceAbsent(db, holder, mapping, at);
@@ -263,7 +271,9 @@ export function applyPlaceNotesWrite(handle: MemoryHandle, update: Row): PlaceNo
   const write = placeNotesWriteOf(update);
   const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
   const key = placeCollection('place', write.placeId);
-  return handle.transaction(() => writePlaceNotes(dbOf(handle), key, write.value, { at }));
+  return handle.transaction(() =>
+    writePlaceNotes(dbOf(handle), key, write.value, { at, iface: namedIface(update) ?? undefined })
+  );
 }
 
 /** The notes the unit `key` holds (a place's `place` unit), or not found when the database holds none. */

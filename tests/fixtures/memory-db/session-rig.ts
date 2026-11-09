@@ -7,12 +7,13 @@ import { fillEnvAudiences } from './audiences.ts';
 import { applyMemoryWrite } from '../../../src/memory/db/session-write.ts';
 import { batchOf, buildSessionRequest, scopesOf, type sweep } from '../../../src/memory/db/session.ts';
 import * as memoryIds from '../../../src/memory/db/ids.ts';
+import { personId } from './spelled-ids.ts';
 import { labels } from '../labels.ts';
 import { dbOf, type Db } from '../../../src/memory/db/types.ts';
 import type { KeyRing } from '../../../src/keys/ring.ts';
 import type { ClaimArgs, CtxOptions, FakeLlm, Fixture, LlmCall, LlmScript, Rec, SayArgs, Scope } from './session-shapes.ts';
 // The ids of the Discord namespace the fixtures of this file write.
-export const personOf = (id: string): string => memoryIds.personId('discord', id);
+export const personOf = (id: string): string => personId('discord', id);
 export const dmPlaceOf = (id: string): string => memoryIds.dmPlaceId('discord', id);
 export const guildPlaceOf = (id: string): string => legacyServerPlaceId('discord', id);
 export const channelPlaceOf = (id: string): string => memoryIds.channelPlaceId('discord', id);

@@ -4,11 +4,17 @@
 // their day's unit, the message families, the media and the relations. Then the store over a reopen.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { createRecord } from '../src/memory/record.ts';
+import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
+import { recordLines } from '../src/memory/db/record-lines.ts';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
 import { placeOrPersona } from '../src/memory/db/storage-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, Row } from '../src/memory/db/types.ts';
+import { addAccount, addChannelPlace } from './fixtures/memory-db/opaque-people.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
 
 const NOW = Date.parse('2026-11-09T10:00:00.000Z');
@@ -276,5 +282,60 @@ test('the record reads back what it wrote after the database is closed and opene
     assert.equal(await record.newestRevision(ROOT, 'm22', DAY2), 2);
   } finally {
     await second.close();
+  }
+});
+
+test('a line names the stored rows of its author and chat when their ids spell nothing, and reads back as written', () => {
+  const dir = tempDataDir();
+  const handle = openMemoryDb(path.join(dir, 'memory.db'));
+  try {
+    const db = dbOf(handle);
+    addAccount(db, {
+      id: 'account:7f3e',
+      iface: 'synthetic',
+      authority: 'synthetic/global',
+      native: 'member',
+      person: 'person:5a1c',
+    });
+    addChannelPlace(db, { id: 'place:9b20', iface: 'synthetic', authority: 'synthetic/global', native: 'room-a' });
+    const line = seen('o1', 'm30', DAY2);
+    applyMemoryWrite(handle, {
+      kind: 'record-lines',
+      placeId: 'place:9b20',
+      lines: [line],
+      iface: 'synthetic',
+      now: NOW,
+    });
+    const row = db.prepare('SELECT author_account, place_id, extra FROM sources WHERE native_id = ?').get('m30');
+    assert.equal(row?.author_account, 'account:7f3e');
+    assert.equal(row?.place_id, 'place:9b20');
+    const [stored] = recordLines(db, placeOrPersona('record', 'place:9b20', { partition: dayOf(line) }));
+    const read = JSON.parse(String(stored)) as Row;
+    assert.equal(read.by, 'member');
+    assert.deepEqual(read.scope, { channel: 'room-a' });
+  } finally {
+    handle.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a stored line whose author no account row holds reads its author back once version 51 has run', () => {
+  // Bug: the author was cut out of the account id's text; read from rows, a line of an account nobody stored lost it.
+  const dir = tempDataDir();
+  const handle = openMemoryDb(path.join(dir, 'memory.db'));
+  try {
+    const db = dbOf(handle);
+    const line = seen('o2', 'm31', DAY2, { by: 'gone-member' });
+    applyMemoryWrite(handle, { kind: 'record-lines', placeId: ROOT, lines: [line], iface: 'synthetic', now: NOW });
+    // A line of an older release: its author account was stored by id only, and nothing beside the column.
+    db.prepare("UPDATE sources SET extra = NULL WHERE native_id = 'm31'").run();
+    const step = MIGRATIONS.at(-1);
+    if (typeof step === 'string') db.exec(step);
+    else step?.(db);
+    const [stored] = recordLines(db, placeOrPersona('record', ROOT, { partition: dayOf(line) }));
+    assert.equal((JSON.parse(String(stored)) as Row).by, 'gone-member');
+  } finally {
+    handle.close();
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
