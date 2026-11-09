@@ -1,11 +1,11 @@
-// The `routes` check of `neptunia doctor`: every part of Neptunia checked for real on what it runs on now, and every
-// connection that is set up but used by nothing. A role on the API (`core`, `memory`, `analyzer`, `vision`, `video`,
-// `embedding`, `speech` and quick search on `openrouter`) gets one minimal request of `checkRole`
-// (src/keys/check.ts) on its own key, the extra key `llm.boundKeys` binds it to or else the first core key, with its own
-// model. One model on one key is asked once. `drawing` is named and never asked, since one request bills a picture. A
-// role or an agent on a harness gets the vendor's own status command (`sourceState`, src/subharness/sources.ts). An extra
-// key bound to nothing gets the free read of its record (`checkKey`), and a harness no role or agent uses gets its status
-// command. A failure under the core, the memory writer or the analyzer fails the check, any other failure warns. Lines
+// The `routes` check of `neptunia doctor`: every part of Neptunia checked for real on every route of its chain
+// (src/llm/route-chain.ts), and every connection that is set up but used by nothing. A route on a key (`core`,
+// `memory`, `analyzer`, `vision`, `video`, `embedding`, `speech` and quick search on `openrouter`) gets one minimal
+// request of `checkRole` (src/keys/check.ts) on that key with that model. One model on one key is asked once. `drawing`
+// is named and never asked, since one request bills a picture. A route or an agent on a harness gets the vendor's own
+// status command (`sourceState`, src/subharness/sources.ts). An extra key no route uses gets the free read of its record
+// (`checkKey`), and a harness no role or agent uses gets its status command. A role of the core, the memory writer or the
+// analyzer whose every route failed fails the check, a failed route with another that answers warns. Lines
 // carry names and models, never a key value. The owner's word of 2026-11-08: the doctor is a diagnosis he asked for,
 // while a chat launch checks nothing (src/setup/readiness.ts).
 
@@ -14,6 +14,8 @@ import type { BackendName } from '../agent-runner/profiles.ts';
 import { checkKey, checkRole } from '../keys/check.ts';
 import type { CheckResult } from '../keys/check.ts';
 import { createKeyStore } from '../keys/store.ts';
+import { routesOf } from '../llm/route-chain.ts';
+import type { RouteRole } from '../llm/route-text.ts';
 import { roleModel } from '../llm/roles.ts';
 import { routeName } from '../subharness/route-names.ts';
 import { readRouting, SUBHARNESS_AGENTS } from '../subharness/routing.ts';
@@ -91,24 +93,37 @@ async function onKey(run: Run, part: string, role: string, model: string, keyNam
   return { text: `${head} · refused: ${why}`, bad: badOf(part) };
 }
 
-const keyOf = (run: Run, role: string): string | null => run.store.boundTo(role) ?? run.store.coreNames()[0] ?? null;
-
-function partLine(run: Run, role: (typeof API_ROLES)[number]): Promise<Line> {
-  const record = role === 'core' || role === 'memory' ? run.sub[role] : null;
-  if (record !== null) return onHarness(run, role, record.backend, record.model);
-  const model = roleModel(run.deps.config, role);
-  if (model === undefined || model === '') return Promise.resolve({ text: `${role}: off`, bad: null });
-  if (role === 'drawing')
-    return Promise.resolve({ text: `drawing: ${model} · not asked: one request bills a picture`, bad: null });
-  return onKey(run, role, role, model, keyOf(run, role));
+/** One line per route of the chain of `role`; a role whose every route failed keeps its badness, else it warns. */
+async function chainLines(run: Run, role: RouteRole): Promise<Array<Line>> {
+  const chain = routesOf(run.deps.config, role, run.store.coreNames());
+  const model =
+    role === 'search' ? text(rec(rec(rec(run.deps.config).web).quickSearch).model) : roleModel(run.deps.config, role);
+  if (chain.length === 0)
+    return [
+      model === undefined || model === ''
+        ? { text: `${role}: off`, bad: null }
+        : { text: `${role}: ${model} · no key carries it`, bad: badOf(role) },
+    ];
+  const lines: Array<Line> = [];
+  for (const [index, route] of chain.entries()) {
+    const part = chain.length === 1 ? role : `${role} ${index + 1}`;
+    if (route.via === 'harness') lines.push(await onHarness(run, part, route.backend, route.model));
+    else if (role === 'drawing')
+      lines.push({
+        text: `${part}: ${route.model} on key ${route.key} · not asked: one request bills a picture`,
+        bad: null,
+      });
+    else lines.push(await onKey(run, part, role, route.model, route.key));
+  }
+  const allBad = lines.every((line) => line.bad !== null);
+  return allBad ? lines : lines.map((line) => (line.bad === 'fail' ? { ...line, bad: 'warn' } : line));
 }
 
-function searchLine(run: Run): Promise<Line> {
-  const search = rec(rec(rec(run.deps.config).web).quickSearch);
-  const engine = text(search.engine);
-  if (engine === 'openrouter') return onKey(run, 'search', 'search', text(search.model), keyOf(run, 'search'));
+function searchLines(run: Run): Promise<Array<Line>> {
+  const engine = text(rec(rec(rec(run.deps.config).web).quickSearch).engine);
+  if (engine === 'openrouter') return chainLines(run, 'search');
   const said = engine === '' ? 'off' : `${engine} · not asked: its service key is its own`;
-  return Promise.resolve({ text: `search: ${said}`, bad: null });
+  return Promise.resolve([{ text: `search: ${said}`, bad: null }]);
 }
 
 async function agentLines(run: Run): Promise<Array<Line>> {
@@ -160,8 +175,8 @@ export async function routeHealth(deps: RouteHealthDeps): Promise<RouteHealth> {
     used: new Set(),
   };
   const lines: Array<Line> = [];
-  for (const role of API_ROLES) lines.push(await partLine(run, role));
-  lines.push(await searchLine(run), ...(await agentLines(run)), ...(await unusedLines(run)));
+  for (const role of API_ROLES) lines.push(...(await chainLines(run, role)));
+  lines.push(...(await searchLines(run)), ...(await agentLines(run)), ...(await unusedLines(run)));
   const worst = lines.some((one) => one.bad === 'fail')
     ? 'fail'
     : lines.some((one) => one.bad === 'warn')
