@@ -177,3 +177,60 @@ export function writeBothWays(steps: ReadonlyArray<PlaceStep>): {
     direct.close();
   }
 }
+
+export const lore = (extra: Array<Row> = []): Array<Row> => [
+  {
+    id: 'harbour-1',
+    title: 'The harbour',
+    keys: ['harbour', 'λιμάνι'],
+    text: 'Where the boats sleep.',
+    weight: 2,
+    source: 'owner',
+    createdAt: '2026-10-01T00:00:00.000Z',
+  },
+  { title: 'No id', keys: [], text: 'An entry with no id.', source: 'analyzer' },
+  ...extra,
+];
+
+export const episode = (itemId: string, messages: ReadonlyArray<string>): Row => ({
+  itemId,
+  id: `p-${itemId}`,
+  placeId: '200000000000000001',
+  startAt: NOW - 60_000,
+  lastAt: NOW,
+  messages: messages.map((id, i) => ({ id, name: 'Άννα', text: `γραμμή ${i}`, own: i === 0 })),
+});
+
+export const recent = (lines: ReadonlyArray<Row>): Row => ({ nextId: lines.length + 1, lines });
+export const line = (id: number, extra: Row = {}): Row => ({
+  id,
+  placeId: '200000000000000001',
+  text: `είπα ${id}`,
+  at: NOW - id,
+  who: ['Άννα'],
+  weight: 1,
+  addedAt: '2026-11-09T09:00:00.000Z',
+  itemId: `rc-${id}`,
+  ...extra,
+});
+
+/** Two roots' lorebooks sharing an entry, a participation losing an episode and a link, recent lines that change. */
+export const LIST_STEPS: ReadonlyArray<PlaceStep> = [
+  { kind: 'lore', placeId: ROOT, value: lore() },
+  { kind: 'lore', placeId: OTHER_ROOT, value: { entries: lore().slice(0, 1) } },
+  {
+    kind: 'participation',
+    placeId: ROOT,
+    value: { nextId: 3, episodes: [episode('pt-1', ['m1', 'm2']), episode('pt-2', ['m3'])] },
+  },
+  { kind: 'recent', placeId: CHANNEL, value: recent([line(1), line(2, { itemId: undefined })]) },
+  { kind: 'lore', placeId: ROOT, value: lore().slice(1) },
+  { kind: 'participation', placeId: ROOT, value: { nextId: 4, episodes: [episode('pt-1', ['m1'])] } },
+  { kind: 'recent', placeId: CHANNEL, value: recent([line(2, { itemId: undefined }), line(3)]) },
+  { kind: 'lore', placeId: 'discord:guild:300000000000000009', value: [] },
+];
+
+/** Writes every step of `LIST_STEPS` through its write kind. */
+export function writeListSteps(handle: MemoryHandle): void {
+  for (const step of LIST_STEPS) writeDirect(handle, step);
+}
