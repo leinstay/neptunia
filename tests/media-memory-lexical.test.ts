@@ -19,7 +19,7 @@ function codeFiles(dir: string): Array<string> {
 
 const FILES = ['src', 'interfaces', 'scripts'].flatMap((dir) => codeFiles(path.join(ROOT, dir)));
 /** The modules of the one store: the migration names the old paths once, to empty them. */
-const STORE = new Set(['media-store.ts', 'media-backfill.ts']);
+const STORE = new Set(['media-store.ts']);
 const linesMatching = (pattern: RegExp, files: ReadonlyArray<string> = FILES): Array<string> =>
   files
     .filter((file) => !STORE.has(path.basename(file)))

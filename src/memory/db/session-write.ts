@@ -40,8 +40,6 @@
 //       The owner's configuration of the mirrors, handed to mirror-config.ts#applyMirrorWrite.
 //   { kind: 'entry-media', id, items, dataDir }
 //       A selfreflection entry's pictures and voice file, kept as files and `media` rows (selfreflection-media.ts#applyEntryMedia).
-//   { kind: 'media-english', descriptionId, replaces, text, how, at }
-//       The English version of a stored media description and its item's text form (media-english.ts#applyMediaEnglish).
 //   { kind: 'place-address', placeId, address, at }
 //       The chat an interface opened for a place that held no address (observe.ts#applyPlaceAddress). No mode.
 //   { kind: 'unit', op, ... }
@@ -140,8 +138,6 @@ import { applyPublicationWrite } from './publish.ts';
 import { applyDeliveryWrite, isDeliveryOp } from './publication-delivery.ts';
 import { applyMirrorWrite } from './mirror-config.ts';
 import { applyEntryMedia } from './selfreflection-media.ts';
-import { applyMediaBackfill } from './media-backfill.ts';
-import { applyMediaEnglish } from './media-english.ts';
 import { applyPlaceAddress } from './observe.ts';
 import { isInterfaceNames, noteRoots } from './roots.ts';
 import { applyMediaEmbed } from './media-store.ts';
@@ -975,7 +971,6 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['mirror', applyMirrorWrite],
   ['semantic-embedding', applySemanticEmbedding],
   ['object-embedding', applyObjectEmbedding],
-  ['media-english', applyMediaEnglish],
   // The chat an interface opened for a direct chat that held no address (observe.ts#applyPlaceAddress).
   ['place-address', applyPlaceAddress],
   [
@@ -997,7 +992,6 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
   const update = updateGiven as Row;
   const kind = update?.kind;
   if (kind === 'media-embed') return applyMediaEmbed(handle, update);
-  if (kind === 'media-backfill') return applyMediaBackfill(handle, update);
   if (kind === 'context') return writeContext(handle, update);
   if (kind === 'description') return writeDescription(handle, update);
   // Schema v11: the writers of wake runs, the skills registry and the index policy share this one writer path.
