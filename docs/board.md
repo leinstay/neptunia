@@ -4,6 +4,8 @@ The board stores work, its status, evidence, attempts and results in `memory.db`
 
 Use `neptunia tasks` for task commands. Clients authenticate through the core socket; their `boardRoles` determine which transitions they may perform. Roles include owner, reviewer, worker, scheduler, persona, watcher and errand runner. A valid client token alone does not grant every board operation. `task.add` with `unique_open_title` refuses a title the requester already has open, ignoring case and spacing, with the board error `duplicate`.
 
+`runTask` in `bin/neptunia-task.ts` checks each line against the flags its command takes and exits `2` for any other flag, before it connects. A reject is `neptunia tasks approve <id> --reject --note "..."`, and `--scope plan`, `merge` or `deploy` names the gate it refuses, `plan` by default. `submit` takes `--attempt` with the attempt its handoff ends.
+
 A claimed task has a lease and progress records. Results can include a pull request or another artifact. Approval and completion are explicit board transitions. A saved unfinished task is evidence for later work, not permission to repeat an interrupted external action.
 
 The [watcher](watcher.md) can file diagnostic tasks, which stay `proposed` until the owner or a reviewer approves them. An approved top-level dev task starts the [development worker](selfimprovement.md) whoever filed it, and it stays attributed to its requester. The worker is the builtin principal `development`, with the roles `reviewer` and `worker`. A dev task filed with `--parent` closes through the machine's `child` rule, `in_progress` to `done` by its holder, because the parent is what gets reviewed. Neither path needs a second memory database.

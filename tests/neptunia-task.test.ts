@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { runTask } from '../bin/neptunia-task.ts';
 import { CLI_CLIENT, runCli, spawnCli, startUnitsCore, withRig } from './fixtures/core-units.ts';
 import type { Client, Dirs, Exit } from './fixtures/core-units.ts';
 
@@ -120,5 +121,109 @@ test('task exits 1 and says unavailable when no core listens', async () => {
     const run = await task(dirs, 'boss', ['list']);
     assert.equal(run.code, 1);
     assert.ok(run.stderr.startsWith('unavailable:'), run.stderr);
+  });
+});
+
+// ---------- the line, refused or taken before any core is asked ----------
+
+/** A client with no token, so a line the parser takes exits 1 with `unavailable:` and a refused one exits 2. */
+const NO_TOKEN = { NEPTUNIA_TASK_CLIENT: 'zeta71-no-such-client' };
+
+/** The exit code of `neptunia tasks ...argv` in this process, its output swallowed. */
+async function exitOf(argv: ReadonlyArray<string>): Promise<number> {
+  const out = process.stdout.write.bind(process.stdout);
+  const err = process.stderr.write.bind(process.stderr);
+  process.stdout.write = () => true;
+  process.stderr.write = () => true;
+  try {
+    return await runTask(argv, NO_TOKEN);
+  } finally {
+    process.stdout.write = out;
+    process.stderr.write = err;
+  }
+}
+
+test('a flag the command does not take exits 2 before any core is asked', async () => {
+  // Bug: the parser stored any flag, so a misspelt `--prioirty` changed nothing and said nothing.
+  assert.equal(await exitOf(['update', 'T-abcdef', '--prioirty', '1']), 2);
+  assert.equal(await exitOf(['show', 'T-abcdef', '--reason', 'x']), 2);
+  assert.equal(await exitOf(['list', '--ready', '--full']), 2);
+});
+
+test('each command takes the flags its usage names, and the common ones', async () => {
+  // Bug: a per-command list of flags leaves out one the usage promises, so a valid line is refused.
+  const lines: ReadonlyArray<ReadonlyArray<string>> = [
+    ['update', 'T-abcdef', '--priority', '1', '--meta', 'admitted=yes', '--json', '--key', 'k1'],
+    ['submit', 'T-abcdef', '--handoff', '-', '--generation', '2', '--attempt', 'A-1'],
+    ['approve', 'T-abcdef', '--scope', 'merge', '--reject', '--note', 'not this way'],
+    ['result', 'T-abcdef', '--kind', 'pr', '--uri', 'https://example.test/1', '--no-submit', '--generation', '1'],
+    ['events', '--from', '3', '--limit', '1', '--socket', '/nonexistent/core.sock'],
+  ];
+  for (const line of lines) assert.equal(await exitOf(line), 1, line.join(' '));
+});
+
+test('a reject is approve --reject with its scope and a note, and the old reject word is gone', async () => {
+  // Bug: `reject` hard-coded the plan scope, so a merge gate could only be refused through another command.
+  assert.equal(await exitOf(['reject', 'T-abcdef', '--reason', 'no']), 2);
+  assert.equal(await exitOf(['approve', 'T-abcdef', '--reject']), 2);
+  assert.equal(await exitOf(['approve', 'T-abcdef', '--scope', 'merge', '--reject', '--note', 'no']), 1);
+});
+
+// ---------- the verbs over a running core ----------
+
+/** The task `id` as `show --json` answers it. */
+async function shown(dirs: Dirs, id: string): Promise<{ title: string; status: string }> {
+  const run = await task(dirs, 'boss', ['show', id, '--json']);
+  assert.equal(run.code, 0, run.stderr);
+  return (JSON.parse(run.stdout) as { task: { title: string; status: string } }).task;
+}
+
+/** The ids `list --ready --json` answers. */
+async function readyIds(dirs: Dirs): Promise<Array<string>> {
+  const run = await task(dirs, 'boss', ['list', '--ready', '--json']);
+  assert.equal(run.code, 0, run.stderr);
+  return (JSON.parse(run.stdout) as Array<{ id: string }>).map((one) => one.id);
+}
+
+test('update changes a field at the revision the task has, and move closes it with its reason', async () => {
+  // Bug: update or move sends a stale revision, or a field under the wrong board name, and the board refuses or drops it.
+  await withCore(async (dirs) => {
+    const id = await added(dirs, 'the first title');
+    const update = await task(dirs, 'boss', ['update', id, '--title', 'the second title']);
+    assert.equal(update.code, 0, update.stderr);
+    assert.equal((await shown(dirs, id)).title, 'the second title');
+    const move = await task(dirs, 'boss', ['move', id, 'cancelled', '--reason', 'not needed']);
+    assert.equal(move.code, 0, move.stderr);
+    assert.equal((await shown(dirs, id)).status, 'cancelled');
+  });
+});
+
+test('depend holds a task back from the ready list, and undepend lets it go', async () => {
+  // Bug: `--on` reaches the board under another name, so the dependency is never recorded or never removed.
+  await withCore(async (dirs) => {
+    const first = await added(dirs, 'first', ['--auto', '--no-brief']);
+    const second = await added(dirs, 'second', ['--auto', '--no-brief']);
+    assert.ok((await readyIds(dirs)).includes(second));
+    const depend = await task(dirs, 'boss', ['depend', second, '--on', first]);
+    assert.equal(depend.code, 0, depend.stderr);
+    assert.ok(!(await readyIds(dirs)).includes(second));
+    const undepend = await task(dirs, 'boss', ['undepend', second, '--on', first]);
+    assert.equal(undepend.code, 0, undepend.stderr);
+    assert.ok((await readyIds(dirs)).includes(second));
+  });
+});
+
+test('events --limit answers that many events after --from', async () => {
+  // Bug: `--limit` or `--from` is dropped on the way, so a reader gets the whole log or misses its place.
+  await withCore(async (dirs) => {
+    await added(dirs, 'one');
+    await added(dirs, 'two');
+    const page = await task(dirs, 'boss', ['events', '--from', '0', '--limit', '1', '--json']);
+    assert.equal(page.code, 0, page.stderr);
+    const events = JSON.parse(page.stdout) as Array<{ seq: number }>;
+    assert.equal(events.length, 1);
+    const after = await task(dirs, 'boss', ['events', '--from', String(events[0]?.seq), '--json']);
+    assert.equal(after.code, 0, after.stderr);
+    assert.ok((JSON.parse(after.stdout) as Array<{ seq: number }>).every((one) => one.seq > (events[0]?.seq ?? 0)));
   });
 });
