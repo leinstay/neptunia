@@ -438,7 +438,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
     subcommands: [
       sub('server', 'Check the server the core runs on, with no model request'),
       sub('core', 'Check the core’s recent turns and failures, with no model request'),
-      sub('memory', 'Check the memory database and its backups, with no model request'),
+      sub('memory', 'Check the memory database, with no model request'),
       sub('live', 'Check installation health and send a test request for every model role'),
     ],
   },
@@ -587,7 +587,6 @@ export const COMMANDS: ReadonlyArray<Command> = [
       sub('conversation', "A conversation's newest stored lines", [arg('conversation')]),
       runs(sub('recent', 'Show live recent lines'), 'memory.recent.read'),
       runs(sub('search', 'Search her memory', [arg('query')]), 'memory.search', (args) => ({ question: args.query })),
-      sub('backup', 'Make a backup of the memory database and list the kept ones'),
       sub('backfill-media', 'Bring old media lines to the one format: backfill-media [--dry-run|status]', [
         arg('mode', false),
       ]),

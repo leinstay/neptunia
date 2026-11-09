@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
 import { main, tableHashes } from '../scripts/memory-db.ts';
 import { openBoard } from '../src/board/board.ts';
@@ -42,6 +43,17 @@ function hashesOf(file: string): Array<Hash> {
 
 const boardPart = (hashes: Array<Hash>): Array<Hash> => hashes.filter((entry) => isBoard(entry.table));
 const memoryPart = (hashes: Array<Hash>): Array<Hash> => hashes.filter((entry) => !isBoard(entry.table));
+
+/** A backup the way the server's backup timer takes one: `VACUUM INTO <dir>/memory.db` over a read-only connection. */
+function backUp(file: string, dir: string): void {
+  fs.mkdirSync(dir, { recursive: true });
+  const db = new DatabaseSync(file, { readOnly: true });
+  try {
+    db.prepare('VACUUM INTO ?').run(path.join(dir, 'memory.db'));
+  } finally {
+    db.close();
+  }
+}
 
 function run(...argv: Array<string>): { code: unknown; text: string } {
   const lines: Array<string> = [];
@@ -90,8 +102,7 @@ function seeded(): Env {
     board.call('boss', 'task.comment', { id: first.id, text: 'a comment in the backup' });
     board.call('boss', 'task.add', { title: 'also in the backup' });
   });
-  const backup = run('backup', '--db', env.file, '--to', env.backup);
-  assert.equal(backup.code, 0, backup.text);
+  backUp(env.file, env.backup);
   return env;
 }
 
@@ -169,11 +180,13 @@ test('a restore is refused while a live process holds the writer lock, and chang
   assert.deepEqual(hashesOf(env.file), before);
 });
 
-test('a restore from a backup that fails its manifest is refused and changes nothing', () => {
+// The manifest check of the in-engine backup went with it (legacy removal slice 10); a folder without a database is
+// what the restore refuses now.
+test('a restore from a backup folder that holds no memory.db is refused and changes nothing', () => {
   const env = seeded();
   changeBoth(env);
   const before = hashesOf(env.file);
-  fs.appendFileSync(path.join(env.backup, 'memory.db'), Buffer.from([0]));
+  fs.rmSync(path.join(env.backup, 'memory.db'));
 
   const restored = run('restore-tables', '--part', 'board', '--from', env.backup, '--db', env.file);
   assert.equal(restored.code, 2, restored.text);

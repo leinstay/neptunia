@@ -9,7 +9,6 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { backupsIn } from '../src/memory/db/backup.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
@@ -360,17 +359,6 @@ test('/config set without a value exits 2 and leaves the local layer as it was',
     assert.equal(run.code, 2);
     assert.notEqual(run.stderr.trim(), '', 'a refused parse says why on stderr');
     assert.equal(digestOf(join(dirs.privateDir, 'config', 'config.json')), before);
-  });
-});
-
-test('/memory backup makes one backup in the backups folder and names it', async () => {
-  await withRig({ config: { memoryDb: { backup: { dir: '../b' } } } }, async ({ dirs, llm, cores }) => {
-    cores.push(await startUnitsCore(dirs, llm, () => T0));
-    const run = await p(dirs, '/memory backup');
-    assert.equal(run.code, 0, run.stdout + run.stderr.slice(-2000));
-    const made = backupsIn(join(dirs.root, 'b'));
-    assert.equal(made.length, 1);
-    assert.ok(run.stdout.includes(made[0] ?? '?'), 'the answer lists the backup');
   });
 });
 

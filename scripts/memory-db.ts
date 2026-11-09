@@ -26,23 +26,9 @@
 //   node scripts/memory-db.ts media-check --db <file> --data <dir> [--apply]
 //        Her selfreflection media: each `media` row of kind selfreflection is `present` when its file under the data directory exists
 //        with the stored size, else `missing`; every other row stays `unknown`. Prints the counts; --apply writes them.
-//   node scripts/memory-db.ts backup --db <file> --to <dir> [--data <dir>]
-//        `VACUUM INTO <dir>/memory.db`, the persona files (from --data, default the database's directory) and
-//        `<dir>/manifest.json`: every file with its size and SHA-256, the schema version, the engine commit and the row
-//        count of every table (src/memory/db/backup.ts; the bot's own daily backup, `memoryDb.backup`, also names the
-//        config's hash). The directory must be new or empty. Opens the database read-only.
-//   node scripts/memory-db.ts restore --from <dir> --db <file> [--data <dir>]
-//        Checks every file of the backup against its manifest, then restores the database to --db (which must not
-//        exist) and the persona files under --data (default the new database's directory; no file is overwritten), and
-//        checks the schema version and the row counts of the restored file.
-//   node scripts/memory-db.ts restore-test --from <backup dir>
-//        The exact-restore rehearsal: `restore` of the backup into a new temporary data directory, the content hash of
-//        every table of the restored database compared with the same hash of the backup's own database, then a memory
-//        service opened there (no worker, no network, no interface, every job off). Exit 1 on any difference or when
-//        the service does not open the restored database. The temporary directory is removed in every case.
 //   node scripts/memory-db.ts restore-tables --part board|memory --from <backup dir> --db <file>
-//        Brings one part of the database back from a backup and leaves the other as it is. The backup's files are
-//        checked against its manifest first. `board` replaces every `board_*` table (`board_schema_version` included)
+//        Brings one part of the database back from a backup and leaves the other as it is. The backup is a folder
+//        that holds a `memory.db`, refused when it holds none. `board` replaces every `board_*` table (`board_schema_version` included)
 //        with the backup's; `memory` replaces every other table, the full-text indexes rebuilt from the restored
 //        lines. Refused, with nothing changed, when the part's schema versions differ between the two files.
 //   node scripts/memory-db.ts board list --db <file> [--json]
@@ -62,7 +48,6 @@
 // The database is never added to git. Nothing here starts the bot or calls a model.
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
@@ -70,8 +55,6 @@ import { createHash } from 'node:crypto';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { rebuildGraph, reproject, projectPending } from '../src/memory/db/graph.ts';
 import { checkMedia, classify as classifyIndex } from '../src/memory/db/index-policy.ts';
-import { backupDatabase, checkBackup, restoreDatabase, tablesOf } from '../src/memory/db/backup.ts';
-import { createMemoryDb, engineCommit } from '../src/memory/db/service.ts';
 import { readBoard } from '../src/board/board.ts';
 import { compareArchive } from '../src/board/archive.ts';
 import { BoardError } from '../src/board/machine.ts';
@@ -84,8 +67,6 @@ import type { TaskView } from '../src/board/board.ts';
 
 /** An object read by key whose values are not typed yet. */
 type Rec = Record<string, Untyped>;
-
-export { backupDatabase, restoreDatabase };
 
 const FLAGS = new Set(['apply', 'json']);
 
@@ -165,6 +146,19 @@ const valueOf = (value: Untyped) => {
   if (typeof value === 'bigint') return ['int', String(value)];
   return [value === null ? 'null' : typeof value, value];
 };
+
+/** The tables of a database (no SQLite internals), with the virtual ones marked and their shadow tables left out. */
+function tablesOf(db: Pick<Db, 'prepare'>): Array<{ name: string; virtual: boolean }> {
+  const rows = db
+    .prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+    .all()
+    .map((row) => ({ name: String(row.name), sql: typeof row.sql === 'string' ? row.sql : '' }));
+  const virtual = new Set(rows.filter((row) => /^CREATE VIRTUAL TABLE/i.test(row.sql)).map((row) => row.name));
+  return rows
+    .map((row) => row.name)
+    .filter((name) => ![...virtual].some((v) => name.startsWith(`${v}_`)))
+    .map((name) => ({ name, virtual: virtual.has(name) }));
+}
 
 /**
  * The content hash of every table (or of `only`): `[{ table, rows, hash }]`. Rows in primary-key order, every column;
@@ -295,7 +289,7 @@ function runRebuild(io: Rec, options: Untyped) {
   }
 }
 
-// ---------- index policy, media, backups ----------
+// ---------- index policy, media ----------
 
 function runIndexPolicy(io: Rec, options: Untyped) {
   need(options, 'db');
@@ -339,108 +333,6 @@ function runMediaCheck(io: Rec, options: Untyped) {
     return 0;
   } finally {
     handle.close();
-  }
-}
-
-function runBackup(io: Untyped, options: Untyped) {
-  need(options, 'db', 'to');
-  const start = performance.now();
-  const manifest = backupDatabase({
-    db: options.db,
-    to: options.to,
-    commit: engineCommit(),
-    ...(options.data ? { data: options.data } : {}),
-  });
-  io.out(
-    `backup: schema ${manifest.schemaVersion}, ${manifest.files.length} files, ${Object.keys(manifest.rows ?? {}).length} tables in ${seconds(start)}`
-  );
-  return 0;
-}
-
-function runRestore(io: Untyped, options: Untyped) {
-  need(options, 'from', 'db');
-  const start = performance.now();
-  const manifest = restoreDatabase({
-    from: options.from,
-    db: options.db,
-    ...(options.data ? { data: options.data } : {}),
-  });
-  io.out(
-    `restore ok: schema ${manifest.schemaVersion}, ${manifest.files.length} files checked and restored, row counts equal (${seconds(start)})`
-  );
-  return 0;
-}
-
-// ---------- restore-test ----------
-
-/** The config of the isolated service a restore test opens: every job off. */
-const RESTORE_TEST_CONFIG = Object.freeze({ memoryDb: { session: { mode: 'off' }, backup: { enabled: false } } });
-
-/**
- * Restores a backup into a temporary data directory, compares the content hash of every table of the restored
- * database with the backup's own database, then opens a service there (no worker, no network, no interface). The
- * backup itself is only read. The temporary directory is removed in every case.
- * @returns the exit code
- */
-async function runRestoreTest(io: Untyped, options: Untyped): Promise<number> {
-  need(options, 'from');
-  const start = performance.now();
-  const scratch = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'restore-test-'));
-  const data = path.join(scratch, 'data');
-  let service = null;
-  try {
-    const manifest = restoreDatabase({ from: options.from, db: path.join(data, 'memory.db'), data });
-    io.out(`restored: schema ${manifest.schemaVersion}, ${manifest.files.length} files checked`);
-    const hashesOf = (file: string) => {
-      const handle = openMemoryDb(file, { readOnly: true });
-      try {
-        return tableHashes(sqlOf(handle));
-      } finally {
-        handle.close();
-      }
-    };
-    const expected = hashesOf(path.join(options.from, 'memory.db'));
-    const restored = new Map(hashesOf(path.join(data, 'memory.db')).map((entry) => [entry.table, entry]));
-    const warnings: Array<Untyped> = [];
-    const log = {
-      info() {},
-      debug() {},
-      error: (message: Untyped, fields: Rec) => warnings.push(fields?.code ?? message),
-      warn: (message: Untyped, fields: Rec) => warnings.push(fields?.code ?? message),
-    };
-    service = createMemoryDb({
-      hot: { config: structuredClone(RESTORE_TEST_CONFIG), prompts: {} },
-      dataDir: data,
-      log,
-      worker: false,
-    });
-    await service.tick();
-    if (!service.readHandle()) {
-      io.out(
-        `restore-test FAILED: the service did not open the restored database (${warnings.filter(Boolean).join(', ') || 'unknown'})`
-      );
-      return 1;
-    }
-    let differ = 0;
-    for (const entry of expected) {
-      const got = restored.get(entry.table);
-      const same = got !== undefined && got.hash === entry.hash;
-      if (!same) {
-        differ += 1;
-        io.out(
-          `${entry.table.padEnd(26)} ${String(entry.rows).padStart(8)} -> ${String(got?.rows ?? 0).padStart(8)}  differs`
-        );
-      }
-    }
-    io.out(
-      differ === 0
-        ? `restore-test ok: every table of the restored database equals the backup's (${expected.length} tables, ${seconds(start)})`
-        : `restore-test FAILED: ${differ} tables differ (${seconds(start)})`
-    );
-    return differ === 0 ? 0 : 1;
-  } finally {
-    if (service) await service.close();
-    fs.rmSync(scratch, { recursive: true, force: true });
   }
 }
 
@@ -530,7 +422,7 @@ function runRestoreTables(io: Io, options: Record<string, unknown>): number {
   const { part, from, db: file } = options;
   if (part !== 'board' && part !== 'memory') throw new Error('--part must be board or memory');
   if (typeof from !== 'string' || typeof file !== 'string') throw new Error('--from and --db need a path');
-  checkBackup(from);
+  if (!fs.existsSync(path.join(from, 'memory.db'))) throw new Error(`no memory.db in ${from}; restore refused`);
   const start = performance.now();
   // No migration of either part: a restore leaves the versions as they are, and refuses when they differ.
   const handle = openMemoryDb(file, { migrations: [], boardMigrations: [] });
@@ -653,14 +545,11 @@ const COMMANDS: Untyped = {
   rebuild: runRebuild,
   'index-policy': runIndexPolicy,
   'media-check': runMediaCheck,
-  backup: runBackup,
-  restore: runRestore,
-  'restore-test': runRestoreTest,
   'restore-tables': runRestoreTables,
   board: runBoard,
 };
 
-/** Runs a command line; returns the exit code (a promise of it for `restore-test`). `io` is { out(line), err(line) }. */
+/** Runs a command line; returns the exit code, or a promise of it. `io` is { out(line), err(line) }. */
 export function main(
   argv: Rec,
   io = { out: (line: Untyped) => console.log(line), err: (line: string) => console.error(line) }

@@ -4,7 +4,9 @@
 // guards on. The archive comes from fixtures/errand-archive.ts. Temporary directories only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { main, tableHashes } from '../scripts/memory-db.ts';
 import type { BoardDb } from '../src/board/schema.ts';
@@ -70,8 +72,11 @@ test('verify-errands reports an archived errand the board holds no task for as m
 test('a memory-only restore brings the archive back from the backup', () => {
   const { dataDir, file } = moved();
   const backup = path.join(path.dirname(dataDir), 'backup');
-  const made = run('backup', '--db', file, '--to', backup);
-  assert.equal(made.code, 0, made.err.join('\n'));
+  // The backup the way the server's backup timer takes one: `VACUUM INTO` over a read-only connection.
+  fs.mkdirSync(backup);
+  const source = new DatabaseSync(file, { readOnly: true });
+  source.prepare('VACUUM INTO ?').run(path.join(backup, 'memory.db'));
+  source.close();
   const memoryOf = (hashes: Array<Hash>): Array<Hash> => hashes.filter((entry) => !entry.table.startsWith('board_'));
   const read = (target: string): Array<Hash> => {
     const handle = openMemoryDb(target, { readOnly: true });
