@@ -49,8 +49,8 @@
 //   - `observe(envelope, where)`: one observation of the live message path (observe.ts#observe, the envelope from
 //     observe-event.ts#observationOf) through the writer, like every other write: the observation is the record of the
 //     line (`where` names its layer). Never throws.
-//   - `writeUnit(update)` (unit-write.ts): the database writers of the memory units (record and journal lines, the
-//     store's cache, the module stores, participation, the selfreflection, the vectors) through the writer; resolves once the
+//   - `writeUnit(update)` (unit-write.ts): the database writers of the memory units (journal lines, the store's cache,
+//     the module stores, participation, the selfreflection) through the writer; resolves once the
 //     worker committed, rejects with a code (`DB_CLOSED` while the database is not open). Each tick also finishes the
 //     graph projection and the stems a migration left (one slice a tick). A selfreflection write's destination is the
 //     place of the selfreflection's first enabled mirror. The durable intent of a write that failed (spec
@@ -68,6 +68,7 @@
 //     registries, emoji rails and recall trace lines, by kind and subject, through the writer.
 //   - `writeIntentions(write)` (intentions-write.ts): her list of intentions and the records moved to its archive.
 //   - `writeLineVectors(write)` (line-vectors.ts): the vectors of the lines she saw and said, by place and month.
+//   - `writeRecordLines(write)` (record-lines.ts): the lines of the record of a place, each in its day's unit.
 //   - her memory session is the memory writer (spec 2026-10-24-memory-authority, section 6 item 7). Each open logs the
 //     effective models (`memory db: effective models`: purpose, model id and key variable of the memory session, the
 //     description review and every other purpose; writer-switch.ts#effectiveModels). With `memoryDb.session.mode`
@@ -118,6 +119,7 @@ import type { QuarantinedPending, QuarantineStatus } from './pending-quarantine.
 import type { StorageKey } from './storage-keys.ts';
 import type { IntentionsWrite } from './intentions-write.ts';
 import type { LineVectorsWrite } from './line-vectors.ts';
+import type { RecordLinesWrite } from './record-lines.ts';
 import type { OperationalWrite } from './operational.ts';
 
 import { lockPathOf, openMemoryDb } from './open.ts';
@@ -561,6 +563,8 @@ export type MemoryDbService = {
   writeIntentions(write: IntentionsWrite): Promise<unknown>;
   /** The vectors of the lines she saw and said (line-vectors.ts). */
   writeLineVectors(write: LineVectorsWrite): Promise<unknown>;
+  /** The lines of the record of a place (record-lines.ts): resolves how many it wrote, held already and adopted. */
+  writeRecordLines(write: RecordLinesWrite): Promise<unknown>;
   keepPending(update: unknown): string;
   /** The writes in the quarantine, by name, with the code each failed with and when it moved. */
   quarantinedPending(): Array<QuarantinedPending>;
@@ -1827,6 +1831,8 @@ export function createMemoryDb({
     writeOperational: (operational: OperationalWrite) => write({ ...operational, kind: 'operational', now: now() }),
     writeIntentions: (intentions: IntentionsWrite) => write({ ...intentions, kind: 'intentions', now: now() }),
     writeLineVectors: (vectors: LineVectorsWrite) => write({ ...vectors, kind: 'line-vectors', now: now() }),
+    writeRecordLines: (lines: RecordLinesWrite) =>
+      write(withLiveIface({ ...lines, kind: 'record-lines', now: now() }, iface)),
     keepPending,
     quarantinedPending: () => quarantinedIn(quarantineDir),
     replayQuarantinedPending,

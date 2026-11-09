@@ -1,6 +1,6 @@
 // Recall and the family catalog share verified native routes retained by protocol and record observations.
 
-import { fromRows as recordFromRows } from './map/record.ts';
+import { recordLineOf } from './record-lines.ts';
 import { locatorText, messageLocator } from './message-locator.ts';
 import type { NativeMessageLocator } from './recall.ts';
 import type { Row } from './types.ts';
@@ -23,7 +23,7 @@ export function nativeLocatorOf(row: Row, extra: Row): NativeMessageLocator | un
     !locatorText(row.native_id)
   )
     return undefined;
-  const line = recordFromRows({ sources: [{ ...row }] });
+  const line = recordLineOf({ ...row });
   const scope = line.scope;
   if (!scope || typeof scope !== 'object' || Array.isArray(scope)) return undefined;
   const channel = (scope as Row).channel;

@@ -2,8 +2,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { nativeLocatorOf } from '../src/memory/db/source-locator.ts';
-import { toRows as recordRows } from '../src/memory/db/map/record.ts';
-import type { Row } from '../src/memory/db/types.ts';
+import { recordSourceRow } from '../src/memory/db/record-lines.ts';
+import type { Row, Rows } from '../src/memory/db/types.ts';
+
+/** A record row as an older release stored it: its day file's path in `owner_file`, a private layer's partner spelled in it. */
+const recordRows = (rel: string, line: Row): Rows => ({
+  sources: [
+    {
+      ...recordSourceRow(line, { privateAccountId: /private\/([^/]+)\//.exec(rel)?.[1] ?? null }),
+      owner_file: rel,
+      position: null,
+    },
+  ],
+});
 
 function historical(): { row: Row; extra: Row } {
   const mapping = recordRows('private/partner-42/record/2026-10/2026-10-23.jsonl', {
@@ -22,11 +33,11 @@ function historical(): { row: Row; extra: Row } {
   });
   const row = mapping.sources?.[0];
   if (!row || typeof row.extra !== 'string') {
-    throw new Error('record mapper omitted its source metadata');
+    throw new Error('the record row omitted its source metadata');
   }
   const parsed: unknown = JSON.parse(row.extra);
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('record mapper metadata must be a JSON object');
+    throw new Error('the record row metadata must be a JSON object');
   }
   // A parsed JSON object has string keys after the object and array checks above.
   const extra = parsed as Row;

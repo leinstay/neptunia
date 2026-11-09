@@ -1,5 +1,6 @@
 import { createReadSeam } from './db/readers/seam.ts';
 import type { LineVectorsWrite } from './db/line-vectors.ts';
+import type { RecordLinesWrite } from './db/record-lines.ts';
 import type { OperationalWrite } from './db/operational.ts';
 import type { MemoryHandle, Row } from './db/types.ts';
 // The shapes the memory modules share: the live settings handle a module reads at the moment of use, and the logger
@@ -56,6 +57,7 @@ export type MemoryDb = {
   writeUnit?: (update: unknown) => Promise<unknown>;
   writeOperational?: (write: OperationalWrite) => Promise<unknown>;
   writeLineVectors?: (write: LineVectorsWrite) => Promise<unknown>;
+  writeRecordLines?: (write: RecordLinesWrite) => Promise<unknown>;
   memoryWrite?: (update: unknown) => Promise<unknown>;
   keepPending?: (update: unknown) => string;
   onAffinityMoves?: (listener: (moves: Array<Row>) => void) => () => void;

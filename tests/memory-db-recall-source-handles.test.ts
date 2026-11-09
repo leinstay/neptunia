@@ -8,8 +8,20 @@ import { fixture } from './fixtures/memory-db-recall.ts';
 import { labels } from './fixtures/labels.ts';
 import { observe, OBSERVE_CODES, type Envelope } from '../src/memory/db/observe.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
-import { toRows as recordRows } from '../src/memory/db/map/record.ts';
+import { recordSourceRow } from '../src/memory/db/record-lines.ts';
+import type { Row, Rows } from '../src/memory/db/types.ts';
 import { lineEvent } from './fixtures/core-over-fake.ts';
+
+/** A record row as an older release stored it: its day file's path in `owner_file`, a private layer's partner spelled in it. */
+const recordRows = (rel: string, line: Row): Rows => ({
+  sources: [
+    {
+      ...recordSourceRow(line, { privateAccountId: /private\/([^/]+)\//.exec(rel)?.[1] ?? null }),
+      owner_file: rel,
+      position: null,
+    },
+  ],
+});
 
 const DAY = 86400000;
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');

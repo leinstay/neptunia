@@ -14,26 +14,23 @@
 // author, reply target, text, media kinds (never a URL of a file), mentions, `direct`, and for a
 // posted link with a preview the compact `links` (recordLinks: its URL, as posted in the text, with
 // the preview's title, description and site, so a link post is found by what it shows). `append`
-// waits while a writer lock is held (`writerGate`), then writes every line as the record mapper maps
-// it, in its day's unit (`memoryDb.writeUnit`, op `lines`), which refuses a line whose message
-// revision (or deletion) the month already holds and adopts a line the live observation wrote
-// first; the promise resolves once the writer committed and rejects with the writer's code. Every
-// read is answered from the database (src/memory/db/readers/record.ts); a closed database is an
-// error with a code (`DB_CLOSED`), never an empty answer.
+// waits while a writer lock is held (`writerGate`), then writes the lines through the write kind
+// `record-lines` (`memoryDb.writeRecordLines`, src/memory/db/record-lines.ts), which stores each in
+// its day's unit, refuses a line whose message revision (or deletion) the month already holds and
+// adopts a line the live observation wrote first; the promise resolves once the writer committed
+// and rejects with the writer's code. Every read is answered from the database
+// (src/memory/db/record-lines.ts); a closed database is an error with a code (`DB_CLOSED`), never
+// an empty answer.
 //
 // Logs carry counts and ids of places, never a line's contents.
 
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { keyText, placeOrPersona } from './db/storage-keys.ts';
-
-import type { StorageKey } from './db/storage-keys.ts';
-
 import { log as defaultLog } from '../log.ts';
 import { clampChars, clampWithEllipsis, oneLine } from './clamp.ts';
 import { memoryRootOf } from './root.ts';
 
-import { recordDays, recordLines, recordMonths, recordNewestRevision, recordStats } from './db/readers/record.ts';
+import { recordDays, recordLines, recordMonths, recordNewestRevision, recordStats } from './db/record-lines.ts';
 import { isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
 import type { StoredRecord, MemoryDb, Untyped } from './types.ts';
 import type { NativeMessageLocator } from './db/recall.ts';
@@ -355,11 +352,11 @@ export type RecordStore = {
  *   journal's `waitUnlocked`, so its writer lock (src/memory/journal.ts#withWriterLock) holds the
  *   record's appends too
  * @param options.memoryDb  the memory database service (src/memory/db/service.ts): every
- *   read is answered from it (src/memory/db/readers/record.ts) and `append` writes it (`writeUnit`); a
+ *   read is answered from it (src/memory/db/record-lines.ts) and `append` writes it (`writeRecordLines`); a
  *   failed read or write rejects with a code
  *   `stats` counts the record of a place (the distinct message ids of its lines). `append` stamps
- *   the private scope on each line of a DM place, one write per run of
- *   lines of one day; a line the month already holds is a duplicate (`duplicates`). `iterate` streams
+ *   the private scope on each line of a DM place, one write per append; a line the month
+ *   already holds is a duplicate (`duplicates`). `iterate` streams
  *   the parsed lines whose `occurredAt` lies in `[from, to]` (and whose channel is one of `placeIds`
  *   when given), day by day. `newestRevision` is the highest revision the month of `occurredAtIso`
  *   holds for the message (null when none; a `deleted` line does not count). Appends run one at a time.
@@ -434,43 +431,26 @@ export function createRecord({
     return line;
   }
 
-  /** The database's writer, or a coded rejection when there is none. */
-  function unitWriter() {
-    if (typeof memoryDb?.writeUnit !== 'function')
+  /** The database's writer of record lines, or a coded rejection when there is none. */
+  function linesWriter() {
+    if (typeof memoryDb?.writeRecordLines !== 'function')
       throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
-    return memoryDb.writeUnit;
+    return memoryDb.writeRecordLines;
   }
 
-  /** The lines go to the database, each run of lines of one day as one write. */
+  /** The lines go to the database as one write, which stores each run of lines of one day in that day's unit. */
   async function appendToDb(placeId: string | null, lines: Untyped, messages?: ReadonlyArray<RecordMessageRef>) {
-    const write = seam.run(() => unitWriter());
+    const write = seam.run(() => linesWriter());
     const partner = partnerOf(placeId);
-    let written = 0;
-    let duplicates = 0;
-    const flush = async (owner: string | null, run: Untyped) => {
-      if (!owner || run.length === 0) return;
-      // The writer answers a lines unit with how many lines it wrote and how many it already held.
-      const done = (await seam.run(() =>
-        write({ op: 'lines', key: JSON.parse(owner) as StorageKey, lines: run, ...(messages ? { messages } : {}) })
-      )) as StoredRecord | undefined;
-      written += done?.written ?? 0;
-      duplicates += done?.duplicates ?? 0;
-    };
-    let owner = null;
-    let run = [];
+    const stampedLines: Array<Untyped> = [];
     for (const raw of Array.isArray(lines) ? lines : []) {
-      if (!raw || typeof raw !== 'object') continue;
-      const line = stamped(raw, partner);
-      const unit = keyText(placeOrPersona('record', placeId, { partition: String(line.occurredAt).slice(0, 10) }));
-      if (unit !== owner) {
-        await flush(owner, run);
-        owner = unit;
-        run = [];
-      }
-      run.push(line);
+      if (raw && typeof raw === 'object') stampedLines.push(stamped(raw, partner));
     }
-    await flush(owner, run);
-    return { written, duplicates };
+    if (stampedLines.length === 0) return { written: 0, duplicates: 0 };
+    // The writer answers how many lines it wrote and how many the month already held.
+    const done = (await seam.run(() => write({ placeId, lines: stampedLines, ...(messages ? { messages } : {}) }))) as
+      StoredRecord | undefined;
+    return { written: done?.written ?? 0, duplicates: done?.duplicates ?? 0 };
   }
 
   async function append(
