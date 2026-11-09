@@ -105,3 +105,29 @@ test('no line of hers elsewhere renders no text', () => {
   // Bug: an empty block with its heading reaches the request.
   assert.equal(render([], GROUP_FRAME).trim(), '');
 });
+
+/** A room with one line of hers that holds the media `media` and the text `text`. */
+function roomWithMedia(text: string, media: ReadonlyArray<{ kind: string; text: string | null }>): FakePlace {
+  return {
+    id: 'place:club',
+    path: ['fake', 'Αγορά', 'λέσχη'],
+    dm: false,
+    lines: [line('place:club', 'c1', NOW - 30 * MIN, null, text, media)],
+  };
+}
+
+test('a post of hers that is only a picture shows its description in the block', () => {
+  // Bug: a picture-only post has empty text and was left out, so the block read as if she had not posted there.
+  const text = render([roomWithMedia('', [{ kind: 'image', text: 'a white rabbit in a garden' }])], GROUP_FRAME);
+  assert.ok(text.includes('a white rabbit in a garden'), text);
+});
+
+test('a post of hers with text and a picture shows both', () => {
+  // Bug: the picture's description replaced the post's text, or the text hid the picture.
+  const text = render(
+    [roomWithMedia('ΛΕΞΕΙΣ-ΜΑΖΙ', [{ kind: 'image', text: 'a white rabbit in a garden' }])],
+    GROUP_FRAME
+  );
+  assert.ok(text.includes('ΛΕΞΕΙΣ-ΜΑΖΙ'), text);
+  assert.ok(text.includes('a white rabbit in a garden'), text);
+});
