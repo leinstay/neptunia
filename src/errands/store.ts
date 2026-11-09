@@ -12,7 +12,7 @@
 // Every change of an errand is one write of the whole errand through the memory database's writer (op `errand` of
 // src/memory/db/unit-write.ts), handed to an outbox (src/memory/db/unit-outbox.ts) keyed by the errand: a newer write
 // of the same errand replaces the one waiting, a failed write goes again at the next change or `flush`, and
-// `flush({ final: true })` (the shutdown) keeps what still fails in `memory-pending/`; a write that waits behind an earlier
+// `flush({ final: true })` (the shutdown) logs what still fails as lost; a write that waits behind an earlier
 // write of the same errand goes as soon as that one settles. The end of an errand (`finish`,
 // `cancel`, `failOpen`) is one transaction of the writer: the board's move to its end, the board's outbox row to
 // `persona`, and the closing journal action line; a failure of any of them writes none. `pendingEnds` lists the ends
@@ -158,7 +158,6 @@ type StoreOptions = {
 /** The memory database service's writes the store makes (src/memory/db/service.ts). */
 type MemoryWrites = {
   writeUnit: (update: Record<string, unknown>) => Promise<unknown>;
-  keepPending: ((update: Record<string, unknown>) => unknown) | null;
 };
 /** The journal's two writers of an `action` line the store uses (src/memory/journal.ts). */
 type JournalWrites = {
@@ -179,7 +178,6 @@ function memoryWritesOf(memoryDb: unknown): MemoryWrites | null {
   if (writeUnit === null) return null;
   return {
     writeUnit: (update) => Promise.resolve(writeUnit(update)),
-    keepPending: methodOf(memoryDb, 'keepPending'),
   };
 }
 
@@ -189,14 +187,10 @@ const journalWritesOf = (journal: unknown): JournalWrites => ({
   actionLine: methodOf(journal, 'actionLine'),
 });
 
-/** The outbox of the errand writes: op `errand` of the memory writer, kept in `memory-pending/` at the shutdown. */
-function errandOutbox({ writeUnit, keepPending }: MemoryWrites, log: Logger): ReturnType<typeof createUnitOutbox> {
-  const asErrand = (update: Record<string, unknown>): Record<string, unknown> => ({ ...update, op: 'errand' });
+/** The outbox of the errand writes: op `errand` of the memory writer. */
+function errandOutbox({ writeUnit }: MemoryWrites, log: Logger): ReturnType<typeof createUnitOutbox> {
   const writer = {
-    writeUnit: (update: Record<string, unknown>): Promise<unknown> => writeUnit(asErrand(update)),
-    ...(keepPending
-      ? { keepPending: (update: Record<string, unknown>): unknown => keepPending(asErrand(update)) }
-      : {}),
+    writeUnit: (update: Record<string, unknown>): Promise<unknown> => writeUnit({ ...update, op: 'errand' }),
   };
   return createUnitOutbox({ memoryDb: writer, log, name: 'tasks' });
 }
@@ -765,13 +759,12 @@ export function createErrandStore({
   }
 
   /**
-   * The writes still waiting sent again and awaited; with `final` (the shutdown) what still fails is kept in
-   * `memory-pending/`. Nothing without a `memoryDb`.
+   * The writes still waiting sent again and awaited; with `final` (the shutdown) what still fails is logged as lost.
+   * Nothing without a `memoryDb`.
    */
   async function flush({ final = false }: { final?: boolean } = {}): Promise<FlushCounts> {
-    if (!outbox) return { waiting: 0, pending: 0 };
-    const waiting = await outbox.flush();
-    return { waiting, pending: final ? outbox.keep() : 0 };
+    if (!outbox) return { waiting: 0 };
+    return { waiting: await outbox.flush({ final }) };
   }
 
   return {
@@ -826,13 +819,8 @@ export function createErrandStores({
     /** Every store's `flush` (the writes waiting for the database; `final` at the shutdown). */
     async flush(options: { final?: boolean } = {}): Promise<FlushCounts> {
       let waiting = 0;
-      let pending = 0;
-      for (const store of stores.values()) {
-        const done = await store.flush(options);
-        waiting += done.waiting;
-        pending += done.pending;
-      }
-      return { waiting, pending };
+      for (const store of stores.values()) waiting += (await store.flush(options)).waiting;
+      return { waiting };
     },
   };
   return errands;

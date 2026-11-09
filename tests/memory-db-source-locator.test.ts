@@ -96,3 +96,13 @@ test('a nonrecord source never gains a route from record-shaped native metadata'
   const { row, extra } = historical();
   assert.equal(nativeLocatorOf({ ...row, owner_file: 'guilds/g1/users/partner-42.json' }, extra), undefined);
 });
+
+test('a historical record line reads its chat from the stored place when the place id spells nothing', () => {
+  const channelOfPlace = (placeId: string): string | null => (placeId === 'place:9b24' ? 'room-n' : null);
+  const result = nativeLocatorOf(
+    { iface: 'fake', native_id: 'm-1', kind: 'seen', place_id: 'place:9b24', storage_kind: 'record' },
+    { v: 1, id: 'record-1' },
+    channelOfPlace
+  );
+  assert.deepEqual(result, { iface: 'fake', chatId: 'room-n', messageId: 'm-1' });
+});

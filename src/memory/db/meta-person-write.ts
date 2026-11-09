@@ -5,7 +5,7 @@
 // no row in `person_accounts`: the adapter reaches that person through the old link (meta-person.ts). Called by
 // person-links.ts (a link), observe.ts and rows.ts (an account or a line written) and upsert.ts (a unit's accounts).
 
-import { legacyPersonNative, newPersonId, survivorOf } from './ids.ts';
+import { newPersonId, survivorOf } from './ids.ts';
 import { personOfAccount } from './meta-person.ts';
 import type { Db } from './types.ts';
 
@@ -25,13 +25,12 @@ export function mintMetaPerson(db: Db, at: string, newId?: () => string): string
 export const hasMetaSchema = (db: Db): boolean =>
   db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'person_accounts'").get() !== undefined;
 
-/** Whether `person` is a meta-person, marking one whose id spells no interface and that nobody merged away. */
+/** Whether `person` is a meta-person, marking one that nobody merged away. */
 function metaPerson(db: Db, person: string): boolean {
   const row = db.prepare('SELECT meta, status FROM people WHERE id = ?').get(person);
   if (row === undefined) return false;
   if (row.meta === 1) return true;
-  const merged = typeof row.status === 'string' && row.status.startsWith('merged_into:');
-  if (legacyPersonNative(person) !== null || merged) return false;
+  if (typeof row.status === 'string' && row.status.startsWith('merged_into:')) return false;
   db.prepare('UPDATE people SET meta = 1 WHERE id = ?').run(person);
   return true;
 }

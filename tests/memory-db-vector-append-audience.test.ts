@@ -10,7 +10,7 @@ import { dbOf } from '../src/memory/db/types.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { dmScope } from '../src/memory/db/scope.ts';
-import { personId } from '../src/memory/db/ids.ts';
+import { personId } from './fixtures/memory-db/spelled-ids.ts';
 import { placeCollection } from '../src/memory/db/storage-keys.ts';
 
 const DIMS = 4;

@@ -48,8 +48,7 @@ export type UnitCache = {
   flushAll: (options?: { force?: boolean }) => { written: number; failed: number; held: number };
   writeNow: (file: string, item: CacheItem) => void;
   held: () => number;
-  settle: () => Promise<number | undefined>;
-  keep: () => number | undefined;
+  settle: (options?: { final?: boolean }) => Promise<number | undefined>;
   drop: (keep: string) => number;
   reload: (file: string, item: CacheItem) => void;
   writable: () => boolean;
@@ -267,10 +266,12 @@ export function createUnitCache({
     writeNow,
     /** How many dirty entries the archive holds back from a flush. */
     held: (): number => [...entries.values()].filter((item) => item.dirty && (item.holdFlush ?? 0) > 0).length,
-    /** Waits for the database to take what the flushes handed over (unit-outbox.ts#flush); how many still wait. */
-    settle: async (): Promise<number | undefined> => (outbox ? await outbox.flush() : undefined),
-    /** At shutdown: what still waits kept in `memory-pending/` (unit-outbox.ts#keep); how many. */
-    keep: (): number | undefined => (outbox ? outbox.keep() : undefined),
+    /**
+     * Waits for the database to take what the flushes handed over (unit-outbox.ts#flush); how many still wait. With
+     * `final` (the shutdown), what still waits is logged as lost.
+     */
+    settle: async ({ final = false } = {}): Promise<number | undefined> =>
+      outbox ? await outbox.flush({ final }) : undefined,
     drop,
     reload,
     /** Whether a unit can be written: false with a closed writer. */

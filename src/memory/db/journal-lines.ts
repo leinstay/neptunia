@@ -14,7 +14,7 @@
 // stored person of the member's account, null when none is stored, and the platform id stays in the row's `extra`.
 // A line of a DM place takes the place's audience (map/scope-parts.ts).
 
-import { answerSourceId, personId } from './ids.ts';
+import { answerSourceId } from './ids.ts';
 import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './map/common.ts';
 import type { MapContext, Spec } from './map/common.ts';
 import { storageContext } from './map/index.ts';
@@ -68,9 +68,7 @@ const attitudeSpec = (ctx: MapContext): Array<Spec> => [
     col: 'person_id',
     key: 'accountId',
     type: 'text',
-    // With no database to ask, the person is spelled from the platform id.
-    enc: (v: unknown, iface: string) =>
-      ctx.personOfMember ? ctx.personOfMember(iface, String(v)) : personId(iface, String(v)),
+    enc: (v: unknown, iface: string) => ctx.personOfMember?.(iface, String(v)) ?? null,
     dec: () => null,
     exact: true,
   },
@@ -219,13 +217,7 @@ export function journalLineOf(rows: Rows, ctx: MapContext = {}): Row {
   }
   const day = rows.day[0];
   const rest = parseExtra(day.extra);
-  const scope = scopeFrom(
-    day,
-    rest,
-    ctx.privateAccountId ?? privateUserOf(String(day.owner_file)),
-    ifaceOf(day, 'scope_iface'),
-    ctx.partnerOfDm
-  );
+  const scope = scopeFrom(day, rest, ctx.privateAccountId ?? privateUserOf(String(day.owner_file)), ctx);
   const line = join(day, rest, DAY_SPEC);
   if (scope !== undefined) line.scope = scope;
   const answer = rowsOf(rows, 'sources')[0];

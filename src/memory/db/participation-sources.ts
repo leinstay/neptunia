@@ -26,16 +26,16 @@ function capturedSource(db: Db, episode: Row, link: Row): unknown {
 type SourceSchema = { catalog: boolean; tuple: boolean };
 
 /**
- * The source a mapper's reference `src:<iface>:<message id>` names in the episode's chat, on the interface and under the
- * native id of the chat's row (`places.iface`, `native_id`). Null when no row holds the chat or the reference names
- * another interface.
+ * The source of the message a link's position names in its episode's messages, in the episode's chat, on the interface
+ * and under the native id of the chat's row (`places.iface`, `native_id`). Null when no row holds the chat.
  */
-function qualifiedSource(db: Db, episode: Row, reference: string, schema: SourceSchema): unknown {
+function qualifiedSource(db: Db, episode: Row, link: Row, schema: SourceSchema): unknown {
   const place = db.prepare('SELECT iface, native_id FROM places WHERE id = ?').get(episode.place_id);
   const iface = typeof place?.iface === 'string' && place.iface !== '' ? place.iface : null;
-  const prefix = `src:${iface}:`;
-  if (iface === null || !reference.startsWith(prefix)) return null;
-  const message = reference.slice(prefix.length);
+  const messages = parseExtra(episode.extra).messages;
+  const named: unknown = Array.isArray(messages) ? (messages[Number(link.position)] as Row | undefined)?.id : null;
+  const message = typeof named === 'string' ? named : null;
+  if (iface === null || message === null) return null;
   const source = schema.catalog
     ? db
         .prepare(
@@ -75,7 +75,7 @@ export function resolveParticipationSources(db: Db, mapping: Rows): void {
   for (const link of links) {
     const episode = mapping.episodes?.find((row) => row.id === link.episode_id && row.kind === 'participation');
     if (!episode || typeof link.source_id !== 'string') continue;
-    const source = capturedSource(db, episode, link) ?? qualifiedSource(db, episode, link.source_id, schema);
+    const source = capturedSource(db, episode, link) ?? qualifiedSource(db, episode, link, schema);
     if (typeof source === 'string') link.source_id = source;
   }
 }

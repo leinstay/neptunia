@@ -5,7 +5,7 @@
 // source row, never from the text of its source id. Pure.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHandles } from '../src/turn/handles.ts';
+import { createHandles, targetOfSource } from '../src/turn/handles.ts';
 
 const PLACE = 'discord:channel:room-1';
 
@@ -119,4 +119,10 @@ test('canonical keeps the source id of a line whose interface nobody stored', ()
     revision: 1,
   });
   assert.equal(handles.canonical(`#${n}`), 'source:legacy-1');
+});
+
+test("a quoted line's target takes the revision its stored source holds, whatever the source id spells", () => {
+  // Bug: the revision was cut out of the source id's text, so a source under an opaque id was always revision 1.
+  const target = targetOfSource({ sourceId: 'source:7f3a', placeId: PLACE, iface: 'discord', revision: 3 }, 'm-8');
+  assert.equal(target.revision, 3);
 });

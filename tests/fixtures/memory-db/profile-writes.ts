@@ -89,8 +89,17 @@ function tablesOf(db: Db): string {
     .map((row) => String(row.name))
     .filter((name) => !/_(fts|tri)(_|$)/.test(name));
   for (const name of names) out[name] = db.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all();
-  return JSON.stringify(out, null, 1);
+  // The meta-person of an account no row holds is minted on each copy with a random uuid, and the graph's ids hash it:
+  // each minted id is named by the order it first appears in, so two databases written alike name theirs alike.
+  const minted = new Map<string, string>();
+  return JSON.stringify(out, null, 1).replace(MINTED, (id) => {
+    if (!minted.has(id)) minted.set(id, `minted-${minted.size}`);
+    return minted.get(id)!;
+  });
 }
+
+/** A minted id: a meta-person's uuid, or a hash over one (a node, an edge). */
+const MINTED = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32}/g;
 
 /** The unit key of one write. */
 function keyOf(write: Write): StorageKey {

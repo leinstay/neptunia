@@ -18,7 +18,8 @@
 
 import { messageLocator } from './message-locator.ts';
 import type { MessageLocator } from './message-locator.ts';
-import { accountId, messageSourceId, nativeOfAny } from './ids.ts';
+import { messageSourceId } from './ids.ts';
+import { mintedAccount } from './native-rows.ts';
 import { extraText, ifaceOf, join, parseExtra, split } from './map/common.ts';
 import type { MapContext, Spec } from './map/common.ts';
 import { storageContext } from './map/index.ts';
@@ -80,7 +81,19 @@ type DayWrite = {
 // revision to tell it apart, so its id carries the line's own id (ids never collide).
 const REVISIONED_KINDS = new Set(['seen', 'said']);
 
-const SPEC: Array<Spec> = [
+/** The columns of a line under each context's readers, made once per context. */
+const specs = new WeakMap<MapContext, Array<Spec>>();
+function specOf(ctx: MapContext): Array<Spec> {
+  let spec = specs.get(ctx);
+  if (!spec) specs.set(ctx, (spec = lineSpec(ctx)));
+  return spec;
+}
+
+/**
+ * The columns of a line. Its author is the account its row holds, read back from that row. An author no row holds keeps
+ * the id the line gave beside the column (`exact`).
+ */
+const lineSpec = (ctx: MapContext): Array<Spec> => [
   { col: 'kind', key: 'kind', type: 'text' },
   { col: 'native_id', key: 'messageId', type: 'text' },
   { col: 'revision', key: 'revision', type: 'num' },
@@ -95,8 +108,9 @@ const SPEC: Array<Spec> = [
     col: 'author_account',
     key: 'by',
     type: 'text',
-    enc: (v: unknown, iface: string) => accountId(iface, v),
-    dec: nativeOfAny,
+    enc: (v: unknown, iface: string) => ctx.accountOfMember?.(iface, String(v)) ?? mintedAccount(iface, String(v)),
+    dec: (v: unknown) => (typeof v === 'string' ? (ctx.memberOfAccount?.(v) ?? null) : null),
+    exact: true,
   },
   { col: 'turn_id', key: 'turnId', type: 'text' },
   { col: 'op_id', key: 'opId', type: 'text' },
@@ -121,7 +135,7 @@ function sourceIdOf(line: Row, iface: string): string {
  */
 export function recordSourceRow(line: Row, ctx: MapContext = {}, identity?: Identity): Row {
   const iface = ifaceOf(ctx);
-  const { cols, rest } = split(line, SPEC, iface);
+  const { cols, rest } = split(line, specOf(ctx), iface);
   delete rest.scope;
   delete rest.$messageLocator;
   delete rest.$messageReply;
@@ -180,14 +194,8 @@ export function recordLineOf(row: Row, ctx: MapContext = {}): Row {
       : null;
   delete rest.$messageLocator;
   delete rest.$messageReply;
-  const scope = scopeFrom(
-    row,
-    rest,
-    ctx.privateAccountId ?? privateUserOf(String(row.owner_file)),
-    ifaceOf(row),
-    ctx.partnerOfDm
-  );
-  const line = join(row, rest, SPEC);
+  const scope = scopeFrom(row, rest, ctx.privateAccountId ?? privateUserOf(String(row.owner_file)), ctx);
+  const line = join(row, rest, specOf(ctx));
   if (locator) line.messageId = locator.messageId;
   if (reply) line.replyTo = reply.messageId;
   if (scope !== undefined) line.scope = scope;
@@ -417,7 +425,7 @@ export function writeRecordDay(
   }
   const owner = lineOwnerOf(key);
   if (!owner) throw coded('RECORD_LINES_DAY');
-  const day: DayWrite = { key, id, owner, ctx: storageContext(db, key), iface, messages, legacyOwner };
+  const day: DayWrite = { key, id, owner, ctx: storageContext(db, key, iface), iface, messages, legacyOwner };
   const result: RecordLinesResult = { written: 0, duplicates: 0, adopted: 0 };
   let position = nextLinePosition(db, owner);
   for (const line of lines) {
@@ -502,11 +510,11 @@ export function recordLines(db: Db, key: StorageKey): Array<string> {
   return rows.map((row) => JSON.stringify(recordLineOf(row, ctx)));
 }
 
-/** The interface of the place that holds a record: its stored one, else its spelled id's. */
+/** The interface of the place that holds a record: its stored one, else the legacy namespace's. */
 function ifaceOfHolder(db: Db, placeId: string | null): string {
   if (placeId === null) return LEGACY_IFACE;
   const stored = db.prepare('SELECT iface FROM places WHERE id = ?').get(placeId)?.iface;
-  return typeof stored === 'string' ? stored : (placeId.split(':')[0] ?? LEGACY_IFACE);
+  return typeof stored === 'string' ? stored : LEGACY_IFACE;
 }
 
 /** The highest revision the month holds of a message (a deletion does not count), or null when it holds none. */

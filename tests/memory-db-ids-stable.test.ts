@@ -1,24 +1,18 @@
 // A database written before the ids took their interface from the event reads exactly as before: a data directory in
-// the layout the Discord-era engine wrote goes through the unit writers, and every person, account, place and source
-// keeps the id it had. An observed Discord message of the same member and channel then lands on those rows and mints
-// none. Synthetic ids only (tests/fixtures/memory-db).
+// the layout the Discord-era engine wrote goes through the unit writers, and every account, place and source keeps the
+// id it had. Synthetic ids only (tests/fixtures/memory-db).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { observationOf } from '../src/memory/db/observe-event.ts';
-import { observe } from '../src/memory/db/observe.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
 
 type Row = Record<string, unknown>;
 type Handle = ReturnType<typeof openMemoryDb>;
 type Db = { prepare(sql: string): { all(): Array<Row>; get(): Row } };
-
-const NOW = Date.parse('2026-10-24T12:00:00.000Z');
-const quiet = { info(): void {}, debug(): void {}, warn(): void {}, error(): void {} };
 
 function withSeeded(body: (handle: Handle) => void): void {
   const root = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'ids-'));
@@ -52,45 +46,5 @@ test('keeps the id of the account, the places and the sources of a seeded databa
       'src:discord:400000000000000005:1:seen',
       'src:turn:turn-1:1',
     ]);
-  });
-});
-
-test('finds the member of a seeded database by the same person key', () => {
-  withSeeded((handle) => {
-    const keys = (handle.db as Db)
-      .prepare("SELECT node_id FROM external_keys WHERE authority_id = 'discord/global' AND object_kind = 'person'")
-      .all()
-      .map((row) => row.node_id);
-    assert.deepEqual(keys, [`person:discord:${MEMBER}`]);
-    assert.ok(idsOf(handle, 'people').includes(`person:discord:${MEMBER}`));
-  });
-});
-
-test('lands an observed Discord message of the same member and channel on the rows that exist', () => {
-  withSeeded((handle) => {
-    const event = {
-      kind: 'message.received',
-      iface: 'discord',
-      at: NOW,
-      id: 'discord:message:400000000000000077',
-      chat: { id: CHANNEL, kind: 'channel', rootId: GUILD, name: 'general' },
-      message: {
-        id: '400000000000000077',
-        author: { id: MEMBER, name: 'Ada', self: false, bot: false },
-        content: 'καλημέρα',
-        at: NOW,
-        replyToId: null,
-        attachments: [],
-        links: [],
-        stickers: [],
-      },
-    };
-    const envelope = observationOf(event);
-    if (envelope === null) assert.fail('the event is an observable line');
-    observe(handle, envelope, { now: () => NOW, log: quiet });
-    assert.deepEqual(idsOf(handle, 'accounts'), [`discord:${MEMBER}`], 'no second account');
-    // Changed with ids-by-links slice 3: the seeded database holds two places (see the test above).
-    assert.equal(idsOf(handle, 'places').length, 2, 'no second place');
-    assert.equal(idsOf(handle, 'sources').includes('src:discord:400000000000000077:1:seen'), true);
   });
 });

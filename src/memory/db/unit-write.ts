@@ -16,7 +16,7 @@ import type { StorageKey } from './storage-keys.ts';
 import type { MapContext } from './map/common.ts';
 import { parseExtra } from './map/common.ts';
 
-import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
+import { ifaceOrLegacy as ifaceOf, namedIface } from './legacy-namespace.ts';
 import { qualify, retireAbsent, writeMapping } from './upsert.ts';
 import { isMediaDescriptionEntry, mediaDescriptionId } from './export.ts';
 import { graphPending, projectPending, projectRow } from './graph.ts';
@@ -30,7 +30,6 @@ import type { MappedPath } from '../migration/classify.ts';
 import { SCOPE_INTERNAL, audienceOf, groupScope } from './scope.ts';
 import type { Scope } from './scope.ts';
 import { ensureAudience } from './rows.ts';
-import { legacyPersonNative } from './ids.ts';
 import { writeGifVector } from './gif-vectors.ts';
 import { intentionsOfUnit, writeIntentions } from './intentions-write.ts';
 import { monthLines, writeLineVectors } from './line-vectors.ts';
@@ -372,15 +371,15 @@ function project(handle: MemoryHandle, update: Row, at: string): { units: number
 
 /**
  * The scope of a name the owner gives a person: the groups of the person's interface, the scope a member's profile gives
- * its aliases (account-profile.ts). `iface` is the interface the command came from, for a person with no account and no spelled
- * interface; with none of those the name is internal. Which interface of several makes no difference to who reads it:
- * every group audience reads alike (scope.ts#allowedAudience).
+ * its aliases (account-profile.ts). `iface` is the interface the command came from, for a person with no account; with
+ * neither the name is internal. Which interface of several makes no difference to who reads it: every group audience
+ * reads alike (scope.ts#allowedAudience).
  */
 export function ownerNameScope(db: Db, personId: string, iface: unknown): Scope & { audience_id: string } {
   const account = db
     .prepare("SELECT iface FROM accounts WHERE person_id = ? AND link = 'verified' AND retired_at IS NULL ORDER BY id")
     .get(personId)?.iface;
-  const found = account ?? legacyPersonNative(personId)?.iface ?? iface;
+  const found = account ?? iface;
   return audienceOf(typeof found === 'string' && found !== '' ? groupScope(found) : SCOPE_INTERNAL);
 }
 
@@ -476,13 +475,16 @@ function ownValueWrite(db: Db, update: Row, keyed: Row, at: string): (() => unkn
   const key = keyed.key as StorageKey;
   // An update that names an owner path and no key is an older release's: its rows keep the path.
   const legacyOwner = typeof update.owner === 'string' && !update.key ? { legacyOwner: update.owner } : {};
+  // The interface of the write names a subject's interface while no row holds the subject (map/index.ts#storageContext).
+  const live = namedIface(update);
+  const subjectIface = live === null ? {} : { iface: live };
   if (isAccountProfileKey(key)) {
     const { value } = accountProfileWriteOf({ accountId: key.subject.id, value: keyed.value ?? {} });
-    return () => writeAccountProfile(db, key, value, { at, ...legacyOwner });
+    return () => writeAccountProfile(db, key, value, { at, ...subjectIface, ...legacyOwner });
   }
   if (isPrivateLayerKey(key)) {
     const { value } = privateLayerWriteOf({ accountId: key.subject.id, value: keyed.value ?? {} });
-    return () => writePrivateLayer(db, key, value, { at, ...legacyOwner });
+    return () => writePrivateLayer(db, key, value, { at, ...subjectIface, ...legacyOwner });
   }
   const entries = selfreflectionOfUnit(keyed);
   if (entries && 'value' in entries) {
@@ -491,13 +493,13 @@ function ownValueWrite(db: Db, update: Row, keyed: Row, at: string): (() => unkn
   }
   if (isPlaceNotesKey(key) && key.subject.type === 'place') {
     const { value } = placeNotesWriteOf({ placeId: key.subject.id, value: keyed.value ?? {} });
-    return () => writePlaceNotes(db, key, value, { at, ...legacyOwner });
+    return () => writePlaceNotes(db, key, value, { at, ...subjectIface, ...legacyOwner });
   }
   if (isChannelEntryKey(key) && key.subject.type === 'place') {
     const { value } = channelEntryWriteOf({ placeId: key.subject.id, value: keyed.value ?? {} });
-    return () => writeChannelEntry(db, key, value, { at, ...legacyOwner });
+    return () => writeChannelEntry(db, key, value, { at, ...subjectIface, ...legacyOwner });
   }
-  const list = placeListWrite(db, key, keyed, { at, ...legacyOwner });
+  const list = placeListWrite(db, key, keyed, { at, ...subjectIface, ...legacyOwner });
   if (list) return list;
   if (key.kind !== 'versions') return null;
   const value = proseVersionsValueOf(keyed.value ?? {});
@@ -509,7 +511,7 @@ function placeListWrite(
   db: Db,
   key: StorageKey,
   keyed: Row,
-  opts: { at: string; legacyOwner?: string }
+  opts: { at: string; iface?: string; legacyOwner?: string }
 ): (() => unknown) | null {
   if (isPlaceLoreKey(key)) {
     const { value } = placeLoreWriteOf({ placeId: key.subject.id, value: keyed.value ?? [] });

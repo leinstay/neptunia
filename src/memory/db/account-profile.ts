@@ -22,15 +22,16 @@
 // session wrote last stays as she wrote it (session-rows.ts#sessionHold). A read adds what her session wrote about the
 // person in the profile's scope (session-rows.ts#addSessionRows).
 
-import { personId } from './ids.ts';
 import { groupScope } from './scope.ts';
 import { AFFINITY_SPEC, affinityFrom, profileFrom, profileRows } from './map/lists.ts';
 import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, rowsOf, split } from './map/common.ts';
 import type { MapContext, Spec } from './map/common.ts';
 import { storageContext } from './map/index.ts';
+import { mintMetaPerson } from './meta-person-write.ts';
 import { ensureAccountPerson, linkedProfileUnit } from './person-links.ts';
 import { addSessionRows } from './session-rows.ts';
 import { accountCollection, keyText } from './storage-keys.ts';
+import { namedIface } from './legacy-namespace.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
@@ -99,13 +100,13 @@ function membershipOf(db: Db, accountId: string): ProfileContext['membership'] {
 /**
  * What the profile unit `id` of `accountId` writes under: the person whose `people` row it owns (a linked account's
  * dormant row keeps its own id), or only the account's own facts when another unit holds the person's profile. A stored
- * account with no person gets a meta-person first, never one spelled from its native id. The account row keeps the
- * link the database holds.
+ * account with no person, and an account no row holds, gets a meta-person first, never one spelled from its native id.
+ * The account row keeps the link the database holds.
  */
-function profileContext(db: Db, id: string, key: StorageKey, holder: ProfileOwner): ProfileContext {
+function profileContext(db: Db, key: StorageKey, holder: ProfileOwner, at: string, iface?: string): ProfileContext {
   const accountId = key.subject.id;
-  const base: MapContext = storageContext(db, key);
-  const iface = ifaceOf(base);
+  const base: MapContext = storageContext(db, key, iface);
+  const subjectIface = ifaceOf(base);
   const [owned] = heldRows(db, holder, ['people']).people ?? [];
   const stored = db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(accountId);
   const minted =
@@ -120,9 +121,9 @@ function profileContext(db: Db, id: string, key: StorageKey, holder: ProfileOwne
   const person =
     (typeof owned?.id === 'string' ? owned.id : accountOnly ? null : minted) ??
     base.subjectPersonId ??
-    personId(iface, base.subjectNativeId ?? id);
+    mintMetaPerson(db, at);
   return {
-    iface,
+    iface: subjectIface,
     accountId,
     person,
     accountOnly,
@@ -240,7 +241,7 @@ export function writeAccountProfile(
   db: Db,
   key: StorageKey,
   value: Row,
-  { at, legacyOwner }: { at: string; legacyOwner?: string }
+  { at, iface, legacyOwner }: { at: string; iface?: string; legacyOwner?: string }
 ): AccountProfileResult {
   const id = ensureUnit(db, key);
   if (legacyOwner) {
@@ -248,7 +249,7 @@ export function writeAccountProfile(
     db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, 'user');
   }
   const holder = profileOwnerOf(key)!; // an account's `user` unit always has its owner columns (profile-owner.ts)
-  const mapping = stampProfileRows(accountProfileRows(value, profileContext(db, id, key, holder), id), holder);
+  const mapping = stampProfileRows(accountProfileRows(value, profileContext(db, key, holder, at, iface), id), holder);
   if (legacyOwner) for (const list of Object.values(mapping)) for (const row of list) row.owner_file = legacyOwner;
   const upserted = writeMapping(db, mapping, id, { at });
   const retired = retireProfileAbsent(db, holder, mapping, at);
@@ -283,7 +284,9 @@ export function applyAccountProfileWrite(handle: MemoryHandle, update: Row): Acc
   const write = accountProfileWriteOf(update);
   const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
   const key = accountCollection('user', write.accountId);
-  return handle.transaction(() => writeAccountProfile(dbOf(handle), key, write.value, { at }));
+  return handle.transaction(() =>
+    writeAccountProfile(dbOf(handle), key, write.value, { at, iface: namedIface(update) ?? undefined })
+  );
 }
 
 /** The profile the unit `key` holds (an account's `user` unit), or not found when the database holds no such unit. */

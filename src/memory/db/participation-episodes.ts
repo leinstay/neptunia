@@ -12,12 +12,12 @@
 // A write replaces the stretches: the episodes and links it no longer holds are retired
 // (place-owner.ts#retirePlaceAbsent).
 
-import { channelPlaceId, itemOrDerivedId, nativeOf, nativeOfAny, uniqueIds } from './ids.ts';
-import { LEGACY_IFACE } from './legacy-namespace.ts';
+import { itemOrDerivedId, uniqueIds } from './ids.ts';
 import { groupScope } from './scope.ts';
 import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './map/common.ts';
 import type { Spec } from './map/common.ts';
 import { storageContext } from './map/index.ts';
+import { channelColumn } from './native-rows.ts';
 import {
   heldPlaceRows,
   holdsPlace,
@@ -28,6 +28,7 @@ import {
 } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
 import { placeCollection, keyText } from './storage-keys.ts';
+import { namedIface } from './legacy-namespace.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
@@ -41,15 +42,9 @@ export type ParticipationWrite = { placeId: string; value: Row };
 /** What a write answers: the rows it wrote and the rows it retired. */
 export type ParticipationResult = { upserted: number; retired: number };
 
-const SPEC: Array<Spec> = [
-  {
-    col: 'place_id',
-    key: 'placeId',
-    type: 'text',
-    ok: (v: unknown) => nativeOf(channelPlaceId(LEGACY_IFACE, v)) === v,
-    enc: (v: unknown, iface: string) => channelPlaceId(iface, v),
-    dec: nativeOfAny,
-  },
+/** The columns of an item: its chat by the chat's place (native-rows.ts#channelColumn). */
+const specOf = (db: Db): Array<Spec> => [
+  channelColumn(db, 'place_id'),
   { col: 'start_ms', key: 'startAt', type: 'num' },
   { col: 'last_ms', key: 'lastAt', type: 'num' },
 ];
@@ -61,10 +56,10 @@ const coded = (code: string): Error & { code: string } => Object.assign(new Erro
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
 
 /** The episode rows and message links of `episodes` into `rows`. */
-function putEpisodes(rows: Rows, episodes: ReadonlyArray<Row>, iface: string, owner: string): void {
+function putEpisodes(rows: Rows, episodes: ReadonlyArray<Row>, iface: string, owner: string, spec: Array<Spec>): void {
   const uniq = uniqueIds();
   episodes.forEach((episode: Row, position: number) => {
-    const part = split(episode, SPEC, iface);
+    const part = split(episode, spec, iface);
     const itemId = typeof episode.itemId === 'string' && episode.itemId ? episode.itemId : null;
     const base =
       itemId ??
@@ -97,13 +92,20 @@ function putEpisodes(rows: Rows, episodes: ReadonlyArray<Row>, iface: string, ow
 }
 
 /** The rows of the participation `value` of the unit `key`, owned by `owner` (the unit's id) and `holder`. */
-function participationRows(db: Db, key: StorageKey, value: Row, owner: string, holder: PlaceOwner): Rows {
-  const iface = ifaceOf(storageContext(db, key));
+function participationRows(
+  db: Db,
+  key: StorageKey,
+  value: Row,
+  owner: string,
+  holder: PlaceOwner,
+  writeIface?: string
+): Rows {
+  const iface = ifaceOf(storageContext(db, key, writeIface));
   const rows: Rows = {};
   const rest = { ...value };
   const has = [];
   if (Array.isArray(value.episodes) && value.episodes.every(isPlainObject)) {
-    putEpisodes(rows, value.episodes, iface, owner);
+    putEpisodes(rows, value.episodes, iface, owner, specOf(db));
     delete rest.episodes;
     has.push('episodes');
   }
@@ -123,7 +125,8 @@ function participationRows(db: Db, key: StorageKey, value: Row, owner: string, h
 }
 
 /** The participation its rows give back. */
-function participationOf(rows: Rows): Row {
+function participationOf(db: Db, rows: Rows): Row {
+  const spec = specOf(db);
   const rest = parseExtra(rowsOf(rows, 'operational')[0]?.value);
   const has = Array.isArray(rest.$has) ? rest.$has : [];
   delete rest.$has;
@@ -133,7 +136,7 @@ function participationOf(rows: Rows): Row {
       const extra = parseExtra(row.extra);
       const derived = extra.$derived === true;
       delete extra.$derived;
-      const episode = join(row, extra, SPEC);
+      const episode = join(row, extra, spec);
       if (!derived) episode.itemId = row.id;
       return episode;
     });
@@ -149,7 +152,7 @@ export function writeParticipation(
   db: Db,
   key: StorageKey,
   value: Row,
-  { at, legacyOwner }: { at: string; legacyOwner?: string }
+  { at, iface, legacyOwner }: { at: string; iface?: string; legacyOwner?: string }
 ): ParticipationResult {
   const id = ensureUnit(db, key);
   if (legacyOwner) {
@@ -157,7 +160,7 @@ export function writeParticipation(
     db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, 'participation');
   }
   const holder = placeOwnerOf(key)!; // a `participation` unit always has its owner columns (place-owner.ts)
-  const mapping = participationRows(db, key, value, id, holder);
+  const mapping = participationRows(db, key, value, id, holder, iface);
   if (legacyOwner) for (const list of Object.values(mapping)) for (const row of list) row.owner_file = legacyOwner;
   const upserted = writeMapping(db, mapping, id, { at, holder });
   const retired = retirePlaceAbsent(db, holder, mapping, at);
@@ -190,12 +193,14 @@ export function applyParticipationWrite(handle: MemoryHandle, update: Row): Part
   const write = participationWriteOf(update);
   const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
   const key = placeCollection('participation', write.placeId);
-  return handle.transaction(() => writeParticipation(dbOf(handle), key, write.value, { at }));
+  return handle.transaction(() =>
+    writeParticipation(dbOf(handle), key, write.value, { at, iface: namedIface(update) ?? undefined })
+  );
 }
 
 /** The participation the unit `key` holds (a place's `participation` unit), or not found when none is stored. */
 export function participationValue(db: Db, key: StorageKey): { found: true; value: unknown } | { found: false } {
   const holder = placeOwnerOf(key);
   if (!holder || !holdsPlace(db, holder, 'operational')) return { found: false };
-  return { found: true, value: participationOf(heldPlaceRows(db, holder, ['episodes', 'operational'])) };
+  return { found: true, value: participationOf(db, heldPlaceRows(db, holder, ['episodes', 'operational'])) };
 }

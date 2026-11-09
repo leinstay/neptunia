@@ -11,7 +11,8 @@
 // An entry whose item hot memory does not hold (upsert.ts#hotClaimIds) brings a claim of that item with `retired_at`
 // set and truth `historical`, its text from the entry. A claim of the item already stored stays as it is.
 
-import { personId, shortHash } from './ids.ts';
+import { shortHash } from './ids.ts';
+import { mintedChannel } from './native-rows.ts';
 import { scopeColumns } from './scope.ts';
 import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, split } from './map/common.ts';
 import type { MapContext, Spec } from './map/common.ts';
@@ -66,14 +67,16 @@ function claimStub(entry: Row, ctx: MapContext, owner: Owner): Row {
   const entryText = entry.text as { text?: unknown } | undefined;
   const observedAt = entry.observedAt as { date?: unknown } | undefined;
   const user = typeof scope.user === 'string' && scope.user ? scope.user : null;
-  // With no database to ask, the person is spelled from the platform id.
-  const member =
-    user === null ? null : ctx.personOfMember ? ctx.personOfMember(LEGACY_IFACE, user) : personId(LEGACY_IFACE, user);
+  const member = user === null ? null : (ctx.personOfMember?.(LEGACY_IFACE, user) ?? null);
+  const channel = typeof scope.channel === 'string' && scope.channel ? scope.channel : null;
   const subject =
     member !== null
       ? { subject_kind: 'person', subject_id: member }
-      : typeof scope.channel === 'string' && scope.channel
-        ? { subject_kind: 'place', subject_id: `${LEGACY_IFACE}:channel:${scope.channel}` }
+      : channel !== null
+        ? {
+            subject_kind: 'place',
+            subject_id: ctx.placeOfChannel?.(LEGACY_IFACE, channel) ?? mintedChannel(LEGACY_IFACE, channel),
+          }
         : { subject_kind: null, subject_id: null };
   return {
     id: entry.itemId,
@@ -91,7 +94,7 @@ function claimStub(entry: Row, ctx: MapContext, owner: Owner): Row {
     from_person: null,
     truth: 'historical',
     shown: 0,
-    ...(ctx.dmPlace && ctx.privateAccountId
+    ...(ctx.dmPlace
       ? dmPlaceScope(ifaceOf(ctx), ctx.dmPlace)
       : scopeColumns(entry.scope, {
           privateUser: null,

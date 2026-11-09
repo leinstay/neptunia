@@ -199,8 +199,6 @@ export const CATALOGUE = Object.freeze({
   // The engine proxy stopped answering and every connection went direct, or it answers again (src/net/proxy.ts).
   'proxy-down': wake(),
   'proxy-back': wake('ok'),
-  // A pending memory write failed its replay at an open and waits for the owner (src/memory/db/pending-quarantine.ts).
-  'memory-pending-quarantined': wake(),
 
   // Why a call left the pending queue unanswered (the reasons of a missed fact, src/behavior/missed.ts).
   'pending-full': internal(),
