@@ -2,6 +2,10 @@
 
 Memory belongs to the persona, across all of its interfaces. `data/memory.db` stores people, places, source messages, learned claims, episodes, affinity, intentions and operational records. The core's writer applies changes; readers request an audience-scoped view.
 
+## The schema
+
+`openMemoryDb` in `src/memory/db/open.ts` creates a new `memory.db` from the baseline in `src/memory/db/schema-baseline.ts`, which holds the tables, indexes, triggers and seed rows of schema version 44 and records that one version in `schema_version`. The seed rows are the interfaces `discord`, `cli` and `core` with their authorities, her own person `person:self` with its key, the audiences `aud:none` and `aud:internal`, their graph nodes, and the first semantic entity kinds and predicates. A database that already exists below version 44 takes the remaining steps of `MIGRATIONS` in `src/memory/db/schema.ts`, and every step after the baseline is a new entry there. The board adds its own tables after the memory's, through its migrations in `src/board/schema.ts`. `tests/memory-db-baseline.test.ts` checks that a new database holds the same objects and seed rows as one the chain brought to version 44.
+
 ## One person, several accounts
 
 A person and an account are different objects. An account belongs to an interface and has that platform's native ID. A person can have several accounts, including multiple accounts on one interface. The same native ID on two platforms does not identify the same account.
