@@ -26,8 +26,6 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { keyText, placeOrPersona } from './db/storage-keys.ts';
 
-import type { StorageKey } from './db/storage-keys.ts';
-
 import { isRecord, propOf, isFiniteNumber, isIntegerNumber, readSeamOf } from './types.ts';
 import { log as defaultLog } from '../log.ts';
 import { stripUrls } from './clamp.ts';
@@ -35,7 +33,7 @@ import { TEACHER_TOKEN_RE, tokenIds } from './mentions.ts';
 import { isoOf, revisionOf } from './record.ts';
 import { memoryRootOf } from './root.ts';
 
-import { archiveHolders, archiveLines, archiveMonths } from './db/readers/archive.ts';
+import { archiveHolders, archiveLines, archiveMonths } from './db/archive-lines.ts';
 import type { AppendStore } from './append-store.ts';
 import type { Log, MemoryDb, Untyped, StoredRecord } from './types.ts';
 
@@ -324,8 +322,8 @@ export type Archive = {
  *   drain: the journal's `waitUnlocked`, so its writer lock (src/memory/journal.ts#withWriterLock)
  *   holds the archive's writers too
  * @param options.memoryDb  the memory database service (src/memory/db/service.ts): `iterate` and
- *   `find` are answered from it (src/memory/db/readers/archive.ts), a failed read rejects with a code; `append`
- *   writes the entries it does not refuse as lines of the month's unit (`memoryDb.writeUnit`, op `lines`), and a
+ *   `find` are answered from it (src/memory/db/archive-lines.ts), a failed read rejects with a code; `append`
+ *   writes the entries it does not refuse as one write per month (`memoryDb.writeArchiveLines`), and a
  *   failed write rejects as a failed append does (the store then queues the entries in the pending file and the
  *   drain writes them through `append` again)
  *   `append` writes under the place it is given (the persona's with null)
@@ -429,11 +427,11 @@ export function createArchive({
   /** The month units' lines written through the database's writer. */
   async function appendNow(placeId: string | null, entries: Untyped) {
     const db = seam.db();
-    if (typeof memoryDb?.writeUnit !== 'function')
+    if (typeof memoryDb?.writeArchiveLines !== 'function')
       throw Object.assign(new Error('memory db: no writer'), { code: 'DB_CLOSED' });
     const months = new Map<
       string,
-      { keys: Set<unknown>; lines: Array<Record<string, Untyped>>; added: Set<unknown> }
+      { month: string; keys: Set<unknown>; lines: Array<Record<string, Untyped>>; added: Set<unknown> }
     >();
     let duplicates = 0;
     for (const raw of Array.isArray(entries) ? entries : []) {
@@ -442,7 +440,8 @@ export function createArchive({
       const month = monthOf(entry);
       const owner = keyText(placeOrPersona('archive', placeId, { partition: month }));
       let unit = months.get(owner);
-      if (!unit) months.set(owner, (unit = { keys: dbIndex(db, placeId, month, owner), lines: [], added: new Set() }));
+      if (!unit)
+        months.set(owner, (unit = { month, keys: dbIndex(db, placeId, month, owner), lines: [], added: new Set() }));
       const key = keyOf(entry);
       if (key && (unit.keys.has(key) || unit.added.has(key))) {
         duplicates += 1;
@@ -452,9 +451,9 @@ export function createArchive({
       if (key) unit.added.add(key);
     }
     let written = 0;
-    for (const [owner, unit] of months) {
+    for (const unit of months.values()) {
       if (unit.lines.length === 0) continue;
-      await memoryDb.writeUnit({ op: 'lines', key: JSON.parse(owner) as StorageKey, lines: unit.lines });
+      await memoryDb.writeArchiveLines({ placeId, month: unit.month, lines: unit.lines });
       for (const key of unit.added) unit.keys.add(key);
       written += unit.lines.length;
     }

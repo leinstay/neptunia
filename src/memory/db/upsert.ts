@@ -399,7 +399,7 @@ export function qualify(mapping: Rows, unit: { rel: string; full: string }): Row
   return mapping;
 }
 
-/** The ids of the hot claims and episodes (what an archive line must not stub over, map/archive.ts). */
+/** The ids of the hot claims and episodes (what an archive entry must not stub over, archive-lines.ts). */
 export function hotClaimIds(db: Db): Set<string> {
   const ids = new Set<string>();
   for (const row of db

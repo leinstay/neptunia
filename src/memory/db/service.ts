@@ -70,6 +70,7 @@
 //   - `writeLineVectors(write)` (line-vectors.ts): the vectors of the lines she saw and said, by place and month.
 //   - `writeRecordLines(write)` (record-lines.ts): the lines of the record of a place, each in its day's unit.
 //   - `writeJournalLines(write)` (journal-lines.ts): the lines of the journal of a place, each in its day's unit.
+//   - `writeArchiveLines(write)` (archive-lines.ts): the entries of one month of a place's archive.
 //   - her memory session is the memory writer (spec 2026-10-24-memory-authority, section 6 item 7). Each open logs the
 //     effective models (`memory db: effective models`: purpose, model id and key variable of the memory session, the
 //     description review and every other purpose; writer-switch.ts#effectiveModels). With `memoryDb.session.mode`
@@ -122,6 +123,7 @@ import type { IntentionsWrite } from './intentions-write.ts';
 import type { LineVectorsWrite } from './line-vectors.ts';
 import type { RecordLinesWrite } from './record-lines.ts';
 import type { JournalLinesWrite } from './journal-lines.ts';
+import type { ArchiveLinesWrite } from './archive-lines.ts';
 import type { OperationalWrite } from './operational.ts';
 
 import { lockPathOf, openMemoryDb } from './open.ts';
@@ -569,6 +571,8 @@ export type MemoryDbService = {
   writeRecordLines(write: RecordLinesWrite): Promise<unknown>;
   /** The lines of the journal of a place (journal-lines.ts): resolves how many it wrote. */
   writeJournalLines(write: JournalLinesWrite): Promise<unknown>;
+  /** The entries of one month of a place's archive (archive-lines.ts): resolves how many it wrote. */
+  writeArchiveLines(write: ArchiveLinesWrite): Promise<unknown>;
   keepPending(update: unknown): string;
   /** The writes in the quarantine, by name, with the code each failed with and when it moved. */
   quarantinedPending(): Array<QuarantinedPending>;
@@ -1839,6 +1843,8 @@ export function createMemoryDb({
       write(withLiveIface({ ...lines, kind: 'record-lines', now: now() }, iface)),
     writeJournalLines: (lines: JournalLinesWrite) =>
       write(withLiveIface({ ...lines, kind: 'journal-lines', now: now() }, iface)),
+    writeArchiveLines: (entries: ArchiveLinesWrite) =>
+      write(withLiveIface({ ...entries, kind: 'archive-lines', now: now() }, iface)),
     keepPending,
     quarantinedPending: () => quarantinedIn(quarantineDir),
     replayQuarantinedPending,
