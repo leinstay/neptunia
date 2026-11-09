@@ -42,7 +42,7 @@ async function statusOf(
   const dir = tempDir('nep-clock-console-');
   const desk = createConsole({
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => [ROOT],
     selfId: () => 'self-1',
     hot: { config },

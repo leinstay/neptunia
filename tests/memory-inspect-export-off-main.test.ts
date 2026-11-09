@@ -41,7 +41,7 @@ async function rig() {
   const tracked: Array<string> = [];
   const desk = createConsole({
     runOp: () => Promise.reject(new Error('no operation runs in these tests')),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => [],
     selfId: () => null,
     hot: memory.hot,

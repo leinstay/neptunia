@@ -211,11 +211,6 @@ export function isoDay(ts: unknown): string {
   return typeof ts === 'number' && Number.isFinite(ts) ? utcDay(ts) : '-';
 }
 
-/** Today's UTC day key, the one every daily counter in state.json is kept under (src/time.js). */
-export function todayUtc(): string {
-  return utcDay(Date.now());
-}
-
 /** `on` / `off` for a switch line of a status reply. */
 export function onOff(value: unknown): string {
   return value ? 'on' : 'off';

@@ -705,7 +705,6 @@ async function runInkChat(
       { name: 'approvals', help: 'Approve or reject what waits on the task board' },
       { name: 'context', help: 'The route, the model and the request limit of her turns' },
       { name: 'agents', help: 'Agents and what each may do' },
-      { name: 'plugins', help: 'Plugins, which no operation installs yet' },
       ...COMMANDS.flatMap((command) => [
         { name: command.name, help: command.help },
         ...command.subcommands.map((sub) => ({

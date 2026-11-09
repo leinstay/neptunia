@@ -556,7 +556,7 @@ function everyLine(): Array<string> {
   const filled = (args: ReadonlyArray<{ required: boolean; choices?: ReadonlyArray<string> }>): Array<string> =>
     args.filter((one) => one.required).map((one) => one.choices?.[0] ?? '1');
   return COMMANDS.flatMap((command) => {
-    const subs = [...command.subcommands, ...(command.otherwise === undefined ? [] : [command.otherwise])];
+    const subs = command.subcommands;
     if (subs.length === 0) return [['/' + command.name, ...filled(command.args)].join(' ')];
     return subs.map((one) => ['/' + command.name, ...one.name.split('.'), ...filled(one.args)].join(' '));
   });
@@ -578,7 +578,7 @@ function placeConsole(places: Array<string>) {
           : { status: 'ok', code: '', summary: 'done', data: null }
       );
     },
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => places,
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] } } },
@@ -634,7 +634,7 @@ test('every operation no grant opens to her runs from a command of the chat', as
       ran.add(op);
       return Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null });
     },
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] } } },

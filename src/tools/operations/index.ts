@@ -30,7 +30,6 @@ import './watcher.ts';
 import './intention.ts';
 import './places.ts';
 import './skills.ts';
-import './inner.ts';
 import './search.ts';
 import { CODE } from '../codes.ts';
 import { idText, isObj, objOf } from '../types.ts';

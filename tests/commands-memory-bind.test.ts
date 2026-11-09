@@ -48,7 +48,7 @@ async function withConsole(body: (rig: Rig) => Promise<void>): Promise<void> {
   };
   const deps: ConsoleDeps = {
     runOp: () => Promise.resolve({ status: 'failed', code: 'NOT_HERE', summary: '', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => [],
     selfId: () => null,
     hot: { config: { bot: { ownerPerson: OWNER } } },

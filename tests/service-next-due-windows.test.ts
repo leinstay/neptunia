@@ -17,7 +17,7 @@ async function statusOf(config: unknown, now: number): Promise<Map<string, strin
   const dir = tempDir('nep-next-due-');
   const desk = createConsole({
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config },

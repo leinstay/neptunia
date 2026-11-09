@@ -541,11 +541,6 @@
       "id": "Intention id."
     }
   },
-  "inner.status": {
-    "title": "Inner life status",
-    "whenToUse": "Show whether the persona's own wake-ups run, what is queued and what is left of their caps.",
-    "whenNotToUse": "Administrative, not grantable to you."
-  },
   "intention.list": {
     "title": "List intentions",
     "whenToUse": "Open intentions with states and times.",
