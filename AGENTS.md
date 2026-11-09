@@ -6,7 +6,7 @@ For the coding agents that work on this repository: where things are, how to run
 
 1. Read this file whole.
 2. Read `docs/README.md` for how the parts fit, then the doc of the part you touch.
-3. Read `STYLEGUIDE.md` and `GLOSSARY.md` before writing code, `WRITING.md` before writing any text longer than a line (a document, a prompt, a commit message, a report, a reply), and `docs/prompt-contract.md` before touching a prompt, a label or a parser.
+3. Read `STYLEGUIDE.md` and the Glossary below before writing code, `WRITING.md` before writing any text longer than a line (a document, a prompt, a commit message, a report, a reply), and `docs/prompt-contract.md` before touching a prompt, a label or a parser.
 4. If `.agents/` exists in the checkout, read `.agents/AGENTS.md` and `.agents/memory/MEMORY.md` next. They belong to the deployment you are working in (see "The agents' folder").
 
 ## Structure
@@ -23,6 +23,52 @@ For the coding agents that work on this repository: where things are, how to run
 | `tests/` | `node:test` files, one per module. |
 | `bin/`, `deploy/` | Entry points and the systemd units. |
 | `prompts.local/`, `config.local/`, `data/`, `.env` | The local layer: a deployment's character, settings, memory and keys. Never committed. |
+
+## Glossary
+
+The engine's words, for anyone naming something in the code, the database, a document or a label. An identifier, a comment, a label or a config key uses these words and no synonym. Text a model reads may use plain language where a word below would read as jargon.
+
+### Where the persona is
+
+| Word | Meaning |
+|---|---|
+| `core` | The platform-neutral engine in `src/`. |
+| `interface` | A package for one platform, and the top level of every path of places. The command line is an interface and a place. |
+| `adapter` | The part of an interface that translates between the platform and the protocol. |
+| `place` | Anything the persona can be in or name: a root, a channel, a thread, a `dm`, the command line. |
+| `root` | The top place of an interface, such as one Discord server. An interface may have many. |
+| `chat` | A place where lines are written: a channel, a thread, a `dm`, the command line. A root is a place and no chat. |
+| `dm` | A one-to-one chat. |
+| `group` | The scope of a place people share. A place's scope is `group` or `dm`. |
+
+### What the persona does
+
+| Word | Meaning |
+|---|---|
+| `event` | What arrives from an interface. |
+| `turn` | One run of the persona. |
+| `turn frame` | The facts of one turn, fixed before any block of its request: its kind, why she is awake, whom she answers, where she is and which blocks it holds. |
+| `turn kind` | Which of the frame's lists of blocks a turn takes. |
+| `wake` | A row of the queue of turns the engine starts itself. |
+| `service` | One of the three scheduled mechanics: `heartbeat`, `selfreflection`, `selfimprovement`. |
+| `heartbeat` | The service that wakes her every few hours with no chat and no place, so she can notice what goes on and decide whether to act or stay silent. `heartbeat.schedule` sets the interval, default `every 3h`, and `heartbeat.jitterMinutes` its spread, default 60. |
+| `selfreflection` | The service that turns selected experience into her dated entries, each with an optional illustration and a copy to a `mirror`, and those entries as a store. Prompts tell her she keeps a diary. |
+| `selfimprovement` | The service whose turn reads her recent work, the failed calls, repeated chains, unused tools and her board tasks, and files one development task for herself or skips. Its document is titled self-development. |
+| `mirror` | A place a stored entry of `selfreflection` is copied to. |
+| `intention` | Something the persona decided to do later. It is no service. |
+| `tool` | Code with a schema that the model calls. |
+| `skill` | A prose procedure over tools. |
+| `command` | What a person types in the CLI. |
+| `errand` | A background job handed to an agent. |
+| `agent` | A model with a profile that works on an errand or a development task. |
+
+### What the engine keeps
+
+| Word | Meaning |
+|---|---|
+| `memory` | What the persona keeps between turns. |
+| `labels` | The wording of what code inserts into a prompt, and the strings the owner sees. |
+| `lease` | A time-limited claim on a resource. |
 
 ## Commands
 
@@ -61,7 +107,7 @@ The defaults, for documentation, comments, commit messages, pull request text an
 - Say the thing first. A reply opens with the answer, a report with the outcome (what changed, how it was checked, what is open), a diagnosis with the likely cause, a plan with the proposal and why, a question with what you need to know and the real options.
 - Plain English in full sentences. A bullet list only for a genuine list, a table only for a reference. One point per paragraph, no closing summary, no run-up before the point.
 - Every claim carries its evidence: a file and line, a number you measured, a command you ran. No "significantly", "robust", "seamless", "leverage". No claim you did not check.
-- Concrete words. "The turn runner", not "the relevant component". The engine's words from `GLOSSARY.md`, one word per thing, no synonym.
+- Concrete words. "The turn runner", not "the relevant component". The engine's words from the Glossary, one word per thing, no synonym.
 - Describe the present. No history in docs or comments ("now", "was", "no longer", "moved from"): the git log holds it. No chat context in a file.
 - Sentences carry one thought each and vary in length. Do not start consecutive sentences with the same word. No "Additionally", "Furthermore", "Moreover". Active voice when the actor matters. Positive form: "the variance was small", not "not large".
 - Punctuation: commas and full stops. No em dashes, no semicolons between clauses, no parenthetical asides, no "Label: explanation" rows, no slash lists ("and" or "or" instead).
