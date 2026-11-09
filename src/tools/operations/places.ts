@@ -1,4 +1,4 @@
-// Operations: `/nep task places [filter] [sort] [page]` -- her read skill `places.list`
+// Operations: `places.list [filter] [sort] [page]` -- her read skill `places.list`
 // (docs/inner-life.md "Her attention"): the places the interface publishes for the server (the
 // channel directory, writable or read-only alike), each with its address, its name, whether she can
 // write there, the lines and distinct people since her last look there (counted from the record by

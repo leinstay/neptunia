@@ -1,4 +1,4 @@
-// Operations: `/nep pings`: a member's own notification switch, open to every member while features.memberCommands is on.
+// Operations: `pings.get|set`: a member's own notification switch, open to every member while features.memberCommands is on.
 // The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
@@ -11,7 +11,7 @@ import type { Obj, OpContext } from '../types.ts';
 const handlers = perEnv((env) => {
   const { store, freshenIfPaused, requirePlaceId } = env;
 
-  /** `/nep pings [on|off|clear]`: the caller's own ping state in this place (store.setPings; src/turn/mentions.ts
+  /** `pings.get|set [on|off|clear]`: the caller's own ping state in this place (store.setPings; src/turn/mentions.ts
    * reads it when she posts). `on` and `off` win over the interface's silent switch, `clear` hands the choice back
    * to it. No mode shows the state. A member's own switch, not memory: it works while paused too (read fresh off disk
    * then, and written at once by the store). */
@@ -29,7 +29,7 @@ const handlers = perEnv((env) => {
     return pingsText(state);
   }
 
-  /** The one reply of `/nep pings`: the caller's state after the call. */
+  /** The one reply of `pings.get|set`: the caller's state after the call. */
   function pingsText(state: unknown): string {
     return state === 'on' || state === 'off' ? `Pings: ${state}` : 'Pings: default';
   }

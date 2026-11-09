@@ -1,4 +1,4 @@
-// Operations: `/nep message create|edit|delete|react`: the persona's own messages and reactions.
+// Operations: `message.create|edit|delete|react`: the persona's own messages and reactions.
 // `message.create` is hers alone (`context.actor` 'persona', her skills, src/tools/): her own text -- the call's body --
 // is posted through her interface (src/interface/port.ts, `env.port`), replying to a message when one is named, and a
 // reply notifies the replied author unless they turned pings off. Anyone else is refused: a person asks her to write
@@ -385,7 +385,7 @@ const handlers = perEnv((env) => {
     return { placeId, messageId, ref: { iface: p.iface, chatId: placeId, messageId } };
   }
 
-  /** `/nep message edit`: one of the persona's own messages gets `text`. */
+  /** `message.edit`: one of the persona's own messages gets `text`. */
   async function cmdEdit(args: Obj, context: OpContext) {
     assertNotPaused();
     const p = requirePort();
@@ -403,7 +403,7 @@ const handlers = perEnv((env) => {
     return portAnswer('message.edit', await p.edit(ref, content), `edited message ${messageId} in ${placeId}`);
   }
 
-  /** `/nep message delete`: one of the persona's own messages, deleted. */
+  /** `message.delete`: one of the persona's own messages, deleted. */
   async function cmdDelete(args: Obj, context: OpContext) {
     assertNotPaused();
     const p = requirePort();
@@ -411,7 +411,7 @@ const handlers = perEnv((env) => {
     return portAnswer('message.delete', await p.delete(ref), `deleted message ${messageId} in ${placeId}`);
   }
 
-  /** `/nep message react action:add|remove`: the persona's reaction `emoji` on a message, put or taken back. */
+  /** `message.react.add` and `message.react.remove`: the persona's reaction `emoji` on a message, put or taken back. */
   async function cmdReact(add: boolean, args: Obj, context: OpContext): Promise<Obj> {
     assertNotPaused();
     const p = requirePort();

@@ -1,4 +1,4 @@
-// Operations: `/nep draw`: one picture through the turn's drawing prompt.
+// Operations: `draw.create`: one picture through the turn's drawing prompt.
 // The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
@@ -21,7 +21,7 @@ const handlers = perEnv((env) => {
   const port = env.port as Adapter | null | undefined;
 
   /**
-   * `/nep draw`: one picture (src/media/draw.ts), the same prompt
+   * `draw.create`: one picture (src/media/draw.ts), the same prompt
    * a turn builds (prompts read now, the request clamped to `image.maxPromptChars`, the avatar as
    * reference for `self` when `image.reference` is `'avatar'`; no local time). Answers `{ text, files }`:
    * one line with the model, seconds and cost, plus the picture. A rail or

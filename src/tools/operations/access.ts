@@ -1,4 +1,4 @@
-// Operations: `/nep access`: who besides the owners may run which operation (bot.access,
+// Operations: `access.*`: who besides the owners may run which operation (bot.access,
 // src/tools/operations/grants.ts). Owner-only. A grant names an operation (`memory.profile.read`), a group
 // (`memory`) or `*`; a group or `*` is stored as the grantable read operations it covers now, one
 // entry each, so a later operation and every write stay closed until granted by name. The persona
