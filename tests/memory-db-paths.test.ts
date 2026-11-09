@@ -144,11 +144,11 @@ test('allowlist: every path the sync maps is in exactly one list, the one the sp
     assert.ok(operational !== memory, `${rel} is in exactly one list (operational ${operational}, memory ${memory})`);
     assert.equal(pathClass(rel), expected, rel);
   }
-  // Every mapper the sync has is reached by the samples above, and the intentions, the line vectors, the record and
-  // the journal, which have a write kind instead.
+  // Every mapper the sync has is reached by the samples above, and the intentions, the line vectors, the record, the
+  // journal and the archive, which have a write kind instead.
   assert.deepEqual(
     [...new Set(MAPPED.map(([, kind]) => kind))].sort(),
-    [...Object.keys(MAPPERS), 'intentions', 'vectors', 'record', 'journal'].sort()
+    [...Object.keys(MAPPERS), 'intentions', 'vectors', 'record', 'journal', 'archive'].sort()
   );
 });
 

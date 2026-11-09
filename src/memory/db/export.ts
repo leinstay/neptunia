@@ -138,8 +138,6 @@ const positionOfOwner = (row: Row): number => Number(String(row.owner).split('#'
 function linesOf(kind: string, mapper: Mapper, rows: Rows): Array<unknown> {
   const one = (table: string, row: Row): unknown => mapper.fromRows({ [table]: [row] });
   switch (kind) {
-    case 'archive':
-      return rows.claim_versions.map((row) => one('claim_versions', row));
     case 'intentions':
       return rows.intentions.map((row) => one('intentions', row));
     case 'errands':
