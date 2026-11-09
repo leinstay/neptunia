@@ -212,7 +212,10 @@ export function openFlags(
     const base = flagContext(scope, typeof extra?.run === 'string' ? runPlace.get(extra.run) : undefined);
     const readCtx: Context = audienceColumn ? { ...base, audienceColumn: true } : base;
     const subject = { kind: kind as string, id: kind === 'self' ? SELF_PERSON : op.subjectId };
-    const key = descriptionIdFor(db, subject, op.field, scopeOfContext(readCtx), { audienceColumn });
+    const key = descriptionIdFor(db, subject, op.field, scopeOfContext(readCtx), {
+      audienceColumn,
+      dmPlace: readCtx.place ?? null,
+    });
     // A flag an accepted review answered since is closed; a later flag of the same description opens it again.
     if (seen.has(key) || skip.has(key) || reviewed.get(key, row.at)) continue;
     seen.add(key);

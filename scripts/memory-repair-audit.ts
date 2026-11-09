@@ -121,7 +121,7 @@ function repairNames(db: Db, at: string): void {
   );
   for (const name of names) {
     const scope = ownerNameScope(db, String(name.subject_id), null);
-    ensureAudience(db, scope, { at });
+    ensureAudience(db, scope);
     update.run(scope.scope_kind, scope.scope_iface, scope.scope_dm, scope.audience_id, name.id);
     projectRow(db, 'claims', { id: name.id }, { at });
   }
@@ -132,7 +132,7 @@ function repairMedia(db: Db, at: string): void {
   const update = db.prepare('UPDATE media SET audience_id = ? WHERE id = ?');
   for (const row of rows) {
     const scope = audienceOf(groupScope(row.scope_iface as string | null));
-    ensureAudience(db, scope, { at });
+    ensureAudience(db, scope);
     update.run(scope.audience_id, row.id);
     projectRow(db, 'media', { id: row.id }, { at });
   }

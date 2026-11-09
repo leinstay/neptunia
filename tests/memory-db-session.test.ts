@@ -1325,6 +1325,7 @@ test('evidence: an op with a source that does not exist is rejected whole; a rev
 test('a revised or confirmed claim takes its scope from the evidence of the new version; a private line on a group claim makes a private claim, the group one stays', () => {
   const env = fixture();
   try {
+    env.storeDmPlace(ADA); // Changed with ids-by-links slice 3: no writer makes the DM place from her person id.
     chat(env);
     const dmLine = env.say({
       native: 'd1',

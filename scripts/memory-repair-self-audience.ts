@@ -72,7 +72,7 @@ function apply(handle: MemoryHandle, moves: ReadonlyArray<Move>): void {
   );
   handle.transaction(() => {
     for (const { id, scope } of moves) {
-      ensureAudience(db, scope, { at });
+      ensureAudience(db, scope);
       update.run(scope.scope_kind, scope.scope_iface ?? null, scope.scope_dm ?? null, scope.audience_id, id);
       witnesses.run(id);
       projectRow(handle, 'claims', { id }, { at });

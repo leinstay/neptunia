@@ -18,17 +18,22 @@ export function dmScopeKey(iface: string, place: string): string {
   return `dm:${iface}:${spelled !== null && spelled.iface === iface ? spelled.person : place}`;
 }
 
-/** A DM read through the place its lines' audience names. A place that says nothing of its partner is no scope. */
-function placedScope(row: Row, iface: string, place: Row, audienceColumn: boolean): SweepScope | null {
+/**
+ * A DM read through the place its lines' audience names, always through `audience_id`: the triple names no chat. A place
+ * that says nothing of its partner is no scope.
+ */
+function placedScope(row: Row, iface: string, place: Row): SweepScope | null {
   const placeId = String(place.id);
   const person = (place.partner_person ?? row.scope_dm ?? null) as string | null;
   if (person === null && !place.partner_account) return null;
   const scope: Scope = { scope_kind: 'dm', scope_iface: iface, scope_dm: person };
-  const key = dmScopeKey(iface, placeId);
   const ctx = dmContext(person, iface, placeId);
-  if (!audienceColumn && person !== null && audienceOf(scope).audience_id === dmAudienceId(placeId))
-    return { key, scope, ctx };
-  return { key, scope, ctx: { ...ctx, audienceColumn: true }, audienceId: dmAudienceId(placeId) };
+  return {
+    key: dmScopeKey(iface, placeId),
+    scope,
+    ctx: { ...ctx, audienceColumn: true },
+    audienceId: dmAudienceId(placeId),
+  };
 }
 
 function groupOf(iface: string, audienceColumn: boolean): SweepScope {
@@ -66,7 +71,7 @@ export function scopesOf(
     }
     const parts = audienceParts(row.audience_id);
     const place = parts?.kind === 'dm' ? placeOf.get(parts.place_id) : undefined;
-    const scope = place ? placedScope(row, iface, place, audienceColumn) : null;
+    const scope = place ? placedScope(row, iface, place) : null;
     if (scope !== null) scopes.push(scope);
   }
   return [...new Map(scopes.map((one): [string, SweepScope] => [one.key, one])).values()];
