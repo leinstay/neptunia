@@ -30,8 +30,6 @@ export function resolvePaths({
   const dataValue = setValue(env, DATA_DIR_VAR);
   const data = dataValue ? path.resolve(root, dataValue) : path.join(root, 'data');
   if (privateValue && path.resolve(root, privateValue) !== data)
-    throw new Error(
-      'NEPTUNIA_PRIVATE_DIR must match NEPTUNIA_DATA_DIR: prepare data with scripts/persona-files-move.ts'
-    );
+    throw new Error('NEPTUNIA_PRIVATE_DIR must match NEPTUNIA_DATA_DIR');
   return { rootDir: root, privateDir: data, dataDir: data };
 }

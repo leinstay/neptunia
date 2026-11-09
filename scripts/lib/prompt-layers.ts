@@ -87,7 +87,7 @@ export function promptLayersHot(
   const dir = fs.mkdtempSync(path.join(tmpDir, 'nep-prompt-layers-'));
   try {
     const privateDir = privateDirOf(root, env);
-    // The private files as the engine finds them (src/config/files.ts), the old layout's included.
+    // The private files as the engine finds them (src/config/files.ts).
     const found = localFiles(privateDir);
     for (const folder of ['prompts', 'config']) {
       if (!fs.existsSync(path.join(root, folder))) continue;

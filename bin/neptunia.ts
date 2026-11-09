@@ -121,7 +121,6 @@ import { ROOT_DIR, deepMerge, readConfig, resolveEnvRefs } from '../src/config.t
 import { moveConfigKeys } from '../src/config-moves.ts';
 import { checkConfig as checkSettings } from '../src/config/check.ts';
 import {
-  MOVE_TOOL,
   localConfigPath,
   localFiles,
   localInterfacePath,
@@ -1017,8 +1016,7 @@ function checkBinaries(): Check {
 
 /**
  * The private settings file against the schema (src/config/check.ts): `warn` naming each unknown key and each key of
- * the wrong type, or the old layout that scripts/config-files-move.ts moves; `fail` when a file is not JSON, the
- * tracked file is missing or a file sits at both its places.
+ * the wrong type; `fail` when a file is not JSON or the tracked file is missing.
  */
 function checkConfig(where: { rootDir: string; privateDir: string }): Check {
   let base: Settings | null;
@@ -1038,12 +1036,8 @@ function checkConfig(where: { rootDir: string; privateDir: string }): Check {
   const problems = checkSettings(settledLayer(local), CONFIG_SCHEMA).map(({ key, kind }) =>
     kind === 'unknown' ? `${key} (unknown)` : `${key} (wrong type)`
   );
-  const moveNote = found.old ? `; the old layout, moved by node ${MOVE_TOOL}` : '';
-  if (problems.length > 0)
-    return { name: 'config', status: 'warn', detail: `${file}: ${problems.join(', ')}${moveNote}` };
-  return found.old
-    ? { name: 'config', status: 'warn', detail: `config/config.json and ${file} read${moveNote}` }
-    : { name: 'config', status: 'ok', detail: `config/config.json and ${file} read` };
+  if (problems.length > 0) return { name: 'config', status: 'warn', detail: `${file}: ${problems.join(', ')}` };
+  return { name: 'config', status: 'ok', detail: `config/config.json and ${file} read` };
 }
 
 function checkLocalLayer(where: { privateDir: string }): Check {

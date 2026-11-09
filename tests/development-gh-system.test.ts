@@ -1,6 +1,5 @@
 // `gh` is the system's tool with its existing login: `spawnGh` and `checkRepository` run it with no config home of ours,
 // and nothing of the engine names a gh home in the persona folder. A disposable fake `gh` on PATH records what it got.
-// src/setup/persona-migration.ts is left out of the scan: it moves the files of an older layout.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -88,9 +87,7 @@ test('no code, unit, setting or document names the gh home or the development fo
       const relative = path.join(dir, entry.name);
       return entry.isDirectory() ? walk(relative) : [relative];
     });
-  const files = ['bin', 'src', 'deploy', 'docs', 'config', 'agents', 'prompts']
-    .flatMap(walk)
-    .filter((file) => file !== path.join('src', 'setup', 'persona-migration.ts'));
+  const files = ['bin', 'src', 'deploy', 'docs', 'config', 'agents', 'prompts'].flatMap(walk);
   const named = files.flatMap((file) => {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     return RETIRED.filter((word) => text.includes(word)).map((word) => `${file}: ${word}`);

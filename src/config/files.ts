@@ -1,6 +1,5 @@
 // Runtime personal settings and labels use data/config. Interface settings use data/interfaces/<name>/config.json.
-// The engine supplies shared config defaults. Legacy layout constants serve explicit offline conversion tools;
-// runtime readers and targeted writers refuse those layouts with migration guidance.
+// The engine supplies shared config defaults.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,47 +12,26 @@ export const LOCAL_CONFIG_DIR = 'config.local';
 export const CONFIG_FILE = 'config.json';
 /** The labels file's name in both folders. */
 export const LABELS_FILE = 'labels.json';
-/** The tool that moves a layer laid out the old way. */
-export const MOVE_TOOL = 'scripts/config-files-move.ts';
-/** The private settings file of the old layout, under the private directory. */
-export const OLD_LOCAL_CONFIG = 'config.local.json';
-/** The flat private labels file of the old layout, under the private directory. */
-export const OLD_LOCAL_LABELS = path.join('prompts.local', LABELS_FILE);
 
-/** The private files a layer has: each at its new place, at its old one, or absent. */
+/** The private files a layer has, each at its place or absent. */
 export type LocalFiles = {
   /** The absolute path of the settings file the loader reads, or null when the layer has none. */
   config: string | null;
-  /** The labels file the loader reads with its shape, or null when the layer has none. */
-  labels: { file: string; shape: 'split' | 'flat' } | null;
-  /** Whether a file sits at its old place. */
-  old: boolean;
+  /** The absolute path of the labels file the loader reads, or null when the layer has none. */
+  labels: string | null;
 };
-
-/** Refuse recognized legacy layers before canonical runtime readers or writers use the persona. */
-export function assertPersonaLayout(privateDir: string, rootDir?: string): void {
-  const legacy = ['config.local', 'config.local.json', 'prompts.local', 'skills.local'];
-  for (const root of new Set([privateDir, ...(rootDir ? [rootDir] : [])])) {
-    const found = legacy.find((name) => fs.existsSync(path.join(root, name)));
-    if (found) throw new Error(`${path.join(root, found)} requires migration with scripts/persona-files-move.ts`);
-  }
-}
 
 /** Runtime configuration and labels belong to the canonical persona data root. */
 export function localFiles(privateDir: string): LocalFiles {
-  assertPersonaLayout(privateDir);
   const at = (file: string): string | null => (fs.existsSync(file) ? file : null);
-  const labels = at(path.join(privateDir, CONFIG_DIR, LABELS_FILE));
   return {
     config: at(path.join(privateDir, CONFIG_DIR, CONFIG_FILE)),
-    labels: labels ? { file: labels, shape: 'split' } : null,
-    old: false,
+    labels: at(path.join(privateDir, CONFIG_DIR, LABELS_FILE)),
   };
 }
 
 /** The targeted writer uses exactly the same canonical settings file as the reader. */
 export function localConfigPath(privateDir: string): string {
-  assertPersonaLayout(privateDir);
   return path.join(privateDir, CONFIG_DIR, CONFIG_FILE);
 }
 
@@ -86,7 +64,6 @@ function readTree(file: string | null): Tree {
 
 /** The private file of the interface `name`, under the private directory. */
 export function localInterfacePath(privateDir: string, name: string): string {
-  assertPersonaLayout(privateDir);
   return path.join(privateDir, 'interfaces', name, CONFIG_FILE);
 }
 
