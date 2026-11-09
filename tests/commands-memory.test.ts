@@ -159,26 +159,25 @@ for (const [line, name] of LINES) {
   });
 }
 
+// Changed: the retired names are gone with the rest of the legacy, so such a line is refused like any line the table
+// does not hold, and names no replacement.
 const RETIRED = [
-  ['/memory profile u1', '/memory users show'],
-  ['/memory accounts discord n1', '/memory users accounts'],
-  ['/memory aliases list u1', '/memory users names'],
-  ['/memory affinity u1', '/memory users relationship'],
-  ['/memory private u1', '/memory users private'],
-  ['/memory server', '/memory places show'],
-  ['/memory lore list', '/memory places lore'],
-  ['/memory person u1', '/memory places show'],
-  // `/memory users link` linked an account to any person past the meta check and the merge (plan 2026-11-08-meta-person,
-  // slice 7): it is retired, and `/memory bind` is the one way to link an account.
-  ['/memory users link person:x account:y', '/memory bind'],
+  '/memory profile u1',
+  '/memory accounts discord n1',
+  '/memory aliases list u1',
+  '/memory affinity u1',
+  '/memory private u1',
+  '/memory server',
+  '/memory lore list',
+  '/memory person u1',
+  // `/memory bind` is the one way to link an account (plan 2026-11-08-meta-person, slice 7).
+  '/memory users link person:x account:y',
 ] as const;
 
-for (const [line, replacement] of RETIRED) {
-  test(`${line} is refused and names ${replacement}`, () => {
-    // Bug: a functional alias survives, or the old word falls through as an unknown leaf with no way forward.
-    const parsed = parseCommandLine(line);
-    assert.equal(parsed.ok, false);
-    assert.ok(!parsed.ok && parsed.reason.includes(replacement), parsed.ok ? '' : parsed.reason);
+for (const line of RETIRED) {
+  test(`${line} is refused`, () => {
+    // Bug: a functional alias survives and reaches a reader or a write.
+    assert.equal(parseCommandLine(line).ok, false);
   });
 }
 

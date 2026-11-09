@@ -678,29 +678,19 @@ for (const words of ['watcher cancel']) {
 
 // ---- the competing controls -----------------------------------------------------------------------------------------
 
-for (const [argv, names] of [
-  [['watcher', 'run'], 'services watcher'],
-  [['watcher'], 'services watcher'],
-  [['selfimprovement', 'run'], 'services selfimprovement'],
-  [['selfimprovement'], 'services selfimprovement'],
-  [['report'], 'logs watcher'],
-] as const) {
-  test(`neptunia ${argv.join(' ')} is refused before any handler and names ${names}`, () => {
+// Changed: the retired names are gone with the rest of the legacy, so such a line is refused like any line the table
+// does not hold, and names no replacement.
+for (const argv of [['watcher', 'run'], ['watcher'], ['selfimprovement', 'run'], ['selfimprovement'], ['report']]) {
+  test(`neptunia ${argv.join(' ')} is refused before any handler`, () => {
     // Catches: the old form still parses into a command that runs an inspection or a beat.
-    const { parsed } = parseRequest(argv);
-    assert.equal(parsed.ok, false);
-    assert.ok(!parsed.ok && parsed.reason.includes(names), parsed.ok ? '' : parsed.reason);
+    assert.equal(parseRequest(argv).parsed.ok, false);
   });
 }
 
-for (const line of ['/report', '/report 2026-11-03']) {
-  test(`neptunia -p ${line} is refused before any handler and names logs watcher`, () => {
-    // Catches: the line of the chat still reads a report, so the old command lives on behind -p.
-    const parsed = parseCommandLine(line);
-    assert.equal(parsed.ok, false);
-    assert.ok(!parsed.ok && parsed.reason.includes('logs watcher'), parsed.ok ? '' : parsed.reason);
-  });
-}
+test('neptunia -p /report is refused before any handler', () => {
+  // Catches: the line of the chat still reads a report, so the old command lives on behind -p.
+  assert.equal(parseCommandLine('/report 2026-11-03').ok, false);
+});
 
 for (const [step, names] of [
   ['watcher', 'services watcher setup'],

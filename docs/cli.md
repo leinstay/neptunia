@@ -329,7 +329,7 @@ printf '%s\n' "$TOKEN" | neptunia interfaces token set discord --secret-stdin
 
 On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys extra add`, `keys service set` and `interfaces token set` exit `2` for a word past their name, in the chat and in both shell forms, so a secret never reaches the process list, the core or the logs.
 
-`neptunia subharness <backend> login`, `status` and `logout` run with no core. [Setup](setup.md#subharness-backends) describes them and their exit codes. `/subharness use`, `model`, `mode`, `enable` and `disable` are refused with exit `2`, and the refusal names the command that replaced each: `/model set` for the first two, `/agent mode` for `mode`, and `/subharness <backend> login` and `logout` for the last two.
+`neptunia subharness <backend> login`, `status` and `logout` run with no core. [Setup](setup.md#subharness-backends) describes them and their exit codes.
 
 ## Diagnostics
 
@@ -374,21 +374,6 @@ On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys
 `neptunia services watcher select --sql <statement>` prints the rows of one read-only statement over the memory database as JSON, `rows` and `truncated`, with no core and no board. A missing `--sql` exits `2`, and a write, a second statement or a missing database fails. [The watcher](watcher.md#development-mode) describes the read.
 
 `neptunia setup` with `watcher`, `selfimprovement` or `mechanics` exits `2` and names the command of this family. A word order such as `services status watcher` exits `2` the same way.
-
-## Retired names
-
-Each of these exits `2`, names its replacement and runs nothing, in the chat and in both shell forms.
-
-| Retired | Replacement |
-|---|---|
-| `service` | `services` |
-| `service watcher report`, `report` | `logs watcher` |
-| `health` | `doctor` |
-| `wakes` | `services list`, and `pause`, `resume` or `services <name> disable` for a stop |
-| `route` | `routes` |
-| `interface` | `interfaces` |
-| `task` | `tasks` |
-| `watcher`, `heartbeat`, `selfreflection`, `selfimprovement` | `services <name>` |
 
 ## Other entry points
 

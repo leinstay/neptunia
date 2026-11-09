@@ -127,7 +127,7 @@ import {
 } from '../src/config/files.ts';
 import type { LocalFiles } from '../src/config/files.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
-import { COMMANDS, isRetiredCommand, parseCommandLine } from '../src/interface/commands/table.ts';
+import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 import type { ChatAttachment, ChatEntry, KeyBinding, PasteLimits, Question, StatusBrief } from '../cli/index.ts';
 import { chatPanel } from './chat-panels.ts';
 import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
@@ -504,7 +504,7 @@ async function runPrint(argv: ReadonlyArray<string>): Promise<never> {
 
 /** `neptunia <words...>`: a word of the table is a command, read as argv gives it; any other opens no connection. */
 async function runDirect(words: ReadonlyArray<string>): Promise<never> {
-  if (!COMMAND_NAMES.includes(words[0] ?? '') && !isRetiredCommand(words[0] ?? '')) return usage();
+  if (!COMMAND_NAMES.includes(words[0] ?? '')) return usage();
   if (words.length === 1 && words[0] === 'clear' && process.stdout.isTTY !== true)
     return refuseSyntax(panelRefusal('clear'));
   return runCommand(parseRequest(words));
