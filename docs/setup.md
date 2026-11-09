@@ -79,7 +79,7 @@ A subharness is the external CLI that runs an agent or memory session. Supported
 ```bash
 neptunia subharness claude login
 neptunia subharness codex login
-neptunia subharness opencode login --key <extra-key-name>
+neptunia subharness opencode login --key <key-name>
 ```
 
 A backend is available when it is installed and its login works: `sourceState` in `src/subharness/sources.ts` reads both at each look and stores neither, so there is no separate switch to turn on. `login` offers to install an absent backend, and on a yes the same command goes on to the login. Declining changes nothing. With no terminal it exits `1` and says what is needed, installing nothing and starting no vendor login. The login runs under the persona's backend home. For Claude Code the command comes from what the installed binary lists first in its `--help`, `auth login` or `login`, and a help that lists neither fails the login with an explanation. Logging into your own separate CLI does not authenticate hers. OpenCode has no vendor login here: `--key` names the key it runs on, the name must be in `keys.json`, and the login writes it to `models.agents.opencodeKey` of `config/config.json`. `login` copies the executable from `errands.opencodePath`, and the `subharness` step of setup asks for its path.
