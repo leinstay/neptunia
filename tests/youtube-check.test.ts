@@ -143,13 +143,14 @@ test('checkYoutube: a throwing fetcher gives blocked, never a rejection', async 
   assert.ok(!result.detail.includes(CANARY));
 });
 
-test('startYoutubeCheck: page and blocked log a warning with the YOUTUBE_API_KEY hint', async () => {
+test('startYoutubeCheck: page and blocked log a warning with the hint to store the youtube service', async () => {
+  // The hint named the env variable YOUTUBE_API_KEY, which nothing reads: the key is the `youtube` service of keys.json.
   for (const status of ['page', 'blocked'] as const) {
     const logger = makeLogger();
     const checkYoutube = async () => ({ status, detail: 'x', keySet: false });
     await startYoutubeCheck({ checkYoutube, log: logger });
     assert.deepEqual(logger.lines, [
-      { level: 'warn', msg: 'youtube-check: status', meta: { status, hint: 'set YOUTUBE_API_KEY' } },
+      { level: 'warn', msg: 'youtube-check: status', meta: { status, hint: '/keys service set youtube' } },
     ]);
   }
 });

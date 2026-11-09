@@ -29,7 +29,11 @@ The `proxy` group of [src/interface/commands/proxy.ts](../src/interface/commands
 
 `createProxyMonitor` in [src/net/proxy.ts](../src/net/proxy.ts) probes the proxy once every `proxy.health.everySeconds` (default `60`) with an HTTPS request through an agent of its own, so a proxy that refuses the login fails the probe as well as one that does not answer. A probe waits `proxy.health.timeoutMs` (default `8000`). After `proxy.health.failures` failed probes in a row (default `3`) every connection goes direct, and after `proxy.health.recoveries` good probes in a row (default `2`) the proxy is in force again. The monitor goes on probing while the engine is direct.
 
-Each switch reaches the persona as a `proxySwitched` fact at her next turn, worded by `wake.feedback.proxySwitched` and the code `proxy-down` or `proxy-back` (see [the prompt contract](prompt-contract.md)). `/proxy off` goes direct without a notice. A new URL is in force at the next check, with both counts at zero.
+The core starts on the direct route. Its first check probes the proxy at once, and the first answer puts the proxy in force without a notice. A proxy that fails `proxy.health.failures` probes before it ever answered stays off the route and is announced as `proxy-down`, like an outage. A new URL, or the proxy turned on again, starts the same way, with both counts at zero.
+
+A request of the core that cannot reach the proxy does not wait for the next probe. `startEngineProxy` reads Node's `http.client.request.error` and undici's `undici:client:connectError` diagnostics channels, and an error that `isProxyConnectionFailure` counts, such as `ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT` or `ERR_PROXY_TUNNEL`, probes the proxy at once. When that probe fails, every connection goes direct without waiting for the failure count. Such a probe goes out at most once per `proxy.health.timeoutMs`, and the failed request is not retried, since it may have had side effects.
+
+Each switch reaches the persona as a `proxySwitched` fact at her next turn, worded by `wake.feedback.proxySwitched` and the code `proxy-down` or `proxy-back` (see [the prompt contract](prompt-contract.md)). `/proxy off` goes direct without a notice.
 
 The watcher and the development worker run in processes of their own, without a monitor. Before each agent run they probe the stored URL once with `proxyForRun` and give the run the proxy only when it answered.
 

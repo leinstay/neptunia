@@ -1,13 +1,14 @@
 // The engine proxy's route and health. The owner stores one proxy URL as the `proxy` service of keys.json and turns it
 // on with `proxy.enabled`; `createProxyMonitor` then holds the route every outbound connection takes: `off` while the
-// switch is off or no URL is stored, `proxy` while the proxy answers, `direct` after `proxy.health.failures` failed
-// probes in a row, and `proxy` again after `proxy.health.recoveries` good ones. It probes at most once per
-// `proxy.health.everySeconds`, hands the URL in force to `apply` whenever it changes (src/net/global-proxy.ts sets it
-// for the whole process) and tells `onSwitch` of each fallback and recovery, so the persona learns of it as of any
-// failure. The core (src/core.ts) runs one; the interfaces never take the proxy. A worker with no monitor of its own
-// (the watcher, the development worker) decides each agent run with `proxyForRun`, one probe before the run.
-// `proxyEnvOf` is the environment a child process gets for the URL in force, and `probeProxy` the default probe. A
-// URL may carry a login and a password: nothing here logs one.
+// switch is off or no URL is stored, `direct` until the first probe of a URL answers, `proxy` from then on, `direct`
+// after `proxy.health.failures` failed probes in a row, and `proxy` again after `proxy.health.recoveries` good ones. It
+// probes at most once per `proxy.health.everySeconds`, and at once when a request of the process could not reach the
+// proxy (`suspect`, with `isProxyConnectionFailure` deciding which errors count). It hands the URL in force to `apply`
+// whenever it changes (src/net/global-proxy.ts sets it for the whole process) and tells `onSwitch` of each fallback and
+// recovery, so the persona learns of it as of any failure. The core (src/core.ts) runs one; the interfaces never take
+// the proxy. A worker with no monitor of its own (the watcher, the development worker) decides each agent run with
+// `proxyForRun`, one probe before the run. `proxyEnvOf` is the environment a child process gets for the URL in force,
+// and `probeProxy` the default probe. A URL may carry a login and a password: nothing here logs one.
 
 import https from 'node:https';
 
@@ -160,6 +161,30 @@ export async function proxyForRun({
   }
 }
 
+/**
+ * The error codes of a connection that did not get through the proxy: refused, reset, timed out or unreachable, a
+ * tunnel the proxy would not open (`ERR_PROXY_TUNNEL` of Node's http client), and undici's socket and connect failures.
+ */
+const CONNECTION_FAILURES = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'EPIPE',
+  'ERR_PROXY_TUNNEL',
+  'UND_ERR_SOCKET',
+  'UND_ERR_CONNECT_TIMEOUT',
+]);
+
+/** Whether `error`, or the `cause` a failed `fetch` wraps it in, is a connection that did not get through. */
+export function isProxyConnectionFailure(error: unknown): boolean {
+  for (let current = error, depth = 0; isRecord(current) && depth < 3; current = current.cause, depth += 1) {
+    if (typeof current.code === 'string' && CONNECTION_FAILURES.has(current.code)) return true;
+  }
+  return false;
+}
+
 /** What `createProxyMonitor` reads and calls. */
 export type ProxyMonitorDeps = {
   /** The stored URL, read at each check; null while none is stored. */
@@ -177,15 +202,22 @@ export type ProxyMonitorDeps = {
 export type ProxyMonitor = {
   /** Brings the route up to date with the settings and, once an interval has passed, probes. Never rejects. */
   check(): Promise<void>;
+  /**
+   * A request on the proxy could not connect: probes at once, and a failed probe goes direct without waiting for the
+   * failure count. Does nothing off the proxy, while a probe runs, or within `proxy.health.timeoutMs` of the last
+   * probe. Never rejects, and retries no request.
+   */
+  suspect(): Promise<void>;
   route(): ProxyRoute;
   /** The URL connections take now, null on the direct path or with the proxy off. */
   current(): string | null;
 };
 
 /**
- * The monitor of one process. A check with a new URL, or with the proxy just turned on, puts that URL in force at once
- * (`apply` runs before the probe) and starts the counts over; turning the proxy off goes direct at the next check
- * without a notice. A probe that throws counts as a failure.
+ * The monitor of one process. A check with a new URL, or with the proxy just turned on, goes direct, starts the counts
+ * over and probes at once. The first good probe puts the URL in force without a notice, and `proxy.health.failures`
+ * failed ones before it say `proxy-down` like an outage. Turning the proxy off goes direct at the next check without a
+ * notice. A probe that throws counts as a failure.
  */
 export function createProxyMonitor({
   url,
@@ -198,6 +230,8 @@ export function createProxyMonitor({
   let route: ProxyRoute = 'off';
   let watched: string | null = null;
   let inForce: string | null = null;
+  /** True once a probe of the watched URL answered or its first failures went direct; until then nothing is said. */
+  let confirmed = false;
   let failures = 0;
   let recoveries = 0;
   let probedAt: number | null = null;
@@ -217,6 +251,53 @@ export function createProxyMonitor({
     }
   }
 
+  function goDirect(): void {
+    route = 'direct';
+    confirmed = true;
+    recoveries = 0;
+    put(null);
+    onSwitch('proxy-down');
+  }
+
+  function goProxy(stored: string): void {
+    route = 'proxy';
+    failures = 0;
+    put(stored);
+  }
+
+  /** What one probe's answer changes; `failuresToSwitch` failed probes in a row go direct. */
+  function judge(answered: boolean, stored: string, settings: ProxySettings, failuresToSwitch: number): void {
+    if (!confirmed) {
+      if (answered) {
+        confirmed = true;
+        goProxy(stored);
+        return;
+      }
+      failures += 1;
+      if (failures >= settings.health.failures) goDirect();
+      return;
+    }
+    if (route === 'proxy') {
+      failures = answered ? 0 : failures + 1;
+      if (failures >= failuresToSwitch) goDirect();
+      return;
+    }
+    recoveries = answered ? recoveries + 1 : 0;
+    if (recoveries < settings.health.recoveries) return;
+    goProxy(stored);
+    onSwitch('proxy-back');
+  }
+
+  async function probeAndJudge(stored: string, settings: ProxySettings, failuresToSwitch: number): Promise<void> {
+    probing = true;
+    probedAt = now();
+    const answered = await probed(stored, settings.health.timeoutMs);
+    probing = false;
+    // The URL changed or the proxy was turned off while the probe ran: this answer is about nothing in force.
+    if (watched !== stored) return;
+    judge(answered, stored, settings, failuresToSwitch);
+  }
+
   async function check(): Promise<void> {
     const settings = proxySettings(config());
     const stored = url();
@@ -229,38 +310,28 @@ export function createProxyMonitor({
     }
     if (stored !== watched) {
       watched = stored;
-      route = 'proxy';
+      route = 'direct';
+      confirmed = false;
       failures = 0;
       recoveries = 0;
       probedAt = null;
-      put(stored);
+      put(null);
     }
     if (probing || (probedAt !== null && at - probedAt < settings.health.everySeconds * 1000)) return;
-    probing = true;
-    probedAt = at;
-    const answered = await probed(stored, settings.health.timeoutMs);
-    probing = false;
-    // The URL changed or the proxy was turned off while the probe ran: this answer is about nothing in force.
-    if (watched !== stored) return;
-    if (route === 'proxy') {
-      failures = answered ? 0 : failures + 1;
-      if (failures < settings.health.failures) return;
-      route = 'direct';
-      recoveries = 0;
-      put(null);
-      onSwitch('proxy-down');
-      return;
-    }
-    recoveries = answered ? recoveries + 1 : 0;
-    if (recoveries < settings.health.recoveries) return;
-    route = 'proxy';
-    failures = 0;
-    put(stored);
-    onSwitch('proxy-back');
+    await probeAndJudge(stored, settings, settings.health.failures);
+  }
+
+  async function suspect(): Promise<void> {
+    const settings = proxySettings(config());
+    const stored = url();
+    if (route !== 'proxy' || !settings.enabled || stored === null || stored !== watched || probing) return;
+    if (probedAt !== null && now() - probedAt < settings.health.timeoutMs) return;
+    await probeAndJudge(stored, settings, 1);
   }
 
   return {
     check,
+    suspect,
     route: () => route,
     current() {
       if (route !== 'proxy' || !proxySettings(config()).enabled || url() === null) return null;

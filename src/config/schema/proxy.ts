@@ -43,6 +43,7 @@ export const PROXY: ReadonlyArray<SchemaEntry> = [
     'types': ['number'],
     'reader': 'src/net/proxy.ts',
     'default': 8000,
-    'text': 'How long one probe waits for an answer',
+    'text':
+      'How long one probe waits for an answer, and the shortest gap between two probes that failed requests ask for',
   },
 ];

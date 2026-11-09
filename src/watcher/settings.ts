@@ -3,7 +3,8 @@
 // (src/watcher/read.ts), and `watcher.draftsOnly` (on only when it is `true`: the inspection lists its drafts and files no
 // task, src/watcher/filing.ts). `neptunia services watcher` and `neptunia setup` write the first two, the unit renderer
 // (src/setup/install.ts) reads the schedule, and the report in her selfimprovement wake (src/watcher/news.ts) reads the
-// switch. A config that did not pass the loader's moves may still hold the old `watcher.at`.
+// switch. `watcher.degradedAfterMinutes` is how long a route of the core may be down before the evidence lists it
+// (src/watcher/routes.ts). A config that did not pass the loader's moves may still hold the old `watcher.at`.
 
 import { isClockTime } from '../time.ts';
 import { parseSchedule } from '../service/schedule.ts';
@@ -14,7 +15,16 @@ import { watcherDir } from './read.ts';
 /** The watcher's schedule when `watcher.schedule` is unset (config/config.json carries the same). */
 export const DEFAULT_WATCHER_SCHEDULE: ServiceSchedule = { kind: 'at', at: ['00:00'] };
 
-export type WatcherSettings = { enabled: boolean; schedule: ServiceSchedule; dir: string; draftsOnly: boolean };
+/** Minutes a route may be down before the evidence lists it, when `watcher.degradedAfterMinutes` is unset. */
+const DEFAULT_DEGRADED_AFTER_MINUTES = 60;
+
+export type WatcherSettings = {
+  enabled: boolean;
+  schedule: ServiceSchedule;
+  dir: string;
+  draftsOnly: boolean;
+  degradedAfterMinutes: number;
+};
 
 /** The watcher's settings of `config`. */
 export function watcherSettings(config: unknown): WatcherSettings {
@@ -26,5 +36,11 @@ export function watcherSettings(config: unknown): WatcherSettings {
       (isClockTime(section.at) ? { kind: 'at', at: [section.at] } : DEFAULT_WATCHER_SCHEDULE),
     dir: watcherDir(config),
     draftsOnly: section.draftsOnly === true,
+    degradedAfterMinutes:
+      typeof section.degradedAfterMinutes === 'number' &&
+      Number.isFinite(section.degradedAfterMinutes) &&
+      section.degradedAfterMinutes >= 0
+        ? section.degradedAfterMinutes
+        : DEFAULT_DEGRADED_AFTER_MINUTES,
   };
 }
