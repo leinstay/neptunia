@@ -233,34 +233,6 @@ test('createHot: a data/prompts file replaces the base file of the same name', (
   }
 });
 
-// The executor's brief moved to executor-brief.md; selfimprovement.md is the wake addressed to her.
-test('createHot: a local selfdev.md, the brief under its older name, loads as executor-brief', () => {
-  const dir = makeRoot({ prompts: { 'executor-brief': 'base brief' } });
-  writeLocalPrompt(dir, 'selfdev', 'local brief');
-  const hot = createHot({ rootDir: dir });
-  try {
-    assert.equal(hot.prompts['executor-brief'], 'local brief');
-    assert.equal(hot.promptSources['executor-brief'], 'local');
-    assert.equal(Object.hasOwn(hot.prompts, 'selfdev'), false);
-  } finally {
-    hot.close();
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('createHot: a local executor-brief.md wins over a local selfdev.md', () => {
-  const dir = makeRoot({ prompts: { 'executor-brief': 'base brief' } });
-  writeLocalPrompt(dir, 'selfdev', 'older brief');
-  writeLocalPrompt(dir, 'executor-brief', 'newer brief');
-  const hot = createHot({ rootDir: dir });
-  try {
-    assert.equal(hot.prompts['executor-brief'], 'newer brief');
-  } finally {
-    hot.close();
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 test('createHot: an empty local file falls back to the base text', () => {
   const dir = makeRoot({ prompts: { persona: 'base text' } });
   writeLocalPrompt(dir, 'persona', '   \n  ');
@@ -660,7 +632,6 @@ test('createHot: a config that still sets a per-day, per-hour or public-posts co
 
 test('createHot: a data/config/config.json is read key by key: an old model key is not read, a reload keeps the previous config on bad JSON', async () => {
   const dir = makeRoot(wrongly({ config: { models: { base: { analyzer: 'x/default' } } } }));
-  // The canonical persona config keeps this warning test separate from legacy-layout refusal.
   fs.mkdirSync(path.join(dir, 'data', 'config'), { recursive: true });
   const localFile = path.join(dir, 'data', 'config', 'config.json');
   fs.writeFileSync(

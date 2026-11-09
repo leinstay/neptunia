@@ -40,28 +40,6 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
     pattern: /'interfaces (token set|enable) discord'/,
     why: 'the setup guide names the interface the owner enables first',
   },
-  // The offline converter names legacy inputs and their package destination without adding a runtime dependency.
-  {
-    file: 'src/setup/persona-migration.ts',
-    pattern: /^for \(const row of CUT_KEYS\.filter\(\(entry\) => entry\.becomes === 'discord'\)\) \{$/,
-    why: 'extracts the legacy interface settings classified by the config cut',
-  },
-  {
-    file: 'src/setup/persona-migration.ts',
-    pattern: /^if \(env\.DISCORD_TOKEN\)$/,
-    why: 'recognizes the legacy interface token during offline conversion',
-  },
-  {
-    file: 'src/setup/persona-migration.ts',
-    pattern:
-      /^propose\('\.env', 'interfaces\/discord\/credentials\.json', jsonBytes\(\{ token: env\.DISCORD_TOKEN \}\), 'object'\);$/,
-    why: 'copies the legacy token to its declared private interface destination',
-  },
-  {
-    file: 'src/setup/persona-migration.ts',
-    pattern: /^const known = new Set\(\['DISCORD_TOKEN', \.\.\.SERVICES\.map\(\(\[variable\]\) => variable\)\]\);$/,
-    why: 'classifies the imported legacy token separately from held environment names',
-  },
   { file: 'src/web/lookup.ts', pattern: /discordapp\.(com|net)/, why: 'media hosts the link reader never reads' },
   {
     file: 'src/tools/operations/metrics.ts',

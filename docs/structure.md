@@ -11,7 +11,6 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `LICENSE` | public | The license text. | nothing | none |
 | `.github/` | public | The continuous integration workflows, the issue and pull request templates and the README images. | nothing | none |
 | `prompts.local/` | local | A deployment prompt layer that shadows the tracked prompts. | nothing | none |
-| `config.local.json` | local | The old place of a deployment's settings, read until `scripts/config-files-move.ts` moves it into `config.local/`. | nothing | none |
 | `config.local/` | local | A deployment's settings, labels and tool texts, each laid over its tracked file, and the settings of each interface it runs. | nothing | none |
 | `cli/` | public | The interactive presentation of the chat: Ink, written with createElement, importing nothing of the engine. | `ink`, `react`, `@jimp/*`, `@jsquash/webp`, `node:*`, `cli/**` | none |
 | `data/README.md` | public | The one public file of the persona root: what its folders hold. | nothing | none |

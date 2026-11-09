@@ -98,6 +98,6 @@ Use `/search` to inspect and change the engine, model and enabled state. Use `/k
 
 `/interfaces token set discord` writes Discord's token to `data/interfaces/discord/credentials.json`. A skill's setup contract declares its own secrets. Removing a platform's credentials does not remove stored memories from it.
 
-Back up credentials with the complete persona, keep the backup private and do not commit credentials to Git. Key files are not encrypted by the engine. [Persona migration](persona-migration.md) covers moving them without printing their values.
+Back up credentials with the complete persona, keep the backup private and do not commit credentials to Git. Key files are not encrypted by the engine.
 
 Read the implementation in [key management](../src/keys/) and [search commands](../src/interface/commands/search.ts).

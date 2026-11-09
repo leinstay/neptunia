@@ -1,4 +1,4 @@
-// Canonical persona configuration and labels merge over engine defaults. Legacy layouts require offline migration.
+// Canonical persona configuration and labels merge over engine defaults.
 // Existing merge, targeted-write, watcher and interface precedence controls retain their values.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,15 +13,12 @@ import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { ROOT } from './fixtures/private-layer.ts';
 import { resolvePaths } from '../src/paths.ts';
 import { readConfig } from '../src/config.ts';
-import { applyPersonaLayers } from '../src/setup/persona-migration.ts';
 import { createKeyStore } from '../src/keys/store.ts';
 import { profileOf } from '../src/agent-runner/profiles.ts';
 import { fixture as agentFixture } from './fixtures/agent-overrides.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 type Tree = Record<string, unknown>;
-
-const MOVE_TOOL = 'scripts/persona-files-move.ts';
 
 const BASE_CONFIG = { pace: { settleMs: 500, settleMaxMs: 3000 }, llm: { retries: 2 } };
 const BASE_LABELS = {
@@ -52,37 +49,6 @@ function movedLayer(): string {
     owner: { status: { costs: { keyLead: 'my lead' } } },
   });
   return dir;
-}
-
-/** The same private layer laid out before the move. */
-function oldLayer(): string {
-  const dir = tempDir('nep-cfgdir-old-');
-  write(dir, 'config.local.json', { pace: { settleMs: 900 } });
-  write(dir, 'prompts.local/labels.json', {
-    transcript: { gap: 'my gap {duration}' },
-    status: { costs: { keyLead: 'my lead' } },
-  });
-  return dir;
-}
-
-/**
- * A copy of the checkout's tracked config/, prompts/ and agents/ and nothing else. The live root also holds a
- * deployment's `.agents/` folder, which the converter reads for the watcher prompt and refuses as `unsafe-path` where it
- * is a symlink, as in a worktree; a test reads no local layer.
- */
-function trackedCheckout(): string {
-  const dir = tempDir('nep-cfgdir-tracked-');
-  for (const folder of ['config', 'prompts', 'agents'])
-    fs.cpSync(path.join(ROOT, folder), path.join(dir, folder), { recursive: true });
-  return dir;
-}
-
-/** Runtime readers consume the offline converter's prepared result rather than falling back to legacy files. */
-function preparedLayer(rootDir: string): string {
-  const dataDir = tempDir('nep-cfgdir-prepared-');
-  const plan = applyPersonaLayers({ rootDir, privateDir: oldLayer(), dataDir });
-  assert.deepEqual(plan.conflicts, []);
-  return dataDir;
 }
 
 type Watcher = EventEmitter & { target: string; listener: (event: string, file: string) => void; close: () => void };
@@ -118,9 +84,6 @@ const createHot = (options: { rootDir: string; privateDir: string; watchImpl?: u
     privateDir: options.privateDir,
     ...(options.watchImpl === undefined ? {} : { watchImpl: options.watchImpl as typeof fs.watch }),
   });
-
-const movedWarnings = (logs: ReadonlyArray<Tree>): number =>
-  logs.filter((entry) => entry.level === 'warn' && entry.move === MOVE_TOOL).length;
 
 test('reads the tracked settings from config/config.json', () => {
   const root = checkout();
@@ -163,65 +126,6 @@ test("deep-merges persona config/labels.json over the tracked labels, the owner'
   } finally {
     hot.close();
   }
-});
-
-test('gives the same settings and labels from a canonical layer and the converted legacy layer', () => {
-  const root = checkout();
-  const moved = createHot({ rootDir: root, privateDir: movedLayer() });
-  const old = createHot({ rootDir: root, privateDir: preparedLayer(root) });
-  try {
-    assert.deepEqual(old.config, moved.config);
-    assert.deepEqual(old.prompts.labels, moved.prompts.labels);
-  } finally {
-    moved.close();
-    old.close();
-  }
-});
-
-test('gives the same settings and labels over tracked files after explicit legacy conversion', () => {
-  const root = trackedCheckout();
-  const moved = createHot({ rootDir: root, privateDir: movedLayer() });
-  const old = createHot({ rootDir: root, privateDir: preparedLayer(root) });
-  try {
-    assert.deepEqual(old.config, moved.config);
-    assert.deepEqual(old.prompts.labels, moved.prompts.labels);
-    const pace = old.config.pace as Tree;
-    assert.equal(pace.settleMs, 900, 'the local value is read');
-  } finally {
-    moved.close();
-    old.close();
-  }
-});
-
-test('refuses an unconverted legacy layer with migration guidance instead of a warning', async () => {
-  const root = checkout();
-  const privateDir = oldLayer();
-  const { logs } = await withCapturedLogs(() => {
-    // Runtime legacy fallback is replaced by explicit preparatory migration.
-    assert.throws(() => createHot({ rootDir: root, privateDir }), /persona-files-move/);
-  });
-  assert.equal(movedWarnings(logs), 0);
-});
-
-test('gives no move warning for a moved layer', async () => {
-  const root = checkout();
-  const privateDir = movedLayer();
-  const { logs } = await withCapturedLogs(() => {
-    createHot({ rootDir: root, privateDir }).close();
-  });
-  assert.equal(movedWarnings(logs), 0);
-});
-
-test('refuses the start when the settings file is at both its old and its new place, naming the move tool', () => {
-  const privateDir = movedLayer();
-  write(privateDir, 'config.local.json', { pace: { settleMs: 100 } });
-  assert.throws(() => createHot({ rootDir: checkout(), privateDir }), /persona-files-move/);
-});
-
-test('refuses the start when the local labels are at both their old and their new place, naming the move tool', () => {
-  const privateDir = movedLayer();
-  write(privateDir, 'prompts.local/labels.json', { transcript: { gap: 'other' } });
-  assert.throws(() => createHot({ rootDir: checkout(), privateDir }), /persona-files-move/);
 });
 
 test('writes a setting into config/config.json in a canonical layer, and the live config has it', () => {
@@ -394,25 +298,13 @@ test('targeted writes and prompt watchers update the same canonical data directo
   }
 });
 
-// Silent root precedence or mixed layouts can read one persona while writing another.
-test('conflicting root selections and mixed personal layouts refuse before a configuration write', () => {
+// Silent root precedence can read one persona while writing another.
+test('conflicting root selections refuse before a configuration write', () => {
   const rootDir = checkout();
   const dataDir = tempDir('nep-canonical-conflict-');
   const oldRoot = tempDir('nep-legacy-conflict-');
   assert.throws(
     () => resolvePaths({ rootDir, env: { NEPTUNIA_DATA_DIR: dataDir, NEPTUNIA_PRIVATE_DIR: oldRoot } }),
-    /persona-files-move/
+    /must match NEPTUNIA_DATA_DIR/
   );
-  write(dataDir, 'config/config.json', { pace: { settleMs: 900 } });
-  write(dataDir, 'config.local/config.json', { pace: { settleMs: 700 } });
-  const before = fs.readFileSync(path.join(dataDir, 'config/config.json'), 'utf8');
-  assert.throws(() => {
-    const hot = createHot({ rootDir, privateDir: dataDir });
-    try {
-      createOpsEnv({ hot, store: { state: { data: {}, markDirty() {} } } }).writeLocalPath('llm.retries', 99);
-    } finally {
-      hot.close();
-    }
-  }, /persona-files-move/);
-  assert.equal(fs.readFileSync(path.join(dataDir, 'config/config.json'), 'utf8'), before);
 });

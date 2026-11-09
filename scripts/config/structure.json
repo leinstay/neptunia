@@ -36,13 +36,6 @@
       "test": "none"
     },
     {
-      "path": "config.local.json",
-      "purpose": "The old place of a deployment's settings, read until `scripts/config-files-move.ts` moves it into `config.local/`.",
-      "layer": "local",
-      "imports": [],
-      "test": "none"
-    },
-    {
       "path": "config.local/",
       "purpose": "A deployment's settings, labels and tool texts, each laid over its tracked file, and the settings of each interface it runs.",
       "layer": "local",

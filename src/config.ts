@@ -7,13 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { log } from './log.ts';
 import { resolvePaths } from './paths.ts';
-import {
-  assertPersonaLayout,
-  localFiles,
-  trackedConfigPath,
-  interfacePackageDir,
-  interfaceCredential,
-} from './config/files.ts';
+import { localFiles, trackedConfigPath, interfacePackageDir, interfaceCredential } from './config/files.ts';
 // A parsed JSON value or an argument no module types yet: the alias of src/tools/types.ts, restated so this leaf
 // imports nothing from src/tools/ (src/memory/ reaches it).
 type Untyped = ReturnType<typeof JSON.parse>;
@@ -148,13 +142,12 @@ function warnUnsetEnvRef(name: string) {
  * replaced from process.env (`resolveEnvRefs`; an unset name becomes '' and is warned about once
  * per process). Throws on invalid JSON and on a private settings file at both its places. config/config.json comes
  * from `rootDir`, the private file from `privateDir` (the deployment's private directory, src/paths.ts), which
- * defaults to `rootDir`: `config.local/config.json`, or `config.local.json` of the old layout (src/config/files.ts).
+ * defaults to `rootDir`: `data/config/config.json` (src/config/files.ts).
  */
 export function readConfig(
   rootDir: string = ROOT_DIR,
   { privateDir = resolvePaths({ rootDir }).dataDir }: { privateDir?: string } = {}
 ): Record<string, unknown> {
-  assertPersonaLayout(privateDir, rootDir);
   // The merged files are a plain object; resolveEnvRefs hands back the shape it was given.
   return resolveEnvRefs(mergeConfigFiles(rootDir, privateDir), process.env, warnUnsetEnvRef) as Record<string, unknown>;
 }
