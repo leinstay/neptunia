@@ -1,11 +1,16 @@
-// The owner client's link (bin/cli-link.ts) over the real protocol: `serveAdapter` on a loopback transport, the far end a
+// The owner client's link (interfaces/cli/link.ts) over the real protocol: `serveAdapter` on a loopback transport, the far end a
 // fake core that answers with `command.result` envelopes. A closed question's choices must survive the crossing and its
 // answer must go back once, as a dialog answer and never an argument.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLoopback } from '../src/protocol/wire.ts';
 import { envelope } from '../src/protocol/envelope.ts';
-import { openLinkOver } from '../bin/cli-link.ts';
+import { openLinkOver, start } from '../interfaces/cli/link.ts';
+import type { MessageEvent } from '../src/protocol/adapter.ts';
+import { createEventDoor } from '../src/interface/door.ts';
+import { openAdapterLink } from '../src/interface/link.ts';
+import type { AdapterLink } from '../src/interface/link.ts';
+import type { Principal } from '../src/interface/principals.ts';
 
 type Body = Record<string, unknown>;
 
@@ -116,4 +121,88 @@ test('a line said as a reply carries the message id of its parent to the core', 
     ]
   );
   link.close();
+});
+
+const quiet = { info() {}, warn() {}, error() {} };
+const OWNER: Principal = { name: 'owner', kind: 'cli', iface: 'cli', permissions: [] };
+const CHAT = { iface: 'cli', chatId: 'cli:dm:owner' };
+
+/** The core's end of every link the host opens: each `connect()` is a new loopback with the core's link on it. */
+function coreSide() {
+  const links: Array<AdapterLink> = [];
+  const lines: Array<string> = [];
+  const door = createEventDoor({
+    handlers: { 'message.received': (event: MessageEvent) => void lines.push(event.message.content ?? '') },
+    log: quiet,
+  });
+  const host = {
+    token: 't',
+    print: null,
+    connect() {
+      const { core, client } = createLoopback();
+      links.push(
+        openAdapterLink({ transport: core, door, principalOf: (token) => (token === 't' ? OWNER : null), log: quiet })
+      );
+      return Promise.resolve(client);
+    },
+  };
+  return { host, links, lines };
+}
+
+const settled = async (promise: Promise<unknown>): Promise<boolean> => {
+  let done = false;
+  void promise.then(() => (done = true));
+  await new Promise((resolve) => setImmediate(resolve));
+  return done;
+};
+
+test('start says hello as cli with the host token over the host connection', async () => {
+  // Catches: a package whose start resolves before it connects, or names another interface than its hello.
+  const { host, links } = coreSide();
+  const running = await start(host);
+  running.open();
+  const hello = await links[0]?.hello;
+  assert.equal(running.iface, 'cli');
+  assert.equal(hello?.iface, 'cli');
+  await running.stop();
+});
+
+test('reconnect opens a new link over the host and keeps the lines the history reads answer from', async () => {
+  // Catches: a reconnect that sends on the dead transport, loses this session's lines, or leaves `closed` resolved so
+  // the chat's watch sees the new link as lost at once.
+  const { host, links, lines } = coreSide();
+  const running = await start(host);
+  running.open();
+  await links[0]?.hello;
+  assert.equal(await running.say('before the drop'), 'ok');
+  links[0]?.close();
+  await running.closed;
+  await running.reconnect();
+  const second = links[1];
+  await second?.hello;
+  assert.equal(await settled(running.closed), false, 'the new link is open');
+  assert.equal(await running.say('after the drop'), 'ok');
+  assert.deepEqual(lines, ['before the drop', 'after the drop']);
+  const read = await second?.adapter.history(CHAT, { limit: 10 });
+  assert.deepEqual(read?.status === 'ok' ? read.events.map((event) => event.message.content) : read, [
+    'before the drop',
+    'after the drop',
+  ]);
+  await running.stop();
+});
+
+test('stop closes the link and answers a command still waiting', async () => {
+  // Catches: a stop that leaves the socket open, so the process never exits, or a command that waits forever.
+  const { core, client } = createLoopback();
+  core.onEnvelope((value) => {
+    if (value.type === 'event')
+      core.send(envelope('ack', { status: 'ok' }, { id: `ack:${value.id}`, replyTo: value.id }));
+  });
+  const running = await start({ token: 't', print: null, connect: () => Promise.resolve(client) });
+  running.open();
+  const waiting = running.ask({ name: 'status', args: {} });
+  await new Promise((resolve) => setImmediate(resolve));
+  await running.stop();
+  assert.deepEqual(await waiting, { text: 'The link to the core closed.', status: 'failed' });
+  assert.equal(await settled(running.closed), true);
 });

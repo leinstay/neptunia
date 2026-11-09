@@ -36,7 +36,7 @@ const KEPT_CAPABILITIES: Capabilities = {
   reads: ['chat.info'],
 };
 
-/** The chat as the command line client describes it (bin/cli-link.ts). */
+/** The chat as the command line client describes it (interfaces/cli/link.ts). */
 const CHAT_INFO: ChatInfo = {
   id: CLI_CHAT_ID,
   kind: 'dm',

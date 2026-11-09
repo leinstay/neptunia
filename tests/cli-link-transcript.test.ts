@@ -1,8 +1,8 @@
-// bin/cli-link.ts: the lines of a resumed chat answer the core's history reads, in place of this session's.
+// interfaces/cli/link.ts: the lines of a resumed chat answer the core's history reads, in place of this session's.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createLoopback } from '../src/protocol/wire.ts';
-import { openLinkOver } from '../bin/cli-link.ts';
+import { openLinkOver } from '../interfaces/cli/link.ts';
 import type { MessageEvent } from '../src/protocol/adapter.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { openAdapterLink } from '../src/interface/link.ts';
