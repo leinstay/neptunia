@@ -1,11 +1,12 @@
 // The routing of a paid script (scripts/replay.ts, scripts/memory-session.ts, scripts/recall-eval.ts,
 // scripts/inner-week.ts, scripts/search-compare.ts, scripts/search-policy-eval.ts, scripts/vision-compare.ts). By
-// default a script spends what production spends: the keys of keys.json under the routing of config.json
-// (`models.base`, `llm.boundKeys`, `models.harness.core` and `models.harness.memory`), through the builders the core
-// uses: the key ring of src/keys/ring.ts, the subscription client of src/subharness/subscription-client.ts and the
-// memory writer client of src/subharness/memory-writer.ts. A flag `--<role> <route>` replaces one model role for this run
-// alone and writes nothing to any file: `<key>/<model>[:<effort>]` sends the role on that key of keys.json with that
-// model, and `harness:<backend>/<model>[:<effort>]` sends `core` or `memory` through a connected `claude` or `codex`.
+// default a script spends what production spends: each role's chain of routes over the keys of keys.json
+// (src/llm/route-chain.ts), through the builders the core uses: the chain client of src/llm/chain-client.ts, the
+// subscription client of src/subharness/subscription-client.ts and the memory writer client of
+// src/subharness/memory-writer.ts. A flag `--<role> <route>` replaces one model role's whole chain for this run alone
+// and writes nothing to any file: `<key>/<model>[:<effort>]` sends the role on that key of keys.json with that model,
+// and `harness:<backend>/<model>[:<effort>]` sends `core` or `memory` through a connected `claude` or `codex`; the text
+// is read by src/llm/route-text.ts.
 // `--variant "<flags>"` runs the same inputs on several such setups in one run, and `sideBySide` and `sideBySideText`
 // lay their answers side by side per input. A refusal is a CliError of one line that names the tool and a code
 // (`route-malformed`, `route-unsupported`, `key-unknown`, `harness-not-connected`, `variant-unsupported`), raised before
@@ -22,20 +23,20 @@ import { createKeyRing } from '../../src/keys/ring.ts';
 import type { KeyRing } from '../../src/keys/ring.ts';
 import { createKeyStore } from '../../src/keys/store.ts';
 import { createKeyFailover } from '../../src/llm/key-failover.ts';
-import { isEffortLevel, isListedEffort, reasoningOf, roleModel, searchModel } from '../../src/llm/roles.ts';
+import { createChainClient, createRouteChainOf } from '../../src/llm/chain-client.ts';
+import type { CompleteResult } from '../../src/llm/openrouter.ts';
+import { roleModel, searchModel } from '../../src/llm/roles.ts';
 import type { EffortLevel } from '../../src/llm/roles.ts';
+import { isRefusal, parseRouteText } from '../../src/llm/route-text.ts';
+import type { Route } from '../../src/llm/route-text.ts';
 import { MAX_FRAME_BYTES, wrapSocket } from '../../src/protocol/wire.ts';
-import { memoryPath as storedMemoryPath } from '../../src/subharness/memory-path.ts';
 import type { MemoryPath } from '../../src/subharness/memory-path.ts';
 import { memoryWriterClient } from '../../src/subharness/memory-writer.ts';
 import type { ChildRunner } from '../../src/subharness/memory-writer.ts';
-import { MEMORY_BACKENDS } from '../../src/subharness/routing.ts';
 import type { MemoryBackend } from '../../src/subharness/routing.ts';
 import { sourceState } from '../../src/subharness/sources.ts';
 import { createSubscriptionClient, spawnSubscriptionChild } from '../../src/subharness/subscription-client.ts';
 import type { SubscriptionClientDeps } from '../../src/subharness/subscription-client.ts';
-import { subscriptionPath } from '../../src/subharness/subscription-path.ts';
-import type { SubscriptionPath } from '../../src/subharness/subscription-path.ts';
 import { createToolBridge, serveBridge } from '../../src/subharness/tool-bridge.ts';
 import type { ToolBridge } from '../../src/subharness/tool-bridge.ts';
 import { runChildProcess } from '../../src/agent-runner/backend.ts';
@@ -58,11 +59,6 @@ export const ROUTE_ROLES = [
 ] as const;
 export type RouteRole = (typeof ROUTE_ROLES)[number];
 
-/** The roles a harness can carry: the core's turns and the memory writer. */
-const HARNESS_ROLES: ReadonlyArray<RouteRole> = ['core', 'memory'];
-/** The roles whose requests take no reasoning effort. */
-const NO_EFFORT_ROLES: ReadonlyArray<RouteRole> = ['embedding', 'speech', 'drawing'];
-
 /** One role's route for this run: a key of keys.json with a model, or a connected harness with a model. */
 export type RoleRoute =
   | { kind: 'key'; key: string; model: string; effort: EffortLevel | null }
@@ -76,45 +72,26 @@ type Rec = Record<string, unknown>;
 
 const isRec = (value: unknown): value is Rec => typeof value === 'object' && value !== null && !Array.isArray(value);
 const recOf = (value: unknown): Rec => (isRec(value) ? value : {});
-const KEY_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 /** The refusal of a route: one line, the tool, the flag and the code. */
 function refused(tool: string, flag: string, code: string, reason: string): CliError {
   return new CliError(`${tool}: ${flag}: ${code}: ${reason}`);
 }
 
-/** The model id and the effort of `rest`: a last `:<level>` is the effort when it names one of `levels`. */
-function modelAndEffort(rest: string, isLevel: (value: unknown) => value is EffortLevel) {
-  const colon = rest.lastIndexOf(':');
-  const tail = colon === -1 ? '' : rest.slice(colon + 1);
-  return isLevel(tail) ? { model: rest.slice(0, colon), effort: tail } : { model: rest, effort: null };
-}
-
 /** The route of `--<role> <text>`, or a CliError of one line that names `tool`. */
 export function parseRoute(tool: string, role: RouteRole, text: string): RoleRoute {
-  const flag = `--${role}`;
-  const shape = `give <key>/<model>[:<effort>] or harness:<claude|codex>/<model>[:<effort>]`;
-  if (text.startsWith('harness:')) {
-    const body = text.slice('harness:'.length);
-    const slash = body.indexOf('/');
-    const name = slash === -1 ? body : body.slice(0, slash);
-    const backend = MEMORY_BACKENDS.find((one) => one === name);
-    if (name !== '' && backend === undefined && slash !== -1)
-      throw refused(tool, flag, 'route-unsupported', `${name} carries no route; the harnesses are claude and codex`);
-    const { model, effort } = modelAndEffort(slash === -1 ? '' : body.slice(slash + 1), isListedEffort);
-    if (backend === undefined || model.trim() === '') throw refused(tool, flag, 'route-malformed', shape);
-    if (!HARNESS_ROLES.includes(role))
-      throw refused(tool, flag, 'route-unsupported', `${role} runs on a key only; a harness carries core and memory`);
-    return { kind: 'harness', backend, model, effort };
-  }
-  const slash = text.indexOf('/');
-  const key = slash === -1 ? '' : text.slice(0, slash);
-  const { model, effort } = modelAndEffort(slash === -1 ? '' : text.slice(slash + 1), isEffortLevel);
-  if (!KEY_NAME.test(key) || model.trim() === '') throw refused(tool, flag, 'route-malformed', shape);
-  if (effort !== null && NO_EFFORT_ROLES.includes(role))
-    throw refused(tool, flag, 'route-unsupported', `${role} takes no effort`);
-  return { kind: 'key', key, model, effort };
+  const route = parseRouteText(role, text);
+  if (isRefusal(route)) throw refused(tool, `--${role}`, route.code, route.reason);
+  return route.via === 'api'
+    ? { kind: 'key', key: route.key, model: route.model, effort: route.effort }
+    : { kind: 'harness', backend: route.backend, model: route.model, effort: route.effort };
 }
+
+/** A flag's route as a route of the chain. */
+const chainRouteOf = (route: RoleRoute): Route =>
+  route.kind === 'key'
+    ? { via: 'api', key: route.key, model: route.model, effort: route.effort }
+    : { via: 'harness', backend: route.backend, model: route.model, effort: route.effort };
 
 /** The role a flag names, or null for any other argument. */
 function roleOfFlag(arg: string): RouteRole | null {
@@ -240,6 +217,8 @@ export type ScriptRouting = {
   llm: Direct;
   /** The memory writer's path now, for a session that checks its key by it. */
   memoryPath: () => MemoryPath;
+  /** The chain of `role` for this run: the flag's one route, else production's. */
+  routes: (role: RouteRole) => Array<Route>;
   /** Stops the tool bridge's socket and removes its folder. */
   close: () => Promise<void>;
 };
@@ -326,61 +305,53 @@ async function checkRoutes(tool: string, privateDir: string, variant: Variant): 
 /** The effort of a route in words, or nothing. */
 const effortText = (effort: string | null | undefined): string => (effort ? `, effort ${effort}` : '');
 
-/** The start line of `role`. */
-function saidOf(
-  role: RouteRole,
-  ctx: { variant: Variant; config: unknown; ring: KeyRing; offline: boolean },
-  harness: SubscriptionPath | MemoryPath | null
-): string {
+/** The start line of `role` on the route it would take now, or with none, why. */
+function saidOf(role: RouteRole, route: Route | null, ctx: { config: unknown; offline: boolean }): string {
   if (ctx.offline) return `${role}: answered from files`;
-  const route = ctx.variant[role];
-  if (route?.kind === 'harness')
+  if (route?.via === 'harness')
     return `${role}: harness ${route.backend}, model ${route.model}${effortText(route.effort)}`;
-  if (route === undefined && harness !== null && harness.kind === 'subharness')
-    return `${role}: harness ${harness.backend}, model ${harness.model}${effortText(harness.effort)}`;
-  const model = route?.model ?? (role === 'search' ? searchModel(ctx.config) : roleModel(ctx.config, role));
-  if (model === undefined) return `${role}: off`;
-  const name = ctx.ring.route(role)?.name;
-  const effort = route === undefined ? reasoningOf(ctx.config, role)?.effort : route.effort;
-  return `${role}: ${name === undefined ? 'no key' : `key ${name}`}, model ${model}${effortText(effort)}`;
+  if (route?.via === 'api') return `${role}: key ${route.key}, model ${route.model}${effortText(route.effort)}`;
+  const model = role === 'search' ? searchModel(ctx.config) : roleModel(ctx.config, role);
+  return model === undefined ? `${role}: off` : `${role}: no key, model ${model}`;
 }
 
 /**
- * The routing of one run of a paid script on `variant`: production's, with the variant's roles replaced. Refuses a
- * route whose key keys.json lacks or whose harness is not logged in, with one line that names `tool`, before any client
- * is built.
+ * The routing of one run of a paid script on `variant`: production's chains, with the variant's roles replaced whole.
+ * Refuses a route whose key keys.json lacks or whose harness is not logged in, with one line that names `tool`, before
+ * any client is built.
  */
 export async function scriptRouting<C>(tool: string, deps: ScriptRoutingDeps<C>): Promise<ScriptRouting> {
   const { privateDir, variant } = deps;
   const offline = deps.offline !== undefined;
   if (!offline) await checkRoutes(tool, privateDir, variant);
   const ring = routedRing(privateDir, variant, offline);
+  const store = createKeyStore({ privateDir });
   const getConfig = (): C => routedConfig(deps.getConfig(), variant);
-  const core = variant.core;
-  const memory = variant.memory;
-  const corePath = (): SubscriptionPath =>
-    core === undefined
-      ? subscriptionPath(privateDir, 'core')
-      : core.kind === 'harness'
-        ? { kind: 'subharness', backend: core.backend, model: core.model, effort: core.effort }
-        : { kind: 'api' };
-  const memoryPath = (): MemoryPath =>
-    memory === undefined
-      ? storedMemoryPath(privateDir)
-      : memory.kind === 'harness'
-        ? { kind: 'subharness', backend: memory.backend, model: memory.model, effort: memory.effort }
-        : { kind: 'direct' };
-  const said = deps.roles.map((role) =>
-    saidOf(
-      role,
-      { variant, config: getConfig(), ring, offline },
-      role === 'core' ? corePath() : role === 'memory' ? memoryPath() : null
-    )
-  );
-  const keyOf = (role: string): string | null => ring.route(role)?.value ?? null;
+  let executor: ((role: string) => Direct) | null = null;
+  const chain = createChainClient({
+    getConfig,
+    keys: { coreNames: () => store.coreNames(), valueOf: (name) => store.valueOf(name) },
+    chain: createRouteChainOf(getConfig, Date.now),
+    executor: (role) => {
+      if (executor === null) throw new Error(`${tool}: a model request came before the clients were built`);
+      return executor(role);
+    },
+    routes: (role) => {
+      const own = routeOf(variant, role);
+      return own === undefined ? null : [chainRouteOf(own)];
+    },
+  });
+  const memoryPath = (): MemoryPath => {
+    const route = chain.inForce('memory');
+    return route?.via === 'harness'
+      ? { kind: 'subharness', backend: route.backend, model: route.model, effort: route.effort }
+      : { kind: 'direct' };
+  };
+  const said = deps.roles.map((role) => saidOf(role, chain.inForce(role), { config: getConfig(), offline }));
+  const routes = (role: RouteRole): Array<Route> => chain.routes(role);
   if (deps.offline !== undefined) {
     const answers = deps.offline;
-    return { said, ring, keyOf, llm: answers, memoryPath, close: () => Promise.resolve() };
+    return { said, ring, keyOf: () => null, llm: answers, memoryPath, routes, close: () => Promise.resolve() };
   }
 
   const direct = deps.createDirect(ring, getConfig);
@@ -389,7 +360,6 @@ export async function scriptRouting<C>(tool: string, deps: ScriptRoutingDeps<C>)
   const socket = bridgeSocket(bridge);
   const subscription = createSubscriptionClient({
     privateDir,
-    ...(core === undefined ? {} : { fixedPath: corePath() }),
     direct,
     bridge,
     spawn: deps.spawn ?? spawnSubscriptionChild,
@@ -410,29 +380,23 @@ export async function scriptRouting<C>(tool: string, deps: ScriptRoutingDeps<C>)
   const writer = memoryWriterClient({
     writer: { privateDir, runChild: deps.runChild ?? runChildProcess, workDir },
     direct,
-    path: memoryPath,
   });
-  const complete: Direct['complete'] = async (messages, options) => {
-    const asked = recOf(options);
-    const role = typeof asked.role === 'string' ? asked.role : 'core';
-    const route = routeOf(variant, role);
-    const sent =
-      route?.kind === 'key'
-        ? {
-            ...asked,
-            model: route.model,
-            ...(route.effort !== null && !isRec(asked.reasoning) ? { reasoning: { effort: route.effort } } : {}),
-          }
-        : asked;
-    if (role === 'memory') {
-      const done = await writer.complete(Array.isArray(messages) ? messages.filter(isRec) : [], sent);
-      return { estimated: 0, ...done, text: typeof done.text === 'string' ? done.text : '', usage: done.usage ?? {} };
-    }
-    const tools = sent.tools;
-    if (role === 'core' && Array.isArray(tools) && tools.length > 0) await socket.ready();
-    return subscription.complete(messages, sent);
+  const core: Direct = {
+    async complete(messages, options) {
+      const tools = recOf(options).tools;
+      if (Array.isArray(tools) && tools.length > 0) await socket.ready();
+      return subscription.complete(messages, options);
+    },
   };
-  return { said, ring, keyOf, llm: { complete }, memoryPath, close: () => socket.close() };
+  const memory: Direct = {
+    async complete(messages, options): Promise<CompleteResult> {
+      const done = await writer.complete(Array.isArray(messages) ? messages.filter(isRec) : [], recOf(options));
+      return { estimated: 0, ...done, text: typeof done.text === 'string' ? done.text : '', usage: done.usage ?? {} };
+    },
+  };
+  executor = (role) => (role === 'core' ? core : role === 'memory' ? memory : direct);
+  const llm: Direct = { complete: (messages, options) => chain.complete(messages, options) };
+  return { said, ring, keyOf: (role) => chain.keyOf(role), llm, memoryPath, routes, close: () => socket.close() };
 }
 
 /**

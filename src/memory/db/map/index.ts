@@ -1,7 +1,6 @@
 // The mappers by kind. Each mapper module exports `toRows(rel, value, ctx)` and `fromRows(rows, ctx)`; the pair is an exact
 // round trip of the stored value (key order aside).
 
-import * as selfreflection from './selfreflection.ts';
 import * as errands from './errands.ts';
 import * as gifs from './gifs.ts';
 import type { MapContext } from './common.ts';
@@ -29,7 +28,6 @@ export type Mapper = {
 };
 
 export const MAPPERS = {
-  selfreflection,
   errands,
   media,
   gifs,

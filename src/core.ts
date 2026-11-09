@@ -46,6 +46,8 @@ import { archivedLlm } from './llm/archive.ts';
 import type { ArchiveWriteGap } from './llm/archive.ts';
 import { noteArchiveGap } from './watcher/requests.ts';
 import { createLlm } from './llm/openrouter.ts';
+import type { CompleteResult } from './llm/openrouter.ts';
+import { createChainClient, createRouteChainOf } from './llm/chain-client.ts';
 import { createKeyFailover } from './llm/key-failover.ts';
 import { MEMORY_ROLE_DEFAULT, ROLE_DEFAULTS, SEARCH_ROLE, roleModel, searchModel } from './llm/roles.ts';
 import { statusCardKeys } from './keys/card-keys.ts';
@@ -202,6 +204,9 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
+/** A model client as the chain client (src/llm/chain-client.ts) hands it a request. */
+type Completing = { complete(messages: unknown, options?: unknown): Promise<CompleteResult> };
+
 /** The chat client as the core hands it on. */
 type ChatClient = Omit<ReturnType<typeof createLlm>, 'complete'> & {
   complete: (messages: Untyped, options?: Untyped) => Promise<Untyped>;
@@ -271,8 +276,8 @@ async function buildCore(
   const keyStore = createKeyStore({ privateDir: paths.privateDir });
   const keyRing = createKeyRing({ store: keyStore, failover: createKeyFailover({ now: clock }) });
   const ringNow = () => keyRing;
-  /** The key of `role` in the key store, '' when the store has no key for it. */
-  const keyOf: KeyOf = (role) => keyRing.route(role)?.value ?? '';
+  /** The key of `role`: the key of the first usable API route of its chain, '' with none. */
+  const keyOf: KeyOf = (role) => chainClient.keyOf(role) ?? '';
   const openrouterKey = '';
   // Optional: without it a YouTube duration comes from the watch page only.
   const youtubeApiKey = serviceCredential(paths.dataDir, 'youtube');
@@ -284,6 +289,17 @@ async function buildCore(
   fs.mkdirSync(paths.dataDir, { recursive: true });
   const hot = createHot({ rootDir: paths.rootDir, privateDir: paths.privateDir }).watch();
   cleanups.push(() => hot.close());
+  // Every request of a model role walks its chain of routes (src/llm/chain-client.ts) to the clients built below.
+  let chainExecutors: { core: Completing; memory: Completing; direct: Completing } | null = null;
+  const chainClient = createChainClient({
+    getConfig: (): unknown => hot.config,
+    keys: { coreNames: () => keyStore.coreNames(), valueOf: (name) => keyStore.valueOf(name) },
+    chain: createRouteChainOf((): unknown => hot.config, clock),
+    executor: (role) => {
+      if (chainExecutors === null) throw new Error('core: a model request came before the model clients were built');
+      return role === 'core' ? chainExecutors.core : role === 'memory' ? chainExecutors.memory : chainExecutors.direct;
+    },
+  });
 
   // The engine proxy (src/net/engine-proxy.ts) in force before anything connects; the interfaces never take it.
   const proxy = startEngineProxy({ dataDir: paths.dataDir, config: (): unknown => hot.config, now: clock, log });
@@ -482,7 +498,7 @@ async function buildCore(
   });
   // createLlm (src/llm/openrouter.js) declares `complete` as `Function`, which no caller's declared call accepts, so
   // the core hands the client on typed as the call the modules below make.
-  // The core's own failure `keys-exhausted` (every key of its list out of credit) is told to the tracker.
+  // The core's own failure `routes-exhausted` (every route of its chain unavailable) is told to the tracker.
   const requestArchive = {
     write: (update: Record<string, unknown>) => memoryDb.memoryWrite(update),
     log,
@@ -490,33 +506,41 @@ async function buildCore(
     noteGap: (gap: ArchiveWriteGap) => noteArchiveGap(paths.privateDir, gap),
   };
   const directLlm = (options.llm ??
-    reportingCoreKeys(
-      createLlm({
-        apiKey: openrouterKey,
-        keys: ringNow,
-        getConfig: () => hot.config,
-        calibrator,
-        state: processState,
-      }),
-      roleHealth
-    )) as ChatClient;
+    createLlm({
+      apiKey: openrouterKey,
+      keys: ringNow,
+      getConfig: () => hot.config,
+      calibrator,
+      state: processState,
+    })) as ChatClient;
   const subscription = coreSubscription({ direct: directLlm, paths, hot, state: processState, usage, logins });
-  const llm = archivedLlm(subscription.llm, requestArchive);
-  // Her memory session through a subharness never reaches the chat client, so it has its own archive wrap.
-  sessionClient = archivedLlm(
-    memoryWriterClient({
-      writer: {
-        privateDir: paths.privateDir,
-        runChild: runChildProcess,
-        workDir: path.join(os.tmpdir(), 'neptunia-memory'),
-      },
-      direct: directLlm,
-      record: (entry) => usage.record(entry),
-      onRefused: () => void watches?.refused('memory'),
-      ran: (backend, outcome) => logins.ran('memory', backend, outcome),
-    }),
-    requestArchive
-  );
+  const memoryWriter = memoryWriterClient({
+    writer: {
+      privateDir: paths.privateDir,
+      runChild: runChildProcess,
+      workDir: path.join(os.tmpdir(), 'neptunia-memory'),
+    },
+    direct: directLlm,
+    record: (entry) => usage.record(entry),
+    onRefused: () => void watches?.refused('memory'),
+    ran: (backend, outcome) => logins.ran('memory', backend, outcome),
+  });
+  chainExecutors = {
+    core: subscription.llm,
+    // A memory request's messages and options pass the chain unchanged, in the shapes the session gave the writer.
+    memory: {
+      complete: (messages, opts) =>
+        memoryWriter.complete(
+          messages as ReadonlyArray<Record<string, unknown>>,
+          (opts ?? {}) as Record<string, unknown>
+        ) as unknown as Promise<CompleteResult>,
+    },
+    direct: directLlm,
+  };
+  const chained = { ...directLlm, complete: chainClient.complete };
+  const reported = options.llm === undefined ? reportingCoreKeys(chained, roleHealth) : chained;
+  const llm = archivedLlm(reported, requestArchive);
+  sessionClient = archivedLlm(reported, requestArchive);
   // Embeddings (role embedding) on the same daily request count as the chat client.
   const embedder = options.embedder ?? createEmbedder({ apiKey: openrouterKey, keyOf, state: processState });
   // The meaning index kept current: record lines queued above, flushed on the tick below.

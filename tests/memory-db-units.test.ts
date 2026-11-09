@@ -468,8 +468,10 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
           throw Object.assign(new Error('down'), { code: 'SQLITE_FULL' });
         return service.writeUnit(update);
       },
-      // A lorebook has its own write kind (src/memory/db/place-lore.ts), refused the same way.
+      // A lorebook and her selfreflection have their own write kinds (src/memory/db/place-lore.ts,
+      // selfreflection-entries.ts), refused the same way.
       writePlaceLore: () => Promise.reject(Object.assign(new Error('down'), { code: 'SQLITE_FULL' })),
+      writeSelfreflection: () => Promise.reject(Object.assign(new Error('down'), { code: 'SQLITE_FULL' })),
     };
     const m = await modules(data, { log, memoryDb: down });
     const before = moves(service.readHandle()!);
