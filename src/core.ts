@@ -1167,10 +1167,7 @@ async function buildCore(
     try {
       if (inner.facts?.enabled?.() !== true) return;
       const dmChat = scopeKind === 'dm';
-      const chatId =
-        dmChat && typeof place === 'string'
-          ? chatOfPlace(store, place, (partner) => directory.dmChatOf(partner))
-          : null;
+      const chatId = dmChat && typeof place === 'string' ? chatOfPlace(store, place) : null;
       inner.facts.add({ kind: 'memoryFailed', code, waiting: lines, placeId: chatId, dmChat, at });
     } catch (err) {
       log.warn('index: memory session failure not told', { code: objOf(err).code ?? null });

@@ -28,8 +28,7 @@
 // The model client comes from scripts/lib/cli.ts#simulationLlm: her core requests take the simulation's subscription
 // route while one is stored, every other request the simulation key, and the run says on stderr which it spends.
 //
-// Not for: measuring what her memory session writes (scripts/memory-session.ts);
-// reading the journal's day numbers (scripts/journal-report.ts).
+// Not for: measuring what her memory session writes (scripts/memory-session.ts).
 //
 //   cd /opt/neptunia/app && node scripts/replay.ts <placeId> <triggerMessageId>
 //        [--before 40] [--samples 1] [--show-request] [--as-of-moment]

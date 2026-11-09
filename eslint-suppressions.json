@@ -24,14 +24,6 @@
       "count": 1
     }
   },
-  "scripts/journal-report.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    },
-    "@typescript-eslint/require-await": {
-      "count": 1
-    }
-  },
   "scripts/labels-catalogue.ts": {
     "@typescript-eslint/require-await": {
       "count": 1
@@ -167,23 +159,6 @@
       "count": 18
     },
     "@typescript-eslint/require-await": {
-      "count": 2
-    }
-  },
-  "scripts/lib/report.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 12
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 10
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 29
-    },
-    "@typescript-eslint/no-unsafe-return": {
       "count": 2
     }
   },
@@ -359,14 +334,6 @@
     },
     "@typescript-eslint/require-await": {
       "count": 8
-    }
-  },
-  "scripts/request-report.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
     }
   },
   "scripts/search-compare.ts": {

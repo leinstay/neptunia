@@ -124,7 +124,8 @@ test('refuses a chat the interface does not know', async () => {
       context: { placeId: ROOT },
       need: 'send',
     }),
-    { status: 'denied', code: 'channel-no-permission' }
+    // The interface's own code: `channel-no-permission` told her a missing right where the chat was missing.
+    { status: 'invalid', code: 'unknown-conversation' }
   );
 });
 
