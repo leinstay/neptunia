@@ -19,7 +19,6 @@
 import { recoverRequestArchive } from './request-archive.ts';
 import { parentPort } from 'node:worker_threads';
 import process from 'node:process';
-import { importCoreJsonState } from '../migration/core-state-import.ts';
 import { openMemoryDb } from './open.ts';
 import { insertTurnReads, turnReadRows } from './service.ts';
 import { applySelfreflectionUpdate } from './selfreflection-media.ts';
@@ -65,8 +64,7 @@ const handlers: Record<string, (message: Row) => unknown> = {
     handle = openMemoryDb(path, { alive, context: context ?? {} });
     const dataDir = (context as Row | undefined)?.dataDir;
     if (typeof dataDir === 'string') {
-      importCoreJsonState(handle, { dataDir, ...(typeof now === 'number' ? { now } : {}) });
-      recoverRequestArchive(handle, { dataDir, ...(typeof now === 'number' ? { now } : {}) });
+      recoverRequestArchive(handle, typeof now === 'number' ? { now } : {});
     }
     return {};
   },

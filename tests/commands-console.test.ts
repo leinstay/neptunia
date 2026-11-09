@@ -14,6 +14,9 @@ import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 import { NOT_GRANTABLE_TO_PERSONA } from '../src/tools/access.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { personaKey } from '../src/memory/db/storage-keys.ts';
+import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import {
   REPO,
@@ -118,7 +121,7 @@ async function withoutFetch(body: () => Promise<void>): Promise<Array<string>> {
   return asked;
 }
 
-/** Today's usage rows in `data/usage.json` before the core starts: two roles with costs no label holds. */
+/** Today's usage rows in the persona's `usage` unit before the core starts: two roles with costs no label holds. */
 function seedUsage(dirs: Dirs): void {
   mkdirSync(dirs.dataDir, { recursive: true });
   const today = new Date().toISOString().slice(0, 10);
@@ -129,10 +132,13 @@ function seedUsage(dirs: Dirs): void {
     completionTokens: 10 * requests,
     cost,
   });
-  writeFileSync(
-    join(dirs.dataDir, 'usage.json'),
-    JSON.stringify({ v: 1, days: { [today]: { vision: row(3, 0.4321), analyzer: row(2, 0.0123) } } })
-  );
+  const seed = openMemoryDb(join(dirs.dataDir, 'memory.db'));
+  applyUnitWrite(seed, {
+    op: 'value',
+    key: personaKey('usage'),
+    value: { v: 1, days: { [today]: { vision: row(3, 0.4321), analyzer: row(2, 0.0123) } } },
+  });
+  seed.close();
 }
 
 // Spec case 1.

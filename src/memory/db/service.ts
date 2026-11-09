@@ -2,7 +2,7 @@
 //
 // `createMemoryDb({ hot, dataDir, log, now })` opens `data/<memoryDb.file>` with the writer lock and keeps it open while
 // the bot runs; every memory module reads it and writes it through this service:
-//   - `open()` imports core state and replays pending writes before exposing readers. Core startup awaits it before
+//   - `open()` closes interrupted request records and replays pending writes before exposing readers. Core startup awaits it before
 //     constructing durable stores. It runs no maintenance jobs. `tick()` retries a refused open (logged once per code)
 //     and runs maintenance after the core is constructed.
 //   - `readHandle()` is the read-only connection while the database is open (null otherwise): what the memory modules'
@@ -123,7 +123,6 @@ import {
 import type { QuarantinedPending, QuarantineStatus } from './pending-quarantine.ts';
 import type { StorageKey } from './storage-keys.ts';
 
-import { importCoreJsonState } from '../migration/core-state-import.ts';
 import { lockPathOf, openMemoryDb } from './open.ts';
 import { channelPlaceId, nativeAuthorityOf } from './ids.ts';
 import { LEGACY_IFACE, liveIface, withLiveIface } from './legacy-namespace.ts';
@@ -687,12 +686,6 @@ function privateReads(db: () => Db): Pick<MemoryDbService, 'privateByPerson' | '
   };
 }
 
-/** What an open writer brings in once: the core's old JSON state, and the request archive's recovery. */
-function importOnOpen(handle: MemoryHandle, where: { dataDir: string; now: number }): void {
-  importCoreJsonState(handle, where);
-  recoverRequestArchive(handle, where);
-}
-
 function databaseSettings(config: Config) {
   const given = config?.memoryDb ?? {};
   const closeMs = given.closeTimeoutMs;
@@ -795,7 +788,7 @@ export function createMemoryDb({
         engine = started;
       } else {
         handle = openDb(dbPath, { context: openContext() });
-        importOnOpen(handle, { dataDir, now: now() });
+        recoverRequestArchive(handle, { now: now() });
       }
       // The writes a shutdown left pending go in before anything reads (synchronous without a worker).
       await replayPending();
