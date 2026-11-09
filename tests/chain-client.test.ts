@@ -4,7 +4,7 @@
 // answer or fail as scripted; no provider and no CLI is reached.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createChainClient } from '../src/llm/chain-client.ts';
+import { createChainClient, reportingFailures } from '../src/llm/chain-client.ts';
 import { createRouteChain } from '../src/llm/route-chain.ts';
 import type { CompleteResult } from '../src/llm/openrouter.ts';
 
@@ -222,4 +222,53 @@ test('a request of a role outside the chains goes to its client unchanged', asyn
   await client.complete(MESSAGES, { role: 'scout', model: 'x/y' });
   assert.equal(optionsOf(asked, 0).chainRoute, undefined);
   assert.equal(optionsOf(asked, 0).routeKey, undefined);
+});
+
+const EMBEDDING_CHAIN = {
+  models: {
+    routes: {
+      embedding: [
+        { via: 'api', key: 'main', model: 'openai/text-embedding-3-large' },
+        { via: 'api', key: 'helpers', model: 'openai/text-embedding-3-large' },
+      ],
+    },
+  },
+};
+
+test('a spent key reported by a client of its own moves the role to its next route', () => {
+  // Catches: the embedder failing on a spent key forever, since its requests never pass the chain client.
+  const { client } = rig(EMBEDDING_CHAIN);
+  assert.deepEqual(client.keyRouteOf('embedding'), { name: 'main', value: KEYS.main });
+  client.report('embedding', http(402));
+  assert.deepEqual(client.keyRouteOf('embedding'), { name: 'helpers', value: KEYS.helpers });
+});
+
+test('a failure reported that would fail on any route moves nothing', () => {
+  // Catches: a 500 of the embedder burning through the keys of its chain.
+  const { client } = rig(EMBEDDING_CHAIN);
+  client.report('embedding', http(500));
+  client.report('embedding', new Error('timed out'));
+  assert.deepEqual(client.keyRouteOf('embedding'), { name: 'main', value: KEYS.main });
+});
+
+test('the route a probe found down moves the role on, and says whether another route is now in force', () => {
+  // Catches: a failed probe pausing her although a later route of the core's chain works.
+  const { client } = rig(CORE_CHAIN);
+  assert.equal(client.moveOn('core', 'subscription-login'), true);
+  assert.equal(client.inForce('core')?.via, 'api');
+  assert.equal(client.moveOn('core', 'http-402'), false, 'the first failed within the minute, so nothing is left');
+});
+
+test('a client wrapped for its role reports each failed call and passes the answer and the error on', async () => {
+  // Catches: the embedder's spent key never reaching the chain, or the wrapper swallowing the failure.
+  const reported: Array<[string, unknown]> = [];
+  const failure = http(402);
+  const client = reportingFailures(
+    { embed: (fail: boolean) => (fail ? Promise.reject(failure) : Promise.resolve([1])) },
+    'embedding',
+    (role, error) => reported.push([role, error])
+  );
+  assert.deepEqual(await client.embed(false), [1]);
+  await assert.rejects(client.embed(true), (error) => error === failure);
+  assert.deepEqual(reported, [['embedding', failure]]);
 });

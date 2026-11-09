@@ -6,7 +6,9 @@
 // `memory-down`, through the reasoned pause (src/keys/commands.ts#PauseControl), and the part's next passing probe lifts
 // only that pause. When it lifts while another part's last probe failed, she sleeps again with that part's reason. A
 // part that does not run passes with no request: an analyzer whose model is switched off, a memory session that is not
-// `apply`. With no `fetch`, as in a core whose model client was injected, a part on the API passes with no request. The owner's word of 2026-11-08: the memory probe stays and the same probe applies to the core and the analyzer.
+// `apply`. With no `fetch`, as in a core whose model client was injected, a part on the API passes with no request.
+// The route a part takes is the one in force of its chain (`path`); a probe that fails on it moves the chain on
+// (`moveOn`) and probes the next route, so she sleeps only when no route of the part answers. The owner's word of 2026-11-08: the memory probe stays and the same probe applies to the core and the analyzer.
 
 import type { PauseControl } from '../keys/commands.ts';
 import { MEMORY_DOWN, createMemoryWatch, routeProbe } from './memory-probe.ts';
@@ -36,6 +38,13 @@ export type RouteWatchDeps = {
   route(role: WatchedRole): { name: string; value: string } | null;
   /** The model `role` runs on the API now; null while it is switched off. */
   model(role: WatchedRole): string | null;
+  /** The route `role` takes now, from its chain (src/llm/chain-client.ts); absent, config.json's harness records. */
+  path?(role: WatchedRole): ProbePath;
+  /**
+   * The route in force of `role` failed its probe with `code`: the chain moves on, and true says another route is in
+   * force, which is probed at once. Absent, a failed probe stands.
+   */
+  moveOn?(role: WatchedRole, code: string): boolean;
   runBackend: MemoryProbeDeps['runBackend'];
   pause: PauseControl;
   now(): number;
@@ -64,16 +73,16 @@ const rec = (value: unknown): Record<string, unknown> =>
 /** Whether the memory writer runs: its session mode is `apply`. */
 const writerRuns = (config: unknown): boolean => rec(rec(rec(config).memoryDb).session).mode === 'apply';
 
-function pathOf(privateDir: string, role: WatchedRole): ProbePath {
+function storedPathOf(privateDir: string, role: WatchedRole): ProbePath {
   if (role === 'core') return subscriptionPath(privateDir, 'core');
   return role === 'memory' ? memoryPath(privateDir) : { kind: 'direct' };
 }
 
 export function createRouteWatches(deps: RouteWatchDeps): RouteWatches {
   const watches = new Map<WatchedRole, MemoryWatch>();
-  const probe = (role: WatchedRole, now: number): Promise<ProbeResult> => {
+  const probeOnce = (role: WatchedRole, now: number): Promise<ProbeResult> => {
     const model = deps.model(role);
-    const path = pathOf(deps.privateDir, role);
+    const path = deps.path?.(role) ?? storedPathOf(deps.privateDir, role);
     const fetch = deps.fetch;
     const off = role === 'memory' ? !writerRuns(deps.config()) : role === 'analyzer' && model === null;
     if (off || (fetch === null && path.kind !== 'subharness')) return Promise.resolve({ ok: true, at: now });
@@ -90,6 +99,13 @@ export function createRouteWatches(deps: RouteWatchDeps): RouteWatches {
       },
       now
     );
+  };
+  /** A probe along the chain: a failed route in force hands over to the next; 8 moves bound a chain that keeps moving. */
+  const probe = async (role: WatchedRole, now: number): Promise<ProbeResult> => {
+    let result = await probeOnce(role, now);
+    for (let moved = 0; !result.ok && moved < 8 && deps.moveOn?.(role, result.code) === true; moved += 1)
+      result = await probeOnce(role, now);
+    return result;
   };
   /** The reason of another part whose last probe failed, for the sleep after one lifted. */
   const others = (role: WatchedRole): string | null => {

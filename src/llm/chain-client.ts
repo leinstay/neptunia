@@ -40,6 +40,15 @@ export type ChainClient = {
   inForce(role: RouteRole): Route | null;
   /** The value of the key of the first usable API route of `role` from the one in force, null with none. */
   keyOf(role: string): string | null;
+  /** The name and value of that key, null with none. */
+  keyRouteOf(role: string): { name: string; value: string } | null;
+  /**
+   * A client that sends on `keyOf` (the embedder, the speech synthesis, the pictures) failed with `error`: when it makes
+   * that route unavailable the role moves to its next route for its next request.
+   */
+  report(role: string, error: unknown): void;
+  /** The route in force of `role` was found down with `code` (a probe): the role moves on; true when another is in force. */
+  moveOn(role: RouteRole, code: string): boolean;
 };
 
 const isRec = (value: unknown): value is Rec => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -64,6 +73,18 @@ export function createChainClient(deps: ChainClientDeps): ChainClient {
   const routes = (role: RouteRole): Array<Route> =>
     deps.routes?.(role) ?? routesOf(deps.getConfig(), role, deps.keys.coreNames());
   const isUsable = (route: Route): boolean => route.via === 'harness' || deps.keys.valueOf(route.key) !== null;
+
+  /** The first API route of `role` whose key keys.json holds, from the route in force, with that key. */
+  function keyRoute(role: string) {
+    if (!isRouteRole(role)) return null;
+    const chain = routes(role);
+    for (const index of walk(role, chain)) {
+      const route = chain[index];
+      const value = route?.via === 'api' ? deps.keys.valueOf(route.key) : null;
+      if (route?.via === 'api' && value !== null) return { name: route.key, value, route, chain, index };
+    }
+    return null;
+  }
 
   /** The indexes of `chain` in the order a request walks them: from the route in force to the end, then from the first. */
   function walk(role: RouteRole, chain: ReadonlyArray<Route>): Array<number> {
@@ -125,17 +146,23 @@ export function createChainClient(deps: ChainClientDeps): ChainClient {
       const index = walk(role, chain).find((one) => chain[one] !== undefined && isUsable(chain[one]));
       return index === undefined ? null : (chain[index] ?? null);
     },
-    keyOf(role) {
-      if (!isRouteRole(role)) return null;
+    keyOf: (role) => keyRoute(role)?.value ?? null,
+    keyRouteOf: (role) => {
+      const found = keyRoute(role);
+      return found === null ? null : { name: found.name, value: found.value };
+    },
+    report(role, error) {
+      const found = keyRoute(role);
+      if (found === null || !isRouteRole(role)) return;
+      const code = unavailableCode(found.route, error);
+      if (code !== null) deps.chain.failed(role, found.chain, found.index, code);
+    },
+    moveOn(role, code) {
       const chain = routes(role);
-      for (const index of walk(role, chain)) {
-        const route = chain[index];
-        if (route?.via === 'api') {
-          const value = deps.keys.valueOf(route.key);
-          if (value !== null) return value;
-        }
-      }
-      return null;
+      const index = deps.chain.inForce(role, chain);
+      if (chain[index] === undefined) return false;
+      deps.chain.failed(role, chain, index, code);
+      return deps.chain.inForce(role, chain) !== index;
     },
   };
 }
@@ -149,4 +176,32 @@ export function createRouteChainOf(getConfig: () => unknown, now: () => number):
     return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 30;
   };
   return createRouteChain({ now, retryMs: () => minutes() * MINUTE_MS });
+}
+
+/**
+ * `client` with each call that returns a promise told to `report` under `role` when it rejects, the rejection passed on
+ * unchanged: the clients that send on a role's key themselves (the embedder, the speech synthesis, the pictures) move
+ * the role along its chain this way (`ChainClient.report`).
+ */
+export function reportingFailures<TClient extends object>(
+  client: TClient,
+  role: string,
+  report: (role: string, error: unknown) => void
+): TClient {
+  // A copy of the client's own properties, read by name below; its functions are replaced one by one.
+  const wrapped = Object.assign({}, client) as Record<string, unknown>;
+  for (const [name, value] of Object.entries(client)) {
+    if (typeof value !== 'function') continue;
+    const call = value as (...args: Array<unknown>) => unknown;
+    wrapped[name] = (...args: Array<unknown>): unknown => {
+      const result = call.apply(client, args);
+      if (!(result instanceof Promise)) return result;
+      return result.catch((error: unknown) => {
+        report(role, error);
+        throw error;
+      });
+    };
+  }
+  // Each own function of `client` is replaced by a wrapper of the same signature; the rest is copied as it was.
+  return wrapped as TClient;
 }
