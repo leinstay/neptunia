@@ -122,6 +122,7 @@ import { mediaText } from './memory/db/media-store.ts';
 import { OWNER_CLIENT } from './setup/clients.ts';
 import { createConsole } from './interface/commands/console.ts';
 import { coreWatcherStarter } from './watcher/doctor.ts';
+import { failRunOfLastCore, runStoreOf } from './watcher/lifecycle.ts';
 import { statusBrief } from './interface/commands/status-brief.ts';
 import { wakeClockOf } from './service/commands.ts';
 import { isPausedIn, resumeHeld } from './behavior/core-pause.ts';
@@ -265,6 +266,9 @@ async function buildCore(
   const clock = options.now ?? Date.now;
   // The checkout and canonical persona data root are logged once. privateDir aliases dataDir.
   log.info('index: paths', { rootDir: paths.rootDir, privateDir: paths.privateDir, dataDir: paths.dataDir });
+  // A watcher run is a child of the core, so one still open at this start died with the core before it.
+  if (failRunOfLastCore(runStoreOf(path.dirname(reportsDirOf(paths.privateDir)))) !== null)
+    log.info('watcher: run ended by the restart', { code: 'core-restarted' });
   if (interfaces.length > 1) fail(`index: the core starts one interface at most, got ${interfaces.length}.`);
   // No interface in this process: they run as units, and the root comes from the settings.
   const asUnits = interfaces.length === 0;

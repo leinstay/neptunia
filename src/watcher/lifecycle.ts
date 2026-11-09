@@ -240,6 +240,33 @@ export function finishRun(
   });
 }
 
+/**
+ * At the core's start: the run in progress whose worker is no longer alive, or that no worker adopted, ends as `failed`
+ * with the code `core-restarted`, or as `succeeded` when its report was committed. The core starts every worker as its child, so such a run died with the core before. A
+ * run whose worker still lives is left alone. The answer is the run it ended, or null.
+ */
+export function failRunOfLastCore(store: RunStore): RunRecord | null {
+  // No run in progress, no lock: a core start makes no folder.
+  if (activeId(store) === null) return null;
+  return locked(store, () => {
+    const id = activeId(store);
+    const run = id === null ? null : readRecord(store, id);
+    if (run === null || !isOpen(run.state)) return null;
+    if (run.owner !== null && store.processStart(run.owner.pid) === run.owner.startId) return null;
+    // A report committed just before the restart makes the run the success it was.
+    const committed = readReportRun(path.join(store.dir, 'reports'), run.runId).ok;
+    const ended: RunRecord = {
+      ...run,
+      state: committed ? 'succeeded' : 'failed',
+      code: committed ? null : 'core-restarted',
+      detail: committed ? null : 'the core restarted during the run',
+      finishedAt: store.now(),
+    };
+    recordFinished(store, ended);
+    return ended;
+  });
+}
+
 /** Every run as a reader takes it, in the order of their claims. */
 export function allRuns(store: RunStore): Array<RunRecord> {
   let names: Array<string> = [];

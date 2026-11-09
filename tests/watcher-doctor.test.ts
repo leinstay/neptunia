@@ -253,3 +253,32 @@ test('run with no starter, as in a terminal with no core, is refused and claims 
   assert.equal(answer.status, 'failed');
   assert.match(watcherList(where(rig)).text, /no watcher report/);
 });
+
+// ---- a core restart --------------------------------------------------------------------------------------------------
+
+test('a run whose worker died with the last core ends as core-restarted when the core starts, and the list says so', async () => {
+  // Bug: a restart of the core takes the report with it, and the run reads as holder-gone, a crash nobody can place.
+  const { failRunOfLastCore } = await import('../src/watcher/lifecycle.ts');
+  const rig = inspectionRig();
+  const run = claimRun(rig.store, {
+    source: 'manual',
+    owner: { pid: 777, startId: 'old-core-child' },
+    timeoutMs: 60 * MINUTE,
+  }).run;
+  rig.clock.t += 5 * MINUTE;
+  assert.equal(failRunOfLastCore(rig.store)?.code, 'core-restarted');
+  assert.equal(readRun(rig.store, run.runId)?.state, 'failed');
+  assert.match(watcherList(where(rig)).text, /^1\s+failed \(core-restarted\)/);
+});
+
+test('a claim no worker adopted before the restart ends as core-restarted too, and a living run is left alone', async () => {
+  // Bug: the claim of a run the old core never started blocks every run for an hour, or a running report is failed.
+  const { failRunOfLastCore } = await import('../src/watcher/lifecycle.ts');
+  const rig = inspectionRig();
+  const waiting = claimRun(rig.store, { source: 'manual', owner: null, timeoutMs: 60 * MINUTE }).run;
+  assert.equal(failRunOfLastCore(rig.store)?.runId, waiting.runId);
+  assert.equal(readRun(rig.store, waiting.runId)?.code, 'core-restarted');
+  const living = claimRun(rig.store, CLAIM).run;
+  assert.equal(failRunOfLastCore(rig.store), null);
+  assert.equal(readRun(rig.store, living.runId)?.state, 'running');
+});
