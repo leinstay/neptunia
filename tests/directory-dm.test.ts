@@ -1,39 +1,10 @@
 // The chat directory of the core (src/interface/directory.ts) keeps the whole `Chat` record an interface
-// reported and learns the direct chat of a member from the messages it sees: `observe(event)` takes a
-// `message.received`, `dmChatOf(partnerId)` answers the chat id of the one-to-one chat with that member,
-// `get(id)` the record, `chats()` every record.
+// reported: `get(id)` answers the record, `chats()` every record. The address of a direct chat is the place's in
+// memory (tests/place-chat.test.ts), so the directory answers none.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createChatDirectory } from '../src/interface/directory.ts';
-import type { Chat, ChatChanged, MessageReceived } from '../src/protocol/events.ts';
-
-function message(chat: Chat, id = 'm1'): MessageReceived {
-  return {
-    kind: 'message.received',
-    iface: 'discord',
-    at: 1,
-    id: `discord:message:${id}`,
-    chat,
-    message: {
-      id,
-      author: { id: 'u1', name: 'Eleni', self: false, bot: false },
-      content: 'hi',
-      sourceText: 'hi',
-      system: false,
-      at: 1,
-      replyToId: null,
-      replyPingAccountId: null,
-      forwardedFrom: null,
-      attachments: [],
-      links: [],
-      forwarded: [],
-      stickers: [],
-      emojis: [],
-      reactions: [],
-    },
-    addressing: { mentioned: false, replyToSelf: false, mentionedAccountIds: [], mentionedChatIds: [] },
-  };
-}
+import type { Chat, ChatChanged } from '../src/protocol/events.ts';
 
 function changed(change: ChatChanged['change'], chat: Chat): ChatChanged {
   return {
@@ -45,46 +16,6 @@ function changed(change: ChatChanged['change'], chat: Chat): ChatChanged {
     change,
   };
 }
-
-const DM: Chat = { id: 'd1', kind: 'dm', rootId: null, name: null, chatType: 'dm', partnerId: 'u1' };
-
-test('learns the direct chat of a member from a message in it', () => {
-  const directory = createChatDirectory();
-  directory.observe(message(DM));
-  assert.equal(directory.dmChatOf('u1'), 'd1');
-});
-
-test('answers null for a member whose direct chat it has not seen', () => {
-  const directory = createChatDirectory();
-  directory.observe(message(DM));
-  assert.equal(directory.dmChatOf('u2'), null);
-});
-
-test('does not take a group chat for the direct chat of its first member', () => {
-  const directory = createChatDirectory();
-  directory.observe(message({ ...DM, id: 'd2', chatType: 'group_dm', partnerId: null }));
-  assert.equal(directory.dmChatOf('u1'), null);
-});
-
-test('does not learn a direct chat from a message in a channel', () => {
-  const directory = createChatDirectory();
-  directory.observe(message({ id: 'c1', kind: 'channel', rootId: 'g1', name: 'general' }));
-  assert.equal(directory.dmChatOf('u1'), null);
-});
-
-test('keeps the newest direct chat of a member when a second one is seen', () => {
-  const directory = createChatDirectory();
-  directory.observe(message(DM));
-  directory.observe(message({ ...DM, id: 'd7' }));
-  assert.equal(directory.dmChatOf('u1'), 'd7');
-});
-
-test('forgets a direct chat once its deletion is applied', () => {
-  const directory = createChatDirectory();
-  directory.observe(message(DM));
-  directory.apply(changed('deleted', DM));
-  assert.equal(directory.dmChatOf('u1'), null);
-});
 
 test('keeps the whole record a chat change carried', () => {
   const directory = createChatDirectory();

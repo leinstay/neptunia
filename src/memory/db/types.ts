@@ -69,7 +69,7 @@ export type Config = {
   focus?: Row | null;
   wakes?: { loop?: { timeBudgetMs?: unknown } };
   llm?: { maxRequestTokens?: unknown; keyByRole?: Row };
-  memoryDb?: { file?: unknown; closeTimeoutMs?: unknown; session?: Row; backup?: Row; [key: string]: unknown };
+  memoryDb?: { file?: unknown; closeTimeoutMs?: unknown; session?: Row; [key: string]: unknown };
   recall?: { db?: Row; [key: string]: unknown };
   [section: string]: unknown;
 };

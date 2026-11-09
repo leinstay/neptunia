@@ -14,7 +14,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { importCoreJsonState } from '../src/memory/migration/core-state-import.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import { isOperational } from '../src/memory/migration/paths.ts';
 import { createAppendStore } from '../src/memory/append-store.ts';
@@ -784,12 +783,6 @@ test("her session's attitude move reaches the store's cached profile: a later fl
 
 test('root state and participation, GIF and media caches persist through the writer without legacy JSON', async () => {
   const fixture = prepared();
-  const handle = openMemoryDb(path.join(fixture.data, 'memory.db'));
-  try {
-    importCoreJsonState(handle, { dataDir: fixture.data });
-  } finally {
-    handle.close();
-  }
   const files = ['state.json', ...['participation', 'gifs', 'media'].map((name) => `guilds/${GUILD}/${name}.json`)].map(
     (file) => path.join(fixture.data, file)
   );

@@ -913,7 +913,7 @@ test('recall.window: reads stored group lines through memory scope and refuses a
 });
 
 test('recall.window: the place rule reads the place row; a DM place with one opens for its partner, a place with none is refused', async () => {
-  const env = fixture();
+  const env = fixture(BOB);
   try {
     env.say({
       native: 'p1',
@@ -1557,7 +1557,7 @@ test('an issued internal context reads another DM through search and window with
 });
 
 test('an ordinary DM retains its own evidence and public groups while another private chat stays excluded', async () => {
-  const env = fixture();
+  const env = fixture(BOB, CAROL);
   try {
     env.account(BOB, ['Benoit']);
     env.account(CAROL, ['Carol']);
@@ -1952,7 +1952,7 @@ for (const hasProfiles of [true, false]) {
 
 for (const supplied of ['other-dm', 'group', 'current-dm'] as const) {
   test(`a DM search reads only its current partner when supplied an issued ${supplied} context`, async () => {
-    const env = fixture();
+    const env = fixture(BOB, CAROL);
     try {
       const { issueContext } = await import('../src/memory/db/scope.ts');
       for (const author of [BOB, CAROL]) {

@@ -112,12 +112,6 @@
       "snapshotMaxSeconds": 300,
       "maxSnapshots": 4
     },
-    "backup": {
-      "enabled": false,
-      "hour": 3,
-      "dir": "../backups/memory",
-      "keep": 7
-    },
     "session": {
       "mode": "off",
       "maxMessages": 200,

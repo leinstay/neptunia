@@ -1,57 +1,12 @@
-// The per-place GIF libraries of an older database become the persona's one (src/memory/db/gif-library-merge.ts), on the
-// path a shipped database takes: the offline conversion of a v28 database, then the first open, where the store reads
-// the library with no place. Plan 2026-11-04-cli-and-memory, stage B7.
+// The per-place GIF libraries of an older database become the persona's one (src/memory/db/gif-library-merge.ts) at the
+// first open, where the store reads the library with no place. Plan 2026-11-04-cli-and-memory, stage B7.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
 import { mergeGifLibraries } from '../src/memory/db/gif-library-merge.ts';
-import { listUnits } from '../src/memory/db/storage-units.ts';
 import { personaKey, placeCollection, storageId } from '../src/memory/db/storage-keys.ts';
 import { storageValue } from '../src/memory/db/export.ts';
 import { dbOf } from '../src/memory/db/types.ts';
-import { createMemoryDb } from '../src/memory/db/service.ts';
-import { createStore } from '../src/memory/store.ts';
-import { convert, scene } from './fixtures/memory-db/one-server.ts';
 import { freshMemoryDb } from './fixtures/memory-db-copy.ts';
-import path from 'node:path';
-
-test('a converted v28 database opens with its GIFs in the shared library, the old unit retired', () => {
-  // Bug: the conversion carries the rows into a database already at the current schema, so a step of the schema's own
-  // would never run on them, and the library would be empty after the rebuild.
-  const where = scene((raw) => {
-    raw
-      .prepare("UPDATE media SET extra = ? WHERE id = 'media:gif:a1'")
-      .run(JSON.stringify({ id: 'g1', kind: 'link', count: 4, last: 1000 }));
-  });
-  assert.deepEqual(convert(where), { status: 0, stderr: '' });
-  const handle = openMemoryDb(where.output);
-  const db = dbOf(handle);
-  assert.equal(schemaVersion(db), MIGRATIONS.length);
-  const placeUnits = listUnits(db, { kind: 'gifs' }).filter((unit) => unit.key.subject.type === 'place');
-  assert.deepEqual(placeUnits, [], 'no library of a place is left');
-  // The owner's structure: `path` is null or a file under `media/`, so the link of the old row moved to `extra`.
-  const row = db.prepare("SELECT path, extra FROM media WHERE id = 'media:gif:a1'").get();
-  assert.equal(row?.path, null);
-  assert.equal((JSON.parse(String(row?.extra)) as { url: string }).url, 'https://example.org/a.gif');
-  handle.close();
-
-  const dataDir = path.dirname(where.output);
-  const memoryDb = createMemoryDb({
-    hot: { config: { memoryDb: { session: { mode: 'off' } } } },
-    dataDir,
-    log: { info() {}, warn() {}, error() {} },
-    worker: false,
-  });
-  memoryDb.tick();
-  const entry = createStore({ dataDir, memoryDb }).getGifs().entries.a1;
-  assert.equal(entry?.url, 'https://example.org/a.gif');
-  assert.equal(entry?.count, 4, 'the count came along');
-  assert.equal(
-    Object.values(entry?.places ?? {}).reduce((sum, place) => sum + place.count, 0),
-    4
-  );
-  memoryDb.close();
-});
 
 test('two places of one database become one entry with a counter each, and a second open changes nothing', () => {
   // Bug: `g1` of one place and `g1` of another would post each other's GIF, and a repost's counts would be lost.

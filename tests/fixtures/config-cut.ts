@@ -555,10 +555,8 @@ export const KEPT: ReadonlyArray<string> = [
   'memoryDb.closeTimeoutMs',
   'memoryDb.observeTimeoutMs',
   'memoryDb.ingestKeepDays',
-  'memoryDb.backup.enabled',
-  'memoryDb.backup.hour',
-  'memoryDb.backup.dir',
-  'memoryDb.backup.keep',
+  // Legacy removal slice 10: `memoryDb.backup.enabled`, `hour`, `dir` and `keep` left KEPT with the in-engine backup,
+  // which the server's own backup timer replaces.
   'memoryDb.session.mode',
   'memoryDb.session.maxMessages',
   'memoryDb.session.minMessages',
@@ -758,7 +756,6 @@ export const PRODUCTION_LAYER = {
   },
   memoryDb: {
     session: { mode: 'apply' },
-    backup: { enabled: true, dir: '/srv/backups/memory' },
   },
   llm: {
     cache: { roles: ['core', 'analyzer', 'extractor'], models: ['anthropic/', 'openai/'] },

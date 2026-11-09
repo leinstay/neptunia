@@ -57,7 +57,7 @@ export function intentionLinesOf(
   read: Read
 ): Array<string> {
   const lines: Array<string> = [];
-  // The chats the batch's places name on their interfaces, from their rows: a room's own id, a DM's partner's.
+  // The chats the batch's places name on their interfaces: the address each row holds, a DM's as a room's.
   const chats = placeIds.flatMap((id) => {
     const ref = placeRefOf(db, id);
     const chat = ref === null ? null : nativeChatOf(ref);

@@ -2,12 +2,8 @@
 // messages, its answer and its result. Pictures stay markers (src/llm/archive.ts), the media tables hold what was kept
 // of them. The row is written before the request goes out, as `pending`, and closed afterwards; a process that dies in
 // between leaves it `pending`, and the next open marks it `unknown`. No answer is invented and nothing is sent again.
-// The table has no index into recall, so ordinary search never reads it. Written through the memory writer. `importRequestDumps` reads the
-// expiring dump files once and keeps what they say, a missing counterpart named in the row.
+// The table has no index into recall, so ordinary search never reads it. Written through the memory writer.
 
-import { oldJournalDirs } from '../migration/old-journals.ts';
-import fs from 'node:fs';
-import path from 'node:path';
 import type { Db, MemoryHandle } from './types.ts';
 import { dbOf } from './types.ts';
 
@@ -116,84 +112,7 @@ export function readRequests(db: Db): Array<Row> {
   return db.prepare('SELECT * FROM model_requests ORDER BY started_at, rowid').all();
 }
 
-function filesIn(dir: string): Array<string> {
-  try {
-    return fs.readdirSync(dir);
-  } catch {
-    return [];
-  }
-}
-
-const attemptOf = (value: unknown): string | null =>
-  typeof value === 'number' ? String(value) : typeof value === 'string' ? value : null;
-
-function dumpRecord(body: Row, id: string, tools: unknown, toolsMissing: boolean): Row {
-  const later: Array<unknown> = Array.isArray(body.later) ? body.later : [];
-  return {
-    id,
-    schema_version: REQUEST_RECORD_VERSION,
-    turn_id: body.turnId ?? null,
-    attempt_id: attemptOf(body.attemptId),
-    step: typeof body.step === 'number' ? body.step : 0,
-    status: typeof body.raw === 'string' && body.raw !== '' ? 'ok' : 'unknown',
-    started_at: typeof body.recordedAt === 'string' ? body.recordedAt : iso(0),
-    finished_at: typeof body.recordedAt === 'string' ? body.recordedAt : null,
-    system_text: typeof body.system === 'string' ? body.system : null,
-    messages: JSON.stringify([{ role: 'user', content: body.parts ?? [] }, ...later]),
-    tools: tools === undefined ? null : JSON.stringify(tools),
-    tool_choice: typeof body.toolChoice === 'string' ? body.toolChoice : null,
-    response_text: typeof body.raw === 'string' && body.raw !== '' ? body.raw : null,
-    tool_calls: Array.isArray(body.toolCalls) ? JSON.stringify(body.toolCalls) : null,
-    usage: body.usage === undefined || body.usage === null ? null : JSON.stringify(body.usage),
-    error_code: toolsMissing ? 'tools-file-missing' : null,
-    source: 'dump',
-  };
-}
-
-/**
- * Reads the request dump files under `dataDir` into the table, once each: a dump's id is its path, so a second run adds
- * nothing. Files stay where they are. A dump whose shared tool file is gone keeps its row, with `tools-file-missing`,
- * and an unreadable dump is counted, not guessed at.
- */
-export function importRequestDumps(
-  handle: MemoryHandle,
-  { dataDir }: { dataDir: string }
-): { imported: number; broken: number } {
-  const counts = { imported: 0, broken: 0 };
-  for (const journal of oldJournalDirs(dataDir)) {
-    const requests = path.join(journal, 'requests');
-    for (const day of filesIn(requests)) {
-      if (day === 'tools') continue;
-      for (const name of filesIn(path.join(requests, day))) {
-        if (!name.endsWith('.json')) continue;
-        const file = path.join(requests, day, name);
-        const id = `dump:${path.relative(dataDir, file)}`;
-        try {
-          const body = JSON.parse(fs.readFileSync(file, 'utf8')) as Row;
-          let tools: unknown;
-          let toolsMissing = false;
-          if (typeof body.tools === 'string') {
-            try {
-              tools = JSON.parse(fs.readFileSync(path.join(requests, 'tools', `${body.tools}.json`), 'utf8'));
-            } catch {
-              toolsMissing = true;
-            }
-          }
-          counts.imported += handle.transaction(() => insert(dbOf(handle), dumpRecord(body, id, tools, toolsMissing)));
-        } catch {
-          counts.broken += 1;
-        }
-      }
-    }
-  }
-  return counts;
-}
-
-/** At open: what a dead process left `pending` becomes `unknown`, and the old dump files are read in once. */
-export function recoverRequestArchive(
-  handle: MemoryHandle,
-  { dataDir, now = Date.now() }: { dataDir: string; now?: number }
-): void {
+/** At open: what a dead process left `pending` becomes `unknown`. */
+export function recoverRequestArchive(handle: MemoryHandle, { now = Date.now() }: { now?: number } = {}): void {
   applyRequestArchiveWrite(handle, { op: 'interrupt', at: now });
-  importRequestDumps(handle, { dataDir });
 }

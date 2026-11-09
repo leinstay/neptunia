@@ -14,7 +14,7 @@ import { fill, formatTranscript } from '../format.ts';
 import { parseWhen } from '../intentions/model.ts';
 import { DAY_MS } from '../time.ts';
 import { oneLine } from '../memory/clamp.ts';
-import { CODE } from './codes.ts';
+import { CATALOGUE, CODE, isCode, normalCode } from './codes.ts';
 import { lineOf } from '../behavior/line-of.ts';
 import { idText, isObj, listOf, objOf } from './types.ts';
 import type { SearchRef } from '../turn/calls.ts';
@@ -34,6 +34,9 @@ export type ReadSelection = {
   anchor?: string;
   since?: number;
 };
+
+/** The interface's lines of a span, oldest first, or the interface's code of why it gave none; null when not asked. */
+export type LiveLines = Array<ReadMessage> | { failed: string } | null;
 
 /** A span of the channel and whether the lines held cover all of it. */
 export type Span = { slice: Array<ReadMessage>; enough: boolean };
@@ -405,13 +408,14 @@ export function chatText(
 /**
  * The interface's history for one selection (`reads`: the core's reads of the interface, src/interface/reads.ts;
  * `ref`: the chat's reference): the newest `limit` lines, the ones around / before / after `anchor`, or the
- * lines since `minTs`, as lines, oldest first; null when `ref` is missing or the read failed. Never throws.
+ * lines since `minTs`, as lines, oldest first; `{ failed }` with the interface's code when the read failed; null when
+ * `ref` is missing. Never throws.
  */
 export async function fetchSpan(
   reads: Reads,
   ref: ChatRef | null | undefined,
   { mode, anchor, limit, minTs }: { mode?: string; anchor?: string; limit?: number; minTs?: number }
-): Promise<Array<ReadMessage> | null> {
+): Promise<LiveLines> {
   if (!ref) return null;
   try {
     const size = limit ?? 0;
@@ -425,12 +429,34 @@ export async function fetchSpan(
             : mode === 'since' && minTs !== undefined
               ? { limit: 100, since: minTs }
               : { limit: size };
-    const page = await reads.history(ref, query);
-    return page === null ? null : page.events.map((event) => lineOf(event) as ReadMessage);
+    const page = await reads.answer('history', ref, query);
+    if (page.status !== 'ok') return { failed: page.code };
+    return page.events.map((event) => lineOf(event) as ReadMessage);
   } catch {
-    return null;
+    return { failed: CODE.ERROR };
   }
 }
+
+/**
+ * A read that got no line, told by the interface's code: `http-404` is `http` with its status, a code of the catalogue
+ * is itself under its own status, anything else `error`.
+ */
+function failedRead(live: LiveLines): ReadResult {
+  const given = live !== null && !Array.isArray(live) ? live.failed : CODE.ERROR;
+  const { code, values } = normalCode(given);
+  if (!isCode(code)) return { status: 'failed', code: CODE.ERROR };
+  const status: string = (CATALOGUE as Readonly<Record<string, { status: string }>>)[code]?.status ?? 'failed';
+  return { status: status === 'ok' ? 'failed' : status, code, ...(Object.keys(values).length > 0 ? { values } : {}) };
+}
+
+/** What one conversation.read answers. */
+type ReadResult = {
+  status: string;
+  code?: string;
+  reason?: string;
+  values?: Record<string, unknown>;
+  data?: { text: string; authors?: Array<string> };
+};
 
 /** How many lines a selection asks the interface for: both sides of the anchor and the anchor, or the newest `n`. */
 function askedLines(selection: ReadSelection): number {
@@ -451,11 +477,12 @@ function authorsOf(slice: ReadonlyArray<ReadMessage>): Array<string> {
  * `allowed(id)` (the audience rule and her rights: false hides the channel), `readRecord({ placeId,
  * from })` (recordMessages over the turn's record), `fetchLive({ placeId, mode, anchor, limit,
  * minTs })` (the interface's history: `around`, `before`, `after`, `since` or the newest, normalized,
- * oldest first; null when it failed) `channelNameOf(id)` (the channel's name for the source line) and `render` (formatTranscript's options, or a function of the span giving them). The record is read
+ * oldest first; `{ failed }` with the interface's code when it failed) `channelNameOf(id)` (the channel's name for the source line) and `render` (formatTranscript's options, or a function of the span giving them). The record is read
  * first, back through READ_LADDER_DAYS (a `since` from that moment); when it does not hold the span
  * the interface's lines join it. `invalid` (`invalid-args`) for arguments that do not fit;
  * `invalid` (`unknown-message`) when the anchor is not in the channel; `denied`
- * (`channel-not-visible`) for a hidden channel; `failed` when nothing could be read at all;
+ * (`channel-not-visible`) for a hidden channel; `failed` with the interface's code (`failedRead`) when nothing could
+ * be read at all;
  * else `ok` with chatText and `authors`, the platform ids of the other authors of the lines read. Never throws.
  */
 export async function runConversationRead({
@@ -487,14 +514,14 @@ export async function runConversationRead({
         anchor: string | null;
         limit: number;
         minTs: number;
-      }) => Promise<Array<ReadMessage> | null>)
+      }) => Promise<LiveLines>)
     | null;
   render: Obj | ((slice: ReadonlyArray<ReadMessage>) => Obj);
   refs?: HandleRefs | null;
   now?: number;
   timezone?: string;
   maxChars?: number;
-}): Promise<{ status: string; code?: string; reason?: string; data?: { text: string; authors?: Array<string> } }> {
+}): Promise<ReadResult> {
   try {
     const target = text(objOf(args).placeId) || idText(placeId);
     if (!target) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.place:required' };
@@ -511,7 +538,7 @@ export async function runConversationRead({
       picked = pickSpan(all, selection);
       if (picked.enough) break;
     }
-    let live: Array<ReadMessage> | null = null;
+    let live: LiveLines = null;
     let asked = false;
     if (!picked.enough && typeof fetchLive === 'function') {
       asked = true;
@@ -528,7 +555,7 @@ export async function runConversationRead({
         picked = pickSpan(all, selection);
       }
     }
-    if (picked.slice.length === 0 && asked && live === null) return { status: 'failed', code: CODE.ERROR };
+    if (picked.slice.length === 0 && asked && !Array.isArray(live)) return failedRead(live);
     if (selection.anchor && !all.some((message) => idText(message.id) === selection.anchor))
       return { status: 'invalid', code: CODE.UNKNOWN_MESSAGE, reason: `args.${selection.mode}` };
     const reachedStart =

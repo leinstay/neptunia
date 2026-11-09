@@ -1,6 +1,5 @@
 // `/memory inspect export` off the main thread: the export (src/interface/commands/memory.ts, over
-// src/memory/db/inspection-snapshots.ts) runs on its own thread like `/memory backup` (tests/memory-db-backup-off-main.test.ts),
-// so the core's event loop stays free while a large database is written. Measured in production: one export wrote 1.05 GB
+// src/memory/db/inspection-snapshots.ts) runs on its own thread, so the core's event loop stays free while a large database is written. Measured in production: one export wrote 1.05 GB
 // in 25.7 s and the loop stalled 25144 ms. The file keeps its contract: mode 0600, refused when it exists, the same header
 // and manifest, and a failure in the thread reaches the owner. Synthetic data only.
 import { after, test } from 'node:test';
