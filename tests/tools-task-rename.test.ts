@@ -29,5 +29,5 @@ test('the tool-calling names are task_<verb> for the six tools and no board name
 test('the errand tools keep their names', () => {
   // Catches: the rename sweeps errand.run into task.run and clashes with the board verbs.
   assert.equal(apiNameOf('errand.run'), 'errand_run');
-  assert.equal(apiNameOf('errand.status'), 'errand_status');
+  assert.equal(apiNameOf('errand.list'), 'errand_list');
 });

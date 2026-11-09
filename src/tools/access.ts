@@ -23,6 +23,7 @@
 
 import { CODE } from './codes.ts';
 import { SKILL_DEFINITIONS, toolsWith } from './definitions.ts';
+import { grantNamesFor as namesFor } from './operations/grants.ts';
 import { idText, isObj, objOf } from './types.ts';
 import type { Obj, SkillVerdict } from './types.ts';
 
@@ -95,7 +96,11 @@ export function wakeEnvelope(config: unknown, kind: unknown): WakeEnvelope {
 export function envelopeAllows(envelope: { tools: '*' | ReadonlyArray<string> }, skill: string): boolean {
   if (envelope.tools === '*') return true;
   const family = skill.split('.')[0];
-  return envelope.tools.includes(skill) || envelope.tools.includes(`${family}.*`) || envelope.tools.includes('*');
+  return (
+    namesFor(skill).some((name) => envelope.tools.includes(name)) ||
+    envelope.tools.includes(`${family}.*`) ||
+    envelope.tools.includes('*')
+  );
 }
 
 /** A call that counts as done or proposed (src/behavior/turn.ts `innerActions`). */
@@ -188,8 +193,11 @@ export function safeModeOn(config: unknown): boolean {
 export function grantedToPersona(config: unknown, selfId: string | null | undefined, name: string): boolean {
   if (selfId === undefined || selfId === null || selfId === '') return false;
   const access = objOf(objOf(config).bot).access;
-  const entry = isObj(access) && Object.hasOwn(access, name) ? access[name] : null;
-  return isObj(entry) && Array.isArray(entry.users) && entry.users.map(idText).includes(selfId);
+  if (!isObj(access)) return false;
+  return namesFor(name).some((key) => {
+    const entry = Object.hasOwn(access, key) ? access[key] : null;
+    return isObj(entry) && Array.isArray(entry.users) && entry.users.map(idText).includes(selfId);
+  });
 }
 
 /**

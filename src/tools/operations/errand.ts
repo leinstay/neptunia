@@ -1,5 +1,5 @@
-// Operations `errand.run`, `errand.status`, `errand.cancel`, `errand.list`, `errand.read` and `errand.resolve`, reached by
-// `errand.run|status|cancel|list|result|resolve`: the persona's errands handed to her agents
+// Operations `errand.run`, `errand.list`, `errand.cancel`, `errand.read` and `errand.resolve`, reached by
+// `errand.run|status|cancel|result|resolve`: the persona's errands handed to her agents
 // (src/errands/, src/agent-runner/). Every member may use them while `features.memberCommands`
 // is on (rights.member); the rest is ruled here, for every caller alike -- the owner's command,
 // a member's, and the persona's own call (her skills: the requester of her turn is the caller).
@@ -8,9 +8,10 @@
 // else `group`, and the runner withholds more in a filtered scope. `errand.run` answers at once
 // with the id and `queued`: the errand runs in the background (src/errands/service.ts) and its
 // end opens her own turn where it was asked. `errand.cancel` is for the requester of the errand or an
-// owner; `errand.status` and `errand.list` show a private chat's errands only to their requester or an
-// owner. A finished errand's result stays until she has read it: `errand.status` without an id lists the
-// open errands and the finished ones not read yet; `errand.read id [from]` returns the whole result in
+// owner; `errand.list` shows a private chat's errands only to their requester or an
+// owner. A finished errand's result stays until she has read it: `errand.list` without an id lists the
+// open errands and the finished ones not read yet, and with a `state`, `since`, `until` or `limit` every errand that
+// matches, newest first; `errand.read id [from]` returns the whole result in
 // pages of `errands.resultMaxChars` (the error, the sources and the files with their handles and
 // whether they expired come with the first page) and marks the errand read when its last page is
 // returned; `errand.resolve id` closes a finished errand (read too). Both follow the same view rule. Answers are operator lines (ids, agents, states, ages), the goal cut to one short line. A
@@ -20,18 +21,21 @@ import { isOwnerCaller } from './grants.ts';
 import { TASK_AGENTS } from './catalog.ts';
 import { clampWithEllipsis, oneLine } from '../../memory/clamp.ts';
 import { MINUTE_MS } from '../../time.ts';
-import { fileHandle, isOpenState } from '../../errands/store.ts';
+import { ERRAND_STATES, fileHandle, isOpenState } from '../../errands/store.ts';
 import { DEFAULT_RESULT_MAX_CHARS } from '../../errands/blocks.ts';
 import { defineOp, perEnv, invalid, denied } from './registry.ts';
 import { CODE } from '../codes.ts';
 import { idText, textOf } from '../types.ts';
+import { windowBound } from './shared.ts';
 import type { Obj, OpContext } from '../types.ts';
 import type { ErrandRecord, ErrandService } from '../../errands/types.ts';
 
-/** How many errands `errand.list` shows. */
+/** How many errands a listing of `errand.list` shows when it names no limit. */
 export const ERRAND_LIST_COUNT = 10;
 /** The goal's length in an answer line (characters). */
 const GOAL_LINE_CHARS = 80;
+/** The most errands a listing shows. */
+const ERRAND_LIST_MAX = 100;
 
 /** The refusal codes of the errand store and service, as an operation's status. */
 const REFUSALS = Object.freeze({
@@ -139,7 +143,7 @@ const handlers = perEnv((env) => {
     };
   }
 
-  /** `errand.status [id]`: one errand, or every open one. */
+  /** `errand.list [id]`: one errand, the open and unread ones, or with a filter every errand that matches. */
   function cmdStatus(args: Obj, context: OpContext) {
     const store = errands().store();
     if (!store) throw Object.assign(new Error('no place'), { code: CODE.PLACE_REQUIRED });
@@ -160,6 +164,12 @@ const handlers = perEnv((env) => {
         );
       return lines.join('\n');
     }
+    if (
+      ['state', 'since', 'until', 'limit'].some(
+        (key) => args[key] !== undefined && args[key] !== null && args[key] !== ''
+      )
+    )
+      return listErrands(args, context, store);
     // The open errands, then the finished ones she has not read (their result is still waiting).
     const listed = [...store.open(), ...store.unread()].filter((errand) => mayView(errand, context));
     return listed.length > 0
@@ -167,6 +177,30 @@ const handlers = perEnv((env) => {
           .map((errand) => (isOpenState(errand.state) ? errandLine(errand) : `${errandLine(errand)} (unread)`))
           .join('\n')
       : 'no open tasks';
+  }
+
+  /** Every errand the store holds that the caller may view and the filters of `args` keep, newest first. */
+  function listErrands(args: Obj, context: OpContext, store: { recent(n: number): Array<ErrandRecord> }) {
+    const state = textOf(args.state).trim();
+    if (state && !(ERRAND_STATES as ReadonlyArray<string>).includes(state))
+      throw invalid(`state must be one of: ${ERRAND_STATES.join(', ')}`);
+    const since = windowBound(args.since, 'since');
+    const until = windowBound(args.until, 'until');
+    const asked = args.limit;
+    const limit = asked === undefined || asked === null || asked === '' ? ERRAND_LIST_COUNT : Number(asked);
+    if (!Number.isInteger(limit) || limit < 1 || limit > ERRAND_LIST_MAX)
+      throw invalid(`limit must be 1..${ERRAND_LIST_MAX}`);
+    const kept = store
+      .recent(Number.MAX_SAFE_INTEGER)
+      .filter(
+        (errand) =>
+          mayView(errand, context) &&
+          (!state || errand.state === state) &&
+          (since === null || (errand.createdAt ?? 0) >= since) &&
+          (until === null || (errand.createdAt ?? 0) <= until)
+      )
+      .slice(0, limit);
+    return kept.length > 0 ? kept.map((errand) => errandLine(errand)).join('\n') : 'no tasks match';
   }
 
   /** A finished errand of the caller's view, or an `invalid` error: not found, not viewable, still open. */
@@ -252,18 +286,7 @@ const handlers = perEnv((env) => {
     return `task ${id}: cancelled`;
   }
 
-  /** `errand.list`: the latest ERRAND_LIST_COUNT errands, newest first. */
-  function cmdList(args: Obj, context: OpContext) {
-    const store = errands().store();
-    if (!store) throw Object.assign(new Error('no place'), { code: CODE.PLACE_REQUIRED });
-    const latest = store
-      .recent(ERRAND_LIST_COUNT * 3)
-      .filter((errand) => mayView(errand, context))
-      .slice(0, ERRAND_LIST_COUNT);
-    return latest.length > 0 ? latest.map((errand) => errandLine(errand)).join('\n') : 'no tasks yet';
-  }
-
-  return { cmdRun, cmdStatus, cmdCancel, cmdList, cmdRead, cmdResolve };
+  return { cmdRun, cmdStatus, cmdCancel, cmdRead, cmdResolve };
 });
 
 defineOp({
@@ -272,7 +295,7 @@ defineOp({
   run: (args, ctx) => handlers(ctx.env).cmdRun(args, ctx),
 });
 defineOp({
-  name: 'errand.status',
+  name: 'errand.list',
   rights: { kind: 'read', member: true },
   run: (args, ctx) => handlers(ctx.env).cmdStatus(args, ctx),
 });
@@ -280,11 +303,6 @@ defineOp({
   name: 'errand.cancel',
   rights: { kind: 'write', member: true },
   run: (args, ctx) => handlers(ctx.env).cmdCancel(args, ctx),
-});
-defineOp({
-  name: 'errand.list',
-  rights: { kind: 'read', member: true },
-  run: (args, ctx) => handlers(ctx.env).cmdList(args, ctx),
 });
 defineOp({
   name: 'errand.read',

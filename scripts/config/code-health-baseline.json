@@ -1824,7 +1824,7 @@
     },
     "src/tools/operations/memory.ts": {
       "<anonymous>": {
-        "function-length": 437
+        "function-length": 425
       },
       "<anonymous>>cmdMemoryShow": {
         "complexity": 22

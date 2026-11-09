@@ -19,11 +19,11 @@ import { MODEL_ROLES } from './catalog.ts';
 import { roleModel } from '../../llm/roles.ts';
 import { IMAGE_ROLE } from '../../llm/images.ts';
 import { oneLine } from '../../memory/clamp.ts';
-import { utcDay } from '../../time.ts';
+import { DAY_MS, utcDay } from '../../time.ts';
 import { denied, invalid } from './registry.ts';
 import { CODE, httpCode } from '../codes.ts';
 import { nestedRefusal } from '../access.ts';
-import { isObj, objOf } from '../types.ts';
+import { isObj, objOf, textOf } from '../types.ts';
 import type { Obj, Untyped } from '../types.ts';
 import type { Env } from './env.ts';
 import type { Reads } from '../../interface/reads.ts';
@@ -468,7 +468,20 @@ export function formatAliasList(profile: Untyped, memoryCfg: Untyped): string {
 }
 
 /**
- * The attitude view of `memory.affinity.read` and `memory.profile.read section:affinity`: score,
+ * One end of a time window as an instant in epoch milliseconds: an ISO date or time (`2026-11-04`, `2026-11-04T09:30Z`).
+ * A bare date is its first instant for a `since` and its last for an `until`, so the window holds the whole day. Text that
+ * is no date is `invalid`; no value is null.
+ */
+export function windowBound(value: unknown, end: 'since' | 'until', name = end): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const text = textOf(value).trim();
+  const ms = /^\d{4}-\d{2}-\d{2}$/.test(text) ? Date.parse(`${text}T00:00:00.000Z`) : Date.parse(text);
+  if (!Number.isFinite(ms)) throw invalid(`${name} must be an ISO date or time, as 2026-11-04`);
+  return end === 'until' && /^\d{4}-\d{2}-\d{2}$/.test(text) ? ms + DAY_MS - 1 : ms;
+}
+
+/**
+ * The attitude view of `memory.profile.read section:affinity`: score,
  * band, reason (`-` when empty) and the last 5 history entries, every reason resolved by `resolve`.
  * `affinity` is a stored `{ score, reason, history }`.
  */

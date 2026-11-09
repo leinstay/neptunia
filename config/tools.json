@@ -183,13 +183,15 @@
   },
   "memory.profile.read": {
     "title": "Read a profile",
-    "whenToUse": "Member's stored profile.",
+    "whenToUse": "Member's stored profile; section affinity is your attitude toward them with its latest moves; section changes lists every attitude change across people, newest first.",
     "whenNotToUse": "Does not include DM memory.",
     "args": {
-      "section": "summary, character, style, relationship, affinity, aliases, interests, details, episodes, raw.",
+      "section": "summary, character, style, relationship, affinity, aliases, interests, details, episodes, raw, changes.",
       "limit": "Items shown (default 25, max 100).",
       "order": "rank (weight) or recent.",
-      "user": "@handle or name."
+      "user": "@handle or name. Required except with section changes, where it narrows the list to one person.",
+      "since": "With section changes: first day or time to list, as 2026-11-04.",
+      "until": "With section changes: last day or time to list."
     }
   },
   "memory.channel.read": {
@@ -203,13 +205,6 @@
   "memory.recent.read": {
     "title": "Read recent events",
     "whenToUse": "Recent notes."
-  },
-  "memory.affinity.read": {
-    "title": "Read attitude",
-    "whenToUse": "Attitude toward a member.",
-    "args": {
-      "user": "@handle or name."
-    }
   },
   "memory.journal.read": {
     "title": "Read journal",
@@ -303,10 +298,17 @@
       "goal": "What to do. Agent sees only this."
     }
   },
-  "errand.status": {
-    "title": "Check an errand",
-    "whenToUse": "Errand state by id or open ones.",
-    "whenNotToUse": "Errands block shows open ones."
+  "errand.list": {
+    "title": "List or check errands",
+    "whenToUse": "One errand's state by id; with no argument the open and unread ones; with state, since, until or limit every errand that matches, newest first (limit alone: the latest).",
+    "whenNotToUse": "Errands block shows open ones. Results not included; use errand.read.",
+    "args": {
+      "id": "One errand.",
+      "state": "queued, running, done, failed or cancelled.",
+      "since": "First day or time an errand was handed off, as 2026-11-04.",
+      "until": "Last day or time an errand was handed off.",
+      "limit": "Errands shown (default 10, max 100)."
+    }
   },
   "errand.read": {
     "title": "Read an errand's result",
@@ -414,11 +416,6 @@
     "title": "Cancel an errand",
     "whenToUse": "Stop an open errand.",
     "whenNotToUse": "Only the requester or the owner."
-  },
-  "errand.list": {
-    "title": "List errands",
-    "whenToUse": "Latest ten with states.",
-    "whenNotToUse": "Results not included; use errand.read."
   },
   "web.search": {
     "title": "Search the web",
