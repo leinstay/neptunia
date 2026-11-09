@@ -549,10 +549,9 @@ test('child: service restart in a user install goes to the user manager', async 
   assert.deepEqual(childCalls(where), ['systemctl --user restart neptunia-core.service']);
 });
 
-test('child: the usage shows the family and none of the retired forms, and hides the worker the unit starts', async () => {
+test('child: the usage shows the family and none of the retired forms, and hides the worker the core starts', async () => {
   // Catches: help keeps teaching the forms that now only explain themselves, or lists the internal entry point.
-  const unit = readFileSync(join(REPO, 'deploy', 'neptunia-watcher.service'), 'utf8');
-  const exec = /^ExecStart=\S+ bin\/neptunia\.ts (.+)$/m.exec(unit)?.[1] ?? assert.fail('it starts bin/neptunia.ts');
+  const exec = 'worker watcher';
   const done = await child(rig(), ['no-such-word-71']);
   assert.equal(done.code, 2, done.out.slice(0, 300));
   assert.ok(done.stderr.includes('services <name>'), done.stderr.slice(0, 600));
@@ -567,10 +566,9 @@ test('child: the usage shows the family and none of the retired forms, and hides
     assert.equal(done.stderr.includes(gone), false, gone);
 });
 
-test('child: the worker the watcher unit starts is a word the command knows', async () => {
-  // Catches: ExecStart names a command that was retired or never added, so every /doctor watcher run fails with usage.
-  const unit = readFileSync(join(REPO, 'deploy', 'neptunia-watcher.service'), 'utf8');
-  const exec = /^ExecStart=\S+ bin\/neptunia\.ts (.+)$/m.exec(unit)?.[1] ?? assert.fail('it starts bin/neptunia.ts');
+test('child: the worker the core starts for /doctor watcher run is a word the command knows', async () => {
+  // Catches: the core spawns a command that was retired or never added, so every run ends in a usage error.
+  const exec = 'worker watcher';
   // No board and no backend here, so the worker ends by itself with its own failure, never with usage.
   const worker = await child(rig(), exec.split(' '), {}, 20_000);
   assert.notEqual(worker.code, 2, worker.out.slice(0, 300));

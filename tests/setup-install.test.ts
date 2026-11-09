@@ -92,12 +92,13 @@ test('the units take the backend from keys.json, and the core names no home of t
 test('inside the core a mode change names neptunia setup for an agent with a unit, and runs nothing', () => {
   // Catches: the core answers a stored mode as if its unit were updated, so the owner never re-renders it.
   // Changed: the step word left the public command, and the one flow re-renders the units.
-  for (const agent of ['scout', 'server', 'watcher'])
-    assert.ok(deferModeToUnit(agent)?.includes('neptunia setup'), agent);
+  for (const agent of ['scout', 'server']) assert.ok(deferModeToUnit(agent)?.includes('neptunia setup'), agent);
 });
 
 test('inside the core an agent with no unit, or no agent, gets no unit line', () => {
   // Catches: dev, which runs in no unit of its own, is told to re-render a unit that does not exist.
+  // Changed: the watcher runs inside the core's unit (owner, 2026-11-09), so its mode needs no unit rendered.
+  assert.equal(deferModeToUnit('watcher'), null);
   // dev now has a unit of its own, so a mode change names it.
   assert.equal(
     deferModeToUnit('dev'),

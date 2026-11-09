@@ -18,7 +18,7 @@ Interactive setup uses a keyboard selector for `on` or `off` and `yes` or `no` q
 | `selfimprovement` | Offer development: install `gh`, check the repository and set up the folder of the development checkout, as in [self-development](selfimprovement.md#configure) |
 | `mechanics` | Switch heartbeat and reflection, switch and schedule the development wake |
 | `watcher` | Choose the watcher's backend and model. The watcher runs only on `/doctor watcher run` |
-| `units` | Make the clients `cli` and `owner` with their tokens, and `development` when `selfimprovement.checkout` names a checkout other than this one, then render the service files. The watcher, development and server units hide the other clients' tokens and the interfaces' `credentials.json` from their agents, for the clients and interfaces that exist at that moment |
+| `units` | Make the clients `cli` and `owner` with their tokens, and `development` when `selfimprovement.checkout` names a checkout other than this one, then render the service files. The development and server units hide the other clients' tokens and the interfaces' `credentials.json` from their agents, for the clients and interfaces that exist at that moment |
 | `linger` | Let user services continue without an interactive login |
 | `core` | Enable and start the core service |
 

@@ -1,9 +1,9 @@
-// The watcher's worker as `/doctor watcher run` starts it (src/watcher/doctor.ts, bin/neptunia-watcher.ts): the command
-// claims the run, the unit's `ExecStart=`, here spawned straight, runs `neptunia worker watcher` of this checkout, and the
-// worker adopts that claim, asks the agent and commits the report, with no switch in the settings. The backend is a stand-in binary that answers a
+// The watcher's worker as `/doctor watcher run` starts it (src/watcher/doctor.ts, bin/neptunia-watcher.ts): the core
+// claims the run, `workerStarter` spawns `neptunia worker watcher` of this checkout, and the worker adopts that claim,
+// asks the agent and commits the report, with no switch in the settings. The backend is a stand-in binary that answers a
 // canned report; nothing connects to a provider or a core.
 // Changed: `services watcher trigger`, `cancel` and `status`, the timer and the unit are gone (owner, 2026-11-09), and
-// their tests with them; this file keeps the real worker and starts it after the doctor's claim.
+// their tests with them; this file keeps the real worker and starts it the doctor's way.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { localConfigPath } from '../src/config/files.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
-import { watcherList, watcherOpen, watcherRun } from '../src/watcher/doctor.ts';
+import { watcherList, watcherOpen, watcherRun, workerStarter } from '../src/watcher/doctor.ts';
 import { readRun, runStoreOf } from '../src/watcher/lifecycle.ts';
 import { readSessionMap } from '../src/subharness/sessions.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
@@ -49,35 +49,30 @@ test('the worker the doctor starts adopts its run, commits the report and maps i
   const where = persona('MARK-FROM-WORKER');
   const store = runStoreOf(where.dir);
   let ended: Promise<number | null> = Promise.resolve(null);
-  // What the unit's ExecStart runs, with the unit's environment (deploy/neptunia-watcher.service).
-  const start = (): null => {
-    const child = spawn(process.execPath, [path.join(REPO, 'bin', 'neptunia.ts'), 'worker', 'watcher'], {
-      cwd: REPO,
-      stdio: 'ignore',
-      env: {
-        PATH: '/usr/bin:/bin',
-        HOME: tempDir('nep-watcher-worker-home-'),
-        TMPDIR: process.env.TMPDIR,
-        NEPTUNIA_DATA_DIR: where.data,
-      },
-    });
-    ended = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        child.kill('SIGKILL');
-        reject(new Error('the worker did not end in time'));
-      }, 8_000);
-      child.once('close', (exit) => {
-        clearTimeout(timer);
-        resolve(exit);
+  const start = workerStarter({
+    rootDir: REPO,
+    dataDir: where.data,
+    env: { PATH: '/usr/bin:/bin', HOME: tempDir('nep-watcher-worker-home-'), TMPDIR: process.env.TMPDIR },
+    spawn: (command, args, options) => {
+      const child = spawn(command, [...args], { ...options, detached: false });
+      ended = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          child.kill('SIGKILL');
+          reject(new Error('the worker did not end in time'));
+        }, 8_000);
+        child.once('close', (exit) => {
+          clearTimeout(timer);
+          resolve(exit);
+        });
       });
-    });
-    return null;
-  };
+      return child;
+    },
+  });
   let runId = '';
-  const asked = await watcherRun({
+  const asked = watcherRun({
     store,
     reportsDir: where.reportsDir,
-    start: (id) => ((runId = id), start()),
+    start: (id) => ((runId = id), start(id)),
   });
   assert.equal(asked.status, 'ok', asked.text);
   const code = await ended;

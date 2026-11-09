@@ -2,9 +2,9 @@
 
 The engine ships agent definitions under `agents/<name>/`. Each definition has a profile and a prompt. Personal overrides use the same names under `data/agents/<name>/`, so they travel with the persona.
 
-The [development worker](selfimprovement.md) runs the thinker and dev on a filed task, each through its own route in `keys.json`. Scout and server handle errands. The watcher inspects the project and writes a report when the owner asks with `/doctor watcher run`. Overriding an existing profile does not introduce a new agent kind.
+The [development worker](selfimprovement.md) runs the thinker and dev on a filed task, each through its own route in `keys.json`. Scout and server handle errands. The watcher inspects the project and writes a report when the owner asks with `/doctor watcher run`, running inside the core's unit (see [what holds it](watcher.md#what-holds-the-agent)). Overriding an existing profile does not introduce a new agent kind.
 
-The watcher and development units hide the other clients' tokens and the interfaces' `credentials.json` from their agents with `InaccessiblePaths=` (see [what the watcher enforces](watcher.md#what-the-system-enforces)). The development unit keeps its own token, since its worker needs it to reach the board, and each unit keeps `config.json`, since its worker reads its agent's route from it. The development client carries the board roles `reviewer` and `worker`, and both approve only at risk `low`. A client made after a unit was rendered stays visible to it until `neptunia setup` renders the unit again.
+The development unit hides the other clients' tokens and the interfaces' `credentials.json` from its agents with `InaccessiblePaths=`. It keeps its own token, since the worker needs it to reach the board, and `config.json`, since the worker reads each agent's route from it. The development client carries the board roles `reviewer` and `worker`, and both approve only at risk `low`. A client made after a unit was rendered stays visible to it until `neptunia setup` renders the unit again.
 
 ## Customize an agent
 

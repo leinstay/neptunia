@@ -508,7 +508,7 @@
     },
     {
       "path": "src/service/manager.ts",
-      "purpose": "The service manager: its scope, its calls and the start of the watcher's unit. Tested through a fake manager in `tests/neptunia-service.test.ts`.",
+      "purpose": "The service manager: its scope and its calls. Tested through a fake manager in `tests/neptunia-service.test.ts`.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "none"

@@ -124,11 +124,11 @@ test('the shell opens each report of a day by its number, with no core', async (
   const rig = inspectionRig();
   await inspected(rig, 'MARK-FIRST');
   await inspected(rig, 'MARK-SECOND');
-  const one = await watcherDoctorHere({ name: 'doctor.watcher', args: { number: '1' } }, whereOf(rig), false);
+  const one = watcherDoctorHere({ name: 'doctor.watcher', args: { number: '1' } }, whereOf(rig), false);
   assert.equal(one.status, 'ok', one.text.slice(0, 200));
   assert.ok(one.text.includes('MARK-FIRST'));
   assert.equal(one.text.includes('MARK-SECOND'), false);
-  const two = await watcherDoctorHere({ name: 'doctor.watcher', args: { number: '2' } }, whereOf(rig), false);
+  const two = watcherDoctorHere({ name: 'doctor.watcher', args: { number: '2' } }, whereOf(rig), false);
   assert.ok(two.text.includes('MARK-SECOND'));
 });
 

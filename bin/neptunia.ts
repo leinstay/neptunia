@@ -9,7 +9,7 @@
 //   neptunia -p "<text>" [--attach <file>]...    one turn with the persona, with images; her reply on stdout
 //   neptunia doctor [live] [--live] [--json]     the checks of the installation, with the core up or down
 //   neptunia doctor server|core|memory           one read of the running core, which answers it
-//   neptunia doctor watcher run|stop|read|list|<n>   the watcher's report: run starts neptunia-watcher.service in the
+//   neptunia doctor watcher run|stop|read|list|<n>   the watcher's report: run asks the core to start one in the
 //                                                background, the others read the files (src/watcher/doctor.ts)
 //   neptunia errand-runner --profile <name>      the errand runner of one agent (deploy/neptunia-agent-<name>.service)
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
@@ -33,7 +33,7 @@
 // her reply arrives as a send action and is printed. A line starting with `/` is parsed by the command table
 // (src/interface/commands/table.ts), which prints the reason of a line it refuses, and becomes a `command.requested`
 // event: its answer is printed for the owner and never reaches her memory or her requests. `/clear`, `/doctor`,
-// `/logs` (journalctl of the core's unit in the units' scope, src/service/journal.ts), `/doctor watcher` (its unit and the
+// `/logs` (journalctl of the core's unit in the units' scope, src/service/journal.ts), `/doctor watcher` but `run` (the
 // saved reports) and `/services` (bin/neptunia-service.ts) run here and ask the core nothing, but `/doctor live` asks it for the probes of the model roles. A line typed before the link is up waits in the input until it is. The chat opens with the core's
 // header and, above it, the picture in `<private>/cli/picture.txt` when that file exists. In a terminal the command
 // history is kept in `<private>/cli/history` (bin/cli-history.ts). The end of the input ends the chat with exit 0, once the answers of the
@@ -52,9 +52,9 @@
 // (src/setup/flow.ts), and over pipes it prints `setup-required` with the repairs and exits 1. Every other command stays
 // reachable, and `doctor` reports the same readiness as a check.
 //
-// `worker` names what a unit starts, and the usage leaves it out: `worker watcher` (deploy/neptunia-watcher.service,
-// started by `/doctor watcher run`) runs one inspection under the run identity the command claimed
-// (bin/neptunia-watcher.ts, docs/watcher.md).
+// `worker` names what a unit or the core starts, and the usage leaves it out: `worker watcher`, which the core starts for
+// `/doctor watcher run`, runs one inspection under the run identity the core claimed (bin/neptunia-watcher.ts,
+// docs/watcher.md).
 //
 // `worker development` (deploy/neptunia-development.service) is the long-lived development worker (bin/development.ts,
 // docs/selfimprovement.md) as the client `development`: a filed task starts a thinker, and a finished one a pull request.
@@ -327,7 +327,6 @@ const LOCAL_COMMANDS = new Set([
   'doctor',
   'doctor.live',
   'doctor.watcher',
-  'doctor.watcher.run',
   'doctor.watcher.stop',
   'doctor.watcher.read',
   'doctor.watcher.list',

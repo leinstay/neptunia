@@ -7,7 +7,6 @@ The systemd unit templates of the engine. `neptunia setup` renders them for the 
 | `neptunia-core.service` | The core with no interface of its own. The one unit setup starts. | yes |
 | `neptunia-interface@.service` | One interface, `neptunia interface run %i`. | yes |
 | `neptunia-agent-scout.service`, `neptunia-agent-server.service` | The errand agents, `neptunia errand-runner --profile <name>`. See [Errands](../docs/errands.md#the-subharness). | yes |
-| `neptunia-watcher.service` | The watcher, `neptunia worker watcher`, one report per start. Only `/doctor watcher run` starts it; it has no timer. See [The watcher](../docs/watcher.md). | yes |
 | `neptunia-development.service` | The long-lived development worker, `neptunia worker development`, run from the install and working on the dev checkout `selfimprovement.checkout` names. Setup writes it and never enables it; the owner's step is in [Self-development](../docs/selfimprovement.md#enabling-the-worker). | when `selfimprovement.checkout` names another checkout |
 
 ## How a template becomes a unit
@@ -16,7 +15,7 @@ The templates keep the paths of the first deployment (`/opt/neptunia/app`, `/opt
 
 The node binary is the one `neptunia setup` was started with, as it was typed or found on `PATH` and never resolved through a link, so a unit names `/opt/node/bin/node` when `/opt/node` is a link to a versioned folder. `neptunia setup --node <path>` names another one.
 
-A subharness backend lives in `<private>/subharness/<backend>/` with its binary and its home (`src/subharness/place.ts`), and a run starts that binary by its path. An agent unit in `read` or `write` binds the folder of every backend a role names in `keys.json` or that is installed writable, one `BindPaths=` entry each after `ProtectHome=tmpfs`. Each entry has a leading `-`, so the unit starts before the backend is installed. They cover those folders alone, and `keys.json` stays read-only for the agent. The core writes the folder through the private directory in its `ReadWritePaths=`, and the watcher unit keeps `<private>/subharness/` and its own folder writable under `ProtectSystem=strict`. The units keep `<home>/.local/bin` and the folder of the node binary on `PATH`.
+A subharness backend lives in `<private>/subharness/<backend>/` with its binary and its home (`src/subharness/place.ts`), and a run starts that binary by its path. An agent unit in `read` or `write` binds the folder of every backend a role names in `keys.json` or that is installed writable, one `BindPaths=` entry each after `ProtectHome=tmpfs`. Each entry has a leading `-`, so the unit starts before the backend is installed. They cover those folders alone, and `keys.json` stays read-only for the agent. The core writes the folder through the private directory in its `ReadWritePaths=`. The units keep `<home>/.local/bin` and the folder of the node binary on `PATH`.
 
 A user unit goes to `$XDG_CONFIG_HOME/systemd/user` (`~/.config/systemd/user` when the variable is unset). It has no `User=` or `Group=`, installs into `default.target`, and the interface unit loses its `InaccessiblePaths`, since the one user owns the core's files too.
 
