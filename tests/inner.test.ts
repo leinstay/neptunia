@@ -4,6 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { openMemoryDb } from '../src/memory/db/open.ts';
+import { dbOf } from '../src/memory/db/types.ts';
 import {
   attendWake,
   placesPage,
@@ -2090,26 +2092,29 @@ test('inner: an unfinished mark with the journal off is interrupted without repl
   const dataDir = tempDir('nep-inner-flight-');
   const records = [intention('i1')];
   const wake = wakeOfDue({ intention: records[0], reason: 'due', at: present(records[0].dueAt) });
-  // A file of an earlier release: the wake import reads this layout and spelling, and only this one.
-  const dir = path.join(dataDir, 'guilds', ROOT);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(
-    path.join(dir, 'inner.json'),
-    JSON.stringify({
-      v: 1,
-      queue: [{ ...wake }],
-      inflight: {
-        turnId: 't-gone',
-        wakeIds: [wake.id],
-        kind: 'intention_due',
-        startedAt: NOW - MINUTE_MS,
-        channelId: 'c1',
-        dmChat: false,
-        privateAccountId: null,
-      },
-    })
-  );
-  const run = setup({ records, dataDir, hot: hotWith() });
+  // The turn a restart cut off: its wake is running under a lease that expired when it started, so the recovery of
+  // the next start resolves it.
+  const seeding = openMemoryDb(path.join(dataDir, 'memory.db'));
+  dbOf(seeding)
+    .prepare(
+      `INSERT INTO wakes (id, kind, community, due_at, queued_at, payload, state, lease_holder, lease_token,
+        lease_expires_at, turn_id, attempt, claimed_at, turn)
+       VALUES (?, ?, ?, ?, ?, ?, 'running', 'restart', 0, ?, 't-gone', 1, ?, ?)`
+    )
+    .run(
+      wake.id,
+      wake.kind,
+      ROOT,
+      wake.dueAt ?? null,
+      wake.queuedAt ?? NOW,
+      JSON.stringify(wake),
+      NOW - MINUTE_MS,
+      NOW - MINUTE_MS,
+      JSON.stringify({ kind: 'intention_due', placeId: 'c1', dmChat: false, privateAccountId: null })
+    );
+  seeding.close();
+  const db = wakeMemory(dataDir, () => clock.t);
+  const run = setup({ records, dataDir, hot: hotWith(), memoryDb: db.memoryDb });
   await run.inner.tick();
   // An unavailable journal cannot authorize replay of the unfinished action.
   assert.equal(run.turns.calls.length, 0);
