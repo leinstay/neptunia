@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { openMemoryDb, schemaVersion, MIGRATIONS } from '../src/memory/db/open.ts';
-import { V11_TABLES } from '../src/memory/db/schema.ts';
+import { BASELINE_VERSION } from '../src/memory/db/schema-baseline.ts';
 import {
   actionKey,
   applyWakeWrite,
@@ -40,9 +40,8 @@ const count = (db: Db, sql: string, ...params: Array<unknown>) => db.prepare(sql
 test('v11: the tables exist, the schema is at its last version, constraints hold', () => {
   const handle = openMemoryDb(':memory:');
   try {
-    assert.equal(schemaVersion(dbOf(handle)), MIGRATIONS.length);
-    assert.ok(MIGRATIONS.length >= 11);
-    for (const table of V11_TABLES)
+    assert.equal(schemaVersion(dbOf(handle)), BASELINE_VERSION + MIGRATIONS.length);
+    for (const table of ['wake_runs', 'wake_actions', 'skills', 'skill_versions', 'skill_evaluations', 'index_policy'])
       assert.ok(
         dbOf(handle).prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(table),
         table

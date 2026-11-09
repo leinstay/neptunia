@@ -1,12 +1,10 @@
-// A memory database whose errands are still in the `work` archive: board v2, before the data step of board v3 (PR 6d),
-// with the units `guilds/g1/errands.json` and `errands.jsonl` written by the unit writer as the engine before 6d wrote
-// them. Four errands, one per path through the states: done and read, failed and unread, cancelled in a private chat
+// A memory database whose errands are in the `work` archive: the units `guilds/g1/errands.json` and `errands.jsonl`
+// written by the unit writer as the engine before the board wrote them, into a database at the baseline. Four errands, one per path through the states: done and read, failed and unread, cancelled in a private chat
 // and resolved, running on the `server` agent. Synthetic data only.
 import fs from 'node:fs';
 import path from 'node:path';
 import { openMemoryDb } from '../../src/memory/db/open.ts';
 import { applyUnitWrite } from '../../src/memory/db/unit-write.ts';
-import { BOARD_MIGRATIONS } from '../../src/board/schema.ts';
 import type { ErrandRecord, ErrandState } from '../../src/errands/types.ts';
 import { tempDir } from './tmp.ts';
 
@@ -104,14 +102,6 @@ export const ARCHIVE: ReadonlyArray<ErrandRecord> = Object.freeze([
   },
 ]);
 
-/** The board status each archived errand moves to: queued approved, running in_progress, the ends as they are. */
-export const BOARD_STATUS: Readonly<Record<string, string>> = Object.freeze({
-  t0000e001: 'done',
-  t0000e002: 'failed',
-  t0000e003: 'cancelled',
-  t0000e004: 'in_progress',
-});
-
 /** The states each errand passed through, in its `errands.jsonl` lines, with the time of each. */
 const PATHS: Readonly<Record<string, ReadonlyArray<[ErrandState, number]>>> = {
   t0000e001: [
@@ -134,14 +124,6 @@ const PATHS: Readonly<Record<string, ReadonlyArray<[ErrandState, number]>>> = {
   ],
 };
 
-/** The board statuses of each errand's transition lines, in order. */
-export const STATUS_EVENTS: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
-  t0000e001: ['approved', 'in_progress', 'done'],
-  t0000e002: ['approved', 'in_progress', 'failed'],
-  t0000e003: ['approved', 'cancelled'],
-  t0000e004: ['approved', 'in_progress'],
-});
-
 /** The `errands.jsonl` lines: each errand as it stood after each transition, in the order they happened. */
 export function archiveLines(): Array<Record<string, unknown>> {
   const lines: Array<Record<string, unknown>> = [];
@@ -161,12 +143,9 @@ export function archived(id: string): ErrandRecord {
   return JSON.parse(JSON.stringify(found)) as ErrandRecord;
 }
 
-/**
- * Writes the archive into `file` at board v2: the errand units through the unit writer, the way the engine before
- * PR 6d wrote them. The database is closed again; the next open by the current code runs board v3.
- */
+/** Writes the archive into `file`: the errand units through the unit writer, and closes the database again. */
 export function writeArchive(file: string, errands: ReadonlyArray<ErrandRecord> = ARCHIVE): void {
-  const handle = openMemoryDb(file, { boardMigrations: BOARD_MIGRATIONS.slice(0, 2) });
+  const handle = openMemoryDb(file);
   try {
     const now = T0 + 10 * MINUTE;
     applyUnitWrite(handle, {
@@ -189,7 +168,7 @@ export function writeArchive(file: string, errands: ReadonlyArray<ErrandRecord> 
   }
 }
 
-/** A new data directory whose `memory.db` holds the archive at board v2: `{ dataDir, file }`. */
+/** A new data directory whose `memory.db` holds the archive: `{ dataDir, file }`. */
 export function archiveDataDir(prefix = 'nep-errand-archive-'): { dataDir: string; file: string } {
   const dataDir = path.join(tempDir(prefix), 'data');
   fs.mkdirSync(dataDir, { recursive: true });

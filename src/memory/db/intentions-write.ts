@@ -136,17 +136,3 @@ export function intentionsOfUnit(update: Row): IntentionsWrite | null {
   const value = isRecord(update.value) ? update.value : {};
   return intentionsWriteOf({ op: 'value', intentions: value.intentions });
 }
-
-/**
- * Schema version 44 (schema.ts): the intention rows leave their units. Every row loses `owner_key`, the `operational`
- * remainder of the list goes, and the units of the intentions are retired. The list and the archive are found by
- * `archived` and `position`, which an index serves.
- */
-export function moveIntentionOwners(db: Db): void {
-  db.exec('CREATE INDEX IF NOT EXISTS intentions_list ON intentions(archived, position)');
-  db.exec('UPDATE intentions SET owner_key = NULL WHERE owner_key IS NOT NULL');
-  db.exec("DELETE FROM operational WHERE kind = 'intentions'");
-  db.prepare("UPDATE storage_units SET retired_at = ? WHERE kind = 'intentions' AND retired_at IS NULL").run(
-    new Date().toISOString()
-  );
-}

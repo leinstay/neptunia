@@ -1,8 +1,9 @@
 // Opens the memory database (`data/memory.db`): node:sqlite, WAL, foreign keys on, a busy timeout, migrations by a
 // `schema_version` table, `transaction(fn)`, and the single writer's lock file `<db>.lock` holding
-// `{ pid, startedAt }`. After the memory migrations the task board's own migrations run in a transaction of their own
-// (src/board/schema.ts), so a board that fails to migrate is down while her memory stays open and writable. Only the bot process writes; tools open `readOnly` (no lock, no migration) and the
-// tools that import or sync refuse to run while a live process holds the lock. A lock of a dead pid is taken over.
+// `{ pid, startedAt }`. The task board's tables are part of the schema, and the handle reports the board up when
+// `board_schema_version` holds its version (src/board/schema.ts). Only the bot process writes; tools open `readOnly`
+// (no lock, no migration) and the tools that import or sync refuse to run while a live process holds the lock. A lock
+// of a dead pid is taken over.
 //
 // Node prints an ExperimentalWarning when node:sqlite loads; that one warning is dropped and every other warning
 // still reaches the original listeners (the same filter as the ledger's database).
@@ -10,14 +11,14 @@
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import type { DatabaseSync as DatabaseSyncClass } from 'node:sqlite';
-import { MIGRATIONS, finishSelfreflectionDestination, finishSelfreflectionMirror, renameChatColumn } from './schema.ts';
+import { MIGRATIONS, finishSelfreflectionDestination, finishSelfreflectionMirror } from './schema.ts';
 import { BASELINE_VERSION, createBaseline } from './schema-baseline.ts';
 import { moveSelfreflectionMedia } from '../migration/selfreflection-names.ts';
 import type { Migration, MigrationContext } from './schema.ts';
 import { ALIVE_LEASE, leaseOf } from './wake-queue.ts';
 import { importWakeQueues } from '../migration/wake-import.ts';
 import { mergeGifLibraries } from './gif-library-merge.ts';
-import { BOARD_MIGRATIONS, boardVersion, migrateBoard } from '../../board/schema.ts';
+import { BOARD_VERSION, boardVersion } from '../../board/schema.ts';
 import type { BoardDb, BoardStatus } from '../../board/schema.ts';
 import type { Db, MemoryHandle } from './types.ts';
 
@@ -130,13 +131,12 @@ export function schemaVersion(dbGiven: unknown): number {
 }
 
 /**
- * Applies every migration above the current version, in one transaction. A new database whose list reaches the baseline
- * starts from it (src/memory/db/schema-baseline.ts) and takes only the steps above it. An entry is SQL text or a function of the
- * connection and `context` (what only the opener knows: `selfreflectionPlaceId`, the deployment's selfreflection channel, for v12 and
- * v15, and `dataDir`, the data directory, for v18). A data step v12, v15 or v18 could not finish without the context
- * is finished by the first open that has it. The per-place GIF libraries of v32 are merged here too, because a converted
- * database arrives with the current schema and its old rows. The folder of the selfreflection's files moves here, before
- * the commit: a crash on either side of the commit leaves what the next open finishes.
+ * Brings a database to the newest version in one transaction. A new database starts from the baseline
+ * (src/memory/db/schema-baseline.ts), and every entry of `migrations` is one version above it. A database below the
+ * baseline is refused with `schema-below-baseline` and left as it was. `context` is what only the opener knows: the
+ * selfreflection's channel (`selfreflectionPlaceId`) and the data directory (`dataDir`). With them an open finishes
+ * what a database once left pending: the selfreflection's destination and mirror, the wake files, the per-place GIF
+ * libraries and the folder of the selfreflection's files, before the commit.
  */
 export function migrate(
   dbGiven: unknown,
@@ -147,20 +147,25 @@ export function migrate(
   inTransaction(db, () => {
     db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)');
     let version = schemaVersion(db);
-    if (version === 0 && migrations.length >= BASELINE_VERSION) {
+    if (version === 0) {
       createBaseline(db);
       version = BASELINE_VERSION;
     }
-    if (version < migrations.length) renameChatColumn(db);
-    while (version < migrations.length) {
-      const step = migrations[version];
+    if (version < BASELINE_VERSION) {
+      throw new Error(
+        `schema-below-baseline: the memory database is at schema version ${version}, below the baseline ` +
+          `${BASELINE_VERSION}; open it once with an engine from before the baseline, which brings it to ` +
+          `${BASELINE_VERSION}, then with this one`
+      );
+    }
+    while (version < BASELINE_VERSION + migrations.length) {
+      const step = migrations[version - BASELINE_VERSION];
       if (typeof step === 'function') step(db, context);
       else db.exec(step);
       version += 1;
       db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(version);
-      renameChatColumn(db);
     }
-    if (migrations === MIGRATIONS && schemaVersion(db) >= MIGRATIONS.length) {
+    if (migrations === MIGRATIONS) {
       finishSelfreflectionDestination(db, context);
       finishSelfreflectionMirror(db, context);
       importWakeQueues(db, context);
@@ -188,29 +193,24 @@ export function inTransaction<TResult>(dbGiven: unknown, fn: () => TResult): TRe
   }
 }
 
-/** The board's status as a read-only open finds it: up when it is at the version of `migrations`. */
-function boardStatusOf(db: BoardDb, migrations: ReadonlyArray<string>): BoardStatus {
+/** The board's status as an open finds it: up when `board_schema_version` holds the board's version. */
+function boardStatusOf(db: BoardDb): BoardStatus {
   const version = boardVersion(db);
-  return version === migrations.length
+  return version === BOARD_VERSION
     ? { ok: true, version }
-    : { ok: false, version, error: `the board is at version ${version}, the engine expects ${migrations.length}` };
+    : { ok: false, version, error: `the board is at version ${version}, the engine expects ${BOARD_VERSION}` };
 }
 
-/**
- * The options of `openMemoryDb`. `context` is what a migration step needs from the opener (see `migrate`);
- * `boardMigrations` replaces the board's list (default `BOARD_MIGRATIONS`), as `migrations` does the memory's.
- */
+/** The options of `openMemoryDb`. `context` is what a migration step needs from the opener (see `migrate`). */
 export type OpenOptions = LockOptions & {
   readOnly?: boolean;
   migrations?: ReadonlyArray<Migration>;
-  boardMigrations?: ReadonlyArray<string>;
   context?: MigrationContext;
 };
 
 /**
  * Opens a memory database. `dbPath` is a file path, or ':memory:' (no lock, no file). The handle's `board` is the
- * board's migration status (a read-only open migrates nothing and reports the board down when it is not at the
- * expected version).
+ * board's status, down when the database does not hold the board's version.
  */
 export function openMemoryDb(dbPathGiven: unknown, opts: OpenOptions = {}): MemoryHandle {
   const dbPath = dbPathGiven as string;
@@ -229,8 +229,7 @@ export function openMemoryDb(dbPathGiven: unknown, opts: OpenOptions = {}): Memo
     db.exec('PRAGMA busy_timeout = 5000');
     db.exec('PRAGMA foreign_keys = ON');
     if (!readOnly) migrate(db, opts.migrations ?? MIGRATIONS, opts.context ?? {});
-    const boardMigrations = opts.boardMigrations ?? BOARD_MIGRATIONS;
-    board = readOnly ? boardStatusOf(db, boardMigrations) : migrateBoard(db, boardMigrations);
+    board = boardStatusOf(db);
   } catch (error) {
     try {
       db?.close();

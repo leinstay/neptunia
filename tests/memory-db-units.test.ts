@@ -24,10 +24,9 @@ import { createStore } from '../src/memory/store.ts';
 import { createIntentionStore } from '../src/intentions/store.ts';
 import { createErrandStore } from '../src/errands/store.ts';
 import { touchMemory } from '../src/memory/update.ts';
-import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
+import { CHANNEL, GUILD, MEMBER, buildDataDir, fileFixtureErrand } from './fixtures/memory-db/datadir.ts';
 import { createUnitOutbox } from '../src/memory/db/unit-outbox.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
-import { BOARD_MIGRATIONS } from '../src/board/schema.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 import {} from '../src/memory/db/ids.ts';
 import { keyText, type StorageKey } from '../src/memory/db/storage-keys.ts';
@@ -85,21 +84,18 @@ const configOf = (memoryDb = {}) => ({
 });
 
 /**
- * The data directory with the fixture already in its database. `archived`: seeded at board v2, so the fixture's errand
- * units land in the `work` archive and the next open's board v3 moves them onto the board (a deployment from before
- * PR 6d); else seeded at the current board, where the unit writer skips the errand units.
+ * The data directory with the fixture already in its database. `archived`: the fixture's errand is filed on the board
+ * too; the unit writer itself skips the errand units.
  */
 function prepared({ archived = false } = {}) {
   const root = tmpRoot();
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
-  const handle = openMemoryDb(
-    path.join(data, 'memory.db'),
-    archived ? { boardMigrations: BOARD_MIGRATIONS.slice(0, 2) } : {}
-  );
+  const handle = openMemoryDb(path.join(data, 'memory.db'));
   try {
     seedUnits(handle, data, { now: () => NOW - DAY_MS });
+    if (archived) fileFixtureErrand(dbOf(handle));
   } finally {
     handle.close();
   }
@@ -405,8 +401,7 @@ test('a day of writes with the memory files gone writes every kind of unit to th
   }
 });
 
-// PR 6d, errands on the board: the fixture's errand reaches the store from the board (moved there by board v3 from
-// the archive a v2 database holds), no longer from the errands unit.
+// Errands on the board: the fixture's errand reaches the store from its board task.
 test('reads: the store, the intentions and the tasks load the database values with the memory files gone', async () => {
   const db = prepared({ archived: true });
   retireFiles(db.data);

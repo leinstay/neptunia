@@ -4,6 +4,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { generated } from './roundtrip.ts';
+import { insertTask, statusOfState } from '../../../src/board/archive.ts';
+import type { BoardDb } from '../../../src/board/schema.ts';
 
 export const GUILD = '300000000000000001';
 export const MEMBER = '100000000000000001';
@@ -177,4 +179,25 @@ export function buildSecondGuild(root: string): string {
     fs.writeFileSync(target, binary ? data : rename(data.toString('utf8')));
   }
   return to;
+}
+
+/**
+ * Files the errand `t1` of the fixture's `tasks.json` on the board, the way the errand store keeps an errand
+ * (src/board/archive.ts): its task at the status of its state, with no handoff since it holds no result. The unit
+ * writer leaves the errand units alone, so a test that reads errands from the board files them here.
+ */
+export function fileFixtureErrand(db: BoardDb): void {
+  const createdAt = 1792000000000;
+  const errand = {
+    id: 't1',
+    state: 'done',
+    createdAt,
+    requester: { accountId: MEMBER },
+    scope: 'group',
+    seen: true,
+    readAt: createdAt,
+    resolvedAt: null,
+  };
+  insertTask(db, errand, new Date(createdAt).toISOString());
+  db.prepare('UPDATE board_tasks SET status = ? WHERE id = ?').run(statusOfState(errand.state), errand.id);
 }

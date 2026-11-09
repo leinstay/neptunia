@@ -16,9 +16,8 @@ import { createJournal } from '../src/memory/journal.ts';
 import { readBoard } from '../src/board/board.ts';
 import type { BoardDb } from '../src/board/schema.ts';
 import type { ErrandStore } from '../src/errands/types.ts';
-import { tableHashes } from '../scripts/memory-db.ts';
 import { openTestMemorySync, tempDataDir } from './fixtures/memory-db/service.ts';
-import { ARCHIVE, GUILD, T0, archiveDataDir, archived } from './fixtures/errand-archive.ts';
+import { GUILD, T0 } from './fixtures/errand-archive.ts';
 import { channel, rig } from './fixtures/reads-rig.ts';
 
 const NOW = T0 + 60 * 60 * 1000;
@@ -132,30 +131,6 @@ async function running(rig: Rig): Promise<string> {
 }
 
 const DONE = { status: 'done', result: { text: 'Open until eight.', sources: [], files: [] }, usage: { usd: 0.02 } };
-
-test('a store over the moved archive reads every errand back as the archive held it', () => {
-  const { dataDir } = archiveDataDir();
-  const { store, memoryDb } = setUp(dataDir);
-  assert.equal(readBoard(readDb(memoryDb), () => NOW).list().length, ARCHIVE.length, 'the open moved them');
-  for (const errand of ARCHIVE) assert.deepEqual(store.get(errand.id), archived(errand.id), errand.id);
-});
-
-test("the store's writes after the move leave work, work_events and the errand units as they were", async () => {
-  const { dataDir } = archiveDataDir();
-  const rig = setUp(dataDir);
-  const archive = (): unknown => [
-    tableHashes(readDb(rig.memoryDb), ['work', 'work_events']),
-    readDb(rig.memoryDb).prepare("SELECT * FROM files WHERE path LIKE 'guilds/g1/errands%' ORDER BY path").all(),
-  ];
-  const before = archive();
-  const id = await running(rig);
-  rig.store.finish(id, DONE);
-  rig.store.markRead(id);
-  rig.store.resolve('t0000e002');
-  await settle(rig.store);
-  assert.equal(statusOf(rig.memoryDb, id), 'done', 'the errand went to the board');
-  assert.deepEqual(archive(), before);
-});
 
 test('an errand end commits the board move, the outbox row to persona and the closing journal line', async () => {
   const rig = setUp();

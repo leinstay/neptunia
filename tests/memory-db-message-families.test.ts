@@ -7,16 +7,11 @@ import path from 'node:path';
 import { observeMessage } from '../src/memory/db/message-families.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import type { Envelope, ObserveResult } from '../src/memory/db/observe.ts';
-import { insertRows } from '../src/memory/db/rows.ts';
-import { toRows as recordRows } from '../src/memory/db/map/record.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
-import { openMemoryDb, MIGRATIONS, migrate, schemaVersion } from '../src/memory/db/open.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { dbOf } from '../src/memory/db/types.ts';
-import type { Db, MemoryHandle } from '../src/memory/db/types.ts';
-
-// These migration cases target V23 even when later schema migrations are available.
-const CATALOG_MIGRATIONS = MIGRATIONS.slice(0, 23);
+import type { Db } from '../src/memory/db/types.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00Z');
 const quiet = { debug() {}, info() {}, warn() {}, error() {} };
@@ -55,10 +50,6 @@ function snapshot(db: Db): Record<string, Array<Record<string, unknown>>> {
 
 function families(db: Db): Array<Record<string, unknown>> {
   return db.prepare('SELECT * FROM message_families ORDER BY conversation_id, message_id').all();
-}
-
-function oldHandle(): MemoryHandle {
-  return openMemoryDb(':memory:', { migrations: MIGRATIONS.slice(0, 22) });
 }
 
 test('normalized messages with one native ID in two chats receive separate families', () => {
@@ -265,95 +256,6 @@ test('the protocol mapper retains actual DM chat separately from the partner pla
   assert.equal(mapped?.messageLocator?.chatId, 'actual-dm');
 });
 
-test('V23 creates an empty catalog without rewriting source or graph rows', () => {
-  const handle = oldHandle();
-  try {
-    const db = dbOf(handle);
-    const before = snapshot(db);
-    migrate(db, CATALOG_MIGRATIONS);
-    assert.equal(schemaVersion(db), 23);
-    assert.deepEqual(families(db), []);
-    assert.deepEqual(snapshot(db), before);
-  } finally {
-    handle.close();
-  }
-});
-
-test('V23 adopts verified retained revisions and preserves their source and graph identities', () => {
-  const handle = oldHandle();
-  try {
-    const first = sourceId(observe(handle, envelope(), options));
-    sourceId(observe(handle, envelope('room-a', 'Historical edit', true), options));
-    const db = dbOf(handle);
-    db.prepare('UPDATE sources SET retired_at = ? WHERE revision = 1').run('2026-10-24T11:00:00Z');
-    db.prepare(
-      "INSERT INTO turn_reads (turn_id, step, context_id, row_kind, row_id) VALUES ('turn-a', '1', '', 'source', ?)"
-    ).run(first);
-    db.prepare(
-      "INSERT INTO publications (id, row_kind, row_id, status, idempotency_key, created_at) VALUES ('publication-a', 'source', ?, 'queued', 'publication-key', ?)"
-    ).run(first, new Date(NOW).toISOString());
-    const before = snapshot(db);
-    migrate(db, CATALOG_MIGRATIONS);
-    assert.equal(schemaVersion(db), 23);
-    assert.deepEqual(snapshot(db), before);
-    assert.deepEqual(
-      families(db).map((row) => [row.conversation_id, row.native_key]),
-      [['room-a', 'same-message']]
-    );
-    migrate(db, CATALOG_MIGRATIONS);
-    assert.deepEqual(snapshot(db), before);
-    assert.equal(families(db).length, 1);
-  } finally {
-    handle.close();
-  }
-});
-
-test('V23 leaves generic message keys without verified locator provenance uncatalogued', () => {
-  const handle = oldHandle();
-  try {
-    const generic = envelope();
-    delete generic.messageLocator;
-    sourceId(observe(handle, generic, options));
-    const before = snapshot(dbOf(handle));
-    migrate(dbOf(handle), CATALOG_MIGRATIONS);
-    assert.equal(schemaVersion(dbOf(handle)), 23);
-    assert.deepEqual(families(dbOf(handle)), []);
-    assert.deepEqual(snapshot(dbOf(handle)), before);
-  } finally {
-    handle.close();
-  }
-});
-
-for (const conflict of ['locator', 'family'] as const) {
-  test(`V23 rolls back when historical ${conflict} mappings disagree`, () => {
-    const handle = oldHandle();
-    try {
-      const first = envelope();
-      sourceId(observe(handle, first, options));
-      const second = envelope('room-a', 'Second historical evidence');
-      second.native = {
-        ...second.native,
-        key: conflict === 'locator' ? 'independent-family' : 'same-message',
-        revision: 2,
-      };
-      const id = sourceId(observe(handle, second, options));
-      const db = dbOf(handle);
-      if (conflict === 'family')
-        db.prepare("UPDATE sources SET extra = json_set(extra, '$.$messageLocator.chatId', 'room-b') WHERE id = ?").run(
-          id
-        );
-      db.prepare('UPDATE sources SET retired_at = ? WHERE revision = 1').run('2026-10-24T11:00:00Z');
-      const before = snapshot(db);
-      assert.throws(() => migrate(db, CATALOG_MIGRATIONS), { code: 'CONVERSATION_CONFLICT' });
-      assert.equal(schemaVersion(db), 22);
-      assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE name = 'message_families'").get(), undefined);
-      assert.deepEqual(snapshot(db), before);
-    } finally {
-      handle.close();
-    }
-  });
-}
-
 for (const worker of [false, true]) {
   test(`the normalized writer request preserves families with worker ${worker}`, async () => {
     const root = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), 'message-families-'));
@@ -447,49 +349,6 @@ test('late ambiguous historical families refuse adoption without modifying eithe
     handle.close();
   }
 });
-
-for (const opaque of [false, true]) {
-  test(`V23 adopts historical record provenance while preserving ${opaque ? 'opaque' : 'Discord'} source IDs`, () => {
-    const handle = oldHandle();
-    try {
-      const mapping = recordRows('private/member/record/2026-10/2026-10-24.jsonl', {
-        v: 1,
-        id: 'historical-record',
-        kind: 'seen',
-        messageId: 'historical-message',
-        revision: 1,
-        occurredAt: new Date(NOW - 60000).toISOString(),
-        recordedAt: new Date(NOW).toISOString(),
-        placeId: 'g1',
-        scope: { channel: 'actual-historical-dm' },
-        by: 'member',
-        text: 'Historical record evidence',
-        origin: 'live',
-      });
-      const source = mapping.sources[0];
-      // The mapper emits JSON metadata, and this fixture removes its marker to model the historical format.
-      const extra: Record<string, unknown> = JSON.parse(String(source.extra)) as Record<string, unknown>;
-      delete extra.$messageLocator;
-      source.extra = JSON.stringify(extra);
-      if (opaque) source.id = 'opaque-historical-source';
-      insertRows(dbOf(handle), mapping, { log: quiet });
-      const before = snapshot(dbOf(handle));
-      migrate(dbOf(handle), CATALOG_MIGRATIONS);
-      assert.equal(schemaVersion(dbOf(handle)), 23);
-      assert.deepEqual(snapshot(dbOf(handle)), before);
-      assert.equal(
-        dbOf(handle).prepare('SELECT id FROM sources WHERE native_id = ?').get('historical-message')?.id,
-        source.id
-      );
-      assert.deepEqual(
-        families(dbOf(handle)).map((row) => [row.iface, row.conversation_id, row.message_id, row.native_key]),
-        [['discord', 'actual-historical-dm', 'historical-message', 'historical-message']]
-      );
-    } finally {
-      handle.close();
-    }
-  });
-}
 
 test('an allocated key that belongs to an uncatalogued generic family is refused', () => {
   const handle = openMemoryDb(':memory:');

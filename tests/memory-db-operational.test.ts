@@ -10,12 +10,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createStore } from '../src/memory/store.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { MIGRATIONS } from '../src/memory/db/schema.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { operationalValue } from '../src/memory/db/operational.ts';
 import { PERSONA_ID, personaKey, placeCollection } from '../src/memory/db/storage-keys.ts';
 import type { StorageKey } from '../src/memory/db/storage-keys.ts';
-import { ensureUnit } from '../src/memory/db/storage-units.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle, Row } from '../src/memory/db/types.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
@@ -188,76 +186,20 @@ test('the operational write refuses a kind outside the operational kinds', () =>
   }
 });
 
-/** A database at the version before the operational owners, holding rows as the unit path left them. */
-function seededBeforeStep(): string {
-  const file = path.join(tempDir('operational-step'), 'memory.db');
-  const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 42) });
-  const db = dbOf(old);
-  const insert = db.prepare(
-    'INSERT INTO operational (kind, owner, value, owner_file, retired_at, owner_key) VALUES (?, ?, ?, NULL, ?, ?)'
-  );
-  const state = ensureUnit(db, personaKey('state'));
-  insert.run('state', state, '{"llmCount":5}', null, state);
-  // An inner unit whose row kept the owner of its old file, and a retired row of the same unit.
-  const inner = ensureUnit(db, personaKey('inner'));
-  insert.run('inner', 'guilds/1/inner.json', '{"v":1}', null, inner);
-  insert.run('inner', inner, '{"v":0}', '2026-11-01T00:00:00.000Z', inner);
-  const trace = ensureUnit(db, placeCollection('recall_trace', PLACE));
-  insert.run('recall_trace', `${trace}#0`, '{"run":1}', null, trace);
-  insert.run('recall_trace', `${trace}#1`, '{"run":2}', null, trace);
-  // Emoji rails of a place spelled by its bare native id, which no `places` row holds.
-  db.prepare("INSERT INTO places (id, iface, kind, native_id) VALUES (?, 'discord', 'channel', '100')").run(PLACE);
-  const rails = ensureUnit(db, placeCollection('emoji_rails', '100'));
-  insert.run('emoji_rails', rails, '{"replies":1}', null, rails);
-  // A memory kind the step leaves alone.
-  const channel = ensureUnit(db, placeCollection('channel', PLACE));
-  insert.run('channel', PLACE, '{"$has":[]}', null, channel);
-  old.close();
+/** A database holding two recall trace lines of a place under the owners this module reads. */
+function seededTrace(): string {
+  const file = path.join(tempDir('operational-trace'), 'memory.db');
+  const handle = openMemoryDb(file);
+  const insert = dbOf(handle).prepare("INSERT INTO operational (kind, owner, value) VALUES ('recall_trace', ?, ?)");
+  insert.run(`${PLACE}#0`, '{"run":1}');
+  insert.run(`${PLACE}#1`, '{"run":2}');
+  handle.close();
   return file;
 }
 
-test('the schema step moves operational rows to their subject and leaves memory kinds alone', () => {
-  // Catches: rows the new readers cannot find after the deploy, lines that collide, or a memory kind's owner rewritten.
-  const handle = openMemoryDb(seededBeforeStep());
-  try {
-    const db = dbOf(handle);
-    const channelUnit = db.prepare("SELECT id FROM storage_units WHERE kind = 'channel'").get();
-    assert.deepEqual(
-      db
-        .prepare('SELECT kind, owner, value, retired_at, owner_key FROM operational ORDER BY kind, owner')
-        .all()
-        .map((row) => ({ ...row })),
-      [
-        {
-          kind: 'channel',
-          owner: PLACE,
-          value: '{"$has":[]}',
-          retired_at: null,
-          owner_key: channelUnit?.id,
-        },
-        { kind: 'emoji_rails', owner: PLACE, value: '{"replies":1}', retired_at: null, owner_key: null },
-        { kind: 'inner', owner: PERSONA_ID, value: '{"v":1}', retired_at: null, owner_key: null },
-        { kind: 'recall_trace', owner: `${PLACE}#0`, value: '{"run":1}', retired_at: null, owner_key: null },
-        { kind: 'recall_trace', owner: `${PLACE}#1`, value: '{"run":2}', retired_at: null, owner_key: null },
-        { kind: 'state', owner: PERSONA_ID, value: '{"llmCount":5}', retired_at: null, owner_key: null },
-      ]
-    );
-    assert.deepEqual(operationalValue(db, 'state', PERSONA_ID), { found: true, value: { llmCount: 5 } });
-    assert.deepEqual(
-      db
-        .prepare('SELECT kind FROM storage_units WHERE retired_at IS NULL ORDER BY kind')
-        .all()
-        .map((row) => row.kind),
-      ['channel']
-    );
-  } finally {
-    handle.close();
-  }
-});
-
-test('a recall trace line after the step takes the next position of the moved lines', () => {
-  // Catches: a first line after the deploy that overwrites the oldest moved line.
-  const handle = openMemoryDb(seededBeforeStep());
+test('a new recall trace line takes the next position after the stored lines', () => {
+  // Catches: a new line that overwrites the oldest stored line.
+  const handle = openMemoryDb(seededTrace());
   try {
     const db = dbOf(handle);
     applyMemoryWrite(handle, {

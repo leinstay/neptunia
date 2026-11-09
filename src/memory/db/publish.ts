@@ -658,21 +658,6 @@ export function assignSelfreflectionDestination(
   return ids.length;
 }
 
-/** Every mirror's publication (the v10 migration; idempotent). Returns how many mirrors were looked at. */
-export function deriveAllMirrorPublications(
-  handle: Connection,
-  { at, project = true }: { at?: string; project?: boolean } = {}
-): number {
-  const db = dbOf(handle);
-  const rows = db
-    .prepare(
-      'SELECT rowid AS rowid FROM selfreflection_mirrors WHERE id IS NOT NULL AND selfreflection_id IS NOT NULL ORDER BY rowid'
-    )
-    .all();
-  for (const row of rows) deriveMirrorPublication(db, { rowid: row.rowid }, { at, project });
-  return rows.length;
-}
-
 /**
  * The publications whose receipts name a line of hers that was just stored (a mirror written before its line), projected
  * again so their `publication_source` edge reaches it. Cheap: only her own lines with a native id, over a small table.

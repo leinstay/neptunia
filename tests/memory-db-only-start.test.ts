@@ -23,10 +23,10 @@ import { createVectors } from '../src/memory/vectors.ts';
 import { createEmbedder } from '../src/memory/embedder.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
 import { createErrandStores } from '../src/errands/store.ts';
-import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
+import { CHANNEL, GUILD, MEMBER, buildDataDir, fileFixtureErrand } from './fixtures/memory-db/datadir.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
-import { BOARD_MIGRATIONS } from '../src/board/schema.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { dbOf } from '../src/memory/db/types.ts';
 import { wrongly, present } from './fixtures/loose-types.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
@@ -49,11 +49,11 @@ function databaseOnly() {
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
-  // Seeded at board v2, as a database from before PR 6d: the fixture's errand lands in the `work` archive and the
-  // engine's first open moves it onto the board (board v3), where the errand store reads it.
-  const handle = openMemoryDb(path.join(data, 'memory.db'), { boardMigrations: BOARD_MIGRATIONS.slice(0, 2) });
+  // The fixture's errand goes onto the board, where the errand store reads it.
+  const handle = openMemoryDb(path.join(data, 'memory.db'));
   try {
     assert.equal(seedUnits(handle, data, { now: NOW - 86_400_000 }).errors, 0);
+    fileFixtureErrand(dbOf(handle));
   } finally {
     handle.close();
   }
@@ -150,8 +150,7 @@ test('the memory starts from memory.db and the operational files alone, writes o
       (await first.journal.read(legacyServerPlaceId('discord', GUILD), { day: '2026-10-20', n: 100 })).length > 0,
       'the journal day'
     );
-    // PR 6d, errands on the board: the fixture's errand is read from the board task board v3 made of it (it was read
-    // from the errands unit before).
+    // Errands on the board: the fixture's errand is read from its board task.
     assert.deepEqual(
       present(first.taskStores.get())
         .recent(10)

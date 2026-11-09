@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { currentUnitPath } from '../src/memory/migration/paths.ts';
-import { dbOf } from './fixtures/memory-db/v13-errands.ts';
+import { dbOf } from '../src/memory/db/types.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
 
 const ERRAND = {

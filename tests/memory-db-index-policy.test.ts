@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MIGRATIONS, openMemoryDb, schemaVersion } from '../src/memory/db/open.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { seedUnits } from './fixtures/memory-db/seed.ts';
 import {
   checkMedia,
@@ -26,7 +26,7 @@ import { dmScope, groupContext, groupScope } from '../src/memory/db/scope.ts';
 import { quantize } from '../src/memory/vectors.ts';
 import { recordChunk } from '../src/memory/chunks.ts';
 import { main, tableHashes } from '../scripts/memory-db.ts';
-import { buildDataDir, guildDir, writeJson } from './fixtures/memory-db/datadir.ts';
+import { buildDataDir } from './fixtures/memory-db/datadir.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { sqlOf, wrongly } from './fixtures/loose-types.ts';
 
@@ -376,68 +376,23 @@ test('media availability: her diary media is present or missing by its file; for
   }
 });
 
-// ---------- the migration to v11, and the tools ----------
+// ---------- the tools ----------
 
-function importedAtV10() {
-  const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-v11-'));
+/** A data directory written into a new database by the unit writer. */
+function seededAtBaseline() {
+  const root = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-index-policy-'));
   const data = path.join(root, 'data');
   fs.mkdirSync(data);
   buildDataDir(data);
   const file = path.join(root, 'memory.db');
-  const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 10) });
+  const old = openMemoryDb(file);
   assert.equal(seedUnits(old, data, wrongly({ log: quiet, now: () => NOW })).errors, 0);
-  assert.equal(schemaVersion(old.db), 10);
   old.close();
   return { root, data, file, done: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
-test('v11: the migration keeps every row; rows the database owns survive a rewrite of the units; foreign keys and integrity hold', () => {
-  const env = importedAtV10();
-  try {
-    const handle = openMemoryDb(env.file);
-    assert.equal(schemaVersion(handle.db), MIGRATIONS.length);
-    assert.equal(
-      sqlOf(handle)
-        .prepare("SELECT COUNT(*) AS n FROM media WHERE availability <> 'unknown' AND description IS NULL")
-        .get().n,
-      0
-    );
-    assert.equal(
-      sqlOf(handle).prepare('SELECT COUNT(*) AS n FROM vectors WHERE evicted_at IS NOT NULL OR bytes IS NULL').get().n,
-      0
-    );
-    assert.equal(sqlOf(handle).prepare('SELECT COUNT(*) AS n FROM sources WHERE tier IS NOT NULL').get().n, 0);
-    assert.deepEqual(sqlOf(handle).prepare('PRAGMA foreign_key_check').all(), []);
-    assert.equal(sqlOf(handle).prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
-    // Rows the database owns (a wake run, a tier) survive a rewrite of the units.
-    applyMemoryWrite(handle, { kind: 'wake', op: 'start', run: { id: 'run-1', kind: 'heartbeat', startedAt: NOW } });
-    classify(handle, { now: NOW, config: config({ vectorEviction: false }), apply: true });
-    handle.close();
-    const file = path.join(guildDir(env.data), 'diary.json');
-    const value = JSON.parse(fs.readFileSync(file, 'utf8'));
-    value.posts.push({
-      at: 1799000000000,
-      kind: 'day',
-      gist: 'new',
-      picture: null,
-      messageIds: ['5199999999999999'],
-      search: null,
-      itemId: 'entry-new',
-    });
-    writeJson(file, value);
-    const again = openMemoryDb(env.file);
-    assert.equal(seedUnits(again, env.data, wrongly({ log: quiet, now: () => NOW + 3_600_000 })).errors, 0);
-    assert.equal(sqlOf(again).prepare("SELECT status FROM wake_runs WHERE id = 'run-1'").get().status, 'running');
-    assert.ok(sqlOf(again).prepare('SELECT COUNT(*) AS n FROM index_policy').get().n > 0);
-    assert.deepEqual(sqlOf(again).prepare('PRAGMA foreign_key_check').all(), []);
-    again.close();
-  } finally {
-    env.done();
-  }
-});
-
 test('tools: index-policy prints what it would evict and changes nothing without --apply; media-check reports the counts', () => {
-  const env = importedAtV10();
+  const env = seededAtBaseline();
   try {
     openMemoryDb(env.file).close();
     const reader = openMemoryDb(env.file, { readOnly: true });

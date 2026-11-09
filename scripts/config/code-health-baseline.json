@@ -252,10 +252,6 @@
       "deep": 3,
       "repeated": 0
     },
-    "tests/errands-boundary.test.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
     "tests/errands-client.test.ts": {
       "deep": 1,
       "repeated": 0
@@ -744,21 +740,9 @@
       "deep": 1,
       "repeated": 0
     },
-    "tests/memory-db-storage-units.test.ts": {
-      "deep": 2,
-      "repeated": 0
-    },
-    "tests/memory-db-stored-keys.test.ts": {
-      "deep": 0,
-      "repeated": 1
-    },
     "tests/memory-db-units.test.ts": {
       "deep": 8,
       "repeated": 0
-    },
-    "tests/memory-db-v14.test.ts": {
-      "deep": 0,
-      "repeated": 2
     },
     "tests/memory-db-wakes.test.ts": {
       "deep": 2,

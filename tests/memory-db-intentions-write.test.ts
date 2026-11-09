@@ -10,7 +10,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createIntentionStore } from '../src/intentions/store.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { MIGRATIONS } from '../src/memory/db/schema.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { intentionsArchiveLines, intentionsValue } from '../src/memory/db/readers/intentions.ts';
 import { personaKey } from '../src/memory/db/storage-keys.ts';
@@ -181,47 +180,6 @@ test('the intentions write refuses a record without an id', () => {
     );
   } finally {
     direct.close();
-  }
-});
-
-test('the schema step moves the intention rows off their units and leaves them readable', () => {
-  // Catches: rows the new readers cannot find after the deploy, or an active record read as archived.
-  const file = path.join(tempDir('intentions-step'), 'memory.db');
-  const old = openMemoryDb(file, { migrations: MIGRATIONS.slice(0, 43) });
-  applyMemoryWrite(old, {
-    kind: 'unit',
-    op: 'value',
-    key: ACTIVE,
-    value: { intentions: [intention('i1'), intention('i2')] },
-    now: NOW,
-  });
-  applyMemoryWrite(old, {
-    kind: 'unit',
-    op: 'lines',
-    key: ARCHIVE,
-    lines: [intention('a1', { status: 'done' })],
-    now: NOW,
-  });
-  const before = rowsOf(dbOf(old));
-  old.close();
-  const handle = openMemoryDb(file);
-  try {
-    const db = dbOf(handle);
-    assert.deepEqual(rowsOf(db), before);
-    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM intentions WHERE owner_key IS NOT NULL').get()?.n, 0);
-    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM operational WHERE kind = 'intentions'").get()?.n, 0);
-    assert.equal(
-      db.prepare("SELECT COUNT(*) AS n FROM storage_units WHERE kind = 'intentions' AND retired_at IS NULL").get()?.n,
-      0
-    );
-    applyMemoryWrite(handle, { kind: 'intentions', op: 'value', intentions: [intention('i2')], now: NOW });
-    assert.deepEqual(intentionsValue(db), { found: true, value: { intentions: [intention('i2')] } });
-    assert.deepEqual(
-      intentionsArchiveLines(db).map((line) => (JSON.parse(line) as Row).id),
-      ['a1']
-    );
-  } finally {
-    handle.close();
   }
 });
 

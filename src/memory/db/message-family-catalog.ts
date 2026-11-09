@@ -1,4 +1,4 @@
-// The message writer and schema migration resolve verified history into chat-qualified families.
+// The message writer resolves verified history into chat-qualified families.
 
 import { nativeLocatorOf } from './source-locator.ts';
 import { locatorText } from './message-locator.ts';
@@ -67,11 +67,6 @@ function familiesOf(rows: Array<Row>): Array<MessageFamily> {
   return [...byAddress.values()];
 }
 
-/** Migration validates the complete retained history once. */
-export function historicalFamilies(db: Db): Array<MessageFamily> {
-  return familiesOf(db.prepare('SELECT * FROM sources').all());
-}
-
 // Rows stored before the chat rename name the chat `chatId`, rows written since `chatId`.
 const locatorChat = `CASE WHEN json_valid(extra) THEN COALESCE(json_extract(extra, '$."$messageLocator".chatId'), json_extract(extra, '$."$messageLocator".conversationId')) END`;
 const locatorMessage = `CASE WHEN json_valid(extra) THEN json_extract(extra, '$."$messageLocator".messageId') END`;
@@ -137,21 +132,4 @@ export function insertFamily(db: Db, row: MessageFamily): void {
     row.native_kind,
     row.native_key
   );
-}
-
-export function migrateMessageFamilies(db: Db): void {
-  const textKey = (name: string): string =>
-    `${name} TEXT NOT NULL CHECK(length(${name}) > 0 AND instr(${name}, char(0)) = 0)`;
-  db.exec(`CREATE TABLE message_families (
-    ${textKey('iface')} REFERENCES interfaces(id),
-    ${textKey('conversation_id')}, ${textKey('message_id')},
-    generation INTEGER NOT NULL DEFAULT 1 CHECK(generation > 0),
-    ${textKey('authority_id')} REFERENCES authorities(id),
-    ${textKey('native_kind')}, ${textKey('native_key')},
-    PRIMARY KEY(iface, conversation_id, message_id, generation),
-    UNIQUE(authority_id, native_kind, native_key, generation)
-  )`);
-  db.exec(`CREATE INDEX sources_message_locator ON sources(iface, ${locatorChat}, ${locatorMessage}, generation);
-    CREATE INDEX sources_iface_native ON sources(iface, native_id, generation);`);
-  for (const family of historicalFamilies(db)) insertFamily(db, family);
 }

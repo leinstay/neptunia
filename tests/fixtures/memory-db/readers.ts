@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { dbOf } from '../../../src/memory/db/types.ts';
 import type { Log, MemoryHandle } from '../../../src/memory/db/types.ts';
 import { dmPlaceId } from '../../../src/memory/db/ids.ts';
 import { legacyServerPlaceId } from '../../../src/memory/migration/paths.ts';
@@ -13,8 +14,7 @@ import { openMemoryDb } from '../../../src/memory/db/open.ts';
 import { createVectors } from '../../../src/memory/vectors.ts';
 import { openTestMemory } from './service.ts';
 import { seedUnits } from './seed.ts';
-import { BOARD_MIGRATIONS } from '../../../src/board/schema.ts';
-import { CHANNEL, GUILD, MEMBER, buildDataDir, buildSecondGuild, envelope, guildDir, seen, writeJson, writeLines } from './datadir.ts';
+import { CHANNEL, GUILD, MEMBER, buildDataDir, buildSecondGuild, envelope, fileFixtureErrand, guildDir, seen, writeJson, writeLines } from './datadir.ts';
 
 export { CHANNEL, GUILD, MEMBER };
 
@@ -112,8 +112,8 @@ async function addVectors(data: string, memoryDb: Parameters<typeof createVector
 
 /**
  * The data directory and its database: `data`, `dbFile`, `handle` (read-only), `memoryDb` (a service-shaped object
- * over `handle`), `closedDb` (nothing open), `log` (warns collected in `warns`), `done()`. `archived`: the fixture
- * seeded at board v2, so its errands reach the board through board v3's move.
+ * over `handle`), `closedDb` (nothing open), `log` (warns collected in `warns`), `done()`. `archived`: the fixture's
+ * errand is filed on the board too.
  */
 export type ReaderEnv = {
   root: string;
@@ -139,11 +139,11 @@ export async function readerEnv({ archived = false }: { archived?: boolean } = {
   addExtra(data);
   const dbFile = path.join(data, 'memory.db');
   if (archived) {
-    // Seeded at board v2, as a database from before PR 6d: the errand units land in the `work` archive, and the
-    // writer's open below runs board v3, which moves them onto the board.
-    const seeding = openMemoryDb(dbFile, { boardMigrations: BOARD_MIGRATIONS.slice(0, 2) });
+    // The unit writer leaves the errand units alone, so the fixture's errand is filed on the board here.
+    const seeding = openMemoryDb(dbFile);
     try {
       seedUnits(seeding, data);
+      fileFixtureErrand(dbOf(seeding));
     } finally {
       seeding.close();
     }
