@@ -22,7 +22,8 @@ import {
 } from './fixtures/memory-db/mind-world.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
-import { rig, channel } from './fixtures/reads-rig.ts';
+import { rig, channel, message } from './fixtures/reads-rig.ts';
+import type { Rig } from './fixtures/reads-rig.ts';
 import { labels } from './fixtures/labels.ts';
 import { chainsOf } from './fixtures/chains.ts';
 import type { LinkAsk } from '../src/interface/person-link.ts';
@@ -265,9 +266,9 @@ test('repeating one source-free native quote keeps its original handle usable fo
 function crossReadScene(
   world: World,
   memberOf: (placeId: string, accountId: string) => { name: string } | null,
-  draft: InTurnDraft = {}
+  draft: InTurnDraft = {},
+  io: Rig = rig()
 ) {
-  const io = rig();
   const hot = { config: { bot: { timezone: 'UTC' }, features: { coreTools: true } }, prompts: { labels } };
   const tools = createInTurnTools({
     hot,
@@ -661,6 +662,146 @@ test('a person nobody is called is refused with the reason and nothing is read',
     const read = await readPerson(world, internalContext(), 'Theofilos');
     assert.equal(read.code, 'unknown-member', JSON.stringify(read));
     assert.equal(JSON.stringify(read).includes(SECRET), false);
+  } finally {
+    world.close();
+  }
+});
+
+/** One image item with `description` and the platform's attachment id `ref`, linked to the stored line `source`. */
+function pictureOn(world: World, source: string, ref: string, description: string) {
+  world.db
+    .prepare(
+      `INSERT INTO media (id, kind, native_ref, availability, description, scope_kind, scope_iface)
+       VALUES (?, 'image', ?, 'present', ?, 'group', 'fake')`
+    )
+    .run(`media:${source}`, ref, description);
+  world.db
+    .prepare("INSERT INTO media_links (owner_kind, owner_id, position, media_id) VALUES ('source', ?, 0, ?)")
+    .run(source, `media:${source}`);
+}
+
+test('a read of a place from stored lines includes a picture-only line with its description', async () => {
+  // Bug: a post that is only a picture has empty text, so the stored read dropped it and she read the channel
+  // without knowing the post was there.
+  const world = openWorld();
+  try {
+    const room = roomOf(world);
+    addLine(world.db, {
+      id: 'm1',
+      iface: 'fake',
+      place: room,
+      author: 'self',
+      text: 'before it',
+      at: '2026-11-02T09:00:00.000Z',
+    });
+    addLine(world.db, {
+      id: 'm2',
+      iface: 'fake',
+      place: room,
+      author: 'self',
+      text: '',
+      at: '2026-11-02T09:01:00.000Z',
+    });
+    pictureOn(world, 'm2', 'att-m2', 'a white rabbit in a garden');
+    const text = await readText(
+      crossReadScene(world, () => null),
+      room
+    );
+    assert.ok(text.includes('a white rabbit in a garden'), text);
+  } finally {
+    world.close();
+  }
+});
+
+test('a read of the last lines of a place of her own posts ends with her newest post, a picture', async () => {
+  // Bug (production, 2026-11-09): her newest post in a channel was only a picture, and conversation.read of the
+  // last lines ended at the text post before it, with no sign that a line was missing.
+  const world = openWorld();
+  try {
+    const room = roomOf(world);
+    addLine(world.db, {
+      id: 'm1',
+      iface: 'fake',
+      place: room,
+      author: 'self',
+      text: 'FIRST-POST',
+      at: '2026-11-02T09:00:00.000Z',
+    });
+    addLine(world.db, {
+      id: 'm2',
+      iface: 'fake',
+      place: room,
+      author: 'self',
+      text: 'SECOND-POST',
+      at: '2026-11-02T09:01:00.000Z',
+    });
+    addLine(world.db, {
+      id: 'm3',
+      iface: 'fake',
+      place: room,
+      author: 'self',
+      text: '',
+      at: '2026-11-02T09:02:00.000Z',
+    });
+    pictureOn(world, 'm3', 'att-m3', 'a white rabbit in a garden');
+    const text = await readText(
+      crossReadScene(world, () => null),
+      room
+    );
+    assert.ok(text.includes('a white rabbit in a garden'), text);
+    assert.ok(text.indexOf('a white rabbit in a garden') > text.indexOf('SECOND-POST'), text);
+  } finally {
+    world.close();
+  }
+});
+
+test('a line the platform returns renders the description the memory holds for its picture', async () => {
+  // Bug: a read that took lines from the platform handed the renderer no descriptions, so a described picture
+  // showed as a bare image marker.
+  const world = openWorld();
+  try {
+    const room = roomOf(world);
+    addLine(world.db, {
+      id: 'a1',
+      iface: 'fake',
+      place: room,
+      author: 'self',
+      text: 'the anchor',
+      at: '2026-11-02T09:00:00.000Z',
+    });
+    addLine(world.db, {
+      id: 'p1',
+      iface: 'fake',
+      place: room,
+      author: 'self',
+      text: '',
+      at: '2026-11-02T09:01:00.000Z',
+    });
+    pictureOn(world, 'p1', 'att-77', 'a white rabbit in a garden');
+    const io = rig();
+    const chat = channel('c7');
+    io.fake.seedChat(chat);
+    io.fake.seedEvent(message(chat, 'a1', Date.parse('2026-11-02T09:00:00.000Z'), 'the anchor'));
+    const picture = message(chat, 'p1', Date.parse('2026-11-02T09:01:00.000Z'), '');
+    picture.message.attachments = [
+      {
+        id: 'att-77',
+        kind: 'image',
+        url: 'https://cdn.example/rabbit.png',
+        name: 'rabbit.png',
+        contentType: 'image/png',
+      },
+    ] as typeof picture.message.attachments;
+    io.fake.seedEvent(picture);
+    const handlers = crossReadScene(world, () => null, {}, io);
+    const read = (await handlers['conversation.read']({ placeId: room, after: 'a1' })) as {
+      status: string;
+      data?: { text: string };
+    };
+    assert.equal(read.status, 'ok', JSON.stringify(read));
+    assert.equal(io.asked('history').length > 0, true, 'the platform was asked');
+    const shown = read.data?.text ?? '';
+    assert.ok(shown.includes('a white rabbit in a garden'), shown);
   } finally {
     world.close();
   }
