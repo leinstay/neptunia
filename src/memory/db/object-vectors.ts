@@ -52,7 +52,7 @@ const KIND_OF_TABLE: Readonly<Record<string, ObjectKind>> = {
 /** The subjects whose descriptions a search reads; a medium's description has its own `media:` vectors. */
 const DESCRIBED = "('person', 'place', 'self', 'entity')";
 /** The nodes whose names make a set: a person and a place. */
-const NAMED_NODES = "(n.node_id LIKE 'person:%' OR n.node_id LIKE 'place:%')";
+const NAMED_NODES = "g.kind IN ('person', 'place')";
 
 const filled = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
 
@@ -307,7 +307,8 @@ function meaningSql(kind: ObjectKind, visible: string): string {
       );
     case 'names':
       return `SELECT x.item_id, x.item_id AS node, NULL AS other, x.scale, x.norm, x.bytes FROM vectors x
-         WHERE ${range} AND ${visible} AND (:about IS NULL OR substr(x.item_id, 1, length(:about) + 1) = :about || ':')
+         WHERE ${range} AND ${visible}
+           AND (:about IS NULL OR x.item_id IN (SELECT g.id FROM graph_nodes g WHERE g.kind = :about))
            AND EXISTS (SELECT 1 FROM names n WHERE n.node_id = x.item_id AND n.audience_id = x.audience_id)`;
   }
 }

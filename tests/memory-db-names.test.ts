@@ -11,7 +11,7 @@
 // is verified, since a name raises a person. A hit is read under `ctx` as every scoped row is (scope.ts#audienceWhere).
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { namesOf, rebuildNames } from '../src/memory/db/names.ts';
+import { namesOf, placesNamed, rebuildNames } from '../src/memory/db/names.ts';
 import type { NameHit } from '../src/memory/db/names.ts';
 import { applyPersonLinkWrite } from '../src/memory/db/person-links.ts';
 import { dmContext, groupContext } from '../src/memory/db/scope.ts';
@@ -24,6 +24,7 @@ import {
   openWorld,
   personNode,
   placeNode,
+  rekeyNode,
   rootId,
   seedStemmer,
 } from './fixtures/memory-db/mind-world.ts';
@@ -197,4 +198,13 @@ test('a real name stored as the people mapper writes it, an object with its name
     hits.map((hit) => hit.kind),
     ['real_name']
   );
+});
+
+test("a place named in a tool's argument is found whatever its graph node's id spells", () => {
+  // Bug: the place was cut out of the text of the name's graph node id, so a node whose id does not spell
+  // `place:<row id>` named no place. The node's row id is stored in `graph_nodes.row_id`.
+  const w = world();
+  const room = addRoom(w.db, { iface: 'discord', native: 'c1', root: rootId('discord', 'g1'), name: 'Θάλασσα' });
+  rekeyNode(w.db, placeNode(room), 'node-91c2');
+  assert.deepEqual(placesNamed(w.db, GROUP, 'Θάλασσα'), [{ id: room, name: 'Θάλασσα' }]);
 });

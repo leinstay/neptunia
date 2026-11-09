@@ -16,7 +16,8 @@ import { pendingObjectEmbeds } from '../src/memory/db/object-vectors.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { groupContext, internalContext } from '../src/memory/db/scope.ts';
-import { AT, addDm, addLine, addPerson, noteInterface, openWorld } from './fixtures/memory-db/mind-world.ts';
+import { graphNodeId } from '../src/memory/db/graph.ts';
+import { AT, addDm, addLine, addPerson, noteInterface, openWorld, rekeyNode } from './fixtures/memory-db/mind-world.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
 
 const worlds: Array<World> = [];
@@ -143,4 +144,16 @@ test('words that fit nobody find a person by the vector of their names, and say 
   assert.deepEqual(found.kind === 'found' ? found.people.map((one) => [one.id, one.hasEveryWord]) : [], [
     [OWNER, false],
   ]);
+});
+
+test("a person named by name has their direct chats whatever their graph node's id spells", () => {
+  // Bug: the person was cut out of the text of the name's graph node id, so a node whose id does not spell
+  // `person:<row id>` named nobody. The node's row id is stored in `graph_nodes.row_id`.
+  const { w, fakeDm, cliDm } = world();
+  rekeyNode(w.db, graphNodeId('person', OWNER), 'node-7f3a');
+  assert.deepEqual(directChatsOf(w.db, internalContext(), 'Ορέστης'), {
+    kind: 'chats',
+    personId: OWNER,
+    places: [cliDm, fakeDm],
+  });
 });

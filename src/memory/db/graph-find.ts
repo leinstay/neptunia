@@ -25,7 +25,7 @@
 
 import { RECALL_DEFAULTS, fuseRanks } from '../../behavior/recall.ts';
 import { indexWords } from '../record-index.ts';
-import { placeAudience } from './graph.ts';
+import { graphNodeId, placeAudience } from './graph.ts';
 import { SELF_PERSON } from './ids.ts';
 import { OBJECT_KINDS, objectMeaning } from './object-vectors.ts';
 import { allowedAudience, audienceWhere, whereFor } from './scope.ts';
@@ -193,21 +193,23 @@ function floored(ranked: Ranked, kept: ReadonlySet<string> = new Set()): Ranked 
   return ranked.filter((one) => one.score >= best * RELATIVE_FLOOR || kept.has(one.id));
 }
 
-/** The candidates of a kind whose object vectors meet the request's embedding, best cosine first. */
+/**
+ * The candidates of a kind whose object vectors meet the request's embedding, best cosine first. `rowOf` maps each
+ * candidate's graph node id to its row id.
+ */
 function byMeaning(
   db: Db,
   ctx: Context,
   meaning: FindMeaning,
   about: 'place' | 'person',
-  ids: ReadonlySet<string>
+  rowOf: ReadonlyMap<string, string>
 ): Array<string> {
   const minMeaning = RECALL_DEFAULTS.db.minMeaning;
-  const prefix = `${about}:`;
   const out = new Set<string>();
   for (const hit of objectMeaning(db, ctx, { ...meaning, kinds: OBJECT_KINDS, minMeaning, about }))
     for (const node of hit.nodes) {
-      const id = node.startsWith(prefix) ? node.slice(prefix.length) : null;
-      if (id !== null && ids.has(id)) out.add(id);
+      const id = rowOf.get(node);
+      if (id !== undefined) out.add(id);
     }
   return [...out];
 }
@@ -387,7 +389,7 @@ export function placesFound(
     const id = String(place.id);
     const doc: Doc = { id, fields: new Map() };
     addWords(doc, 'name', place.name);
-    for (const name of indexNames(db, ctx, `place:${id}`)) addWords(doc, 'name', name);
+    for (const name of indexNames(db, ctx, graphNodeId('place', id))) addWords(doc, 'name', name);
     let purpose: string | null = null;
     for (const { field, text: value } of descriptionsOf(db, ctx, 'place', id)) {
       if (field === 'purpose' || field === 'topics' || field === 'tone') addWords(doc, field, value);
@@ -407,7 +409,7 @@ export function placesFound(
   });
   return found(
     byWords(docs, request, loadStemmer(db).stem),
-    byMeaning(db, ctx, meaning, 'place', new Set(shown.keys())),
+    byMeaning(db, ctx, meaning, 'place', new Map([...shown.keys()].map((id) => [graphNodeId('place', id), id]))),
     shown,
     candidates
   );
@@ -424,14 +426,21 @@ export function peopleFound(
   const { candidates } = { ...FIND_DEFAULTS, ...settings };
   if (candidates === 0 || indexWords(request).length === 0) return [];
   const filter = audienceWhere(ctx, 'n');
-  const people = db
+  const nodeOf = new Map<string, string>();
+  for (const row of db
     .prepare(
-      `SELECT DISTINCT substr(n.node_id, 8) AS id FROM names n JOIN people p ON p.id = substr(n.node_id, 8)
-       WHERE n.node_id LIKE 'person:%' AND p.retired_at IS NULL AND COALESCE(p.status, '') NOT LIKE 'merged_into:%'
+      `SELECT DISTINCT g.row_id AS id, g.id AS node FROM names n CROSS JOIN graph_nodes g ON g.id = n.node_id
+       JOIN people p ON p.id = g.row_id
+       WHERE g.kind = 'person' AND p.retired_at IS NULL AND COALESCE(p.status, '') NOT LIKE 'merged_into:%'
          AND ${filter.sql} ORDER BY id`
     )
-    .all(...filter.params)
-    .flatMap((row) => (typeof row.id === 'string' && row.id !== SELF_PERSON ? [row.id] : []));
+    .all(...filter.params))
+    if (typeof row.id === 'string' && row.id !== SELF_PERSON && !nodeOf.has(row.id))
+      nodeOf.set(row.id, String(row.node));
+  const people = [...nodeOf.keys()];
+  // A name set's vector names the person's node, a claim's, a description's or an episode's names `graphNodeId`.
+  const rowOf = new Map<string, string>();
+  for (const [id, node] of nodeOf) rowOf.set(node, id).set(graphNodeId('person', id), id);
   const claims = whereFor(ctx, 'c');
   const claimsOf = db.prepare(
     `SELECT c.text FROM claims c WHERE c.subject_kind = 'person' AND c.subject_id = ? AND c.retired_at IS NULL
@@ -440,7 +449,7 @@ export function peopleFound(
   const shown = new Map<string, { name: string; about: string | null }>();
   const docs = people.map((id) => {
     const doc: Doc = { id, fields: new Map() };
-    const labels = indexNames(db, ctx, `person:${id}`);
+    const labels = indexNames(db, ctx, nodeOf.get(id) ?? graphNodeId('person', id));
     for (const name of labels) addWords(doc, 'name', name);
     let character: string | null = null;
     for (const { field, text: value } of descriptionsOf(db, ctx, 'person', id)) {
@@ -453,7 +462,7 @@ export function peopleFound(
   });
   return found(
     byWords(docs, request, loadStemmer(db).stem),
-    byMeaning(db, ctx, meaning, 'person', new Set(people)),
+    byMeaning(db, ctx, meaning, 'person', rowOf),
     shown,
     candidates
   );
