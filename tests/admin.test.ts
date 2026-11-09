@@ -358,6 +358,18 @@ test('run: set and unset read a key with a dot as one key, never a path', async 
   );
 });
 
+test('set: a non-owner granted set cannot switch bot.mnemonic, the language of the phrase codes', async () => {
+  const rootDir = makeRoot();
+  const hot = makeHot(rootDir);
+  hot.config.bot.access = { 'config.set': { everyone: false, roles: [], users: ['999'] } };
+  const { admin } = makeAdmin(rootDir, { hot });
+  await assert.rejects(
+    () => admin.run('config.set', { path: 'bot.mnemonic', value: 'ru' }, { placeId: 'g1', accountId: '999' }),
+    /only an owner may change bot\.mnemonic/
+  );
+  assert.equal(fs.existsSync(localPath(rootDir)), false, 'nothing was written');
+});
+
 test('set: a non-owner granted set cannot touch bot.ownerPerson or bot.access; an owner can', async () => {
   const rootDir = makeRoot();
   const hot = makeHot(rootDir);

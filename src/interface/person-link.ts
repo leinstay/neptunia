@@ -37,7 +37,7 @@ const CONSOLE_IFACE = 'cli';
 const WITHHELD_KEPT = 1000;
 
 export type PersonLinksDeps = {
-  /** The live config, prompts and layers: `bot.ownerPerson`, `bot.phraseWords` and the link labels, read at each use. */
+  /** The live config, prompts and layers: `bot.ownerPerson`, `bot.mnemonic` and the link labels, read at each use. */
   hot: {
     readonly config: unknown;
     readonly prompts?: unknown;
@@ -50,7 +50,7 @@ export type PersonLinksDeps = {
   } | null;
   port: Pick<Adapter, 'send' | 'dmChatOf'>;
   now?: () => number;
-  /** The phrases; the list `bot.phraseWords` names and the memory's stemmer when absent. */
+  /** The phrases; the list `bot.mnemonic` picks and the memory's stemmer when absent. */
   phrases?: PhraseCodes;
   /** Where the waiting seals, the limits and the withheld message ids survive a restart: `link-codes.json` of the data directory. */
   file?: string | null;

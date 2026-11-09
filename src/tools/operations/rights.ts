@@ -42,7 +42,7 @@ export function rightsRefusal(
 
 /**
  * The config keys that govern authorization or the persona's own controls: who is an owner and
- * who may do what (`bot.ownerPerson`, `bot.access`), her tools' settings, safe mode included (`tools.*`, and the name it
+ * who may do what (`bot.ownerPerson`, `bot.access`), the language of the phrase codes (`bot.mnemonic`), her tools' settings, safe mode included (`tools.*`, and the name it
  * had before, `skills.*`), the wakes' mode, caps and limits (`wakes.*`, and the old name `innerLife.*`), and the
  * heartbeat's and the selfimprovement wake's own limits (`heartbeat.*`, `selfimprovement.*`), and the boundary and limits
  * of the development worker (`development.*`).
@@ -52,6 +52,7 @@ export function rightsRefusal(
 export const PERSONA_GOVERNED_CONFIG: ReadonlyArray<string> = Object.freeze([
   'bot.ownerPerson',
   'bot.access',
+  'bot.mnemonic',
   'tools',
   'skills',
   'wakes',

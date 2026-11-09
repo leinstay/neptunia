@@ -6,15 +6,15 @@
 // phrase is kept only as a salted SHA-256 hash of its six words in list order, so a seal can be written to disk and a
 // message is checked by hashing each set of six of the list words it holds.
 //
-// The list is a file of `config/`, one word per line, `#` starting a comment line, named by `bot.phraseWords` and read
-// at each use; the same file in the deployment's `config/` replaces it whole. Used by the owner's pairing
+// The list is a file of `src/mnemonic/` with one word per line and no comment, `bip-en` or `bip-ru`, picked by
+// `bot.mnemonic` at each use. A phrase issued under one language holds none of the other's words, so a switch refuses
+// every phrase issued before it. Used by the owner's pairing
 // (src/interface/pairing.ts) and her link tool (src/interface/person-link.ts). Nothing here logs.
 
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { CONFIG_DIR } from '../config/files.ts';
 import { loadStemmer } from '../memory/db/stems.ts';
 import type { Db } from '../memory/db/types.ts';
 import { indexWords } from '../memory/record-index.ts';
@@ -63,11 +63,10 @@ function keysOf(word: string, matcher: Matcher): Set<string> {
   return keys;
 }
 
-/** The words of a list file: one per line, folded as the memory folds text, blank and comment lines skipped. */
+/** The words of a list file: one per line, folded as the memory folds text, blank lines skipped. */
 export function readWordList(text: string): Array<string> {
   const words = new Set<string>();
   for (const line of text.split('\n')) {
-    if (line.trim().startsWith('#')) continue;
     const [word] = indexWords(line);
     if (word !== undefined) words.add(word);
   }
@@ -77,28 +76,29 @@ export function readWordList(text: string): Array<string> {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
-/** The list `bot.phraseWords` names, from the deployment's `config/` first; empty when neither layer has the file. */
-export function wordListOf(hot: { readonly config: unknown; rootDir: string; privateDir: string }): Array<string> {
-  const bot = isRecord(hot.config) ? hot.config.bot : null;
-  const name = isRecord(bot) && typeof bot.phraseWords === 'string' ? path.basename(bot.phraseWords) : '';
-  if (name === '') return [];
-  for (const dir of [hot.privateDir, hot.rootDir]) {
-    const file = path.join(dir, CONFIG_DIR, name);
-    if (fs.existsSync(file)) return readWordList(fs.readFileSync(file, 'utf8'));
-  }
-  return [];
+/** The languages of the shipped lists, `src/mnemonic/bip-<language>`. */
+export const MNEMONIC_LANGUAGES: ReadonlyArray<string> = ['en', 'ru'];
+
+/** The language `bot.mnemonic` holds in `config`, `en` when it holds none of the shipped ones. */
+export function mnemonicOf(config: unknown): string {
+  const bot = isRecord(config) ? config.bot : null;
+  const language = isRecord(bot) ? bot.mnemonic : null;
+  return typeof language === 'string' && MNEMONIC_LANGUAGES.includes(language) ? language : 'en';
 }
 
-/** The phrase codes of the running core: the list `bot.phraseWords` names and the memory's stemmer, both read at use. */
+/** The list of the language `bot.mnemonic` holds, from the engine's `src/mnemonic/`; empty when the file is missing. */
+export function wordListOf(hot: { readonly config: unknown; rootDir: string }): Array<string> {
+  const file = path.join(hot.rootDir, 'src', 'mnemonic', `bip-${mnemonicOf(hot.config)}`);
+  return fs.existsSync(file) ? readWordList(fs.readFileSync(file, 'utf8')) : [];
+}
+
+/** The phrase codes of the running core: the list of the language `bot.mnemonic` holds and the memory's stemmer, both read at use. */
 export function phraseCodesOf(
-  hot: { readonly config: unknown; readonly rootDir?: string; readonly privateDir?: string },
+  hot: { readonly config: unknown; readonly rootDir?: string },
   database: () => Db | null
 ): PhraseCodes {
   return createPhraseCodes({
-    words: () =>
-      hot.rootDir === undefined
-        ? []
-        : wordListOf({ config: hot.config, rootDir: hot.rootDir, privateDir: hot.privateDir ?? hot.rootDir }),
+    words: () => (hot.rootDir === undefined ? [] : wordListOf({ config: hot.config, rootDir: hot.rootDir })),
     matcher: () => matcherOf(database()),
   });
 }

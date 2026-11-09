@@ -39,6 +39,7 @@ import type { ConsoleSubharness } from './subharness.ts';
 import { coreSelection, readCoreCheck } from '../../setup/model-check.ts';
 import type { CoreReadiness } from '../../setup/readiness.ts';
 import { mirrorCommand } from './mirror.ts';
+import { mnemonicOf } from '../phrase-codes.ts';
 import { operationOf } from './table.ts';
 import type { MirrorDesk } from '../../behavior/mirror-desk.ts';
 import { searchCommand } from './search.ts';
@@ -730,6 +731,15 @@ export function createConsole(deps: ConsoleDeps): {
     return { text: JSON.stringify(setting.value, null, 2) ?? 'null', status: 'ok' };
   }
 
+  /** `/mnemonic`: the language of the phrase codes, and `/mnemonic en|ru` writes it through `config.set` as the owner. */
+  async function mnemonic(name: string, args: Record<string, unknown>, requester: { id: string }): Promise<Answer> {
+    if (args.language === undefined) return { text: `mnemonic: ${mnemonicOf(config())}`, status: 'ok' };
+    const set = { path: 'bot.mnemonic', value: text(args.language) };
+    const switched = await op(name, 'config.set', set, args, requester);
+    if (switched.status !== 'ok') return switched;
+    return { text: `mnemonic: ${text(args.language)}; a phrase issued before the switch is refused`, status: 'ok' };
+  }
+
   function memoryChat(args: Record<string, unknown>): Answer {
     const lines = deps.chatLines(text(args.conversation), CHAT_LINES);
     if (lines.length === 0) return { text: 'no stored line in that conversation', status: 'ok' };
@@ -797,6 +807,8 @@ export function createConsole(deps: ConsoleDeps): {
         return intentionShow(name, args, requester);
       case 'config.get':
         return configGet(name, args);
+      case 'mnemonic':
+        return mnemonic(name, args, requester);
       case 'memory.conversation':
         return memoryChat(args);
       case 'memory.lessons.list':

@@ -5,7 +5,7 @@
   "bot": {
     "timezone": "UTC",
     "ownerPerson": "",
-    "phraseWords": "phrase-words-en.txt",
+    "mnemonic": "en",
     "access": {}
   },
   "models": {

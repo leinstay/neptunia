@@ -64,6 +64,8 @@ const TABLE = [
   'search',
   // Changed: `/mirror` is the owner's family over the diary's mirrors.
   'mirror',
+  // The owner's `/mnemonic` shows and switches the language of the phrase-code word list.
+  'mnemonic',
   'help',
   'clear',
 ];

@@ -226,6 +226,7 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Configure a chat platform | `/interfaces` |
 | Prove the owner's account on an interface. See [Pairing the owner's account](interfaces.md#pairing-the-owners-account) | `/interfaces pair open <name>`, `/interfaces pair <phrase>` |
 | Choose which providers serve a model | `/routes` |
+| Show or switch the language of the phrase codes. See [Phrase codes](interfaces.md#phrase-codes) | `/mnemonic`, `/mnemonic en`, `/mnemonic ru` |
 | Bind an account to a meta-person, or merge two people | `/memory bind`, `/memory users merge` |
 | Give her or a person a name the door and the classifier know | `/memory users names add person:self NAME`, `/memory users names remove person:self NAME` |
 | Browse people, places, the graph and each memory family, and read every stored row | `/memory users`, `/memory places`, `/memory graph`, `/memory inspect`, `/memory claims` and the other families. See [The memory browser](#the-memory-browser) |
