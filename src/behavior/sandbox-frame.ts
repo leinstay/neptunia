@@ -49,9 +49,15 @@ export function replayFrame(turn: ReplayTurn): { frame: Frame; whereabouts: Wher
     chain,
     dm: null,
     trigger: trigger?.id && authorId ? { messageId: trigger.id, authorId } : null,
-    author: accountId
-      ? { personId: memory.personOfAccount?.(accountId) ?? null, accountId, name: trigger?.authorName ?? null }
-      : null,
+    author:
+      accountId && authorId
+        ? {
+            personId: memory.personOfAccount?.(accountId) ?? null,
+            accountId,
+            nativeId: authorId,
+            name: trigger?.authorName ?? null,
+          }
+        : null,
     now: turn.now,
     timezone: turn.timezone,
   });

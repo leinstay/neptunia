@@ -32,7 +32,7 @@ import { estimateTokens } from '../../llm/tokens.ts';
 import { indexWords } from '../record-index.ts';
 import { SELF_PERSON } from './ids.ts';
 import { profileAccountsOf } from './meta-person.ts';
-import type { ProfileAccount } from './meta-person.ts';
+import type { PersonAccount, ProfileAccount } from './meta-person.ts';
 import { loadStemmer } from './stems.ts';
 import { interfaceNouns, matchName, normalName, phrasesOf, namesIn } from './names.ts';
 import type { NameHitRow, NameMatch } from './names.ts';
@@ -60,6 +60,8 @@ export type PersonEntry = EntryBase & {
   affinity: number | null;
   /** The account row ids she knows the person through. */
   accounts: Array<string>;
+  /** Every account of `accounts` that has a row, with its interface and platform id, in id order. */
+  platformAccounts: Array<PersonAccount>;
   /** Every account of the person the context may see, with its interface, platform id and own fields (meta-person.ts). */
   profileAccounts: Array<ProfileAccount>;
   relation: string | null;
@@ -769,7 +771,9 @@ function personOf(
   const accountRows =
     accounts.length === 0
       ? []
-      : db.prepare(`SELECT id, names FROM accounts WHERE id IN (${marks}) ORDER BY id`).all(...accounts);
+      : db
+          .prepare(`SELECT id, names, iface, native_id FROM accounts WHERE id IN (${marks}) ORDER BY id`)
+          .all(...accounts);
   const descriptions = descriptionsOf(db, walker, 'person', personId);
   const said = walker.about(raised.nodeId);
   for (const one of said) if (one.kind === 'episode') recent.set(one.id, raised);
@@ -786,6 +790,11 @@ function personOf(
     realName: namesIn(person.real_name)[0] ?? null,
     affinity: typeof person.affinity === 'number' ? person.affinity : null,
     accounts,
+    platformAccounts: accountRows.flatMap((row) =>
+      typeof row.iface === 'string' && typeof row.native_id === 'string'
+        ? [{ id: String(row.id), iface: row.iface, platformId: row.native_id }]
+        : []
+    ),
     profileAccounts,
     relation: descriptions.get('relationship')?.text ?? null,
     character: descriptions.get('character')?.text ?? null,

@@ -140,7 +140,7 @@ function callChannelHandles(
  * member handles (`memberHandles`: handle -> member id, her `@handle` in a member argument) and the skill registry
  * (`skills`: a skill's options are resolved by its dispatch), `places` (the channels a read call may name, from the
  * snapshot by the pull rail with `partnerId` as the reader of a private chat or the command line; left out without a
- * `config` or a snapshot), `stem` (the loaded stemmer, `stem` as given), `placesNamed` (the name index of the memory under the turn's context), `placesFound` (the places the memory graph ranks for words that name no place, under the turn's context), `searchRefs` (the turn's quoted lines
+ * `config` or a snapshot), `stem` (the loaded stemmer, `stem` as given), `placesNamed` (the name index of the memory under the turn's context), `placesFound` (the places the memory graph ranks for words that name no place, under the turn's context), `placeRef` (a stored place by its id, so a place id of any shape names its place), `searchRefs` (the turn's quoted lines
  * of a memory.search, searchHandles), and `fileOf` (a file handle
  * of one of her errands -> the file, null when this chat may not use it), and `triggerText` (the
  * trigger message's text: a channel it names may take an errand's file). Reads `store` only. Exported
@@ -170,6 +170,7 @@ export function callViewOf({
   stem = null,
   placesNamed = null,
   placesFound = null,
+  placeRef = null,
   knownPlaces = null,
 }: {
   // The interface's description of the chat: a private chat (`rootId` null) lists no channels.
@@ -195,6 +196,7 @@ export function callViewOf({
   stem?: ((word: string) => string) | null;
   placesNamed?: CallView['placesNamed'];
   placesFound?: CallView['placesFound'];
+  placeRef?: CallView['placeRef'];
   // The memory's channels and threads on every interface with their native ids (frame-reads.ts#chatPlacesOf).
   knownPlaces?: ReadonlyArray<KnownPlace> | null;
 }): CallView & { currentChatId: string } {
@@ -239,6 +241,7 @@ export function callViewOf({
     ...(stem ? { stem } : {}),
     ...(placesNamed ? { placesNamed } : {}),
     ...(placesFound ? { placesFound } : {}),
+    ...(placeRef ? { placeRef } : {}),
     channelHandles: shownChannels
       ? callChannelHandles(
           shownChannels,

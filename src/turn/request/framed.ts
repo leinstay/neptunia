@@ -49,14 +49,13 @@ export type FramedSteps = {
   tempoText: string;
 };
 
-/** The live line of a person by their accounts from the interface's snapshot, null without one. */
-function liveOf(base: Base, frame: Frame, now: number): LiveOf | null {
+/** The live line of a person by their platform ids, the frame's interface first, from the interface's snapshot. */
+function liveOf(base: Base, now: number): LiveOf | null {
   const snapshot = base.liveSnapshot;
   if (!base.liveOn || !snapshot) return null;
-  return (accounts) => {
-    const account = accounts.find((id) => id.startsWith(`${frame.interface}:`)) ?? accounts[0];
-    if (!account) return null;
-    const native = account.slice(account.indexOf(':') + 1);
+  return (nativeIds) => {
+    const [native] = nativeIds;
+    if (!native) return null;
     const lines = liveFields(snapshot, native, {
       labels: base.labels,
       channelNameOf: base.voiceChannelNameOf,
@@ -148,9 +147,10 @@ export function framedBuild(given: RequestInput, steps: FramedSteps): BuildReque
     nameOf,
     lineOf: given.refLineOf ?? null,
     isSourceRetired: given.isSourceRetired ?? null,
-    live: liveOf(base, frame, given.now),
+    live: liveOf(base, given.now),
     chatHandles: base.handleById,
     currentChannelId: given.currentChannelId ?? null,
+    chatIdOf: given.chatIdOf ?? null,
   });
   const { parts, fit, handleById } = built;
   return {

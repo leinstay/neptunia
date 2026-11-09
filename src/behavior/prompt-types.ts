@@ -112,6 +112,8 @@ export type BuildRequestInput = {
   surroundings?: SurroundingsInput | null;
   /** Reads a line by its identity under the turn's scope, for the references in stored texts (src/turn/request/refs.ts). */
   refLineOf?: LineOf | null;
+  /** The chat id of a stored place, from its row (frame-reads.ts#placeRefOf); null for a DM and a place no row holds. */
+  chatIdOf?: ((placeId: string) => string | null) | null;
   /** Whether the line of a lookup's source is gone, for the sources `<recall>` leaves out (src/turn/request/reader.ts). */
   isSourceRetired?: SourceRetired | null;
 };
