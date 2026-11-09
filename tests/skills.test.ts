@@ -429,9 +429,11 @@ test('skills access: the irreversible and administrative operations are never op
     'model.set',
     'route.remove',
     'route.set',
+    // Changed: `rule.add` joined. The rules are the owner's document, and her grant of it went on 2026-10-20 for that
+    // reason, so no grant opens it to her any more.
+    'rule.add',
     'rule.remove',
   ]);
-  assert.equal(NOT_GRANTABLE_TO_PERSONA.includes('rule.add'), false, 'adding a rule stays grantable');
   for (const name of NOT_GRANTABLE_TO_PERSONA) {
     assert.deepEqual(
       skillAccess({

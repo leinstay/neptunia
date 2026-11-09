@@ -59,7 +59,7 @@ function rig(memoryClosed = false): Rig {
       ops.push(op);
       return Promise.resolve({ status: 'failed', code: 'NOT_FOR_A_BROWSER_READ', summary: '', data: null });
     },
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => [],
     selfId: () => null,
     hot: {

@@ -10,6 +10,7 @@ import { createConsole } from '../src/interface/commands/console.ts';
 import type { Answer, ConsoleDeps } from '../src/interface/commands/console.ts';
 import { commandLineWords, parseCommandLine } from '../src/interface/commands/table.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
+import { domainList } from '../src/memory/db/domain-read.ts';
 import { listPeople, personDetail } from '../src/memory/db/people-read.ts';
 import { listPlaces, placeDetail } from '../src/memory/db/places-read.ts';
 import { privateByPerson } from '../src/memory/db/private-read.ts';
@@ -47,7 +48,7 @@ function rig(seed: (db: Db) => void = seedBrowser, memory: { closed: boolean } =
       ops.push(op);
       return Promise.resolve({ status: 'failed', code: 'NOT_FOR_A_BROWSER_READ', summary: '', data: null });
     },
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => [],
     selfId: () => null,
     hot: { config: { memoryDb: { file: 'memory.db', inspection: BOUNDS } } },
@@ -179,6 +180,23 @@ for (const [line, replacement] of RETIRED) {
     const parsed = parseCommandLine(line);
     assert.equal(parsed.ok, false);
     assert.ok(!parsed.ok && parsed.reason.includes(replacement), parsed.ok ? '' : parsed.reason);
+  });
+}
+
+// ---------- families whose word has as many letters as `users` ----------
+
+for (const family of ['media', 'turns'] as const) {
+  test(`/memory ${family} list answers the ${family} page, not the people list`, async () => {
+    // Bug: the people reader sliced `memory.users.` off any name without checking it, so a five-letter family read people.
+    await withRig(async (one) => {
+      const expected = domainList(one.db, {
+        family,
+        context: internalContext(),
+        limit: BOUNDS.pageRows,
+        cursor: null,
+      });
+      assert.deepEqual(data(await one.say(`/memory ${family} list`)), json(expected));
+    });
   });
 }
 

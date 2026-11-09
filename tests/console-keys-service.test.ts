@@ -32,7 +32,7 @@ function rig() {
   });
   const deps: ConsoleDeps = {
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: {} },
