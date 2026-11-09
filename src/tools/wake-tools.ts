@@ -12,7 +12,6 @@ export const HEARTBEAT_INTENT_SKILLS = Object.freeze(['intention.set', 'intentio
 export const HEARTBEAT_READ_SKILLS = Object.freeze([
   'memory.search',
   'memory.profile.read',
-  'memory.affinity.read',
   'memory.channel.read',
   'memory.server.read',
   'memory.recent.read',

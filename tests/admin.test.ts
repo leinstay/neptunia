@@ -648,21 +648,21 @@ test('model set drawing: writes models.base.drawing to config.local.json, reload
 
 // PR 7b: runCommand and isAllowed went with the slash command; runSkillOp runs the operation by its name, rights
 // included, and the read of the granted member is asserted through it in place of isAllowed.
-test('runSkillOp: the full rights check -- a member granted memory.affinity.read reads, another is denied', async () => {
+test('runSkillOp: the full rights check -- a member granted memory.profile.read reads, another is denied', async () => {
   const rootDir = makeRoot();
   const hot = makeHot(rootDir);
-  hot.config.bot.access = { 'memory.affinity.read': { everyone: false, roles: [], users: ['7'] } };
+  hot.config.bot.access = { 'memory.profile.read': { everyone: false, roles: [], users: ['7'] } };
   const { admin } = makeAdmin(rootDir, { hot });
   const member = { placeId: 'g1', accountId: '7', roleIds: [] };
 
   const other = await admin.runSkillOp(
-    'memory.affinity.read',
+    'memory.profile.read',
     { accountId: '5' },
     { placeId: 'g1', accountId: '8', roleIds: [] }
   );
   assert.equal(other.status, 'denied');
   assert.equal(other.code, 'not-granted');
-  assert.equal(await mayRun(admin, 'memory.affinity.read', member), true);
+  assert.equal(await mayRun(admin, 'memory.profile.read', member), true);
 });
 
 /** makeStore with the ping states of one guild, the way src/memory/store.ts hands them out (getPings, setPings). */
@@ -856,13 +856,7 @@ test('run: access.revoke with no role/user clears everyone, keeping any roles/us
 test('run: access grant/list/revoke/list round trip -- a group is stored as its read operations, named with their source', async () => {
   const rootDir = makeRoot();
   const { admin } = makeAdmin(rootDir);
-  const reads = [
-    'memory.profile.read',
-    'memory.channel.read',
-    'memory.server.read',
-    'memory.recent.read',
-    'memory.affinity.read',
-  ];
+  const reads = ['memory.profile.read', 'memory.channel.read', 'memory.server.read', 'memory.recent.read'];
 
   const granted = await admin.run('access.grant', { command: 'memory', roleId: 'staff' }, {});
   assert.equal(granted.split('\n')[0], `Granted memory to role id:staff as ${reads.join(', ')} (reload ok)`);
@@ -934,15 +928,15 @@ test('access.grant: a write operation gets the write note; a read operation none
 // memory.show / memory.affinity
 // ---------------------------------------------------------------------------
 
-test('run: memory.affinity only reads -- the attitude changes through the memory analyzer alone, never by hand', async () => {
+test('run: memory.profile.read section affinity only reads -- the attitude changes through the memory analyzer alone, never by hand', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
   store.profiles.set('123', { id: '123', affinity: { score: 12, reason: 'kind words', history: [] } });
 
   // a score in the arguments (an old caller) reaches no write: the view, the score as it was
   const result = await admin.run(
-    'memory.affinity.read',
-    { accountId: '123', score: 77, reason: 'by hand' },
+    'memory.profile.read',
+    { accountId: '123', section: 'affinity', score: 77, reason: 'by hand' },
     { placeId: 'g1' }
   );
   assert.ok(result.includes('score: 12'), result);
@@ -950,7 +944,7 @@ test('run: memory.affinity only reads -- the attitude changes through the memory
   assert.equal(getOp('memory.affinity.set'), null, 'no operation sets it');
 });
 
-test('memory.affinity / alias.add / alias.remove: a member with no profile is refused and none is created', async () => {
+test('memory.profile.read affinity / alias.add / alias.remove: a member with no profile is refused and none is created', async () => {
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
   const writes: Array<Array<unknown>> = [];
@@ -962,7 +956,7 @@ test('memory.affinity / alias.add / alias.remove: a member with no profile is re
   };
 
   await assert.rejects(
-    () => admin.run('memory.affinity.read', { accountId: '555', score: 10 }, { placeId: 'g1' }),
+    () => admin.run('memory.profile.read', { accountId: '555', section: 'affinity', score: 10 }, { placeId: 'g1' }),
     /^Error: no profile for 555$/
   );
   await assert.rejects(
@@ -977,14 +971,21 @@ test('memory.affinity / alias.add / alias.remove: a member with no profile is re
   assert.equal(store.getUser(accountOf(store, '555')), null);
 });
 
-test('run: memory.affinity is refused when the context names no place, whatever is served', async () => {
+test('run: memory.profile.read section affinity is refused when the context names no place, whatever is served', async () => {
   // The fallback to the single served guild pinned the home place the owner removed: the console names the one place.
   const rootDir = makeRoot();
   const { admin, store } = makeAdmin(rootDir);
   store.profiles.set('123', { id: '123', affinity: { score: 5, reason: 'ok so far', history: [] } });
 
-  await assert.rejects(() => admin.run('memory.affinity.read', { accountId: '123' }, {}), /no place resolved yet/);
-  assert.ok((await admin.run('memory.affinity.read', { accountId: '123' }, { placeId: 'g1' })).includes('score: 5'));
+  await assert.rejects(
+    () => admin.run('memory.profile.read', { accountId: '123', section: 'affinity' }, {}),
+    /no place resolved yet/
+  );
+  assert.ok(
+    (await admin.run('memory.profile.read', { accountId: '123', section: 'affinity' }, { placeId: 'g1' })).includes(
+      'score: 5'
+    )
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -2538,7 +2539,6 @@ test('run: read-only and config commands keep working while paused', async () =>
 
   await assert.doesNotReject(() => admin.run('status.show', {}, {}));
   await assert.doesNotReject(() => admin.run('memory.profile.read', { accountId: '123' }, { placeId: 'g1' }));
-  await assert.doesNotReject(() => admin.run('memory.affinity.read', { accountId: '123' }, { placeId: 'g1' }));
   await assert.doesNotReject(() => admin.run('lore.list', {}, { placeId: 'g1' }));
   await assert.doesNotReject(() => admin.run('model.show', {}, {}));
   await assert.doesNotReject(() => admin.run('rule.list', {}, {}));
@@ -2565,9 +2565,6 @@ test('run: memory.show/lore.list/lore.show drop caches first while paused, so a 
 
   await admin.run('lore.show', { id: loreId }, { placeId: 'g1' });
   assert.equal(store.dropCachesCalls, dropsAfterPause + 3);
-
-  await admin.run('memory.affinity.read', { accountId: '123' }, { placeId: 'g1' });
-  assert.equal(store.dropCachesCalls, dropsAfterPause + 4);
 });
 
 // ---------------------------------------------------------------------------

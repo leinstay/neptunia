@@ -41,7 +41,7 @@
         "intention_due": [
           [
             {
-              "skill": "errand.status",
+              "skill": "errand.list",
               "args": {
                 "id": "task-prices"
               },

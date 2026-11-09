@@ -407,7 +407,7 @@
         "expired": "done, files gone"
       },
       "unread": "(not read yet)",
-      "unreadMore": "{count} more finished errands not read yet. Use errand.status to list them.",
+      "unreadMore": "{count} more finished errands not read yet. Use errand.list to list them.",
       "resultTurnFailed": "(result turn did not complete)",
       "result": {
         "header": "Your errand {id} for the {agent} agent has ended: {state}. It was: {goal}",
