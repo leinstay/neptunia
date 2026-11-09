@@ -91,7 +91,7 @@ npm run check:codes                                       # the result codes aga
 
 Set `TMPDIR` to a scratch folder before running tests.
 
-Every run has a time budget: one test file 2 minutes, the whole suite 6, a lint or type check 2, a CI run 5 from the moment it starts. A run past its budget is not waited for: stop it, find out why it is slow, and fix that before anything else. A check that takes longer than it used to is a bug of the check.
+Every run has a time budget: one test file 2 minutes, a lint or type check 2, a CI run 6 from the moment it starts, the whole suite 10. A run past its budget is not waited for: stop it, find out why it is slow, and fix that before anything else. A check that takes longer than it used to is a bug of the check.
 
 Locally, run only the test files of the modules you changed. Everything slow runs in CI: the whole suite, prettier, the lint, the type check, code health, the prose check and the codes check. Fix a red check at its cause. When CI reports a count that shrank, record it with `npm run health:update` in the same change, because CI refuses an unrecorded shrink as well as a growth.
 
