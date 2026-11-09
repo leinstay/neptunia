@@ -565,7 +565,7 @@
   },
   "person.link": {
     "title": "Link two accounts of one person",
-    "whenToUse": "The person you talk with says another account you know is theirs too and wants them linked. A one-time code goes to that other account in a direct message; the next message from this account must be that code, and only then are the two one person to you.",
+    "whenToUse": "The person you talk with says another account you know is theirs too and wants them linked. A one-time phrase of six words goes to that other account in a direct message; the next message from this account must hold those six words, and only then are the two one person to you.",
     "whenNotToUse": "While you are unsure who they are: ask first. Never for the owner.",
     "args": {
       "person": "The person you already know: their person id or @handle."
