@@ -51,7 +51,8 @@ const bind = (handle: Handle, account: [string, string], target: [string, string
 
 const contextOf = (handle: Handle, iface: string, native: string) => {
   const person = `person:${iface}:${native}`;
-  return { ...dmContext(person, iface), linked: linkedDmScopes(dbOf(handle), iface, person) };
+  const place = `${iface}:dm:${native}`;
+  return { ...dmContext(person, iface, place), linked: linkedDmScopes(dbOf(handle), person, place) };
 };
 const dmRow = (iface: string, native: string) => ({
   scope_kind: 'dm',
@@ -154,7 +155,13 @@ test('a DM context the service issues carries the DMs of the person, and a bind 
       accountId: 'telegram:222',
       target: { accountId: 'discord:111' },
     });
-    const ctx = service.issueContext({ kind: 'dm', iface: 'discord', person: 'person:discord:111' });
+    // The context names its own DM place, as every caller finds it in `places`: the person id no longer spells it.
+    const ctx = service.issueContext({
+      kind: 'dm',
+      iface: 'discord',
+      person: 'person:discord:111',
+      place: 'discord:dm:111',
+    });
     assert.deepEqual(
       ctx.linked?.map((one) => one.person),
       ['person:telegram:222']

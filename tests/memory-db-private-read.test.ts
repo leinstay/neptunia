@@ -59,7 +59,7 @@ const recordIds = (view: { records: ReadonlyArray<{ id: string }> }): Array<stri
 /** Her DM context on one account, carrying the DMs the writer's links give that person. */
 const dmOf = (db: Db, who: string, iface: string, dmPlace: string): Context => ({
   ...dmContext(who, iface, dmPlace),
-  linked: linkedDmScopes(db, iface, who),
+  linked: linkedDmScopes(db, who, dmPlace),
 });
 
 test('the owner reads exactly the actual DM places and private records of an opaque person with no public profile', () => {

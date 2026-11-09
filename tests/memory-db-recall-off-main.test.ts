@@ -244,8 +244,8 @@ const recallOver = (hot: object, memoryDb: object) =>
 
 const SAME_RESULT_CASES: Array<[string, Record<string, unknown>]> = [
   ['a group reader', {}],
-  ['a DM reader of the person', { ctx: dmContext(ALICE_PERSON, 'discord') }],
-  ['a DM reader of another person', { ctx: dmContext(BOB_PERSON, 'discord') }],
+  ['a DM reader of the person', { ctx: dmContext(ALICE_PERSON, 'discord', dmPlaceId('discord', ALICE)) }],
+  ['a DM reader of another person', { ctx: dmContext(BOB_PERSON, 'discord', dmPlaceId('discord', BOB)) }],
   ['an internal reader', { ctx: internalContext() }],
   ['the place rule of the caller', { allowPlace: (place: string) => place !== OTHER }],
   [
@@ -288,8 +288,10 @@ test('the audience holds in the reader: a DM line reaches its person and no othe
   const env = await setup();
   try {
     const find = (ctx: unknown) => env.service.searchRecord(rabbit({ ctx }));
-    assert.ok(messageIds(await find(dmContext(ALICE_PERSON, 'discord'))).includes('dm-alice'));
-    const bob = messageIds(await find(dmContext(BOB_PERSON, 'discord')));
+    assert.ok(
+      messageIds(await find(dmContext(ALICE_PERSON, 'discord', dmPlaceId('discord', ALICE)))).includes('dm-alice')
+    );
+    const bob = messageIds(await find(dmContext(BOB_PERSON, 'discord', dmPlaceId('discord', BOB))));
     assert.ok(bob.includes('dm-bob'));
     assert.ok(!bob.includes('dm-alice'));
     const group = messageIds(await find(groupContext('discord')));
@@ -316,7 +318,9 @@ test('a query vector in the reader finds a line by meaning alone, and only in it
     assert.ok(messageIds(group).includes('main-3'));
     assert.ok(!messageIds(group).includes('dm-alice'));
     assert.ok(group.stats.meaning > 0);
-    assert.ok(messageIds(await meaning(dmContext(ALICE_PERSON, 'discord'))).includes('dm-alice'));
+    assert.ok(
+      messageIds(await meaning(dmContext(ALICE_PERSON, 'discord', dmPlaceId('discord', ALICE)))).includes('dm-alice')
+    );
   } finally {
     await env.done();
   }

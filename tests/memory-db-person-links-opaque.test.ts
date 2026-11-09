@@ -135,3 +135,34 @@ test('another person with an equal native id on another interface is not linked'
   assert.deepEqual(ctx.linked ?? [], []);
   assert.equal(allowedAudience({ audience_id: 'aud:dm:place:dm-a12' }, ctx), false);
 });
+
+test("a context reads the DM of the account its person id spells when it was issued in the person's other DM", () => {
+  // Bug: the linked DMs leave out the account whose id the person id spells, not the place the context was issued in.
+  const service = serviceOver((handle) => {
+    const db = dbOf(handle);
+    addAccount(db, {
+      id: 'discord:n7',
+      iface: 'discord',
+      authority: 'discord/global',
+      native: 'n7',
+      person: 'person:discord:n7',
+    });
+    addAccount(db, {
+      id: 'account:n8',
+      iface: 'discord',
+      authority: 'discord/global',
+      native: 'n8',
+      person: 'person:discord:n7',
+    });
+    for (const [id, account] of [
+      ['place:dm-n7', 'discord:n7'],
+      ['place:dm-n8', 'account:n8'],
+    ] as const)
+      addDmPlace(db, { id, iface: 'discord', authority: 'discord/global', account, person: 'person:discord:n7' });
+  });
+  const ctx = service.issueContext({ kind: 'dm', iface: 'discord', person: 'person:discord:n7', place: 'place:dm-n8' });
+  assert.deepEqual(
+    ctx.linked?.map((one) => one.place),
+    ['place:dm-n7']
+  );
+});

@@ -284,17 +284,16 @@ function scopePersonOf(db: Db, place: Row, account: Row, members: PersonMembers)
 }
 
 /**
- * The DM places of the person behind a DM's person id, read from the stored accounts and places, without the DM of the
- * account that id spells. service.ts leaves out the issued context's own place, which an opaque id does not spell. Empty
- * for a person with no verified account and no observed DM.
+ * The DM places of the person behind a DM's person id, read from the stored accounts and places, without `ownPlace`, the
+ * DM the context was issued in. Empty for a person with no verified account and no observed DM.
  */
-export function linkedDmScopes(db: Db, iface: string, dmPerson: string): Array<LinkedDm> {
+export function linkedDmScopes(db: Db, dmPerson: string, ownPlace: string | null): Array<LinkedDm> {
   const members = personMembers(db, dmPerson, { ownerMergesOnly: true });
   const byId = new Map(members.accounts.map((account) => [account.id, account]));
   const linked: Array<LinkedDm> = [];
   for (const place of dmPlacesOfAccounts(db, [...byId.keys()])) {
     const account = byId.get(place.partner_account);
-    if (account === undefined || (account.iface === iface && `person:${String(account.id)}` === dmPerson)) continue;
+    if (account === undefined || place.id === ownPlace) continue;
     linked.push({
       iface: String(place.iface),
       person: scopePersonOf(db, place, account, members),

@@ -7,7 +7,15 @@ import { audienceWhere } from '../src/memory/db/scope.ts';
 import { scopesOf, sweep } from '../src/memory/db/session.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { baseConfig, fakeLlm, memoryBlock, prompts } from './fixtures/memory-db/session-rig.ts';
-import { ALEX, DM_ALEX, addSource, dmAudience, semanticWorld } from './fixtures/memory-db/semantic-world.ts';
+import {
+  ALEX,
+  DM_ALEX,
+  KAI_ACCOUNT,
+  addSource,
+  dmAudience,
+  semanticWorld,
+} from './fixtures/memory-db/semantic-world.ts';
+import { addDmPlace } from './fixtures/memory-db/opaque-people.ts';
 import type { World } from './fixtures/memory-db/semantic-world.ts';
 
 const NOTE = 'told only in this DM';
@@ -122,5 +130,49 @@ test('the sweep finds a DM with an opaque partner as its own scope, and its answ
   });
   const row = world.db.prepare('SELECT audience_id FROM claims WHERE text = ?').get(NOTE);
   assert.equal(row?.audience_id, dmAudience(DM_ALEX));
+  world.handle.close();
+});
+
+/** One DM line with `person` in its triple and its audience, if any, written as an older release stored it. */
+function addDmLine(world: World, audience: string | null, place: string | null, person: string | null): void {
+  if (audience !== null)
+    world.db
+      .prepare("INSERT OR IGNORE INTO audiences (id, kind, iface, place_id) VALUES (?, 'dm', 'discord', ?)")
+      .run(audience, place);
+  const at = '2026-11-05T10:00:00.000Z';
+  world.db
+    .prepare(
+      `INSERT INTO sources (id, kind, iface, native_id, revision, place_id, author_kind, occurred_at, recorded_at, text,
+        scope_kind, scope_iface, scope_dm, audience_id)
+       VALUES (?, 'seen', 'discord', ?, 1, ?, 'account', ?, ?, 'a line', 'dm', 'discord', ?, ?)`
+    )
+    .run(`src:${person ?? String(place)}`, `m:${person ?? String(place)}`, place, at, at, person, audience);
+}
+
+test('the sweep finds no scope for a DM line whose audience names no stored place', () => {
+  // Bug: the sweep spells a DM out of the line's person id and reads a chat no stored place holds.
+  const world = semanticWorld();
+  addDmLine(world, null, null, 'person:discord:n9');
+  assert.deepEqual(
+    scopesOf(world.db).filter((one) => one.scope.scope_kind === 'dm'),
+    []
+  );
+  world.handle.close();
+});
+
+test('the context the sweep reads a DM nobody linked in names no person, and reads that DM', () => {
+  // Bug: the context of such a DM is given a person spelled out of its place id, which no row holds.
+  const world = semanticWorld();
+  addDmPlace(world.db, {
+    id: 'place:dm-kai',
+    iface: 'discord',
+    authority: 'discord/global',
+    account: KAI_ACCOUNT,
+    person: null,
+  });
+  addDmLine(world, dmAudience('place:dm-kai'), 'place:dm-kai', null);
+  const found = scopesOf(world.db).find((one) => one.audienceId === dmAudience('place:dm-kai'));
+  assert.equal(found?.ctx.person, undefined);
+  assert.equal(found?.ctx.place, 'place:dm-kai');
   world.handle.close();
 });

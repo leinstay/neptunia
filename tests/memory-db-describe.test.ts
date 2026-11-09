@@ -350,7 +350,7 @@ const applyConfig = (extra = {}) => ({
 test('a description is identified by its scope: a private review of the same subject and field is a description of its own', async () => {
   const env = fixture();
   try {
-    const dm = dmContext(personId('discord', ADA), 'discord');
+    const dm = dmContext(personId('discord', ADA), 'discord', `discord:dm:${ADA}`);
     const llm = fakeLlm(answer('A private draft.', 'r'), answer('A private final.', 'r'));
     const result: Record<string, Untyped> = await reviewDescription(wrongly(env.db), subjectOf(env), 'character', {
       ctx: wrongly({ ...ctxOf(env, wrongly({ llm })), readCtx: dm }),

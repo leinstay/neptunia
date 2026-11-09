@@ -157,7 +157,7 @@ test('an outward context reads of her only what its audience holds, as of anyone
       inGroup.records.map((record) => record.id),
       ['claim:self-group']
     );
-    const elsewhere = personDetail(db, SELF, dmContext('person:stranger', 'discord'));
+    const elsewhere = personDetail(db, SELF, dmContext('person:stranger', 'discord', 'place:dm-stranger'));
     // The owner's word: she is read like any other person, and a group's fact is public knowledge in a DM; another
     // DM's fact about her stays closed.
     assert.ok(elsewhere.found);

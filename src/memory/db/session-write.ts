@@ -116,10 +116,8 @@ import {
   audienceParts,
   canRead,
   dmContext,
-  dmContextPerson,
   groupContext,
   internalContext,
-  namesNoPlaceOn,
   narrowestAudience,
   scopeOfAudience,
   SCOPE_INTERNAL,
@@ -249,15 +247,14 @@ function contextOf(scope: Scope | null | undefined, audienceColumn = false, audi
   else if (scope?.scope_kind === 'dm' && scope.scope_iface) {
     const place = audienceParts(audience)?.place_id ?? null;
     // A DM nobody linked names no partner: its place does, so its run reads that DM and never the whole memory.
-    if (scope.scope_dm) ctx = dmContext(scope.scope_dm, scope.scope_iface, place);
-    else if (place) ctx = dmContext(dmContextPerson(null, scope.scope_iface, place), scope.scope_iface, place);
+    if (scope.scope_dm || place) ctx = dmContext(scope.scope_dm || null, scope.scope_iface, place);
   }
   return audienceColumn === true ? { ...ctx, audienceColumn: true } : ctx;
 }
 
-/** The one stored DM place of a partner its id spells none for; null for none and for several, which no triple can tell apart. */
+/** The one stored DM place of a DM scope's partner on its interface; null for none and for several, which no triple can tell apart. */
 function onlyDmPlaceOf(db: Db, scope: Scope): string | null {
-  if (scope.scope_kind !== 'dm' || !namesNoPlaceOn(scope.scope_dm, scope.scope_iface)) return null;
+  if (scope.scope_kind !== 'dm' || !scope.scope_dm || !scope.scope_iface) return null;
   const places = db
     .prepare("SELECT id FROM places WHERE partner_person = ? AND iface = ? AND (kind = 'dm' OR chat = 'dm')")
     .all(scope.scope_dm, scope.scope_iface);

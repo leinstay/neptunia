@@ -12,6 +12,7 @@ import {
   ALICE,
   AT,
   BOB,
+  BOB_DM,
   BOB_PERSON,
   GENERAL,
   KINDS,
@@ -131,7 +132,7 @@ for (const kind of KINDS) {
       observeDmLine(env, kind);
       env.stem();
       await embedLines(env);
-      const partner = dmContext(BOB_PERSON, 'discord');
+      const partner = dmContext(BOB_PERSON, 'discord', BOB_DM);
       assert.equal(mediaFor(env, kind.first.word, partner)[0]?.latest.messageId, 'secret', 'its own DM finds it');
       assert.deepEqual(mediaFor(env, kind.first.word), []);
       assert.deepEqual(mediaFor(env, kind.first.fragment), []);
@@ -241,7 +242,7 @@ test('a reader sees the uses it may see: a DM use is no count and no date for a 
     const [meant] = search(env.db, { ctx: group, ...byMeaning('маяк') }).mediaHits;
     assert.deepEqual([meant.uses, meant.latest.messageId], [1, 'public']);
     assert.ok(!JSON.stringify(word.messages).includes('private'));
-    const [own] = mediaFor(env, 'lighthouse', dmContext(BOB_PERSON, 'discord'));
+    const [own] = mediaFor(env, 'lighthouse', dmContext(BOB_PERSON, 'discord', BOB_DM));
     assert.deepEqual([own.uses, own.latest.messageId], [2, 'private']);
   }));
 

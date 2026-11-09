@@ -161,3 +161,38 @@ test('a private derived claim keeps its DM scope when later evidence comes from 
     env.done();
   }
 });
+
+test("a DM run with no audience writes under its partner's stored DM place, never one spelled from the partner's id", () => {
+  // Bug: a partner whose id spells a DM place gets that spelled place as the run's audience, not the place stored for them.
+  const env = fixture();
+  try {
+    env.db
+      .prepare(
+        `INSERT INTO places (id, iface, kind, native_id, chat, scope_kind, partner_account, partner_person)
+         VALUES ('place:dm-ada', 'discord', 'dm', NULL, 'dm', 'dm', ?, ?)`
+      )
+      .run(`discord:${ADA}`, personOf(ADA));
+    const line = env.say({ native: 'group-evidence', minutesAgo: 40, text: 'a shared interest' });
+    const result = applyOf(env, {
+      run: runOf({ id: 'run:dm-no-audience', batchKey: 'dm-no-audience', scope: DM_ADA, scopeKey: 'dm:discord:place' }),
+      plan: emptyPlan({
+        claims: [
+          {
+            op: 'add',
+            subjectKind: 'person',
+            subjectId: personOf(ADA),
+            kind: 'interest',
+            text: 'told in the DM',
+            how: 'said',
+            sources: [line],
+            when: null,
+          },
+        ],
+      }),
+    });
+    assert.equal(result.added, 1);
+    assert.equal(env.db.prepare('SELECT audience_id FROM claims').get()?.audience_id, 'aud:dm:place:dm-ada');
+  } finally {
+    env.done();
+  }
+});

@@ -2,8 +2,9 @@
 import { openMemoryDb } from '../../src/memory/db/open.ts';
 import { dbOf } from '../../src/memory/db/types.ts';
 import { fillStems } from '../../src/memory/db/stems.ts';
-import { channelPlaceId, messageSourceId, personId } from '../../src/memory/db/ids.ts';
-import { groupScope } from '../../src/memory/db/scope.ts';
+import { channelPlaceId, dmPlaceId, messageSourceId, personId } from '../../src/memory/db/ids.ts';
+import { dmContext, groupScope } from '../../src/memory/db/scope.ts';
+import type { Context } from '../../src/memory/db/scope.ts';
 import { quantize } from '../../src/memory/vectors.ts';
 
 const DAY = 86400000;
@@ -11,6 +12,19 @@ const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const MAIN = channelPlaceId('discord', 'main');
 const ALICE = 'u-alice';
 const BOB = 'u-bob';
+const MEMBERS = [ALICE, BOB, 'u-carol'];
+
+/** The stored person of a member's account, as a store's `personOfAccount` answers for the members of these tests. */
+export const storedPersonOf = (id: string): string | null => (MEMBERS.includes(id) ? personId('discord', id) : null);
+/** The stored DM place of a member's account, as a store's `dmHomeOf` reads it from `places`. */
+export const storedDmOf = (id: string): string | null => (MEMBERS.includes(id) ? dmPlaceId('discord', id) : null);
+/** The person and the DM place of a member's DM context. */
+export const dmSpecOf = (id: string): { person: string; place: string } => ({
+  person: personId('discord', id),
+  place: dmPlaceId('discord', id),
+});
+/** A member's DM context, in the member's own DM place. */
+export const dmOfMember = (id: string): Context => dmContext(personId('discord', id), 'discord', dmPlaceId('discord', id));
 
 /** Filler chat that teaches the stemmer its Greek endings: twelve stems, each seen with five endings. */
 const FILLER_STEMS = ['βιβλι', 'παιδ', 'δρομ', 'λογ', 'ανθρωπ', 'καιρ', 'φιλ', 'χρον', 'τοπ', 'κοσμ', 'νερ', 'ουραν'];

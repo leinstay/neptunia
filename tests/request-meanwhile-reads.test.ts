@@ -83,7 +83,7 @@ test('a direct chat reply shows the groups and the same person linked chat, and 
       now: () => NOW,
       newId: () => 'ctx:dm',
     });
-    const ctx = { ...issued, linked: linkedDmScopes(w.db, 'fake', ZOE).filter((one) => one.place !== here) };
+    const ctx = { ...issued, linked: linkedDmScopes(w.db, ZOE, here) };
     const frame = frameOf(
       frameInput({
         now: NOW,
