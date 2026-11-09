@@ -121,11 +121,14 @@ test("the units take the backend from keys.json, so the agent units bind that ba
   assert.ok(writable.includes(path.join(privateDir, 'subharness', 'codex')), writable.join(' '));
 });
 
-test('the watcher timer takes watcher.at from the local config when the units are installed', async () => {
+test('the watcher timer takes watcher.schedule from the local config when the units are installed', async () => {
   // Catches: installUnits renders the timer without the setting, so the hour the owner chose in setup never applies.
   const { target, run, unitDir, privateDir } = rig();
   fs.mkdirSync(path.join(privateDir, 'config'), { recursive: true });
-  fs.writeFileSync(path.join(privateDir, 'config', 'config.json'), JSON.stringify({ watcher: { at: '07:00' } }));
+  fs.writeFileSync(
+    path.join(privateDir, 'config', 'config.json'),
+    JSON.stringify({ watcher: { schedule: 'at 07:00' } })
+  );
   const done = await installUnits(target, run, ['neptunia-watcher.timer']);
   assert.equal(done.ok, true);
   const text = fs.readFileSync(path.join(unitDir, 'neptunia-watcher.timer'), 'utf8');
