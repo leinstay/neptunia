@@ -151,7 +151,7 @@ const answerFields = (answer: Row | null | undefined, purpose: unknown): Row => 
 });
 
 /**
- * The `error_code` of a failed request. A string code wins, so `keys-exhausted` stays, then the provider's status as
+ * The `error_code` of a failed request. A string code wins, so `routes-exhausted` stays, then the provider's status as
  * `http_<status>`, then `timeout`, `aborted` and `network` by the error's name and shape, else `error`.
  */
 function failureCause(error: unknown): string {
