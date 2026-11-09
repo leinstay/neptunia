@@ -399,6 +399,28 @@ export function qualify(mapping: Rows, unit: { rel: string; full: string }): Row
   return mapping;
 }
 
+/** The owned tables whose rows a unit reads in their `position` order. */
+const POSITIONED = new Set(['claims', 'description_versions', 'episodes', 'affinity_events']);
+
+/**
+ * The active rows the unit `owner` owns or shares in each of `tables` (owned tables only), in the order a unit read
+ * gives them: by position where a table has one, else by rowid.
+ */
+export function ownedRowsOf(db: Db, owner: string, tables: ReadonlyArray<string>): Rows {
+  const rows: Rows = {};
+  for (const table of tables) {
+    const key = OWNED[table].map(quote).join(' || char(0) || ');
+    rows[table] = prepared(
+      db,
+      `SELECT * FROM ${quote(table)} WHERE (owner_key = ? OR ${key} IN (SELECT key FROM co_owners WHERE tbl = ? AND owner_key = ?))
+       AND retired_at IS NULL ORDER BY ${POSITIONED.has(table) ? 'position, rowid' : 'rowid'}`
+    )
+      .all(owner, table, owner)
+      .map((row) => ({ ...row }));
+  }
+  return rows;
+}
+
 /** The ids of the hot claims and episodes (what an archive entry must not stub over, archive-lines.ts). */
 export function hotClaimIds(db: Db): Set<string> {
   const ids = new Set<string>();

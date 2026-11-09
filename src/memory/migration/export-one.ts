@@ -1,6 +1,6 @@
 // The explicit legacy export: the value of one unit named by the path a shipped data directory gave it.
 
-import { filesOfUnit } from '../db/export.ts';
+import { unitValue } from '../db/readers/common.ts';
 import { hasStorageUnits } from '../db/storage-units.ts';
 import type { Db } from '../db/types.ts';
 import { classify } from './classify.ts';
@@ -26,7 +26,7 @@ export function exportOne(
         .get(full)
     : db.prepare('SELECT 1 AS ok FROM files WHERE path = ? AND gone_at IS NULL').get(full);
   if (!file) return { found: false, reason: 'missing' };
-  const [out] = filesOfUnit(db, info.unit, info, full);
-  if (!out) return { found: false, reason: 'empty' };
-  return { found: true, value: JSON.parse(out.data.toString('utf8')) };
+  const read = unitValue(db, full);
+  if (!read.found) return { found: false, reason: 'empty' };
+  return { found: true, value: JSON.parse(JSON.stringify(read.value)) as unknown };
 }

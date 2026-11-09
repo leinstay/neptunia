@@ -177,7 +177,7 @@ test('a rebuild gives the rows the writers left', () => {
 });
 
 test('a real name stored as the people mapper writes it, an object with its name, is found by that name', () => {
-  // Bug: `people.real_name` holds `{ name, from, to, itemId, recordedAt }` (src/memory/db/map/user.ts), the index read
+  // Bug: `people.real_name` holds `{ name, from, to, itemId, recordedAt }` (src/memory/db/account-profile.ts), the index read
   // only a string or a list, and no person of a live database was found by the name a user gave.
   const w = world();
   const person = 'person:discord:e1';

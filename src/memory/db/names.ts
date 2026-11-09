@@ -76,7 +76,8 @@ export function namesIn(value: unknown): Array<string> {
     const parsed: unknown = JSON.parse(value);
     if (typeof parsed === 'string') return filled(parsed) ? [parsed] : [];
     if (Array.isArray(parsed)) return parsed.filter(filled);
-    // A real name is stored as the people mapper writes it (map/user.ts): `{ name, from, to, itemId, recordedAt }`.
+    // A real name is stored as the profile writer writes it (account-profile.ts): `{ name, from, to, itemId,
+    // recordedAt }`.
     const name: unknown = parsed && typeof parsed === 'object' ? (parsed as { name?: unknown }).name : null;
     return filled(name) ? [name] : [];
   } catch {

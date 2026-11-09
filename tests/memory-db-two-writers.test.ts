@@ -201,14 +201,14 @@ async function flush(store: ReturnType<typeof createStore>): Promise<void> {
 
 /** The member's profile as a store that caches nothing yet reads it: the database's view, as the next start sees it. */
 function freshProfile(data: string, service: Service, accountId = MEMBER): Profile {
-  // store.js is untyped JS; `getUser` returns the user file's value, whose shape is the user mapper's (map/user.js).
+  // store.js is untyped JS; `getUser` returns the user file's value, whose shape is the profile writer's (account-profile.ts).
   const store = createStore({ dataDir: data, memoryDb: service });
   return store.getUser(accountOf(store, accountId)) as Profile;
 }
 
 /** The member's profile as the store her turns use holds it, its cache included. */
 function liveProfile(store: ReturnType<typeof createStore>, accountId: string): Profile {
-  // store.js is untyped JS; `getUser` returns the user file's value, whose shape is the user mapper's (map/user.js).
+  // store.js is untyped JS; `getUser` returns the user file's value, whose shape is the profile writer's (account-profile.ts).
   return store.getUser(accountOf(store, accountId)) as Profile;
 }
 

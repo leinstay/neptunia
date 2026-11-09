@@ -134,6 +134,8 @@ import { applyLineVectorsWrite } from './line-vectors.ts';
 import { applyRecordLinesWrite } from './record-lines.ts';
 import { applyJournalLinesWrite } from './journal-lines.ts';
 import { applyArchiveLinesWrite } from './archive-lines.ts';
+import { applyAccountProfileWrite } from './account-profile.ts';
+import { applyProseVersionsWrite } from './prose-versions.ts';
 import { applyOperationalWrite } from './operational.ts';
 import { applyUnitWrite } from './unit-write.ts';
 import { applyPublicationWrite } from './publish.ts';
@@ -975,6 +977,10 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['journal-lines', applyJournalLinesWrite],
   // The entries of the archive: past versions of items that left hot memory (archive-lines.ts).
   ['archive-lines', applyArchiveLinesWrite],
+  // An account's profile: what she keeps about a member (account-profile.ts).
+  ['account-profile', applyAccountProfileWrite],
+  // The previous texts of a profile, a channel, a place's notes or a lorebook entry (prose-versions.ts).
+  ['prose-versions', applyProseVersionsWrite],
   // The selfreflection's mirrors: the state of a send, then the owner's configuration.
   [
     'publication',

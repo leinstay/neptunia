@@ -20,12 +20,12 @@
 //   skipped, the cursor moves and a `decisions` row records why.
 //
 // The request (buildSessionRequest): the system text her turns get (system prompt, card, rules, format), then
-// prompts/memory-session.md; the user content in blocks, stable first: <self> <place> <people> <episodes>
-// <intentions> <batch>. People are rendered by the renderer her turns use (behavior/prompt.js#renderProfile) from the
-// profile the database rebuilds (export.ts#storageValue), then the attitude (the affinity number) and the claims shown
-// with their ids. Ids in the request are short and local: `#n` for lines, `cN` / `sN` for claims, `eN` for episodes.
-// The answer is mapped back to database ids here; an id the request did not carry, a line it did not number, a kind or
-// a source list that is missing or wrong is dropped and counted, never guessed.
+// prompts/memory-session.md; the user content in blocks, stable first: <self> <place> <people> <episodes> <intentions>
+// <batch>. People are rendered by the renderer her turns use (behavior/prompt.js#renderProfile) from the profile the
+// database rebuilds (account-profile.ts#accountProfileValue), then the attitude (the affinity number) and the claims
+// shown with their ids. Ids in the request are short and local: `#n` for lines, `cN` / `sN` for claims, `eN` for
+// episodes. The answer is mapped back to database ids here; an id the request did not carry, a line it did not number,
+// a kind or a source list that is missing or wrong is dropped and counted, never guessed.
 //
 // Context (`ctx`): { db (a connection that can read), write (session-write.ts through the writer: the service's
 // `memoryWrite`), llm (`complete`), hot ({ config, prompts }), env, now, log, selfName, rng? }.
@@ -46,7 +46,7 @@ import { estimateMessages } from '../../llm/tokens.ts';
 import { rulesPromptOf } from '../../rules-list.ts';
 import { memoryPathText } from '../../subharness/memory-path.ts';
 import type { MemoryPath } from '../../subharness/memory-path.ts';
-import { storageValue } from './export.ts';
+import { accountProfileValue } from './account-profile.ts';
 import { accountCollection } from './storage-keys.ts';
 import { SELF_PERSON, shortHash } from './ids.ts';
 import { storedMediaTags } from '../../format.ts';
@@ -785,7 +785,8 @@ export function buildSessionRequest({
     let profile = null;
     if (typeof account?.id === 'string') {
       try {
-        profile = profileAsOf(db, storageValue(db, accountCollection('user', account.id)) as Row, cutoffIso);
+        const read = accountProfileValue(db, accountCollection('user', account.id));
+        profile = profileAsOf(db, (read.found ? read.value : {}) as Row, cutoffIso);
       } catch {
         /* the profile is shown without the stored text */
       }

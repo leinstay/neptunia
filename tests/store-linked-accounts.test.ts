@@ -1,7 +1,7 @@
-// A member's profile through the owner's links (src/memory/store.ts, src/memory/db/map/user.ts). What describes the person
-// is one record behind every account the owner bound: character, details and the affinity score. What belongs to one
-// account stays with it: its native id, the names it shows, how it is addressed. Each scenario runs over the real memory
-// service on the calling thread, with the links written through its writer.
+// A member's profile through the owner's links (src/memory/store.ts, src/memory/db/account-profile.ts). What describes
+// the person is one record behind every account the owner bound: character, details and the affinity score. What
+// belongs to one account stays with it: its native id, the names it shows, how it is addressed. Each scenario runs over
+// the real memory service on the calling thread, with the links written through its writer.
 import { accountOf } from '../src/memory/addresses.ts';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';

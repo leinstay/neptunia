@@ -145,10 +145,10 @@ test('allowlist: every path the sync maps is in exactly one list, the one the sp
     assert.equal(pathClass(rel), expected, rel);
   }
   // Every mapper the sync has is reached by the samples above, and the intentions, the line vectors, the record, the
-  // journal and the archive, which have a write kind instead.
+  // journal, the archive, the profiles and the versions, which have a write kind instead.
   assert.deepEqual(
     [...new Set(MAPPED.map(([, kind]) => kind))].sort(),
-    [...Object.keys(MAPPERS), 'intentions', 'vectors', 'record', 'journal', 'archive'].sort()
+    [...Object.keys(MAPPERS), 'intentions', 'vectors', 'record', 'journal', 'archive', 'user', 'versions'].sort()
   );
 });
 

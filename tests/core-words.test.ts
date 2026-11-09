@@ -26,7 +26,6 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
   { file: 'src/memory/db/ids.ts', pattern: /`[^`]*discord[^`]*`/, why: 'stored legacy ids and the stored iface value' },
   // Qualified message writes keep the upsert module independent from a platform namespace.
   { file: 'src/memory/db/map/participation.ts', pattern: /`src:discord:/, why: 'a stored legacy message ref' },
-  { file: 'src/memory/db/map/versions.ts', pattern: /`desc:(person:)?discord:/, why: 'stored legacy description ids' },
   { file: 'src/index.ts', pattern: /discord/i, why: 'the entry point loads the Discord package and its token' },
   {
     file: 'src/config/schema/interfaces.ts',

@@ -1,15 +1,18 @@
 // Shared semantic readers and the ready database seam. Core modules read complete values and ordered lines by
-// StorageKey. A key of an operational kind reads its row by kind and subject (operational.ts), a key of the
-// intentions reads their rows (readers/intentions.ts), a day of the record or of the journal and a month of the
-// archive their lines (record-lines.ts, journal-lines.ts, archive-lines.ts). The explicit legacy export adapter understands historical owner
-// strings. A closed service refuses reads with DB_CLOSED; failures are logged once with their reader and code, without
-// stored contents.
+// StorageKey. A key of an operational kind reads its row by kind and subject (operational.ts), a key of the intentions
+// reads their rows (readers/intentions.ts), a day of the record or of the journal and a month of the archive their
+// lines (record-lines.ts, journal-lines.ts, archive-lines.ts), and an account's profile and a history of prose (a
+// picture's descriptions too) their value (account-profile.ts, prose-versions.ts). The explicit legacy export adapter
+// understands historical owner strings. A closed service refuses reads with DB_CLOSED; failures are logged once with
+// their reader and code, without stored contents.
 
 import { isOperationalKind, operationalLines, operationalValue } from '../operational.ts';
 import { intentionsArchiveLines, intentionsValue } from './intentions.ts';
 import { recordLines } from '../record-lines.ts';
 import { journalLines } from '../journal-lines.ts';
 import { archiveUnitLines } from '../archive-lines.ts';
+import { accountProfileValue } from '../account-profile.ts';
+import { proseVersionsValue } from '../prose-versions.ts';
 import { hasStorageUnits } from '../storage-units.ts';
 import { storageId } from '../storage-keys.ts';
 import type { StorageKey } from '../storage-keys.ts';
@@ -41,7 +44,7 @@ const unitRelOf = (owner: string) => /^[^/]+\/[^/]+\/(.+)$/.exec(owner)?.[1] ?? 
 
 /**
  * The key of a unit whose kind its own reader answers (an operational kind, the intentions, a day of the record or of
- * the journal, a month of the archive), else
+ * the journal, a month of the archive, an account's profile, a history of prose), else
  * null; a path spells it.
  */
 function directKey(db: Db, given: StorageKey | string): StorageKey | null {
@@ -54,7 +57,9 @@ function directKey(db: Db, given: StorageKey | string): StorageKey | null {
       key = null;
     }
   }
-  return key && (isOperationalKind(key.kind) || ['intentions', 'record', 'journal', 'archive'].includes(key.kind))
+  return key &&
+    (isOperationalKind(key.kind) ||
+      ['intentions', 'record', 'journal', 'archive', 'user', 'versions'].includes(key.kind))
     ? key
     : null;
 }
@@ -91,6 +96,8 @@ export function unitValue(
   const direct = directKey(db, ownerGiven);
   if (direct && isOperationalKind(direct.kind)) return operationalValue(db, direct.kind, direct.subject.id);
   if (direct?.kind === 'intentions') return intentionsValue(db);
+  if (direct?.kind === 'user') return accountProfileValue(db, direct);
+  if (direct?.kind === 'versions') return proseVersionsValue(db, direct);
   if (hasStorageUnits(db)) {
     const key = typeof ownerGiven === 'string' ? legacyStorageKey(ownerGiven) : ownerGiven;
     const unit = db.prepare('SELECT 1 FROM storage_units WHERE id=? AND retired_at IS NULL').get(storageId(key));

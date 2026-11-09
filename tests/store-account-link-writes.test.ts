@@ -1,5 +1,6 @@
-// What a profile write does to an account's link (src/memory/db/map/user.ts): the link is the database's, and a person
-// the link made waits for its first profile. Each scenario runs over the real memory service on the calling thread.
+// What a profile write does to an account's link (src/memory/db/account-profile.ts): the link is the database's, and a
+// person the link made waits for its first profile. Each scenario runs over the real memory service on the calling
+// thread.
 import { accountOf } from '../src/memory/addresses.ts';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
