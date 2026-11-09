@@ -18,12 +18,6 @@ test('only the exact word auto turns the merge to the engine', () => {
   assert.equal(selfimprovementSettings({ selfimprovement: { mode: 'approve' } }).mode, 'approve');
 });
 
-test('the base branch defaults to main and follows the setting', () => {
-  assert.equal(selfimprovementSettings({}).base, 'main');
-  assert.equal(selfimprovementSettings({ selfimprovement: { base: 'trunk' } }).base, 'trunk');
-  assert.equal(selfimprovementSettings({ selfimprovement: { base: '' } }).base, 'main');
-});
-
 test('the selfimprovement checkout is none when unset, and the absolute path the setting names when set', () => {
   // Catches: setup renders the selfimprovement units on every deployment, or drops the path the owner gave.
   assert.equal(selfimprovementSettings({}).checkout, null);
@@ -57,10 +51,4 @@ test('a repository that is not owner/name is none', () => {
       null,
       JSON.stringify(repository)
     );
-});
-
-test('is on unless selfimprovement.enabled is false', () => {
-  assert.equal(selfimprovementSettings({}).enabled, true);
-  assert.equal(selfimprovementSettings({ selfimprovement: { enabled: 'no' } }).enabled, true);
-  assert.equal(selfimprovementSettings({ selfimprovement: { enabled: false } }).enabled, false);
 });

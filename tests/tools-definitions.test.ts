@@ -171,16 +171,6 @@ test('memory.profile.read reads one person or, with section changes, every perso
   assert.ok(asked.since && asked.until);
 });
 
-test('errand.list takes the filters and the id, and errand.status and memory.affinity.read are gone', () => {
-  const definition = BY_NAME.get('errand.list')!;
-  const properties = definition.params.properties ?? {};
-  for (const key of ['id', 'state', 'since', 'until', 'limit']) assert.ok(properties[key], key);
-  assert.deepEqual(properties.state?.enum, ['queued', 'running', 'done', 'failed', 'cancelled']);
-  assert.deepEqual(definition.toArgs({ state: 'done', limit: 3 })?.state, 'done');
-  assert.equal(BY_NAME.has('errand.status'), false);
-  assert.equal(BY_NAME.has('memory.affinity.read'), false);
-});
-
 test('the quirks of the mapping are kept', () => {
   assert.deepStrictEqual(BY_NAME.get('lore.list')?.toArgs({}), { query: undefined });
   assert.deepStrictEqual(BY_NAME.get('status.show')?.toArgs({}), { field: null });

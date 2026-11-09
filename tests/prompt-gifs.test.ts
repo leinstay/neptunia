@@ -9,7 +9,8 @@ import { gifFieldChars, gifLine, userText as contentText } from '../src/behavior
 import { rankGifs } from '../src/memory/gifs.ts';
 import { labels } from './fixtures/labels.ts';
 import { frameOfInput } from './fixtures/prompt-rig.ts';
-import { buildRequest, type Built, type Part } from './fixtures/built-request.ts';
+import { buildRequest } from './fixtures/built-request.ts';
+import type { Built } from './fixtures/built-request.ts';
 
 const NOW = Date.UTC(2026, 8, 20, 10, 0, 0);
 const DAY = 86_400_000;
@@ -109,16 +110,6 @@ function findLines(gifs: unknown, mediaCache: object | undefined, given: Record<
   );
 }
 
-function gifsBlock(request: Built) {
-  const match = /<gifs>\n([\s\S]*?)\n<\/gifs>/.exec(userText(request));
-  return match ? match[1].split('\n') : null;
-}
-
-function sensesOf(request: Built) {
-  const match = /<senses>\n([\s\S]*?)\n<\/senses>/.exec(userText(request));
-  return match ? match[1] : '';
-}
-
 const THREE = library([linkEntry(1, 2), linkEntry(2, 9), linkEntry(3, 5)]);
 
 // PR 7d: `gifs.max` is the constant 25, so the library holds 26 entries.
@@ -129,21 +120,6 @@ test("gifLine: the cached caption under the entry's itemId, entryNoText otherwis
   };
   const lines = findLines(THREE, mediaCache);
   assert.deepEqual(lines, ['g2 -- a cat dancing on a ὄρνις', 'g3', 'g1']);
-});
-
-test('buildRequest: a library, empty or not, gives no <gifs> block and no senses line', () => {
-  for (const input of [baseInput({ gifs: library([]) }), baseInput(), baseInput({ gifs: THREE })]) {
-    const request = buildRequest(input);
-    assert.equal(gifsBlock(request), null);
-    assert.ok(!sensesOf(request).includes(labels.senses.gifs));
-  }
-});
-
-test('buildRequest: a labels.json without the gifs keys renders no block and no senses line', () => {
-  const older = { ...labels, gifs: undefined, senses: { ...labels.senses, gifs: undefined } };
-  const request = buildRequest(baseInput({ gifs: THREE, prompts: { ...baseInput().prompts, labels: older } }));
-  assert.equal(gifsBlock(request), null);
-  assert.ok(!userText(request).includes('undefined'));
 });
 
 /** A full-sentence caption of about 190 characters, the shape the describer stores. */

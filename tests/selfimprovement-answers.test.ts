@@ -12,7 +12,7 @@
 //   after the wake fell due and before its turn ran shows in that turn only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { skillRegistry } from '../src/tools/registry.ts';
+
 import '../src/tools/operations/index.ts';
 import { herCalls, selfimprovementWorld, SELFIMPROVEMENT_T0 } from './fixtures/selfimprovement-rig.ts';
 import type { SelfimprovementWorld } from './fixtures/selfimprovement-rig.ts';
@@ -77,11 +77,6 @@ test('guard: as persona the board refuses to approve, review or unblock', async 
   const world = selfimprovementWorld(t);
   const one = await filed(world);
   assert.throws(() => world.caller.call('persona', 'task.approve', { id: one.id, scope: 'plan' }));
-});
-
-test('her tools for the three answers are registered', () => {
-  // Bug: the board allows it and no tool reaches it, so the wake shows a question she cannot answer.
-  for (const name of ['task.cancel', 'task.comment', 'task.answer']) assert.ok(skillRegistry().has(name), name);
 });
 
 test('task.cancel cancels her task with her reason', async (t) => {

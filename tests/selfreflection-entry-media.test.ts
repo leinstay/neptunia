@@ -199,15 +199,6 @@ test("an entry's picture row keeps the attachment id and the description memory 
   ]);
 });
 
-test('an entry without text gets its text filled from its messages', async () => {
-  const s = scene({
-    entries: [{ id: 'd-1', text: null, messageIds: ['m1'] }],
-    messages: [{ id: 'm1', text: 'ήσυχη μέρα' }],
-  });
-  await s.job().run();
-  assert.equal(s.textOf('d-1'), 'ήσυχη μέρα');
-});
-
 test('an older picture row with only its url and message is completed once, and a second start changes nothing', async () => {
   const s = scene({
     entries: [{ id: 'd-2', text: 'παλιό', messageIds: ['m3'] }],

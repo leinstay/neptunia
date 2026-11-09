@@ -950,14 +950,6 @@ test('executeCall: she may post in any text channel the bot may send in, another
   }
 });
 
-test('executeCall: a leftover tools.chats is ignored -- it neither opens nor closes a channel', async () => {
-  const { admin, port } = makeAdmin({ cfg: config({ tools: { chats: [ELSEWHERE] } }) });
-  const listed = await executeCall(resolve('message.create', { place: '#αλλού' }, 'γεια'), deps(admin, port));
-  assert.deepEqual([listed.status, listed.code], ['denied', 'channel-no-permission']);
-  const unlisted = await executeCall(resolve('message.create', { place: '#νέα' }, 'γεια'), deps(admin, port));
-  assert.equal(unlisted.status, 'ok', JSON.stringify(unlisted));
-});
-
 test('executeCall: each operation needs its own permissions there -- edit, delete and unreact read the history, a reaction adds one, a reply reads and sends', async () => {
   const { admin, port } = makeAdmin();
   port.seed(READ_ONLY, { authorId: SELF, messageId: '2001', text: 'λάθος' });

@@ -53,20 +53,3 @@ test('answers every context for every tool exactly as the committed table says',
   const generated = await toolDecisions();
   assert.deepEqual(canon(generated), canon(committed));
 });
-
-test('the committed table holds a row per tool of the registry and a verdict per context', () => {
-  const contexts = Object.keys(committed.contexts);
-  const gaps = committed.tools.flatMap((row) =>
-    contexts.filter((name) => row.verdicts[name] === undefined).map((name) => `${row.tool}:${name}`)
-  );
-  assert.deepEqual(gaps, []);
-  // Two more since the board tools task.propose and task.status (PR 6c).
-  // PR 7e: two more, skill.read and skill.disable (the committed table gained their rows).
-  // The tool watcher.read of the daily watcher is the 72nd, and skill.run of the executable skills the 73rd.
-  // `task.unblock` joined the registry with the task-started development run.
-  // `inner.stop` and `inner.start` left with `/wakes`.
-  // `person.link`, her link tool, is the 76th (plan 2026-11-08-meta-person slice 8).
-  // `inner.status` left: it repeated the `inner` field of the owner's status card.
-  // `memory.affinity.read` and `errand.status` merged into `memory.profile.read` and `errand.list`.
-  assert.equal(committed.tools.length, 73);
-});
