@@ -1,4 +1,4 @@
-// Operations: `/nep rule`: the live rules in prompts.local/rules.md (the tracked prompts/ layer is never written).
+// Operations: `rule.*`: the live rules in data/prompts/rules.md (the tracked prompts/ layer is never written).
 // The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
@@ -28,7 +28,7 @@ const handlers = perEnv((env) => {
     return fs.existsSync(baseFile) ? fs.readFileSync(baseFile, 'utf8') : '';
   }
 
-  /** Write `text` to prompts.local/rules.md, creating the directory when needed, and reload the
+  /** Write `text` to data/prompts/rules.md, creating the directory when needed, and reload the
    * prompts; the reload's outcome. The tracked base file is never touched. */
   function writeLocalRules(text: string): boolean {
     const file = localRulesFile();

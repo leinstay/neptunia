@@ -84,25 +84,24 @@ test('opencode login takes the extra key by name', () => {
   });
 });
 
-for (const [line, replacement] of [
-  ['/subharness use dev codex', '/model set'],
-  ['/subharness model dev sonnet', '/model set'],
-  ['/subharness mode dev full', '/agent mode'],
-  ['/subharness enable codex', '/subharness codex login'],
-  ['/subharness disable codex', '/subharness codex logout'],
+// Changed: the retired names are gone with the rest of the legacy, so such a line is refused like any line the table
+// does not hold, and names no replacement.
+for (const line of [
+  '/subharness use dev codex',
+  '/subharness model dev sonnet',
+  '/subharness mode dev full',
+  '/subharness enable codex',
+  '/subharness disable codex',
 ] as const) {
-  test(`${line} is refused and names ${replacement}`, () => {
-    // Catches: a retired word that still runs, or that dies with a bare usage line and no way forward.
-    const parsed = parseCommandLine(line);
-    assert.equal(parsed.ok, false);
-    assert.ok(!parsed.ok && parsed.reason.includes(replacement), JSON.stringify(parsed));
+  test(`${line} is refused`, () => {
+    // Catches: a retired word that still runs.
+    assert.equal(parseCommandLine(line).ok, false, line);
   });
 }
 
-test('a bare /subharness enable is refused with its replacement too, and the table lists no retired leaf', () => {
+test('a bare /subharness enable is refused, and the table lists no retired leaf', () => {
   // Catches: the retired form surviving in /help or in completion through its table row.
-  const parsed = parseCommandLine('/subharness enable');
-  assert.ok(!parsed.ok && parsed.reason.includes('login'), JSON.stringify(parsed));
+  assert.equal(parseCommandLine('/subharness enable').ok, false);
   const family = COMMANDS.find((one) => one.name === 'subharness');
   const leaves = (family?.subcommands ?? []).map((one) => one.name);
   for (const word of ['use', 'model', 'mode', 'enable', 'disable']) assert.equal(leaves.includes(word), false, word);

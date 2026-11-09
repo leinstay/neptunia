@@ -1,4 +1,4 @@
-// Operations: `/nep lore`: the owner's side of the server lorebook (src/memory/lore.ts).
+// Operations: `lore.*`: the owner's side of the server lorebook (src/memory/lore.ts).
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
