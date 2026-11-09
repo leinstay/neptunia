@@ -39,6 +39,6 @@ Every agent run has `CURL_HOME` set to its harness home, `data/subharness/<backe
 
 ## The stored video proxy
 
-At its start the core moves a stored `videoProxy` service to `proxy` (`migrateProxyService` in [src/keys/services.ts](../src/keys/services.ts)). A `proxy` already set wins, and the old value is dropped. The move leaves `proxy.enabled` at its value, `false` by default. The loader drops `media.video.proxy` and `media.video.proxySites` from a settings layer that still sets them.
+At its start the core moves a stored `videoProxy` service to `proxy` (`migrateProxyService` in [src/keys/services.ts](../src/keys/services.ts)). A `proxy` already set wins, and the old value is dropped. The move leaves `proxy.enabled` at its value, `false` by default.
 
 The settings of the proxy are listed in [Configuration](configuration.md#proxy).

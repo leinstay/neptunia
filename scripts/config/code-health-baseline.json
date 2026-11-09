@@ -1,7 +1,7 @@
 {
   "chains": {
     "tests/admin.test.ts": {
-      "deep": 42,
+      "deep": 38,
       "repeated": 0
     },
     "tests/agent-backend-engine-route.test.ts": {
@@ -836,10 +836,6 @@
       "deep": 34,
       "repeated": 0
     },
-    "tests/owner-config-write.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/parse-gif-retired.test.ts": {
       "deep": 1,
       "repeated": 0
@@ -1089,7 +1085,7 @@
       "repeated": 0
     },
     "tests/skills.test.ts": {
-      "deep": 2,
+      "deep": 1,
       "repeated": 0
     },
     "tests/snapshot-once.test.ts": {

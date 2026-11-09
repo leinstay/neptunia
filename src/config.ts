@@ -6,8 +6,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { log } from './log.ts';
-import { moveConfigKeys } from './config-moves.ts';
-import { cutConfigKeys } from './config/cut.ts';
 import { resolvePaths } from './paths.ts';
 import { localFiles, trackedConfigPath, interfacePackageDir, interfaceCredential } from './config/files.ts';
 // A parsed JSON value or an argument no module types yet: the alias of src/tools/types.ts, restated so this leaf
@@ -162,40 +160,7 @@ function mergeConfigFiles(rootDir: Untyped, privateDir: Untyped) {
   const raw = fs.readFileSync(localPath, 'utf8').trim();
   if (!raw) return base;
   const local: unknown = JSON.parse(raw);
-  return deepMerge(base, movedLocal(local));
-}
-
-/** What this process has already said about the old keys of a settings layer. */
-const toldOldKeys = new Set<string>();
-
-/**
- * The local file with its keys of an earlier name written under their new one (src/config-moves.ts), then the keys the
- * config cut took out of the settings removed (src/config/cut.ts), with one warning line per process when either changed
- * anything. The file itself is untouched: `scripts/config-migrate.ts` writes the same moves and the same cut into it.
- */
-function movedLocal(local: unknown): unknown {
-  if (typeof local !== 'object' || local === null || Array.isArray(local)) return local;
-  const { config, moved, shadowed, dropped } = moveConfigKeys(local as Record<string, unknown>);
-  const after = cutConfigKeys(config);
-  const interfaces = Object.keys(after.interfaces).length;
-  const counts = [moved, shadowed, dropped, after.cut, after.renamed].map((list) => list.length);
-  if (counts.every((n) => n === 0) && interfaces === 0) return after.config;
-  // Each read of an old layer comes to the same answer, so it is said once per process and per answer.
-  const told = JSON.stringify([counts, after.differs.length, interfaces]);
-  if (!toldOldKeys.has(told)) {
-    toldOldKeys.add(told);
-    log.warn('config: keys of an old name read under the new one, or cut from the settings', {
-      moved: moved.length,
-      shadowed: shadowed.length,
-      dropped: dropped.length,
-      cut: after.cut.length,
-      differs: after.differs.length,
-      renamed: after.renamed.length,
-      interfaces,
-      migrate: 'scripts/config-migrate.ts',
-    });
-  }
-  return after.config;
+  return deepMerge(base, local);
 }
 
 /** Platform startup receives the selected package and only that interface's private token. */

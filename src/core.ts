@@ -128,7 +128,6 @@ import { loadPrincipals, principalOfToken } from './interface/principals.ts';
 import { claimCore } from './memory/db/open.ts';
 import { ownerPersonOf, useOwnerAccounts } from './tools/operations/grants.ts';
 import { readLocalConfig, setPath, writeLocalConfig } from './tools/operations/shared.ts';
-import { moveConfigKeys } from './config-moves.ts';
 import { createIngestRecord } from './memory/db/ingest.ts';
 import { coreSocketPath, listenSocket } from './interface/socket.ts';
 import { MAX_FRAME_BYTES, connectSocket } from './protocol/wire.ts';
@@ -633,17 +632,16 @@ async function buildCore(
     const ifaces = [...new Set(interfaceClients().map((entry) => entry.iface))];
     identity.iface = ifaces[0] ?? '';
   }
-  // One setting of the private settings file, its keys of an old name settled first (src/config-moves.ts), then reloaded.
+  // One setting of the private settings file, written and reloaded.
   function writeLocalSetting(parts: ReadonlyArray<string>, value: unknown): void {
     const file = localConfigPath(paths.privateDir);
-    writeLocalConfig(file, setPath(moveConfigKeys(readLocalConfig(file)).config, parts, value));
+    writeLocalConfig(file, setPath(readLocalConfig(file), parts, value));
     settings.reloadConfig();
   }
   // The owner's switch of each interface (interfaces.<name>.enabled), written to the private settings file and reloaded,
   // as the owner commands write it (src/tools/operations/env.ts#editLocalConfig).
   function setInterfaceEnabled(name: string, enabled: boolean) {
     const file = localConfigPath(paths.privateDir);
-    // No key of an old name lies under `interfaces` (src/config-moves.ts), so the file is edited as it is.
     writeLocalConfig(file, setPath(readLocalConfig(file), ['interfaces', name, 'enabled'], enabled));
     settings.reloadConfig();
   }
@@ -1962,10 +1960,6 @@ async function buildCore(
   // The meaning index caught up with what the record took while the queue was down (the last
   // CATCH_UP_HOURS of src/memory/embedder.js). Fire-and-forget; nothing while paused.
   await startupStep('embed.catchUp', () => embedQueue.catchUp());
-
-  // Once per place after the deploy that keyed access by operation: the stored grants re-expanded
-  // under the operation names, a journal record of what each covers now (src/tools/operations/access.ts).
-  await startupStep('access.migrate', () => eachServed(admin.migrateAccess), { wait: true });
 
   // The side effects a crash or a restart left without an outcome. Fire-and-forget: a turn
   // starting meanwhile is never touched (only earlier operations are), and it never sends.

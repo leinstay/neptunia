@@ -4,7 +4,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { moveConfigKeys } from '../src/config-moves.ts';
 import { PURPOSE_ROLES, roleModel } from '../src/llm/roles.ts';
 import { ROOT } from './fixtures/source-tree.ts';
 import { blocksOf } from '../src/turn/request/frame.ts';
@@ -17,23 +16,6 @@ test('the planner goes out on the analyzer role under its new purpose, and the o
   assert.equal((PURPOSE_ROLES as Record<string, string>)[PLANNER], 'analyzer');
   assert.equal(Object.hasOwn(PURPOSE_ROLES, 'diary-plan'), false);
   assert.equal(roleModel({ models: { byPurpose: { [PLANNER]: 'x/planner' } } }, 'analyzer', PLANNER), 'x/planner');
-});
-
-test('a pin on the old purpose moves to the new one with the rest of the local config', () => {
-  // Bug: the owner's pin of the planner's model silently stops applying after the rename.
-  const { config, moved } = moveConfigKeys({
-    models: { byPurpose: { 'diary-plan': 'x/planner', reply: 'x/reply' } },
-  });
-  assert.deepEqual(config, { models: { byPurpose: { [PLANNER]: 'x/planner', reply: 'x/reply' } } });
-  assert.deepEqual(moved, [{ from: 'models.byPurpose.diary-plan', to: `models.byPurpose.${PLANNER}` }]);
-});
-
-test('a pin set under both purposes keeps the new one', () => {
-  const { config, shadowed } = moveConfigKeys({
-    models: { byPurpose: { 'diary-plan': 'x/old', [PLANNER]: 'x/new' } },
-  });
-  assert.deepEqual(config, { models: { byPurpose: { [PLANNER]: 'x/new' } } });
-  assert.deepEqual(shadowed, [{ from: 'models.byPurpose.diary-plan', to: `models.byPurpose.${PLANNER}` }]);
 });
 
 test('the tracked planner prompt has the new file name, fills the name and names the block the request carries', () => {

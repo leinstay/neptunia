@@ -1,11 +1,10 @@
 // The engine proxy's store (stage Z): one service `proxy` in keys.json, a plain proxy URL with its login and password,
-// which `serviceCredential` reads for every consumer. `migrateProxyService` moves the stored video proxy under it, and
-// the config cut drops the two video settings the engine proxy replaces. Temp dirs only, no network.
+// which `serviceCredential` reads for every consumer. `migrateProxyService` moves the stored video proxy under it. Temp
+// dirs only, no network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { cutConfigKeys } from '../src/config/cut.ts';
 import { readKeys, serviceCredential } from '../src/keys/file.ts';
 import { SERVICES, migrateProxyService, serviceCommand } from '../src/keys/services.ts';
 import { scriptedDialog } from './fixtures/keys-rig.ts';
@@ -70,26 +69,4 @@ test('the migration of a store with no videoProxy changes nothing, a missing sto
   const empty = tempDir('nep-proxy-store-');
   assert.equal(migrateProxyService(empty), 'none');
   assert.equal(fs.existsSync(path.join(empty, 'keys.json')), false);
-});
-
-test('the config cut drops media.video.proxy and media.video.proxySites and keeps the other video settings', () => {
-  // Catches: a private layer still sets the retired keys, and something reads them as a second proxy or a site filter.
-  const layer = {
-    media: {
-      video: {
-        proxy: '${env:MEDIA_VIDEO_PROXY}',
-        proxySites: ['youtube.com', 'youtu.be'],
-        ytdlpPath: '/usr/local/bin/yt-dlp',
-      },
-    },
-  };
-  const { config, cut } = cutConfigKeys(layer);
-  const video = (config.media as { video: Record<string, unknown> }).video;
-  assert.equal(Object.hasOwn(video, 'proxy'), false);
-  assert.equal(Object.hasOwn(video, 'proxySites'), false);
-  assert.equal(video.ytdlpPath, '/usr/local/bin/yt-dlp');
-  assert.deepEqual([...cut].filter((key) => key.startsWith('media.video.proxy')).sort(), [
-    'media.video.proxy',
-    'media.video.proxySites',
-  ]);
 });

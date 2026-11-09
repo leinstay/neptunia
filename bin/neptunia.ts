@@ -118,7 +118,6 @@ import { accountRequest } from '../src/interface/commands/subharness.ts';
 import { featureRows } from '../src/subharness/summary.ts';
 import { defaultDenyDir } from '../src/subharness/run.ts';
 import { ROOT_DIR, deepMerge, readConfig, resolveEnvRefs } from '../src/config.ts';
-import { moveConfigKeys } from '../src/config-moves.ts';
 import { checkConfig as checkSettings } from '../src/config/check.ts';
 import {
   localConfigPath,
@@ -127,7 +126,6 @@ import {
   readInterfaceConfig,
   trackedConfigPath,
 } from '../src/config/files.ts';
-import { cutConfigKeys } from '../src/config/cut.ts';
 import type { LocalFiles } from '../src/config/files.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
 import { COMMANDS, isRetiredCommand, parseCommandLine } from '../src/interface/commands/table.ts';
@@ -1033,7 +1031,7 @@ function checkConfig(where: { rootDir: string; privateDir: string }): Check {
   if (local === null || found.config === null)
     return { name: 'config', status: 'warn', detail: 'no config.local/config.json: the shipped settings apply' };
   const file = path.relative(where.privateDir, found.config);
-  const problems = checkSettings(settledLayer(local), CONFIG_SCHEMA).map(({ key, kind }) =>
+  const problems = checkSettings(local, CONFIG_SCHEMA).map(({ key, kind }) =>
     kind === 'unknown' ? `${key} (unknown)` : `${key} (wrong type)`
   );
   if (problems.length > 0) return { name: 'config', status: 'warn', detail: `${file}: ${problems.join(', ')}` };
@@ -1308,7 +1306,7 @@ async function runErrandRunner(argv: ReadonlyArray<string>): Promise<void> {
   // config/config.json, then the private settings file when this user can read it: the runner's user may not read the
   // local layer.
   const localFile = localConfigPath(where.privateDir);
-  const files = createSettings([trackedConfigPath(where.rootDir), localFile], localFile);
+  const files = createSettings([trackedConfigPath(where.rootDir), localFile]);
   const read = (): Settings => files.read();
   let config = read();
   const errands = isObject(config.errands) ? config.errands : {};
@@ -1549,18 +1547,13 @@ function changedAt(file: string): number {
 
 type SettingsLayers = { compose?: (core: Settings) => Settings; watched?: ReadonlyArray<string> };
 
-/** A private settings file as the core reads it: its keys of an old name under the new one, the cut keys out. */
-const settledLayer = (layer: Settings): Settings => cutConfigKeys(moveConfigKeys(layer).config).config;
-
 /**
  * The process's settings, read again when a file changed. Each change that read well is told to the listeners.
- * `local` is the private settings file among `files`, read the way the core reads it (`settledLayer`). `compose`
- * lays the files an interface adds over the merged settings (src/config/files.ts#readInterfaceConfig); a file it
+ * `compose` lays the files an interface adds over the merged settings (src/config/files.ts#readInterfaceConfig); a file it
  * reads itself is in `watched`, so a change to it reads the settings again.
  */
 function createSettings(
   files: ReadonlyArray<string>,
-  local: string,
   { compose = (core: Settings): Settings => core, watched = [] }: SettingsLayers = {}
 ) {
   const listeners = new Set<(what: string) => void>();
@@ -1575,7 +1568,7 @@ function createSettings(
       for (const file of layers) {
         const layer = readObject(file);
         if (layer === null) continue;
-        merged = deepMerge(merged, file === local ? settledLayer(layer) : layer) as Settings;
+        merged = deepMerge(merged, layer) as Settings;
       }
       current = resolveEnvRefs(compose(merged)) as Settings;
     } catch (err) {
@@ -1606,7 +1599,7 @@ async function runInterface(argv: ReadonlyArray<string>): Promise<void> {
   // The core's settings (the tracked file and the private settings file), then the package's own, the package's keys a
   // private file not yet cut holds, and the private file of this interface (src/config/files.ts#readInterfaceConfig).
   const localFile = localConfigPath(where.privateDir);
-  const settings = createSettings([trackedConfigPath(where.rootDir), localFile], localFile, {
+  const settings = createSettings([trackedConfigPath(where.rootDir), localFile], {
     compose: (core) =>
       readInterfaceConfig({ rootDir: where.rootDir, privateDir: where.privateDir, name, base: core, packageDir }),
     watched: [path.join(packageDir, 'config.json'), localInterfacePath(where.privateDir, name)],

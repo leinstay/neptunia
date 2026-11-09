@@ -318,7 +318,7 @@ test('a core started with no interface runs a heartbeat turn and records the wak
         tickSeconds: 1,
         review: { enabled: false },
       },
-      heartbeat: { enabled: true, everyMinutes: 1, jitterMinutes: 0 },
+      heartbeat: { enabled: true, schedule: 'every 1m', jitterMinutes: 0 },
     },
     async ({ dirs, llm, cores }) => {
       cores.push(await startUnitsCore(dirs, llm, now));
@@ -665,7 +665,7 @@ test('a core with no memoryDb setting records its heartbeat as a wake run and ru
         tickSeconds: 1,
         review: { enabled: false },
       },
-      heartbeat: { enabled: true, everyMinutes: 1, jitterMinutes: 0 },
+      heartbeat: { enabled: true, schedule: 'every 1m', jitterMinutes: 0 },
     },
     async ({ dirs, llm, cores }) => {
       cores.push(await startUnitsCore(dirs, llm, now));

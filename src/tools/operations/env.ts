@@ -7,7 +7,6 @@
 
 import { accountOf, chatOfPlace, topPlaceOf } from '../../memory/addresses.ts';
 import path from 'node:path';
-import { moveConfigKeys } from '../../config-moves.ts';
 import { localConfigPath } from '../../config/files.ts';
 import { fromTokens } from '../../memory/mentions.ts';
 import { familyOf as imageFamilyOf } from '../../llm/images.ts';
@@ -216,18 +215,11 @@ function buildEnv({
     return localConfigPath((hot.privateDir ?? path.join(hot.rootDir as string, 'data')) as string);
   }
 
-  /** the private settings file with its keys of an old name written under their new one (src/config-moves.ts), as the
-   * loader reads it: a command that read the raw file would add a key under the new name beside the old one, and the
-   * next load would let the new one win. */
-  function settledLocalConfig(file: string): Untyped {
-    return moveConfigKeys(readLocalConfig(file)).config as Untyped;
-  }
-
   /** the private settings file, settled, passed through `edit` (object in, object out), written back, and the
    * config reloaded; the reload's outcome. Every config writer goes through here. */
   function editLocalConfig(edit: (local: Untyped) => unknown): boolean {
     const file = localConfigFile();
-    writeLocalConfig(file, edit(settledLocalConfig(file)));
+    writeLocalConfig(file, edit(readLocalConfig(file)));
     return hot.reloadConfig() as boolean;
   }
 
@@ -242,7 +234,7 @@ function buildEnv({
    * reload lands. */
   function localOrLive(dottedPath: string | ReadonlyArray<string>): unknown {
     const parts = splitPath(dottedPath, hot.config);
-    const local = ownValueAt(settledLocalConfig(localConfigFile()), parts);
+    const local = ownValueAt(readLocalConfig(localConfigFile()), parts);
     return local.found ? local.value : ownValueAt(hot.config, parts).value;
   }
 

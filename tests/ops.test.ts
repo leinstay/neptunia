@@ -1,5 +1,5 @@
 // Tests for src/tools/operations/: the typed operations behind the owner commands -- the registry, the rights
-// check of runOp, the result shape, and the old command keys of the stored grants (legacyGrantOps).
+// check of runOp and the result shape.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -7,8 +7,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { listOps, runOp } from '../src/tools/operations/index.ts';
-// PR 7b: the old command keys of the stored grants are read in src/config-moves.ts, beside the other old config keys.
-import { legacyGrantOps } from '../src/config-moves.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -238,12 +236,6 @@ test('ops: no memory refresh, forget, wipe or purge operation is left', () => {
     ops.filter((op) => gone.some((name) => op.name === name || op.name.startsWith(`${name}.`))).map((op) => op.name),
     []
   );
-});
-
-test('ops: a stored grant on a command or group that runs no operation any more is dropped', () => {
-  for (const key of ['ping', 'reload', 'learned.list', 'removed', 'removed.run'])
-    assert.equal(legacyGrantOps(key), null, key);
-  assert.deepEqual(legacyGrantOps('status'), { from: null, names: ['status.show'] });
 });
 
 // PR 7b: with `/nep` gone no embed is built; the card is its fields, which the chat prints as sections and her call
