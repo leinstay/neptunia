@@ -292,3 +292,13 @@ test('an effort the route names wins over the default of llm.routeEffort', async
   await client.complete(MESSAGES, { role: 'core' });
   assert.deepEqual(optionsOf(asked, 0).reasoning, { effort: 'high' });
 });
+
+test('the default lowest sends no reasoning on an API route and the lowest level through a harness', async () => {
+  // Catches: `lowest` read as `low`, which adds provider reasoning to a core that sent none, more than the minimum.
+  const config = { ...CORE_CHAIN, llm: { routeEffort: { core: 'lowest' } } };
+  const { client, asked } = rig(config, { core: [coded('subscription-exhausted')] });
+  await client.complete(MESSAGES, { role: 'core' });
+  assert.equal((optionsOf(asked, 0).chainRoute as { effort?: unknown }).effort, 'low');
+  assert.equal(optionsOf(asked, 1).reasoning, undefined);
+  assert.equal((optionsOf(asked, 1).chainRoute as { effort?: unknown }).effort, null);
+});
