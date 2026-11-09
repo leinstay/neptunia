@@ -6,7 +6,9 @@
 // embedder) spends the simulation key when one is set and is refused with `simulation-off` when none is. A core step
 // with tools reaches the CLI through `bin/neptunia-mcp.ts`, which connects to a tool bridge the script serves on a
 // private Unix socket of its own; the script's step loop runs the tools in process and answers the waiting calls, as
-// the core's bridge does over the core socket. Nothing here prints a key value.
+// the core's bridge does over the core socket. A script that answers its model offline (scripts/replay.ts
+// `--answers-dir`) passes `offline`, and a core request on the route goes to it instead of the CLI. Nothing here prints
+// a key value.
 
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
@@ -43,6 +45,11 @@ export type SimulationDeps<TDirect extends Direct> = {
   /** Each CLI run gets a folder `turn-*` inside it. */
   workDir?: string;
   hostEnv?: SubscriptionClientDeps['hostEnv'];
+  /**
+   * The client that answers a core request in place of a stored route (scripts/replay.ts `--answers-dir`): with it no
+   * CLI starts and no bridge opens, since nothing in front of the direct client can catch a request on the route.
+   */
+  offline?: Direct;
 };
 
 export type SimulationLlm = {
@@ -106,12 +113,18 @@ function bridgeSocket(bridge: ToolBridge): { socketPath: string; ready(): Promis
   return { socketPath, ready, close };
 }
 
+/** Whether a request is of the role `core`, the one role the route carries. */
+function isCore(options: unknown): boolean {
+  // A non-null object read by one key whose value stays unknown.
+  return typeof options === 'object' && options !== null && (options as { role?: unknown }).role === 'core';
+}
+
 /** Whether a request is a core step that offers tools, the one kind that needs the bridge's socket. */
 function offersTools(options: unknown): boolean {
-  if (typeof options !== 'object' || options === null) return false;
-  // A non-null object read by two keys whose values stay unknown.
-  const { role, tools } = options as { role?: unknown; tools?: unknown };
-  return role === 'core' && Array.isArray(tools) && tools.length > 0;
+  if (!isCore(options)) return false;
+  // A non-null object read by one key whose value stays unknown.
+  const { tools } = options as { tools?: unknown };
+  return Array.isArray(tools) && tools.length > 0;
 }
 
 /** The script's llm on the stored route `fixed`, with the simulation key `key` for every other role. */
@@ -131,6 +144,17 @@ function onRoute<TDirect extends Direct>(
       return helpers.complete(messages, options);
     },
   };
+  const helpersSaid =
+    key.value === null ? 'other roles refused: no simulation key' : 'other roles on the simulation key';
+  const { offline } = deps;
+  if (offline !== undefined)
+    return {
+      route: 'subscription',
+      said: `core requests answered offline in place of ${subscriptionPathText(fixed)}, ${helpersSaid}`,
+      key: key.value,
+      llm: { complete: (messages, options) => (isCore(options) ? offline : direct).complete(messages, options) },
+      close: () => Promise.resolve(),
+    };
   const bridge = createToolBridge({ token: () => randomBytes(32).toString('hex') });
   const socket = bridgeSocket(bridge);
   const client = createSubscriptionClient({
@@ -158,8 +182,6 @@ function onRoute<TDirect extends Direct>(
     if (offersTools(options)) await socket.ready();
     return client.complete(messages, options);
   };
-  const helpersSaid =
-    key.value === null ? 'other roles refused: no simulation key' : 'other roles on the simulation key';
   return {
     route: 'subscription',
     said: `core requests ${subscriptionPathText(fixed)}, ${helpersSaid}`,

@@ -20,6 +20,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { toolCallsOf } from '../../src/llm/openrouter.ts';
+import type { CompleteResult } from '../../src/llm/openrouter.ts';
 import type { Untyped } from '../../src/tools/types.ts';
 
 /** An object read by key whose values are not typed yet. */
@@ -270,5 +271,23 @@ export function withAnswersDir(
         return (typeof value === 'function' ? value.bind(target) : value) as unknown;
       },
     });
+  };
+}
+
+/**
+ * The client that answers every request it gets from `answers`, whatever the model: a paid script puts it in place of
+ * a stored subscription route (scripts/lib/simulation-llm.ts, `offline`), which no wrapper of the direct client reaches.
+ * @param modelOf The model a request without `model` names in its request file, from the request's `purpose`.
+ */
+export function offlineCore(
+  answers: Pick<ReturnType<typeof createAnswersDir>, 'answer'>,
+  modelOf: (purpose: Untyped) => string | undefined
+): { complete(messages: unknown, options?: unknown): Promise<CompleteResult> } {
+  return {
+    complete: (messages, options) => {
+      const asked: Rec = typeof options === 'object' && options !== null ? options : {};
+      const model = typeof asked.model === 'string' ? asked.model : (modelOf(asked.purpose) ?? '');
+      return answers.answer(model, messages, asked);
+    },
   };
 }
