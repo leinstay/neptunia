@@ -1,8 +1,7 @@
 // Pure functions and constants of the owner operations (src/tools/operations/*.ts), moved from src/admin.js:
 // the rules-file and config-path functions, the profile views, the ping/route formatters, the
 // media wording tables and the line formatters several operations share. No I/O but
-// `treeSize` (a directory walk for the memory snapshot) and `postingChat` (a channel
-// looked up through the client it is handed).
+// `postingChat` (a channel looked up through the client it is handed).
 
 import { chatOfPlace, notePlaceAddress, placeRefOf } from '../../memory/addresses.ts';
 import { chatOfStoredPlace } from '../../interface/place-chat.ts';
@@ -30,32 +29,14 @@ import type { Env } from './env.ts';
 import type { Reads } from '../../interface/reads.ts';
 import type { ChatInfo, ChatRef, Permissions } from '../../protocol/adapter.ts';
 
-/** `/nep memory journal`'s `n`: default and bounds. */
+/** `memory.journal.read`'s `n`: default and bounds. */
 export const JOURNAL_N_DEFAULT = 20;
 export const JOURNAL_N_MAX = 50;
 export const JOURNAL_DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Files and bytes under `dir`, walked recursively. */
-export async function treeSize(dir: string): Promise<{ bytes: number; files: number }> {
-  let bytes = 0;
-  let files = 0;
-  for (const entry of await fs.promises.readdir(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      const inner = await treeSize(full);
-      bytes += inner.bytes;
-      files += inner.files;
-    } else if (entry.isFile()) {
-      bytes += (await fs.promises.stat(full)).size;
-      files += 1;
-    }
-  }
-  return { bytes, files };
-}
-
 export const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 
-/** Config paths only an owner may change through `/nep set` and `/nep unset`: who is an owner and
+/** Config paths only an owner may change through `config.set` and `config.unset`: who is an owner and
  * who else may run which command. A path under one, or above one (unsetting `bot` drops both), counts. */
 export const OWNER_ONLY_CONFIG_PATHS = ['bot.ownerPerson', 'bot.access'];
 
@@ -220,7 +201,7 @@ export function touchesOwnerOnlyConfig(parts: ReadonlyArray<string>): boolean {
   );
 }
 
-/** `, last YYYY-MM-DD` for `/nep memory show`, or '' when `lastSeen` is unknown. */
+/** `, last YYYY-MM-DD` for `memory.profile.read`, or '' when `lastSeen` is unknown. */
 export function lastDateSuffix(lastSeen: unknown): string {
   return typeof lastSeen === 'string' && lastSeen ? `, last ${lastSeen.slice(0, 10)}` : '';
 }
@@ -228,11 +209,6 @@ export function lastDateSuffix(lastSeen: unknown): string {
 /** `YYYY-MM-DD` (UTC) for an epoch-ms timestamp, or `-` when it is not a finite number. */
 export function isoDay(ts: unknown): string {
   return typeof ts === 'number' && Number.isFinite(ts) ? utcDay(ts) : '-';
-}
-
-/** Today's UTC day key, the one every daily counter in state.json is kept under (src/time.js). */
-export function todayUtc(): string {
-  return utcDay(Date.now());
 }
 
 /** `on` / `off` for a switch line of a status reply. */
@@ -245,24 +221,24 @@ export function reloadNote(ok: unknown): string {
   return `(reload ${ok ? 'ok' : 'FAILED'})`;
 }
 
-/** The weight an item reaches when the owner confirms it at once (`/nep alias add`,
- * `/nep learned add`): `memory.confirmAfter` rounded up, at least 1 (default 2). */
+/** The weight an item reaches when the owner confirms it at once (`alias.add`,
+ * `learning.add`): `memory.confirmAfter` rounded up, at least 1 (default 2). */
 export function confirmTarget(memoryCfg: unknown): number {
   const given = objOf(memoryCfg).confirmAfter;
   const confirmAfter = typeof given === 'number' && Number.isFinite(given) && given > 0 ? Math.ceil(given) : 2;
   return Math.max(1, confirmAfter);
 }
 
-/** The history-backfill stamp of `/nep emoji status` and `/nep gifs status`, or `never`. */
+/** The history-backfill stamp of `media.status` for emoji and for GIFs, or `never`. */
 export function backfillText(stamp: Untyped): string {
   return stamp?.at ? `${stamp.at}, ${stamp.channels} channels, ${stamp.messages} messages` : 'never';
 }
 
 // ---------------------------------------------------------------------------
-// `/nep memory show` — sectioned view
+// `memory.profile.read` — sectioned view
 // ---------------------------------------------------------------------------
 
-/** Owner-configurable list length for `/nep memory show`'s per-section views. */
+/** Owner-configurable list length for `memory.profile.read`'s per-section views. */
 export const MEMORY_SHOW_DEFAULT_LIMIT = 25;
 export const MEMORY_SHOW_MAX_LIMIT = 100;
 
@@ -292,7 +268,7 @@ export function truncateForSummary(value: unknown, maxChars: number, sectionName
 }
 
 /**
- * `/nep memory show`'s default view: a compact, human-readable digest of one
+ * `memory.profile.read`'s default view: a compact, human-readable digest of one
  * profile GUARANTEED to fit a single message (see `SUMMARY_MAX_CHARS`)
  * — long fields are truncated with an ellipsis and, when the full text lives
  * under its own section, a pointer to it. `<@id>` tokens in free-text fields
@@ -344,7 +320,7 @@ export function buildProfileSummary(
 }
 
 /**
- * Order + cap one list-shaped section of `/nep memory show` (aliases,
+ * Order + cap one list-shaped section of `memory.profile.read` (aliases,
  * interests, details): `order: 'recent'` sorts by `dateOf` descending, no
  * divider; the default `'rank'` order reuses the persona's own rank
  * (src/memory/ranking.ts#topByRank) and inserts `DIVIDER_LINE` right after
@@ -395,7 +371,7 @@ export function asStored(text: unknown): string {
 }
 
 /**
- * `/nep memory show`'s `raw` section: the whole profile as JSON, followed by
+ * `memory.profile.read`'s `raw` section: the whole profile as JSON, followed by
  * every stored interest/detail/alias in rank order (divider included, the
  * same lines as their sections) and every episode in stored order — `<@id>`
  * tokens are deliberately left unresolved here, unlike every other section.
@@ -456,33 +432,33 @@ export function rawMemoryShowView(profile: Untyped, memoryCfg: Untyped): string 
   return lines.join('\n');
 }
 
-/** One interest line of `/nep memory show` and `/nep private show`; `resolve` turns `<@id>` tokens into names. */
+/** One interest line of `memory.profile.read` and `memory.private.read`; `resolve` turns `<@id>` tokens into names. */
 export function interestLine(it: Untyped, resolve: (text: unknown) => string): string {
   const note = resolve(it.note);
   const suffix = `[weight ${it.weight}${lastDateSuffix(it.lastSeen)}]`;
   return note ? `${it.topic} — ${note} ${suffix}` : `${it.topic} ${suffix}`;
 }
 
-/** One detail line of `/nep memory show` and `/nep private show`. */
+/** One detail line of `memory.profile.read` and `memory.private.read`. */
 export function detailLine(d: Untyped, resolve: (text: unknown) => string): string {
   return `#${d.id} ${resolve(d.text)} [weight ${d.weight}${lastDateSuffix(d.lastSeen)}]`;
 }
 
-/** One episode line of `/nep memory show` and `/nep private show`. */
+/** One episode line of `memory.profile.read` and `memory.private.read`. */
 export function episodeLine(ep: Untyped, resolve: (text: unknown) => string): string {
   const quote = ep.quote ? ` "${ep.quote}"` : '';
   return `${ep.date} [weight ${ep.weight}] ${resolve(ep.what)}${quote}`;
 }
 
 /** `[weight N, last DATE] name`, or just `[weight N] name`, used by
- * both the `raw` view (via `rawMemoryShowView`) and the `aliases` section, and by `/nep alias
- * add`/`remove`'s "resulting alias list" reply. */
+ * both the `raw` view (via `rawMemoryShowView`) and the `aliases` section, and by the
+ * "resulting alias list" reply of `alias.add` and `alias.remove`. */
 export function aliasLine(alias: Untyped): string {
   return `[weight ${alias.weight}${lastDateSuffix(alias.lastSeen)}] ${alias.name}`;
 }
 
-/** The member's stored aliases, rank-ordered, one per line — the reply `/nep alias
- * add`/`remove` gives after writing. */
+/** The member's stored aliases, rank-ordered, one per line — the reply
+ * `alias.add` and `alias.remove` give after writing. */
 export function formatAliasList(profile: Untyped, memoryCfg: Untyped): string {
   const aliases = profile?.aliases ?? [];
   if (!aliases.length) return NONE;
@@ -492,7 +468,7 @@ export function formatAliasList(profile: Untyped, memoryCfg: Untyped): string {
 }
 
 /**
- * The attitude view of `/nep memory affinity` and `/nep memory show section:affinity`: score,
+ * The attitude view of `memory.affinity.read` and `memory.profile.read section:affinity`: score,
  * band, reason (`-` when empty) and the last 5 history entries, every reason resolved by `resolve`.
  * `affinity` is a stored `{ score, reason, history }`.
  */
@@ -520,14 +496,14 @@ export function readLocalConfig(localPath: string): Obj {
   return JSON.parse(raw) as Obj;
 }
 
-/** `value` as JSON into `localPath`, its folder (`config.local/`) made when absent. */
+/** `value` as JSON into `localPath`, its folder (`data/config/`) made when absent. */
 export function writeLocalConfig(localPath: string, value: unknown): void {
   fs.mkdirSync(path.dirname(localPath), { recursive: true });
   fs.writeFileSync(localPath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 // ---------------------------------------------------------------------------
-// Model roles and `/nep route`: pure functions
+// Model roles and `route.*`: pure functions
 // ---------------------------------------------------------------------------
 
 export const MODEL_ID_RE = /^[\w.:/-]{3,100}$/;
@@ -539,7 +515,7 @@ export const ROUTE_ROLES: ReadonlyArray<string> = [...MODEL_ROLES, IMAGE_ROLE];
 /** A provider slug as OpenRouter writes it: lowercase letters, digits and `-`. */
 export const PROVIDER_SLUG_RE = /^[a-z0-9-]+$/;
 
-/** The model id one role resolves to right now (`/nep model show`, `/nep route`, the status
+/** The model id one role resolves to right now (`model.show`, `route.*`, the status
  * card): `models.<group>.<role>`, else the role's own default
  * (src/llm/roles.ts#roleModel; no purpose, so no `models.byPurpose` entry). */
 export function modelForRole(role: string, cfg: object): string | undefined {
@@ -575,7 +551,7 @@ export function routingSummary(value: Obj): string {
   return `(${describeProviders(value)}, fallbacks: ${fallbacksText(value)}${value.byok === true ? ', byok' : ''})`;
 }
 
-/** The prefix of a `/nep route` command: trimmed, required, no `@` (the role has its own
+/** The prefix of a `route.*` command: trimmed, required, no `@` (the role has its own
  * option), no whitespace, never an object-prototype key. */
 export function routePrefixArg(args: unknown): string {
   const model = objOf(args).model;
@@ -588,7 +564,7 @@ export function routePrefixArg(args: unknown): string {
   return prefix;
 }
 
-/** The role of a `/nep route` command, or null for any role. */
+/** The role of a `route.*` command, or null for any role. */
 export function routeRoleArg(args: unknown): string | null {
   const role = objOf(args).role;
   if (role === undefined || role === null || role === '') return null;
@@ -601,24 +577,24 @@ export function routeRoleArg(args: unknown): string | null {
 // Access and the media commands: pure functions
 // ---------------------------------------------------------------------------
 
-/** Why `/nep emoji rescan` did not run, by src/memory/emoji-backfill.ts's skip reason (the
+/** Why `media.rescan` did not run, by src/memory/emoji-backfill.ts's skip reason (the
  * reasons every background job shares -- paused, no place -- are worded by `skipText`). */
 export const EMOJI_RESCAN_SKIPS: Record<string, string> = {
   running: 'An emoji backfill is already running.',
 };
 
-/** Why `/nep gifs rescan` did not run, by src/memory/gif-backfill.ts's skip reason. */
+/** Why `media.rescan` did not run, by src/memory/gif-backfill.ts's skip reason. */
 export const GIFS_RESCAN_SKIPS: Record<string, string> = {
   running: 'A GIF backfill is already running.',
 };
 
-/** Why `/nep gifs recache` did not start, by src/memory/gif-recache.ts's skip reason. */
+/** Why `media.recache` did not start, by src/memory/gif-recache.ts's skip reason. */
 export const GIFS_RECACHE_SKIPS: Record<string, string> = {
   unavailable: 'the GIF recache is not available',
   'no-prompt': 'GIFs are not watched: the describe-video prompt is missing.',
 };
 
-/** Why `/nep media kind:pictures action:recache` did not start, by src/memory/gif-recache.ts#startMedia's skip reason. */
+/** Why `media.recache kind:pictures` did not start, by src/memory/gif-recache.ts#startMedia's skip reason. */
 export const PICTURES_RECACHE_SKIPS: Record<string, string> = {
   unavailable: 'the media recache is not available',
   'no-prompt': 'Pictures are not described: the describe prompt is missing.',
@@ -641,7 +617,7 @@ export function channelTopWritersText(topWriters: unknown, nameOf: (id: string) 
     .join(', ');
 }
 
-/** One line of `/nep memory channel`'s table view (no channel given): name, activity verdict,
+/** One line of `memory.channel.read`'s table view (no channel given): name, activity verdict,
  * message count, last message date, whether a note exists (a non-empty `purpose`). */
 export function channelTableLine(channel: Untyped, activity: string): string {
   const note = channel.purpose ? 'yes' : 'no';

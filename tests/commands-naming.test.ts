@@ -166,56 +166,39 @@ for (const line of [
   });
 }
 
-test('/services watcher report is refused and names /logs watcher', () => {
-  // Catches: the report stays readable under two commands, or the owner's old habit ends at a bare refusal.
-  const reason = assertRefused(parseCommandLine('/services watcher report 2026-11-03'));
-  assert.ok(reason.includes('logs watcher'), reason);
-  assert.ok(assertRefused(parseRequest(['services', 'watcher', 'report']).parsed).includes('logs watcher'));
+test('/services watcher report is refused', () => {
+  // Changed: the retired names are gone with the rest of the legacy, so such a line is refused like any line the table
+  // does not hold, and names no replacement.
+  // Catches: the report stays readable under two commands.
+  assertRefused(parseCommandLine('/services watcher report 2026-11-03'));
+  assertRefused(parseRequest(['services', 'watcher', 'report']).parsed);
 });
 
 // ---- retired spellings -----------------------------------------------------------------------------------------------
 
-/** A retired line, and the words of the command its refusal names instead. */
-const RETIRED: ReadonlyArray<readonly [string, string]> = [
-  ['/service watcher status', 'services watcher status'],
-  ['/service heartbeat setup --every 3h', 'services'],
-  ['/service watcher report 2026-11-03', 'logs watcher'],
-  ['/health', 'doctor'],
-  ['/health server', 'doctor server'],
-  ['/health core', 'doctor core'],
-  ['/health memory', 'doctor memory'],
-  ['/wakes', 'services list'],
-  ['/wakes list', 'services list'],
-  ['/wakes stop', 'services'],
-  ['/wakes start', 'services'],
-  ['/report', 'logs watcher'],
-  ['/report 2026-11-02', 'logs watcher'],
-  ['/route list', 'routes'],
-  ['/interface list', 'interfaces'],
+// Changed: the retired names are gone with the rest of the legacy, so such a line is refused like any line the table
+// does not hold, and names no replacement.
+const RETIRED: ReadonlyArray<string> = [
+  '/service watcher status',
+  '/service heartbeat setup --every 3h',
+  '/service watcher report 2026-11-03',
+  '/health',
+  '/health server',
+  '/wakes',
+  '/wakes stop',
+  '/report',
+  '/route list',
+  '/interface list',
 ];
 
-for (const [line, names] of RETIRED) {
-  test(`${line} is refused in both forms and names ${names}, running nothing`, () => {
-    // Catches: a retired spelling still works behind the new one, or ends at "unknown command" with no way forward.
+for (const line of RETIRED) {
+  test(`${line} is refused in both forms, running nothing`, () => {
+    // Catches: a retired spelling still works behind the new one.
     const words = line.slice(1).split(' ');
-    for (const parsed of [parseCommandLine(line), parseRequest(words).parsed, parseLineRequest(line).parsed]) {
-      const reason = assertRefused(parsed);
-      assert.ok(reason.includes(names), reason);
-      assert.equal(reason.startsWith('unknown command'), false, reason);
-    }
+    for (const parsed of [parseCommandLine(line), parseRequest(words).parsed, parseLineRequest(line).parsed])
+      assertRefused(parsed);
   });
 }
-
-test('every replacement a retired line names is a command that parses', () => {
-  // Catches: a refusal points the owner at a spelling the table itself would refuse.
-  for (const line of ['/services watcher status', '/services list', '/doctor', '/doctor server', '/doctor core']) {
-    assertAccepted(parseCommandLine(line));
-  }
-  assertAccepted(parseCommandLine('/doctor memory'));
-  assertAccepted(parseCommandLine('/logs watcher'));
-  assertAccepted(parseCommandLine('/routes list'));
-  assertAccepted(parseCommandLine('/interfaces list'));
-});
 
 // ---- /logs -----------------------------------------------------------------------------------------------------------
 
@@ -321,12 +304,10 @@ test('/routes takes the arguments /route took, and a model with a space stays on
   assert.ok(endsWith(assertAccepted(parseCommandLine('/routes')).name, 'list'));
 });
 
-test('/interfaces keeps its leaves and the subcommand an interface brings itself', () => {
-  // Catches: the rename drops the `otherwise` branch, so an interface's own subcommand is refused.
+test('/interfaces keeps its leaves', () => {
+  // Changed: no interface brings subcommands of its own, so the `otherwise` leaf is gone and
+  // tests/neptunia-cli-dispatch.test.ts checks that such a word is refused. Catches: the rename drops a leaf.
   assert.ok(endsWith(assertAccepted(parseCommandLine('/interfaces enable zeta71')).name, 'enable'));
-  const own = assertAccepted(parseRequest(['interfaces', 'zeta71', 'sync', '$(echo zeta71)', 'now']).parsed);
-  assert.ok(endsWith(own.name, 'command'));
-  assert.deepEqual(own.args, { name: 'zeta71', sub: 'sync', rest: '$(echo zeta71) now' });
 });
 
 test('an interface token never goes on the command line of the renamed family, and stdin takes it', () => {

@@ -8,7 +8,7 @@
 
 import path from 'node:path';
 
-/** The directory under `data/` `/nep memory snapshot` writes to (src/tools/operations/memory.ts). */
+/** The directory under `data/` that `memory.snapshot` writes its database copies to (src/tools/operations/memory.ts). */
 export const SNAPSHOTS_DIR = 'snapshots';
 
 /** The paths of one memory root, built by `memoryRootOf`. */

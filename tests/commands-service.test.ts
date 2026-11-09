@@ -132,19 +132,12 @@ test('the table holds one service command and no standalone report, watcher or m
     assert.equal(names.includes(gone), false, gone);
 });
 
-for (const [line, names] of [
-  ['/report', 'logs watcher'],
-  ['/report 2026-11-02', 'logs watcher'],
-  ['/watcher run', 'services watcher'],
-  ['/heartbeat stop', 'services heartbeat'],
-  ['/selfreflection enable', 'services selfreflection'],
-  ['/selfimprovement run', 'services selfimprovement'],
-] as const) {
-  test(`${line} is refused and names ${names}`, () => {
-    // Catches: the owner's old habit ends at "unknown command" with no way forward, or still runs something.
-    const parsed = parseCommandLine(line);
-    assert.equal(parsed.ok, false);
-    assert.ok(!parsed.ok && parsed.reason.includes(names), parsed.ok ? '' : parsed.reason);
+// Changed: the retired names are gone with the rest of the legacy, so such a line is refused like any line the table
+// does not hold, and names no replacement.
+for (const line of ['/report', '/watcher run', '/heartbeat stop', '/selfreflection enable', '/selfimprovement run']) {
+  test(`${line} is refused`, () => {
+    // Catches: an old control still runs something.
+    assert.equal(parseCommandLine(line).ok, false);
   });
 }
 
@@ -165,7 +158,7 @@ function consoleOver(ran: Array<string> = []): { dir: string; run: (line: string
       ran.push(op);
       return Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null });
     },
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => ['g1'],
     selfId: () => 'self-1',
     hot: {
@@ -246,7 +239,7 @@ test('a failed setup in the chat writes nothing', async () => {
   const { dir } = consoleOver();
   const desk = createConsole({
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: {} },

@@ -20,7 +20,7 @@ function consoleOver(memoryDb: unknown) {
   const dir = tempDir('nep-owner-names-');
   const desk = createConsole({
     runOp: () => Promise.reject(new Error('a name on a person runs no operation')),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => [],
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] } } },

@@ -316,7 +316,7 @@ The engine proxy is described in [Proxy](proxy.md).
 | `proxy.health.everySeconds` | number | `60` | Seconds between two probes of the proxy | `src/net/proxy.ts` |
 | `proxy.health.failures` | number | `3` | Failed probes in a row that send every connection direct | `src/net/proxy.ts` |
 | `proxy.health.recoveries` | number | `2` | Good probes in a row that take the proxy back | `src/net/proxy.ts` |
-| `proxy.health.timeoutMs` | number | `8000` | How long one probe waits for an answer | `src/net/proxy.ts` |
+| `proxy.health.timeoutMs` | number | `8000` | How long one probe waits for an answer, and the shortest gap between two probes that failed requests ask for | `src/net/proxy.ts` |
 
 ## recall
 
@@ -398,6 +398,7 @@ The engine proxy is described in [Proxy](proxy.md).
 | `watcher.enabled` | boolean | `false` | Whether the deployment runs the watcher, which only `true` turns on. `neptunia services watcher enable` and `disable` move it with the timer. While it is off the selfimprovement wake carries no watcher report | `src/watcher/settings.ts` |
 | `watcher.schedule` | string | `"at 00:00"` | When the watcher runs: daily UTC times such as `at 00:00,12:00`, or `every 6h`. `neptunia services watcher setup` writes it and renders `neptunia-watcher.timer`, and a value that means nothing reads as the default | `src/watcher/settings.ts` |
 | `watcher.draftsOnly` | boolean | `false` | With `true` an inspection files no task: each draft it would have filed keeps the state `draft` and is listed under "Tasks filed" in its report, which is how the watcher is calibrated. Only `true` turns it on. The worker reads it when the run files, and a draft is never filed later | `src/watcher/settings.ts` |
+| `watcher.degradedAfterMinutes` | number | `60` | Minutes a route of the core may stay down before `services watcher evidence` lists it under `routes`: the engine proxy, the YouTube check and a harness login, read from the core journal | `src/watcher/settings.ts` |
 
 ## selfimprovement
 

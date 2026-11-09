@@ -1,7 +1,8 @@
 // The nested model selector of `/model` in the chat: category, role, provider type, source, model, effort, review. A pure
 // reducer holds the selection, and every answer that arrives names the revision it was asked under, so the sources of a role
 // left behind and a check of a selection that moved change nothing. Nothing leaves before the confirmation, and the one
-// commit is the checked `model.set` command, which saves source, model and effort together or not at all. A setup detour
+// commit is the checked `model.set` command, which saves a model role's one route, or an agent's source, model and
+// effort, together or not at all. A setup detour
 // runs one of the commands a source lists and comes back to the same role and source. `ModelPicker` draws it with
 // cli/selector.ts; bin/chat-panels.ts gives it the reads and the commit. No key value enters this state.
 import { createElement as h, useRef, useState } from 'react';
@@ -360,25 +361,39 @@ function effortArg(state: PickerState): string | undefined {
   return state.effort;
 }
 
+/** The model roles that run on a chain of routes, as src/llm/route-text.ts lists them; the agents take `--via`. */
+const CHAIN_ROLES: ReadonlyArray<string> = [
+  'core',
+  'memory',
+  'analyzer',
+  'vision',
+  'video',
+  'embedding',
+  'speech',
+  'drawing',
+];
+
+/** The args of the commit: a chain role's one route as text, an agent's model with its route name and effort. */
+function commitArgs(state: PickerState, role: string, model: string): PickerCommand['args'] {
+  const source = sourceOf(state);
+  const via = source?.via ?? null;
+  const effort = effortArg(state);
+  if (CHAIN_ROLES.includes(role)) {
+    const level = effort === undefined || effort === 'default' ? '' : `:${effort}`;
+    const route = via === null ? `${source?.account ?? ''}/${model}` : `harness:${via}/${model}${level}`;
+    return { role, model: route };
+  }
+  const route = via === null ? null : routeNameOf(via);
+  return { role, model, ...(route === null ? {} : { via: route }), ...(effort === undefined ? {} : { effort }) };
+}
+
 function confirmed(state: PickerState): PickerStepResult {
   const { role, model } = state;
   if (state.step !== 'review' || role === null || model === null) return { state, effects: [] };
-  const via = sourceOf(state)?.via ?? null;
-  const route = via === null ? null : routeNameOf(via);
-  const effort = effortArg(state);
   const revision = state.revision + 1;
   return {
     state: { ...state, step: 'saving', revision, error: null },
-    effects: [
-      {
-        kind: 'commit',
-        revision,
-        command: {
-          name: 'model.set',
-          args: { role, model, ...(route === null ? {} : { via: route }), ...(effort === undefined ? {} : { effort }) },
-        },
-      },
-    ],
+    effects: [{ kind: 'commit', revision, command: { name: 'model.set', args: commitArgs(state, role, model) } }],
   };
 }
 

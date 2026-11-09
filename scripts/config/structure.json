@@ -529,7 +529,7 @@
     },
     {
       "path": "src/watcher/",
-      "purpose": "The watcher: its settings, the brief, the report template and commit, the risk rules, the durable run, the filing receipts, the reader of the reports, the read of recorded requests and transcripts, the coverage inventory, the facts of the install, the analyzer's work, the money and limits, the read-only select, the leftovers, the findings for her selfimprovement wake and the inspection that joins them. The agent backend is injected.",
+      "purpose": "The watcher: its settings, the brief, the report template and commit, the risk rules, the durable run, the filing receipts, the reader of the reports, the read of recorded requests and transcripts, the coverage inventory, the facts of the install, the analyzer's work, the money and limits, the read-only select, the leftovers, the core's degraded routes, the findings for her selfimprovement wake and the inspection that joins them. The agent backend is injected.",
       "layer": "public",
       "imports": ["node:*", "src/**"],
       "test": "required"
@@ -1413,6 +1413,7 @@
         "src/llm/key-failover.ts",
         "src/llm/openrouter.ts",
         "src/llm/roles.ts",
+        "src/llm/route-text.ts",
         "src/log.ts",
         "src/subharness/routing.ts",
         "src/time.ts"

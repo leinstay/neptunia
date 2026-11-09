@@ -95,3 +95,26 @@ export async function checkedSelection(
     if (claims.get(key) === mine) claims.delete(key);
   }
 }
+
+/**
+ * One reply through `route`'s harness, as a check of a route of a chain (src/keys/commands.ts `/model set` and
+ * `/model add`): the source checked first, then the reply; nothing is written, the caller writes the chain on `ok`.
+ */
+export async function checkedRoute(
+  deps: EnableDeps,
+  route: { backend: BackendName; model: string; effort: string | null }
+): Promise<{ ok: boolean; code: string }> {
+  const result = await checkedSelection(
+    deps,
+    {
+      claim: `route-${route.backend}`,
+      backend: route.backend,
+      keyValue: '',
+      model: route.model,
+      ...(route.effort === null ? {} : { effort: route.effort }),
+    },
+    () => '',
+    () => ({ ok: true, code: 'ok', changed: false, message: '' })
+  );
+  return { ok: result.ok, code: result.code };
+}

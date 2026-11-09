@@ -23,6 +23,7 @@
 // of its own there.
 
 import { BASE_ROLES, MEMORY_ROLE, SEARCH_ROLE } from '../../llm/roles.ts';
+import { ROUTE_ROLES as CHAIN_ROLES } from '../../llm/route-text.ts';
 import { BACKEND_NAMES } from '../../agent-runner/profiles.ts';
 import { AGENT_MODES, SUBHARNESS_AGENTS } from '../../subharness/control.ts';
 import { SERVICE_NAMES, setupRefusal } from '../../service/schedule.ts';
@@ -62,8 +63,6 @@ export type Command = {
   defaultSubcommand?: string;
   /** The bare line is refused. */
   needsSubcommand?: boolean;
-  /** The subcommand a line runs whose next word names none of `subcommands` (`/interfaces <name> <sub>`). */
-  otherwise?: Subcommand;
   /** Why the parsed arguments are refused, or null when they stand. */
   check?: (name: string, args: Readonly<Record<string, string>>) => string | null;
   /** The operation a command without subcommands runs as the owner. */
@@ -357,52 +356,6 @@ const MEMORY_BROWSER: ReadonlyArray<Subcommand> = [
   sub('descriptions.version', 'Open one version of a description', [arg('id')]),
 ];
 
-/** The commands the plural families, `/logs watcher` and `/doctor` replaced: what each is refused with, by the words after it. */
-const RETIRED_COMMANDS: Readonly<Record<string, (rest: ReadonlyArray<string>) => string>> = {
-  service: ([first, second]) =>
-    first === 'watcher' && second === 'report'
-      ? 'logs watcher'
-      : ['services', ...(first === undefined ? [] : [first]), ...(second === undefined ? [] : [second])].join(' '),
-  health: ([part]) => (part === 'server' || part === 'core' || part === 'memory' ? `doctor ${part}` : 'doctor'),
-  wakes: ([word]) => {
-    if (word === 'stop') return 'pause for all of it, or neptunia services <name> disable for one';
-    if (word === 'start') return 'resume for all of it, or neptunia services <name> enable for one';
-    return 'services list';
-  },
-  report: () => 'logs watcher',
-  route: () => 'routes',
-  interface: () => 'interfaces',
-  task: () => 'tasks',
-  watcher: () => 'services watcher',
-  heartbeat: () => 'services heartbeat',
-  selfreflection: () => 'services selfreflection',
-  selfimprovement: () => 'services selfimprovement',
-};
-
-/** What replaced each retired leaf of `/memory`, which is refused and runs nothing. */
-const RETIRED_MEMORY: Readonly<Record<string, string>> = {
-  profile: '/memory users show <person>',
-  accounts: '/memory users accounts <person>',
-  aliases: '/memory users names <person>',
-  affinity: '/memory users relationship <person>',
-  private: '/memory users private <person>',
-  server: '/memory places show <place> --include-children',
-  lore: '/memory places lore <place>',
-  person: '/memory places show <place>',
-};
-
-/** What replaced each retired word of the `subharness` family; `next` is the word after it on the line. */
-const RETIRED_SUBHARNESS: Readonly<Record<string, (next: string | undefined) => string>> = {
-  use: () => '/model set <agent> <model> --via <route>',
-  model: () => '/model set <agent> <model> [--via <route>] [--effort <effort>]',
-  mode: () => '/agent mode <agent> [<mode>]',
-  enable: (next) => `/subharness ${next ?? '<backend>'} login`,
-  disable: (next) => `/subharness ${next ?? '<backend>'} logout`,
-};
-
-/** Whether `word` is a command a later name replaced. */
-export const isRetiredCommand = (word: string): boolean => Object.hasOwn(RETIRED_COMMANDS, word);
-
 /** The target of `/tools grant` and `/tools revoke`: none (her), `everyone`, `role <id>` or `user <id>`. */
 function checkTarget(name: string, args: Readonly<Record<string, string>>): string | null {
   if (name !== 'tools.grant' && name !== 'tools.revoke') return null;
@@ -459,7 +412,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'errands',
-    help: 'Inspect or cancel tasks delegated to agents',
+    help: 'Inspect or cancel errands handed to agents',
     args: [],
     defaultSubcommand: 'list',
     subcommands: [
@@ -513,27 +466,39 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'model',
-    help: 'Choose the model and reasoning effort for each role',
+    help: 'Choose the chain of routes each role runs on, and the model of each agent',
     args: [],
     defaultSubcommand: 'show',
     subcommands: [
-      runs(sub('show', 'Show model of every model role'), 'model.show'),
+      runs(sub('show', 'Show the chain of routes of every model role'), 'model.show'),
       sub(
         'sources',
         'Show what can serve a role, with its evidence and setup commands, as JSON, with no model request',
         [arg('role', true, MODEL_SET_CHOICES)]
       ),
       runs(
-        sub('set', 'Choose a role’s model and source, test it with one reply and optionally set provider or effort', [
-          arg('role', true, MODEL_SET_CHOICES),
-          arg('model', false),
-          flagArg('provider', false),
-          flagArg('effort', false),
-          flagArg('via', false),
-        ]),
+        sub(
+          'set',
+          'Run a role on one route, <key>/<model> or harness:<claude|codex>/<model>, after one reply on it; an agent takes <model> --via',
+          [
+            arg('role', true, MODEL_SET_CHOICES),
+            arg('model', false),
+            flagArg('provider', false),
+            flagArg('effort', false),
+            flagArg('via', false),
+          ]
+        ),
         'model.set',
         (args) => ({ role: args.role, id: args.model })
       ),
+      sub('add', 'Add a fallback route to the end of a role’s chain, after one reply on it', [
+        arg('role', true, CHAIN_ROLES),
+        arg('model'),
+      ]),
+      sub('remove', 'Remove the n-th route of a role’s chain, counted from 1', [
+        arg('role', true, CHAIN_ROLES),
+        arg('index'),
+      ]),
     ],
   },
   {
@@ -624,6 +589,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
     check: checkTarget,
     subcommands: [
       sub('list', 'Every tool and whether she has it'),
+      runs(sub('grants', 'Every stored grant: who may use which tool'), 'access.list'),
       runs(sub('describe', 'Show one tool or one family in full', [arg('tool')]), 'tools.describe', (args) => ({
         name: args.tool,
       })),
@@ -644,7 +610,6 @@ export const COMMANDS: ReadonlyArray<Command> = [
     defaultSubcommand: 'list',
     subcommands: [
       sub('list', 'Every skill with its state, who activated it and the version a rollback restores'),
-      sub('show', 'Show active text and tools of one skill', [arg('name')]),
       sub('review', 'Show active version beside the pending ones, with their texts and use counts', [arg('name')]),
       sub('pending', 'Show versions waiting for an activation'),
       sub('activate', 'Make the newest pending version of a skill the active one', [arg('name')]),
@@ -678,7 +643,6 @@ export const COMMANDS: ReadonlyArray<Command> = [
       ]),
       ...moduleSubcommands('interface'),
     ],
-    otherwise: sub('command', "An interface's own subcommand", [arg('name'), arg('sub'), arg('rest', false)]),
   },
   {
     name: 'mirror',
@@ -699,7 +663,6 @@ export const COMMANDS: ReadonlyArray<Command> = [
         flagArg('backfill', false),
         flagArg('every', false),
       ]),
-      sub('disable', 'Stop publishing to a mirror and keep its configuration', [arg('mirror')]),
       sub('remove', 'Take a mirror off the list and keep what it was sent', [arg('mirror')]),
       sub(
         'reconcile',
@@ -930,34 +893,9 @@ export function operationOf(
 /** Whether the leaf of a parsed name takes `--secret-stdin` in the command line. */
 export const takesSecretStdin = (name: string): boolean => leafOf(name)?.secret !== undefined;
 
-/** What a word no command has is refused with: the command that replaced it, when one did. */
-const unknownWord = (word: string, rest: ReadonlyArray<string>): string =>
-  isRetiredCommand(word)
-    ? `/${word} is retired: use neptunia ${RETIRED_COMMANDS[word]?.(rest) ?? 'help'}`
-    : `unknown command /${word}; type /help`;
-
-/** Why the words after a command that stands are refused when they start with a retired word, naming its replacement; else null. */
-function retiredWords(first: string, rest: ReadonlyArray<string>): string | null {
-  if (first === 'services' && rest[0] === 'watcher' && rest[1] === 'report')
-    return '/services watcher report is retired: use neptunia logs watcher';
-  const memoryWord = rest[0];
-  // Linking past the meta check and the merge (plan 2026-11-08-meta-person, slice 7): `/memory bind` links an account.
-  if (first === 'memory' && memoryWord === 'users' && rest[1] === 'link')
-    return '/memory users link is retired: use /memory bind <iface> <account> <person>';
-  if (first === 'memory' && memoryWord !== undefined && Object.hasOwn(RETIRED_MEMORY, memoryWord))
-    return `/memory ${memoryWord} is retired: use ${RETIRED_MEMORY[memoryWord] ?? '/help'}`;
-  return retiredSubharness(first, rest);
-}
-
 /** Whether words that name no subcommand are refused: a command with arguments of its own reads them instead. */
 const refusesLooseWords = (command: Command, rest: ReadonlyArray<string>): boolean =>
   rest.length > 0 && command.args.length === 0;
-
-/** Why the words after `subharness` are refused when they start with a retired word, naming its replacement; else null. */
-function retiredSubharness(first: string, [word, next]: ReadonlyArray<string>): string | null {
-  if (first !== 'subharness' || word === undefined || !Object.hasOwn(RETIRED_SUBHARNESS, word)) return null;
-  return `/subharness ${word} is retired: use ${RETIRED_SUBHARNESS[word]?.(next) ?? '/help'}`;
-}
 
 /** One command as words, none of them joined or split: its dotted name and arguments, or why it is refused. */
 export function parseCommandWords(words: ReadonlyArray<string>): Parsed {
@@ -970,9 +908,7 @@ function parseWithoutPlace(words: ReadonlyArray<string>): Parsed {
   const [first, ...rest] = words;
   if (first === undefined) return refuse('an empty line is no command; type /help');
   const command = COMMANDS.find((one) => one.name === first);
-  if (command === undefined) return refuse(unknownWord(first, rest));
-  const retired = retiredWords(first, rest);
-  if (retired !== null) return refuse(retired);
+  if (command === undefined) return refuse(`unknown command /${first}; type /help`);
   let name = command.name;
   let args = command.args;
   let tail: ReadonlyArray<string> = rest;
@@ -994,9 +930,6 @@ function parseWithoutPlace(words: ReadonlyArray<string>): Parsed {
       args = fallback?.args ?? [];
     } else if (rest.length === 0 && command.needsSubcommand === true) {
       return refuse(`/${command.name} needs a subcommand: ${names}`);
-    } else if (rest.length > 0 && command.otherwise !== undefined) {
-      name = `${command.name}.${command.otherwise.name}`;
-      args = command.otherwise.args;
     } else if (refusesLooseWords(command, rest)) {
       return refuse(`/${command.name} has no subcommand "${rest[0] ?? ''}": ${names}`);
     }

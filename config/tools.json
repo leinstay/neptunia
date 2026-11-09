@@ -236,8 +236,8 @@
     "whenNotToUse": "Destructive, not grantable to you."
   },
   "memory.snapshot": {
-    "title": "Snapshot data",
-    "whenToUse": "Copy data for tools."
+    "title": "Snapshot memory",
+    "whenToUse": "Copy the memory database for tools."
   },
   "memory.private.read": {
     "title": "Read private memory",
@@ -540,11 +540,6 @@
     "args": {
       "id": "Intention id."
     }
-  },
-  "inner.status": {
-    "title": "Inner life status",
-    "whenToUse": "Show whether the persona's own wake-ups run, what is queued and what is left of their caps.",
-    "whenNotToUse": "Administrative, not grantable to you."
   },
   "intention.list": {
     "title": "List intentions",

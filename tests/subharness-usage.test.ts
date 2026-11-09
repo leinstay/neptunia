@@ -235,7 +235,7 @@ function deskWith(backendUsage: () => Promise<ReadonlyArray<BackendUsage>>) {
   const privateDir = tempDir('nep-usage-desk-');
   const desk = createConsole({
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: '', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => [],
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] } } },

@@ -1970,7 +1970,7 @@ export type Describer = ReturnType<typeof buildDescriber>;
  * @param [deps.videoFetcher]  From createVideoFetcher() (src/media/fetch-video.ts).
  * @param [deps.state]  The persistent state (store.state) holding the
  *   daily video and re-watch counters; without it the counters live in memory only.
- * @param [deps.youtubeApiKey]  Optional YouTube Data API key (YOUTUBE_API_KEY), handed to
+ * @param [deps.youtubeApiKey]  Optional YouTube Data API key (the `youtube` service of keys.json), handed to
  *   probeYoutube only; never logged.
  */
 export function createDescriber(deps: Parameters<typeof buildDescriber>[0]): Describer {

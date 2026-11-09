@@ -99,7 +99,7 @@ async function rig(
   const checks: Rig['checks'] = [];
   const deps: ConsoleDeps = {
     runOp: () => Promise.resolve({ status: 'failed', code: 'NOT_FOR_THIS_CASE', summary: '', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => ['g1'],
     selfId: () => null,
     hot: { config: { bot: { owners: [] }, memoryDb: { inspection: BOUNDS } } },

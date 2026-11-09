@@ -1,4 +1,4 @@
-// Operations: `/nep status [field]`: what the bot is doing now, read only. The reply is one
+// Operations: `status.show [field]`: what the bot is doing now, read only. The reply is one
 // card (`cmdStatusCard`, plain card data the interface's command handler wraps for its platform), the
 // most important field first, for a phone; `field` keeps only that field and computes nothing
 // for the others. A member (anyone the owner check refuses) gets the card without the storage line,
@@ -24,8 +24,8 @@
 // per agent (src/errands/costs.ts through the place's task store); `costs.development` the development agents'
 // (thinker, dev) from the board's `costs.agents` by role (src/board/costs.ts, with the thinker's last-wave
 // context), both shown with no runs when the board does not answer. The owner's `inner`
-// field (only while features.wakes is on) is the inner life's own status (src/behavior/inner.ts#status,
-// the data `/nep task inner status` reads): its mode and switch, the day's turns, chains, dollars, public
+// field (only while features.wakes is on) is the inner life's own status (src/behavior/inner.ts#status):
+// its mode and switch, the day's turns, chains, dollars, public
 // posts, the next wake, the last turn and the open intentions; its words are `labels.status.inner`.
 
 import { llmCountToday, resolveProvider } from '../../llm/openrouter.ts';
@@ -715,7 +715,7 @@ const handlers = perEnv((env) => {
     return lines.length > 0 ? lines.join('\n') : '-';
   }
 
-  /** The owner's `inner` field: the inner life's status (the same data as `/nep task inner status`); `-` without it. */
+  /** The owner's `inner` field: the inner life's status, `-` without it. */
   function innerValue(): string {
     if (typeof env.inner?.status !== 'function') return '-';
     // The core role's tokens today (prompt, cached, completion), from the same accumulator costs.base reads.

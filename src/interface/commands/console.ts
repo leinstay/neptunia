@@ -80,7 +80,6 @@ export type ConsoleDeps = {
   /** The owner's reads that are no operation (src/admin.ts#ownerReads): each a reply text, or a thrown refusal. */
   ownerReads: {
     lessons(context: Record<string, unknown>): string;
-    aliases(args: Record<string, unknown>, context: Record<string, unknown>): string;
   };
   /** Every place the core serves or holds memory of: a command names one unless there is exactly one. */
   places(): ReadonlyArray<string>;
@@ -340,10 +339,16 @@ const SERVICE_PREFIX = 'services.';
 /** The prefix of the `/keys` commands, which the key commands answer. */
 const KEYS_PREFIX = 'keys.';
 
-/** Whether the key commands answer `name`: the `keys.` commands but `keys.service.*`, and `model.set` while `enabled()`. */
+/** The `/model` commands the key commands answer while `enabled()`; without them the operations of the same name do. */
+const CHAIN_COMMANDS: ReadonlyArray<string> = ['model.set', 'model.show'];
+
+/** The `/model` commands only the key commands answer: a chain's fallbacks. */
+const CHAIN_ONLY: ReadonlyArray<string> = ['model.add', 'model.remove'];
+
+/** Whether the key commands answer `name`: the `keys.` commands but `keys.service.*`, and the chain commands. */
 function isKeysCommand(name: string, enabled: () => boolean): boolean {
   if (name.startsWith('keys.service.')) return false;
-  return name.startsWith(KEYS_PREFIX) || (name === 'model.set' && enabled());
+  return name.startsWith(KEYS_PREFIX) || CHAIN_ONLY.includes(name) || (CHAIN_COMMANDS.includes(name) && enabled());
 }
 /** The prefix of `/subharness`, which `subharnessCommand` answers with `/agent mode`. */
 const SUBHARNESS_PREFIX = 'subharness.';
@@ -461,78 +466,64 @@ function typed(name: string, args: Readonly<Record<string, unknown>>): string {
 /** The four route names in the order they are told. */
 const ROUTE_ORDER = ['api', 'claude', 'codex', 'opencode'] as const;
 
-/** What takes `--via` beside the agents: the memory writer, and the core on a subscription. */
-const VIA_TARGETS: ReadonlyArray<string> = ['memory', 'core'];
-
 /**
- * The answer of a `model set` with `--via`, null when the route is `direct-api` and the role goes on as with no `--via`,
- * undefined when no `--via` was typed. `--via` takes the route names (src/subharness/route-names.ts), never the stored
- * backend words.
+ * The answer of an agent's `model set` with `--via`, null when no `--via` was typed. `--via` takes the route names
+ * (src/subharness/route-names.ts), never the stored backend words.
  */
-function modelSetVia(
-  deps: ConsoleDeps,
-  args: Record<string, unknown>,
-  isAgent: boolean
-): Promise<Answer> | null | undefined {
+function agentSetVia(deps: ConsoleDeps, args: Record<string, unknown>): Promise<Answer> | null {
   const typedLine = `/model set ${text(args.role)}`;
   const refuse = (why: string, code?: string): Promise<Answer> =>
     Promise.resolve({ text: `${typedLine}: ${why}`, status: 'invalid', ...(code === undefined ? {} : { code }) });
-  const flags = args.effort === undefined ? {} : { effort: args.effort };
-  const pin = text(args.provider) === '' ? {} : { provider: args.provider };
   const typedVia = text(args.via);
-  if (typedVia === '') return undefined;
+  if (typedVia === '') return null;
   const via = backendOfRouteName(typedVia);
   if (via === null) return refuse(`${typedVia} is no route; use ${routeNamesText(ROUTE_ORDER)}`, 'unknown-backend');
-  if (via === 'api') {
-    if (isAgent)
-      return refuse(
-        `${routeName('api')} cannot run an agent; use ${routeNamesText(['claude', 'codex', 'opencode'])}`,
-        'backend-unsupported'
-      );
-    return null;
-  }
-  if (!isAgent && !VIA_TARGETS.includes(text(args.role)))
+  if (via === 'api')
     return refuse(
-      `${text(args.role)} has no subharness path; only an agent, memory or core takes --via`,
-      'role-unsupported'
+      `${routeName('api')} cannot run an agent; use ${routeNamesText(['claude', 'codex', 'opencode'])}`,
+      'backend-unsupported'
     );
-  if (!isAgent && text(args.provider) !== '') return refuse(`${text(args.role)} takes no --provider with --via`);
   if (text(args.model) === '') return refuse(`name the model: /model set ${text(args.role)} <model> --via <route>`);
-  if (isAgent)
-    return subharnessCommand(subharnessDeps(deps), 'subharness.model', {
-      agent: args.role,
-      model: args.model,
-      via,
-      ...flags,
-      ...pin,
-    });
-  const given = { backend: via, model: args.model, ...flags };
-  if (args.role === 'memory') return subharnessCommand(subharnessDeps(deps), 'subharness.memory', given);
-  return subharnessCommand(subharnessDeps(deps), 'subharness.subscription', { role: args.role, ...given });
+  const flags = args.effort === undefined ? {} : { effort: args.effort };
+  const pin = text(args.provider) === '' ? {} : { provider: args.provider };
+  return subharnessCommand(subharnessDeps(deps), 'subharness.model', {
+    agent: args.role,
+    model: args.model,
+    via,
+    ...flags,
+    ...pin,
+  });
 }
 
 /**
- * The answer of a `model set` that neither the key commands nor the `model.set` operation take, or null. An agent's
- * model and effort live in its subharness, checked with one reply there, and so does the memory writer's with `--via`,
- * and the subscription route of the core. `--provider` of an agent pins its opencode run to an OpenRouter provider.
- * For any other role `--provider` and `--effort` are checked on the role's key, so they need the key commands of
- * `keys.json`.
+ * The answer of a `model set` that the key commands do not take, or null. An agent's model and effort live in its
+ * subharness, checked with one reply there, and `--provider` pins its opencode run to an OpenRouter provider. A model
+ * role runs on a chain of routes, whose text names the key or harness and the effort, so `--via`, `--effort` and
+ * `--provider` are refused for it; `/routes set` pins a model's providers.
  */
 function modelSetElsewhere(deps: ConsoleDeps, args: Record<string, unknown>): Promise<Answer> | null {
   const typedLine = `/model set ${text(args.role)}`;
-  const refuse = (why: string): Promise<Answer> => Promise.resolve({ text: `${typedLine}: ${why}`, status: 'invalid' });
+  const refuse = (why: string, code?: string): Promise<Answer> =>
+    Promise.resolve({ text: `${typedLine}: ${why}`, status: 'invalid', ...(code === undefined ? {} : { code }) });
   const isAgent = SUBHARNESS_AGENTS.some((agent) => agent === args.role);
-  const flags = args.effort === undefined ? {} : { effort: args.effort };
-  const pin = text(args.provider) === '' ? {} : { provider: args.provider };
-  const viaAnswer = modelSetVia(deps, args, isAgent);
-  if (viaAnswer !== undefined) return viaAnswer;
   if (isAgent) {
+    const viaAnswer = agentSetVia(deps, args);
+    if (viaAnswer !== null) return viaAnswer;
     if (text(args.model) === '') return refuse('name the model: /model set <agent> <model>');
-    const given = { agent: args.role, model: args.model, ...flags, ...pin };
-    return subharnessCommand(subharnessDeps(deps), 'subharness.model', given);
+    const flags = args.effort === undefined ? {} : { effort: args.effort };
+    const pin = text(args.provider) === '' ? {} : { provider: args.provider };
+    return subharnessCommand(subharnessDeps(deps), 'subharness.model', {
+      agent: args.role,
+      model: args.model,
+      ...flags,
+      ...pin,
+    });
   }
-  const hasFlags = text(args.provider) !== '' || text(args.effort) !== '';
-  if (hasFlags && deps.keys?.enabled() !== true) return refuse('--provider and --effort need the keys of keys.json');
+  if (['via', 'effort', 'provider'].some((flag) => text(args[flag]) !== ''))
+    return refuse(
+      'a role takes one route: <key>/<model>[:<effort>] or harness:<claude|codex>/<model>[:<effort>]; /routes set pins providers',
+      'flag-retired'
+    );
   return null;
 }
 
@@ -802,8 +793,6 @@ export function createConsole(deps: ConsoleDeps): {
         if ('status' in given && typeof given.status === 'string') return given as Answer;
         return op(name, name === 'tools.grant' ? 'access.grant' : 'access.revoke', given, args, requester);
       }
-      case 'interfaces.command':
-        return refused(name, args, `the interface ${text(args.name)} has no commands of its own`);
       default: {
         const read = LOCAL_CONFIG_READS[name];
         if (read !== undefined) return read(deps.privateDir);

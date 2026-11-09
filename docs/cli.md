@@ -185,7 +185,7 @@ With no chat open, the chat still exists, as a Discord direct chat exists while 
 
 A chat session is a named view over the lines memory already stores for the owner's chat, in the `sources` table under the place `cli:dm:owner`. Those records are the durable chat, so `src/chat/sessions.ts` copies none of them and keeps only ids and times, in `<private>/cli/sessions.json` (`src/chat/store.ts`). The file is not memory: nothing she recalls reads it. A session's name is the start of the owner's first line, with no model. The input history in `data/cli/history` and the transcript on the screen are separate from both.
 
-`/sessions` lists them, and Enter on a row resumes one. `/resume <id>` does the same by id. Bare `/resume` stays the command that ends a pause. `/branch` lists the lines of the current session with their exact stored text, and Enter on a line continues from there. `/branch <id>` cuts another session. Opening any of these panels only reads, and the same boundary of the same session is always the same branch.
+`/sessions` lists them, and Enter on a row resumes one. `/sessions resume <id>` does the same by id. `/resume` is the command that ends a pause. `/branch` lists the lines of the current session with their exact stored text, and Enter on a line continues from there. `/branch <id>` cuts another session. Opening any of these panels only reads, and the same boundary of the same session is always the same branch.
 
 Resuming or branching replaces the transcript on the screen and the lines the core's history reads answer from, so the next turn's context is the selected view. A line written while a branch is selected belongs to that branch, and the root shows every line no branch owns. Stored lines, facts she learned and their sources stay untouched, and memory stays continuous: a branch does not make her forget what she saw after its boundary, because her memory reads across every session. A new chat process starts on the root. These commands exist only in the interactive chat, because their effect is on its screen.
 
@@ -201,7 +201,7 @@ Her turns read the same stored lines. `withStoredHistory` in `src/chat/stored-hi
 
 Tool calls have no such panel, because nothing asks. An agent's mode (`read`, `write`, `full` or `sudo`, `/agent mode`) is set in advance and becomes the sandbox of its run (`src/subharness/control.ts`), and a headless backend cannot stop to ask. Her own tools are decided by grants before the turn (`/tools grant`). So no command panel, scope or expiry exists to show, and no proposed command or file diff reaches a gate: a merge gate shows the artifacts the worker named, and the diff lives in its pull request.
 
-`/tools`, `/skills`, `/interfaces` and `/agents` open a menu: the family's list operation as text, where it has one, and a row per subcommand of the command table that prefills the typed command. Opening a menu runs only that read, and every change goes through its typed command. `/plugins` says that no operation installs a plugin. `/context` shows the request limit (`llm.maxRequestTokens`), the core's route and its model through `cli/context-line.ts`. The size of the last request is held by no read, so it shows as unknown. The chat offers no context compression, because the core has no such operation.
+`/tools`, `/skills`, `/interfaces` and `/agent` open a menu: the family's list operation as text, where it has one, and a row per subcommand of the command table that prefills the typed command. Opening a menu runs only that read, and every change goes through its typed command. `/tools list` names every tool and whether she holds it, and `/tools grants` runs `access.list`, every stored grant of hers, of a member, of a role or of everyone. `/status full` ends with the request limit (`llm.maxRequestTokens`), the core's route and its model through `cli/context-line.ts`. The size of the last request is held by no read, so it shows as unknown. The chat offers no context compression, because the core has no such operation.
 
 ## Settings and setup panels
 
@@ -209,7 +209,7 @@ Tool calls have no such panel, because nothing asks. An agent's mode (`read`, `w
 
 `/setup` offers core and extra keys, service credentials, interface setup, skill setup and search configuration. Opening it performs no installation or provider check. Selecting an action uses its existing command and any required secret dialog. Model and backend actions prepare the targeted command in the input for you to complete.
 
-`/model` opens the nested model selector described in [Keys and models](keys.md#the-model-selector). `/model show` and `/model set` stay commands. For an agent, `/model set <agent> <model> --via opencode-harness --provider <slug>` pins its OpenCode runs to one OpenRouter provider with no fallback, `/subharness status` shows the pin on the agent's row, and a `/model set` for the agent without `--provider` drops it. The details are in [errands](errands.md#the-provider-of-an-opencode-route). `/model set core <model> --via claude-harness` or `--via codex-harness` puts her turns on a subscription CLI. `/model set core <model>` returns them to `direct-api`, and `/subharness status` names the route. [Keys and models](keys.md#her-core-on-a-subscription) has the details.
+`/model` opens the nested model selector described in [Keys and models](keys.md#the-model-selector). `/model show`, `/model set`, `/model add` and `/model remove` stay commands. For an agent, `/model set <agent> <model> --via opencode-harness --provider <slug>` pins its OpenCode runs to one OpenRouter provider with no fallback, `/subharness status` shows the pin on the agent's row, and a `/model set` for the agent without `--provider` drops it. The details are in [errands](errands.md#the-provider-of-an-opencode-route). A model role runs on a chain of routes: `/model set <role> <route>`, `/model add <role> <route>` and `/model remove <role> <n>` change it, as [Keys and models](keys.md#setting-a-chain) describes. `/model set core harness:claude/<model>` puts her turns on a subscription CLI.
 
 `/help` provides searchable command rows. Enter puts the selected command into the input. Command completion includes subcommands such as `/skills setup`.
 
@@ -237,10 +237,9 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Schedule, switch and inspect the four scheduled mechanics | `/services` |
 | Read a watcher report | `/logs watcher` |
 | Cancel the turn over a waiting line, in the chat only | `/queue` |
-| Resume or branch a chat, in the chat only | `/sessions`, `/resume <id>`, `/branch` |
+| Resume or branch a chat, in the chat only | `/sessions`, `/sessions resume <id>`, `/branch` |
 | Restore a development task's files, in the chat only | `/checkpoints` |
 | Answer what waits on the task board, in the chat only | `/approvals` |
-| See the request limit, route and model, in the chat only | `/context` |
 
 ## The memory browser
 
@@ -296,8 +295,7 @@ Each block names its source, its account and its observation time. A value the s
 | `/mirror list` | Every mirror and whether it is enabled. This is the bare `/mirror`. |
 | `/mirror status` | Each mirror with its interface, queue, failed, incomplete, uncertain and blocked entries, the copies delivered outside their audience, and its backfill. |
 | `/mirror add <destination> [--backfill true\|false] [--every <duration>]` | Registers a known place. Adding it again reuses the mirror. |
-| `/mirror configure <mirror> [--enabled true\|false] [--backfill true\|false] [--every <duration>]` | Changes a mirror. `--backfill true` needs an interval, given now or earlier. |
-| `/mirror disable <mirror>` | Stops sending and keeps the configuration. |
+| `/mirror configure <mirror> [--enabled true\|false] [--backfill true\|false] [--every <duration>]` | Changes a mirror. `--enabled false` stops sending and keeps the configuration. `--backfill true` needs an interval, given now or earlier. |
 | `/mirror remove <mirror>` | Takes the mirror off the list and keeps its delivery history. |
 | `/mirror reconcile <mirror> --through <entry>` | Records every entry up to that one as already published, with the requester's name, and sends nothing. |
 | `/mirror reconcile <mirror> --entries <id,id>` | Records the named entries alone. A real receipt stays as it is, and an unknown id refuses the whole command. |
@@ -329,7 +327,7 @@ printf '%s\n' "$TOKEN" | neptunia interfaces token set discord --secret-stdin
 
 On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys extra add`, `keys service set` and `interfaces token set` exit `2` for a word past their name, in the chat and in both shell forms, so a secret never reaches the process list, the core or the logs.
 
-`neptunia subharness <backend> login`, `status` and `logout` run with no core. [Setup](setup.md#subharness-backends) describes them and their exit codes. `/subharness use`, `model`, `mode`, `enable` and `disable` are refused with exit `2`, and the refusal names the command that replaced each: `/model set` for the first two, `/agent mode` for `mode`, and `/subharness <backend> login` and `logout` for the last two.
+`neptunia subharness <backend> login`, `status` and `logout` run with no core. [Setup](setup.md#subharness-backends) describes them and their exit codes.
 
 ## Diagnostics
 
@@ -374,21 +372,6 @@ On every other command `--secret-stdin` is ordinary text. `keys core add`, `keys
 `neptunia services watcher select --sql <statement>` prints the rows of one read-only statement over the memory database as JSON, `rows` and `truncated`, with no core and no board. A missing `--sql` exits `2`, and a write, a second statement or a missing database fails. [The watcher](watcher.md#development-mode) describes the read.
 
 `neptunia setup` with `watcher`, `selfimprovement` or `mechanics` exits `2` and names the command of this family. A word order such as `services status watcher` exits `2` the same way.
-
-## Retired names
-
-Each of these exits `2`, names its replacement and runs nothing, in the chat and in both shell forms.
-
-| Retired | Replacement |
-|---|---|
-| `service` | `services` |
-| `service watcher report`, `report` | `logs watcher` |
-| `health` | `doctor` |
-| `wakes` | `services list`, and `pause`, `resume` or `services <name> disable` for a stop |
-| `route` | `routes` |
-| `interface` | `interfaces` |
-| `task` | `tasks` |
-| `watcher`, `heartbeat`, `selfreflection`, `selfimprovement` | `services <name>` |
 
 ## Other entry points
 

@@ -69,7 +69,6 @@ export type MirrorDesk = {
     enabled?: boolean;
     backfill?: BackfillChange;
   }): Promise<MirrorChange>;
-  disableMirror(request: { mirror: string; by: string }): Promise<MirrorChange>;
   removeMirror(request: { mirror: string; by: string }): Promise<MirrorChange>;
   reconcileReceipts(request: {
     mirror: string;
@@ -200,13 +199,6 @@ export function createMirrorDesk({
       if (backfill?.enabled === true && backfill.intervalMs === undefined && known.backfill.intervalMs === null)
         return { ok: false, code: 'no-interval' };
       return changed(await write({ op: 'configure', id: known.id, by, enabled, backfill, now: now() }));
-    },
-
-    async disableMirror({ mirror, by }) {
-      const db = open();
-      const known = db ? mirrorNamed(db, mirror) : null;
-      if (!known) return { ok: false, code: 'unknown-mirror' };
-      return changed(await write({ op: 'configure', id: known.id, by, enabled: false, now: now() }));
     },
 
     async removeMirror({ mirror, by }) {

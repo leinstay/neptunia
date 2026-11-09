@@ -3,6 +3,8 @@
 // and the vendor CLI a fake that records each call, so no process of a real vendor starts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { evaluateReadiness, gatherHealth } from '../src/setup/readiness.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
 import { fakeVendor } from './fixtures/fake-vendor.ts';
@@ -41,4 +43,21 @@ test('a launch with her core on the API and no check recorded still names the mi
   });
   const failure = evaluateReadiness(health).failed.find((one) => one.requirement === 'core-model');
   assert.equal(failure?.code, 'check-missing');
+});
+
+test('a launch reads a core whose chain starts on a harness as served', async () => {
+  // Catches: readiness reading the old harness record alone, so a core set with /model set to a harness asks for a check.
+  const dir = tempDir('nep-readiness-chain-');
+  writeKeysFile(dir);
+  fs.writeFileSync(
+    path.join(dir, 'config', 'config.json'),
+    JSON.stringify({ models: { routes: { core: [{ via: 'harness', backend: 'claude', model: 'claude-opus-4-6' }] } } })
+  );
+  const health = await gatherHealth({
+    privateDir: dir,
+    dataDir: dir,
+    unitDir: dir,
+    link: () => Promise.resolve({ kind: 'down' }),
+  });
+  assert.equal(health.model.harness, true);
 });

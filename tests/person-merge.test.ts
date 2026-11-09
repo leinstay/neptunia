@@ -351,7 +351,7 @@ function consoleRig(): {
   const writes: Array<Row> = [];
   const deps: ConsoleDeps = {
     runOp: () => Promise.resolve({ status: 'failed', code: 'NOT_FOR_A_MERGE', summary: '', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => [],
     selfId: () => null,
     hot: {

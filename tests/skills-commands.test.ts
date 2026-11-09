@@ -20,7 +20,7 @@ function desk(skills: SkillsPort | null) {
   const dir = tempDir('nep-skills-console-');
   const deps: ConsoleDeps = {
     runOp: () => Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null }),
-    ownerReads: { lessons: () => '', aliases: () => '' },
+    ownerReads: { lessons: () => '' },
     places: () => ['g1'],
     selfId: () => 'self-1',
     hot: { config: { bot: { owners: [] } } },
@@ -96,15 +96,15 @@ test('review shows the text of the active version beside the candidate with the 
   assert.ok(answer.text.includes('web.read'));
 });
 
-test('show answers the active text, and an unknown name fails naming it', async (t) => {
+test('review of an unknown name fails naming it, and show is no command beside review', async (t) => {
+  // Changed: `show` answered the active text that `review` shows with its candidates, so it is gone.
+  // Catches: a typo reads as a skill with no versions, or the second word for one read comes back.
   const rig = skillsRig(t);
-  rig.writeLocal('look-it-up', LOOK);
-  rig.port.activate('look-it-up', 'agent:hand');
   const run = desk(rig.port);
-  assert.ok((await run('/skills show look-it-up')).text.includes('First body.'));
-  const missing = await run('/skills show ghost-skill');
+  const missing = await run('/skills review ghost-skill');
   assert.notEqual(missing.status, 'ok');
   assert.ok(missing.text.includes('ghost-skill'));
+  assert.equal(parseCommandLine('/skills show look-it-up').ok, false);
 });
 
 test('activate, rollback and reject act as the owner', async (t) => {
