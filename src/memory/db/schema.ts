@@ -4,7 +4,7 @@
 
 import { ownLineRows } from './line-owner.ts';
 import { ownProfileRows } from './profile-owner.ts';
-import { ownPlaceListRows, ownPlaceRows } from './place-owner.ts';
+import { ownPlaceListRows, ownPlaceRows, ownSelfreflectionRows } from './place-owner.ts';
 import { placeLineVectors } from './line-vectors.ts';
 import { rebuildLocatorIndex } from './message-family-catalog.ts';
 import type { Db } from './types.ts';
@@ -79,6 +79,15 @@ export const MIGRATIONS: Array<Migration> = [
     for (const column of ['writer', 'holder_id']) db.exec(`ALTER TABLE episode_sources ADD COLUMN ${column} TEXT`);
     db.exec('CREATE INDEX "episode_sources_holder" ON episode_sources(writer, holder_id) WHERE writer IS NOT NULL');
     ownPlaceListRows(db);
+  },
+  // Version 50: her selfreflection's entries, their mirrors and the mirrors' publications name their writer and holder
+  // (src/memory/db/place-owner.ts).
+  (db: Db): void => {
+    for (const table of ['selfreflection', 'selfreflection_mirrors', 'publications']) {
+      for (const column of ['writer', 'holder_id']) db.exec(`ALTER TABLE "${table}" ADD COLUMN ${column} TEXT`);
+      db.exec(`CREATE INDEX "${table}_holder" ON "${table}"(writer, holder_id) WHERE writer IS NOT NULL`);
+    }
+    ownSelfreflectionRows(db);
   },
 ];
 

@@ -78,6 +78,7 @@
 //   - `writeChannelEntry(write)` (channel-entry.ts): the whole entry of one channel.
 //   - `writePlaceLore(write)`, `writeParticipation(write)`, `writeRecentLines(write)` (place-lore.ts,
 //     participation-episodes.ts, recent-lines.ts): a place's whole lorebook, participation or recent lines.
+//   - `writeSelfreflection(write)` (selfreflection-entries.ts): her whole selfreflection, or one appended post.
 //   - her memory session is the memory writer (spec 2026-10-24-memory-authority, section 6 item 7). Each open logs the
 //     effective models (`memory db: effective models`: purpose, model id and key variable of the memory session, the
 //     description review and every other purpose; writer-switch.ts#effectiveModels). With `memoryDb.session.mode`
@@ -139,6 +140,7 @@ import type { ChannelEntryWrite } from './channel-entry.ts';
 import type { PlaceLoreWrite } from './place-lore.ts';
 import type { ParticipationWrite } from './participation-episodes.ts';
 import type { RecentLinesWrite } from './recent-lines.ts';
+import type { SelfreflectionWrite } from './selfreflection-entries.ts';
 import type { OperationalWrite } from './operational.ts';
 
 import { lockPathOf, openMemoryDb } from './open.ts';
@@ -604,6 +606,8 @@ export type MemoryDbService = {
   writeParticipation(write: ParticipationWrite): Promise<unknown>;
   /** The whole recent lines of one place (recent-lines.ts): resolves the rows it wrote and retired. */
   writeRecentLines(write: RecentLinesWrite): Promise<unknown>;
+  /** Her whole selfreflection or one appended post (selfreflection-entries.ts): resolves the rows it wrote and retired. */
+  writeSelfreflection(write: SelfreflectionWrite): Promise<unknown>;
   keepPending(update: unknown): string;
   /** The writes in the quarantine, by name, with the code each failed with and when it moved. */
   quarantinedPending(): Array<QuarantinedPending>;
@@ -1891,6 +1895,8 @@ export function createMemoryDb({
       write(withLiveIface({ ...participation, kind: 'participation-episodes', now: now() }, iface)),
     writeRecentLines: (lines: RecentLinesWrite) =>
       write(withLiveIface({ ...lines, kind: 'recent-lines', now: now() }, iface)),
+    writeSelfreflection: (entries: SelfreflectionWrite) =>
+      write(withLiveIface({ ...entries, kind: 'selfreflection-entries', now: now() }, iface)),
     keepPending,
     quarantinedPending: () => quarantinedIn(quarantineDir),
     replayQuarantinedPending,

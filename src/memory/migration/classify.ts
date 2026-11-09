@@ -24,7 +24,8 @@ const SKIPPED: Array<[RegExp, string]> = [
 /**
  * A kind a path names that has its own write kind and no mapper (src/memory/db/intentions-write.ts, line-vectors.ts,
  * record-lines.ts, journal-lines.ts, archive-lines.ts, account-profile.ts, prose-versions.ts, private-layer.ts,
- * place-notes.ts, channel-entry.ts, place-lore.ts, participation-episodes.ts, recent-lines.ts).
+ * place-notes.ts, channel-entry.ts, place-lore.ts, participation-episodes.ts, recent-lines.ts,
+ * selfreflection-entries.ts).
  */
 type DirectKind =
   | 'intentions'
@@ -39,7 +40,8 @@ type DirectKind =
   | 'channel'
   | 'lore'
   | 'participation'
-  | 'recent';
+  | 'recent'
+  | 'selfreflection';
 
 /** [pattern, kind, format] for a path inside a guild's data directory; the first match wins. */
 const KINDS: Array<[RegExp, MapperKind | DirectKind, FileFormat]> = [
