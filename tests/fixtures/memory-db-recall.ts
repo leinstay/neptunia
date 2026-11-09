@@ -19,6 +19,10 @@ const FILLER_ENDINGS = ['ος', 'ου', 'ο', 'οι', 'ων'];
 function makeFixture() {
   const handle = openMemoryDb(':memory:');
   const db = dbOf(handle);
+  // The default place of a line has its row, as every stored line's place does: a window's chat comes from that row.
+  db.prepare(
+    "INSERT INTO places (id, iface, kind, native_id, chat, scope_kind) VALUES (?, 'discord', 'channel', 'main', 'group', 'group')"
+  ).run(MAIN);
   const api = {
     handle,
     db,

@@ -10,7 +10,8 @@ import { turnRoutes } from '../src/behavior/turn-ability-route.ts';
 import type { NativeMessageLocator } from '../src/memory/db/recall.ts';
 import { groupContext, internalContext } from '../src/memory/db/scope.ts';
 import { frameReadsOver } from '../src/memory/db/frame-reads.ts';
-import { addLine, addPerson, addRoom, noteInterface, openWorld, rootId } from './fixtures/memory-db/mind-world.ts';
+import { AT, addLine, addPerson, addRoom, noteInterface, openWorld, rootId } from './fixtures/memory-db/mind-world.ts';
+import { insertRows } from '../src/memory/db/rows.ts';
 import type { World } from './fixtures/memory-db/mind-world.ts';
 import { rig, channel } from './fixtures/reads-rig.ts';
 import { labels } from './fixtures/labels.ts';
@@ -422,6 +423,44 @@ test("a read of another interface's place keeps a message id that holds a colon 
     const shown = draft.searchRefs?.byNumber;
     const ids = [...(shown?.values() ?? [])].map((ref) => String(ref.id));
     assert.deepEqual(ids, ['thread-3:m-9']);
+  } finally {
+    world.close();
+  }
+});
+
+test("a read of another interface's place whose id spells no native id reads the place its row names", async () => {
+  // Bug: the read parsed the interface and the chat out of the place id, so a place with an opaque id read nothing and
+  // answered unsupported.
+  const world = openWorld();
+  try {
+    noteInterface(world, 'fake', [{ id: 'g1', name: 'Agora' }]);
+    insertRows(world.db, {
+      places: [
+        {
+          id: 'place:garden',
+          iface: 'fake',
+          kind: 'channel',
+          native_id: 'c7',
+          parent_id: rootId('fake', 'g1'),
+          scope_kind: 'group',
+          name: 'garden',
+          seen_from_at: AT,
+        },
+      ],
+    });
+    addLine(world.db, {
+      id: 'm1',
+      iface: 'fake',
+      place: 'place:garden',
+      author: 'self',
+      text: 'line in the garden',
+      at: '2026-11-02T09:00:00.000Z',
+    });
+    const text = await readText(
+      crossReadScene(world, () => null),
+      'place:garden'
+    );
+    assert.match(text, /line in the garden/);
   } finally {
     world.close();
   }

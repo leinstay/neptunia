@@ -120,8 +120,12 @@ test('a #handle and an @handle she carries from an earlier request resolve in a 
 const OLDER = '400000000000807738';
 const NEWER = '400000000005693761';
 
-/** The view of a turn on the command line: a private chat with no root, no snapshot, the memory's places known. */
-function commandLineView(knownPlaces: ReadonlyArray<string>) {
+/**
+ * The view of a turn on the command line: a private chat with no root, no snapshot, the memory's places known.
+ * `knownPlaces` were place ids the view parsed a native id out of. Each place carries its stored native id instead
+ * (plan 2026-11-08 ids-by-links, slice 7: no id is worked out from the text of another), so the cases below give it.
+ */
+function commandLineView(knownPlaces: ReadonlyArray<{ id: string; nativeId: string | null }>) {
   return callViewOf({
     channel: { id: 'owner', rootId: null },
     currentIface: 'cli',
@@ -138,13 +142,30 @@ test("a channel's #handle she carries from another interface resolves to that pl
   // Bug: a handle carried from a turn on another interface resolved only over the turn's own channels, so the call
   // read the command line chat itself and answered unsupported.
   const handle = handleOf('far-room', HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX);
-  const view = commandLineView(['other:channel:far-room', 'cli:dm:owner']);
+  const view = commandLineView([
+    { id: 'other:channel:far-room', nativeId: 'far-room' },
+    { id: 'cli:dm:owner', nativeId: null },
+  ]);
   for (const skill of ['conversation.read', 'memory.channel.read'])
     assert.equal(placeOf(resolveCall({ skill, args: { place: `#${handle}` } }, view)), 'other:channel:far-room');
 });
 
+test('a known channel whose place id spells no native id resolves its #handle to that place from its stored native id', () => {
+  // Bug: the handles were widened over the native id parsed out of each place id, so a channel with an opaque place id
+  // had no handle and her call read the command line chat instead.
+  const handle = handleOf('far-room', HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX);
+  const view = commandLineView([{ id: 'place:far', nativeId: 'far-room' }]);
+  assert.equal(
+    placeOf(resolveCall({ skill: 'memory.channel.read', args: { place: `#${handle}` } }, view)),
+    'place:far'
+  );
+});
+
 test('a handle two known places of different interfaces share stays unresolved', () => {
-  const view = commandLineView(['other:channel:' + OLDER, 'foreign:channel:' + NEWER]);
+  const view = commandLineView([
+    { id: 'other:channel:' + OLDER, nativeId: OLDER },
+    { id: 'foreign:channel:' + NEWER, nativeId: NEWER },
+  ]);
   const shared = handleOf(OLDER, HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX);
   const read = resolveCall({ skill: 'memory.channel.read', args: { place: `#${shared}` } }, view);
   assert.equal(placeOf(read), undefined, 'neither place is guessed');
@@ -154,8 +175,9 @@ test('a handle two known places of different interfaces share stays unresolved',
 });
 
 test("a direct chat's place gives no channel handle", () => {
-  // Bug: a partner's id hashed as a channel would let a #handle name a private chat.
-  const view = commandLineView(['other:dm:partner-3']);
+  // Bug: a partner's id hashed as a channel would let a #handle name a private chat. A stored DM place holds no native
+  // id of its own, so the partner's id in its place id reaches no handle.
+  const view = commandLineView([{ id: 'other:dm:partner-3', nativeId: null }]);
   const handle = handleOf('partner-3', HANDLE_DIGITS, CHANNEL_HANDLE_PREFIX);
   assert.equal(placeOf(resolveCall({ skill: 'memory.channel.read', args: { place: `#${handle}` } }, view)), undefined);
 });
@@ -170,7 +192,7 @@ test("a handle the request showed for another interface's channel resolves to th
     placeId: 'cli:dm:owner',
     skills: skillRegistry(),
     channelHandles: new Map([[handle, 'far-room']]),
-    knownPlaces: ['other:channel:far-room'],
+    knownPlaces: [{ id: 'other:channel:far-room', nativeId: 'far-room' }],
   });
   const read = resolveCall({ skill: 'memory.channel.read', args: { place: `#${handle}` } }, view);
   assert.equal(placeOf(read), 'other:channel:far-room');
@@ -185,7 +207,7 @@ test("a handle of the turn's own channel keeps its native id when the memory kno
     store: { listChannels: () => [{ id: 'kitchen-room', name: 'kitchen' }], listUserProfiles: () => [] },
     skills: skillRegistry(),
     channelHandles: new Map(),
-    knownPlaces: ['primary:channel:kitchen-room'],
+    knownPlaces: [{ id: 'primary:channel:kitchen-room', nativeId: 'kitchen-room' }],
   });
   const read = resolveCall({ skill: 'memory.channel.read', args: { place: `#${handle}` } }, view);
   assert.equal(placeOf(read), 'kitchen-room');

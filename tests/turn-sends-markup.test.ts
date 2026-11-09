@@ -126,3 +126,33 @@ test('the served interface keeps its mention, channel link, emoji and jump link 
   assert.ok(post.text.includes(`/${QUOTED}`), post.text);
   assert.deepEqual(post.accountIds, [MEMBER]);
 });
+
+test('a posted identity of a line in another place of this interface links through the chat its place row holds', () => {
+  // Bug: the link took the interface and the chat parsed out of the place ids, so a line in a place with an opaque id
+  // went out as a quote, or as a link to a chat that does not exist.
+  const club = { iface: 'served', kind: 'channel', nativeId: 'c-club', partnerNativeId: null };
+  const here = { iface: 'served', kind: 'dm', nativeId: null, partnerNativeId: MEMBER };
+  const sends = createSends({
+    hot: { config: { features: { messageLinks: true } }, prompts: null },
+    store: { placeRefOf: (id: string) => (id === 'place:club' ? club : id === 'place:here' ? here : null) },
+    emoji: { byName: () => null },
+    chatName: () => null,
+    clock: () => 0,
+    schedule: () => null,
+    activity: null,
+    iface: routerOf(),
+  });
+  const line = { placeId: 'place:club', messageId: 'm77', path: ['served', 'club'], at: 0, text: 'x', revision: 1 };
+  const post = sends.renderPost('see src:served:m77:1', {
+    channel: { id: 'd1', rootId: null, iface: 'served' },
+    placeId: 'place:here',
+    dmChat: true,
+    idByIndex: null,
+    refs: {
+      placeId: 'place:here',
+      lineOf: (key) => (key === 'src:served:m77' ? { ...line, deleted: false, dm: false } : null),
+      timezone: 'UTC',
+    },
+  });
+  assert.ok(post.text.includes('/c-club/m77'), post.text);
+});

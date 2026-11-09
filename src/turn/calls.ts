@@ -14,7 +14,6 @@ import { thinkLeakOf } from '../llm/parse.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { CHANNEL_HANDLE_PREFIX, idText, widenHandles } from '../behavior/handles.ts';
 import { readablePlaces } from '../behavior/readable-places.ts';
-import { placeIdParts } from '../memory/db/ids.ts';
 import type { Snapshot } from '../behavior/snapshot.ts';
 import type { ChatInfo } from '../protocol/adapter.ts';
 import type { CallView } from '../tools/executors.ts';
@@ -92,6 +91,9 @@ export type SearchRefs = {
   bySourceId?: Map<string, SearchRef>;
 };
 
+/** A stored channel or thread a `#handle` may name: its place id and its native id, null when its row holds none. */
+export type KnownPlace = { readonly id: string; readonly nativeId: string | null };
+
 /** A store of the memory, as far as a call view reads it. */
 type ViewStore = {
   listChannels?: (
@@ -103,22 +105,22 @@ type ViewStore = {
 /**
  * The channel handles a call resolves: `shown` (the request's, handle -> channel id) and, behind it, the handle of
  * every channel of `chatIds` (the turn's own, by native id) and of every place of `knownPlaces` (the memory's channels
- * and threads of every interface, by place id; a direct chat has no channel handle), a handle two ids share left out
- * (widenHandles). A native id of a known place outside the turn's chats becomes that place's id, the form a call names
- * a place on any interface in; a native id two known places share stays as it is. Pure.
+ * and threads of every interface, by place id with its stored native id; a place without one has no channel handle), a
+ * handle two ids share left out (widenHandles). A native id of a known place outside the turn's chats becomes that
+ * place's id, the form a call names a place on any interface in; a native id two known places share stays as it is.
+ * Pure.
  */
 function callChannelHandles(
   shown: ReadonlyMap<string, string>,
   chatIds: ReadonlyArray<string>,
-  knownPlaces: ReadonlyArray<string>
+  knownPlaces: ReadonlyArray<KnownPlace>
 ): Map<string, string> {
   const chats = new Set(chatIds);
   const placeOfNative = new Map<string, string | null>();
-  for (const id of knownPlaces) {
-    const parts = placeIdParts(id);
-    if (parts === null || parts.kind === 'dm' || chats.has(parts.native)) continue;
-    const before = placeOfNative.get(parts.native);
-    placeOfNative.set(parts.native, before === undefined || before === id ? id : null);
+  for (const { id, nativeId } of knownPlaces) {
+    if (nativeId === null || chats.has(nativeId)) continue;
+    const before = placeOfNative.get(nativeId);
+    placeOfNative.set(nativeId, before === undefined || before === id ? id : null);
   }
   const unique = [...placeOfNative].flatMap(([native, id]) => (id === null ? [] : [native]));
   const widened = widenHandles(shown, [...chats, ...unique], CHANNEL_HANDLE_PREFIX);
@@ -195,8 +197,8 @@ export function callViewOf({
   placesNamed?: CallView['placesNamed'];
   placesFound?: CallView['placesFound'];
   findMeaning?: CallView['findMeaning'];
-  // The place ids of the memory's channels and threads on every interface (frame-reads.ts#chatPlaceIdsOf).
-  knownPlaces?: ReadonlyArray<string> | null;
+  // The memory's channels and threads on every interface with their native ids (frame-reads.ts#chatPlacesOf).
+  knownPlaces?: ReadonlyArray<KnownPlace> | null;
 }): CallView & { currentChatId: string } {
   const chats: Array<{ id: string; name: string }> = [];
   // A private chat shows no channel of the root: only the turn's own.

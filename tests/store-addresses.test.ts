@@ -27,6 +27,9 @@ function storeOver(): ReturnType<typeof createStore> {
     "INSERT INTO places (id, iface, kind, native_id, native_key, authority_id, generation, scope_kind) VALUES ('one:root:g1', 'one', 'server', 'g1', 'root:g1', 'one/global', 1, 'group')"
   ).run();
   addAccount(db, { id: 'account:u1', iface: 'one', authority: 'one/global', native: 'u1', person: 'person:opaque' });
+  db.prepare(
+    "INSERT INTO places (id, iface, kind, native_key, authority_id, generation, scope_kind, partner_account, partner_person) VALUES ('place:dm-opaque', 'one', 'dm', 'dm:u1', 'one/global', 1, 'dm', 'account:u1', 'person:opaque')"
+  ).run();
   seed.close();
   const memoryDb = createMemoryDb({
     hot: { config: { memoryDb: { session: { mode: 'off' } } } },
@@ -102,4 +105,23 @@ test('the chat of a place no row holds is the one the store named it from, else 
   assert.equal(store.chatOfPlace('one:channel:c7'), 'one:channel:c7');
   assert.equal(store.chatOfPlace('c7'), 'c7');
   assert.equal(store.chatOfPlace(store.placeOfChat({ id: 'c8' }, 'one')), 'c8');
+});
+
+test("a place's interface, kind, native id and partner's native id come from its rows, never from its id", () => {
+  // Bug: a turn spelled the chat of a place out of its id, which an opaque place id does not hold, and a DM place holds
+  // its partner's native id only on the partner's account row.
+  const store = storeOver();
+  assert.deepEqual(store.placeRefOf('place:dm-opaque'), {
+    iface: 'one',
+    kind: 'dm',
+    nativeId: null,
+    partnerNativeId: 'u1',
+  });
+  assert.deepEqual(store.placeRefOf('one:root:g1'), {
+    iface: 'one',
+    kind: 'server',
+    nativeId: 'g1',
+    partnerNativeId: null,
+  });
+  assert.equal(store.placeRefOf('one:channel:c7'), null);
 });

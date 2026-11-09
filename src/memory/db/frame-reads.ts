@@ -1,6 +1,7 @@
 // The reads of a request built on the turn frame beside the graph reader (src/memory/db/mind-read.ts): her own last
 // lines in other places and the lines around one line for `<meanwhile>`, one stored line by its identity for a
 // reference in a stored text, whether a lookup's source is retired, the stored fields of a place for `<surroundings>`,
+// a place as its interface knows it (its interface, kind and native ids, for a call that speaks to the interface),
 // an interface's name and nouns and her past selfreflection entries for a selfreflection request's `<selfreflection>`.
 // Each read applies the turn's context (`whereFor`), so nothing a scope may not read leaves here. Read only.
 
@@ -134,12 +135,37 @@ export function placeReadableOf(db: Db, ctx: Context, placeId: string): boolean 
   return place !== undefined && allowedAudience({ audience_id: placeAudience(place) }, ctx);
 }
 
-/** The id of every stored channel and thread of every interface, retired or live: the places a `#handle` may name. */
-export function chatPlaceIdsOf(db: Db): Array<string> {
+/** Every stored channel and thread of every interface, retired or live, with its native id: the places a `#handle` may name. */
+export function chatPlacesOf(db: Db): Array<{ id: string; nativeId: string | null }> {
   return db
-    .prepare("SELECT id FROM places WHERE kind IN ('channel', 'thread') ORDER BY id")
+    .prepare("SELECT id, native_id FROM places WHERE kind IN ('channel', 'thread') ORDER BY id")
     .all()
-    .flatMap((row) => (typeof row.id === 'string' ? [row.id] : []));
+    .flatMap((row) => (typeof row.id === 'string' ? [{ id: row.id, nativeId: text(row.native_id) }] : []));
+}
+
+/** What an interface knows a stored place by: its interface, its kind, its own native id and its DM partner's. */
+export type PlaceRef = { iface: string; kind: string; nativeId: string | null; partnerNativeId: string | null };
+
+/** The stored place `placeId` as its interface knows it, in one read of its row and its partner's account; null without a row. */
+export function placeRefOf(db: Db, placeId: string): PlaceRef | null {
+  const row = db
+    .prepare(
+      `SELECT p.iface, p.kind, p.native_id, a.native_id AS partner_native FROM places p
+       LEFT JOIN accounts a ON a.id = p.partner_account WHERE p.id = ?`
+    )
+    .get(placeId);
+  if (row === undefined) return null;
+  return {
+    iface: text(row.iface) ?? '',
+    kind: text(row.kind) ?? '',
+    nativeId: text(row.native_id),
+    partnerNativeId: text(row.partner_native),
+  };
+}
+
+/** The chat an interface speaks to for a place: a DM's partner, any other place's own native id; null when unknown. */
+export function nativeChatOf(ref: PlaceRef): string | null {
+  return ref.kind === 'dm' ? ref.partnerNativeId : ref.nativeId;
 }
 
 /** A stored line by its identity without the revision, as a reference names it. */
@@ -325,8 +351,10 @@ export type FrameReads = {
   directChats?(ctx: Context, reference: string, meaning?: FindMeaning): DirectChats;
   /** Whether the context reads a stored place (placeReadableOf). */
   placeReadable?(ctx: Context, placeId: string): boolean;
-  /** The id of every stored channel and thread (chatPlaceIdsOf). */
-  chatPlaceIds?(): Array<string>;
+  /** Every stored channel and thread with its native id (chatPlacesOf). */
+  chatPlaces?(): Array<{ id: string; nativeId: string | null }>;
+  /** A stored place as its interface knows it, null without a row (placeRefOf). */
+  placeRef?(placeId: string): PlaceRef | null;
   /** The owner's account on the interface of a stored place, by `bot.ownerPerson` (person-links.ts#ownerAccountOf). */
   ownerAccount?(placeId: string): string | null;
 };
@@ -373,7 +401,8 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
         directChatsOf(db, ctx, reference, findSettingsOf(configOf()), meaning)
       ),
     placeReadable: (ctx, placeId) => over(false, (db) => placeReadableOf(db, ctx, placeId)),
-    chatPlaceIds: () => over([], (db) => chatPlaceIdsOf(db)),
+    chatPlaces: () => over([], (db) => chatPlacesOf(db)),
+    placeRef: (placeId) => over(null, (db) => placeRefOf(db, placeId)),
     ownerAccount: (placeId) => over(null, (db) => ownerAccountOfPlace(db, configOf(), placeId)),
   };
 }
