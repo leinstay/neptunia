@@ -1,7 +1,7 @@
 // The direct chats of a person she names in a call (docs/memory.md, "Finding a place or a person"). A direct chat has
 // no channel handle, so `conversation.read` takes the person and reads their chat (src/turn/in-turn-tools.ts).
 //
-//   directChatsOf(db, ctx, reference, settings) -> DirectChats
+//   directChatsOf(db, ctx, reference, settings, meaning?) -> DirectChats
 //
 // The reference is a member handle (`@u…`, the handle a request gives the account's platform id, handles.ts#handleOf) or
 // a name the index holds exactly for one person under the context. Their chats are the live direct chats of every
@@ -11,7 +11,7 @@
 
 import { handleOf, HANDLE_PREFIX } from '../../behavior/handles.ts';
 import { peopleFound } from './graph-find.ts';
-import type { FindSettings, FoundPerson } from './graph-find.ts';
+import type { FindMeaning, FindSettings, FoundPerson } from './graph-find.ts';
 import { accountsOfPerson } from './meta-person.ts';
 import { matchName } from './names.ts';
 import { dmPlacesOfAccounts, personMembers } from './person-links.ts';
@@ -84,7 +84,8 @@ export function directChatsOf(
   db: Db,
   ctx: Context,
   reference: string,
-  settings: Partial<FindSettings> = {}
+  settings: Partial<FindSettings> = {},
+  meaning: FindMeaning = { vector: null, model: null }
 ): DirectChats {
   const given = reference.trim().replace(/^@/, '');
   if (given === '') return { kind: 'none' };
@@ -98,7 +99,9 @@ export function directChatsOf(
   const [only] = [...people];
   if (people.size === 1 && only !== undefined)
     return { kind: 'chats', personId: only, places: chatsOfPerson(db, only) };
-  const found = peopleFound(db, ctx, given, settings).filter((person) => people.size === 0 || people.has(person.id));
+  const found = peopleFound(db, ctx, given, settings, meaning).filter(
+    (person) => people.size === 0 || people.has(person.id)
+  );
   if (found.length === 0) return { kind: 'none' };
   return { kind: 'found', people: found.map((person) => ({ ...person, handle: handleOfPerson(db, person.id) })) };
 }

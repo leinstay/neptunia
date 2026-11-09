@@ -27,7 +27,16 @@ import { toolResultText } from '../src/tools/tool-calls.ts';
 import { createFakeAdapter } from '../src/interface/fake.ts';
 import { createIfaceRouter } from '../src/interface/link.ts';
 import { createReads } from '../src/interface/reads.ts';
-import { RESULT_STATUSES, executeCall, outcomeDetail, refusalStatus, resolveCall } from '../src/tools/executors.ts';
+import {
+  RESULT_STATUSES,
+  executeCall,
+  outcomeDetail,
+  refusalStatus,
+  resolveCall,
+  resolveCallWithMeaning,
+} from '../src/tools/executors.ts';
+import { createFindMeaning } from '../src/memory/db/graph-find.ts';
+import type { FindMeaning } from '../src/memory/db/graph-find.ts';
 import type { ExecuteDeps, Resolved } from '../src/tools/executors.ts';
 import { skillRegistry } from '../src/tools/registry.ts';
 import { checkSkill } from '../src/tools/gateway.ts';
@@ -1906,3 +1915,60 @@ test('message.create from the command line to a room where the interface grants 
 
 // The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).
 ownedBy([OWNER]);
+
+// ---- the finder's embedding ----------------------------------------------------------------------------------------
+
+/** A graph finder that answers `byWords` for words alone and puts `byMeaning` first when given a vector. */
+function graphView(
+  byWords: ReadonlyArray<{ id: string; hasEveryWord: boolean }>,
+  byMeaning: string | null,
+  embed: (text: string) => Promise<ArrayLike<number> | null>,
+  deadlineMs = 1000
+) {
+  const place = (id: string, hasEveryWord: boolean) => ({ id, name: id, about: null, hasEveryWord });
+  return view({
+    placesFound: (_words: string, meaning?: FindMeaning) => {
+      const words = byWords.map((one) => place(one.id, one.hasEveryWord));
+      return meaning?.vector && byMeaning !== null ? [place(byMeaning, false), ...words] : words;
+    },
+    findMeaning: createFindMeaning({ embed, model: 'test/embedder', deadlineMs, memo: new Map() }),
+  });
+}
+
+const choiceIds = (answer: unknown): Array<string> =>
+  ((answer as { choices?: Array<{ id: string }> }).choices ?? []).map((one) => one.id);
+
+test('a place name whose words find a full match sends no embedding', async () => {
+  // Bug: the finder embeds every miss, so a request the words answer waits for a provider.
+  let asked = 0;
+  const embed = () => {
+    asked += 1;
+    return Promise.resolve([1, 0]);
+  };
+  const shown = graphView([{ id: 'p-words', hasEveryWord: true }], 'p-meant', embed);
+  const answer = await resolveCallWithMeaning({ skill: 'memory.channel.read', args: { place: 'ψάρεμα' } }, shown);
+  assert.equal(asked, 0);
+  assert.deepEqual(choiceIds(answer), ['p-words']);
+});
+
+test('a place name with no full match embeds once, and the same words again in the turn embed nothing', async () => {
+  // Bug: an English name finds no Greek place, or every call of the turn pays for the same embedding again.
+  let asked = 0;
+  const embed = () => {
+    asked += 1;
+    return Promise.resolve([1, 0]);
+  };
+  const shown = graphView([{ id: 'p-words', hasEveryWord: false }], 'p-meant', embed);
+  const call = { skill: 'memory.channel.read', args: { place: 'fishing place' } };
+  assert.deepEqual(choiceIds(await resolveCallWithMeaning(call, shown)), ['p-meant', 'p-words']);
+  assert.deepEqual(choiceIds(await resolveCallWithMeaning(call, shown)), ['p-meant', 'p-words']);
+  assert.equal(asked, 1);
+});
+
+test('an embedding past the deadline answers with the places the words found', async () => {
+  // Bug: a slow provider holds the call, or its late vector is awaited past the finder's deadline.
+  const embed = () => new Promise<ArrayLike<number> | null>(() => {});
+  const shown = graphView([{ id: 'p-words', hasEveryWord: false }], 'p-meant', embed, 20);
+  const answer = await resolveCallWithMeaning({ skill: 'memory.channel.read', args: { place: 'fishing' } }, shown);
+  assert.deepEqual(choiceIds(answer), ['p-words']);
+});

@@ -32,7 +32,7 @@ import { hasRecallContext } from '../behavior/recall-reads.ts';
 import { fill } from '../format.ts';
 import { clampWithEllipsis, oneLine } from '../memory/clamp.ts';
 import { zonedDay } from '../time.ts';
-import { RECALL_DEFAULTS, memorySearchPlan, recallSettings } from '../behavior/recall.ts';
+import { RECALL_DEFAULTS, fuseRanks, memorySearchPlan, recallSettings } from '../behavior/recall.ts';
 import { collectPictures, collectVideos } from '../media/classify.ts';
 import { videoSiteFor, videoUrlCacheKey } from '../media/video-sites.ts';
 import { foldText } from '../memory/recent.ts';
@@ -1030,26 +1030,43 @@ function wordScore(q: string, d: string): number {
   return 0;
 }
 
+/** A query's embedding and the captions' vectors of the same model, by item id (src/memory/db/gif-vectors.ts). */
+export type GifMeaning = { vector: ArrayLike<number>; vectors: ReadonlyMap<string, ArrayLike<number>> };
+
+/** The cosine of two vectors of one length; null for another length or a zero vector. */
+function cosineOf(a: ArrayLike<number>, b: ArrayLike<number> | undefined): number | null {
+  if (!b || a.length !== b.length || a.length === 0) return null;
+  let dot = 0;
+  let aa = 0;
+  let bb = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    dot += a[i] * b[i];
+    aa += a[i] * a[i];
+    bb += b[i] * b[i];
+  }
+  return aa > 0 && bb > 0 ? dot / Math.sqrt(aa * bb) : null;
+}
+
 /**
- * The library's GIFs that match `query`, best first: each entry's stored description (its reaction,
- * its action and its on-screen text, from the describer cache) scored word by word against the
- * query's words (folded: case and accents ignored, so descriptions in either language match; the
- * best match of each query word counts, the reaction field double); entries scoring nothing are left
- * out, ties keep the library's own rank (most used and most recent first). At most `n` (1..FIND_MAX,
- * FIND_DEFAULT when not a number). Pure.
- * `gifs` is the stored library (store.getGifs) and `mediaCache` the describer cache (store.getMediaCache), read only.
- * The entries come back best first, `id` the handle.
+ * findGifs with the words' fit: the entries best first, at most `n`, and whether one holds every word of the query.
+ * With `meaning`, the entries whose caption vector meets the query's at or above `recall.db.minMeaning` (0.35) form a
+ * second list fused with the words by rank; an entry that holds every word comes first, in the words' order.
  */
-export function findGifs(
+function gifMatches(
   gifs: unknown,
   mediaCache: Obj | null,
   query: string,
-  { n = FIND_DEFAULT, halfLifeDays = GIF_HALF_LIFE_DAYS }: { n?: unknown; halfLifeDays?: number } = {}
-): Array<GifEntry> {
+  {
+    n = FIND_DEFAULT,
+    halfLifeDays = GIF_HALF_LIFE_DAYS,
+    meaning = null,
+  }: { n?: unknown; halfLifeDays?: number; meaning?: GifMeaning | null } = {}
+): { entries: Array<GifEntry>; hasEveryWord: boolean } {
   const wanted = [...new Set(wordsOf(query))];
-  if (wanted.length === 0) return [];
+  if (wanted.length === 0) return { entries: [], hasEveryWord: false };
   const count = Number.isFinite(Number(n)) && Number(n) >= 1 ? Math.min(FIND_MAX, Math.floor(Number(n))) : FIND_DEFAULT;
-  const scored: Array<{ entry: GifEntry; score: number; at: number }> = [];
+  const scored: Array<{ entry: GifEntry; score: number; at: number; full: boolean }> = [];
+  const meant: Array<{ entry: GifEntry; close: number; at: number }> = [];
   for (const [at, ranked] of (rankGifs(gifs, halfLifeDays) as Array<GifEntry>).entries()) {
     const entry = ranked;
     const cached = objOf(mediaCache?.[entry.itemId]);
@@ -1065,15 +1082,45 @@ export function findGifs(
     const docs = parts.map(([value, weight]) => ({ words: wordsOf(value), weight }));
     if (docs.every((doc) => doc.words.length === 0)) continue;
     let score = 0;
+    let fitted = 0;
     for (const q of wanted) {
       let best = 0;
       for (const doc of docs) for (const d of doc.words) best = Math.max(best, wordScore(q, d) * doc.weight);
       score += best;
+      if (best > 0) fitted += 1;
     }
-    if (score > 0) scored.push({ entry, score, at });
+    if (score > 0) scored.push({ entry, score, at, full: fitted === wanted.length });
+    const close = meaning ? cosineOf(meaning.vector, meaning.vectors.get(entry.itemId)) : null;
+    if (close !== null && close >= RECALL_DEFAULTS.db.minMeaning) meant.push({ entry, close, at });
   }
   scored.sort((a, b) => b.score - a.score || a.at - b.at);
-  return scored.slice(0, count).map((item) => item.entry);
+  const hasEveryWord = scored.some((one) => one.full);
+  if (meant.length === 0) return { entries: scored.slice(0, count).map((item) => item.entry), hasEveryWord };
+  meant.sort((a, b) => b.close - a.close || a.at - b.at);
+  const first = scored.filter((one) => one.full).map((one) => one.entry);
+  const fused = fuseRanks([scored.map((one) => one.entry), meant.map((one) => one.entry)])
+    .map((one) => one.id as GifEntry) // the entries the two lists hold
+    .filter((entry) => !first.includes(entry));
+  return { entries: [...first, ...fused].slice(0, count), hasEveryWord };
+}
+
+/**
+ * The library's GIFs that match `query`, best first: each entry's stored description (its reaction,
+ * its action and its on-screen text, from the describer cache) scored word by word against the
+ * query's words (folded: case and accents ignored, so descriptions in either language match; the
+ * best match of each query word counts, the reaction field double); entries scoring nothing are left
+ * out, ties keep the library's own rank (most used and most recent first). At most `n` (1..FIND_MAX,
+ * FIND_DEFAULT when not a number). With `meaning`, the captions' vectors rank a second list (gifMatches). Pure.
+ * `gifs` is the stored library (store.getGifs) and `mediaCache` the describer cache (store.getMediaCache), read only.
+ * The entries come back best first, `id` the handle.
+ */
+export function findGifs(
+  gifs: unknown,
+  mediaCache: Obj | null,
+  query: string,
+  options: { n?: unknown; halfLifeDays?: number; meaning?: GifMeaning | null } = {}
+): Array<GifEntry> {
+  return gifMatches(gifs, mediaCache, query, options).entries;
 }
 
 /**
@@ -1105,6 +1152,43 @@ export function mediaFindText(
   return lines.join('\n');
 }
 
+type MediaFindStore = {
+  getGifs?: () => unknown;
+  getMediaCache?: (placeId: string) => unknown;
+  getGifVectors?: (model?: string | null) => ReadonlyMap<string, ArrayLike<number>>;
+} | null;
+type MediaFindInput = {
+  store: MediaFindStore;
+  config: unknown;
+  labels: unknown;
+  placeId: string | null;
+  args: unknown;
+};
+
+/** The checked arguments of a media.find, or the refusal of them. */
+function mediaFindArgs({
+  store,
+  placeId,
+  args,
+}: MediaFindInput): { query: string; given: unknown; gifs: unknown; mediaCache: Obj | null } | ToolResult {
+  const asked = objOf(args);
+  const query = text(asked.query);
+  if (!query || wordsOf(query).length === 0)
+    return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.query:required' };
+  if (!store || typeof store.getGifs !== 'function' || !placeId)
+    return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
+  const given = asked.n;
+  if (
+    given !== undefined &&
+    given !== null &&
+    given !== '' &&
+    (!Number.isInteger(Number(given)) || Number(given) < 1 || Number(given) > FIND_MAX)
+  )
+    return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.n:range' };
+  const cache = typeof store.getMediaCache === 'function' ? store.getMediaCache(placeId) : null;
+  return { query, given, gifs: store.getGifs(), mediaCache: isObj(cache) ? cache : null };
+}
+
 /**
  * One media.find: her `args.query` (her words) against the descriptions of the place's GIF library
  * (src/memory/gifs.ts, the describer cache), `args.n` results (default 5, at most 10). Reads only; no
@@ -1112,38 +1196,46 @@ export function mediaFindText(
  * `not_configured` without the store or while `features.gifs` is false (read now); else `ok` with
  * mediaFindText as its `data.text` -- an empty result is an ok with `find.none`. Never throws.
  */
-export function runMediaFind({
-  store,
-  config,
-  labels,
-  placeId,
-  args,
-}: {
-  store: { getGifs?: () => unknown; getMediaCache?: (placeId: string) => unknown } | null;
-  config: unknown;
-  labels: unknown;
-  placeId: string | null;
-  args: unknown;
-}): ToolResult {
+export function runMediaFind(input: MediaFindInput): ToolResult {
   try {
-    const asked = objOf(args);
-    const query = text(asked.query);
-    if (!query || wordsOf(query).length === 0)
-      return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.query:required' };
-    if (!store || typeof store.getGifs !== 'function' || !placeId)
-      return { status: 'not_configured', code: CODE.NOT_CONFIGURED };
-    const given = asked.n;
-    if (
-      given !== undefined &&
-      given !== null &&
-      given !== '' &&
-      (!Number.isInteger(Number(given)) || Number(given) < 1 || Number(given) > FIND_MAX)
-    )
-      return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.n:range' };
-    const cache = typeof store.getMediaCache === 'function' ? store.getMediaCache(placeId) : null;
-    const mediaCache = isObj(cache) ? cache : null;
-    const found = findGifs(store.getGifs(), mediaCache, query, { n: given });
+    const checked = mediaFindArgs(input);
+    if ('status' in checked) return checked;
+    const { query, given, gifs, mediaCache } = checked;
+    const found = findGifs(gifs, mediaCache, query, { n: given });
+    const { labels, config } = input;
     return { status: 'ok', data: { text: mediaFindText(found, { query, labels, mediaCache, config }) } };
+  } catch {
+    return { status: 'failed', code: CODE.ERROR };
+  }
+}
+
+/**
+ * media.find in a turn: runMediaFind, and when no GIF holds every word of the query, the query's embedding from
+ * `findMeaning` (graph-find.ts#createFindMeaning, within its deadline) ranks the captions' vectors of its model beside
+ * the words. A query the words answer in full sends no embedding, and a late or failed one leaves the words' answer.
+ */
+export async function mediaFind(
+  input: MediaFindInput & {
+    findMeaning?: {
+      fetch: (text: string) => Promise<{ vector: ArrayLike<number> | null; model: string | null } | null>;
+    } | null;
+  }
+): Promise<ToolResult> {
+  try {
+    const checked = mediaFindArgs(input);
+    if ('status' in checked) return checked;
+    const { query, given, gifs, mediaCache } = checked;
+    let found = gifMatches(gifs, mediaCache, query, { n: given });
+    const { store, findMeaning, labels, config } = input;
+    if (!found.hasEveryWord && findMeaning && typeof store?.getGifVectors === 'function') {
+      const meant = await findMeaning.fetch(query);
+      if (meant?.vector)
+        found = gifMatches(gifs, mediaCache, query, {
+          n: given,
+          meaning: { vector: meant.vector, vectors: store.getGifVectors(meant.model) },
+        });
+    }
+    return { status: 'ok', data: { text: mediaFindText(found.entries, { query, labels, mediaCache, config }) } };
   } catch {
     return { status: 'failed', code: CODE.ERROR };
   }

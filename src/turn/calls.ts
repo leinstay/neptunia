@@ -168,6 +168,7 @@ export function callViewOf({
   stem = null,
   placesNamed = null,
   placesFound = null,
+  findMeaning = null,
   knownPlaces = null,
 }: {
   // The interface's description of the chat: a private chat (`rootId` null) lists no channels.
@@ -193,6 +194,7 @@ export function callViewOf({
   stem?: ((word: string) => string) | null;
   placesNamed?: CallView['placesNamed'];
   placesFound?: CallView['placesFound'];
+  findMeaning?: CallView['findMeaning'];
   // The place ids of the memory's channels and threads on every interface (frame-reads.ts#chatPlaceIdsOf).
   knownPlaces?: ReadonlyArray<string> | null;
 }): CallView & { currentChatId: string } {
@@ -237,6 +239,7 @@ export function callViewOf({
     ...(stem ? { stem } : {}),
     ...(placesNamed ? { placesNamed } : {}),
     ...(placesFound ? { placesFound } : {}),
+    ...(findMeaning ? { findMeaning } : {}),
     channelHandles: shownChannels
       ? callChannelHandles(
           shownChannels,
