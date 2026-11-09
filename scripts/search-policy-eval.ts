@@ -35,8 +35,10 @@
 // Rails: requests marked `origin: 'search-policy-eval'`, never counted against
 // llm.maxRequestsPerDay, no calibration, no prompt-cache marker, the daily counters a throwaway
 // copy; at most `--concurrency` (default 4) at once; no row is started once the summed cost has
-// passed `--max-usd` (default 1). The key: the variable `--key` names (read from the private
-// .env), else the simulation key (scripts/lib/cli.ts#simKey). Nothing under data/ is read or
+// passed `--max-usd` (default 1). The keys: production's, as the core
+// routes them (scripts/lib/script-routes.ts); `--<role> <key>/<model>` replaces a role for this run, and the
+// start lines on stderr name each role's key. `--key` names a variable of the private .env whose key every role
+// spends instead. Nothing under data/ is read or
 // written; `--out` may not point there.
 //
 // Output in `--out`: `results.jsonl` (per row `{ id, source, tier, decision, query, forms, who,
@@ -47,7 +49,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CliError, defaultDataDir, parseFlags, privateDirOf, runCli, simKey } from './lib/cli.ts';
+import { CliError, defaultDataDir, flagText, parseFlags, privateDirOf, runCli } from './lib/cli.ts';
+import { routesText, scriptRouting, takeRoutes } from './lib/script-routes.ts';
+import type { Variant } from './lib/script-routes.ts';
 import { costOf } from './lib/recall-eval.ts';
 import { decisionOf, parseSheet, renderSummary, rowChat, summarize } from './lib/search-policy-eval.ts';
 import type { PolicyResult, SheetRow } from './lib/search-policy-eval.ts';
@@ -58,9 +62,9 @@ const USAGE =
   'usage: node scripts/search-policy-eval.ts <sheet.jsonl> --out <dir> [--key <ENV_NAME>] [--model <id>] [--limit N] [--max-usd 1] [--concurrency 4] [--self-name <name>] [--dry-run]';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'search-policy-eval';
+const ENV_NAME_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 const DEFAULT_MAX_USD = 1;
 const DEFAULT_CONCURRENCY = 4;
-const ENV_NAME_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 
 /** A number from a flag in [min, max], `fallback` when absent; a CliError otherwise. */
 function numberFlag(
@@ -74,20 +78,52 @@ function numberFlag(
   return n;
 }
 
+/** The key the variable `name` of `env` holds, for `--key`. Never printed. */
+function namedKey(name: string, env: Record<string, string | undefined>): string {
+  if (!ENV_NAME_RE.test(name)) throw new CliError(`${ORIGIN}: --key takes the name of a variable, not a key\n${USAGE}`);
+  const value = env[name];
+  if (typeof value !== 'string' || !value.trim()) throw new CliError(`${ORIGIN}: ${name} is not set (.env)`);
+  return value.trim();
+}
+
+/**
+ * The live client of a run: every role on the key of the variable `named` names, or each role on production's routing
+ * with the roles `routes` replaces (scripts/lib/script-routes.ts), said on stderr. The daily counters are a throwaway copy.
+ */
+async function liveClient({
+  named,
+  env,
+  privateDir,
+  routes,
+  getConfig,
+}: {
+  named: string | undefined;
+  env: Record<string, string | undefined>;
+  privateDir: string;
+  routes: Variant;
+  getConfig: () => Untyped;
+}): Promise<Untyped> {
+  const { createLlm } = await import('../src/llm/openrouter.ts');
+  const { createCalibrator } = await import('../src/llm/tokens.ts');
+  const state = { data: {}, markDirty() {} };
+  const calibrator = createCalibrator();
+  if (named !== undefined) return createLlm({ apiKey: namedKey(named, env), getConfig, calibrator, state });
+  const routing = await scriptRouting(ORIGIN, {
+    privateDir,
+    roles: ['analyzer'],
+    variant: routes,
+    getConfig,
+    createDirect: (keys, configOf) => createLlm({ apiKey: '', keys, getConfig: configOf, calibrator, state }),
+    state,
+  });
+  process.stderr.write(routesText(ORIGIN, routing.said));
+  return routing.llm;
+}
+
 /** Whether `file` is `dir` or inside it. */
 function inside(file: string, dir: string) {
   const rel = path.relative(dir, file);
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
-}
-
-/** The key the run spends: the variable `name` names, else the simulator key (simKey). Never printed. */
-function keyOf(name: string | undefined, env: Record<string, string | undefined>) {
-  if (name === undefined) return simKey(ORIGIN, env);
-  if (!ENV_NAME_RE.test(name))
-    throw new CliError(`search-policy-eval: --key takes the name of a variable, not a key\n${USAGE}`);
-  const value = env[name];
-  if (typeof value !== 'string' || !value.trim()) throw new CliError(`search-policy-eval: ${name} is not set (.env)`);
-  return value.trim();
 }
 
 /**
@@ -113,7 +149,8 @@ export async function main(
     rootDir?: string;
   } = {}
 ): Promise<string> {
-  const flags = parseFlags(argv, {
+  const taken = takeRoutes(ORIGIN, argv);
+  const flags = parseFlags(taken.argv, {
     values: ['--out', '--key', '--model', '--limit', '--max-usd', '--concurrency', '--self-name'],
     switches: ['--dry-run'],
     usage: USAGE,
@@ -195,19 +232,15 @@ export async function main(
     process.stderr.write(
       `search-policy-eval: ${asked.length} row(s), up to ${asked.length} model request(s), none started once the cost passes ${maxUsd} USD\n`
     );
-    let llm = llmClient;
-    if (!llm) {
-      const { createLlm } = await import('../src/llm/openrouter.ts');
-      const { createCalibrator } = await import('../src/llm/tokens.ts');
-      const apiKey = keyOf(flags['--key'], env);
-      // The given key pays every role; the daily counters are a throwaway copy.
-      llm = createLlm({
-        apiKey,
+    const llm: Untyped =
+      llmClient ??
+      (await liveClient({
+        named: flagText(flags, '--key'),
+        env,
+        privateDir: privateDirOf(rootDir, env),
+        routes: taken.routes,
         getConfig: configNow,
-        calibrator: createCalibrator(),
-        state: { data: {}, markDirty() {} },
-      });
-    }
+      }));
 
     let spent = 0;
     let stopped: Untyped = null;

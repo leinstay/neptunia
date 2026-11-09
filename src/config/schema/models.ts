@@ -179,6 +179,6 @@ export const MODELS: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/subharness/routing.ts',
     'default': null,
     'text':
-      "The simulation's subscription route for the paid scripts, in the shape of `models.harness.core`. Null is the API on the simulation key. `/model set simulation <model> --via <route>` writes it",
+      'A subscription route in the shape of `models.harness.core` that `/model set simulation <model> --via <route>` writes. No paid script reads it',
   },
 ];

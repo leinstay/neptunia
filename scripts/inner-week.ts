@@ -2,14 +2,14 @@
 // production scheduler and intention service over a temporary data directory, a fake clock that
 // jumps between the moments that matter, the week scripted by a fixture (scripts/fixtures/),
 // the inner turns answered by a deterministic stub voice -- or, on selected days, by the real voice
-// in shadow on the simulation's route or key (scripts/lib/cli.ts#simulationLlm). Prints the acceptance gates; writes a
+// in shadow on production's routing (scripts/lib/script-routes.ts). Prints the acceptance gates; writes a
 // report per fixture.
 //
 // Usage (from the checkout):
 //   node scripts/inner-week.ts --all [--out <dir>]
 //   node scripts/inner-week.ts --fixture <name|file> [--fixture ...] [--out <dir>] [--keep]
 //   node scripts/inner-week.ts --fixture <name|file> --live --days <2,4-5> --channel <placeId>
-//        [--data <dir>] [--spend <usd>] [--out <dir>]
+//        [--data <dir>] [--spend <usd>] [--out <dir>] [--<role> <route>]...
 //
 // `--fixture`: a file, or the name of one under scripts/fixtures/ (`ordinary-talk`).
 // `--out <dir>`: `<dir>/<fixture>/report.json` and `report.md` (every wake, inner turn, cap
@@ -20,7 +20,8 @@
 // Stub mode (the default) spends nothing: nothing leaves the process, no data directory is read.
 //
 // `--live`: the fixture's week again, the inner turns of `--days` (1-based) answered by the real
-// turn runner in shadow (`wakes.mode` forced to `shadow`: her reads run on the simulation key,
+// turn runner in shadow (`wakes.mode` forced to `shadow`: her reads run on the keys and harnesses production routes
+// each role to, and `--core`, `--analyzer` or another role flag replaces one for this run,
 // every other call is only proposed), the other days by the stub. Wired as `replay.ts --inner`:
 // Discord over REST, GET only (`--channel` is the real channel every fixture chat is played
 // in; its sends refused), her memory an unflushed copy of `--data` (default the deployment's data
@@ -41,17 +42,9 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { interfaceCredential } from '../src/config/files.ts';
-import {
-  CliError,
-  REFUSED_EXIT,
-  defaultDataDir,
-  parseFlags,
-  privateDirOf,
-  runCli,
-  simulationLlm,
-  spendGate,
-} from './lib/cli.ts';
-import type { SimulationLlm } from './lib/cli.ts';
+import { CliError, REFUSED_EXIT, defaultDataDir, parseFlags, privateDirOf, runCli, spendGate } from './lib/cli.ts';
+import { routedHot, routesText, scriptRouting, takeRoutes } from './lib/script-routes.ts';
+import type { ScriptRouting, Variant } from './lib/script-routes.ts';
 import { readOnlyMemory } from './lib/memory-read.ts';
 import { discordReads, scriptedChatOf, scriptedReads } from './lib/platform-objects.ts';
 import {
@@ -98,11 +91,14 @@ type InnerWeekArgs = {
   channel: string | null;
   data: string | null;
   spend: string | undefined;
+  /** The roles the role flags replace for this run (scripts/lib/script-routes.ts). */
+  routes: Variant;
 };
 
 /** The argv of the tool, checked. */
 export function parseArgs(argv: Array<string>): InnerWeekArgs {
-  const flags = parseFlags(argv, {
+  const taken = takeRoutes('inner-week', argv);
+  const flags = parseFlags(taken.argv, {
     values: ['--out', '--days', '--channel', '--data', '--spend'],
     lists: ['--fixture'],
     switches: ['--all', '--live', '--keep'],
@@ -119,6 +115,7 @@ export function parseArgs(argv: Array<string>): InnerWeekArgs {
     channel: flags['--channel'] ?? null,
     data: flags['--data'] ?? null,
     spend: flags['--spend'],
+    routes: taken.routes,
   };
   if (out.all === out.fixtures.length > 0) throw new CliError(USAGE);
   if (out.live) {
@@ -252,7 +249,7 @@ export function scriptedHistory(lines: Untyped, { channel, selfId, selfName, now
  * fixture's people in her copied directory. Resolves `{ voice, placeId, channel, close }`
  * (`channel`: the real channel's id and name); `voice.runTurn` answers null once the spend is used up.
  */
-async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
+async function createLiveVoice({ args, fixture, clock, budget, log }: Rec, routes: Variant) {
   const replay = await import('./replay.ts');
   const load = (rel: Untyped) => import(pathToFileURL(path.join(ROOT, 'src', rel)).href);
   const mods = { ...(await replay.loadSelfreflectionMods(load)), ...(await load('admin.ts')) };
@@ -263,7 +260,7 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
   const dataDir = args.data ? path.resolve(args.data) : defaultDataDir(ROOT);
   if (!fs.existsSync(dataDir)) throw new CliError(`inner-week: no data directory at ${dataDir}`);
 
-  const liveHot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
+  const liveHot = routedHot(createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) }), routes);
   const shadowHot = replay.innerReplayHot(liveHot);
   // Her intentions shown as on any turn (the week's own, in its temporary directory).
   const hot = new Proxy(shadowHot, {
@@ -275,21 +272,23 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
     },
   });
   let client: Untyped = null;
-  let sim: SimulationLlm | null = null;
+  let routing: ScriptRouting | null = null;
   const { memoryDb } = readOnlyMemory(dataDir);
   if (!memoryDb) throw new CliError(`inner-week: no memory database in ${dataDir}`);
   try {
     const { store, state } = replay.unflushedStore(mods.createStore({ dataDir, memoryDb }));
     const calibrator = mods.createCalibrator(state.data.calibration);
     const calls: Array<Untyped> = [];
-    sim = simulationLlm('inner-week', {
-      createDirect: (apiKey, ring) =>
-        mods.createLlm({ apiKey, keys: ring, getConfig: () => hot.config, calibrator, state }),
+    routing = await scriptRouting('inner-week', {
+      privateDir: privateDirOf(ROOT),
+      roles: ['core', 'analyzer', 'vision', 'video', 'embedding'],
+      variant: routes,
       getConfig: (): unknown => hot.config,
+      createDirect: (keys, getConfig) => mods.createLlm({ apiKey: '', keys, getConfig, calibrator, state }),
       state,
     });
-    process.stderr.write(`inner-week: ${sim.said}\n`);
-    const llm = replay.recordingLlm(sim.llm, calls, { noCache: true });
+    process.stderr.write(routesText('inner-week', routing.said));
+    const llm = replay.recordingLlm(routing.llm, calls, { noCache: true });
     const discord = createRequire(path.join(ROOT, 'package.json'))('discord.js');
     const connection = await replay.connectDiscord({
       discord,
@@ -428,13 +427,13 @@ async function createLiveVoice({ args, fixture, clock, budget, log }: Rec) {
       close: async () => {
         liveHot.close?.();
         if (client) await Promise.resolve(client.destroy()).catch(() => {});
-        await sim?.close();
+        await routing?.close();
       },
     };
   } catch (err) {
     liveHot.close?.();
     if (client) await Promise.resolve(client.destroy()).catch(() => {});
-    await sim?.close();
+    await routing?.close();
     throw err;
   }
 }
@@ -485,7 +484,10 @@ export async function main(argv: Array<string>, { cwd = process.cwd() }: { cwd?:
   process.stderr.write(`inner-week: ${gate.text}\n`);
   const clockBox = { now: () => fixture.startMs };
   const { log } = await import('../src/log.ts');
-  const live = await createLiveVoice({ args, fixture, clock: { now: () => clockBox.now() }, budget: gate.budget, log });
+  const live = await createLiveVoice(
+    { args, fixture, clock: { now: () => clockBox.now() }, budget: gate.budget, log },
+    args.routes
+  );
   try {
     const liveFixture = withChannelMap(fixture, liveChannelMap(fixture, live.channel));
     const dataDir = tempData(fixture.name);

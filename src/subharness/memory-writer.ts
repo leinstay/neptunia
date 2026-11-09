@@ -22,7 +22,7 @@ import { markedRun } from './activity.ts';
 import { LOGIN_FAILURE, runOutcomeOf } from './login-state.ts';
 import type { RunOutcome } from './login-state.ts';
 import { memoryPath } from './memory-path.ts';
-import type { SubharnessMemoryPath } from './memory-path.ts';
+import type { MemoryPath, SubharnessMemoryPath } from './memory-path.ts';
 import { isInstalled, subharnessPlace } from './place.ts';
 
 /** The shape of codex's final message (`--output-schema`): the whole answer the request's prompt asks for, thinking and tags included, as one string. */
@@ -261,6 +261,8 @@ export function memoryWriterClient(deps: {
   onRefused?: () => void;
   /** Told what each run of the subharness path came to, for the header's login state (src/subharness/login-state.ts). */
   ran?: (backend: SubharnessMemoryPath['backend'], outcome: RunOutcome) => void;
+  /** The path of each call in place of config.json's, for a paid script whose `--memory` flag replaces the role (scripts/lib/script-routes.ts). */
+  path?: () => MemoryPath;
 }): SessionContext['llm'] {
   const { writer, direct, record, onRefused, ran } = deps;
   async function told<T>(run: () => Promise<T>): Promise<T> {
@@ -274,7 +276,7 @@ export function memoryWriterClient(deps: {
   return {
     complete(messages, options) {
       return told(async () => {
-        const path = memoryPath(writer.privateDir);
+        const path = deps.path?.() ?? memoryPath(writer.privateDir);
         if (path.kind === 'direct') return direct.complete(messages, options);
         const timeout = Number(options.timeoutMs);
         let completion: Completion;

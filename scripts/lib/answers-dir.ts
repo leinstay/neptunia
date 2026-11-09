@@ -1,6 +1,6 @@
-// The offline model of scripts/replay.ts (`--answers-dir <dir>`): for every request to an
-// Anthropic model (to any model with `--answers-all`) the tool writes the request to a file and waits for the answer
-// in another, instead of calling OpenRouter. An outside agent reads `req-<n>.md` and writes `ans-<n>.txt`.
+// The offline model of scripts/replay.ts (`--answers-dir <dir>`): for every request, of any role and model, the tool
+// writes the request to a file and waits for the answer in another, instead of calling a provider or a harness
+// (`offlineCore`, which scripts/lib/script-routes.ts puts in place of every client). An outside agent reads `req-<n>.md` and writes `ans-<n>.txt`.
 //
 //   <dir>/req-001.json the same request for machines, written first: { model, purpose, system, messages:
 //                      [{ role, content }] } with the exact strings (system = the system messages joined
@@ -14,8 +14,8 @@
 //   <dir>/ans-001.txt  the model's text, written by the answerer (write a temp file, then rename)
 //   <dir>/done         written when the run ends: `exit <code>`
 //
-// Numbers count the run's answered requests from 1, zero-padded to 3. Requests to other models
-// (without `--answers-all`) are not touched. A directory that holds files of an earlier run is refused.
+// Numbers count the run's answered requests from 1, zero-padded to 3. A directory that holds files of an earlier run
+// is refused. `withAnswersDir`, which sends Anthropic models alone to the files, has no caller in the scripts.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -275,8 +275,8 @@ export function withAnswersDir(
 }
 
 /**
- * The client that answers every request it gets from `answers`, whatever the model: a paid script puts it in place of
- * a stored subscription route (scripts/lib/simulation-llm.ts, `offline`), which no wrapper of the direct client reaches.
+ * The client that answers every request it gets from `answers`, whatever the role and the model: a paid script's
+ * routing puts it in place of every provider and harness (scripts/lib/script-routes.ts, `offline`).
  * @param modelOf The model a request without `model` names in its request file, from the request's `purpose`.
  */
 export function offlineCore(

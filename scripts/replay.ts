@@ -25,14 +25,18 @@
 //   from the live data and run in shadow, her proposed actions reported.
 // Exists so a prompt or profile change can be checked against real moments
 // before it is deployed.
-// The model client comes from scripts/lib/cli.ts#simulationLlm: her core requests take the simulation's subscription
-// route while one is stored, every other request the simulation key, and the run says on stderr which it spends.
+// The model clients run on production's routing (scripts/lib/script-routes.ts): each role on the key or harness the
+// core gives it, and the run names each role's key or harness and model on stderr. `--<role> <route>` replaces a role
+// for this run alone (`--core helpers/anthropic/claude-opus-5.5:medium`, `--core harness:claude/claude-opus-4-8:low`),
+// and `--variant "<flags>"` (repeatable) runs the same inputs once per variant: the result keeps what the variants share
+// once and lays the rest side by side under `variants`. `--spend` caps each variant's run.
 //
 // Not for: measuring what her memory session writes (scripts/memory-session.ts).
 //
 //   cd /opt/neptunia/app && node scripts/replay.ts <placeId> <triggerMessageId>
 //        [--before 40] [--samples 1] [--show-request] [--as-of-moment]
 //        [--hide-self <substring>]... [--hide-self-all] [--snapshot <dir>] [--spend <usd>]
+//        (every mode also takes: [--<role> <route>]... [--variant "<flags>"]...)
 //   cd /opt/neptunia/app && node scripts/replay.ts <placeId> <triggerMessageId> --split
 //        [--text "<candidate text>"] [--before <split.contextMessages>] [--samples 3] [--spend <usd>]
 //   cd /opt/neptunia/app && node scripts/replay.ts <placeId> <triggerMessageId> --recall
@@ -62,7 +66,7 @@
 // `errand_deadline` wake (required for those), in the intention's destination. Its `<wake>` carries what is
 // left of her caps as data/guilds/<id>/inner.json has them now. The real turn runner over
 // Discord REST (GET only, every write refused), an in-memory port and an unflushed copy of the
-// memory store; `wakes.mode` forced to `shadow`, so her reads run (on the simulator key)
+// memory store; `wakes.mode` forced to `shadow`, so her reads run (on production's routing)
 // and every other call is only proposed; the journal is not written (a journal read, `memory.journal.read`, answers from the journal of the data read, read only); intentions read
 // only (an expiry sweep writes nothing). Prints the request's blocks (`--show-request`: the
 // whole request), her answers, her proposed and executed actions, the cost.
@@ -81,19 +85,16 @@
 // stderr. `--spend` also stops the samples: none starts when the cost reported so far plus the
 // last sample's would pass it.
 //
-// `--answers-dir <dir> [--answers-first-only] [--answers-all] [--answers-timeout-min 20]` (any mode that sends requests):
-// the offline model (`--answers-first-only`: only a turn's first answer comes from the files, its tool-loop steps go
-// live; `--answers-all`: every model answers from the files, a selfreflection's plan request on the analyzer model too).
-// Every request to an Anthropic model (`anthropic/claude-*`), with `--answers-all` to any model, is not sent: it goes to
+// `--answers-dir <dir> [--answers-timeout-min 20]` (any mode that sends requests): the offline model. No request of any
+// role reaches a provider or a harness: each goes to
 // `<dir>/req-<n>.json` (exact strings: model, purpose, system, messages) and `<dir>/req-<n>.md` (n from 1 per run, 3 digits: the model id and the purpose, then every message
 // under `## system` / `## user` / `## assistant`, verbatim) and the run waits (polling, up to the
 // timeout) for `<dir>/ans-<n>.txt`, whose content is the model's text (and, optionally, `<dir>/ans-<n>.tool-calls.json`:
 // a JSON array of `{ id?, name, arguments }` -- `arguments` an object or a string -- for the answer's native tool calls; a
 // request that had tools also lists them, with its tool choice, in `req-<n>.json`) (no cost; the result carries
-// `answersDir: { dir, requests }`). `<dir>/done` (`exit <code>`) is written when the run ends. While a subscription
-// route (`models.harness.simulation`) is stored, every core request answers from the files whatever its model, and no
-// CLI starts. Other models still go to OpenRouter (none with `--answers-all`). The directory must hold no files of an earlier run. Such a
-// run needs no `--spend` (only other models are billed; with `--spend` they are capped as usual).
+// `answersDir: { dir, requests }`). `<dir>/done` (`exit <code>`) is written when the run ends. No embedding is made, so
+// a recall runs without its meaning search. The directory must hold no files of an earlier run. Such a run needs no
+// `--spend`.
 // The spend gate (scripts/lib/cli.ts#spendGate): every mode that sends model
 // requests prints its estimate first (~USD_PER_ANSWER per request: a persona
 // answer, a splitter sample, the recall classifier and its summary, a selfreflection
@@ -206,7 +207,7 @@
 // server search's senses line stand in every request; off, the search classifier names her skills.
 // Her `web.search` and `memory.search` that passed run for real and read only
 // (createReplayTools): the web search through the live lookup module and engines on the
-// simulator key (its summary request; the media cache and the daily web counter private
+// key production gives quick search (its summary request; the media cache and the daily web counter private
 // copies, nothing written back), the memory search through the live recall runner over the
 // data read (live data/ or --snapshot: its record, archive and vector index iterated, the
 // daily recall counter a private copy; Discord's own searches over REST, GET only). Every
@@ -230,7 +231,7 @@
 // (A) and once on the text one (B), under the live grants, each as a skill-scenario turn of the
 // sandbox (runTriggerLoops). What a live turn runs before her reply is run once and shared: the
 // memory prefetch with features.coreTools on, else the search classifier (preTurnLookup: its web
-// search on the simulator key, its server search read only, its `skills:` line naming her
+// search on the key production gives quick search, its server search read only, its `skills:` line naming her
 // `<skills>`, the `<lookup>` it found). No errand is dispatched. Written to `--out` (default
 // ./replay-pair-transport-<time>/, refused when it exists and is not empty) as `--pair`
 // writes it: `sheet.html` (every posted message of each side's turn, its reactions, pictures and
@@ -331,7 +332,7 @@
 // `--draw fake` (the default): the image client is the real one
 // (src/llm/images.ts#createImageGen, its caps and model check) over a fetch that
 // answers a 1x1 fixture PNG, so no picture is paid for. `--draw live`: the real
-// client on the simulation's key (required: no fall back to the bot's key here),
+// client on the key production gives the `drawing` role (`--drawing <key>/<model>` replaces it),
 // at most `--max-pictures` pictures (default 2; past it a picture is refused as
 // an image cap refuses it), each written to `<out>/pictures/`. Every
 // `generate()` call is recorded at the client's boundary: `{ prompt, reference,
@@ -522,13 +523,12 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 // CliError: an operator-facing failure, printed as is, exit code `exitCode` (1 unless the spend gate refused: 2).
-import { createAnswersDir, offlineCore, withAnswersDir } from './lib/answers-dir.ts';
+import { createAnswersDir, offlineCore } from './lib/answers-dir.ts';
 import {
   serviceKeys,
   serviceKey,
   platformToken,
   simKey,
-  simulationLlm,
   CliError,
   REFUSED_EXIT,
   defaultDataDir,
@@ -566,7 +566,8 @@ import { MAX_MESSAGE_CHARS } from '../src/format.ts';
 import { roleModel } from '../src/llm/roles.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { ReplayArgs } from './lib/replay-args.ts';
-import type { SimulationLlm } from './lib/cli.ts';
+import { routedHot, routesText, scriptRouting, sideBySide, takeRouteFlags } from './lib/script-routes.ts';
+import type { RouteRole, ScriptRouting, Variant } from './lib/script-routes.ts';
 import type { Hot } from '../src/hot.ts';
 import { proxySettings } from '../src/net/proxy.ts';
 import { parseArgs, MAX_BEFORE, SNOWFLAKE } from './lib/replay-args.ts';
@@ -2006,29 +2007,47 @@ export function selfreflectionTurnRunner(
   });
 }
 
+/** The roles a replay mode spends, one start line each. */
+const REPLAY_ROLES: ReadonlyArray<RouteRole> = ['core', 'analyzer', 'vision', 'video', 'embedding', 'search'];
+
 /**
- * The model client of a replay mode (scripts/lib/cli.ts#simulationLlm) over the live client `createLlm`, said on
- * stderr. A tool bridge it serves stays open to the end of the process, whose exit removes its socket folder.
+ * The routing of a replay mode (scripts/lib/script-routes.ts) over the live client `createLlm`: production's, with the
+ * roles of `routes` replaced, said on stderr. With `answers` (`--answers-dir`) every request of every role answers from
+ * the files, and no provider or harness is reached. `drawing` adds the start line of the `drawing` role. A tool bridge it serves stays open to the end of the process, whose
+ * exit removes its socket folder.
  */
-function replaySimulation(
+async function replayRouting(
   createLlm: Untyped,
   hot: Untyped,
   calibrator: unknown,
   state: { data: object; markDirty(): void },
-  answers: Untyped
-): SimulationLlm {
-  const sim = simulationLlm('replay-cli', {
-    createDirect: (apiKey, ring) => createLlm({ apiKey, keys: ring, getConfig: () => hot.config, calibrator, state }),
-    getConfig: () => hot.config,
+  { root, answers, routes, drawing = false }: { root: string; answers: Untyped; routes: Variant; drawing?: boolean }
+): Promise<ScriptRouting> {
+  const routing = await scriptRouting('replay-cli', {
+    privateDir: privateDirOf(root),
+    roles: drawing ? [...REPLAY_ROLES, 'drawing'] : REPLAY_ROLES,
+    variant: routes,
+    getConfig: (): unknown => hot.config,
+    createDirect: (keys, getConfig) => createLlm({ apiKey: '', keys, getConfig, calibrator, state }),
     state,
-    // `--answers-dir` answers a core request on a stored subscription route from the files too.
     ...(answers ? { offline: offlineCore(answers, (why) => roleModel(hot.config, 'core', why)) } : {}),
   });
-  process.stderr.write(`replay-cli: ${sim.said}\n`);
-  return sim;
+  process.stderr.write(routesText('replay-cli', routing.said));
+  return routing;
 }
 
-async function runSelfreflection({ args, root, load, hot: liveHot, createHot, log, signal, rng, answers }: ModeCtx) {
+async function runSelfreflection({
+  args,
+  root,
+  load,
+  hot: liveHot,
+  createHot,
+  log,
+  signal,
+  rng,
+  answers,
+  routes,
+}: ModeCtx) {
   const mods = await loadSelfreflectionMods(load);
   const { SELFREFLECTION_KINDS, selfreflectionTopic, isPictureKind, isSetKind, stripUrls, validatePlan } = mods;
   const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild } = mods;
@@ -2078,9 +2097,9 @@ async function runSelfreflection({ args, root, load, hot: liveHot, createHot, lo
 
     // The model clients: every request the tool's own, recorded with its purpose.
     const calibrator = createCalibrator(state.data.calibration);
-    const sim = replaySimulation(createLlm, hot, calibrator, state, answers);
+    const routing = await replayRouting(createLlm, hot, calibrator, state, { root, answers, routes });
     const calls: Array<Untyped> = [];
-    const llm = recordingLlm(sim.llm, calls, { noCache: args.count === 1 });
+    const llm = recordingLlm(routing.llm, calls, { noCache: args.count === 1 });
     // No key: only quota and familyOf are used below, and generate, the one call that sends, is replaced.
     const realImages = createImageGen({ apiKey: '', getConfig: () => hot.config, state });
     const images = {
@@ -2648,7 +2667,7 @@ export function innerReportMarkdown(result: Untyped): string {
  * The `--inner` mode (see the header): one inner turn for one wake (`--samples` times), in shadow, against the
  * live data (or `--snapshot`) read only. Returns `{ code, result }`.
  */
-async function runInner({ args, root, load, hot: liveHot, createHot, log, budget = null, answers }: ModeCtx) {
+async function runInner({ args, root, load, hot: liveHot, createHot, log, budget = null, answers, routes }: ModeCtx) {
   const mods = {
     ...(await loadSelfreflectionMods(load)),
     ...(await load('behavior/inner.ts')),
@@ -2699,10 +2718,10 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
     const timezone = config.bot?.timezone ?? 'UTC';
     const { store, state } = unflushedStore(createStore({ dataDir, memoryDb: storeMemoryFor(dataDir) }));
     const calibrator = createCalibrator(state.data.calibration);
-    const sim = replaySimulation(createLlm, hot, calibrator, state, answers);
+    const routing = await replayRouting(createLlm, hot, calibrator, state, { root, answers, routes });
     const calls: Array<Untyped> = [];
     const requests: Array<Untyped> = [];
-    const recorded = recordingLlm(sim.llm, calls, { noCache: true, errorCodeOf: mods.errorCodeOf });
+    const recorded = recordingLlm(routing.llm, calls, { noCache: true, errorCodeOf: mods.errorCodeOf });
     const llm = new Proxy(recorded, {
       get(target, prop) {
         if (prop === 'complete') {
@@ -2978,8 +2997,8 @@ async function runInner({ args, root, load, hot: liveHot, createHot, log, budget
 // ---- a selfreflection day (--selfreflection-day) ---------------------------------------------------
 
 /**
- * The OpenRouter key of a `--selfreflection-day` run, for live and fake pictures alike: the simulation's key
- * (scripts/lib/cli.ts#simKey), a CliError while the simulation is off. Never printed.
+ * The simulation's key (scripts/lib/cli.ts#simKey), a CliError while the simulation is off. No replay mode spends it:
+ * a `--selfreflection-day` run takes its keys from its routing. It leaves with the simulation key. Never printed.
  */
 export function selfreflectionDayKey(_draw: string, env: Record<string, string | undefined> = process.env): string {
   return simKey('replay-cli', env);
@@ -3057,7 +3076,7 @@ export function selfreflectionDayGate(
  * selfreflection turn run to the end into an in-memory port, every drawing call recorded. Returns
  * `{ code, result }`.
  */
-async function runSelfreflectionDay({ args, root, load, hot: liveHot, log, signal }: ModeCtx) {
+async function runSelfreflectionDay({ args, root, load, hot: liveHot, log, signal, answers, routes }: ModeCtx) {
   const mods = await loadSelfreflectionMods(load);
   const { localDayKey, planDay } = mods;
   const { createStore, createCalibrator, createLlm, createImageGen, resolveGuild, createFakeAdapter } = mods;
@@ -3126,7 +3145,6 @@ async function runSelfreflectionDay({ args, root, load, hot: liveHot, log, signa
     return done(0);
   }
   const discordToken = platformToken('discord', { rootDir: root });
-  const openrouterKey = selfreflectionDayKey(args.draw!);
 
   let client = null;
   try {
@@ -3143,13 +3161,18 @@ async function runSelfreflectionDay({ args, root, load, hot: liveHot, log, signa
     if (state.data.paused) log.warn('replay-cli: the bot is paused; every slot will answer paused', {});
 
     const calibrator = createCalibrator(state.data.calibration);
-    const realLlm = createLlm({ apiKey: openrouterKey, getConfig: () => hot.config, calibrator, state });
-    const calls: Array<Untyped> = [];
-    const llm = recordingLlm(realLlm, calls);
     const live = args.draw === 'live';
+    const routing = await replayRouting(createLlm, hot, calibrator, state, {
+      root,
+      answers,
+      routes,
+      drawing: live,
+    });
+    const calls: Array<Untyped> = [];
+    const llm = recordingLlm(routing.llm, calls);
     const picturesDir = path.join(outDir, 'pictures');
     const realImages = createImageGen({
-      apiKey: openrouterKey,
+      apiKey: () => routing.keyOf('drawing') ?? '',
       getConfig: () => hot.config,
       state,
       now,
@@ -3857,8 +3880,8 @@ export function loopCall({
 /**
  * Her in-turn tools for a replay (features.coreTools), run for real but writing nothing:
  * `web.search` through the live lookup module (src/web/lookup.ts#createLookup over `hot`: its
- * engines and `searches` with `keys`, its summary request on `llm` -- the replay's, on the
- * simulator key --, over a private copy of the media cache and of the daily web counter) and
+ * engines and `searches` with `keys`, its summary request on `llm`, the replay's on its
+ * routing, over a private copy of the media cache and of the daily web counter) and
  * `memory.search` through the live recall runner (src/behavior/recall-run.js#createRecall over a
  * private copy of the daily recall counter, the store's read methods, `sources` -- the record, the
  * archive and the vector index of the data read, iterated only -- and `embed`), each by its
@@ -4111,7 +4134,7 @@ export function createReplayTools({
         return { result: await readChat(args, { at, idByIndex }), usage };
       }
       // media.look as a live turn runs it (src/behavior/turn.js#inTurnTools): a describer over the private cache copy and
-      // the metered client (the vision helper, on the simulator key as every replay helper), its second look downloading
+      // the metered client (the vision helper, on the routing every replay helper runs on), its second look downloading
       // the attachment itself; the message `#N` named is looked up in the request's history. At most lookPerTurn per tools' life.
       if (skill === 'media.look' && mediaTools?.createDescriber && mediaTools.runMediaLook) {
         const lookDescriber = mediaTools.createDescriber({ hot, store: webStore, llm: client });
@@ -6382,7 +6405,7 @@ function answerOut(answer: Untyped) {
  * this connection: the lookup with the live search engines (Brave's and Exa's keys from the
  * environment, as src/index.js reads them), the recall runner over the data read (its record,
  * archive and vector index iterated only; with features.meaningSearch on, the embedder on the
- * simulator key, off the daily counter), the describer's cached captions only.
+ * embedding role's key, off the daily counter), the describer's cached captions only.
  */
 async function loopDepsOf({
   load,
@@ -6393,7 +6416,7 @@ async function loopDepsOf({
   self,
   dataDir,
   mediaCache,
-  openrouterKey,
+  embeddingKey,
   turnMod,
   coreOn,
   log = null,
@@ -6498,9 +6521,9 @@ async function loopDepsOf({
     memoryDb: memoryFor(dataDir),
   };
   let embed = null;
-  if (openrouterKey) {
+  if (embeddingKey) {
     const { createEmbedder } = await load('llm/embed.ts');
-    const embedder = createEmbedder({ apiKey: openrouterKey, state: { data: {}, markDirty() {} } });
+    const embedder = createEmbedder({ apiKey: embeddingKey, state: { data: {}, markDirty() {} } });
     embed = (texts: Untyped, options: Untyped = {}) =>
       embedder.embed(texts, { ...options, origin: 'replay', countAgainstDailyCap: false });
   }
@@ -6571,28 +6594,50 @@ async function loopDepsOf({
   };
 }
 
-/** The whole tool. Returns `{ code, result }`; never prints to stdout itself. */
+/**
+ * The whole tool. Returns `{ code, result }`; never prints to stdout itself. With several `--variant` flags the same
+ * inputs run once per variant and `result` lays their answers side by side (scripts/lib/script-routes.ts#sideBySide).
+ */
 export async function main(
   argv: Array<string>,
   { root = process.cwd(), signal, rng = Math.random }: { root?: string; signal?: AbortSignal; rng?: () => number } = {}
 ): Promise<{ result: Untyped; code: Untyped }> {
-  const all = argv.includes('--answers-all');
-  const own = argv.includes('--selfreflection-own-history');
-  const flags = argv.filter((arg) => arg !== '--answers-all' && arg !== '--selfreflection-own-history');
-  const args: ReplayArgs = { ...parseArgs(flags), answersAll: all, selfreflectionOwnHistory: own };
-  if (args.answersDir === null) return runMain(args, { root, signal, rng, answers: null });
-  // `--answers-dir`: Anthropic models are answered through files (scripts/lib/answers-dir.ts); `done` ends the run.
+  const taken = takeRouteFlags('replay-cli', argv, { variants: true });
+  const own = taken.argv.includes('--selfreflection-own-history');
+  const flags = taken.argv.filter((arg) => arg !== '--selfreflection-own-history');
+  const args: ReplayArgs = { ...parseArgs(flags), selfreflectionOwnHistory: own };
+  const runs: Array<{ result: Untyped; code: Untyped }> = [];
+  for (const variant of taken.variants) runs.push(await runVariant(args, variant.routes, { root, signal, rng }));
+  if (runs.length === 1) return runs[0];
+  return {
+    code: Math.max(...runs.map((run) => Number(run.code) || 0)),
+    result: {
+      variants: taken.variants.map((variant) => variant.label),
+      ...(sideBySide(
+        taken.variants.map((variant) => variant.label),
+        runs.map((run) => run.result)
+      ) as Rec),
+    },
+  };
+}
+
+/** One run of the tool on the roles `routes` replaces. */
+async function runVariant(
+  args: ReplayArgs,
+  routes: Variant,
+  { root, signal, rng }: { root: string; signal?: AbortSignal; rng: () => number }
+): Promise<{ result: Untyped; code: Untyped }> {
+  if (args.answersDir === null) return runMain(args, { root, signal, rng, answers: null, routes });
+  // `--answers-dir`: every request answers through files (scripts/lib/answers-dir.ts); `done` ends the run.
   const { estimateMessages } = await import(pathToFileURL(path.join(root, 'src', 'llm', 'tokens.ts')).href);
   const answers = createAnswersDir({
     dir: path.resolve(root, args.answersDir),
     timeoutMin: args.answersTimeoutMin,
     estimate: (messages) => estimateMessages(messages),
-    firstOnly: args.answersFirstOnly,
-    all,
   });
   let code = 1;
   try {
-    const out = await runMain(args, { root, signal, rng, answers });
+    const out = await runMain(args, { root, signal, rng, answers, routes });
     code = out.code;
     return { ...out, result: { ...out.result, answersDir: { dir: answers.dir, requests: answers.count() } } };
   } catch (err) {
@@ -6604,25 +6649,11 @@ export async function main(
 }
 
 // health: allow function-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
-async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv) {
+async function runMain(args: ReplayArgs, { root, signal, rng, answers, routes }: RunEnv) {
   const src = path.join(root, 'src');
   if (!fs.existsSync(path.join(src, 'behavior', 'sandbox.ts')))
     throw new CliError(`replay-cli: no engine under ${src}; run it from the bot's directory`);
-  const loadModule = (rel: Untyped) => import(pathToFileURL(path.join(src, rel)).href);
-  // With an answers directory every llm client built from src/llm/openrouter.ts answers Anthropic models from files.
-  let load = loadModule;
-  if (answers) {
-    const { roleModel } = await loadModule('llm/roles.ts');
-    load = async (rel) => {
-      const mod = await loadModule(rel);
-      return rel === 'llm/openrouter.ts'
-        ? {
-            ...mod,
-            createLlm: withAnswersDir(mod.createLlm, answers, (cfg: Rec, why: string) => roleModel(cfg, 'core', why)),
-          }
-        : mod;
-    };
-  }
+  const load = (rel: Untyped) => import(pathToFileURL(path.join(src, rel)).href);
 
   // The triggers of a pair, read before anything else: their number is the estimate.
   let pairTriggers: Untyped = null;
@@ -6652,7 +6683,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
   const { log } = await load('log.ts');
 
   // Reads config.json, config.local.json and both prompt layers; writes nothing. Not watched: one request.
-  const hot = createHot({ rootDir: root, privateDir: privateDirOf(root) });
+  const hot = routedHot(createHot({ rootDir: root, privateDir: privateDirOf(root) }), routes);
   // Her turns run on the step engine in every mode that answers as a skill scenario (--skills, --pair-transport,
   // --loop-triggers); its bounds are read now for the estimate. (The operations register first, as for the skills
   // below: src/tools/operations/index.ts.)
@@ -6695,12 +6726,12 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
     const triggerDetail = `, per trigger${coreOn ? '' : ` ~${PRE_TURN_REQUESTS} before her reply (the search classifier, a search's summary) and`} ${loopDetail}${args.pairTransport ? ' on each of the two transports' : ''}`;
     const detail = `~${USD_PER_ANSWER} USD per request${args.selfreflection ? `, ${SELFREFLECTION_REQUESTS_PER_BRIEF} per brief: the plan and the compose` : ''}${scenarios ? skillDetail : ''}${args.pairTransport || args.loopTriggers ? triggerDetail : ''}`;
     let gate = spendGate({ estimateUsd: requests * USD_PER_ANSWER, requests, spend: args.spend, detail });
-    // Anthropic models are answered from files and bill nothing: without --spend the run goes on (other models would bill, unbudgeted).
+    // Every request answers from the files and bills nothing: without --spend the run goes on.
     if (!gate.ok && answers && args.spend === undefined)
       gate = {
         ...gate,
         ok: true,
-        text: `${gate.text.split('\n')[0]}\nanswers-dir: Anthropic models are answered from files, not billed; give --spend <usd> to cap any other model`,
+        text: `${gate.text.split('\n')[0]}\nanswers-dir: every request answers from the files, nothing is billed`,
       };
     if (!gate.ok) {
       hot.close();
@@ -6711,21 +6742,21 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
   }
   if (args.selfreflection) {
     try {
-      return await runSelfreflection({ args, root, load, hot, createHot, log, signal, rng, answers });
+      return await runSelfreflection({ args, root, load, hot, createHot, log, signal, rng, answers, routes });
     } finally {
       hot.close();
     }
   }
   if (args.selfreflectionDay) {
     try {
-      return await runSelfreflectionDay({ args, root, load, hot, log, signal });
+      return await runSelfreflectionDay({ args, root, load, hot, log, signal, answers, routes });
     } finally {
       hot.close();
     }
   }
   if (args.inner) {
     try {
-      return await runInner({ args, root, load, hot, createHot, log, budget: spendBudget, answers });
+      return await runInner({ args, root, load, hot, createHot, log, budget: spendBudget, answers, routes });
     } finally {
       hot.close();
     }
@@ -6905,10 +6936,12 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
     const stateData = store.state.data;
     const calibrator = createCalibrator(stateData.calibration);
     const llmState = { data: { llmDay: stateData.llmDay, llmCount: stateData.llmCount }, markDirty() {} };
-    const sim = keyNeeded ? replaySimulation(createLlm, hot, calibrator, llmState, answers) : null;
+    const routing = keyNeeded
+      ? await replayRouting(createLlm, hot, calibrator, llmState, { root, answers, routes })
+      : null;
     // Absent on a dry run or a shown request, neither of which sends a request.
-    const realLlm: Untyped = sim?.llm;
-    const openrouterKey = sim?.key;
+    const realLlm: Untyped = routing?.llm;
+    const embeddingKey = routing?.keyOf('embedding') ?? null;
     // Every request is marked as this tool's own. One sample or the splitter: no cache marker
     // (a skill scenario's runs share their request: the sandbox marks it when it has several).
     const noCache = replayWithoutCache(args, Boolean(scenarios));
@@ -6940,7 +6973,7 @@ async function runMain(args: ReplayArgs, { root, signal, rng, answers }: RunEnv)
           self,
           dataDir,
           mediaCache,
-          openrouterKey,
+          embeddingKey,
           turnMod,
           coreOn,
           log,

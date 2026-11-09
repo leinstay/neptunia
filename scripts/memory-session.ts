@@ -4,6 +4,7 @@
 //
 //   cd <checkout> && node scripts/memory-session.ts --db <memory.db> [--data <dir>] [--scope <scope key>] [--limit N]
 //        [--review <person|place|self>:<id>:<field>] [--show] [--self-name <name>] [--keep <copy.db>]
+//        [--memory <route>] [--variant "<flags>"]...
 //
 // The database is copied first (VACUUM INTO, a consistent copy) into a temporary directory under TMPDIR, and the copy
 // is the one written to: the given file is only read, and the copy is removed at the end (`--keep` names a file to
@@ -13,13 +14,13 @@
 // (default `memoryDb.session.maxMessages`). The first sweep on a copy reads from its first line (or from
 // `memoryDb.session.since`).
 //
-// The simulation's key pays (scripts/lib/cli.ts#simulationLlm): the client and the session take the key ring on that key
-// alone (src/simulation/key.ts#simulationRing), so no binding of `llm.boundKeys` and no core key is spent. Every
-// request of a session has the role `memory`, so
-// the simulation's subscription route never carries one: with no route stored the run stops with one line while the
-// simulation is off, and with a route stored and no key the first request is refused with `simulation-off`.
-// The core keys are never touched. The config and the prompts are read from the checkout
-// (and its private layer) as the bot reads them. A request is answered, or after a 429 tried again after the
+// The memory role runs as production runs it (scripts/lib/script-routes.ts): on the key `llm.boundKeys` binds to it,
+// else the core keys, or through the harness of `models.harness.memory`, and the session checks its key on the same
+// ring. `--memory <key>/<model>[:<effort>]` or `--memory harness:<claude|codex>/<model>[:<effort>]` replaces the role for
+// this run alone, and the start line on stderr names its key or harness and model. `--variant "<flags>"` (repeatable)
+// runs the session once per variant, each on its own fresh copy, and prints every scope once with each variant's result
+// beneath it; `--keep` takes no variant, and `compare` takes the role flags and no variant. The config and the prompts
+// are read from the checkout (and its private layer) as the bot reads them. A request is answered, or after a 429 tried again after the
 // provider's wait (`Retry-After` when the error carries it), at most three tries in all.
 //
 // `--review` runs the two-call description review for one subject and field after the session (`person:<person id>:character`,
@@ -29,14 +30,14 @@
 // The output is counts: lines, tokens, the kinds of the ops the answer proposed, what was dropped and why. Texts
 // (the proposed values, the description) are printed only with `--show`. `--data` is reserved for the data
 // directory of the database (the profiles are rebuilt from the database alone; it is not read today).
-// Nothing here starts the bot. It needs the key, so the lead runs it.
+// Nothing here starts the bot. It spends production's memory key, so the lead runs it.
 //
 // compare (stage W3, the day against the analyzer):
 //   node scripts/memory-session.ts compare --db <copy> [--data <copy>] --day <YYYY-MM-DD> [--shadow]
 //        [--scope <scope key>] [--show] [--self-name <name>] [--keep <copy.db>]
 // On a copy of the database (as above), her session runs in shadow over the lines of that UTC day only (`since` the
 // day's start, nothing newer than its end, every scope from its first line of the day, the copy's shadow cursors
-// cleared first), sweep after sweep until every scope is quiet, on the simulation's key. `--shadow` runs nothing (no key, no request): it compares the shadow proposals the copy
+// cleared first), sweep after sweep until every scope is quiet, on the memory role's route. `--shadow` runs nothing (no key, no request): it compares the shadow proposals the copy
 // already holds for lines of that day (a live shadow session's). Then, per scope, her proposals beside what the
 // analyzer wrote that day (`claim_versions`, `episodes`, `affinity_events` recorded that day, her own session's rows
 // left out): kept by both (the same claim, or the same subject and kind with most of the words; an episode of the same
@@ -49,19 +50,22 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CliError, parseFlags, privateDirOf, runCli, simulationLlm } from './lib/cli.ts';
-import type { SimulationLlm } from './lib/cli.ts';
+import { CliError, parseFlags, privateDirOf, runCli } from './lib/cli.ts';
+import { routedHot, routesText, scriptRouting, sideBySideText, takeRouteFlags } from './lib/script-routes.ts';
+import type { ScriptRouting, Variant } from './lib/script-routes.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { sqlOf } from './lib/sql.ts';
 import type { SqlDb } from './lib/sql.ts';
 import type { MemoryHandle } from '../src/memory/db/types.ts';
 import type { KeyRing } from '../src/keys/ring.ts';
+import type { MemoryPath } from '../src/subharness/memory-path.ts';
 
 /** An object read by key whose values are not typed yet. */
 type Rec = Record<string, Untyped>;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'memory-session-tool';
+const TOOL = 'memory-session';
 const USAGE = `usage: node scripts/memory-session.ts --db <memory.db> [--data <dir>] [--scope <scope key>] [--limit N]
        [--review <person|place|self>:<id>:<field>] [--show] [--self-name <name>] [--keep <copy.db>]`;
 const COMPARE_USAGE = `usage: node scripts/memory-session.ts compare --db <memory.db copy> [--data <dir>] --day <YYYY-MM-DD> [--shadow]
@@ -99,8 +103,10 @@ type CompareOptions = {
   handle: MemoryHandle;
   llm: Untyped;
   hot: Untyped;
-  /** The key ring on the simulation key (scripts/lib/cli.ts#simulationLlm); null with `shadowOnly`. */
+  /** The key ring of the run's routing (scripts/lib/script-routes.ts); null with `shadowOnly`. */
   ring: KeyRing | null;
+  /** The memory writer's path of the run's routing; absent with `shadowOnly`. */
+  path?: () => MemoryPath;
   day: string;
   shadowOnly?: boolean;
   scope?: string | null;
@@ -424,6 +430,7 @@ export async function runCompare({
   llm,
   hot,
   ring,
+  path: writerPath,
   day,
   shadowOnly = false,
   scope = null,
@@ -470,6 +477,7 @@ export async function runCompare({
       hot: { config, prompts: hot.prompts },
       env: {},
       ring,
+      path: writerPath,
       now: () => end + (tick += 1),
       log,
       selfName,
@@ -516,7 +524,7 @@ export async function runCompare({
 }
 
 /** The compare subcommand (see the head of this file). */
-async function compareMain(argv: Array<string>) {
+async function compareMain(argv: Array<string>, routes: Variant) {
   const flags = parseFlags(argv, {
     values: ['--db', '--data', '--day', '--scope', '--self-name', '--keep'],
     switches: ['--shadow', '--show'],
@@ -531,30 +539,27 @@ async function compareMain(argv: Array<string>) {
 
   const { createHot } = await import('../src/hot.ts');
   const { openMemoryDb } = await import('../src/memory/db/open.ts');
-  const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
+  const hot = routedHot(createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) }), routes);
   const work = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memory-session-'));
   const copy = flags['--keep'] ? path.resolve(flags['--keep']) : path.join(work, 'memory.db');
   let handle: Awaited<ReturnType<typeof openMemoryDb>> | null = null;
-  let sim: SimulationLlm | null = null;
+  let routing: ScriptRouting | null = null;
   try {
     const config = hot.config;
     const counters = { data: {}, markDirty() {} };
     if (!shadowOnly) {
       const { createLlm } = await import('../src/llm/openrouter.ts');
       const { createCalibrator } = await import('../src/llm/tokens.ts');
-      sim = simulationLlm('memory-session', {
-        createDirect: (apiKey, ring) =>
-          createLlm({
-            apiKey,
-            keys: ring,
-            getConfig: () => config,
-            calibrator: createCalibrator(undefined),
-            state: counters,
-          }),
-        getConfig: (): unknown => config,
+      routing = await scriptRouting(TOOL, {
+        privateDir: privateDirOf(ROOT),
+        roles: ['memory'],
+        variant: routes,
+        getConfig: () => config,
+        createDirect: (keys, getConfig) =>
+          createLlm({ apiKey: '', keys, getConfig, calibrator: createCalibrator(undefined), state: counters }),
         state: counters,
       });
-      process.stderr.write(`memory-session: ${sim.said}\n`);
+      process.stderr.write(routesText(TOOL, routing.said));
     }
     if (fs.existsSync(copy)) throw new CliError(`memory-session: ${copy} already exists`);
     await copyDatabase(source, copy);
@@ -566,8 +571,8 @@ async function compareMain(argv: Array<string>) {
       cost: null,
     };
     let llm = null;
-    if (sim !== null) {
-      const client = sim.llm;
+    if (routing !== null) {
+      const client = routing.llm;
       llm = {
         complete: withBackoff(
           async (messages, options: Untyped = {}) => {
@@ -597,7 +602,8 @@ async function compareMain(argv: Array<string>) {
       handle,
       llm,
       hot: { config, prompts: hot.prompts },
-      ring: sim?.ring ?? null,
+      ring: routing?.ring ?? null,
+      path: routing?.memoryPath,
       day: flags['--day'],
       shadowOnly,
       scope: flags['--scope'] ?? null,
@@ -615,28 +621,83 @@ async function compareMain(argv: Array<string>) {
   } finally {
     handle?.close();
     hot.close?.();
-    await sim?.close();
+    await routing?.close();
     fs.rmSync(work, { recursive: true, force: true });
   }
 }
 
-/** Runs the tool; returns the text to print. */
-export async function main(argv: Array<string>): Promise<string> {
-  if (argv[0] === 'compare') return compareMain(argv.slice(1));
-  const flags = parseFlags(argv, {
-    values: ['--db', '--data', '--scope', '--limit', '--review', '--self-name', '--keep'],
-    switches: ['--show'],
-    usage: USAGE,
-  });
-  if (flags._.length > 0 || !flags['--db']) throw new CliError(USAGE);
-  const source = path.resolve(flags['--db']);
-  if (!fs.existsSync(source)) throw new CliError(`memory-session: no database at ${source}`);
-  const limit = flags['--limit'] === undefined ? undefined : Number(flags['--limit']);
-  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1))
-    throw new CliError(`memory-session: --limit is a whole number above 0\n${USAGE}`);
-  const review = flags['--review'] ? parseSubject(flags['--review']) : null;
-  const show = flags['--show'] === true;
+/** The session's request client over the routing's: marked as the tool's own, counted, tried again after a 429. */
+function countedClient(client: ScriptRouting['llm'], usage: { requests: number; prompt: number; completion: number }) {
+  return withBackoff(
+    async (messages, options: Untyped = {}) => {
+      const completion: Untyped = await client.complete(messages, {
+        ...options,
+        origin: ORIGIN,
+        countAgainstDailyCap: false,
+        skipCalibration: true,
+        cache: false,
+      });
+      usage.requests += 1;
+      usage.prompt += Number(completion?.usage?.prompt_tokens) || 0;
+      usage.completion += Number(completion?.usage?.completion_tokens) || 0;
+      return completion;
+    },
+    {
+      onWait: (ms: number, attempt: Untyped) =>
+        process.stderr.write(`${TOOL}: 429, waiting ${Math.round(ms / 1000)} s (try ${attempt} of ${TRIES})\n`),
+    }
+  );
+}
 
+/** The lines of one scope's run of a sweep: its outcome, what it kept and dropped, its errors. */
+function scopeLines(run: Untyped, show: boolean): Array<string> {
+  const lines = [`${run.outcome}, ${run.lines} lines`];
+  if (run.counts && run.plan) {
+    const dropped =
+      Object.entries<number>(run.counts.dropped ?? {})
+        .map(([reason, n]) => `${reason} ${n}`)
+        .join(', ') || 'none';
+    lines.push(`kept ${run.counts.kept}: ${opKinds(run.plan)}; dropped: ${dropped}`);
+    if (show) lines.push(JSON.stringify(run.plan));
+  }
+  if (run.errors?.length) lines.push(`errors: ${run.errors.join(', ')}`);
+  return lines;
+}
+
+/** The lines of a description review: its status and, when it passed, the sizes and what it kept, lost and gained. */
+function reviewLines(reviewed: Untyped, show: boolean): Array<string> {
+  const lines = [
+    `${reviewed.status}${reviewed.code ? ` (${reviewed.code}${reviewed.step ? ` at ${reviewed.step}` : ''})` : ''}`,
+  ];
+  if (reviewed.status !== 'ok') return lines;
+  const { extra } = reviewed.row;
+  lines.push(
+    `draft ${[...reviewed.draft].length} characters, final ${[...reviewed.final].length} characters, cap ${extra.cap}${extra.overCap ? ', over the cap' : ''}, kept ${reviewed.row.kept}, lost ${reviewed.row.removed}, gained ${reviewed.row.added}`
+  );
+  if (show) lines.push(`draft: ${reviewed.draft}`, `final: ${reviewed.final}`, `reason: ${reviewed.reason}`);
+  return lines;
+}
+
+/** What one run of the session reads besides its variant. */
+type SessionRunInput = {
+  source: string;
+  copy: string;
+  kept: boolean;
+  scope: string | undefined;
+  limit: number | undefined;
+  review: ReturnType<typeof parseSubject> | null;
+  show: boolean;
+  selfName: string | undefined;
+};
+
+/**
+ * Her session once, on a fresh copy of the database at `input.copy`, with the roles of `variant` replaced: the blocks of
+ * its report, each under the input it answers (`scope <key>`, `requests`, `review <subject>`).
+ */
+async function sessionRun(
+  input: SessionRunInput,
+  variant: { label: string; routes: Variant }
+): Promise<Array<{ input: string; lines: Array<string> }>> {
   const { createHot } = await import('../src/hot.ts');
   const { createLlm } = await import('../src/llm/openrouter.ts');
   const { createCalibrator } = await import('../src/llm/tokens.ts');
@@ -645,14 +706,12 @@ export async function main(argv: Array<string>): Promise<string> {
   const { reviewDescription } = await import('../src/memory/db/describe.ts');
   const { applyMemoryWrite } = await import('../src/memory/db/session-write.ts');
 
-  const hot = createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) });
-  const lines = [];
-  const work = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memory-session-'));
-  const copy = flags['--keep'] ? path.resolve(flags['--keep']) : path.join(work, 'memory.db');
+  const hot = routedHot(createHot({ rootDir: ROOT, privateDir: privateDirOf(ROOT) }), variant.routes);
+  const blocks: Array<{ input: string; lines: Array<string> }> = [];
   let handle: Untyped = null;
-  let sim: SimulationLlm | null = null;
+  let routing: ScriptRouting | null = null;
   try {
-    // The effective config: shadow, a sweep of the tool's own, the simulation's key pays.
+    // The effective config: shadow, a sweep of the tool's own.
     const live = hot.config;
     const config = {
       ...live,
@@ -665,58 +724,41 @@ export async function main(argv: Array<string>): Promise<string> {
           minLines: 0,
           sweepsPerScopePerDay: 1_000_000,
           settleMinutes: 0,
-          ...(limit ? { maxMessages: limit } : {}),
+          ...(input.limit ? { maxMessages: input.limit } : {}),
         },
       },
     };
     const counters = { data: {}, markDirty() {} };
-    sim = simulationLlm('memory-session', {
-      createDirect: (apiKey, ring) =>
-        createLlm({
-          apiKey,
-          keys: ring,
-          getConfig: () => config,
-          calibrator: createCalibrator(undefined),
-          state: counters,
-        }),
-      getConfig: (): unknown => config,
+    routing = await scriptRouting(TOOL, {
+      privateDir: privateDirOf(ROOT),
+      roles: ['memory'],
+      variant: variant.routes,
+      getConfig: () => config,
+      createDirect: (keys, getConfig) =>
+        createLlm({ apiKey: '', keys, getConfig, calibrator: createCalibrator(undefined), state: counters }),
       state: counters,
     });
-    process.stderr.write(`memory-session: ${sim.said}\n`);
-    const client = sim.llm;
-    if (fs.existsSync(copy)) throw new CliError(`memory-session: ${copy} already exists`);
-    await copyDatabase(source, copy);
-    handle = openMemoryDb(copy);
-    lines.push(`copy: ${flags['--keep'] ? 'kept' : 'temporary'}, schema ok`);
+    process.stderr.write(routesText(TOOL, routing.said));
+    if (fs.existsSync(input.copy)) throw new CliError(`${TOOL}: ${input.copy} already exists`);
+    await copyDatabase(input.source, input.copy);
+    handle = openMemoryDb(input.copy);
+    const settings = sessionSettings(config);
+    blocks.push({
+      input: 'copy',
+      lines: [
+        `${input.kept ? 'kept' : 'temporary'}, schema ok, mode shadow, up to ${settings.maxMessages} lines a request, model role memory`,
+      ],
+    });
     const usage = { requests: 0, prompt: 0, completion: 0 };
-    const complete = withBackoff(
-      async (messages, options: Untyped = {}) => {
-        const completion: Untyped = await client.complete(messages, {
-          ...options,
-          origin: ORIGIN,
-          countAgainstDailyCap: false,
-          skipCalibration: true,
-          cache: false,
-        });
-        usage.requests += 1;
-        usage.prompt += Number(completion?.usage?.prompt_tokens) || 0;
-        usage.completion += Number(completion?.usage?.completion_tokens) || 0;
-        return completion;
-      },
-      {
-        onWait: (ms: number, attempt: Untyped) =>
-          process.stderr.write(
-            `memory-session: 429, waiting ${Math.round(ms / 1000)} s (try ${attempt} of ${TRIES})\n`
-          ),
-      }
-    );
+    const { memoryPath } = routing;
     const ctx = {
       db: sqlOf(handle),
       write: async (update: Rec) => applyMemoryWrite(handle, update),
-      llm: { complete },
+      llm: { complete: countedClient(routing.llm, usage) },
       hot: { config, prompts: hot.prompts },
       env: {},
-      ring: sim.ring,
+      ring: routing.ring,
+      path: () => memoryPath(),
       now: Date.now,
       log: {
         info() {},
@@ -724,48 +766,90 @@ export async function main(argv: Array<string>): Promise<string> {
         warn: (message: Untyped, fields: Rec) => process.stderr.write(`${message} ${JSON.stringify(fields ?? {})}\n`),
         error() {},
       },
-      selfName: flags['--self-name'] ?? live.bot?.name ?? '',
+      selfName: input.selfName ?? live.bot?.name ?? '',
     };
 
-    const settings = sessionSettings(config);
-    lines.push(`mode shadow, up to ${settings.maxMessages} lines a request, model role memory, the simulation's key`);
-    const result: Untyped = await sweep(ctx, { scope: flags['--scope'], limit, ignoreSweepCap: true });
-    if (result.status !== 'ok') lines.push(`sweep: ${result.status} (${result.code})`);
-    for (const run of result.runs) {
-      lines.push(`scope ${run.scope}: ${run.outcome}, ${run.lines} lines`);
-      if (run.counts && run.plan) {
-        const dropped =
-          Object.entries<number>(run.counts.dropped ?? {})
-            .map(([reason, n]) => `${reason} ${n}`)
-            .join(', ') || 'none';
-        lines.push(`  kept ${run.counts.kept}: ${opKinds(run.plan)}; dropped: ${dropped}`);
-        if (show) lines.push(`  ${JSON.stringify(run.plan)}`);
-      }
-      if (run.errors?.length) lines.push(`  errors: ${run.errors.join(', ')}`);
-    }
-    lines.push(`requests ${usage.requests}, tokens ${usage.prompt} prompt, ${usage.completion} completion`);
+    const result: Untyped = await sweep(ctx, { scope: input.scope, limit: input.limit, ignoreSweepCap: true });
+    if (result.status !== 'ok') blocks.push({ input: 'sweep', lines: [`${result.status} (${result.code})`] });
+    for (const run of result.runs) blocks.push({ input: `scope ${run.scope}`, lines: scopeLines(run, input.show) });
+    blocks.push({
+      input: 'requests',
+      lines: [`${usage.requests}, tokens ${usage.prompt} prompt, ${usage.completion} completion`],
+    });
 
+    const { review } = input;
     if (review) {
       const reviewed: Untyped = await reviewDescription(sqlOf(handle), review.subject, review.field, { ctx });
-      lines.push(
-        `review ${review.subject.kind} ${review.field}: ${reviewed.status}${reviewed.code ? ` (${reviewed.code}${reviewed.step ? ` at ${reviewed.step}` : ''})` : ''}`
-      );
-      if (reviewed.status === 'ok') {
-        const { extra } = reviewed.row;
-        lines.push(
-          `  draft ${[...reviewed.draft].length} characters, final ${[...reviewed.final].length} characters, cap ${extra.cap}${extra.overCap ? ', over the cap' : ''}, kept ${reviewed.row.kept}, lost ${reviewed.row.removed}, gained ${reviewed.row.added}`
-        );
-        if (show)
-          lines.push(`  draft: ${reviewed.draft}`, `  final: ${reviewed.final}`, `  reason: ${reviewed.reason}`);
-      }
-      lines.push(`requests ${usage.requests}, tokens ${usage.prompt} prompt, ${usage.completion} completion`);
+      blocks.push({
+        input: `review ${review.subject.kind} ${review.field}`,
+        lines: [
+          ...reviewLines(reviewed, input.show),
+          `requests ${usage.requests}, tokens ${usage.prompt} prompt, ${usage.completion} completion`,
+        ],
+      });
     }
   } finally {
     handle?.close();
     hot.close?.();
-    await sim?.close();
+    await routing?.close();
+  }
+  return blocks;
+}
+
+/** Runs the tool; returns the text to print. */
+export async function main(argv: Array<string>): Promise<string> {
+  const taken = takeRouteFlags(TOOL, argv, { variants: argv[0] !== 'compare' });
+  const [first] = taken.variants;
+  if (taken.argv[0] === 'compare') return compareMain(taken.argv.slice(1), first.routes);
+  const flags = parseFlags(taken.argv, {
+    values: ['--db', '--data', '--scope', '--limit', '--review', '--self-name', '--keep'],
+    switches: ['--show'],
+    usage: USAGE,
+  });
+  if (flags._.length > 0 || !flags['--db']) throw new CliError(USAGE);
+  const source = path.resolve(flags['--db']);
+  if (!fs.existsSync(source)) throw new CliError(`${TOOL}: no database at ${source}`);
+  const limit = flags['--limit'] === undefined ? undefined : Number(flags['--limit']);
+  if (limit !== undefined && (!Number.isInteger(limit) || limit < 1))
+    throw new CliError(`${TOOL}: --limit is a whole number above 0\n${USAGE}`);
+  const { variants } = taken;
+  if (variants.length > 1 && flags['--keep'])
+    throw new CliError(`${TOOL}: --keep names one copy, so it takes no --variant`);
+
+  const work = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memory-session-'));
+  const runs: Array<Array<{ input: string; lines: Array<string> }>> = [];
+  try {
+    for (const [i, variant] of variants.entries()) {
+      const copy = flags['--keep'] ? path.resolve(flags['--keep']) : path.join(work, `memory-${i + 1}.db`);
+      runs.push(
+        await sessionRun(
+          {
+            source,
+            copy,
+            kept: Boolean(flags['--keep']),
+            scope: flags['--scope'],
+            limit,
+            review: flags['--review'] ? parseSubject(flags['--review']) : null,
+            show: flags['--show'] === true,
+            selfName: flags['--self-name'],
+          },
+          variant
+        )
+      );
+    }
+  } finally {
     fs.rmSync(work, { recursive: true, force: true });
   }
+  const lines =
+    runs.length === 1
+      ? runs[0].flatMap((block) => [
+          `${block.input}: ${block.lines[0] ?? ''}`,
+          ...block.lines.slice(1).map((line) => `  ${line}`),
+        ])
+      : sideBySideText(
+          variants.map((variant) => variant.label),
+          runs
+        );
   return `${lines.join('\n')}\n`;
 }
 
