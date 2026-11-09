@@ -234,19 +234,20 @@ const shown = (value: unknown): string =>
 
 export function reportTable(report: TurnReport): string {
   const lines = [`turn ${report.turnId} sample ${report.sample}: ${report.outcome ?? 'no outcome'}`];
-  for (const step of report.steps) {
-    const calls = (step.calls as Array<{ name: unknown; status: unknown; resultChars: unknown }>)
+  for (const one of report.steps) {
+    const calls = (one.calls as Array<{ name: unknown; status: unknown; resultChars: unknown }>)
       .map((call) => `${shown(call.name)}[${shown(call.status)}, ${shown(call.resultChars)} chars]`)
       .join(' ');
     lines.push(
-      `  step ${String(step.step)}: ${String(step.chars)} chars, ~${String(step.tokens)} tokens, ${shown(step.ms)} ms${
-        calls ? `, calls ${calls}${step.together ? ' (together)' : ''}` : ''
+      `  step ${String(one.step)}: ${String(one.chars)} chars, ~${String(one.tokens)} tokens, ${shown(one.ms)} ms${
+        calls ? `, calls ${calls}${one.together ? ' (together)' : ''}` : ''
       }`
     );
   }
+  const { reply } = report;
   lines.push(
-    `  reply: ${report.reply.messages.length} messages, ${report.reply.reactions.length} reactions${
-      report.reply.skipped ? ', skipped' : ''
+    `  reply: ${reply.messages.length} messages, ${reply.reactions.length} reactions${
+      reply.skipped ? ', skipped' : ''
     }; writes ${report.writes.length}; kept calls ${report.keptCalls.length}`,
     `  ${report.stepCount} steps, ${report.callCount} calls, ${report.totalMs ?? '-'} ms to the reply; ended: ${
       report.endedBecause ?? '-'

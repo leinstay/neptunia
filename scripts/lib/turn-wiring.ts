@@ -291,7 +291,7 @@ export type Wired = {
 };
 
 /** The turn runner of a replay (see the head of this file), with what it keeps. */
-// health: allow function-length -- one composition in the core's order, split it would hide which reader gets what
+// health: allow function-length until 2027-02-01 -- one composition in the core's order, split it would hide which reader gets what
 export function buildTurnRunner(input: WiringInput): Wired {
   const { root, dataDir, hot, turnId, now, identity, port } = input;
   const memory = readOnlyMemory(dataDir);

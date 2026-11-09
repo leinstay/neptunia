@@ -58,7 +58,7 @@ test('answers the history read of a seeded chat with those lines as message even
   assert.equal(page.status, 'ok');
   const events = page.status === 'ok' ? page.events : [];
   assert.deepEqual(
-    events.map((event) => [event.message.id, event.message.content, event.message.author?.name]),
+    events.map(({ message }) => [message.id, message.content, message.author?.name]),
     [
       ['p-1', 'Γεια', 'Ελένη'],
       ['p-2', 'Τι κάνεις;', 'Ελένη'],

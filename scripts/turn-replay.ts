@@ -36,9 +36,6 @@ import { createLlm } from '../src/llm/openrouter.ts';
 import { createEmbedder } from '../src/llm/embed.ts';
 import { estimateMessages } from '../src/llm/tokens.ts';
 import { roleModel } from '../src/llm/roles.ts';
-import { createKeyRing } from '../src/keys/ring.ts';
-import { createKeyStore } from '../src/keys/store.ts';
-import { createKeyFailover } from '../src/llm/key-failover.ts';
 import { CliError, flagText, parseFlags, runCli } from './lib/cli.ts';
 import { createAnswersDir, offlineCore } from './lib/answers-dir.ts';
 import { promptLayersHot } from './lib/prompt-layers.ts';
@@ -62,14 +59,11 @@ const USAGE = [
 
 type Rec = Record<string, unknown>;
 
-/** The model client of the run: from files with an answers folder, else on the copy's routing. */
-async function clientOf(hot: Hot, dataDir: string, answersDir: string | null) {
+type Embed = (texts: Array<string>, options?: unknown) => Promise<Array<ArrayLike<number> | null>>;
+
+/** The copy's routing as production builds it: each role on its chain, spending the copy's keys. */
+async function routingOf(hot: Hot, dataDir: string) {
   const state = { data: {}, markDirty() {} };
-  if (answersDir !== null) {
-    const answers = createAnswersDir({ dir: answersDir });
-    const offline = offlineCore(answers, (purpose) => roleModel(hot.config, 'core', String(purpose ?? '')));
-    return { llm: offline, finish: (code: number) => answers.finish(code), close: () => Promise.resolve() };
-  }
   // Loaded only for a run that spends: an offline run needs none of the clients it builds.
   const { scriptRouting, routesText } = await import('./lib/script-routes.ts');
   const routing = await scriptRouting(TOOL, {
@@ -81,24 +75,36 @@ async function clientOf(hot: Hot, dataDir: string, answersDir: string | null) {
       createLlm({ apiKey: '', keys, getConfig, calibrator: { ratio: 1, apply: (n: number) => n }, state } as never),
     state: state,
   });
-  process.stderr.write(routesText(TOOL, routing.said));
-  return { llm: routing.llm, finish: () => {}, close: () => routing.close() };
+  return { routing, said: routesText(TOOL, routing.said) };
 }
 
-/** The embedder of the run: the embedding role on the copy's keys, or one that embeds nothing. */
-function embedderOf(dataDir: string, live: boolean) {
-  if (!live) return (texts: Array<string>) => Promise.resolve(texts.map(() => null));
-  const ring = createKeyRing({
-    store: createKeyStore({ privateDir: dataDir }),
-    failover: createKeyFailover({ now: Date.now }),
-  });
-  const embedder = createEmbedder({
-    apiKey: '',
-    keyOf: (role: string) => ring.route(role)?.value ?? null,
-    state: { data: {}, markDirty() {} },
-  });
-  return (texts: Array<string>, options?: unknown) =>
-    embedder.embed(texts, options) as Promise<Array<ArrayLike<number> | null>>;
+/**
+ * The model client and the embedder of the run. With an answers folder every request is answered from files, else
+ * the roles run on the copy's routing. The embedder reaches its provider on the copy's embedding key when `live`,
+ * and embeds nothing otherwise.
+ */
+async function clientsOf(hot: Hot, dataDir: string, answersDir: string | null, live: boolean) {
+  const none: Embed = (texts) => Promise.resolve(texts.map(() => null));
+  const spends = answersDir === null || live;
+  const built = spends ? await routingOf(hot, dataDir) : null;
+  const embedOf = (): Embed => {
+    if (!live || built === null) return none;
+    const embedder = createEmbedder({
+      apiKey: '',
+      keyOf: built.routing.keyOf,
+      state: { data: {}, markDirty() {} },
+    });
+    return (texts, options) => embedder.embed(texts, options);
+  };
+  const closeRouting = (): Promise<void> => (built === null ? Promise.resolve() : built.routing.close());
+  if (answersDir !== null) {
+    const answers = createAnswersDir({ dir: answersDir });
+    const offline = offlineCore(answers, (purpose) => roleModel(hot.config, 'core', String(purpose ?? '')));
+    return { llm: offline, embed: embedOf(), finish: (code: number) => answers.finish(code), close: closeRouting };
+  }
+  if (built === null) throw new Error(`${TOOL}: no routing for a run that spends`);
+  process.stderr.write(built.said);
+  return { llm: built.routing.llm, embed: embedOf(), finish: () => {}, close: closeRouting };
 }
 
 /** The settings and prompts of the copy, with `--prompts` laid over its prompts as scripts/replay.ts lays them. */
@@ -229,24 +235,103 @@ async function runOnce(options: {
   }
 }
 
-async function main(argv: Array<string>): Promise<string> {
-  const flags = parseFlags(argv, {
-    values: [
-      '--data',
-      '--turn',
-      '--cut',
-      '--into',
-      '--samples',
-      '--out',
-      '--answers-dir',
-      '--oracle',
-      '--prompts',
-      '--embed',
-      '--calibration',
-    ],
-    switches: ['--compare'],
-    usage: USAGE,
+const FLAGS = {
+  values: [
+    '--data',
+    '--turn',
+    '--cut',
+    '--into',
+    '--samples',
+    '--out',
+    '--answers-dir',
+    '--oracle',
+    '--prompts',
+    '--embed',
+    '--calibration',
+  ],
+  switches: ['--compare'],
+  usage: USAGE,
+};
+
+type Flags = ReturnType<typeof parseFlags>;
+type RunInput = Parameters<typeof runOnce>[0];
+
+/** What a `--turn` run was asked for, or the usage error. */
+function turnOptions(flags: Flags, dataDir: string) {
+  const turnId = flagText(flags, '--turn');
+  if (turnId === undefined) throw new CliError(USAGE);
+  const answersDir = flagText(flags, '--answers-dir') ?? null;
+  const embed = flagText(flags, '--embed') ?? (answersDir === null ? 'live' : 'off');
+  if (embed !== 'live' && embed !== 'off') throw new CliError(USAGE);
+  const samples = Number(flagText(flags, '--samples') ?? '1');
+  if (!Number.isInteger(samples) || samples < 1) throw new CliError(USAGE);
+  const outDir = path.resolve(flagText(flags, '--out') ?? path.join(path.dirname(dataDir), 'out'));
+  if (outDir === dataDir || outDir.startsWith(`${dataDir}${path.sep}`))
+    throw new CliError(`${TOOL}: --out may not be inside the data copy`);
+  const ratioText = flagText(flags, '--calibration');
+  const calibration = ratioText === undefined ? null : Number(ratioText);
+  if (calibration !== null && !(calibration >= 0.6 && calibration <= 1.6)) throw new CliError(USAGE);
+  return {
+    turnId,
+    answersDir,
+    live: embed === 'live',
+    samples,
+    outDir,
+    calibration,
+    compare: flags['--compare'] === true,
+    oracle: path.resolve(flagText(flags, '--oracle') ?? ORACLE),
+    prompts: flagText(flags, '--prompts') ?? null,
+  };
+}
+
+/** Writes a private file of a run under the out folder. */
+function writePrivate(file: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+}
+
+/** The first request of the turn built again and compared with the archived one. */
+async function compareRun(input: RunInput, outDir: string, oracle: string): Promise<string> {
+  const run = await runOnce({ ...input, stopAt: 'reply' });
+  const { turnId } = run.turn;
+  const first: KeptRequest | undefined = run.requests.find((request) => request.purpose === 'reply');
+  if (first === undefined)
+    throw new CliError(`${TOOL}: the turn ended ${String(run.result.outcome)} before its first request`);
+  // The rebuilt request beside the reports, private as they are, for a reader who must see the difference.
+  writePrivate(path.join(outDir, turnId, 'first-request.json'), {
+    messages: first.messages,
+    tools: first.tools,
+    memoryReads: run.carried,
   });
+  return compareText(partsOf(first.messages, first.tools), archivedOf(oracle, turnId));
+}
+
+/** The turn run whole `samples` times, one private report file each. */
+async function sampleRuns(input: RunInput, outDir: string, samples: number): Promise<string> {
+  const written: Array<string> = [];
+  for (let sample = 1; sample <= samples; sample += 1) {
+    const run = await runOnce(input);
+    const { turnId } = run.turn;
+    const report = turnReport({
+      turnId,
+      sample,
+      requests: run.requests,
+      writes: run.writes,
+      keptCalls: run.calls,
+      result: run.result,
+      journal: run.journal,
+      estimate: (messages) => estimateMessages(messages),
+    });
+    const file = path.join(outDir, turnId, `sample-${sample}.json`);
+    writePrivate(file, { ...report, requests: run.requests });
+    process.stderr.write(`${reportTable(report)}\n`);
+    written.push(file);
+  }
+  return `${written.join('\n')}\n`;
+}
+
+async function main(argv: Array<string>): Promise<string> {
+  const flags = parseFlags(argv, FLAGS);
   const dataText = flagText(flags, '--data');
   if (dataText === undefined) throw new CliError(USAGE);
   const dataDir = path.resolve(dataText);
@@ -258,72 +343,24 @@ async function main(argv: Array<string>): Promise<string> {
     const lines = done.counts.map((count) => `${count.table}: ${count.removed} removed, ${count.restored} set back`);
     return `cut at ${new Date(done.at).toISOString()}\n${lines.join('\n')}\n`;
   }
-  const turnId = flagText(flags, '--turn');
-  if (turnId === undefined) throw new CliError(USAGE);
-  const answersDir = flagText(flags, '--answers-dir') ?? null;
-  const embed = flagText(flags, '--embed') ?? (answersDir === null ? 'live' : 'off');
-  if (embed !== 'live' && embed !== 'off') throw new CliError(USAGE);
-  const samples = Number(flagText(flags, '--samples') ?? '1');
-  if (!Number.isInteger(samples) || samples < 1) throw new CliError(USAGE);
-  const outDir = path.resolve(flagText(flags, '--out') ?? path.join(path.dirname(dataDir), 'out'));
-  if (outDir === dataDir || outDir.startsWith(`${dataDir}${path.sep}`))
-    throw new CliError(`${TOOL}: --out may not be inside the data copy`);
-  const compare = flags['--compare'] === true;
-  const ratioText = flagText(flags, '--calibration');
-  const calibration = ratioText === undefined ? null : Number(ratioText);
-  if (calibration !== null && !(calibration >= 0.6 && calibration <= 1.6)) throw new CliError(USAGE);
-  const { hot, close } = hotOf(dataDir, flagText(flags, '--prompts') ?? null);
-  const client = await clientOf(hot, dataDir, answersDir);
-  const embedFn = embedderOf(dataDir, embed === 'live');
+  const asked = turnOptions(flags, dataDir);
+  const { hot, close } = hotOf(dataDir, asked.prompts);
+  const client = await clientsOf(hot, dataDir, asked.answersDir, asked.live);
+  const input: RunInput = {
+    dataDir,
+    turnId: asked.turnId,
+    hot,
+    llm: client.llm,
+    embed: client.embed,
+    stopAt: null,
+    calibration: asked.calibration,
+  };
   try {
-    if (compare) {
-      const run = await runOnce({
-        dataDir,
-        turnId,
-        hot,
-        llm: client.llm,
-        embed: embedFn,
-        stopAt: 'reply',
-        calibration,
-      });
-      const first: KeptRequest | undefined = run.requests.find((request) => request.purpose === 'reply');
-      if (first === undefined)
-        throw new CliError(`${TOOL}: the turn ended ${String(run.result.outcome)} before its first request`);
-      // The rebuilt request beside the reports, private as they are, for a reader who must see the difference.
-      const file = path.join(outDir, run.turn.turnId, 'first-request.json');
-      fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-      fs.writeFileSync(
-        file,
-        `${JSON.stringify({ messages: first.messages, tools: first.tools, memoryReads: run.carried }, null, 2)}\n`,
-        {
-          mode: 0o600,
-        }
-      );
-      const archived = archivedOf(path.resolve(flagText(flags, '--oracle') ?? ORACLE), run.turn.turnId);
-      client.finish(0);
-      return compareText(partsOf(first.messages, first.tools), archived);
-    }
-    const written: Array<string> = [];
-    for (let sample = 1; sample <= samples; sample += 1) {
-      const run = await runOnce({ dataDir, turnId, hot, llm: client.llm, embed: embedFn, stopAt: null, calibration });
-      const report = turnReport({
-        turnId: run.turn.turnId,
-        sample,
-        requests: run.requests,
-        writes: run.writes,
-        keptCalls: run.calls,
-        result: run.result,
-        journal: run.journal,
-        estimate: (messages) => estimateMessages(messages),
-      });
-      const file = path.join(outDir, run.turn.turnId, `sample-${sample}.json`);
-      fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-      fs.writeFileSync(file, `${JSON.stringify({ ...report, requests: run.requests }, null, 2)}\n`, { mode: 0o600 });
-      process.stderr.write(`${reportTable(report)}\n`);
-      written.push(file);
-    }
+    const text = asked.compare
+      ? await compareRun(input, asked.outDir, asked.oracle)
+      : await sampleRuns(input, asked.outDir, asked.samples);
     client.finish(0);
-    return `${written.join('\n')}\n`;
+    return text;
   } catch (error) {
     if (error instanceof Error && error.message === STOPPED) throw new CliError(`${TOOL}: ${STOPPED}`);
     client.finish(1);
