@@ -30,10 +30,12 @@ import type { MapContext, Spec } from './map/common.ts';
 import { storageContext } from './map/index.ts';
 import { ensureAccountPerson, linkedProfileUnit } from './person-links.ts';
 import { addSessionRows } from './session-rows.ts';
-import { accountCollection, keyText, storageId } from './storage-keys.ts';
+import { accountCollection, keyText } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit } from './storage-units.ts';
-import { ownedRowsOf, retireAbsent, writeMapping } from './upsert.ts';
+import { writeMapping } from './upsert.ts';
+import { heldRows, holdsAny, profileOwnerOf, retireProfileAbsent, stampProfileRows } from './profile-owner.ts';
+import type { ProfileOwner } from './profile-owner.ts';
 import { noteUnit } from './unit-write.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
@@ -100,11 +102,11 @@ function membershipOf(db: Db, accountId: string): ProfileContext['membership'] {
  * account with no person gets a meta-person first, never one spelled from its native id. The account row keeps the
  * link the database holds.
  */
-function profileContext(db: Db, id: string, key: StorageKey): ProfileContext {
+function profileContext(db: Db, id: string, key: StorageKey, holder: ProfileOwner): ProfileContext {
   const accountId = key.subject.id;
   const base: MapContext = storageContext(db, key);
   const iface = ifaceOf(base);
-  const owned = db.prepare('SELECT id FROM people WHERE owner_key = ? AND retired_at IS NULL LIMIT 1').get(id);
+  const [owned] = heldRows(db, holder, ['people']).people ?? [];
   const stored = db.prepare('SELECT person_id FROM accounts WHERE id = ?').get(accountId);
   const minted =
     typeof owned?.id !== 'string' && stored !== undefined && !filled(stored.person_id)
@@ -245,10 +247,11 @@ export function writeAccountProfile(
     db.prepare('INSERT OR IGNORE INTO legacy_unit_aliases(path,unit_id) VALUES (?,?)').run(legacyOwner, id);
     db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, 'user');
   }
-  const mapping = accountProfileRows(value, profileContext(db, id, key), id);
+  const holder = profileOwnerOf(key)!; // an account's `user` unit always has its owner columns (profile-owner.ts)
+  const mapping = stampProfileRows(accountProfileRows(value, profileContext(db, id, key, holder), id), holder);
   if (legacyOwner) for (const list of Object.values(mapping)) for (const row of list) row.owner_file = legacyOwner;
   const upserted = writeMapping(db, mapping, id, { at });
-  const retired = retireAbsent(db, id, mapping, at);
+  const retired = retireProfileAbsent(db, holder, mapping, at);
   noteUnit(db, id, 'user', { at });
   return { upserted, retired };
 }
@@ -285,9 +288,9 @@ export function applyAccountProfileWrite(handle: MemoryHandle, update: Row): Acc
 
 /** The profile the unit `key` holds (an account's `user` unit), or not found when the database holds no such unit. */
 export function accountProfileValue(db: Db, key: StorageKey): { found: true; value: unknown } | { found: false } {
-  const id = storageId(key);
-  if (!db.prepare('SELECT 1 FROM storage_units WHERE id = ? AND retired_at IS NULL').get(id)) return { found: false };
-  const rows = ownedRowsOf(db, id, TABLES);
+  const holder = profileOwnerOf(key);
+  if (!holder || (!holdsAny(db, holder, 'accounts') && !holdsAny(db, holder, 'people'))) return { found: false };
+  const rows = heldRows(db, holder, TABLES);
   addSessionRows(db, 'user', rows, key.subject.type === 'account' ? key.subject.id : null);
   return { found: true, value: accountProfileOf(rows) };
 }

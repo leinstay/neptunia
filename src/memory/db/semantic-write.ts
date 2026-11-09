@@ -424,8 +424,8 @@ function insertClaim(db: Db, payload: Payload, { at, uuid }: WriteDeps): string 
   const subject = payload.arguments.find((one) => 'ref' in one);
   db.prepare(
     `INSERT INTO claims (id, subject_kind, subject_id, kind, text, extra, first_seen_at, last_seen_at, how, author, truth, shown,
-       scope_kind, scope_iface, scope_dm, created_at, audience_id)
-     VALUES (?, 'semantic', ?, ?, ?, ?, ?, ?, ?, 'her', ?, ?, ?, ?, ?, ?, ?)`
+       scope_kind, scope_iface, scope_dm, created_at, audience_id, writer)
+     VALUES (?, 'semantic', ?, ?, ?, ?, ?, ?, ?, 'her', ?, ?, ?, ?, ?, ?, ?, 'session')`
   ).run(
     id,
     subject && 'ref' in subject ? subject.ref.id : null,

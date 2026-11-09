@@ -39,6 +39,7 @@ import { writeJournalDay } from './journal-lines.ts';
 import { writeArchiveMonth } from './archive-lines.ts';
 import { operationalOfUnit, writeOperational } from './operational.ts';
 import { accountProfileWriteOf, isAccountProfileKey, writeAccountProfile } from './account-profile.ts';
+import { SESSION_COLUMNS, profileOwnerOf, stampProfileRows } from './profile-owner.ts';
 import { proseVersionsValueOf, writeProseVersions } from './prose-versions.ts';
 import { isPrivateLayerKey, privateLayerWriteOf, writePrivateLayer } from './private-layer.ts';
 import { storageContext } from './map/index.ts';
@@ -198,6 +199,7 @@ function writeLines(db: Db, update: Row, at: string): { written: number; duplica
 /** Media generations append independently of the active cache's replacement writes. */
 function writeMediaDescriptions(db: Db, unit: Unit, given: unknown, at: string) {
   const key = unit.key!;
+  const holder = profileOwnerOf(key)!; // a `versions` unit always has its owner columns (profile-owner.ts)
   const descriptionId = mediaDescriptionId(key);
   let written = 0;
   let duplicates = 0;
@@ -207,9 +209,9 @@ function writeMediaDescriptions(db: Db, unit: Unit, given: unknown, at: string) 
     const current = db
       .prepare(
         `SELECT v.id,v.extra FROM descriptions d JOIN description_versions v ON v.id=d.current_version
-       WHERE d.id=? AND d.owner_key=?`
+       WHERE d.id=? AND d.writer=? AND d.holder_id=?`
       )
-      .get(descriptionId, unit.full);
+      .get(descriptionId, holder.writer, holder.holder_id);
     if (line.op === 'refresh-failed') {
       if (current && isFiniteNumber(line.at)) {
         const extra = parseExtra(current.extra);
@@ -229,45 +231,50 @@ function writeMediaDescriptions(db: Db, unit: Unit, given: unknown, at: string) 
     }
     const version = Number(
       db
-        .prepare('SELECT COALESCE(MAX(position),0)+1 AS version FROM description_versions WHERE owner_key=?')
-        .get(unit.full)?.version
+        .prepare(
+          'SELECT COALESCE(MAX(position),0)+1 AS version FROM description_versions WHERE writer=? AND holder_id=?'
+        )
+        .get(holder.writer, holder.holder_id)?.version
     );
     const text = typeof line.entry.text === 'string' ? line.entry.text : line.entry.answer;
     writeMapping(
       db,
-      {
-        description_versions: [
-          {
-            id: versionId,
-            description_id: descriptionId,
-            text,
-            written_at: isoOf(line.entry.ts),
-            origin: 'media',
-            extra: JSON.stringify({ entry: line.entry }),
-            owner_key: unit.full,
-            position: version,
-          },
-        ],
-        descriptions: [
-          {
-            id: descriptionId,
-            subject_kind: 'media',
-            subject_id: key.selector?.itemId,
-            field: 'description',
-            current_version: versionId,
-            owner_key: unit.full,
-            ...groupScope(storageContext(db, key).iface ?? null),
-          },
-        ],
-        operational: [
-          {
-            kind: 'versions',
-            owner: unit.full,
-            owner_key: unit.full,
-            value: JSON.stringify({ $has: { media: descriptionId } }),
-          },
-        ],
-      },
+      stampProfileRows(
+        {
+          description_versions: [
+            {
+              id: versionId,
+              description_id: descriptionId,
+              text,
+              written_at: isoOf(line.entry.ts),
+              origin: 'media',
+              extra: JSON.stringify({ entry: line.entry }),
+              owner_key: unit.full,
+              position: version,
+            },
+          ],
+          descriptions: [
+            {
+              id: descriptionId,
+              subject_kind: 'media',
+              subject_id: key.selector?.itemId,
+              field: 'description',
+              current_version: versionId,
+              owner_key: unit.full,
+              ...groupScope(storageContext(db, key).iface ?? null),
+            },
+          ],
+          operational: [
+            {
+              kind: 'versions',
+              owner: unit.full,
+              owner_key: unit.full,
+              value: JSON.stringify({ $has: { media: descriptionId } }),
+            },
+          ],
+        },
+        holder
+      ),
       unit.full,
       { at }
     );
@@ -413,9 +420,21 @@ function writeOwnerName(db: Db, update: Row, at: string): { personId: string; na
     ensureAudience(db, scope);
     db.prepare(
       `INSERT INTO claims (id, subject_kind, subject_id, kind, text, weight, first_seen_at, last_seen_at, how, author,
-        truth, created_at, scope_kind, scope_iface, scope_dm, audience_id)
-        VALUES (?, 'person', ?, 'alias', ?, 1, ?, ?, 'owner', 'owner', 'current', ?, ?, ?, ?, ?)`
-    ).run(id, personId, name, at, at, at, scope.scope_kind, scope.scope_iface, scope.scope_dm, scope.audience_id);
+        truth, created_at, scope_kind, scope_iface, scope_dm, audience_id, writer)
+        VALUES (?, 'person', ?, 'alias', ?, 1, ?, ?, 'owner', 'owner', 'current', ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      personId,
+      name,
+      at,
+      at,
+      at,
+      scope.scope_kind,
+      scope.scope_iface,
+      scope.scope_dm,
+      scope.audience_id,
+      SESSION_COLUMNS.writer
+    );
     projectRow(db, 'claims', { id }, { at });
   }
   return { personId, name, stored: true };

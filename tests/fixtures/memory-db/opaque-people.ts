@@ -96,19 +96,20 @@ function addAudience(db: Db, audience: string): void {
 }
 
 /** One claim under `audience` about `subject`. */
+// The claims, episodes and attitude moves below are her memory session's: writer `session` (profile-owner.ts).
 export function addClaim(db: Db, id: string, subject: string, audience: string, text = `the words of ${id}`): void {
   addAudience(db, audience);
   db.prepare(
-    `INSERT INTO claims (id, subject_kind, subject_id, kind, text, truth, shown, audience_id, scope_kind, created_at)
-     VALUES (?, 'person', ?, 'detail', ?, 'current', 1, ?, ?, ?)`
+    `INSERT INTO claims (id, subject_kind, subject_id, kind, text, truth, shown, audience_id, scope_kind, created_at, writer)
+     VALUES (?, 'person', ?, 'detail', ?, 'current', 1, ?, ?, ?, 'session')`
   ).run(id, subject, text, audience, audience.startsWith('aud:dm:') ? 'dm' : 'group', AT);
 }
 
 export function addEpisode(db: Db, id: string, subject: string, place: string): void {
   addAudience(db, `aud:dm:${place}`);
   db.prepare(
-    `INSERT INTO episodes (id, kind, subject_id, place_id, date, what, audience_id, scope_kind, created_at)
-     VALUES (?, 'private', ?, ?, '2026-11-01', ?, ?, 'dm', ?)`
+    `INSERT INTO episodes (id, kind, subject_id, place_id, date, what, audience_id, scope_kind, created_at, writer)
+     VALUES (?, 'private', ?, ?, '2026-11-01', ?, ?, 'dm', ?, 'session')`
   ).run(id, subject, place, `the event of ${id}`, `aud:dm:${place}`, AT);
 }
 
@@ -123,8 +124,8 @@ export function addDescription(db: Db, id: string, subject: string, place: strin
 export function addAffinity(db: Db, id: string, person: string, place: string): void {
   addAudience(db, `aud:dm:${place}`);
   db.prepare(
-    `INSERT INTO affinity_events (id, person_id, at, delta, applied, score, reason, audience_id, scope_kind)
-     VALUES (?, ?, ?, 2, 2, 12, 'synthetic', ?, 'dm')`
+    `INSERT INTO affinity_events (id, person_id, at, delta, applied, score, reason, audience_id, scope_kind, writer)
+     VALUES (?, ?, ?, 2, 2, 12, 'synthetic', ?, 'dm', 'session')`
   ).run(id, person, AT, `aud:dm:${place}`);
 }
 

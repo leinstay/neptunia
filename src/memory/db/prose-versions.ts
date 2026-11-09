@@ -18,10 +18,11 @@ import { channelPlaceId, personId } from './ids.ts';
 import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './map/common.ts';
 import type { Spec } from './map/common.ts';
 import { storageContext } from './map/index.ts';
-import { accountCollection, keyText, placeCollection, storageId } from './storage-keys.ts';
+import { accountCollection, keyText, placeCollection } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit } from './storage-units.ts';
-import { ownedRowsOf, retireAbsent, writeMapping } from './upsert.ts';
+import { writeMapping } from './upsert.ts';
+import { heldRows, holdsAny, profileOwnerOf, retireProfileAbsent, stampProfileRows } from './profile-owner.ts';
 import { noteUnit } from './unit-write.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
@@ -61,8 +62,8 @@ export function proseVersionsKey({ versionKind, subjectId, itemId }: Omit<ProseV
 
 /** The person whose `people` row the account's profile unit owns, which its description versions belong to. */
 function profilePersonOf(db: Db, accountId: string): string | null {
-  const unit = storageId(accountCollection('user', accountId));
-  const owned = db.prepare('SELECT id FROM people WHERE owner_key = ? AND retired_at IS NULL LIMIT 1').get(unit);
+  const holder = profileOwnerOf(accountCollection('user', accountId))!; // a `user` unit always has its owner columns
+  const [owned] = heldRows(db, holder, ['people']).people ?? [];
   return typeof owned?.id === 'string' ? owned.id : null;
 }
 
@@ -144,16 +145,19 @@ export function writeProseVersions(
     db.prepare('INSERT OR IGNORE INTO legacy_unit_aliases(path,unit_id) VALUES (?,?)').run(legacyOwner, id);
     db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, 'versions');
   }
-  const mapping = proseVersionsRows(value, descriptionPrefix(db, key, id), id);
+  const holder = profileOwnerOf(key)!; // a `versions` unit always has its owner columns (profile-owner.ts)
+  const mapping = stampProfileRows(proseVersionsRows(value, descriptionPrefix(db, key, id), id), holder);
   // The history's operational row keeps the owner it was first stored under (an older release's path).
   const [operational] = mapping.operational;
   const stored = db
-    .prepare("SELECT owner FROM operational WHERE kind = 'versions' AND owner_key = ? ORDER BY rowid LIMIT 1")
-    .get(id);
+    .prepare(
+      "SELECT owner FROM operational WHERE kind = 'versions' AND writer = ? AND holder_id = ? ORDER BY rowid LIMIT 1"
+    )
+    .get(holder.writer, holder.holder_id);
   if (stored) operational.owner = stored.owner;
   if (legacyOwner) for (const list of Object.values(mapping)) for (const row of list) row.owner_file = legacyOwner;
   const upserted = writeMapping(db, mapping, id, { at });
-  const retired = retireAbsent(db, id, mapping, at);
+  const retired = retireProfileAbsent(db, holder, mapping, at);
   noteUnit(db, id, 'versions', { at });
   return { upserted, retired };
 }
@@ -198,7 +202,7 @@ export function applyProseVersionsWrite(handle: MemoryHandle, update: Row): Pros
  * same way: their rows have the same shape.
  */
 export function proseVersionsValue(db: Db, key: StorageKey): { found: true; value: unknown } | { found: false } {
-  const id = storageId(key);
-  if (!db.prepare('SELECT 1 FROM storage_units WHERE id = ? AND retired_at IS NULL').get(id)) return { found: false };
-  return { found: true, value: proseVersionsOf(ownedRowsOf(db, id, ['description_versions', 'operational'])) };
+  const holder = profileOwnerOf(key);
+  if (!holder || !holdsAny(db, holder, 'operational')) return { found: false };
+  return { found: true, value: proseVersionsOf(heldRows(db, holder, ['description_versions', 'operational'])) };
 }
