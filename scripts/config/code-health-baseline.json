@@ -649,7 +649,7 @@
       "repeated": 0
     },
     "tests/memory-db-map-work.test.ts": {
-      "deep": 11,
+      "deep": 6,
       "repeated": 0
     },
     "tests/memory-db-observe-event.test.ts": {
@@ -1987,7 +1987,6 @@
       "src/memory/db/map/common.ts",
       "src/memory/db/map/errands.ts",
       "src/memory/db/map/index.ts",
-      "src/memory/db/map/intentions.ts",
       "src/memory/db/map/lists.ts",
       "src/memory/db/map/requests.ts",
       "src/memory/db/map/scope-parts.ts",

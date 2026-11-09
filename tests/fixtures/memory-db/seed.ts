@@ -7,9 +7,10 @@
 // finished at the end, as the writers' projection job does. Synthetic fixtures only.
 import fs from 'node:fs';
 import path from 'node:path';
-import type { FileFormat, MapperKind } from '../../../src/memory/db/map/index.ts';
+import type { FileFormat } from '../../../src/memory/db/map/index.ts';
 import type { Db, MemoryHandle } from '../../../src/memory/db/types.ts';
 import { classify } from '../../../src/memory/migration/classify.ts';
+import type { MappedPath } from '../../../src/memory/migration/classify.ts';
 import { applyUnitWrite } from '../../../src/memory/db/unit-write.ts';
 import { currentUnitPath, isOperational } from '../../../src/memory/migration/paths.ts';
 import { fillStems } from '../../../src/memory/db/stems.ts';
@@ -39,7 +40,7 @@ function walk(dir: string, rel = '', out: Array<string> = []): Array<string> {
 }
 
 /** A memory unit of a data directory: the owner path, the kind and format of its files, and the files. */
-export type Unit = { owner: string; kind: MapperKind; format: FileFormat; files: Array<string> };
+export type Unit = { owner: string; kind: MappedPath['kind']; format: FileFormat; files: Array<string> };
 
 /** The memory units of a data directory (a month of vectors is one unit). */
 export function unitsOf(dataDir: string): Array<Unit> {

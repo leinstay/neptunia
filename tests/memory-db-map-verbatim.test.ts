@@ -173,7 +173,8 @@ test('classify names the mapper and format of every memory path', () => {
     assert.ok(found && !found.skipped, rel);
     assert.equal(found.kind, kind, rel);
     assert.equal(found.format, format, rel);
-    assert.equal(found.mapper, mappers[kind], rel);
+    // The intentions have their own write kind and no mapper (src/memory/db/intentions-write.ts).
+    assert.equal(found.mapper, kind === 'intentions' ? mappers.verbatim : mappers[kind], rel);
     assert.equal(kindOfPath(rel), kind, rel);
   }
 });

@@ -7,7 +7,7 @@ import type { Db } from './types.ts';
 /** One migration: SQL text, or a function of the connection. */
 export type Migration = string | ((db: Db) => void);
 
-/** The steps above the baseline, version 44 first. */
+/** The steps above the baseline, version 45 first. */
 export const MIGRATIONS: Array<Migration> = [];
 
 /** The tables that carry a scope and its `audience_id`. */

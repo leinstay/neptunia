@@ -76,9 +76,9 @@ test('refuses a database below the baseline with the version it found and leaves
   // Catches: an open that runs half a schema over an old file, or refuses it without saying what to do.
   const file = path.join(tempDir('nep-baseline-'), 'old.db');
   const old = new DatabaseSync(file);
-  old.exec('CREATE TABLE schema_version (version INTEGER NOT NULL); INSERT INTO schema_version (version) VALUES (42);');
+  old.exec('CREATE TABLE schema_version (version INTEGER NOT NULL); INSERT INTO schema_version (version) VALUES (43);');
   old.close();
-  assert.throws(() => openMemoryDb(file), /schema-below-baseline: .*version 42.*baseline 43/);
+  assert.throws(() => openMemoryDb(file), /schema-below-baseline: .*version 43.*baseline 44/);
   const after = new DatabaseSync(file, { readOnly: true });
   try {
     const tables = after.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all();
@@ -86,7 +86,7 @@ test('refuses a database below the baseline with the version it found and leaves
       tables.map((row) => row.name),
       ['schema_version']
     );
-    assert.equal(after.prepare('SELECT MAX(version) AS v FROM schema_version').get()?.v, 42);
+    assert.equal(after.prepare('SELECT MAX(version) AS v FROM schema_version').get()?.v, 43);
   } finally {
     after.close();
   }
