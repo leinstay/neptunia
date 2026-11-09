@@ -1,4 +1,4 @@
-// Operations: `/nep memory` and `/nep private`: what the persona remembers -- one member's profile and private layer, the channel map, the server notes, the recent lines, the archive and the journal. Nothing here deletes stored memory.
+// Operations: `memory.*` and `memory.private.read`: what the persona remembers -- one member's profile and private layer, the channel map, the server notes, the recent lines, the archive and the journal. Nothing here deletes stored memory.
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
@@ -219,7 +219,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep memory channel [channel]`: with a channel, that channel's full stored note (the platform's
+   * `memory.channel.read [channel]`: with a channel, that channel's full stored note (the platform's
    * facts, the stored purpose/topics/tone, counters, activity verdict and top
    * writers); without one, a compact table of every stored channel, sorted by last message desc.
    * `<@id>` tokens in `purpose`/`topics`/`tone` are resolved the same way `memory.show` resolves
@@ -265,7 +265,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep memory server`: the stored place-wide notes (`patterns`, `starters`, numbered
+   * `memory.server.read`: the stored place-wide notes (`patterns`, `starters`, numbered
    * in-jokes and self facts -- src/memory/store.ts#getPlace) plus counts of what else this place has
    * stored (profiles, channel notes, lore entries) and when the place notes were last updated.
    * `<@id>` tokens are resolved the same way `memory.show`/`memory.channel` resolve free text.
@@ -290,7 +290,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep memory recent`: the place's live recent lines (src/memory/recent.ts#liveRecent over
+   * `memory.recent.read`: the place's live recent lines (src/memory/recent.ts#liveRecent over
    * `memory.recentHours`), newest moment first, one per line: date and time in `bot.timezone`, the
    * source channel (`#name` when a channel note stores one, else its id), the weight and the text
    * with `<@id>` tokens resolved like the other memory views. Expired lines are not shown. Read
@@ -326,7 +326,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep memory archive [user] [kind] [n]`: the newest `n` (1..100, default 20) entries of the
+   * `memory.archive.read [user] [kind] [n]`: the newest `n` (1..100, default 20) entries of the
    * place's archive (src/memory/archive.ts), newest first: with a member, those scoped to them;
    * without one, the server-level ones (no member scope). `kind` narrows to one item kind. The
    * private archives are never read here. One line each: the UTC day the item left, the event,
@@ -365,7 +365,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep memory restore <itemId>`: the item's newest archived version back into its hot list
+   * `memory.restore <itemId>`: the item's newest archived version back into its hot list
    * (store.restoreArchived: under its own id, not pinned), then a `restored` line in the archive
    * (by `owner`). Idempotent: an item already hot changes nothing and writes nothing. Refused
    * while paused.
@@ -425,7 +425,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep memory journal [day] [kind] [n] [message]`: the last `n` (1..50, default 20) journal records of
+   * `memory.journal.read [day] [kind] [n] [message]`: the last `n` (1..50, default 20) journal records of
    * one UTC day (default today), of one kind or all, as short lines (src/memory/journal.ts#journalLine).
    * With `message` (`messageId`: an id or a message link; the persona's call gives `#N`, resolved
    * to the id by src/tools/executors.ts#resolveCall) the turn that posted that message instead,
@@ -484,7 +484,7 @@ const handlers = perEnv((env) => {
   }
 
   /**
-   * `/nep private show`: one member's private layer, with the same line
+   * `memory.private.read`: one member's private layer, with the same line
    * formats as `memory show`'s sections, under the public profile's current
    * name (the user id when there is none). Adds the private and the effective
    * attitude (src/behavior/private.js#effectiveAffinity -- what the persona
@@ -559,7 +559,7 @@ const handlers = perEnv((env) => {
     ].join('\n');
   }
 
-  /** `/nep memory affinity`: the attitude view (`affinityView`) of a member who has a profile.
+  /** `memory.affinity.read`: the attitude view (`affinityView`) of a member who has a profile.
    * Read only: the attitude changes only through the memory analyzer, for nobody by hand. */
   function cmdMemoryAffinity(args: Obj, context: OpContext) {
     const accountId = idText(args.accountId);

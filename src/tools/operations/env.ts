@@ -127,13 +127,13 @@ function buildEnv({
   }
 
   /**
-   * `/nep pause`: refuse a command that would write under `data/` while
+   * `bot.pause`: refuse a command that would write under `data/` while
    * paused, with a hint to resume first. Guards message.create,
    * alias.add, alias.remove, lore.add, lore.remove, learned.add,
    * learned.remove, emoji.rescan, gifs.rescan, gifs.recache and draw (it counts against the image rail
    * in state.json).
    */
-  /** Whether state.json holds the pause flag (`/nep pause`), read at the call. */
+  /** Whether state.json holds the pause flag (`bot.pause`), read at the call. */
   function isPausedNow(): boolean {
     const { data } = store.state;
     return Boolean(data.paused);
@@ -278,15 +278,15 @@ function buildEnv({
     llm,
     embedder,
     embedQueue,
-    // /nep status: the memory database's state line (src/memory/db/service.ts#status).
+    // status.show: the memory database's state line (src/memory/db/service.ts#status).
     memoryDb,
     record,
     metrics,
-    // The web lookup: the status card's search line and `/nep task search` (src/tools/operations/search.ts).
+    // The web lookup: the status card's search line and `web.search` (src/tools/operations/search.ts).
     lookup,
-    // The server search of the recall runner (src/behavior/recall-run.ts): `/nep memory search`.
+    // The server search of the recall runner (src/behavior/recall-run.ts): `memory.search`.
     recall,
-    // The media describer (src/memory/describe.ts): `/nep task look`, its second look.
+    // The media describer (src/memory/describe.ts): `media.look`, its second look.
     describer,
     usage,
     // The management key, read only by the status card's activity GETs; never logged.
@@ -294,13 +294,13 @@ function buildEnv({
       return cardKeys ? cardKeys().managementKey : (managementKey as string | null);
     },
     port,
-    // The persona's errands (src/errands/service.ts): `/nep task`.
+    // The persona's errands (src/errands/service.ts): `errand.*`.
     errands,
     // The HTTP fetch a post's `media` download uses (default: the global fetch).
     fetchImpl,
-    // The persona's intentions (src/intentions/service.ts): `/nep task intent`.
+    // The persona's intentions (src/intentions/service.ts): `intention.*`.
     intentions,
-    // The persona's inner life (src/behavior/inner.ts): `/nep task inner`.
+    // The persona's inner life (src/behavior/inner.ts): `inner.status`.
     inner,
     // The selfreflection's publisher (src/behavior/mirror.ts): what she writes to her selfreflection with message.create is held there.
     // The task board (src/tools/operations/board.ts): `task.propose` and `task.status`, and the status card's agent costs.

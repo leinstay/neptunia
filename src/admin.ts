@@ -1,8 +1,8 @@
 // The owner's operations as one object the core builds once (src/core.ts): live rules
-// (prompts.local/rules.md, seeded from prompts/rules.md), config overrides (config.local/config.json,
+// (data/prompts/rules.md, seeded from prompts/rules.md), config overrides (data/config/config.json,
 // hot-reloaded), status, a turn of the persona asked for now (`message.create`) and profile
 // inspection. No operation deletes stored memory. The tracked prompts/ layer is never written at
-// runtime: live corrections always land in the untracked prompts.local/ layer.
+// runtime: live corrections always land in the data folder's prompts/.
 //
 // `createAdmin(deps)` runs the typed operations under src/tools/operations/ (one file per area) by their
 // names: `runSkillOp` with the requester's full rights check (the owner's console and her tool calls
@@ -42,8 +42,8 @@ export {
  * `calibrator` — token calibrator (src/llm/tokens.ts), read for `.ratio`.
  * `turns` — from createTurnRunner() (src/behavior/turn.ts), optional: `waitIdle()`, used by
  *   `bot.pause` to wait out a turn already in flight. Absent -> the wait is simply skipped.
- * `pending` — `{ clear() }`, optional: clears src/behavior/pipeline.ts's pending-ping queue on pause.
- *   Absent -> nothing to clear.
+ * `pending` — `{ drain(placeId) }`, optional: hands back at `bot.resume` what the pause kept, the held messages and
+ *   the queued pings. Absent -> nothing is handed back.
  * `images` — from createImageGen() (src/llm/images.ts), optional: `generate()` for `draw.create`,
  *   `quota()` and `familyOf()` for the image lines of `status.show` and `model.show`.
  *   Absent -> `draw.create` reports it is not available and `status.show` has no image lines.

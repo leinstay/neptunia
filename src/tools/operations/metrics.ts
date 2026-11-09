@@ -1,4 +1,4 @@
-// The speed figures of the owner's `/nep status` card: how long a reply, a recall step, an analyzer batch or an embedding flush took over the last day. The durations come
+// The speed figures of the owner's `status.show` card: how long a reply, a recall step, an analyzer batch or an embedding flush took over the last day. The durations come
 // from the log lines that already carry them (src/log.ts#onLog, subscribed in src/index.ts via
 // `metricsTap`); each metric keeps its samples of the last 24 h, at most MAX_SAMPLES (the oldest
 // go first), in memory, and the database `metrics.json` unit keeps them across a restart (written at most once

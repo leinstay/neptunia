@@ -1,4 +1,4 @@
-// Operations: `/nep access`: who besides the owners may run which operation (bot.access,
+// Operations: `access.*`: who besides the owners may run which operation (bot.access,
 // src/tools/operations/grants.ts). Owner-only. A grant names an operation (`memory.profile.read`), a group
 // (`memory`) or `*`; a group or `*` is stored as the grantable read operations it covers now, one
 // entry each, so a later operation and every write stay closed until granted by name. The persona
@@ -25,7 +25,7 @@ import { idText, isObj, objOf, textOf } from '../types.ts';
 import type { Access, GrantTarget, Obj, OpContext, OpInfo } from '../types.ts';
 
 /**
- * Every key `/nep access grant` accepts, for the autocomplete: `*`, each group (a dotted prefix
+ * Every key `access.grant` accepts, for the autocomplete: `*`, each group (a dotted prefix
  * of an operation name) that covers at least one grantable read operation, then every grantable
  * operation name. Pure over `ops` (src/tools/operations/registry.ts#listOps).
  */

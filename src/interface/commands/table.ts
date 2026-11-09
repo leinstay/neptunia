@@ -459,7 +459,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
   },
   {
     name: 'errands',
-    help: 'Inspect or cancel tasks delegated to agents',
+    help: 'Inspect or cancel errands handed to agents',
     args: [],
     defaultSubcommand: 'list',
     subcommands: [

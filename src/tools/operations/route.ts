@@ -1,4 +1,4 @@
-// Operations: `/nep route`: which providers serve each model, per role (llm.providerByModel in the private settings file).
+// Operations: `route.*`: which providers serve each model, per role (llm.providerByModel in the private settings file).
 // The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
 
@@ -25,7 +25,7 @@ import { CODE } from '../codes.ts';
 import { isObj, objOf, textOf } from '../types.ts';
 import type { Obj, Untyped } from '../types.ts';
 
-/** The `byok` option of `/nep route set`: `'true'` or `'false'` (the command's choices), or the
+/** The `byok` option of `route.set`: `'true'` or `'false'` (the command's choices), or the
  * boolean a persona's call carries; absent (undefined or null) is false; anything else is refused. */
 function routeByokArg(args: Obj): boolean {
   const value = args.byok;
@@ -60,7 +60,7 @@ const handlers = perEnv((env) => {
     });
   }
 
-  /** One by-role line of `/nep route list`: the model and the routing it gets now. */
+  /** One by-role line of `route.list`: the model and the routing it gets now. */
   function routeRoleLine(role: string, cfg: Untyped, byModel: Obj): string {
     const model = modelForRole(role, cfg);
     if (!model) return `  ${role}: (no model configured)`;
@@ -76,7 +76,7 @@ const handlers = perEnv((env) => {
     return `  ${role}: ${model} -> ${applied}${pinned}`;
   }
 
-  /** `/nep route list`: every route, one line each (prefix | role or any | providers | fallbacks | byok),
+  /** `route.list`: every route, one line each (prefix | role or any | providers | fallbacks | byok),
    * then each role with the model it uses now and the routing that applies to it; the OpenCode
    * agents' roles (`scout`, `server`, `thinker`, `dev`) last, which the bot never routes: their workers never
    * read `llm.providerByModel` (no route resolved). */
@@ -110,7 +110,7 @@ const handlers = perEnv((env) => {
     return lines.join('\n');
   }
 
-  /** `/nep route set`: `{ only: [providers], allow_fallbacks }` under `<prefix>` or `<prefix>@<role>`,
+  /** `route.set`: `{ only: [providers], allow_fallbacks }` under `<prefix>` or `<prefix>@<role>`,
    * with `byok: true` when asked (src/llm/openrouter.ts#assertByok; off writes no key). */
   function cmdRouteSet(args: Obj): string {
     const prefix = routePrefixArg(args);
@@ -135,7 +135,7 @@ const handlers = perEnv((env) => {
     return `Route ${key} (${role ?? 'any role'}): only ${providers.join(', ')}, fallbacks: ${onOff(allowFallbacks)}, byok: ${onOff(byok)} ${reloadNote(ok)}`;
   }
 
-  /** `/nep route remove`: drops the `<prefix>` or `<prefix>@<role>` key from the private settings file */
+  /** `route.remove`: drops the `<prefix>` or `<prefix>@<role>` key from the private settings file */
   function cmdRouteRemove(args: Obj): string {
     const prefix = routePrefixArg(args);
     const role = routeRoleArg(args);

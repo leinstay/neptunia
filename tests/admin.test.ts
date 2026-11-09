@@ -2380,19 +2380,22 @@ test('run: pause is idempotent -- a second call just reports the state without d
   assert.match(result, /already paused/i);
 });
 
-test('run: pause clears the pending-ping queue', async () => {
+test('run: pause keeps the pending pings for the resume and clears nothing', async () => {
+  // Changed: the pause cleared the pending-ping queue when the deps gave a `clear`, but the core gives only `drain`,
+  // which hands the queue back at the resume. Bug: a pause throws away the pings that wait for the resume.
   const rootDir = makeRoot();
   let clearCalls = 0;
   const pending = {
     clear: () => {
       clearCalls += 1;
     },
+    drain: () => {},
   };
   const { admin } = makeAdmin(rootDir, { pending });
 
   await admin.run('bot.pause', {}, {});
 
-  assert.equal(clearCalls, 1);
+  assert.equal(clearCalls, 0);
 });
 
 test('run: pause waits for a turn already in flight before dropping caches', async () => {

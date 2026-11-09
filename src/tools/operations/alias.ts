@@ -1,4 +1,4 @@
-// Operations: `/nep alias`: the owner confirms or removes a member's alias, and the owner's console read
+// Operations: `alias.*`: the owner confirms or removes a member's alias, and the owner's console read
 // `/memory users names` (no operation, so no tool of hers) lists them.
 // The handler bodies moved here from src/admin.ts unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
@@ -16,7 +16,7 @@ const handlers = perEnv((env) => {
   const { hot, store, assertNotPaused, requirePlaceId, requireProfile } = env;
 
   /**
-   * `/nep alias add`: confirms the alias at once instead of
+   * `alias.add`: confirms the alias at once instead of
    * waiting for it to be sighted `memory.confirmAfter` times naturally —
    * store.applyProfileOps/src/memory/aliases.ts has no option to set a
    * weight directly, so this calls it repeatedly with `confirmGapHours: 0`
@@ -69,7 +69,7 @@ const handlers = perEnv((env) => {
     return formatAliasList(after, memoryCfg);
   }
 
-  /** `/nep alias remove`: removes by name, case-insensitively (store.applyProfileOps
+  /** `alias.remove`: removes by name, case-insensitively (store.applyProfileOps
    * matches an alias's identity the same way, see src/memory/interests.ts#normalizeTopic).
    * A member with no profile is an error. */
   function cmdAliasRemove(args: Obj, context: OpContext) {

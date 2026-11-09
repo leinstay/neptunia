@@ -1,4 +1,4 @@
-// Operations: `/nep media kind:emoji|gifs|pictures action:status|rescan|recache`: the custom emoji ranking and the GIF library, one operation per action with `kind`;
+// Operations: `media.status|rescan|recache kind:emoji|gifs|pictures`: the custom emoji ranking and the GIF library, one operation per action with `kind`;
 // `kind:pictures` only with `recache` (the media recache of src/memory/gif-recache.ts#startMedia, `days` optional).
 // The handler bodies moved here from src/admin.js unchanged; each `run` calls one of them with
 // the operation's `ctx` as the command context.
@@ -30,7 +30,7 @@ const handlers = perEnv((env) => {
   const { store, emojiBackfill, gifBackfill, gifRecache, skipText, assertNotPaused, freshenIfPaused, requirePlaceId } =
     env;
 
-  /** `/nep emoji status`: how many emoji the ranking holds, the top 10 (rank order,
+  /** `media.status`: how many emoji the ranking holds, the top 10 (rank order,
    * `EMOJI_HALF_LIFE_DAYS`) with their counts, and the history backfill stamp. */
   function cmdEmojiStatus(_args: Obj, context: OpContext): string {
     freshenIfPaused();
@@ -47,7 +47,7 @@ const handlers = perEnv((env) => {
     ].join('\n');
   }
 
-  /** `/nep emoji rescan`: clears `emojiUsage` and recounts it from channel history (the backfill
+  /** `media.rescan`: clears `emojiUsage` and recounts it from channel history (the backfill
    * with `force`), awaited to the end. Writes under data/, so refused while paused. */
   async function cmdEmojiRescan(_args: Obj, context: OpContext): Promise<string> {
     if (!emojiBackfill) return 'the emoji backfill is not available';
@@ -59,7 +59,7 @@ const handlers = perEnv((env) => {
     return `Emoji rescan done: ${result.channels} channels, ${result.messages} messages read, ${result.emoji} emoji uses counted.`;
   }
 
-  /** `/nep gifs status`: how many GIFs the library holds, the top 10 (rank order,
+  /** `media.status`: how many GIFs the library holds, the top 10 (rank order,
    * `GIF_HALF_LIFE_DAYS`) as `g<n> xCOUNT — caption or name`, the history backfill stamp, and -- last, unless the
    * library is empty and no recache runs -- how the library's captions stand (watched /
    * one-frame / failed watch / none, see src/memory/gif-recache.ts#gifCaptionCounts) with a
@@ -97,7 +97,7 @@ const handlers = perEnv((env) => {
     ].join('\n');
   }
 
-  /** `/nep gifs rescan`: resets the library's use counts (every entry and handle is kept) and
+  /** `media.rescan`: resets the library's use counts (every entry and handle is kept) and
    * recounts them from channel history, then captions the top ones (the backfill with `force`),
    * awaited to the end. Writes under data/, so refused while paused. */
   async function cmdGifsRescan(_args: Obj, context: OpContext): Promise<string> {
@@ -110,7 +110,7 @@ const handlers = perEnv((env) => {
     return `GIF rescan done: ${result.channels} channels, ${result.messages} messages read, ${result.gifs} GIF uses counted, ${result.described} described.`;
   }
 
-  /** `/nep gifs recache`: drops the one-frame GIF captions outside the library at once, then
+  /** `media.recache`: drops the one-frame GIF captions outside the library at once, then
    * re-describes up to `gifs.recachePerRun` library GIFs by watching them, in the background
    * (src/memory/gif-recache.ts). Replies at once. Writes under data/, so refused while paused. */
   function cmdGifsRecache(_args: Obj, context: OpContext): string {
@@ -130,7 +130,7 @@ const handlers = perEnv((env) => {
     ].join('\n');
   }
 
-  /** `/nep media kind:pictures action:recache days:<n>`: re-describes, in the background, the
+  /** `media.recache kind:pictures days:<n>`: re-describes, in the background, the
    * cached picture descriptions (GIFs, stickers and emoji included) last used within the last
    * `days` (default 7, 1..60) that an older model wrote (src/memory/gif-recache.ts#startMedia).
    * Replies at once with how many were picked. Writes under data/, so refused while paused. */
