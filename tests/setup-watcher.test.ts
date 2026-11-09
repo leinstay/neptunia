@@ -1,6 +1,6 @@
-// src/setup/watcher.ts: the watcher step of `neptunia setup` (spec 2026-11-02, "The watcher is a fourth ticking
-// mechanic"). It asks on or off, the hour of the daily run, the backend it runs through and its model; the switch and
-// the hour go into the local config, the backend and the model into keys.json. The terminal is a fake; the private
+// src/setup/watcher.ts: the watcher step of `neptunia setup`. It asks the backend the watcher runs through and its model,
+// and both go into keys.json. The watcher runs only on `/doctor watcher run`, so the step asks no switch and no schedule.
+// Changed: the switch and the hour left the step with the timer (owner, 2026-11-09). The terminal is a fake; the private
 // folder is a temp dir and the tracked layer is this checkout's. Each test names the bug it catches.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,8 +24,6 @@ type Rig = {
 };
 
 const configFile = (privateDir: string): string => path.join(privateDir, 'config', 'config.json');
-const watcherOf = (privateDir: string): Record<string, unknown> =>
-  (JSON.parse(fs.readFileSync(configFile(privateDir), 'utf8')) as { watcher?: Record<string, unknown> }).watcher ?? {};
 
 function rig(
   watcher: Record<string, unknown> | null = null,
@@ -55,97 +53,64 @@ function rig(
   return r;
 }
 
-test('on stores the switch and the hour in the settings and the backend and model in keys.json', async () => {
-  // Catches: the backend chosen at setup is never stored, so the watcher runs through whatever backend is first.
+test('the step asks the backend and the model, and stores both in keys.json', async () => {
+  // Catches: the backend chosen at setup is never stored, so the watcher runs through whatever backend is first, or the
+  // step still asks for a switch and an hour nothing reads.
   const r = rig(null, ['codex', 'claude']);
-  r.answers = ['on', '01:30', 'claude', 'model-a'];
+  r.answers = ['claude', 'model-a'];
   const outcome = await watcherStep(r.options, r.deps);
   const keys = readKeysFile(r.options.privateDir).subharness;
   assert.equal(outcome.state, 'done');
-  // Changed: `watcher.at` became the one setting `watcher.schedule`.
-  assert.deepEqual(
-    [watcherOf(r.options.privateDir).enabled, watcherOf(r.options.privateDir).schedule],
-    [true, 'at 01:30']
-  );
+  assert.equal(r.asked.length, 2);
   assert.equal(keys.uses?.watcher, 'claude');
   assert.equal(keys.models?.watcher, 'model-a');
-});
-
-test('off stores false and asks nothing more', async () => {
-  // Catches: an off watcher still asks for an hour and a backend, or off is not written and the timer keeps running.
-  const r = rig({ enabled: true, schedule: 'at 00:00' });
-  r.answers = ['off'];
-  await watcherStep(r.options, r.deps);
-  assert.equal(watcherOf(r.options.privateDir).enabled, false);
-  assert.equal(r.asked.length, 1);
 });
 
 test('the backend question offers the first connected backend when the watcher has none', async () => {
   // Catches: the offered backend is a fixed codex, so Enter stores a backend this deployment never connected.
   const r = rig(null, ['claude', 'codex']);
-  r.answers = ['on', '00:00', '', ''];
+  r.answers = ['', ''];
   await watcherStep(r.options, r.deps);
-  assert.equal(r.asked[2]?.offered, 'claude');
-  // Changed: the stored list already migrated to this `uses` entry at read time, so the step has nothing to write.
+  assert.equal(r.asked[0]?.offered, 'claude');
   assert.equal(readRouting(r.options.privateDir).subharness.uses.watcher, 'claude');
 });
 
 test('an empty model with none offered stores no model, so the backend runs on its default', async () => {
   // Catches: an empty answer is stored as the model "", and every watcher run passes an empty --model.
   const r = rig();
-  r.answers = ['on', '00:00', 'codex', ''];
+  r.answers = ['codex', ''];
   await watcherStep(r.options, r.deps);
-  // Changed: the stored list already migrated to this `uses` entry at read time, so the step has nothing to write.
   assert.equal(readRouting(r.options.privateDir).subharness.uses.watcher, 'codex');
   assert.equal(Object.hasOwn(readKeysFile(r.options.privateDir).subharness.models ?? {}, 'watcher'), false);
-});
-
-test('an hour that is no HH:MM is asked again and the valid answer is stored', async () => {
-  // Catches: "24:00" reaches the timer's OnCalendar and systemd refuses the unit.
-  const r = rig();
-  r.answers = ['on', '24:00', '06:45', 'codex', ''];
-  await watcherStep(r.options, r.deps);
-  // Changed: `watcher.at` became the one setting `watcher.schedule`.
-  assert.equal(watcherOf(r.options.privateDir).schedule, 'at 06:45');
-});
-
-test('on with no connected backend is refused and stored off', async () => {
-  // Catches: the watcher is switched on with nothing to run it, and its timer fails every night.
-  const r = rig(null, []);
-  r.answers = ['on', '00:00', 'codex', ''];
-  const outcome = await watcherStep(r.options, r.deps);
-  assert.equal(outcome.state, 'refused');
-  assert.equal(watcherOf(r.options.privateDir).enabled, false);
 });
 
 test('a backend that is not connected is refused and stored nowhere', async () => {
   // Catches: the watcher is pointed at claude while only codex is connected, and every run is refused subharness-off.
   const r = rig(null, ['codex']);
-  // Changed: the rig's list of connected backends is written as every agent's `models.agents.via`, so the watcher's
-  // source before the step is codex, and the refused claude must leave it there.
   const before = readKeysFile(r.options.privateDir).subharness.uses?.watcher;
-  r.answers = ['on', '00:00', 'claude', ''];
+  r.answers = ['claude', ''];
   const outcome = await watcherStep(r.options, r.deps);
   assert.equal(outcome.state, 'refused');
-  assert.equal(watcherOf(r.options.privateDir).enabled, false);
   assert.equal(readKeysFile(r.options.privateDir).subharness.uses?.watcher, before);
+});
+
+test('no connected backend is refused', async () => {
+  // Catches: setup reports the watcher ready with nothing to run it, and the first /doctor watcher run fails.
+  const r = rig(null, []);
+  r.answers = ['codex', ''];
+  assert.equal((await watcherStep(r.options, r.deps)).state, 'refused');
 });
 
 test('a rerun that keeps every value is already done and rewrites neither file', async () => {
   // Catches: each setup rewrites keys.json and the local config, so the step never reports already.
-  const r = rig({ enabled: true, schedule: 'at 02:00' }, ['codex'], {
-    uses: { watcher: 'codex' },
-    models: { watcher: 'm' },
-  });
+  const r = rig(null, ['codex'], { uses: { watcher: 'codex' }, models: { watcher: 'm' } });
   const before = [
     fs.readFileSync(configFile(r.options.privateDir), 'utf8'),
     fs.readFileSync(keysPath(r.options.privateDir), 'utf8'),
   ];
-  r.answers = ['', '', '', ''];
+  r.answers = ['', ''];
   const outcome = await watcherStep(r.options, r.deps);
   assert.equal(outcome.state, 'already');
-  // Changed: `watcher.at` became the one setting `watcher.schedule`.
-  assert.equal(r.asked[1]?.offered, 'at 02:00');
   assert.deepEqual(
     [
       fs.readFileSync(configFile(r.options.privateDir), 'utf8'),

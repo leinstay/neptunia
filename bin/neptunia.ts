@@ -9,16 +9,16 @@
 //   neptunia -p "<text>" [--attach <file>]...    one turn with the persona, with images; her reply on stdout
 //   neptunia doctor [live] [--live] [--json]     the checks of the installation, with the core up or down
 //   neptunia doctor server|core|memory           one read of the running core, which answers it
+//   neptunia doctor watcher run|stop|read|list|<n>   the watcher's report: run asks the core to start one in the
+//                                                background, the others read the files (src/watcher/doctor.ts)
 //   neptunia errand-runner --profile <name>      the errand runner of one agent (deploy/neptunia-agent-<name>.service)
 //   neptunia interface run <name> [--interfaces-dir <dir>]   one interface (deploy/neptunia-interface@.service)
-//   neptunia services list                       the four scheduled mechanics (src/service/commands.ts)
+//   neptunia services list                       the three scheduled mechanics (src/service/commands.ts)
 //   neptunia services <name> setup|enable|disable|status   one of them
-//   neptunia services watcher trigger|cancel     the operations of one watcher run
 //   neptunia services watcher evidence [--from <iso>] [--cursor <c>]  what the services asked and answered, as JSON
 //   neptunia services watcher select --sql <statement>  one read-only statement over the memory database, as JSON
 //   neptunia services start|stop|restart|status [<unit> ...]   the units, through the scope's systemctl
 //   neptunia logs [errors] [follow] [since <when>]   the core's journal, in the scope of the units
-//   neptunia logs watcher [<date or run>]        the watcher's saved report, with no core
 //   neptunia setup [--system] [--node <path>]    the install of one user, one flow: folders, keys file, her subharness
 //                                                backends, the repository of her self-development, her mechanics,
 //                                                the watcher, units, linger, the core. A name of a step is refused.
@@ -33,8 +33,8 @@
 // her reply arrives as a send action and is printed. A line starting with `/` is parsed by the command table
 // (src/interface/commands/table.ts), which prints the reason of a line it refuses, and becomes a `command.requested`
 // event: its answer is printed for the owner and never reaches her memory or her requests. `/clear`, `/doctor`,
-// `/logs` (journalctl of the core's unit in the units' scope, src/service/journal.ts), `/logs watcher` (the saved reports) and `/services`
-// (bin/neptunia-service.ts) run here and ask the core nothing, but `/doctor live` asks it for the probes of the model roles. A line typed before the link is up waits in the input until it is. The chat opens with the core's
+// `/logs` (journalctl of the core's unit in the units' scope, src/service/journal.ts), `/doctor watcher` but `run` (the
+// saved reports) and `/services` (bin/neptunia-service.ts) run here and ask the core nothing, but `/doctor live` asks it for the probes of the model roles. A line typed before the link is up waits in the input until it is. The chat opens with the core's
 // header and, above it, the picture in `<private>/cli/picture.txt` when that file exists. In a terminal the command
 // history is kept in `<private>/cli/history` (bin/cli-history.ts). The end of the input ends the chat with exit 0, once the answers of the
 // commands still running have arrived.
@@ -52,9 +52,9 @@
 // (src/setup/flow.ts), and over pipes it prints `setup-required` with the repairs and exits 1. Every other command stays
 // reachable, and `doctor` reports the same readiness as a check.
 //
-// `worker` names what a unit starts, and the usage leaves it out: `worker watcher` (deploy/neptunia-watcher.service) ends
-// at once while `watcher.enabled` is false, and otherwise runs one inspection under one run identity
-// (bin/neptunia-watcher.ts, docs/watcher.md).
+// `worker` names what a unit or the core starts, and the usage leaves it out: `worker watcher`, which the core starts for
+// `/doctor watcher run`, runs one inspection under the run identity the core claimed (bin/neptunia-watcher.ts,
+// docs/watcher.md).
 //
 // `worker development` (deploy/neptunia-development.service) is the long-lived development worker (bin/development.ts,
 // docs/selfimprovement.md) as the client `development`: a filed task starts a thinker, and a finished one a pull request.
@@ -157,7 +157,7 @@ import {
   retiredSetupStep,
   runServiceHere,
   runUnitVerbs,
-  watcherLogsHere,
+  watcherDoctorHere,
 } from './neptunia-service.ts';
 import {
   COMMANDS_LINE,
@@ -183,15 +183,14 @@ const USAGE = [
   '       neptunia -p "<text>" [--attach <file>]...   one turn with the persona, her reply on stdout',
   '       neptunia doctor [live] [--live] [--json]',
   '       neptunia doctor server|core|memory',
+  '       neptunia doctor watcher run|stop|read|list|<number>',
   '       neptunia errand-runner --profile <name>',
   '       neptunia interface run <name> [--interfaces-dir <dir>]',
   '       neptunia services list',
-  '       neptunia services <name> setup|enable|disable|status   (heartbeat, selfreflection, selfimprovement, watcher)',
-  '       neptunia services watcher trigger|cancel',
+  '       neptunia services <name> setup|enable|disable|status   (heartbeat, selfreflection, selfimprovement)',
   '       neptunia services watcher evidence [--from <iso>] [--cursor <c>]',
   '       neptunia services watcher select --sql <statement>',
   '       neptunia services start|stop|restart|status [<unit> ...]',
-  '       neptunia logs watcher [<date or run>]',
   '       neptunia setup [--system] [--node <path>]',
   '       neptunia subharness codex|claude login|status|logout',
   '       neptunia subharness opencode login --key <name>|status|logout',
@@ -324,7 +323,16 @@ function printedFile(print: ((text: string) => void) | null): ((file: Attachment
 }
 
 /** The commands the command line runs itself: the doctor, the journal, the saved reports, the screen and the service family. */
-const LOCAL_COMMANDS = new Set(['doctor', 'doctor.live', 'logs', 'logs.watcher', 'clear']);
+const LOCAL_COMMANDS = new Set([
+  'doctor',
+  'doctor.live',
+  'doctor.watcher',
+  'doctor.watcher.stop',
+  'doctor.watcher.read',
+  'doctor.watcher.list',
+  'logs',
+  'clear',
+]);
 const runsHere = (name: string): boolean => LOCAL_COMMANDS.has(name) || isServiceRequest(name);
 
 // A journal read in full can be long; the runner's default buffer would cut it.
@@ -364,10 +372,10 @@ async function runLocal(command: Command, ask: ((command: Command) => Promise<An
   if (command.name === 'logs')
     return readJournal(process.env, typeof command.args.options === 'string' ? command.args.options : '', runJournal);
   const color = process.stdout.isTTY && !process.env.NO_COLOR;
-  if (command.name === 'logs.watcher') return watcherLogsHere(command.args, paths(), color);
+  if (command.name.startsWith('doctor.watcher')) return watcherDoctorHere(command, paths(), color);
   if (isServiceRequest(command.name)) {
     if (ask !== null && prefersCore(command.name)) return ask(command);
-    return runServiceHere(command, paths(), color);
+    return runServiceHere(command, paths());
   }
   const checks = await doctorChecks(paths(), { ask, live: command.name === 'doctor.live' });
   return { text: checkLines(checks), status: checks.some((check) => check.status === 'fail') ? 'failed' : 'ok' };
@@ -1700,7 +1708,7 @@ switch (group) {
     break;
   case 'doctor':
     logToStderr();
-    if (rest[0] === 'server' || rest[0] === 'core' || rest[0] === 'memory')
+    if (rest[0] === 'server' || rest[0] === 'core' || rest[0] === 'memory' || rest[0] === 'watcher')
       await runDirect([group, ...rest]).catch(fault);
     else await runDoctor(rest).catch(fault);
     break;

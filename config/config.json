@@ -380,8 +380,6 @@
     }
   },
   "watcher": {
-    "enabled": false,
-    "schedule": "at 00:00",
     "degradedAfterMinutes": 60
   },
   "selfimprovement": {

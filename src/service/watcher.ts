@@ -1,8 +1,5 @@
-// The watcher's own commands of the `services` family (src/service/commands.ts): `trigger`, `cancel`, `evidence`, the report `/logs watcher` reads
-// and the lines status adds. All of them work with no core, and none asks a model. `trigger` claims the run first and only then asks the
-// manager for the worker, which adopts the claim, so the answer names the run that will work. `cancel` writes `stopping`
-// into the run's record, and the worker that holds the run, or the worker that comes for a claim nobody holds yet, ends it.
-// Neither `cancel` nor `disable` touches the other's business. `evidence` opens the memory database read-only, runs only
+// The watcher agent's reads of the `services` family (src/service/commands.ts), `evidence` and `select`. Both work with no
+// core, and neither asks a model. `evidence` opens the memory database read-only, runs only
 // reads and asks no model: it is the bounded path by which the watcher agent reads what the services asked and answered,
 // what is left over (src/watcher/trash.ts) and what the analyzer did (src/watcher/analyzer-facts.ts). `select` runs one
 // read-only statement of the agent's over the same kind of connection (src/watcher/select.ts).
@@ -10,25 +7,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readPrompts } from '../hot.ts';
-import { readRouting } from '../subharness/routing.ts';
 import { auditMemory, auditSettingsOf } from '../memory/db/audit.ts';
 import { openMemoryDb } from '../memory/db/open.ts';
 import { dbOf } from '../memory/db/types.ts';
-import { backendOfAgent } from '../subharness/control.ts';
 import { subharnessPlace } from '../subharness/place.ts';
 import { readSessionMap } from '../subharness/sessions.ts';
 import { analyzerFacts } from '../watcher/analyzer-facts.ts';
-import {
-  WATCHER_RUN_TIMEOUT_MS,
-  claimRun,
-  currentRun,
-  finishRun,
-  lastRuns,
-  requestCancel,
-  runStoreOf,
-} from '../watcher/lifecycle.ts';
-import type { RunRecord } from '../watcher/lifecycle.ts';
-import { isDay, readReport, readReportRun, reportsDirOf, runLines, watcherDir } from '../watcher/read.ts';
+import { currentRun, lastRuns, runStoreOf } from '../watcher/lifecycle.ts';
+import { reportsDirOf, watcherDir } from '../watcher/read.ts';
 import {
   WATCHER_EVIDENCE_MAX_CHARS,
   mirrorFacts,
@@ -42,59 +28,18 @@ import {
 import type { RecordedRunPage } from '../watcher/requests.ts';
 import { maskCredentials } from '../watcher/report.ts';
 import { selectRefusal, selectRows } from '../watcher/select.ts';
-import { watcherSettings } from '../watcher/settings.ts';
 import { readTranscriptRuns } from '../watcher/transcripts.ts';
 import { collectTrash } from '../watcher/trash.ts';
 import { readRouteFacts } from '../watcher/routes.ts';
 import type { Trash } from '../watcher/trash.ts';
 import type { ServiceAnswer, ServiceDeps } from './commands.ts';
-import { startWorker, unitFolder, unitScope } from './manager.ts';
+import { unitFolder, unitScope } from './manager.ts';
 
 const iso = (moment: number): string => new Date(moment).toISOString();
 const failed = (text: string): ServiceAnswer => ({ text, status: 'failed' });
 
 const reportsDir = (deps: ServiceDeps): string => reportsDirOf(deps.privateDir, watcherDir(deps.config()));
 const storeOf = (deps: ServiceDeps) => runStoreOf(path.dirname(reportsDir(deps)), () => deps.now());
-
-const runAnswer = (run: RunRecord | null): string => `run: ${run?.runId ?? 'none'}\nstate: ${run?.state ?? 'none'}`;
-
-/** The folder the rendered unit keeps writable has to exist before its first start, so `enable` makes it. */
-export function readyWatcherFolder(deps: ServiceDeps): void {
-  try {
-    fs.mkdirSync(reportsDir(deps), { recursive: true });
-  } catch {
-    // A folder this user cannot make shows when the worker first runs.
-  }
-}
-
-/** One immediate inspection: refused while disabled, and answering the run in progress when there is one. */
-export async function triggerWatcher(deps: ServiceDeps): Promise<ServiceAnswer> {
-  if (!watcherSettings(deps.config()).enabled)
-    return failed('services watcher trigger: the watcher is disabled; run neptunia services watcher enable first');
-  const store = storeOf(deps);
-  const { claimed, run } = claimRun(store, { source: 'manual', owner: null, timeoutMs: WATCHER_RUN_TIMEOUT_MS });
-  if (!claimed) return { text: runAnswer(run), status: 'ok' };
-  const refused = await startWorker(deps.run, deps.env);
-  if (refused === null) return { text: runAnswer(run), status: 'ok' };
-  const ended = finishRun(store, run.runId, { state: 'failed', code: 'manager-refused', detail: refused });
-  return failed(`services watcher trigger: the manager refused: ${refused}\n${runAnswer(ended)}`);
-}
-
-/** Asks the run in progress to stop. Nothing to stop is an answer too, so a repeated cancel stays a success. */
-export function cancelWatcher(deps: ServiceDeps): ServiceAnswer {
-  return { text: runAnswer(requestCancel(storeOf(deps))), status: 'ok' };
-}
-
-/** `report [target]`: a day, a run identity, or the newest. */
-export function watcherReport(deps: ServiceDeps, target: string | undefined): ServiceAnswer {
-  const asRun = target !== undefined && !isDay(target) ? target : undefined;
-  const day = asRun === undefined ? target : undefined;
-  if (deps.report !== undefined) return deps.report(day, asRun);
-  const dir = reportsDir(deps);
-  const read = asRun === undefined ? readReport(dir, day) : readReportRun(dir, asRun);
-  if (read.ok) return { text: [...runLines(dir, read.report), read.report.text].join('\n\n'), status: 'ok' };
-  return failed(target === undefined ? 'no report yet' : `no report for ${target}`);
-}
 
 const EVIDENCE_CURSOR = /^(\d+)\.(\d+)\.(\d+)$/;
 
@@ -291,42 +236,4 @@ export function watcherSelect(deps: ServiceDeps, args: Readonly<Record<string, u
   } finally {
     handle?.close();
   }
-}
-
-/** The backend, model and effort the watcher runs on, `default` for what the backend picks, `unknown` with no backend. */
-function sourceText(deps: ServiceDeps): string {
-  try {
-    const { subharness } = readRouting(deps.privateDir);
-    const backend = backendOfAgent(subharness, 'watcher');
-    if (backend === null) return 'unknown';
-    return `${backend} ${subharness.models.watcher ?? 'default'} ${subharness.efforts.watcher ?? 'default'}`;
-  } catch {
-    return 'unknown';
-  }
-}
-
-/** The answers the newest run asked for: more than one means its first answer was refused. */
-function attemptsText(current: RunRecord | null, success: RunRecord | null, failure: RunRecord | null): string {
-  const finished = [success, failure].filter((run) => run !== null).sort((a, b) => a.claimedAt - b.claimedAt);
-  const newest = current ?? finished.at(-1);
-  return newest?.attempts === undefined ? 'none' : String(newest.attempts);
-}
-
-/** The lines of the watcher's status that only its run records know. */
-export function watcherStatusFields(deps: ServiceDeps): Array<readonly [string, string]> {
-  const store = storeOf(deps);
-  const current = currentRun(store);
-  const { lastSuccess, lastFailure } = lastRuns(store);
-  const at = (run: RunRecord): string => iso(run.finishedAt ?? run.claimedAt);
-  return [
-    ['current run', current === null ? 'none' : `${current.runId} ${current.state} ${current.source}`],
-    ['last success', lastSuccess === null ? 'none' : `${lastSuccess.runId} ${at(lastSuccess)}`],
-    [
-      'last failure',
-      lastFailure === null ? 'none' : `${lastFailure.runId} ${lastFailure.code ?? 'failed'} ${at(lastFailure)}`,
-    ],
-    ['attempts', attemptsText(current, lastSuccess, lastFailure)],
-    ['source', sourceText(deps)],
-    ['run timeout', `${WATCHER_RUN_TIMEOUT_MS / 60_000}m`],
-  ];
 }

@@ -1,7 +1,7 @@
 // The one setting `<name>.schedule` (`at 06:00,18:00` or `every 6h`) reaching each mechanic's own scheduler: the
-// heartbeat's timer and the selfimprovement wake in the inner life, the diary's day plan, and the watcher's settings
-// and timer. Each mechanic keeps its missed-wake policy, so overdue wakes never stack. The inner life runs over a fake
+// heartbeat's timer and the selfimprovement wake in the inner life, and the diary's day plan. Each mechanic keeps its missed-wake policy, so overdue wakes never stack. The inner life runs over a fake
 // turn runner with the clock injected.
+// Changed: the watcher has no schedule and no timer (owner, 2026-11-09), so its tests left this file.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -17,7 +17,6 @@ import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
 import { renderUnit } from '../src/setup/units.ts';
 import type { UnitVars } from '../src/setup/units.ts';
-import { watcherSettings } from '../src/watcher/settings.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
@@ -274,18 +273,8 @@ test('diary slots of a schedule missed past the grace are dropped together, not 
   });
 });
 
-// ---- the watcher ------------------------------------------------------------------------------------------------------
+// ---- the units ----------------------------------------------------------------------------------------------------------
 
-test('the watcher settings read the schedule, and a schedule that means nothing is no setting', () => {
-  // Catches: `watcher.at` stays the setting the renderer reads, so the new key changes nothing.
-  assert.deepEqual(watcherSettings({ watcher: { schedule: 'at 01:00,13:00' } }).schedule, {
-    kind: 'at',
-    at: ['01:00', '13:00'],
-  });
-  assert.deepEqual(watcherSettings({ watcher: { schedule: 'often' } }).schedule, watcherSettings({}).schedule);
-});
-
-const TEMPLATE = readFileSync(join(REPO, 'deploy', 'neptunia-watcher.timer'), 'utf8');
 const VARS: UnitVars = {
   user: 'someone',
   group: 'someone',
@@ -303,28 +292,11 @@ const valuesOf = (text: string, key: string): Array<string> =>
     .filter((line) => line.startsWith(`${key}=`))
     .map((line) => line.slice(key.length + 1));
 
-test('the watcher timer renders one calendar line per slot', () => {
-  // Catches: only the first slot reaches systemd, or the lines land on one key that systemd reads differently.
-  const text = renderUnit(TEMPLATE, 'user', { ...VARS, watcherSchedule: { kind: 'at', at: ['00:00', '12:00'] } });
-  assert.deepEqual(valuesOf(text, 'OnCalendar'), ['*-*-* 00:00:00 UTC', '*-*-* 12:00:00 UTC']);
-  // systemd's catch-up after a downtime is one run however many slots passed, and the rewrite must not lose it.
-  assert.deepEqual(valuesOf(text, 'Persistent'), ['true']);
-});
-
-test('the watcher timer with an interval has no calendar line and starts counting at its own activation', () => {
-  // Catches: OnUnitActiveSec alone never fires when the worker has not run yet, so an enabled watcher stays silent.
-  const text = renderUnit(TEMPLATE, 'user', { ...VARS, watcherSchedule: { kind: 'every', everyMinutes: 90 } });
-  assert.deepEqual(valuesOf(text, 'OnCalendar'), []);
-  assert.deepEqual(valuesOf(text, 'OnUnitActiveSec'), ['90min']);
-  assert.deepEqual(valuesOf(text, 'OnActiveSec'), ['90min']);
-  assert.deepEqual(valuesOf(text, 'Unit'), ['neptunia-watcher.service']);
-});
-
 test('no rendered service unit starts a retired command', () => {
-  // Catches: the unit keeps `watcher run`, which now answers exit 2, and the timer fails every day in silence.
+  // Catches: a unit keeps `watcher run`, which now answers exit 2, and the unit fails in silence.
   const retired = [/\bwatcher run\b/, /\bselfimprovement run\b/];
   const services = readdirSync(join(REPO, 'deploy')).filter((file) => file.endsWith('.service'));
-  assert.ok(services.includes('neptunia-watcher.service'));
+  assert.ok(services.includes('neptunia-core.service'));
   for (const file of services) {
     const text = renderUnit(readFileSync(join(REPO, 'deploy', file), 'utf8'), 'user', VARS);
     for (const exec of valuesOf(text, 'ExecStart'))

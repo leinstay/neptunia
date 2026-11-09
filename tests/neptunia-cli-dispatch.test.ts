@@ -27,8 +27,7 @@ const SAMPLES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   'services.heartbeat.setup': { every: '6h', jitter: '30m' },
   'services.selfreflection.setup': { every: '6h' },
   'services.selfimprovement.setup': { at: '03:00' },
-  'services.watcher.setup': { at: '00:00,12:00' },
-  'logs.watcher': { target: '2026-11-03' },
+  'doctor.watcher': { number: '3' },
   'tools.grant': { target: 'everyone' },
   'tools.revoke': { target: 'everyone' },
 };

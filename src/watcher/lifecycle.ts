@@ -1,10 +1,10 @@
 // The watcher's durable run. A run is one JSON record under `<watcher dir>/runs/`, `active` names the run in progress, and
-// every change happens under `.lock`, so a manual trigger and a timer start share one atomic claim whichever process
-// they come from. Reads take no lock and write nothing: a replaced record appears whole, and a run whose holder is
-// gone reads as finished before any writer records it. `claimRun` with no owner is what `services watcher trigger`
-// does before it asks the manager for a worker, and the worker that starts adopts that claim and keeps its identity. A
-// holder is the pair of pid and start identity, so a reused pid never counts as alive and nothing here signals a
-// process. The start identity comes from /proc, because the watcher's units are systemd's and run on Linux only.
+// every change happens under `.lock`, so two starts share one atomic claim whichever process they come from. Reads take
+// no lock and write nothing: a replaced record appears whole, and a run whose holder is gone reads as finished before any
+// writer records it. `claimRun` with no owner is what `/doctor watcher run` does in the core before it starts a worker
+// (src/watcher/doctor.ts), and the worker adopts that claim and keeps its identity. A holder is the pair of pid and start
+// identity, so a reused pid never counts as alive and nothing here signals a process. The start identity comes from
+// /proc, because the engine runs on Linux only.
 
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
@@ -240,18 +240,50 @@ export function finishRun(
   });
 }
 
-/** The newest succeeded and the newest failed run, each null when there is none. */
-export function lastRuns(store: RunStore): { lastSuccess: RunRecord | null; lastFailure: RunRecord | null } {
+/**
+ * At the core's start: the run in progress whose worker is no longer alive, or that no worker adopted, ends as `failed`
+ * with the code `core-restarted`, or as `succeeded` when its report was committed. The core starts every worker as its child, so such a run died with the core before. A
+ * run whose worker still lives is left alone. The answer is the run it ended, or null.
+ */
+export function failRunOfLastCore(store: RunStore): RunRecord | null {
+  // No run in progress, no lock: a core start makes no folder.
+  if (activeId(store) === null) return null;
+  return locked(store, () => {
+    const id = activeId(store);
+    const run = id === null ? null : readRecord(store, id);
+    if (run === null || !isOpen(run.state)) return null;
+    if (run.owner !== null && store.processStart(run.owner.pid) === run.owner.startId) return null;
+    // A report committed just before the restart makes the run the success it was.
+    const committed = readReportRun(path.join(store.dir, 'reports'), run.runId).ok;
+    const ended: RunRecord = {
+      ...run,
+      state: committed ? 'succeeded' : 'failed',
+      code: committed ? null : 'core-restarted',
+      detail: committed ? null : 'the core restarted during the run',
+      finishedAt: store.now(),
+    };
+    recordFinished(store, ended);
+    return ended;
+  });
+}
+
+/** Every run as a reader takes it, in the order of their claims. */
+export function allRuns(store: RunStore): Array<RunRecord> {
   let names: Array<string> = [];
   try {
     names = fs.readdirSync(runsDir(store)).filter((name) => name.endsWith('.json'));
   } catch {
     // No run yet.
   }
-  const runs = names
+  return names
     .map((name) => readRun(store, name.slice(0, -'.json'.length)))
     .filter((run): run is RunRecord => run !== null)
-    .sort((a, b) => (a.finishedAt ?? a.claimedAt) - (b.finishedAt ?? b.claimedAt));
+    .sort((a, b) => a.claimedAt - b.claimedAt);
+}
+
+/** The newest succeeded and the newest failed run, each null when there is none. */
+export function lastRuns(store: RunStore): { lastSuccess: RunRecord | null; lastFailure: RunRecord | null } {
+  const runs = allRuns(store).sort((a, b) => (a.finishedAt ?? a.claimedAt) - (b.finishedAt ?? b.claimedAt));
   return {
     lastSuccess: runs.findLast((run) => run.state === 'succeeded') ?? null,
     lastFailure: runs.findLast((run) => run.state === 'failed') ?? null,

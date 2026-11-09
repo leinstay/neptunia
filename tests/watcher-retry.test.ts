@@ -7,9 +7,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readConfig } from '../src/config.ts';
 import { localConfigPath } from '../src/config/files.ts';
-import { serviceFamily } from '../src/service/commands.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
 import { runInspection } from '../src/watcher/inspection.ts';
 import type { InspectionAgentResult, InspectionDeps } from '../src/watcher/inspection.ts';
@@ -21,7 +19,6 @@ import { tempDir } from './fixtures/tmp.ts';
 import {
   DAY,
   MINUTE,
-  SELF,
   aborted,
   allTextUnder,
   answerOf,
@@ -272,59 +269,12 @@ test('a retry prompt that cannot be read fails the run with the refusal itself',
 function serviceRig() {
   const data = tempDir('nep-retry-service-');
   fs.mkdirSync(path.dirname(localConfigPath(data)), { recursive: true });
-  fs.writeFileSync(localConfigPath(data), JSON.stringify({ watcher: { enabled: true, schedule: 'at 06:00' } }));
+  fs.writeFileSync(localConfigPath(data), '{}');
   const dir = path.join(data, 'agents', 'watcher');
   fs.mkdirSync(path.join(dir, 'reports'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'prompt.md'), 'PROMPT-SENTINEL');
   return { data, dir };
 }
-
-const statusOf = async (data: string): Promise<string> =>
-  (
-    await serviceFamily(
-      {
-        rootDir: REPO,
-        privateDir: data,
-        dataDir: data,
-        config: () => readConfig(REPO, { privateDir: data }),
-        now: () => Date.parse(`${DAY}T07:00:00Z`),
-        env: { NEPTUNIA_UNIT_SCOPE: 'user', XDG_CONFIG_HOME: data },
-        coreUp: false,
-        run: () => Promise.resolve({ code: 1, stdout: '', stderr: 'unavailable here' }),
-      },
-      'service.watcher.status',
-      {}
-    )
-  ).text;
-
-const rowOf = (text: string, key: string): string | undefined =>
-  text
-    .split('\n')
-    .find((line) => line.startsWith(`${key}: `))
-    ?.slice(key.length + 2);
-
-test('status shows the attempts of the latest run, and none before any', async () => {
-  // Bug: a report that took two answers looks like a first-try success, and the template slips stay unseen.
-  const { data, dir } = serviceRig();
-  assert.equal(rowOf(await statusOf(data), 'attempts'), 'none');
-  const rig = inspectionRig();
-  const retry = path.join(dir, 'retry.md');
-  fs.writeFileSync(retry, RETRY_WORDS);
-  let attempt = 0;
-  await runInspection(
-    inspectionDeps(rig, {
-      store: { dir, now: rig.store.now, newRunId: () => 'run-1', processStart: () => SELF.startId },
-      reportsDir: path.join(dir, 'reports'),
-      promptFiles: [path.join(dir, 'prompt.md')],
-      retryPromptFiles: [retry],
-      runAgent: () => {
-        attempt += 1;
-        return Promise.resolve(said(attempt === 1 ? REFUSED : GOOD));
-      },
-    })
-  );
-  assert.equal(rowOf(await statusOf(data), 'attempts'), '2');
-});
 
 test('the attempt count is on the record while the second attempt runs', async () => {
   // Bug: the count is written at the end, so a crash in the retry reads as one attempt.

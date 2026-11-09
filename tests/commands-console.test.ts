@@ -627,7 +627,6 @@ test('a command names its place with --place, the words before it kept', async (
 
 test('every operation no grant opens to her runs from a command of the chat', async () => {
   const ran = new Set<string>();
-  const managerCalls: Array<string> = [];
   const dir = tempDir('nep-console-ops-');
   const deps: ConsoleDeps = {
     runOp: (op) => {
@@ -645,11 +644,10 @@ test('every operation no grant opens to her runs from a command of the chat', as
     metrics: null,
     chatLines: () => [],
     now: () => T0,
-    // `/services watcher enable` and `disable` are lines of the table: without this they move the server's real timer.
-    serviceManager: (command, args) => {
-      managerCalls.push([command, ...args].join(' '));
-      return Promise.resolve({ code: 0, stdout: '', stderr: '' });
-    },
+    // Changed: no line moves a timer any more (owner, 2026-11-09), but a status still asks the manager; this keeps it fake.
+    serviceManager: () => Promise.resolve({ code: 0, stdout: '', stderr: '' }),
+    // `/doctor watcher run` is a line of the table: without this it would start a real worker.
+    startWatcher: () => null,
   };
   const desk = createConsole(deps);
   for (const line of everyLine()) {
@@ -661,9 +659,5 @@ test('every operation no grant opens to her runs from a command of the chat', as
   assert.deepEqual(
     NOT_GRANTABLE_TO_PERSONA.filter((op) => !ran.has(op)),
     []
-  );
-  assert.ok(
-    managerCalls.some((call) => call.endsWith('enable --now neptunia-watcher.timer')),
-    managerCalls.join('\n')
   );
 });

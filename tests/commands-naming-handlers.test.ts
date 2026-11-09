@@ -1,5 +1,5 @@
 // What runs behind the renamed commands (the command naming spec of 2026-11-04), in this process: `/services list`
-// over the four mechanisms, the merged `/doctor` scopes in the core's console, the stale names the console no longer
+// over the three mechanisms, the merged `/doctor` scopes in the core's console, the stale names the console no longer
 // answers, and that every command a hint or a worker prompt recommends is one the table parses. The handlers are
 // `serviceFamily` (src/service/commands.ts) and `createConsole` (src/interface/commands/console.ts), called with the
 // name the table gives the line, so the internal operation names stay the implementation's. The manager is a fake that
@@ -27,7 +27,8 @@ import { tempDir } from './fixtures/tmp.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const NOW = Date.parse('2026-11-04T12:00:00Z');
-const MECHANICS = ['heartbeat', 'selfreflection', 'selfimprovement', 'watcher'] as const;
+// Changed: the watcher left the services for `/doctor watcher` (owner, 2026-11-09).
+const MECHANICS = ['heartbeat', 'selfreflection', 'selfimprovement'] as const;
 
 type Answer = { text: string; status: string };
 
@@ -166,7 +167,6 @@ const LOCAL = {
   heartbeat: { enabled: false, schedule: 'every 2h' },
   selfreflection: { enabled: true, schedule: 'at 09:15' },
   selfimprovement: { enabled: true, schedule: 'at 03:40' },
-  watcher: { enabled: false, schedule: 'at 00:20,12:20' },
 };
 
 // ---- /services list --------------------------------------------------------------------------------------------------
@@ -175,7 +175,7 @@ for (const [how, pick] of [
   ['in the core', (r: Rig) => r.say.bind(r)],
   ['with no core', (r: Rig) => r.sayOffline.bind(r)],
 ] as const) {
-  test(`/services list ${how} shows the four mechanisms with every row their own status shows, and writes nothing`, async () => {
+  test(`/services list ${how} shows the three mechanisms with every row their own status shows, and writes nothing`, async () => {
     // Catches: the list keeps a copy of its own, drops a mechanism, adds a process unit, or writes while it reads.
     const r = rig(LOCAL);
     const say = pick(r);
@@ -288,7 +288,9 @@ const RETIRED_SPELLING = /neptunia service(?!s)\b/;
 
 test('a retired setup step is refused with a command of the table, in the new spelling', () => {
   // Catches: the refusal sends the owner to a spelling the table has retired.
-  for (const step of ['watcher', 'selfimprovement', 'mechanics']) {
+  // Changed: `setup watcher` names the whole setup, which asks for the watcher's route (owner, 2026-11-09).
+  assert.match(retiredSetupStep(['watcher']) ?? '', /use neptunia setup$/);
+  for (const step of ['selfimprovement', 'mechanics']) {
     const text = retiredSetupStep([step]) ?? '';
     assert.equal(RETIRED_SPELLING.test(text), false, text);
     const named = /use neptunia (services [^;]*)$/.exec(text)?.[1] ?? '';
@@ -320,15 +322,17 @@ test('the shell refuses an unknown first word after services with a usage in the
 });
 
 test('the order of the unit verbs and a mechanism name is refused with a hint that parses', () => {
-  // Catches: `services status watcher` is taken for a unit named watcher, or the hint names a spelling that is retired.
-  const hint = refusalOf(['status', 'watcher']);
+  // Catches: `services status heartbeat` is taken for a unit named heartbeat, or the hint names a spelling that is retired.
+  // Changed: the watcher left the family (owner, 2026-11-09); `services status watcher` is refused and names the doctor.
+  assert.match(refusalOf(['status', 'watcher']), /use neptunia doctor watcher list/);
+  const hint = refusalOf(['status', 'heartbeat']);
   assert.equal(RETIRED_SPELLING.test(hint), false, hint);
-  const named = /use neptunia (services watcher \w+)/.exec(hint)?.[1] ?? '';
+  const named = /use neptunia (services heartbeat \w+)/.exec(hint)?.[1] ?? '';
   assert.notEqual(named, '', hint);
   assert.equal(parseRequest(named.split(' ')).parsed.ok, true, named);
 });
 
-for (const words of [['list'], ['watcher', 'status'], ['heartbeat', 'setup', '--every', '3h']]) {
+for (const words of [['list'], ['watcher', 'evidence'], ['heartbeat', 'setup', '--every', '3h']]) {
   test(`neptunia services ${words.join(' ')} is the family and returns to its caller`, () => {
     // Catches: `list` is taken for a unit verb and refused, or a mechanism's word order stops reaching the family.
     assert.doesNotThrow(() =>

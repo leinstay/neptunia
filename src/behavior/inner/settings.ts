@@ -20,8 +20,7 @@ export const WAKE_KINDS = Object.freeze([
 ] as const);
 
 /**
- * The selfimprovement wake's defaults: once a day at 03:00 (UTC, three hours after the watcher's default midnight run,
- * owner 2026-11-02), and when one chain shape fails this many times in a UTC day (decision of 2026-10-24).
+ * The selfimprovement wake's defaults: once a day at 03:00 (UTC, owner 2026-11-02), and when one chain shape fails this many times in a UTC day (decision of 2026-10-24).
  */
 const IMPROVEMENT_WAKE_DEFAULTS = Object.freeze({
   schedule: Object.freeze({ kind: 'at', at: Object.freeze(['03:00']) }),

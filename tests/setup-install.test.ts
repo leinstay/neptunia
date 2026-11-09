@@ -92,12 +92,13 @@ test('the units take the backend from keys.json, and the core names no home of t
 test('inside the core a mode change names neptunia setup for an agent with a unit, and runs nothing', () => {
   // Catches: the core answers a stored mode as if its unit were updated, so the owner never re-renders it.
   // Changed: the step word left the public command, and the one flow re-renders the units.
-  for (const agent of ['scout', 'server', 'watcher'])
-    assert.ok(deferModeToUnit(agent)?.includes('neptunia setup'), agent);
+  for (const agent of ['scout', 'server']) assert.ok(deferModeToUnit(agent)?.includes('neptunia setup'), agent);
 });
 
 test('inside the core an agent with no unit, or no agent, gets no unit line', () => {
   // Catches: dev, which runs in no unit of its own, is told to re-render a unit that does not exist.
+  // Changed: the watcher runs inside the core's unit (owner, 2026-11-09), so its mode needs no unit rendered.
+  assert.equal(deferModeToUnit('watcher'), null);
   // dev now has a unit of its own, so a mode change names it.
   assert.equal(
     deferModeToUnit('dev'),
@@ -119,18 +120,4 @@ test("the units take the backend from keys.json, so the agent units bind that ba
     .flatMap((line) => line.slice(line.indexOf('=') + 1).split(/\s+/))
     .map((one) => one.replace(/^-/, ''));
   assert.ok(writable.includes(path.join(privateDir, 'subharness', 'codex')), writable.join(' '));
-});
-
-test('the watcher timer takes watcher.schedule from the local config when the units are installed', async () => {
-  // Catches: installUnits renders the timer without the setting, so the hour the owner chose in setup never applies.
-  const { target, run, unitDir, privateDir } = rig();
-  fs.mkdirSync(path.join(privateDir, 'config'), { recursive: true });
-  fs.writeFileSync(
-    path.join(privateDir, 'config', 'config.json'),
-    JSON.stringify({ watcher: { schedule: 'at 07:00' } })
-  );
-  const done = await installUnits(target, run, ['neptunia-watcher.timer']);
-  assert.equal(done.ok, true);
-  const text = fs.readFileSync(path.join(unitDir, 'neptunia-watcher.timer'), 'utf8');
-  assert.ok(text.split('\n').includes('OnCalendar=*-*-* 07:00:00 UTC'), text);
 });

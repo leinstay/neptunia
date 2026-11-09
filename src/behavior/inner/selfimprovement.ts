@@ -1,4 +1,4 @@
-// The `selfimprovement` wake: on `selfimprovement.schedule` (by default once a day, after the watcher's run),
+// The `selfimprovement` wake: on `selfimprovement.schedule` (by default once a day at 03:00 UTC),
 // and with a cause when one chain shape fails
 // `selfimprovement.failuresPerShape` times in a UTC day, at most one such cause a day. Its turn carries
 // the facts of src/behavior/selfimprovement-view.ts, and she answers with one `task.propose` or a skip. The clock is

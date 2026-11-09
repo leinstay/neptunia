@@ -1,7 +1,6 @@
 // src/setup/units.ts: the unit templates of deploy/ rendered for the installing user, as user units (no User=, default
 // target) or as system units (User= the installing user). The templates are the real files of deploy/, so a template
-// edit the renderer does not know fails here. Only the lines of a unit that matter are read, like
-// tests/deploy-watcher-unit.test.ts; comments are dropped.
+// edit the renderer does not know fails here. Only the lines of a unit that matter are read; comments are dropped.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -57,7 +56,8 @@ for (const field of ['rootDir', 'privateDir', 'dataDir'] as const) {
   });
 }
 
-test('setup renders these six templates and not the bot unit or the plugin template', () => {
+test('setup renders these four templates and not the bot unit or the plugin template', () => {
+  // Changed: the watcher's unit and timer are gone (owner, 2026-11-09).
   // Bug: the bot unit (which conflicts with the core) is installed beside the core, or a template is forgotten.
   assert.deepEqual(
     [...UNIT_FILES].sort(),
@@ -66,8 +66,6 @@ test('setup renders these six templates and not the bot unit or the plugin templ
       'neptunia-agent-server.service',
       'neptunia-core.service',
       'neptunia-interface@.service',
-      'neptunia-watcher.service',
-      'neptunia-watcher.timer',
     ].sort()
   );
   for (const name of UNIT_FILES) assert.ok(fs.existsSync(path.join(DEPLOY, name)), name);
@@ -114,14 +112,6 @@ for (const scope of ['user', 'system'] as const) {
     for (const name of UNIT_FILES) {
       assert.equal(renderUnit(template(name), scope, VARS), renderUnit(template(name), scope, VARS));
     }
-  });
-
-  test(`${scope} timer still fires the watcher service from the timers target`, () => {
-    // Bug: the timer loses its Unit= or its install target and never fires.
-    const text = renderUnit(template('neptunia-watcher.timer'), scope, VARS);
-    assert.deepEqual(valuesOf(text, 'WantedBy'), ['timers.target']);
-    assert.ok(valuesOf(text, 'Unit').every((one) => one === 'neptunia-watcher.service'));
-    assert.ok(valuesOf(text, 'OnCalendar')[0]?.includes('UTC'));
   });
 }
 
@@ -182,8 +172,7 @@ test('system units run as the installing user and group, and keep the template h
     const text = renderUnit(template(name), 'system', VARS);
     assert.deepEqual(valuesOf(text, 'User'), [VARS.user], name);
     assert.deepEqual(valuesOf(text, 'Group'), [VARS.group], name);
-    // The watcher service is a oneshot that its timer starts: the template has no [Install] section, and none is added.
-    if (name !== 'neptunia-watcher.service') assert.ok(valuesOf(text, 'WantedBy').includes('multi-user.target'), name);
+    assert.ok(valuesOf(text, 'WantedBy').includes('multi-user.target'), name);
   }
   const server = renderUnit(template('neptunia-agent-server.service'), 'system', VARS);
   assert.deepEqual(valuesOf(server, 'ProtectSystem'), ['strict']);
@@ -206,7 +195,8 @@ test("system agent units bind nothing of the installing user's home, and their P
 // the installing user's own tools and may write the backend's home, so the enable check and the watcher's run reach
 // the binary and its login.
 
-const CORE_AND_WATCHER = ['neptunia-core.service', 'neptunia-watcher.service'];
+// Changed: the watcher runs inside the core's unit (owner, 2026-11-09), so the core stands for both.
+const CORE_AND_WATCHER = ['neptunia-core.service'];
 
 /** The folders of the unit's `Environment=PATH=` line. */
 const pathDirsOf = (text: string): Array<string> =>
@@ -330,22 +320,6 @@ test('agent units bind the folder of every connected backend', () => {
     assert.ok(covers(writableEntriesOf(text), placeOf('codex')), name);
     assert.ok(covers(writableEntriesOf(text), placeOf('claude')), name);
   }
-});
-
-test('the watcher timer fires at the hour it is rendered with', () => {
-  // Catches: watcher.schedule is stored but the timer keeps the template's midnight, so the watcher runs after her wake.
-  // Changed: the render takes the parsed schedule, since `watcher.at` became `watcher.schedule`.
-  const text = renderUnit(template('neptunia-watcher.timer'), 'user', {
-    ...VARS,
-    watcherSchedule: { kind: 'at', at: ['05:30'] },
-  });
-  assert.deepEqual(valuesOf(text, 'OnCalendar'), ['*-*-* 05:30:00 UTC']);
-});
-
-test('the watcher timer rendered with no hour keeps the template line', () => {
-  // Catches: a missing hour renders an empty or "undefined" OnCalendar and systemd refuses the timer.
-  const text = renderUnit(template('neptunia-watcher.timer'), 'user', VARS);
-  assert.deepEqual(valuesOf(text, 'OnCalendar'), valuesOf(template('neptunia-watcher.timer'), 'OnCalendar'));
 });
 
 test('the scout unit replaces the persona folder with an empty one and shows only its agents and backends', () => {

@@ -66,7 +66,7 @@ Connect a backend and choose the thinker's and dev's routes as in [development a
 
 ## Enabling the worker
 
-Setup writes `neptunia-development.service` and never enables it. The `units` step also makes the client `development` with the roles `reviewer` and `worker` and its token `clients/development.token`, while `selfimprovement.checkout` names a dev checkout, and the client `watcher` always. A rerun keeps a client that has its token and writes a token that went missing. A worker started with no token file exits 1 and says to run `neptunia setup`. Enable the unit in the scope of your setup:
+Setup writes `neptunia-development.service` and never enables it. The `units` step also makes the client `development` with the roles `reviewer` and `worker` and its token `clients/development.token`, while `selfimprovement.checkout` names a dev checkout. A rerun keeps a client that has its token and writes a token that went missing. A worker started with no token file exits 1 and says to run `neptunia setup`. Enable the unit in the scope of your setup:
 
 ```bash
 systemctl --user enable --now neptunia-development.service   # a user install

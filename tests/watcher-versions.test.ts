@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runServiceHere } from '../bin/neptunia-service.ts';
+import { watcherDoctorHere } from '../bin/neptunia-service.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { runOpPrechecked } from '../src/tools/operations/index.ts';
@@ -118,27 +118,18 @@ test('the next inspection reads the preceding successful report of the same day,
 /** `where` of a CLI call: the rig's persona root as the private and data folders, the checkout as the root. */
 const whereOf = (rig: InspectionRig) => ({ rootDir: REPO, privateDir: rig.root, dataDir: rig.root });
 
-test('services watcher report of a day names its run and the other runs of that day', async () => {
-  // Bug: the owner sees a day's text with no way to reach the morning's report beside it.
+test('the shell opens each report of a day by its number, with no core', async () => {
+  // Bug: the second report of a day is reachable only through its day file, which shows the newer one.
+  // Changed: `services watcher report` became `/doctor watcher <number>` (owner, 2026-11-09).
   const rig = inspectionRig();
-  const first = await inspected(rig, 'MARK-FIRST');
-  const second = await inspected(rig, 'MARK-SECOND');
-  const done = await runServiceHere({ name: 'services.watcher.report', args: { target: DAY } }, whereOf(rig), false);
-  assert.equal(done.status, 'ok', done.text.slice(0, 200));
-  assert.ok(done.text.includes('MARK-SECOND'));
-  assert.ok(done.text.includes(first));
-  assert.ok(done.text.includes(second));
-});
-
-test('services watcher report of a run identity shows that run, in the shell and with no core', async () => {
-  // Bug: commands.ts refuses anything but a date, so `report <run>` answers "reports are kept by date".
-  const rig = inspectionRig();
-  const first = await inspected(rig, 'MARK-FIRST');
+  await inspected(rig, 'MARK-FIRST');
   await inspected(rig, 'MARK-SECOND');
-  const done = await runServiceHere({ name: 'services.watcher.report', args: { target: first } }, whereOf(rig), false);
-  assert.equal(done.status, 'ok', done.text.slice(0, 200));
-  assert.ok(done.text.includes('MARK-FIRST'));
-  assert.equal(done.text.includes('MARK-SECOND'), false);
+  const one = watcherDoctorHere({ name: 'doctor.watcher', args: { number: '1' } }, whereOf(rig), false);
+  assert.equal(one.status, 'ok', one.text.slice(0, 200));
+  assert.ok(one.text.includes('MARK-FIRST'));
+  assert.equal(one.text.includes('MARK-SECOND'), false);
+  const two = watcherDoctorHere({ name: 'doctor.watcher', args: { number: '2' } }, whereOf(rig), false);
+  assert.ok(two.text.includes('MARK-SECOND'));
 });
 
 function opsEnv(rig: InspectionRig) {

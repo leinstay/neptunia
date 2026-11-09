@@ -25,8 +25,8 @@ The engine's words, for anyone naming something in the code, the database, a doc
 | `turn frame` | The facts of one turn, fixed before any block of its request: its kind, why she is awake, whom she answers, where she is and which blocks it holds. | |
 | `turn kind` | Which of the frame's lists of blocks a turn takes. | mode |
 | `wake` | A row of the queue of turns the engine starts itself. | |
-| `service` | One of the four scheduled mechanics: `heartbeat`, `selfreflection`, `selfimprovement`, `watcher`. | |
-| `service turn` | A turn of `heartbeat`, `selfreflection` or `selfimprovement`, with no chat and no place. The `watcher` has none, since an agent does its work. | |
+| `service` | One of the three scheduled mechanics: `heartbeat`, `selfreflection`, `selfimprovement`. | |
+| `service turn` | A turn of a service, with no chat and no place. | |
 | `selfreflection` | The service that writes her dated entries, and those entries as a store. Prompts tell her she keeps a diary. | `diary` |
 | `mirror` | A place a stored entry of `selfreflection` is copied to. | |
 | `intention` | Something the persona decided to do later. It is no service. | intent |

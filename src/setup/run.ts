@@ -3,7 +3,7 @@
 // `parseSetupArgs` refuses their names. Every step checks
 // first whether its work is done (`already`), so a rerun after a failure resumes where it stopped. A step that fails
 // stops the run, the steps after it are `skipped`, and no chat opens. The six steps that ask come before `units`, so
-// the units bind the backends just installed and the watcher's timer takes the schedule just given; each is `skipped` with
+// the units bind the backends just installed; each is `skipped` with
 // no terminal. After the last step the owner's chat opens on `keys add`, and the chat takes over.
 //
 //   folders          the private folder with `config.local`, `prompts.local`, `clients`, and the data folder, mode 0700
@@ -17,7 +17,7 @@
 //                    the development checkout, cloned when its folder is empty (src/setup/development.ts)
 //   mechanics        heartbeat, selfreflection and selfimprovement on or off, and `selfimprovement.schedule`
 //                    (src/setup/mechanics.ts)
-//   watcher          the watcher on or off, `watcher.schedule`, its backend and its model (src/setup/watcher.ts)
+//   watcher          the watcher's backend and its model (src/setup/watcher.ts)
 //   units            the unit files of deploy/, rendered (src/setup/units.ts) and rewritten when they differ; the
 //                    development unit too when `selfimprovement.checkout` names a checkout other than this one; and the
 //                    clients of the owner's command line, of the owner on the task board and of the units that need
@@ -216,8 +216,7 @@ function developmentCheckoutOf(options: SetupOptions): { checkout: string } | { 
   return { checkout };
 }
 
-/** The clients of the watcher's and the development worker's units, with their board roles. */
-const WATCHER_CLIENT = { name: 'watcher', boardRoles: ['watcher'] };
+/** The client of the development worker's unit, with its board roles. */
 const DEVELOPMENT_CLIENT = { name: 'development', boardRoles: ['reviewer', 'worker'] };
 
 async function unitsStep(options: SetupOptions, deps: SetupDeps): Promise<Outcome> {
@@ -227,9 +226,7 @@ async function unitsStep(options: SetupOptions, deps: SetupDeps): Promise<Outcom
   try {
     clients = provisionClients(
       options.privateDir,
-      hasDevelopment
-        ? [CLI_CLIENT, OWNER_CLIENT, DEVELOPMENT_CLIENT, WATCHER_CLIENT]
-        : [CLI_CLIENT, OWNER_CLIENT, WATCHER_CLIENT]
+      hasDevelopment ? [CLI_CLIENT, OWNER_CLIENT, DEVELOPMENT_CLIENT] : [CLI_CLIENT, OWNER_CLIENT]
     );
   } catch (err) {
     return failed(`the clients cannot be written: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`);

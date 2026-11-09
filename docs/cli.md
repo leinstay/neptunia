@@ -234,7 +234,7 @@ Start with `/help`. It is generated from the command table, so it includes the a
 | Show the sources of the agents and log them in or out | `/subharness status`, `/subharness <backend> login`, `/subharness <backend> status`, `/subharness <backend> logout` |
 | Set what an agent may do | `/agent mode <agent> [<mode>]` |
 | Schedule, switch and inspect the four scheduled mechanics | `/services` |
-| Read a watcher report | `/logs watcher` |
+| Run or read a watcher report | `/doctor watcher run`, `/doctor watcher list`, `/doctor watcher read` |
 | Cancel the turn over a waiting line, in the chat only | `/queue` |
 | Resume or branch a chat, in the chat only | `/sessions`, `/sessions resume <id>`, `/branch` |
 | Restore a development task's files, in the chat only | `/checkpoints` |
@@ -331,17 +331,19 @@ On every other command `--secret-stdin` is ordinary text. `keys add` and `keys s
 
 `/doctor` and `neptunia doctor` run the checks of the installation with the core up or down. The check `readiness` says whether a chat would open and names each repair, as in [setup](setup.md#chat-readiness), a core that is down included, so the doctor reports a stopped core once. The last check, `runtime`, is the core's own reading of the server, itself and the memory. It is left out while no core answers, and `skipped` when a core does not answer within 5 seconds. `/doctor server`, `/doctor core` and `/doctor memory` read one of the three from the core (`src/health/`), ask no model, write nothing and exit `1` with no core. `/doctor live` holds `providers` in place of `runtime`: the core sends one test request for each model role.
 
+`/doctor watcher run` asks the core to start one [watcher](watcher.md#run-and-read) report in the background and answers its number and start time at once, or the number and state of the run already going. It exits `1` with no core. `/doctor watcher stop` stops the running report. `/doctor watcher list` lists every report, the newest first, with its number, start, finish and state. `/doctor watcher read` opens the newest report and `/doctor watcher <number>` report `number` of the list, each under its number and dates. These four read the files with no core. A number past the list or of a run with no report exits `1`, and a word that is no number exits `2`.
+
 ## Logs
 
-`/logs` reads the journal of `neptunia-core.service` in the scope of the installation, and a journal it cannot read exits `1` with the scope and the reason. Its filters are `errors`, `follow` and `since <value>`, and `follow` works in the chat alone. `/logs watcher [date or run]` reads the watcher's saved report, the newest with no selector, with no core and without opening the journal. A report names its run and the other runs of its day. A selector that matches no report exits `1`, and `/logs watcher errors`, `follow` or `since` exit `2`, since those words belong to the journal.
+`/logs` reads the journal of `neptunia-core.service` in the scope of the installation, and a journal it cannot read exits `1` with the scope and the reason. Its filters are `errors`, `follow` and `since <value>`, and `follow` works in the chat alone. `/logs watcher` exits `2` and names `/doctor watcher`.
 
 ## Scheduled services
 
-`neptunia services list` prints the status of `heartbeat`, `selfreflection`, `selfimprovement` and `watcher`, with no process unit among them. `neptunia services <name> setup|enable|disable|status` controls one of the four. `/services <name> <action>` and `neptunia -p "/services ..."` reach the same handler, `src/service/commands.ts`. Selfreflection is the selfreflection wake and selfimprovement is the persona's development wake, which stays apart from the development worker. The handler works with no core, so a mechanic can be switched and read while the core is down. `/pause` and `/resume` hold and release every turn, and `/services <name> disable` stops one mechanic.
+`neptunia services list` prints the status of `heartbeat`, `selfreflection` and `selfimprovement`, with no process unit among them. `neptunia services <name> setup|enable|disable|status` controls one of the three. `/services <name> <action>` and `neptunia -p "/services ..."` reach the same handler, `src/service/commands.ts`. Selfreflection is the selfreflection wake and selfimprovement is the persona's development wake, which stays apart from the development worker. The handler works with no core, so a mechanic can be switched and read while the core is down. `/pause` and `/resume` hold and release every turn, and `/services <name> disable` stops one mechanic.
 
-`setup --at 00:00,12:00` saves daily UTC times and `setup --every 6h` an interval in hours or minutes (`90m`). The two exclude each other. Both write the one setting `<name>.schedule` that `/config` reads, leave the flag as it is, and answer `timezone: UTC` and `next:` with the next times. `heartbeat setup --jitter 30m` sets `heartbeat.jitterMinutes`, which moves an interval either way and leaves daily times exact. `setup` with no flag asks at a terminal and exits `2` without one. `watcher setup` also renders `neptunia-watcher.timer` and reloads the manager, and starts nothing.
+`setup --at 00:00,12:00` saves daily UTC times and `setup --every 6h` an interval in hours or minutes (`90m`). The two exclude each other. Both write the one setting `<name>.schedule` that `/config` reads, leave the flag as it is, and answer `timezone: UTC` and `next:` with the next times. `heartbeat setup --jitter 30m` sets `heartbeat.jitterMinutes`, which moves an interval either way and leaves daily times exact. `setup` with no flag asks at a terminal and exits `2` without one.
 
-`enable` and `disable` move `<name>.enabled` and run nothing at once. A run already going finishes after `disable`. For the watcher they also run `enable --now` or `disable --now` on the timer and leave `neptunia-watcher.service` alone. A manager call that fails prints `desired:` and `applied:`, exits `1` and keeps the flag, and the same command applies it again.
+`enable` and `disable` move `<name>.enabled` and run nothing at once. A run already going finishes after `disable`.
 
 `status` exits `0` whatever it finds, asks no model and writes nothing.
 
@@ -349,27 +351,17 @@ On every other command `--secret-stdin` is ordinary text. `keys add` and `keys s
 |---|---|
 | `service` | The mechanic |
 | `enabled` | The saved flag |
-| `running` | Whether a run is going, as the manager says for the watcher. `unknown` for a wake with no core, for a selfreflection even with one, and for the watcher with no `systemctl` |
+| `running` | Whether a run is going, `unknown` for a wake with no core and for a selfreflection even with one |
 | `readiness` | `ready`, or `not ready` and what is missing: the core, a role's subharness source or the repository |
 | `schedule` | The schedule, with the heartbeat's jitter. `windows` for a selfreflection with no `selfreflection.schedule` |
 | `next due` | The next time, `none` when disabled. For a selfreflection drawing from windows with no core it is the start of the next window that can post in `bot.timezone`, `none` when no window can |
-| `last result` | The newest report of the watcher, the core's last wake of the others, `unknown` with no core |
-| `current run` | The watcher's run in progress with its state and source, `none` with no run |
-| `last success` | The watcher's newest succeeded run and when it ended |
-| `last failure` | The watcher's newest failed run, its code and when it ended |
-| `attempts` | The answers the watcher's newest run asked for, `2` when its first was refused, `none` with no run |
-| `filing` | The receipts of the last success by state, such as `filed 2, deferred 1`, `none` with no drafts |
-| `source` | The watcher's backend, model and effort from `keys.json`, `default` where the backend picks, `unknown` with no backend. Reading it asks no model |
-| `run timeout` | How long the watcher's agent may run |
-| `timer` | The watcher's timer as the manager reads it |
-
-`neptunia services watcher trigger` starts one inspection without waiting for it and answers `run:` and `state:`. During a run it answers that run and starts nothing. It refuses a disabled watcher, names `services watcher enable` and exits `1`, and a start the manager refuses fails that run and exits `1`. `neptunia services watcher cancel` asks the run in progress to stop and answers `run:` and `state:`, `none` with nothing to stop, and exits `0` however often it is repeated. It changes no flag and no timer. [The watcher](watcher.md#one-run) describes both.
+| `last result` | The core's last wake, `unknown` with no core |
 
 `neptunia services watcher evidence [--from <iso>] [--cursor <c>]` prints one page of the recorded requests and Claude transcripts of the observation window as JSON, with no core and no board. Its keys are `interval`, `runs`, `totalRuns`, `examinedRuns`, `unreviewedRuns`, `inFlightRuns`, `nextCursor` and `gaps`, and the first page, with no `--cursor`, adds `trash`, `mirrors`, `selfreflection`, `standards` and `audit`. A `--from` that is no date or a `--cursor` that is no `nextCursor` exits `2`. [The watcher](watcher.md#service-runs) describes the read.
 
-`neptunia services watcher select --sql <statement>` prints the rows of one read-only statement over the memory database as JSON, `rows` and `truncated`, with no core and no board. A missing `--sql` exits `2`, and a write, a second statement or a missing database fails. [The watcher](watcher.md#development-mode) describes the read.
+`neptunia services watcher select --sql <statement>` prints the rows of one read-only statement over the memory database as JSON, `rows` and `truncated`, with no core and no board. A missing `--sql` exits `2`, and a write, a second statement or a missing database fails. [The watcher](watcher.md#service-runs) describes the read.
 
-`neptunia setup` with `watcher`, `selfimprovement` or `mechanics` exits `2` and names the command of this family. A word order such as `services status watcher` exits `2` the same way.
+`neptunia setup` with `watcher`, `selfimprovement` or `mechanics` exits `2` and names the command that replaced it. A word order such as `services status watcher` exits `2` the same way.
 
 ## Other entry points
 
