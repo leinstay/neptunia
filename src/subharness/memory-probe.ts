@@ -35,7 +35,7 @@ export type ProbeResult = { ok: true; at: number; gaps?: Array<string> } | { ok:
 
 export type MemoryProbeDeps = {
   privateDir: string;
-  /** The key the memory role goes out on now (the ring's route, else the `.env` variable); null when there is none. */
+  /** The key the memory role goes out on now (the ring's route); null when there is none. */
   route(): { name: string; value: string } | null;
   fetch: typeof fetch;
   baseUrl: string;

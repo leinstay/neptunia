@@ -1052,17 +1052,17 @@ function checkKeyStore(privateDir: string): Check {
   try {
     const core = createKeyStore({ privateDir }).list().core.length;
     return core > 0
-      ? { name: 'env-keys', status: 'ok', detail: `keys.json holds ${core} core keys` }
-      : { name: 'env-keys', status: 'warn', detail: 'keys.json holds no core key: add one with /keys core add' };
+      ? { name: 'keys', status: 'ok', detail: `keys.json holds ${core} core keys` }
+      : { name: 'keys', status: 'warn', detail: 'keys.json holds no core key: add one with /keys core add' };
   } catch {
-    return { name: 'env-keys', status: 'fail', detail: 'keys.json does not read' };
+    return { name: 'keys', status: 'fail', detail: 'keys.json does not read' };
   }
 }
 
 /** The core keys of keys.json: a count, never a value. */
-function checkEnvKeys(where: { rootDir: string; privateDir: string }): Check {
+function checkKeys(where: { rootDir: string; privateDir: string }): Check {
   if (keysFileExists(where.privateDir)) return checkKeyStore(where.privateDir);
-  return { name: 'env-keys', status: 'fail', detail: 'no keys.json: run neptunia setup, then /keys core add' };
+  return { name: 'keys', status: 'fail', detail: 'no keys.json: run neptunia setup, then /keys core add' };
 }
 
 /** The base model roles `config` switches off with `models.base.<role>: false`. */
@@ -1074,7 +1074,7 @@ function rolesOff(config: Settings): Array<string> {
 
 /**
  * The model roles that cannot run: switched off (`models.base.<role>: false`), which is `warn`. Whether a role has a key
- * is the key store's check (`env-keys`). Names only.
+ * is the key store's check (`keys`). Names only.
  */
 function checkRoles(where: { rootDir: string; privateDir: string }): Check {
   let config: Settings;
@@ -1239,7 +1239,7 @@ async function doctorChecks(
     checkBinaries(),
     checkConfig(where),
     checkLocalLayer(where),
-    checkEnvKeys(where),
+    checkKeys(where),
     checkRoles(where),
     checkTokens(where),
     await checkFeatures(where),

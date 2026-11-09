@@ -1,6 +1,6 @@
 // The key store as the subharness and `neptunia setup` see it: `<privateDir>/keys.json` (mode 600),
 // read and written whole and synchronously, so the paid scripts can read it from plain code. The file holds secrets
-// alone: the core keys, the extra keys, the service credentials and the `.env` variable each imported key came from.
+// alone: the core keys, the extra keys and the service credentials.
 // Which part runs on which key or backend is routing, and lives in config.json (src/subharness/routing.ts); a write here
 // drops the sections `roles`, `subharness` and `simulation` an older file still carries. The key store of the keys
 // command (src/keys/store.ts) owns the file's other sections; `writeKeys` keeps every other section it was given.
@@ -21,9 +21,16 @@ export type KeyStore = {
 /** The sections an older keys.json held that are routing, not secrets: no write keeps them. */
 export const ROUTING_SECTIONS: ReadonlyArray<string> = ['roles', 'subharness', 'simulation'];
 
-/** `file` without the routing sections. */
+/** The sections no module reads any more: no write keeps them either. */
+const UNREAD_SECTIONS: ReadonlyArray<string> = ['variables'];
+
+/** `file` without the routing sections and the unread ones. */
 export function secretsOnly(file: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(file).filter(([section]) => !ROUTING_SECTIONS.includes(section)));
+  return Object.fromEntries(
+    Object.entries(file).filter(
+      ([section]) => !ROUTING_SECTIONS.includes(section) && !UNREAD_SECTIONS.includes(section)
+    )
+  );
 }
 
 /** The file's name inside the private directory. */

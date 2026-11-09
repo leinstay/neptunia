@@ -102,7 +102,8 @@ test('a key bound with keys bind lands in config.json, never in keys.json', asyn
   });
   assert.equal((await keys.run('keys.bind', { role: 'drawing', name: 'art' }, null)).status, 'ok');
   assert.deepEqual(configOf(dir).llm, { boundKeys: { drawing: 'art' } });
-  assert.deepEqual(keysSections(dir).sort(), ['core', 'extra', 'variables']);
+  // The store writes its two sections only: the `variables` section of the import is gone.
+  assert.deepEqual(keysSections(dir).sort(), ['core', 'extra']);
   assert.equal(store.boundTo('drawing'), 'art');
   assert.equal((await keys.run('keys.unbind', { role: 'drawing' }, null)).status, 'ok');
   assert.equal(configOf(dir).llm?.boundKeys, undefined);

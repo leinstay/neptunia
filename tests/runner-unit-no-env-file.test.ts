@@ -1,6 +1,7 @@
 // The two errand runner units (deploy/neptunia-agent-scout.service, deploy/neptunia-agent-server.service) as
 // `neptunia setup` renders them: no `EnvironmentFile` line in any scope or mode, so a key never reaches a runner from a
-// file beside the unit. Every key comes with the task. The interface unit keeps its own file.
+// file beside the unit. Every key comes with the task. The interface unit has none either: its token is read from
+// `interfaces/<name>/credentials.json`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -37,8 +38,8 @@ for (const file of ['neptunia-agent-scout.service', 'neptunia-agent-server.servi
   }
 }
 
-test('the interface unit keeps its EnvironmentFile line', () => {
-  // Bug: the runner fix strips the line from every unit, and the interfaces lose their tokens.
+test('the interface unit has no EnvironmentFile line', () => {
+  // Bug: a leftover `clients/<name>.env` line in the interface unit reads a file nothing writes, and invites a key into it.
   const unit = renderUnit(template('neptunia-interface@.service'), 'system', VARS);
-  assert.equal(environmentFiles(unit).length, 1);
+  assert.deepEqual(environmentFiles(unit), []);
 });

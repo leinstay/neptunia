@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseEnv, applyEnv, deepMerge, readConfig, need, isPlainObject, resolveEnvRefs } from '../src/config.ts';
+import { deepMerge, readConfig, need, isPlainObject, resolveEnvRefs } from '../src/config.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { paceSettings } from '../src/behavior/turn.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -14,53 +14,6 @@ function tmpDir() {
   fs.mkdirSync(path.join(root, 'data', 'config'), { recursive: true });
   return root;
 }
-
-test('parseEnv: skips blank lines and full-line comments', () => {
-  const parsed = parseEnv('\n# a comment\n\nFOO=bar\n');
-  assert.deepEqual(parsed, { FOO: 'bar' });
-});
-
-test('parseEnv: unquoted value with a trailing " #" comment is trimmed', () => {
-  const parsed = parseEnv('FOO=bar   # trailing comment');
-  assert.equal(parsed.FOO, 'bar');
-});
-
-test('parseEnv: "#" without a leading space is NOT treated as a comment', () => {
-  const parsed = parseEnv('FOO=bar#not-a-comment');
-  assert.equal(parsed.FOO, 'bar#not-a-comment');
-});
-
-test('parseEnv: only the first "=" splits key from value, so values may contain "="', () => {
-  const parsed = parseEnv('FOO=a=b=c');
-  assert.equal(parsed.FOO, 'a=b=c');
-});
-
-test('parseEnv: double-quoted values decode \\n, \\r and \\"', () => {
-  const parsed = parseEnv('FOO="line1\\nline2\\r\\"quoted\\""');
-  assert.equal(parsed.FOO, 'line1\nline2\r"quoted"');
-});
-
-test('parseEnv: single-quoted values are taken literally (no escape decoding)', () => {
-  const parsed = parseEnv("FOO='a\\nb'");
-  assert.equal(parsed.FOO, 'a\\nb');
-});
-
-test('parseEnv: invalid keys (leading digit, dash, dot) are ignored', () => {
-  const parsed = parseEnv('9FOO=bar\nFOO-BAR=baz\nFOO.BAR=qux\nOK_1=fine');
-  assert.deepEqual(parsed, { OK_1: 'fine' });
-});
-
-test('parseEnv: key and value are trimmed of surrounding whitespace', () => {
-  const parsed = parseEnv('  FOO  =  bar  ');
-  assert.equal(parsed.FOO, 'bar');
-});
-
-test('applyEnv: real environment variables always win over parsed ones', () => {
-  const target: Record<string, string> = { FOO: 'real' };
-  applyEnv({ FOO: 'from-dotenv', BAR: 'from-dotenv' }, target);
-  assert.equal(target.FOO, 'real');
-  assert.equal(target.BAR, 'from-dotenv');
-});
 
 test('isPlainObject: true for objects, false for null, arrays, scalars and functions', () => {
   assert.equal(isPlainObject({}), true);

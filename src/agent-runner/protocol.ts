@@ -6,7 +6,7 @@
 // refused here before anything acts on it. The task id ends up in a file path
 // (`<outDir>/<id>/`), so it is restricted to a safe character set. A `run` may
 // carry the task's secrets (the model key, the proxy, the search key: every key
-// lives in the core, the runner cannot read the bot's .env); a refusal names
+// lives in the core, the runner cannot read the core's key store); a refusal names
 // only its code, never a value, and nothing here logs a message. A `run` may
 // also carry the deployment's shared preamble (the core reads it from its
 // private prompt layer; the runner never reads that layer itself). A `run` may carry the task's route, the backend,

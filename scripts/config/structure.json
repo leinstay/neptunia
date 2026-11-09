@@ -1404,7 +1404,7 @@
     },
     {
       "path": "src/keys/",
-      "purpose": "The model keys of a deployment: the key store (`keys.json`), the core key list with its failover, the probes that check a key and a model, the owner's key commands and the one-time import of the old `.env` variables. The binding of a role to a key goes through `src/subharness/routing.ts`.",
+      "purpose": "The model keys of a deployment: the key store (`keys.json`), the core key list with its failover, the probes that check a key and a model, and the owner's key commands. The binding of a role to a key goes through `src/subharness/routing.ts`.",
       "layer": "public",
       "imports": [
         "node:*",

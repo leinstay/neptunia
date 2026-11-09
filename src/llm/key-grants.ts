@@ -63,7 +63,6 @@ export function keyBalances({
 type NamesOf = {
   keyNames?: (role: string) => Array<string>;
   keyGrants?: () => unknown;
-  keyVariables?: () => Record<string, string>;
 };
 type SpendOf = { keyCost?: (name: string, day: string) => number };
 
@@ -75,9 +74,5 @@ export function coreKeyBalances({ llm, usage, now }: { llm: unknown; usage: unkn
   const names = (llm as NamesOf | null)?.keyNames?.('core') ?? [];
   const keys = (llm as NamesOf | null)?.keyGrants?.();
   const cost = (name: string, day: string): number => (usage as SpendOf | null)?.keyCost?.(name, day) ?? 0;
-  // Spend recorded before the import is under the variable the key came from.
-  const variables = (llm as NamesOf | null)?.keyVariables?.() ?? {};
-  const spentSince = (name: string, day: string): number =>
-    cost(name, day) + (Object.hasOwn(variables, name) ? cost(variables[name] ?? '', day) : 0);
-  return keyBalances({ keys, names, now, spentSince });
+  return keyBalances({ keys, names, now, spentSince: cost });
 }

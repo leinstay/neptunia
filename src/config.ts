@@ -15,57 +15,6 @@ type Untyped = ReturnType<typeof JSON.parse>;
 export const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * Parse the contents of a .env file into a plain object of string values.
- * Supports blank lines, full-line `#` comments, unquoted values (with an
- * optional trailing ` # comment`), and single/double quoted values.
- * Double-quoted values support \n, \r and \" escapes; single-quoted values
- * are taken literally. Only the first `=` on a line separates key from value,
- * so values may themselves contain `=`.
- */
-export function parseEnv(content: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  const lines = String(content).split(/\r?\n/);
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) continue;
-
-    const eq = line.indexOf('=');
-    if (eq === -1) continue;
-
-    const key = line.slice(0, eq).trim();
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
-
-    let value = line.slice(eq + 1).trim();
-
-    if (value.length >= 2 && value[0] === '"' && value[value.length - 1] === '"') {
-      value = value.slice(1, -1).replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\"/g, '"');
-    } else if (value.length >= 2 && value[0] === "'" && value[value.length - 1] === "'") {
-      value = value.slice(1, -1);
-    } else {
-      const hashIdx = value.indexOf(' #');
-      if (hashIdx !== -1) value = value.slice(0, hashIdx);
-      value = value.trim();
-    }
-
-    result[key] = value;
-  }
-
-  return result;
-}
-
-/**
- * Copy parsed .env values onto `target` (defaults to process.env), skipping
- * any key that is already present so real environment variables always win.
- */
-export function applyEnv(parsed: Record<string, string>, target = process.env): NodeJS.ProcessEnv {
-  for (const [key, value] of Object.entries(parsed)) {
-    if (!(key in target)) target[key] = value;
-  }
-  return target;
-}
-
-/**
  * Whether `value` is a plain object (not null, not an array). The one copy
  * of this predicate: config merging, stored-state normalisers and the
  * OpenRouter routing blocks all import it from here.
@@ -91,7 +40,7 @@ export function deepMerge(base: Untyped, override: Untyped): Untyped {
   return override;
 }
 
-/** `${env:NAME}` inside a config string: NAME as a .env key may spell it. */
+/** `${env:NAME}` inside a config string: NAME is an environment variable. */
 const ENV_REF_RE = /\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
 /**

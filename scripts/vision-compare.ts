@@ -16,7 +16,7 @@
 // so each picked entry is found again as the live media recache finds it
 // (src/memory/gif-recache.ts): an emoji from its id; a library GIF from its library entry's
 // message; anything else from the messages the record says may hold it, read again over the
-// Discord REST API (GET only, no gateway, DISCORD_TOKEN from .env), newest first, at most
+// Discord REST API (GET only, no gateway, the interface's stored token), newest first, at most
 // MAX_MESSAGE_READS messages. An entry not found again is counted and left out.
 //
 // Each item with each model: scripts/lib/vision-compare.ts#describeOne -- the live describer
@@ -148,7 +148,7 @@ async function resolveFromCache({
   const wantsItem = (itemId: Untyped) => [...wanted.values()].some((p) => p.itemId === itemId);
   if (wanted.size > 0 && !token) {
     process.stderr.write(
-      `vision-compare: no DISCORD_TOKEN (.env): ${wanted.size} cache entr(ies) other than emoji cannot be found again\n`
+      `vision-compare: no stored Discord token: ${wanted.size} cache entr(ies) other than emoji cannot be found again\n`
     );
   }
   if (wanted.size > 0 && token) {
