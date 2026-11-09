@@ -236,8 +236,8 @@
     "whenNotToUse": "Destructive, not grantable to you."
   },
   "memory.snapshot": {
-    "title": "Snapshot data",
-    "whenToUse": "Copy data for tools."
+    "title": "Snapshot memory",
+    "whenToUse": "Copy the memory database for tools."
   },
   "memory.private.read": {
     "title": "Read private memory",

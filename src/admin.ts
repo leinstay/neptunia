@@ -63,8 +63,6 @@ export {
  * `journal` — from createJournal() (src/memory/journal.js), optional: `system` records of pause
  *   and resume (written while `features.journal` is exactly true), `read` for
  *   `memory.journal.read`. Absent -> no records, and that read reports it is not available.
- *   `withWriterLock` holds the journal's, the record's and the archive's writes while
- *   `memory.snapshot` copies `data/`; absent, it runs without it.
  * `llm` — from createLlm() (src/llm/openrouter.ts), optional: `complete()`, the probe the owner's
  *   status card sends to each role's model, and `modelEndpoints()`, its free check of the
  *   drawing model. Absent -> the card names the models without probing them.
@@ -99,7 +97,7 @@ export {
  * `inner` — from createInnerLife() (src/behavior/inner.ts), optional: the `inner` field of the owner's status
  *   card. Absent -> that field says the inner life is not running.
  * `now` — the clock of the status card's coverage cache (default `Date.now`).
- * `dataDir` — the data directory `memory.snapshot` copies: src/index.ts passes the one it
+ * `dataDir` — the data directory `memory.snapshot` writes its copy of the memory database under: src/index.ts passes the one it
  *   resolved (src/paths.ts, `NEPTUNIA_DATA_DIR`); default `<hot.rootDir>/data`.
  *
  * `run(op, args, context)` throws a plain `Error` (operator-facing message) on bad input; the

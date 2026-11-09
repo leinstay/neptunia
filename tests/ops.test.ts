@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 import { listOps, runOp } from '../src/tools/operations/index.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
@@ -121,7 +122,14 @@ const OWNER_ONLY = [
 function makeEnv({
   access = {},
   emojiBackfill,
-}: { access?: object; emojiBackfill?: { run: () => Promise<unknown> } } = {}) {
+  memoryDb,
+  dataDir,
+}: {
+  access?: object;
+  emojiBackfill?: { run: () => Promise<unknown> };
+  memoryDb?: { database: () => DatabaseSync };
+  dataDir?: string;
+} = {}) {
   const rootDir = tempDir('nep-ops-');
   fs.mkdirSync(path.join(rootDir, 'prompts'));
   fs.writeFileSync(path.join(rootDir, 'prompts', 'rules.md'), '## Rules\n\n- be kind\n');
@@ -150,6 +158,8 @@ function makeEnv({
     calibrator: { ratio: 1 },
     isServedRoot: (id: unknown) => id === 'g1',
     emojiBackfill,
+    ...(memoryDb === undefined ? {} : { memoryDb }),
+    ...(dataDir === undefined ? {} : { dataDir }),
   });
 }
 
@@ -538,4 +548,39 @@ ownedBy(['42']);
 test("no grant opens rule.add to her, since the rules are the owner's", () => {
   // Bug: `rule.add` could be granted to her while `rule.remove` could not, so she could write the owner's rules.
   assert.ok(NOT_GRANTABLE_TO_PERSONA.includes('rule.add'));
+});
+
+test('memory.snapshot copies the memory database alone, as a database that opens, and leaves keys and tokens out', async () => {
+  // Bug: the snapshot copied the whole data folder file by file, the live WAL database half-written beside keys.json
+  // and the client tokens.
+  const dataDir = tempDir('nep-ops-snapshot-');
+  fs.writeFileSync(path.join(dataDir, 'keys.json'), '{"secret":"k"}');
+  fs.mkdirSync(path.join(dataDir, 'clients'));
+  fs.writeFileSync(path.join(dataDir, 'clients', 'cli.token'), 't');
+  const db = new DatabaseSync(path.join(dataDir, 'memory.db'));
+  db.exec("PRAGMA journal_mode = WAL; CREATE TABLE notes (text TEXT); INSERT INTO notes VALUES ('kept')");
+  try {
+    const env = makeEnv({ memoryDb: { database: () => db }, dataDir });
+    const result = await runOp('memory.snapshot', {}, { env, placeId: 'g1', accountId: '42' });
+    assert.equal(result.status, 'ok', result.summary);
+    const root = path.join(dataDir, 'snapshots');
+    const copies = fs
+      .readdirSync(root, { recursive: true })
+      .map((name) => path.join(root, String(name)))
+      .filter((file) => fs.statSync(file).isFile());
+    assert.deepEqual(
+      copies.map((file) => path.basename(file)),
+      ['memory.db']
+    );
+    const copy = copies[0];
+    assert.equal(fs.statSync(copy).mode & 0o777, 0o600);
+    const opened = new DatabaseSync(copy, { readOnly: true });
+    try {
+      assert.deepEqual({ ...opened.prepare('SELECT text FROM notes').get() }, { text: 'kept' });
+    } finally {
+      opened.close();
+    }
+  } finally {
+    db.close();
+  }
 });
