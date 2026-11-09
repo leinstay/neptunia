@@ -145,7 +145,8 @@ The defaults, for documentation, comments, commit messages, pull request text an
 - Commit subject in English, imperative, under 72 characters; the body says why when the subject is not enough. End the message with a `Co-Authored-By:` trailer naming the model that did the work.
 - A pull request says what changed and why, how it was tested, and whether it adds a setting, a prompt file or a contract change. CI must be green before a merge; read the conclusion, do not assume it.
 - Never commit the local layer, `.env`, `.agents/`, `.claude/`, `.opencode/` or anything with a key in it. The pre-commit hook and CI refuse them; do not work around either.
-- Never force-push `main`, never rewrite published history, never delete a branch you did not create.
+- A branch is deleted with its merge (`gh pr merge --delete-branch`). Any branch, and its worktree, untouched for 24 hours is deleted, whoever made it, unless an open pull request names it.
+- Never force-push `main`, never rewrite published history.
 
 ## Tests
 
