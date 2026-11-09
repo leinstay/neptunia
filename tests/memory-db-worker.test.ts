@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
@@ -168,10 +169,29 @@ test('the worker holds the writer lock; the main thread reads through its own re
   }
 });
 
+/**
+ * The row of the fixture's channel, keyed as an observation keys it, over a plain connection beside the service's: a
+ * channel read names the place its row holds.
+ */
+function channelRow(file: string): void {
+  const connection = new DatabaseSync(file, { timeout: 5000 });
+  try {
+    connection
+      .prepare(
+        `INSERT OR IGNORE INTO places (id, iface, kind, native_id, native_key, authority_id, generation, chat, scope_kind)
+         VALUES (?, 'discord', 'channel', ?, ?, 'discord/global', 1, 'group', 'group')`
+      )
+      .run(`discord:channel:${CHANNEL}`, CHANNEL, `channel:${CHANNEL}`);
+  } finally {
+    connection.close();
+  }
+}
+
 test('turn reads are written by the worker and counted at debug', async () => {
   const env = setup();
   try {
     await env.service.tick();
+    channelRow(env.dbFile());
     env.service.recordTurnReads({
       turnId: 'turn-9',
       step: 's0',
@@ -420,6 +440,7 @@ test('a shutdown right after a turn writes its reads before the database closes,
   const env = setup({ options: { defer: () => {} } });
   try {
     await env.service.tick();
+    channelRow(env.dbFile());
     env.service.recordTurnReads({
       turnId: 'turn-10',
       step: 's0',
