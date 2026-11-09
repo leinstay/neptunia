@@ -646,8 +646,6 @@ test('every operation no grant opens to her runs from a command of the chat', as
     now: () => T0,
     // Changed: no line moves a timer any more (owner, 2026-11-09), but a status still asks the manager; this keeps it fake.
     serviceManager: () => Promise.resolve({ code: 0, stdout: '', stderr: '' }),
-    // `/doctor watcher run` is a line of the table: without this it would start a real worker.
-    startWatcher: () => null,
   };
   const desk = createConsole(deps);
   for (const line of everyLine()) {

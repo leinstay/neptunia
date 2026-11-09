@@ -9,10 +9,11 @@ import { readConfig } from '../src/config.ts';
 import { serviceFamily } from '../src/service/commands.ts';
 import type { ServiceAnswer, ServiceDeps } from '../src/service/commands.ts';
 import { managerCall, managerRead } from '../src/service/manager.ts';
+import type { RunManager } from '../src/service/manager.ts';
 import { SERVICE_NAMES, formatSchedule, nextMoments, parseSchedule } from '../src/service/schedule.ts';
 import { spawnRun } from '../src/setup/install.ts';
 import path from 'node:path';
-import { watcherDoctor } from '../src/watcher/doctor.ts';
+import { unitStarter, watcherDoctor } from '../src/watcher/doctor.ts';
 import { runStoreOf } from '../src/watcher/lifecycle.ts';
 import { reportsDirOf, watcherDir } from '../src/watcher/read.ts';
 import { renderMarkdown } from './markdown.ts';
@@ -64,15 +65,23 @@ export function runServiceHere(request: ServiceRequest, where: Where): Promise<S
 }
 
 /**
- * `/doctor watcher stop|read|list|<number>` from the files, with the core up or down; `run` goes to the core, which
- * starts the worker. A report opened here is rendered for the terminal.
+ * `/doctor watcher run|stop|read|list|<number>` in the command line, with the core up or down: `run` starts the watcher's
+ * unit through the manager of the scope, `sudo` included in the system scope, and the others read the files. A report
+ * opened here is rendered for the terminal.
  */
-export function watcherDoctorHere(request: ServiceRequest, where: Where, color: boolean): ServiceAnswer {
-  const reportsDir = reportsDirOf(
-    where.privateDir,
-    watcherDir(readConfig(where.rootDir, { privateDir: where.privateDir }))
-  );
-  const answer = watcherDoctor(request.name, request.args, { store: runStoreOf(path.dirname(reportsDir)), reportsDir });
+export async function watcherDoctorHere(
+  request: ServiceRequest,
+  where: Where,
+  color: boolean,
+  run: RunManager = spawnRun
+): Promise<ServiceAnswer> {
+  const config = readConfig(where.rootDir, { privateDir: where.privateDir });
+  const reportsDir = reportsDirOf(where.privateDir, watcherDir(config));
+  const answer = await watcherDoctor(request.name, request.args, {
+    store: runStoreOf(path.dirname(reportsDir)),
+    reportsDir,
+    start: unitStarter({ run, env: process.env }),
+  });
   const isReport = request.name === 'doctor.watcher.read' || request.name === 'doctor.watcher';
   return isReport && answer.status === 'ok' ? { ...answer, text: renderMarkdown(answer.text, { color }) } : answer;
 }

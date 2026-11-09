@@ -8,24 +8,25 @@
 // paths), and `sudo` drops in addition what would stop `sudo` (`NoNewPrivileges` and the capability bounding set).
 //
 // A subharness backend lives in `<private>/subharness/<backend>/` (src/subharness/place.ts), binary and home. The core
-// writes it through the private folder of its `ReadWritePaths=`. An agent unit in
+// writes it through the private folder of its `ReadWritePaths=`, and the watcher's unit names the whole `subharness/`
+// folder in its own. An agent unit in
 // `read` or `write` hides the home (`ProtectHome=tmpfs`) and sees the private folder read-only, so the folder of every
 // backend a role names in keys.json or installed there is bound writable into it, and nothing above it: keys.json stays out of the agent's
 // reach.
 //
-// The development worker's and the server agent's units run as the user of the core, so the mount namespace
+// The watcher's, the development worker's and the server agent's units run as the user of the core, so the mount namespace
 // is all that keeps a child of theirs from the other clients' tokens and the interfaces' `credentials.json`. Given the
 // names of the clients and the interfaces the install has, each of those units hides them with `InaccessiblePaths=-<path>`
 // (the leading `-` lets the unit start before a file exists) and leaves its own client's token readable. `keys.json`
-// stays readable: the development worker reads its agents' routes from it. The modes `full` and `sudo` drop the entries
-// with the rest of the mount sandbox. The core's unit holds the group `systemd-journal` in the system scope, so the
-// watcher it starts reads the journal of the units (src/watcher/routes.ts).
+// stays readable: the watcher and the development worker read their agents' routes from it (docs/watcher.md). The modes
+// `full` and `sudo` drop the entries with the rest of the mount sandbox.
 
 import path from 'node:path';
 import { UNIT_SCOPE_ENV } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';
 import type { AgentMode, SubharnessAgent } from '../subharness/control.ts';
 import { subharnessPlace } from '../subharness/place.ts';
+import { DEFAULT_WATCHER_DIR } from '../watcher/read.ts';
 
 /** The templates `setup` renders, by file name. The bot unit is not among them. */
 export const UNIT_FILES: ReadonlyArray<string> = [
@@ -33,6 +34,7 @@ export const UNIT_FILES: ReadonlyArray<string> = [
   'neptunia-interface@.service',
   'neptunia-agent-scout.service',
   'neptunia-agent-server.service',
+  'neptunia-watcher.service',
 ];
 
 /**
@@ -54,12 +56,17 @@ const COMPILE_CACHE_LINES = ['CacheDirectory=neptunia-compile', 'Environment=NOD
  * connects as (null when it connects as none). The scout needs no entry: its persona folder is an empty tmpfs.
  */
 const SECRET_HIDERS: ReadonlyArray<{ start: RegExp; own: string | null }> = [
+  { start: /^ExecStart=\S+ bin\/neptunia\.ts worker watcher\b/m, own: 'watcher' },
   { start: /^ExecStart=\S+ bin\/neptunia\.ts worker development\b/m, own: 'development' },
   { start: /^ExecStart=\S+ bin\/neptunia\.ts errand-runner --profile server\b/m, own: null },
 ];
 
 /** A client or interface name that is one plain path segment: nothing that climbs out of its folder. */
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+/** The folder under the watcher's own that `GH_CONFIG_DIR` names: nothing ever writes a login there. */
+const NO_GH_LOGIN = 'no-gh-login';
+const WATCHER_UNIT = /^ExecStart=\S+ bin\/neptunia\.ts worker watcher\b/m;
 
 /** The `InaccessiblePaths=` line of a unit that hides secrets from its agent, null for any other unit. */
 function hiddenLine(text: string, vars: UnitVars): string | null {
@@ -84,6 +91,7 @@ export const UNIT_AGENTS: Readonly<Record<string, SubharnessAgent>> = {
   'neptunia-agent-scout.service': 'scout',
   'neptunia-agent-server.service': 'server',
   'neptunia-development.service': 'dev',
+  'neptunia-watcher.service': 'watcher',
 };
 
 /** What a unit is rendered with. */
@@ -102,7 +110,7 @@ export type UnitVars = {
   mode?: AgentMode;
   /** the backends a role names in keys.json or installed in the private layer; an agent unit binds the folder of each in the private layer writable */
   backends?: ReadonlyArray<BackendName>;
-  /** the names of the clients of `clients.json`; the units of the development worker and the server agent hide every token but their own */
+  /** the names of the clients of `clients.json`; the units of the watcher, the development worker and the server agent hide every token but their own */
   clients?: ReadonlyArray<string>;
   /** the names of the interfaces, each with a `interfaces/<name>/credentials.json` those units hide */
   interfaces?: ReadonlyArray<string>;
@@ -170,6 +178,8 @@ type LineRules = {
   backendDirs: ReadonlyArray<string>;
   /** the `InaccessiblePaths=` line added under `[Service]`, null for a unit that hides nothing or in the modes `full` and `sudo` */
   hidden: string | null;
+  /** the `GH_CONFIG_DIR=` line added under `[Service]` of the watcher's unit, null for any other unit */
+  gh: string | null;
 };
 
 /** The lines the backends' binds make of `line`, or null when they leave it alone. */
@@ -185,6 +195,7 @@ function renderedLines(line: string, key: string | null, rules: LineRules): Arra
       ...(rules.scope === 'user' ? [`Environment=${UNIT_SCOPE_ENV}=user`] : []),
       ...COMPILE_CACHE_LINES,
       ...(rules.hidden === null ? [] : [rules.hidden]),
+      ...(rules.gh === null ? [] : [rules.gh]),
     ];
   return null;
 }
@@ -225,6 +236,11 @@ export function renderUnit(template: string, scope: 'user' | 'system', vars: Uni
   const backendDirs = AGENT_RUNNER.test(text)
     ? (vars.backends ?? []).map((backend) => subharnessPlace(vars.dataDir, backend).dir)
     : [];
+  // `gh` finds its login through GH_CONFIG_DIR: the watcher's names a folder inside its own that holds none, so a `gh`
+  // that the worker or its child starts reads no login.
+  const gh = WATCHER_UNIT.test(text)
+    ? `Environment=GH_CONFIG_DIR=${path.join(vars.dataDir, DEFAULT_WATCHER_DIR, NO_GH_LOGIN)}`
+    : null;
   const rules: LineRules = {
     scope,
     vars,
@@ -233,6 +249,7 @@ export function renderUnit(template: string, scope: 'user' | 'system', vars: Uni
     isInterface: /^ExecStart=.*\binterface run\b/m.test(text),
     backendDirs,
     hidden: dropped.has('ProtectSystem') ? null : hiddenLine(text, vars),
+    gh,
   };
   return text
     .split('\n')

@@ -1,0 +1,37 @@
+# systemd unit for the watcher (src/watcher/, docs/watcher.md): one run, one report.
+#
+# `neptunia worker watcher` adopts the run `/doctor watcher run` claimed, asks the watcher agent, checks its answer and
+# commits one report per run under `data/agents/watcher/reports/`. It files nothing. Only `/doctor watcher run` starts it,
+# with `systemctl start --no-block`; it has no timer. The unit is a oneshot, so a start during a run does nothing, and it
+# never restarts itself after a failed run.
+#
+# The file system is read-only for this unit but for the watcher folder, which holds its reports and run records, and the
+# backends' folders, which hold their sessions and logins. The checkout and the memory stay readable. What this does and does
+# not enforce is in docs/watcher.md. It runs the agent backend from its folder in the private layer.
+#
+# `neptunia setup` renders this service for the installing user (deploy/README.md) and does not start it.
+# Logs:    journalctl -u neptunia-watcher
+
+[Unit]
+Description=neptunia watcher (one report)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=neptunia
+WorkingDirectory=/opt/neptunia/app
+ExecStart=/opt/node/bin/node bin/neptunia.ts worker watcher
+# The bot's directories, set as in the core unit (deploy/neptunia-core.service).
+Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
+# The agent backend is started by its path in the private layer; node's folder and the user's tools go on the PATH.
+Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
+# The agent's own limit is WATCHER_RUN_TIMEOUT_MS (src/watcher/lifecycle.ts), 60 minutes. This leaves ten for the commit,
+# and ends a worker that hung past them.
+TimeoutStartSec=70min
+# The journal readers' group, so its `journalctl` sees the other units. A user unit cannot set groups and does not carry this line.
+SupplementaryGroups=systemd-journal
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=-/opt/neptunia/data/agents/watcher -/opt/neptunia/data/subharness

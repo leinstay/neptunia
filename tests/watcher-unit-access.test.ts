@@ -1,6 +1,5 @@
-// What the watcher may read. It runs inside the core's unit, and in the system scope the rendered core service joins the
-// group that reads the journal, and a user unit, which cannot set groups, does not name it.
-// Changed: the watcher's own unit is gone (owner, 2026-11-09); the core's unit carries the group. Under `ProtectSystem=strict` the unit folder stays
+// What the watcher's unit lets it read. In the system scope the rendered service joins the group that reads the journal,
+// and a user unit, which cannot set groups, does not name it. Under `ProtectSystem=strict` the unit folder stays
 // readable, so a report that said it could not read the folder came from `readUnits`: one failed read of an entry blanks
 // the whole category, and a real folder holds `neptunia-core.service.d`, a drop-in directory that `readFileSync` refuses
 // with EISDIR. No systemd is touched; the folder is a temporary one.
@@ -25,10 +24,10 @@ const VARS: UnitVars = {
 };
 
 const rendered = (scope: 'user' | 'system'): Array<string> =>
-  renderUnit(fs.readFileSync(path.join(ROOT, 'deploy', 'neptunia-core.service'), 'utf8'), scope, VARS).split('\n');
+  renderUnit(fs.readFileSync(path.join(ROOT, 'deploy', 'neptunia-watcher.service'), 'utf8'), scope, VARS).split('\n');
 
-test('the rendered system core joins the group that reads the journal, and a user core names no group', () => {
-  // Bug: the watcher the core starts runs as a user outside `systemd-journal`, journalctl answers nothing, and the report says the
+test('the rendered system service joins the group that reads the journal, and a user service names no group', () => {
+  // Bug: the watcher runs as a user outside `systemd-journal`, journalctl answers nothing, and the report says the
   // server was quiet. A user manager refuses `SupplementaryGroups=` with status 216, so that form must not carry it.
   assert.ok(rendered('system').includes('SupplementaryGroups=systemd-journal'));
   assert.equal(

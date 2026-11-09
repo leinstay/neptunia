@@ -533,9 +533,9 @@ test('without a terminal the subharness, mechanics and watcher steps are skipped
   assert.deepEqual(chat, ['/keys add']);
 });
 
-test('the watcher route given in a setup run is stored, and no watcher timer is written', async () => {
-  // Catches: the step still asks for a switch and an hour, so the answers land in the wrong questions, or a unit that
-  // nothing starts any more is installed beside the core.
+test('the watcher route given in a setup run is stored, and its unit is written with no timer', async () => {
+  // Catches: the step still asks for a switch and an hour, so the answers land in the wrong questions, or a timer that
+  // nothing reads any more is installed beside the unit.
   // Changed: the watcher runs on /doctor watcher run (owner, 2026-11-09); the step asks only the backend and the model.
   const { options, deps, unitDir } = rig();
   writeKeysFile(options.privateDir, { subharness: { backends: ['codex'], key: null, modes: {} } });
@@ -546,5 +546,5 @@ test('the watcher route given in a setup run is stored, and no watcher timer is 
   assert.equal(report.steps.find((step) => step.step === 'watcher')?.state, 'done');
   assert.equal(readKeysFile(options.privateDir).subharness.models?.watcher, 'model-w');
   assert.equal(fs.existsSync(path.join(unitDir, 'neptunia-watcher.timer')), false);
-  assert.equal(fs.existsSync(path.join(unitDir, 'neptunia-watcher.service')), false);
+  assert.equal(fs.existsSync(path.join(unitDir, 'neptunia-watcher.service')), true);
 });

@@ -121,7 +121,6 @@ import { ownerConsoleName } from './memory/db/identity-links.ts';
 import { mediaText } from './memory/db/media-store.ts';
 import { OWNER_CLIENT } from './setup/clients.ts';
 import { createConsole } from './interface/commands/console.ts';
-import { coreWatcherStarter } from './watcher/doctor.ts';
 import { statusBrief } from './interface/commands/status-brief.ts';
 import { wakeClockOf } from './service/commands.ts';
 import { isPausedIn, resumeHeld } from './behavior/core-pause.ts';
@@ -1492,7 +1491,6 @@ async function buildCore(
       privateDir: paths.privateDir,
       dataDir,
       memoryDb,
-      startWatcher: coreWatcherStarter(paths),
       pairing: ownerPairing,
       usage,
       metrics,

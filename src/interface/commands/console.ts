@@ -58,7 +58,6 @@ import type { WakeClock } from '../../service/commands.ts';
 import type { ServiceName } from '../../service/schedule.ts';
 import { spawnRun } from '../../setup/install.ts';
 import { watcherDoctor } from '../../watcher/doctor.ts';
-import type { StartWorker } from '../../watcher/doctor.ts';
 import { runStoreOf } from '../../watcher/lifecycle.ts';
 import { reportsDirOf, watcherDir } from '../../watcher/read.ts';
 import type { RunManager } from '../../service/manager.ts';
@@ -132,8 +131,6 @@ export type ConsoleDeps = {
   mirrors?: MirrorDesk | null;
   /** How `/services` and `/doctor server` reach the service manager, the machine's own when absent. A test always gives its own. */
   serviceManager?: RunManager;
-  /** How `/doctor watcher run` starts the watcher's worker (src/core.ts gives `workerStarter`); absent, `run` is refused. */
-  startWatcher?: StartWorker;
   /** What the core knows of one of its wakes, for `/services <name> status`. */
   wakeClock?: (name: ServiceName) => WakeClock | null;
   /** The core's proxy monitor for `/proxy` (src/interface/commands/proxy.ts); absent, the route reads `off`. */
@@ -590,15 +587,13 @@ function serviceRun(
   return serviceFamily(wakeClock === undefined ? given : { ...given, wakeClock }, name, args);
 }
 
-/** `/doctor watcher`: the run started by this core, which holds no terminal, and the reads of the same files. */
-function watcherCommand(deps: ConsoleDeps, config: () => unknown, name: string, args: Record<string, unknown>): Answer {
+/**
+ * `/doctor watcher` reaching the core: the reads of the report files. The core cannot `sudo`, so `run` is refused with
+ * where it runs; the command line answers all five itself (bin/neptunia-service.ts).
+ */
+function watcherCommand(deps: ConsoleDeps, config: () => unknown, name: string, args: Record<string, unknown>) {
   const reportsDir = reportsDirOf(deps.privateDir, watcherDir(config()));
-  const store = runStoreOf(path.dirname(reportsDir), () => deps.now());
-  return watcherDoctor(name, args, {
-    store,
-    reportsDir,
-    ...(deps.startWatcher === undefined ? {} : { start: deps.startWatcher }),
-  });
+  return watcherDoctor(name, args, { store: runStoreOf(path.dirname(reportsDir), () => deps.now()), reportsDir });
 }
 
 /** The place a command addresses: the one it names, else the only one there is, else none. */

@@ -1,13 +1,12 @@
-// What the development worker's unit hides from the agents it runs. It runs as the user of the core,
+// What the watcher's and the development worker's units hide from the agents they run. Both run as the user of the core,
 // so the mount namespace is all that keeps a child of theirs from reading another client's token, an interface's
 // credentials or keys.json. `renderUnit` (src/setup/units.ts) takes the names of the clients (`clients`) and of the
 // interfaces (`interfaces`) the install has and writes one `InaccessiblePaths=-<path>` entry per token that is not the
 // unit's own and per interface `credentials.json`. The leading `-` lets the unit start when a file is missing.
 //
-// keys.json stays readable to the unit on purpose: it reads the route of its agent (backend, model, effort) from it at
-// the moment of the run (`runAgent` in src/subharness/run.ts opens it unless the core handed it a `route`, and the
-// development worker is started by systemd, not dispatched by the core).
-// Changed: the watcher's unit is gone (owner, 2026-11-09); the watcher runs inside the core's unit.
+// keys.json stays readable to both units on purpose: each reads the route of its agent (backend, model, effort) from it at
+// the moment of the run (`runAgent` in src/subharness/run.ts opens it unless the core handed it a `route`, and the watcher
+// and development workers are started by systemd, not dispatched by the core). The gap is named in docs/watcher.md.
 //
 // The last test is the board half: a development client that asks for an approval it has no right to is refused by the
 // real board. No systemd is touched; the folders are temporary ones.
@@ -40,7 +39,10 @@ const VARS: UnitVars = {
 };
 
 /** The units under test and the client each one connects as. */
-const AGENT_UNITS = [{ file: 'neptunia-development.service', own: 'development' }] as const;
+const AGENT_UNITS = [
+  { file: 'neptunia-watcher.service', own: 'watcher' },
+  { file: 'neptunia-development.service', own: 'development' },
+] as const;
 
 const template = (file: string): string => fs.readFileSync(path.join(ROOT, 'deploy', file), 'utf8');
 const render = (file: string, scope: 'user' | 'system', over: Partial<UnitVars> = {}): string =>
@@ -208,13 +210,14 @@ function rig() {
   return { options, deps, dataDir, rendered };
 }
 
-test('setup writes the development unit with the clients and interfaces the install has', async () => {
+test('setup writes the watcher and development units with the clients and interfaces the install has', async () => {
   // Bug: the generator can hide paths, but setup never hands it the names, so the units on disk keep the hole.
   const { options, deps, dataDir, rendered } = rig();
   await runSetup(options, deps);
   for (const { file, own } of AGENT_UNITS) {
     const hidden = hiddenOf(rendered(file));
     // cli and owner are made by this very step, so they are hidden on the first render, not the second.
+    // Changed: setup makes no client `watcher` any more (owner, 2026-11-09), so its token is no longer among the hidden.
     for (const other of ['cli', 'owner', 'development', 'matrix'].filter((name) => name !== own)) {
       assert.ok(hidden.includes(`-${path.join(dataDir, 'clients', `${other}.token`)}`), `${file}: ${other}`);
     }

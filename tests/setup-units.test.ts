@@ -1,6 +1,7 @@
 // src/setup/units.ts: the unit templates of deploy/ rendered for the installing user, as user units (no User=, default
 // target) or as system units (User= the installing user). The templates are the real files of deploy/, so a template
-// edit the renderer does not know fails here. Only the lines of a unit that matter are read; comments are dropped.
+// edit the renderer does not know fails here. Only the lines of a unit that matter are read, like
+// tests/deploy-watcher-unit.test.ts; comments are dropped.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -56,8 +57,8 @@ for (const field of ['rootDir', 'privateDir', 'dataDir'] as const) {
   });
 }
 
-test('setup renders these four templates and not the bot unit or the plugin template', () => {
-  // Changed: the watcher's unit and timer are gone (owner, 2026-11-09).
+test('setup renders these five templates and not the bot unit or the plugin template', () => {
+  // Changed: the watcher's timer is gone (owner, 2026-11-09).
   // Bug: the bot unit (which conflicts with the core) is installed beside the core, or a template is forgotten.
   assert.deepEqual(
     [...UNIT_FILES].sort(),
@@ -66,6 +67,7 @@ test('setup renders these four templates and not the bot unit or the plugin temp
       'neptunia-agent-server.service',
       'neptunia-core.service',
       'neptunia-interface@.service',
+      'neptunia-watcher.service',
     ].sort()
   );
   for (const name of UNIT_FILES) assert.ok(fs.existsSync(path.join(DEPLOY, name)), name);
@@ -172,7 +174,8 @@ test('system units run as the installing user and group, and keep the template h
     const text = renderUnit(template(name), 'system', VARS);
     assert.deepEqual(valuesOf(text, 'User'), [VARS.user], name);
     assert.deepEqual(valuesOf(text, 'Group'), [VARS.group], name);
-    assert.ok(valuesOf(text, 'WantedBy').includes('multi-user.target'), name);
+    // The watcher service is a oneshot that its timer starts: the template has no [Install] section, and none is added.
+    if (name !== 'neptunia-watcher.service') assert.ok(valuesOf(text, 'WantedBy').includes('multi-user.target'), name);
   }
   const server = renderUnit(template('neptunia-agent-server.service'), 'system', VARS);
   assert.deepEqual(valuesOf(server, 'ProtectSystem'), ['strict']);
@@ -195,8 +198,7 @@ test("system agent units bind nothing of the installing user's home, and their P
 // the installing user's own tools and may write the backend's home, so the enable check and the watcher's run reach
 // the binary and its login.
 
-// Changed: the watcher runs inside the core's unit (owner, 2026-11-09), so the core stands for both.
-const CORE_AND_WATCHER = ['neptunia-core.service'];
+const CORE_AND_WATCHER = ['neptunia-core.service', 'neptunia-watcher.service'];
 
 /** The folders of the unit's `Environment=PATH=` line. */
 const pathDirsOf = (text: string): Array<string> =>

@@ -1,7 +1,7 @@
-// The watcher under `/doctor watcher` (src/watcher/doctor.ts): `run` claims one run and has the core start its worker in
-// the background, `stop` cancels it, `list` numbers every report from the oldest on and shows the newest first with its
+// The watcher under `/doctor watcher` (src/watcher/doctor.ts): `run` claims one run and starts the watcher's oneshot unit
+// with `systemctl start --no-block`, `stop` cancels it, `list` numbers every report from the oldest on and shows the newest first with its
 // dates and state, `read` and `<n>` open one report with its dates. The run store, the clock, the table of live processes
-// and the starter of the worker are fakes; no process is spawned and no agent is asked.
+// and the service manager are fakes; no process is spawned and no agent is asked.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -9,7 +9,7 @@ import path from 'node:path';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { claimRun, finishRun, readRun } from '../src/watcher/lifecycle.ts';
 import { runInspection } from '../src/watcher/inspection.ts';
-import { watcherList, watcherOpen, watcherRun, watcherStop, workerStarter } from '../src/watcher/doctor.ts';
+import { watcherList, watcherOpen, watcherRun, watcherStop, unitStarter } from '../src/watcher/doctor.ts';
 import { MINUTE, NOW, SELF, answerOf, inspectionDeps, inspectionRig, said } from './fixtures/watcher-inspection-rig.ts';
 import type { InspectionRig } from './fixtures/watcher-inspection-rig.ts';
 
@@ -33,11 +33,11 @@ async function reported(rig: InspectionRig, mark: string): Promise<string> {
 
 // ---- run -----------------------------------------------------------------------------------------------------------
 
-test('run claims one run, starts its worker once and answers its number and start time', () => {
+test('run claims one run, starts its worker once and answers its number and start time', async () => {
   // Bug: the answer comes only when the agent is done, or names no run the owner can open later.
   const rig = inspectionRig();
   const started: Array<string> = [];
-  const answer = watcherRun({ ...where(rig), start: (runId) => (started.push(runId), null) });
+  const answer = await watcherRun({ ...where(rig), start: (runId) => (started.push(runId), null) });
   assert.equal(answer.status, 'ok');
   assert.equal(started.length, 1);
   assert.match(answer.text, /\breport 1\b/);
@@ -47,13 +47,13 @@ test('run claims one run, starts its worker once and answers its number and star
   assert.equal(run?.owner, null);
 });
 
-test('run while a run is going answers that run and starts nothing', () => {
+test('run while a run is going answers that run and starts nothing', async () => {
   // Bug: a second run asked during the first starts a second worker and two agents spend the allowance.
   const rig = inspectionRig();
-  watcherRun({ ...where(rig), start: () => null });
+  await watcherRun({ ...where(rig), start: () => null });
   rig.clock.t += 5 * MINUTE;
   let starts = 0;
-  const again = watcherRun({ ...where(rig), start: () => ((starts += 1), null) });
+  const again = await watcherRun({ ...where(rig), start: () => ((starts += 1), null) });
   assert.equal(again.status, 'ok');
   assert.equal(starts, 0);
   assert.match(again.text, /\breport 1\b/);
@@ -61,67 +61,59 @@ test('run while a run is going answers that run and starts nothing', () => {
   assert.ok(again.text.includes('2026-11-04 06:00 UTC'), again.text);
 });
 
-test('a worker that cannot be started fails the run at once with the reason', () => {
+test('a worker that cannot be started fails the run at once with the reason', async () => {
   // Bug: the claim waits an hour for a worker that never comes, and every run asked meanwhile answers it.
   const rig = inspectionRig();
   let runId = '';
-  const answer = watcherRun({ ...where(rig), start: (id) => ((runId = id), 'ENOENT') });
+  const answer = await watcherRun({ ...where(rig), start: (id) => ((runId = id), 'ENOENT') });
   assert.equal(answer.status, 'failed');
   assert.ok(answer.text.includes('ENOENT'));
   const run = readRun(rig.store, runId);
   assert.equal(run?.state, 'failed');
   assert.equal(run?.code, 'start-failed');
-  assert.equal(watcherRun({ ...where(rig), start: () => null }).status, 'ok', 'the next run is not blocked');
+  assert.equal((await watcherRun({ ...where(rig), start: () => null })).status, 'ok', 'the next run is not blocked');
 });
 
-test('the starter runs the worker of this install detached, with the data folder and no gh login', () => {
-  // Bug: the worker dies with the terminal or the core's request, or a gh inside it finds the owner's login.
-  const calls: Array<{ command: string; args: ReadonlyArray<string>; options: Record<string, unknown> }> = [];
-  let unrefs = 0;
-  const start = workerStarter({
-    rootDir: '/install',
-    dataDir: '/data',
-    env: { PATH: '/usr/bin', GH_TOKEN: 'a-token' },
-    spawn: (command, args, options) => {
-      calls.push({ command, args, options });
-      return { unref: () => (unrefs += 1), on: () => undefined };
-    },
+for (const [scope, argv] of [
+  ['user', 'systemctl --user start --no-block neptunia-watcher.service'],
+  ['system', 'sudo systemctl start --no-block neptunia-watcher.service'],
+] as const) {
+  test(`the starter starts the watcher's unit without waiting for it, in the ${scope} scope`, async () => {
+    // Bug: a plain start on a oneshot blocks the terminal for the whole report, or the system scope skips sudo.
+    const calls: Array<string> = [];
+    const start = unitStarter({
+      env: { NEPTUNIA_UNIT_SCOPE: scope },
+      run: (command, args) => {
+        calls.push([command, ...args].join(' '));
+        return Promise.resolve({ code: 0, stdout: '', stderr: '' });
+      },
+    });
+    assert.equal(await start('run-1'), null);
+    assert.deepEqual(calls, [argv]);
   });
-  assert.equal(start('run-1'), null);
-  assert.equal(calls.length, 1);
-  const [call] = calls;
-  assert.deepEqual(call?.args, [path.join('/install', 'bin', 'neptunia.ts'), 'worker', 'watcher']);
-  const options = call?.options ?? {};
-  assert.equal(options.detached, true);
-  assert.equal(options.stdio, 'ignore');
-  // The fake records what the starter handed it; the env it builds is a record of strings.
-  const env = options.env as Record<string, string>;
-  assert.equal(env.NEPTUNIA_DATA_DIR, '/data');
-  assert.equal(env.GH_TOKEN, undefined);
-  assert.equal(env.GH_CONFIG_DIR, path.join('/data', 'agents', 'watcher', 'no-gh-login'));
-  assert.equal(unrefs, 1);
-});
+}
 
-test('a starter whose spawn throws answers the reason', () => {
-  // Bug: a missing node binary throws out of the core's command and the owner sees no answer at all.
-  const start = workerStarter({
-    rootDir: '/install',
-    dataDir: '/data',
-    env: {},
-    spawn: () => {
-      throw Object.assign(new Error('spawn node ENOENT'), { code: 'ENOENT' });
-    },
+test("a run whose unit the manager refuses fails at once with the manager's reason", async () => {
+  // Bug: the claim waits an hour for a unit that never started, and every run asked meanwhile answers it.
+  const rig = inspectionRig();
+  const start = unitStarter({
+    env: { NEPTUNIA_UNIT_SCOPE: 'user' },
+    run: () => Promise.resolve({ code: 5, stdout: '', stderr: 'Unit neptunia-watcher.service not found.' }),
   });
-  assert.equal(start('run-1'), 'ENOENT');
+  let runId = '';
+  const answer = await watcherRun({ ...where(rig), start: (id) => ((runId = id), start(id)) });
+  assert.equal(answer.status, 'failed');
+  assert.match(answer.text, /not found/);
+  assert.equal(readRun(rig.store, runId)?.code, 'start-failed');
 });
 
 // ---- stop ----------------------------------------------------------------------------------------------------------
 
-test('stop asks the running run to stop and names it', () => {
+test('stop asks the running run to stop and names it', async () => {
   // Bug: stop answers ok and the record never says stopping, so the worker runs to its end.
   const rig = inspectionRig();
   let runId = '';
-  watcherRun({ ...where(rig), start: (id) => ((runId = id), null) });
+  await watcherRun({ ...where(rig), start: (id) => ((runId = id), null) });
   const answer = watcherStop(where(rig));
   assert.equal(answer.status, 'ok');
   assert.match(answer.text, /\breport 1\b/);
@@ -146,7 +138,7 @@ test('list shows every run newest first, each with its number, start, finish and
   rig.clock.t += 3 * MINUTE;
   finishRun(rig.store, failed.runId, { state: 'failed', code: 'timeout' });
   rig.clock.t += MINUTE;
-  watcherRun({ ...where(rig), start: () => null });
+  await watcherRun({ ...where(rig), start: () => null });
   const lines = watcherList(where(rig)).text.split('\n');
   assert.equal(lines.length, 3, lines.join('\n'));
   assert.match(lines[0] ?? '', /^3\b.*running.*2026-11-04 07:04 UTC/);
@@ -245,11 +237,11 @@ test('the table takes the five forms of /doctor watcher and refuses a word that 
   assert.equal(parseCommandLine('/doctor watcher 0').ok, false);
 });
 
-test('run with no starter, as in a terminal with no core, is refused and claims nothing', async () => {
-  // Bug: the terminal claims a run no core will ever start, and every run asked for the next hour answers it.
+test('run with no starter is refused and claims nothing', async () => {
+  // Bug: a caller that cannot start the unit claims a run nothing will ever start, and every run asked for an hour answers it.
   const { watcherDoctor } = await import('../src/watcher/doctor.ts');
   const rig = inspectionRig();
-  const answer = watcherDoctor('doctor.watcher.run', {}, where(rig));
+  const answer = await watcherDoctor('doctor.watcher.run', {}, where(rig));
   assert.equal(answer.status, 'failed');
   assert.match(watcherList(where(rig)).text, /no watcher report/);
 });

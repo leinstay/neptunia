@@ -28,9 +28,6 @@ Environment=NEPTUNIA_DATA_DIR=/opt/neptunia/data
 # folder and the user's own tools go on the PATH.
 Environment=PATH=/home/neptunia/.local/bin:/opt/node/bin:/usr/local/bin:/usr/bin:/bin
 
-# The journal readers' group, so the watcher the core starts reads the other units' journal. A user unit cannot set
-# groups and does not carry this line.
-SupplementaryGroups=systemd-journal
 # The hardening: writes go to the data and the
 # private directory only, which holds the subharness backend's folder.
 NoNewPrivileges=true
