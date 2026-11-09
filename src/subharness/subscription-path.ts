@@ -1,10 +1,9 @@
-// The subscription route of her core and of the simulation: the API, or one run of `claude` or `codex` per turn
-// (src/subharness/subscription-client.ts). Each route is a record of config.json beside the memory writer's,
-// `models.harness.core` and `models.harness.simulation` (src/subharness/routing.ts), read again at every request, so a change from the chat acts on the
-// next turn. `model set core|simulation <model> --via <route> [--effort <level>]` writes the record after one reply on
-// that model and effort; `model set core <model>` clears the core's after the API model passed its check
-// (src/keys/commands.ts, `directPath`), and `model set simulation direct-api` clears the simulation's. opencode cannot carry a
-// route, because `opencode run` takes no system prompt of its own.
+// The subscription route of her core: the API, or one run of `claude` or `codex` per turn
+// (src/subharness/subscription-client.ts). The route is a record of config.json beside the memory writer's,
+// `models.harness.core` (src/subharness/routing.ts), read again at every request, so a change from the chat acts on the
+// next turn. `model set core <model> --via <route> [--effort <level>]` writes the record after one reply on that model
+// and effort; `model set core <model>` clears it after the API model passed its check (src/keys/commands.ts,
+// `directPath`). opencode cannot carry a route, because `opencode run` takes no system prompt of its own.
 
 import type { EffortLevel } from '../llm/roles.ts';
 import { readRouting, updateRouting } from './routing.ts';
@@ -15,7 +14,7 @@ import { routeName } from './route-names.ts';
 import { dropClaim } from './selection.ts';
 
 /** The routes a subscription can carry. */
-export const SUBSCRIPTION_ROLES = ['core', 'simulation'] as const;
+export const SUBSCRIPTION_ROLES = ['core'] as const;
 export type SubscriptionRole = (typeof SUBSCRIPTION_ROLES)[number];
 
 export type SubscriptionPath =
@@ -24,7 +23,6 @@ export type SubscriptionPath =
 /** What a route carries, in the owner's words, with its verbs. */
 const CARRIES: Readonly<Record<SubscriptionRole, { what: string; runs: string; is: string }>> = {
   core: { what: 'her turns', runs: 'run', is: 'are' },
-  simulation: { what: 'the simulation', runs: 'runs', is: 'is' },
 };
 
 const done = (message: string, changed = true): SubharnessResult => ({ ok: true, code: 'ok', changed, message });
@@ -35,22 +33,18 @@ export function subscriptionPath(privateDir: string, role: SubscriptionRole): Su
   return record === null ? { kind: 'api' } : { kind: 'subharness', ...record };
 }
 
-/** The backend `role` runs through (`core`, `memory`, `simulation`), null on the API or for another role: a role on a harness needs no key. */
+/** The backend `role` runs through (`core`, `memory`), null on the API or for another role: a role on a harness needs no key. */
 export function harnessBackend(privateDir: string, role: string): string | null {
   try {
     const path =
-      role === 'memory'
-        ? memoryPath(privateDir)
-        : role === 'core' || role === 'simulation'
-          ? subscriptionPath(privateDir, role)
-          : null;
+      role === 'memory' ? memoryPath(privateDir) : role === 'core' ? subscriptionPath(privateDir, role) : null;
     return path !== null && path.kind === 'subharness' ? path.backend : null;
   } catch {
     return null;
   }
 }
 
-/** `model set core|simulation <model> --via <route> [--effort <level>]`: the route, after one reply on it. */
+/** `model set core <model> --via <route> [--effort <level>]`: the route, after one reply on it. */
 export function setSubscriptionPath(
   deps: EnableDeps,
   role: SubscriptionRole,

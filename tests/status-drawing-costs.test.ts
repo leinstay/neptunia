@@ -19,8 +19,6 @@ const NOW = Date.parse('2026-10-18T12:00:00Z');
 
 const COSTS = {
   keyLead: 'main',
-  simKeyLead: 'sim',
-  simKeyNotSet: 'sim: not set',
   roleKeyLead: '{roles} key',
   roleSeparator: '+',
   keyLimitPlain: '{lead} {spent}/{limit}',
@@ -105,7 +103,8 @@ test("status: drawing's spend is a row of costs.base from the usage accumulator,
 test("status: keys.base leaves the agents' key out when the drawing role is on it, and never reads it", async () => {
   const { card, reads } = setup();
   const { result } = await withCapturedLogs(() => card('keys.base'));
-  assert.deepEqual(result, ['main 0.00/30.00', 'sim: not set']);
+  // Changed: the simulator key's line left the card with the simulation.
+  assert.deepEqual(result, ['main 0.00/30.00']);
   assert.deepEqual(reads, ['main'], 'the agents key (scout and drawing) is not read');
 });
 

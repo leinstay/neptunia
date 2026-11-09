@@ -52,10 +52,7 @@ export type OpsDeps = {
   skills?: SkillsAccess | null;
   /** The watcher's reports (src/watcher/read.ts) that `watcher.read` answers; null when the core has none. */
   watcher?: ReportReader | null;
-  /**
-   * The status card's two keys read at the moment of the card (src/keys/card-keys.ts); when given, it stands in for
-   * `simKey` and `managementKey`.
-   */
+  /** The status card's key read at the moment of the card (src/keys/card-keys.ts); when given, it stands in for `managementKey`. */
   cardKeys?: (() => CardKeys) | null;
   [subsystem: string]: Untyped;
 };
@@ -95,7 +92,6 @@ function buildEnv({
   recall = null,
   describer = null,
   usage = null,
-  simKey = null,
   managementKey = null,
   cardKeys = null,
   port = null,
@@ -293,10 +289,6 @@ function buildEnv({
     // The media describer (src/memory/describe.ts): `/nep task look`, its second look.
     describer,
     usage,
-    // The simulator key, read only by the status card's one GET of its limit; never logged.
-    get simKey(): string | null {
-      return cardKeys ? cardKeys().simKey : (simKey as string | null);
-    },
     // The management key, read only by the status card's activity GETs; never logged.
     get managementKey(): string | null {
       return cardKeys ? cardKeys().managementKey : (managementKey as string | null);

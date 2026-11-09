@@ -1640,10 +1640,10 @@ test('status: the owner card shows the limit of each key with its usage under it
 
   const fieldOf = async (name: string) =>
     (await admin.run('status.show', {}, { accountId: '42' })).fields.find((f: Field) => f.name === name).value;
+  // Changed: the simulator key's line left the card with the simulation.
   assert.deepEqual((await fieldOf('keys.base')).split('\n'), [
     'main 8.45/30.00 USD (resets daily at 2026-10-16 00:00 UTC; BYOK in)',
     'usage day 0.10 USD',
-    'sim: not set',
   ]);
   assert.deepEqual(
     (await fieldOf('costs.base')).split('\n'),

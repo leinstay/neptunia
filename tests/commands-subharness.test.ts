@@ -1,11 +1,11 @@
-// `/subharness` and `/simulation` (src/interface/commands/table.ts, src/interface/commands/subharness.ts): the rows of
+// `/subharness` and `/agent mode` (src/interface/commands/table.ts, src/interface/commands/subharness.ts): the rows of
 // the command table, the answers of the handlers over keys.json in a temp dir with a fake runner and fetch, the routing
 // of the console, and the rule that only the owner's chat changes a mode. The tests assert on the data they put in (a
 // key name, a mode, a file's content) and on statuses, not on the wording of an answer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
-import { simulationCommand, subharnessCommand } from '../src/interface/commands/subharness.ts';
+import { subharnessCommand } from '../src/interface/commands/subharness.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
 import { createCommandDesk } from '../src/interface/neptunia-cli.ts';
@@ -42,22 +42,9 @@ test('the table parses /agent mode with an agent, an optional mode, and refuses 
     assert.equal(parseCommandLine(line).ok, false, line);
 });
 
-test('the table parses /simulation: enable needs --key, disable and a bare line do not', () => {
-  // Bug: "simulation enable" with no key switches the simulation on with nothing to spend.
-  assert.deepEqual(parseCommandLine('/simulation'), { ok: true, name: 'simulation.status', args: {} });
-  assert.deepEqual(parseCommandLine('/simulation enable --key sim'), {
-    ok: true,
-    name: 'simulation.enable',
-    args: { key: 'sim' },
-  });
-  assert.deepEqual(parseCommandLine('/simulation disable'), { ok: true, name: 'simulation.disable', args: {} });
-  assert.equal(parseCommandLine('/simulation enable').ok, false);
-  assert.equal(parseCommandLine('/simulation enable sim').ok, false);
-});
-
-test('/help has a line for both commands, and every subcommand of both has a help line', () => {
+test('/help has a line for /subharness, and every subcommand of it has a help line', () => {
   // Bug: a command is added to the handlers and not to the table, so /help never lists it.
-  for (const name of ['subharness', 'simulation']) {
+  for (const name of ['subharness']) {
     const command = COMMANDS.find((one) => one.name === name);
     assert.ok(command, name);
     assert.notEqual(command.help.trim(), '');
@@ -70,7 +57,7 @@ test('/help has a line for both commands, and every subcommand of both has a hel
 
 function rig() {
   const dir = tempDir('nep-cmd-sub-');
-  writeKeysFile(dir, { extra: { opencode: SECRET, sim: 'sk-or-v1-sim' } });
+  writeKeysFile(dir, { extra: { opencode: SECRET } });
   const deps: EnableDeps = {
     privateDir: dir,
     runBackend: () => Promise.resolve({ ok: true, text: 'ok', exitCode: 0 }),
@@ -111,17 +98,6 @@ test('a mode line with no mode shows the current one and writes nothing', async 
   assert.deepEqual(readKeysFile(dir).subharness.modes, {});
 });
 
-test('simulation enable, status and disable go through the key store and answer ok', async () => {
-  // Bug: the simulation commands are parsed and never reach the store.
-  const { dir } = rig();
-  assert.equal((await simulationCommand(dir, 'simulation.enable', { key: 'sim' })).status, 'ok');
-  assert.equal(readKeysFile(dir).simulation.key, 'sim');
-  assert.ok((await simulationCommand(dir, 'simulation.status', {})).text.includes('sim'));
-  assert.equal((await simulationCommand(dir, 'simulation.enable', { key: 'nope' })).status, 'failed');
-  assert.equal((await simulationCommand(dir, 'simulation.disable', {})).status, 'ok');
-  assert.equal(readKeysFile(dir).simulation.key, null);
-});
-
 /** A console over fakes; `subharness` is the optional dep the commands need. */
 function consoleOver(dir: string, subharness: ConsoleDeps['subharness']) {
   const deps: ConsoleDeps = {
@@ -142,7 +118,7 @@ function consoleOver(dir: string, subharness: ConsoleDeps['subharness']) {
   return createConsole(deps);
 }
 
-test('the console runs the subharness and simulation commands over its private dir', async () => {
+test('the console runs the subharness commands over its private dir', async () => {
   // Bug: the console falls through to "no such command" for the new names, so the chat cannot change a mode.
   const { dir, deps } = rig();
   const desk = consoleOver(dir, {
@@ -151,7 +127,6 @@ test('the console runs the subharness and simulation commands over its private d
   });
   assert.equal((await desk.run('agent.mode', { agent: 'dev', mode: 'full' }, { id: 'owner' })).status, 'ok');
   assert.equal(readKeysFile(dir).subharness.modes.dev, 'full');
-  assert.equal((await desk.run('simulation.enable', { key: 'sim' }, { id: 'owner' })).status, 'ok');
 });
 
 test('without the runner and fetch the console refuses a model selection and runs no model', async () => {
@@ -223,12 +198,12 @@ test('the same command from the owner chat reaches the console', async () => {
   assert.deepEqual(consoleCalls, ['agent.mode']);
 });
 
-test('/help from the owner chat lists /subharness and /simulation', async () => {
+test('/help from the owner chat lists /subharness', async () => {
   // Bug: the commands exist in the table and the chat's help text does not show them.
   const { desk } = deskOver();
   const answer = await desk.run(eventOf('help', {}), { kind: 'cli', name: 'cli' });
   const lines = answer.text.split('\n');
-  for (const name of ['subharness', 'simulation'])
+  for (const name of ['subharness'])
     assert.ok(
       lines.some((line) => line.startsWith(`/${name} `)),
       name

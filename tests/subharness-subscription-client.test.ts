@@ -136,12 +136,10 @@ function fakeSpawn() {
 type Timer = { fn: () => void; ms: number; cleared: boolean };
 type RouteRecord = NonNullable<KeysFile['subharness']['core']>;
 
-/** The client over a temp private layer whose keys.json names `core` and `simulation` routes as given. */
+/** The client over a temp private layer whose config.json names the `core` route as given. */
 function rig(
   options: {
-    route?: 'core' | 'simulation';
     core?: RouteRecord | null;
-    simulation?: RouteRecord | null;
     installed?: Array<'codex' | 'claude'>;
     subscription?: { fallback?: boolean; thinking?: boolean };
     llm?: { maxRequestTokens?: number; maxRequestsPerDay?: number };
@@ -155,7 +153,6 @@ function rig(
       key: null,
       modes: {},
       core: options.core === undefined ? { backend: 'claude', model: 'claude-opus-4-6', effort: null } : options.core,
-      simulation: options.simulation ?? null,
     },
   });
   for (const backend of options.installed ?? (['claude', 'codex'] as const))
@@ -186,7 +183,6 @@ function rig(
   };
   const client = createSubscriptionClient({
     privateDir: dir,
-    route: options.route ?? 'core',
     direct,
     bridge,
     spawn,
@@ -683,30 +679,6 @@ test('a request of another role goes to the direct client', STEP_TIMEOUT, async 
 test('the core goes to the direct client while its route is the API', STEP_TIMEOUT, async () => {
   // Catches: an installed CLI used for her turns although the owner never chose the route.
   const { client, runs, directCalls } = rig({ core: null });
-  await client.complete(FIRST, REPLY);
-  assert.equal(directCalls.length, 1);
-  assert.equal(runs.length, 0);
-});
-
-test('a simulation client runs her core request on the simulation route', STEP_TIMEOUT, async () => {
-  // Catches: the simulation spending the API key although the owner put it on the subscription.
-  const { client, runs, directCalls } = rig({
-    route: 'simulation',
-    core: null,
-    simulation: { backend: 'claude', model: 'claude-sonnet-5-5', effort: null },
-  });
-  const asked = client.complete(FIRST, REPLY);
-  await until(() => runs.length === 1, 'the run started');
-  const [firstRun] = runs;
-  assert.equal(valueAfter(firstRun.child.args, '--model'), 'claude-sonnet-5-5');
-  finishClaude(runs[0]);
-  assert.equal((await asked).text, FINAL_TEXT);
-  assert.equal(directCalls.length, 0);
-});
-
-test('a simulation client ignores the core route', STEP_TIMEOUT, async () => {
-  // Catches: one record read for both, so a replay runs on her live route and draws from her window unasked.
-  const { client, runs, directCalls } = rig({ route: 'simulation', simulation: null });
   await client.complete(FIRST, REPLY);
   assert.equal(directCalls.length, 1);
   assert.equal(runs.length, 0);

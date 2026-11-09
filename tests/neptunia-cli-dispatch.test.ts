@@ -98,7 +98,6 @@ const BAD_SYNTAX: ReadonlyArray<{ argv: ReadonlyArray<string>; names: string }> 
   { argv: ['doctor', 'disks'], names: 'disks' },
   { argv: ['memory', 'no-such-sub'], names: 'no-such-sub' },
   { argv: ['model', 'set', 'no-such-role'], names: 'no-such-role' },
-  { argv: ['simulation', 'enable'], names: '--key' },
   { argv: ['config', 'set', 'only.path'], names: 'value' },
   { argv: ['model', 'set', 'memory', 'some-model', '--no-such-flag', 'x'], names: '--no-such-flag' },
 ];

@@ -5,7 +5,7 @@
 // and by the owner's blind scores, instead of by a few live turns.
 //
 //   cd /opt/neptunia/app && node scripts/search-compare.ts <queries.jsonl> --out <dir>
-//        [--engines brave,exa,openrouter] [--key <ENV_NAME>] [--repeat N] [--max-usd 2]
+//        [--engines brave,exa,openrouter] [--repeat N] [--max-usd 2]
 //        [--seed <text>] [--dry-run]
 //
 // The queries (scripts/lib/search-compare.ts#parseQueries): one JSON row per line, `{ id, query,
@@ -35,8 +35,7 @@
 // no calibration, the daily counters a throwaway copy; one search at a time; no row is started
 // once the summed cost has passed `--max-usd` (default 2). The keys: production's, as the core
 // routes them (scripts/lib/script-routes.ts); `--<role> <key>/<model>` replaces a role for this run, and the
-// start lines on stderr name each role's key. `--key` names a variable of the private .env whose key every role
-// spends instead. Nothing under data/ is read or written; `--out` may not point there.
+// start lines on stderr name each role's key. Nothing under data/ is read or written; `--out` may not point there.
 //
 // Output in `--out`: `results.jsonl` (per row, engine and run `{ id, engine, ok, reason,
 // ms_search, ms_summary, ms_total, results, cost, text, sources }`, plus `run` with `--repeat`
@@ -48,7 +47,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { serviceKeys, CliError, defaultDataDir, flagText, parseFlags, privateDirOf, runCli } from './lib/cli.ts';
+import { serviceKeys, CliError, defaultDataDir, parseFlags, privateDirOf, runCli } from './lib/cli.ts';
 import { routesText, scriptRouting, takeRoutes } from './lib/script-routes.ts';
 import type { Variant } from './lib/script-routes.ts';
 import { costOf } from './lib/recall-eval.ts';
@@ -60,10 +59,9 @@ import type { Hot } from '../src/hot.ts';
 type Rec = Record<string, Untyped>;
 
 const USAGE =
-  'usage: node scripts/search-compare.ts <queries.jsonl> --out <dir> [--engines brave,exa,openrouter] [--key <ENV_NAME>] [--repeat N] [--max-usd 2] [--seed <text>] [--dry-run]';
+  'usage: node scripts/search-compare.ts <queries.jsonl> --out <dir> [--engines brave,exa,openrouter] [--repeat N] [--max-usd 2] [--seed <text>] [--dry-run]';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'search-compare';
-const ENV_NAME_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 const DEFAULT_ENGINES = ['brave', 'exa', 'openrouter'];
 const DEFAULT_MAX_USD = 2;
 const MAX_REPEAT = 20;
@@ -81,18 +79,14 @@ function numberFlag(value: Untyped, fallback: Untyped, { min = 0, max = Infinity
 }
 
 /**
- * The live client of a run: every role on the key of the variable `named` names, or each role on production's routing
- * with the roles `routes` replaces (scripts/lib/script-routes.ts), said on stderr. The daily counters are a throwaway copy.
+ * The live client of a run: each role on production's routing with the roles `routes` replaces
+ * (scripts/lib/script-routes.ts), said on stderr. The daily counters are a throwaway copy.
  */
 async function liveClient({
-  named,
-  env,
   privateDir,
   routes,
   getConfig,
 }: {
-  named: string | undefined;
-  env: Record<string, string | undefined>;
   privateDir: string;
   routes: Variant;
   getConfig: () => Untyped;
@@ -101,7 +95,6 @@ async function liveClient({
   const { createCalibrator } = await import('../src/llm/tokens.ts');
   const state = { data: {}, markDirty() {} };
   const calibrator = createCalibrator();
-  if (named !== undefined) return createLlm({ apiKey: namedKey(named, env), getConfig, calibrator, state });
   const routing = await scriptRouting(ORIGIN, {
     privateDir,
     roles: ['search'],
@@ -118,14 +111,6 @@ async function liveClient({
 function inside(file: string, dir: string) {
   const rel = path.relative(dir, file);
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
-}
-
-/** The key the variable `name` of `env` holds, for `--key`. Never printed. */
-function namedKey(name: string, env: Record<string, string | undefined>): string {
-  if (!ENV_NAME_RE.test(name)) throw new CliError(`${ORIGIN}: --key takes the name of a variable, not a key\n${USAGE}`);
-  const value = env[name];
-  if (typeof value !== 'string' || !value.trim()) throw new CliError(`${ORIGIN}: ${name} is not set (.env)`);
-  return value.trim();
 }
 
 /** The `--engines` list: known engines, each once, in the given order. */
@@ -189,7 +174,7 @@ export async function main(
 ): Promise<string> {
   const taken = takeRoutes(ORIGIN, argv);
   const flags = parseFlags(taken.argv, {
-    values: ['--out', '--engines', '--key', '--repeat', '--max-usd', '--seed'],
+    values: ['--out', '--engines', '--repeat', '--max-usd', '--seed'],
     switches: ['--dry-run'],
     usage: USAGE,
   });
@@ -381,8 +366,6 @@ export async function main(
     const llm: Untyped =
       llmClient ??
       (await liveClient({
-        named: flagText(flags, '--key'),
-        env,
         privateDir: privateDirOf(rootDir, env),
         routes: taken.routes,
         getConfig: () => hot.config,

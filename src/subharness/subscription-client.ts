@@ -34,7 +34,7 @@ import { MCP_SERVER_NAME, MCP_TOOL_PREFIX } from './mcp-server.ts';
 import type { BridgeAnswer, BridgeCall } from './mcp-server.ts';
 import { isInstalled, subharnessPlace } from './place.ts';
 import { subscriptionPath } from './subscription-path.ts';
-import type { SubscriptionPath, SubscriptionRole } from './subscription-path.ts';
+import type { SubscriptionPath } from './subscription-path.ts';
 import { createToolBridge, routeTurnLink } from './tool-bridge.ts';
 import type { ToolBridge } from './tool-bridge.ts';
 
@@ -51,9 +51,8 @@ export type SubscriptionProcess = { lines: AsyncIterable<string>; exited: Promis
 
 export type SubscriptionClientDeps = {
   privateDir: string;
-  /** The record of config.json this client reads: the core's, or the simulation's. */
-  route: SubscriptionRole;
-  /** The route as a paid script read it once at its start; absent, the record is read again at every first step. */
+  /** The route in place of `models.harness.core`, for a paid script whose `--core` flag replaces it; absent, the record
+   * is read again at every first step. */
   fixedPath?: SubscriptionPath;
   direct: { complete(messages: unknown, options?: unknown): Promise<CompleteResult> };
   bridge: ToolBridge;
@@ -746,7 +745,7 @@ export function createSubscriptionClient(deps: SubscriptionClientDeps): {
     try {
       if (!keysFileExists(deps.privateDir)) return true;
       const store = createKeyStore({ privateDir: deps.privateDir });
-      return store.boundTo(deps.route) !== null || store.coreNames().length > 0;
+      return store.boundTo('core') !== null || store.coreNames().length > 0;
     } catch {
       return true;
     }
@@ -755,7 +754,7 @@ export function createSubscriptionClient(deps: SubscriptionClientDeps): {
   async function onRoute(messages: Array<Rec>, options: Rec): Promise<CompleteResult> {
     const results = laterStep(messages);
     const session = results === null ? null : sessionOf(results);
-    const route = session?.route ?? deps.fixedPath ?? subscriptionPath(deps.privateDir, deps.route);
+    const route = session?.route ?? deps.fixedPath ?? subscriptionPath(deps.privateDir, 'core');
     if (route.kind === 'api') return deps.direct.complete(messages, options);
     const estimated = rails(messages, options);
     try {
@@ -801,7 +800,6 @@ export function coreSubscription<TDirect extends SubscriptionClientDeps['direct'
   const { paths, hot, usage } = deps;
   const client = createSubscriptionClient({
     privateDir: paths.privateDir,
-    route: 'core',
     direct: deps.direct,
     bridge,
     spawn: spawnSubscriptionChild,

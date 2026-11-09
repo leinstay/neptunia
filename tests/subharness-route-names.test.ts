@@ -112,18 +112,19 @@ test('the route in words names the harness, and direct-api for the API', () => {
 // what the owner reads
 
 test('subharness status renders via claude-harness for a stored claude route and direct-api for none', async () => {
-  // Catches: the core row still saying `via claude`, or `api` where the simulation has no record.
+  // Catches: the core row still saying `via claude`, or `api` where the core has no record.
   const { deps } = rig({ core: { backend: 'claude', model: 'claude-opus-4-6', effort: null } });
   const status = await subharnessCommand(deps, 'subharness.status', {});
   const core = wordsOf(status.text, 'core');
   assert.deepEqual(core.slice(0, 4), ['core', 'via', 'claude-harness', 'claude-opus-4-6']);
-  const simulation = wordsOf(status.text, 'simulation');
-  assert.ok(simulation.includes('direct-api'), status.text);
-  assert.equal(simulation.includes('api'), false, status.text);
+  const none = await subharnessCommand(rig().deps, 'subharness.status', {});
+  const api = wordsOf(none.text, 'core');
+  assert.ok(api.includes('direct-api'), none.text);
+  assert.equal(api.includes('api'), false, none.text);
 });
 
 test('subharness status renders the memory writer on codex-harness', async () => {
-  // Catches: the memory row left on the stored word while the core and simulation rows moved.
+  // Catches: the memory row left on the stored word while the core row moved.
   const { deps } = rig({ memory: { backend: 'codex', model: 'gpt-6.1-sol', effort: null } });
   const status = await subharnessCommand(deps, 'subharness.status', {});
   const memory = wordsOf(status.text, 'memory');
@@ -152,16 +153,16 @@ test('the stored record keeps its backend word after the status renders the rout
 
 // what the owner types
 
-test('model set simulation --via claude-harness stores backend claude and answers in the new name', async () => {
+test('model set core --via claude-harness stores backend claude and answers in the new name', async () => {
   // Catches: the new name passed on to the backend lookup as is, which refuses it as unknown.
   const { dir, deps, ran } = rig();
   const answer = await consoleOver(dir, deps).run(
     'model.set',
-    { role: 'simulation', via: 'claude-harness', model: 'claude-opus-4-6' },
+    { role: 'core', via: 'claude-harness', model: 'claude-opus-4-6' },
     OWNER
   );
   assert.equal(answer.status, 'ok', answer.text);
-  assert.deepEqual(readKeysFile(dir).subharness.simulation, {
+  assert.deepEqual(readKeysFile(dir).subharness.core, {
     backend: 'claude',
     model: 'claude-opus-4-6',
     effort: null,
@@ -171,7 +172,7 @@ test('model set simulation --via claude-harness stores backend claude and answer
 });
 
 test('model set core --via codex-harness stores backend codex', async () => {
-  // Catches: only the simulation's route taking the new names, while the core's still wants the old word.
+  // Catches: only the claude route taking the new names, while codex still wants the old word.
   const { dir, deps } = rig();
   const answer = await consoleOver(dir, deps).run(
     'model.set',
@@ -213,7 +214,7 @@ test('model set scout --via opencode-harness stores uses opencode for the agent'
   assert.equal(readKeysFile(dir).subharness.uses?.scout, 'opencode');
 });
 
-for (const role of ['core', 'simulation', 'memory', 'scout']) {
+for (const role of ['core', 'memory', 'scout']) {
   for (const old of ['claude', 'codex', 'opencode']) {
     test(`model set ${role} --via ${old} is refused as an unknown backend that names the four names`, async () => {
       // Catches: the old word still accepted, or refused with a code the owner's tools do not know.
@@ -232,24 +233,6 @@ for (const role of ['core', 'simulation', 'memory', 'scout']) {
     });
   }
 }
-
-test('model set simulation direct-api returns the simulation to the API', async () => {
-  // Catches: only the old `api` word clearing the simulation record, while the name the status prints does nothing.
-  const { dir, deps, ran } = rig({ simulation: { backend: 'codex', model: 'gpt-6.1-sol', effort: null } });
-  const answer = await consoleOver(dir, deps).run('model.set', { role: 'simulation', model: 'direct-api' }, OWNER);
-  assert.equal(answer.status, 'ok', answer.text);
-  assert.deepEqual(subscriptionPath(dir, 'simulation'), { kind: 'api' });
-  assert.deepEqual(ran, []);
-});
-
-test('model set simulation with a model and no --via is refused with the new names', async () => {
-  // Catches: a refusal that tells the owner to type `--via claude` or `api`, words the command now refuses.
-  const { dir, deps } = rig();
-  const answer = await consoleOver(dir, deps).run('model.set', { role: 'simulation', model: 'invented-model' }, OWNER);
-  assert.equal(answer.status, 'invalid');
-  for (const name of ['claude-harness', 'codex-harness', 'direct-api'])
-    assert.ok(answer.text.includes(name), `${name} in "${answer.text}"`);
-});
 
 test('model set core --via direct-api clears the core record, as model set core does', async () => {
   // Catches: `direct-api` refused as an unknown backend, or accepted with no effect so her turns stay on the CLI.

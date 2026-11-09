@@ -2,7 +2,6 @@
 // check of runOp and the result shape.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -253,12 +252,10 @@ test('status.show answers the card as its fields, with no embed', async () => {
 });
 
 // PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
-test('createOpsEnv: the simulator key, the management key and the extra role keys reach the owner status card', async () => {
+test('createOpsEnv: the management key and the extra role keys reach the owner status card', async () => {
   const rootDir = tempDir('nep-ops-');
   const costs = {
     keyLead: 'main',
-    simKeyLead: 'sim',
-    simKeyNotSet: 'sim: not set',
     roleKeyLead: '{roles} key',
     keyLimitPlain: '{lead} {spent}/{limit}',
     keyNonePlain: '{lead} none',
@@ -293,10 +290,8 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
     client: {},
     isServedRoot: (id: unknown) => id === null,
     llm,
-    simKey: 'sim-test-key',
     managementKey: 'mgmt-test',
   });
-  assert.equal(env.simKey, 'sim-test-key');
   assert.equal(env.managementKey, 'mgmt-test');
   const result = await runOp(
     'status.show',
@@ -310,89 +305,17 @@ test('createOpsEnv: the simulator key, the management key and the extra role key
   const value = fieldsOf(result)[0].value;
   assert.deepEqual(
     value.split('\n'),
-    ['main 0.00/30.00', 'sim 0.00/5.00', 'core key 0.00/200.00'],
+    ['main 0.00/30.00', 'core key 0.00/200.00'],
     'a failed activity read: the lines as without it'
   );
-  assert.deepEqual(reads.sort(), ['core', 'main', 'sim-test-key']);
-  const simHash = crypto.createHash('sha256').update('sim-test-key').digest('hex');
+  assert.deepEqual(reads.sort(), ['core', 'main']);
   assert.deepEqual(
     activity.sort(),
     [
       ['mgmt-test', 'hash-main'],
       ['mgmt-test', 'hash-core'],
-      ['mgmt-test', simHash],
     ].sort(),
     'one activity read per key, by its hash, with the management key'
-  );
-});
-
-// PR 7b: status.show answers the card as its fields, with no embed; the names and values asserted are unchanged.
-test('status keys: a role on the simulator key (here the vision role) is shown on the simulator line, never on a line of its own', async () => {
-  const rootDir = tempDir('nep-ops-');
-  const costs = {
-    keyLead: 'main',
-    simKeyLead: 'sim',
-    simKeyNotSet: 'sim: not set',
-    roleKeyLead: '{roles} key',
-    keyLimitPlain: '{lead} {spent}/{limit}',
-    keyNonePlain: '{lead} none',
-    keyUnavailable: '{lead} unavailable',
-  };
-  const hot = {
-    config: { bot: { ownerPerson: OWNER_PERSON }, llm: { maxRequestsPerDay: 10, probeTimeoutMs: 50 } },
-    prompts: { labels: { status: { costs } } },
-    promptSources: {},
-    rootDir,
-  };
-  const store = { state: { data: {}, markDirty() {} }, flush() {} };
-  const simHash = crypto.createHash('sha256').update('sim-test-key').digest('hex');
-  const reads: Array<string> = [];
-  const llm = {
-    roleKeys: () => [{ roles: ['dev'] }, { roles: ['vision'] }],
-    async keyInfo(options: { apiKey?: string; role?: string }) {
-      reads.push(options.apiKey ?? options.role ?? 'main');
-      const limit = options.apiKey ? 5 : options.role ? 200 : 30;
-      return { ok: true, status: 200, json: { data: { limit, limit_remaining: limit } } };
-    },
-    keyHash: ({ role }: { role?: string } = {}) => (role === 'vision' ? simHash : role ? 'hash-dev' : 'hash-main'),
-  };
-  const env = createOpsEnv({
-    discord: DISCORD,
-    hot,
-    store,
-    client: {},
-    isServedRoot: (id: unknown) => id === null,
-    llm,
-    simKey: 'sim-test-key',
-  });
-  const result = await runOp(
-    'status.show',
-    { field: 'keys.base' },
-    { env, placeId: null, accountId: '42', roleIds: [] }
-  );
-  const value = fieldsOf(result)[0].value;
-  assert.deepEqual(
-    value.split('\n'),
-    ['main 0.00/30.00', 'sim 0.00/5.00', 'dev key 0.00/200.00'],
-    'no line for the vision role: the simulator line is its line'
-  );
-  assert.deepEqual(reads.sort(), ['dev', 'main', 'sim-test-key'], 'the simulator key is read once');
-  const noSim = createOpsEnv({
-    discord: DISCORD,
-    hot,
-    store,
-    client: {},
-    isServedRoot: (id: unknown) => id === null,
-    llm,
-  });
-  const without = await runOp(
-    'status.show',
-    { field: 'keys.base' },
-    { env: noSim, placeId: null, accountId: '42', roleIds: [] }
-  );
-  assert.ok(
-    fieldsOf(without)[0].value.split('\n').includes('vision key 0.00/200.00'),
-    'with no simulator key on the card, the role keeps a line of its own'
   );
 });
 
@@ -401,8 +324,6 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
   const rootDir = tempDir('nep-ops-');
   const costs = {
     keyLead: 'main',
-    simKeyLead: 'sim',
-    simKeyNotSet: 'sim: not set',
     roleKeyLead: '{roles} key',
     roleSeparator: '+',
     keyLimitPlain: '{lead} {spent}/{limit}',
@@ -474,7 +395,7 @@ test("status keys.base and costs.errands: the errand agents' key has no line and
   const [keys] = await card('keys.base');
   assert.deepEqual(
     keys.value.split('\n'),
-    ['main 0.00/30.00', 'sim: not set', 'dev+thinker key 0.00/200.00'],
+    ['main 0.00/30.00', 'dev+thinker key 0.00/200.00'],
     'the development key stays, the agents key is gone'
   );
   assert.deepEqual(reads.sort(), ['dev', 'main'], 'the agents key is not read');

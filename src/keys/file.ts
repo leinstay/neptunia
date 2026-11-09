@@ -1,4 +1,4 @@
-// The key store as the subharness, the simulation and `neptunia setup` see it: `<privateDir>/keys.json` (mode 600),
+// The key store as the subharness and `neptunia setup` see it: `<privateDir>/keys.json` (mode 600),
 // read and written whole and synchronously, so the paid scripts can read it from plain code. The file holds secrets
 // alone: the core keys, the extra keys, the service credentials and the `.env` variable each imported key came from.
 // Which part runs on which key or backend is routing, and lives in config.json (src/subharness/routing.ts); a write here

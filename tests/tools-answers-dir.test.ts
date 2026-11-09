@@ -5,13 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import '../src/tools/operations/index.ts';
 import { answerSkillScenario, liveView, personaGrantsConfig } from '../src/behavior/sandbox.ts';
-import {
-  requestJson,
-  createAnswersDir,
-  withAnswersDir,
-  renderRequest,
-  isAnthropicModel,
-} from '../scripts/lib/answers-dir.ts';
+import { requestJson, createAnswersDir, renderRequest } from '../scripts/lib/answers-dir.ts';
 import type { Untyped } from '../src/tools/types.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
@@ -85,23 +79,6 @@ test('a directory of an earlier run is refused', () => {
   assert.throws(() => createAnswersDir({ dir }), /earlier run/);
 });
 
-test('withAnswersDir sends only Anthropic models to the files', async () => {
-  const sent: Array<string> = [];
-  const createLlm = () => ({
-    complete: async (m: unknown, o: { model?: string }) => {
-      sent.push(o.model ?? 'default');
-      return { text: 'real' };
-    },
-  });
-  const answers = { answer: async () => ({ text: 'file' }) };
-  const llm = withAnswersDir(createLlm, answers, () => 'anthropic/claude-core')({ getConfig: () => ({}) });
-  assert.equal((await llm.complete([], { model: 'google/gemini-x' })).text, 'real');
-  assert.equal((await llm.complete([], {})).text, 'file');
-  assert.equal((await llm.complete([], { model: 'anthropic/claude-y' })).text, 'file');
-  assert.deepEqual(sent, ['google/gemini-x']);
-  assert.equal(isAnthropicModel('openai/gpt'), false);
-});
-
 test('req-NNN.json carries the exact strings, system apart, roles kept', async () => {
   const dir = tmp();
   const answers = createAnswersDir({
@@ -136,37 +113,6 @@ test('req-NNN.json carries the exact strings, system apart, roles kept', async (
     ],
   });
   assert.equal(JSON.parse(requestJson({ model: 'm', messages: [{ role: 'user', content: 'q' }] })).system, null);
-});
-
-test('withAnswersDir firstOnly: a tool-loop step of the turn goes to the real model', async () => {
-  const createLlm = () => ({ complete: async () => ({ text: 'real' }) });
-  const answers = { answer: async () => ({ text: 'file' }) };
-  const llm = withAnswersDir(createLlm, answers, () => 'anthropic/claude-core', { firstOnly: true })({
-    getConfig: () => ({}),
-  });
-  assert.equal((await llm.complete([{ role: 'user', content: 'wake' }], {})).text, 'file');
-  assert.equal(
-    (
-      await llm.complete(
-        [{ role: 'user', content: '<task>\nThis is the same inner turn, continued after your x call.' }],
-        {}
-      )
-    ).text,
-    'real'
-  );
-  assert.equal(
-    (
-      await llm.complete(
-        [
-          { role: 'user', content: 'a' },
-          { role: 'assistant', content: 'b' },
-          { role: 'user', content: 'c' },
-        ],
-        {}
-      )
-    ).text,
-    'real'
-  );
 });
 
 test('a request with tools lists them in req-<n>.json and .md; the answer may carry tool calls from ans-<n>.tool-calls.json', async () => {

@@ -98,7 +98,7 @@ const KEY_DAILY = {
   usage_weekly: 3.41,
   usage_monthly: 12,
 };
-/** The main key's lines (no simulator label in the fixture: no simulator line). */
+/** The main key's lines. */
 function keyLines(key: Parameters<typeof keyCostsLines>[0]['key']) {
   return keyCostsLines({ key, labels: LABELS });
 }
@@ -511,56 +511,6 @@ test('usage: a save within a minute of the last waits unless forced', async () =
   assert.equal(await usage.save({ force: true }), true);
 });
 
-test('keyCostsLines: the simulator key follows the main key and its usage, through the same renderer, its usage all from its own report; not set is one line', () => {
-  const labels = {
-    status: {
-      costs: {
-        ...LABELS.status.costs,
-        keyLead: 'key',
-        simKeyLead: 'sim',
-        simKeyNotSet: 'sim: not set',
-        keyLimit: '{lead} limit {spent}/{limit} ({notes})',
-        keyUnavailable: '{lead} limit unavailable: {reason}',
-        usageWeekCal: 'W {usd}',
-        usageMonthCal: 'M {usd}',
-      },
-    },
-  };
-  const main = ok({ limit: 30, limit_remaining: 21, limit_reset: null, usage_daily: 0.5 });
-  const windows = { last7: window(3), last30: window(4) };
-  const simKey = ok({
-    limit: 5,
-    limit_remaining: 4,
-    limit_reset: null,
-    usage_daily: 0.25,
-    usage_weekly: 1,
-    usage_monthly: 2,
-  });
-  assert.deepEqual(
-    keyCostsLines({ key: main, sim: simKey, labels, windows }),
-    [
-      'key limit 9.00/30.00 (never resets)',
-      'usage D 0.50 | L7 3.00 | L30 4.00',
-      'sim limit 1.00/5.00 (never resets)',
-      'usage D 0.25 | W 1.00 | M 2.00',
-    ],
-    'the main key with its rolling sums, then the simulator key with its calendar periods'
-  );
-  const partial = ok({ limit: 5, limit_remaining: 4, limit_reset: null, usage_daily: 0 });
-  assert.equal(
-    keyCostsLines({ key: main, sim: partial, labels }).at(-1),
-    'usage D 0.00',
-    'only the periods the key reports'
-  );
-  assert.deepEqual(
-    keyCostsLines({ key: main, sim: null, labels, windows }).slice(2),
-    ['sim: not set'],
-    'no usage line under an unset key'
-  );
-  const failed = keyCostsLines({ key: ok({}), sim: { ok: false, reason: 'http', status: 401 }, labels });
-  assert.equal(failed.at(-1), 'sim limit unavailable: http 401', 'a failed read: no usage line under it');
-});
-
 // ---- rolling windows, extra role keys, the average ------------------------------------
 
 const window = (cost: number, since = '2026-09-16', partial = false) => ({
@@ -585,7 +535,7 @@ test('keyCostsLines: the usage line is today from the key, then the rolling 7 an
   assert.equal(failed[1], 'usage L7 1.00 | L30 2.00', 'the rolling sums stay when the key read fails');
 });
 
-test('keyCostsLines: each extra role key gets its key line led by its roles and its own usage line under it, after the main and the simulator key', () => {
+test('keyCostsLines: each extra role key gets its key line led by its roles and its own usage line under it, after the main key', () => {
   const labels = {
     status: {
       costs: {
@@ -595,7 +545,6 @@ test('keyCostsLines: each extra role key gets its key line led by its roles and 
         roleSeparator: '+',
         keyLimitPlain: '{lead} {spent}/{limit}',
         keyUnavailable: '{lead} unavailable: {reason}',
-        simKeyNotSet: 'sim: not set',
       },
     },
   };
@@ -616,10 +565,10 @@ test('keyCostsLines: each extra role key gets its key line led by its roles and 
       },
     ],
   });
+  // Changed: the simulator key's line left the card with the simulation.
   assert.deepEqual(lines, [
     'main 10.00/30.00',
     'usage D 1.00 | L7 5.00 | L30 6.00',
-    'sim: not set',
     'video+core key 190.00/200.00',
     'usage D 2.00 | L7 7.00 | L30 8.00',
     'vision key unavailable: http 401',
@@ -643,7 +592,6 @@ test('keyCostsLines: roleNames names the roles of an extra key, each name once, 
         roleKeyLead: '{roles} key',
         roleSeparator: '+',
         keyLimitPlain: '{lead} {spent}/{limit}',
-        simKeyNotSet: 'sim: not set',
         roleNames: { scout: 'agents', server: 'agents', dev: 'agents' },
       },
     },
@@ -660,7 +608,8 @@ test('keyCostsLines: roleNames names the roles of an extra key, each name once, 
       { roles: ['scout', 'core'], key: ok({ limit: 5, limit_remaining: 5 }) },
     ],
   });
-  assert.deepEqual(lines.slice(3), [
+  // Changed: the simulator key's line left the card with the simulation.
+  assert.deepEqual(lines.slice(2), [
     'agents key 1.00/10.00',
     'usage D 0.50 | L7 0.00 | L30 0.00',
     'agents+core key 0.00/5.00',
@@ -724,17 +673,14 @@ test('readActivity: the rows of a 2xx answer, or why not', async () => {
   assert.deepEqual(await readActivity(null), { ok: false, reason: 'no-client' });
 });
 
-test('keyCostsLines: with the activity of a key its usage line is today, then today plus the completed days of the last 7 and 30, for the simulator key too', () => {
+test('keyCostsLines: with the activity of a key its usage line is today, then today plus the completed days of the last 7 and 30', () => {
   const labels = {
     status: {
       costs: {
         ...LABELS.status.costs,
         keyLead: 'main',
-        simKeyLead: 'sim',
         roleKeyLead: '{roles} key',
         keyLimitPlain: '{lead} {spent}/{limit}',
-        usageWeekCal: 'W {usd}',
-        usageMonthCal: 'M {usd}',
       },
     },
   };
@@ -742,8 +688,6 @@ test('keyCostsLines: with the activity of a key its usage line is today, then to
     key: ok({ limit: 30, limit_remaining: 20, usage_daily: 1 }),
     activity: { last7: 2, last30: 5 },
     windows: { last7: window(99), last30: window(99) },
-    sim: ok({ limit: 5, limit_remaining: 5, usage_daily: 0.5, usage_weekly: 9, usage_monthly: 9 }),
-    simActivity: { last7: 0.25, last30: 0.75 },
     labels,
     roleKeys: [
       {
@@ -765,14 +709,12 @@ test('keyCostsLines: with the activity of a key its usage line is today, then to
     [
       'main 10.00/30.00',
       'usage D 1.00 | L7 3.00 | L30 6.00',
-      'sim 0.00/5.00',
-      'usage D 0.50 | L7 0.75 | L30 1.25',
       'core key 100.00/200.00',
       'usage D 3.00 | L7 4.00 | L30 5.00',
       'vision key 0.00/10.00',
       'usage D 0.00 | L7 4.00 | L30 6.00',
     ],
-    'no activity for a key: the accumulator sums (the simulator key: its calendar periods)'
+    'no activity for a key: the accumulator sums'
   );
   const failedKey = keyCostsLines({
     key: { ok: false, reason: 'timeout' },

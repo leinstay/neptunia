@@ -1329,8 +1329,8 @@ async function buildCore(
     describer,
     // /nep status: the costs field's per-role lines.
     usage,
-    // /nep status: the simulator key's limit line (one GET) and each key's activity for its last 7 and 30 days (GETs
-    // only), with the two keys read from keys.json, else .env, at the moment of the card. Never logged.
+    // /nep status: each key's activity for its last 7 and 30 days (GETs only), with the management key read from
+    // keys.json, else .env, at the moment of the card. Never logged.
     cardKeys: () => statusCardKeys(paths.privateDir, {}),
     // /nep memory snapshot: the data directory it copies.
     dataDir,

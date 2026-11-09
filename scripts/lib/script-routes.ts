@@ -389,7 +389,6 @@ export async function scriptRouting<C>(tool: string, deps: ScriptRoutingDeps<C>)
   const socket = bridgeSocket(bridge);
   const subscription = createSubscriptionClient({
     privateDir,
-    route: 'core',
     ...(core === undefined ? {} : { fixedPath: corePath() }),
     direct,
     bridge,

@@ -28,7 +28,7 @@
 // the data `/nep task inner status` reads): its mode and switch, the day's turns, chains, dollars, public
 // posts, the next wake, the last turn and the open intentions; its words are `labels.status.inner`.
 
-import { keyHashOf, llmCountToday, resolveProvider } from '../../llm/openrouter.ts';
+import { llmCountToday, resolveProvider } from '../../llm/openrouter.ts';
 import { familyOf as imageFamilyOf, IMAGE_ROLE } from '../../llm/images.ts';
 import { SPEECH_ROLE } from '../../speech/synth.ts';
 import { DAY_MS, HOUR_MS, MINUTE_MS, utcDay, utcMinute } from '../../time.ts';
@@ -613,38 +613,26 @@ const handlers = perEnv((env) => {
 
   /**
    * The owner's `keys.base` field (src/tools/operations/usage.ts#keyCostsLines, every word from
-   * `labels.status.costs`): the main API key's limit and spend, the simulator key's and those of
+   * `labels.status.costs`): the main API key's limit and spend and those of
    * each extra key `llm.boundKeys` puts in use (`llm.roleKeys`, read by role, never holding a key
    * here) but the errand agents' (a key whose roles are all ERRAND_KEY_ROLES: no line, no read), free GETs in parallel (`llm.keyInfo`; `llm.probeTimeoutMs`, never counted against
    * `llm.maxRequestsPerDay`), with the rolling 7- and 30-day sums of each key's roles from the
    * usage accumulator. With the management key (OPENROUTER_MANAGEMENT_KEY, `env.managementKey`,
    * used for these GETs only) each key's activity is read alongside (`llm.activity` by its hash,
    * one GET per key) and its last 7 and 30 days come from there instead; a failed activity read
-   * falls back. An extra key that is the simulator key itself (a role `llm.boundKeys` puts on
-   * OPENROUTER_SIM_KEY, compared by hash) gets no line of its own: the simulator line is its line.
+   * falls back.
    * Logs `status: account read` with the outcomes' codes. `-` when the labels give no line.
    */
   async function keyCostsValue(cfg: Untyped): Promise<string> {
     const timeoutMs = cfg?.llm?.probeTimeoutMs ?? PROBE_TIMEOUT_MS;
     const readKey = readAccount(typeof llm?.keyInfo === 'function' ? () => llm.keyInfo({ timeoutMs }) : null);
-    const simKey = typeof env.simKey === 'string' && env.simKey ? env.simKey : null;
-    // The simulator key is used for this one read only, never for a model request.
-    const readSim =
-      simKey && typeof llm?.keyInfo === 'function'
-        ? readAccount(() => llm.keyInfo({ timeoutMs, apiKey: simKey }))
-        : null;
     const allGroups: Array<Untyped> =
       typeof llm?.roleKeys === 'function' && typeof llm?.keyInfo === 'function' ? llm.roleKeys() : [];
     // The errand agents' key is not the core's: their spend is the costs.errands field.
     const agentsOnly = (group: Untyped): boolean =>
       group.roles.length > 0 && group.roles.every((role: string) => ERRAND_KEY_ROLES.has(role));
     const agentRoles = allGroups.filter(agentsOnly).flatMap((group) => group.roles);
-    const keyGroups = allGroups.filter((group) => !agentsOnly(group));
-    // A role on the simulator key is shown on the simulator line, never on a line of its own.
-    const simHash = simKey && typeof llm?.keyHash === 'function' ? keyHashOf(simKey) : null;
-    const onSim = (group: Untyped): boolean => simHash !== null && llm.keyHash({ role: group.roles[0] }) === simHash;
-    const groups = keyGroups.filter((group) => !onSim(group));
-    const simRoles = keyGroups.filter(onSim).flatMap((group) => group.roles);
+    const groups = allGroups.filter((group) => !agentsOnly(group));
     const readRoleKeys = Promise.all(
       groups.map((group) => readAccount(() => llm.keyInfo({ timeoutMs, role: group.roles[0] })))
     );
@@ -655,21 +643,12 @@ const handlers = perEnv((env) => {
       canActivity ? readActivity(() => llm.activity({ apiKey: managementKey, keyHash: hashOf(), timeoutMs })) : null;
     const activityReads = Promise.all([
       readActivityOf(() => llm.keyHash()),
-      simKey ? readActivityOf(() => keyHashOf(simKey)) : null,
       ...groups.map((group) => readActivityOf(() => llm.keyHash({ role: group.roles[0] }))),
     ]);
-    const [key, sim, roleReads, [mainActivity, simActivity, ...roleActivity]] = await Promise.all([
-      readKey,
-      readSim,
-      readRoleKeys,
-      activityReads,
-    ]);
-    const activityRead = [mainActivity, simActivity, ...roleActivity].filter(
-      (outcome): outcome is AccountRead => outcome !== null
-    );
+    const [key, roleReads, [mainActivity, ...roleActivity]] = await Promise.all([readKey, readRoleKeys, activityReads]);
+    const activityRead = [mainActivity, ...roleActivity].filter((outcome): outcome is AccountRead => outcome !== null);
     log.info('status: account read', {
       key: key.ok ? 'ok' : key.reason,
-      simKey: sim ? (sim.ok ? 'ok' : sim.reason) : 'not-set',
       roleKeys: roleReads.length,
       roleKeysOk: roleReads.filter((outcome) => outcome.ok).length,
       activity: canActivity ? activityRead.length : 'not-set',
@@ -683,7 +662,7 @@ const handlers = perEnv((env) => {
     const sums = typeof usage?.sumDays === 'function';
     const windowsOf = (filter: { only?: ReadonlyArray<string>; except?: ReadonlyArray<string> }) =>
       sums ? { last7: usage.sumDays(7, filter), last30: usage.sumDays(30, filter) } : null;
-    const taken = [...groups.flatMap((group) => group.roles), ...simRoles, ...agentRoles];
+    const taken = [...groups.flatMap((group) => group.roles), ...agentRoles];
     const roleKeys = groups.map((group, i) => ({
       roles: group.roles,
       key: roleReads[i],
@@ -693,8 +672,6 @@ const handlers = perEnv((env) => {
     const lines = keyCostsLines({
       key,
       activity: sumsOf(mainActivity),
-      sim,
-      simActivity: sumsOf(simActivity),
       labels: hot.prompts?.labels,
       windows: windowsOf({ except: taken }),
       roleKeys,

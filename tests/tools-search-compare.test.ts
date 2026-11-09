@@ -384,18 +384,6 @@ test('search-compare: --max-usd stops starting rows; --repeat records each run; 
     run([file, '--out', 'x', '--engines', 'brave,bing'], { dir }).promise,
     (err) => err instanceof CliError && /--engines/.test(err.message)
   );
-  await assert.rejects(
-    quietly(() =>
-      main([file, '--out', 'x', '--key', 'sk-or-abc'], {
-        cwd: dir,
-        rootDir: dir,
-        hot: wrongly<Hot>(hotFixture()),
-        searches: fakes({ clock: { t: 0 } }).searches,
-        env: {},
-      })
-    ),
-    (err) => err instanceof CliError && /name of a variable/.test(err.message) && !err.message.includes('sk-or-abc')
-  );
 });
 
 test('replay-score --search: tallies a filled blind sheet against Brave', async () => {

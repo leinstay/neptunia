@@ -78,13 +78,12 @@ Which backend, model, effort, provider and mode each agent runs on, and the extr
 
 ## models.harness
 
-The paths of her core, her memory writer and the simulation through a subharness. `src/subharness/routing.ts` reads them at each request, and `/model set <role> <model> --via <route>` writes them after one reply. See [Keys and models](keys.md#her-core-on-a-subscription).
+The paths of her core and her memory writer through a subharness. `src/subharness/routing.ts` reads them at each request, and `/model set <role> <model> --via <route>` writes them after one reply. See [Keys and models](keys.md#her-core-on-a-subscription).
 
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `models.harness.core` | map, null | `null` | Her core's subscription route, `{ "backend": "claude" or "codex", "model": id, "effort": level or null }`. Null is the OpenRouter API. `/model set core <model> --via <route>` writes it after one reply, and `/model set core <model>` clears it | `src/subharness/routing.ts` |
 | `models.harness.memory` | map, null | `null` | The memory writer's path through a subharness, in the shape of `models.harness.core`. Null is the direct path on the memory role's key. `/model set memory <model> --via <route>` writes it after one reply | `src/subharness/routing.ts` |
-| `models.harness.simulation` | map, null | `null` | A subscription route in the shape of `models.harness.core` that `/model set simulation <model> --via <route>` writes. No paid script reads it | `src/subharness/routing.ts` |
 
 ## llm
 
@@ -102,7 +101,6 @@ The paths of her core, her memory writer and the simulation through a subharness
 | `llm.providerByModel` | map | `{}` | Per-model provider routing. See the resolution order below | `src/llm/embed.ts` |
 | `llm.reasoningByRole` | map | `{}` | The reasoning effort of a role by role name, `{ "effort": "low" }`, `medium` or `high`, sent as `reasoning` on each request of the role that has no reasoning of its own. Read for `memory`, `analyzer`, `vision` and `video`, never for the core. `/model set <role> <model> --effort <level>` writes it | `src/llm/roles.ts` |
 | `llm.boundKeys` | map | `{}` | The extra key of `keys.json` each role goes out on, by role: a base model role or `search`. A role with no entry goes out on the core keys. `/keys bind <role> <name>` writes an entry and `/keys unbind <role>` removes it | `src/subharness/routing.ts` |
-| `llm.simulationKey` | string, null | `null` | An extra key of `keys.json` that `simulation enable --key <name>` names and `simulation disable` clears. No paid script spends it | `src/subharness/routing.ts` |
 | `llm.cache.ttl` | string | `"1h"` | Cache TTL for the markers on the system message and the stable user prefix: `"1h"` or `"5m"` | `src/llm/openrouter.ts` |
 | `llm.cache.roles` | array | `["core"]` | Model roles whose requests get the cache marker. Add `analyzer` to cache its requests too | `src/llm/openrouter.ts` |
 | `llm.cache.models` | array | `["anthropic/"]` | Model id prefixes whose provider accepts the `cache_control` marker | `src/llm/openrouter.ts` |

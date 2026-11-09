@@ -13,8 +13,6 @@ import { labels } from './fixtures/labels.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { asRecord } from './fixtures/records.ts';
 import type { Untyped } from '../src/tools/types.ts';
-import type { Hot } from '../src/hot.ts';
-import { wrongly } from './fixtures/loose-types.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -257,7 +255,7 @@ test('search-policy-eval: a failed call is decided failed; the cost stop leaves 
   assert.match(stopped, /rows: 1, 2 not asked \(max-usd\)/);
 });
 
-test('search-policy-eval: refuses a bad sheet, a missing --out, an --out under data/ and a key value for --key', async () => {
+test('search-policy-eval: refuses a bad sheet, a missing --out and an --out under data/', async () => {
   const { dir, sheet } = tempSheet();
   const llm = fakeLlm();
   await assert.rejects(
@@ -273,30 +271,6 @@ test('search-policy-eval: refuses a bad sheet, a missing --out, an --out under d
   await assert.rejects(
     run([bad, '--out', 'x'], { dir, llmClient: llm }),
     (err) => err instanceof CliError && /tier must be one of/.test(err.message)
-  );
-  await assert.rejects(
-    quietly(() =>
-      main([sheet, '--out', 'x', '--key', 'sk-or-abc'], {
-        cwd: dir,
-        rootDir: dir,
-        now: () => NOW,
-        hot: wrongly<Hot>(hotFixture()),
-        env: {},
-      })
-    ),
-    (err) => err instanceof CliError && /name of a variable/.test(err.message) && !err.message.includes('sk-or-abc')
-  );
-  await assert.rejects(
-    quietly(() =>
-      main([sheet, '--out', 'x', '--key', 'SOME_KEY'], {
-        cwd: dir,
-        rootDir: dir,
-        now: () => NOW,
-        hot: wrongly<Hot>(hotFixture()),
-        env: {},
-      })
-    ),
-    (err) => err instanceof CliError && /SOME_KEY is not set/.test(err.message)
   );
   assert.equal(llm.calls.length, 0);
 });

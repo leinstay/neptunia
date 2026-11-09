@@ -286,7 +286,7 @@ export async function moneyFacts(input: {
 
 /**
  * The keys of keys.json as named slots: the core pool (`core`, or `core:<name>` for each key of a pool of several), every
- * extra key by its name (the simulation's among them) and the paid services (`services.<name>`). Each OpenRouter key is read for its
+ * extra key by its name and the paid services (`services.<name>`). Each OpenRouter key is read for its
  * balance, and a service with no balance read is named as unavailable.
  */
 export function moneyKeysOf(store: KeyStore): Array<MoneyKey> {

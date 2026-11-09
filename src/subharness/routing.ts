@@ -1,13 +1,12 @@
 // Which part of Neptunia runs on what: the extra key a role is bound to, the source, model, effort, mode and provider of
-// each agent, the extra key opencode runs on, the paths of her core, her memory writer and the simulation through a
-// subharness, and the key the simulation spends. All of it lives in the private settings file `config/config.json`
+// each agent, the extra key opencode runs on, and the paths of her core and her memory writer through a subharness.
+// All of it lives in the private settings file `config/config.json`
 // (src/config/files.ts), never in keys.json, which holds the secrets alone (src/keys/file.ts). Each read
 // goes to the file at the moment of use, so a choice from the chat acts on the next request; each write goes through the
 // locked writer of src/service/local-settings.ts and leaves every other setting as it was.
 //
 // The settings and the record each maps to:
 //   llm.boundKeys            roles                  the extra key each base role and `search` goes out on
-//   llm.simulationKey        simulation.key         the extra key the paid scripts spend
 //   models.agents.via        subharness.uses        the backend each agent runs through
 //   models.agents.model      subharness.models      the model each agent runs on
 //   models.agents.effort     subharness.efforts     the reasoning effort each agent runs at
@@ -16,7 +15,6 @@
 //   models.agents.opencodeKey subharness.key        the extra key opencode runs on
 //   models.harness.core      subharness.core        her core's subscription route; null is the API
 //   models.harness.memory    subharness.memory      the memory writer's path; null is the direct path
-//   models.harness.simulation subharness.simulation the simulation's subscription route; null is the API
 // An empty map or a null record leaves the file, so a deployment that chose nothing keeps a file with no routing in it.
 
 import path from 'node:path';
@@ -37,10 +35,10 @@ export type SubharnessAgent = (typeof SUBHARNESS_AGENTS)[number];
 export const MEMORY_BACKENDS = ['codex', 'claude'] as const;
 export type MemoryBackend = (typeof MEMORY_BACKENDS)[number];
 
-/** `models.harness.memory`, `.core` and `.simulation`: the backend, model and effort a path runs on. */
+/** `models.harness.memory` and `.core`: the backend, model and effort a path runs on. */
 export type MemoryPathRecord = { backend: MemoryBackend; model: string; effort: EffortLevel | null };
 
-/** The agents' routes and the three paths through a subharness. */
+/** The agents' routes and the two paths through a subharness. */
 export type SubharnessRouting = {
   /** the extra key opencode runs on; null while opencode has no login */
   key: string | null;
@@ -57,8 +55,6 @@ export type SubharnessRouting = {
   memory: MemoryPathRecord | null;
   /** her core's subscription route (src/subharness/subscription-path.ts); null is the API */
   core: MemoryPathRecord | null;
-  /** the simulation's subscription route; null is the API */
-  simulation: MemoryPathRecord | null;
 };
 
 /** Which part runs on what, as the private settings file holds it. */
@@ -66,7 +62,6 @@ export type Routing = {
   /** the extra key each role is bound to, by role */
   roles: Record<string, string>;
   subharness: SubharnessRouting;
-  simulation: { key: string | null };
 };
 
 type Tree = Record<string, unknown>;
@@ -131,9 +126,7 @@ function routingOf(config: Tree): Routing {
       providers: textMap(agents.provider),
       memory: recordOf(harness.memory),
       core: recordOf(harness.core),
-      simulation: recordOf(harness.simulation),
     },
-    simulation: { key: textOrNull(llm.simulationKey) },
   };
 }
 
@@ -157,11 +150,9 @@ function withRouting(config: Tree, routing: Routing): Tree {
   let harness = treeOf(treeOf(config.models).harness);
   harness = placed(harness, 'core', sub.core);
   harness = placed(harness, 'memory', sub.memory);
-  harness = placed(harness, 'simulation', sub.simulation);
   const models = placed(placed(treeOf(config.models), 'agents', agents), 'harness', harness);
   let llm = treeOf(config.llm);
   llm = placed(llm, 'boundKeys', routing.roles);
-  llm = placed(llm, 'simulationKey', routing.simulation.key);
   return placed(placed(config, 'models', models), 'llm', llm);
 }
 
