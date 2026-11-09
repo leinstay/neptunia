@@ -24,7 +24,7 @@
 //
 // Columns that keep an old id on purpose: the old `people` row's own id, the history of `account_person_links` and
 // `people_merges`, the legacy alias key in `external_keys`, the storage catalog (its ids hash its keys), the session
-// cursors (`meta.key`, `session_runs.scope_key` and `batch_key`, spelled from the place by session-scopes.ts#dmScopeKey),
+// cursors (`meta.key`, `session_runs.scope_key` and `batch_key`, the place key of session-scopes.ts#dmScopeKey),
 // the request archive and the columns of words. No row changes its `audience_id`. A second run finds nothing to do and
 // changes nothing. Counts and ids only; no message content.
 

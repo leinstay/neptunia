@@ -32,7 +32,8 @@ const aliasOf = (place: string, text: string, sources: Array<string>) => ({
   how: 'said',
   sources,
 });
-const DM_ADA_KEY = 'dm:discord:person:discord:u-ada';
+// Changed with ids-by-links slice 4: the key of a DM scope is its place, never a partner spelled from its id.
+const DM_ADA_KEY = `dm:discord:${dmPlaceOf(ADA)}`;
 /** Ada's direct chat as a stored place and two lines in it, the second hers, for a session of that scope alone. */
 function dmChat(env: ReturnType<typeof fixture>): void {
   env.db

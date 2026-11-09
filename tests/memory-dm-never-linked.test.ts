@@ -232,8 +232,9 @@ test('a link the next line finds reads no line of the DM twice, and the earlier 
   }
 });
 
-test('the repair moves the cursor kept under the place to the key of the scope, and the furthest cursor wins', async () => {
+test('the repair moves the cursor kept under the spelled partner to the place key, and the furthest cursor wins', async () => {
   // Bug: a cursor left under a key the sweep no longer walks is lost, the scope starts at 0 and the DM is read again.
+  // Changed with ids-by-links slice 4: the key of a DM scope is its place, so the spelled cursor is the one that moves.
   const held = JSON.stringify({ from: 1, to: 2, tries: 1 });
   const file = await productionWorld((raw) => {
     const put = raw.prepare('INSERT INTO meta (key, value) VALUES (?, ?)');
@@ -242,14 +243,13 @@ test('the repair moves the cursor kept under the place to the key of the scope, 
   });
   const done = spawnSync(process.execPath, [REPAIR, '--db', file, '--apply'], { cwd: ROOT, encoding: 'utf8', env: {} });
   assert.equal(done.status, 0, done.stderr);
-  assert.equal((JSON.parse(done.stdout) as { cursorsMoved: number }).cursorsMoved, 2);
+  assert.equal((JSON.parse(done.stdout) as { cursorsMoved: number }).cursorsMoved, 1);
   const handle = openMemoryDb(file, { readOnly: true });
   try {
     const meta = dbOf(handle).prepare('SELECT value FROM meta WHERE key = ?');
-    assert.equal(meta.get(CURSOR_KEY)?.value, '999999');
-    assert.equal(meta.get('memory_session.pending.apply.dm:cli:person:cli:owner')?.value, held);
-    assert.equal(meta.get(`memory_session.cursor.apply.dm:cli:${CLI_PLACE}`), undefined);
-    assert.equal(meta.get(`memory_session.pending.apply.dm:cli:${CLI_PLACE}`), undefined);
+    assert.equal(meta.get(`memory_session.cursor.apply.dm:cli:${CLI_PLACE}`)?.value, '999999');
+    assert.equal(meta.get(`memory_session.pending.apply.dm:cli:${CLI_PLACE}`)?.value, held);
+    assert.equal(meta.get(CURSOR_KEY), undefined);
   } finally {
     handle.close();
   }

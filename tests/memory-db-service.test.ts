@@ -547,3 +547,64 @@ test('a tick sends no memory-object request while memoryDb.retrieval.embedObject
     await env.done();
   }
 });
+
+// A memory session run that fails is told once with the scope it covered (service.ts#sessionFailed). The kind, the
+// interface and the DM place come from the run itself, so nothing is worked out of the text of the scope's key.
+const KAI_DM = 'discord:dm:u-kai';
+
+/** One DM place with one line in it, written into the service's database before its first open. */
+function seedKaiDm(file: string): void {
+  const handle = openMemoryDb(file);
+  try {
+    const db = dbOf(handle);
+    db.prepare(
+      `INSERT INTO places (id, iface, kind, native_key, generation, chat, scope_kind, partner_account)
+       VALUES (?, 'discord', 'dm', ?, 1, 'dm', 'dm', 'discord:u-kai')`
+    ).run(KAI_DM, KAI_DM);
+    db.prepare("INSERT INTO audiences (id, kind, iface, place_id) VALUES (?, 'dm', 'discord', ?)").run(
+      `aud:dm:${KAI_DM}`,
+      KAI_DM
+    );
+    const at = '2026-10-24T10:00:00.000Z';
+    db.prepare(
+      `INSERT INTO sources (id, kind, iface, native_id, revision, place_id, author_kind, occurred_at, recorded_at, text,
+        scope_kind, scope_iface, scope_dm, audience_id)
+       VALUES ('src:kai', 'seen', 'discord', 'm-kai', 1, ?, 'account', ?, ?, 'a line', 'dm', 'discord', NULL, ?)`
+    ).run(KAI_DM, at, at, `aud:dm:${KAI_DM}`);
+  } finally {
+    handle.close();
+  }
+}
+
+test('a failed run of a DM is told with its kind, interface and place, and no partner spelled from its key', async () => {
+  // Bug: the failure split the scope key and named `person:discord:u-kai`, a person no row holds, as the partner.
+  const failures: Array<Record<string, unknown>> = [];
+  const env = setup({
+    sessionLlm: () => ({ complete: () => Promise.reject(Object.assign(new Error('down'), { code: 'HTTP_503' })) }),
+    sessionEnv: () => ({ OPENROUTER_MEMORY_KEY: 'k' }),
+    onSessionFailure: (failure: Record<string, unknown>) => failures.push(failure),
+  });
+  try {
+    seedKaiDm(env.dbFile());
+    const session = { mode: 'apply', minMessages: 1, minLines: 0, settleMinutes: 0 };
+    const live = env.hot.config;
+    Object.assign(env.hot, {
+      config: {
+        bot: { timezone: 'UTC' },
+        models: { base: { memory: 'x/memory' } },
+        llm: { keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } },
+        memoryDb: { ...live.memoryDb, session },
+      },
+      prompts: { 'memory-session': 'SESSION', 'system-prompt': 'S', 'character-card': 'C', rules: '- R', format: 'F' },
+    });
+    await env.service.tick();
+    const dms = () => failures.filter((one) => one.scopeKind === 'dm');
+    for (let i = 0; i < 200 && dms().length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(dms().length, 1);
+    const [failure] = dms();
+    assert.deepEqual([failure.scopeKind, failure.iface, failure.place], ['dm', 'discord', KAI_DM]);
+    assert.equal(failure.partner, undefined);
+  } finally {
+    await env.done();
+  }
+});

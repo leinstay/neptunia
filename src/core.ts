@@ -139,7 +139,7 @@ import { createBoardPort } from './board/writer.ts';
 import { createReactorStore, applyReactionChanged } from './behavior/reactor-store.ts';
 import { currentIface, withIface } from './memory/db/current-iface.ts';
 import { createRootRoutes } from './core-routing.ts';
-import { accountOf, dmPartnerOf, placeOfChat } from './memory/addresses.ts';
+import { accountOf, chatOfPlace, dmPartnerOf, placeOfChat } from './memory/addresses.ts';
 import { personaJournal, personaRecord } from './behavior/inner/persona-sources.ts';
 import { PERSONA_ID } from './memory/db/storage-keys.ts';
 import { createOwnerAccounts } from './memory/db/person-links.ts';
@@ -1153,13 +1153,13 @@ async function buildCore(
    */
   function tellSessionFailure({
     scopeKind,
-    partner,
+    place,
     code,
     lines,
     at,
   }: {
     scopeKind: Untyped;
-    partner: Untyped;
+    place: Untyped;
     code: Untyped;
     lines: Untyped;
     at: number;
@@ -1167,8 +1167,10 @@ async function buildCore(
     try {
       if (inner.facts?.enabled?.() !== true) return;
       const dmChat = scopeKind === 'dm';
-      const accountId = dmChat ? String(partner ?? '').replace(/^person:[^:]+:/, '') : null;
-      const chatId = accountId !== null ? directory.dmChatOf(accountId) : null;
+      const chatId =
+        dmChat && typeof place === 'string'
+          ? chatOfPlace(store, place, (partner) => directory.dmChatOf(partner))
+          : null;
       inner.facts.add({ kind: 'memoryFailed', code, waiting: lines, placeId: chatId, dmChat, at });
     } catch (err) {
       log.warn('index: memory session failure not told', { code: objOf(err).code ?? null });
