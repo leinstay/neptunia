@@ -105,6 +105,7 @@ test('a private derived claim keeps its DM scope when later evidence comes from 
   // Catches cross-interface evidence making a private revision internal or exposing it to a group.
   const env = fixture();
   try {
+    env.storeDmPlace(ADA); // Changed with ids-by-links slice 3: no writer makes the DM place from her person id.
     const privateLine = env.say({
       native: 'private-evidence',
       minutesAgo: 40,

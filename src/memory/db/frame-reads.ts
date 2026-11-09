@@ -178,9 +178,12 @@ export function placeRefOf(db: Db, placeId: string): PlaceRef | null {
   };
 }
 
-/** The chat an interface speaks to for a place: a DM's partner, any other place's own native id; null when unknown. */
+/**
+ * The chat an interface speaks to for a place: the address the place holds, the chat id its interface gave, for a direct
+ * chat as for a channel; null when it holds none (src/interface/place-chat.ts opens a direct chat that holds none).
+ */
 export function nativeChatOf(ref: PlaceRef): string | null {
-  return ref.kind === 'dm' ? ref.partnerNativeId : ref.nativeId;
+  return ref.nativeId;
 }
 
 /** A stored line by its identity without the revision, as a reference names it. */

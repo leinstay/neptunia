@@ -106,13 +106,13 @@ export function legacyAccountNative(account: unknown, iface: unknown): string | 
 
 /**
  * The native key of a place inside its authority: the place kind and the native id (`channel:<id>`, `server:<id>`,
- * `dm:<partner native>`), so a server and a channel that share a native id never collide.
+ * `dm:<partner native>`), so a server and a channel that share a native id never collide. A DM place with no native id
+ * of its own takes its partner's, which the caller reads from the partner account's row (`partnerNative`).
  */
-export function placeNativeKey(place: Row | null | undefined): string | null {
+export function placeNativeKey(place: Row | null | undefined, partnerNative: unknown = null): string | null {
   const kind = typeof place?.kind === 'string' && place.kind ? place.kind : 'place';
   if (kind === 'dm') {
-    const partner = dmPartnerOfPlace(place?.id);
-    const native = place?.native_id ?? (partner ? legacyAccountNative(partner.account, partner.iface) : null);
+    const native = place?.native_id ?? partnerNative;
     return native === null || native === undefined ? null : `dm:${text(native)}`;
   }
   return place?.native_id === null || place?.native_id === undefined ? null : `${kind}:${text(place.native_id)}`;

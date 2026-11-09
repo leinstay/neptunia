@@ -389,7 +389,7 @@
       "repeated": 0
     },
     "tests/gif-library-merge.test.ts": {
-      "deep": 3,
+      "deep": 2,
       "repeated": 0
     },
     "tests/gif-library-store.test.ts": {
@@ -590,10 +590,6 @@
     },
     "tests/media-voice-backfill.test.ts": {
       "deep": 2,
-      "repeated": 0
-    },
-    "tests/memory-convert-places.test.ts": {
-      "deep": 1,
       "repeated": 0
     },
     "tests/memory-db-audience.test.ts": {
@@ -1450,11 +1446,6 @@
         "function-length": 333
       }
     },
-    "scripts/lib/report.ts": {
-      "tally": {
-        "complexity": 34
-      }
-    },
     "scripts/lib/vision-compare.ts": {
       "describeOne": {
         "complexity": 29
@@ -1759,7 +1750,7 @@
     },
     "src/memory/db/observe.ts": {
       "checkEnvelope": {
-        "complexity": 99
+        "complexity": 98
       },
       "participantOf": {
         "complexity": 25

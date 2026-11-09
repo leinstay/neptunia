@@ -37,10 +37,9 @@ export type OpsDeps = {
   getSelfName?: (placeId: string | null) => string;
   /** A member's name in the member directory. */
   memberNameOf?: (placeId: string, accountId: string) => string | null;
-  /** The chats the interface reported, and the direct chat it saw with a member. */
+  /** The chats the interface reported. */
   directory?: {
     isDm: (chatId: string) => boolean;
-    dmChatOf?: (partnerId: string) => string | null;
   };
   /** When the interface's link to its platform last came back (the core fills it from `connection.changed`). */
   connection?: { lastReconnectAt: number | null };
@@ -174,11 +173,11 @@ function buildEnv({
 
   /**
    * The native chat of the place an operation runs in, for a call that speaks to the interface
-   * (src/memory/addresses.ts#chatOfPlace, a DM's chat from the directory); null with no place.
+   * (src/memory/addresses.ts#chatOfPlace, the address the place holds); null with no place.
    */
   function chatOf(context: { placeId?: string | null } | null | undefined): string | null {
     const placeId = context?.placeId ?? null;
-    return placeId ? chatOfPlace(store, placeId, directory.dmChatOf ?? null) : null;
+    return placeId ? chatOfPlace(store, placeId) : null;
   }
 
   /** The place the operation addresses, or an Error with none. */

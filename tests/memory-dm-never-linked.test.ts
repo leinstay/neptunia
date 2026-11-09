@@ -4,12 +4,8 @@
 // and text only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { auditMemory } from '../src/memory/db/audit.ts';
 import { linkOwnerAccount } from '../src/memory/db/identity-links.ts';
-import { openMemoryDb } from '../src/memory/db/open.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { linkAccount } from '../src/memory/db/person-links.ts';
@@ -18,12 +14,9 @@ import type { SweepScope } from '../src/memory/db/session.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle } from '../src/memory/db/types.ts';
-import { CLI_PLACE, CURSOR_KEY, productionWorld } from './fixtures/memory-audit-production.ts';
 import { HOUR, baseConfig, ctxOf, fakeLlm, fixture, memoryBlock, textOf } from './fixtures/memory-db/session-rig.ts';
 import type { Fixture } from './fixtures/memory-db/session-shapes.ts';
 
-const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const REPAIR = path.join(ROOT, 'scripts', 'memory-repair-audit.ts');
 const PLACE = 'chat:dm:n7';
 const AUDIENCE = 'aud:dm:chat:dm:n7';
 const ACCOUNT = 'chat:n7';
@@ -229,28 +222,5 @@ test('a link the next line finds reads no line of the DM twice, and the earlier 
     });
   } finally {
     env.done();
-  }
-});
-
-test('the repair moves the cursor kept under the place to the key of the scope, and the furthest cursor wins', async () => {
-  // Bug: a cursor left under a key the sweep no longer walks is lost, the scope starts at 0 and the DM is read again.
-  const held = JSON.stringify({ from: 1, to: 2, tries: 1 });
-  const file = await productionWorld((raw) => {
-    const put = raw.prepare('INSERT INTO meta (key, value) VALUES (?, ?)');
-    put.run(`memory_session.cursor.apply.dm:cli:${CLI_PLACE}`, '999999');
-    put.run(`memory_session.pending.apply.dm:cli:${CLI_PLACE}`, held);
-  });
-  const done = spawnSync(process.execPath, [REPAIR, '--db', file, '--apply'], { cwd: ROOT, encoding: 'utf8', env: {} });
-  assert.equal(done.status, 0, done.stderr);
-  assert.equal((JSON.parse(done.stdout) as { cursorsMoved: number }).cursorsMoved, 2);
-  const handle = openMemoryDb(file, { readOnly: true });
-  try {
-    const meta = dbOf(handle).prepare('SELECT value FROM meta WHERE key = ?');
-    assert.equal(meta.get(CURSOR_KEY)?.value, '999999');
-    assert.equal(meta.get('memory_session.pending.apply.dm:cli:person:cli:owner')?.value, held);
-    assert.equal(meta.get(`memory_session.cursor.apply.dm:cli:${CLI_PLACE}`), undefined);
-    assert.equal(meta.get(`memory_session.pending.apply.dm:cli:${CLI_PLACE}`), undefined);
-  } finally {
-    handle.close();
   }
 });

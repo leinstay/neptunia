@@ -14,6 +14,4 @@ A task's risk is `low`, `normal` or `high`, and `src/board/risk.ts` guards it. `
 
 The `task.wait` command answers the events after `from`: at once when there are some, otherwise when a write through the core's board port makes some, and with nothing after `wait_ms` when that is given. A read never ends a wait, and a reap ends one only when it returned a task. `createBoardPort` in `src/board/writer.ts` implements it, and a principal with no board role is refused.
 
-`scripts/board-import.ts --dry-run` inspects legacy ledger material without applying it. Run imports against a stopped installation or isolated copy, with a verified backup. See the script's usage for its required source and destination arguments.
-
 Read the implementation in [board commands and roles](../src/board/), [task CLI](../bin/neptunia-task.ts).

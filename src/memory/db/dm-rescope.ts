@@ -1,7 +1,6 @@
 // One DM names one partner: when a DM place takes its partner person, every row of that place's audience takes it in
 // `scope_dm`, so the rows before the link and after it read as one DM. The audience of a row never changes here: a line, a
-// fact or a feeling stays in the chat it came from. Used by observe.ts, identity-links.ts and
-// scripts/memory-repair-audit.ts, inside their transactions.
+// fact or a feeling stays in the chat it came from. Used by observe.ts and identity-links.ts, inside their transactions.
 
 import { dmAudienceId } from './scope.ts';
 import { SCOPED_TABLES } from './schema.ts';

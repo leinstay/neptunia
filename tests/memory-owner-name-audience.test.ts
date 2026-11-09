@@ -1,22 +1,17 @@
 // A name the owner gives a person (`/memory users names add`, the writer's `owner-name` op) is an `alias` claim like the
-// ones a member's profile holds, so it carries the audience those have: the groups of the person's interface. The repair
-// script gives the rows stored without one that same audience. Synthetic ids and names only.
+// ones a member's profile holds, so it carries the audience those have: the groups of the person's interface. Synthetic
+// ids and names only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { auditMemory } from '../src/memory/db/audit.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { ownerNamesOf } from '../src/memory/db/people-read.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle } from '../src/memory/db/types.ts';
 import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
-import { auditWorld } from './fixtures/memory-audit-world.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
-const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const REPAIR = path.join(ROOT, 'scripts', 'memory-repair-audit.ts');
 const NOW = Date.parse('2026-11-05T10:00:00.000Z');
 const SELF = 'person:self';
 
@@ -81,38 +76,4 @@ test('an owner name with no interface to name is internal, and the door still re
     assert.equal(auditMemory(db).findings, 0);
     assert.deepEqual(ownerNamesOf(db, SELF), ['Zefira']);
   });
-});
-
-const repair = (file: string, ...flags: Array<string>) =>
-  spawnSync(process.execPath, [REPAIR, '--db', file, ...flags], { cwd: ROOT, encoding: 'utf8', env: {} });
-
-const report = (done: ReturnType<typeof repair>): { aliases: number } => {
-  assert.equal(done.status, 0, done.stderr);
-  return JSON.parse(done.stdout) as { aliases: number };
-};
-
-test('the repair gives a stored owner name the audience the writer gives it, once, and the door still reads it', async () => {
-  // Bug: the names already written stay findings for good, or a repair hides them from the door.
-  const file = await auditWorld((raw) => {
-    raw.exec(`
-      INSERT OR IGNORE INTO people (id, kind, status) VALUES ('person:self', 'self', 'active');
-      INSERT INTO accounts (id, iface, native_id, native_key, authority_id, generation, kind, person_id, link, linked_by)
-        VALUES ('discord:n9', 'discord', 'n9', 'n9', 'discord/global', 1, 'self', 'person:self', 'verified', 'observation');
-      INSERT INTO claims (id, subject_kind, subject_id, kind, text, weight, how, author, truth, created_at)
-        VALUES ('claim:one', 'person', 'person:self', 'alias', 'Zefira', 1, 'owner', 'owner', 'current', '2026-11-01'),
-               ('claim:two', 'person', 'person:self', 'alias', 'Mirella', 1, 'owner', 'owner', 'current', '2026-11-02');
-    `);
-  });
-  assert.equal(report(repair(file)).aliases, 2, 'the dry run counts them');
-  assert.equal(report(repair(file, '--apply')).aliases, 2);
-  assert.equal(report(repair(file, '--apply')).aliases, 0, 'a second run finds nothing');
-  const handle = openMemoryDb(file, { readOnly: true });
-  try {
-    const db = dbOf(handle);
-    assert.equal(scopeOf(db, 'Zefira').audience_id, 'aud:group:discord');
-    assert.equal(auditMemory(db).findings, 0);
-    assert.deepEqual(ownerNamesOf(db, SELF), ['Zefira', 'Mirella']);
-  } finally {
-    handle.close();
-  }
 });
