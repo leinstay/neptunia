@@ -614,13 +614,13 @@ const handlers = perEnv((env) => {
   /**
    * The owner's `keys.base` field (src/tools/operations/usage.ts#keyCostsLines, every word from
    * `labels.status.costs`): the main API key's limit and spend, the simulator key's and those of
-   * each extra key `llm.keyByRole` puts in use (`llm.roleKeys`, read by role, never holding a key
+   * each extra key `llm.boundKeys` puts in use (`llm.roleKeys`, read by role, never holding a key
    * here) but the errand agents' (a key whose roles are all ERRAND_KEY_ROLES: no line, no read), free GETs in parallel (`llm.keyInfo`; `llm.probeTimeoutMs`, never counted against
    * `llm.maxRequestsPerDay`), with the rolling 7- and 30-day sums of each key's roles from the
    * usage accumulator. With the management key (OPENROUTER_MANAGEMENT_KEY, `env.managementKey`,
    * used for these GETs only) each key's activity is read alongside (`llm.activity` by its hash,
    * one GET per key) and its last 7 and 30 days come from there instead; a failed activity read
-   * falls back. An extra key that is the simulator key itself (a role `llm.keyByRole` puts on
+   * falls back. An extra key that is the simulator key itself (a role `llm.boundKeys` puts on
    * OPENROUTER_SIM_KEY, compared by hash) gets no line of its own: the simulator line is its line.
    * Logs `status: account read` with the outcomes' codes. `-` when the labels give no line.
    */

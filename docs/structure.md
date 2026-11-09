@@ -199,7 +199,6 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/interface/commands/mirror.ts` | public | The owner's `/mirror` commands. Tested through the mirror command tests. | `node:*`, `src/**` | none |
 | `src/keys/` | public | The model keys of a deployment: the key store (`keys.json`), the core key list with its failover, the probes that check a key and a model, the owner's key commands and the one-time import of the old `.env` variables. The binding of a role to a key goes through `src/subharness/routing.ts`. | `node:*`, `src/keys/**`, `src/agent-runner/profiles.ts`, `src/llm/key-failover.ts`, `src/llm/openrouter.ts`, `src/llm/roles.ts`, `src/log.ts`, `src/subharness/routing.ts`, `src/time.ts` | required |
 | `src/llm/` | public | The language model calls: OpenRouter, roles, budgets, token counts, limits and output parsing. | `node:*`, `src/**` | required |
-| `src/llm/role-keys.ts` | public | How a request finds its key in `.env` and `llm.keyByRole`, while a deployment has no `keys.json`. Re-exported by `src/llm/openrouter.ts`; tested through the role key tests of the client. | `node:*`, `src/**` | none |
 | `src/media/` | public | Pictures, video, audio, GIFs and drawing on the core side. | `node:*`, `src/**` | required |
 | `src/memory/migration/` | public | The only decoders of the ids and paths a shipped database spells. | `node:*`, `src/**` | none |
 | `src/memory/` | public | The memory modules above the database: records, lore, episodes, recall ranking, vectors and backfills. | `node:*`, `src/**` | required |
@@ -207,10 +206,8 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `src/memory/pings.ts` | public | A member's ping state in a place as the store keeps it, and the earlier `pingsOff` list read as `off`. Tested through the store tests. | `node:*`, `src/**` | none |
 | `src/memory/db/` | public | The memory database: schema, the single writer, sessions, wakes and the read paths. | `node:*`, `src/**` | required |
 | `src/memory/db/media-store.ts` | public | The one store of media: its read, its writes, its vectors, its search and the forward migration. Tested through the media memory tests. | `node:*`, `src/**` | none |
-| `src/memory/db/media-backfill.ts` | public | The historical backfill of media over an interface's history. Tested through `tests/media-memory-backfill.test.ts`, `tests/media-voice-backfill.test.ts` and `tests/media-backfill-dm.test.ts`. | `node:*`, `src/**` | none |
 | `src/memory/db/roots.ts` | public | The server places of the roots a `hello` names. Tested through `tests/memory-db-roots.test.ts`. | `node:*`, `src/**` | none |
 | `src/memory/db/meta-person.ts` | public | The read adapter of the meta-person: the person of an account and the accounts of a person, from `person_accounts` first and the old verified links after. Tested through `tests/memory-db-meta-person.test.ts`. | `node:*`, `src/**` | none |
-| `src/memory/db/media-english.ts` | public | The owner's run that brings stored media descriptions to English. Tested through `tests/media-english-backfill.test.ts`. | `node:*`, `src/**` | none |
 | `src/memory/db/media-stems.ts` | public | The stems of a media row. Tested through the media memory tests. | `node:*`, `src/**` | none |
 | `src/memory/db/source-current.ts` | public | Which rows of sources are a chat line as it stands now, as SQL. Tested through the recall tests. | `node:*`, `src/**` | none |
 | `src/memory/db/source-kinds.ts` | public | The kinds of a source row that are the persona's own. Tested through the memory database tests. | `node:*`, `src/**` | none |

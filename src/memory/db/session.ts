@@ -41,7 +41,6 @@
 // A chat line's revisions are matched by the line's native tuple (authority, native kind, generation, native id).
 
 import { block, fillPromptTemplate, renderProfile } from '../../behavior/prompt.ts';
-import { ROLE_KEY_NAME } from '../../llm/openrouter.ts';
 import { MEMORY_ROLE, roleModel } from '../../llm/roles.ts';
 import { estimateMessages } from '../../llm/tokens.ts';
 import { rulesPromptOf } from '../../rules-list.ts';
@@ -211,25 +210,19 @@ export function sessionSettings(configGiven: unknown): SessionSettings {
 }
 
 /**
- * Whether the memory writer has what it needs: on a harness `path` nothing; with a key ring the key it routes `memory`
- * to (the bound extra key, else the core key in use); without a ring `llm.keyByRole.memory`, a variable set in `env`.
+ * Whether the memory writer has what it needs: on a harness `path` nothing; on the direct path the key the key ring
+ * routes `memory` to (the bound extra key, else the core key in use), and nothing without a ring. `config` and `env`
+ * are not read.
  */
 export function memoryKeyState(
-  config: Config | null | undefined,
-  env: Row | null | undefined,
+  _config: Config | null | undefined,
+  _env: Row | null | undefined,
   ring?: KeyRing | null,
   path?: MemoryPath | null
 ): { ok: boolean; name: string | null } {
   if (path?.kind === 'subharness') return { ok: true, name: null }; // a harness writer sends no API key
-  if (ring) {
-    const route = ring.route(MEMORY_ROLE);
-    return route === null ? { ok: false, name: null } : { ok: true, name: route.name };
-  }
-  const keyByRole = config?.llm?.keyByRole;
-  const name = keyByRole?.memory;
-  const valid = typeof name === 'string' && ROLE_KEY_NAME.test(name);
-  const value = valid && env ? env[name] : undefined;
-  return { ok: typeof value === 'string' && value.trim() !== '', name: valid ? name : null };
+  const route = ring ? ring.route(MEMORY_ROLE) : null;
+  return route === null ? { ok: false, name: null } : { ok: true, name: route.name };
 }
 
 /** Why the session cannot run now, or null: `off` (mode), `not_configured` (no key it needs), `no_prompt`. */
@@ -1341,6 +1334,7 @@ export function sessionStatus({
   config,
   env,
   prompts,
+  ring = null,
   now = Date.now(),
   path = { kind: 'direct' },
 }: {
@@ -1348,12 +1342,14 @@ export function sessionStatus({
   config: Config;
   env: Row | null | undefined;
   prompts: Row | null | undefined;
+  /** The key ring the memory key comes from on the direct path (see `memoryKeyState`). */
+  ring?: KeyRing | null;
   now?: number;
   /** The writer's path; absent is the direct path. */
   path?: MemoryPath;
 }): SessionStatus {
   const { mode, sweepsPerScopePerDay, retryLimit } = sessionSettings(config);
-  const code = refusalOf(config, env, prompts, null, path);
+  const code = refusalOf(config, env, prompts, ring, path);
   let state = 'ready';
   if (code === CODES.OFF) state = 'off';
   else if (code === CODES.NOT_CONFIGURED) state = 'not_configured';

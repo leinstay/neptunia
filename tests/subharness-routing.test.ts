@@ -154,8 +154,6 @@ test('a role on a harness counts as served with no key at all, and a direct role
     subharness: { ...routing.subharness, core: { backend: 'claude', model: 'claude-opus-4-6', effort: null } },
   }));
   const hasKey = roleKeyCheck({
-    hot: { config: {} },
-    env: {},
     mainKey: '',
     served: (role) => harnessBackend(dir, role) !== null,
   });

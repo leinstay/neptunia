@@ -160,19 +160,6 @@ function usersRead(db: Db, name: string, args: Args, bounds: InspectionBounds): 
   return ok(leaf === 'names' ? { names: view.names } : { affinity: view.affinity });
 }
 
-/** `/memory selfreflection audience fill`: the owner's fill of the audience on old group entries, through the one writer. */
-async function audienceFill(memoryDb: unknown, name: string, args: Args): Promise<Answer> {
-  try {
-    const filled = await (callMethod(memoryDb, 'selfreflectionAudienceFill', {
-      by: 'owner',
-      dryRun: word(args, 'dry-run') === 'true',
-    }) as Promise<unknown>);
-    return ok(filled);
-  } catch {
-    return { text: `/${name.replaceAll('.', ' ')}: the audience could not be written`, status: 'failed' };
-  }
-}
-
 /**
  * `/memory pending list` and `/memory pending replay`: the pending writes the open set aside
  * (src/memory/db/pending-quarantine.ts), listed from their folder or replayed through the one writer.
@@ -539,7 +526,6 @@ export async function memoryBrowserCommand(
       if (port == null) return closedDatabase(name);
       return inspectRead(deps, port, name, args, requester.id, boundsOf(hot));
     }
-    if (name === 'memory.selfreflection.audience.fill') return audienceFill(memoryDb, name, args);
     if (name === 'memory.pending.list' || name === 'memory.pending.replay') return pendingCommand(memoryDb, name);
     const db = callMethod(memoryDb, 'database') as Db | null | undefined;
     if (db == null) return closedDatabase(name);

@@ -283,10 +283,9 @@ export async function main(
     const apiKey = simKey(ORIGIN);
     const stored = readJson(path.join(dataDir, 'state.json'), {});
     const calibrator = createCalibrator(stored?.calibration);
-    // Throwaway counters; per-role keys are not looked up (env {}): the simulator key pays.
+    // Throwaway counters; the simulator key pays every role.
     const llm = createLlm({
       apiKey,
-      env: {},
       getConfig: () => hot.config,
       calibrator,
       state: { data: {}, markDirty() {} },

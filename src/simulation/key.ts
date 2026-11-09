@@ -1,9 +1,11 @@
-// The simulation's switch and its one key reader. The simulation is the paid scripts of scripts/ (the replay, the
-// recall evaluation, the memory session): they spend a named `extra` key of keys.json and nothing else, and refuse with
-// one line while the simulation is off. `simulation enable --key <name>` names the key in `llm.simulationKey` of
-// config.json (src/subharness/routing.ts), `simulation disable` forgets it. The shape follows the other features of Hermes' tool configuration (hermes_cli/tools_config.py): the same
-// result as the subharness, a state that is read at each use. Nothing here prints a key value.
+// The simulation's switch, its one key reader and the key ring of a paid script. The simulation is the paid scripts of
+// scripts/ (the replay, the recall evaluation, the memory session): they spend a named `extra` key of keys.json and
+// nothing else, and refuse with one line while the simulation is off. `simulation enable --key <name>` names the key in
+// `llm.simulationKey` of config.json (src/subharness/routing.ts), `simulation disable` forgets it. The shape follows the
+// other features of Hermes' tool configuration (hermes_cli/tools_config.py): the same result as the subharness, a state
+// that is read at each use. Nothing here prints a key value.
 
+import type { KeyRing, KeyRoute } from '../keys/ring.ts';
 import type { SubharnessResult } from '../subharness/control.ts';
 import { readRouting, updateRouting } from '../subharness/routing.ts';
 import { hasExtraKey, readKeys } from '../keys/file.ts';
@@ -44,14 +46,35 @@ function refusal(message: string): Error {
 }
 
 /**
- * The value of the simulation's key, for a paid script. Throws an error with the code `simulation-off` and one line
+ * The simulation's key by name and value, for a paid script. Throws an error with the code `simulation-off` and one line
  * that names `simulation enable` while the simulation is off or its key has left the store.
  */
-export function simulationKey(privateDir: string): string {
+export function simulationRoute(privateDir: string): KeyRoute {
   const { key } = readRouting(privateDir).simulation;
   const store = readKeys(privateDir);
   if (key === null) throw refusal('the simulation is off: switch it on with "simulation enable --key <name>"');
   if (!hasExtraKey(store, key))
     throw refusal(`the simulation key ${key} is not in the store: name another with "simulation enable --key <name>"`);
-  return store.extra[key] ?? '';
+  return { name: key, value: store.extra[key] ?? '' };
+}
+
+/** The value of the simulation's key (`simulationRoute`), for a script that sends it itself. */
+export function simulationKey(privateDir: string): string {
+  return simulationRoute(privateDir).value;
+}
+
+/**
+ * The key ring of a paid script: every role goes out on the simulation key `route` and on nothing else, so neither a
+ * binding of `llm.boundKeys` nor a core key is ever spent. A budget error has no key to move to.
+ */
+export function simulationRing(route: KeyRoute): KeyRing {
+  return {
+    route: () => route,
+    names: () => [route.name],
+    failed: () => null,
+    states: () => [],
+    bound: () => [],
+    grants: () => ({}),
+    variables: () => ({}),
+  };
 }

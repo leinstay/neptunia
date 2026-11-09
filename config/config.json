@@ -62,11 +62,6 @@
     "provider": null,
     "providerByModel": {},
     "reasoningByRole": {},
-    "keyByRole": {
-      "thinker": "OPENROUTER_DEV_KEY",
-      "dev": "OPENROUTER_DEV_KEY",
-      "memory": "OPENROUTER_MEMORY_KEY"
-    },
     "boundKeys": {},
     "simulationKey": null,
     "cache": {

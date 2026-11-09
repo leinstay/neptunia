@@ -17,6 +17,8 @@ import { messageSourceId, personId, shortHash } from '../src/memory/db/ids.ts';
 import { dmContext } from '../src/memory/db/scope.ts';
 import { labels } from './fixtures/labels.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import type { KeyRing } from '../src/keys/ring.ts';
+import { memoryRing } from './fixtures/memory-db/session-rig.ts';
 import { sqlOf, wrongly } from './fixtures/loose-types.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
@@ -38,7 +40,6 @@ const prompts = {
 const config = (session = {}) => ({
   bot: { timezone: 'UTC' },
   models: { base: { memory: 'x/memory' } },
-  llm: { keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } },
   memoryDb: { session: { mode: 'shadow', ...session } },
 });
 
@@ -121,13 +122,14 @@ const ctxOf = (
   {
     llm,
     cfg = config(),
-    envVars = { OPENROUTER_MEMORY_KEY: 'k' },
+    ring = memoryRing(),
     promptSet = prompts,
-  }: { llm?: Untyped; cfg?: Untyped; envVars?: Record<string, string>; promptSet?: Untyped } = {}
+  }: { llm?: Untyped; cfg?: Untyped; ring?: KeyRing | null; promptSet?: Untyped } = {}
 ) => ({
   llm,
   hot: { config: cfg, prompts: promptSet },
-  env: envVars,
+  env: {},
+  ring,
   now: () => NOW,
   log: {},
   selfName: 'Nep',
@@ -275,7 +277,8 @@ test('refusals and failures write nothing: off, no key of its own, no prompt, an
     const run = (extra: Record<string, Untyped>, field = 'character', subject = subjectOf(env)) =>
       reviewDescription(wrongly(env.db), subject, field, { ctx: wrongly(ctxOf(env, { llm, ...extra })) });
     assert.deepEqual(await run({ cfg: config({ mode: 'off' }) }), { status: 'off', code: 'off' });
-    assert.deepEqual(await run({ envVars: { OPENROUTER_CORE_KEY: 'main' } }), {
+    // No key ring stands where a core variable of `.env` stood: the key comes from the ring alone.
+    assert.deepEqual(await run({ ring: null }), {
       status: 'refused',
       code: 'not_configured',
     });

@@ -115,7 +115,6 @@ import { WORKTREE_FOLDER } from './development/edges.ts';
 import { selfimprovementSettings } from './selfimprovement/settings.ts';
 import { chatLines, recentGroupLines } from './memory/db/chat-lines.ts';
 import { ownerConsoleName } from './memory/db/identity-links.ts';
-import { ownerMemoryRuns } from './memory/db/media-english.ts';
 import { mediaText } from './memory/db/media-store.ts';
 import { OWNER_CLIENT } from './setup/clients.ts';
 import { createConsole } from './interface/commands/console.ts';
@@ -475,11 +474,11 @@ async function buildCore(
   const processState = store.state; // state.json: the pause flag, the daily counters and the process's marks
   const calibrator = createCalibrator(processState.data.calibration);
   // Which model roles are down (src/llm/role-health.ts): one tracker for the turns, the operations, the describer and
-  // `/status`. A role has no key when the key it resolves to is empty (src/llm/openrouter.js#roleApiKey).
+  // `/status`. A role has no key when the key ring routes it to none (src/llm/role-health.ts#roleKeyCheck).
   const harnessOf = (role: string): string | null => harnessBackend(paths.privateDir, role);
   const roleHealth = createRoleHealth({
     now: () => Date.now(),
-    hasKey: roleKeyCheck({ hot, env, mainKey: openrouterKey, keyOf, served: (role) => harnessOf(role) !== null }),
+    hasKey: roleKeyCheck({ mainKey: openrouterKey, keyOf, served: (role) => harnessOf(role) !== null }),
   });
   // createLlm (src/llm/openrouter.js) declares `complete` as `Function`, which no caller's declared call accepts, so
   // the core hands the client on typed as the call the modules below make.
@@ -959,7 +958,6 @@ async function buildCore(
     client: errandClient,
     stores: taskStores,
     hot,
-    env,
     memory: { recentLines: recentChannelLines },
     // An errand's facts: a group read, because a runner never sees a private chat.
     retrieve: (input) =>
@@ -1458,7 +1456,6 @@ async function buildCore(
     // The owner's console (src/interface/commands/console.ts): the chat's table over the operations, run as the owner.
     console: createConsole({
       track: loopWatch.track,
-      ...ownerMemoryRuns({ memoryDb, reads, iface: () => identity.iface, describer, describerDeps, now: clock, log }),
       statusBrief: () =>
         statusBrief({
           config: () => objOf(hot.config),

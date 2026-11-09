@@ -14,7 +14,7 @@ import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { dueScopes } from '../src/memory/db/writer-switch.ts';
 import type { Config, Log, Row } from '../src/memory/db/types.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
-import { memoryBlock, prompts } from './fixtures/memory-db/session-rig.ts';
+import { memoryBlock, memoryRing, prompts } from './fixtures/memory-db/session-rig.ts';
 import { AT, GENERAL, KINDS, fixture, observeLine } from './fixtures/media-memory.ts';
 import type { Env } from './fixtures/media-memory.ts';
 import { ROOT } from './fixtures/private-layer.ts';
@@ -41,7 +41,6 @@ function configOf(session: Session): Config {
   return {
     bot: { timezone: 'UTC' },
     models: { base: { memory: 'x/memory' } },
-    llm: { keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } },
     memoryDb: {
       session: {
         mode: MODE,
@@ -73,7 +72,8 @@ function ctxOf(rig: Rig, config: Config): SessionContext {
       },
     },
     hot: { config, prompts },
-    env: { OPENROUTER_MEMORY_KEY: 'k' },
+    env: {},
+    ring: memoryRing(),
     now: () => rig.at,
     log: {},
     selfName: 'Nep',

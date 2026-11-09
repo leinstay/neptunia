@@ -42,7 +42,7 @@ function rig(privateDir: string) {
     cancel: () => true,
   };
   const stores = createErrandStores({ memoryDb: memory.memoryDb, config: () => hot.config, log: quiet });
-  const errands = createErrandService({ client, stores, hot, env: {}, privateDir, log: quiet, defer: (fn) => fn() });
+  const errands = createErrandService({ client, stores, hot, privateDir, log: quiet, defer: (fn) => fn() });
   return { errands, runs };
 }
 

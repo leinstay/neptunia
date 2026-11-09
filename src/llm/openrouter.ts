@@ -22,6 +22,7 @@
 // It is also the one place the prompt-cache marker is put on a request (see
 // `withCacheMarker`): after the estimate, so the rails never see it.
 
+import { createHash } from 'node:crypto';
 import { estimateMessages, estimateTools } from './tokens.ts';
 import { SAFETY_MARGIN } from './budget.ts';
 import { isPlainObject } from '../config.ts';
@@ -31,23 +32,20 @@ import { HOUR_MS, MINUTE_MS, bumpDaily, countToday, dailyCounter } from '../time
 import { log } from '../log.ts';
 import type { LimitsSink } from './limits.ts';
 import { reasoningOf, roleModel } from './roles.ts';
-import { createKeyFailover, isBudgetError } from './key-failover.ts';
-import type { KeyFailover, KeyState } from './key-failover.ts';
+import { isBudgetError } from './key-failover.ts';
+import type { KeyState } from './key-failover.ts';
 import type { KeyRing } from '../keys/ring.ts';
-import { MAIN_KEY_NAME, keyHashOf, roleApiKey, roleKeyGroups, roleKeyNames } from './role-keys.ts';
 
-// The key lookup over `.env` and `llm.keyByRole` lives in role-keys.ts; the callers import it from here.
-export {
-  MAIN_KEY_NAME,
-  ROLE_KEY_NAME,
-  STRICT_KEY_ROLES,
-  keyHashOf,
-  roleApiKey,
-  roleKeyGroups,
-  roleKeyNames,
-} from './role-keys.ts';
+/** The name a usage line without a key name of its own is counted under: a client built on one key with no key ring. */
+export const MAIN_KEY_NAME = 'OPENROUTER_CORE_KEY';
 
-type Env = Record<string, string | undefined> | null | undefined;
+/**
+ * The SHA-256 hex digest of an API key: how OpenRouter's activity endpoint names a key (`api_key_hash`), so the status
+ * card can ask for one key's spend without holding it.
+ */
+export function keyHashOf(key: string): string {
+  return createHash('sha256').update(String(key)).digest('hex');
+}
 
 type Rec = Record<string, unknown>;
 /** `isPlainObject`, as a guard: a non-null object that is not an array. */
@@ -915,45 +913,11 @@ function retryLimitFields(err: unknown): { limitSource?: string; provider?: stri
 // The error of a non-ok answer: the status on `.statusCode`, the full (untrimmed) body on `.body`
 // for a caller that needs more than the 500-char message allows -- e.g. `/nep ping` picking
 // OpenRouter's `routing_funnel` diagnostic out of a "No endpoints found" error.
-/** After a budget error on `name`: the next key of the list to repeat on; throws `keys-exhausted` when none is left. */
-function nextKeyOf(
-  failover: KeyFailover,
-  role: string,
-  names: ReadonlyArray<string>,
-  name: string,
-  status: number
-): string {
-  const next = failover.failed(role, names, name, status);
-  if (next === null) throw keysExhausted(role);
-  return next;
-}
-
-/**
- * Every role with a list of two or more keys now (`roleKeyNames`, the core included): the key it is on and when it last
- * switched, null until it does. Names only, never a key.
- */
-function keyStatesOf(config: unknown, env: Env, failover: KeyFailover): Array<KeyState> {
-  const map = llmOf(config).keyByRole;
-  const roles = new Set(['core', ...(isRec(map) ? Object.keys(map) : [])]);
-  const states: Array<KeyState> = [];
-  for (const role of roles) {
-    const names = roleKeyNames(config, env, role);
-    if (names.length < 2) continue;
-    const switched = failover.states().find((entry) => entry.role === role);
-    const key = failover.current(role, names);
-    states.push({ role, key, switchedAt: switched?.key === key ? switched.switchedAt : null });
-  }
-  return states;
-}
-
-/**
- * Where one request of a role goes out: the key of `llm.keyByRole` (read now) else the main key, and, for a list of two or
- * more keys, how a budget error moves it on.
- */
+/** Where one request of a role goes out: its key, the name a usage line gives it, and how a budget error moves it on. */
 type KeyRoute = {
   /** The key value the next send uses. */
   key(): string;
-  /** `fields` of a usage line with `key`, the variable the request's key came from, unless that is the main key's. */
+  /** `fields` of a usage line with `key`, the name of the request's key, when the key has one. */
   named<T extends object>(fields: T): T | (T & { key: string });
   /**
    * An answer that was not ok: on a budget error of a listed role the role moves to its next key and `send` runs again
@@ -967,44 +931,13 @@ type KeyRoute = {
   ): Promise<{ response: Response; error: HttpError }>;
 };
 
-function createKeyRoute({
-  config,
-  env,
-  role: givenRole,
-  mainKey,
-  failover,
-}: {
-  config: unknown;
-  env: Record<string, string | undefined>;
-  role: unknown;
-  mainKey: string;
-  failover: KeyFailover;
-}): KeyRoute {
-  const role = typeof givenRole === 'string' ? givenRole : '';
-  const names = roleKeyNames(config, env, role);
-  const listed = names.length >= 2;
-  let key = roleApiKey(config, env, role, mainKey, failover);
-  if (!key) throw roleKeyMissing();
-  let current = listed ? failover.current(role, names) : '';
+/** The route of a client built on the one key `mainKey` with no key ring: every role on it, with no other key to move to. */
+function createSingleKeyRoute(mainKey: string): KeyRoute {
+  if (!mainKey) throw roleKeyMissing();
   return {
-    key: () => key,
-    named(fields) {
-      // The list's current name, the one name a role maps to, else the main key's.
-      const only = names.length === 1 ? (names[0] ?? '') : '';
-      const name = listed ? current : only && env[only] === key ? only : MAIN_KEY_NAME;
-      return name === MAIN_KEY_NAME ? fields : { ...fields, key: name };
-    },
-    async failOver(first, firstError, send, signal) {
-      if (!listed || !isBudgetError(first.status, firstError.body)) return { response: first, error: firstError };
-      current = nextKeyOf(failover, role, names, current, first.status);
-      key = env[current] ?? key;
-      const again = await send(signal);
-      if (again.ok) return { response: again, error: firstError };
-      const error = await httpErrorOf(again);
-      // The repeat failed on a budget error too: with every key failed within a minute, the list is spent.
-      if (isBudgetError(again.status, error.body)) nextKeyOf(failover, role, names, current, again.status);
-      return { response: again, error };
-    },
+    key: () => mainKey,
+    named: (fields) => fields,
+    failOver: (first, firstError) => Promise.resolve({ response: first, error: firstError }),
   };
 }
 
@@ -1018,7 +951,7 @@ function roleKeyMissing(): Error {
 
 /**
  * The key route over the key ring (src/keys/ring.ts): the key of the role is read now, a usage line names it, and a budget
- * error moves a role with a list of core keys on and repeats once, as `createKeyRoute` does over `llm.keyByRole`.
+ * error moves a role with a list of core keys on and repeats once.
  */
 function createRingRoute({ keys, role: givenRole }: { keys: KeyRing; role: unknown }): KeyRoute {
   const role = typeof givenRole === 'string' ? givenRole : '';
@@ -1061,57 +994,40 @@ function ringStatesOf(keys: KeyRing): Array<KeyState> {
   return states;
 }
 
-/** The key ring a client was given, or the one its function gives now: null while the keys come from `.env`. */
+/** The key ring a client was given, or the one its function gives now: null for a client on its one key. */
 function ringOf(keys: KeyRing | (() => KeyRing | null) | undefined): KeyRing | null {
   return typeof keys === 'function' ? keys() : (keys ?? null);
 }
 
 /**
- * Where the client finds a key: the key ring when it has one (`keys`, or what its function gives now), else
- * `llm.keyByRole` over the parsed `.env` with `mainKey` as the default. Every read goes to the ring, the config and
- * the environment at the moment of use.
+ * Where the client finds a key: the key ring when it has one (`keys`, or what its function gives now), else the one key
+ * `mainKey` for every role. Every read goes to the ring at the moment of use.
  */
-function createKeyLookup({
-  keys,
-  getConfig,
-  env,
-  mainKey,
-  failover,
-}: {
-  keys: KeyRing | (() => KeyRing | null) | undefined;
-  getConfig: () => unknown;
-  env: Record<string, string | undefined>;
-  mainKey: string;
-  failover: KeyFailover;
-}) {
+function createKeyLookup({ keys, mainKey }: { keys: KeyRing | (() => KeyRing | null) | undefined; mainKey: string }) {
   const ring = (): KeyRing | null => ringOf(keys);
   return {
     /** The route of one request of `role`. */
     route(role: unknown): KeyRoute {
       const keyRing = ring();
-      if (keyRing) return createRingRoute({ keys: keyRing, role });
-      return createKeyRoute({ config: getConfig(), env, role, mainKey, failover });
+      return keyRing ? createRingRoute({ keys: keyRing, role }) : createSingleKeyRoute(mainKey);
     },
     /** The key a free read of `role` goes out on (the core's without a role); '' while the ring has none. */
     free(role: string | undefined): string {
       const keyRing = ring();
-      if (keyRing) return keyRing.route(role || 'core')?.value ?? '';
-      return role ? roleApiKey(getConfig(), env, role, mainKey, failover) : mainKey;
+      return keyRing ? (keyRing.route(role || 'core')?.value ?? '') : mainKey;
     },
-    /** The extra keys in use as the roles on each: the ring's bindings, else the keys `llm.keyByRole` names. */
+    /** The extra keys in use as the roles on each: the ring's bindings, none without a ring. */
     roleKeys(): Array<{ roles: Array<string> }> {
-      const keyRing = ring();
-      const groups = keyRing ? keyRing.bound() : roleKeyGroups(getConfig(), env, mainKey);
-      return groups.map(({ roles }) => ({ roles }));
+      return (ring()?.bound() ?? []).map(({ roles }) => ({ roles }));
     },
     /** `keyNames`: the names a request of `role` may go out on. `keyStates`: the roles that switched keys. */
     readers: {
       keyGrants: (): Record<string, { grant: number; resetDay: number }> | null => ring()?.grants() ?? null,
       keyVariables: (): Record<string, string> => ring()?.variables() ?? {},
-      keyNames: (role: string): Array<string> => ring()?.names(role) ?? roleKeyNames(getConfig(), env, role),
+      keyNames: (role: string): Array<string> => ring()?.names(role) ?? [],
       keyStates(): Array<KeyState> {
         const keyRing = ring();
-        return keyRing ? ringStatesOf(keyRing) : keyStatesOf(getConfig(), env, failover);
+        return keyRing ? ringStatesOf(keyRing) : [];
       },
     },
   };
@@ -1250,10 +1166,9 @@ type LimitReport = {
 /** What `createLlm` takes. */
 export type LlmDeps = {
   apiKey: string;
-  env?: Record<string, string | undefined>;
   /**
-   * The key ring (src/keys/ring.ts), or a function giving it, null while there is no `keys.json`. With a ring the key of
-   * every request comes from it, read at that moment, and `apiKey`, `env` and `llm.keyByRole` are not read.
+   * The key ring (src/keys/ring.ts), or a function giving it. With a ring the key of every request comes from it, read
+   * at that moment, and `apiKey` is not read; without one every request goes out on `apiKey`.
    */
   keys?: KeyRing | (() => KeyRing | null);
   getConfig: () => { llm: LlmSection };
@@ -1343,8 +1258,8 @@ type RequestBody = {
 export type FreeAnswer = { ok: boolean; status: number; json: object | null };
 
 /**
- * @param deps.apiKey `OPENROUTER_CORE_KEY`: every model role `llm.keyByRole` does not map elsewhere.
- * @param deps.env The parsed `.env` the role keys are looked up in (`roleApiKey`).
+ * @param deps.apiKey The one key of a client with no key ring (a script's), every role on it.
+ * @param deps.keys The key ring, or a function giving it; with one `apiKey` is not read.
  * @param deps.getConfig Returns the live config (hot-reloaded).
  * @param deps.calibrator From createCalibrator().
  * @param deps.state Persistent state with `llmDay` / `llmCount` fields.
@@ -1354,7 +1269,6 @@ export type FreeAnswer = { ok: boolean; status: number; json: object | null };
  */
 export function createLlm({
   apiKey,
-  env = {},
   keys,
   getConfig,
   calibrator,
@@ -1364,8 +1278,7 @@ export function createLlm({
   setTimer = (fn, ms) => setTimeout(fn, ms),
   clearTimer = (handle) => clearTimeout(handle),
 }: LlmDeps): Llm {
-  const failover = createKeyFailover({ now });
-  const lookup = createKeyLookup({ keys, getConfig, env, mainKey: apiKey, failover });
+  const lookup = createKeyLookup({ keys, mainKey: apiKey });
   /**
    * The requests `llm.maxRequestsPerDay` still allows today, read only: the cap, read now,
    * minus `llmCountToday` (the stored count of another UTC day reads as 0, so the whole cap is
@@ -1911,7 +1824,7 @@ export function createLlm({
    * the parsed body of a 2xx answer (null when it is not JSON, or on any other status). Never
    * counted against `llm.maxRequestsPerDay`, never calibrated, never retried, nothing logged. A
    * network failure or the `timeoutMs` abort (default `llm.timeoutMs`) throws as fetch throws it.
-   * `apiKey` replaces the client's key for this GET; else `role` reads that model role's key (`roleApiKey`).
+   * `apiKey` replaces the client's key for this GET; else `role` reads that model role's key (`lookup.free`).
    */
   async function getFree(
     endpoint: string,
@@ -1936,7 +1849,7 @@ export function createLlm({
    * The API key's own record (`<llm.baseUrl>/key`: its limit, reset, budgets and usage), one free
    * GET (see `getFree`). For the costs field of the owner's `/nep status` card. `apiKey` reads
    * another key's record (the simulator key's), `role` the record of the key that model role goes out on
-   * (`llm.keyByRole`), for this one GET only.
+   * (the key ring's route), for this one GET only.
    */
   const keyInfo: Llm['keyInfo'] = (options) => getFree('key', options);
 
@@ -1947,7 +1860,7 @@ export function createLlm({
   const credits: Llm['credits'] = (options) => getFree('credits', options);
 
   /**
-   * The extra keys `llm.keyByRole` puts in use now (`roleKeyGroups`), each as the model roles on it --
+   * The extra keys the key ring's bindings put in use now, each as the model roles on it --
    * never the key itself. The status card reads each one's record with `keyInfo({ role })`.
    */
   const roleKeys: Llm['roleKeys'] = () => lookup.roleKeys();
@@ -1962,7 +1875,7 @@ export function createLlm({
     getFree(`activity?api_key_hash=${encodeURIComponent(String(hash))}`, { timeoutMs, apiKey: managementKey });
 
   /**
-   * The hash (`keyHashOf`) of the key `role` goes out on (`roleApiKey`), or of the main key
+   * The hash (`keyHashOf`) of the key `role` goes out on (the key ring's route), or of the main key
    * without one: what `activity` asks about, never the key itself.
    */
   const keyHash: Llm['keyHash'] = ({ role } = {}) => keyHashOf(lookup.free(role));

@@ -42,7 +42,7 @@ export const CORE_ROLE = 'core';
 /**
  * Her memory session and description review (src/memory/db/session.ts): words in her voice, so the model role sits beside
  * the core (`models.base.memory`, built-in default the core's), but it is not one of ROLES: `/nep model` does not list it.
- * Its key (`llm.keyByRole.memory`) never falls back to another key.
+ * Its key is the extra key `llm.boundKeys` binds to it, else the core keys (src/keys/ring.ts).
  */
 export const MEMORY_ROLE = 'memory';
 

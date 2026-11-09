@@ -288,7 +288,6 @@ export type ErrandServiceOptions = {
   client: Partial<ErrandClient>;
   stores: ErrandStores;
   hot: Untyped;
-  env?: Record<string, string | undefined>;
   memory?: {
     recentLines: (chatId: string, count: number) => Array<{ author?: unknown; text?: unknown }>;
   } | null;

@@ -164,8 +164,6 @@ import type { Track } from '../../loop-watch.ts';
 import { untracked } from '../../loop-watch.ts';
 import type { KeyRing } from '../../keys/ring.ts';
 import { dbOf, asText, isFiniteNumber } from './types.ts';
-import { fillMethods } from './selfreflection-fills.ts';
-import type { FillMethods } from './selfreflection-fills.ts';
 import type { Context } from './scope.ts';
 
 /** The folder of the unit writes that failed at a shutdown (stage W2b), under the data directory. */
@@ -544,8 +542,7 @@ export type MemoryDbStatus = {
 };
 
 /** What `createMemoryDb` gives its callers. */
-// `onSelfreflectionFill` and `selfreflectionAudienceFill` are declared with their wiring in selfreflection-fills.ts.
-export type MemoryDbService = FillMethods & {
+export type MemoryDbService = {
   namespace(): string | null;
   open(): Promise<void>;
   tick(): Promise<void>;
@@ -677,10 +674,10 @@ const codeOf = (error: unknown): string => {
 };
 
 /** Report effective model choices after the core's dependencies are available. */
-function reportEffectiveModels(config: Config, env: Row | null, log: Log): Promise<void> {
+function reportEffectiveModels(config: Config, ring: KeyRing | null, log: Log): Promise<void> {
   return import('./writer-switch.ts')
     .then(({ effectiveModels, effectiveModelsLine }) =>
-      log.info('memory db: effective models', { purposes: effectiveModelsLine(effectiveModels(config, env)) })
+      log.info('memory db: effective models', { purposes: effectiveModelsLine(effectiveModels(config, ring)) })
     )
     .catch((error) => log.warn('memory db: effective models failed', { code: codeOf(error) }));
 }
@@ -1390,7 +1387,7 @@ export function createMemoryDb({
   function logEffectiveModels() {
     if (modelsLogged) return Promise.resolve();
     modelsLogged = true;
-    return reportEffectiveModels(hot.config, sessionEnv?.() ?? null, log);
+    return reportEffectiveModels(hot.config, sessionKeys(), log);
   }
 
   /** One failing scope told once (`onSessionFailure`) until it runs fine again, with the scope the run names. */
@@ -1849,7 +1846,7 @@ export function createMemoryDb({
       const deps = { db: dbOf(opened()), write: memoryWrite, llm, hot, now, selfName: selfName() ?? '' };
       return bindAccount(deps, input, confirm);
     },
-    ...fillMethods(log, memoryWrite, write),
+    memoryWrite,
     inspection,
     ...privateReads(() => dbOf(opened())),
     observe,

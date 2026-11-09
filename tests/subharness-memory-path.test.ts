@@ -26,6 +26,7 @@ import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
 import type { KeysFile } from './fixtures/keys-file.ts';
 import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { memoryRing } from './fixtures/memory-db/session-rig.ts';
 
 const HELP_WITH_EFFORT = 'Usage: claude [options]\n  --model <model>\n  --effort <level>  reasoning effort\n';
 const HELP_WITHOUT_EFFORT = 'Usage: claude [options]\n  --model <model>\n';
@@ -333,8 +334,9 @@ test('the memory status line names the subharness path it runs on', () => {
   const handle = openMemoryDb(':memory:');
   const status = sessionStatus({
     db: dbOf(handle),
-    config: { memoryDb: { session: { mode: 'apply' } }, llm: { keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } } },
-    env: { OPENROUTER_MEMORY_KEY: 'k' },
+    config: { memoryDb: { session: { mode: 'apply' } } },
+    env: {},
+    ring: memoryRing(),
     prompts: { 'memory-session': 'SESSION' },
     path: { kind: 'subharness', backend: 'codex', model: 'gpt-6.1-sol', effort: null },
   });
@@ -348,8 +350,9 @@ test('the memory status line says direct when no path is given', () => {
   const handle = openMemoryDb(':memory:');
   const status = sessionStatus({
     db: dbOf(handle),
-    config: { memoryDb: { session: { mode: 'apply' } }, llm: { keyByRole: { memory: 'OPENROUTER_MEMORY_KEY' } } },
-    env: { OPENROUTER_MEMORY_KEY: 'k' },
+    config: { memoryDb: { session: { mode: 'apply' } } },
+    env: {},
+    ring: memoryRing(),
     prompts: { 'memory-session': 'SESSION' },
   });
   handle.close();
