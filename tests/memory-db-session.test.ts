@@ -58,7 +58,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 
-// Its key variable went with `llm.keyByRole`: the key ring routes the role (tests/simulation-key-ring.test.ts).
+// Its key variable went with `llm.keyByRole`: the key ring routes the role (src/keys/ring.ts).
 test('the memory role: its own model key and its own default model', () => {
   assert.deepEqual(roleConfigKeys(MEMORY_ROLE), ['models', 'base', 'memory']);
   assert.equal(roleModel({ models: { base: { memory: 'x/m', core: 'x/c' } } }, 'memory'), 'x/m');

@@ -1,7 +1,7 @@
-// The subscription route of her core and of the simulation
-// (docs/keys.md): `model set core|simulation <model> --via claude|codex [--effort <level>]` stores
-// the record `subharness.core` or `subharness.simulation` of keys.json after one reply, `model set core <model>` and
-// `model set simulation api` go back to the API, and `subharness status` names both routes. keys.json lives in a temp
+// The subscription route of her core
+// (docs/keys.md): `model set core <model> --via claude|codex [--effort <level>]` stores
+// the record `subharness.core` of keys.json after one reply, `model set core <model>` goes back to the API, and
+// `subharness status` names the route. keys.json lives in a temp
 // dir; the backend runner, its `--help` and fetch are fakes, so no model is asked and no request leaves the process.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,7 +15,6 @@ import type { EnableDeps } from '../src/subharness/control.ts';
 import { subharnessCommand } from '../src/interface/commands/subharness.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
-import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { createKeysCommands } from '../src/keys/commands.ts';
 import { createKeyRing } from '../src/keys/ring.ts';
 import { createKeyStore } from '../src/keys/store.ts';
@@ -78,22 +77,6 @@ test('a core route is stored after one reply on its model and effort', async () 
   });
 });
 
-test('the simulation route is its own record and leaves the core and the memory writer where they were', async () => {
-  // Catches: one shared record, so moving the simulation to codex also moves her live turns, or a write that drops the memory path.
-  const memory = { backend: 'claude', model: 'claude-opus-4-6', effort: null };
-  const { dir, deps } = rig({ subharness: { memory } });
-  const result = await setSubscriptionPath(deps, 'simulation', 'codex', 'gpt-6.1-sol');
-  assert.equal(result.ok, true);
-  assert.deepEqual(subscriptionPath(dir, 'simulation'), {
-    kind: 'subharness',
-    backend: 'codex',
-    model: 'gpt-6.1-sol',
-    effort: null,
-  });
-  assert.deepEqual(subscriptionPath(dir, 'core'), { kind: 'api' });
-  assert.deepEqual(readKeysFile(dir).subharness.memory, memory);
-});
-
 test('opencode is refused as a core backend before anything runs', async () => {
   // Catches: her turn sent to `opencode run`, which cannot replace its own system prompt.
   const { dir, deps, ran } = rig();
@@ -128,17 +111,17 @@ test('a stored record naming opencode reads as the API route', () => {
   assert.deepEqual(subscriptionPath(dir, 'core'), { kind: 'api' });
 });
 
-test('clearing the core route returns it to the API and leaves the simulation route', () => {
-  // Catches: the way back clearing both records, so the owner's simulation setup is lost by a core switch.
-  const simulation = { backend: 'codex', model: 'gpt-6.1-sol', effort: null };
+test('clearing the core route returns it to the API and leaves the memory writer path', () => {
+  // Catches: the way back clearing every record, so the memory writer's path is lost by a core switch.
+  const memory = { backend: 'codex', model: 'gpt-6.1-sol', effort: null };
   const { dir } = rig({
-    subharness: { core: { backend: 'claude', model: 'claude-opus-4-6', effort: null }, simulation },
+    subharness: { core: { backend: 'claude', model: 'claude-opus-4-6', effort: null }, memory },
   });
   const result = clearSubscriptionPath(dir, 'core');
   assert.equal(result.ok, true);
   assert.equal(result.changed, true);
   assert.deepEqual(subscriptionPath(dir, 'core'), { kind: 'api' });
-  assert.deepEqual(readKeysFile(dir).subharness.simulation, simulation);
+  assert.deepEqual(readKeysFile(dir).subharness.memory, memory);
 });
 
 test('the route in words names the backend, the model and the effort', () => {
@@ -150,15 +133,6 @@ test('the route in words names the backend, the model and the effort', () => {
 });
 
 // the command line and the console
-
-test('the table parses model set simulation with --via and --effort', () => {
-  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
-  // Catches: simulation refused as no model role, so the owner cannot reach its route at all.
-  const parsed = parseCommandLine('/model set simulation --via codex-harness gpt-6.1-sol --effort high');
-  assert.equal(parsed.ok, true);
-  if (parsed.ok)
-    assert.deepEqual(parsed.args, { role: 'simulation', via: 'codex-harness', model: 'gpt-6.1-sol', effort: 'high' });
-});
 
 /** What the core hands the console of `deps`: everything but the private directory, which the console has. */
 const consoleSubharness = (deps: EnableDeps): ConsoleDeps['subharness'] => ({
@@ -216,34 +190,6 @@ test('model set core with --via goes through the subharness and stores the core 
   assert.deepEqual(readKeysFile(dir).subharness.core, { backend: 'claude', model: 'claude-opus-4-6', effort: 'low' });
 });
 
-test('model set simulation with --via stores the simulation route', async () => {
-  // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
-  // Catches: the simulation's --via written into the core record, which moves her live turns.
-  const { dir, deps } = rig();
-  const { desk } = consoleOver(dir, consoleSubharness(deps));
-  const answer = await desk.run(
-    'model.set',
-    { role: 'simulation', via: 'codex-harness', model: 'gpt-6.1-sol' },
-    { id: 'owner' }
-  );
-  assert.equal(answer.status, 'ok', answer.text);
-  assert.deepEqual(readKeysFile(dir).subharness.simulation, { backend: 'codex', model: 'gpt-6.1-sol', effort: null });
-  assert.equal(readKeysFile(dir).subharness.core ?? null, null);
-});
-
-test('model set simulation api returns the simulation to the API in one command', async () => {
-  // Catches: no way back for the simulation but editing keys.json by hand.
-  const { dir, deps, ran } = rig({
-    subharness: { simulation: { backend: 'codex', model: 'gpt-6.1-sol', effort: null } },
-  });
-  const { desk, keysCalls } = consoleOver(dir, consoleSubharness(deps));
-  const answer = await desk.run('model.set', { role: 'simulation', model: 'api' }, { id: 'owner' });
-  assert.equal(answer.status, 'ok', answer.text);
-  assert.deepEqual(subscriptionPath(dir, 'simulation'), { kind: 'api' });
-  assert.deepEqual(ran, []);
-  assert.deepEqual(keysCalls, []);
-});
-
 test('model set core without --via stays with the key commands', async () => {
   // Catches: every core model set routed to the subharness, so her API model can no longer be changed.
   const { dir, deps, ran } = rig();
@@ -288,13 +234,12 @@ test('a direct model set of core returns her turns to the API route after its ch
 
 // what the owner reads
 
-test('subharness status names the core and the simulation routes', async () => {
+test('subharness status names the core route', async () => {
   // Catches: the status lists the agents and memory alone, so the owner cannot see that her turns run on a subscription.
   const { deps } = rig({ subharness: { core: { backend: 'claude', model: 'claude-opus-4-6', effort: 'low' } } });
   const status = await subharnessCommand(deps, 'subharness.status', {});
   const core = lineOf(status.text, 'core');
   for (const word of ['claude', 'claude-opus-4-6', 'low']) assert.ok(core.includes(word), `${word} on "${core}"`);
-  assert.ok(lineOf(status.text, 'simulation').includes('api'), status.text);
 });
 
 test('subharness status marks a core route whose backend cannot run now', async () => {

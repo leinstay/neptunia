@@ -23,7 +23,7 @@ const MIDNIGHT = '2026-11-06T00:00:00.000Z';
 /** Key values shaped like no real key, built in pieces so no scanner takes them for one. */
 const CORE_VALUE = ['invented', 'core', 'c0ffee11223344556677'].join('-');
 const HELPERS_VALUE = ['invented', 'helpers', 'beef00112233445566'].join('-');
-const SIMULATION_VALUE = ['invented', 'sim', 'f00d99887766554433'].join('-');
+const SPARE_VALUE = ['invented', 'sim', 'f00d99887766554433'].join('-');
 const KEYS: ReadonlyArray<MoneyKey> = [
   { slot: 'core', service: 'openrouter', value: CORE_VALUE },
   { slot: 'helpers', service: 'openrouter', value: HELPERS_VALUE },
@@ -204,16 +204,13 @@ test('a key that runs out before its reset is short, with the hour it runs out',
 // Bug: a refused or unreachable key read fails the whole fact, or is filled with a guess.
 test('a failed read is unavailable with its code, and the other keys are still read', async () => {
   const handle = freshHandle();
-  const keys: ReadonlyArray<MoneyKey> = [
-    ...KEYS,
-    { slot: 'simulation', service: 'openrouter', value: SIMULATION_VALUE },
-  ];
+  const keys: ReadonlyArray<MoneyKey> = [...KEYS, { slot: 'spare', service: 'openrouter', value: SPARE_VALUE }];
   const { facts } = await factsOf(handle, {
     keys,
     answers: {
       [CORE_VALUE]: { status: 200, body: keyAnswer({}) },
       [HELPERS_VALUE]: { status: 401, body: { error: { code: 401 } } },
-      [SIMULATION_VALUE]: 'throw',
+      [SPARE_VALUE]: 'throw',
     },
   });
   handle.close();
@@ -226,7 +223,7 @@ test('a failed read is unavailable with its code, and the other keys are still r
     JSON.stringify(facts.unavailable)
   );
   assert.ok(
-    facts.unavailable.some((one) => one.slot === 'simulation' && one.code !== ''),
+    facts.unavailable.some((one) => one.slot === 'spare' && one.code !== ''),
     JSON.stringify(facts.unavailable)
   );
 });

@@ -1,9 +1,9 @@
-// The key store's file and the routing as the subharness, simulation and setup tests see them: the secrets in
+// The key store's file and the routing as the subharness and setup tests see them: the secrets in
 // `<privateDir>/keys.json` and which part runs on what in `<privateDir>/config/config.json`, written and read here as
 // plain JSON in the shapes `src/keys/` and `src/subharness/routing.ts` write, so a test of those modules does not depend on
 // their own code. A test hands one `KeysFile` in the shape keys.json once had, and `writeKeysFile` puts each section
-// where it lives: `core` and `extra` in keys.json, `roles` under `llm.boundKeys`, `simulation.key` under
-// `llm.simulationKey`, the agents' maps under `models.agents` and the three paths under `models.harness`.
+// where it lives: `core` and `extra` in keys.json, `roles` under `llm.boundKeys`, the agents' maps under
+// `models.agents` and the two paths under `models.harness`.
 // `readKeysFile` reads both files back into that one shape. Mode 600 like the real files.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -39,10 +39,7 @@ export type KeysFile = {
     memory?: PathRecord | null;
     /** the core's subscription route; absent or null is the API route */
     core?: PathRecord | null;
-    /** the simulation's subscription route; absent or null is the API route */
-    simulation?: PathRecord | null;
   };
-  simulation: { key: string | null };
 };
 
 /** The values of a deployment that has just run `neptunia setup`. */
@@ -51,7 +48,6 @@ export const EMPTY_KEYS: KeysFile = {
   extra: {},
   roles: {},
   subharness: { backend: null, key: null, modes: {} },
-  simulation: { key: null },
 };
 
 export const keysPath = (privateDir: string): string => path.join(privateDir, 'keys.json');
@@ -84,7 +80,7 @@ function writeJson(file: string, value: unknown): void {
 
 /** Writes keys.json and the routing of config.json with `changes` laid over the empty store; other settings stay. */
 export function writeKeysFile(privateDir: string, changes: Partial<KeysFile> = {}): void {
-  const { roles, subharness: sub, simulation, ...secrets } = { ...EMPTY_KEYS, ...changes };
+  const { roles, subharness: sub, ...secrets } = { ...EMPTY_KEYS, ...changes };
   writeJson(keysPath(privateDir), secrets);
   let config: Tree = {};
   try {
@@ -100,9 +96,9 @@ export function writeKeysFile(privateDir: string, changes: Partial<KeysFile> = {
   agents = placed(agents, 'mode', sub.modes);
   agents = placed(agents, 'opencodeKey', sub.key);
   let harness: Tree = {};
-  for (const slot of ['core', 'memory', 'simulation'] as const) harness = placed(harness, slot, sub[slot]);
+  for (const slot of ['core', 'memory'] as const) harness = placed(harness, slot, sub[slot]);
   const models = placed(placed(treeOf(config.models), 'agents', agents), 'harness', harness);
-  const llm = placed(placed(treeOf(config.llm), 'boundKeys', roles), 'simulationKey', simulation.key);
+  const llm = placed(treeOf(config.llm), 'boundKeys', roles);
   writeJson(routingPath(privateDir), placed(placed(config, 'models', models), 'llm', llm));
 }
 
@@ -133,8 +129,6 @@ export function readKeysFile(privateDir: string): KeysFile {
       providers: treeOf(agents.provider) as Record<string, string>,
       memory: record(harness.memory),
       core: record(harness.core),
-      simulation: record(harness.simulation),
     },
-    simulation: { key: typeof llm.simulationKey === 'string' ? llm.simulationKey : null },
   };
 }

@@ -20,6 +20,8 @@ import type { KeyRing } from '../src/keys/ring.ts';
 import type { CompleteResult } from '../src/llm/openrouter.ts';
 import type { ChildOutcome, ChildRun } from '../src/subharness/memory-writer.ts';
 import type { SubscriptionChild, SubscriptionProcess } from '../src/subharness/subscription-client.ts';
+import { connectSocket, MAX_FRAME_BYTES } from '../src/protocol/wire.ts';
+import { bridgePeer } from '../src/subharness/tool-bridge.ts';
 import { routingPath, writeKeysFile } from './fixtures/keys-file.ts';
 import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -466,4 +468,58 @@ test('the routing reads a changed config.json at the next request', async () => 
   await routing.llm.complete(MESSAGES, { role: 'analyzer' });
   assert.equal(sent[0].key, HELPERS_KEY);
   assert.ok(fs.existsSync(path.join(dir, 'keys.json')));
+});
+
+/** The value after `flag` in an argv. */
+const argOf = (args: ReadonlyArray<string>, flag: string): string => args[args.indexOf(flag) + 1] ?? '';
+
+/**
+ * A spawn whose run first does what `bin/neptunia-mcp.ts` does (reads the token file, connects to the socket of the
+ * `--mcp-config`, lists the tools), then answers with the finished message of `fakeSpawn`.
+ */
+function bridgeSpawn() {
+  const answer = fakeSpawn();
+  const listed: Array<string> = [];
+  const sockets: Array<string> = [];
+  const spawn = (child: SubscriptionChild): SubscriptionProcess => {
+    const config = JSON.parse(argOf(child.args, '--mcp-config')) as { mcpServers: { nep: { args: Array<string> } } };
+    const { args } = config.mcpServers.nep;
+    const socketPath = argOf(args, '--socket');
+    sockets.push(socketPath);
+    const token = fs.readFileSync(argOf(args, '--token-file'), 'utf8').trim();
+    const peerDone = connectSocket({ path: socketPath, maxFrameBytes: MAX_FRAME_BYTES }).then(async (transport) => {
+      const tools = await bridgePeer(transport, token).list();
+      for (const tool of tools) listed.push((tool as { function: { name: string } }).function.name);
+      transport.close();
+    });
+    const run = answer.spawn(child);
+    const { lines } = run;
+    const held: AsyncIterable<string> = {
+      [Symbol.asyncIterator]: () => {
+        const inner = lines[Symbol.asyncIterator]();
+        return { next: () => peerDone.then(() => inner.next()) };
+      },
+    };
+    return { ...run, lines: held, exited: peerDone.then(() => 0) };
+  };
+  return { spawn, listed, sockets };
+}
+
+test("a core step with tools on a harness reaches the script's own bridge, which lists the step's tools", async () => {
+  // Catches: the script handing the CLI a socket nobody listens on, so her tools never reach a replay on a harness.
+  const { deps } = rig();
+  const fake = bridgeSpawn();
+  const tools = [
+    { type: 'function', function: { name: 'memory.search', description: 'search', parameters: { type: 'object' } } },
+  ];
+  const routing = await scriptRouting('replay-cli', {
+    ...deps({ core: parseRoute('t', 'core', 'harness:claude/claude-sonnet-5-5') }),
+    spawn: fake.spawn,
+  });
+  const answer = await routing.llm.complete(MESSAGES, { role: 'core', purpose: 'reply', tools });
+  assert.equal(answer.text, FINAL);
+  assert.deepEqual(fake.listed, ['memory.search']);
+  await routing.close();
+  const [socket = ''] = fake.sockets;
+  assert.equal(fs.existsSync(socket), false);
 });

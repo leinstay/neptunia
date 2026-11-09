@@ -68,7 +68,6 @@ test('the table holds the plural collections and none of the retired singular or
       'rules',
       'search',
       'services',
-      'simulation',
       'skills',
       'status',
       'subharness',
