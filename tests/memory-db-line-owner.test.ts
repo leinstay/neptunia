@@ -107,13 +107,14 @@ async function writeAll(memory: Memory): Promise<Db> {
     message: { id: 'm0', at: Date.parse(DAY), content: 'an observed line', author: { id: 'member' } },
   });
   if (!observed) throw new Error('synthetic message rejected');
-  await memory.memoryDb.observeMessage(observed, { placeId: ROOT });
-  await memory.memoryDb.writeRecordLines({ placeId: ROOT, lines: [seen('s1', 'm1'), seen('s2', 'm2')] });
-  await memory.memoryDb.writeJournalLines({ placeId: ROOT, lines: [turn('t1'), memoryLine('d1')] });
-  await memory.memoryDb.writeJournalLines({ placeId: null, lines: [turn('t2')] });
-  await memory.memoryDb.writeArchiveLines({ placeId: ROOT, month: '2026-11', lines: [entry('a1', 'item-1')] });
-  await memory.memoryDb.writeArchiveLines({ placeId: null, month: '2026-11', lines: [entry('a2', 'item-2')] });
-  return dbOf(memory.memoryDb.readHandle()!);
+  const service = memory.memoryDb;
+  await service.observeMessage(observed, { placeId: ROOT });
+  await service.writeRecordLines({ placeId: ROOT, lines: [seen('s1', 'm1'), seen('s2', 'm2')] });
+  await service.writeJournalLines({ placeId: ROOT, lines: [turn('t1'), memoryLine('d1')] });
+  await service.writeJournalLines({ placeId: null, lines: [turn('t2')] });
+  await service.writeArchiveLines({ placeId: ROOT, month: '2026-11', lines: [entry('a1', 'item-1')] });
+  await service.writeArchiveLines({ placeId: null, month: '2026-11', lines: [entry('a2', 'item-2')] });
+  return dbOf(service.readHandle()!);
 }
 
 /** Everything the readers of the three give for the root and the persona. */
@@ -121,7 +122,7 @@ function readAll(db: Db): unknown {
   const recordDay = placeOrPersona('record', ROOT, { partition: DAY.slice(0, 10) });
   return {
     record: recordLines(db, recordDay),
-    days: recordDays(db, ROOT, '2026-11').map((day) => day.day),
+    days: recordDays(db, ROOT, '2026-11').map((entry) => entry.day),
     months: recordMonths(db, ROOT),
     stats: recordStats(db, ROOT),
     holders: recordHolders(db),
