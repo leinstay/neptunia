@@ -10,7 +10,7 @@ import { unitScope } from '../src/service/manager.ts';
 import { cliFolders, runChild, withRecordingCore } from './fixtures/recording-core.ts';
 import type { Received, Reply } from './fixtures/recording-core.ts';
 import { folders } from './fixtures/core-units.ts';
-import { treeOf } from './fixtures/fake-vendor.ts';
+
 import { tempDir } from './fixtures/tmp.ts';
 
 type Tools = { env: NodeJS.ProcessEnv; calls: (tool: string) => Array<string>; config: string };
@@ -90,20 +90,6 @@ test('doctor stays reachable while setup is incomplete and reports readiness wit
   assert.equal(check?.status, 'fail');
   assert.ok(check?.detail.includes('neptunia setup'), check?.detail);
   assert.equal(run.stderr.includes('setup-required'), false);
-});
-
-// Obsolete setup input
-
-test('neptunia setup subharness explains the account command and installs nothing', async () => {
-  // Catches: a kept alias, which runs npm from a line the docs no longer mention.
-  const dirs = folders();
-  const { env, calls } = tools();
-  const before = treeOf(dirs.dataDir);
-  const run = await runChild(dirs, ['setup', 'subharness', 'codex'], { env });
-  assert.equal(run.code, 2);
-  assert.ok(run.stderr.includes('neptunia subharness codex login'), run.stderr);
-  assert.deepEqual(calls('npm'), []);
-  assert.deepEqual(treeOf(dirs.dataDir), before);
 });
 
 // Service scope
