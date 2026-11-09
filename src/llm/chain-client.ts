@@ -70,6 +70,15 @@ function purposePin(config: unknown, purpose: unknown): string | undefined {
   return typeof pin === 'string' && pin !== '' ? pin : undefined;
 }
 
+/** The value of `llm.routeEffort.<role>` that asks each route for its least effort. */
+const LOWEST = 'lowest';
+
+/**
+ * The lowest effort level a harness route runs at: `low`, the lowest of EFFORT_LEVELS, which every backend takes; claude
+ * and codex get `--effort low` and `-c model_reasoning_effort=low` from it.
+ */
+const LOWEST_HARNESS_EFFORT = 'low';
+
 export function createChainClient(deps: ChainClientDeps): ChainClient {
   const routes = (role: RouteRole): Array<Route> =>
     deps.routes?.(role) ?? routesOf(deps.getConfig(), role, deps.keys.coreNames());
@@ -93,13 +102,18 @@ export function createChainClient(deps: ChainClientDeps): ChainClient {
     return chain.map((_, step) => (start + step) % chain.length);
   }
 
-  /** `route` with the default effort of its role (`llm.routeEffort.<role>`) when it names none. */
+  /**
+   * `route` with the default effort of its role (`llm.routeEffort.<role>`) when it names none. `lowest` resolves per
+   * route: none on an API route, where a request with no `reasoning` asks for the least, and the lowest level of the
+   * engine's levels through a harness (LOWEST_HARNESS_EFFORT).
+   */
   function withDefaultEffort(role: string, route: Route): Route {
     if (route.effort !== null) return route;
     const config = deps.getConfig();
     const llm = isRec(config) && isRec(config.llm) ? config.llm : {};
     const efforts = isRec(llm.routeEffort) ? llm.routeEffort : {};
     const effort = Object.hasOwn(efforts, role) ? efforts[role] : undefined;
+    if (effort === LOWEST) return route.via === 'harness' ? { ...route, effort: LOWEST_HARNESS_EFFORT } : route;
     return isEffortLevel(effort) ? { ...route, effort } : route;
   }
 

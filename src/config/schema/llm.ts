@@ -102,9 +102,9 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'key': 'llm.routeEffort',
     'types': ['map'],
     'reader': 'src/llm/chain-client.ts',
-    'default': { 'core': 'low' },
+    'default': { 'core': 'lowest' },
     'text':
-      'The effort a route of a role takes when its text names none, by role: `low`, `medium` or `high`. Shipped with `core` at `low`, the lowest the providers offer. Read at each request',
+      'The effort a route of a role takes when its text names none, by role: `low`, `medium`, `high` or `lowest`. `lowest` is the least each route offers: no `reasoning` on an API route, `low` through a harness. Shipped with `core` at `lowest`. An effort the route names wins. Read at each request',
   },
   {
     'key': 'llm.cache.ttl',
