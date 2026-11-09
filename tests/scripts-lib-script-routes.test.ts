@@ -198,7 +198,8 @@ test('the role flags leave the argv and the other flags stay in order', () => {
   );
   assert.deepEqual(taken.argv, ['--trigger', '1', '--samples', '2']);
   assert.equal(taken.variants.length, 1);
-  assert.deepEqual(taken.variants[0].routes.core, {
+  const [only] = taken.variants;
+  assert.deepEqual(only.routes.core, {
     kind: 'key',
     key: 'helpers',
     model: 'anthropic/claude-opus-5.5',
@@ -210,7 +211,8 @@ test('no role flag gives one variant that changes no role', () => {
   // Catches: an empty argv giving no variant, so a script runs nothing.
   const taken = takeRouteFlags('memory-session', ['--db', 'x.db'], { variants: true });
   assert.equal(taken.variants.length, 1);
-  assert.deepEqual(taken.variants[0].routes, {});
+  const [only] = taken.variants;
+  assert.deepEqual(only.routes, {});
 });
 
 test('each --variant runs on the role flags given outside it, with its own flags on top', () => {
@@ -229,10 +231,11 @@ test('each --variant runs on the role flags given outside it, with its own flags
   );
   assert.equal(taken.variants.length, 2);
   const [first, second] = taken.variants;
-  assert.equal(first.routes.analyzer?.model, 'openai/gpt-6.1-sol');
-  assert.equal(second.routes.analyzer?.model, 'openai/gpt-6.1-sol');
-  assert.equal(first.routes.core?.kind, 'key');
-  assert.equal(second.routes.core?.kind, 'harness');
+  const [one, two] = [first.routes, second.routes];
+  assert.equal(one.analyzer?.model, 'openai/gpt-6.1-sol');
+  assert.equal(two.analyzer?.model, 'openai/gpt-6.1-sol');
+  assert.equal(one.core?.kind, 'key');
+  assert.equal(two.core?.kind, 'harness');
   assert.notEqual(first.label, second.label);
 });
 
@@ -264,8 +267,9 @@ test('a key route sends the role on that key with its model and effort, and writ
   );
   await routing.llm.complete(MESSAGES, { role: 'core', purpose: 'reply' });
   assert.equal(sent[0].key, HELPERS_KEY);
-  assert.equal(sent[0].options.model, 'x-ai/grok-6');
-  assert.deepEqual(sent[0].options.reasoning, { effort: 'high' });
+  const [{ options }] = sent;
+  assert.equal(options.model, 'x-ai/grok-6');
+  assert.deepEqual(options.reasoning, { effort: 'high' });
   assert.equal(fs.readFileSync(routingPath(dir), 'utf8'), before);
   assert.equal(routing.keyOf('core'), HELPERS_KEY);
 });
@@ -303,7 +307,8 @@ test('a harness route on the core runs the core request through that CLI with it
   await routing.close();
   assert.equal(answer.text, FINAL);
   assert.equal(children.length, 1);
-  assert.equal(children[0].args[children[0].args.indexOf('--model') + 1], 'claude-opus-4-8');
+  const [{ args }] = children;
+  assert.equal(args[args.indexOf('--model') + 1], 'claude-opus-4-8');
   assert.equal(sent.length, 0);
 });
 
@@ -324,7 +329,8 @@ test("production's harness core carries the core request, and a key route on the
   await routing.llm.complete(MESSAGES, { role: 'core', purpose: 'reply' });
   await routing.close();
   assert.equal(overridden.children.length, 0);
-  assert.equal(overridden.sent[0].key, HELPERS_KEY);
+  const [sentOne] = overridden.sent;
+  assert.equal(sentOne.key, HELPERS_KEY);
 });
 
 test('a harness route on memory sends a memory request through the writer run and names the path', async () => {
@@ -394,9 +400,11 @@ test('the routed config replaces the models of the replaced roles and leaves the
     search: parseRoute('t', 'search', 'helpers/perplexity/sonar-pro'),
     vision: parseRoute('t', 'vision', 'helpers/google/gemini-3.8-flash'),
   }) as typeof LIVE & { models: { base: Record<string, unknown> } };
-  assert.equal(config.models.base.analyzer, 'google/gemini-3.8-flash');
-  assert.equal(config.models.base.vision, 'google/gemini-3.8-flash');
-  assert.equal(config.web.quickSearch.model, 'perplexity/sonar-pro');
+  const { base } = config.models;
+  const { quickSearch } = config.web;
+  assert.equal(base.analyzer, 'google/gemini-3.8-flash');
+  assert.equal(base.vision, 'google/gemini-3.8-flash');
+  assert.equal(quickSearch.model, 'perplexity/sonar-pro');
   assert.deepEqual(live, LIVE);
 });
 
