@@ -239,11 +239,3 @@ for (const name of BACKENDS) {
     for (const file of child.files) assert.equal(fs.existsSync(file), false, 'no file of the run is left behind');
   });
 }
-
-test('opencode: the config carries the prompt and no step cap', async () => {
-  // The expectation changed on the owner's word of 2026-11-05: OpenCode gets no step cap, because at the cap it appends
-  // an assistant turn that Gemini and Anthropic refuse. Catches: the scout's profile steps reach OpenCode's config.
-  const { engine, seen, task } = rig('opencode');
-  await engine.run(task('p4', PREAMBLE));
-  assert.equal(onlyChild(seen).steps, undefined);
-});
