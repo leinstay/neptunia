@@ -5,19 +5,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { localConfigPath } from '../config/files.ts';
-import { moveConfigKeys } from '../config-moves.ts';
-import { cutConfigKeys } from '../config/cut.ts';
 import { maskCredentials } from './report.ts';
 
 export type TrashCategory =
-  | 'units'
-  | 'identities'
-  | 'state-folders'
-  | 'stray-files'
-  | 'dangling-symlinks'
-  | 'retired-config-keys'
-  | 'unloaded-files';
+  'units' | 'identities' | 'state-folders' | 'stray-files' | 'dangling-symlinks' | 'unloaded-files';
 export type TrashWhere = 'install' | 'system';
 export type TrashItem = { name: string; category: TrashCategory; reason: string; where: TrashWhere };
 export type TrashGap = { category: TrashCategory; where: TrashWhere; reason: string };
@@ -243,33 +234,6 @@ function collectDangling(dir: string, sink: Sink): void {
   if (closed) sink.missing('a folder could not be read');
 }
 
-/** The keys of the settings file that nothing reads under that name, by name and never with a value. */
-function collectRetiredKeys(input: TrashInput, sink: Sink): void {
-  const privateDir = input.env.NEPTUNIA_PRIVATE_DIR;
-  if (privateDir === undefined) {
-    sink.missing('the private layer is unknown');
-    return;
-  }
-  let text: string;
-  try {
-    text = fs.readFileSync(localConfigPath(privateDir), 'utf8');
-  } catch {
-    return;
-  }
-  const parsed = JSON.parse(text) as Record<string, unknown>;
-  const moves = moveConfigKeys(structuredClone(parsed));
-  const cuts = cutConfigKeys(structuredClone(parsed));
-  const keys = new Set([
-    ...moves.moved.map((one) => one.from),
-    ...moves.shadowed.map((one) => one.from),
-    ...moves.dropped,
-    ...moves.toDatabase,
-    ...cuts.cut,
-    ...cuts.renamed.map((one) => one.from),
-  ]);
-  for (const key of keys) sink.item(key, 'nothing reads this name');
-}
-
 /** Every code file under a folder as one text, for the search for a name; the leftovers themselves are never opened. */
 function sourceText(dir: string): string {
   const entries = fs.readdirSync(dir, { recursive: true, withFileTypes: true });
@@ -323,9 +287,6 @@ export async function collectTrash(input: TrashInput): Promise<Trash> {
   await category(out, 'stray-files', 'install', (sink) => collectStray(input, input.installDir, sink));
   await category(out, 'dangling-symlinks', 'install', (sink) => {
     collectDangling(input.installDir, sink);
-  });
-  await category(out, 'retired-config-keys', 'install', (sink) => {
-    collectRetiredKeys(input, sink);
   });
   await category(out, 'unloaded-files', 'install', (sink) => {
     collectUnloaded(input, sink);

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// The deploy proof of the config cut (src/config/cut.ts): the effective settings of a private layer and the objects the
-// readers derive from them, written before a deploy and compared after it.
+// The deploy proof of a settings change: the effective settings of a private layer and the objects the readers derive
+// from them, written before a deploy and compared after it.
 //
 //   node scripts/config-effective.ts --snapshot <file> --private <dir>
 //   node scripts/config-effective.ts --compare <file> --private <dir>
@@ -10,8 +10,7 @@
 // what each reader derives from it, keyed by the reader's name (`recallSettings`, `loopSettings inner`,
 // `agentSettings scout`, ...). `--compare` derives the same from the layer as it is now and prints one line per leaf
 // that differs, `<config|settings>.<path>: before <json>, after <json>`, an absent value printed as `absent`. A line
-// ends in ` (declared)` when the cut declares the difference: a key it took out of the settings under `config.`, or a
-// daily cap's field under `settings.`. The last line is `equal: <n>, differ: <n>, declared: <n>`, `differ` counting
+// ends in ` (declared)` when the difference is a daily cap's field under `settings.`. The last line is `equal: <n>, differ: <n>, declared: <n>`, `differ` counting
 // the undeclared ones, and the run exits 1 when `differ` is above 0. Nothing here calls a model or writes outside
 // `<file>`.
 
@@ -19,7 +18,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ROOT_DIR, readConfig } from '../src/config.ts';
-import { CUT_KEYS } from '../src/config/cut.ts';
 import { audioMapSettings } from '../src/media/audio-map.ts';
 import { recentSettings } from '../src/memory/recent.ts';
 import { participationSettings } from '../src/memory/participation.ts';
@@ -99,13 +97,10 @@ const CAP_FIELDS = [
   'agentSettings server.daily',
 ];
 
-/** The dotted keys the cut took out of `config`, the renamed switches' new names among them. */
-const CUT_PATHS = CUT_KEYS.flatMap((row) => (row.becomes === 'rename' && row.to ? [row.key, row.to] : [row.key]));
-
-/** Whether the difference at `leaf` is one the cut declares. */
+/** Whether the difference at `leaf` is a declared one. */
 function declared(leaf: string): boolean {
   const under = (prefix: string, key: Untyped) => leaf === `${prefix}${key}` || leaf.startsWith(`${prefix}${key}.`);
-  return CUT_PATHS.some((key) => under('config.', key)) || CAP_FIELDS.some((field) => under('settings.', field));
+  return CAP_FIELDS.some((field) => under('settings.', field));
 }
 
 /** The effective config of the private layer `privateDir` and what the readers derive from it, as plain JSON. */

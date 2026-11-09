@@ -12,7 +12,6 @@ import {
   hasGrant,
   isOwnerId,
   expandGrant,
-  migrateGrants,
   describeGrants,
 } from '../src/tools/operations/grants.ts';
 import type { Access, GrantEntry, OpInfo, Rights } from '../src/tools/types.ts';
@@ -237,7 +236,7 @@ test('isAllowed: a member op passes for anyone, with no owners and no access at 
 });
 
 // ---------------------------------------------------------------------------
-// expandGrant / migrateGrants / describeGrants
+// expandGrant / describeGrants
 // ---------------------------------------------------------------------------
 
 test('expandGrant: an op name is itself; a group or * is the grantable read ops that exist now', () => {
@@ -262,84 +261,6 @@ test('expandGrant: an op name is itself; a group or * is the grantable read ops 
   assert.deepEqual(expandGrant('pings.get', OPS), { from: null, names: [], refused: ['pings.get'] });
   assert.equal(expandGrant('nonsense', OPS), null);
   assert.equal(expandGrant('memor', OPS), null, 'a group is a whole dotted segment');
-});
-
-test('isAllowed: an old memory.* grant after migration covers only the read ops that existed, never a later one', () => {
-  for (const key of ['memory', '*']) {
-    const { access } = migrateGrants({
-      access: { [key]: { everyone: false, roles: ['staff'], users: [] } },
-      ops: OPS,
-      legacy,
-    });
-    const asStaff = (name: string) => allowed(name, access, { roleIds: ['staff'] });
-    for (const name of ['memory.profile.read', 'memory.recent.read', 'memory.affinity.read'])
-      assert.equal(asStaff(name), true, `${key}: ${name}`);
-    for (const name of [
-      'memory.affinity.set',
-      'memory.refresh',
-      'memory.journal.read',
-      'memory.wipe',
-      'memory.private.read',
-    ]) {
-      assert.equal(asStaff(name), false, `${key}: ${name}`);
-    }
-    // an operation added after the migration is never covered by it
-    assert.equal(
-      isAllowed({ op: op('memory.mood.read'), member: { accountId: '2', roleIds: ['staff'] }, access, owners: ['1'] }),
-      false,
-      key
-    );
-    assert.equal(Object.hasOwn(access, key), false, `${key}: the pattern itself is not stored`);
-  }
-});
-
-test('migrateGrants: expands group and * grants into op entries once and drops owner-only ops with a note', () => {
-  const stored = {
-    memory: { everyone: true, roles: [], users: [] },
-    '*': { everyone: false, roles: ['staff'], users: [] },
-    set: { everyone: false, roles: [], users: ['9'] },
-    'memory.journal': { everyone: true, roles: [], users: [] },
-    'private.show': { everyone: false, roles: ['staff'], users: [] },
-    ping: { everyone: true, roles: [], users: [] },
-  };
-  const { access, report, note } = migrateGrants({ access: stored, ops: OPS, legacy });
-
-  assert.deepEqual(access['memory.profile.read'], {
-    everyone: true,
-    roles: ['staff'],
-    users: [],
-    via: { everyone: 'memory', 'role:staff': '*' },
-  });
-  assert.deepEqual(access['status.show'], { everyone: false, roles: ['staff'], users: [], via: { 'role:staff': '*' } });
-  assert.deepEqual(
-    access['config.set'],
-    { everyone: false, roles: [], users: ['9'] },
-    'an exact old key keeps its write'
-  );
-  for (const key of [
-    'memory',
-    '*',
-    'set',
-    'memory.journal',
-    'private.show',
-    'ping',
-    'memory.journal.read',
-    'memory.private.read',
-    'memory.refresh',
-  ]) {
-    assert.equal(Object.hasOwn(access, key), false, key);
-  }
-
-  const line = (key: string) => report.find((r) => r.key === key);
-  assert.deepEqual(line('memory')?.covers, ['memory.profile.read', 'memory.recent.read', 'memory.affinity.read']);
-  assert.deepEqual(line('memory.journal')?.dropped, ['memory.journal.read']);
-  assert.deepEqual(line('private.show')?.dropped, ['memory.private.read']);
-  assert.deepEqual(line('ping')?.dropped, ['ping']);
-  assert.match(note, /memory -> memory\.profile\.read, memory\.recent\.read, memory\.affinity\.read/);
-  assert.match(note, /memory\.journal -> nothing; dropped \(owner-only\): memory\.journal\.read/);
-
-  // once: migrating the migrated grants again changes nothing
-  assert.deepEqual(migrateGrants({ access, ops: OPS, legacy }).access, access);
 });
 
 test('access list: names the source of each right', () => {

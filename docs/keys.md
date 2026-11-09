@@ -88,8 +88,6 @@ The review's Enter sends one `model.set`, the same checked command a typed line 
 
 Quick search has its own `web.quickSearch.engine`, `web.quickSearch.model` and `search` key binding, independent of the analyzer. Neither setting has a default, so it stays off until `neptunia setup` or `/search engine` chooses an engine. The engines are `openrouter`, `brave` and `exa`, and nothing answers in place of the chosen one. `openrouter` needs `web.quickSearch.model` and uses the core key pool unless `search` is bound to a named extra key. It sends a model request with the search plugin, so the model and its cost matter. `brave` and `exa` need their service keys, and they condense a search for the selfreflection on `web.quickSearch.model` when one is set.
 
-`cutConfigKeys` of [src/config/cut.ts](../src/config/cut.ts) drops a retired `web.quickSearch.fallback` from a settings layer and leaves its engine as it is, so an `openrouter` layer needs its own `web.quickSearch.model`. The core warns once per process about a layer with retired keys.
-
 Use `/search` to inspect and change the engine, model and enabled state. Use `/keys bind search <name>` for an extra key and `/keys check search` to validate the binding.
 
 [Deep search](errands.md) runs through the scout. Its availability and credentials are separate from quick search.

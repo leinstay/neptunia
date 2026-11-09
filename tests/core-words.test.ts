@@ -40,7 +40,6 @@ const DISCORD_ALLOWED: ReadonlyArray<Allowed> = [
     pattern: /'interfaces (token set|enable) discord'/,
     why: 'the setup guide names the interface the owner enables first',
   },
-  { file: 'src/config/cut.ts', pattern: /discord/i, why: 'the config cut moves the Discord keys to their package' },
   // The offline converter names legacy inputs and their package destination without adding a runtime dependency.
   {
     file: 'src/setup/persona-migration.ts',
@@ -87,13 +86,10 @@ const HELPER_ALLOWED: ReadonlyArray<Allowed> = [
   { file: 'src/turn/act.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/turn/draw-gif.ts', pattern: /`?helper-timeout`?/, why: 'a limit kind the journal stores' },
   { file: 'src/behavior/missed.ts', pattern: /'missed: helper failed'/, why: 'a log line name' },
-  { file: 'src/config-moves.ts', pattern: /helperTimeoutMs/, why: 'the old name of a moved config key' },
 ];
 
 // `/nep` is gone (PR 7b of stage 7): its table, its key map and its two settings have no reader left.
-const SLASH_COMMAND_ALLOWED: ReadonlyArray<Allowed> = [
-  { file: 'src/config-moves.ts', pattern: /commandName|adminCommands/, why: 'the old names of dropped config keys' },
-];
+const SLASH_COMMAND_ALLOWED: ReadonlyArray<Allowed> = [];
 
 // An interface package's own `node_modules` holds its platform SDK, which is no code of ours.
 function sourceFiles(dir: string): Array<string> {

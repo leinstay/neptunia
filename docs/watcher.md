@@ -99,7 +99,6 @@ The rail `requestsPerDay` of `rails` holds the cap `llm.maxRequestsPerDay`, toda
 | `state-folders` | A `neptunia-*` folder of `/var/lib` that no unit names |
 | `stray-files` | An untracked file, from `git status --porcelain` |
 | `dangling-symlinks` | A link whose target is gone, outside `node_modules`, `.git`, `.worktrees` and `.claude` |
-| `retired-config-keys` | A key of the local settings that `moveConfigKeys` or `cutConfigKeys` would take out, by name and never with its value |
 | `unloaded-files` | A file of `prompts/` that `src/` never names, or a file of an agent's folder its profile does not name |
 
 What cannot be read is a row of `unavailable` with its category, its `where` and a reason, so an empty category means it was looked at. Each category in each place holds at most `TRASH_ITEM_LIMIT` (50) items, and a cut is named there too. A leftover the agent reports is a finding like any other: it repeats and turns `low`.

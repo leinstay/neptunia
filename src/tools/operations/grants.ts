@@ -8,8 +8,7 @@
 // exist then, one entry each, so a later operation (and every write) stays closed until it is
 // granted by name. A grant is `{ everyone, roles: [], users: [], via? }`; `via` names the group
 // or `*` a target came from (`everyone`, `role:<id>`, `user:<id>` -> the pattern), only so
-// `access list` can say where a right came from. `migrateGrants` re-expands the old command-key
-// grants under the operation names once (src/tools/operations/access.ts#migrateStoredGrants).
+// `access list` can say where a right came from.
 
 import { idText, isObj, listOf, objOf } from '../types.ts';
 import type { Access, GrantEntry, GrantTarget, Obj, OpInfo } from '../types.ts';
@@ -234,88 +233,6 @@ export function revoke(access: unknown, key: string, what: GrantTarget = {}): Ac
 export function hasGrant(access: unknown, key: string, what: GrantTarget = {}): boolean {
   if (!objOf(access)[key]) return false;
   return holds(entryOf(access, key), what);
-}
-
-/** Every target `entry` holds, as `grant`'s `what` argument. */
-function targetsOf(entry: GrantEntry): Array<GrantTarget> {
-  const out: Array<GrantTarget> = [];
-  if (entry.everyone) out.push({ everyone: true });
-  for (const roleId of entry.roles) out.push({ roleId: idText(roleId) });
-  for (const accountId of entry.users) out.push({ accountId: idText(accountId) });
-  return out;
-}
-
-/**
- * The stored grants re-expanded under the operation names, once (the old ones were keyed by
- * slash-command key, matched by group and `*` at check time). Per stored key: an operation name
- * stays as it is (dropped when no grant may open it); otherwise `legacy(key)` -- the operations
- * the old key ran (`from` null) or, for an old group or `*`, every operation under it (`from` the
- * pattern) -- decides: an old exact key keeps every grantable operation it ran, read or write; an
- * old group or `*` keeps only the grantable READ ones; whatever is owner-only, or a key that runs
- * no operation any more, is dropped and named. Pure; running it again on its result changes nothing.
- */
-export function migrateGrants({
-  access,
-  ops,
-  legacy,
-}: {
-  access: unknown;
-  ops: ReadonlyArray<OpInfo>;
-  legacy: ((key: string) => { from: string | null; names: Array<string> } | null) | null;
-}): { access: Access; report: Array<GrantReport>; note: string } {
-  const list = ops;
-  const byName = new Map(list.map((op) => [op.name, op]));
-  let next: Access = {};
-  const report: Array<GrantReport> = [];
-  const source = objOf(access);
-  /** The operation `name` of the list; a name taken from `byName` always has one. */
-  const opOf = (name: string): OpInfo => byName.get(name) ?? { name, rights: { kind: 'write', ownerOnly: true } };
-
-  for (const [key, raw] of Object.entries(source)) {
-    if (!isObj(raw)) continue;
-    const entry = entryOf(source, key);
-    if (byName.has(key)) {
-      const op = opOf(key);
-      if (isGrantableOp(op)) {
-        next = { ...next, [key]: mergeEntry(next[key], entry) };
-        report.push({ key, covers: [key], dropped: [] });
-      } else {
-        report.push({ key, covers: [], dropped: op.rights.member === true ? [] : [key] });
-      }
-      continue;
-    }
-    const mapped = typeof legacy === 'function' ? legacy(key) : null;
-    const names = [...new Set(mapped?.names ?? [])].filter((name) => byName.has(name));
-    const from = mapped?.from ?? null;
-    const covers = names.filter((name) => isGrantableOp(opOf(name)) && (!from || opOf(name).rights.kind === 'read'));
-    // A member operation is open without a grant: nothing is lost, so it is not named as dropped.
-    const dropped = mapped
-      ? names.filter((name) => !isGrantableOp(opOf(name)) && opOf(name).rights.member !== true)
-      : [key];
-    for (const name of covers) {
-      for (const what of targetsOf(entry)) next = grant(next, name, what, { from });
-    }
-    report.push({ key, covers, dropped });
-  }
-
-  const note = report
-    .map(({ key, covers, dropped }) => {
-      const head = `${key} -> ${covers.length ? covers.join(', ') : 'nothing'}`;
-      return dropped.length ? `${head}; dropped (owner-only): ${dropped.join(', ')}` : head;
-    })
-    .join(' | ');
-  return { access: next, report, note };
-}
-
-/** What the migration did with one stored key: the operations it now covers and the ones it dropped. */
-export type GrantReport = { key: string; covers: Array<string>; dropped: Array<string> };
-
-/** `incoming` (an already-migrated entry) merged over `current`, its sources kept. */
-function mergeEntry(current: unknown, incoming: GrantEntry): Obj {
-  const base = entryOf({ e: current }, 'e');
-  const roles = [...new Set([...base.roles, ...incoming.roles].map(idText))];
-  const users = [...new Set([...base.users, ...incoming.users].map(idText))];
-  return stored({ everyone: base.everyone || incoming.everyone, roles, users, via: { ...incoming.via, ...base.via } });
 }
 
 /**

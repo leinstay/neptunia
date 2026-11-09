@@ -1,13 +1,12 @@
 // S1 of plan 2026-11-04-cli-and-memory: the main channel is gone, with no replacement. A read-only source with no explicit
 // alternative has no target and nothing is sent: not the old configured channel, not the first writable place, not the
-// busiest one. `memory.mainChannelIds` cannot come back through an old local config.
+// busiest one.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as routing from '../src/turn/routing.ts';
-import { moveConfigKeys } from '../src/config-moves.ts';
 import * as memoryIndex from '../src/memory/index.ts';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -27,13 +26,6 @@ test('the shipped settings and the schema have no such key', () => {
     readFileSync(join(ROOT, 'src', 'config', 'schema', 'memory.ts'), 'utf8').includes('mainChannelIds'),
     false
   );
-});
-
-test('an old local config loses the key on load, and the drop is reported', () => {
-  // Bug: a config restored from a backup brings the fallback back, or loses it in silence.
-  const moved = moveConfigKeys({ memory: { mainChannelIds: ['c1'], aliasHalfLifeDays: 3 } });
-  assert.deepEqual(moved.config.memory, { aliasHalfLifeDays: 3 });
-  assert.ok(moved.dropped.includes('memory.mainChannelIds'));
 });
 
 test('the memory module no longer exports the channel set', () => {
@@ -57,7 +49,6 @@ test('nothing in the active tree or the docs names a main channel', () => {
   const hits: Array<string> = [];
   for (const root of ['src', 'bin', 'cli', 'config', 'prompts', 'agents', 'docs', 'interfaces']) {
     for (const file of walk(join(ROOT, root))) {
-      if (file === 'src/config-moves.ts') continue;
       if (/mainChannel|main channel|isMain\b/i.test(readFileSync(join(ROOT, file), 'utf8'))) hits.push(file);
     }
   }

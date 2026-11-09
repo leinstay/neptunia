@@ -25,7 +25,7 @@ export const SELFREFLECTION: ReadonlyArray<SchemaEntry> = [
     'reader': 'src/memory/db/service.ts',
     'default': '',
     'text':
-      "The seed of the selfreflection's first mirror: schema v15 makes this channel's place a `selfreflection` mirror, and `scripts/config-migrate.ts --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it",
+      "The seed of the selfreflection's first mirror: schema v15 makes this channel's place a `selfreflection` mirror. Nothing else reads it",
   },
   {
     'key': 'selfreflection.windows',

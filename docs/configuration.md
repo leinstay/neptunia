@@ -430,7 +430,7 @@ The engine proxy is described in [Proxy](proxy.md).
 |---|---|---|---|---|
 | `selfreflection.enabled` | boolean | `true` | Whether her selfreflection posts on its day plan. Off, the scheduler plans and posts nothing; a forced post still runs | `src/behavior/selfreflection.ts` |
 | `selfreflection.schedule` | string, null | `null` | Exact UTC slots of the selfreflection, `at 09:00,21:00` or `every 6h` laid from the start of the UTC day, which replace `windows` and its quiet days. A change moves the slots ahead on the current day. Null: the windows draw the day | `src/behavior/selfreflection.ts` |
-| `selfreflection.placeId` | string | `""` | The seed of the selfreflection's first mirror: schema v15 makes this channel's place a `selfreflection` mirror, and `scripts/config-migrate.ts --apply --db <memory.db>` then takes the key out of the local file. Nothing else reads it | `src/memory/db/service.ts` |
+| `selfreflection.placeId` | string | `""` | The seed of the selfreflection's first mirror: schema v15 makes this channel's place a `selfreflection` mirror. Nothing else reads it | `src/memory/db/service.ts` |
 | `selfreflection.windows` | array | `[{ "from": 7, "to": 11, "posts": [0, 0] }, { "from": 12, "to": 16, "posts": [0, 1] }, { "from": 18, "to": 1, "posts": [0, 2] }, { "from": 1, "to": 5, "posts": [0, 1] }]` | Posting windows in `bot.timezone`. Each has `from`, `to` (hours) and `posts: [min, max]` | `src/behavior/selfreflection.ts` |
 | `selfreflection.quietDayChance` | number | `0.3` | Chance of no posts for the whole day | `src/behavior/selfreflection.ts` |
 | `selfreflection.forceWaitMs` | number | `120000` | Milliseconds a forced post waits for a running turn | `src/behavior/selfreflection.ts` |
