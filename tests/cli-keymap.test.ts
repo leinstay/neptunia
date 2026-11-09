@@ -1,9 +1,9 @@
-// cli/keymap.ts: one action registry for dispatch and help, resolved against the focus context first, and cli/mouse.ts.
+// interfaces/cli/keymap.ts: one action registry for dispatch and help, resolved against the focus context first, and interfaces/cli/mouse.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildKeymap } from '../cli/keymap.ts';
-import type { FocusContext } from '../cli/keymap.ts';
-import { caretFromCell, mouseAvailable, parseMouse } from '../cli/mouse.ts';
+import { buildKeymap } from '../interfaces/cli/keymap.ts';
+import type { FocusContext } from '../interfaces/cli/keymap.ts';
+import { caretFromCell, mouseAvailable, parseMouse } from '../interfaces/cli/mouse.ts';
 
 const CONTEXTS: ReadonlyArray<FocusContext> = ['composer', 'menu', 'secret', 'attachment', 'panel', 'search'];
 

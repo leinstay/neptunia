@@ -2,7 +2,7 @@
 // the actions the client sends about one. Every one names its turn, so an acknowledgement can only ever be about the turn
 // it names. An event travels as a `command.result` of status `turn`, its text the event's JSON, and an action as a
 // `command.requested` whose name is the action's kind. src/turn/control.ts makes the events, src/interface/chat-turns.ts
-// sends them and takes the actions, and bin/cli-link.ts reads them.
+// sends them and takes the actions, and interfaces/cli/link.ts reads them.
 
 /** The status of a `command.result` that carries a turn event. */
 export const TURN_EVENT_STATUS = 'turn';

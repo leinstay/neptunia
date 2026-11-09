@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { KEY, chatEnv, press, shows, until, withChat } from './fixtures/chat-rig.ts';
 import type { Rig } from './fixtures/chat-rig.ts';
-import type { ChatEnv, Panel } from '../cli/app.ts';
+import type { ChatEnv, Panel } from '../interfaces/cli/app.ts';
 
 const text = (rig: Rig): string => rig.screen().join('\n');
 /** The window's top rule: the one row that starts with a run of box-drawing lines at the left edge. */

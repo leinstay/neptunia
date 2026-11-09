@@ -12,7 +12,6 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `.github/` | public | The continuous integration workflows, the issue and pull request templates and the README images. | nothing | none |
 | `prompts.local/` | local | A deployment prompt layer that shadows the tracked prompts. | nothing | none |
 | `config.local/` | local | A deployment's settings, labels and tool texts, each laid over its tracked file, and the settings of each interface it runs. | nothing | none |
-| `cli/` | public | The interactive presentation of the chat: Ink, written with createElement, importing nothing of the engine. | `ink`, `react`, `@jimp/*`, `@jsquash/webp`, `node:*`, `cli/**` | none |
 | `data/README.md` | public | The one public file of the persona root: what its folders hold. | nothing | none |
 | `data/` | local | A deployment memory, state and logs. | nothing | none |
 | `config/` | public | The tracked default settings, the labels code inserts (split into model and owner) and the texts of the persona's tools. | nothing | none |
@@ -21,7 +20,6 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `tsconfig.json` | public | The TypeScript compiler options used for type checking. | nothing | none |
 | `eslint.config.ts` | public | The ESLint flat configuration. | `@eslint/js`, `globals`, `eslint-plugin-import-x`, `typescript-eslint`, `scripts/eslint-test-rules.ts` | none |
 | `eslint-suppressions.json` | public | The recorded ESLint violations that may only shrink. | nothing | none |
-| `type-baseline.json` | public | The recorded type errors that may only shrink. | nothing | none |
 | `scripts/config/code-health-baseline.json` | public | The recorded size and structure breaches that may only shrink. | nothing | none |
 | `scripts/config/prose-baseline.json` | public | The recorded prose violations that may only shrink. | nothing | none |
 | `scripts/config/structure.json` | public | This manifest of the tracked tree. | nothing | none |
@@ -33,13 +31,14 @@ Every folder and file pattern of the tracked tree has a purpose, a layer, a list
 | `prompts/` | public | The tracked prompt files the model reads. | nothing | none |
 | `docs/` | public | How the engine works, one topic per file. | nothing | none |
 | `agents/` | public | The profile and prompt of each errand and development agent. | nothing | none |
-| `bin/` | public | Entry points that run as their own process. | `cli/**`, `node:*`, `src/**` | none |
+| `bin/` | public | Entry points that run as their own process. | `interfaces/cli/**`, `node:*`, `src/**` | none |
 | `deploy/` | public | The systemd unit templates that `neptunia setup` renders, and the description of what it does. | nothing | none |
 | `interfaces/README.md` | public | The overview of the interface packages. | nothing | none |
 | `interfaces/discord/` | public | The Discord interface: the only code that imports discord.js, translating between the platform and the protocol. It reads the core's media classifier and video-site matcher, pure modules, and classifies Discord's embeds and media addresses itself. | `node:*`, `discord.js`, `src/media/classify.ts`, `src/media/video-sites.ts`, `src/protocol/**`, `interfaces/discord/platform-types.ts`, `interfaces/discord/values.ts` | required |
 | `interfaces/discord/setup.ts` | public | The setup of the Discord interface, which refuses until the neptunia CLI runs it. No behaviour to test. | nothing | none |
-| `tests/` | public | The node:test files, one per module. | `cli/`, `discord.js`, `ink`, `react`, `eslint`, `typescript`, `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `bin/**`, `tests/**` | none |
-| `tests/fixtures/` | public | Fakes, harnesses and sample data the tests share. | `cli/**`, `@jimp/*`, `@jsquash/webp`, `discord.js`, `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `bin/**`, `tests/**` | none |
+| `interfaces/cli/` | public | The owner's chat in his terminal: the Ink presentation, written with createElement, and the link that serves the `cli` adapter. It reads the core's media classifier, a pure module, and nothing else of the engine beyond the protocol. | `ink`, `react`, `@jimp/*`, `@jsquash/webp`, `node:*`, `src/media/classify.ts`, `src/protocol/**`, `interfaces/cli/**` | none |
+| `tests/` | public | The node:test files, one per module. | `discord.js`, `ink`, `react`, `eslint`, `typescript`, `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `bin/**`, `tests/**` | none |
+| `tests/fixtures/` | public | Fakes, harnesses and sample data the tests share. | `@jimp/*`, `@jsquash/webp`, `discord.js`, `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `bin/**`, `tests/**` | none |
 | `scripts/` | public | Scripts for development and measurement, never run by the engine. | `node:*`, `src/**`, `interfaces/**`, `scripts/**`, `typescript`, `discord.js`, `eslint`, `estree` | none |
 | `scripts/lib/` | public | What the scripts under `scripts/` share. | `node:*`, `src/**`, `interfaces/**`, `scripts/**` | none |
 | `scripts/fixtures/` | public | Sample weeks for the virtual-week harness and the example scenarios of the replay script. | nothing | none |

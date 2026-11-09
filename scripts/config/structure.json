@@ -43,13 +43,6 @@
       "test": "none"
     },
     {
-      "path": "cli/",
-      "purpose": "The interactive presentation of the chat: Ink, written with createElement, importing nothing of the engine.",
-      "layer": "public",
-      "imports": ["ink", "react", "@jimp/*", "@jsquash/webp", "node:*", "cli/**"],
-      "test": "none"
-    },
-    {
       "path": "data/README.md",
       "purpose": "The one public file of the persona root: what its folders hold.",
       "layer": "public",
@@ -107,13 +100,6 @@
     {
       "path": "eslint-suppressions.json",
       "purpose": "The recorded ESLint violations that may only shrink.",
-      "layer": "public",
-      "imports": [],
-      "test": "none"
-    },
-    {
-      "path": "type-baseline.json",
-      "purpose": "The recorded type errors that may only shrink.",
       "layer": "public",
       "imports": [],
       "test": "none"
@@ -199,7 +185,7 @@
       "path": "bin/",
       "purpose": "Entry points that run as their own process.",
       "layer": "public",
-      "imports": ["cli/**", "node:*", "src/**"],
+      "imports": ["interfaces/cli/**", "node:*", "src/**"],
       "test": "none"
     },
     {
@@ -239,11 +225,26 @@
       "test": "none"
     },
     {
+      "path": "interfaces/cli/",
+      "purpose": "The owner's chat in his terminal: the Ink presentation, written with createElement, and the link that serves the `cli` adapter. It reads the core's media classifier, a pure module, and nothing else of the engine beyond the protocol.",
+      "layer": "public",
+      "imports": [
+        "ink",
+        "react",
+        "@jimp/*",
+        "@jsquash/webp",
+        "node:*",
+        "src/media/classify.ts",
+        "src/protocol/**",
+        "interfaces/cli/**"
+      ],
+      "test": "none"
+    },
+    {
       "path": "tests/",
       "purpose": "The node:test files, one per module.",
       "layer": "public",
       "imports": [
-        "cli/",
         "discord.js",
         "ink",
         "react",
@@ -263,7 +264,6 @@
       "purpose": "Fakes, harnesses and sample data the tests share.",
       "layer": "public",
       "imports": [
-        "cli/**",
         "@jimp/*",
         "@jsquash/webp",
         "discord.js",

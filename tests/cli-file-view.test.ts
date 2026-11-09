@@ -1,10 +1,10 @@
-// cli/file-view.ts: what `/attach open` draws of a picture in each format, through the public `viewFile` and
+// interfaces/cli/file-view.ts: what `/attach open` draws of a picture in each format, through the public `viewFile` and
 // `placementOf`. The pictures are built in the test (tests/fixtures/synthetic-images.ts), so no binary is committed.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { graphicBox, placementOf, viewFile } from '../cli/file-view.ts';
-import type { ViewedFile } from '../cli/file-view.ts';
-import type { GraphicsSupport } from '../cli/terminal-replies.ts';
+import { graphicBox, placementOf, viewFile } from '../interfaces/cli/file-view.ts';
+import type { ViewedFile } from '../interfaces/cli/file-view.ts';
+import type { GraphicsSupport } from '../interfaces/cli/terminal-replies.ts';
 import { syntheticImage, syntheticWebp } from './fixtures/synthetic-images.ts';
 import { syntheticPng } from './fixtures/synthetic-png.ts';
 

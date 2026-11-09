@@ -1,8 +1,4 @@
 {
-  ".github/PULL_REQUEST_TEMPLATE.md": {
-    "dash": 1,
-    "label": 1
-  },
   "AGENTS.md": {
     "label": 6
   },

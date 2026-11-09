@@ -1,4 +1,4 @@
-// The nested model selector (cli/model-picker.ts): its pure reducer over fixed source descriptors, then the same flow
+// The nested model selector (interfaces/cli/model-picker.ts): its pure reducer over fixed source descriptors, then the same flow
 // through Ink. The order is category, role, provider type, source, model, effort, review. Nothing leaves before the
 // confirmation, a commit carries one revision and an answer of an older revision moves nothing, and a setup detour comes
 // back to the same selector. The role registry is the real one; no core and no provider.
@@ -10,8 +10,8 @@ import { createElement } from 'react';
 import { render } from 'ink';
 import { modelRoleRegistry } from '../src/subharness/model-capabilities.ts';
 import type { RoleSources, SourceDescriptor } from '../src/subharness/model-capabilities.ts';
-import { ModelPicker, openPicker, pickerReduce, pickerReview, pickerRows } from '../cli/model-picker.ts';
-import type { PickerEffect, PickerEvent, PickerState, PickerCommand } from '../cli/model-picker.ts';
+import { ModelPicker, openPicker, pickerReduce, pickerReview, pickerRows } from '../interfaces/cli/model-picker.ts';
+import type { PickerEffect, PickerEvent, PickerState, PickerCommand } from '../interfaces/cli/model-picker.ts';
 import { until } from './fixtures/chat-rig.ts';
 
 const API: SourceDescriptor = {

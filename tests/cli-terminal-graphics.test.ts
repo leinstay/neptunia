@@ -1,9 +1,9 @@
-// cli/terminal-graphics.ts: the pixels of a picture and the Sixel sequence the chat writes for them. The shapes, from the
+// interfaces/cli/terminal-graphics.ts: the pixels of a picture and the Sixel sequence the chat writes for them. The shapes, from the
 // specifier: `decodeImage(bytes)` resolves to `{ width, height, rgba }` or null for what it cannot read, and
 // `sixelSequence(image, width, height)` draws the image scaled to that many pixels.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeImage, sixelSequence } from '../cli/terminal-graphics.ts';
+import { decodeImage, sixelSequence } from '../interfaces/cli/terminal-graphics.ts';
 import { syntheticPng } from './fixtures/synthetic-png.ts';
 
 test('a grey PNG decodes to its size and to opaque pixels of its shade', async () => {

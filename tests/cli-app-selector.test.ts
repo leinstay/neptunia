@@ -1,11 +1,11 @@
-// The chat's overlays through the real Ink screen (cli/index.ts) in a fake terminal: one owner of the keys, a question's
+// The chat's overlays through the real Ink screen (interfaces/cli/index.ts) in a fake terminal: one owner of the keys, a question's
 // choices, an interrupted draft, and an overlay's late answer. No core and no provider.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable, Writable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
-import { runInteractive } from '../cli/index.ts';
-import type { ChatEnv, ChatEntry, Panel, Question } from '../cli/index.ts';
+import { runInteractive } from '../interfaces/cli/index.ts';
+import type { ChatEnv, ChatEntry, Panel, Question } from '../interfaces/cli/index.ts';
 import { until } from './fixtures/chat-rig.ts';
 
 function terminal() {

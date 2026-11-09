@@ -25,8 +25,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { compareToBaseline } from './type-baseline.ts';
-
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const baselinePath = path.join(root, 'scripts', 'config', 'prose-baseline.json');
 
@@ -39,6 +37,27 @@ const TRANSITIONS = new Set(['additionally', 'furthermore', 'moreover', 'notably
 type Finding = { line: number; rule: string };
 type Findings = { violations: Array<Finding>; warnings: Array<Finding> };
 type Counts = Record<string, Record<string, number>>;
+
+type Change = { file: string; code: string; was: number; now: number };
+
+/** Compares the current counts with the baseline, both lists sorted by file, then code. */
+function compareToBaseline(baseline: Counts, current: Counts): { grew: Array<Change>; shrank: Array<Change> } {
+  const grew: Array<Change> = [];
+  const shrank: Array<Change> = [];
+  const files = [...new Set([...Object.keys(baseline), ...Object.keys(current)])].sort();
+  for (const file of files) {
+    const was = baseline[file] ?? {};
+    const now = current[file] ?? {};
+    const codes = [...new Set([...Object.keys(was), ...Object.keys(now)])].sort();
+    for (const code of codes) {
+      const before = was[code] ?? 0;
+      const after = now[code] ?? 0;
+      if (after > before) grew.push({ file, code, was: before, now: after });
+      else if (after < before) shrank.push({ file, code, was: before, now: after });
+    }
+  }
+  return { grew, shrank };
+}
 
 /**
  * Whether a tracked path is a prose file this check covers.

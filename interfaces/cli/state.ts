@@ -1,5 +1,5 @@
 // The chat's state as pure functions over plain values: the input line, its history, the slash menu, folded answers and the
-// status line. Nothing here touches a terminal, so each behaviour is tested without one. cli/app.ts draws it.
+// status line. Nothing here touches a terminal, so each behaviour is tested without one. interfaces/cli/app.ts draws it.
 import { graphemes } from './layout.ts';
 
 export type MenuCommand = { name: string; help: string };

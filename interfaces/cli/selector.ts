@@ -1,8 +1,8 @@
 // The selector over any list of rows: a pure reducer that owns the selected stable id, the query, the loading state, the
 // overlay id and the generation, and the view that draws it. A row's stable id survives a refresh and its `value` is what
 // a commit carries, so a label never stands in for what is saved. An answer that names another overlay or an older
-// generation changes nothing. Browsing produces no effect. cli/app.ts draws a closed question with it and
-// cli/model-picker.ts its steps.
+// generation changes nothing. Browsing produces no effect. interfaces/cli/app.ts draws a closed question with it and
+// interfaces/cli/model-picker.ts its steps.
 import { createElement as h, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Box, Text, useInput } from 'ink';

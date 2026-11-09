@@ -1,5 +1,6 @@
-// The entry of the interactive chat: `bin/neptunia.ts` starts it in a terminal. It imports nothing of the engine, and its
-// caller gives it the commands and the link. Non-interactive output stays in `bin/` and never reaches this package.
+// The entry of the `cli` interface: `start(host)` of the interface contract (link.ts), and the interactive chat that
+// `bin/neptunia.ts` draws in a terminal over the commands and the link it gives. Non-interactive output stays in `bin/`,
+// which imports link.ts alone for it, so a process with no terminal never loads Ink.
 
 import { createElement } from 'react';
 import { render } from 'ink';
@@ -10,6 +11,8 @@ import { DEFAULT_CELL } from './terminal-graphics.ts';
 import { graphicsOverlay, graphicsProbe, replyFilter } from './terminal-replies.ts';
 import type { GraphicsSupport, Placement } from './terminal-replies.ts';
 
+export { start } from './link.ts';
+export type { CliHost, RunningCli } from './link.ts';
 export { reducedMotion } from './galaxy.ts';
 export { mouseAvailable } from './mouse.ts';
 export type { ChatEntry, ChatEnv, ChatImages, LineFile, LineFiles, Panel, Question, StageResult } from './app.ts';

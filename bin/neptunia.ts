@@ -27,8 +27,9 @@
 //
 // Every command reads `NEPTUNIA_DATA_DIR` (the data folder), as the core does (src/paths.ts). A usage error exits 2.
 //
-// The chat is the `cli` interface. It connects to the core's socket `<data>/run/core.sock` with the token of the
-// client `cli` (`<private>/clients/cli.token`, scripts/client-token.ts writes it) and says hello as `iface: 'cli'`. Each
+// The chat is the `cli` interface, started with `start(host)` of interfaces/cli/link.ts. It connects to the core's
+// socket `<data>/run/core.sock` with the token of the client `cli` (`<private>/clients/cli.token`,
+// scripts/client-token.ts writes it) and says hello as `iface: 'cli'`. Each
 // line typed is a `message.received` event in the direct chat `cli:dm:owner` between the owner and the persona, and
 // her reply arrives as a send action and is printed. A line starting with `/` is parsed by the command table
 // (src/interface/commands/table.ts), which prints the reason of a line it refuses, and becomes a `command.requested`
@@ -82,7 +83,7 @@
 // read again whenever one of the files changes. A link that drops is opened again with backoff, from a quarter second
 // doubling to 30 seconds, and the backoff starts over once a link stayed up for 30 seconds. An interface that cannot
 // reconnect (no `reconnect()`) ends the process with exit code 1, and its unit restarts it. SIGTERM and SIGINT stop
-// the interface and exit 0.
+// the interface and exit 0. `interface run cli` exits 2: the command line runs in the owner's terminal and has no unit.
 
 import { execFile, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -129,7 +130,14 @@ import {
 import type { LocalFiles } from '../src/config/files.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
-import type { ChatAttachment, ChatEntry, KeyBinding, PasteLimits, Question, StatusBrief } from '../cli/index.ts';
+import type {
+  ChatAttachment,
+  ChatEntry,
+  KeyBinding,
+  PasteLimits,
+  Question,
+  StatusBrief,
+} from '../interfaces/cli/index.ts';
 import { chatPanel } from './chat-panels.ts';
 import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
@@ -143,8 +151,8 @@ import { classifyAttachment } from '../src/media/classify.ts';
 import { chatImages, draftEditor, keepReceived, lineFilesOf, receivedActions, stageForPrompt } from './chat-images.ts';
 import { addToHistory, readHistory, writeHistory } from './cli-history.ts';
 import type { HistoryRecord } from './cli-history.ts';
-import { CLI_CLIENT, openLinkOver } from './cli-link.ts';
-import type { Answer, CliLink, Command, LineImage, LinkAnswers } from './cli-link.ts';
+import { CLI_CLIENT, start } from '../interfaces/cli/link.ts';
+import type { Answer, CliLink, Command, LineImage, LinkAnswers, RunningCli } from '../interfaces/cli/link.ts';
 import { runDevelopment } from './development.ts';
 import { readTurnEvent } from '../src/protocol/turn-control.ts';
 import type { TurnEvent } from '../src/protocol/turn-control.ts';
@@ -295,16 +303,25 @@ function readObject(file: string): Settings | null {
 // The chat and -p: the `cli` interface.
 // ---------------------------------------------------------------------------------------------------------------
 
-/** Connects as the `cli` client; rejects when no core listens. `print` takes her replies, null for none. */
+/**
+ * Starts the `cli` interface over the core's socket with the client's token (interfaces/cli/link.ts); rejects when no
+ * core listens. `print` takes her replies, null for none.
+ */
 async function openCliLink(
   print: ((text: string) => void) | null,
   deliver?: (file: Attachment) => Promise<void>,
   chat: { onTurnEvent: (event: TurnEvent) => void; transcript: Array<ChatLine> } | null = null
-): Promise<CliLink> {
+): Promise<RunningCli> {
   const where = paths();
-  const token = readToken(where.privateDir, CLI_CLIENT);
-  const transport = await connectSocket({ path: coreSocketPath(where.dataDir), maxFrameBytes: MAX_FRAME_BYTES });
-  return openLinkOver(transport, { token, print, deliver: deliver ?? printedFile(print), ...(chat ?? {}) });
+  const running = await start({
+    connect: () => connectSocket({ path: coreSocketPath(where.dataDir), maxFrameBytes: MAX_FRAME_BYTES }),
+    token: readToken(where.privateDir, CLI_CLIENT),
+    print,
+    deliver: deliver ?? printedFile(print),
+    ...(chat ?? {}),
+  });
+  running.open();
+  return running;
 }
 
 /** A file she sends to a chat with no screen of its own: one printed line says where its kept copy lies. */
@@ -569,7 +586,7 @@ function printBlock(text: string): void {
 }
 
 /**
- * The chat in a terminal (cli/): the same link, commands and handlers as the plain chat, only another presentation. It
+ * The chat in a terminal (interfaces/cli/): the same link, commands and handlers as the plain chat, only another presentation. It
  * asks the core `status.brief` for its status line, which reads what the core knows and calls no provider.
  */
 /** Interface names offered by setup, including persona-authored packages. */
@@ -591,7 +608,7 @@ async function runInkChat(
   where: { rootDir: string; privateDir: string; dataDir: string },
   firstLine = ''
 ): Promise<void> {
-  const { mouseAvailable, runInteractive, reducedMotion } = await import('../cli/index.ts');
+  const { mouseAvailable, runInteractive, reducedMotion } = await import('../interfaces/cli/index.ts');
   const settings = readConfig(where.rootDir, { privateDir: where.privateDir }) as {
     cli?: { mouse?: boolean; bindings?: Array<KeyBinding> };
     context?: { channelMessages?: number };
@@ -612,7 +629,7 @@ async function runInkChat(
     lastSeq = Math.max(lastSeq, event.seq);
     turnEvent(event);
   };
-  const openChatLink = (): Promise<CliLink> =>
+  const openChatLink = (): Promise<RunningCli> =>
     openCliLink(
       say,
       async (file) => {
@@ -631,7 +648,7 @@ async function runInkChat(
       },
       { onTurnEvent, transcript }
     );
-  let link: CliLink;
+  let link: RunningCli;
   try {
     link = await openChatLink();
   } catch (err) {
@@ -666,30 +683,30 @@ async function runInkChat(
         entry({ who: 'her', text: line.text, at: line.at });
   }
   /**
-   * When `current` closes: the chat says so, tries again until a core answers, takes the turns back up, which makes it
-   * the open chat her posts go to, and shows what she said while it was away.
+   * When the link closes: the chat says so, reconnects the interface until a core answers, takes the turns back up,
+   * which makes it the open chat her posts go to, and shows what she said while it was away.
    */
-  function watchLink(current: CliLink): void {
-    void current.closed.then(async () => {
+  function watchLink(): void {
+    void link.closed.then(async () => {
       const droppedAt = Date.now();
       linked(false);
       for (;;) {
         await new Promise((resolve) => setTimeout(resolve, RECONNECT_MS));
         try {
-          link = await openChatLink();
+          await link.reconnect();
           break;
         } catch {
           // No core listens yet: the next try.
         }
       }
       linked(true);
-      watchLink(link);
+      watchLink();
       const followedAt = Date.now();
       await followTurns();
       await showSaidWhileAway(droppedAt, followedAt);
     });
   }
-  watchLink(link);
+  watchLink();
   const answers: LinkAnswers = {
     ask: (asked, secret, choices) =>
       new Promise((resolve) => {
@@ -1401,7 +1418,7 @@ async function askAtTerminal(
   options: { secret: boolean } = { secret: false }
 ): Promise<string> {
   if (process.stdin.isTTY === true && process.stdout.isTTY === true && process.env.TERM !== 'dumb') {
-    const { askQuestion } = await import('../cli/question.ts');
+    const { askQuestion } = await import('../interfaces/cli/question.ts');
     const choices =
       offered === 'on' || offered === 'off'
         ? ['on', 'off']
@@ -1510,6 +1527,8 @@ function parseRun(argv: ReadonlyArray<string>): { name: string; interfacesDir: s
   const [command, name, ...rest] = argv;
   if (command !== 'run' || name === undefined) usage();
   if (!NAME.test(name)) die(`invalid interface name "${name}"; use lowercase letters, digits, - and _`);
+  // The command line lives in the owner's terminal and has no unit (interfaces/cli/link.ts).
+  if (name === CLI_CLIENT) refuseSyntax("the cli interface runs in the owner's terminal: run neptunia");
   let interfacesDir = path.dirname(interfacePackageDir(ROOT_DIR, paths().dataDir, name));
   for (let i = 0; i < rest.length; i += 1) {
     const value = rest[i + 1];

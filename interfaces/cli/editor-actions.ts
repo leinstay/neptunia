@@ -1,6 +1,6 @@
 // What the owner does to a draft beyond typing: reverse history search, transcript search, prompt jumps, undo and redo, a
 // draft stash and an external editor. Everything works on the same draft and entry ids, and a search stays in this
-// process: it sends nothing and stores nothing. The editor gets literal argv and a private temporary file. cli/app.ts holds
+// process: it sends nothing and stores nothing. The editor gets literal argv and a private temporary file. interfaces/cli/app.ts holds
 // the state, and bin/chat-images.ts gives the editor its command.
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';

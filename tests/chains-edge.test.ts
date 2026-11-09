@@ -32,8 +32,8 @@ test('interfaces has no chain of four segments and no repeated name', () => {
   assertNoChains(under('interfaces/'));
 });
 
-test('cli and bin have no chain of four segments and no repeated name', () => {
-  assertNoChains(under('cli/', 'bin/'));
+test('bin has no chain of four segments and no repeated name', () => {
+  assertNoChains(under('bin/'));
 });
 
 test('scripts has no chain of four segments and no repeated name', () => {

@@ -17,7 +17,11 @@ function codeFiles(dir: string): Array<string> {
   });
 }
 
-const FILES = ['src', 'interfaces', 'scripts'].flatMap((dir) => codeFiles(path.join(ROOT, dir)));
+// The terminal chat of interfaces/cli/ names an `attachment` part of its input box, which no media row holds.
+const CHAT_PRESENTATION = path.join(ROOT, 'interfaces', 'cli') + path.sep;
+const FILES = ['src', 'interfaces', 'scripts']
+  .flatMap((dir) => codeFiles(path.join(ROOT, dir)))
+  .filter((file) => !file.startsWith(CHAT_PRESENTATION));
 /** The modules of the one store: the migration names the old paths once, to empty them. */
 const STORE = new Set(['media-store.ts']);
 const linesMatching = (pattern: RegExp, files: ReadonlyArray<string> = FILES): Array<string> =>

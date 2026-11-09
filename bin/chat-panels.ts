@@ -3,14 +3,19 @@
 import { CONFIG_SCHEMA, schemaDefaults } from '../src/config/schema.ts';
 import { deepMerge } from '../src/config.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
-import type { Panel, PanelResult, PanelRow } from '../cli/panel.ts';
-import { approvalPanel } from '../cli/approval-view.ts';
-import type { GateView } from '../cli/approval-view.ts';
-import { contextLine } from '../cli/context-line.ts';
-import type { ContextFacts } from '../cli/context-line.ts';
-import { boundaryPanel, checkpointPanel, sessionsPanel } from '../cli/session-picker.ts';
-import type { CheckpointPoint, SessionClient, SessionLineView, SessionRowView } from '../cli/session-picker.ts';
-import type { PickerEnv } from '../cli/model-picker.ts';
+import type { Panel, PanelResult, PanelRow } from '../interfaces/cli/panel.ts';
+import { approvalPanel } from '../interfaces/cli/approval-view.ts';
+import type { GateView } from '../interfaces/cli/approval-view.ts';
+import { contextLine } from '../interfaces/cli/context-line.ts';
+import type { ContextFacts } from '../interfaces/cli/context-line.ts';
+import { boundaryPanel, checkpointPanel, sessionsPanel } from '../interfaces/cli/session-picker.ts';
+import type {
+  CheckpointPoint,
+  SessionClient,
+  SessionLineView,
+  SessionRowView,
+} from '../interfaces/cli/session-picker.ts';
+import type { PickerEnv } from '../interfaces/cli/model-picker.ts';
 import { modelRoleRegistry } from '../src/subharness/model-capabilities.ts';
 import type { RoleSources } from '../src/subharness/model-capabilities.ts';
 import { settingPresentation } from './setting-presentation.ts';

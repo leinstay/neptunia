@@ -6,8 +6,8 @@ For the coding agents that work on this repository: where things are, how to run
 
 1. Read this file whole.
 2. Read `docs/README.md` for how the parts fit, then the doc of the part you touch.
-3. Read `STYLEGUIDE.md` and `GLOSSARY.md` before writing code, `WRITING.md` before writing any text longer than a line (a document, a prompt, a commit message, a report, a reply), and `docs/prompt-contract.md` before touching a prompt, a label or a parser.
-4. If `.agents/` exists in the checkout, read `.agents/AGENTS.md` and `.agents/memory/MEMORY.md` next. They belong to the deployment you are working in (see "The agents' folder").
+3. Read `STYLEGUIDE.md` and the Glossary below before writing code, `WRITING.md` before writing any text longer than a line (a document, a prompt, a commit message, a report, a reply), and `docs/prompt-contract.md` before touching a prompt, a label or a parser.
+4. If `.agents/` exists in the checkout, read `.agents/AGENTS.md` and `.agents/memory/MEMORY.md` next. They belong to the deployment you are working in (see "Deployment workspace").
 
 ## Structure
 
@@ -24,22 +24,78 @@ For the coding agents that work on this repository: where things are, how to run
 | `bin/`, `deploy/` | Entry points and the systemd units. |
 | `prompts.local/`, `config.local/`, `data/`, `.env` | The local layer: a deployment's character, settings, memory and keys. Never committed. |
 
+## Glossary
+
+The engine's words, for anyone naming something in the code, the database, a document or a label. An identifier, a comment, a label or a config key uses these words and no synonym. Text a model reads may use plain language where a word below would read as jargon.
+
+### Where the persona is
+
+| Word | Meaning |
+|---|---|
+| `core` | The platform-neutral engine in `src/`. |
+| `interface` | A package for one platform, and the top level of every path of places. The command line is an interface and a place. |
+| `adapter` | The part of an interface that translates between the platform and the protocol. |
+| `place` | Anything the persona can be in or name: a root, a channel, a thread, a `dm`, the command line. |
+| `root` | The top place of an interface, such as one Discord server. An interface may have many. |
+| `chat` | A place where lines are written: a channel, a thread, a `dm`, the command line. A root is a place and no chat. |
+| `dm` | A one-to-one chat. |
+| `group` | The scope of a place people share. A place's scope is `group` or `dm`. |
+| `person` | One human as the persona knows them, across every interface. A person holds one or more accounts. |
+| `account` | One identity of a person on one interface, such as a Discord user or the command line's owner. |
+| `owner` | The person who runs the deployment and holds every right in it. |
+| `audience` | The people a memory row may be shown to: the members of a group or the two sides of a `dm`. |
+
+### What the persona does
+
+| Word | Meaning |
+|---|---|
+| `event` | What arrives from an interface. |
+| `turn` | One run of the persona. |
+| `turn frame` | The facts of one turn, fixed before any block of its request: its kind, why she is awake, whom she answers, where she is and which blocks it holds. |
+| `turn kind` | Which of the frame's lists of blocks a turn takes. |
+| `wake` | A row of the queue of turns the engine starts itself. |
+| `service` | One of the three scheduled mechanics: `heartbeat`, `selfreflection`, `selfimprovement`. |
+| `heartbeat` | The service that wakes her every few hours with no chat and no place, so she can notice what goes on and decide whether to act or stay silent. `heartbeat.schedule` sets the interval, default `every 3h`, and `heartbeat.jitterMinutes` its spread, default 60. |
+| `selfreflection` | The service that turns selected experience into her dated entries, each with an optional illustration and a copy to a `mirror`, and those entries as a store. Prompts tell her she keeps a diary. |
+| `selfimprovement` | The service whose turn reads her recent work, the failed calls, repeated chains, unused tools and her board tasks, and files one development task for herself or skips. Its document is titled self-development. |
+| `mirror` | A place a stored entry of `selfreflection` is copied to. |
+| `intention` | Something the persona decided to do later. It is no service. |
+| `tool` | Code with a schema that the model calls. |
+| `skill` | A prose procedure over tools. |
+| `command` | What a person types in the CLI. |
+| `doctor` | The command that checks every part of a deployment. `doctor watcher` writes and reads its deep reports. |
+| `errand` | A background job handed to an agent. |
+| `agent` | A model with a profile that works on an errand or a development task. |
+| `route` | One way to reach a model: a key and a model through the API, or a harness and a model. Each model role holds a chain of routes, and the next answers when one is unavailable. |
+
+### What the engine keeps
+
+| Word | Meaning |
+|---|---|
+| `memory` | What the persona keeps between turns. |
+| `labels` | The wording of what code inserts into a prompt, and the strings the owner sees. |
+| `lease` | A time-limited claim on a resource. |
+| `profile` | What memory holds about one account or person: names, claims and descriptions. |
+| `episode` | A remembered stretch of conversation, kept as one memory item with its messages. |
+| `affinity` | The persona's attitude toward a person, kept as a history of changes. |
+| `board` | The ledger inside the core where errands and development work are filed and moved. |
+| `task` | A row of the board: one piece of work with its state and history. |
+
 ## Commands
 
 ```bash
 npm install
 node --test --test-reporter=dot tests/<module>.test.ts   # the tests of the module you changed
-npm test                                                  # the whole suite, once before a pull request
 npm run check:codes                                       # the result codes against labels and docs
 ```
 
 Set `TMPDIR` to a scratch folder before running tests.
 
-Every run you start in the background has a time budget, and you check on it every five minutes: one test file 2 minutes, the whole suite 6, a lint or type check 2, a CI run 5 from the moment it starts. Past its budget a run is not waited for: stop it, find out why it is slow, and fix that before anything else. A check that takes longer than it used to is a bug of the check.
+Every run has a time budget: one test file 2 minutes, the whole suite 6, a lint or type check 2, a CI run 5 from the moment it starts. A run past its budget is not waited for: stop it, find out why it is slow, and fix that before anything else. A check that takes longer than it used to is a bug of the check.
 
-Before a push, run the fast checks over the whole tree: `node scripts/code-health.ts`, `node scripts/prose-check.ts` and `npm run check:codes`. A count that shrank is recorded in the same change with `npm run health:update`, because CI refuses an unrecorded shrink as well as a growth. The whole-tree lint and the type check run in CI only. Lint each file you edit, and after you change a type that other modules import, lint those modules too: the lint suppressions count errors per file and rule, and one error past a count reports every error of that rule in the file.
+Locally, run only the test files of the modules you changed. Everything slow runs in CI: the whole suite, prettier, the lint, the type check, code health, the prose check and the codes check. Fix a red check at its cause. When CI reports a count that shrank, record it with `npm run health:update` in the same change, because CI refuses an unrecorded shrink as well as a growth.
 
-Never start the engine (`src/index.ts`) from a checkout whose `.env` belongs to a running deployment: that starts a second instance of the persona.
+Never start the engine (`src/index.ts`) from a checkout that points at a running deployment's data folder: that starts a second instance of the persona.
 
 ## Project rules
 
@@ -61,7 +117,7 @@ The defaults, for documentation, comments, commit messages, pull request text an
 - Say the thing first. A reply opens with the answer, a report with the outcome (what changed, how it was checked, what is open), a diagnosis with the likely cause, a plan with the proposal and why, a question with what you need to know and the real options.
 - Plain English in full sentences. A bullet list only for a genuine list, a table only for a reference. One point per paragraph, no closing summary, no run-up before the point.
 - Every claim carries its evidence: a file and line, a number you measured, a command you ran. No "significantly", "robust", "seamless", "leverage". No claim you did not check.
-- Concrete words. "The turn runner", not "the relevant component". The engine's words from `GLOSSARY.md`, one word per thing, no synonym.
+- Concrete words. "The turn runner", not "the relevant component". The engine's words from the Glossary, one word per thing, no synonym.
 - Describe the present. No history in docs or comments ("now", "was", "no longer", "moved from"): the git log holds it. No chat context in a file.
 - Sentences carry one thought each and vary in length. Do not start consecutive sentences with the same word. No "Additionally", "Furthermore", "Moreover". Active voice when the actor matters. Positive form: "the variance was small", not "not large".
 - Punctuation: commas and full stops. No em dashes, no semicolons between clauses, no parenthetical asides, no "Label: explanation" rows, no slash lists ("and" or "or" instead).
@@ -84,7 +140,7 @@ The defaults, for documentation, comments, commit messages, pull request text an
 
 ## Git
 
-- Branch from `main`, one change per pull request, around 200 changed lines; split bigger work into slices that each leave `main` working.
+- Branch from `main`, one change per pull request, and each pull request leaves `main` working.
 - Stage with explicit paths (`git add <paths>`), never `-A` or `.`.
 - Commit subject in English, imperative, under 72 characters; the body says why when the subject is not enough. End the message with a `Co-Authored-By:` trailer naming the model that did the work.
 - A pull request says what changed and why, how it was tested, and whether it adds a setting, a prompt file or a contract change. CI must be green before a merge; read the conclusion, do not assume it.
@@ -103,12 +159,13 @@ Tests are written by agents, so the quality lives in the method, not in a review
 - No mock for code that can be called directly. I/O goes through fakes; `rng` and `now` are injected; a test sets every setting it depends on and never reads a real `prompts.local/`, `data/` or the network.
 - For every bug you find, a regression test that reproduces it, in the same change as the fix.
 - Never change an existing test's expectation to make a run pass. When an expectation is wrong, the change says why in a comment on the test. Never weaken, skip or delete a test to get to green; report real counts.
+- A change that can alter what the persona sends to a model is checked with the identity replay: `scripts/replay.ts` with `--answers-dir` builds her requests from one copy of a data folder on the base commit and on the head, answering every model call from files, and the two sets of requests are compared byte for byte. They are identical, or the pull request names each request that differs and why.
 - No snapshots, no test of a label's wording or a document's text, no test for what nothing sane could break. A test whose failure would catch no real bug is deleted, not kept for coverage.
 - For a change that adds behaviour, the tests and the code are written by different agents: one writes the tests from the brief and the signatures without seeing the code, the other makes them green without touching them, and the reviewer answers one question per test: which real bug it catches.
 - The specifier types its tests against the signatures in the brief, with no cast to `never` or `any` for a module that does not exist yet; the implementer's exports make those types true.
-- Run only the tests of the module you changed, with the `dot` reporter. The whole suite runs once, before the pull request is opened. On a failure, rerun that one file with `--test-reporter=spec` and read the first failing trace. Pipe long output through `tail`; never paste a test log into a commit, an issue or a document.
+- Run only the tests of the module you changed, with the `dot` reporter. The whole suite runs in CI. On a failure, rerun that one file with `--test-reporter=spec` and read the first failing trace. Pipe long output through `tail`; never paste a test log into a commit, an issue or a document.
 
-## The agents' folder
+## Deployment workspace
 
 `.agents/` at the repository root is the working folder of the agents of one deployment. It is ignored by git and may hold anything a deployment keeps for its agents. When you create it, use this layout so the next agent finds things where it expects them:
 

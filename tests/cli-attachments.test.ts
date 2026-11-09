@@ -2,9 +2,9 @@
 import { subscribe, unsubscribe } from 'node:diagnostics_channel';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createAttachmentActions } from '../cli/attachment-actions.ts';
-import type { ClipboardResult } from '../cli/clipboard.ts';
-import type { ChatAttachment, ChatImages, LineFile, LineFiles, StageResult } from '../cli/index.ts';
+import { createAttachmentActions } from '../interfaces/cli/attachment-actions.ts';
+import type { ClipboardResult } from '../interfaces/cli/clipboard.ts';
+import type { ChatAttachment, ChatImages, LineFile, LineFiles, StageResult } from '../interfaces/cli/index.ts';
 import { KEY, chatEnv, pause, press, shows, until, withChat } from './fixtures/chat-rig.ts';
 import type { Rig } from './fixtures/chat-rig.ts';
 import { syntheticPng } from './fixtures/synthetic-png.ts';

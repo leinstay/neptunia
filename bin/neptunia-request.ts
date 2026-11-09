@@ -2,14 +2,14 @@
 // words through the chat's table (src/interface/commands/table.ts) and takes `--secret-stdin` off a leaf that asks for a
 // secret, where the same word on any other leaf stays plain text. `panelRefusal` says what a request that needs a
 // terminal does instead, and `secretFromStdin` answers one secret question from stdin. Nothing here opens a link or
-// imports the Ink chat (cli/), which a process with no terminal must never load.
+// imports the Ink chat (interfaces/cli/), which a process with no terminal must never load.
 
 import { COMMANDS, commandLineWords, parseCommandWords, takesSecretStdin } from '../src/interface/commands/table.ts';
 import type { Parsed } from '../src/interface/commands/table.ts';
 import type { Answers } from './secret-prompt.ts';
+import { SECRET_STDIN, UnansweredQuestion, unansweredText } from '../interfaces/cli/questions.ts';
 
-/** The flag that gives the answer to a command's secret question on stdin. */
-const SECRET_STDIN = '--secret-stdin';
+export { UnansweredQuestion, unansweredText };
 
 /** Every command of the table, for a usage text. */
 export const COMMAND_NAMES: ReadonlyArray<string> = COMMANDS.map((command) => command.name);
@@ -41,17 +41,6 @@ export const panelRefusal = (what: string): string =>
     'and one turn with her with neptunia -p "<text>".',
     COMMANDS_LINE,
   ].join('\n');
-
-/** A question this process cannot answer: its message says what is missing. */
-export class UnansweredQuestion extends Error {}
-
-/** What a question says when nobody can answer it; a secret one names the channel that can. */
-export function unansweredText(prompt: string, secret: boolean): string {
-  const way = secret
-    ? `run the command at a terminal, or give the value on stdin with ${SECRET_STDIN}`
-    : 'run the command at a terminal';
-  return `${prompt}\nthis command asks a question and nobody is here to answer it: ${way}`;
-}
 
 async function readAll(input: NodeJS.ReadableStream): Promise<string> {
   const chunks: Array<Buffer> = [];

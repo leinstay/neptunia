@@ -1,17 +1,17 @@
 // The chat's images at the process edge: the clipboard's and the viewer's processes, staging in the data root, and what
-// happens to a file the persona sends. bin/neptunia.ts hands these to the chat (cli/) and to `-p --attach`.
+// happens to a file the persona sends. bin/neptunia.ts hands these to the chat (interfaces/cli/) and to `-p --attach`.
 import { spawn } from 'node:child_process';
 import { constants } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createAttachmentActions } from '../cli/attachment-actions.ts';
-import type { AttachmentActions } from '../cli/attachment-actions.ts';
-import { createClipboard } from '../cli/clipboard.ts';
-import { assembleDraft, draftFromText } from '../cli/composer.ts';
-import { editExternally } from '../cli/editor-actions.ts';
-import type { ProcessRun } from '../cli/clipboard.ts';
-import type { ChatAttachment, ChatImages, LineFiles } from '../cli/index.ts';
+import { createAttachmentActions } from '../interfaces/cli/attachment-actions.ts';
+import type { AttachmentActions } from '../interfaces/cli/attachment-actions.ts';
+import { createClipboard } from '../interfaces/cli/clipboard.ts';
+import { assembleDraft, draftFromText } from '../interfaces/cli/composer.ts';
+import { editExternally } from '../interfaces/cli/editor-actions.ts';
+import type { ProcessRun } from '../interfaces/cli/clipboard.ts';
+import type { ChatAttachment, ChatImages, LineFiles } from '../interfaces/cli/index.ts';
 import { keptLocation, keptReference, openableLine } from '../src/media/kept-files.ts';
 import { openImageStaging, stagedIdOf } from '../src/media/staging.ts';
 import type { StagedImage, StageRefusal } from '../src/media/staging.ts';

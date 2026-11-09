@@ -43,6 +43,12 @@ The modules:
 | `platform-types.ts` | The parts of the discord.js objects the package reads (message, channel, guild, member, reaction), every field optional. Types only. |
 | `values.ts` | The package's copies of the three small helpers that read an unknown value: a thrown error's fields, a record, a scalar as text. |
 
+## cli
+
+Package `@neptunia/cli` (`interfaces/cli/package.json`). Depends on Ink, React, Jimp's format packages and jSquash's WebP decoder. It draws the owner's chat in his terminal, and `neptunia` (`bin/neptunia.ts`) starts it in the terminal's own process, so it has no unit and no `setup.json`, and `neptunia interface run cli` exits 2. Its [README](cli/README.md) names its modules, and [docs/cli.md](../docs/cli.md) describes the chat.
+
+Entry point: `index.ts`, which exports `start(host)` from `link.ts` beside `runInteractive`. `start` takes the host's `connect()` and `token` with what a terminal adds: `print` for her words, `deliver` for her files, `onTurnEvent` and the `transcript` the core's history reads answer from. It says `hello` as `cli` with its names and capabilities and serves the adapter of its one chat, `cli:dm:owner`. The running interface adds the owner's console to `iface`, `open()`, `stop()` and `reconnect()`: `say`, `turn`, `ask` and `showLines`. `open()` releases nothing, because a line goes out only when the owner sends it, and no outbox is kept, because a line the core does not take stays in the input. `reconnect()` opens a new link over `host.connect()` with the same transcript, and `bin/neptunia.ts` calls it every 2 seconds while the link is down. `bin/` imports `link.ts` alone for `-p` and the one-shot commands, so they never load Ink.
+
 ## Starting the core with an interface
 
 `startCore` in `src/core.ts` takes the interfaces as `{ name, start(host) }` and starts each over the link, so the Discord package and the fake interface (`src/interface/fake-interface.ts`) start the same way. A test passes the fake with a scripted `llm` and an `embedder`, and no platform or provider is reached. [docs/interfaces.md](../docs/interfaces.md) lists the options.

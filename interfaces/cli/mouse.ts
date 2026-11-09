@@ -1,7 +1,7 @@
 // The mouse where a terminal has one: SGR reports parsed and taken out of the input before Ink sees them, whether tracking
 // may go on at all, and a click turned into a caret offset. Tracking takes the terminal's own selection away, so the chat
-// selects and copies itself (cli/chat-controller.ts). The setting `cli.mouse` turns tracking off, and it stays off for a
-// plain or linear screen. cli/index.ts wraps stdin with it, and cli/app.ts takes the reports.
+// selects and copies itself (interfaces/cli/chat-controller.ts). The setting `cli.mouse` turns tracking off, and it stays off for a
+// plain or linear screen. interfaces/cli/index.ts wraps stdin with it, and interfaces/cli/app.ts takes the reports.
 import { Readable } from 'node:stream';
 import { graphemes, wrapCells, cellWidth } from './layout.ts';
 

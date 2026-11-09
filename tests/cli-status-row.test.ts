@@ -4,8 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { KEY, chatEnv, press, shows, until, withChat } from './fixtures/chat-rig.ts';
 import type { Rig } from './fixtures/chat-rig.ts';
-import type { ClientTurnEvent } from '../cli/turn-state.ts';
-import type { StatusBrief } from '../cli/state.ts';
+import type { ClientTurnEvent } from '../interfaces/cli/turn-state.ts';
+import type { StatusBrief } from '../interfaces/cli/state.ts';
 
 const AT = 1000;
 const ROWS = 24;

@@ -5,7 +5,7 @@
 // `before` null asks for the newest page, an id for the page that ends just before that stored line, oldest first.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { ChatEntry } from '../cli/index.ts';
+import type { ChatEntry } from '../interfaces/cli/index.ts';
 import { KEY, chatEnv, press, shows, until, withChat } from './fixtures/chat-rig.ts';
 import type { Rig } from './fixtures/chat-rig.ts';
 

@@ -5,7 +5,7 @@
 // (src/subharness/place.ts#effortLevelsOfHelp); the global constants in src/llm/roles.ts never stand in for them. Reading
 // sends no model request, starts no model run and returns no key value, only a key's name. An agent cannot run on a direct
 // `openrouter:` path, so OpenRouter's models reach it through opencode alone. The console answers `/model sources` with
-// this, and cli/model-picker.ts draws it.
+// this, and interfaces/cli/model-picker.ts draws it.
 
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
 import type { BackendName } from '../agent-runner/profiles.ts';

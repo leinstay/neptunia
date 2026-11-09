@@ -1,6 +1,6 @@
 // The client's picture of the turns, built only from the core's events: a turn is running because the core said so, and it
 // has stopped only when the core says that too. A mark says the owner asked for a cancel, and it changes no state. An event
-// at or below a turn's newest `seq` is a replay and adds nothing. cli/chat-controller.ts holds the state and draws from it.
+// at or below a turn's newest `seq` is a replay and adds nothing. interfaces/cli/chat-controller.ts holds the state and draws from it.
 
 export type TurnProgress = { kind: 'tool' | 'task'; name: string; detail: string };
 
