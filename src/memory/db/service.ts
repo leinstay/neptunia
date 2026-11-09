@@ -65,6 +65,8 @@
 //     `status().pending` counts what the quarantine holds; `quarantinedPending()` lists it and
 //     `replayQuarantinedPending()` replays it through the writer (the owner's `/memory pending`). A write that cannot
 //     be moved keeps its file, logs `memory db: pending replay failed` and fails the open (`PENDING_REPLAY`).
+//   - `writeOperational(write)` (operational.ts): the engine's own state, usage, metrics, inner state, missed
+//     registries, emoji rails and recall trace lines, by kind and subject, through the writer.
 //   - her memory session is the memory writer (spec 2026-10-24-memory-authority, section 6 item 7). Each open logs the
 //     effective models (`memory db: effective models`: purpose, model id and key variable of the memory session, the
 //     description review and every other purpose; writer-switch.ts#effectiveModels). With `memoryDb.session.mode`
@@ -113,6 +115,7 @@ import {
 } from './pending-quarantine.ts';
 import type { QuarantinedPending, QuarantineStatus } from './pending-quarantine.ts';
 import type { StorageKey } from './storage-keys.ts';
+import type { OperationalWrite } from './operational.ts';
 
 import { lockPathOf, openMemoryDb } from './open.ts';
 import { channelPlaceId, nativeAuthorityOf } from './ids.ts';
@@ -561,6 +564,8 @@ export type MemoryDbService = FillMethods & {
   memoryWrite(update: unknown): Promise<unknown>;
   onAffinityMoves(fn: (moves: Array<Row>) => void): () => void;
   writeUnit(update: unknown): Promise<unknown>;
+  /** The engine's own state by kind and subject (operational.ts). */
+  writeOperational(write: OperationalWrite): Promise<unknown>;
   keepPending(update: unknown): string;
   /** The writes in the quarantine, by name, with the code each failed with and when it moved. */
   quarantinedPending(): Array<QuarantinedPending>;
@@ -762,7 +767,6 @@ export function createMemoryDb({
       }
       // The writes a shutdown left pending go in before anything reads (synchronous without a worker).
       await replayPending();
-      await writeUnit({ op: 'consolidate-inner', now: now() });
       // A turn's prefetch has a short deadline: the reader's start does not spend it.
       if (engine) await openReader().warm();
       openedAt = now();
@@ -1828,6 +1832,7 @@ export function createMemoryDb({
     recordTurnReads,
     onAffinityMoves,
     writeUnit,
+    writeOperational: (operational: OperationalWrite) => write({ ...operational, kind: 'operational', now: now() }),
     keepPending,
     quarantinedPending: () => quarantinedIn(quarantineDir),
     replayQuarantinedPending,

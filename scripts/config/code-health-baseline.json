@@ -445,7 +445,7 @@
       "repeated": 0
     },
     "tests/inner-wakes.test.ts": {
-      "deep": 13,
+      "deep": 6,
       "repeated": 0
     },
     "tests/inner-week.test.ts": {

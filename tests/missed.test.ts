@@ -270,7 +270,7 @@ function scene({
   paused?: boolean;
   canSend?: (channel: { id: string }) => boolean;
   dataDir?: string;
-  memoryDb?: Pick<Awaited<ReturnType<typeof openTestMemory>>['memoryDb'], 'readHandle' | 'writeUnit'>;
+  memoryDb?: Pick<Awaited<ReturnType<typeof openTestMemory>>['memoryDb'], 'readHandle' | 'writeOperational'>;
   prompts?: Record<string, unknown>;
   channels?: Array<{ id: string; recipientId: string }>;
 } = {}) {

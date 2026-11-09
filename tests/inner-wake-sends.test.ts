@@ -261,6 +261,8 @@ async function core(
     const memoryDb = {
       readHandle: () => memory.memoryDb.readHandle(),
       writeUnit: (update: Parameters<typeof memory.memoryDb.writeUnit>[0]) => memory.memoryDb.writeUnit(update),
+      writeOperational: (write: Parameters<typeof memory.memoryDb.writeOperational>[0]) =>
+        memory.memoryDb.writeOperational(write),
       memoryWrite: async (update: WakeQueueUpdate): Promise<unknown> => {
         // The synthetic persisted completion models a restricted producer, including malformed stored metadata.
         const stored =

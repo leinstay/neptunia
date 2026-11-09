@@ -135,6 +135,7 @@ import { projectRow } from './graph.ts';
 import { applyWakeWrite } from './wakes.ts';
 import { applySkillsWrite } from './skills.ts';
 import { applyIndexWrite } from './index-policy.ts';
+import { applyOperationalWrite } from './operational.ts';
 import { applyUnitWrite } from './unit-write.ts';
 import { applyPublicationWrite } from './publish.ts';
 import { applyDeliveryWrite, isDeliveryOp } from './publication-delivery.ts';
@@ -967,6 +968,8 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['selfreflection-audience-fill', applySelfreflectionAudienceFill],
   ['selfreflection-plan-fill', applySelfreflectionPlanFill],
   ['request-archive', applyRequestArchiveWrite],
+  // The engine's own state by kind and subject (operational.ts).
+  ['operational', applyOperationalWrite],
   // The selfreflection's mirrors: the state of a send, then the owner's configuration.
   [
     'publication',

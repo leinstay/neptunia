@@ -6,23 +6,16 @@
 // `sleptAt` mark, so her calls on it answer `slept`. A recurring intention loses only the occurrence that slept: its
 // history records `slept`, and the next occurrence comes due and runs. A real memory database on the calling thread, a real intention
 // service and event door, a fake turn runner standing in for the model call; the clock injected as `now`.
-import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createInnerLife, emptyState } from '../src/behavior/inner.ts';
+import { createInnerLife } from '../src/behavior/inner.ts';
 import type { InnerJournal, InnerTurnParams } from '../src/behavior/inner/types.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
-import { personaKey } from '../src/memory/db/storage-keys.ts';
-import { rootKey } from './fixtures/memory-db/legacy-keys.ts';
 import {} from '../src/memory/db/ids.ts';
-import { unitValue } from '../src/memory/db/readers/common.ts';
-import { dbOf } from '../src/memory/db/types.ts';
-import { openMemoryDb } from '../src/memory/db/open.ts';
-import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
 import { leaseOf, wakeOf } from '../src/memory/db/wake-queue.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -412,97 +405,6 @@ test('inner stop state saved through the writer survives reopening without inner
     await run.restart();
     assert.equal(run.life.status().stopped, true);
     assert.equal(fs.existsSync(file), false);
-  } finally {
-    await run.close();
-  }
-});
-
-// Separate root caches must not overwrite the persona's clocks or another chat's evidence.
-// Slice 5: the daily review is deleted, so the legacy states keep their `review` fields as stored data and the merged
-// life holds no review or review views; the rest of the consolidation is unchanged.
-test('legacy inner states consolidate into one persistent life with scoped facts', async () => {
-  const dataDir = tempDir('nep-global-inner-');
-  const firstKey = rootKey('inner', ROOT, { iface: 'fake' });
-  const secondKey = rootKey('inner', 'g2', { iface: 'fake' });
-  const first = {
-    ...emptyState(),
-    stopped: true,
-    stoppedAt: T - MINUTE,
-    stoppedBy: 'owner',
-    heartbeat: { lastAt: T - 3 * MINUTE, nextAt: T + 5 * MINUTE },
-    selfimprovement: { lastAt: T - MINUTE, raisedAt: T - 4 * MINUTE },
-    review: { day: '2026-10-31', at: T + MINUTE, done: true, channels: ['c1'], lines: 2 },
-    facts: [{ id: 'f1', kind: 'turnFailed', placeId: 'c1', dmChat: false, at: T - MINUTE, told: false as const }],
-    turns: [{ at: T - MINUTE, chainId: 'one', usd: 1, outcome: 'skip', kinds: ['review'] }],
-    spend: [{ at: T - MINUTE, usd: 1 }],
-    turnIds: ['turn-one'],
-  };
-  const second = {
-    ...emptyState(),
-    heartbeat: { lastAt: T - 2 * MINUTE, nextAt: T + 3 * MINUTE },
-    selfimprovement: { lastAt: T - 2 * MINUTE, raisedAt: T - 3 * MINUTE },
-    review: { day: '2026-10-31', at: T + 2 * MINUTE, done: false, channels: ['c2'], lines: 3 },
-    facts: [{ id: 'f2', kind: 'turnFailed', placeId: 'c2', dmChat: false, at: T, told: false as const }],
-    turns: [{ at: T, chainId: 'two', usd: 2, outcome: 'skip', kinds: ['review'] }],
-    spend: [{ at: T, usd: 2 }],
-    turnIds: ['turn-two'],
-  };
-  // Legacy units precede the first service open. An existing persona state always wins subsequent opens.
-  const legacy = openMemoryDb(path.join(dataDir, 'memory.db'));
-  try {
-    applyUnitWrite(legacy, { op: 'value', key: firstKey, value: first });
-    applyUnitWrite(legacy, { op: 'value', key: secondKey, value: second });
-  } finally {
-    legacy.close();
-  }
-  const run = await core(dataDir);
-  try {
-    const state = run.life.state();
-    assert.equal(run.life.state().stopped, true, 'the stop applies across root contexts');
-    assert.deepEqual(run.life.state().heartbeat, { lastAt: T - 2 * MINUTE, nextAt: T + 5 * MINUTE });
-    assert.deepEqual(state.heartbeat, { lastAt: T - 2 * MINUTE, nextAt: T + 5 * MINUTE });
-    assert.deepEqual(state.selfimprovement, { lastAt: T - MINUTE, raisedAt: T - 3 * MINUTE });
-    assert.equal(state.stopped, true);
-    assert.equal(state.stoppedBy, 'owner');
-    assert.deepEqual(state.turnIds.toSorted(), ['turn-one', 'turn-two']);
-    assert.deepEqual(
-      state.turns.map((turn): [string, unknown] => [turn.chainId, Reflect.get(turn, 'scopePlaceId')]).toSorted(),
-      [
-        ['one', legacyServerPlaceId('fake', ROOT)],
-        ['two', legacyServerPlaceId('fake', 'g2')],
-      ]
-    );
-    assert.deepEqual(
-      state.spend.map(({ at, usd }) => ({ at, usd })),
-      [...first.spend, ...second.spend]
-    );
-    assert.deepEqual(
-      run.life.facts.pending({ placeId: 'c1' }).map((fact) => fact.id),
-      ['f1']
-    );
-    assert.deepEqual(
-      run.life.facts.pending({ placeId: 'c2' }).map((fact) => fact.id),
-      ['f2']
-    );
-    run.life.facts.add({ kind: 'turnFailed', placeId: 'c2', text: 'retained after reopen' });
-    await run.life.release();
-    const handle = run.memory.memoryDb.readHandle();
-    assert.ok(handle);
-    const db = dbOf(handle);
-    assert.deepEqual(unitValue(db, firstKey), { found: true, value: first });
-    assert.deepEqual(unitValue(db, secondKey), { found: true, value: second });
-    const persisted = unitValue(db, personaKey('inner'));
-    assert.equal(persisted.found, true);
-    await run.memory.memoryDb.writeUnit({ op: 'value', key: firstKey, value: { ...first, stopped: false } });
-    await run.restart();
-    assert.equal(run.life.state().stopped, true, 'historical source units never overwrite existing persona state');
-    const reopened = run.memory.memoryDb.readHandle();
-    assert.ok(reopened);
-    assert.deepEqual(unitValue(dbOf(reopened), personaKey('inner')), persisted);
-    assert.deepEqual(
-      run.life.facts.pending({ placeId: 'c2' }).map((fact) => fact.text ?? fact.id),
-      ['f2', 'retained after reopen']
-    );
   } finally {
     await run.close();
   }

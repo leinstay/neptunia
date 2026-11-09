@@ -4,11 +4,10 @@
 // independent of source IDs and visibility. Historical owner strings are accepted by the explicit import and
 // pending compatibility boundary, which preserves their provenance without using it for live ownership.
 
-import { ensureUnit, hasStorageUnits, unitById, listUnits, partitionOf, subjectOf } from './storage-units.ts';
+import { ensureUnit, hasStorageUnits, unitById, listUnits, partitionOf } from './storage-units.ts';
 import { storageMapper } from './map/index.ts';
 import { classify } from '../migration/classify.ts';
 import { legacyStorageKey, currentUnitPath } from '../migration/paths.ts';
-import { personaKey } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { messageLocator } from './message-locator.ts';
 import type { MessageLocator } from './message-locator.ts';
@@ -21,7 +20,6 @@ import { parseExtra } from './map/common.ts';
 import { ifaceOrLegacy as ifaceOf } from './legacy-namespace.ts';
 import { hotClaimIds, linkVectors, qualify, retireAbsent, writeMapping } from './upsert.ts';
 import { unitRows, isMediaDescriptionEntry, mediaDescriptionId } from './export.ts';
-import { unitValue } from './readers/common.ts';
 import { assignSelfreflectionDestination } from './publish.ts';
 import { graphPending, projectPending, projectRow } from './graph.ts';
 import { storeHeld } from './media-stems.ts';
@@ -43,6 +41,7 @@ import type { Scope } from './scope.ts';
 import { ensureAudience } from './rows.ts';
 import { legacyPersonNative } from './ids.ts';
 import { writeGifVector } from './gif-vectors.ts';
+import { operationalOfUnit, writeOperational } from './operational.ts';
 import { storageContext } from './map/index.ts';
 
 /** Tables of an owned unit whose rows carry a `position`. */
@@ -394,7 +393,6 @@ function writeLines(db: Db, update: Row, at: string): { written: number; duplica
   const unitKey = unit.key;
   if (unitKey?.kind === 'versions' && unitKey.selector?.versionKind === 'media')
     return writeMediaDescriptions(db, unit, update.lines, at);
-  if (unitKey?.kind === 'recall_trace') return writeRecallTrace(db, unit, update, at);
   if (unit.format !== 'jsonl' || !LINE_KINDS.has(unit.kind)) throw coded('UNIT_UNMAPPED');
   const lines = (Array.isArray(update.lines) ? (update.lines as Array<unknown>) : []).filter(
     (line): line is Row => line !== null && typeof line === 'object' && !Array.isArray(line)
@@ -414,26 +412,6 @@ function writeLines(db: Db, update: Row, at: string): { written: number; duplica
   noteUnit(db, unit.full, unit.kind, { lines: position, at });
   if (result.written > 0) markStemsPending(db);
   return result;
-}
-
-/** Recall diagnostics use the existing unit writer and keep only the requested recent history. */
-function writeRecallTrace(db: Db, unit: Unit, update: Row, at: string) {
-  let position = nextPosition(db, unit.full);
-  let written = 0;
-  for (const item of Array.isArray(update.lines) ? (update.lines as Array<Row>) : []) {
-    if (!item.record || typeof item.record !== 'object' || Array.isArray(item.record)) throw coded('UNIT_BAD_OP');
-    const cap = isWholeNumber(item.maxLines) && item.maxLines > 0 ? item.maxLines : 500;
-    const mapping = unit.mapper.toRows(unit.rel, item.record, { position });
-    writeMapping(db, qualify(mapping, unit), unit.full, { at });
-    db.prepare(
-      `DELETE FROM operational WHERE kind = 'recall_trace' AND owner_key = ? AND rowid NOT IN
-       (SELECT rowid FROM operational WHERE kind = 'recall_trace' AND owner_key = ? ORDER BY rowid DESC LIMIT ?)`
-    ).run(unit.full, unit.full, cap);
-    position += 1;
-    written += 1;
-  }
-  noteUnit(db, unit.full, unit.kind, { lines: position, at });
-  return { written, duplicates: 0, adopted: 0 };
 }
 
 /** Media generations append independently of the active cache's replacement writes. */
@@ -703,83 +681,6 @@ function project(handle: MemoryHandle, update: Row, at: string): { units: number
   return out;
 }
 
-/** Numeric clocks from historical roots share their latest recorded bounds. */
-function mergeClock(previous: unknown, incoming: unknown): Row | null {
-  if (!previous && !incoming) return null;
-  const left = previous && typeof previous === 'object' ? (previous as Row) : {};
-  const right = incoming && typeof incoming === 'object' ? (incoming as Row) : {};
-  const out = { ...left, ...right };
-  for (const name of new Set([...Object.keys(left), ...Object.keys(right)])) {
-    const values = [left[name], right[name]].filter(isFiniteNumber);
-    if (values.length) out[name] = Math.max(...values);
-  }
-  return out;
-}
-
-/** Preserve review snapshots by root while sharing the latest day's draw and completion. */
-function mergeReview(value: Row, source: Row, scope: string): void {
-  const incoming = source.review as Row | null;
-  if (!incoming || typeof incoming.day !== 'string') return;
-  const views = value.reviewViews as Row;
-  views[scope] = { day: incoming.day, channels: incoming.channels ?? [], lines: incoming.lines ?? 0 };
-  const known = value.review as Row | null;
-  if (!known || String(known.day) < incoming.day) value.review = { ...incoming, channels: [], lines: 0 };
-  else if (known.day === incoming.day) {
-    known.done = known.done === true || incoming.done === true;
-    known.at = mergeClock({ at: known.at }, { at: incoming.at })?.at ?? null;
-  }
-}
-
-/** Historical evidence keeps its original root when the persona state is consolidated. */
-function mergeInner(value: Row, source: Row, scope: string): void {
-  if (source.stopped === true)
-    Object.assign(value, { stopped: true, stoppedAt: source.stoppedAt, stoppedBy: source.stoppedBy });
-  for (const field of ['heartbeat', 'selfimprovement']) value[field] = mergeClock(value[field], source[field]);
-  for (const field of ['facts', 'turns', 'spend']) {
-    const items = Array.isArray(source[field]) ? (source[field] as Array<Row>) : [];
-    value[field] = [
-      ...(value[field] as Array<Row>),
-      ...items.map((item) => ({ ...item, scopePlaceId: item.scopePlaceId ?? scope })),
-    ];
-  }
-  value.turnIds = [
-    ...new Set([
-      ...(value.turnIds as Array<string>),
-      ...(Array.isArray(source.turnIds) ? (source.turnIds as Array<string>) : []),
-    ]),
-  ];
-  mergeReview(value, source, scope);
-}
-
-/** Consolidate historical root state once through the same writer that persists the persona's state. */
-export function consolidateInnerState(handle: MemoryHandle, { now }: { now: number }): { consolidated: number } {
-  return handle.transaction(() => {
-    const db = dbOf(handle);
-    const key = personaKey('inner');
-    if (unitValue(db, key).found) return { consolidated: 0 };
-    const units = listUnits(db, { kind: 'inner' }).filter((unit) => subjectOf(unit).type !== 'persona');
-    const value: Row = {
-      v: 1,
-      stopped: false,
-      review: null,
-      reviewViews: {},
-      heartbeat: null,
-      selfimprovement: null,
-      facts: [],
-      turns: [],
-      spend: [],
-      turnIds: [],
-    };
-    for (const unit of units) {
-      const stored = unitValue(db, unit.key);
-      if (stored.found && stored.value && typeof stored.value === 'object')
-        mergeInner(value, stored.value as Row, unit.key.scopePlaceId ?? subjectOf(unit).id);
-    }
-    writeValue(db, { key, value }, isoOf(now));
-    return { consolidated: units.length };
-  });
-}
-
 /**
  * The scope of a name the owner gives a person: the groups of the person's interface, the scope a member's profile gives
  * its aliases (map/user.ts). `iface` is the interface the command came from, for a person with no account and no spelled
@@ -832,11 +733,13 @@ function writeOwnerName(db: Db, update: Row, at: string): { personId: string; na
  * One write of an append-like memory unit (see the head of this file). `handle` is the writer.
  */
 export function applyUnitWrite(handle: MemoryHandle, update: Row): unknown {
-  if (update?.op === 'consolidate-inner') return consolidateInnerState(handle, { now: Number(update.now) });
   const at = isoOf(update?.now);
   const op = update?.op;
   if (op === 'project') return project(handle, update, at);
   const db = dbOf(handle);
+  // A unit of an operational kind (a write kept pending by an older outbox) is the operational write of its subject.
+  const operational = op === 'value' || op === 'lines' ? operationalOfUnit(update) : null;
+  if (operational) return handle.transaction(() => writeOperational(db, operational));
   const runs: Record<string, (() => unknown) | undefined> = {
     lines: () => skippedErrandUnit(db, update, () => update.key ?? unitOf(update.owner)) ?? writeLines(db, update, at),
     value: () => skippedErrandUnit(db, update, () => update.key ?? unitOf(update.owner)) ?? writeValue(db, update, at),
