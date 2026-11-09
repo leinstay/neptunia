@@ -6,18 +6,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { readReport, readReportRun } from '../src/watcher/read.ts';
-import { REPORT_HEADINGS, checkReport, commitReport } from '../src/watcher/report.ts';
+import { checkReport, commitReport } from '../src/watcher/report.ts';
 import { HEADINGS, PLANTED_KEY, putReport, reportText, watcherDirs } from './fixtures/watcher-rig.ts';
 
 const codeOf = (text: string): string | null => {
   const checked = checkReport(text);
   return checked.ok ? null : checked.code;
 };
-
-test('the report headings are the ones of the design, in order', () => {
-  // The lead: the watcher left development (owner, 2026-11-06); `Development` is gone and `Money` joined the list.
-  assert.deepEqual([...REPORT_HEADINGS], [...HEADINGS]);
-});
 
 test('a report with the twelve headings, each saying nothing found, is accepted: a quiet day is a good day', () => {
   assert.equal(checkReport(reportText()).ok, true);

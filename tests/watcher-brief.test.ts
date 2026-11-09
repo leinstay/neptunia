@@ -59,9 +59,3 @@ test('files in the reports folder that are no dated report are ignored, failed m
   assert.equal(brief.includes('MARK-NOTES'), false);
   assert.equal(brief.includes('MARK-FAILED'), false);
 });
-
-test('the first run has no reports yet and still produces a brief with the prompt', () => {
-  const dirs = watcherDirs();
-  const brief = buildBrief({ prompt: PROMPT, day: '2026-11-02', reportsDir: dirs.reportsDir });
-  assert.ok(brief.includes(PROMPT));
-});

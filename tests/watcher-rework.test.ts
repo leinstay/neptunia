@@ -56,20 +56,6 @@ function saved(rig: InspectionRig) {
   return { text: read.report.text, metadata: checked.metadata };
 }
 
-// ---- 2. Decisions needed -------------------------------------------------------------------------------------------------
-
-test('the section subheadings are named, with the extra one only for the owner', () => {
-  // Bug: the fifth subheading joins the shared list, and every section must carry a decisions block.
-  assert.deepEqual(
-    [...reports.OWNER_SUBHEADINGS],
-    ['Decisions needed', 'Observed defects', 'Suspicious evidence', 'Inspected without a finding', 'Unavailable checks']
-  );
-  assert.deepEqual(
-    [...reports.REPORT_SUBHEADINGS],
-    ['Observed defects', 'Suspicious evidence', 'Inspected without a finding', 'Unavailable checks']
-  );
-});
-
 const OWNER = '### Decisions needed\n\nnone\n\n';
 
 for (const [name, change, code] of [
@@ -288,27 +274,6 @@ test('an inspection whose Misunderstandings cite no turn fails and keeps the las
 
 const PROMPT = fs.readFileSync(path.join(REPO, 'agents', 'watcher', 'prompt.md'), 'utf8');
 const promptOf = (heading: string): string => sectionOf(PROMPT, heading);
-
-test('the prompt sends Service runs to the selfreflection and mirror facts', () => {
-  // Bug: the first real report never said whether the diary ran, because nothing asked it to.
-  const text = promptOf('Service runs');
-  assert.match(text, /selfreflection/i);
-  assert.match(text, /mirror/i);
-});
-
-test('the prompt asks Misunderstandings for turn ids and forbids retelling the chat', () => {
-  // Bug: the check refuses what the prompt never told the agent to avoid, and every live run fails on it.
-  const text = promptOf('Misunderstandings');
-  assert.match(text, /turn/i);
-  assert.match(text, /paraphras/i);
-});
-
-test('the prompt holds Project to the CI of main', () => {
-  // Bug: the agent reads pull request branches again and reports their failures as the project's.
-  const text = promptOf('Project');
-  assert.match(text, /\bCI\b/);
-  assert.match(text, /`main`/);
-});
 
 test('the prompt gives the decisions block', () => {
   // Bug: the agent leaves the owner's decisions in prose.

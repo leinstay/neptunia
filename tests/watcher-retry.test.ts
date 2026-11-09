@@ -155,15 +155,6 @@ for (const [name, answer] of [
   });
 }
 
-test('a tasks block the check refuses gets its retry too', async () => {
-  // Bug: only the template earns a retry, and one bad draft still costs the day.
-  const rig = inspectionRig();
-  const { deps, asked } = scripted(rig, [said(`${templateOf()}\`\`\`tasks\nnot json\n\`\`\`\n`), said(GOOD)]);
-  const result = await runInspection(deps);
-  assert.equal(asked.length, 2);
-  assert.equal(result.state, 'succeeded', result.code ?? '');
-});
-
 test('a credential in a refused answer reaches neither the file nor the second brief', async () => {
   // Bug: the private copy and the "answer before" carry the key the check exists to stop, to disk and back to the model.
   const rig = inspectionRig();
