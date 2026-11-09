@@ -134,6 +134,7 @@ The paths of her core, her memory writer and the simulation through a subharness
 | `memoryDb.retrieval.embedDocuments` | boolean | `true` | Whether new semantic search documents are embedded, one bounded batch a minute. Off, a search of them stays lexical | `src/memory/db/service.ts` |
 | `memoryDb.retrieval.embedObjects` | boolean | `true` | Whether claims, descriptions, episodes and name sets are embedded, one bounded batch a minute. Off, their searches stay lexical | `src/memory/db/service.ts` |
 | `memoryDb.retrieval.embedBatch` | number | `50` | The most texts one embedding request of the object job carries, cut further to stay under `llm.maxRequestTokens` | `src/memory/db/object-vectors.ts` |
+| `memoryDb.retrieval.episodes` | number | `3` | How many episodes a `memory.search` result lists at most, found by the meaning of its query. `0` leaves them out | `src/behavior/recall-facts.ts` |
 | `memoryDb.inspection.pageRows` | number | `100` | The most rows one page of an owner memory read holds, whatever limit a command asks for | `src/interface/commands/memory.ts` |
 | `memoryDb.inspection.snapshotIdleSeconds` | number | `60` | How long an inspection snapshot stays open with no read of it | `src/interface/commands/memory.ts` |
 | `memoryDb.inspection.snapshotMaxSeconds` | number | `300` | How long an inspection snapshot stays open at most, so it cannot hold the write-ahead log back | `src/interface/commands/memory.ts` |

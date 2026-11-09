@@ -787,7 +787,8 @@
           "hidden": "A match was found in a private conversation that cannot be opened here.",
           "facts": "Stored facts, in your own words:",
           "fact": "- ({state}) {text}",
-          "factsCut": "More stored facts exist. Narrow with entity, predicate or as_of."
+          "factsCut": "More stored facts exist. Narrow with entity, predicate or as_of.",
+          "episode": "- remembered moment ({date}): {text}"
         },
         "describe": {
           "closest": "No skill by that name. The closest: {names}."
