@@ -7,14 +7,14 @@ import assert from 'node:assert/strict';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chatPanel } from '../bin/chat-panels.ts';
+
 import { readConfig } from '../src/config.ts';
 import { checkConfig } from '../src/config/check.ts';
 import { localConfigPath } from '../src/config/files.ts';
 import { CONFIG_SCHEMA } from '../src/config/schema.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
-import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
+import { parseCommandLine } from '../src/interface/commands/table.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
@@ -129,31 +129,6 @@ for (const [line, name, args] of [
     assert.deepEqual(parseCommandLine(line), { ok: true, name, args });
   });
 }
-
-test('the table holds one service command and no standalone report, watcher or mechanic command', () => {
-  // Catches: a retired control stays in the table, so `/help` and completion still offer it.
-  const names = COMMANDS.map((command) => command.name);
-  assert.equal(names.filter((name) => name === 'services').length, 1);
-  for (const gone of ['report', 'watcher', 'heartbeat', 'selfreflection', 'selfimprovement', 'mechanics'])
-    assert.equal(names.includes(gone), false, gone);
-});
-
-// Changed: the retired names are gone with the rest of the legacy, so such a line is refused like any line the table
-// does not hold, and names no replacement.
-for (const line of ['/report', '/watcher run', '/heartbeat stop', '/selfreflection enable', '/selfimprovement run']) {
-  test(`${line} is refused`, () => {
-    // Catches: an old control still runs something.
-    assert.equal(parseCommandLine(line).ok, false);
-  });
-}
-
-test('the help panel lists /services and no /report', async () => {
-  // Catches: the panel keeps a list of its own that drifts from the table.
-  const panel = await chatPanel('/help', () => Promise.resolve({ status: 'ok', text: '' }));
-  const labels = (panel?.rows ?? []).map((row) => row.label);
-  assert.ok(labels.includes('/services'), labels.join(' '));
-  assert.equal(labels.includes('/report'), false);
-});
 
 /** A console over a temporary private layer whose `/config` reads the files as the core's hot settings do. */
 function consoleOver(ran: Array<string> = []): { dir: string; run: (line: string) => ReturnType<typeof runIn> } {

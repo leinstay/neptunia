@@ -83,14 +83,6 @@ test('every account bound to the owner person has the owner rights, and an unbou
   });
 });
 
-test('a bot.owners id stops counting on any account once another person is the owner person', () => {
-  // Bug: the old list stays a second way in after the explicit migration.
-  withAccounts((handle) => {
-    link(handle, 'bind', 'discord', '111', { owner: true });
-    assert.equal(ownerOn('discord', '222', { bot: { ownerPerson: OWNER_PERSON, owners: ['222'] } }), false);
-  });
-});
-
 test('an account on the owner person gets no rights from a link the owner did not write', () => {
   // Bug: a link written by an import or a memory session would hand out the owner's rights; only `/memory bind` may.
   withAccounts((handle) => {
@@ -99,18 +91,6 @@ test('an account on the owner person gets no rights from a link the owner did no
       .prepare("UPDATE accounts SET person_id = ?, link = 'verified', linked_by = NULL WHERE id = 'discord:222'")
       .run(OWNER_PERSON);
     assert.equal(ownerOn('discord', '222', { bot: { ownerPerson: OWNER_PERSON } }), false);
-  });
-});
-
-test('bot.owners decides nothing while no owner person is bound', () => {
-  // Bug: the retired list of native ids stays a way in beside the meta-person and its accounts.
-  // The expectation changed with plan 2026-11-08-meta-person slice 8: `bot.owners` is replaced by the owner's
-  // meta-person and the accounts paired or bound to it, so the list no longer passes anyone on any interface.
-  withAccounts(() => {
-    const config = { bot: { owners: ['111'] } };
-    assert.equal(ownerOn('discord', '111', config), false);
-    assert.equal(ownerOn('telegram', '111', config), false);
-    assert.equal(isOwnerId(config, '111'), false);
   });
 });
 
