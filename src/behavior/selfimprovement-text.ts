@@ -148,20 +148,6 @@ function newsLines(facts: SelfimprovementFacts, l: Obj): Array<string> {
   ];
 }
 
-/** The watcher's block: the titles of what it filed, each with the state of its receipt. */
-function watcherLine(facts: SelfimprovementFacts, l: Obj): string {
-  const { watcher } = facts;
-  if (!watcher) return '';
-  const findings = watcher.findings.map((one) =>
-    word(l, 'watcherFinding', {
-      title: oneLine(one.title),
-      state: one.state,
-      task: one.taskId === null ? '' : word(l, 'watcherTask', { task: one.taskId }),
-    })
-  );
-  return word(l, 'watcher', { day: watcher.day, findings: findings.join('\n') });
-}
-
 /**
  * The lines of `<work>`: the cause, the window from its first day (`{from}`) over `{days}` days, the shapes, the
  * repeated needs and failed calls, the tools never called and the skills. [] without facts or the header label.
@@ -185,15 +171,11 @@ export function workLines(
   ].filter((line) => line !== '');
 }
 
-/**
- * The lines of `<board>`: the proposals she filed, what the board holds for her since the last wake and what the
- * watcher's newest report filed (one block under `watcher`, left out without findings or the label). [] without facts
- * or the header label.
- */
+/** The lines of `<board>`: the proposals she filed and what the board holds for her since the last wake. [] without facts or the header label. */
 export function boardLines(facts: SelfimprovementFacts | null | undefined, labels: unknown): Array<string> {
   const l = objOf(labels);
   if (!facts || typeof l.header !== 'string' || l.header === '') return [];
-  return [...proposalLines(facts, l), ...newsLines(facts, l), watcherLine(facts, l)].filter((line) => line !== '');
+  return [...proposalLines(facts, l), ...newsLines(facts, l)].filter((line) => line !== '');
 }
 
 /** The lines of `<work>` then of `<board>`. */

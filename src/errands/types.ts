@@ -157,8 +157,8 @@ export type Budget = { spent: boolean; key: string | null; code: string | null }
 /** One end committed on the board whose `errand.done` has not been marked delivered. */
 export type ErrandEnd = { eventId: string; errandId: string; state: ErrandState };
 
-/** The writes still waiting for the memory database, and the ones kept in `memory-pending/`. */
-export type FlushCounts = { waiting: number; pending: number };
+/** The writes still waiting for the memory database. */
+export type FlushCounts = { waiting: number };
 
 /** The errands of one place, on the memory database's task board (src/errands/store.ts#createErrandStore). */
 export type ErrandStore = {

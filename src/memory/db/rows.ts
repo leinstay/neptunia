@@ -34,9 +34,7 @@ import {
   CORE_AUTHORITY,
   LEGACY_AUTHORITY,
   externalTargetKey,
-  legacyAccountNative,
   legacyNativeKind,
-  legacyPersonNative,
   linkId,
   nativeAuthorityOf,
   placeNativeKey,
@@ -287,7 +285,8 @@ export function deriveRow(
     ensureInterface(db, out.iface);
     if (!own) {
       out.authority_id = nativeAuthorityOf(out.iface);
-      out.native_key = out.native_id ?? legacyAccountNative(out.id, out.iface);
+      // The key is the row's native id, never cut out of the account id.
+      out.native_key = out.native_id ?? null;
     }
   } else if (table === 'places' && have.has('authority_id') && Object.hasOwn(out, 'id') && own) {
     ensureInterface(db, out.iface);
@@ -476,11 +475,6 @@ export function ensureNodeKeys(
       addKey(db, CORE_AUTHORITY, 'person', 'self', row.id, { at });
       return;
     }
-    const legacy = legacyPersonNative(row.id);
-    if (legacy) {
-      ensureInterface(db, legacy.iface);
-      addKey(db, nativeAuthorityOf(legacy.iface), 'person', legacy.native, row.id, { at });
-    }
     addKey(db, LEGACY_AUTHORITY, 'person', row.id, row.id, { at });
   } else if (table === 'accounts' || table === 'places') {
     const kind = table === 'accounts' ? 'account' : 'place';
@@ -488,7 +482,7 @@ export function ensureNodeKeys(
       table === 'accounts'
         ? {
             authority_id: nativeAuthorityOf(row.iface),
-            native_key: row.native_key ?? row.native_id ?? legacyAccountNative(row.id, row.iface),
+            native_key: row.native_key ?? row.native_id,
           }
         : placeColumns(row, partnerNativeOf(db, row));
     const derived = legacy ? legacyDerived : { authority_id: row.authority_id, native_key: row.native_key };

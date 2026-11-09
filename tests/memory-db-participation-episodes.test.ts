@@ -8,8 +8,10 @@ import { placeCollection } from '../src/memory/db/storage-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';
 import { plain } from './fixtures/memory-db/roundtrip.ts';
+import { addChannelPlace } from './fixtures/memory-db/opaque-people.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
 import {
+  CHANNEL,
   NOW,
   ROOT,
   copyOf,
@@ -84,5 +86,26 @@ test('a repeated or missing item id and an odd shape come back as they were writ
     } finally {
       handle.close();
     }
+  }
+});
+
+test('an episode names the stored place of its chat when the place id spells nothing, and reads back the chat', () => {
+  const handle = copyOf(seededPlaces());
+  try {
+    const db = dbOf(handle);
+    addChannelPlace(db, { id: 'place:9b21', iface: 'discord', authority: 'discord/global', native: 'room-n' });
+    const value = { nextId: 2, episodes: [{ ...episode('pt-5', ['m5']), placeId: 'room-n' }] };
+    writeDirect(handle, { kind: 'participation', placeId: CHANNEL, value });
+    const stored = db
+      .prepare("SELECT place_id AS place FROM episodes WHERE writer = 'participation' AND retired_at IS NULL")
+      .all();
+    assert.deepEqual(
+      stored.map((row) => row.place),
+      ['place:9b21']
+    );
+    const read = unitValue(db, placeCollection('participation', CHANNEL));
+    assert.deepEqual(read.found ? read.value : null, plain(value));
+  } finally {
+    handle.close();
   }
 });

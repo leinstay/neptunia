@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 import { createEmojiBackfill } from '../src/memory/emoji-backfill.ts';
+import { placeCollection } from '../src/memory/db/storage-keys.ts';
 import { createStore } from '../src/memory/store.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
@@ -276,16 +277,17 @@ test('store emojiBackfill: normalised on read, set only through setEmojiBackfill
     const store = createStore({ dataDir: dir, memoryDb });
     assert.equal(loose(store.getPlace(placeOfRoot(store, 'g1'))).emojiBackfill, null);
 
+    // The notes are written under the place the store names the root by: a unit names its place, never a path.
     await memoryDb.writeUnit({
       op: 'value',
-      owner: 'guilds/g2/guild.json',
+      key: placeCollection('place', placeOfRoot(store, 'g2')),
       value: { emojiBackfill: { at: 5, channels: 'x' } },
     });
     assert.equal(loose(store.getPlace(placeOfRoot(store, 'g2'))).emojiBackfill, null);
 
     await memoryDb.writeUnit({
       op: 'value',
-      owner: 'guilds/g3/guild.json',
+      key: placeCollection('place', placeOfRoot(store, 'g3')),
       value: { emojiBackfill: { at: '2026-09-30T00:00:00.000Z', channels: 2.7, messages: -1 } },
     });
     assert.deepEqual(loose(store.getPlace(placeOfRoot(store, 'g3'))).emojiBackfill, {

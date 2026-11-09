@@ -12,7 +12,8 @@
 // session wrote last stays as she wrote it (session-rows.ts#sessionHold). A read adds what her session wrote about the
 // person in the direct chat (session-rows.ts#addSessionRows).
 
-import { personId } from './ids.ts';
+import { mintMetaPerson } from './meta-person-write.ts';
+import { ensureAccountPerson } from './person-links.ts';
 import { dmScope } from './scope.ts';
 import { historyFrom, profileFrom, profileRows } from './map/lists.ts';
 import { ifaceOf, isPlainObject, parseExtra, put, rowsOf } from './map/common.ts';
@@ -21,6 +22,7 @@ import { dmPlaceScope } from './map/scope-parts.ts';
 import { dmOfAccount } from './meta-person.ts';
 import { addSessionRows } from './session-rows.ts';
 import { accountCollection, keyText } from './storage-keys.ts';
+import { namedIface } from './legacy-namespace.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
@@ -43,11 +45,21 @@ const FIELDS = ['relationship'];
 const coded = (code: string): Error & { code: string } => Object.assign(new Error(code), { code });
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
 
-/** The rows of a private layer `value` of the unit `key`, owned by `owner` (the unit's id). */
-function privateLayerRows(db: Db, key: StorageKey, value: Row, owner: string): Rows {
-  const ctx = storageContext(db, key);
+/**
+ * The person of a layer whose account names none: the stored account's meta-person, made when it has none, or a new
+ * meta-person for an account no row holds; never one spelled from the account's native id.
+ */
+function personOfLayer(db: Db, key: StorageKey, at: string): string {
+  const account = key.subject.type === 'account' ? key.subject.id : null;
+  const stored = account !== null && db.prepare('SELECT 1 FROM accounts WHERE id = ?').get(account) !== undefined;
+  return (account !== null && stored ? ensureAccountPerson(db, account, at) : null) ?? mintMetaPerson(db, at);
+}
+
+/** The rows of a private layer `value` of the unit `key`, owned by `owner` (the unit's id), written at `at`. */
+function privateLayerRows(db: Db, key: StorageKey, value: Row, owner: string, at: string, writeIface?: string): Rows {
+  const ctx = storageContext(db, key, writeIface);
   const iface = ifaceOf(ctx);
-  const person = ctx.subjectPersonId ?? personId(iface, ctx.subjectNativeId ?? owner);
+  const person = ctx.subjectPersonId ?? personOfLayer(db, key, at);
   const place = key.subject.type === 'account' ? dmOfAccount(db, key.subject.id) : (ctx.dmPlace ?? null);
   const rows: Rows = {};
   const { rest, affinity } = profileRows(rows, value, {
@@ -108,14 +120,14 @@ export function writePrivateLayer(
   db: Db,
   key: StorageKey,
   value: Row,
-  { at, legacyOwner }: { at: string; legacyOwner?: string }
+  { at, iface, legacyOwner }: { at: string; iface?: string; legacyOwner?: string }
 ): PrivateLayerResult {
   const id = ensureUnit(db, key);
   if (legacyOwner) {
     db.prepare('INSERT OR IGNORE INTO legacy_unit_aliases(path,unit_id) VALUES (?,?)').run(legacyOwner, id);
     db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, 'private');
   }
-  const mapping = privateLayerRows(db, key, value, id);
+  const mapping = privateLayerRows(db, key, value, id, at, iface);
   if (legacyOwner) for (const list of Object.values(mapping)) for (const row of list) row.owner_file = legacyOwner;
   const upserted = writeMapping(db, mapping, id, { at });
   const retired = retireProfileAbsent(db, profileOwnerOf(key)!, mapping, at); // as above
@@ -149,7 +161,9 @@ export function applyPrivateLayerWrite(handle: MemoryHandle, update: Row): Priva
   const write = privateLayerWriteOf(update);
   const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
   const key = accountCollection('private', write.accountId);
-  return handle.transaction(() => writePrivateLayer(dbOf(handle), key, write.value, { at }));
+  return handle.transaction(() =>
+    writePrivateLayer(dbOf(handle), key, write.value, { at, iface: namedIface(update) ?? undefined })
+  );
 }
 
 /** The private layer the unit `key` holds, or not found when the database holds no such unit. */

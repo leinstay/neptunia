@@ -1,7 +1,6 @@
 // One retry of a refused answer (src/watcher/inspection.ts): the answer is kept privately, the agent is asked once more on
 // the same run with the refusal's code and detail and the answer before, and a second refusal fails the run with the last
-// good view kept. Cancel and the run timeout hold across both attempts, and filing waits for an answer that passes. The
-// agent and the board are fakes and the clock is injected; one test runs the real worker over a stand-in binary.
+// good view kept. Cancel and the run timeout hold across both attempts. The agent is a fake and the clock is injected; one test runs the real worker over a stand-in binary.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -12,7 +11,6 @@ import { readConfig } from '../src/config.ts';
 import { localConfigPath } from '../src/config/files.ts';
 import { serviceFamily } from '../src/service/commands.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
-import { readFilings } from '../src/watcher/filing.ts';
 import { runInspection } from '../src/watcher/inspection.ts';
 import type { InspectionAgentResult, InspectionDeps } from '../src/watcher/inspection.ts';
 import { defaultProcessStart, lastRuns, readRun, requestCancel } from '../src/watcher/lifecycle.ts';
@@ -33,13 +31,12 @@ import {
   templateOf,
 } from './fixtures/watcher-inspection-rig.ts';
 import type { InspectionRig } from './fixtures/watcher-inspection-rig.ts';
-import { PLANTED_KEY, tasksBlock } from './fixtures/watcher-rig.ts';
+import { PLANTED_KEY } from './fixtures/watcher-rig.ts';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const RETRY_WORDS = 'RETRY-SENTINEL: answer again in the template.';
 const REFUSED = `${templateOf({ bodies: { Memory: 'MARK-REFUSED' } })}\nOne more thought.\n`;
 const GOOD = answerOf({ Memory: 'MARK-GOOD' });
-const DRAFT = { kind: 'fix', finding: 'rail', title: 'Retry rail', evidence: 'src/a.ts:1', done: 'It holds' };
 
 type Asked = { brief: string; timeoutMs: number; runId: string };
 
@@ -181,37 +178,6 @@ test('a credential in a refused answer reaches neither the file nor the second b
   assert.equal(asked.length, 2);
   assert.equal(asked[1]?.brief.includes(PLANTED_KEY), false);
   assert.equal(allTextUnder(rig.dir).includes(PLANTED_KEY), false);
-});
-
-test('filing waits for an answer that passes, and only its drafts file', async () => {
-  // Bug: the refused answer's drafts reach the board before the check of the retry, and the task outlives its report.
-  const rig = inspectionRig();
-  const refused = { ...DRAFT, finding: 'gone', title: 'A draft of the refused answer' };
-  const first = `${templateOf({
-    bodies: { Errors: { 'Observed defects': '- [high] gone: failed in src/z.ts:9' } },
-  })}\nMore.\n${tasksBlock([refused])}`;
-  const { deps } = scripted(rig, [said(first), said(answerOf({}, [DRAFT]))]);
-  const { runId, state } = await runInspection(deps);
-  assert.equal(state, 'succeeded');
-  assert.deepEqual(
-    rig.fake.adds.map((one) => one.title),
-    [DRAFT.title]
-  );
-  assert.deepEqual(
-    readFilings(rig.dir, runId).map((one) => one.finding),
-    ['rail']
-  );
-});
-
-test('a second refusal files nothing', async () => {
-  // Bug: drafts of an answer that never passed are filed for a run that saved no report.
-  const rig = inspectionRig();
-  const bad = `${templateOf()}\nMore.\n${tasksBlock([DRAFT])}`;
-  const { deps } = scripted(rig, [said(bad), said(bad)]);
-  const { runId } = await runInspection(deps);
-  assert.equal(readRun(rig.store, runId)?.attempts, 2);
-  assert.equal(rig.fake.adds.length, 0);
-  assert.deepEqual(readFilings(rig.dir, runId), []);
 });
 
 test('cancel during the second attempt reaches its signal and the run ends cancelled', async () => {

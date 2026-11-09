@@ -289,8 +289,7 @@
       "probe": "Reply with the single word pong.",
       "memoryDb": {
         "unavailable": "db: on, not open",
-        "ok": "db · {rows} rows · {files} files",
-        "quarantined": "{n} pending writes quarantined, newest failed with {code}"
+        "ok": "db · {rows} rows · {files} files"
       }
     },
     "draw": {
@@ -483,7 +482,6 @@
         "stateLost": "Your inner state could not be read ({code}); you started empty",
         "memoryFailed": "Something you were to remember could not be saved ({code}); {n} lines are waiting and will be tried again",
         "proxySwitched": "Your network route changed: {why}",
-        "pendingQuarantined": "{n} of your memory writes failed when your memory reopened ({code}) and are set aside until the owner replays them",
         "interrupted": "Your {kind} turn was cut off by a restart after it did this: {done}",
         "codes": {
           "done": "the intention is already done",
@@ -495,8 +493,7 @@
           "unavailable": "the place is not reachable",
           "routes-exhausted": "every key and subscription you run on is unavailable for now",
           "proxy-down": "the proxy stopped answering, so your requests, video downloads and agents go out from the server's own address until it answers again",
-          "proxy-back": "the proxy answers again, and your requests, video downloads and agents go through it",
-          "memory-pending-quarantined": "it failed again when your memory reopened, so it is set aside until the owner replays it"
+          "proxy-back": "the proxy answers again, and your requests, video downloads and agents go through it"
         },
         "wakePlaceGone": "The place this intention was to begin in cannot be reached: {why}. The intention is still open: put it off, drop it or choose a place yourself"
       },
@@ -537,10 +534,7 @@
         "questionAnswered": " (answered)",
         "review": "A review of {task}: {decision} {scope}{note}",
         "reviewNote": ": {note}",
-        "board": "The board's word on {task}: {kind} {status}{reason}",
-        "watcher": "What the watcher filed in its report of {day}:\n{findings}",
-        "watcherFinding": "{title} ({state}{task})",
-        "watcherTask": ", task {task}"
+        "board": "The board's word on {task}: {kind} {status}{reason}"
       }
     },
     "journal": {

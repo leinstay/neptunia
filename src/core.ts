@@ -22,7 +22,6 @@ import { createLoopWatch, loopStallMs } from './loop-watch.ts';
 import { createMetrics, metricsTap } from './tools/operations/metrics.ts';
 import { createUsage, usageTap } from './tools/operations/usage.ts';
 import { createMemoryDb } from './memory/db/service.ts';
-import { quarantineNotices } from './memory/db/pending-quarantine.ts';
 import {
   createStore,
   createAppendStore,
@@ -148,7 +147,6 @@ import { createIntentionService } from './intentions/service.ts';
 import { skillRegistry, missingDefinitions } from './tools/registry.ts';
 import { wireSkills } from './skills/wiring.ts';
 import { createReportReader, reportsDirOf, watcherDir } from './watcher/read.ts';
-import { watcherNews } from './watcher/news.ts';
 import { createTagHistory, deprecatedModelKeys } from './behavior/mention.ts';
 import { createMessageHandler } from './behavior/pipeline.ts';
 import { createLeasedAttention } from './behavior/attention.ts';
@@ -351,8 +349,7 @@ async function buildCore(
   // selfreflectionMediaDeps is read at each tick: the interface port and the image fetcher exist by then (defined below).
   // `embed` and `selfName` (the re-embed job, recall.db.reembed) are the embedding client and her name, defined below.
   // Her memory session is the memory writer: it runs on the chat client (role `memory`, its own key from `env`), and a
-  // run that fails is told to her as a `memoryFailed` fact (inner, defined below). A pending write the open sets aside
-  // (src/memory/db/pending-quarantine.ts) is a `pendingQuarantined` fact, held until the inner life exists.
+  // run that fails is told to her as a `memoryFailed` fact (inner, defined below).
   // The options are named first: the module declares the ones it reads, and `embed` and `selfName` are not among them yet.
   // The session's model client (src/subharness/memory-writer.ts): the chat client below on the direct path, else one run
   // through the subharness config.json names; set once the chat client exists. A refused run wakes the memory probe.
@@ -361,7 +358,6 @@ async function buildCore(
   let watches: RouteWatches | null = null;
   // Whether the last run of the core or the memory writer through its harness lost its login, for the chat's header.
   const logins = createLoginState();
-  const quarantine = quarantineNotices(clock, log);
   const memoryDbOptions = {
     hot,
     dataDir,
@@ -377,7 +373,6 @@ async function buildCore(
     sessionKeys: () => chainRing,
     sessionPath: () => pathOf('memory'),
     onSessionFailure: (failure: Untyped) => tellSessionFailure(failure),
-    onPendingQuarantined: quarantine.hold,
   };
   const memoryDb = createMemoryDb(memoryDbOptions);
   cleanups.push(() => memoryDb.close());
@@ -1140,11 +1135,8 @@ async function buildCore(
     port: iface,
     now: clock,
     // The selfimprovement wake's facts beyond the journal (src/behavior/selfimprovement-view.ts): her grants, her
-    // skills with their use counts, her proposals and her outbox rows on the board, and the watcher's newest report.
-    selfimprovement: {
-      ...skillsWiring.selfimprovement,
-      watcher: (now) => watcherNews({ config: hot.config, rootDir: paths.dataDir, now }),
-    },
+    // skills with their use counts, and her proposals and her outbox rows on the board.
+    selfimprovement: skillsWiring.selfimprovement,
     log,
   });
   // The drops, holds and failures kept for her next request in a chat live in the inner life's state.
@@ -1178,7 +1170,6 @@ async function buildCore(
   }
   // The engine proxy's fallback and recovery reach her like any failure: a `proxySwitched` fact.
   proxy.tellTo(inner.facts);
-  quarantine.tellWith((fact) => inner.facts?.enabled?.() === true && inner.facts.add(fact));
   const tagHistory = createTagHistory();
   // Messages that may have been left without an answer (src/behavior/missed.ts): facts from the
   // address gate, the pending queue and every turn's end, a delayed sweep per channel, and a
@@ -1844,7 +1835,7 @@ async function buildCore(
     // archive.holdMaxMs: how long a file held for the archive may wait before it is written anyway.
     const holdMaxMs = hot.config.archive?.holdMaxMs ?? 5000;
     hot.close();
-    // `final`: the unit writes that still fail are kept in data/memory-pending/.
+    // `final`: the unit writes that still fail are logged as lost.
     await store.flushSettled({ holdMaxMs, final: true });
     await metrics.save({ force: true });
     await usage.save({ force: true });
@@ -1852,7 +1843,7 @@ async function buildCore(
     if (journalOn()) await journal.system({ event: 'stop', by: 'service', note: signal });
     await journal.clearRunning().catch((err) => log.warn('index: journal marker not removed', { error: err }));
     await archiveAppendStore.close().catch((err) => log.warn('index: append store close failed', { error: err }));
-    // The intention and task writes still waiting, then those still failing kept pending.
+    // The intention and task writes still waiting, then those still failing logged as lost.
     await intentionStores
       .flush({ final: true })
       .catch((err) => log.warn('index: intentions flush failed', { error: err }));

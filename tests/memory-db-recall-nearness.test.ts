@@ -1,7 +1,8 @@
 // src/memory/db/recall.ts: proximity breaks a tie of relevance and excludes nothing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { channelPlaceId, dmPlaceId, personId } from '../src/memory/db/ids.ts';
+import { channelPlaceId, dmPlaceId } from '../src/memory/db/ids.ts';
+import { personId } from './fixtures/memory-db/spelled-ids.ts';
 import { dbSettings, search } from '../src/memory/db/recall.ts';
 import { dmScope, groupContext, groupScope } from '../src/memory/db/scope.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';

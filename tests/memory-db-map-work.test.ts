@@ -45,8 +45,14 @@ test('errands: errands become work rows with the record whole', () => {
 });
 
 test('errands: a DM errand is scoped to its requester', () => {
-  const rows = assertRoundTrip(errands, 'errands.json', { errands: [task('t3', { scope: 'dm' })] });
-  assert.deepEqual([rows.work[0].scope_kind, rows.work[0].scope_dm], ['dm', 'person:discord:100000000000000001']);
+  // The requester's DM is the stored one its reader gives; with no stored DM the errand is internal, never spelled.
+  const person = 'person:5b2e';
+  const dmOfMember = (_iface: string, id: string) =>
+    id === '100000000000000001' ? { id: 'place:dm-5b2e', partnerPerson: person } : null;
+  const rows = assertRoundTrip(errands, 'errands.json', { errands: [task('t3', { scope: 'dm' })] }, { dmOfMember });
+  assert.deepEqual([rows.work[0].scope_kind, rows.work[0].scope_dm], ['dm', person]);
+  const [unstored] = assertRoundTrip(errands, 'errands.json', { errands: [task('t5', { scope: 'dm' })] }).work ?? [];
+  assert.equal(unstored?.scope_kind, 'internal');
   assertRoundTrip(errands, 'errands.json', {
     errands: [task('t4', { scope: 'dm', requester: { accountId: null, kind: 'owner' } })],
   });

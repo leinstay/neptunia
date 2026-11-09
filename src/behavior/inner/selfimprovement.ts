@@ -5,8 +5,7 @@
 // `state.selfimprovement = { lastAt, raisedAt, schedule }`: `schedule` is what the clock counts for, `lastAt` moves when a wake's completion committed, to the moment its view was read (and the outbox rows
 // it showed are marked delivered, exactly those), `raisedAt` when a failure cause raised a wake. The tick (src/behavior/inner.ts) asks
 // `selfimprovementDue`; the drain (src/behavior/inner/drain.ts) asks `selfimprovementFacts` for its turn and
-// `committedSelfimprovement` once the turn committed. `scheduledWake` and `failureCause` are the rules, pure. The facts
-// carry the newest watcher report the source gives for the wake's time (src/watcher/news.ts).
+// `committedSelfimprovement` once the turn committed. `scheduledWake` and `failureCause` are the rules, pure.
 
 import { evaluateSchedule, formatSchedule } from '../../service/schedule.ts';
 import type { ServiceSchedule } from '../../service/schedule.ts';
@@ -152,7 +151,6 @@ export async function selfimprovementFacts(life: InnerContext, at: number): Prom
       proposals: board.entries,
       outbox: board.outbox,
       landed: landed ?? [],
-      watcher: guarded(() => sources.watcher?.(at), null),
       log,
     });
   } catch (error) {

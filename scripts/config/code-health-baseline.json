@@ -413,7 +413,7 @@
       "repeated": 0
     },
     "tests/inner-selfimprovement-daily.test.ts": {
-      "deep": 6,
+      "deep": 2,
       "repeated": 0
     },
     "tests/inner-selfimprovement.test.ts": {
@@ -1252,40 +1252,20 @@
       "deep": 4,
       "repeated": 0
     },
-    "tests/watcher-filing-board.test.ts": {
-      "deep": 4,
-      "repeated": 0
-    },
-    "tests/watcher-filing-hers.test.ts": {
-      "deep": 3,
-      "repeated": 0
-    },
-    "tests/watcher-filing.test.ts": {
-      "deep": 19,
-      "repeated": 0
-    },
     "tests/watcher-lifecycle.test.ts": {
-      "deep": 6,
+      "deep": 1,
       "repeated": 0
     },
     "tests/watcher-requests.test.ts": {
       "deep": 1,
       "repeated": 0
     },
-    "tests/watcher-resolved.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/watcher-retry.test.ts": {
-      "deep": 8,
-      "repeated": 0
-    },
-    "tests/watcher-rework.test.ts": {
-      "deep": 11,
+      "deep": 6,
       "repeated": 0
     },
     "tests/watcher-risk.test.ts": {
-      "deep": 8,
+      "deep": 6,
       "repeated": 0
     },
     "tests/watcher-stamp.test.ts": {
@@ -1293,7 +1273,7 @@
       "repeated": 4
     },
     "tests/watcher-template.test.ts": {
-      "deep": 4,
+      "deep": 3,
       "repeated": 0
     },
     "tests/watcher-transcripts.test.ts": {
@@ -1305,7 +1285,7 @@
       "repeated": 0
     },
     "tests/watcher-versions.test.ts": {
-      "deep": 8,
+      "deep": 5,
       "repeated": 0
     },
     "tests/youtube-check.test.ts": {
@@ -1569,7 +1549,7 @@
     },
     "src/behavior/wake.ts": {
       "feedbackFactText": {
-        "complexity": 32
+        "complexity": 31
       }
     },
     "src/errands/blocks.ts": {
@@ -1587,7 +1567,7 @@
     },
     "src/errands/store.ts": {
       "createErrandStore": {
-        "function-length": 497
+        "function-length": 496
       }
     },
     "src/format.ts": {

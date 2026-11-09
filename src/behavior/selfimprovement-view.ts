@@ -11,7 +11,6 @@ import type { MemoryPage, MemoryQuery, RetrievalBounds } from '../memory/db/sema
 import { memoryQueryFor } from '../memory/retrieval-input.ts';
 import { DAY_MS, utcDay } from '../time.ts';
 import type { Landed } from '../selfimprovement/landed.ts';
-import type { WatcherNews } from '../watcher/news.ts';
 import type { TaskRecord } from '../board/board.ts';
 import type { BoardCaller } from '../tools/operations/board.ts';
 import { isFiniteNumber, isObj, listOf, objOf } from '../tools/types.ts';
@@ -255,8 +254,6 @@ export type SelfimprovementFacts = {
     landed: Array<Landed>;
   };
   outboxSeqs: Array<number>;
-  /** What the watcher's newest report of the past day filed (src/watcher/news.ts), null when nothing. */
-  watcher?: WatcherNews | null;
 };
 
 /** The default window of the facts, and the default number of shapes shown. */
@@ -343,7 +340,6 @@ export async function buildSelfimprovementFacts(input: {
   proposals: ReadonlyArray<ProposalEntry>;
   outbox: ReadonlyArray<OutboxRow>;
   landed?: ReadonlyArray<Landed>;
-  watcher?: WatcherNews | null;
   /** The one retrieval service under this wake's issued context, and its budget; absent, the facts hold no page. */
   retrieve?: ((query: MemoryQuery) => Promise<MemoryPage | null>) | null;
   bounds?: RetrievalBounds | null;
@@ -421,7 +417,6 @@ export async function buildSelfimprovementFacts(input: {
       landed,
     },
     outboxSeqs: [...new Set([...rows.map((row) => row.seq), ...landedSeqs])].sort((a, b) => a - b),
-    watcher: input.watcher ?? null,
   };
 }
 

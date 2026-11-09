@@ -1,7 +1,6 @@
 // The risk of a watcher finding. The model writes a level on each finding line (src/watcher/report.ts), and code alone
 // decides whether the finding repeats an earlier successful report. A repeat is lowered to `low` with a fixed mark, new
-// evidence brings the model's level back, and a finding whose task was done with a merged pull request counts as new when
-// it comes back. A level is the model's opinion, the repeat is a fact. Pure: src/watcher/inspection.ts brings the history.
+// evidence brings the model's level back. A level is the model's opinion, the repeat is a fact. Pure: src/watcher/inspection.ts brings the history.
 
 import { findingLines } from './report.ts';
 import type { FindingLevel, OpenCounts } from './report.ts';
@@ -12,8 +11,6 @@ export type RiskHistoryEntry = {
   day: string;
   /** `level` as the report saved it: the level a finding came in at, on its first sighting. */
   findings: ReadonlyArray<{ key: string; text: string; level?: RiskLevel }>;
-  /** Keys resolved by this moment: what was seen before it no longer counts. */
-  resolved?: ReadonlyArray<string>;
 };
 export type RiskFinding = { key: string; level: RiskLevel; text: string };
 export type RatedFinding = {
@@ -64,16 +61,10 @@ export function evidenceFingerprint(text: string): string {
 
 type Sighting = { key: string; fingerprint: string; day: string; level?: RiskLevel };
 
-/** Every sighting that still counts, in order: a resolution clears its key and whatever evidence that key had. */
+/** Every sighting of the history, in order. */
 function sightingsOf(history: ReadonlyArray<RiskHistoryEntry>): Array<Sighting> {
-  let sightings: Array<Sighting> = [];
+  const sightings: Array<Sighting> = [];
   for (const entry of history) {
-    for (const key of entry.resolved ?? []) {
-      const evidence = new Set(
-        sightings.filter((one) => one.key === key && one.fingerprint !== '').map((one) => one.fingerprint)
-      );
-      sightings = sightings.filter((one) => one.key !== key && !evidence.has(one.fingerprint));
-    }
     for (const { key, text, level } of entry.findings) {
       sightings.push({
         key,

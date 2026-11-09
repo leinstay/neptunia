@@ -14,8 +14,7 @@
 // `operational` row (kind versions) keeps `{ $has: { <field>: <description id> } }`, so a field with no versions stays
 // an empty list, and every field that is not a list of objects.
 
-import { channelPlaceId, personId } from './ids.ts';
-import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './map/common.ts';
+import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './map/common.ts';
 import type { Spec } from './map/common.ts';
 import { storageContext } from './map/index.ts';
 import { accountCollection, keyText, placeCollection } from './storage-keys.ts';
@@ -68,22 +67,21 @@ function profilePersonOf(db: Db, accountId: string): string | null {
 }
 
 /**
- * The prefix of the description ids of the history unit `key` (`id` its id): `desc:<subject id>`. A unit of an older
- * layout without an item or a kind falls back to what its subject or its id name.
+ * The prefix of the description ids of the history unit `key` (`id` its id): `desc:<subject id>`, the descriptions its
+ * subject's own writer keeps. An account's history is filed under the person its profile holds, else the account's
+ * person. A unit of an older layout without an item or a kind falls back to what its subject or its id name.
  */
 function descriptionPrefix(db: Db, key: StorageKey, id: string): string {
   const ctx = storageContext(db, key);
   const kind = key.selector?.versionKind;
   if (!kind) return `desc:unknown:${id}`;
   const item = ctx.itemId ?? ctx.subjectNativeId ?? ctx.subjectId ?? id;
-  const iface = ifaceOf(ctx);
   if (kind === 'users') {
     const owned = key.subject.type === 'account' ? profilePersonOf(db, key.subject.id) : null;
-    return `desc:${owned ?? personId(iface, item)}`;
+    return `desc:${owned ?? ctx.subjectPersonId ?? `users:${item}`}`;
   }
-  if (kind === 'channels') return `desc:${channelPlaceId(iface, item)}`;
   // The persona's own notes have no subject row: their item names them.
-  if (kind === 'place') return `desc:${ctx.subjectId ?? item}`;
+  if (kind === 'channels' || kind === 'place') return `desc:${ctx.subjectId ?? item}`;
   return `desc:${kind}:${item}`;
 }
 

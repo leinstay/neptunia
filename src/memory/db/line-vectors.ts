@@ -18,9 +18,9 @@ import { chunkKey } from '../chunks.ts';
 import { extraText, join, parseExtra, split } from './map/common.ts';
 import type { Spec } from './map/common.ts';
 import { storageContext } from './map/index.ts';
-import { dmPlaceScope, legacyPrivateScope } from './map/scope-parts.ts';
+import { dmPlaceScope } from './map/scope-parts.ts';
 import { deriveRow } from './rows.ts';
-import { groupScope } from './scope.ts';
+import { SCOPE_INTERNAL, groupScope } from './scope.ts';
 import { placeCollection } from './storage-keys.ts';
 import { linkVectors } from './upsert.ts';
 import { asText, dbOf, isFiniteNumber } from './types.ts';
@@ -98,17 +98,17 @@ export function lineVectorsWriteOf(update: Row): LineVectorsWrite {
   };
 }
 
-/** What every row of a place shares: its chunk key prefix and its scope. */
+/**
+ * What every row of a place shares: its chunk key prefix and its scope. A place no row holds may be a direct chat, so
+ * its rows are internal until the place is stored.
+ */
 function placeShape(db: Db, placeId: string): { prefix: string; scope: Row } {
   const ctx = storageContext(db, placeCollection('vectors', placeId));
+  if (!ctx.subjectPlace) return { prefix: '', scope: { ...SCOPE_INTERNAL } };
   const iface = ctx.iface ?? '';
+  if (!ctx.dmPlace) return { prefix: '', scope: groupScope(iface) };
   const user = ctx.privateAccountId ?? null;
-  if (!user) return { prefix: '', scope: groupScope(iface) };
-  const place = ctx.dmPlace ?? ctx.dmOfMember?.(iface, user) ?? null;
-  return {
-    prefix: `private:${user}:`,
-    scope: place ? dmPlaceScope(iface, place) : legacyPrivateScope(iface, user).scope,
-  };
+  return { prefix: user === null ? '' : `private:${user}:`, scope: dmPlaceScope(iface, ctx.dmPlace) };
 }
 
 /** The statements of one connection, prepared once. */

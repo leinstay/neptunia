@@ -1573,16 +1573,3 @@ test('feedbackFactText: a memoryFailed fact names the code and how many lines wa
   assert.equal(feedbackFactText({ kind: 'memoryFailed', code: 'apply-error', waiting: 20 }, { feedback: {} }), '');
   assert.equal(feedbackFactText({ kind: 'interrupted', wake: 'review', done: 'x' }, { feedback: {} }), '');
 });
-
-test('feedbackFactText: a pendingQuarantined fact names how many writes were set aside and the code (stage AM)', () => {
-  // Bug: the quarantine reaches her through the session label, which says lines are waiting to be tried again.
-  const wake = { feedback: { memoryFailed: 'retried {n}', pendingQuarantined: '{n} set aside ({code})' } };
-  assert.equal(
-    feedbackFactText({ kind: 'pendingQuarantined', code: 'UNIT_UNMAPPED', waiting: 2 }, wake),
-    '2 set aside (UNIT_UNMAPPED)'
-  );
-  assert.equal(
-    feedbackFactText({ kind: 'pendingQuarantined', code: 'UNIT_UNMAPPED', waiting: 2 }, { feedback: {} }),
-    ''
-  );
-});

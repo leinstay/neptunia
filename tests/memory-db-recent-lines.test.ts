@@ -8,6 +8,7 @@ import { placeCollection } from '../src/memory/db/storage-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Row } from '../src/memory/db/types.ts';
 import { plain } from './fixtures/memory-db/roundtrip.ts';
+import { addChannelPlace } from './fixtures/memory-db/opaque-people.ts';
 import { CHANNEL, copyOf, line, recent, seededPlaces, writeDirect } from './fixtures/memory-db/place-writes.ts';
 
 test('recent lines with a missing or repeated item id, an empty list and an odd shape come back as written', () => {
@@ -36,6 +37,27 @@ test('a recent lines write that names no place is refused with a code', () => {
     assert.throws(() => writeDirect(handle, { kind: 'recent', placeId: '', value: {} }), {
       code: 'RECENT_LINES_PLACE',
     });
+  } finally {
+    handle.close();
+  }
+});
+
+test('a recent line names the stored place of its chat when the place id spells nothing, and reads back the chat', () => {
+  const handle = copyOf(seededPlaces());
+  try {
+    const db = dbOf(handle);
+    addChannelPlace(db, { id: 'place:9b21', iface: 'discord', authority: 'discord/global', native: 'room-n' });
+    const value = recent([line(1, { placeId: 'room-n' })]);
+    writeDirect(handle, { kind: 'recent', placeId: CHANNEL, value });
+    const stored = db
+      .prepare("SELECT subject_id AS place FROM claims WHERE writer = 'recent' AND retired_at IS NULL")
+      .all();
+    assert.deepEqual(
+      stored.map((row) => row.place),
+      ['place:9b21']
+    );
+    const read = unitValue(db, placeCollection('recent', CHANNEL));
+    assert.deepEqual(read.found ? read.value : null, plain(value));
   } finally {
     handle.close();
   }

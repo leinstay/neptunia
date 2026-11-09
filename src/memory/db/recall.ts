@@ -48,6 +48,7 @@ import { lineMedia, mediaHits, mediaMessageParts } from './media-store.ts';
 import type { MediaHit, MediaRow } from './media-store.ts';
 import { CURRENT_SOURCE } from './source-current.ts';
 import { nativeLocatorOf } from './source-locator.ts';
+import { channelOfPlace } from './native-rows.ts';
 import { locatorText } from './message-locator.ts';
 import { MINUTE_MS } from '../../time.ts';
 import {
@@ -104,6 +105,8 @@ export type StoredSourceRef = Readonly<{
   sourceId: string;
   placeId: string;
   iface: string | null;
+  /** The revision of the source row; absent or null when it names none. */
+  revision?: number | null;
   native?: NativeMessageLocator;
 }>;
 
@@ -154,6 +157,8 @@ type Reader = {
   ifaceOf: (placeId: unknown) => string | null;
   /** The chat a stored place's interface knows it by; null for a place no row holds or whose row names none. */
   chatOf: (placeId: unknown) => string | null;
+  /** The interface's own id of a stored channel; null for a place that is no stored channel. */
+  channelOfPlace: (placeId: string) => string | null;
   mediaOf: (sourceId: string) => ReadonlyArray<MediaRow>;
 };
 /** The settings of a db recall: the recall settings with the keys of `recall.db` lifted out. */
@@ -211,6 +216,7 @@ type AccountName = { nativeId: string | null; iface: string; name: string | null
 type PlaceName = {
   nativeId: string | null;
   chat: string | null;
+  isChannel: boolean;
   iface: string;
   name: string | null;
   private: boolean;
@@ -245,6 +251,7 @@ function placeNames(db: Db): Map<unknown, PlaceName> {
     names.set(row.id, {
       nativeId: str(row.native_id) || null,
       chat: (row.kind === 'dm' ? str(row.partner) : str(row.native_id)) || null,
+      isChannel: row.kind === 'channel',
       iface: str(row.iface),
       name: str(row.name) || null,
       private: row.scope_kind === 'dm' || row.scope_kind === 'internal' || row.chat === 'dm',
@@ -263,12 +270,13 @@ function channelOf(row: Row, extra: Row, chatOf: Reader['chatOf']): string {
   return dm ?? chatOf(row.place_id) ?? asText(row.place_id ?? '');
 }
 
-function storedRefOf(row: Row, extra: Row): StoredSourceRef {
-  const native = nativeLocatorOf(row, extra);
+function storedRefOf(row: Row, extra: Row, channelOfPlace: Reader['channelOfPlace']): StoredSourceRef {
+  const native = nativeLocatorOf(row, extra, channelOfPlace);
   return {
     sourceId: str(row.id),
     placeId: str(row.place_id),
     iface: str(row.iface) || null,
+    revision: isWholeNumber(row.revision) && row.revision > 0 ? Number(row.revision) : null,
     ...(native ? { native } : {}),
   };
 }
@@ -279,7 +287,13 @@ const shownName = (name: string | null): string => (name ?? '').replace(/\s+/g, 
 /** One source row as a normalized chat message (the shape renderRecallWindows reads). */
 function messageOf(
   row: Row,
-  { authorOf, selfName, mediaOf, chatOf }: Pick<Reader, 'authorOf' | 'selfName' | 'mediaOf' | 'chatOf'>
+  {
+    authorOf,
+    selfName,
+    mediaOf,
+    chatOf,
+    channelOfPlace,
+  }: Pick<Reader, 'authorOf' | 'selfName' | 'mediaOf' | 'chatOf' | 'channelOfPlace'>
 ): RecallMessage {
   const extra = (parseJson(row.extra) ?? {}) as Row;
   const self = row.kind === 'said';
@@ -292,7 +306,7 @@ function messageOf(
   return {
     id: row.native_id,
     ...(!self && author.nameKey !== null ? { nameKey: author.nameKey } : {}),
-    stored: storedRefOf(row, extra),
+    stored: storedRefOf(row, extra, channelOfPlace),
     placeId: channelOf(row, extra, chatOf),
     authorId: author.id,
     authorName: shownName(name),
@@ -843,7 +857,7 @@ function sourceForAnchor(db: Db, ctx: Context, raw: unknown, resolved?: Resolved
       )
       .all(locator.iface, locator.messageId, locator.messageId)
       .filter((row) => {
-        const native = nativeLocatorOf(row, (parseJson(row.extra) ?? {}) as Row);
+        const native = nativeLocatorOf(row, (parseJson(row.extra) ?? {}) as Row, (id) => channelOfPlace(db, id));
         return (
           native?.iface === locator.iface && native.chatId === locator.chatId && native.messageId === locator.messageId
         );
@@ -1006,6 +1020,10 @@ function readerOf(
     },
     ifaceOf: (placeId) => placeOf(placeId)?.iface || null,
     chatOf: (placeId) => placeOf(placeId)?.chat ?? null,
+    channelOfPlace: (placeId) => {
+      const place = placeOf(placeId);
+      return place?.isChannel ? place.nativeId : null;
+    },
     channelNameOf: (placeId: unknown): string | null => {
       const place = placeOf(placeId);
       if (!place || place.retired || (place.private && ctx.internal !== true)) return null;

@@ -27,8 +27,7 @@ export const KEEP_CLOSED = 50;
  * records it moved out to an outbox (src/memory/db/unit-outbox.ts) that sends them through the database's writer as
  * the write kind `intentions`. The list in memory stays the truth
  * meanwhile, so `add` and `update` answer at once; a write that failed waits in the outbox and goes again at the
- * next change or `flush`, and `flush({ final: true })` (the shutdown) keeps what still fails in `memory-pending/`,
- * replayed by the service at its next start. Without a `memoryDb` (tests, a tool) nothing is read or written:
+ * next change or `flush`, and `flush({ final: true })` (the shutdown) logs what still fails as lost. Without a `memoryDb` (tests, a tool) nothing is read or written:
  * the list lives in memory only.
  */
 export function createIntentionStore({
@@ -170,13 +169,12 @@ export function createIntentionStore({
   }
 
   /**
-   * The writes still waiting sent again and awaited; with `final` (the shutdown) what still fails is kept in
-   * `memory-pending/`. Nothing without a `memoryDb`.
+   * The writes still waiting sent again and awaited; with `final` (the shutdown) what still fails is logged as lost.
+   * Nothing without a `memoryDb`.
    */
   async function flush({ final = false }: { final?: boolean } = {}): Promise<FlushCounts> {
-    if (!outbox) return { waiting: 0, pending: 0 };
-    const waiting = await outbox.flush();
-    return { waiting, pending: final ? outbox.keep() : 0 };
+    if (!outbox) return { waiting: 0 };
+    return { waiting: await outbox.flush({ final }) };
   }
 
   return { list, get, add, update, archived, flush };
@@ -210,13 +208,8 @@ export function createIntentionStores({
     /** Every store's `flush` (the writes waiting for the database; `final` at the shutdown). */
     async flush(options: { final?: boolean } = {}): Promise<FlushCounts> {
       let waiting = 0;
-      let pending = 0;
-      for (const store of stores.values()) {
-        const done = await store.flush(options);
-        waiting += done.waiting;
-        pending += done.pending;
-      }
-      return { waiting, pending };
+      for (const store of stores.values()) waiting += (await store.flush(options)).waiting;
+      return { waiting };
     },
   };
   return api;

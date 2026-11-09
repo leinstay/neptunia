@@ -5,8 +5,15 @@ import { locatorText, messageLocator } from './message-locator.ts';
 import type { NativeMessageLocator } from './recall.ts';
 import type { Row } from './types.ts';
 
-/** Catalog record routes and historic provenance require the mapper's retained version and actual channel. */
-export function nativeLocatorOf(row: Row, extra: Row): NativeMessageLocator | undefined {
+/**
+ * Catalog record routes and historic provenance require the mapper's retained version and actual channel. A historical
+ * line's channel is the one its place's row holds (`channelOfPlace`), or the private channel the line carried.
+ */
+export function nativeLocatorOf(
+  row: Row,
+  extra: Row,
+  channelOfPlace: (placeId: string) => string | null = () => null
+): NativeMessageLocator | undefined {
   const marker = messageLocator(extra.$messageLocator, row.iface);
   if (marker) return { iface: marker.iface, chatId: marker.chatId, messageId: marker.messageId };
   if (Object.hasOwn(extra, '$messageLocator')) return undefined;
@@ -23,7 +30,7 @@ export function nativeLocatorOf(row: Row, extra: Row): NativeMessageLocator | un
     !locatorText(row.native_id)
   )
     return undefined;
-  const line = recordLineOf({ ...row });
+  const line = recordLineOf({ ...row }, { channelOfPlace });
   const scope = line.scope;
   if (!scope || typeof scope !== 'object' || Array.isArray(scope)) return undefined;
   const channel = (scope as Row).channel;

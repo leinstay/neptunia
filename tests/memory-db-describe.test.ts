@@ -13,7 +13,8 @@ import {
   reviewDescription,
   showsClaim,
 } from '../src/memory/db/describe.ts';
-import { messageSourceId, personId, shortHash } from '../src/memory/db/ids.ts';
+import { messageSourceId, shortHash } from '../src/memory/db/ids.ts';
+import { personId } from './fixtures/memory-db/spelled-ids.ts';
 import { dmContext } from '../src/memory/db/scope.ts';
 import { labels } from './fixtures/labels.ts';
 import type { Untyped } from '../src/tools/types.ts';

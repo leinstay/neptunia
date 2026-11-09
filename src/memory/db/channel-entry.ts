@@ -26,6 +26,7 @@ import {
 } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
 import { placeCollection, keyText } from './storage-keys.ts';
+import { namedIface } from './legacy-namespace.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
@@ -53,8 +54,15 @@ const coded = (code: string): Error & { code: string } => Object.assign(new Erro
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
 
 /** The rows of the entry `value` of the unit `key`, owned by `owner` (the unit's id) and `holder`. */
-function channelEntryRows(db: Db, key: StorageKey, value: Row, owner: string, holder: PlaceOwner): Rows {
-  const ctx = storageContext(db, key);
+function channelEntryRows(
+  db: Db,
+  key: StorageKey,
+  value: Row,
+  owner: string,
+  holder: PlaceOwner,
+  writeIface?: string
+): Rows {
+  const ctx = storageContext(db, key, writeIface);
   const iface = ifaceOf(ctx);
   const placeId = ctx.subjectId ?? owner;
   const rows: Rows = {};
@@ -137,7 +145,7 @@ export function writeChannelEntry(
   db: Db,
   key: StorageKey,
   value: Row,
-  { at, legacyOwner }: { at: string; legacyOwner?: string }
+  { at, iface, legacyOwner }: { at: string; iface?: string; legacyOwner?: string }
 ): ChannelEntryResult {
   const id = ensureUnit(db, key);
   if (legacyOwner) {
@@ -145,7 +153,7 @@ export function writeChannelEntry(
     db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, 'channel');
   }
   const holder = placeOwnerOf(key)!; // a `channel` unit always has its owner columns (place-owner.ts)
-  const mapping = channelEntryRows(db, key, value, id, holder);
+  const mapping = channelEntryRows(db, key, value, id, holder, iface);
   if (legacyOwner) for (const list of Object.values(mapping)) for (const row of list) row.owner_file = legacyOwner;
   const upserted = writeMapping(db, mapping, id, { at, holder });
   const retired = retirePlaceAbsent(db, holder, mapping, at);
@@ -176,7 +184,9 @@ export function applyChannelEntryWrite(handle: MemoryHandle, update: Row): Chann
   const write = channelEntryWriteOf(update);
   const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
   const key = placeCollection('channel', write.placeId);
-  return handle.transaction(() => writeChannelEntry(dbOf(handle), key, write.value, { at }));
+  return handle.transaction(() =>
+    writeChannelEntry(dbOf(handle), key, write.value, { at, iface: namedIface(update) ?? undefined })
+  );
 }
 
 /** The entry the unit `key` holds (a place's `channel` unit), or not found when the database holds none. */

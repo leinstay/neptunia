@@ -353,16 +353,13 @@ function findInvalidJsonFiles(
 
 /**
  * The JSON files written as files (src/memory/db/paths.ts#OPERATIONAL_PATTERNS lists every operational path): the
- * process's operational state, the request dumps and tool lists, the backfill folder, the vault and the snapshots, the
- * unit writes a shutdown could not make
- * (`memory-pending/`). Paths relative to the data directory. `/nep resume` checks only these (`validate`).
+ * process's operational state, the request dumps and tool lists, the backfill folder, the vault and the snapshots.
+ * Paths relative to the data directory. `/nep resume` checks only these (`validate`).
  */
 export function operationalJsonPath(rel: string): boolean {
   const name = String(rel).replace(/\\/g, '/');
   if (isCoreStatePath(name)) return false;
   if (/^(?:vault|snapshots)\//.test(name)) return true;
-  // The unit writes a shutdown could not make (src/memory/db/service.ts#keepPending).
-  if (/^memory-pending\//.test(name)) return true;
   const inPlace = /^places\/[^/]+\/(?:private\/[^/]+\/)?(.+)$/.exec(name)?.[1];
   if (!inPlace) return false;
   return (
@@ -3108,7 +3105,7 @@ function buildStore({
       opts: { max?: number; now?: number } = {}
     ): { dropped: Array<object> } {
       const done = writeSelfreflection([...selfreflectionEntry().value.posts, structuredClone(post)], opts);
-      // The post goes to the database at once; a failed write waits in the outbox, past a shutdown in `memory-pending/`.
+      // The post goes to the database at once; a failed write waits in the outbox for the next flush.
       cache.writeNow(selfreflectionFile(), selfreflectionEntry());
       return done;
     },
@@ -3284,15 +3281,14 @@ function buildStore({
      * The flush before a shutdown or a pause: waits up to `holdMaxMs` (`archive.holdMaxMs`,
      * config.json's 5000 when missing) for the archive to take what holds files back, then writes
      * everything, held or not; files written while still held are logged as `store: flushed held`. It then
-     * waits for the database to take what the flush handed over (unit-outbox.js#flush) and, with `final`
-     * (the shutdown), keeps what still fails in `memory-pending/` (`pending` counts them; an error is logged).
+     * waits for the database to take what the flush handed over (unit-outbox.ts#flush) and, with `final`
+     * (the shutdown), logs what still fails as lost (`waiting` counts it).
      */
     async flushSettled({ holdMaxMs, final = false }: { holdMaxMs?: number; final?: boolean } = {}): Promise<{
       written: number;
       failed: number;
       held: number;
       waiting?: number;
-      pending?: number;
     }> {
       const heldFiles = () => cache.held();
       if (heldFiles() > 0) {
@@ -3314,14 +3310,13 @@ function buildStore({
         clearTimeout(timer);
       }
       const held = heldFiles();
-      const counts: { written: number; failed: number; held: number; waiting?: Untyped; pending?: Untyped } = flushAll({
+      const counts: { written: number; failed: number; held: number; waiting?: Untyped } = flushAll({
         force: true,
       });
       if (held > 0) log.warn('store: flushed held', { files: held });
       if (cache.writable()) {
-        counts.waiting = await cache.settle();
+        counts.waiting = await cache.settle({ final });
         for (const [text, pending] of pendingMedia) if (!cache.holds(pending.key)) pendingMedia.delete(text);
-        if (final) counts.pending = cache.keep();
       }
       return counts;
     },
@@ -3528,7 +3523,7 @@ export type Store = Omit<
  *   use the database with their existing unit owners. Other operational files retain their file backend.
  *   A selfreflection post is sent at once (`appendSelfreflectionPost` flushes the selfreflection: its
  *   row and its mirror's `sent` publication). `flushSettled({ final: true })` (the shutdown) waits for the outbox and
- *   keeps what still fails in `memory-pending/` (`memoryDb.keepPending`, replayed by the service at its next open);
+ *   logs what still fails as lost;
  *   `dropCaches` keeps the entries the outbox holds; `validate` (`/nep resume`) checks the operational JSON files.
  */
 export function createStore(deps: Parameters<typeof buildStore>[0]): Store {

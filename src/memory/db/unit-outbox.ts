@@ -10,10 +10,8 @@
 //   - `push()`                sends what waits, at most one write per unit under way (so the lines of one unit land
 //                             in their order); a failed write goes back in front of what came meanwhile and is tried
 //                             again at the next push; resolves once the writes it started settled;
-//   - `flush({ rounds })`     pushes until nothing waits or a round wrote nothing more;
-//   - `keep()`                at shutdown: every unit still waiting is handed to `memoryDb.keepPending` (the
-//                             `memory-pending/` folder the service replays at its next start) and leaves the outbox;
-//                             returns how many, an error logged with the count;
+//   - `flush({ rounds, final })` pushes until nothing waits or a round wrote nothing more; with `final` (the
+//                             shutdown) what still waits is logged as lost, with its count and the last code;
 //   - `holds(owner)`          whether a write of the unit waits or is under way (its cache entry is not clean yet);
 //   - `size()`                how many units wait or are under way.
 // Logs carry codes and counts only.
@@ -54,8 +52,7 @@ export type UnitOutbox = {
   value: (owner: StorageKey | string, next: unknown) => void;
   lines: (owner: StorageKey | string, list: unknown) => void;
   push: () => Promise<number>;
-  flush: (options?: { rounds?: number }) => Promise<number>;
-  keep: () => number;
+  flush: (options?: { rounds?: number; final?: boolean }) => Promise<number>;
   holds: (owner: StorageKey | string) => boolean;
   size: () => number;
 };
@@ -67,8 +64,7 @@ export type UnitOutbox = {
  * notes, `writeChannelEntry` for a channel's entry, and `writePlaceLore`, `writeParticipation` and `writeRecentLines` for
  * a place's lorebook, participation and recent lines, and `writeSelfreflection` for her selfreflection when the service
  * has them (operational.ts, intentions-write.ts,
- * account-profile.ts, prose-versions.ts, private-layer.ts, place-notes.ts, channel-entry.ts), `keepPending` at
- * shutdown.
+ * account-profile.ts, prose-versions.ts, private-layer.ts, place-notes.ts, channel-entry.ts).
  */
 type OutboxMemoryDb = {
   writeUnit(update: Row): Promise<unknown>;
@@ -83,13 +79,10 @@ type OutboxMemoryDb = {
   writeParticipation?(this: void, write: ParticipationWrite): Promise<unknown>;
   writeRecentLines?(this: void, write: RecentLinesWrite): Promise<unknown>;
   writeSelfreflection?(this: void, write: SelfreflectionWrite): Promise<unknown>;
-  keepPending?(update: Row): unknown;
 };
 
 /** The direct writes of the service, in the order a waiting unit is matched against them, each with its unit's write. */
-const DIRECT_WRITES: ReadonlyArray<
-  [Exclude<keyof OutboxMemoryDb, 'writeUnit' | 'keepPending'>, (update: Row) => object | null]
-> = [
+const DIRECT_WRITES: ReadonlyArray<[Exclude<keyof OutboxMemoryDb, 'writeUnit'>, (update: Row) => object | null]> = [
   ['writeOperational', operationalOfUnit],
   ['writeIntentions', intentionsOfUnit],
   ['writeAccountProfile', accountProfileOfUnit],
@@ -119,6 +112,8 @@ export function createUnitOutbox({
   const waiting = new Map<string, Waiting>();
   // owner -> the promise of the write under way
   const sending = new Map<string, Promise<boolean>>();
+  // The code of the last failed write, for the shutdown's line.
+  let lastCode: unknown = null;
 
   function value(ownerGiven: StorageKey | string, next: unknown): void {
     const owner = typeof ownerGiven === 'string' ? ownerGiven : keyText(ownerGiven);
@@ -189,39 +184,27 @@ export function createUnitOutbox({
       started.push(done);
     }
     const results = await Promise.all(started);
-    if (failed > 0) log.warn('memory db: unit write failed', { reader: name, units: failed, code });
+    if (failed > 0) {
+      lastCode = code;
+      log.warn('memory db: unit write failed', { reader: name, units: failed, code });
+    }
     return results.filter(Boolean).length;
   }
 
-  /** Pushes until nothing waits, or a round brought no write through (then what is left waits for the next push). */
-  async function flush({ rounds = 3 }: { rounds?: number } = {}): Promise<number> {
+  /**
+   * Pushes until nothing waits, or a round brought no write through (then what is left waits for the next push). With
+   * `final`, what still waits is logged as lost.
+   */
+  async function flush({ rounds = 3, final = false }: { rounds?: number; final?: boolean } = {}): Promise<number> {
     for (let round = 0; round < rounds; round += 1) {
       await Promise.allSettled([...sending.values()]);
       if (waiting.size === 0) break;
       if ((await push()) === 0) break;
     }
     await Promise.allSettled([...sending.values()]);
+    if (final && waiting.size > 0)
+      log.error?.('memory db: units lost', { reader: name, units: waiting.size, code: lastCode });
     return waiting.size;
-  }
-
-  function keep(): number {
-    if (waiting.size === 0) return 0;
-    let kept = 0;
-    let code: unknown = null;
-    for (const [owner, item] of [...waiting]) {
-      try {
-        if (typeof memoryDb?.keepPending !== 'function')
-          throw Object.assign(new Error('memory db: no pending folder'), { code: 'NO_PENDING' });
-        memoryDb.keepPending(updateOf(owner, item));
-        waiting.delete(owner);
-        kept += 1;
-      } catch (error) {
-        code = (error as { code?: unknown } | null)?.code ?? null;
-      }
-    }
-    if (kept > 0) log.error?.('memory db: units kept pending', { reader: name, units: kept });
-    if (waiting.size > 0) log.error?.('memory db: units lost', { reader: name, units: waiting.size, code });
-    return kept;
   }
 
   return {
@@ -229,7 +212,6 @@ export function createUnitOutbox({
     lines,
     push,
     flush,
-    keep,
     holds: (key: StorageKey | string) => {
       const owner = typeof key === 'string' ? key : keyText(key);
       return waiting.has(owner) || sending.has(owner);

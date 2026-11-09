@@ -9,12 +9,12 @@
 //
 // A write replaces the lines: the ones it no longer holds are retired (place-owner.ts#retirePlaceAbsent).
 
-import { channelPlaceId, itemOrDerivedId, nativeOf, nativeOfAny, uniqueIds } from './ids.ts';
-import { LEGACY_IFACE } from './legacy-namespace.ts';
+import { itemOrDerivedId, uniqueIds } from './ids.ts';
 import { groupScope } from './scope.ts';
 import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './map/common.ts';
 import type { Spec } from './map/common.ts';
 import { storageContext } from './map/index.ts';
+import { channelColumn } from './native-rows.ts';
 import {
   heldPlaceRows,
   holdsPlace,
@@ -25,6 +25,7 @@ import {
 } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
 import { placeCollection, keyText } from './storage-keys.ts';
+import { namedIface } from './legacy-namespace.ts';
 import type { StorageKey } from './storage-keys.ts';
 import { ensureUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
@@ -38,15 +39,9 @@ export type RecentLinesWrite = { placeId: string; value: Row };
 /** What a write answers: the rows it wrote and the rows it retired. */
 export type RecentLinesResult = { upserted: number; retired: number };
 
-const SPEC: Array<Spec> = [
-  {
-    col: 'subject_id',
-    key: 'placeId',
-    type: 'text',
-    ok: (v: unknown) => nativeOf(channelPlaceId(LEGACY_IFACE, v)) === v,
-    enc: (v: unknown, iface: string) => channelPlaceId(iface, v),
-    dec: nativeOfAny,
-  },
+/** The columns of an item: its chat by the chat's place (native-rows.ts#channelColumn). */
+const specOf = (db: Db): Array<Spec> => [
+  channelColumn(db, 'subject_id'),
   { col: 'text', key: 'text', type: 'text' },
   { col: 'weight', key: 'weight', type: 'num' },
   { col: 'created_at', key: 'addedAt', type: 'text' },
@@ -56,15 +51,23 @@ const coded = (code: string): Error & { code: string } => Object.assign(new Erro
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
 
 /** The rows of the recent lines `value` of the unit `key`, owned by `owner` (the unit's id) and `holder`. */
-function recentLinesRows(db: Db, key: StorageKey, value: Row, owner: string, holder: PlaceOwner): Rows {
-  const iface = ifaceOf(storageContext(db, key));
+function recentLinesRows(
+  db: Db,
+  key: StorageKey,
+  value: Row,
+  owner: string,
+  holder: PlaceOwner,
+  writeIface?: string
+): Rows {
+  const spec = specOf(db);
+  const iface = ifaceOf(storageContext(db, key, writeIface));
   const rows: Rows = {};
   const rest = { ...value };
   const has = [];
   if (Array.isArray(value.lines) && value.lines.every(isPlainObject)) {
     const uniq = uniqueIds();
     value.lines.forEach((line: Row, position: number) => {
-      const part = split(line, SPEC, iface);
+      const part = split(line, spec, iface);
       const itemId = typeof line.itemId === 'string' && line.itemId ? line.itemId : null;
       const base =
         itemId ?? itemOrDerivedId(null, 'recent_line', line.placeId ?? '', line.at ?? '', line.id ?? position);
@@ -112,7 +115,8 @@ function recentLinesRows(db: Db, key: StorageKey, value: Row, owner: string, hol
 }
 
 /** The recent lines their rows give back. */
-function recentLinesOf(rows: Rows): Row {
+function recentLinesOf(db: Db, rows: Rows): Row {
+  const spec = specOf(db);
   const rest = parseExtra(rowsOf(rows, 'operational')[0]?.value);
   const has = Array.isArray(rest.$has) ? rest.$has : [];
   delete rest.$has;
@@ -122,7 +126,7 @@ function recentLinesOf(rows: Rows): Row {
       const extra = parseExtra(row.extra);
       const derived = extra.$derived === true;
       delete extra.$derived;
-      const line = join(row, extra, SPEC);
+      const line = join(row, extra, spec);
       if (!derived) line.itemId = row.id;
       return line;
     });
@@ -138,7 +142,7 @@ export function writeRecentLines(
   db: Db,
   key: StorageKey,
   value: Row,
-  { at, legacyOwner }: { at: string; legacyOwner?: string }
+  { at, iface, legacyOwner }: { at: string; iface?: string; legacyOwner?: string }
 ): RecentLinesResult {
   const id = ensureUnit(db, key);
   if (legacyOwner) {
@@ -146,7 +150,7 @@ export function writeRecentLines(
     db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, 'recent');
   }
   const holder = placeOwnerOf(key)!; // a `recent` unit always has its owner columns (place-owner.ts)
-  const mapping = recentLinesRows(db, key, value, id, holder);
+  const mapping = recentLinesRows(db, key, value, id, holder, iface);
   if (legacyOwner) for (const list of Object.values(mapping)) for (const row of list) row.owner_file = legacyOwner;
   const upserted = writeMapping(db, mapping, id, { at, holder });
   const retired = retirePlaceAbsent(db, holder, mapping, at);
@@ -179,12 +183,14 @@ export function applyRecentLinesWrite(handle: MemoryHandle, update: Row): Recent
   const write = recentLinesWriteOf(update);
   const at = new Date(isFiniteNumber(update.now) ? update.now : Date.now()).toISOString();
   const key = placeCollection('recent', write.placeId);
-  return handle.transaction(() => writeRecentLines(dbOf(handle), key, write.value, { at }));
+  return handle.transaction(() =>
+    writeRecentLines(dbOf(handle), key, write.value, { at, iface: namedIface(update) ?? undefined })
+  );
 }
 
 /** The recent lines the unit `key` holds (a place's `recent` unit), or not found when the database holds none. */
 export function recentLinesValue(db: Db, key: StorageKey): { found: true; value: unknown } | { found: false } {
   const holder = placeOwnerOf(key);
   if (!holder || !holdsPlace(db, holder, 'operational')) return { found: false };
-  return { found: true, value: recentLinesOf(heldPlaceRows(db, holder, ['claims', 'operational'])) };
+  return { found: true, value: recentLinesOf(db, heldPlaceRows(db, holder, ['claims', 'operational'])) };
 }

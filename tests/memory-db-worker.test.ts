@@ -106,6 +106,8 @@ const tables = (db: Db) =>
     )
     .all()
     .map((row) => row.name as string);
+const MINTED_UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
+const MINTED_HASH = /\b[0-9a-f]{32}\b/g;
 const dumpAll = (file: string) => {
   const reader = openMemoryDb(file, { readOnly: true });
   try {
@@ -116,6 +118,9 @@ const dumpAll = (file: string) => {
           .prepare(`SELECT * FROM "${table}"`)
           .all()
           .map((row) => JSON.stringify(row, (_, v) => (typeof v === 'bigint' ? String(v) : v)))
+          // The meta-person of an account no row holds is minted with a random uuid on each database, and the graph's
+          // ids hash it, so both are named alike before the rows are compared.
+          .map((text) => text.replace(MINTED_UUID, 'minted-uuid').replace(MINTED_HASH, 'minted-hash'))
           .sort(),
       ])
     );

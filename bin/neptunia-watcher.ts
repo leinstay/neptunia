@@ -1,9 +1,7 @@
 // `neptunia worker watcher` (deploy/neptunia-watcher.service): one inspection (src/watcher/inspection.ts) through the
-// subharness's backend, in the mode of `watcher`, working in the checkout. It files on the board over the core's socket as
-// the client `NEPTUNIA_TASK_CLIENT` (default `watcher`, whose token is `NEPTUNIA_TASK_TOKEN` or
-// `<private>/clients/watcher.token`), and it opens that link only when there is something to file. The exit code is 0 for a
-// committed report, also with its filing deferred, for a cancelled run, for a run already in progress and while
-// `watcher.enabled` is false. It is 1 for a failed run and for a board that refused a task, with the code on stderr.
+// subharness's backend, in the mode of `watcher`, working in the checkout. It files nothing. The exit code is 0 for a
+// committed report, for a cancelled run, for a run already in progress and while `watcher.enabled` is false. It is 1 for
+// a failed run, with the code on stderr.
 
 import path from 'node:path';
 import { listAgents, promptFilesOf } from '../src/agent-runner/profiles.ts';
@@ -31,7 +29,6 @@ import {
 } from '../src/watcher/lifecycle.ts';
 import { reportsDirOf, watcherDir } from '../src/watcher/read.ts';
 import { watcherSettings } from '../src/watcher/settings.ts';
-import { openBoardCaller } from './neptunia-task.ts';
 
 type Where = { rootDir: string; privateDir: string; dataDir: string };
 
@@ -93,52 +90,35 @@ export async function runWatcherWorker(where: Where): Promise<number> {
     console.log('watcher: off (watcher.enabled is false)');
     return 0;
   }
-  let close = (): void => {};
-  try {
-    const done = await runInspection({
-      store,
-      reportsDir,
-      self: { pid: process.pid, startId: defaultProcessStart(process.pid) ?? 'unknown' },
-      source: 'timer',
-      timeoutMs: WATCHER_RUN_TIMEOUT_MS,
-      promptFiles: promptFiles(where),
-      retryPromptFiles: [path.join(where.rootDir, 'agents', 'watcher', 'retry.md')],
-      selected: selectedOf(where.privateDir),
-      install: () => installFacts({ rootDir: where.rootDir, dataDir: where.dataDir }),
-      memory: () => watcherMemory({ dataDir: where.dataDir, config }),
-      money: () => moneyOf(where, config),
-      // Read again when the run files, so a switch made during a long run counts for it.
-      draftsOnly: () => watcherSettings(readConfig(where.rootDir, { privateDir: where.privateDir })).draftsOnly,
-      runAgent: async (brief, { signal, timeoutMs, runId }) =>
-        runAgent(
-          {
-            proxy: await proxyForRun({ url: serviceCredential(where.dataDir, 'proxy'), config }),
-            agent: 'watcher',
-            brief,
-            cwd: where.rootDir,
-            timeoutMs,
-            signal,
-            runId,
-            // `services watcher evidence` under the agent reads the same layers as this worker.
-            env: { NEPTUNIA_DATA_DIR: where.dataDir },
-          },
-          { privateDir: where.privateDir, denyDir: defaultDenyDir() }
-        ),
-      openBoard: async () => {
-        const opened = await openBoardCaller({
-          ...process.env,
-          NEPTUNIA_TASK_CLIENT: process.env.NEPTUNIA_TASK_CLIENT || 'watcher',
-        });
-        if (typeof opened === 'string') throw new Error(opened);
-        close = () => opened.close();
-        return opened.board;
-      },
-    });
-    console.log(`watcher: run ${done.runId} ${done.state}, filing ${done.filing}`);
-    if (done.state === 'failed') console.error(`watcher: the run failed: ${done.code ?? 'unknown'}`);
-    if (done.filing === 'failed') console.error('watcher: the board refused a task');
-    return done.state === 'failed' || done.filing === 'failed' ? 1 : 0;
-  } finally {
-    close();
-  }
+  const done = await runInspection({
+    store,
+    reportsDir,
+    self: { pid: process.pid, startId: defaultProcessStart(process.pid) ?? 'unknown' },
+    source: 'timer',
+    timeoutMs: WATCHER_RUN_TIMEOUT_MS,
+    promptFiles: promptFiles(where),
+    retryPromptFiles: [path.join(where.rootDir, 'agents', 'watcher', 'retry.md')],
+    selected: selectedOf(where.privateDir),
+    install: () => installFacts({ rootDir: where.rootDir, dataDir: where.dataDir }),
+    memory: () => watcherMemory({ dataDir: where.dataDir, config }),
+    money: () => moneyOf(where, config),
+    runAgent: async (brief, { signal, timeoutMs, runId }) =>
+      runAgent(
+        {
+          proxy: await proxyForRun({ url: serviceCredential(where.dataDir, 'proxy'), config }),
+          agent: 'watcher',
+          brief,
+          cwd: where.rootDir,
+          timeoutMs,
+          signal,
+          runId,
+          // `services watcher evidence` under the agent reads the same layers as this worker.
+          env: { NEPTUNIA_DATA_DIR: where.dataDir },
+        },
+        { privateDir: where.privateDir, denyDir: defaultDenyDir() }
+      ),
+  });
+  console.log(`watcher: run ${done.runId} ${done.state}`);
+  if (done.state === 'failed') console.error(`watcher: the run failed: ${done.code ?? 'unknown'}`);
+  return done.state === 'failed' ? 1 : 0;
 }
