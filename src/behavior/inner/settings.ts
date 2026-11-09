@@ -70,7 +70,6 @@ export const FEEDBACK_KINDS = Object.freeze([
   'sendFailed',
   'stateLost',
   'memoryFailed',
-  'pendingQuarantined',
   'proxySwitched',
   'interrupted',
   'diagnostic',

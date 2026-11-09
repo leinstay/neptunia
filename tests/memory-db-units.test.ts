@@ -1,7 +1,7 @@
 // The memory units on the database (spec 2026-10-24-memory-authority, section 6 items 1, 2, 3 and 8): the store's
 // cached units, the intention and task stores, the archive and the versions write the database (unit-write.js, through
-// the outbox of unit-outbox.js), their reads never touch the disk, and a unit write that failed survives a restart
-// through `memory-pending/`. A day of writes on a fixture whose memory files are gone and whose directories are
+// the outbox of unit-outbox.js), their reads never touch the disk, and a unit write that still fails at the shutdown
+// is logged as lost and leaves no file. A day of writes on a fixture whose memory files are gone and whose directories are
 // read-only leaves no memory file and writes every kind of unit. Synthetic data only (Greek or accented Latin for
 // non-ASCII); the ids are made up.
 import { legacyServerPlaceId } from '../src/memory/migration/paths.ts';
@@ -46,10 +46,6 @@ const DB_FILES = new Set(['memory.db', 'memory.db-wal', 'memory.db-shm', 'memory
 /** The status events and the outbox rows to `persona` of one task (its id given twice). */
 const ROWS_OF_TASK = `SELECT (SELECT COUNT(*) FROM board_events WHERE task_id = ? AND type = 'status') AS events,
   (SELECT COUNT(*) FROM board_outbox WHERE task_id = ? AND to_whom = 'persona') AS ends`;
-
-/** The status events of the errand task titled `the pier` on the board. */
-const PIER_EVENTS = `SELECT e.seq FROM board_events e JOIN board_tasks t ON t.id = e.task_id
-  WHERE t.lane = 'errand' AND t.title = 'the pier' AND e.type = 'status'`;
 
 // The status events of the errand tasks titled `title` on the board, in order.
 const errandEvents = (db: Db, title: string): Array<unknown> =>
@@ -321,18 +317,14 @@ async function day(m: Awaited<ReturnType<typeof modules>>) {
   await settle();
 }
 
-test('outbox: a newer value replaces the waiting one, lines keep their order, a failed write goes back in front and is kept at the end', async () => {
+test('outbox: a newer value replaces the waiting one, lines keep their order, a failed write goes back in front and is logged lost at the shutdown', async () => {
   const written: Array<unknown> = [];
   let failing = true;
-  const kept: Array<unknown> = [];
   const memoryDb = {
     async writeUnit(update: unknown) {
       if (failing) throw Object.assign(new Error('down'), { code: 'DB_CLOSED' });
       written.push(update);
       return {};
-    },
-    keepPending(update: unknown) {
-      kept.push(update);
     },
   };
   const log = logs();
@@ -352,19 +344,21 @@ test('outbox: a newer value replaces the waiting one, lines keep their order, a 
   assert.equal(outbox.size(), 0);
   failing = true;
   outbox.value('guilds/g/a.json', { n: 3 });
-  assert.equal(await outbox.flush(), 1);
-  assert.equal(outbox.keep(), 1);
-  assert.deepEqual(kept, [{ op: 'value', owner: 'guilds/g/a.json', value: { n: 3 } }]);
-  assert.equal(outbox.size(), 0);
+  assert.equal(await outbox.flush({ final: true }), 1);
   assert.ok(
     log.out.some(
       (entry) =>
         entry.level === 'warn' && entry.message === 'memory db: unit write failed' && entry.code === 'DB_CLOSED'
     )
   );
+  // Bug: the shutdown hands the write to a folder nothing reads, so the loss goes unseen in the log.
   assert.ok(
     log.out.some(
-      (entry) => entry.level === 'error' && entry.message === 'memory db: units kept pending' && entry.units === 1
+      (entry) =>
+        entry.level === 'error' &&
+        entry.message === 'memory db: units lost' &&
+        entry.units === 1 &&
+        entry.code === 'DB_CLOSED'
     )
   );
 });
@@ -465,7 +459,7 @@ test('reads: the store, the intentions and the tasks load the database values wi
   }
 });
 
-test('a failed unit write survives a restart through memory-pending/ and is applied once', async () => {
+test('a unit write that still fails at the shutdown is logged lost and leaves no file in the data directory', async () => {
   const { root, data } = prepared();
   retireFiles(data);
   const log = logs();
@@ -478,10 +472,6 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
     now: () => NOW,
     defer: (fn) => setImmediate(fn),
   });
-  const pendingDir = path.join(data, 'memory-pending');
-  // PR 6d, errands on the board: the errand's write is op `errand` onto the board, so the refused write, its pending
-  // file and its single replay are counted on the board's status events (they were errands.jsonl lines before).
-  const moves = (handle: Parameters<typeof dbOf>[0]) => dbOf(handle).prepare(PIER_EVENTS).all().length;
   try {
     fs.chmodSync(data, 0o755);
     await service.tick();
@@ -499,7 +489,6 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
       writeSelfreflection: () => Promise.reject(Object.assign(new Error('down'), { code: 'SQLITE_FULL' })),
     };
     const m = await modules(data, { log, memoryDb: down });
-    const before = moves(service.readHandle()!);
     m.store.setLore(placeOfRoot(m.store, GUILD), [{ title: 'Η αποβάθρα', keys: ['αποβάθρα'], text: 'The old pier.' }], {
       source: 'owner',
       now: NOW,
@@ -518,67 +507,41 @@ test('a failed unit write survives a restart through memory-pending/ and is appl
     });
     assert.equal(task.ok, true);
     const settled = await m.store.flushSettled({ final: true });
-    assert.equal(settled.pending, 2, 'the lore and the diary');
-    assert.deepEqual(await m.tasks().flush({ final: true }), { waiting: 1, pending: 1 });
+    assert.equal(settled.waiting, 2, 'the lore and the diary');
+    assert.deepEqual(await m.tasks().flush({ final: true }), { waiting: 1 });
     await m.close();
     await service.close();
-    assert.equal(fs.readdirSync(pendingDir).filter((name) => name.endsWith('.json')).length, 3);
-    // Pending runtime writes retain semantic keys rather than legacy filenames.
-    const place = legacyServerPlaceId('discord', GUILD);
-    const loreKey: StorageKey = { kind: 'lore', subject: { type: 'place', id: place } };
-    const lore = JSON.parse(
-      fs.readFileSync(
-        path.join(pendingDir, `${createHash('sha1').update(keyText(loreKey)).digest('hex')}.json`),
-        'utf8'
-      )
-    );
-    assert.deepEqual([lore.key, lore.op, typeof lore.at], [loreKey, 'value', 'string']);
-    assert.ok(log.out.some((entry) => entry.level === 'error' && entry.message === 'memory db: units kept pending'));
+    // Bug: the shutdown writes her memory to a folder beside the database that no open reads.
+    assert.equal(fs.existsSync(path.join(data, 'memory-pending')), false);
     assert.deepEqual(memoryFiles(data), [], 'still no memory file');
-
-    // The next start replays them before anything reads, and deletes each file once its write resolved.
-    for (let start = 0; start < 2; start += 1) {
-      const next = createMemoryDb({
-        hot,
-        dataDir: data,
-        log,
-        worker: false,
-        now: () => NOW,
-        defer: (fn) => setImmediate(fn),
-      });
-      try {
-        await next.tick();
-        assert.equal(next.status().open, true);
-        assert.deepEqual(fs.readdirSync(pendingDir), []);
-        const handle = next.readHandle()!;
-        const value = valueOf(dbOf(handle), `guilds/${GUILD}/lore.json`);
-        assert.ok(JSON.stringify(value).includes('The old pier.'));
-        assert.ok(JSON.stringify(valueOf(dbOf(handle), `guilds/${GUILD}/diary.json`)).includes('une journée de pluie'));
-        assert.equal(moves(handle), before + 1, 'the errand filed once');
-      } finally {
-        await next.close();
-      }
-    }
-    assert.equal(log.out.filter((entry) => entry.message === 'memory db: pending replayed').length, 1);
+    // The store logs through the engine's own logger, so only the task store's line reaches this one.
+    const lost = log.out.filter((entry) => entry.level === 'error' && entry.message === 'memory db: units lost');
+    assert.deepEqual(
+      lost.map((entry) => [entry.reader, entry.units]),
+      [['tasks', 1]]
+    );
   } finally {
     setDirs(data, 0o755);
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
 
-// Stage AM of the master plan: a refused pending write no longer keeps the database closed. It moves to the
-// quarantine with its code and the open goes on (tests/memory-pending-quarantine.test.ts holds the rest).
-test('a pending write the writer refuses moves to the quarantine and the database opens', async () => {
+// A file an older release left in `memory-pending/` is not replayed: its write is older than the rows written since.
+test('an open applies nothing from a file in memory-pending/ and leaves the file as it was', async () => {
   const { root, data } = prepared();
   const log = logs();
   const hot = { config: configOf() };
   const pendingDir = path.join(data, 'memory-pending');
-  const name = `${'0'.repeat(40)}.json`;
+  const loreKey: StorageKey = { kind: 'lore', subject: { type: 'place', id: legacyServerPlaceId('discord', GUILD) } };
+  const name = `${createHash('sha1').update(keyText(loreKey)).digest('hex')}.json`;
+  const kept = JSON.stringify({
+    key: loreKey,
+    op: 'value',
+    value: [{ title: 'Η αποβάθρα', keys: ['αποβάθρα'], text: 'The old pier.' }],
+    at: '2026-11-03T12:00:00.000Z',
+  });
   fs.mkdirSync(pendingDir);
-  fs.writeFileSync(
-    path.join(pendingDir, name),
-    JSON.stringify({ owner: `guilds/${GUILD}/nothing.json`, op: 'value', value: {}, at: '2026-11-03T12:00:00.000Z' })
-  );
+  fs.writeFileSync(path.join(pendingDir, name), kept);
   const service = createMemoryDb({
     hot,
     dataDir: data,
@@ -590,21 +553,14 @@ test('a pending write the writer refuses moves to the quarantine and the databas
   try {
     await service.tick();
     assert.equal(service.status().open, true);
-    assert.deepEqual(fs.readdirSync(pendingDir), []);
-    assert.ok(fs.existsSync(path.join(data, 'memory-pending-quarantine', name)));
-    assert.ok(
-      log.out.some(
-        (entry) =>
-          entry.level === 'error' &&
-          entry.message === 'memory db: pending quarantined' &&
-          entry.count === 1 &&
-          entry.code === 'UNIT_UNMAPPED'
-      )
-    );
+    // Bug: a write of an older release replayed over what she learned since.
     assert.equal(
-      log.out.some((entry) => entry.message === 'memory db: open failed'),
+      JSON.stringify(valueOf(dbOf(service.readHandle()!), `guilds/${GUILD}/lore.json`)).includes('The old pier.'),
       false
     );
+    assert.deepEqual(fs.readdirSync(pendingDir), [name]);
+    assert.equal(fs.readFileSync(path.join(pendingDir, name), 'utf8'), kept);
+    assert.equal(fs.existsSync(path.join(data, 'memory-pending-quarantine')), false);
   } finally {
     await service.close();
     fs.rmSync(root, { recursive: true, force: true });
