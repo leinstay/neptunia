@@ -2,9 +2,12 @@
 // neither. Real temporary database, synthetic content.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { retrievedLines } from '../src/memory/db/session-retrieved.ts';
+import { pendingSemanticEmbeddings } from '../src/memory/db/semantic-search.ts';
+import { readRetrieved, retrievedLines } from '../src/memory/db/session-retrieved.ts';
 import type { MemoryPage } from '../src/memory/db/semantic-types.ts';
-import { ALEX, addEntity, addSource, semanticWorld } from './fixtures/memory-db/semantic-world.ts';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
+import type { Config } from '../src/memory/db/types.ts';
+import { ALEX, ROOM, START, addEntity, addSource, semanticWorld } from './fixtures/memory-db/semantic-world.ts';
 
 function render(world: ReturnType<typeof semanticWorld>, ctx: typeof world.contexts.group, retrieved: MemoryPage) {
   const out = {
@@ -75,5 +78,64 @@ test('a line this context may not read gets no number and no read', () => {
   assert.ok(!out.reads.some(([, id]) => id === hidden));
   assert.ok(!out.lines.join('\n').includes('between us'));
   assert.ok(ALEX);
+  world.handle.close();
+});
+
+// ---- the batch's embedding -----------------------------------------------------------------------------------------
+
+const EMBEDDER = 'test/embedder';
+const SESSION_CONFIG = {
+  memoryDb: {
+    retrieval: {
+      seeds: 4,
+      hops: 2,
+      nodes: 20,
+      edges: 60,
+      assertions: 12,
+      evidence: 24,
+      tokens: 2000,
+      deadlineMs: 1000,
+    },
+  },
+  recall: { prefetch: { deadlineMs: 1000, maxTokens: 2000 }, db: { minMeaning: 0.35 } },
+} as unknown as Config;
+
+test("a session batch embeds its query once and finds a fact in another language by the fact's vector", async () => {
+  // Bug: the session reads its batch by words alone, so a fact stored in one language never meets lines in another.
+  const world = semanticWorld();
+  const source = addSource(world, 'public', 'an old line');
+  const { versionId } = addEntity(world, 'project', 'Lumen', [source]);
+  for (const pending of pendingSemanticEmbeddings(world.db, { model: EMBEDDER, limit: 10 }))
+    applyMemoryWrite(world.handle, {
+      kind: 'semantic-embedding',
+      documentKey: pending.documentKey,
+      model: EMBEDDER,
+      vector: [1, 0, 0],
+      now: START,
+    });
+  const asked: Array<string> = [];
+  const read = (embedQuery: ((text: string) => Promise<ArrayLike<number> | null>) | null) =>
+    readRetrieved({
+      db: world.db,
+      ctx: world.contexts.group,
+      config: SESSION_CONFIG,
+      // The batch is read as of its newest line, an hour after the fact was stored.
+      batch: [{ text: 'Το νέο έργο κυκλοφόρησε σήμερα', at: START + 3_600_000, place_id: ROOM }],
+      people: [],
+      now: () => START,
+      embedQuery,
+      model: EMBEDDER,
+    });
+  const words = await read(null);
+  assert.ok(!(words?.assertions ?? []).some((one) => one.versionId === versionId), 'the words alone find it');
+  const meant = await read((text) => {
+    asked.push(text);
+    return Promise.resolve([1, 0, 0]);
+  });
+  assert.ok(
+    (meant?.assertions ?? []).some((one) => one.versionId === versionId),
+    'the vector finds the fact'
+  );
+  assert.equal(asked.length, 1);
   world.handle.close();
 });

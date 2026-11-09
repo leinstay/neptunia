@@ -291,7 +291,7 @@ Every read filters by the context's audience before any limit, and a version's s
 | `memory.search` | `src/behavior/recall-facts.ts`, `src/tools/tools.ts` | The question and `entity`, `predicate`, `as_of`, `historical` | The turn's | Facts after the quotes |
 | Attention | `src/intentions/model.ts#attentionRetrieval`, `src/turn/lookup.ts` | The intention's purpose, people and place | The wake's | The prefetch's excerpts |
 | Selfreflection plan | `src/turn/selfreflection.ts` | Known people up to the post's moment | `groupsContext` | `<stored_facts>` in the plan request |
-| Memory session | `src/memory/db/session-retrieved.ts` | The batch's words, people and places | The scope's | `<retrieved>`, as of the batch's newest line |
+| Memory session | `src/memory/db/session-retrieved.ts` | The batch's words, people and places, and one embedding of its query (purpose `recall-query`) | The scope's | `<retrieved>`, as of the batch's newest line |
 | Errand | `src/errands/service.ts`, `src/core.ts` | The goal | A group context; a `dm` errand reads nothing | `context.memory` |
 | Watcher | `src/watcher/install.ts#watcherMemory` | Failure words | `groupsContext`, because a report can reach a public filing | `<memory>` in the brief |
 
