@@ -74,6 +74,8 @@ export type ReaderInput = {
   errandResult: string;
   nameOf: NameOf;
   lineOf: LineOf | null;
+  /** Whether the line of a lookup's source is gone or unreadable, read by the source's row. */
+  isSourceRetired: SourceRetired | null;
   live: LiveOf | null;
   /** The handles the chat was rendered with, by platform id: they keep their form whatever joins them. */
   chatHandles: Map<string, string> | null;
@@ -104,17 +106,13 @@ function chatWindow(frame: Frame, items: ReadonlyArray<TranscriptItem>): Map<str
   return window;
 }
 
-/** The ids of the sources the reader of lines names as retired: a lookup's source whose line is gone or unreadable. */
-function retiredOf(lookups: ReadonlyArray<Lookup>, lineOf: LineOf | null): Set<string> {
-  const retired = new Set<string>();
-  if (lineOf === null) return retired;
-  for (const id of lookups.flatMap((lookup) => lookup.sourceIds)) {
-    const parts = id.split(':');
-    if (parts[0] !== 'src' || parts.length < 5) continue;
-    const line = lineOf(parts.slice(0, -2).join(':'));
-    if (line === null || line.deleted) retired.add(id);
-  }
-  return retired;
+/** Whether the line of a source is gone or unreadable, by the source's id; true for an id no row holds. */
+export type SourceRetired = (sourceId: string) => boolean;
+
+/** The ids of a lookup's sources whose line is gone or unreadable. */
+function retiredOf(lookups: ReadonlyArray<Lookup>, isSourceRetired: SourceRetired | null): Set<string> {
+  if (isSourceRetired === null) return new Set();
+  return new Set(lookups.flatMap((lookup) => lookup.sourceIds).filter((id) => isSourceRetired(id)));
 }
 
 /** What the frame's request offers the budget before the fit. */
@@ -264,7 +262,7 @@ function offeredOf(given: ReaderInput): Offered {
       ...memoryItemsOf(mind, frame, labels, given.nameOf, given.live, given.selfreflectionIds),
       ...factItemsOf(given.facts ?? [], labels),
     ],
-    recall: recallBlockOf(lookups, { retired: retiredOf(given.lookups, lineOf) }, labels, timezone),
+    recall: recallBlockOf(lookups, { retired: retiredOf(given.lookups, given.isSourceRetired) }, labels, timezone),
     chat: given.chatItems.map((item) => ({ ...item, text: resolveRef(item.text) })),
     windows,
     windowTexts: windows.map((window) => windowText(window, frame, labels, given.nameOf)),
