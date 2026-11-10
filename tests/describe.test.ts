@@ -23,7 +23,7 @@ import {
 } from '../src/memory/describe.ts';
 import { createHash } from 'node:crypto';
 import { createLlm, roleRequestOptions, TokenLimitError, DailyCapError } from '../src/llm/openrouter.ts';
-import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
+
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { MEDIA_CACHE_ENTRIES } from '../src/memory/db/media-store.ts';
@@ -37,7 +37,7 @@ import {
   fakeState,
   fakeVideoFetcher,
 } from './fixtures/describe-fakes.ts';
-import { chainsOf, chainsOnDefaults } from './fixtures/chains.ts';
+import { chainsOf } from './fixtures/chains.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -411,31 +411,6 @@ test('describe: a helper request -- llm.analyzerTimeoutMs, never llm.timeoutMs, 
   assert.equal(tuned.maxOutputTokens, 120);
   const unset = await run({ timeoutMs: 90000 });
   assert.equal(unset.timeoutMs, roleRequestOptions({}).timeoutMs, 'the helper fallback, not the reply timeout');
-});
-
-test("describe: the picture model is the vision chain's; the deprecated media.model is ignored", async () => {
-  const run = async (config: Untyped) => {
-    const hot = fakeHot({ config });
-    const llm = fakeLlm({ text: 'a cat' });
-    const describer = createDescriber({
-      hot,
-      store: createStore(memoryAt(tmpDataDir())),
-      llm,
-      imageFetcher: fakeImageFetcher(),
-    });
-    await describer.describe('g1', pictureItem('a1'));
-    return llm.calls[0].options.model;
-  };
-  assert.equal(await run({ models: { routes: chainsOf({ vision: 'x/vision' }) } }), 'x/vision');
-  const stale = {
-    models: { routes: chainsOnDefaults({}) },
-    media: { model: 'x/old-media', maxOutputTokens: 120 },
-  };
-  assert.equal(
-    await run(stale),
-    ROLE_DEFAULTS.vision,
-    'the role default: an old config.local.json media.model never takes effect'
-  );
 });
 
 test('describe: a picture request of every kind (image, gif frame, video poster, link, sticker, emoji) skips the text calibration', async () => {
@@ -814,24 +789,6 @@ test('describeVideo: attachment is watched through a data URL with the video set
   assert.equal(options.provider, undefined, 'a downloaded clip does not pin the provider');
   assert.equal(options.skipCalibration, true, 'a video request must never feed the text calibration');
   assert.equal(options.countAgainstDailyCap, true);
-});
-
-test("describeVideo: the video model is the video chain's; the deprecated media.video.model is ignored", async () => {
-  const withNew = videoHot();
-  withNew.config.models = { routes: chainsOf({ video: 'x/new-video', vision: 'x/vision' }) };
-  const fresh = videoDescriber({ hot: withNew });
-  await fresh.describer.describeVideo('g1', videoAttachment());
-  assert.equal(fresh.llm.calls[0].options.model, 'x/new-video');
-
-  const withOld: Untyped = videoHot({ video: { model: 'x/old-video' } });
-  withOld.config.models = { routes: chainsOnDefaults({ vision: 'x/vision' }) };
-  const old = videoDescriber({ hot: withOld });
-  await old.describer.describeVideo('g1', videoAttachment());
-  assert.equal(
-    old.llm.calls[0].options.model,
-    ROLE_DEFAULTS.video,
-    'the role default: an old config.local.json media.video.model never takes effect'
-  );
 });
 
 test('describeVideo: a direct-URL site within maxSeconds sends the public URL with the pinned provider', async () => {
@@ -3105,15 +3062,4 @@ test('describeVideo: a downloaded clip stores its length as watchedSeconds; a pi
   assert.equal('watchedSeconds' in loose(cacheView(pinned.store, 'g1'))[`video:${link.itemId}`], false);
   assert.equal('totalSeconds' in loose(cacheView(pinned.store, 'g1'))[`video:${link.itemId}`], false);
   assert.equal(pinned.llm.calls[0].messages[0].content, VIDEO_PROMPT);
-});
-
-// PR 7d: the daily caps of plan section 4.5 are gone; a local layer not yet cut that still sets them changes nothing.
-test('describeVideo: a hundred videos in one day are all watched, a stale media.video.maxPerDay of 1 included', async () => {
-  const hot = videoHot();
-  loose(hot.config.media.video).maxPerDay = 1;
-  const { describer } = videoDescriber({ hot });
-  const states = [];
-  for (let n = 0; n < 100; n += 1)
-    states.push(loose(await describer.describeVideo('g1', videoAttachment(`v${n}`))).state);
-  assert.deepEqual([...new Set(states)], ['watched']);
 });

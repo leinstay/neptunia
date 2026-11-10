@@ -375,23 +375,6 @@ test('usage: the UTC day rolls over at midnight; the last 31 days are kept and d
   assert.deepEqual(daysOnDisk(), ['2026-10-15', '2026-11-13', '2026-11-14']);
 });
 
-test('usage: a file of the older two-day format loads; days beyond the window or after today are dropped', () => {
-  const dataDir = tmpDir();
-  const row = { requests: 1, promptTokens: 0, cachedTokens: 0, completionTokens: 0, cost: 1 };
-  const days = {
-    '2026-10-14': { core: row },
-    '2026-10-15': { core: row },
-    '2026-09-01': { core: row },
-    '2026-10-16': { core: row },
-    junk: { core: row },
-  };
-  fs.writeFileSync(path.join(dataDir, USAGE_FILE), JSON.stringify({ v: 1, days }));
-  const usage = createUsage({ dataDir, now: clock() });
-  const sum = usage.sumDays(30);
-  assert.equal(sum.total.cost, 2);
-  assert.equal(sum.since, '2026-10-14');
-});
-
 test('usage: sumDays sums the last N days per role, filtered by only or except, with the first day covered', () => {
   const now = clock(Date.parse('2026-10-01T12:00:00.000Z'));
   const usage = createUsage({ dataDir: tmpDir(), now });

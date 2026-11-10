@@ -20,6 +20,14 @@ import { applyWakeQueueWrite } from '../src/memory/db/wake-queue.ts';
 import { ANSWER, channelInfo, lineEvent } from './fixtures/core-over-fake.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import {
+  mention as noReplayMention,
+  settle,
+  startUnitsCore as noReplayStartUnitsCore,
+  startedUnit as noReplayStartedUnit,
+  postedOnce as noReplayPostedOnce,
+  withRig as noReplayWithRig,
+} from './fixtures/core-units.ts';
 
 type Row = Record<string, unknown>;
 type Db = { prepare(sql: string): { all(...args: Array<unknown>): Array<Row> } };
@@ -632,4 +640,30 @@ test('a core with no memoryDb setting records its heartbeat as a wake run and ru
       assert.ok(runs.length >= 1, 'the heartbeat is a wake run');
     }
   );
+});
+
+// The owner's no-catch-up policy of 2026-11-02 through the real core: nothing is read or answered on its own after an
+// absence. The model is a function that records its requests, so nothing calls a provider.
+
+test('a restart reads no missed history and starts no turn over it, and the next message is answered', async () => {
+  // Bug: the start catches up on what was said during the downtime, or answers a question hours old.
+  await noReplayWithRig({}, async ({ dirs, llm, units, cores }) => {
+    const first = await noReplayStartUnitsCore(dirs, llm);
+    cores.push(first);
+    const before = await noReplayStartedUnit(dirs);
+    units.push(before);
+    assert.equal(await (await before.emit(noReplayMention('m1', 'hello bot'))).acked, 'ok');
+    await noReplayPostedOnce(before, 1);
+    await first.stop();
+    await before.kill();
+
+    cores.push(await noReplayStartUnitsCore(dirs, llm));
+    const after = await noReplayStartedUnit(dirs);
+    units.push(after);
+    await settle(600);
+    assert.equal(llm.requests.length, 1, 'no turn at the start');
+    assert.equal(await (await after.emit(noReplayMention('m2', 'are you back'))).acked, 'ok');
+    await noReplayPostedOnce(after, 1);
+    assert.equal(llm.requests.length, 2);
+  });
 });

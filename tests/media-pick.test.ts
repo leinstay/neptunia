@@ -3,10 +3,19 @@
 // tests/media-pick-emoji.test.ts. Plan 2026-11-04-cli-and-memory, stage B7.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MEDIA_PICK_DEFAULTS, createMediaPick, mediaPickSettings, parseMediaPick } from '../src/behavior/media-pick.ts';
+import {
+  MEDIA_PICK_DEFAULTS,
+  createMediaPick,
+  mediaPickSettings,
+  parseMediaPick,
+  pickContext,
+} from '../src/behavior/media-pick.ts';
 import { userText } from '../src/behavior/prompt.ts';
 import { labels } from './fixtures/labels.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import fs from 'node:fs';
+import { captionOfCached } from '../src/memory/gifs.ts';
+import { wrongly } from './fixtures/loose-types.ts';
 
 const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
 const HOUR = 3_600_000;
@@ -331,4 +340,79 @@ test('the analyzer schemas name a nullable choice as an enum holding null, never
   assert.deepEqual(mixed, []);
   const pickName = fields(mediaPickFormat({ gifs: ['wave'], emoji: [], actions: [] }).schema)[1];
   assert.deepEqual(pickName.enum, ['wave', null], 'null stays a choice');
+});
+
+// The shipped prompts against the contract of the media pick (prompts/, config/labels.json): the parser's words are in
+// the pick's prompt, the persona's turn tells her of no tag the parser left behind, and `<skip/>` stays hers. A test of
+// the protocol strings the code reads, never of the wording around them. Plan 2026-11-04-cli-and-memory, stages B7 and B9.
+
+const shipped = (name: string): string => fs.readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8');
+
+test('the pick prompt names its blocks and its answers', () => {
+  const prompt = shipped('media-pick');
+  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
+  for (const word of ['<context>', '<reply>', '<gifs>', '`none`', '`gif`']) {
+    assert.ok(prompt.includes(word), word);
+  }
+});
+
+test('the pick prompt never hands the classifier the word of her turn or of a platform', () => {
+  const prompt = shipped('media-pick');
+  assert.ok(!prompt.includes('<skip'), '<skip/> is only hers');
+  assert.doesNotMatch(prompt, /\bdiscord\b|\bserver\b/i);
+});
+
+// The media pick's context and its answer's reading (src/behavior/media-pick.ts): the pure tests of the GIF picker that
+// survive stage B7 of plan 2026-11-04-cli-and-memory, moved here beside the contract tests of tests/media-pick.test.ts.
+// The candidate list replaced the whole library, so its rendering tests went with it, and tests/gif-library.test.ts holds
+// what a candidate is; a caption the describer wrote is read by captionOfCached below.
+
+const NOW_CONTEXT = Date.UTC(2026, 9, 6, 12, 0, 0);
+
+/** A chat line of the picker's history. */
+function line(id: string) {
+  return { id, ts: NOW_CONTEXT, authorName: 'Zoé', content: `λόγια ${id}` };
+}
+
+test('pickContext: the last contextMessages lines; the answered line among them is named by its place', () => {
+  const history = ['m1', 'm2', 'm3', 'm4', 'm5'].map(line);
+  const last = pickContext(history, { contextMessages: 3, answeredId: 'm5' });
+  assert.deepEqual([last.messages.map((m) => m.id), last.answeredIndex], [['m3', 'm4', 'm5'], 3]);
+  const inside = pickContext(history, { contextMessages: 3, answeredId: 'm4' });
+  assert.deepEqual(
+    [inside.messages.map((m) => m.id), inside.answeredIndex],
+    [['m3', 'm4', 'm5'], 2],
+    'not the last line'
+  );
+});
+
+test('pickContext: an older answered line comes first, before the last lines', () => {
+  const history = ['m1', 'm2', 'm3', 'm4', 'm5'].map(line);
+  const older = pickContext(history, { contextMessages: 2, answeredId: 'm1' });
+  assert.deepEqual([older.messages.map((m) => m.id), older.answeredIndex], [['m1', 'm4', 'm5'], 1]);
+});
+
+test('pickContext: an unknown answered line, none, or 0 context lines mark nothing', () => {
+  const history = ['m1', 'm2', 'm3'].map(line);
+  assert.deepEqual(pickContext(history, { contextMessages: 2, answeredId: 'elsewhere' }), {
+    messages: history.slice(1),
+    answeredIndex: null,
+  });
+  assert.deepEqual(pickContext(history, { contextMessages: 2 }), { messages: history.slice(1), answeredIndex: null });
+  assert.deepEqual(pickContext(history, { contextMessages: 0, answeredId: 'm1' }), {
+    messages: [],
+    answeredIndex: null,
+  });
+  assert.deepEqual(pickContext(wrongly<Array<{ id?: unknown }>>(null), { contextMessages: 2, answeredId: 'm1' }), {
+    messages: [],
+    answeredIndex: null,
+  });
+});
+
+test('captionOfCached: the three fields of a watched GIF joined, an older caption as it is, a miss or nothing empty', () => {
+  const watched = { text: 'a cat lifts', reaction: 'firm agreement', action: 'a cat lifts', screen: 'ναί.' };
+  assert.equal(captionOfCached(watched), 'firm agreement; a cat lifts; ναί.');
+  assert.equal(captionOfCached({ text: ' a man runs ' }), 'a man runs');
+  assert.equal(captionOfCached({ miss: 'error', text: 'x' }), '');
+  assert.equal(captionOfCached(undefined), '');
 });

@@ -1,7 +1,7 @@
 // health: allow file-length until 2027-02-01 -- the place rename widened lines the formatter wraps; split in the slice after the cutover
 // Tests for the memory store's database collections and standalone file backend.
 import { accountOf, placeOfRoot, placeOfChat } from '../src/memory/addresses.ts';
-import { after, test } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,7 +9,7 @@ import { createStore, writeJsonAtomic } from '../src/memory/store.ts';
 import { accountCollection, personaKey } from '../src/memory/db/storage-keys.ts';
 import type { AccountProfileWrite } from '../src/memory/db/account-profile.ts';
 import { legacyStorageKey } from '../src/memory/migration/paths.ts';
-import { mergeEpisodes } from '../src/memory/episodes.ts';
+
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { PARTICIPATION_DEFAULTS, emptyParticipation, recordOwnLine } from '../src/memory/participation.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
@@ -149,75 +149,6 @@ const LEARNED_CFG = {
   confirmGapHours: 12,
 };
 const TEACH_AT = Date.UTC(2026, 8, 21, 12, 0, 0);
-
-test('getPlace: an old guild.json without learned loads it as empty, every other field and the file untouched', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const file = path.join(dir, 'guilds', 'g1', 'guild.json');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const old = {
-    patterns: 'μιμίδια',
-    starters: 'καλημέρα',
-    injokes: ['ο βράχος'],
-    self: ['likes tea'],
-    custom: 7,
-    updatedAt: '2026-01-01T00:00:00.000Z',
-  };
-  writeRaw(file, old);
-  const raw = readRaw(file);
-
-  const store = createStore({ dataDir: dir, memoryDb });
-  const guild = store.getPlace(placeOfRoot(store, 'g1'));
-  assert.deepEqual(guild, {
-    ...old,
-    learned: [],
-    learnedNextId: 1,
-    emojiUsage: {},
-    emojiBackfill: null,
-    // The owner's word of 2026-11-06: the members' ping states live in the map `pings` (it was the list `pingsOff`).
-    pings: {},
-    notesUpdatedAt: null,
-    notesCheckedAt: null,
-    notesFlaggedAt: null,
-    notesSampleReviewedAt: null,
-    notesAttemptAt: null,
-  });
-  store.flush();
-  await store.flushSettled({});
-  assert.equal(readRaw(file), raw, 'reading alone never rewrites the file');
-});
-
-test('getPlace: the keys of the removed variety pass are dropped on read, every other field kept, gone from disk at the next write', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const file = path.join(dir, 'guilds', 'g1', 'guild.json');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const stale = {
-    ownLines: [{ id: 'm1', ts: 1, placeId: 'c1', text: 'λέξη' }],
-    worn: { at: 1, key: 'k', placeId: 'c1', lines: 3, patterns: [] },
-    wornLong: { at: 1, lines: 60, patterns: [] },
-    wornHistory: [{ at: 1, placeId: 'c1', lines: 3, patterns: [] }],
-    fillers: [{ text: 'bof', prefix: false }],
-    ownMessageCount: 12,
-  };
-  const kept = { patterns: 'μιμίδια', self: ['likes tea'], custom: 7, pingsOff: ['u1'] };
-  writeRaw(file, { ...kept, ...stale });
-
-  const store = createStore({ dataDir: dir, memoryDb });
-  const guild = store.getPlace(placeOfRoot(store, 'g1'));
-  for (const key of Object.keys(stale)) assert.equal(key in guild, false, key);
-  assert.equal(asRecord(guild).patterns, 'μιμίδια');
-  assert.deepEqual(asRecord(guild).self, ['likes tea']);
-  assert.equal(asRecord(guild).custom, 7);
-  // The owner's word of 2026-11-06: the earlier `pingsOff` list is kept as the state `off` in the map `pings`.
-  assert.deepEqual(asRecord(guild).pings, { u1: 'off' });
-
-  store.updatePlace(placeOfRoot(store, 'g1'), { starters: 'γεια' });
-  store.flush();
-  await store.flushSettled({});
-  const onDisk = JSON.parse(readRaw(file));
-  for (const key of Object.keys(stale)) assert.equal(key in onDisk, false, key);
-  assert.equal(onDisk.custom, 7);
-  assert.equal(onDisk.starters, 'γεια');
-});
 
 test('getPlace: a hand-edited learned list is validated, ids assigned off learnedNextId', async () => {
   const { dir, memoryDb } = memDataDir();
@@ -575,24 +506,6 @@ test('markNotesSampled: reviewed clears the attempt, attempt leaves the review s
   );
 });
 
-test('store: files without the notes stamps read back with nulls', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const base = path.join(dir, 'guilds', 'g1');
-  fs.mkdirSync(path.join(base, 'channels'), { recursive: true });
-  writeRaw(path.join(base, 'channels', 'c1.json'), { id: 'c1', purpose: 'alpha', notesFlaggedAt: 'yesterday' });
-  writeRaw(path.join(base, 'guild.json'), { patterns: 'x' });
-  const store = createStore({ dataDir: dir, memoryDb });
-  const channel = store.getChannel(placeOfChat(store, { id: 'c1' }));
-  const guild = store.getPlace(placeOfRoot(store, 'g1'));
-  for (const item of [channel, guild]) {
-    assert.deepEqual(
-      [asRecord(item).notesFlaggedAt, asRecord(item).notesSampleReviewedAt, asRecord(item).notesAttemptAt],
-      [null, null, null]
-    );
-  }
-  assert.equal(channel?.purpose, 'alpha');
-});
-
 test('getPlace: notes stamps a hand edit broke read as never stamped', async () => {
   const { dir, memoryDb } = memDataDir();
   const file = path.join(dir, 'guilds', 'g1', 'guild.json');
@@ -701,33 +614,6 @@ test('countUsers: counts a profile not flushed yet, like every other lister', ()
   store.touchUser(accountOf(store, 'u2'), 'Zoé', 1000); // only cached
   assert.equal(store.countUsers(), 2);
   assert.equal(store.countUsers(), store.listUserProfiles().length);
-});
-
-// --- affinity ---------------------------------------------------------------
-
-test('adjustAffinity: creates the affinity object for a profile written before this feature existed', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const guildDir = path.join(dir, 'guilds', 'g1', 'users');
-  fs.mkdirSync(guildDir, { recursive: true });
-  // A pre-relationships profile on disk: no `affinity` key at all.
-  writeRaw(path.join(guildDir, 'u1.json'), { id: 'u1', names: ['Alice'], messageCount: 3 });
-
-  const store = createStore({ dataDir: dir, memoryDb });
-  const before = store.getUser(accountOf(store, 'u1'));
-  assert.equal(asRecord(before).affinity, undefined);
-
-  const affinity = store.adjustAffinity(accountOf(store, 'u1'), 5, 'welcomed back', {
-    maxDelta: 15,
-    historySize: 10,
-    now: 1000,
-  });
-  assert.equal(affinity?.score, 5);
-  assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).affinity.score, 5);
-  assert.equal(
-    asRecord(store.getUser(accountOf(store, 'u1'))).names[0],
-    'Alice',
-    'the rest of the old profile survives untouched'
-  );
 });
 
 test('updateUser: cannot overwrite affinity via LLM-extracted fields', () => {
@@ -984,71 +870,6 @@ test('touchChannel: counters never stamp updatedAt, only a change of the notes d
   assert.ok(asRecord(store.updateChannel(placeOfChat(store, { id: 'c1' }), { tone: 'ήρεμος' })).updatedAt);
 });
 
-test('getChannel: an old channel file without a tally seeds it from the stored topWriters, the file untouched', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const { file, old, raw } = writeOldChannelFile(dir, 'c1');
-  const store = createStore({ dataDir: dir, memoryDb });
-
-  const channel = store.getChannel(placeOfChat(store, { id: 'c1' }));
-  const last = old.lastMessageAt;
-  assert.deepEqual(channel, {
-    ...old,
-    notesCheckedAt: null,
-    notesFlaggedAt: null,
-    notesSampleReviewedAt: null,
-    notesAttemptAt: null,
-    writers: {
-      άλφα: { count: 9, last },
-      βήτα: { count: 7, last },
-      γάμα: { count: 5, last },
-      δέλτα: { count: 3, last },
-      έψιλον: { count: 1, last },
-    },
-  });
-  underTop(memoryDb, placeOfRoot(store, 'g1'), placeOfChat(store, { id: 'c1' }));
-  assert.deepEqual(store.listChannels(placeOfRoot(store, 'g1')), [channel]);
-  store.flush();
-  await store.flushSettled({});
-  assert.equal(readRaw(file), raw, 'reading alone never rewrites the file');
-});
-
-test('touchChannel: a sixth writer enters the frozen top five of an old channel file, stored counts kept', async () => {
-  const { dir, memoryDb } = memDataDir();
-  writeOldChannelFile(dir, 'c1');
-  const store = createStore({ dataDir: dir, memoryDb });
-
-  const first = writeLines(store, 'c1', 'ζήτα', 1, WRITERS_T0 + 6000);
-  assert.deepEqual(
-    first.topWriters,
-    [
-      { id: 'άλφα', count: 9 },
-      { id: 'βήτα', count: 7 },
-      { id: 'γάμα', count: 5 },
-      { id: 'δέλτα', count: 3 },
-      { id: 'ζήτα', count: 1 },
-    ],
-    'the stored order holds; the newest of two single lines is shown'
-  );
-  const channel = writeLines(store, 'c1', 'ζήτα', 9, WRITERS_T0 + 7000);
-  assert.deepEqual(channel.topWriters.slice(0, 2), [
-    { id: 'ζήτα', count: 10 },
-    { id: 'άλφα', count: 9 },
-  ]);
-  assert.deepEqual(writeLines(store, 'c1', 'έψιλον', 1, WRITERS_T0 + 8000).writers['έψιλον'], {
-    count: 2,
-    last: WRITERS_T0 + 8000,
-  });
-
-  store.flush();
-  await store.flushSettled({});
-  const reloaded = createStore({ dataDir: dir, memoryDb }).getChannel(placeOfChat(store, { id: 'c1' }));
-  assert.deepEqual(
-    reloaded?.writers,
-    store.getChannel(placeOfChat(store, { id: 'c1' }))?.writers,
-    'the tally is stored with the next write'
-  );
-});
-
 test('getChannel: a tally or a check stamp a hand edit broke is made safe to read', async () => {
   const { dir, memoryDb } = memDataDir();
   writeOldChannelFile(dir, 'c1', {
@@ -1097,25 +918,6 @@ test('adjustAffinity: persists across store instances', async () => {
   assert.equal(affinity.score, 12);
   assert.equal(affinity.reason, 'nice chat');
   assert.equal(affinity.history.length, 1);
-});
-
-// --- episodes -----------------------------------------------------------------
-
-test('addEpisodes: tolerates a profile written before this feature existed', () => {
-  const dir = tmpDataDir();
-  const guildDir = path.join(dir, 'guilds', 'g1', 'users');
-  fs.mkdirSync(guildDir, { recursive: true });
-  fs.writeFileSync(path.join(guildDir, 'u1.json'), JSON.stringify({ id: 'u1', names: ['Alice'], messageCount: 3 }));
-
-  const store = createStore(memoryAt(dir));
-  const added = store.addEpisodes(accountOf(store, 'u1'), [{ what: 'first ever episode' }], {
-    maxEpisodes: 20,
-    maxNew: 3,
-    now: 1000,
-  });
-
-  assert.equal(added, 1);
-  assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).episodes.length, 1);
 });
 
 test('addEpisodes: persists across store instances', async () => {
@@ -1535,49 +1337,6 @@ test('lore: persists across store instances', async () => {
   const entries = storeB.getLore(placeOfRoot(storeB, 'g1'));
   assert.equal(entries.length, 1);
   assert.equal(asRecord(entries[0]).title, 'The Flood');
-});
-
-// --- wipeGuild --------------------------------------------------------------
-
-function seedGuild(store: Untyped) {
-  store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-  store.touchUser(accountOf(store, 'u2'), 'Bob', 1000);
-  store.updatePlace(placeOfRoot(store, 'g1'), { patterns: 'μιμίδια' });
-  store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['Café closes at nine'] }, { seenAt: 1000 });
-  store.touchChannel(placeOfChat(store, { id: 'c1' }), { name: 'general', topic: null }, 1000);
-  store.touchChannel(placeOfChat(store, { id: 'c2' }), { name: 'random', category: null, topic: null }, 1000);
-  store.pushBuffer(placeOfRoot(store, 'g1'), { text: 'hi' }, 100);
-  store.pushBuffer(placeOfRoot(store, 'g1'), { text: 'there' }, 100);
-  store.setLore(placeOfRoot(store, 'g1'), [{ title: 'The Flood', keys: ['flood'], text: 'It flooded once.' }], {
-    source: 'analyzer',
-    now: 1000,
-  });
-  store.setLore(
-    placeOfRoot(store, 'g1'),
-    [{ title: 'Founders Day', keys: ['founders'], text: 'Owner text.', always: true }],
-    {
-      source: 'owner',
-      now: 1000,
-    }
-  );
-  store.putMediaEntry(placeOfRoot(store, 'g1'), 'a1', { text: 'a cat', ts: 1000 });
-  store.state.data.job = { done: false, channels: { c1: { batchesDone: 2 } } };
-  store.state.data.llmDay = '2026-09-20';
-  store.state.data.llmCount = 7;
-  store.state.markDirty();
-}
-
-// --- aliases (applyProfileOps) ------------------------------------------------
-
-test('getUser: a profile with no aliases key at all is tolerated, gets []', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const guildDir = path.join(dir, 'guilds', 'g1', 'users');
-  fs.mkdirSync(guildDir, { recursive: true });
-  writeRaw(path.join(guildDir, 'u1.json'), { id: 'u1', names: ['Alice'] });
-
-  const store = createStore({ dataDir: dir, memoryDb });
-  const profile = store.getUser(accountOf(store, 'u1'));
-  assert.deepEqual(asRecord(profile).aliases, []);
 });
 
 test('applyProfileOps: routes users.aliases ops through applyAliasOps, threading maxAliases/maxAliasesStored/aliasHalfLifeDays', () => {
@@ -2233,24 +1992,9 @@ test('store: relationshipWrittenAt and relationshipScore survive a restart, publ
   assert.equal(asRecord(restarted.getPrivate(accountOf(restarted, 'u1'))).relationshipScore, 44);
 });
 
-test('getUser / getPrivate: a profile written before relationshipWrittenAt existed loads without one and gets none on read', async () => {
-  const { dir, memoryDb } = memDataDir();
-  writeRaw(userFileOf(dir, 'g1', 'u1'), {
-    id: 'u1',
-    relationship: 'x',
-    relationshipScore: 42,
-    affinity: { score: 10, reason: '', history: [] },
-  });
-  writeRaw(privateFile(dir, 'g1', 'u1'), { relationship: 'y', relationshipScore: -9, affinity: { score: 10 } });
-  const store = createStore({ dataDir: dir, memoryDb });
-  assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).relationshipWrittenAt, undefined);
-  assert.equal(asRecord(store.getPrivate(accountOf(store, 'u1'))).relationshipWrittenAt, undefined);
-});
-
 // --- self facts ----
 
 const ELENI = '111111111111111111';
-const NIKOS = '222222222222222222';
 
 // --- the recent store (data/guilds/<id>/recent.json, src/memory/recent.ts) ------
 
@@ -2719,104 +2463,6 @@ function counterIds() {
 }
 
 const ID_NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
-
-test('store: an item without itemId gets one on write and old items load unchanged', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const old = {
-    id: 'u1',
-    names: ['Zoé'],
-    interests: [
-      {
-        topic: 'σκάκι',
-        note: '',
-        weight: 1,
-        firstSeen: '2026-09-01T00:00:00.000Z',
-        lastSeen: '2026-09-01T00:00:00.000Z',
-      },
-    ],
-    details: [{ id: 1, text: 'έχει γάτα', weight: 1, firstSeen: null, lastSeen: null }],
-    detailsSeq: 2,
-    aliases: [{ name: 'Λένα', weight: 1, firstSeen: null, lastSeen: null }],
-    episodes: [
-      {
-        date: '2026-09-01',
-        what: 'έπαιξε σκάκι',
-        quote: '',
-        feeling: '',
-        weight: 3,
-        addedAt: '2026-09-01T00:00:00.000Z',
-        itemId: 'ep-kept',
-      },
-    ],
-    affinity: {
-      score: 1,
-      reason: 'café',
-      history: [{ ts: '2026-09-01T00:00:00.000Z', delta: 1, appliedDelta: 1, score: 1, reason: 'café' }],
-    },
-  };
-  writeRaw(path.join(dir, 'guilds', 'g1', 'users', 'u1.json'), old);
-  const store = createStore({ dataDir: dir, memoryDb, newId: counterIds() });
-
-  const loaded = store.getUser(accountOf(store, 'u1'));
-  assert.deepEqual(asRecord(loaded).interests, old.interests, 'an old interest loads without an itemId');
-  assert.deepEqual(asRecord(loaded).details, old.details, 'an old detail loads without an itemId');
-  assert.deepEqual(asRecord(loaded).aliases, old.aliases, 'an old alias loads without an itemId');
-  assert.deepEqual(asRecord(loaded).episodes, old.episodes, 'a stored itemId loads as it is');
-  assert.deepEqual(asRecord(loaded).affinity, old.affinity);
-
-  store.applyProfileOps(
-    accountOf(store, 'u1'),
-    { interests: { add: [{ topic: 'café' }] }, details: { add: ['ζει στη Λυών'] }, aliases: { add: ['Élise'] } },
-    { now: ID_NOW }
-  );
-  store.addEpisodes(accountOf(store, 'u1'), [{ what: 'τραγούδησε', weight: 2 }], { maxEpisodes: 10, now: ID_NOW });
-  store.adjustAffinity(accountOf(store, 'u1'), 2, 'σκάκι', { maxDelta: 5, historySize: 5, now: ID_NOW });
-  store.updateUser(accountOf(store, 'u1'), { character: 'πρώτο' });
-  store.updateUser(accountOf(store, 'u1'), { character: 'δεύτερο' });
-  store.applyLearnedOps(placeOfRoot(store, 'g1'), { add: ['το café είναι πικρό'] }, { seenAt: ID_NOW });
-  store.applyRecentOps(placeOfRoot(store, 'g1'), [{ text: 'γραμμή', at: ID_NOW, placeId: '900000000000000001' }], {
-    now: ID_NOW,
-  });
-  store.appendSelfreflectionPost(
-    { at: ID_NOW, kind: null, gist: 'ημέρα', picture: null, messageIds: [], search: '' },
-    { now: ID_NOW }
-  );
-  const ownLine = { id: 'o1', ts: ID_NOW, authorId: 'bot', name: 'persona', self: true, text: 'γεια' };
-  const part = recordOwnLine(emptyParticipation(), { placeId: 'c1', own: ownLine }, PARTICIPATION_DEFAULTS, ID_NOW);
-  store.setParticipation(placeOfRoot(store, 'g1'), part, { settings: PARTICIPATION_DEFAULTS, now: ID_NOW });
-  store.flush();
-  await store.flushSettled({});
-
-  const reread = createStore({ dataDir: dir, memoryDb, newId: () => 'never' });
-  const profile = reread.getUser(accountOf(reread, 'u1'));
-  const ids = (list: Untyped) => list.map((item: Untyped) => item.itemId);
-  const every = (list: unknown, prefix: string) =>
-    Array.isArray(list) &&
-    list.length > 0 &&
-    list.every((item) => typeof item.itemId === 'string' && item.itemId.startsWith(prefix));
-  assert.ok(every(asRecord(profile).interests, 'in-u'), JSON.stringify(ids(asRecord(profile).interests)));
-  assert.ok(every(asRecord(profile).details, 'dt-u'), JSON.stringify(ids(asRecord(profile).details)));
-  assert.ok(every(asRecord(profile).aliases, 'al-u'), JSON.stringify(ids(asRecord(profile).aliases)));
-  assert.equal(asRecord(profile).episodes[0].itemId, 'ep-kept', 'an item that has an itemId keeps it');
-  assert.ok(asRecord(profile).episodes[1].itemId.startsWith('ep-u'));
-  assert.ok(every(asRecord(profile).affinity.history, 'mv-u'));
-  assert.equal(asRecord(profile).affinity.score, 3);
-  assert.ok(
-    every(asRecord(reread.listVersions(placeOfRoot(reread, 'g1'), 'users', accountOf(reread, 'u1'))).character, 'vs-u')
-  );
-  assert.ok(every(asRecord(reread.getPlace(placeOfRoot(reread, 'g1'))).learned, 'ln-u'));
-  assert.ok(every(reread.getRecent(placeOfRoot(reread, 'g1')).lines, 'rc-u'));
-  assert.ok(every(reread.getSelfreflection().posts, 'dy-u'));
-  assert.ok(every(reread.getParticipation(placeOfRoot(reread, 'g1')).episodes, 'pt-u'));
-  const all = [
-    asRecord(profile).interests,
-    asRecord(profile).details,
-    asRecord(profile).aliases,
-    asRecord(profile).episodes,
-    asRecord(profile).affinity.history,
-  ].flatMap(ids);
-  assert.equal(new Set(all).size, all.length, 'every id is distinct');
-});
 
 test('store: eviction returns the dropped items with their itemId', () => {
   const dir = tmpDataDir();

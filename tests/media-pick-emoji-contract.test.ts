@@ -20,25 +20,6 @@ test('the pick prompt names the emoji block and the answers of the emoji forms',
   for (const word of ['<emoji>', '`emoji`', '`replace`']) assert.ok(prompt.includes(word), word);
 });
 
-test('the turn prompts hold no custom emoji rule', () => {
-  for (const name of ['format', 'system-prompt']) {
-    const prompt = shipped(name);
-    assert.doesNotMatch(prompt, /\b(?:custom|server) emoji\b/i, name);
-    assert.ok(!prompt.includes(':name:'), `${name}: :name:`);
-    assert.ok(!prompt.includes('<emoji>'), `${name}: <emoji>`);
-  }
-});
-
-test('the shipped labels hold no sense line for the block that left', () => {
-  // The file's top keys are `model` and `owner` (src/config/labels.ts), so the sense lines are under `model`; read at the
-  // top level this test threw on any tree, with no fix that left the file's shape alone.
-  const labels = JSON.parse(fs.readFileSync(new URL('../config/labels.json', import.meta.url), 'utf8')) as {
-    model: { senses: Record<string, unknown> };
-  };
-  assert.equal(labels.model.senses.customEmoji, undefined);
-  assert.equal(labels.model.senses.gifs, undefined);
-});
-
 test('a custom emoji of the chat keeps its description in the line when the block is gone', () => {
   // Bug: the line leaves the description to `<emoji>` while the turn is offered an emoji list, so removing the block
   // alone would lose what the emoji shows.

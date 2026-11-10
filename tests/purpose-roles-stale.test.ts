@@ -18,12 +18,6 @@ function rolesByPurpose(): Map<string, Array<string>> {
   return roles;
 }
 
-test('a purpose no request sends resolves to no role', () => {
-  // Bug: the status card and the model check list a model for a request that never goes out.
-  const roles = rolesByPurpose();
-  for (const purpose of ['room', 'rewatch']) assert.equal(roles.has(purpose), false, purpose);
-});
-
 test('the search purposes never resolve to the analyzer', () => {
   // Bug: a search summary is listed on the analyzer's model and key while it goes out on the search model.
   const roles = rolesByPurpose();

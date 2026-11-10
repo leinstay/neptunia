@@ -1932,34 +1932,6 @@ test('runTurn: an overheard turn draws unasked: a plain post charged to no membe
   assert.equal(channel.sent[0].reply, undefined);
 });
 
-// --- another channel pulled into a turn (<channel_view>): the inputs ----------------------------
-
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-// Another channel of the guild, snowflake-shaped: a `<#id>` mention is only read for such ids.
-const DIARY = '100000000000000002';
-
-/** A raw message of channel `placeId`; `raw` is Discord's own text (`<#id>` tokens), `content` the clean one. */
-function lineIn(
-  placeId: string,
-  {
-    raw,
-    ...fields
-  }: {
-    raw?: string;
-    id: string;
-    authorId?: string;
-    authorName?: string;
-    ts?: number;
-    content?: string;
-    attachments?: Map<string, unknown>;
-  }
-) {
-  const message: ReturnType<typeof rawMessage> & { content?: string } = { ...rawMessage(fields), placeId };
-  if (raw !== undefined) message.content = raw;
-  return message;
-}
-
 // The core does not cut a post, the adapter splits it: the texts a fake channel received, and what a split keeps.
 const postedTexts = (channel: { sent: Array<{ content?: string }> }) => channel.sent.map((p) => p.content ?? '');
 function assertSplitIntact(posts: Untyped) {
@@ -6382,19 +6354,6 @@ test('createTurnRunner: a message the record holds as deleted appears in the win
   assert.ok(/#\d+ \[[^\]]+\] [^\n]*: message deleted/.test(text), 'numbered like a line');
   const timings = logs.find((entry) => entry.msg === 'turn: timings');
   assert.equal(typeof timings?.stages.record, 'number');
-});
-
-// PR 7d: the daily caps of plan section 4.5 are gone. A state written before the cut may hold the day's count and a
-// local layer not yet cut may set `gifs.maxPerDay`; neither stops her GIF.
-test('runTurn: a picked GIF is posted after a hundred GIFs today, a stale gifs.maxPerDay in the config included', async () => {
-  const run = await runPickTurn({
-    reply: '<msg>χα</msg>',
-    // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-    pick: '{"pick":"gif","name":"g2"}',
-    store: pickStore({ data: { gifDay: '2026-09-20', gifCount: 100 } }),
-    maxPerDay: 3,
-  });
-  assert.deepEqual(run.sent(), ['https://tenor.com/view/gif-2']);
 });
 
 test('a cancelled internal turn cannot leave its read context on a subsequent ordinary DM', async () => {

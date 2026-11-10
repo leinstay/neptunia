@@ -323,11 +323,53 @@ test('the mode full drops the empty persona folder with the rest of the mount sa
   assert.deepEqual(valuesOf(unit, 'TemporaryFileSystem'), []);
 });
 
+// The two errand runner units (deploy/neptunia-agent-scout.service, deploy/neptunia-agent-server.service) as
+// `neptunia setup` renders them: no `EnvironmentFile` line in any scope or mode, so a key never reaches a runner from a
+// file beside the unit. Every key comes with the task. The interface unit has none either: its token is read from
+// `interfaces/<name>/credentials.json`.
+
+const ROOT = path.join(import.meta.dirname, '..');
+const DATA = '/srv/install/data';
+const VARS_RUNNER_UNIT_NO_ENV_FILE: UnitVars = {
+  user: 'someone',
+  group: 'someone',
+  home: '/home/someone',
+  rootDir: '/srv/install',
+  privateDir: DATA,
+  dataDir: DATA,
+  node: '/usr/bin/node',
+};
+
+const runnerUnitNoEnvFileTemplate = (file: string): string => fs.readFileSync(path.join(ROOT, 'deploy', file), 'utf8');
+const environmentFiles = (text: string): Array<string> =>
+  text.split('\n').filter((line) => /^\s*EnvironmentFile\s*=/.test(line));
+
+for (const file of ['neptunia-agent-scout.service', 'neptunia-agent-server.service']) {
+  for (const scope of ['user', 'system'] as const) {
+    for (const mode of ['write', 'full', 'sudo'] as const) {
+      test(`${file} rendered for ${scope} in mode ${mode} has no EnvironmentFile line`, () => {
+        // Bug: a key copied into <data>/clients/agent-<name>.env is read by the runner and by every unit that can read the folder.
+        const unit = renderUnit(runnerUnitNoEnvFileTemplate(file), scope, { ...VARS_RUNNER_UNIT_NO_ENV_FILE, mode });
+        assert.deepEqual(environmentFiles(unit), []);
+        assert.doesNotMatch(unit, /agent-(?:scout|server)\.env/);
+      });
+    }
+  }
+}
+
+test('the interface unit has no EnvironmentFile line', () => {
+  // Bug: a leftover `clients/<name>.env` line in the interface unit reads a file nothing writes, and invites a key into it.
+  const unit = renderUnit(
+    runnerUnitNoEnvFileTemplate('neptunia-interface@.service'),
+    'system',
+    VARS_RUNNER_UNIT_NO_ENV_FILE
+  );
+  assert.deepEqual(environmentFiles(unit), []);
+});
+
 // src/setup/install.ts and src/setup/units.ts: what the runner units are rendered with. Their binds follow the backends
 // installed under `<data>/subharness/`, and the server unit's network reaches the API of each CLI. The templates are the
 // real files of deploy/; no systemctl runs.
-
-const ROOT = path.join(import.meta.dirname, '..');
 
 const run = (): Promise<RunResult> => Promise.resolve({ code: 0, stdout: '', stderr: '' });
 

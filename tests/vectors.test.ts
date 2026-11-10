@@ -157,27 +157,6 @@ test('vectors: a private layer is kept apart from the root index and from other 
   assert.equal((await vectors.stats('dm-u4')).rows, 1);
 });
 
-test('vectors: search time over 20 000 rows of 1024 dims (measured, not asserted)', async (t) => {
-  const { memoryDb, vectors } = await scene();
-  const rng = seeded(11);
-  const dims = 1024;
-  const rows = [];
-  for (let i = 0; i < 20000; i += 1) rows.push({ meta: meta(`r${i}`), vector: randomVector(rng, dims) });
-  await vectors.append('g1', rows);
-  const q = randomVector(rng, dims);
-  const cold = performance.now();
-  await vectors.search('g1', q, { k: 80 });
-  const coldMs = performance.now() - cold;
-  const warm = performance.now();
-  const hits = await vectors.search('g1', q, { k: 80 });
-  const warmMs = performance.now() - warm;
-  assert.equal(hits.length, 80);
-  for (let i = 1; i < hits.length; i += 1) assert.ok(hits[i - 1].score >= hits[i].score);
-  const message = `vectors: 20000 x 1024 search cold ${coldMs.toFixed(1)} ms (load included), warm ${warmMs.toFixed(1)} ms`;
-  t.diagnostic(message);
-  console.log(message);
-});
-
 test('vectors: has lists the kind, id and revision of every row of a month, kept current across appends and layers', async () => {
   const { memoryDb, vectors } = await scene();
   const rng = seeded(11);

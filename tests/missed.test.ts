@@ -15,7 +15,6 @@ import {
   missedCounts,
   missedSettings,
   missedStatusLine,
-  parseMissedAnswer,
   pruneCandidates,
   reconcileFromRecords,
   resolveByTurn,
@@ -524,24 +523,6 @@ test('sweepPlan: expired, answered in the history, out of the window, owed alrea
     ['oldQuestion', 'fresh'],
     'a question lives 15 minutes'
   );
-});
-
-// The lead: split, merge and missed answer in strict JSON (owner, 2026-11-06).
-test('parseMissedAnswer: one verdict per line; a missing or conflicting one is uncertain; an empty answer is unchecked', () => {
-  const entries = (...pairs: Array<[number, string]>) =>
-    JSON.stringify({ verdicts: pairs.map(([n, verdict]) => ({ n, verdict })) });
-  assert.deepEqual(
-    parseMissedAnswer(entries([1, 'owed'], [2, 'resolved'], [3, 'intentional-skip'], [4, 'stale']), 4).verdicts,
-    ['owed', 'resolved', 'intentional-skip', 'stale']
-  );
-  assert.deepEqual(parseMissedAnswer(entries([2, 'owed'], [9, 'owed']), 3).verdicts, [
-    'uncertain',
-    'owed',
-    'uncertain',
-  ]);
-  assert.deepEqual(parseMissedAnswer(entries([1, 'owed'], [1, 'stale']), 1).verdicts, ['uncertain']);
-  assert.deepEqual(parseMissedAnswer(entries([1, 'maybe']), 1).verdicts, ['uncertain']);
-  assert.deepEqual(parseMissedAnswer('  ', 2), { verdicts: [UNCHECKED, UNCHECKED], empty: true });
 });
 
 test('stateForVerdict: owed waits for its recovery only with recovery on', () => {

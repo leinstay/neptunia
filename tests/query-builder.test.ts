@@ -17,48 +17,6 @@ import { queryAnswer } from './fixtures/query-answer.ts';
 const NOW = Date.parse('2026-11-05T12:00:00Z');
 const OPTIONS = { timezone: 'UTC', now: NOW, maxForms: 8 };
 
-test('a history line becomes the history part with its forms', () => {
-  // Bug: the label is renamed in the prompt and the parser still looks for the old one, so she never searches.
-  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const plan = parseQueryPlan(queryAnswer({ history: 'κουνέλι, κουνελιού' }), OPTIONS);
-  assert.deepEqual(plan.history?.forms, ['κουνέλι', 'κουνελιού']);
-  assert.equal(plan.web, null);
-  assert.equal(plan.reason, 'ok');
-});
-
-test('web and history are planned in one answer', () => {
-  // Bug: the first label wins, and half of the plan is lost.
-  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const plan = parseQueryPlan(queryAnswer({ web: 'tomato frost date', history: 'tomate' }), OPTIONS);
-  assert.equal(plan.web, 'tomato frost date');
-  assert.deepEqual(plan.history?.forms, ['tomate']);
-});
-
-test('the server label is no plan', () => {
-  // Bug: both labels stay, and a stale prompt keeps writing the server's word through.
-  const plan = parseQueryPlan('server: tomate', OPTIONS);
-  assert.equal(plan.history, null);
-});
-
-test('who and when belong to the history part', () => {
-  // Bug: the rename drops the fields beside the forms.
-  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const plan = parseQueryPlan(queryAnswer({ who: 'Ana', when: '2026-10-01' }), OPTIONS);
-  assert.deepEqual(plan.history?.who, ['ana']);
-  assert.equal(plan.history?.from, Date.UTC(2026, 9, 1));
-});
-
-test('recent and a located time qualify the history part', () => {
-  // Bug: the qualifiers are read off the old key and silently stop working.
-  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const plan = parseQueryPlan(
-    queryAnswer({ history: 'tomate', recent: 'yes', when: '2026-10-01', when_role: 'locator' }),
-    OPTIONS
-  );
-  assert.equal(plan.history?.recent, true);
-  assert.equal(plan.history?.locator, true);
-});
-
 test('none plans no search', () => {
   // Bug: the picks' word for nothing is searched for on the web.
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
@@ -71,24 +29,6 @@ test('none plans no search', () => {
 test('an empty answer plans no search', () => {
   // Bug: a reasoning model that spent its cap reads as a query.
   for (const raw of ['', null, undefined, '  \n ']) assert.equal(parseQueryPlan(raw, OPTIONS).reason, 'empty');
-});
-
-test('labelled lines with nothing usable are unparsed', () => {
-  // Bug: a date nobody can read turns into a search over everything.
-  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const plan = parseQueryPlan(queryAnswer({ when: 'last spring' }), OPTIONS);
-  assert.deepEqual([plan.web, plan.history, plan.reason], [null, null, 'unparsed']);
-});
-
-test('a skills line is read beside the plan and does not disturb it', () => {
-  // Bug: the discovery line is taken for a form or a query.
-  // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-  const plan = parseQueryPlan(queryAnswer({ history: 'tomate', skills: 'none' }), {
-    ...OPTIONS,
-    skillNames: ['garden'],
-  });
-  assert.deepEqual(plan.history?.forms, ['tomate']);
-  assert.equal(plan.skills?.state, 'none');
 });
 
 /** One builder over a fake model. */

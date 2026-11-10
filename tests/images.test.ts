@@ -413,10 +413,3 @@ test('images: without a route marked byok exactly true, or without is_byok false
     assert.equal(logs.filter((l) => l.msg === 'llm: not byok').length, 0, JSON.stringify([route, isByok]));
   }
 });
-
-// PR 7d: the daily caps of plan section 4.5 are gone. A local layer not yet cut may still set them; nothing reads them.
-test('images: a hundred drawings in one day, by one member, are all made, a stale daily cap in the config included', async () => {
-  const { gen, fetchImpl } = makeGen({ config: baseConfig(wrongly({ maxPerDay: 2, maxPerUserPerDay: 1 })) });
-  for (let n = 0; n < 100; n += 1) await gen.generate(wrongly({ prompt: `picture ${n}`, accountId: 'u1' }));
-  assert.equal(fetchImpl.calls.length, 100);
-});

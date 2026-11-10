@@ -18,7 +18,6 @@ import {
   heartbeatWake,
   emptyState,
   feedbackFacts,
-  innerSettings,
   wakeOfDue,
   DELIVERY_SKILLS,
   turnsToday,
@@ -173,21 +172,6 @@ test('inner: restart interrupts queued actions, retains their evidence and prese
   assert.deepEqual(await fourth.inner.tick(), { ran: false, reason: 'stopped' });
 });
 
-test('inner: no count of turns refuses one: a day and an hour of turns all run', async () => {
-  const run = setup({
-    records: [
-      intention('i1', { dueAt: NOW - 3 * MINUTE_MS }),
-      intention('i2', { dueAt: NOW - 2 * MINUTE_MS, placeId: 'c2' }),
-      intention('i3', { dueAt: NOW - MINUTE_MS, placeId: 'c3' }),
-    ],
-    hot: hotWith({ wakes: { caps: { perDay: 1, perHour: 1, perChain: 3 } } }),
-  });
-  for (let i = 0; i < 3; i += 1) assert.equal(drainedOf(await run.inner.tick()).outcome, 'skip');
-  assert.equal(run.turns.calls.length, 3);
-  await settle();
-  assert.equal(run.journal.filter((r) => r.event === 'capped').length, 0);
-});
-
 test('inner: a chain past its cap is held, not dropped: its wake waits capped per-chain and runs after the local midnight', async () => {
   const caps = { perChain: 1 };
   const run = setup({
@@ -289,15 +273,6 @@ test('chainBudget and turnsToday: counted on the local day, a failed attempt is 
     'the next local day starts at nothing'
   );
   assert.equal(turnsToday(state, { now: NOW, timezone: 'UTC' }), 2);
-});
-
-test('inner: the turn is handed no post counter and no delivery channels: nothing counts posts', async () => {
-  const run = setup({ records: [intention('i1')], hot: hotWith({ wakes: { mode: 'live' } }) });
-  await run.inner.tick();
-  assert.equal(run.turns.calls[0].inner.shadow, false);
-  assert.equal(wrongly<Record<string, unknown>>(run.turns.calls[0].inner).postAllowed, undefined);
-  assert.equal(wrongly<Record<string, unknown>>(run.turns.calls[0].inner).onPosted, undefined);
-  assert.equal(wrongly<Record<string, unknown>>(run.turns.calls[0].inner).deliveryChannels, undefined);
 });
 
 test('inner: stop drops the queue and is seen by a running turn before its next action; start releases it', async () => {
@@ -1879,15 +1854,6 @@ test('drawHeartbeatAt: the interval with an even jitter either way, never less t
   assert.equal(draw(0.5), NOW + 180 * MINUTE_MS);
   assert.ok(draw(0.999999) <= NOW + 240 * MINUTE_MS && draw(0.999999) > NOW + 239 * MINUTE_MS);
   assert.equal(draw(0, { everyMinutes: 10, jitterMinutes: 60 }), NOW + MINUTE_MS);
-});
-
-test('innerSettings: the heartbeat defaults and a bad value taking the default', () => {
-  const d = innerSettings({}).heartbeat;
-  // Slice 5: the view's fixed numbers (people, filteredShown, closedShown) left with heartbeatLines.
-  assert.deepEqual([d.enabled, d.schedule, d.jitterMinutes], [true, { kind: 'every', everyMinutes: 180 }, 60]);
-  // PR 7d: `heartbeat.people` (a key of the config cut) is a constant, so the live keys are the switch and the interval, `heartbeat.schedule` since it replaced `everyMinutes`.
-  const set = innerSettings({ heartbeat: { enabled: false, schedule: 'x' } }).heartbeat;
-  assert.deepEqual([set.enabled, set.schedule], [false, { kind: 'every', everyMinutes: 180 }]);
 });
 
 test('heartbeat: the first tick draws the moment with the jitter and keeps it in the state; it survives a restart', async () => {

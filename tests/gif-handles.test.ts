@@ -10,7 +10,6 @@ import { mediaLabelFor } from '../src/media/classify.ts';
 import { formatTranscript } from '../src/format.ts';
 import { labels } from './fixtures/labels.ts';
 import type { Untyped } from '../src/tools/types.ts';
-import { wrongly } from './fixtures/loose-types.ts';
 
 const T0 = Date.UTC(2026, 8, 1);
 const TENOR = 'https://tenor.com/view/cat-dance-123';
@@ -112,18 +111,4 @@ test('formatTranscript: a forwarded library gif carries its handle too', () => {
   const gifHandles = gifHandleMap(libraryOf([FILE_MSG]));
   const outer = msg('m3', { forwarded: [{ content: '', attachments: FILE_MSG.attachments, links: [] }] });
   assert.ok(render([outer], { gifHandles }).includes('[gif g1: réaction.gif]'));
-});
-
-test('formatTranscript: an older labels.json without the gifKnown keys falls back to gifDescribed / gif', () => {
-  const gifHandles = gifHandleMap(libraryOf([LINK_MSG, FILE_MSG]));
-  const descriptions = new Map([['m1#e0', 'a cat dancing']]);
-  const { gifKnown, gifKnownNoText, ...transcript } = labels.transcript;
-  const text = render(
-    [LINK_MSG, FILE_MSG],
-    { gifHandles, descriptions },
-    { ...labels, transcript: wrongly<typeof labels.transcript>(transcript) }
-  );
-  assert.ok(text.includes('[gif: a cat dancing]'));
-  assert.ok(text.includes('[gif: réaction.gif]'));
-  assert.ok(!text.includes('g1') && !text.includes('g2'));
 });

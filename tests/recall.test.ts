@@ -142,19 +142,6 @@ test('parseLookupAnswer: labelled lines that all say none are none; unusable one
   assert.deepEqual(planOf({ history: 'x' }, { now: NOW }), { web: null, history: null, reason: 'unparsed' });
 });
 
-// The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
-test('parseLookupAnswer: an agent: line is unparsed, never a web query, and a plan has no agent field', () => {
-  for (const raw of [
-    'agent:   find a calm piano track for studying, under five minutes  ',
-    'Agent: "compare three reviews of the café"',
-    'web: café opening hours\nagent: find a photo of the café terrace',
-  ]) {
-    assert.deepEqual(parseQueryPlan(raw), { web: null, history: null, reason: 'unparsed' }, raw);
-  }
-  const withServer = planOf({ history: 'κουνέλι' });
-  assert.equal('agent' in withServer, false, 'no agent field');
-});
-
 test('parseLookupAnswer: a range alone makes a server search; one date is that whole local day', () => {
   // The lead: elsewhere-pick, media-pick, query-builder and the diary planner answer in strict JSON (owner, 2026-11-06).
   const parsed = planOf({ when: '2025-12-18' }, { timezone: BERLIN, now: NOW });

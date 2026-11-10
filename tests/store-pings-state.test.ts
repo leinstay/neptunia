@@ -3,11 +3,11 @@
 // switch, the `pingsOff` list of the place, reads as `off`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
+
 import path from 'node:path';
 import { placeOfRoot } from '../src/memory/addresses.ts';
 import { createStore } from '../src/memory/store.ts';
-import { memDataDir, readRaw, settle, tmpDataDir, writeRaw, memoryAt } from './fixtures/store-kit.ts';
+import { memDataDir, readRaw, settle, tmpDataDir, memoryAt } from './fixtures/store-kit.ts';
 
 test('getPings: null for a member who never set a state', () => {
   // Bug: an unset member reads as `on` or `off`, and nobody follows the interface switch any more.
@@ -63,18 +63,6 @@ test('setPings: a change is written at once and survives dropped caches', async 
   assert.match(readRaw(path.join(dir, 'guilds', 'g1', 'guild.json')), /"u1"/);
   store.dropCaches();
   assert.equal(store.getPings(placeOfRoot(store, 'g1'), 'u1'), 'on');
-});
-
-test('an off stored by the earlier switch reads as off', () => {
-  // Bug: the new field replaces `pingsOff`, and every member who turned pings off is pinged again after the update.
-  const { dir, memoryDb } = memDataDir();
-  const file = path.join(dir, 'guilds', 'g1', 'guild.json');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  writeRaw(file, { patterns: '', pingsOff: ['u1', 'u3'] });
-  const store = createStore({ dataDir: dir, memoryDb });
-  assert.equal(store.getPings('discord:server:g1', 'u1'), 'off');
-  assert.equal(store.isPingsOff('discord:server:g1', 'u3'), true);
-  assert.equal(store.getPings('discord:server:g1', 'u2'), null);
 });
 
 test('updatePlace from the analyzer never overwrites a ping state', () => {

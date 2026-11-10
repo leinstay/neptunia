@@ -2,7 +2,7 @@
 // because they held no words come back oldest first, only with a text form, and the ordinary cursor stays. Synthetic rows.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mediaPassBatch, scopesOf, sessionSettings } from '../src/memory/db/session.ts';
+import { mediaPassBatch, scopesOf } from '../src/memory/db/session.ts';
 import { fillEnvAudiences } from './fixtures/memory-db/audiences.ts';
 import { AT, GENERAL, KINDS, fixture, observeLine } from './fixtures/media-memory.ts';
 import type { Env } from './fixtures/media-memory.ts';
@@ -67,8 +67,3 @@ test('the pass takes up after its own cursor and holds at most its limit', () =>
       ['told-2']
     );
   }));
-
-test('the pass is off until the owner turns it on', () => {
-  assert.equal(sessionSettings({}).mediaPass, false);
-  assert.equal(sessionSettings({ memoryDb: { session: { mediaPass: true } } }).mediaPass, true);
-});
