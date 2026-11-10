@@ -139,19 +139,10 @@ export function isCoreStatePath(owner: unknown): boolean {
 function operationalKindOf(rel: string): string {
   const path = String(rel).replace(/^private\/[^/]+\//, '');
   if (path === 'voice.json') return 'voice';
-  if (path === 'buffer.json') return 'buffer';
   if (path === 'inner.json') return 'inner';
   if (path === 'missed.json') return 'missed';
   if (path === 'recall-trace.jsonl') return 'recall_trace';
-  if (path === 'forgotten.json') return 'forgotten';
-  if (path === 'journal/.running') return 'journal_running';
-  if (path === 'record/backfill.json') return 'record_backfill';
-  if (/^record\/\d{4}-\d{2}\/ids\.json$/.test(path)) return 'record_ids';
-  if (/^archive\/\d{4}-\d{2}\.ids\.json$/.test(path)) return 'archive_ids';
-  if (/^archive\/pending[^/]*\.jsonl$/.test(path)) return 'archive_pending';
   if (path.startsWith('backfill/')) return 'backfill';
-  if (path.startsWith('forgetting/')) return 'forgetting';
-  if (path.startsWith('journal/requests/tools/')) return 'request_tools';
   if (path.startsWith('journal/requests/')) return 'request_dump';
   return 'file';
 }
@@ -160,9 +151,6 @@ function operationalKindOf(rel: string): string {
 export function legacyStorageKey(owner: string, iface = LEGACY_IFACE, legacyKind?: string): UnitKey {
   const root = rootStateKind(owner);
   if (root) return { kind: root as UnitKind, subject: { type: 'persona', id: 'persona:local' } };
-  // An earlier release kept this marker at the data root, and its retired row stays with the persona.
-  if (owner === 'journal/.running')
-    return { kind: 'journal_running', subject: { type: 'persona', id: 'persona:local' } };
   const canonical = currentUnitPath(owner);
   const info =
     classify(/\/vectors\/\d{4}-\d{2}$/.test(canonical) ? `${canonical}/manifest.json` : canonical) ??
@@ -178,7 +166,7 @@ export function legacyStorageKey(owner: string, iface = LEGACY_IFACE, legacyKind
   const partition =
     kind === 'record' || kind === 'journal' || kind === 'requests'
       ? /\d{4}-\d{2}-\d{2}/.exec(rel)?.[0]
-      : ['archive', 'vectors', 'record_ids', 'archive_ids'].includes(kind)
+      : ['archive', 'vectors'].includes(kind)
         ? /\d{4}-\d{2}/.exec(rel)?.[0]
         : undefined;
   return { kind, subject, ...(partition ? { partition } : {}), ...(selector ? { selector } : {}) };
@@ -200,7 +188,7 @@ function legacySelector(kind: UnitKind, rel: string): UnitSelector | undefined {
     const named = versionKind === 'guild' ? 'place' : versionKind;
     return { versionKind: named as NonNullable<UnitSelector['versionKind']>, itemId };
   }
-  if (['backfill', 'forgetting', 'request_tools', 'archive_pending'].includes(kind))
+  if (kind === 'backfill')
     return {
       itemId: rel
         .split('/')
