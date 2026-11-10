@@ -99,6 +99,10 @@ type CacheEntry = {
 };
 /** A link as the reader takes it: its id and address. */
 type LinkItem = { id: string; url: string; site?: string; title?: string; kind?: string };
+/** An entry of this module, read back from its row: it holds the fields this module wrote. */
+const entryAt = (store: LookupDeps['store'], placeId: string, key: string): CacheEntry | undefined =>
+  store.mediaEntry(placeId, key) as CacheEntry | undefined;
+
 /** What `createLookup` takes. */
 export type LookupDeps = {
   hot: { config: LookupConfig; prompts?: { 'search-summary'?: string } };
@@ -373,10 +377,6 @@ export function createLookup(deps: LookupDeps): Lookup {
   // reach the same new link at once share one request.
   const inFlight = new Map<string, Promise<Fetched>>();
 
-  // An entry of this module, read back from its row: it holds the fields this module wrote.
-  const entryAt = (placeId: string, key: string): CacheEntry | undefined =>
-    store.mediaEntry(placeId, key) as CacheEntry | undefined;
-
   function putEntry(placeId: string, key: string, value: CacheEntry): void {
     store.putMediaEntry(placeId, key, value);
   }
@@ -409,7 +409,7 @@ export function createLookup(deps: LookupDeps): Lookup {
 
   /** The cached state of a link: `{ text }` (LRU-touched), `'miss'` (still fresh) or null. */
   function cachedRead(placeId: string, key: string): { text: string } | 'miss' | null {
-    const entry = entryAt(placeId, key);
+    const entry = entryAt(store, placeId, key);
     if (!entry) return null;
     if (entry.miss) return now() - entry.ts < READ_MISS_TTL_MS ? 'miss' : null;
     if (typeof entry.text !== 'string') return null;
@@ -541,7 +541,7 @@ export function createLookup(deps: LookupDeps): Lookup {
     const report = (outcome: string, reason: string | null = null, extra: object = {}): void =>
       log.info('lookup: search', { state: outcome, reason, ...extra });
     const key = searchKey(asked);
-    const hit = entryAt(placeId, key);
+    const hit = entryAt(store, placeId, key);
     if (hit && typeof hit.text === 'string') {
       const maxAgeMs = positiveOr(searchCfg.cacheHours, SEARCH_CACHE_HOURS_FALLBACK) * 60 * MINUTE_MS;
       if (now() - hit.ts < maxAgeMs) {
@@ -685,7 +685,7 @@ export function createLookup(deps: LookupDeps): Lookup {
     const report = (outcome: string, reason: string | null = null, extra: object = {}): void =>
       log.info('lookup: search', { state: outcome, reason, raw: true, ...extra });
     const key = hashedKey('results', normalizeQuery(asked));
-    const hit = entryAt(placeId, key);
+    const hit = entryAt(store, placeId, key);
     if (hit && Array.isArray(hit.results)) {
       const maxAgeMs = positiveOr(searchCfg.cacheHours, SEARCH_CACHE_HOURS_FALLBACK) * 60 * MINUTE_MS;
       if (now() - hit.ts < maxAgeMs) {
@@ -808,7 +808,7 @@ export function createLookup(deps: LookupDeps): Lookup {
     const report = (outcome: string, reason: string | null = null, extra: object = {}): void =>
       log.info('lookup: page', { state: outcome, reason, location, ...extra });
     const key = pageKey(asked);
-    const hit = entryAt(placeId, key);
+    const hit = entryAt(store, placeId, key);
     if (hit && typeof hit.text === 'string') {
       if (now() - hit.ts < positiveOr(linksCfg.readCacheHours, PAGE_CACHE_HOURS_FALLBACK) * 60 * MINUTE_MS) {
         store.putMediaEntry(placeId, key, hit);

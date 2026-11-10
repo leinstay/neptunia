@@ -5,7 +5,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPageFetcher } from '../src/web/fetch-page.ts';
 import { createLookup } from '../src/web/lookup.ts';
-import type { LookupDeps } from '../src/web/lookup.ts';
 import { runWebRead } from '../src/tools/tools.ts';
 import { labels } from './fixtures/labels.ts';
 import { objectMediaCache } from '../src/memory/store-media.ts';
@@ -42,7 +41,7 @@ function reader(routes: Record<string, Route>) {
     pageFetcher,
     now: () => 1000,
     // The fakes hold the few members web.read uses.
-  } as unknown as LookupDeps);
+  });
   return {
     requested,
     cache,
