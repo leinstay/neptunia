@@ -1203,16 +1203,10 @@ export function lastActivity(given: object): number {
  *   `channel.client.user`): what the bot can view is not the audience the
  *   rail protects (canRead decides that), and a destination that admits the
  *   bot by name would otherwise cover no source. With no bot id known,
- *   nothing is left out. Any other bot's overwrite is left out too: a bot
- *   reads nothing the persona pulls, so it is no audience. A member is a bot
- *   when `guild.members.cache` holds it with `user.bot`; a member missing
- *   from the cache counts as a human (kept).
+ *   nothing is left out. Another bot's overwrite counts like a person's.
  * `memberRoles` maps each member named by an overwrite to the ids of the
  * roles he holds, read from `guild.members.cache` (a member missing from the
- * cache has no entry, and the rail then proves nothing through roles). Roles held only by
- * bots stay in the audience: `Role#members` filters the member cache, which
- * without the member intent misses members, so "every holder is a bot"
- * cannot be told. Null for a channel
+ * cache has no entry, and the rail then proves nothing through roles). Null for a channel
  * without a guild (a private chat) and for a thread (overwrites do not
  * describe its audience: a private thread admits by membership); a null
  * audience never covers.
@@ -1238,8 +1232,6 @@ export function audienceOf(given: object | null): {
   const memberCache = guildMembers?.cache;
   const selfUser = channel.client?.user;
   const botId = guildMembers?.me?.id ?? selfUser?.id ?? null;
-  const isBotMember = (id: string): boolean =>
-    (botId !== null && id === botId) || memberCache?.get?.(id)?.user?.bot === true;
   const roleCache = guild.roles?.cache;
   const roles = new Set<string>();
   for (const role of roleCache?.values?.() ?? []) {
@@ -1254,7 +1246,7 @@ export function audienceOf(given: object | null): {
     const target = sets[overwrite.type];
     if (!target) continue;
     if (overwrite.type === OverwriteType.Role && overwrite.id === everyoneId) continue;
-    if (overwrite.type === OverwriteType.Member && isBotMember(overwrite.id)) continue;
+    if (overwrite.type === OverwriteType.Member && overwrite.id === botId) continue;
     if (overwrite.allow?.has?.(view)) target.allow.add(overwrite.id);
     if (overwrite.deny?.has?.(view)) target.deny.add(overwrite.id);
   }

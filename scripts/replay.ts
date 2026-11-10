@@ -1561,7 +1561,7 @@ async function fetchWindow({
     for (const id of message.mentionedAccountIds ?? []) if (id !== self.id) ids.add(id);
   }
   const members = await cacheMembers(guild, ids);
-  // The audience rail's view of bots: the members named in per-member channel overwrites,
+  // The audience rail's view of member roles: the members named in per-member channel overwrites,
   // fetched like src/index.js warms them at startup (interfaces/discord/audience-warm.ts).
   try {
     const warm = await import(

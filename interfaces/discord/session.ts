@@ -344,7 +344,7 @@ export async function start(host: InterfaceHost): Promise<RunningInterface> {
       for (const id of guildIds) for (const event of memberEvents(guildById(id))) deliver('membership.changed', event);
       if (dropped > 0) log.warn('interface: events dropped before open', { dropped });
       for (const { kind, event } of waiting) deliver(kind, event);
-      // The members named by channel overwrites, fetched so the audience rail knows which are bots.
+      // The members named by channel overwrites, fetched so the audience rail knows their roles.
       warmAudiences();
     },
     async reconnect(): Promise<void> {
