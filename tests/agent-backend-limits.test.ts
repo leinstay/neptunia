@@ -176,7 +176,43 @@ test('a claude run reads its answer and its real usage out of the JSON it printe
         })
       ).text
     );
-    assert.equal(seen.argv[seen.argv.indexOf('--output-format') + 1], 'json');
+    // stream-json with --verbose, not json: json prints only the last message as `result`, so a final answer claude
+    // resumed after the output cap lost its head (session-bugs row 33).
+    assert.equal(seen.argv[seen.argv.indexOf('--output-format') + 1], 'stream-json');
+    assert.ok(seen.argv.includes('--verbose'));
+  } finally {
+    cleanup();
+  }
+});
+
+/** One line of claude's stream-json for a message's content block. */
+const assistantLine = (id: string, block: Record<string, unknown>, stop: string): string =>
+  JSON.stringify({ type: 'assistant', message: { id, role: 'assistant', content: [block], stop_reason: stop } });
+
+test('a claude run resumed after the output cap answers with its whole final answer, not the last message', async () => {
+  // Bug: the answer read from `result`, which holds only the message after claude's own resume prompt, so the errand
+  // delivers the tail of its answer. The lines follow the shape of claude's transcripts: a tool round with its
+  // narration, a final message cut at max_tokens, the resume prompt, and a second message that ends the answer.
+  const { dir, cleanup } = scratch();
+  try {
+    const stream = [
+      JSON.stringify({ type: 'system', subtype: 'init', model: 'x/model' }),
+      assistantLine('msg_1', { type: 'text', text: 'Looking it up.' }, 'tool_use'),
+      assistantLine('msg_1', { type: 'tool_use', id: 'toolu_1', name: 'WebSearch', input: {} }, 'tool_use'),
+      JSON.stringify({
+        type: 'user',
+        message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'found' }] },
+      }),
+      assistantLine('msg_2', { type: 'thinking', thinking: '' }, 'max_tokens'),
+      assistantLine('msg_2', { type: 'text', text: 'The head of the answer, ' }, 'max_tokens'),
+      JSON.stringify({ type: 'user', message: { role: 'user', content: 'Output token limit hit. Resume directly.' } }),
+      assistantLine('msg_3', { type: 'text', text: 'and its tail.' }, 'end_turn'),
+      JSON.stringify({ ...ENVELOPE, result: 'and its tail.' }),
+    ].join('\n');
+    const backend = createBackend('claude', { binary: envelopeBinary(dir) });
+    const result = await backend.run('hello', { cwd: dir, timeoutMs: 20_000, env: { FAKE_ENVELOPE: stream } });
+    assert.equal(result.ok, true);
+    assert.equal(result.text, 'The head of the answer, and its tail.');
   } finally {
     cleanup();
   }
