@@ -9,9 +9,9 @@ import { observe } from '../src/memory/db/observe.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { mergePeople } from '../src/memory/db/session-write.ts';
 import { dbOf } from '../src/memory/db/types.ts';
-import { addAccount, addPerson } from './fixtures/memory-db/opaque-people.ts';
+import { addAccount, addDmPlace, addPerson } from './fixtures/memory-db/opaque-people.ts';
 import { tempDir } from './fixtures/tmp.ts';
-import { ownerConsoleName } from '../src/memory/db/identity-links.ts';
+import { ownerConsoleName, ownerConsolePlace } from '../src/memory/db/identity-links.ts';
 import type { Db } from '../src/memory/db/types.ts';
 
 const OWNER = 'person:0w0w0w0w-synthetic';
@@ -109,4 +109,18 @@ test('a command line account with no verified link has no name of a person', (t)
   const db = dbWithConsole(t, 'proposed');
   addChatAccount(db, 'chat:41', OWNER, ['Robin']);
   assert.equal(ownerConsoleName(db), null);
+});
+
+test("the owner's command line chat is the DM place of his command line account, whatever its id spells", (t) => {
+  // Bug: the chat's sessions named the place `cli:dm:owner`, a place no row holds when the stored place has another id.
+  const db = dbWithConsole(t);
+  addAccount(db, { id: 'cli:guest', iface: 'cli', authority: 'cli/local', native: 'guest', person: OTHER });
+  addDmPlace(db, { id: 'place:cli-guest', iface: 'cli', authority: 'cli/local', account: 'cli:guest', person: OTHER });
+  addDmPlace(db, { id: 'place:cli-7f3a', iface: 'cli', authority: 'cli/local', account: 'cli:owner', person: OWNER });
+  assert.equal(ownerConsolePlace(db), 'place:cli-7f3a');
+});
+
+test("the owner's command line chat is none while no place of his command line account is stored", (t) => {
+  // Bug: a missing chat answered as the spelled `cli:dm:owner`, which no row holds.
+  assert.equal(ownerConsolePlace(dbWithConsole(t)), null);
 });

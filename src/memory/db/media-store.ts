@@ -1225,8 +1225,8 @@ export const heldDescription = (db: Db, iface: unknown, ref: unknown): string | 
 /** The `chunk_key` of a row's vector. */
 const vectorKey = (mediaId: unknown): string => `media:${asText(mediaId)}`;
 // Range bounds of those keys: `;` sorts right after `:`.
-const VECTOR_FROM = 'media:';
-const VECTOR_TO = 'media;';
+/** The `kind` of a media row's vector. */
+const VECTOR_KIND = 'media';
 
 /** The linked items with a text form and no vector yet, oldest first. */
 export function pendingMediaEmbeds(db: Db, limit = 50): Array<Row> {
@@ -1308,8 +1308,8 @@ export function applyMediaEmbed(connection: Connection, { rows }: Row): { writte
       if (!item || item.description !== row.description) continue;
       const bytes = row.bytes as { buffer: ArrayBuffer; byteOffset: number; byteLength: number };
       db.prepare(
-        `INSERT INTO vectors (source_rowid, item_id, chunk_key, model, dims, scale, norm, bytes, context, occurred_at, scope_kind, scope_iface, scope_dm, audience_id)
-         VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?)
+        `INSERT INTO vectors (source_rowid, item_id, chunk_key, model, dims, scale, norm, bytes, context, occurred_at, scope_kind, scope_iface, scope_dm, audience_id, kind)
+         VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?, '${VECTOR_KIND}')
          ON CONFLICT(chunk_key) DO UPDATE SET model = excluded.model, dims = excluded.dims, scale = excluded.scale,
            norm = excluded.norm, bytes = excluded.bytes`
       ).run(
@@ -1489,7 +1489,7 @@ function meaningRows(
       `SELECT m.id AS id, m.kind AS kind, m.description AS description, m.sha1 AS sha1, m.stems AS stems, m.extra AS extra,
          v.bytes AS bytes, v.scale AS scale, v.norm AS norm
        FROM vectors v CROSS JOIN media m ON m.id = v.item_id
-       WHERE v.chunk_key >= '${VECTOR_FROM}' AND v.chunk_key < '${VECTOR_TO}' AND v.dims = ?${modelSql}
+       WHERE v.kind = '${VECTOR_KIND}' AND v.dims = ?${modelSql}
          AND v.bytes IS NOT NULL AND m.retired_at IS NULL`
     )
     .iterate(q.length, ...(modelSql ? [model as string] : []))) {

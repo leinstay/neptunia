@@ -1576,7 +1576,10 @@ async function runBatch(
   const state: BatchState = { ok: true, dropped: false };
   let lastApplied = false;
   const units = unitsOf(db, {
-    keyHead: [settings.mode, swept.key, cursor, cursorTo].join('|'),
+    mode: settings.mode,
+    scopeKey: swept.key,
+    cursor,
+    cursorTo,
     pages,
     applied: appliedBefore(db, settings.mode),
     partsOfPage: (page) => partsOf(db, swept, batch, page, sizes),
@@ -1779,6 +1782,8 @@ async function runScope(
     scope: swept.scope,
     audienceId: swept.audienceId,
     batchKey,
+    page,
+    parts,
     startedAt: new Date(startedAt).toISOString(),
     finishedAt: null as string | null,
     cursorFrom: cursor,

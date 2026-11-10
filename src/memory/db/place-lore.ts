@@ -3,8 +3,9 @@
 // `place-lore` (session-write.ts) and reads it back through `placeLoreValue` below.
 //
 //   claims   one per entry, kind lore, subject the place: the entry's text, its weight, `createdAt` and `updatedAt` as
-//            the first and last seen stamps, and `source` as the author; the title, keys and the always flag in
-//            `extra`; the entry's own id after `lore:` in the claim id
+//            the first and last seen stamps, and `source` as the author; the entry's own id, the title, keys and the
+//            always flag in `extra`; the claim id `lore:<entry id>` (`loreClaimId`), `lore:#<position>` for an entry
+//            with no id
 //
 // A write replaces the lorebook: the entries it no longer holds are retired (place-owner.ts#retirePlaceAbsent). A
 // lorebook with no entry holds no row, so it reads as not found, which the store reads as the empty lorebook.
@@ -39,6 +40,9 @@ const SPEC: Array<Spec> = [
 
 const PREFIX = 'lore:';
 
+/** The claim id the writer gives the lorebook entry `entryId`. */
+export const loreClaimId = (entryId: string): string => `${PREFIX}${entryId}`;
+
 const coded = (code: string): Error & { code: string } => Object.assign(new Error(code), { code });
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
 
@@ -61,10 +65,9 @@ function placeLoreRows(
   const placeId = ctx.subjectId ?? owner;
   entries.forEach((entry: Row, position: number) => {
     const part = split(entry, SPEC);
-    const wanted = typeof entry.id === 'string' && entry.id !== '' ? `${PREFIX}${entry.id}` : null;
+    const wanted = typeof entry.id === 'string' && entry.id !== '' ? loreClaimId(entry.id) : null;
     const id = uniq(wanted ?? `${PREFIX}#${position}`);
-    if (wanted && id === wanted) delete part.rest.id;
-    else part.rest.$noId = true;
+    if (!wanted || id !== wanted) part.rest.$noId = true;
     put(rows, 'claims', {
       id,
       subject_kind: 'place',
@@ -88,11 +91,12 @@ function placeLoreRows(
 /** The lorebook its rows give back. */
 function placeLoreOf(rows: Rows): Array<Row> {
   return ordered(rows, 'claims').map((row) => {
-    const rest = parseExtra(row.extra);
-    const noId = rest.$noId === true;
-    delete rest.$noId;
-    const obj = join(row, rest, SPEC);
-    if (!noId) obj.id = String(row.id).slice(PREFIX.length);
+    const { $noId, ...rest } = parseExtra(row.extra);
+    // An entry marked `$noId` keeps whatever its fields held; one with its own id gives it last, as it was written.
+    if ($noId === true) return join(row, rest, SPEC);
+    const { id, ...fields } = rest;
+    const obj = join(row, fields, SPEC);
+    obj.id = id;
     return obj;
   });
 }

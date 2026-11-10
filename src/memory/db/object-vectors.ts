@@ -183,8 +183,8 @@ export function applyObjectEmbedding(handle: Connection, update: Row): { written
   const at = new Date(Number(update.now)).toISOString();
   const insert = db.prepare(
     `INSERT INTO vectors (source_rowid, item_id, chunk_key, model, dims, scale, norm, bytes, context, occurred_at,
-       scope_kind, scope_iface, scope_dm, audience_id)
-     VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       scope_kind, scope_iface, scope_dm, audience_id, kind)
+     VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(chunk_key) DO UPDATE SET dims = excluded.dims, scale = excluded.scale, norm = excluded.norm,
        bytes = excluded.bytes, context = excluded.context, occurred_at = excluded.occurred_at,
        scope_kind = excluded.scope_kind, scope_iface = excluded.scope_iface, scope_dm = excluded.scope_dm,
@@ -209,7 +209,8 @@ export function applyObjectEmbedding(handle: Connection, update: Row): { written
         current.scope.scope_kind ?? null,
         current.scope.scope_iface ?? null,
         current.scope.scope_dm ?? null,
-        current.audienceId
+        current.audienceId,
+        item.kind
       );
       written += 1;
     }
@@ -233,9 +234,8 @@ function hasItemIndex(db: Db): boolean {
 function retire(db: Db, kind: ObjectKind, itemId: string, hash: string | null): number {
   const result = prepared(
     db,
-    `DELETE FROM vectors WHERE item_id = ? AND substr(chunk_key, 1, ?) = ?
-         AND (? IS NULL OR json_extract(context, '$.hash') IS NOT ?)`
-  ).run(itemId, kind.length + 1, `${kind}:`, hash, hash);
+    `DELETE FROM vectors WHERE item_id = ? AND kind = ? AND (? IS NULL OR json_extract(context, '$.hash') IS NOT ?)`
+  ).run(itemId, kind, hash, hash);
   return Number(result.changes);
 }
 
@@ -256,7 +256,7 @@ export function touchNameVectors(db: Db, nodeIds: ReadonlySet<string>): number {
   const held = prepared(
     db,
     `SELECT rowid, audience_id, json_extract(context, '$.hash') AS hash FROM vectors
-      WHERE item_id = ? AND substr(chunk_key, 1, 6) = 'names:'`
+      WHERE item_id = ? AND kind = 'names'`
   );
   const drop = prepared(db, 'DELETE FROM vectors WHERE rowid = ?');
   let count = 0;
@@ -279,12 +279,12 @@ export type ObjectHit = { kind: ObjectKind; itemId: string; similarity: number; 
 /**
  * The vectors of one kind a context reads, with the id of their object. A claim, a description and an episode are read
  * under the object's own audience, so a rescope moves the vector with it; a name set under its own, kept only while a
- * name of that node and audience still stands. The rows are walked by the range of their chunk keys: the unary plus keeps
- * SQLite off the index of model and dimensions, which would walk every record vector (28 ms against 3 on the production
- * copy of 2026-11-08).
+ * name of that node and audience still stands. The rows are walked by their kind (index `vectors_kind`): the unary plus
+ * keeps SQLite off the index of model and dimensions, which would walk every record vector (28 ms against 3 on the
+ * production copy of 2026-11-08).
  */
 function meaningSql(kind: ObjectKind, visible: string): string {
-  const range = `x.chunk_key >= '${kind}:' AND x.chunk_key < '${kind};' AND +x.model = :model AND +x.dims = :dims
+  const range = `x.kind = '${kind}' AND +x.model = :model AND +x.dims = :dims
     AND x.bytes IS NOT NULL AND x.retired_at IS NULL`;
   const subject = `o.subject_kind || ':' || o.subject_id`;
   const ofSubject = '(:about IS NULL OR o.subject_kind = :about)';

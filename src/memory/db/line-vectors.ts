@@ -164,6 +164,8 @@ export function writeLineVectors(db: Db, write: LineVectorsWrite, at: string): {
       source_rowid: null,
       ...part.cols,
       chunk_key: keyOf(`${prefix}${chunkKey(line)}`),
+      // The kind its chunk key starts with (src/memory/chunks.ts#chunkKey).
+      kind: line.kind === 'archive' ? 'archive' : 'record',
       model: write.model,
       dims: bytes.length,
       bytes,
