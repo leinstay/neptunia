@@ -497,7 +497,9 @@ test('store setGifBackfill / resetGifCounts: the stamp is normalised and persist
     await wrongly<{ flushSettled(options: object): Promise<void> }>(store).flushSettled({});
     // B7: the library is one unit of the persona.
     const found = gifLibraryValue(dbOf(wrongly(MEMORY_OF.get(memoryDir)?.readHandle())));
-    const onDisk = (found as { value: { nextId: number; entries: Record<string, GifEntry>; backfill: unknown } }).value;
+    const onDisk = (
+      found as unknown as { value: { nextId: number; entries: Record<string, GifEntry>; backfill: unknown } }
+    ).value;
     assert.deepEqual(Object.keys(onDisk.entries), ['m#e0']);
     assert.equal(onDisk.entries['m#e0'].id, 'g1');
     assert.equal(onDisk.entries['m#e0'].count, 0);

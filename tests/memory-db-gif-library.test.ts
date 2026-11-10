@@ -27,6 +27,13 @@ const entry = (id: string, itemId: string, extra: Row = {}): Row => ({
   ...extra,
 });
 
+/** The entries of the library the database holds. */
+function entriesOf(db: Db): Row {
+  const read = gifLibraryValue(db);
+  assert.ok(read.found, 'the library is stored');
+  return read.value.entries as Row;
+}
+
 const rowOf = (db: Db, id: string): Row | undefined => db.prepare('SELECT * FROM media WHERE id = ?').get(id);
 const nodeOf = (db: Db, id: string): Row | undefined =>
   db.prepare('SELECT * FROM graph_nodes WHERE id = ?').get(`media:${id}`);
@@ -98,7 +105,7 @@ test('a put over a held row keeps what the row knows as an item: its description
     assert.deepEqual(extra.cache, { 'ref-1': { ts: 5 } });
     assert.equal(extra.textOrigin, 'retelling');
     assert.equal(extra.count, 2);
-    const read = (gifLibraryValue(db) as { value: { entries: Row } }).value.entries.k1 as Row;
+    const read = entriesOf(db).k1 as Row;
     assert.equal(read.count, 2);
     assert.equal(read.cache, undefined, 'the item fields stay out of the entry');
   } finally {
@@ -115,7 +122,7 @@ test('a drop retires the row and its node, and the read leaves the entry out', (
     assert.equal(answer.retired, 1);
     assert.ok(rowOf(db, 'media:gif:k1')?.retired_at);
     assert.equal(nodeLive(db, 'media:gif:k1'), false, 'the node is retired with its row');
-    const entries = (gifLibraryValue(db) as { value: { entries: Row } }).value.entries;
+    const entries = entriesOf(db);
     assert.deepEqual(Object.keys(entries), ['k2']);
   } finally {
     handle.close();
@@ -195,7 +202,7 @@ test('an entry moved to a new key keeps one live row of its reference: the new o
     );
     const link = db.prepare("SELECT media_id FROM media_links WHERE owner_id = 'line-1'").get();
     assert.equal(link?.media_id, 'media:gif:hash1');
-    assert.deepEqual(Object.keys((gifLibraryValue(db) as { value: { entries: Row } }).value.entries), ['hash1']);
+    assert.deepEqual(Object.keys(entriesOf(db)), ['hash1']);
   } finally {
     handle.close();
   }
@@ -206,7 +213,7 @@ test('an entry that is not an object is kept whole and read back as it was', () 
   try {
     const db = dbOf(handle);
     writeGifLibrary(db, { put: { odd: 'not an entry' } }, { iface: 'discord', at: AT });
-    const entries = (gifLibraryValue(db) as { value: { entries: Row } }).value.entries;
+    const entries = entriesOf(db);
     assert.equal(entries.odd, 'not an entry');
   } finally {
     handle.close();

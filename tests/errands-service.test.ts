@@ -473,7 +473,7 @@ test("errands service: a private chat's unread result is in the view only in tha
       delete loose(task).readAt;
       delete loose(task).resolvedAt;
       await memoryOf(dataDir).writeErrand({
-        id,
+        id: String(id),
         at: Date.now(),
         errand: { ...task, seen },
         delivered: false,

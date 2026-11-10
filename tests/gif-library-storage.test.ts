@@ -53,7 +53,8 @@ test('a row with no cached file has no path, and a file outside media/ never bec
       .map((row) => row.path),
     [null, null]
   );
-  const entries = (gifLibraryValue(db) as { value: { entries: Record<string, { file?: string }> } }).value.entries;
+  const entries = (gifLibraryValue(db) as unknown as { value: { entries: Record<string, { file?: string }> } }).value
+    .entries;
   assert.equal(entries.k2.file, '/etc/passwd', 'the entry still says what it was given');
   handle.close();
 });
