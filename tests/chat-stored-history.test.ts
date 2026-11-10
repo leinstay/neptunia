@@ -313,3 +313,74 @@ test('a direct chat stored under an opaque place id is answered from its stored 
     [['n1', 'owner']]
   );
 });
+
+/**
+ * A memory database holding one line of the command line chat as production rows do: its own `native_id` a uuid, the
+ * client's message id in `extra.$messageLocator.messageId`, and one kept picture when `withFile` is set.
+ */
+function twoIdLine(t: { after: (fn: () => void) => void }, kind: 'seen' | 'said', withFile: boolean) {
+  const handle = openMemoryDb(':memory:');
+  t.after(() => handle.close());
+  const db = handle.db as Db;
+  const extra = JSON.stringify({
+    $messageLocator: { v: 1, origin: 'protocol-message', iface: 'cli', chatId: PLACE, messageId: 'cli-msg-7' },
+  });
+  db.prepare(
+    `INSERT INTO sources (id, kind, iface, native_id, revision, place_id, occurred_at, text, scope_iface, extra)
+     VALUES ('s7', ?, 'cli', '5b0e7a42-93c1-4d68-8f2a-1e6c4b9d3a07', 1, ?, '2026-11-08T10:00:00.000Z', 'the kite is red', 'cli', ?)`
+  ).run(kind, PLACE, extra);
+  if (withFile) {
+    const message = {
+      attachments: [
+        {
+          id: 'st7',
+          kind: 'image',
+          url: keptReference('media/cli/st7.png'),
+          name: 'kite.png',
+          contentType: 'image/png',
+        },
+      ],
+    };
+    const line = sourceLine(db, 's7');
+    if (line === undefined) throw new Error('the line was not stored');
+    writeLineMedia(db, line, mediaItemsOf(message), { at: '2026-11-08T10:00:00.000Z' });
+  }
+  return db;
+}
+
+const KITE_AT = Date.parse('2026-11-08T10:00:00.000Z');
+
+test('holds a line once when the client and the memory both hold it and the stored row own id differs from the client message id', async (t) => {
+  // Bug (2026-11-08): every line the client still held stood twice in `<chat>`, the stored copy under the row's uuid and
+  // the client's under the platform's id.
+  const db = twoIdLine(t, 'seen', false);
+  const adapter = withStoredHistory(
+    freshClient([clientLine('cli-msg-7', 'the kite is red', KITE_AT)]),
+    (placeId) => chatLines(db, placeId),
+    partnerOf
+  );
+  const read = await adapter.history(CHAT, { limit: 100 });
+  const events = read.status === 'ok' ? read.events : [];
+  assert.equal(events.filter(({ message }) => message.content === 'the kite is red').length, 1);
+});
+
+test('keeps the stored files on the client copy of a line whose stored row id differs from the client message id', async (t) => {
+  // Bug (2026-11-08): the client's copy of her picture line found no stored files, since the stored line was keyed by
+  // its uuid and the client's by the platform id, so the picture dropped out of her chat.
+  const db = twoIdLine(t, 'said', true);
+  const held: MessageEvent = {
+    ...clientLine('cli-msg-7', 'the kite is red', KITE_AT),
+    message: {
+      ...clientLine('cli-msg-7', 'the kite is red', KITE_AT).message,
+      author: { id: 'self', name: null, self: true, bot: false },
+    },
+  };
+  const adapter = withStoredHistory(freshClient([held]), (placeId) => chatLines(db, placeId), partnerOf);
+  const read = await adapter.history(CHAT, { limit: 100 });
+  const events = read.status === 'ok' ? read.events : [];
+  const copy = events.find(({ message }) => message.id === 'cli-msg-7');
+  assert.deepEqual(
+    (copy?.message.attachments ?? []).map((one: { id?: string }) => one.id),
+    ['st7']
+  );
+});
