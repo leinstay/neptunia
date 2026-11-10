@@ -605,7 +605,7 @@
           "cooldown": "a destructive skill was used recently in this place",
           "self-grant": "the persona cannot change her own rights",
           "timeout": "{what} timed out",
-          "link-closed": "the connection to the chat was lost, so the message may or may not have gone",
+          "link-closed": "the connection to the chat was lost",
           "chat-closed": "the owner's chat is not open, and a file cannot wait for it, so nothing was sent",
           "link-busy": "too much is waiting to be sent, try again shortly",
           "adapter-threw": "the chat interface failed on this request",
@@ -773,7 +773,7 @@
         },
         "memory": {
           "source": "Source: memory.search, the message history of the places you can read. Quoted messages as they were written, each with its time and author; a sample, not the whole history.",
-          "sampled": "Nothing matched words in this search, or it named none. These lines are a sample across the time and place it named.",
+          "sampled": "This search gave no question and no terms, so these lines are a sample across the time and place it named, not matches.",
           "window": "{date} in #{channel}:",
           "windowCut": "({dropped} more lines not shown)",
           "handles": "The number before each quoted line is a message number you can use in your calls like any other in the chat.",
@@ -927,7 +927,7 @@
       "extract": "Result: {extract}"
     },
     "meanwhile": {
-      "header": "Background: your own recent messages in other places, each with a few lines around it. Nobody here is asking you about them, and they are not lines of this chat.",
+      "header": "Your own recent messages in other places, each with a few lines around it. They are not lines of this chat. When someone refers to something in one of these places, read that place further with a tool before you answer.",
       "place": "{path}, {date}:",
       "line": "[{time}] {author}: {text}",
       "you": "you"
