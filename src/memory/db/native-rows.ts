@@ -110,7 +110,9 @@ export function channelColumn(db: Db, col: string): Spec {
     key: 'placeId',
     type: 'text',
     ok: (v: unknown) => textOf(v) !== null,
-    enc: (v: unknown, iface: string) => rows.placeOfChannel(iface, String(v)) ?? mintedChannel(iface, String(v)),
+    // A channel of a value built with no interface is no place of any.
+    enc: (v: unknown, iface: string | null) =>
+      iface === null ? null : (rows.placeOfChannel(iface, String(v)) ?? mintedChannel(iface, String(v))),
     dec: (v: unknown) => (typeof v === 'string' ? rows.channelOfPlace(v) : null),
     exact: true,
   };
