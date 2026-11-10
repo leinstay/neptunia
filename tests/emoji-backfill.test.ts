@@ -85,6 +85,7 @@ function standardRooms() {
       rawMessage(info, 1, { content: `hello ${KAPPA} ${KAPPA}` }),
       rawMessage(info, 2, { authorId: 'b', content: `${KAPPA} ${OMEGA}` }),
       rawMessage(info, 3, { authorId: SELF_ID, content: `me ${KAPPA}` }),
+      // Owner's rule of 2026-11-10: a bot is a person to her, so its emoji count like a member's.
       rawMessage(info, 4, { authorId: 'otherBot', bot: true, content: `bot ${OMEGA}` }),
       rawMessage(info, 5, { content: 'no emoji here' }),
     ]),
@@ -92,7 +93,7 @@ function standardRooms() {
   ];
 }
 
-test("emoji backfill run: counts members' emoji over every readable channel, bots and self skipped", async () => {
+test("emoji backfill run: counts members' emoji over every readable channel, bots too, self skipped", async () => {
   await withStore(async (store: Untyped) => {
     const log = fakeLog();
     const world = worldOf([
@@ -103,11 +104,11 @@ test("emoji backfill run: counts members' emoji over every readable channel, bot
     const backfill = createEmojiBackfill({ ...depsOf(world), hot: fakeHot(), store, log });
 
     const result = await backfill.run(placeOfRoot(backfill, 'g1'));
-    assert.deepEqual(result, { ok: true, channels: 2, messages: 4, emoji: 4 });
+    assert.deepEqual(result, { ok: true, channels: 2, messages: 5, emoji: 5 });
 
     const usage = store.getPlace('g1').emojiUsage;
     assert.deepEqual(usage['111'], { name: 'kappa', count: 2, last: T0 + 2000 });
-    assert.deepEqual(usage['222'], { name: 'omega', count: 2, last: T0 + 6000 });
+    assert.deepEqual(usage['222'], { name: 'omega', count: 3, last: T0 + 6000 });
     assert.equal(
       world.asked('history').some((ref) => loose(ref).chatId === 'c3'),
       false,
@@ -116,7 +117,7 @@ test("emoji backfill run: counts members' emoji over every readable channel, bot
 
     const stamp = store.getPlace('g1').emojiBackfill;
     assert.equal(stamp.channels, 2);
-    assert.equal(stamp.messages, 4);
+    assert.equal(stamp.messages, 5);
     assert.ok(Number.isFinite(Date.parse(stamp.at)));
   });
 });
@@ -153,7 +154,7 @@ test('emoji backfill run: force clears emojiUsage and recounts from history', as
     store.recordEmojiUsage('g1', [{ id: 'x', ts: T0, emojis: [{ id: '999', name: 'stale' }] }]);
     const result = await backfill.run(placeOfRoot(backfill, 'g1'), { force: true });
 
-    assert.deepEqual(result, { ok: true, channels: 2, messages: 4, emoji: 4 });
+    assert.deepEqual(result, { ok: true, channels: 2, messages: 5, emoji: 5 });
     const usage = store.getPlace('g1').emojiUsage;
     assert.deepEqual(Object.keys(usage).sort(), ['111', '222']);
     assert.equal(usage['111'].count, 2, 'recounted, not added to the first run');
@@ -177,10 +178,10 @@ test("emoji backfill run: a first run over a ranking with counts ends with the h
     });
 
     const result = await backfill.run(placeOfRoot(backfill, 'g1'));
-    assert.deepEqual(result, { ok: true, channels: 2, messages: 4, emoji: 4 });
+    assert.deepEqual(result, { ok: true, channels: 2, messages: 5, emoji: 5 });
     assert.deepEqual(store.getPlace('g1').emojiUsage, {
       111: { name: 'kappa', count: 2, last: T0 + 2000 },
-      222: { name: 'omega', count: 2, last: T0 + 6000 },
+      222: { name: 'omega', count: 3, last: T0 + 6000 },
     });
   });
 });

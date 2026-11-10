@@ -157,7 +157,7 @@ export function createEdits({
       const message = edited.message;
       if (message.system === true) return;
       const selfId = selfIdOf();
-      if (!message.author || message.author.bot || message.author.id === selfId) return;
+      if (!message.author || message.author.id === selfId) return;
 
       // lineOf gives the normalized line of a message event.
       const normalized = lineOf(edited) as Line;
@@ -184,8 +184,8 @@ export function createEdits({
   }
 
   /**
-   * Whether the message of `event` may enter the record: a record injected, the served root, no system or other
-   * bot's message, a chat outside threads.
+   * Whether the message of `event` may enter the record: a record injected, the served root, no system
+   * message, a chat outside threads.
    */
   function recordable(event: MessageReceived): boolean {
     if (!record) return false;
@@ -193,7 +193,6 @@ export function createEdits({
     if (!root || !isServedRoot(root)) return false;
     const message = event.message;
     if ('system' in message && message.system === true) return false;
-    if (message?.author?.bot && message.author.self !== true) return false;
     return true;
   }
 

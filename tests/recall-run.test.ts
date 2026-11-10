@@ -271,7 +271,8 @@ test('recall: forms are searched one after another in order; the summary reads t
   assert.deepEqual([summary?.answer, summary?.stretch], ['text', true]);
 });
 
-test('recall: a channel the audience rail refuses contributes nothing, other bots are dropped, the persona stays', async () => {
+// Owner's rule of 2026-11-10: a bot is a person to her, so its hit is read like a member's.
+test('recall: a channel the audience rail refuses contributes nothing, a bot hit and the persona stay', async () => {
   const own = line('r5', RABBIT + 5 * MINUTE, { name: 'Zoë', author: 'self', content: 'κουνέλι, αντίο' });
   const s = scene({
     lines: { c1: [...RABBIT_LINES, own], c2: GARDEN_LINES, c4: PRIVATE_LINES },
@@ -290,16 +291,14 @@ test('recall: a channel the audience rail refuses contributes nothing, other bot
   assert.deepEqual(
     s.fetches.map((f) => f.around),
     ['r5'],
-    "the bot's hit is gone, the persona's own is kept"
+    "the bot's hit shares the persona's window, which is read once"
   );
   const user = s.llmCalls[0].messages[1].content;
-  assert.ok(
-    !user.includes('μυστικό') && !user.includes('birthday'),
-    'neither the refused channel nor the bot line is shown'
-  );
+  assert.ok(!user.includes('μυστικό'), 'the refused channel is not shown');
+  assert.ok(user.includes('birthday'), 'the bot line is shown');
   assert.ok(user.includes('Zoë (you): κουνέλι, αντίο'));
   const searched = logs.find((l) => l.msg === 'recall: searched');
-  assert.deepEqual([searched?.hits, searched?.kept, searched?.clusters], [3, 1, 1]);
+  assert.deepEqual([searched?.hits, searched?.kept, searched?.clusters], [3, 2, 1]);
 });
 
 test("recall: the turn's own lines are dropped from the hits and the windows", async () => {
@@ -588,11 +587,13 @@ function rankedAnswers(route: Untyped, query: Untyped) {
 }
 const RANKED_LINES = { c1: RABBIT_LINES, c2: [...GARDEN_LINES, GARDEN_AGAIN] };
 
+// Owner's rule of 2026-11-10: a bot is a person to her, so the bot's line closes the window like anyone's.
 const RANKED_STRETCH = [
   '[18:38] Βασίλης: πάμε κυνήγι',
   '[18:40] Ana: bang [image]',
   `${HIT_MARK}[18:44] Βασίλης: το κουνέλι πέθανε`,
   `${HIT_MARK}[18:46] Ana: κηδεία για το κουνέλι`,
+  '[18:47] Birthdays: κουνέλι birthday!',
 ].join('\n');
 
 test('recall: a summary that fails or times out returns the first-ranked window verbatim, without a text', async () => {
@@ -1442,8 +1443,9 @@ test('recall-run: a failing follow fetch keeps the window as it was', async () =
     query.after !== undefined ? null : original()
   );
   const { result } = await withCapturedLogs(() => s.recaller.run({ ...s.args, server: NAME_SERVER }));
-  // PR 7d: recall.windowMessages is the constant 16, so the window holds every line of the garden but the bot's.
-  assert.deepEqual(foundIds(s), ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n7', 'n8']);
+  // PR 7d: recall.windowMessages is the constant 16, so the window holds every line of the garden. Owner's rule of
+  // 2026-11-10: the bot's line is one of them.
+  assert.deepEqual(foundIds(s), ['n0', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7', 'n8']);
   assert.equal(result.stats.windows, 1);
 });
 

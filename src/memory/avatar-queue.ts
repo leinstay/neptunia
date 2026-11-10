@@ -3,7 +3,7 @@
 // the vision model (prompts/avatar.md, purpose `avatar`) and stored as the member's current
 // `avatar` field (src/memory/avatars.ts; a platform's default avatar is stored without any request).
 //
-// Who is offered: the served place's members that already have a profile, never a bot, never the
+// Who is offered: the served place's members that already have a profile, never the
 // persona. When: a scan on the first tick and then once a day (every profiled member whose stored
 // hash differs from the current one), plus the gateway's member and user updates and the
 // members' own messages, each offering one member on a hash change. The work is a throttled
@@ -81,19 +81,18 @@ function buildAvatarQueue({
 
   /**
    * Offer one member: queued when the place is the served one, the member has a profile, is not
-   * a bot or the persona, and the stored avatar is not this version. Synchronous, never throws.
+   * the persona, and the stored avatar is not this version. Synchronous, never throws.
    * @param view  The member and their avatar.
    */
   function offer(
     placeId: string,
     view: { id: string; bot: boolean; hash: string | null; url: string | null } | null
-  ): 'off' | 'other-place' | 'invalid' | 'self' | 'bot' | 'no-profile' | 'current' | 'failed' | 'queued' | 'error' {
+  ): 'off' | 'other-place' | 'invalid' | 'self' | 'no-profile' | 'current' | 'failed' | 'queued' | 'error' {
     try {
       if (!on()) return 'off';
       if (!placeId || !isServedRoot(placeId)) return 'other-place';
       if (!view || typeof view.id !== 'string' || !view.id) return 'invalid';
       if (view.id === selfId()) return 'self';
-      if (view.bot) return 'bot';
       const profile = store.getUser(accountOf(store, view.id));
       if (!profile) return 'no-profile';
       const hash = hashOrNull(view.hash);

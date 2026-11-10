@@ -48,7 +48,7 @@ export function normalizeEmojiUsage(value: unknown): Record<string, { name: stri
 /**
  * The custom emoji uses in `messages`: one use per emoji per message (the
  * message's own `emojis`, not its forwarded snapshots -- a forward shares
- * someone else's words). The persona's own messages and other bots' are
+ * someone else's words). The persona's own messages are
  * skipped, like everywhere the analyzer counts members.
  * @param messages  Slim buffered messages; `self`/`bot`/`ts`/`emojis` read.
  */
@@ -57,7 +57,7 @@ export function countEmojiUses(
 ): Map<string, { name: string; count: number; last: number }> {
   const uses = new Map();
   for (const message of Array.isArray(messages) ? messages : []) {
-    if (!message || message.self || message.bot) continue;
+    if (!message || message.self) continue;
     const ts = isFiniteNumber(message.ts) ? message.ts : 0;
     const seen = new Set();
     for (const emoji of Array.isArray(message.emojis) ? message.emojis : []) {

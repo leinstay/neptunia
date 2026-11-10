@@ -26,7 +26,7 @@ const BACKFILL_MESSAGES = 500;
 
 /**
  * The newest `limit` messages of every readable chat of the root `placeId`, read one chat
- * after another through the interface's `history` (it pages), as lines, without the persona's and other bots'
+ * after another through the interface's `history` (it pages), as lines, without the persona's own
  * messages. A chat whose read fails is logged (`<prefix>: channel read failed`) and skipped. The history read
  * of both backfills (this one and src/memory/gif-backfill.ts). Null when the interface lists no chat of the root
  * the persona may read: a backfill clears and recounts, so it never runs over nothing.
@@ -51,7 +51,7 @@ export async function readMemberHistory(
     }
     for (const event of found.events) {
       const line = lineOf(event);
-      if (!line.self && !line.bot) messages.push(line);
+      if (!line.self) messages.push(line);
     }
   }
   return { channels: channels.length, messages };
@@ -90,7 +90,7 @@ function buildEmojiBackfill({
    * `force` that happens only on the first run -- it is a no-op once
    * `emojiBackfill.at` is set (the startup run). With `force` it ignores the
    * stamp: the owner's explicit `/nep emoji rescan`.
-   * Channels are read one after another (readMemberHistory). Messages of bots and of the persona are skipped, as are those
+   * Channels are read one after another (readMemberHistory). The persona's own messages are skipped, as are those
    * still in the analyzer buffer (the analyzer counts them when it consumes
    * them). Clearing, counting and stamping happen together after every
    * channel is read. Skips (never throws) when paused, when already stamped (no `force`), while another

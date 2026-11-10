@@ -230,6 +230,8 @@ export type LineOptions = {
   /** Names the persona (the message is a call to her). */
   mention?: boolean;
   system?: boolean;
+  /** An automated account wrote it (a bot or a webhook); absent, a human. */
+  bot?: boolean;
   /** When the message was last edited on the platform; absent, never. */
   editedAt?: number;
   reactions?: Array<{ emoji: string; count: number; mine: boolean }>;
@@ -252,7 +254,7 @@ export function lineEvent(options: LineOptions): MessageEvent {
     },
     message: {
       id: options.id,
-      author: { id: authorId, name: options.authorName ?? 'Eleni', self, bot: false },
+      author: { id: authorId, name: options.authorName ?? 'Eleni', self, bot: options.bot === true },
       content: options.text,
       sourceText: options.text,
       system: options.system ?? false,

@@ -225,7 +225,7 @@ export function createPersonLinks({
 
   async function screen(event: MessageEvent): Promise<'pass' | 'drop'> {
     const author = event.message.author;
-    if (author === undefined || author.self === true || author.bot) return 'pass';
+    if (author === undefined || author.self === true) return 'pass';
     const key = keyOf(event.iface, String(author.id));
     const asked = state.waiting[key];
     if (asked === undefined || asked.chatId !== event.chat.id) return 'pass';

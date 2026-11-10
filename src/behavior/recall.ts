@@ -1036,7 +1036,7 @@ export function recallContext(
  * oldest first, each taken while no more than `followGapMinutes` passed
  * since the line before it (the window's last line for the first) and fewer
  * than `followMessages` are taken; the first longer silence ends the
- * chat there. The caller filters what it shows (other bots, the
+ * chat there. The caller filters what it shows (the
  * turn's own chat) afterwards, so such a line still keeps the chat
  * going. `followMessages` 0 or a non-finite `lastTs` gives none.
  * @param [options]  RECALL_DEFAULTS when unusable.

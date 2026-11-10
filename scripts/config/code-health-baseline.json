@@ -385,7 +385,7 @@
       "repeated": 0
     },
     "tests/gifs.test.ts": {
-      "deep": 64,
+      "deep": 62,
       "repeated": 1
     },
     "tests/heartbeat-intents.test.ts": {
@@ -1436,14 +1436,14 @@
     },
     "src/behavior/recall-run.ts": {
       "createRecall>findPeople": {
-        "complexity": 36
+        "complexity": 34
       },
       "createRecall>prefetch": {
         "complexity": 25
       },
       "createRecall>recallWith": {
         "complexity": 73,
-        "function-length": 473
+        "function-length": 471
       },
       "createRecall>run": {
         "complexity": 26
@@ -1576,7 +1576,7 @@
     },
     "src/memory/db/focus.ts": {
       "decideFocus": {
-        "complexity": 59
+        "complexity": 58
       },
       "recountDaily><anonymous>": {
         "complexity": 23

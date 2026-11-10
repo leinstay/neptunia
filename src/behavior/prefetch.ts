@@ -160,7 +160,7 @@ function textOf(message: PrefetchLine | null | undefined, nameOf: ((id: string) 
  *   each as `Name: text` on its own line;
  * - `recent`: only for a short trigger (at most `settings.shortWords` words) or one with a
  *   deictic word (`settings.deictic`, folded): the last `settings.contextLines` lines before it in
- *   `history` (not the replied-to one, not another bot's, not empty), newest first until
+ *   `history` (not the replied-to one, not empty), newest first until
  *   `settings.contextTokens` would be passed, then in their order, and the trigger last, each as
  *   `Name: text`. None with `contextLines` 0 or no such line.
  * `candidate` is the trigger with this turn's text (a part of a split message), else the trigger.
@@ -215,12 +215,7 @@ export function prefetchLanes({
   if (short && settings.contextLines > 0) {
     const at = lines.findIndex((message) => message?.id === asked.id);
     const before = (at === -1 ? lines : lines.slice(0, at)).filter(
-      (message) =>
-        message &&
-        message.id !== asked.id &&
-        message.id !== parent?.id &&
-        !(message.bot && !message.self) &&
-        textOf(message, nameOf)
+      (message) => message && message.id !== asked.id && message.id !== parent?.id && textOf(message, nameOf)
     );
     const picked = [];
     let tokens = estimateTokens(line(asked));

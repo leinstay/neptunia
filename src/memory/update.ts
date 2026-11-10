@@ -28,8 +28,8 @@ export function errorNameOf(err: unknown): string {
 /**
  * Count which names observed place lines call members by (src/memory/addressed.ts) and fold
  * the uses into each member's `addressedAs` (`store.recordAddressUses`, `cfg.addressHalfLifeDays`,
- * 30 when missing). The candidates are every stored profile of the place; other bots' lines are
- * skipped, the persona's own count. A store without `listUserProfiles` / `recordAddressUses` (a
+ * 30 when missing). The candidates are every stored profile of the place; every line counts,
+ * the persona's own too. A store without `listUserProfiles` / `recordAddressUses` (a
  * test fake) counts nothing.
  * @param messages  The observed slim messages.
  * @param [cfg]  `config.memory`, read at the moment of use.
@@ -42,7 +42,7 @@ export function recordAddressing(
   cfg: StoredRecord = {}
 ): number {
   if (typeof store?.listUserProfiles !== 'function' || typeof store?.recordAddressUses !== 'function') return 0;
-  const lines = (Array.isArray(messages) ? messages : []).filter((m) => m && !m.bot);
+  const lines = (Array.isArray(messages) ? messages : []).filter((m) => m);
   if (lines.length === 0) return 0;
   const uses = countAddressUses(lines, addressCandidates(store.listUserProfiles()));
   let recorded = 0;
@@ -61,10 +61,9 @@ export function recordAddressing(
  * Record that a normalized message happened, for the counters kept on a
  * user's profile and a channel's map entry: `touchUser` (skipped for the
  * persona's own messages) and `touchChannel`, whose `topWriters` tally also
- * skips the persona's own messages and other bots. Used by `observe()`, the
+ * skips the persona's own messages. Used by `observe()`, the
  * live pipeline.
- * @param normalized  A normalized message (src/protocol/events.ts#Message);
- *   callers are expected to have already dropped other bots' messages.
+ * @param normalized  A normalized message (src/protocol/events.ts#Message).
  * @param [memoryCfg]  The live `config.memory`, for the tally's settings
  *   (`channelWritersStored`, `channelWritersHalfLifeDays`); omitted -> the store's fallbacks.
  *   `selfreflectionChannelIds` (the caller adds the places of her selfreflection, src/memory/db/mirrors.ts#selfreflectionChatIds) names
@@ -79,13 +78,13 @@ export function touchMemory(
   if (!normalized.self) {
     store.touchUser(accountOf(store, normalized.authorId), normalized.authorName, normalized.ts);
   }
-  // The persona's own messages and other bots never count toward a channel's
+  // The persona's own messages never count toward a channel's
   // top writers -- see src/memory/store.ts#touchChannel.
   // The one exception is a place of her selfreflection (`memoryCfg.selfreflectionChannelIds`): the persona is its writer, so the map
   // does not show it as dead.
   const selfreflectionIds: Set<string> | undefined = memoryCfg?.selfreflectionChannelIds;
   const inSelfreflection = selfreflectionIds?.has(String(normalized.placeId)) === true;
-  const writerId = !normalized.bot && (!normalized.self || inSelfreflection) ? normalized.authorId : null;
+  const writerId = !normalized.self || inSelfreflection ? normalized.authorId : null;
   store.touchChannel(
     placeOfChat(store, { id: normalized.placeId }),
     { name: normalized.channelName, topic: normalized.channelTopic },
@@ -217,7 +216,6 @@ function buildMemoryUpdater({
     // /nep pause: nothing may make the store dirty while paused.
     const stateData = store.state.data;
     if (stateData.paused) return;
-    if (normalized.bot) return;
     if (privateAccountId) return;
     touchMemory(store, placeId, normalized, {
       ...hot.config.memory,

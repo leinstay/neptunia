@@ -22,8 +22,7 @@
 //   closePeople(db)   the close set as person ids, the best first, for her memory session's description reviews (internal).
 //
 // The rules of a recomputation (pure: decideFocus):
-//   - precedence: exclude > bot > pin > settling. An excluded person is never in a bucket; a person all of whose
-//     verified accounts are bots is never close; a pinned person is close (its slot is the cap's: pins over capacity
+//   - precedence: exclude > pin > settling. An excluded person is never in a bucket; a pinned person is close (its slot is the cap's: pins over capacity
 //     are reported as `over_capacity` events and the cap is not widened); a member that has been close less than
 //     `settleDays` (21) days cannot be replaced by a challenger;
 //   - a negative affinity does not hold a close slot (unless pinned) and never brings novelty;
@@ -31,10 +30,10 @@
 //     `margin` (0.08) at recomputations at least `confirmHours` (24) apart with no recomputation between where it did
 //     not (a `challenge` event opens the run, a `challenge_lapsed` one ends it); a free slot is taken the same way with
 //     the entry gate as the bar. At most `maxMovesPerWeek` (2) moves in any 7 days: a free slot taken is one move, a
-//     replacement (one leaves, one enters) is one move; forced exits (exclusion, bot, negative affinity) and pins are
+//     replacement (one leaves, one enters) is one move; forced exits (exclusion, negative affinity) and pins are
 //     not moves. The very first recomputation (no member and no event ever) seeds the close set directly;
 //   - exploring: the best scored people outside the close set with at least one meaningful exchange, a non-negative
-//     affinity, not excluded and not bots; recomputed freely.
+//     affinity, not excluded; recomputed freely.
 // `focus_members` holds the sets only; `focus_events` (append-only) holds every change of bucket with its reason and the
 // challenges. Both are internal-only (docs/memory.md): no outward reader selects from them.
 
@@ -84,7 +83,6 @@ export type FocusSettings = Omit<typeof FOCUS_DEFAULTS, 'weights'> & {
 export type FocusPerson = {
   id: string;
   affinity: number | null;
-  bot?: boolean;
   lastMeaningfulAt?: number | string | null;
   firstMeaningfulAt?: number | string | null;
   meaningfulDays?: number;
@@ -221,17 +219,16 @@ export function decideFocus({
   const note = (id: string, reason: string, extra: unknown = null): void => {
     reasons.set(id, { reason, extra });
   };
-  const isBot = (id: string): boolean => scored.get(id)?.bot === true;
   const gate = (p: Scored): boolean => {
     const mapped = affinity01(p.affinity);
-    return mapped !== null && mapped >= s.entryAffinity && !isNegative(p.affinity) && !p.bot && !excluded.has(p.id);
+    return mapped !== null && mapped >= s.entryAffinity && !isNegative(p.affinity) && !excluded.has(p.id);
   };
   const settling = (id: string): boolean => {
     const since = msOf(close.get(id)?.since);
     return Number.isFinite(since) && now - since < s.settleDays * DAY_MS;
   };
 
-  // The close members that stay: forced exits first (exclude > bot > pin > negative affinity).
+  // The close members that stay: forced exits first (exclude > pin > negative affinity).
   for (const m of members) {
     if (m.bucket !== 'close') continue;
     const p = scored.get(m.person_id);
@@ -243,10 +240,6 @@ export function decideFocus({
       note(p.id, 'exclude');
       continue;
     }
-    if (p.bot) {
-      note(p.id, 'bot');
-      continue;
-    }
     if (!pinned.has(p.id) && isNegative(p.affinity)) {
       note(p.id, 'negative_affinity');
       continue;
@@ -254,10 +247,10 @@ export function decideFocus({
     close.set(p.id, { since: m.since });
   }
 
-  // Pins: every pinned person who is not excluded and not a bot, within the cap: the ones already close first (a pin
+  // Pins: every pinned person who is not excluded, within the cap: the ones already close first (a pin
   // over capacity never takes a slot from another pin), then the best scored. The rest are reported once.
   const pins = [...pinned]
-    .filter((id) => scored.has(id) && !excluded.has(id) && !isBot(id))
+    .filter((id) => scored.has(id) && !excluded.has(id))
     .map((id) => scored.get(id) as Scored) // the filter above kept the ids that are scored
     .sort((a, b) => Number(close.has(b.id)) - Number(close.has(a.id)) || byScore(a, b));
   const fitting = pins.slice(0, s.size);
@@ -353,15 +346,11 @@ export function decideFocus({
     }
   }
 
-  // Exploring: outside the close set, after a meaningful exchange, never negative, excluded or a bot.
+  // Exploring: outside the close set, after a meaningful exchange, never negative or excluded.
   const exploring = [...scored.values()]
     .filter(
       (p) =>
-        !close.has(p.id) &&
-        !excluded.has(p.id) &&
-        !p.bot &&
-        !isNegative(p.affinity) &&
-        Number.isFinite(msOf(p.firstMeaningfulAt))
+        !close.has(p.id) && !excluded.has(p.id) && !isNegative(p.affinity) && Number.isFinite(msOf(p.firstMeaningfulAt))
     )
     .sort(byScore)
     .slice(0, s.exploring);
@@ -574,18 +563,6 @@ function peopleInputs(db: Db, now: number, settings: FocusSettings): Array<Focus
       .all(windowFrom, utcDay(now))
       .map((row): [unknown, Row] => [row.person_id, row])
   );
-  const accounts = new Map<unknown, Array<unknown>>();
-  for (const row of db
-    .prepare(
-      `SELECT l.person_id AS person_id, a.kind AS kind FROM account_person_links l JOIN accounts a ON a.id = l.account_id
-    WHERE l.state = 'verified' AND l.valid_to_at IS NULL AND a.retired_at IS NULL`
-    )
-    .all()) {
-    const person = survivorOf(db, row.person_id);
-    const list = accounts.get(person) ?? [];
-    list.push(row.kind);
-    accounts.set(person, list);
-  }
   const people = db
     .prepare(
       `SELECT id, affinity FROM people WHERE id <> 'person:self' AND kind IS NOT 'self' AND retired_at IS NULL
@@ -594,12 +571,9 @@ function peopleInputs(db: Db, now: number, settings: FocusSettings): Array<Focus
     .all();
   return people.map((row): FocusPerson => {
     const stat = stats.get(row.id);
-    const kinds = accounts.get(row.id) ?? [];
     return {
       id: row.id as string,
       affinity: isFiniteNumber(row.affinity) ? row.affinity : null,
-      // A person is a bot when every verified account is a bot (and there is one).
-      bot: kinds.length > 0 && kinds.every((kind) => kind === 'bot'),
       lastMeaningfulAt: (stat?.last_meaningful as string | null | undefined) ?? null,
       firstMeaningfulAt: stat?.first_meaningful ? `${asText(stat.first_meaningful)}T00:00:00.000Z` : null,
       meaningfulDays: (stat?.days as number | undefined) ?? 0,
@@ -767,7 +741,7 @@ export function focusView(
       `SELECT m.person_id AS person_id, m.bucket AS bucket, m.score AS score,
       (SELECT a.native_key FROM account_person_links l JOIN accounts a ON a.id = l.account_id
         WHERE l.person_id = m.person_id AND l.state = 'verified' AND l.valid_to_at IS NULL AND a.authority_id = ? AND a.retired_at IS NULL
-        ORDER BY a.kind = 'bot', l.recorded_at, a.id LIMIT 1) AS native
+        ORDER BY l.recorded_at, a.id LIMIT 1) AS native
     FROM focus_members m ORDER BY m.score DESC, m.person_id`
     )
     .all(authority);

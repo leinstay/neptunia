@@ -52,7 +52,7 @@ export function resolveMentions(
     people.set(name, String(id));
   }
   for (const message of history) {
-    if (!message.self && !message.bot && message.authorName) people.set(message.authorName, message.authorId);
+    if (!message.self && message.authorName) people.set(message.authorName, message.authorId);
   }
   const names = [...people.keys()].sort((a, b) => b.length - a.length);
   const fallback = fallbackNames(people, directory);
@@ -144,7 +144,7 @@ type DirectoryProfile = { id?: Id | null; names?: unknown; aliases?: unknown };
  * the member directory (`members`: `{ id, name, bot }` as `membership.changed` reported them, a member's
  * other names too when the record carries them) and the stored profiles (`profiles`: names and aliases,
  * store.listUserProfiles).
- * Never a bot nor the persona herself (`selfId`).
+ * Never the persona herself (`selfId`).
  */
 export function mentionDirectory({
   members = [],
@@ -157,7 +157,6 @@ export function mentionDirectory({
 } = {}): Array<NamedMember> {
   const entries: Array<NamedMember> = [];
   const seen = new Set<string>();
-  const bots = new Set<string>();
   const self = selfId === null || selfId === undefined ? null : String(selfId);
   const add = (name: unknown, id: string) => {
     if (typeof name !== 'string' || !name.trim()) return;
@@ -170,12 +169,7 @@ export function mentionDirectory({
     (member): member is DirectoryMember => Boolean(member) && typeof member === 'object'
   );
   const idOf = (member: DirectoryMember) => member.id ?? member.user?.id;
-  for (const member of cached) {
-    const id = idOf(member);
-    if (id !== undefined && id !== null && (member.bot === true || member.user?.bot === true)) bots.add(String(id));
-  }
-  const counts = (id: Id | null | undefined): boolean =>
-    id !== undefined && id !== null && String(id) !== self && !bots.has(String(id));
+  const counts = (id: Id | null | undefined): boolean => id !== undefined && id !== null && String(id) !== self;
   for (const member of cached) {
     const id = idOf(member);
     if (!counts(id)) continue;
@@ -220,7 +214,7 @@ export function storedNames(
   }
   const authors = new Set<string>();
   for (const line of shownLines) {
-    if (line.self || line.bot || !line.authorId || authors.has(line.authorId)) continue;
+    if (line.self || !line.authorId || authors.has(line.authorId)) continue;
     const authorId = line.authorId;
     authors.add(authorId);
     const names = profileOf(authorId)?.names;
@@ -246,7 +240,7 @@ export function pickOtherProfiles<TProfile>(
   const seen = new Set<string | undefined>();
   const profiles: Array<TProfile> = [];
   for (const message of [...history].reverse()) {
-    if (message.self || message.bot || message.authorId === exceptId || seen.has(message.authorId)) continue;
+    if (message.self || message.authorId === exceptId || seen.has(message.authorId)) continue;
     seen.add(message.authorId);
     const profile = store.getUser(accountOf(store, String(message.authorId)));
     if (profile) profiles.push(profile);

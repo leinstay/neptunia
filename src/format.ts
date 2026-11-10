@@ -457,7 +457,7 @@ function reactionNamesItem(reaction: Untyped, labels: Untyped, names: Untyped) {
 
 /**
  * The member ids that react on the persona's lines of `messages` (the reactions' `users`, filled
- * by src/behavior/reactor-store.ts#withReactors; never a bot), each once: they are in view, so
+ * by src/behavior/reactor-store.ts#withReactors), each once: they are in view, so
  * they get a mention handle like an author. It reads normalized lines only, so it lives in the
  * core.
  */
@@ -466,8 +466,7 @@ export function reactorIdsOf(messages: Array<Record<string, Untyped>>): Array<st
   for (const message of Array.isArray(messages) ? messages : []) {
     if (!message?.self) continue;
     for (const reaction of Array.isArray(message.reactions) ? message.reactions : []) {
-      for (const user of Array.isArray(reaction?.users) ? reaction.users : [])
-        if (user?.id && !user.bot) ids.add(String(user.id));
+      for (const user of Array.isArray(reaction?.users) ? reaction.users : []) if (user?.id) ids.add(String(user.id));
     }
   }
   return [...ids];
@@ -913,7 +912,7 @@ type MediaContext = Pick<
  *   text does not depend on it.
  * @param [options.handles]  Member id -> handle (src/behavior/handles.ts,
  *   features.mentionHandles). In `mode: 'chat'` with a non-empty `transcript.author` label, the
- *   author of a line that is neither the persona's nor a bot's and has a handle renders as that
+ *   author of a line that is not the persona's and has a handle renders as that
  *   label with `{name}` and `{handle}` (the exact token to write, `@` included). Omitted, or
  *   without the label: the bare name, as before.
  * @param [options.memberNames]  Member id -> the names and aliases the request
@@ -994,22 +993,11 @@ export function formatTranscript(
       : null;
   /**
    * How the transcript names a member: the persona's self label for her, else the name with the
-   * member's mention handle (transcript.author) when they have one and are not a bot, else the
-   * bare name. Authors and the reactors of her lines are named by it alike.
+   * member's mention handle (transcript.author) when they have one, else the bare name. Authors and the reactors of her lines are named by it alike.
    */
-  const nameOf = ({
-    id,
-    name,
-    self = false,
-    bot = false,
-  }: {
-    id: Untyped;
-    name: string;
-    self?: boolean;
-    bot?: boolean;
-  }) => {
+  const nameOf = ({ id, name, self = false }: { id: Untyped; name: string; self?: boolean }) => {
     if (self) return selfLabel;
-    const handle = authorHandles && !bot ? authorHandles.get(String(id)) : undefined;
+    const handle = authorHandles ? authorHandles.get(String(id)) : undefined;
     return handle ? fill(authorLabel, { name, handle: `@${handle}` }) : name;
   };
   const memberNames = authorHandles && options.memberNames instanceof Map ? options.memberNames : new Map();
@@ -1099,7 +1087,7 @@ export function formatTranscript(
     const marker = markerOf(message, channelChanged ? null : previous);
     if (marker) parts.push(marker);
 
-    const name = nameOf({ id: message.authorId, name: message.authorName, self: message.self, bot: message.bot });
+    const name = nameOf({ id: message.authorId, name: message.authorName, self: message.self });
     // The persona's own line names the message that started its turn (chat mode; see withTriggers)
     // and, posted from another channel's turn, that channel (withPostedFrom).
     const triggered = mode === 'chat' ? triggerMarker(message, indexById, labels) : '';

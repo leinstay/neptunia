@@ -821,8 +821,9 @@ export function toEvent(
       content: normalized.content,
       // The text as written, mentions as `<@id>`: what an edit and the journal's reconciliation compare.
       sourceText: typeof message.content === 'string' ? message.content : '',
-      // The platform's own message (a member joined, a pin) or a webhook's: never a person's.
-      system: Boolean(message.system || message.webhookId),
+      // The platform's own message (a member joined, a pin, a boost), which no author writes. A webhook's post is its
+      // author's line like any other.
+      system: Boolean(message.system),
       at: normalized.ts,
       editedAt: normalized.editedAt,
       replyToId: normalized.replyToId,

@@ -2594,7 +2594,7 @@ function buildStore({
      * Record one observed message in a channel: the platform's facts (name, topic),
      * counters and the per-day activity histogram. Creates the entry.
      * `authorId` (the message's author, omitted for the persona's own
-     * messages and other bots -- see src/memory/update.ts#touchMemory) is
+     * messages -- see src/memory/update.ts#touchMemory) is
      * counted into the channel's `writers` tally (see `countWriter` above),
      * and `topWriters` is written again as the best five of it, best first;
      * `null` (the default) leaves both untouched. Never stamps `updatedAt`

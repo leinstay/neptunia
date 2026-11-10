@@ -154,7 +154,7 @@ function fakeDescriber() {
 
 /**
  * c1: TENOR_A three times (the first embed id keeps counting), a gif file twice, TENOR_B once,
- * the persona's and a bot's gifs; c2: TENOR_B once more.
+ * the persona's gif; c2: TENOR_B once more.
  */
 function standardChannels() {
   return [
@@ -166,7 +166,6 @@ function standardChannels() {
       rawMessage(5, { authorId: 'c', gifFile: '555' }),
       rawMessage(6, { embeds: [tenorEmbed(TENOR_B, 'Salut')] }),
       rawMessage(7, { authorId: 'selfUser', embeds: [tenorEmbed(TENOR_B)] }),
-      rawMessage(8, { authorId: 'otherBot', bot: true, gifFile: '777' }),
     ]),
     fakeChannel('c2', [rawMessage(9, { authorId: 'c', embeds: [tenorEmbed(TENOR_B, 'Salut')] })]),
   ];
@@ -181,16 +180,18 @@ function countsByUrl(store: GifStore) {
   );
 }
 
-test("gif backfill run: counts members' gifs over every readable channel, bots and self skipped", async () => {
+// Owner's rule of 2026-11-10: a bot is a person to her, so the bot's GIF in c4 counts like a member's.
+test("gif backfill run: counts everyone's gifs over every readable channel, a bot's too, self skipped", async () => {
   await withStore(async (store: GifStore) => {
     const log = fakeLog();
     const hidden = fakeChannel('c3', [rawMessage(10, { embeds: [tenorEmbed(TENOR_A)] })], { readable: false });
-    const world = fakeClient([...standardChannels(), hidden]);
+    const bots = fakeChannel('c4', [rawMessage(8, { authorId: 'otherBot', bot: true, gifFile: '777' })]);
+    const world = fakeClient([...standardChannels(), hidden, bots]);
     const backfill = createGifBackfill(wrongly({ ...depsOf(world), hot: fakeHot(), store, log }));
 
     const result = await backfill.run(placeOfRoot(backfill, 'g1'));
-    assert.deepEqual(result, { ok: true, channels: 2, messages: 7, gifs: 7, described: 0 });
-    assert.deepEqual(countsByUrl(store), { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2 });
+    assert.deepEqual(result, { ok: true, channels: 3, messages: 8, gifs: 8, described: 0 });
+    assert.deepEqual(countsByUrl(store), { [TENOR_A]: 3, 555: 2, [TENOR_B]: 2, 777: 1 });
     assert.equal(store.getGifs().entries['1001#e0'].count, 3, 'the first embed id keeps counting');
     assert.equal(
       world.asked('history').some((ref: Untyped) => ref.chatId === 'c3'),
@@ -199,12 +200,12 @@ test("gif backfill run: counts members' gifs over every readable channel, bots a
     );
 
     const stamp = present(store.getGifs().backfill);
-    assert.equal(stamp.channels, 2);
-    assert.equal(stamp.messages, 7);
+    assert.equal(stamp.channels, 3);
+    assert.equal(stamp.messages, 8);
     assert.ok(Number.isFinite(Date.parse(stamp.at)));
 
     const done = log.entries.find((e) => e.message === 'gif-backfill: done');
-    assert.deepEqual(done.fields, { channels: 2, messages: 7, gifs: 7, described: 0 });
+    assert.deepEqual(done.fields, { channels: 3, messages: 8, gifs: 8, described: 0 });
   });
 });
 
