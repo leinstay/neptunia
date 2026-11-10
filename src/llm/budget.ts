@@ -16,7 +16,7 @@ import { estimateTokens } from './tokens.ts';
 /** The share of the token cap a request may fill. Production value, config cut of 2026-10-31. */
 export const SAFETY_MARGIN = 0.9;
 // What a broken or missing `llm.maxRequestTokens` counts as: config.json's value.
-const DEFAULT_MAX_REQUEST_TOKENS = 50000;
+const DEFAULT_MAX_REQUEST_TOKENS = 100000;
 
 export type Section = {
   name: string;
@@ -48,7 +48,7 @@ export class SectionsTooLargeError extends Error {}
 
 /**
  * The input budget of one request: `floor(maxRequestTokens * SAFETY_MARGIN)`. A token cap that is not a positive
- * finite number counts as 50000 (config.json's value), so a partial or broken config still gives a limit
+ * finite number counts as 100000 (config.json's value), so a partial or broken config still gives a limit
  * `fitSections` accepts.
  * @param config The live config; `config.llm` may be missing.
  * @param maxRequestTokens The token cap to use instead of `config.llm.maxRequestTokens`

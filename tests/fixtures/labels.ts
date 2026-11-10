@@ -352,7 +352,7 @@ export const labels = {
     added: 'they asked about this again meanwhile:\n{added}',
     missed: 'unanswered earlier, answer now or let pass: {missed}',
     diagnostics: 'what became of your last answer:',
-    step: { held: 'your last answer was not sent', delta: 'meanwhile in the chat:', late: 'these lines finished loading:', last: 'last step', lastInner: 'last step, one call still runs: a post or an intention change', rescue: 'your lookups could not go on; reply from what you have', delivery: '{n} of {total} sent ({code})' },
+    step: { held: 'your last answer was not sent', delta: 'meanwhile in the chat:', late: 'these lines finished loading:', last: 'last step', lastInner: 'last step, one call still runs: a post or an intention change', rescue: 'your lookups could not go on; reply from what you have', delivery: '{n} of {total} sent ({code})', cut: 'there is more', dropped: '{tool} result dropped' },
     continueInnerOpen: 'intentions you woke for with no change yet: {list}',
   },
   errands: {

@@ -163,7 +163,11 @@ test('toolResultText: the status words, the reason from the code, the data cut t
   assert.equal(ok, `${labels.tools.result.ok}\nresult data`);
   const refused = toolResultText({ status: 'denied', code: 'not-allowed' }, labels);
   assert.ok(refused.includes(labels.tools.result.reasons['not-allowed']), refused);
-  assert.ok(toolResultText({ status: 'ok', data: { text: 'x'.repeat(100) } }, labels, { maxChars: 20 }).endsWith('…'));
+  // A cut result ends with the line that says it was cut (labels.task.step.cut), after the ellipsis of the cut data.
+  const { cut } = labels.task.step;
+  assert.ok(
+    toolResultText({ status: 'ok', data: { text: 'x'.repeat(100) } }, labels, { maxChars: 20 }).endsWith(`…\n${cut}`)
+  );
   assert.equal(toolResultText(null, labels), '');
   // Unknown status reads as failed; a code with no wording falls to the other-reason words.
   assert.ok(

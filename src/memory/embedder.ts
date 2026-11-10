@@ -59,7 +59,7 @@ const CATCH_UP_HOURS = 72;
 /** How often a catch-up pass runs, in minutes. */
 const CATCH_UP_EVERY_MINUTES = 60;
 /** `llm.maxRequestTokens` when missing: config.json's value. */
-const MAX_REQUEST_TOKENS_FALLBACK = 50000;
+const MAX_REQUEST_TOKENS_FALLBACK = 100000;
 /** Lines kept per channel ring: enough context for a batch that arrives out of order. */
 const RING_SIZE = 16;
 /** How far back a ring is filled from the record on first use (and a catch-up reads for context). */

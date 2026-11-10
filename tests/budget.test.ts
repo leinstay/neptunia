@@ -3,6 +3,7 @@
 // price of one item).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { budgetDrops, fitSections, requestTokenLimit, sectionCost, SectionsTooLargeError } from '../src/llm/budget.ts';
 import { createLimits } from '../src/llm/limits.ts';
 import type { Section } from '../src/llm/budget.ts';
@@ -158,11 +159,16 @@ test('fitSections: a limit of 0 is a limit -- optional items are dropped and a r
 // --- requestTokenLimit ----------------------------------------------------------
 
 // PR 7d: `llm.safetyMargin` is the constant SAFETY_MARGIN (0.9), so every limit below is 0.9 of its cap.
-test('requestTokenLimit: a maxRequestTokens that is missing or not a positive finite number counts as 50000', () => {
-  assert.equal(requestTokenLimit({ llm: {} }), 45000, 'missing');
-  assert.equal(requestTokenLimit({}), 45000, 'a partial config without llm');
+// The fallback is config.json's value, read from the tracked file so the test pins no default.
+const TRACKED_LIMIT = requestTokenLimit(
+  JSON.parse(readFileSync(new URL('../config/config.json', import.meta.url), 'utf8')) as Record<string, unknown>
+);
+
+test("requestTokenLimit: a maxRequestTokens that is missing or not a positive finite number counts as config.json's", () => {
+  assert.equal(requestTokenLimit({ llm: {} }), TRACKED_LIMIT, 'missing');
+  assert.equal(requestTokenLimit({}), TRACKED_LIMIT, 'a partial config without llm');
   for (const maxRequestTokens of [0, -100, '2000']) {
-    assert.equal(requestTokenLimit({ llm: { maxRequestTokens } }), 45000, String(maxRequestTokens));
+    assert.equal(requestTokenLimit({ llm: { maxRequestTokens } }), TRACKED_LIMIT, String(maxRequestTokens));
   }
 });
 
@@ -176,7 +182,11 @@ test('requestTokenLimit: a cap passed as the second argument replaces llm.maxReq
   assert.equal(requestTokenLimit(config, 8000), 7200, 'the cap passed');
   assert.equal(requestTokenLimit(config, undefined), 1800, 'nothing passed: the cap of the config');
   for (const passed of [0, -1, NaN, Infinity, null]) {
-    assert.equal(requestTokenLimit(config, passed), 45000, `a passed ${String(passed)} counts as 50000`);
+    assert.equal(
+      requestTokenLimit(config, passed),
+      TRACKED_LIMIT,
+      `a passed ${String(passed)} counts as config.json's`
+    );
   }
   assert.equal(requestTokenLimit({}, 8000), 7200, 'a partial config: the cap passed');
 });
