@@ -12,7 +12,9 @@
 // `turn.start` row and runs the turn again through `createTurnRunner` composed as the core composes it
 // (scripts/lib/turn-wiring.ts), on a port over the copy's stored lines through the trigger
 // (scripts/lib/turn-stage.ts), with every clock pinned to the turn's start. Her read tools run on the copy. Every other
-// tool and every write to the interface is kept and answered as done (scripts/lib/turn-tools.ts, turn-port.ts).
+// tool and every write to the interface is kept and answered as done (scripts/lib/turn-tools.ts, turn-port.ts). She is
+// who the core holds her to be for every turn, her account on the home interface (turn-wiring.ts `homeIdentity`), and
+// stderr names that interface.
 // `--answers-dir` answers every model request from files (scripts/lib/answers-dir.ts). Without it the roles run on the
 // copy's routing (scripts/lib/script-routes.ts) and spend its keys. `--embed live` lets the embedding role alone reach
 // its provider while `--answers-dir` is set. With `--answers-dir` the default is `off`, without it `live`.
@@ -41,7 +43,7 @@ import { createAnswersDir, offlineCore } from './lib/answers-dir.ts';
 import { promptLayersHot } from './lib/prompt-layers.ts';
 import { cutCopy } from './lib/turn-cut.ts';
 import { stageOf, storedTurn, triggerOf, turnParamsOf } from './lib/turn-stage.ts';
-import { buildTurnRunner, identityIn, scratchDir } from './lib/turn-wiring.ts';
+import { buildTurnRunner, homeIdentity, identityIn, scratchDir } from './lib/turn-wiring.ts';
 import { compareRequests, foldRepeats, blockOf, rowsText } from './lib/turn-compare.ts';
 import type { RequestParts } from './lib/turn-compare.ts';
 import { STOPPED, contentOf, recordingLlm, reportTable, turnReport } from './lib/turn-report.ts';
@@ -194,8 +196,22 @@ async function runOnce(options: {
   try {
     const turn = storedTurn(db, options.turnId);
     const now = () => turn.at;
-    const self = identityIn(db, turn.iface);
-    const stage = stageOf({ db, dataDir: options.dataDir, turn, selfId: self.selfId, now, tmpDir });
+    // The adapter of the turn's interface knows her by her account there, and the core by her account on the home one.
+    const home = homeIdentity(db, options.dataDir);
+    const self = { selfId: home.selfId, selfName: home.selfName };
+    const said =
+      home.from === 'clients.json'
+        ? 'the first interface of clients.json'
+        : 'no clients.json, her first account off the command line';
+    process.stderr.write(`${TOOL}: identity: ${home.iface} (${said})\n`);
+    const stage = stageOf({
+      db,
+      dataDir: options.dataDir,
+      turn,
+      selfId: identityIn(db, turn.iface).selfId,
+      now,
+      tmpDir,
+    });
     const recorded = recordingLlm(options.llm, { stopAt: options.stopAt });
     const wired = buildTurnRunner({
       root: ROOT,

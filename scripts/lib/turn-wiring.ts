@@ -43,6 +43,7 @@ import { createBraveSearch } from '../../src/web/brave.ts';
 import { createExaSearch } from '../../src/web/exa.ts';
 import { createLookup } from '../../src/web/lookup.ts';
 import { createReads } from '../../src/interface/reads.ts';
+import { loadPrincipals } from '../../src/interface/principals.ts';
 import { useOwnerAccounts } from '../../src/tools/operations/grants.ts';
 import { createOwnerAccounts } from '../../src/memory/db/person-links.ts';
 import { createMemberDirectory } from '../../src/interface/members.ts';
@@ -220,6 +221,30 @@ export function identityIn(db: Db, iface: string): { selfId: string; selfName: s
     // An unreadable names column leaves the name the core gives before hello.
   }
   return { selfId: typeof row?.native_id === 'string' ? row.native_id : 'self', selfName: name };
+}
+
+/**
+ * Her identity as the core holds it for every turn, a command line turn included: her account on the home interface.
+ * The core names the first interface client of `clients.json` (src/core.ts, `identity.iface` before any unit
+ * connects) and takes her id and name from the hello of the interface it serves (`greet`). The command line connects
+ * as a `cli` client and never greets. A copy without `clients.json` takes the interface of her first account off the
+ * command line, and `from` says which rule chose.
+ */
+export function homeIdentity(
+  db: Db,
+  dataDir: string
+): { iface: string; selfId: string; selfName: string; from: 'clients.json' | 'accounts' } {
+  const clients = loadPrincipals(dataDir) ?? [];
+  const named = clients.find((entry) => entry.kind === 'interface')?.iface ?? null;
+  if (named !== null) return { iface: named, ...identityIn(db, named), from: 'clients.json' };
+  const row = db
+    .prepare(
+      `SELECT iface FROM accounts WHERE person_id = 'person:self' AND native_id IS NOT NULL AND iface <> 'cli'
+       ORDER BY id LIMIT 1`
+    )
+    .get();
+  const iface = typeof row?.iface === 'string' ? row.iface : 'cli';
+  return { iface, ...identityIn(db, iface), from: 'accounts' };
 }
 
 /** The members of the root `rootPlace` as the interface reported them: each account's first stored name. */
