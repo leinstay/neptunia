@@ -8,9 +8,7 @@ import {
   accountId,
   channelPlaceId,
   dmPlaceId,
-  legacyAccountIdOf,
   legacyNativeKind,
-  legacyPlaceOf,
   legacySourceIdOf,
   messageSourceId,
 } from '../src/memory/db/ids.ts';
@@ -36,15 +34,6 @@ test('names a message source with its interface, message, revision and kind', ()
 // The root-local authority `guildAuthorityOf` spelled is gone with the partition by root (plan task 5).
 
 test('spells an observed Discord tuple the way the importer wrote it', () => {
-  assert.equal(legacyAccountIdOf('discord/global', '100000000000000001'), 'discord:100000000000000001');
-  assert.deepEqual(legacyPlaceOf('discord/global', 'channel:200000000000000001'), {
-    id: 'discord:channel:200000000000000001',
-    native_id: '200000000000000001',
-  });
-  assert.deepEqual(legacyPlaceOf('discord/global', 'dm:100000000000000001'), {
-    id: 'discord:dm:100000000000000001',
-    native_id: null,
-  });
   assert.equal(
     legacySourceIdOf({
       authority: 'discord/global',
@@ -59,9 +48,6 @@ test('spells an observed Discord tuple the way the importer wrote it', () => {
 });
 
 test('gives an observed tuple of another interface no legacy spelling', () => {
-  assert.equal(legacyAccountIdOf('cli/local', 'owner'), null);
-  assert.equal(legacyAccountIdOf('fake/global', 'u1'), null);
-  assert.equal(legacyPlaceOf('fake/global', 'channel:c1'), null);
   assert.equal(
     legacySourceIdOf({ authority: 'fake/global', kind: 'message', key: 'm1', revision: 1, subtype: 'seen' }),
     null

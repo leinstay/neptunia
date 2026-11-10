@@ -15,7 +15,7 @@
 import { addKey, ensureInterface, placeColumns } from './rows.ts';
 import { projectRow } from './graph.ts';
 import { touchNames } from './names.ts';
-import { LEGACY_AUTHORITY, topPlaceSpelled } from './ids.ts';
+import { topPlaceSpelled } from './ids.ts';
 import { asText, dbOf } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
 import type { InterfaceNames } from '../../protocol/serve.ts';
@@ -91,7 +91,6 @@ export function noteRoots(
           cols.chat
         );
         addKey(db, cols.authority_id, 'place', cols.native_key, probe.id, { at });
-        addKey(db, LEGACY_AUTHORITY, 'place', probe.id, probe.id, { at });
       } else {
         const renamed = name !== '' && name !== found.name;
         if (!renamed && found.retired_at === null) continue;

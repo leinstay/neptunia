@@ -34,7 +34,7 @@
 //     also by native kind, revision and subtype, matched on its columns whatever its id) is that row: observe never
 //     mints a second id for it. A node found by its columns and not yet in `external_keys` is registered there;
 //   - a tuple of the interface whose ids keep their readable spelling, first generation, is created under it
-//     (ids.ts#legacyAccountIdOf, #legacyPlaceOf, #legacySourceIdOf), so a unit write that brings the same row adopts it
+//     (ids.ts#interfaceAccountId, #interfacePlaceOf, #legacySourceIdOf), so a unit write that brings the same row adopts it
 //     (upsert.ts#writeRow) instead of writing a second one;
 //   - an envelope with `edited: true` and no revision takes the newest stored revision of its native key: the same
 //     text is that revision (a replay), another text the next one (none stored: 2, the first was 1). The count lives in
@@ -61,17 +61,7 @@ import { messageLocator } from './message-locator.ts';
 import type { NativeMessageLocator } from './recall.ts';
 import type { MessageLocator } from './message-locator.ts';
 import { log as engineLog } from '../../log.ts';
-import {
-  LEGACY_AUTHORITY,
-  canonicalKey,
-  interfaceAccountId,
-  interfacePlaceOf,
-  legacyAccountIdOf,
-  legacyPlaceOf,
-  legacySourceIdOf,
-  nodeId,
-  resolveAlias,
-} from './ids.ts';
+import { canonicalKey, interfaceAccountId, interfacePlaceOf, legacySourceIdOf, nodeId, resolveAlias } from './ids.ts';
 import { hasMessageFamilies } from './message-family-catalog.ts';
 import { envelopeItems, fillLineMedia } from './media-store.ts';
 import { addKey, addRelation, deriveRow, ensureAuthority, ensureInterface, resolveRelationsTo } from './rows.ts';
@@ -472,7 +462,6 @@ function accountOf(
     }
   }
   const gen = isWholeNumber(generation) ? generation : 1;
-  const legacy = found ? null : legacyAccountIdOf(authority, String(key), gen);
   const id = found ?? interfaceAccountId(authority, String(key), gen);
   const row = deriveRow(db, 'accounts', {
     id,
@@ -488,7 +477,6 @@ function accountOf(
   });
   insertRow(db, 'accounts', row);
   addKey(db, authority, 'account', String(key), id, { generation: gen, at });
-  if (legacy) addKey(db, LEGACY_AUTHORITY, 'account', id, id, { at });
   projectRow(db, 'accounts', { id }, { at });
   return { id, person_id: null };
 }
@@ -665,7 +653,6 @@ function placeOf(
     return { id: existing.id as string, chat: chat as string | null, partner_person: partnerPerson };
   }
   const partner = declared === 'dm' ? partnerOf(db, envelope, at) : null;
-  const legacy = legacyPlaceOf(p.authority, p.key, 1);
   const spelled = interfacePlaceOf(p.authority, p.key, 1);
   const placeId = spelled.id;
   const row = deriveRow(db, 'places', {
@@ -688,7 +675,6 @@ function placeOf(
   });
   insertRow(db, 'places', row);
   addKey(db, p.authority, 'place', p.key, placeId, { generation: 1, at });
-  if (legacy) addKey(db, LEGACY_AUTHORITY, 'place', placeId, placeId, { at });
   projectRow(db, 'places', { id: placeId }, { at });
   return { id: placeId, chat: declared, partner_person: row.partner_person };
 }

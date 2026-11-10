@@ -9,7 +9,7 @@
 //   - the new ids: `nodeId(kind, parts)` (`<kind>:<32 hex of SHA-256 over the canonical key>`) and `newPersonId()`
 //     (`person:<uuid>`). A new id is a stable spelling, never parsed: the tuple it hashes is stored in columns.
 // Schema v8 adds the relation target keys (`externalTargetKey`, `sourceTargetKey`) and `survivorOf` (merged people).
-// Stage 8a adds the legacy spelling of an observed tuple (`legacyAccountIdOf`, `legacyPlaceOf`, `legacySourceIdOf`).
+// Stage 8a adds the legacy spelling of an observed line (`legacySourceIdOf`).
 // Stage 4 adds `interfaceAccountId` and `interfacePlaceOf`, the one spelling the observation and the unit mappers share.
 
 import { createHash, randomUUID } from 'node:crypto';
@@ -35,8 +35,6 @@ export const channelPlaceId = (iface: unknown, placeId: unknown): string => `${t
 export const dmPlaceId = (iface: unknown, nativeId: unknown): string => `${text(iface)}:dm:${text(nativeId)}`;
 
 export { CORE_AUTHORITY, nativeAuthorityOf };
-/** The namespace of the full legacy id spellings (every row id from before schema v7 is an alias here too). */
-export const LEGACY_AUTHORITY = 'legacy/local';
 
 /**
  * The native key of a place inside its authority: the place kind and the native id (`channel:<id>`, `server:<id>`,
@@ -182,29 +180,6 @@ const LEGACY_PLACE_IDS: Record<string, (iface: unknown, id: unknown) => string> 
   dm: dmPlaceId,
 };
 
-/** The importer's account id of a native key (`discord:<user id>`), or null when the tuple is not one it writes. */
-export function legacyAccountIdOf(authority: unknown, key: unknown, generation: unknown = 1): string | null {
-  if (authority !== LEGACY_AUTHORITY_OF_IFACE || (generation ?? 1) !== 1 || typeof key !== 'string' || key === '')
-    return null;
-  return accountId(SPELLED_IFACE, key);
-}
-
-/**
- * The importer's place of a native place key (`channel:<id>`, `dm:<user id>`, `server:<id>`): `{ id, native_id }` as
- * the importer writes them (a DM place has no native id of its own), or null.
- */
-export function legacyPlaceOf(
-  authority: unknown,
-  key: unknown,
-  generation: unknown = 1
-): { id: string; native_id: string | null } | null {
-  if (authority !== LEGACY_AUTHORITY_OF_IFACE || (generation ?? 1) !== 1) return null;
-  const match = /^([a-z_]+):(.+)$/.exec(text(key ?? ''));
-  const spell = match?.[1] ? LEGACY_PLACE_IDS[match[1]] : undefined;
-  if (!match || !spell) return null;
-  return { id: spell(SPELLED_IFACE, match[2] ?? ''), native_id: match[1] === 'dm' ? null : (match[2] ?? null) };
-}
-
 /** The importer's source id of an observed line (`src:discord:<message id>:<revision>:<seen|said>`), or null. */
 export function legacySourceIdOf({
   authority,
@@ -272,14 +247,13 @@ export function uniqueIds(): (id: unknown) => string {
 // The observation (observe.ts) and the store's unit mappers (map/) name a generation-1 account and a channel, server or
 // DM place of the same interface with the same id: the spelling the mappers write (`accountId`, `channelPlaceId`,
 // `topPlaceSpelled`, `dmPlaceId`), so a unit write that brings a row the observation made lands on that row and a reopen
-// replays no conflict. On the legacy interface that spelling is `legacyAccountIdOf` and `legacyPlaceOf`, whose stored
-// bytes are frozen. Anything else (a thread, a later generation, the core's own authority) is a node id.
+// replays no conflict. Anything else (a thread, a later generation, the core's own authority) is a node id.
 
-/** The interface of a native authority (`<iface>/global`, `<iface>/local`), or null for the core's and the legacy one. */
+/** The interface of a native authority (`<iface>/global`, `<iface>/local`), or null for the core's. */
 function ifaceOfAuthority(authority: unknown): string | null {
   const match = /^([^/]+)\/(?:global|local)$/.exec(text(authority ?? ''));
   const iface = match?.[1] ?? null;
-  return iface === null || authority === CORE_AUTHORITY || authority === LEGACY_AUTHORITY ? null : iface;
+  return iface === null || authority === CORE_AUTHORITY ? null : iface;
 }
 
 /** The account id the observation and the unit mappers both give member `key` of `authority`. */

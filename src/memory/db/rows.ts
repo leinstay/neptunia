@@ -32,7 +32,6 @@
 import { log as engineLog } from '../../log.ts';
 import {
   CORE_AUTHORITY,
-  LEGACY_AUTHORITY,
   externalTargetKey,
   legacyNativeKind,
   linkId,
@@ -460,8 +459,9 @@ export function ensureRelations(db: Db, row: Row, { at }: { at?: string } = {}):
 }
 
 /**
- * Registers a person, account or place row in `external_keys`: under its native authority and its legacy spelling
- * (`legacy: false`: a node made from an observation has no legacy spelling, only its native key).
+ * Registers an account or place row in `external_keys` under its native authority: the key its interface reported,
+ * spelled from its columns the old way (`legacy`, the default) or as the row stores it (`legacy: false`, a node made
+ * from an observation). A person has no native key; herself is `core/local` `self`.
  */
 export function ensureNodeKeys(
   db: Db,
@@ -473,9 +473,7 @@ export function ensureNodeKeys(
   if (table === 'people') {
     if (row.id === SELF_PERSON) {
       addKey(db, CORE_AUTHORITY, 'person', 'self', row.id, { at });
-      return;
     }
-    addKey(db, LEGACY_AUTHORITY, 'person', row.id, row.id, { at });
   } else if (table === 'accounts' || table === 'places') {
     const kind = table === 'accounts' ? 'account' : 'place';
     const legacyDerived =
@@ -490,7 +488,6 @@ export function ensureNodeKeys(
       generation: isWholeNumber(row.generation) ? row.generation : 1,
       at,
     });
-    if (legacy) addKey(db, LEGACY_AUTHORITY, kind, row.id, row.id, { at });
   }
 }
 
