@@ -6,7 +6,7 @@
 // the units bind the backends just installed; each is `skipped` with
 // no terminal. After the last step the owner's chat opens on `keys add`, and the chat takes over.
 //
-//   folders          the private folder with `config.local`, `prompts.local`, `clients`, and the data folder, mode 0700
+//   folders          the private folder with `config`, `prompts`, `clients`, and the data folder, mode 0700
 //   keys-file        an empty `keys.json` at mode 0600; one that exists keeps its content and is made 0600
 //   interfaces       each interface package with a `setup.json`: asked whether to use it, then its own questions,
 //                    its client and token, and its instance started (src/setup/interfaces.ts, src/setup/modules.ts)
@@ -116,10 +116,8 @@ const FIRST_LINE = '/keys add';
 /** The usage error of the command line: nothing has been touched when it is raised. */
 export class SetupUsageError extends Error {}
 
-/** Why a word of the command line is refused: a step is internal, and `setup subharness` became the account command. */
-function refusedWord(word: string, next: string | undefined): string {
-  if (word === 'subharness')
-    return `neptunia setup subharness is gone: use neptunia subharness ${next ?? '<backend>'} login, and neptunia setup for the whole flow`;
+/** Why a word of the command line is refused: the steps are internal, and setup runs them all. */
+function refusedWord(word: string): string {
   return `setup takes no ${word}: neptunia setup runs the one flow, and skips what is done`;
 }
 
@@ -137,7 +135,7 @@ export function parseSetupArgs(argv: ReadonlyArray<string>): { system: boolean; 
       node = given;
       at += 1;
     } else if (word.startsWith('-')) throw new SetupUsageError(`setup has no option ${word}`);
-    else throw new SetupUsageError(refusedWord(word, argv[at + 1]));
+    else throw new SetupUsageError(refusedWord(word));
   }
   return { system, ...(node === undefined ? {} : { node }) };
 }

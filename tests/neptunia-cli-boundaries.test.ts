@@ -284,6 +284,25 @@ for (const { what, argv } of PANELS) {
   });
 }
 
+/** The environment of a child whose stdout says it is a terminal, as a shell at a terminal runs it. */
+function terminalStdout(): NodeJS.ProcessEnv {
+  const preload = join(dirs.root, 'tty.mjs');
+  writeFileSync(preload, 'process.stdout.isTTY = true;\n');
+  return { NODE_OPTIONS: `--import=${preload}` };
+}
+
+for (const argv of [['clear'], ['-p', '/clear']]) {
+  test(`neptunia ${argv.join(' ')} at a terminal is refused with exit 2 and reaches no core`, async () => {
+    // Catches: the shell form answers nothing and exits 0, so the owner thinks something was cleared (CLI audit
+    // 2026-11-09: only the chat has a screen to clear).
+    fresh();
+    const run = await runChild(dirs, argv, { env: terminalStdout(), ms: PROMPTLY });
+    assert.equal(run.code, 2, `${run.stderr.slice(0, 200)}${run.stdout.slice(0, 200)}`);
+    assert.ok(run.stderr.includes('clear'), 'the refusal names the command');
+    assert.deepEqual(core.commands, []);
+  });
+}
+
 test('a secret given as a word exits 2 from a real argv, reaches no core and is not echoed', async () => {
   // Catches: the process prints the refused argv back, or sends the command before it is refused.
   fresh();

@@ -6,7 +6,7 @@ Interactive setup uses a keyboard selector for `on` or `off` and `yes` or `no` q
 
 ## One flow and its steps
 
-`neptunia setup` takes `--system` and `--node <path>` and no other word. Each step below checks whether its work is done and skips it, so running the command again resumes after a failure and adds what an earlier run left out. A step's name exits `2` and runs nothing. `neptunia setup subharness <backend>` exits `2` and names `neptunia subharness <backend> login`. To repeat the mechanics alone, use `neptunia services <name> setup`, `enable` and `disable` from [the CLI](cli.md#scheduled-services), which write the same settings with the same validation.
+`neptunia setup` takes `--system` and `--node <path>` and no other word. Each step below checks whether its work is done and skips it, so running the command again resumes after a failure and adds what an earlier run left out. A step's name exits `2` and runs nothing. To repeat the mechanics alone, use `neptunia services <name> setup`, `enable` and `disable` from [the CLI](cli.md#scheduled-services), which write the same settings with the same validation.
 
 | Step | Purpose |
 |---|---|

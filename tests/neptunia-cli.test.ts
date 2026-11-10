@@ -222,14 +222,33 @@ test('doctor reports a database that is not one as failed and leaves the file as
 });
 
 // PR 7a: the command line holds no key, so with the core down the provider probes are skipped, never run.
-test('doctor --live with the core down reports the provider probes skipped and prints no key', async () => {
+test('doctor live with the core down reports the provider probes skipped and prints no key', async () => {
+  // Changed: `live` is the one spelling; `--live` beside it named the same run twice (CLI audit 2026-11-09).
   const { dirs, key } = coreDown();
-  const run = await runCli(dirs, ['doctor', '--live', '--json']);
+  const run = await runCli(dirs, ['doctor', 'live', '--json']);
   const checks = checksOf(run.stdout);
   assert.equal(checks.get('providers'), 'skipped');
   // Changed: `providers` says the core is down; no separate `socket` row repeats it.
   assert.equal(checks.has('socket'), false);
   assert.equal((run.stdout + run.stderr).includes(key), false, 'no key value is printed');
+});
+
+test('doctor --live is refused with exit 2, since live is its one spelling', async () => {
+  // Catches: two spellings of one run kept apart in the docs, the tests and the table.
+  const { dirs } = coreDown();
+  const run = await runCli(dirs, ['doctor', '--live']);
+  assert.equal(run.code, 2, run.stderr.slice(0, 200));
+});
+
+test('doctor reports the model roles and the harnesses in routes alone, with no roles or features check', async () => {
+  // Catches: a role with no route and a subharness that is off each reported twice, once in `routes` and once in a
+  // check of its own (CLI audit 2026-11-09).
+  const { dirs } = coreDown();
+  const run = await runCli(dirs, ['doctor', '--json']);
+  const checks = checksOf(run.stdout);
+  assert.ok(checks.has('routes'));
+  assert.equal(checks.has('roles'), false);
+  assert.equal(checks.has('features'), false);
 });
 
 /** The first JSON line the runner answers on `socket` to one `ping`. */

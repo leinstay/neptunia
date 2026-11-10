@@ -7,7 +7,7 @@
 //   neptunia <command> [args]                    one command of the chat's table, its words kept as argv gives them
 //   neptunia -p "/<command> [args]"              one command as a typed line
 //   neptunia -p "<text>" [--attach <file>]...    one turn with the persona, with images; her reply on stdout
-//   neptunia doctor [live] [--live] [--json]     the checks of the installation, with the core up or down
+//   neptunia doctor [live] [--json]              the checks of the installation, with the core up or down
 //   neptunia doctor server|core|memory           one read of the running core, which answers it
 //   neptunia doctor watcher run|stop|read|list|<n>   the watcher's report: run asks the core to start one in the
 //                                                background, the others read the files (src/watcher/doctor.ts)
@@ -63,23 +63,23 @@
 //
 // `doctor` writes nothing but asks for real: its `routes` check sends one minimal request on every route of each chain
 // (src/setup/route-health.ts, the owner's word of 2026-11-08). It checks Node, the binaries the engine runs, config.json,
-// the local layer, keys.json, the client tokens, the features (the subharness, a warning while it is off), the routes,
-// the memory database (read only, with no lock) and whether a chat would open (`readiness`, which names a core that is
+// the local layer, keys.json, the client tokens, the routes (with a warning while no harness is logged in), the memory
+// database (read only, with no lock) and whether a chat would open (`readiness`, which names a core that is
 // down). `runtime` is the core's reading of the server, itself and the memory (`/doctor server`, `core` and `memory`
-// read one each), left out while no core answers. `--live` holds `providers` in its place, the core's probes of the
+// read one each), left out while no core answers. `live` holds `providers` in its place, the core's probes of the
 // model roles, `skipped` while no core answers. `--json` prints
 // `{ checks: [{ name, status, detail }] }`. A check is `ok`, `warn`, `fail` or `skipped`, and any `fail` exits 1. No
 // key or token value is ever printed.
 //
-// `errand-runner` reads config.json and, when its user can read it, the local layer's config.local.json, takes the socket and the output folder
-// from `agents.<name>.socket` and `.out` (src/agent-runner/profiles.ts#agentSettings), and serves the agent's tasks
-// (src/agent-runner/server.ts). On SIGTERM it ends open tasks and exits 0.
+// `errand-runner` reads config.json and, when its user can read it, the local layer's config/config.json, takes the socket
+// and the output folder from `agents.<name>.socket` and `.out` (src/agent-runner/profiles.ts#agentSettings), and serves
+// the agent's tasks (src/agent-runner/server.ts). On SIGTERM it ends open tasks and exits 0.
 //
 // `interface run` loads `<dir>/<name>/index.ts` or `index.js` (the default dir is the checkout's `interfaces/`), reads
 // the client's token from `<private>/clients/<name>.token`, connects to the core's socket and calls the package's
 // `start(host)` with `host.dataDir` set to `<data>/interfaces/<name>`, where the interface keeps its outbox. Its
 // settings are the core's (config/config.json, then the private settings file when this user can read it), then the
-// package's own config.json, then the private `config.local/interfaces/<name>.json` (src/config/files.ts#readInterfaceConfig),
+// package's own config.json, then the private `interfaces/<name>/config.json` (src/config/files.ts#readInterfaceConfig),
 // read again whenever one of the files changes. A link that drops is opened again with backoff, from a quarter second
 // doubling to 30 seconds, and the backoff starts over once a link stayed up for 30 seconds. An interface that cannot
 // reconnect (no `reconnect()`) ends the process with exit code 1, and its unit restarts it. SIGTERM and SIGINT stop
@@ -116,7 +116,6 @@ import type { InstallRun } from '../src/subharness/install.ts';
 import { SetupUsageError, nodeOf, parseSetupArgs, runSetup } from '../src/setup/run.ts';
 import type { SetupDeps, SetupOptions, SetupReport } from '../src/setup/run.ts';
 import { accountRequest } from '../src/interface/commands/subharness.ts';
-import { featureRows } from '../src/subharness/summary.ts';
 import { defaultDenyDir } from '../src/subharness/run.ts';
 import { ROOT_DIR, deepMerge, readConfig, resolveEnvRefs } from '../src/config.ts';
 import { checkConfig as checkSettings } from '../src/config/check.ts';
@@ -141,8 +140,6 @@ import type {
 import { chatPanel } from './chat-panels.ts';
 import { CLIENTS_FILE, loadPrincipals } from '../src/interface/principals.ts';
 import { coreSocketPath } from '../src/interface/socket.ts';
-import { MANDATORY_ROLES } from '../src/llm/roles.ts';
-import { routesOf } from '../src/llm/route-chain.ts';
 import { createKeyStore, KeysError, keysFileExists } from '../src/keys/store.ts';
 import { log, logToStderr } from '../src/log.ts';
 import { resolvePaths } from '../src/paths.ts';
@@ -163,7 +160,6 @@ import {
   askSetup,
   isServiceRequest,
   prefersCore,
-  retiredSetupStep,
   runServiceHere,
   runUnitVerbs,
   watcherDoctorHere,
@@ -190,7 +186,7 @@ const USAGE = [
   '       neptunia <command> [args]     one command, its answer on stdout',
   '       neptunia -p "/<command> [args]"   the same as a typed line',
   '       neptunia -p "<text>" [--attach <file>]...   one turn with the persona, her reply on stdout',
-  '       neptunia doctor [live] [--live] [--json]',
+  '       neptunia doctor [live] [--json]',
   '       neptunia doctor server|core|memory',
   '       neptunia doctor watcher run|stop|read|list|<number>',
   '       neptunia errand-runner --profile <name>',
@@ -279,7 +275,7 @@ function readToken(privateDir: string, name: string): string {
     token = fs.readFileSync(file, 'utf8').replace(/\r?\n$/, '');
   } catch (err) {
     die(
-      `cannot read the token ${file} (${(err as NodeJS.ErrnoException).code ?? 'error'}); run scripts/client-token.ts add`
+      `cannot read the token ${file} (${(err as NodeJS.ErrnoException).code ?? 'error'}); ${name === CLI_CLIENT ? 'run neptunia setup' : `run node scripts/client-token.ts add ${name}`}`
     );
   }
   if (token === '') die(`the token file ${file} is empty`);
@@ -349,7 +345,6 @@ const LOCAL_COMMANDS = new Set([
   'doctor.watcher.read',
   'doctor.watcher.list',
   'logs',
-  'clear',
 ]);
 const runsHere = (name: string): boolean => LOCAL_COMMANDS.has(name) || isServiceRequest(name);
 
@@ -386,7 +381,6 @@ const checkLines = (checks: ReadonlyArray<Check>): string =>
 
 /** A command the command line runs itself; `ask` reaches the core for the probes of `doctor.live`, null when down. */
 async function runLocal(command: Command, ask: ((command: Command) => Promise<Answer>) | null): Promise<Answer> {
-  if (command.name === 'clear') return { text: '', status: 'ok' };
   if (command.name === 'logs')
     return readJournal(process.env, typeof command.args.options === 'string' ? command.args.options : '', runJournal);
   const color = process.stdout.isTTY && !process.env.NO_COLOR;
@@ -499,6 +493,9 @@ async function runPrompt(text: string, images: ReadonlyArray<LineImage>): Promis
   return finish(answer.status === 'ok' ? { text: said.join('\n'), status: 'ok' } : answer);
 }
 
+/** `clear` outside the chat: only the chat has a screen to clear, so the shell form is refused at a terminal too. */
+const CLEAR_REFUSAL = `clear empties the chat's screen and runs inside the chat alone.\n${COMMANDS_LINE}`;
+
 /** The words after `-p`: the text first, then each `--attach <file>`. Null for anything else. */
 function parsePrint(argv: ReadonlyArray<string>): { text: string; files: Array<string> } | null {
   const [text, ...rest] = argv;
@@ -525,15 +522,14 @@ async function runPrint(argv: ReadonlyArray<string>): Promise<never> {
   }
   if (files.length > 0) return usage();
   if (line === '/setup') return refuseSyntax(panelRefusal('/setup'));
-  if (line === '/clear' && process.stdout.isTTY !== true) return refuseSyntax(panelRefusal('/clear'));
+  if (line === '/clear') return refuseSyntax(CLEAR_REFUSAL);
   return runCommand(parseLineRequest(line));
 }
 
 /** `neptunia <words...>`: a word of the table is a command, read as argv gives it; any other opens no connection. */
 async function runDirect(words: ReadonlyArray<string>): Promise<never> {
   if (!COMMAND_NAMES.includes(words[0] ?? '')) return usage();
-  if (words.length === 1 && words[0] === 'clear' && process.stdout.isTTY !== true)
-    return refuseSyntax(panelRefusal('clear'));
+  if (words[0] === 'clear') return refuseSyntax(CLEAR_REFUSAL);
   return runCommand(parseRequest(words));
 }
 
@@ -1052,13 +1048,17 @@ function checkConfig(where: { rootDir: string; privateDir: string }): Check {
   }
   if (base === null) return { name: 'config', status: 'fail', detail: 'config/config.json is missing' };
   if (local === null || found.config === null)
-    return { name: 'config', status: 'warn', detail: 'no config.local/config.json: the shipped settings apply' };
+    return {
+      name: 'config',
+      status: 'warn',
+      detail: 'no config/config.json in the local layer: the shipped settings apply',
+    };
   const file = path.relative(where.privateDir, found.config);
   const problems = checkSettings(local, CONFIG_SCHEMA).map(({ key, kind }) =>
     kind === 'unknown' ? `${key} (unknown)` : `${key} (wrong type)`
   );
   if (problems.length > 0) return { name: 'config', status: 'warn', detail: `${file}: ${problems.join(', ')}` };
-  return { name: 'config', status: 'ok', detail: `config/config.json and ${file} read` };
+  return { name: 'config', status: 'ok', detail: `the shipped config/config.json and the local ${file} read` };
 }
 
 function checkLocalLayer(where: { privateDir: string }): Check {
@@ -1068,7 +1068,7 @@ function checkLocalLayer(where: { privateDir: string }): Check {
   return {
     name: 'local-layer',
     status: 'ok',
-    detail: prompts ? 'the local layer and prompts.local/ are there' : 'the local layer is there, no prompts.local/',
+    detail: prompts ? 'the local layer and its prompts/ are there' : 'the local layer is there, with no prompts/',
   };
 }
 
@@ -1090,28 +1090,6 @@ function checkKeyStore(privateDir: string): Check {
 function checkKeys(where: { rootDir: string; privateDir: string }): Check {
   if (keysFileExists(where.privateDir)) return checkKeyStore(where.privateDir);
   return { name: 'keys', status: 'fail', detail: 'no keys.json: run neptunia setup, then /keys add' };
-}
-
-/** The mandatory model roles whose chain in `models.routes` holds no route: nothing can carry their requests. */
-function rolesOff(config: Settings): Array<string> {
-  return MANDATORY_ROLES.filter((role) => routesOf(config, role).length === 0);
-}
-
-/**
- * The mandatory model roles that cannot run: a chain with no route, which is `warn`. Whether a route's key answers is
- * the `routes` check. Names only.
- */
-function checkRoles(where: { rootDir: string; privateDir: string }): Check {
-  let config: Settings;
-  try {
-    config = readConfig(where.rootDir, { privateDir: where.privateDir });
-  } catch {
-    return { name: 'roles', status: 'warn', detail: 'not checked: the config does not read' };
-  }
-  const problems = rolesOff(config).map((role) => `${role} has no route`);
-  return problems.length === 0
-    ? { name: 'roles', status: 'ok', detail: 'every mandatory model role has a route' }
-    : { name: 'roles', status: 'warn', detail: problems.join(', ') };
 }
 
 function checkTokens(where: { privateDir: string }): Check {
@@ -1211,26 +1189,6 @@ async function checkRuntime(ask: (command: Command) => Promise<Answer>): Promise
 }
 
 /**
- * The feature the owner switches on from the chat, the subharness (src/subharness/summary.ts): `warn` naming it while
- * it is off with the command that turns it on, never `fail`.
- */
-async function checkFeatures(where: { privateDir: string }): Promise<Check> {
-  let rows: Awaited<ReturnType<typeof featureRows>>;
-  try {
-    rows = await featureRows(where.privateDir);
-  } catch (err) {
-    return { name: 'features', status: 'warn', detail: `keys.json cannot be read: ${(err as Error).message}` };
-  }
-  const off = rows.filter((row) => !row.available);
-  if (off.length === 0) return { name: 'features', status: 'ok', detail: 'the subharness is on' };
-  return {
-    name: 'features',
-    status: 'warn',
-    detail: off.map((row) => `${row.name} is off${row.hint === null ? '' : `: ${row.hint}`}`).join('\n'),
-  };
-}
-
-/**
  * Every part checked for real on what it runs on, and every connection used by nothing (src/setup/route-health.ts). The
  * owner's word of 2026-11-08: a doctor is a diagnosis he asked for, so it asks what a chat launch never does.
  */
@@ -1265,9 +1223,7 @@ async function doctorChecks(
     checkConfig(where),
     checkLocalLayer(where),
     checkKeys(where),
-    checkRoles(where),
     checkTokens(where),
-    await checkFeatures(where),
     await checkRoutes(where),
     checkDatabase(where),
   ];
@@ -1283,8 +1239,8 @@ async function doctorChecks(
 
 async function runDoctor(argv: ReadonlyArray<string>): Promise<void> {
   const json = argv.includes('--json');
-  const live = argv.includes('--live') || argv.includes('live');
-  if (argv.some((arg) => arg !== '--json' && arg !== '--live' && arg !== 'live')) usage();
+  const live = argv.includes('live');
+  if (argv.some((arg) => arg !== '--json' && arg !== 'live')) usage();
   const where = paths();
   const link = await tryCliLink();
   const checks = await doctorChecks(where, { ask: link === null ? null : (command) => link.ask(command), live });
@@ -1505,8 +1461,6 @@ function setupDeps(): SetupDeps {
 }
 
 async function runSetupCommand(argv: ReadonlyArray<string>): Promise<void> {
-  const retired = retiredSetupStep(argv);
-  if (retired !== null) refuseSyntax(retired);
   let parsed: ReturnType<typeof parseSetupArgs>;
   try {
     parsed = parseSetupArgs(argv);
