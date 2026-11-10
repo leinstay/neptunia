@@ -5,7 +5,8 @@
 // is named and never asked, since one request bills a picture. A route or an agent on a harness gets the vendor's own
 // status command (`sourceState`, src/subharness/sources.ts). A key no route uses gets the free read of its record
 // (`checkKey`), and a harness no role or agent uses gets its status command. A role of the core, the memory writer or the
-// analyzer whose every route failed fails the check, a failed route with another that answers warns. Lines
+// analyzer whose every route failed fails the check, a failed route with another that answers warns, and so does an
+// effort level stored on a role whose model takes none (`ignoredEffort`). Lines
 // carry names and models, never a key value. With no harness logged in at all, a warning names the command that logs one
 // in, since her agents have no runtime. The owner's word of 2026-11-08: the doctor is a diagnosis he asked for,
 // while a chat launch checks nothing (src/setup/readiness.ts).
@@ -16,6 +17,7 @@ import { checkKey, checkRole } from '../keys/check.ts';
 import type { CheckResult } from '../keys/check.ts';
 import { createKeyStore } from '../keys/store.ts';
 import { routesOf } from '../llm/route-chain.ts';
+import { ignoredEffort } from '../llm/route-text.ts';
 import type { RouteRole } from '../llm/route-text.ts';
 import { roleModel, searchModel } from '../llm/roles.ts';
 import { routeName } from '../subharness/route-names.ts';
@@ -116,7 +118,21 @@ async function chainLines(run: Run, role: RouteRole): Promise<Array<Line>> {
     else lines.push(await onKey(run, part, role, route.model, route.key));
   }
   const allBad = lines.every((line) => line.bad !== null);
-  return allBad ? lines : lines.map((line) => (line.bad === 'fail' ? { ...line, bad: 'warn' } : line));
+  const checked = allBad ? lines : lines.map((line): Line => (line.bad === 'fail' ? { ...line, bad: 'warn' } : line));
+  return [...checked, ...ignoredLines(run, role)];
+}
+
+/** A warning for each stored effort level of `role` that its model takes none of (`ignoredEffort`). */
+function ignoredLines(run: Run, role: RouteRole): Array<Line> {
+  const stored = rec(rec(rec(run.deps.config).models).routes)[role];
+  if (!Array.isArray(stored)) return [];
+  return stored.flatMap((value, index): Array<Line> => {
+    const effort = ignoredEffort(role, value);
+    const part = stored.length === 1 ? role : `${role} ${index + 1}`;
+    return effort === null
+      ? []
+      : [{ text: `${part}: effort ${effort} is stored but its model takes none; it runs at disabled`, bad: 'warn' }];
+  });
 }
 
 function searchLines(run: Run): Promise<Array<Line>> {

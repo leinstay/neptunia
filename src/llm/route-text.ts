@@ -4,7 +4,8 @@
 // `models.routes.<role>` of config.json holds. Both read into the same route, and each refusal is a code with a reason
 // that holds no key value. A harness carries only the roles that run as a CLI chat step. Every route of every role takes
 // an effort on one scale, `disabled`, `low`, `medium` and `high` (the owner, 2026-11-09), which src/llm/chain-client.ts
-// translates per route; the older words of a CLI or a provider are refused with `effort-retired`. Pure.
+// translates per route; the older words of a CLI or a provider are refused with `effort-retired`. A role outside
+// TEXT_ROLES takes no level, only `disabled` or none (the owner, 2026-11-10). Pure.
 
 import type { EffortLevel } from './roles.ts';
 
@@ -25,6 +26,15 @@ export type RouteRole = (typeof ROUTE_ROLES)[number];
 /** The CLIs a harness route runs: each takes a system prompt of its own, which `opencode run` does not. */
 export const HARNESS_BACKENDS = ['claude', 'codex'] as const;
 export type HarnessBackend = (typeof HARNESS_BACKENDS)[number];
+
+/**
+ * The roles that answer in text from a chat model, the ones a reasoning effort reaches. `embedding`, `speech` and
+ * `drawing` call models that take no reasoning parameter.
+ */
+export const TEXT_ROLES: ReadonlyArray<RouteRole> = ['core', 'memory', 'analyzer', 'search', 'vision', 'video'];
+
+/** The effort of a text role whose route and `llm.routeEffort` name none. */
+export const DEFAULT_ROUTE_EFFORT = 'medium';
 
 /** The roles that run as a CLI chat step: her turns and the memory writer. */
 export const HARNESS_ROLES: ReadonlyArray<string> = ['core', 'memory'];
@@ -88,6 +98,22 @@ function checked(role: string, route: Route): Route | RouteRefusal {
   return KEY_NAME.test(route.key) ? route : malformed();
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/** Whether `role` sends `effort`: a level reaches only a role of TEXT_ROLES. */
+const takesEffort = (role: string, effort: RouteEffort | null): boolean =>
+  effort === null || effort === 'disabled' || TEXT_ROLES.some((one) => one === role);
+
+/**
+ * A stored level of a route of `role` that no request of the role sends, or null. The doctor reports it, since
+ * `readRoute` reads it as `disabled`.
+ */
+export function ignoredEffort(role: string, value: unknown): RouteEffort | null {
+  const effort = isRecord(value) ? value.effort : null;
+  return isRouteEffort(effort) && !takesEffort(role, effort) ? effort : null;
+}
+
 /** The route of `text` for `role`, or why it is refused. */
 export function parseRouteText(role: string, text: string): Route | RouteRefusal {
   if (text.startsWith('harness:')) {
@@ -106,11 +132,10 @@ export function parseRouteText(role: string, text: string): Route | RouteRefusal
   if (slash === -1) return malformed();
   const read = modelAndEffort(text.slice(slash + 1));
   if ('code' in read) return read;
+  if (!takesEffort(role, read.effort))
+    return unsupported(`${role} takes no effort level, since its model has no reasoning; give none or :disabled`);
   return checked(role, { via: 'api', key: text.slice(0, slash), ...read });
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /** The route of one record of `models.routes.<role>`, or why it is refused. */
 export function readRoute(role: string, value: unknown): Route | RouteRefusal {
@@ -124,7 +149,9 @@ export function readRoute(role: string, value: unknown): Route | RouteRefusal {
     return checked(role, { via: 'harness', backend, model: value.model, effort });
   }
   if (value.via !== 'api' || typeof value.key !== 'string') return malformed('via is api with a key, or harness');
-  return checked(role, { via: 'api', key: value.key, model: value.model, effort });
+  // A level stored before the refusal of `parseRouteText` reads as what the role sends, so the route stays.
+  const sent = takesEffort(role, effort) ? effort : 'disabled';
+  return checked(role, { via: 'api', key: value.key, model: value.model, effort: sent });
 }
 
 /** The route in its text form, which `parseRouteText` reads back. */

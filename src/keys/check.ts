@@ -8,6 +8,7 @@
 
 import { apiUrl, openRouterHeaders } from '../llm/openrouter.ts';
 import type { EffortLevel } from '../llm/roles.ts';
+import { TEXT_ROLES } from '../llm/route-text.ts';
 
 export type CheckResult = {
   ok: boolean;
@@ -40,9 +41,6 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 /** How much of the provider's words an answer keeps. */
 const ERROR_CHARS = 500;
 
-/** The model roles a chat completion proves. */
-const CHAT_ROLES: ReadonlyArray<string> = ['core', 'memory', 'analyzer', 'search', 'vision', 'video'];
-
 /** The text of the speech probe: billed per character, so a real voice message's length is never spent on a check. */
 const SPEECH_PROBE_TEXT = 'ok';
 
@@ -56,7 +54,7 @@ function probeOf(role: string, voice: string | undefined): Probe | null {
     return voice === undefined || voice === ''
       ? null
       : { endpoint: 'audio/speech', body: { input: SPEECH_PROBE_TEXT, voice, response_format: 'mp3' } };
-  if (!CHAT_ROLES.includes(role)) return null;
+  if (!TEXT_ROLES.some((one) => one === role)) return null;
   return {
     endpoint: 'chat/completions',
     body: { messages: [{ role: 'user', content: 'Reply with ok.' }], max_tokens: 8 },

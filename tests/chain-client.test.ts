@@ -82,6 +82,8 @@ test('an API route sends the request to the role client with the key of that rou
 });
 
 test('a harness route of the core goes to the core client with the route itself', async () => {
+  // Changed: a role that neither its route nor llm.routeEffort gives an effort runs at medium (the owner, 2026-11-10),
+  // so the route arrives with that effort and native thinking instead of none.
   // Catches: a harness route sent to the API client, which posts a CLI model id to OpenRouter.
   const { client, asked } = rig(CORE_CHAIN);
   await client.complete(MESSAGES, { role: 'core' });
@@ -90,7 +92,8 @@ test('a harness route of the core goes to the core client with the route itself'
     via: 'harness',
     backend: 'claude',
     model: 'claude-opus-4-6',
-    effort: null,
+    effort: 'medium',
+    isThinking: true,
   });
 });
 
@@ -327,4 +330,38 @@ test('a harness route whose effort is a level asks its run for native thinking, 
   const off = optionsOf(disabled.asked, 0).chainRoute as { effort?: unknown; isThinking?: unknown };
   assert.equal(off.effort, 'low');
   assert.equal(off.isThinking, false);
+});
+
+test('a text role whose route and llm.routeEffort name no effort sends reasoning at medium', async () => {
+  // Catches: a helper that answers in text (the analyzer, vision, video, quick search) left at the provider's own
+  // default when the owner set no effort for it, instead of the engine's medium.
+  for (const role of ['analyzer', 'vision', 'video', 'search']) {
+    const config = {
+      models: { routes: { [role]: [{ via: 'api', key: 'helpers', model: 'x/helper' }] } },
+      llm: { routeEffort: { core: 'disabled' } },
+    };
+    const { client, asked } = rig(config);
+    await client.complete(MESSAGES, { role });
+    assert.deepEqual(optionsOf(asked, 0).reasoning, { effort: 'medium' }, role);
+  }
+});
+
+test('a harness role that llm.routeEffort does not name runs its CLI at medium with native thinking', async () => {
+  // Catches: the memory writer left at the CLI's own default when a deployment's llm.routeEffort omits memory.
+  const route = { via: 'harness', backend: 'claude', model: 'claude-opus-4-6' };
+  const { client, asked } = rig({ models: { routes: { memory: [route] } }, llm: { routeEffort: {} } });
+  await client.complete(MESSAGES, { role: 'memory' });
+  const sent = optionsOf(asked, 0).chainRoute as { effort?: unknown; isThinking?: unknown };
+  assert.equal(sent.effort, 'medium');
+  assert.equal(sent.isThinking, true);
+});
+
+test('a role that produces no text sends no reasoning when nothing names its effort', async () => {
+  // Catches: the medium default sent as `reasoning` to an embedding, speech or image model, which takes no such field.
+  for (const role of ['embedding', 'speech', 'drawing']) {
+    const config = { models: { routes: { [role]: [{ via: 'api', key: 'helpers', model: 'x/media' }] } } };
+    const { client, asked } = rig(config);
+    await client.complete(MESSAGES, { role });
+    assert.equal(optionsOf(asked, 0).reasoning, undefined, role);
+  }
 });

@@ -12,7 +12,7 @@
 import type { CompleteResult } from './openrouter.ts';
 import { createRouteChain, routesOf, unavailableCode } from './route-chain.ts';
 import type { RouteChain, RouteState } from './route-chain.ts';
-import { harnessEffort, isRouteEffort, isRouteRole } from './route-text.ts';
+import { DEFAULT_ROUTE_EFFORT, TEXT_ROLES, harnessEffort, isRouteEffort, isRouteRole } from './route-text.ts';
 import type { Route, RouteRole } from './route-text.ts';
 import { MINUTE_MS } from '../time.ts';
 
@@ -93,14 +93,18 @@ export function createChainClient(deps: ChainClientDeps): ChainClient {
     return chain.map((_, step) => (start + step) % chain.length);
   }
 
-  /** `route` with the default effort of its role (`llm.routeEffort.<role>`) when it names none. */
+  /**
+   * `route` with the default effort of its role when it names none: `llm.routeEffort.<role>`, and for a text role that
+   * the setting does not name `medium`. A role outside TEXT_ROLES keeps no effort, so its model gets no `reasoning`.
+   */
   function withDefaultEffort(role: string, route: Route): Route {
     if (route.effort !== null) return route;
     const config = deps.getConfig();
     const llm = isRec(config) && isRec(config.llm) ? config.llm : {};
     const efforts = isRec(llm.routeEffort) ? llm.routeEffort : {};
     const effort = Object.hasOwn(efforts, role) ? efforts[role] : undefined;
-    return isRouteEffort(effort) ? { ...route, effort } : route;
+    if (isRouteEffort(effort)) return { ...route, effort };
+    return TEXT_ROLES.some((one) => one === role) ? { ...route, effort: DEFAULT_ROUTE_EFFORT } : route;
   }
 
   /**
