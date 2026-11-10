@@ -581,7 +581,8 @@ test('mirrorPublicationRow: the derived row of a mirror (pure)', () => {
       place_id: null,
       native_ids: '["1","2"]',
       posted_at: null,
-      owner_key: 'unit:0123456789abcdef0123456789abcdef',
+      writer: 'selfreflection',
+      holder_id: 'persona:local',
       retired_at: null,
     },
     { text: 'Café', placeExists: false, at: '2026-10-24T00:00:00.000Z' }
@@ -603,7 +604,8 @@ test('mirrorPublicationRow: the derived row of a mirror (pure)', () => {
     ]),
     created_at: '2026-10-24T00:00:00.000Z',
     sent_at: null,
-    owner_key: 'unit:0123456789abcdef0123456789abcdef',
+    writer: 'selfreflection',
+    holder_id: 'persona:local',
     retired_at: null,
   });
   assert.equal(contentHash('Café').length, 64);

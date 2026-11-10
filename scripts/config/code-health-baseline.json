@@ -485,7 +485,7 @@
       "repeated": 0
     },
     "tests/journal-archive-places.test.ts": {
-      "deep": 1,
+      "deep": 0,
       "repeated": 1
     },
     "tests/journal-turn.test.ts": {
@@ -680,10 +680,6 @@
       "deep": 1,
       "repeated": 0
     },
-    "tests/memory-db-storage-keys.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/memory-db-units.test.ts": {
       "deep": 8,
       "repeated": 0
@@ -707,10 +703,6 @@
     "tests/memory-dm-one-scope.test.ts": {
       "deep": 0,
       "repeated": 1
-    },
-    "tests/memory-private-identity.test.ts": {
-      "deep": 1,
-      "repeated": 0
     },
     "tests/memory-retrieval-consumers.test.ts": {
       "deep": 5,
@@ -1627,7 +1619,7 @@
         "complexity": 36
       },
       "writeObservation": {
-        "complexity": 29
+        "complexity": 28
       }
     },
     "src/memory/db/rows.ts": {

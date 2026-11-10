@@ -18,8 +18,8 @@
 //         sources do not all resolve, whose reason is missing or whose target is outside the run's scope is rejected whole
 //         (a `decisions` row `rejected:<why>`). A claim's scope is the narrowest scope of the run and of the NEW
 //         sources; when it differs from the target claim's scope, the change is written as a new claim of that scope
-//         and the old claim stays as it was. A confirm, revise or retire of a claim a file owns takes the claim over
-//         (`owner_key` null, its `co_owners` rows gone): the unit sync never writes it again (upsert.ts), and the
+//         and the old claim stays as it was. A confirm, revise or retire of a claim a profile owns takes the claim over
+//         (writer `session`, its `co_owners` rows gone): the profile never writes it again (upsert.ts), and the
 //         profile shows it as the session left it (session-rows.ts). A file read before an attitude move never
 //         writes over the move.
 //   { kind: 'description', mode, row, subject, scope, expectCurrent, answers, now }
@@ -349,8 +349,8 @@ function insertDecision(
 ): void {
   const target = targetOf(group, op);
   db.prepare(
-    `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_key, position, retired_at)
-     VALUES (?, ?, 'her', ?, ?, ?, ?, ?, NULL, NULL, NULL)`
+    `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, position, retired_at)
+     VALUES (?, ?, 'her', ?, ?, ?, ?, ?, NULL, NULL)`
   ).run(id, at, target.kind, target.id, action, reasonOf(op), json({ run: run.id, scope: run.scope ?? null, op }));
   projectRow(db, 'decisions', { id }, { at });
 }
@@ -366,9 +366,9 @@ function insertAnswer(
     .join('\n\n');
   db.prepare(
     `INSERT OR REPLACE INTO sources (id, kind, iface, native_id, revision, place_id, author_account, reply_to, occurred_at, recorded_at, seen_at, text, stems,
-       mentions, direct, turn_id, op_id, think, extra, scope_kind, scope_iface, scope_dm, origin, owner_key, position,
+       mentions, direct, turn_id, op_id, think, extra, scope_kind, scope_iface, scope_dm, origin, position,
        audience_id, authority_id, author_kind, observed_at)
-     VALUES (?, ?, NULL, ?, 1, NULL, NULL, NULL, ?, ?, NULL, ?, NULL, NULL, 0, NULL, NULL, ?, ?, ?, ?, ?, 'memory', NULL, NULL, ?, ?, 'self', ?)`
+     VALUES (?, ?, NULL, ?, 1, NULL, NULL, NULL, ?, ?, NULL, ?, NULL, NULL, 0, NULL, NULL, ?, ?, ?, ?, ?, 'memory', NULL, ?, ?, 'self', ?)`
   ).run(
     id,
     kind,
@@ -389,7 +389,7 @@ function insertAnswer(
   return id;
 }
 
-/** The live links of a claim or an episode; a retired link is not a link. Links the database writes leave `owner_key` null. */
+/** The live links of a claim or an episode; a retired link is not a link. Links the database writes name no writer. */
 function addSources(db: Db, table: string, key: string, id: string, sources: ReadonlyArray<unknown> | undefined): void {
   const insert = db.prepare(`INSERT INTO ${table} (${key}, source_id, position) VALUES (?, ?, ?)`);
   const have = new Set(
@@ -454,8 +454,8 @@ function version(
   const snapshots = hasTable(db, 'semantic_assertion_versions');
   if (snapshots && db.prepare('SELECT 1 AS ok FROM semantic_assertion_versions WHERE version_id = ?').get(id)) return;
   db.prepare(
-    `INSERT OR REPLACE INTO claim_versions (id, claim_id, revision_id, text, extra, recorded_at, event, by, origin, owner_key, position, retired_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'her', 'session', NULL, NULL, NULL)`
+    `INSERT OR REPLACE INTO claim_versions (id, claim_id, revision_id, text, extra, recorded_at, event, by, origin, position, retired_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'her', 'session', NULL, NULL)`
   ).run(id, claimId, `rv:${shortHash(runId, index)}`, text, extra ? json(extra) : null, at, event);
   if (hasTable(db, 'claim_version_sources')) {
     const insert = db.prepare(
@@ -492,8 +492,8 @@ function insertDecisionFor(
   }: { runId: unknown; index: number; at: string; op: unknown; action: unknown; target: unknown }
 ): void {
   db.prepare(
-    `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_key, position, retired_at)
-     VALUES (?, ?, 'her', ?, ?, ?, ?, ?, NULL, NULL, NULL)`
+    `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, position, retired_at)
+     VALUES (?, ?, 'her', ?, ?, ?, ?, ?, NULL, NULL)`
   ).run(
     `dec:${asText(runId)}:${index}`,
     at,
@@ -552,8 +552,8 @@ function deriveClaim(
   }
   db.prepare(
     `INSERT OR REPLACE INTO claims (id, subject_kind, subject_id, kind, text, extra, weight, first_seen_at, last_seen_at, valid_to, superseded_by,
-       how, author, from_person, truth, shown, scope_kind, scope_iface, scope_dm, created_at, retired_at, origin_file, owner_key, position, audience_id, writer)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'her', NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, 'session')`
+       how, author, from_person, truth, shown, scope_kind, scope_iface, scope_dm, created_at, retired_at, position, audience_id, writer)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'her', NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'session')`
   ).run(
     id,
     claim.subject_kind,
@@ -587,8 +587,8 @@ function applyClaim(db: Db, proposal: Row, state: WriteState): void {
     const id = `clm:${shortHash(runId, index, proposal.subjectId, proposal.text)}`;
     db.prepare(
       `INSERT OR REPLACE INTO claims (id, subject_kind, subject_id, kind, text, extra, weight, first_seen_at, last_seen_at, valid_to, superseded_by,
-         how, author, from_person, truth, shown, scope_kind, scope_iface, scope_dm, created_at, retired_at, origin_file, owner_key, position, audience_id, writer)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, NULL, ?, 'her', NULL, 'current', 1, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, 'session')`
+         how, author, from_person, truth, shown, scope_kind, scope_iface, scope_dm, created_at, retired_at, position, audience_id, writer)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, NULL, ?, 'her', NULL, 'current', 1, ?, ?, ?, ?, NULL, NULL, ?, 'session')`
     ).run(
       id,
       proposal.subjectKind,
@@ -715,8 +715,8 @@ function applyEpisode(db: Db, op: Row, state: WriteState): void {
   const id = `ep:${shortHash(runId, index, op.subjectId, op.what)}`;
   db.prepare(
     `INSERT OR REPLACE INTO episodes (id, kind, subject_id, place_id, date, what, quote, feeling, feeling_at, reread, weight, world, status, perspective,
-       start_ms, last_ms, extra, scope_kind, scope_iface, scope_dm, created_at, retired_at, owner_key, position, audience_id, writer)
-     VALUES (?, 'session', ?, NULL, ?, ?, NULL, ?, ?, NULL, NULL, NULL, 'open', NULL, NULL, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL, ?, 'session')`
+       start_ms, last_ms, extra, scope_kind, scope_iface, scope_dm, created_at, retired_at, position, audience_id, writer)
+     VALUES (?, 'session', ?, NULL, ?, ?, NULL, ?, ?, NULL, NULL, NULL, 'open', NULL, NULL, NULL, NULL, ?, ?, ?, ?, NULL, NULL, ?, 'session')`
   ).run(
     id,
     op.subjectId,
@@ -758,8 +758,8 @@ function applyAffinity(db: Db, op: Row, state: WriteState): void {
   const applied = clamp(op.delta as number, -cap, cap);
   const score = Math.round(clamp(before + applied, -100, 100) * 100) / 100;
   db.prepare(
-    `INSERT INTO affinity_events (id, person_id, at, delta, applied, score, reason, scope_kind, scope_iface, scope_dm, extra, owner_key, position, retired_at, audience_id, writer)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 'session')`
+    `INSERT INTO affinity_events (id, person_id, at, delta, applied, score, reason, scope_kind, scope_iface, scope_dm, extra, position, retired_at, audience_id, writer)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'session')`
   ).run(
     eventId,
     op.personId,
@@ -824,7 +824,7 @@ function applyPeopleAdd(db: Db, op: Row, state: WriteState): void {
     return reject(db, state, 'people', op, 'has_person');
   const person = newPersonId(state.uuid);
   db.prepare(
-    "INSERT INTO people (id, kind, first_seen_at, last_seen_at, status, owner_key) VALUES (?, 'person', ?, ?, 'active', NULL)"
+    "INSERT INTO people (id, kind, first_seen_at, last_seen_at, status) VALUES (?, 'person', ?, ?, 'active')"
   ).run(person, at, at);
   projectRow(db, 'people', { id: person }, { at });
   let link: string;
@@ -844,8 +844,8 @@ function applyPeopleAdd(db: Db, op: Row, state: WriteState): void {
     projectRow(db, 'participant_links', { participant_id: op.subjectId }, { at });
   }
   db.prepare(
-    `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_key, position, retired_at)
-     VALUES (?, ?, 'her', 'person', ?, 'people_add', ?, ?, NULL, NULL, NULL)`
+    `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, position, retired_at)
+     VALUES (?, ?, 'her', 'person', ?, 'people_add', ?, ?, NULL, NULL)`
   ).run(`dec:${runId}:${index}`, at, person, op.reason, json({ run: runId, op, link }));
   projectRow(db, 'decisions', { id: `dec:${runId}:${index}` }, { at });
   counts.people += 1;
@@ -1115,8 +1115,8 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
     if (update.decision) {
       const { id, action, reason, extra, scope: target } = update.decision as Row;
       db.prepare(
-        `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_key, position, retired_at)
-         VALUES (?, ?, 'engine', 'session_scope', ?, ?, ?, ?, NULL, NULL, NULL)`
+        `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, position, retired_at)
+         VALUES (?, ?, 'engine', 'session_scope', ?, ?, ?, ?, NULL, NULL)`
       ).run(`dec:${asText(id)}`, at, target ?? run?.scopeKey ?? null, action, reason ?? null, json(extra ?? {}));
       projectRow(db, 'decisions', { id: `dec:${asText(id)}` }, { at });
     }
@@ -1172,9 +1172,8 @@ function writeDescription(handle: MemoryHandle, update: Row): { written: number 
       }));
     }
     db.prepare(
-      `INSERT OR REPLACE INTO description_versions (id, description_id, text, author, written_at, chars, kept, removed, added, reason, origin, extra,
-         owner_key, position, retired_at)
-       VALUES (?, ?, ?, 'her', ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`
+      `INSERT OR REPLACE INTO description_versions (id, description_id, text, author, written_at, chars, kept, removed, added, reason, origin, extra, position, retired_at)
+       VALUES (?, ?, ?, 'her', ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`
     ).run(
       row.id,
       row.descriptionId,
@@ -1190,8 +1189,8 @@ function writeDescription(handle: MemoryHandle, update: Row): { written: number 
     );
     if (applying) {
       db.prepare(
-        `INSERT INTO descriptions (id, subject_kind, subject_id, field, scope_kind, scope_iface, scope_dm, current_version, owner_key, audience_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+        `INSERT INTO descriptions (id, subject_kind, subject_id, field, scope_kind, scope_iface, scope_dm, current_version, audience_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET current_version = excluded.current_version`
       ).run(
         row.descriptionId,

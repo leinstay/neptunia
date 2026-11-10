@@ -62,6 +62,12 @@ export function profileKeyOf(holder: string): StorageKey {
   };
 }
 
+/** The place a history of prose holds (`<place>/<kind>/<item>` of a place's kind), null for an account's. */
+export function placeOfVersions(holder: string): string | null {
+  const found = /^(.+?)\/(channels|place|lore|media)\//.exec(holder);
+  return found ? found[1] : null;
+}
+
 /** `rows` with the owner columns of `owner` on every row. */
 export function stampProfileRows(rows: Rows, owner: ProfileOwner): Rows {
   for (const list of Object.values(rows))

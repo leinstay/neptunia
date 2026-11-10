@@ -25,10 +25,9 @@ import {
   stampPlaceRows,
 } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
-import { placeCollection, keyText } from './storage-keys.ts';
+import { placeCollection, keyText, storageId } from './storage-keys.ts';
 import { namedIface } from './live-iface.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
@@ -52,7 +51,7 @@ const FIELDS = ['purpose', 'topics', 'tone'];
 const coded = (code: string): Error & { code: string } => Object.assign(new Error(code), { code });
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
 
-/** The rows of the entry `value` of the unit `key`, owned by `owner` (the unit's id) and `holder`. */
+/** The rows of the entry `value` of the unit `key`, owned by `holder`, `owner` the unit's id. */
 function channelEntryRows(
   db: Db,
   key: StorageKey,
@@ -76,7 +75,6 @@ function channelEntryRows(
     scope_kind: 'group',
     extra: null,
     retired_at: null,
-    owner_key: owner,
   });
   for (const field of FIELDS) {
     const text = value[field];
@@ -89,7 +87,6 @@ function channelEntryRows(
       field,
       ...scope,
       current_version: `${id}:legacy`,
-      owner_key: owner,
     });
     put(rows, 'description_versions', {
       id: `${id}:legacy`,
@@ -104,7 +101,6 @@ function channelEntryRows(
       reason: null,
       origin: 'legacy',
       extra: null,
-      owner_key: owner,
       position: 0,
     });
     delete rest[field];
@@ -118,7 +114,6 @@ function channelEntryRows(
     kind: 'channel',
     owner: stored ? stored.owner : placeId,
     value: JSON.stringify(rest),
-    owner_key: owner,
   });
   return stampPlaceRows(rows, holder);
 }
@@ -146,12 +141,11 @@ export function writeChannelEntry(
   value: Row,
   { at, iface }: { at: string; iface?: string }
 ): ChannelEntryResult {
-  const id = ensureUnit(db, key);
+  const id = storageId(key);
   const holder = placeOwnerOf(key)!; // a `channel` unit always has its owner columns (place-owner.ts)
   const mapping = channelEntryRows(db, key, value, id, holder, iface);
-  const upserted = writeMapping(db, mapping, id, { at, holder });
+  const upserted = writeMapping(db, mapping, { at });
   const retired = retirePlaceAbsent(db, holder, mapping, at);
-  noteUnit(db, id, 'channel', { at });
   return { upserted, retired };
 }
 
@@ -183,9 +177,15 @@ export function applyChannelEntryWrite(handle: MemoryHandle, update: Row): Chann
   );
 }
 
+/** Whether the database holds the channel's entry the unit `key` names. */
+export function channelEntryHeld(db: Db, key: StorageKey): boolean {
+  const holder = placeOwnerOf(key);
+  return holder !== null && holdsPlace(db, holder, 'operational');
+}
+
 /** The entry the unit `key` holds (a place's `channel` unit), or not found when the database holds none. */
 export function channelEntryValue(db: Db, key: StorageKey): { found: true; value: unknown } | { found: false } {
   const holder = placeOwnerOf(key);
-  if (!holder || !holdsPlace(db, holder, 'operational')) return { found: false };
+  if (!holder || !channelEntryHeld(db, key)) return { found: false };
   return { found: true, value: channelEntryOf(heldPlaceRows(db, holder, TABLES)) };
 }

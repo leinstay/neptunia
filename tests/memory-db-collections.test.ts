@@ -6,8 +6,7 @@
 //   placeCollection(kind, placeId, options?): StorageKey         subject { type: 'place', id }
 //   journalKey(placeId, day): StorageKey
 // `options` is { partition?, selector? }. An empty id throws code `BAD_COLLECTION_ID`.
-// Appendix entries: src/memory/db/storage-keys.ts, src/memory/db/storage-units.ts,
-// src/memory/db/upsert.ts.
+// Appendix entries: src/memory/db/storage-keys.ts, src/memory/db/upsert.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { unitValue } from '../src/memory/db/readers/common.ts';
@@ -16,12 +15,10 @@ import * as keys from '../src/memory/db/storage-keys.ts';
 import {
   accountCollection,
   journalKey,
-  keyText,
   personCollection,
   placeCollection,
   storageId,
 } from '../src/memory/db/storage-keys.ts';
-import { ensureUnit, listUnits, unitById } from '../src/memory/db/storage-units.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { seedOpaqueWorld } from './fixtures/memory-db/opaque-people.ts';
@@ -89,24 +86,6 @@ test('the journal of a day belongs to its place', () => {
 test('no constructor that takes a root remains', () => {
   // Bug: a caller keeps building the root partition next to the neutral one, and two collections drift apart.
   assert.equal('rootKey' in keys, false);
-});
-
-test('the catalog registers, finds and lists a person collection like any other', () => {
-  // Bug: the catalog's subject types stop at `authority`, so a person collection never lists.
-  const handle = openMemoryDb(':memory:');
-  try {
-    const db = dbOf(handle);
-    const key = personCollection('state', 'person:0b7a4c1e');
-    const id = ensureUnit(db, key);
-    assert.deepEqual(unitById(db, id)?.key, key);
-    assert.deepEqual(
-      listUnits(db, { subject: { type: 'person', id: 'person:0b7a4c1e' } }).map((unit) => unit.id),
-      [id]
-    );
-    assert.equal((JSON.parse(keyText(key)) as { subject: { type: string } }).subject.type, 'person');
-  } finally {
-    handle.close();
-  }
 });
 
 test('a place collection and an account collection write and read back through the writer', () => {

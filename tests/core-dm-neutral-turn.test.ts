@@ -28,9 +28,30 @@ import type { Rig, Running } from './fixtures/two-fakes.ts';
 const OPAQUE = 'person:4c9e77d1';
 
 type Unit = { kind: string; subject_type: string; subject_id: string; scope_place_id: string | null };
+/** The tables whose rows name their writer and holder (upsert.ts). */
+const OWNED_TABLES = [
+  'sources',
+  'day',
+  'decisions',
+  'claims',
+  'claim_versions',
+  'operational',
+  'episodes',
+  'accounts',
+  'people',
+];
+
+/** Every collection the writers hold, read from the rows' owner columns: a writer as its kind, its holder as subject. */
 const unitsOf = (rig: Rig): Array<Unit> =>
   rig
-    .rows('SELECT kind, subject_type, subject_id, scope_place_id FROM storage_units')
+    .rows(
+      `SELECT DISTINCT CASE writer WHEN 'profile' THEN 'user' ELSE writer END AS kind,
+         CASE WHEN holder_id = 'persona:local' THEN 'persona' WHEN writer IN ('profile', 'private') THEN 'account'
+           ELSE 'place' END AS subject_type,
+         holder_id AS subject_id, NULL AS scope_place_id
+       FROM (${OWNED_TABLES.map((table) => `SELECT writer, holder_id FROM "${table}"`).join(' UNION ALL ')})
+       WHERE writer IS NOT NULL AND writer != 'session' AND holder_id IS NOT NULL`
+    )
     .map((row) => row as unknown as Unit);
 
 async function dmTurn(running: Running, chat: string, author: string, id: string): Promise<void> {

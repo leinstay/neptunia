@@ -17,10 +17,10 @@
 // any of her moves, or before the profile named them: its write leaves her score, reason and decay stamp as they are.
 // A description keeps its current version when that version is not the file's own (origin `legacy`) and the file
 // brings either the text of that version or the text the file already had: the file was not edited since. A row her
-// session took over (no `owner_key`) is never written by a unit at all (upsert.ts#writeRow).
+// session took over (writer `session`) is never written by a profile at all (upsert.ts#writeRow).
 //
 // takeOverClaim (called by session-write.ts#applyClaim): a confirm, revise or retire of a claim makes the claim her
-// session's (writer `session`, `owner_key` null, its `co_owners` rows gone), in the transaction of the op.
+// session's (writer `session`, its `co_owners` rows gone), in the transaction of the op.
 
 import { dmAudienceId } from './scope.ts';
 
@@ -207,6 +207,6 @@ export function sessionHold(connection: unknown, mapping: unknown): (table: stri
 /** Makes claim `id` her session's: no unit owns it or shares it any more (see the head of this file). */
 export function takeOverClaim(connection: unknown, id: unknown): void {
   const db = connection as Db; // the writer's node:sqlite connection, inside the op's transaction
-  db.prepare(`UPDATE claims SET owner_key = NULL, writer = 'session', holder_id = NULL WHERE id = ?`).run(id);
+  db.prepare(`UPDATE claims SET writer = 'session', holder_id = NULL WHERE id = ?`).run(id);
   db.prepare("DELETE FROM co_owners WHERE tbl = 'claims' AND key = ?").run(id);
 }

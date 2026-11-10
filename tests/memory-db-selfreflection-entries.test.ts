@@ -1,12 +1,10 @@
 // The write kind `selfreflection-entries` (src/memory/db/selfreflection-entries.ts): her dated entries, the message ids
 // each was mirrored as and their publications, written as their rows directly instead of through the selfreflection
-// mapper of a unit write, each row naming its writer and holder (place-owner.ts). The first test writes the same values
-// through the unit write and through the write kind over copies of one seeded database and compares every table column
-// by column, the owner columns of the unit way taken from version step 50. Then the stamps against that step, the reads
-// without the units, a dropped entry's mirror and publication, the code, the store over a reopen and an append.
+// mapper of a unit write, each row naming its writer and holder (place-owner.ts). The tests read without the units,
+// retire a dropped entry's mirror and publication, refuse an empty write, and read the store over a reopen and an
+// append.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ownSelfreflectionRows } from '../src/memory/db/place-owner.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { personaKey } from '../src/memory/db/storage-keys.ts';
@@ -14,7 +12,7 @@ import { dbOf } from '../src/memory/db/types.ts';
 import type { MemoryHandle, Row } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
-import { CHANNEL, NOW, copyOf, seededPlaces, tablesOf } from './fixtures/memory-db/place-writes.ts';
+import { CHANNEL, NOW, copyOf, seededPlaces } from './fixtures/memory-db/place-writes.ts';
 
 const KEY = personaKey('selfreflection');
 const OWNED = ['selfreflection', 'selfreflection_mirrors', 'operational', 'publications', 'co_owners'];
@@ -62,28 +60,6 @@ function writeDirectWay(handle: MemoryHandle, step: Step): unknown {
 }
 
 const read = (handle: MemoryHandle): unknown => unitValue(dbOf(handle), KEY);
-
-test('the writer stamps every entry, mirror and publication with the owner columns version step 50 derives', () => {
-  const handle = copyOf(seededPlaces());
-  try {
-    for (const step of STEPS) writeDirectWay(handle, step);
-    const db = dbOf(handle);
-    const stamped = tablesOf(db);
-    assert.deepEqual(
-      db
-        .prepare("SELECT DISTINCT writer, holder_id FROM publications WHERE row_kind = 'selfreflection'")
-        .all()
-        .map((row) => [row.writer, row.holder_id]),
-      [['selfreflection', 'persona:local']]
-    );
-    for (const table of OWNED)
-      db.exec(`UPDATE "${table}" SET writer = NULL, holder_id = NULL WHERE writer = 'selfreflection'`);
-    ownSelfreflectionRows(db);
-    assert.equal(tablesOf(db), stamped);
-  } finally {
-    handle.close();
-  }
-});
 
 test('the entries read the same once no unit owns their rows', () => {
   const handle = copyOf(seededPlaces());

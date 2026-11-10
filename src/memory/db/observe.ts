@@ -51,14 +51,11 @@
 //     place is resolved (identity-links.ts). Rows stored under `<iface>/global` for an interface whose native authority
 //     differs are moved to the native one first.
 // The observation is the record of a seen line (spec 2026-10-24-memory-authority section 6 item 3), so the service
-// passes the line's record unit (`owner`: its place's record of the day
-// file) and the row is written in it: `owner_key` that unit, `position` the next one of the unit (the unit's `files`
-// row is kept, storage-units.ts#noteUnit), and a stored line of the tuple with no owner yet is stamped the same way.
-// Without `owner` the row has none. With `owner` the result also carries the line's `revision` (an edit's is the one
+// passes the line's record day (`owner`: the key of its place's record of the day) and the row is written in it: the
+// day's owner columns (line-owner.ts) and `position` the next one of the day, and a stored line of the tuple with no
+// owner yet is stamped the same way. Without `owner` the row has none. With `owner` the result also carries the line's `revision` (an edit's is the one
 // counted here).
 // Logs carry codes only (`log.debug?.()`).
-
-import { storageOwner, nextPosition, noteUnit } from './storage-units.ts';
 
 import { messageLocator } from './message-locator.ts';
 import type { NativeMessageLocator } from './recall.ts';
@@ -86,8 +83,7 @@ import { rescopeDmPlace } from './dm-rescope.ts';
 import { ensureAccountPerson } from './person-links.ts';
 import { authorPersonOf } from './meta-person-write.ts';
 import { projectRow } from './graph.ts';
-import { lineColumns, lineOwnerOfUnit, nextLinePosition } from './line-owner.ts';
-import type { LineOwner } from './line-owner.ts';
+import { lineColumns, lineOwnerOfText, nextLinePosition } from './line-owner.ts';
 import { ingestOption, insertIngest } from './ingest.ts';
 import { dbOf, isWholeNumber } from './types.ts';
 import type { Connection, Db, Log, MemoryHandle, Row } from './types.ts';
@@ -489,7 +485,6 @@ function accountOf(
     native_key: String(key),
     generation: gen,
     kind: filled(kind) ? kind : 'user',
-    owner_key: null,
   });
   insertRow(db, 'accounts', row);
   addKey(db, authority, 'account', String(key), id, { generation: gen, at });
@@ -690,7 +685,6 @@ function placeOf(
     seen_from_at: envelope.occurredAt,
     seen_to_at: envelope.occurredAt,
     extra: parentNote(p.parent, parent),
-    owner_key: null,
   });
   insertRow(db, 'places', row);
   addKey(db, p.authority, 'place', p.key, placeId, { generation: 1, at });
@@ -920,14 +914,16 @@ function replayOf(
 ): ObserveResult {
   const e = envelope;
   if (filled(owner)) {
-    const stored = db.prepare(`SELECT owner_key AS current_owner FROM sources WHERE id = ?`).get(sourceId);
-    if (stored && (stored.current_owner === null || stored.current_owner === undefined)) {
-      const line = lineOwnerOfUnit(db, owner);
-      const position = line ? nextLinePosition(db, line) : nextPosition(db, owner);
-      db.prepare(
-        'UPDATE sources SET owner_key = ?, position = ?, writer = ?, holder_id = ?, period = ? WHERE id = ?'
-      ).run(owner, position, line?.writer ?? null, line?.holder_id ?? null, line?.period ?? null, sourceId);
-      noteUnit(db, owner, 'record', { lines: position + 1, at });
+    const stored = db.prepare(`SELECT writer FROM sources WHERE id = ?`).get(sourceId);
+    const line = lineOwnerOfText(owner);
+    if (stored && (stored.writer === null || stored.writer === undefined) && line) {
+      db.prepare('UPDATE sources SET position = ?, writer = ?, holder_id = ?, period = ? WHERE id = ?').run(
+        nextLinePosition(db, line),
+        line.writer,
+        line.holder_id,
+        line.period,
+        sourceId
+      );
     }
   }
   ensureAuthority(db, e.authority, e.iface, e.authority.slice(e.iface.length + 1));
@@ -981,12 +977,6 @@ function claimConsole(db: Db, e: Envelope, at: string): void {
   }
 }
 
-/** The next position of the unit `owner` (none without one): its day's when it is a record day. */
-function positionIn(db: Db, owner: string | null, line: LineOwner | null): number | null {
-  if (line) return nextLinePosition(db, line);
-  return filled(owner) ? nextPosition(db, owner) : null;
-}
-
 function writeObservation(
   db: Db,
   given: Envelope,
@@ -994,7 +984,6 @@ function writeObservation(
   log: Partial<Log> | null | undefined,
   owner: string | null = null
 ): ObserveResult {
-  owner = storageOwner(db, owner);
   adoptNativeAuthority(db, given.iface);
   // An edit with no revision: the database's count says which revision it is.
   let e: Envelope = given;
@@ -1034,7 +1023,7 @@ function writeObservation(
   const author = authorOf(db, e, place, at);
   const { scope, audience } = observationAudience(e.iface, place);
   const extra = sourceExtraOf(e);
-  const line = lineOwnerOfUnit(db, owner);
+  const line = lineOwnerOfText(owner);
   const kind = lineKindOf(e);
   // The native message a line replies to, in the line's own kind and authority (the legacy `reply_to` column).
   const reply = (e.relations ?? []).find(
@@ -1073,15 +1062,13 @@ function writeObservation(
       audience_id: audience,
       origin: 'observation',
       extra: Object.keys(extra).length > 0 ? json(extra) : null,
-      owner_key: filled(owner) ? owner : null,
       ...lineColumns(line),
-      position: positionIn(db, owner, line),
+      position: line ? nextLinePosition(db, line) : null,
     },
     { log }
   );
   if (row.audience_id !== audience) throw refusal(OBSERVE_CODES.AUDIENCE_CONFLICT);
   insertRow(db, 'sources', row);
-  if (filled(owner)) noteUnit(db, owner, 'record', { lines: (row.position as number) + 1, at });
   addKey(db, e.authority, 'source', sourceKeyOf(n), sourceId, { generation: n.generation ?? 1, at });
   let relations = 0;
   for (const relation of e.relations ?? []) {
@@ -1114,7 +1101,7 @@ function writeObservation(
  * audienceId, relations, resolved, written }` (with `owner`, also `revision`) or `{ ok: false, code }`
  * (nothing written). An envelope that carries `ingest` (`{ row, keepDays }`, the ingestion row of the event the line
  * came with, ingest.ts) has the row written in the same transaction, so the event and its line commit together.
- * `owner` is the record unit the line is written in (see the head of this file).
+ * `owner` is the key of the record day the line is written in (see the head of this file).
  */
 export function observe(
   handle: MemoryHandle,

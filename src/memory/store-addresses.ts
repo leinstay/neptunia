@@ -15,7 +15,6 @@ import { linkedPrivateClaims } from './db/private-read.ts';
 import { lineNumberOf } from './db/chat-lines.ts';
 import { PERSONA_ID } from './db/storage-keys.ts';
 import type { StorageKind } from './db/storage-keys.ts';
-import { listUnits, subjectOf } from './db/storage-units.ts';
 import { isOperationalKind, operationalSubjects } from './db/operational.ts';
 import type { Db } from './db/types.ts';
 
@@ -285,19 +284,16 @@ function buildAddressing({ memoryDb, seam }: { memoryDb: AddressedDb; seam: Seam
       );
     },
 
-    /** The subject of the first collection of `kind` the database holds, for a registry kept in one place. */
+    /** The subjects that hold a row of an operational `kind`, for a registry kept in one place; none for another kind. */
     placesHolding(kind: StorageKind): Array<string> {
-      if (!readable()) return [];
-      if (isOperationalKind(kind)) return seam.run(() => operationalSubjects(seam.db(), kind));
-      return seam.run(() => [...new Set(listUnits(seam.db(), { kind }).map((unit) => subjectOf(unit).id))]);
+      if (!readable() || !isOperationalKind(kind)) return [];
+      return seam.run(() => operationalSubjects(seam.db(), kind));
     },
 
+    /** The first subject that holds a row of an operational `kind`, else null. */
     placeHolding(kind: StorageKind): string | null {
-      if (!readable()) return null;
-      return seam.run(() => {
-        const first = listUnits(seam.db(), { kind })[0];
-        return first ? subjectOf(first).id : null;
-      });
+      if (!readable() || !isOperationalKind(kind)) return null;
+      return seam.run(() => operationalSubjects(seam.db(), kind)[0] ?? null);
     },
 
     /** The number the owner's chat draws on the stored line of a place by its message id (chat-lines.ts), or null. */

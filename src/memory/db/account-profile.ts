@@ -18,7 +18,7 @@
 // stays dormant under its own id until an unlink. A linked account's row keeps the link the database holds. A stored
 // account with no person gets its meta-person before its first profile is written (plan 2026-11-08-meta-person).
 //
-// A write replaces the profile: the rows the value no longer holds are retired (upsert.ts#retireAbsent), and what her
+// A write replaces the profile: the rows the value no longer holds are retired (profile-owner.ts#retireProfileAbsent), and what her
 // session wrote last stays as she wrote it (session-rows.ts#sessionHold). A read adds what her session wrote about the
 // person in the profile's scope (session-rows.ts#addSessionRows).
 
@@ -33,7 +33,6 @@ import { addSessionRows } from './session-rows.ts';
 import { accountCollection, keyText } from './storage-keys.ts';
 import { namedIface } from './live-iface.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
 import { heldRows, holdsAny, profileOwnerOf, retireProfileAbsent, stampProfileRows } from './profile-owner.ts';
 import type { ProfileOwner } from './profile-owner.ts';
@@ -132,7 +131,7 @@ function profileContext(db: Db, key: StorageKey, holder: ProfileOwner, at: strin
 }
 
 /** The rows of what belongs to the account itself; returns the fields of `value` that are not. */
-function putAccount(rows: Rows, value: Row, ctx: ProfileContext, owner: string): Row {
+function putAccount(rows: Rows, value: Row, ctx: ProfileContext): Row {
   const account = split(value, ACCOUNT_SPEC);
   const left = account.rest;
   const account_id = ctx.accountId;
@@ -142,7 +141,6 @@ function putAccount(rows: Rows, value: Row, ctx: ProfileContext, owner: string):
     ...account.cols,
     ...ctx.link,
     extra: null,
-    owner_key: owner,
   });
   if (Object.hasOwn(left, 'addressedAs')) {
     const membership = split({ addressedAs: left.addressedAs }, MEMBERSHIP_SPEC);
@@ -158,21 +156,19 @@ function putAccount(rows: Rows, value: Row, ctx: ProfileContext, owner: string):
       extra: extraText(membership.rest),
       valid_from_at: null,
       valid_to_at: null,
-      owner_key: owner,
     });
   }
   return left;
 }
 
-/** The rows of a profile `value` in the unit `owner`. */
-export function accountProfileRows(value: Row, ctx: ProfileContext, owner: string): Rows {
+/** The rows of a profile `value`. */
+export function accountProfileRows(value: Row, ctx: ProfileContext): Rows {
   const rows: Rows = {};
   if (ctx.accountOnly) {
-    putAccount(rows, value, ctx, owner);
+    putAccount(rows, value, ctx);
     return rows;
   }
   const { rest, affinity } = profileRows(rows, value, {
-    rel: owner,
     person: ctx.person,
     owner: ctx.person,
     tag: '',
@@ -187,7 +183,7 @@ export function accountProfileRows(value: Row, ctx: ProfileContext, owner: strin
     affinityCols = part.cols;
     if (Object.keys(part.rest).length) left.affinity = part.rest;
   }
-  const accountLeft = putAccount(rows, left, ctx, owner);
+  const accountLeft = putAccount(rows, left, ctx);
   put(rows, 'people', {
     id: ctx.person,
     kind: 'member',
@@ -195,15 +191,7 @@ export function accountProfileRows(value: Row, ctx: ProfileContext, owner: strin
     ...affinityCols,
     extra: extraText(accountLeft),
     retired_at: null,
-    owner_key: owner,
   });
-  // The shared profile pieces name their unit as `owner_file` (profile-lists.ts): the unit's id is their owner.
-  for (const list of Object.values(rows))
-    for (const row of list) {
-      if (row.owner_file === undefined) continue;
-      delete row.owner_file;
-      row.owner_key = owner;
-    }
   return rows;
 }
 
@@ -242,12 +230,10 @@ export function writeAccountProfile(
   value: Row,
   { at, iface }: { at: string; iface?: string }
 ): AccountProfileResult {
-  const id = ensureUnit(db, key);
   const holder = profileOwnerOf(key)!; // an account's `user` unit always has its owner columns (profile-owner.ts)
-  const mapping = stampProfileRows(accountProfileRows(value, profileContext(db, key, holder, at, iface), id), holder);
-  const upserted = writeMapping(db, mapping, id, { at });
+  const mapping = stampProfileRows(accountProfileRows(value, profileContext(db, key, holder, at, iface)), holder);
+  const upserted = writeMapping(db, mapping, { at });
   const retired = retireProfileAbsent(db, holder, mapping, at);
-  noteUnit(db, id, 'user', { at });
   return { upserted, retired };
 }
 
@@ -283,10 +269,16 @@ export function applyAccountProfileWrite(handle: MemoryHandle, update: Row): Acc
   );
 }
 
+/** Whether the database holds the profile the unit `key` names. */
+export function accountProfileHeld(db: Db, key: StorageKey): boolean {
+  const holder = profileOwnerOf(key);
+  return holder !== null && (holdsAny(db, holder, 'accounts') || holdsAny(db, holder, 'people'));
+}
+
 /** The profile the unit `key` holds (an account's `user` unit), or not found when the database holds no such unit. */
 export function accountProfileValue(db: Db, key: StorageKey): { found: true; value: unknown } | { found: false } {
   const holder = profileOwnerOf(key);
-  if (!holder || (!holdsAny(db, holder, 'accounts') && !holdsAny(db, holder, 'people'))) return { found: false };
+  if (!holder || !accountProfileHeld(db, key)) return { found: false };
   const rows = heldRows(db, holder, TABLES);
   addSessionRows(db, 'user', rows, key.subject.type === 'account' ? key.subject.id : null);
   return { found: true, value: accountProfileOf(rows) };

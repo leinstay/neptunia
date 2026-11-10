@@ -828,12 +828,14 @@ test('the people block renders a stored profile the way her turns do, from the d
       selfName: 'Nep',
       now: NOW,
     });
-    // A retired unit is a tombstone (`storage_units.retired_at`): its profile is not rendered.
-    dbOf(handle)
-      .prepare(
-        "UPDATE storage_units SET retired_at = '2026-10-24T00:00:00.000Z' WHERE kind = 'user' AND subject_id LIKE ?"
-      )
-      .run(`%${MEMBER}`);
+    // A profile whose rows are all retired holds nothing: it is not rendered.
+    const retire = (at: string | null) => {
+      for (const table of ['accounts', 'people'])
+        dbOf(handle)
+          .prepare(`UPDATE "${table}" SET retired_at = ? WHERE writer = 'profile' AND holder_id LIKE ?`)
+          .run(at, `%${MEMBER}`);
+    };
+    retire('2026-10-24T00:00:00.000Z');
     const withoutFile = buildSessionRequest({
       db: dbOf(handle),
       scope,
@@ -847,9 +849,7 @@ test('the people block renders a stored profile the way her turns do, from the d
       textOf(withoutFile.messages[1].content).length < textOf(built.messages[1].content).length,
       'the profile of a file that is gone is left out'
     );
-    dbOf(handle)
-      .prepare("UPDATE storage_units SET retired_at = NULL WHERE kind = 'user' AND subject_id LIKE ?")
-      .run(`%${MEMBER}`);
+    retire(null);
     const people = textOf(built.messages[1].content);
     const stored = JSON.parse(
       fs.readFileSync(path.join(data, 'guilds', '300000000000000001', 'users', `${MEMBER}.json`), 'utf8')

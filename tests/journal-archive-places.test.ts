@@ -15,7 +15,6 @@ import { createAppendStore } from '../src/memory/append-store.ts';
 import { archiveEntry, createArchive } from '../src/memory/archive.ts';
 import { withIface } from '../src/memory/db/current-iface.ts';
 import { PERSONA_ID } from '../src/memory/db/storage-keys.ts';
-import { listUnits } from '../src/memory/db/storage-units.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import { createJournal } from '../src/memory/journal.ts';
@@ -27,6 +26,13 @@ const quiet = { info() {}, warn() {}, error() {} };
 const NOW = Date.UTC(2026, 10, 3, 9, 0, 0);
 const DM = 'place:dm-a21';
 const OTHER = 'place:room-1';
+
+/** The holders of a writer's live rows in `table`: the places, or the persona, whose lines they are. */
+const holdersOf = (db: Db, table: string, writer: string): Array<unknown> =>
+  db
+    .prepare(`SELECT DISTINCT holder_id FROM "${table}" WHERE writer = ? AND retired_at IS NULL ORDER BY holder_id`)
+    .all(writer)
+    .map((row) => row.holder_id);
 
 const slim = (id: string) => ({
   id,
@@ -59,11 +65,7 @@ test('the engine lines of the journal belong to the persona', async () => {
     const journal = createJournal({ dataDir: mem.dataDir, memoryDb: mem.memoryDb, now: () => NOW, log: quiet });
     await journal.system({ event: 'start', by: 'service' });
     await journal.flush?.();
-    const units = listUnits(read(), { kind: 'journal' });
-    assert.deepEqual(
-      units.map((unit) => unit.key.subject.type),
-      ['persona']
-    );
+    assert.deepEqual(holdersOf(read(), 'day', 'journal'), [PERSONA_ID]);
   } finally {
     await mem.close();
   }
@@ -111,10 +113,7 @@ test('the record of a place is written and read by its id, whatever interface is
     assert.equal(seen.length, 1);
     for await (const line of record.iterate(OTHER))
       assert.fail(`read a line of another place: ${JSON.stringify(line)}`);
-    assert.deepEqual(
-      listUnits(read(), { kind: 'record' }).map((unit) => unit.key.subject),
-      [{ type: 'place', id: DM }]
-    );
+    assert.deepEqual(holdersOf(read(), 'sources', 'record'), [DM]);
   } finally {
     await mem.close();
   }
@@ -140,10 +139,7 @@ test('an archive entry evicted from a DM lands under the DM place and is read ba
     const found: Array<unknown> = [];
     for await (const line of archive.iterate(DM)) found.push(line);
     assert.equal(found.length, 1);
-    assert.deepEqual(
-      listUnits(read(), { kind: 'archive' }).map((unit) => unit.key.subject),
-      [{ type: 'place', id: DM }]
-    );
+    assert.deepEqual(holdersOf(read(), 'claim_versions', 'archive'), [DM]);
   } finally {
     await mem.close();
   }

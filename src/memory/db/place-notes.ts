@@ -30,10 +30,9 @@ import {
   stampPlaceRows,
 } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
-import { placeCollection, keyText } from './storage-keys.ts';
+import { placeCollection, keyText, storageId } from './storage-keys.ts';
 import { namedIface } from './live-iface.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
@@ -99,10 +98,11 @@ function notesScope(iface: string | null, ctx: MapContext): Row {
  * The place row of the notes: the stored row as it is, or a new one when no row holds the place yet. A new row knows no
  * native id: the observation of the place's interface gives it one.
  */
-function placeRow(ctx: MapContext, placeId: string, iface: string | null, owner: string): Row {
+function placeRow(ctx: MapContext, placeId: string, iface: string | null): Row {
   if (ctx.subjectPlace) {
-    // The unit owns the row it adopted, so a write that left it out would retire it.
-    const stored: Row = { ...ctx.subjectPlace, owner_key: owner };
+    // The notes own the row they adopted (its owner columns), so a write that left it out would retire it.
+    const stored: Row = { ...ctx.subjectPlace };
+    delete stored.owner_key;
     delete stored.owner_file;
     return stored;
   }
@@ -117,11 +117,10 @@ function placeRow(ctx: MapContext, placeId: string, iface: string | null, owner:
     topic: null,
     extra: null,
     retired_at: null,
-    owner_key: owner,
   };
 }
 
-/** The rows of the notes `value` of the unit `key`, owned by `owner` (the unit's id) and `holder`. */
+/** The rows of the notes `value` of the unit `key`, owned by `holder`, `owner` the unit's id. */
 function placeNotesRows(
   db: Db,
   key: StorageKey,
@@ -136,7 +135,7 @@ function placeNotesRows(
   const rows: Rows = {};
   const rest = { ...value };
   const scope = notesScope(iface, ctx);
-  put(rows, 'places', placeRow(ctx, placeId, iface, owner));
+  put(rows, 'places', placeRow(ctx, placeId, iface));
   for (const field of FIELDS) {
     const text = value[field];
     if (typeof text !== 'string') continue;
@@ -148,7 +147,6 @@ function placeNotesRows(
       field,
       ...scope,
       current_version: `${id}:legacy`,
-      owner_key: owner,
     });
     put(rows, 'description_versions', {
       id: `${id}:legacy`,
@@ -163,7 +161,6 @@ function placeNotesRows(
       reason: null,
       origin: 'legacy',
       extra: null,
-      owner_key: owner,
       position: 0,
     });
     delete rest[field];
@@ -173,7 +170,6 @@ function placeNotesRows(
     if (!Object.hasOwn(value, def.key)) continue;
     const self = def.subject === 'self';
     const ok = claimRows(rows, value[def.key], def, {
-      rel: owner,
       subject_kind: self ? 'self' : 'place',
       subject_id: self ? SELF_PERSON : placeId,
       owner: self ? SELF_PERSON : placeId,
@@ -195,13 +191,7 @@ function placeNotesRows(
     kind: 'place',
     owner: stored ? stored.owner : placeId,
     value: JSON.stringify(rest),
-    owner_key: owner,
   });
-  // The claim lists name their unit as `owner_file` (profile-lists.ts): the unit's id is their owner.
-  for (const row of rows.claims ?? []) {
-    delete row.owner_file;
-    row.owner_key = owner;
-  }
   return stampPlaceRows(rows, holder);
 }
 
@@ -236,12 +226,11 @@ export function writePlaceNotes(
   value: Row,
   { at, iface }: { at: string; iface?: string }
 ): PlaceNotesResult {
-  const id = ensureUnit(db, key);
+  const id = storageId(key);
   const holder = placeOwnerOf(key)!; // a `place` unit always has its owner columns (place-owner.ts)
   const mapping = placeNotesRows(db, key, value, id, holder, iface);
-  const upserted = writeMapping(db, mapping, id, { at, holder });
+  const upserted = writeMapping(db, mapping, { at });
   const retired = retirePlaceAbsent(db, holder, mapping, at);
-  noteUnit(db, id, 'place', { at });
   return { upserted, retired };
 }
 

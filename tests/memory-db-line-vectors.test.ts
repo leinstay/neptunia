@@ -11,8 +11,6 @@ import { createVectors } from '../src/memory/vectors.ts';
 import { lineVectorKeys, lineVectorMonth, lineVectorMonths } from '../src/memory/db/line-vectors.ts';
 import { OBSERVATION_VERSION } from '../src/memory/db/observe.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { placeCollection } from '../src/memory/db/storage-keys.ts';
-import { ensureUnit } from '../src/memory/db/storage-units.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, Row } from '../src/memory/db/types.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
@@ -152,7 +150,12 @@ function seededAtBaseline(): string {
   const file = path.join(tempDir('line-vectors-step'), 'memory.db');
   const old = openMemoryDb(file, { migrations: [] });
   const db = dbOf(old);
-  const unit = ensureUnit(db, { ...placeCollection('vectors', GROUP), partition: '2026-11' });
+  // The month's unit as the baseline's catalog held it.
+  const unit = 'unit:vectors-of-the-group-2026-11';
+  db.prepare(
+    `INSERT INTO storage_units (id, kind, subject_type, subject_id, partition, key_json)
+     VALUES (?, 'vectors', 'place', ?, '2026-11', ?)`
+  ).run(unit, GROUP, JSON.stringify({ kind: 'vectors', subject: { type: 'place', id: GROUP }, partition: '2026-11' }));
   const insert = db.prepare(
     `INSERT INTO vectors (chunk_key, item_id, occurred_at, model, dims, scale, norm, bytes, context, scope_kind,
        scope_iface, owner_key) VALUES (?, ?, ?, ?, 4, 0.01, 1, ?, ?, 'group', 'discord', ?)`

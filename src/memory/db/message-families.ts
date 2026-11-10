@@ -1,7 +1,6 @@
 // The service and writer worker commit normalized messages through chat-qualified families.
 
 import { randomUUID } from 'node:crypto';
-import { storageOwner, nextPosition, noteUnit } from './storage-units.ts';
 
 import { checkEnvelope, observe, observationAudience, resolveObservationPlace, OBSERVE_CODES } from './observe.ts';
 import type { Envelope, MessageChat, ObserveResult } from './observe.ts';
@@ -12,7 +11,7 @@ import type { NativeMessageLocator } from './recall.ts';
 import { dbOf } from './types.ts';
 import { addKey, deriveRow, ensureAuthority } from './rows.ts';
 import { nodeId, canonicalKey } from './ids.ts';
-import { lineColumns, lineOwnerOfUnit, nextLinePosition } from './line-owner.ts';
+import { lineColumns, lineOwnerOfText, nextLinePosition } from './line-owner.ts';
 import { projectRow } from './graph.ts';
 import { markStemsPending } from './stems.ts';
 import type { Db, Log, MemoryHandle, Row } from './types.ts';
@@ -236,9 +235,8 @@ function writeDeletion(db: Db, input: MessageDeletion, options: MessageWriteOpti
   }
   const place = resolveObservationPlace(db, { ...input, place: deletionPlace(input) }, at);
   const { scope, audience } = observationAudience(input.iface, place);
-  const owner = storageOwner(db, options.owner ?? null);
-  const line = lineOwnerOfUnit(db, owner);
-  const position = line ? nextLinePosition(db, line) : owner ? nextPosition(db, owner) : null;
+  const line = lineOwnerOfText(options.owner);
+  const position = line ? nextLinePosition(db, line) : null;
   const row = deriveRow(
     db,
     'sources',
@@ -258,7 +256,6 @@ function writeDeletion(db: Db, input: MessageDeletion, options: MessageWriteOpti
       observed_at: input.observedAt,
       recorded_at: input.observedAt,
       origin: 'observation',
-      owner_key: owner,
       ...lineColumns(line),
       position,
       extra: JSON.stringify({ $messageLocator: input.messageLocator }),
@@ -270,7 +267,6 @@ function writeDeletion(db: Db, input: MessageDeletion, options: MessageWriteOpti
   db.prepare(`INSERT INTO sources (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`).run(
     ...columns.map((column) => storedRow[column])
   );
-  if (owner && position !== null) noteUnit(db, owner, 'record', { lines: position + 1, at });
   addKey(db, family.authority_id, 'source', canonicalKey('message', [family.native_key, null, 'deleted']), sourceId, {
     generation: family.generation,
     at,

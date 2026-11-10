@@ -251,7 +251,7 @@ for (const [name, sql, params] of SEALED_MUTATIONS) {
 }
 
 test('a claim version with no semantic payload stays writable for the shipped retirement paths', () => {
-  // Bug: the seal guard fires on every version and upsert.ts#retireAbsent aborts a whole unit flush.
+  // Bug: the seal guard fires on every version and the retirement of an absent row aborts a whole write.
   const { handle, db } = memory();
   seal(handle);
   db.prepare("UPDATE claim_versions SET retired_at = ? WHERE id = 'cv:2'").run(AT);

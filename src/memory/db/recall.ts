@@ -835,7 +835,7 @@ function rowsByRowid(db: Db, rowids: ReadonlyArray<unknown>): Array<Row> {
  * of a line the context may not open is never loaded.
  */
 const SOURCE_METADATA = `s.rowid AS rowid, s.id, s.iface, s.native_id, s.place_id, s.kind,
-  s.extra, s.owner_file, s.writer AS storage_kind, s.scope_kind, s.scope_iface, s.scope_dm, s.audience_id`;
+  s.extra, s.writer AS storage_kind, s.scope_kind, s.scope_iface, s.scope_dm, s.audience_id`;
 
 function readableSource(db: Db, ctx: Context, candidates: Array<Row>): Row | null {
   const light = candidates.length === 1 ? candidates[0] : null;

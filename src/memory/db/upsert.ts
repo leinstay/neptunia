@@ -1,11 +1,11 @@
-// Unit writes preserve primary and shared ownership through catalog owner keys, and a place's notes and a channel's
-// entry through the owner columns of their rows (place-owner.ts). A row shared across semantic root scopes keeps its
-// original owner until retirement hands it to a surviving co-owner. Session-owned rows and child links have no owner
-// and remain protected. Derived identity, graph projection, publication state and
-// session-held fields are updated within the caller's writer transaction. Historical imports retain their original
-// column contract and frozen path provenance through the explicit compatibility adapter.
+// The shared write rules of the writers that store a whole value or a line as rows. Each row names its owner in its own
+// columns, `writer`, `holder_id` and, for a line, `period` (place-owner.ts, profile-owner.ts, line-owner.ts). A row
+// another place's writer holds is shared instead of rewritten (listed in `co_owners`), and keeps its first owner until
+// retirement hands it to a place that shares it (place-owner.ts#retirePlaceAbsent). Rows her memory session wrote and
+// rows the database wrote have no such writer and stay as they are. Derived identity, graph projection, publication
+// state and session-held fields are updated within the caller's writer transaction.
 
-import { unitById } from './storage-units.ts';
+import { PERSONA_ID } from './storage-keys.ts';
 import {
   deriveRow,
   ensureLinks,
@@ -19,13 +19,13 @@ import { deriveMirrorPublication } from './publish.ts';
 import { resolveParticipationSources } from './participation-sources.ts';
 import { sessionHold } from './session-rows.ts';
 import { isPlaceWriter, placeOfHolder, sharePlaceRow, unsharePlaceRow } from './place-owner.ts';
-import type { PlaceOwner } from './place-owner.ts';
+import { placeOfVersions } from './profile-owner.ts';
 import { parseExtra } from './row-columns.ts';
 import { hasMessageFamilies } from './message-family-catalog.ts';
 import { asText } from './types.ts';
 import type { Db, Row, Rows } from './types.ts';
 
-/** Tables whose rows belong to one file (`owner_key`), and their primary key columns. */
+/** Tables whose rows a writer owns, and their primary key columns. */
 export const OWNED: Record<string, ReadonlyArray<string>> = {
   people: ['id'],
   accounts: ['id'],
@@ -112,26 +112,48 @@ function upsert(db: Db, table: string, row: Row, { ignore = false }: { ignore?: 
 
 const keyOf = (table: string, row: Row): string => OWNED[table].map((col) => row[col]).join('\u0000');
 
+/** The writers whose rows own themselves through their owner columns; a row of any other is her session's or the database's. */
+const ROW_WRITERS: ReadonlySet<unknown> = new Set([
+  'place',
+  'channel',
+  'lore',
+  'participation',
+  'recent',
+  'selfreflection',
+  'profile',
+  'private',
+  'versions',
+  'record',
+  'journal',
+  'archive',
+  'requests',
+  'media',
+]);
+
+/** The owner columns a table has, of `writer`, `holder_id` and `period`. */
+const ownerColumns = (db: Db, table: string): Array<string> =>
+  ['writer', 'holder_id', 'period'].filter((col) => columnsOf(db, table).has(col));
+
 /**
- * The existing row of a mapped row's primary key: { owner_key, retired_at, origin?, kind?, writer?, holder_id? } or
+ * The existing row of a mapped row's primary key: { retired_at, origin?, kind?, writer?, holder_id?, period? } or
  * undefined.
  */
 function existingOf(db: Db, table: string, row: Row): Row | undefined {
   const key = OWNED[table];
-  const origin = table === 'sources' ? ', origin' : table === 'people' ? ', kind' : '';
-  const owner = columnsOf(db, table).has('holder_id') ? ', writer, holder_id' : '';
+  const origin = table === 'sources' ? ['origin'] : table === 'people' ? ['kind'] : [];
+  const columns = ['retired_at', ...origin, ...ownerColumns(db, table)].map(quote).join(', ');
   return prepared(
     db,
-    `SELECT owner_key, retired_at${origin}${owner} FROM ${quote(table)} WHERE ${key.map((col) => `${quote(col)} = ?`).join(' AND ')}`
+    `SELECT ${columns} FROM ${quote(table)} WHERE ${key.map((col) => `${quote(col)} = ?`).join(' AND ')}`
   ).get(...key.map((col) => bind(row[col])));
 }
 
 /**
- * Whether a row the database wrote is an observation's (observe.ts) that a unit write now brings: a line observed
- * live (`origin` `observation`), or an account or a non-DM place (only an observation writes those without a unit;
- * the DM places the resolver creates are never in a unit). The unit's row adopts it (its `owner_key`, every column
- * the mapping names) instead of skipping it or writing a second row. A person with no kind is what an owner's link
- * made (person-links.ts) and waits for its profile the same way.
+ * Whether a row the database wrote is an observation's (observe.ts) that a write now brings: a line observed live
+ * (`origin` `observation`), or an account or a non-DM place (only an observation writes those without a writer; the DM
+ * places the resolver creates are never in a value). The written row adopts it (its owner columns, every column the
+ * mapping names) instead of skipping it or writing a second row. A person with no kind is what an owner's link made
+ * (person-links.ts) and waits for its profile the same way.
  */
 const observedRow = (table: string, found: Row, row: Row) =>
   table === 'sources'
@@ -140,66 +162,54 @@ const observedRow = (table: string, found: Row, row: Row) =>
       (table === 'places' && row.kind !== 'dm') ||
       (table === 'people' && (found.kind === null || found.kind === undefined));
 
-/** The place an owning unit belongs to, or null for an owner of any other subject. */
-const placeOfOwner = (db: Db, owner: unknown): string | null => {
-  const subject = unitById(db, asText(owner))?.key.subject;
-  return subject?.type === 'place' ? subject.id : null;
-};
+/** Whether a row has an owner: one of the writers that own their rows. */
+const isOwned = (row: Row): boolean => ROW_WRITERS.has(row.writer);
 
-/** Whether a found row has an owner: a place's writer (place-owner.ts) or a unit. */
-const isOwned = (found: Row): boolean =>
-  isPlaceWriter(found.writer) || (found.owner_key !== null && found.owner_key !== undefined);
+/** Whether a found row has the owner columns the mapped row names. */
+const sameOwner = (db: Db, table: string, found: Row, given: Row): boolean =>
+  given.writer !== undefined && ownerColumns(db, table).every((col) => found[col] === bind(given[col]));
 
-/** The place a found row belongs to: the holder of a place's row, else the place of its unit. */
-const placeOfFound = (db: Db, found: Row): string | null =>
-  isPlaceWriter(found.writer) ? placeOfHolder(found) : placeOfOwner(db, found.owner_key);
+/** The place whose writer holds a row: a place's row, a line or a cache of a place, a place's prose; else null. */
+function placeOfRow(row: Row): string | null {
+  if (isPlaceWriter(row.writer)) return placeOfHolder(row);
+  if (typeof row.holder_id !== 'string') return null;
+  if (row.writer === 'versions') return placeOfVersions(row.holder_id);
+  if (row.writer === 'record' || row.writer === 'journal' || row.writer === 'archive' || row.writer === 'media')
+    return row.holder_id === PERSONA_ID ? null : row.holder_id;
+  return null;
+}
+
+/** The owner columns of a mapped row, for the list of the places that share a row. */
+const ownerOf = (row: Row): { writer: string; holder_id: string | null } => ({
+  writer: asText(row.writer),
+  holder_id: typeof row.holder_id === 'string' ? row.holder_id : null,
+});
 
 /**
- * Whether a unit write leaves the found row of `given` alone: a row the database wrote (no owner) stays as it is, and a
- * live row of another place's unit is shared (listed in `co_owners`, not rewritten).
+ * Whether a write leaves the found row of `given` alone: a row the database wrote (no owner) stays as it is, and a live
+ * row another place's writer holds is shared (listed in `co_owners`, not rewritten).
  */
-function leavesAlone(
-  db: Db,
-  table: string,
-  found: Row,
-  given: Row,
-  { holder, mine }: { holder: PlaceOwner | undefined; mine: boolean }
-): boolean {
+function leavesAlone(db: Db, table: string, found: Row, given: Row, mine: boolean): boolean {
   if (!isOwned(found) && !observedRow(table, found, given)) return true;
   if (mine || found.retired_at !== null) return false;
-  const theirs = placeOfFound(db, found);
-  const ours = holder ? placeOfHolder(holder) : placeOfOwner(db, given.owner_key);
+  const theirs = placeOfRow(found);
+  const ours = placeOfRow(given);
   if (theirs === null || ours === null || theirs === ours) return false;
-  if (holder) sharePlaceRow(db, table, keyOf(table, given), holder, given.owner_key);
-  else
-    prepared(db, 'INSERT OR IGNORE INTO co_owners (tbl, key, owner_key) VALUES (?, ?, ?)').run(
-      table,
-      keyOf(table, given),
-      given.owner_key
-    );
+  sharePlaceRow(db, table, keyOf(table, given), ownerOf(given));
   return true;
 }
 
 /**
- * Writes one mapped row of a unit, keeping the ownership rules (`leavesAlone`); anything else is upserted. `holder`
- * names the owner columns of a place's notes or a channel's entry, which own their rows through them; a row such an
- * owner held that another unit takes loses them. Returns true when the row is now this unit's to write (false:
- * skipped).
+ * Writes one mapped row, keeping the ownership rules (`leavesAlone`); anything else is upserted. A row a place's writer
+ * held that a row with no writer columns takes loses them. Returns true when the row is now this writer's to write
+ * (false: skipped).
  */
-function writeRow(
-  db: Db,
-  table: string,
-  given: Row,
-  opts: { ignore?: boolean; at?: string; holder?: PlaceOwner }
-): boolean {
-  const { holder } = opts;
+function writeRow(db: Db, table: string, given: Row, opts: { ignore?: boolean; at?: string }): boolean {
   const found = existingOf(db, table, given);
-  const mine = holder
-    ? found?.writer === holder.writer && found?.holder_id === holder.holder_id
-    : found?.owner_key === given.owner_key;
-  if (found && leavesAlone(db, table, found, given, { holder, mine })) return false;
+  const mine = found !== undefined && sameOwner(db, table, found, given);
+  if (found && leavesAlone(db, table, found, given, mine)) return false;
   const row =
-    found && !holder && isPlaceWriter(found.writer) && !Object.hasOwn(given, 'writer')
+    found && isPlaceWriter(found.writer) && !Object.hasOwn(given, 'writer')
       ? { ...given, writer: null, holder_id: null }
       : given;
   // The v7 derived columns (audience, authority, native key, ...) come from the row itself, so a remap re-derives them.
@@ -208,130 +218,29 @@ function writeRow(
   if (table === 'people' || table === 'accounts' || table === 'places')
     ensureNodeKeys(db, table, derived, { at: opts.at });
   // Schema v8: a line's `reply_to` is a `replies_to` relation, and relations waiting for this line are resolved. Schema
-  // v9: the row's unit is projected (ensureRelations projects a source with its relations).
+  // v9: the row is projected (ensureRelations projects a source with its relations).
   if (table === 'sources') ensureRelations(db, derived, { at: opts.at });
   else projectRow(db, table, derived, { at: opts.at });
   if (table === 'selfreflection') restrictSelfreflectionMedia(db, derived, opts.at);
-  if (found && !mine) {
-    if (holder) unsharePlaceRow(db, table, keyOf(table, row), holder);
-    else
-      prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_key = ?').run(
-        table,
-        keyOf(table, row),
-        row.owner_key
-      );
-  }
+  if (found && !mine && row.writer !== undefined && row.writer !== null)
+    unsharePlaceRow(db, table, keyOf(table, row), ownerOf(row));
   return true;
 }
 
-/** Hands a row over to another live unit that also maps it; false when there is none. */
-function handOver(db: Db, table: string, key: Row, owner: string): boolean {
-  const heir = prepared(
-    db,
-    `SELECT c.owner_key${columnsOf(db, 'co_owners').has('holder_id') ? ', c.writer, c.holder_id' : ''} FROM co_owners c JOIN storage_units f ON f.id = c.owner_key
-     WHERE c.tbl = ? AND c.key = ? AND c.owner_key != ? AND f.retired_at IS NULL ORDER BY c.owner_key LIMIT 1`
-  ).get(table, keyOf(table, key), owner);
-  if (!heir) return false;
-  const cols = OWNED[table];
-  // A place's notes that inherit the row own it through its owner columns (place-owner.ts).
-  const columns = isPlaceWriter(heir.writer) ? ', writer = ?, holder_id = ?' : '';
-  prepared(
-    db,
-    `UPDATE ${quote(table)} SET owner_key = ?${columns} WHERE ${cols.map((col) => `${quote(col)} = ?`).join(' AND ')}`
-  ).run(heir.owner_key, ...(columns ? [heir.writer, heir.holder_id] : []), ...cols.map((col) => key[col]));
-  prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_key = ?').run(
-    table,
-    keyOf(table, key),
-    heir.owner_key
-  );
-  for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
-    if (parent === table)
-      prepared(db, `UPDATE ${quote(child)} SET owner_key = ? WHERE ${quote(link)} = ? AND owner_key = ?`).run(
-        heir.owner_key,
-        key.id,
-        owner
-      );
-  }
-  return true;
-}
-
-/** The identity of a child link inside its unit: where it sits under its parent (a mirror: which place it was sent to). */
-const childKey = (child: string, row: Row): string =>
-  child === 'selfreflection_mirrors'
-    ? [row.selfreflection_id, row.iface, row.place_id ?? ''].join('\u0000')
-    : [row[CHILDREN[child][1]], row.position].join('\u0000');
-
-/** Retires the active rows of a unit that the given mapping no longer holds. Returns how many. */
-/** Whether a message or an entry links this media row. A database older than the links has none. */
-function linkedMedia(db: Db, row: Row): boolean {
-  if (columnsOf(db, 'media_links').size === 0) return false;
-  return prepared(db, 'SELECT 1 AS ok FROM media_links WHERE media_id = ? LIMIT 1').get(row.id) !== undefined;
-}
-
-export function retireAbsent(db: Db, owner: string, mapping: Rows, at: string): number {
-  owner = mappingOwner(db, mapping, owner);
-  let count = 0;
-  for (const [table, key] of Object.entries(OWNED)) {
-    const keep = new Set((mapping[table] ?? []).map((row: Row) => keyOf(table, row)));
-    const existing = prepared(
-      db,
-      `SELECT ${key.map(quote).join(', ')} FROM ${quote(table)} WHERE owner_key = ? AND retired_at IS NULL`
-    ).all(owner);
-    const update = prepared(
-      db,
-      `UPDATE ${quote(table)} SET retired_at = ? WHERE ${key.map((col) => `${quote(col)} = ?`).join(' AND ')}`
-    );
-    for (const row of existing) {
-      if (keep.has(keyOf(table, row))) continue;
-      if (handOver(db, table, row, owner)) continue;
-      // A media row an owner links outlives the unit that made it: a cache's or a library's cap trims only what nothing shows.
-      if (table === 'media' && linkedMedia(db, row)) continue;
-      update.run(at, ...key.map((col) => row[col]));
-      projectRow(db, table, row, { at });
-      count += 1;
-    }
-    // This unit no longer maps the rows it shared with another place's unit.
-    for (const shared of prepared(db, 'SELECT key FROM co_owners WHERE tbl = ? AND owner_key = ?').all(table, owner)) {
-      if (!keep.has(shared.key as string))
-        prepared(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND owner_key = ?').run(table, shared.key, owner);
-    }
-  }
-  for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
-    const keep = new Set((mapping[child] ?? []).map((row: Row) => childKey(child, row)));
-    const cols =
-      child === 'selfreflection_mirrors'
-        ? 'rowid, selfreflection_id, iface, place_id'
-        : `rowid, ${quote(link)}, position`;
-    const existing = prepared(
-      db,
-      `SELECT ${cols} FROM ${quote(child)} c WHERE owner_key = ? AND retired_at IS NULL
-      AND NOT EXISTS (SELECT 1 FROM ${quote(parent)} p WHERE p.id = c.${quote(link)} AND p.retired_at IS NULL AND p.owner_key IS NOT NULL AND p.owner_key != ?)`
-    ).all(owner, owner);
-    for (const row of existing) {
-      if (keep.has(childKey(child, row))) continue;
-      prepared(db, `UPDATE ${quote(child)} SET retired_at = ? WHERE rowid = ?`).run(at, row.rowid);
-      if (child === 'selfreflection_mirrors') deriveMirrorPublication(db, row, { at });
-      projectRow(db, child, row, { at });
-      count += 1;
-    }
-  }
-  return count;
-}
-
-/** Writes the child links of a mapping for one unit: a link that is already there is updated and un-retired, a new one is inserted. */
+/** Writes the child links of a mapping: a link that is already there is updated and un-retired, a new one is inserted. */
 function writeChildren(
   db: Db,
   mapping: Rows,
-  owner: string,
   skippedParents: ReadonlySet<string>,
   touched: Array<[string, Row]>
 ): number {
-  // A link that names no owner is the database's or her session's (`isOwned`); a place's links name theirs in columns.
+  // A link that names no writer is the database's or her session's (`isOwned`); a place's links name theirs in columns.
   let count = 0;
   for (const [child, [parent, link]] of Object.entries(CHILDREN)) {
+    const unowned = columnsOf(db, child).has('writer') ? 'writer IS NULL' : '1';
     for (const row of mapping[child] ?? []) {
       if (skippedParents.has(`${parent}\u0000${asText(row[link])}`)) continue;
-      const out: Row = { ...row, owner_key: owner, retired_at: null };
+      const out: Row = { ...row, retired_at: null };
       const cols = Object.keys(out);
       const where =
         child === 'selfreflection_mirrors'
@@ -343,7 +252,7 @@ function writeChildren(
           : [row[link], bind(row.position)];
       const found = prepared(
         db,
-        `SELECT rowid, * FROM ${quote(child)} WHERE ${where} ORDER BY owner_key IS NULL DESC, rowid LIMIT 1`
+        `SELECT rowid, * FROM ${quote(child)} WHERE ${where} ORDER BY ${unowned} DESC, rowid LIMIT 1`
       ).get(...args);
       if (found && !isOwned(found)) continue;
       // A link that already holds every value is left as it is: rewriting it costs a page write and changes nothing.
@@ -366,25 +275,12 @@ function writeChildren(
   return count;
 }
 
-/** Every row of a mapping that names an owner names the unit `owner`, the id the writer gives. */
-function mappingOwner(_db: Db, mapping: Rows, owner: string): string {
-  for (const rows of Object.values(mapping))
-    for (const row of rows) {
-      const provenance = row.owner_file;
-      if ((row.owner_key !== null && row.owner_key !== undefined) || (provenance !== null && provenance !== undefined))
-        row.owner_key = owner;
-    }
-  return owner;
-}
-
-/** Writes a mapping (table -> rows) of the unit `owner`; `holder` names the owner columns of a place's rows. */
+/** Writes a mapping (table -> rows) whose rows name their owner in their owner columns. */
 export function writeMapping(
   db: Db,
   mapping: Rows,
-  owner: string,
-  { ignoreClaims = false, at, holder }: { ignoreClaims?: boolean; at?: string; holder?: PlaceOwner } = {}
+  { ignoreClaims = false, at }: { ignoreClaims?: boolean; at?: string } = {}
 ): number {
-  owner = mappingOwner(db, mapping, owner);
   resolveParticipationSources(db, mapping);
   let count = 0;
   const skippedParents = new Set<string>();
@@ -393,7 +289,7 @@ export function writeMapping(
     if (CHILDREN[table] || !rows.length) continue;
     for (const row of rows) {
       const kept = hold(table, row);
-      if (kept && writeRow(db, table, kept, { ignore: table === 'claims' && ignoreClaims, at, holder })) count += 1;
+      if (kept && writeRow(db, table, kept, { ignore: table === 'claims' && ignoreClaims, at })) count += 1;
       else if (Object.values(CHILDREN).some(([parent]) => parent === table))
         skippedParents.add(`${table}\u0000${asText(row.id)}`);
     }
@@ -402,7 +298,7 @@ export function writeMapping(
   ensureLinks(db, mapping.accounts, { at });
   syncPersonAccounts(db, mapping.accounts, at);
   const touched: Array<[string, Row]> = [];
-  count += writeChildren(db, mapping, owner, skippedParents, touched);
+  count += writeChildren(db, mapping, skippedParents, touched);
   // Schema v10: a mirror's publication follows the mirror (publish.ts#deriveMirrorPublication), on this one path.
   for (const [child, row] of touched) {
     if (child === 'selfreflection_mirrors') deriveMirrorPublication(db, row, { at });

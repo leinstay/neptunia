@@ -19,7 +19,6 @@ import { withIface } from '../src/memory/db/current-iface.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import type { MemoryDbService } from '../src/memory/db/service.ts';
-import { listUnits } from '../src/memory/db/storage-units.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';
@@ -89,9 +88,11 @@ test('lore belongs to the place it was written for, under the id as given', asyn
   const { store, read } = rig();
   store.setLore(A, [loreEntry('of room one')], LORE_OPTIONS);
   await save(store);
-  const [unit] = listUnits(read(), { kind: 'lore' });
-  assert.deepEqual(unit?.key.subject, { type: 'place', id: A });
-  assert.equal(unit?.key.scopePlaceId, undefined);
+  const holders = read().prepare("SELECT DISTINCT holder_id FROM claims WHERE writer = 'lore'").all();
+  assert.deepEqual(
+    holders.map((row) => row.holder_id),
+    [A]
+  );
 });
 
 test('two places read two sets of lore whatever interface is ambient', async () => {
@@ -107,11 +108,10 @@ test('two places read two sets of lore whatever interface is ambient', async () 
 
 test('the notes of a place are read and written by its id', async () => {
   // Bug: `getRoot` and `updateRoot` remain the only way to the notes, so a Telegram group has none.
-  const { store, read } = rig();
+  const { store } = rig();
   store.updatePlace(A, { patterns: 'short lines at night' });
   await save(store);
   assert.equal(Reflect.get(store.getPlace(A), 'patterns'), 'short lines at night');
-  assert.deepEqual(listUnits(read(), { kind: 'root' }), []);
   assert.equal(Reflect.get(store.getPlace(B), 'patterns'), '');
 });
 
@@ -123,10 +123,12 @@ test('a place with nothing stored answers empty and writes no collection', () =>
   assert.deepEqual(store.getRecent(A).lines, []);
   assert.deepEqual(store.getParticipation(A).episodes, []);
   store.flush();
-  const kinds = listUnits(read())
-    .map((unit) => unit.key.kind)
-    .filter((kind) => ['lore', 'gifs', 'recent', 'participation'].includes(kind));
-  assert.deepEqual(kinds, []);
+  const writers = ['claims', 'operational', 'episodes', 'media'].flatMap((table) =>
+    read()
+      .prepare(`SELECT DISTINCT writer FROM "${table}" WHERE writer IN ('lore', 'gifs', 'recent', 'participation')`)
+      .all()
+  );
+  assert.deepEqual(writers, []);
 });
 
 test('an unnamed place is refused rather than stored under an empty id', () => {

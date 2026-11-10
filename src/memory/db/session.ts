@@ -755,9 +755,10 @@ export function buildSessionRequest({
   for (const person of shown) {
     const account = db
       .prepare(
-        `SELECT u.subject_id AS id FROM storage_units u JOIN accounts a ON a.id = u.subject_id
-         WHERE u.kind = 'user' AND u.subject_type = 'account' AND u.retired_at IS NULL AND a.native_id = ?
-         ORDER BY u.subject_id LIMIT 1`
+        `SELECT a.id FROM accounts a
+         WHERE a.native_id = ? AND (EXISTS (SELECT 1 FROM accounts p WHERE p.writer = 'profile' AND p.holder_id = a.id AND p.retired_at IS NULL)
+           OR EXISTS (SELECT 1 FROM people p WHERE p.writer = 'profile' AND p.holder_id = a.id AND p.retired_at IS NULL))
+         ORDER BY a.id LIMIT 1`
       )
       .get(person.native);
     let profile = null;

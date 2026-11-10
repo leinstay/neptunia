@@ -17,7 +17,6 @@ import { unitUpdates } from './fixtures/memory-db/seed.ts';
 import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 import {} from '../src/memory/db/ids.ts';
-import { listUnits } from '../src/memory/db/storage-units.ts';
 
 const tmpRoot = () => fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-worker-'));
 const REAL_WORKER = pathToFileURL(path.resolve('src/memory/db/writer-worker.ts')).href;
@@ -148,7 +147,7 @@ test('the unit writes through the worker make the same database as on the callin
     const a = dumpAll(threaded.dbFile());
     const b = dumpAll(inline.dbFile());
     for (const table of Object.keys(b)) assert.deepEqual(a[table], b[table], table);
-    assert.ok(a.storage_units.length > 5 && a.vectors.length === 2);
+    assert.ok(a.claims.length + a.sources.length + a.operational.length > 5 && a.vectors.length === 2);
   } finally {
     await threaded.done();
     await inline.done();
@@ -413,16 +412,12 @@ test('worker: the unit writers and the observation write through the worker (buf
     const db = dbOf(env.service.readHandle()!);
     // Observation and record adoption share semantic ownership even when no legacy provenance path exists.
     const place = legacyServerPlaceId('discord', GUILD);
-    const units = listUnits(db, {
-      kind: 'record',
-      subject: { type: 'place', id: place },
-      partition: '2026-11-03',
-    });
-    assert.equal(units.length, 1);
     assert.deepEqual(
       db
-        .prepare('SELECT kind, position FROM sources WHERE owner_key = ? ORDER BY position')
-        .all(units[0].id)
+        .prepare(
+          "SELECT kind, position FROM sources WHERE writer = 'record' AND holder_id = ? AND period = ? ORDER BY position"
+        )
+        .all(place, '2026-11-03')
         .map((row) => [row.kind, row.position]),
       [
         ['seen', 0],

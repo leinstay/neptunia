@@ -27,10 +27,9 @@ import {
   stampPlaceRows,
 } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
-import { placeCollection, keyText } from './storage-keys.ts';
+import { placeCollection, keyText, storageId } from './storage-keys.ts';
 import { namedIface } from './live-iface.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
 import { asText, dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
@@ -82,7 +81,6 @@ function putEpisodes(
       ...groupScope(iface),
       created_at: null,
       retired_at: null,
-      owner_key: owner,
       position,
     });
     const messages: Array<unknown> = Array.isArray(episode.messages) ? episode.messages : [];
@@ -97,7 +95,7 @@ function putEpisodes(
   });
 }
 
-/** The rows of the participation `value` of the unit `key`, owned by `owner` (the unit's id) and `holder`. */
+/** The rows of the participation `value` of the unit `key`, owned by `holder`, `owner` the unit's id. */
 function participationRows(
   db: Db,
   key: StorageKey,
@@ -125,7 +123,6 @@ function participationRows(
     kind: 'participation',
     owner: stored ? stored.owner : owner,
     value: JSON.stringify(rest),
-    owner_key: owner,
   });
   return stampPlaceRows(rows, holder);
 }
@@ -160,12 +157,11 @@ export function writeParticipation(
   value: Row,
   { at, iface }: { at: string; iface?: string }
 ): ParticipationResult {
-  const id = ensureUnit(db, key);
+  const id = storageId(key);
   const holder = placeOwnerOf(key)!; // a `participation` unit always has its owner columns (place-owner.ts)
   const mapping = participationRows(db, key, value, id, holder, iface);
-  const upserted = writeMapping(db, mapping, id, { at, holder });
+  const upserted = writeMapping(db, mapping, { at });
   const retired = retirePlaceAbsent(db, holder, mapping, at);
-  noteUnit(db, id, 'participation', { at });
   return { upserted, retired };
 }
 
