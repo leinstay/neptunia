@@ -387,7 +387,7 @@ export function objectMeaning(
 /** `memoryDb.retrieval.embedBatch` when missing or invalid: config.json's value. */
 const EMBED_BATCH_FALLBACK = 50;
 /** `llm.maxRequestTokens` when missing or invalid: config.json's value. */
-const MAX_REQUEST_TOKENS_FALLBACK = 50_000;
+const MAX_REQUEST_TOKENS_FALLBACK = 100_000;
 
 const positive = (value: unknown, fallback: number): number =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;

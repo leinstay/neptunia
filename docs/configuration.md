@@ -76,7 +76,7 @@ The chain of routes each model role runs on, the one place a role's key, harness
 |---|---|---|---|---|
 | `llm.baseUrl` | string | `"https://openrouter.ai/api/v1"` | Chat completions endpoint | `src/llm/openrouter.ts` |
 | `llm.maxOutputTokens` | number | `2000` | Max output tokens | `src/llm/openrouter.ts` |
-| `llm.maxRequestTokens` | number | `50000` | Hard token cap per request | `src/behavior/sandbox.ts` |
+| `llm.maxRequestTokens` | number | `100000` | Hard token cap per request | `src/behavior/sandbox.ts` |
 | `llm.timeoutMs` | number | `300000` | Request timeout (ms) | `src/llm/openrouter.ts` |
 | `llm.probeTimeoutMs` | number | `30000` | Timeout of each model probe and of the key reads of the status card (ms) | `src/tools/operations/status.ts` |
 | `llm.analyzerTimeoutMs` | number | `30000` | Timeout of a request on a model role other than the core's, made alongside the turn (route classifier, search classifier, recall summary). Past this the request is abandoned | `src/llm/embed.ts` |
@@ -349,13 +349,13 @@ The engine proxy is described in [Proxy](proxy.md).
 | Key | Type | Default | What it does | Read by |
 |---|---|---|---|---|
 | `tools.safeMode` | boolean | `false` | Only the persona's reply effects pass; every other tool is refused | `src/tools/access.ts` |
-| `tools.resultMaxChars` | number | `4500` | Characters of a tool's returned data shown in a call's result | `src/behavior/sandbox.ts` |
+| `tools.resultMaxChars` | number | `8000` | Characters of a tool's returned data shown in a call's result | `src/behavior/sandbox.ts` |
 | `tools.destructiveCooldownMinutes` | number | `10` | Minutes between two destructive skill calls from the same channel | `src/tools/gateway.ts` |
 | `tools.callTimeoutMs` | number | `120000` | How long a skill call may run before its outcome is `unknown` | `src/behavior/sandbox.ts` |
 | `tools.transport` | string | `"native"` | How tools reach the model. `native`: structured tool calls. `text`: tools described in the prompt, calls as `<tool_call>` blocks | `src/behavior/sandbox.ts` |
-| `tools.loop.maxSteps` | number | `3` | Most further requests one turn makes after her calls | `src/turn/tool-round.ts` |
-| `tools.loop.timeBudgetMs` | number | `20000` | How long the calls and follow-ups may run | `src/turn/settings.ts` |
-| `tools.loop.maxCallsPerStep` | number | `4` | Most calls of one answer that run | `src/turn/settings.ts` |
+| `tools.loop.maxSteps` | number | `100` | Most further requests one turn makes after her calls | `src/turn/tool-round.ts` |
+| `tools.loop.timeBudgetMs` | number | `300000` | How long the calls and follow-ups may run | `src/turn/settings.ts` |
+| `tools.loop.maxCallsPerStep` | number | `8` | Most calls of one answer that run | `src/turn/settings.ts` |
 | `tools.loop.stepReserveTokens` | number | `6000` | Tokens the first request leaves for the follow-up requests. `0` = no reserve | `src/turn/request/head.ts` |
 
 ## skills

@@ -392,7 +392,9 @@
         "last": "This is your last step. A call here will not run. Answer from what you have, or end with <skip/>.",
         "delivery": "{n} of {total} deliveries went through; the rest did not ({code}).",
         "lastInner": "This is your last step. One call still runs here: a post or an intention change. Nothing else will go through.",
-        "rescue": "Your lookups could not go on, and their results are not here. Reply now from what you already have in front of you, or end with <skip/>. A call here will not run."
+        "rescue": "Your lookups could not go on, and their results are not here. Reply now from what you already have in front of you, or end with <skip/>. A call here will not run.",
+        "cut": "This result is longer than what you see here. A narrower call reads the rest.",
+        "dropped": "The result of this {tool} call was taken out to make room. Make the call again if you still need it."
       }
     },
     "errands": {

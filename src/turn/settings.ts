@@ -75,7 +75,12 @@ export function paceSettings(config: unknown): PaceSettings {
 }
 
 /** tools.loop's values when a key is missing (config.json's). */
-const LOOP_FALLBACK = Object.freeze({ maxSteps: 3, timeBudgetMs: 20000, maxCallsPerStep: 4, stepReserveTokens: 6000 });
+const LOOP_FALLBACK = Object.freeze({
+  maxSteps: 100,
+  timeBudgetMs: 300000,
+  maxCallsPerStep: 8,
+  stepReserveTokens: 6000,
+});
 /** `selfreflection.loop`'s values when a key is missing (config.json's). */
 const SELFREFLECTION_LOOP_FALLBACK = Object.freeze({ maxSteps: 2, timeBudgetMs: 600000 });
 /** The least time one call of the tool loop gets, whatever is left of its budget. */
@@ -161,5 +166,5 @@ type ResultCharsConfig = { tools?: { resultMaxChars?: number } } & Record<string
 export function resultCharsFor(result: { skill?: unknown } | null | undefined, config: ResultCharsConfig): number {
   if (result?.skill === 'memory.search' || result?.skill === 'conversation.read')
     return recallSettings(config)?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars;
-  return config?.tools?.resultMaxChars ?? 4500;
+  return config?.tools?.resultMaxChars ?? 8000;
 }
