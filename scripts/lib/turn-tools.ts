@@ -44,13 +44,12 @@ export function gatedOps({
   return { runOp: gated(runOp), runOwnOp: gated(runOwnOp), runInitiativeOp: gated(runInitiativeOp), calls };
 }
 
-/** The person link tool of a replay: every link she asks for kept in `calls`, none withheld. */
-export function gatedPersonLinks(calls: Array<KeptCall>, now: () => number): Pick<PersonLinks, 'start' | 'isWithheld'> {
+/** The person link tool of a replay: every link she asks for kept in `calls`. */
+export function gatedPersonLinks(calls: Array<KeptCall>, now: () => number): Pick<PersonLinks, 'start'> {
   return {
     start(ask: LinkAsk): Promise<LinkStart> {
       calls.push({ op: 'person.link', args: ask, at: now() });
       return Promise.resolve({ status: 'ok', data: { text: '' } });
     },
-    isWithheld: () => false,
   };
 }

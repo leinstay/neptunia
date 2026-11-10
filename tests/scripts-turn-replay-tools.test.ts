@@ -56,5 +56,5 @@ test('keeps a person link as a call and starts no link', async () => {
     calls.map((call) => call.op),
     ['person.link']
   );
-  assert.equal(links.isWithheld('fake', '1', 'p-1'), false);
+  // Owner's rule of 2026-11-10: nothing withholds a message any more, so the replay's link tool has no isWithheld.
 });
