@@ -1246,8 +1246,11 @@ test("audienceOf: the bot's own member overwrite is not part of the audience", (
 
 const OTHER_BOT = { first: '640000000000000001', second: '640000000000000002', third: '640000000000000003' };
 
-test('audienceOf: a bot member overwrite is not part of the audience, a human or uncached member stays', () => {
+// The expectation changed on the owner's rule of 2026-11-10: a bot is the same as a person. Another bot's member
+// overwrite counts in a channel's audience exactly as a human's does; only the persona's own is left out.
+test("audienceOf: a bot's member overwrite counts in the channel's audience like a human's", () => {
   const channel = audienceChannel({
+    meId: BOT_ID,
     members: [
       { id: OTHER_BOT.first, bot: true },
       { id: OTHER_BOT.second, bot: true },
@@ -1259,19 +1262,17 @@ test('audienceOf: a bot member overwrite is not part of the audience, a human or
       { id: OTHER_BOT.second, type: OverwriteType.Member, deny: VIEW },
       { id: MEMBER.zoe, type: OverwriteType.Member, allow: VIEW },
       { id: MEMBER.iason, type: OverwriteType.Member, deny: VIEW },
-      { id: MEMBER.nefeli, type: OverwriteType.Member, allow: VIEW },
     ],
   });
   const audience = audienceOf(channel);
-  assert.deepEqual(
-    loose(audience).memberAllow,
-    new Set([MEMBER.zoe, MEMBER.nefeli]),
-    "a bot's allow is ignored; a human's and an uncached member's stay"
-  );
-  assert.deepEqual(loose(audience).memberDeny, new Set([MEMBER.iason]), "a bot's deny is ignored; a human's stays");
+  assert.deepEqual(loose(audience).memberAllow, new Set([OTHER_BOT.first, MEMBER.zoe]));
+  assert.deepEqual(loose(audience).memberDeny, new Set([OTHER_BOT.second, MEMBER.iason]));
 });
 
-test('audienceOf: two channels differing only by bot member allows cover each other', () => {
+// The expectation changed on the owner's rule of 2026-11-10: a bot is the same as a person. A bot allowed by name on
+// the main chat and denied by role on the memes channel views one and not the other, so the memes channel is no
+// source for the main chat, as it would not be for a human allowed the same way.
+test("audienceOf: a bot's allow by name has to be proven on the source like a human's", () => {
   const BOT_ROLE = '610000000000000009';
   const bots = Object.values(OTHER_BOT);
   const shared = { roles: [...Object.values(ROLE), BOT_ROLE], members: bots.map((id) => ({ id, bot: true })) };
@@ -1283,8 +1284,8 @@ test('audienceOf: two channels differing only by bot member allows cover each ot
     })
   );
   const memes = audienceOf(audienceChannel({ ...shared, overwrites: [botRoleDeny] }));
-  assert.equal(audienceCovers(main, memes), true, 'the memes channel is a source for the main chat');
-  assert.equal(audienceCovers(memes, main), true, 'and the other way round');
+  assert.equal(audienceCovers(main, memes), false, 'the memes channel is no source for the main chat');
+  assert.equal(audienceCovers(memes, main), true, 'the main chat is a source for the memes channel');
 
   const humanAllow = audienceOf(
     audienceChannel({

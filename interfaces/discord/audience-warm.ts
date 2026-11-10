@@ -1,10 +1,9 @@
-// The audience rail (interfaces/discord/collect.ts#audienceOf) leaves a bot's member
-// overwrite out of a channel's audience, but it can only tell a bot by the
-// member cache, and without the member intent that cache holds only members
-// seen since startup. This module fills it: every member named by a
-// permission overwrite in the served guild and missing from the cache is
-// fetched over REST, one by one, so discord.js caches it and `user.bot` is
-// known. The id collection and the fetch loop are pure over their inputs;
+// The audience rail (interfaces/discord/collect.ts#audienceOf) reads the roles
+// of each member named by a permission overwrite from the member cache, and
+// without the member intent that cache holds only members seen since startup.
+// This module fills it: every member named by a permission overwrite in the
+// served guild and missing from the cache is fetched over REST, one by one, so
+// discord.js caches it and its roles are known. The id collection and the fetch loop are pure over their inputs;
 // the warmer is the thin part that reads the live guild.
 import { OverwriteType } from 'discord.js';
 import { errorFields } from './values.ts';
