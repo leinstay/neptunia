@@ -453,22 +453,23 @@
     }
   },
   "memory.search": {
-    "title": "Search messages",
-    "whenToUse": "Find what was said, on any interface you can read. With anchor, read lines around a known line instead. Quoted sample with time and author. With only when or place, a sample of lines from there.",
-    "whenNotToUse": "Not for what chat shows.",
+    "title": "Search memory",
+    "whenToUse": "Everything you saw and said in places you can read, and pictures, GIFs and videos by what they show, in any language. terms finds a thing or a name, question gets an answer. Returns quoted lines with time, author and place, then facts. Only when or place: a sample of lines.",
+    "whenNotToUse": "Not for what the chat shows.",
     "args": {
-      "when": "YYYY-MM-DD or range (A..B).",
+      "question": "What you want to know.",
+      "terms": "Words to find, separated by commas.",
       "people": "Names or @handles.",
-      "terms": "Exact words to match.",
-      "place": "#handle, or the place in the words its people use: its name or what it is for.",
-      "anchor": "#N from a result or the chat, or a message id. Reads nearby lines instead of searching.",
-      "move": "up for earlier, down for later.",
-      "messages": "How many lines (1 to 60).",
-      "minutes": "Lines within this many minutes of the anchor (1 to 1440).",
-      "entity": "An entity id from a stored fact: its facts and what sits next to them.",
-      "predicate": "Only facts of this predicate, such as project.works_on.",
-      "as_of": "A date: stored facts as you had recorded them at its start.",
-      "historical": "Also older versions and retired facts."
+      "place": "#handle, its name, or what it is for.",
+      "when": "YYYY-MM-DD or range (A..B).",
+      "anchor": "#N or a message id: reads around it instead.",
+      "move": "up earlier, down later.",
+      "messages": "Lines (1 to 60).",
+      "minutes": "Minutes from the anchor (1 to 1440).",
+      "entity": "Entity id of a stored fact: its facts and neighbours.",
+      "predicate": "Only facts of this predicate (project.works_on).",
+      "as_of": "A date: facts as recorded at its start.",
+      "historical": "Also older and retired facts."
     }
   },
   "conversation.read": {

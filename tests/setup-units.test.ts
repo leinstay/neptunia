@@ -470,3 +470,15 @@ for (const [file, mode] of [
       );
   });
 }
+
+test('the rendered system core joins the group that reads the journal, and a user core names no group', () => {
+  // Bug: the watcher the core starts runs as a user outside `systemd-journal`, journalctl answers nothing, and the
+  // report says the server was quiet. A user manager refuses `SupplementaryGroups=` with status 216, so that form
+  // must not carry it.
+  const rendered = (scope: 'user' | 'system') => renderUnit(template('neptunia-core.service'), scope, VARS).split('\n');
+  assert.ok(rendered('system').includes('SupplementaryGroups=systemd-journal'));
+  assert.equal(
+    rendered('user').some((line) => line.startsWith('SupplementaryGroups=')),
+    false
+  );
+});

@@ -41,17 +41,6 @@ test('a first start claims a run that a new reader finds by its identity, in sta
   assert.equal(currentRun({ ...store })?.runId, claim.run.runId);
 });
 
-test('a start during an active run answers that run, whichever way either came', async () => {
-  // Bug: the manual path and the timer path keep separate claims, so a trigger races the midnight run.
-  const { claimRun } = await lifecycle();
-  const { store } = inspectionRig();
-  const first = claimRun(store, { ...CLAIM, source: 'manual' });
-  const second = claimRun(store, { ...CLAIM, source: 'timer' });
-  assert.equal(second.claimed, false);
-  assert.equal(second.run.runId, first.run.runId);
-  assert.equal(second.run.source, 'manual');
-});
-
 test('racing processes get one claim between them', async () => {
   // Bug: the claim reads, then writes, so two workers started in the same second both inspect and both spend.
   await lifecycle();

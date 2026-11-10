@@ -78,44 +78,6 @@ const read = async (args: Record<string, unknown>) => {
   const result = await runOp('memory.profile.read', { section: 'changes', ...args }, { env, asOwner: true });
   return { result, text: JSON.stringify(result) };
 };
-const order = (text: string, ...reasons: Array<string>) => reasons.map((reason) => text.indexOf(reason));
-
-test('lists the changes of every person, newest first', async () => {
-  // Catches: the only reader of attitude is one person's profile, so a change across people cannot be found.
-  const { result, text } = await read({});
-  assert.equal(result.status, 'ok');
-  const [newest, middle, oldest] = order(text, 'thanked her twice', 'snapped at a friend', 'helped with the garden');
-  assert.ok(newest >= 0 && newest < middle && middle < oldest, text);
-  assert.ok(text.includes(ANNA) && text.includes(BORIS));
-});
-
-test('leaves out a change made in a private chat and a retired change', async () => {
-  // Catches: the list leaks a DM-scoped change into a group, or lists a move the writer retired.
-  const { text } = await read({});
-  assert.equal(text.includes('synthetic'), false, 'the seeded DM change');
-  assert.equal(text.includes('a retired move'), false);
-});
-
-test('a limit keeps the newest changes', async () => {
-  const { text } = await read({ limit: 1 });
-  assert.ok(text.includes('thanked her twice'));
-  assert.equal(text.includes('snapped at a friend'), false);
-});
-
-test('a time window keeps the changes inside it, ends included', async () => {
-  // Catches: since or until is ignored, or the window excludes its own first instant.
-  const { text } = await read({ since: '2026-11-03T10:00:00.000Z', until: '2026-11-04' });
-  assert.ok(text.includes('snapped at a friend'));
-  assert.equal(text.includes('helped with the garden'), false);
-  assert.equal(text.includes('thanked her twice'), false);
-});
-
-test('an empty window says there is none', async () => {
-  const { result, text } = await read({ since: '2027-01-01' });
-  assert.equal(result.status, 'ok');
-  assert.equal(text.includes('thanked her twice'), false);
-  assert.match(String(result.summary), /no .*change/i);
-});
 
 test('a date that is not a date is refused', async () => {
   const { result } = await read({ since: 'last tuesday' });

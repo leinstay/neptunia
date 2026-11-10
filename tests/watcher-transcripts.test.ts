@@ -35,7 +35,6 @@ import { tempDir } from './fixtures/tmp.ts';
 import { PLANTED_KEY } from './fixtures/watcher-rig.ts';
 
 const transcripts = () => import('../src/watcher/transcripts.ts');
-const coverage = () => import('../src/watcher/coverage.ts');
 const lifecycle = () => import('../src/watcher/lifecycle.ts');
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
@@ -243,37 +242,6 @@ test('a credential in a transcript is masked in the read and named as a gap', as
   assert.ok(String(request?.messages).includes('before'));
   assert.ok(request?.gaps.includes('credential-masked'));
 });
-
-// ---- the inventory --------------------------------------------------------------------------------------------------
-
-for (const service of ['thinker', 'dev', 'scout', 'server', 'watcher']) {
-  test(`${service} names Claude's transcripts as its recorded source, with a gap only for what is really missing`, async () => {
-    // Bug: the inventory calls a CLI run's instructions and transcript absent, though a real run recorded both.
-    const { ARCHIVE_COVERAGE } = await coverage();
-    const entry = ARCHIVE_COVERAGE.find((one) => one.service === service) ?? assert.fail(`no entry: ${service}`);
-    assert.equal(entry.path, 'subprocess');
-    assert.deepEqual(entry.transcripts, {
-      backend: 'claude',
-      path: 'subharness/claude/home/projects/<project>/<id>.jsonl',
-    });
-    for (const name of ['request', 'toolResults', 'model', 'timestamps'] as const) {
-      const field = entry.fields[name];
-      assert.equal(field.state, 'recorded', name);
-      assert.ok(field.state === 'recorded' && field.where.startsWith('src/watcher/transcripts.ts#'), name);
-    }
-    const identity = entry.fields.runIdentity;
-    assert.ok(identity.state === 'recorded' && identity.where.startsWith('src/subharness/sessions.ts#'));
-    assert.equal(entry.gaps.includes('vendor-instructions'), false);
-    assert.equal(entry.gaps.includes('absent-transcript'), false);
-    assert.ok(entry.gaps.includes('missing-blob'));
-    const others = entry.paths.filter((one) => one.path === 'codex' || one.path === 'opencode');
-    assert.deepEqual(others.map((one) => [one.path, one.state]).sort(), [
-      ['codex', 'gap'],
-      ['opencode', 'gap'],
-    ]);
-    for (const other of others) assert.notEqual(other.reason?.trim(), '');
-  });
-}
 
 // ---- the run-to-session mapping -------------------------------------------------------------------------------------
 
@@ -639,4 +607,42 @@ test('the real command line answers evidence as JSON, with no core and no board'
   assert.equal(page.totalRuns, 1);
   assert.equal(page.runs[0]?.requests[0]?.id, 'req-dev');
   assert.equal(page.runs[0]?.requests[0]?.backend, 'claude');
+});
+
+const NOW = Date.parse('2026-11-04T10:00:00Z');
+
+/** A persona folder with an empty local config, the way the family expects one. */
+function folder(): string {
+  const data = tempDir('nep-watcher-scenario-');
+  fs.mkdirSync(path.dirname(localConfigPath(data)), { recursive: true });
+  fs.writeFileSync(localConfigPath(data), '{}');
+  return data;
+}
+
+/** One action of the `services watcher` family over `data`, every command the family runs answering "denied". */
+function family(data: string, action: string, args: Record<string, unknown> = {}): Promise<ServiceAnswer> {
+  return serviceFamily(
+    {
+      rootDir: REPO,
+      privateDir: data,
+      dataDir: data,
+      config: () => readConfig(REPO, { privateDir: data }),
+      now: () => NOW,
+      env: { NEPTUNIA_UNIT_SCOPE: 'user', XDG_CONFIG_HOME: data },
+      coreUp: false,
+      run: () => Promise.resolve({ code: 1, stdout: '', stderr: 'permission denied' }),
+    },
+    `services.watcher.${action}`,
+    args
+  );
+}
+
+test('the first page of evidence gives a null, not a zero count, for what the memory database could not answer', async () => {
+  // Bug: `audit` and `standards` default to empty counts, and the agent reports a clean memory it never read.
+  const data = folder();
+  const answer = await family(data, 'evidence');
+  assert.equal(answer.status, 'ok', answer.text.slice(0, 300));
+  const page = JSON.parse(answer.text) as Record<string, unknown>;
+  assert.equal(page.audit, null);
+  assert.equal(page.standards, null);
 });

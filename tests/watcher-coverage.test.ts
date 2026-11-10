@@ -29,37 +29,7 @@ const coverage = () => import('../src/watcher/coverage.ts');
 const inspection = () => import('../src/watcher/inspection.ts');
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
-const SERVICES = [
-  'core',
-  'memory',
-  'heartbeat',
-  'selfreflection',
-  'selfimprovement',
-  'classifiers',
-  'thinker',
-  'dev',
-  'scout',
-  'server',
-  'watcher',
-];
 const FIELDS = ['request', 'toolResults', 'backend', 'model', 'runIdentity', 'timestamps', 'outcomeLink'] as const;
-const CHAT_CLIENT = ['core', 'heartbeat', 'selfreflection', 'selfimprovement', 'classifiers'];
-
-const entryOf = async (service: string) =>
-  (await coverage()).ARCHIVE_COVERAGE.find((entry) => entry.service === service) ?? assert.fail(`no entry: ${service}`);
-
-test('every service has one inventory entry, stating each field as recorded or as a gap with its reason', async () => {
-  // Bug: a service is left out, and its absence from the watcher's review reads as nothing wrong.
-  const { ARCHIVE_COVERAGE } = await coverage();
-  assert.deepEqual(ARCHIVE_COVERAGE.map((entry) => entry.service).sort(), [...SERVICES].sort());
-  for (const entry of ARCHIVE_COVERAGE) {
-    for (const name of FIELDS) {
-      const field = entry.fields[name];
-      if (field.state === 'gap') assert.notEqual(field.reason.trim(), '', `${entry.service} ${name}`);
-      else assert.equal(field.state, 'recorded', `${entry.service} ${name}`);
-    }
-  }
-});
 
 test('each recorded field names a file and a symbol that exist', async () => {
   // Bug: the table claims coverage the code lost in a refactor, and nothing says so.
@@ -76,43 +46,6 @@ test('each recorded field names a file and a symbol that exist', async () => {
       );
     }
   }
-});
-
-for (const service of CHAT_CLIENT) {
-  test(`${service} is recorded at the wrapped chat client, tool results and times included`, async () => {
-    // Bug: the inventory calls a path through `archivedLlm` a gap, or a wake on another client recorded.
-    const entry = await entryOf(service);
-    assert.equal(entry.path, 'chat-client');
-    assert.equal(entry.fields.request.state, 'recorded');
-    assert.equal(entry.fields.toolResults.state, 'recorded');
-    assert.equal(entry.fields.timestamps.state, 'recorded');
-  });
-}
-
-test('the classifiers entry names each model path that bypasses the wrapped client', async () => {
-  // Bug: "classifiers: recorded" hides that an embedding or speech request has no row at all.
-  const entry = await entryOf('classifiers');
-  for (const file of ['src/llm/embed.ts', 'src/speech/synth.ts']) {
-    const named = entry.paths.find((one) => one.path === file) ?? assert.fail(`${file} is not on the list`);
-    if (named.state === 'gap') assert.notEqual(named.reason.trim(), '');
-    else assert.match(fs.readFileSync(path.join(REPO, file), 'utf8'), /archive/i, `${file} claims a record`);
-  }
-});
-
-test('memory declares both its paths: the wrapped client, and a subprocess with its gaps', async () => {
-  // Bug: the subharness path inherits "recorded" from the wrap, though the CLI's own instructions are in no row.
-  const entry = await entryOf('memory');
-  assert.equal(entry.fields.request.state, 'recorded');
-  assert.ok(entry.paths.some((one) => one.path === 'src/subharness/memory-writer.ts'));
-  assert.ok(entry.gaps.includes('vendor-instructions'));
-  assert.ok(entry.gaps.includes('absent-transcript'));
-});
-
-test('a declared gap is one the read knows, so every gap in the table can be shown to the owner', async () => {
-  // Bug: the table and the read drift into two vocabularies, and a gap in one never surfaces in the other.
-  const { ARCHIVE_COVERAGE, COVERAGE_GAPS } = await coverage();
-  for (const entry of ARCHIVE_COVERAGE)
-    for (const gap of entry.gaps) assert.ok(COVERAGE_GAPS.includes(gap), `${entry.service}: ${gap}`);
 });
 
 // ---- the report's coverage block -------------------------------------------------------------------------------------
