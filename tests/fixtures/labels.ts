@@ -463,7 +463,6 @@ export const labels = {
       'safe-mode': 'not allowed: safe mode',
     },
     proposedOff: 'proposed but off: {names}',
-    proposedDenied: 'proposed but not for the asker: {names}',
     result: {
       coerced: '{arg} read as {value}',
       untaggedNote: '{name} tagged nobody; handle @{handle}',
