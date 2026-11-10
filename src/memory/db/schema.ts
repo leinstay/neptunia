@@ -7,6 +7,7 @@ import { ownMediaRows } from './media-owner.ts';
 import { ownGifRows } from './gif-library.ts';
 import { retireOwnLinesSeenTwice } from './own-lines.ts';
 import { dropUnitLayer } from './drop-units.ts';
+import { dropLegacyKeys } from './legacy-keys.ts';
 import { ownProfileRows } from './profile-owner.ts';
 import { ownPlaceListRows, ownPlaceRows, ownSelfreflectionRows } from './place-owner.ts';
 import { placeLineVectors } from './line-vectors.ts';
@@ -124,6 +125,11 @@ export const MIGRATIONS: Array<Migration> = [
   // the unit columns of every row; `co_owners` keeps the four columns the sharing reads (src/memory/db/drop-units.ts).
   (db: Db): void => {
     dropUnitLayer(db);
+  },
+  // Version 56: the `legacy/local` authority goes: its keys, which no reader asks for, its row and its graph node
+  // (src/memory/db/legacy-keys.ts).
+  (db: Db): void => {
+    dropLegacyKeys(db);
   },
 ];
 
