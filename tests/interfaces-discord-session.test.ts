@@ -503,6 +503,26 @@ test('closes the link and destroys the client on stop', async () => {
   assert.equal(h.state.destroyed, 1);
 });
 
+// Bug: discord.js fires ShardDisconnect while `client.destroy()` runs, after stop closed the link. The session tried
+// to send a `connection.changed` lost over the closed link and warned `interface: event not taken` on every stop.
+test('sends nothing and warns nothing for the shard disconnect its own stop causes', async () => {
+  const h = harness();
+  const running = await start(h.host);
+  await h.link.hello;
+  running.open();
+  await flush();
+  const before = h.events('connection.changed').length;
+  h.client.destroy = () => {
+    h.state.destroyed += 1;
+    h.client.emit(Events.ShardDisconnect, { code: 1000 }, 0);
+    return Promise.resolve();
+  };
+  await running.stop();
+  await flush();
+  assert.deepEqual(h.warns, []);
+  assert.equal(h.events('connection.changed').length, before);
+});
+
 // ---- no slash command (PR 7b) -----------------------------------------------------------------
 
 // The guild's application commands as Discord holds them, by id: `fetch` lists them, `delete` removes one by its id or
