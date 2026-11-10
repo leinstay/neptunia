@@ -7,8 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRecord } from '../src/memory/record.ts';
-import { MIGRATIONS, openMemoryDb } from '../src/memory/db/open.ts';
-import { BASELINE_VERSION } from '../src/memory/db/schema-baseline.ts';
+import { openMemoryDb } from '../src/memory/db/open.ts';
 import { recordLines } from '../src/memory/db/record-lines.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { placeOrPersona } from '../src/memory/db/unit-keys.ts';
@@ -147,28 +146,6 @@ test('a line names the stored rows of its author and chat when their ids spell n
     const read = JSON.parse(String(stored)) as Row;
     assert.equal(read.by, 'member');
     assert.deepEqual(read.scope, { channel: 'room-a' });
-  } finally {
-    handle.close();
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('a stored line whose author no account row holds reads its author back once version 51 has run', () => {
-  // Bug: the author was cut out of the account id's text; read from rows, a line of an account nobody stored lost it.
-  const dir = tempDataDir();
-  const handle = openMemoryDb(path.join(dir, 'memory.db'));
-  try {
-    const db = dbOf(handle);
-    const line = seen('o2', 'm31', DAY2, { by: 'gone-member' });
-    applyMemoryWrite(handle, { kind: 'record-lines', placeId: ROOT, lines: [line], iface: 'synthetic', now: NOW });
-    // A line of an older release: its author account was stored by id only, and nothing beside the column.
-    db.prepare("UPDATE sources SET extra = NULL WHERE native_id = 'm31'").run();
-    // Version 51 by its place in the steps above the baseline (version 45 is the first), not the last step.
-    const step = MIGRATIONS[51 - (BASELINE_VERSION + 1)];
-    if (typeof step === 'string') db.exec(step);
-    else step?.(db);
-    const [stored] = recordLines(db, placeOrPersona('record', ROOT, { partition: dayOf(line) }));
-    assert.equal((JSON.parse(String(stored)) as Row).by, 'gone-member');
   } finally {
     handle.close();
     fs.rmSync(dir, { recursive: true, force: true });

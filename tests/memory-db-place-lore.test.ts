@@ -1,6 +1,6 @@
-// The write kind `place-lore` (src/memory/db/place-lore.ts) and the owner columns version step 49 gives the rows of a
-// lorebook, a participation and recent lines (place-owner.ts#ownPlaceListRows). The tests hold the codes and the
-// generated lorebooks.
+// The write kind `place-lore` (src/memory/db/place-lore.ts) and the owner columns the rows of a lorebook, a
+// participation and recent lines carry (src/memory/db/place-owner.ts). The tests hold the codes and the generated
+// lorebooks.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { unitValue } from '../src/memory/db/readers/common.ts';

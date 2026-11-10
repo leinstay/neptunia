@@ -71,15 +71,6 @@ function familiesOf(rows: Array<Row>): Array<MessageFamily> {
 const locatorChat = `CASE WHEN json_valid(extra) THEN COALESCE(json_extract(extra, '$."$messageLocator".chatId'), json_extract(extra, '$."$messageLocator".conversationId')) END`;
 const locatorMessage = `CASE WHEN json_valid(extra) THEN json_extract(extra, '$."$messageLocator".messageId') END`;
 
-/**
- * Schema version 45 (schema.ts): the index of a line by its stored address is built over the same expressions
- * `historicalFamily` asks, so the query searches it instead of scanning every line.
- */
-export function rebuildLocatorIndex(db: Db): void {
-  db.exec('DROP INDEX IF EXISTS sources_message_locator');
-  db.exec(`CREATE INDEX sources_message_locator ON sources(iface, ${locatorChat}, ${locatorMessage}, generation)`);
-}
-
 /** Resolves one historical address, then checks every retained revision of its candidate families. */
 export function historicalFamily(db: Db, locator: NativeMessageLocator, generation: number): MessageFamily | undefined {
   const marked = db

@@ -37,7 +37,6 @@ test('a new database starts at the baseline with the seed rows a new install nee
     assert.deepEqual(column("SELECT kind FROM people WHERE id = 'person:self'"), ['self']);
     assert.deepEqual(column('SELECT id FROM audiences ORDER BY id'), ['aud:internal', 'aud:none']);
     assert.deepEqual(column('SELECT id FROM interfaces ORDER BY id'), ['cli', 'core', 'discord']);
-    // Changed: the baseline seeds `legacy/local` too, and version step 56 deletes it (src/memory/db/legacy-keys.ts).
     assert.deepEqual(column("SELECT id FROM authorities WHERE iface IN ('cli', 'core', 'discord') ORDER BY id"), [
       'cli/local',
       'core/local',
@@ -79,9 +78,10 @@ test('refuses a database below the baseline with the version it found and leaves
   // Catches: an open that runs half a schema over an old file, or refuses it without saying what to do.
   const file = path.join(tempDir('nep-baseline-'), 'old.db');
   const old = new DatabaseSync(file);
-  old.exec('CREATE TABLE schema_version (version INTEGER NOT NULL); INSERT INTO schema_version (version) VALUES (43);');
+  // Changed with the baseline at version 56: the version below it is 55.
+  old.exec('CREATE TABLE schema_version (version INTEGER NOT NULL); INSERT INTO schema_version (version) VALUES (55);');
   old.close();
-  assert.throws(() => openMemoryDb(file), /schema-below-baseline: .*version 43.*baseline 44/);
+  assert.throws(() => openMemoryDb(file), /schema-below-baseline: .*version 55.*baseline 56/);
   const after = new DatabaseSync(file, { readOnly: true });
   try {
     const tables = after.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all();
@@ -89,8 +89,31 @@ test('refuses a database below the baseline with the version it found and leaves
       tables.map((row) => row.name),
       ['schema_version']
     );
-    assert.equal(after.prepare('SELECT MAX(version) AS v FROM schema_version').get()?.v, 43);
+    assert.equal(after.prepare('SELECT MAX(version) AS v FROM schema_version').get()?.v, 55);
   } finally {
     after.close();
+  }
+});
+
+test('a claim link a new database writes gets the id of its claim and source', () => {
+  // Catches: the id trigger of claim_sources reading a column the baseline does not hold, which fails every link.
+  // Moved from the test of version step 55, which goes with the step.
+  const handle = openMemoryDb(':memory:');
+  try {
+    const db = dbOf(handle);
+    db.prepare(
+      "INSERT INTO claims (id, subject_kind, subject_id, kind, text) VALUES ('c1', 'place', 'synthetic:root:1', 'injoke', 'the lamp')"
+    ).run();
+    db.prepare("INSERT INTO claim_sources (claim_id, source_id, position) VALUES ('c1', 's1', 0)").run();
+    db.prepare("INSERT INTO claim_sources (claim_id, source_id, position) VALUES ('c1', 's1', 1)").run();
+    assert.deepEqual(
+      db
+        .prepare("SELECT id FROM claim_sources WHERE claim_id = 'c1' ORDER BY rowid")
+        .all()
+        .map((row) => String(row.id).replace(/#dup\d+$/, '#dup')),
+      ['cs:c1:s:s1', 'cs:c1:s:s1#dup']
+    );
+  } finally {
+    handle.close();
   }
 });
