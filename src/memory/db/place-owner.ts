@@ -127,14 +127,13 @@ export function holdsPlace(db: Db, owner: PlaceOwner, table: string): boolean {
 /** The owner columns of a writer that shares a row: a place's, or a line's or a prose history's of a place. */
 export type SharingOwner = { writer: string; holder_id: string | null };
 
-/** Lists `owner` beside the place that holds the row `key` of `table`. */
+/** Lists `owner` beside the place that holds the row `key` of `table`, once. */
 export function sharePlaceRow(db: Db, table: string, key: string, owner: SharingOwner): void {
-  preparedPlace(db, 'INSERT OR IGNORE INTO co_owners (tbl, key, writer, holder_id) VALUES (?, ?, ?, ?)').run(
-    table,
-    key,
-    owner.writer,
-    owner.holder_id
-  );
+  preparedPlace(
+    db,
+    `INSERT INTO co_owners (tbl, key, writer, holder_id) SELECT ?, ?, ?, ?
+       WHERE NOT EXISTS (SELECT 1 FROM co_owners WHERE tbl = ? AND key = ? AND writer IS ? AND holder_id IS ?)`
+  ).run(table, key, owner.writer, owner.holder_id, table, key, owner.writer, owner.holder_id);
 }
 
 /** Takes `owner` off the list of places that share the row `key` of `table`. */

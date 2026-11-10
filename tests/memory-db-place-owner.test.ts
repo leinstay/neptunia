@@ -96,3 +96,17 @@ test('the writers of the notes and the channel entry register no storage unit an
     handle.close();
   }
 });
+
+test('a root that writes its notes again stays listed once beside the root that holds a shared self fact', () => {
+  // Bug: the list of sharing places is deduplicated by a unit id the writers no longer give, so every write adds a row.
+  const handle = copyOf(seededPlaces());
+  try {
+    writeAll(handle);
+    const other = { self: ['likes rain'], injokes: ['the goat'] };
+    writeDirect(handle, { kind: 'place', placeId: OTHER_ROOT, value: other });
+    writeDirect(handle, { kind: 'place', placeId: OTHER_ROOT, value: other });
+    assert.equal(dbOf(handle).prepare('SELECT COUNT(*) AS n FROM co_owners').get()?.n, 1);
+  } finally {
+    handle.close();
+  }
+});
