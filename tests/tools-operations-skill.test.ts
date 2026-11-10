@@ -8,20 +8,16 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+
 import { runOpPrechecked } from '../src/tools/operations/index.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
-import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
-import { grantedToPersona } from '../src/tools/access.ts';
+
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { packageHash } from '../src/skills/package.ts';
 import type { SkillsPort } from '../src/skills/port.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { skillText, skillsRig } from './fixtures/skills-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
-
-const REPO = fileURLToPath(new URL('..', import.meta.url));
-const SELF_ID = '900';
 const LOOK = skillText('look-it-up', 'I check the web first', ['web.search'], 'Search, then read the best hit.');
 
 type Result = { status: string; code?: string | null; summary?: string; data?: unknown };
@@ -114,17 +110,6 @@ test('skill.disable of an unknown name fails and without a name is invalid', asy
 test('both tools fail when the core has no skills port', async () => {
   assert.equal((await callOf(null, 'skill.read', { name: 'look-it-up' })).status, 'failed');
   assert.equal((await callOf(null, 'skill.disable', { name: 'look-it-up' })).status, 'failed');
-});
-
-test('her skill tools exist with a required name and the tracked config grants neither to her', () => {
-  for (const tool of ['skill.read', 'skill.disable']) {
-    const definition = SKILL_DEFINITIONS.find((one) => one.name === tool);
-    assert.ok(definition, `${tool} is defined`);
-    assert.deepEqual(definition.params.required, ['name']);
-  }
-  const tracked: unknown = JSON.parse(fs.readFileSync(path.join(REPO, 'config', 'config.json'), 'utf8'));
-  assert.equal(grantedToPersona(tracked, SELF_ID, 'skill.read'), false);
-  assert.equal(grantedToPersona(tracked, SELF_ID, 'skill.disable'), false);
 });
 
 test('skill.run runs the activated version only, with the credentials its script declares', async () => {

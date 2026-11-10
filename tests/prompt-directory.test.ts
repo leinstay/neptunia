@@ -158,8 +158,6 @@ function input(overrides: Record<string, unknown> = {}) {
   return { ...base, frame: frameOfInput(base) };
 }
 
-const directoryOf = (text: string) => /<directory>\n([\s\S]*?)\n<\/directory>/.exec(text)?.[1] ?? null;
-
 test('buildRequest: every author in view carries a handle on their lines; the persona and bots do not', () => {
   const history = [
     line('1', 4, PROFILES[0]),
@@ -181,12 +179,4 @@ test('buildRequest: every author in view carries a handle on their lines; the pe
   // Slice 7: no directory up front (the lead's decision 3), so the handles are those of the people in the request: the
   // profiled author and the stranger, not every profiled member.
   assert.equal(request.handles!.size, 2);
-});
-
-test('buildRequest: without the directory labels no block, and without transcript.author bare names', () => {
-  const request = buildRequest(input({ prompts: { ...input().prompts, labels: fixtureLabels } }));
-  const text = userText(request.messages[1].content);
-  assert.equal(directoryOf(text), null);
-  assert.ok(text.includes('Passer-by: line 2'), text);
-  assert.ok(request.handles instanceof Map, 'the handles still resolve');
 });

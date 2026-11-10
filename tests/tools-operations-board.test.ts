@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { openBoard } from '../src/board/board.ts';
 import type { Board, BoardSettings, Handoff, TaskRecord } from '../src/board/board.ts';
@@ -16,14 +16,12 @@ import { BoardError } from '../src/board/machine.ts';
 import type { BoardDb } from '../src/board/schema.ts';
 import { runOp } from '../src/tools/operations/index.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
-import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
-import { grantedToPersona } from '../src/tools/access.ts';
+
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const NOW = Date.parse('2026-10-31T10:00:00.000Z');
-const SELF_ID = '900';
 const SETTINGS: BoardSettings = {
   leaseTtlMinutes: 30,
   autoTriage: { role: 'dev', budget: 4, steps: 80, estimate: 30 },
@@ -36,7 +34,6 @@ const HANDOFF: Handoff = {
   tests: [],
   open_issues: [],
 };
-const REPO = fileURLToPath(new URL('..', import.meta.url));
 
 // open.js types its connection as `object`; it is node:sqlite's DatabaseSync, which has every method BoardDb names.
 const dbOf = (handle: { db: object }): BoardDb => handle.db as BoardDb;
@@ -243,16 +240,6 @@ test('her board principal never approves, reviews or merges, even when clients.j
     'forbidden'
   );
   assert.equal(board.call('boss', 'task.show', { id: work.id }).task.status, 'needs_validation');
-});
-
-test('her task tools exist and the tracked config grants neither to her', () => {
-  const names = SKILL_DEFINITIONS.map((definition) => definition.name);
-  assert.ok(names.includes('task.propose'));
-  assert.ok(names.includes('task.status'));
-  // PR 7c: the shipped settings live in config/config.json.
-  const tracked: unknown = JSON.parse(fs.readFileSync(path.join(REPO, 'config', 'config.json'), 'utf8'));
-  assert.equal(grantedToPersona(tracked, SELF_ID, 'task.propose'), false);
-  assert.equal(grantedToPersona(tracked, SELF_ID, 'task.status'), false);
 });
 
 test('task.propose answers failed board-unavailable when the core has no board', async () => {

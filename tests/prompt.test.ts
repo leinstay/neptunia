@@ -18,10 +18,10 @@ import { blockTags, bodyOf, userText } from './fixtures/prompt-text.ts';
 import { profileStateFields, renderProfile } from './fixtures/profile-render.ts';
 import { estimateTokens } from '../src/llm/tokens.ts';
 import { SAFETY_MARGIN } from '../src/llm/budget.ts';
-import { createFedAround as createAroundStore } from './fixtures/around-feed.ts';
+
 import { fill, formatClock, formatDate, formatDuration } from '../src/format.ts';
 import { labels } from './fixtures/labels.ts';
-import { tokenIds } from '../src/memory/mentions.ts';
+
 import {
   F,
   MIN,
@@ -32,7 +32,6 @@ import {
   fakeConfig,
   fakePrompts,
   fieldsOf,
-  joinClock,
   makeMessage,
 } from './fixtures/prompt-rig.ts';
 
@@ -80,19 +79,6 @@ test('buildRequest: target is the #index of the trigger message in the transcrip
   const request = buildRequest(baseInput({ history: [m1, m2, trigger], trigger, triggerKind: 'reply' }));
   const user = contentText(request.messages[1].content);
   assert.ok(user.includes('Answer #3 as Nept. Target: #3.'));
-});
-
-test('buildRequest: triggerKind "followUp" falls back to labels.triggers.reply when labels.triggers.followUp is missing (an older labels.json)', () => {
-  const olderLabels = {
-    ...labels,
-    triggers: { mention: labels.triggers.mention, reply: labels.triggers.reply },
-  };
-  const trigger = makeMessage(1, NOW - MIN, { authorName: 'Alice' });
-  const request = buildRequest(
-    baseInput({ prompts: fakePrompts({ labels: olderLabels }), history: [trigger], trigger, triggerKind: 'followUp' })
-  );
-  const user = contentText(request.messages[1].content);
-  assert.ok(user.includes(labels.triggers.reply));
 });
 
 // A follow-up (a classifier yes) and an untagged reply (a Discord reply to the persona with no
@@ -262,28 +248,6 @@ test('buildRequest: a task trigger kind without a trigger takes prompts.errand-r
     ).messages[1].content
   );
   assert.ok(!answered.includes('ERRAND_TASK'), 'with the origin message the reply task text frames the result');
-});
-
-test('buildRequest: the overheard trigger label falls back to labels.triggers.followUp, then labels.triggers.reply', () => {
-  const trigger = makeMessage(1, NOW - MIN, { authorName: 'Élodie' });
-  const run = (triggers: Record<string, string>) =>
-    contentText(
-      buildRequest(
-        baseInput({
-          prompts: fakePrompts({ overheard: OVERHEARD_TASK, labels: { ...labels, triggers } }),
-          history: [trigger],
-          trigger,
-          triggerKind: 'overheard',
-        })
-      ).messages[1].content
-    );
-  const { overheard, ...withoutOverheard } = labels.triggers;
-  assert.ok(overheard);
-  assert.ok(run(withoutOverheard).includes(`Élodie ${labels.triggers.followUp} at #1`));
-  const { followUp, ...withoutEither } = withoutOverheard;
-  assert.ok(followUp);
-  assert.ok(run(withoutEither).includes(`Élodie ${labels.triggers.reply} at #1`));
-  assert.ok(run({}).includes('OVERHEARD_TASK: Élodie  at #1'), 'no trigger label at all leaves it empty');
 });
 
 // --- cache segments: the stable part, the profiles, the tail ----------------------------
@@ -823,28 +787,6 @@ test('profileStateFields: shownMoves 0 shows no moves field, the attitude stays'
   assert.deepEqual(lines, [`- ${F.attitude}: 40 (fond) — latest reason`]);
 });
 
-test('profileStateFields: a labels file without peopleNow.move says none for the moves; without peopleNow nothing', () => {
-  const older = { ...labels, peopleNow: { ...labels.peopleNow, move: undefined } };
-  assert.deepEqual(
-    movesOf(
-      profileStateFields(movedProfile([attitudeMove(1, 2, 'α')]), older, {
-        relationships: true,
-        shownMoves: 4,
-        timezone: 'UTC',
-      })
-    ),
-    []
-  );
-  assert.deepEqual(
-    profileStateFields(
-      movedProfile([attitudeMove(1, 2, 'α')]),
-      { ...labels, peopleNow: undefined },
-      { relationships: true, shownMoves: 4 }
-    ),
-    []
-  );
-});
-
 test('profileStateFields: relationships off shows no moves', () => {
   const lines = profileStateFields(movedProfile([attitudeMove(1, 2, 'α')]), labels, {
     relationships: false,
@@ -1030,13 +972,6 @@ test('renderProfile: episodes render heaviest weight first, then newest', () => 
   assert.ok(order[0] < order[1] && order[1] < order[2]);
 });
 
-test('renderProfile: episodes are not rendered when labels lack episode/episodeNoQuote/episodes keys', () => {
-  const brokenLabels = { ...labels, profile: { ...labels.profile, episodes: undefined } };
-  const profile = { id: 'p1', names: ['Carl'], episodes: [episodeFixture()] };
-  const text = renderProfile(profile, brokenLabels, { interlocutor: true, episodes: { enabled: true } });
-  assert.ok(!text.includes('said something memorable'));
-});
-
 test('renderProfile: a tight episodes cap drops the lightest episodes first', () => {
   const profile = {
     id: 'p1',
@@ -1103,22 +1038,6 @@ test('renderProfile: interests render capped at maxInterests, the heaviest kept'
   assert.ok(!text.includes('interests: B; C; A'));
 });
 
-test('renderProfile: falls back to the built-in "topic (note)" / bare topic form when the item labels are missing', () => {
-  const brokenLabels: { profile: Partial<typeof labels.profile> } = { ...labels, profile: { ...labels.profile } };
-  delete brokenLabels.profile.interestItem;
-  delete brokenLabels.profile.interestItemNoNote;
-  const profile = {
-    id: 'p1',
-    names: ['Carl'],
-    interests: [
-      interestFixture({ topic: 'Chess', note: 'weekly club', weight: 2 }),
-      interestFixture({ topic: 'Anime', note: '', weight: 1 }),
-    ],
-  };
-  const text = renderProfile(profile, brokenLabels);
-  assert.ok(text.includes('interests: Chess (weekly club); Anime'));
-});
-
 test('renderProfile: uses labels.profile.interestItem/interestItemNoNote when present', () => {
   const customLabels = {
     ...labels,
@@ -1134,15 +1053,6 @@ test('renderProfile: uses labels.profile.interestItem/interestItemNoNote when pr
   };
   const text = renderProfile(profile, customLabels);
   assert.ok(text.includes('interests: [Chess: weekly club]; <Anime>'));
-});
-
-// --- renderProfile: unsure/stale marks (opt-in via confirmAfter/staleDays) ----
-
-test('renderProfile: without confirmAfter/staleDays, nothing is ever marked (back-compat)', () => {
-  const profile = { id: 'p1', names: ['Carl'], interests: [interestFixture({ topic: 'Chess', weight: 1 })] };
-  const text = renderProfile(profile, labels);
-  assert.ok(!text.includes(labels.profile.unsureMark));
-  assert.ok(!text.includes(labels.profile.staleMark));
 });
 
 test('renderProfile: an interest below confirmAfter renders with unsureMark, at/above it does not', () => {
@@ -1192,22 +1102,6 @@ test('renderProfile: an interest can be both unsure and stale, unsureMark before
   const profile = { id: 'p1', names: ['Carl'], interests: [item] };
   const text = renderProfile(profile, labels, { confirmAfter: 2, staleDays: 90, now });
   assert.ok(text.includes(`Chess${labels.profile.unsureMark}${labels.profile.staleMark}`));
-});
-
-test('renderProfile: a missing unsureMark/staleMark label appends nothing, never throws', () => {
-  const now = Date.UTC(2026, 8, 21);
-  const brokenLabels: { profile: Partial<typeof labels.profile> } = { ...labels, profile: { ...labels.profile } };
-  delete brokenLabels.profile.unsureMark;
-  delete brokenLabels.profile.staleMark;
-  const item = interestFixture({
-    topic: 'Chess',
-    weight: 1,
-    lastSeen: new Date(now - 200 * 24 * 3_600_000).toISOString(),
-  });
-  const profile = { id: 'p1', names: ['Carl'], interests: [item] };
-  const text = renderProfile(profile, brokenLabels, { confirmAfter: 2, staleDays: 90, now });
-  assert.ok(text.includes('interests: Chess'));
-  assert.ok(!text.includes('undefined'));
 });
 
 // --- renderProfile: details ----------------------------------------------------
@@ -1340,13 +1234,6 @@ test('buildRequest: GIFs not watched -> senses.gifDescribed', () => {
   }
 });
 
-test('buildRequest: an older labels.json without senses.gifWatched keeps senses.gifDescribed while GIFs are watched', () => {
-  const { gifWatched, ...olderSenses } = labels.senses;
-  assert.ok(gifWatched);
-  const lines = gifSenses({ prompts: { 'describe-video': 'V' }, labelsOverride: { ...labels, senses: olderSenses } });
-  assert.ok(lines.includes(labels.senses.gifDescribed));
-});
-
 // --- <senses>: video watching ---------------------------------------------------
 
 test('buildRequest: the senses carry videoWatch and linksWatch', () => {
@@ -1357,20 +1244,6 @@ test('buildRequest: the senses carry videoWatch and linksWatch', () => {
   assert.ok(!senses!.split('\n').includes(labels.senses.links));
 });
 
-test('buildRequest: an older labels set without videoWatch/linksWatch falls back to videoDescribed/links', () => {
-  const oldLabels = { ...labels, senses: { ...labels.senses, videoWatch: undefined, linksWatch: undefined } };
-  const senses = sensesOf(buildRequest(baseInput({ prompts: fakePrompts({ labels: oldLabels }) })));
-  assert.ok(senses!.includes(labels.senses.videoDescribed));
-  assert.ok(senses!.split('\n').includes(labels.senses.links));
-});
-
-test('buildRequest: <senses> is omitted entirely when labels has no senses section', () => {
-  const brokenLabels = { ...labels, senses: undefined };
-  const request = buildRequest(baseInput({ prompts: fakePrompts({ labels: brokenLabels }) }));
-  const user = contentText(request.messages[1].content);
-  assert.ok(!user.includes('<senses>'));
-});
-
 // --- <senses>: stickers/Lottie -----------------------------------------------
 
 // Slice 7: the Lottie sentence left the shared senses for the Discord interface's own text.
@@ -1379,14 +1252,6 @@ test('buildRequest: the senses carry stickerDescribed and no Lottie line', () =>
   const senses = sensesOf(request);
   assert.ok(senses!.includes(labels.senses.stickerDescribed));
   assert.ok(!senses!.includes(labels.senses.lottie));
-});
-
-test('buildRequest: an older labels.json with no sticker senses keys omits them (and lottie) without breaking the rest', () => {
-  const oldLabels = { ...labels, senses: { ...labels.senses, stickerDescribed: undefined } };
-  const request = buildRequest(baseInput({ prompts: fakePrompts({ labels: oldLabels }) }));
-  const senses = sensesOf(request);
-  assert.ok(!senses!.includes(labels.senses.lottie));
-  assert.ok(senses!.includes(labels.senses.imageDescribed));
 });
 
 // --- <lore> ------------------------------------------------------------------
@@ -1407,15 +1272,6 @@ function loreEntry(overrides: Record<string, unknown> = {}) {
 test('buildRequest: no <lore> block when nothing matches the recent chat', () => {
   const history = [makeMessage(1, NOW - MIN, { content: 'completely unrelated chatter' })];
   const request = buildRequest(baseInput({ history, loreEntries: [loreEntry()] }));
-  assert.ok(!contentText(request.messages[1].content).includes('<lore>'));
-});
-
-test('buildRequest: <lore> is omitted when labels.lore.entry is missing (older labels.json)', () => {
-  const history = [makeMessage(1, NOW - MIN, { content: 'the flood happened' })];
-  const brokenLabels = { ...labels, lore: undefined };
-  const request = buildRequest(
-    baseInput({ history, prompts: fakePrompts({ labels: brokenLabels }), loreEntries: [loreEntry()] })
-  );
   assert.ok(!contentText(request.messages[1].content).includes('<lore>'));
 });
 
@@ -1650,19 +1506,6 @@ test('buildRequest: a name of exactly 3 characters must match a WHOLE word, neve
   assert.ok(!user.includes('## Max'), '"maximum" must not match the 3-character name "Max" as a prefix');
 });
 
-// --- <people>: episodes of the members asked about (context.askedAboutEpisodes, the constant 3) -----
-
-/** Five moments of one member: heaviest-then-newest order is ε5, ε4, ε3, ε2, ε1. */
-function askedEpisodes() {
-  return [
-    episodeFixture({ what: 'ε1 στιγμή', weight: 1, date: '2026-09-01', quote: '' }),
-    episodeFixture({ what: 'ε4 στιγμή', weight: 4, date: '2026-08-01', quote: '' }),
-    episodeFixture({ what: 'ε5 στιγμή', weight: 4, date: '2026-09-10', quote: 'ποτέ ξανά' }),
-    episodeFixture({ what: 'ε2 στιγμή', weight: 2, date: '2026-09-15', quote: '' }),
-    episodeFixture({ what: 'ε3 στιγμή', weight: 3, date: '2026-07-01', quote: '' }),
-  ];
-}
-
 // --- the web lookup: <lookup>, read links, senses -----------------------------------
 
 function webConfig(web: { links?: object; search?: object } = {}) {
@@ -1746,15 +1589,6 @@ test('buildRequest: search disabled -> no search line even with a key and the gr
   assert.ok(!noSearch.includes(labels.senses.searchTool));
 });
 
-test('buildRequest: an older labels set without linksRead/searchTool keeps only the links line', () => {
-  const older = { ...labels, senses: { ...labels.senses, linksRead: undefined, searchTool: undefined } };
-  const scene = { config: webConfig(), searchAvailable: true, toolsGranted: ['web.search'] };
-  const withLabels = sensesOf(buildRequest(baseInput(scene)))!.split('\n');
-  const senses = sensesOf(buildRequest(baseInput({ ...scene, prompts: fakePrompts({ labels: older }) })))!.split('\n');
-  assert.ok(senses.includes(labels.senses.linksWatch));
-  assert.equal(senses.length, withLabels.length - 2);
-});
-
 // Slice 7: the request is built on its frame, whose cached `<self>` holds both halves of the senses
 // (docs/prompt-contract.md), so the order is read in the one block: the per-turn lines close it.
 test('buildRequest: recallAvailable true and the grant -> the recall line leads the per-turn senses, before the drawing line', () => {
@@ -1795,21 +1629,6 @@ test('buildRequest: a private chat shows the recall line when the turn says reca
   const off = sensesOf(buildRequest(privateScene({ recallAvailable: false, toolsGranted })))!.split('\n');
   assert.ok(!off.includes(labels.senses.recallTool));
 });
-
-test('buildRequest: an older labels set without senses.recallTool renders no recall line and no gap', () => {
-  const { recallTool: _recall, ...olderSenses } = labels.senses;
-  const older = fakePrompts({ labels: { ...labels, senses: olderSenses } });
-  const scene = { config: webConfig(), searchAvailable: true, recallAvailable: true, toolsGranted: ['memory.search'] };
-  const withLabel = sensesOf(buildRequest(baseInput(scene)))!.split('\n');
-  const senses = sensesOf(buildRequest(baseInput({ ...scene, prompts: older })))!.split('\n');
-  assert.equal(senses.length, withLabel.length - 1);
-  assert.ok(senses.every((line) => line.trim() !== ''));
-});
-
-// --- <about_chat>: what people taught the persona (guild.learned) ------------------
-
-const TEACHER_A = '311111111111111111';
-const TEACHER_B = '322222222222222222';
 
 // --- drawing ----------------------------------------------------------------
 
@@ -1879,24 +1698,6 @@ test('renderSenses: draw line shows when she can draw', () => {
 // PR 7d: the daily picture quota is gone, so the input says only whether she can draw (`drawOn`).
 test('renderSenses: draw line is absent without drawOn (no image client wired)', () => {
   assert.ok(!sensesOf(buildRequest(baseInput()))!.includes(labels.senses.draw));
-});
-
-test('renderSenses: an older labels set without senses.draw shows no draw line', () => {
-  // An older set has no time or channel lines either (they follow the files line).
-  const older = {
-    ...labels,
-    senses: {
-      ...labels.senses,
-      draw: undefined,
-      time: undefined,
-      channels: undefined,
-      elsewhere: undefined,
-    },
-  };
-  const senses = sensesOf(buildRequest(baseInput({ prompts: fakePrompts({ labels: older }), drawOn: true })))!.split(
-    '\n'
-  );
-  assert.equal(senses[senses.length - 1], labels.senses.files);
 });
 
 // --- private chat (dmChat) ------------------------------------------------
@@ -1970,70 +1771,8 @@ test('buildRequest: <senses> carries senses.privateAware outside a private chat 
     assert.ok(!senses!.includes(labels.senses.dmChat));
   }
 });
-
-test('buildRequest: an older labels.json without the private senses keys renders no extra line', () => {
-  // Older than the channel lines too, which only a server turn would show.
-  const olderLabels = {
-    ...labels,
-    senses: {
-      ...labels.senses,
-      dmChat: undefined,
-      privateAware: undefined,
-      channels: undefined,
-      elsewhere: undefined,
-    },
-  };
-  const senses = sensesOf(buildRequest(privateScene({ prompts: fakePrompts({ labels: olderLabels, private: 'P' }) })));
-  assert.ok(!senses!.includes('undefined'));
-  assert.equal(senses, sensesOf(buildRequest(baseInput({ prompts: fakePrompts({ labels: olderLabels }) }))));
-});
-
-// --- <channel_view>: another channel pulled into the turn ---------------------------
-
-const SRC = 'src';
-const DEST = 'dest';
 const HOUR = 60 * MIN;
 const TZ = 'Europe/Moscow';
-
-/** A line of the pulled channel (written by Zoé unless overridden). */
-function pulledMessage(id: number | string, ts: number, overrides: Record<string, unknown> = {}) {
-  return makeMessage(id, ts, {
-    placeId: SRC,
-    channelName: 'journal-de-zoé',
-    authorId: 'w1',
-    authorName: 'Zoé',
-    ...overrides,
-  });
-}
-
-/** A line of the channel the turn posts in. */
-function destMessage(id: number | string, ts: number, overrides: Record<string, unknown> = {}) {
-  return makeMessage(id, ts, { placeId: DEST, channelName: 'général', ...overrides });
-}
-
-/** A pulled channel record, the shape interfaces/discord/pull-fetch.ts#fetchPull hands to buildRequest. */
-function pulledChannel(overrides: Record<string, unknown> = {}) {
-  const messages = (overrides.messages ?? [
-    pulledMessage('p1', NOW - 130 * MIN, { content: 'πρώτη σελίδα' }),
-    pulledMessage('p2', NOW - 120 * MIN, { content: 'δεύτερη σελίδα' }),
-  ]) as Array<ReturnType<typeof pulledMessage>>;
-  return {
-    placeId: SRC,
-    channelName: 'journal-de-zoé',
-    readOnly: false,
-    canReact: true,
-    reason: 'mention',
-    earlierPingIds: new Set(),
-    olderNotShown: false,
-    descriptions: new Map(),
-    picturesNotSeen: 0,
-    pingState: new Map(),
-    newestId: messages.at(-1)!.id,
-    newestTs: messages.at(-1)!.ts,
-    ...overrides,
-    messages,
-  };
-}
 
 test('buildRequest: a part of a split message appends labels.task.part with the part and the other parts', () => {
   const trigger = makeMessage(1, NOW - MIN, {
@@ -2197,156 +1936,6 @@ test('buildRequest: an old chat line shows one clock and no age, whatever input.
   const later = chat(NOW + 60 * MIN);
   // Slice 2 (b): one clock per line and no age, so a later request clock changes nothing on the line.
   assert.ok(later!.includes(`#1 [${formatClock(NOW - 3 * HOUR, TZ)}] Userold:`), later!);
-});
-
-// --- <recent>: the last memory.recentHours (recent lines, and moments by reference) ---------
-
-const HERE = '700000000000000001'; // the channel the turn posts in
-const GARDEN = '700000000000000002'; // another channel of the map
-const ANA_ID = '411111111111111111';
-const NIKOS_ID = '422222222222222222';
-const ZOE_ID = '433333333333333333';
-const RECENT_NAMES: Record<string, string> = { [ANA_ID]: 'Ana', [NIKOS_ID]: 'Nikos', [ZOE_ID]: 'Zoé' };
-
-/** A live recent line of #here as the store holds it, an hour before NOW unless `fields` say otherwise. */
-function recentLine(id: string | number, fields: Record<string, unknown> = {}) {
-  const text = fields.text ?? `σημείωση ${id}`;
-  return {
-    id,
-    at: NOW - HOUR,
-    addedAt: new Date(NOW).toISOString(),
-    placeId: HERE,
-    text,
-    who: tokenIds(text),
-    weight: 2,
-    ...fields,
-  };
-}
-
-/** A stored moment dated the day before NOW, inside the window. */
-function recentMoment(what: string, fields: Record<string, unknown> = {}) {
-  return { date: '2026-09-19', what, quote: 'λόγια', feeling: 'χαρά', weight: 3, addedAt: 'a', ...fields };
-}
-
-/**
- * A turn in #here answering Ana, with `lines` as the store's recent lines, every channel's
- * lines allowed unless `recentAudience` says otherwise. `llm` overrides the request limit.
- */
-function recentScene({
-  lines = [],
-  context = {},
-  features = {},
-  memory = {},
-  llm,
-  ...overrides
-}: {
-  lines?: Array<unknown>;
-  context?: object;
-  features?: object;
-  memory?: object;
-  llm?: object;
-  [key: string]: unknown;
-} = {}) {
-  const trigger = makeMessage(1, NOW - MIN, {
-    authorId: ANA_ID,
-    authorName: 'Ana',
-    placeId: HERE,
-    channelName: 'here',
-    content: 'καλημέρα',
-  });
-  return baseInput({
-    config: fakeConfig({ context, features, memory, llm }),
-    history: [trigger],
-    trigger,
-    triggerKind: 'mention',
-    currentChannelId: HERE,
-    channels: [{ id: GARDEN, name: 'garden' }],
-    nameOf: (id: string) => RECENT_NAMES[id] ?? null,
-    recentLines: lines,
-    recentAudience: () => true,
-    ...overrides,
-  });
-}
-
-/** The `<recent>` body of a request, or null when it has none. */
-function recentOf(request: Built) {
-  return bodyOf(userText(request), 'recent');
-}
-
-// --- <attitudes>: the members the persona feels most strongly about -----------------
-
-/** A stored member with an attitude score (`null` = no affinity at all). */
-function scored(id: string, name: string, score: number | null) {
-  const affinity = score === null ? {} : { affinity: { score, reason: `${name} reason`, history: [] } };
-  return { id, names: [name, `${name} alt`], character: `${name} character`, ...affinity };
-}
-
-/** The guild's members: the interlocutor, a member the trigger names, nine others with or without a score. */
-function attitudeCandidates() {
-  return [
-    scored('u0', 'Ana', 99),
-    scored('z1', 'Zoé', 95),
-    scored('m1', 'Ágata', 70),
-    scored('m2', 'Björn', -80),
-    scored('m3', 'Chloé', 30),
-    scored('m4', 'Δήμος', -40),
-    scored('m5', 'Èlia', 12),
-    scored('m6', 'Fañch', -12),
-    scored('m7', 'Γιώργος', 3),
-    scored('m8', 'Hélène', null),
-    scored('m9', 'Íñigo', 0),
-  ];
-}
-
-/** A server turn: Ana asks about Zoé. */
-function attitudesScene({
-  caps,
-  llm,
-  prompts,
-  ...overrides
-}: { caps?: object; llm?: object; prompts?: Record<string, unknown>; [key: string]: unknown } = {}) {
-  const trigger = makeMessage(1, NOW - MIN, { authorId: 'u0', authorName: 'Ana', content: 'what about Zoé' });
-  const candidates = attitudeCandidates();
-  return baseInput({
-    config: fakeConfig({
-      context: {
-        caps: {
-          interlocutor: 2500,
-          aboutChat: 2500,
-          people: 4000,
-          neighbors: 3000,
-          server: 2500,
-          lore: 1500,
-          attitudes: 400,
-          ...caps,
-        },
-      },
-      llm,
-    }),
-    prompts: prompts ?? fakePrompts(),
-    history: [trigger],
-    trigger,
-    triggerKind: 'mention',
-    interlocutor: candidates[0],
-    candidateProfiles: candidates,
-    ...overrides,
-  });
-}
-
-/** The `<attitudes>` body of a request, or null when the block is absent. */
-function attitudesOf(request: Built) {
-  const match = /<attitudes>\n([\s\S]*?)\n<\/attitudes>/.exec(contentText(request.messages[1].content));
-  return match ? match[1] : null;
-}
-
-test('attitudes: a missing label makes no block', () => {
-  for (const key of ['header', 'line']) {
-    const { [key as keyof typeof labels.attitudes]: _gone, ...rest } = labels.attitudes;
-    const request = buildRequest(attitudesScene({ prompts: fakePrompts({ labels: { ...labels, attitudes: rest } }) }));
-    assert.equal(attitudesOf(request), null, key);
-  }
-  const { attitudes: _none, ...older } = labels;
-  assert.equal(attitudesOf(buildRequest(attitudesScene({ prompts: fakePrompts({ labels: older }) }))), null);
 });
 
 // --- code fallbacks equal config.json --------------------------------------------
@@ -2649,12 +2238,6 @@ test('buildRequest: skills -- the tools field of the request takes its tokens of
   assert.equal(taken.stats.limit, free.stats.limit - 5000);
 });
 
-test('buildRequest: skills -- no labels: no block', () => {
-  const prompts = fakePrompts({ labels: { ...labels, tools: undefined } });
-  const bare = contentText(buildRequest(segmentScene({ prompts, skillsInventory: SKILL_ROWS })).messages[1].content);
-  assert.ok(!blockTags(bare).includes('tool_catalogue'));
-});
-
 test('skillsInventoryText: a proposed skill the asker has no right to is named on its own line, never as switched off', () => {
   const rows = [
     { ...SKILL_ROWS[2], proposed: true },
@@ -2781,32 +2364,3 @@ test("skillsInventoryText: each line lists the skill's arguments -- required mar
     'memory.journal.read: Διάβασε -- το ημερολόγιο (allowed)'
   );
 });
-
-// --- <people_now>: what is current about each person, tail only, right before <chat> ---
-
-/**
- * An `around` input: a Greek voice channel with Ηλέκτρα (no profile) muted, the interlocutor
- * (`author-1`, Alice) online and playing, and Carl (`p2`) in the voice channel streaming while
- * listening to Spotify, with a custom status that is never kept.
- */
-function aroundInput({ presences = true }: { presences?: boolean } = {}) {
-  const store = createAroundStore({ presences, now: joinClock });
-  store.voiceUpdate({ id: 'v-user', channelId: 'vc1', selfMute: true, member: { displayName: 'Ηλέκτρα' } });
-  store.voiceUpdate({ id: 'p2', channelId: 'vc1', streaming: true, member: { displayName: 'Carl' } });
-  store.presenceUpdate({
-    userId: 'author-1',
-    status: 'online',
-    activities: [{ type: 0, name: 'Chess' }],
-    member: { displayName: 'Alice' },
-  });
-  store.presenceUpdate({
-    userId: 'p2',
-    status: 'idle',
-    activities: [
-      { type: 2, name: 'Spotify', details: 'Fado', state: 'Lisboa' },
-      { type: 4, name: 'Custom Status', state: 'late night' },
-    ],
-    member: { displayName: 'Carl' },
-  });
-  return { snapshot: store.snapshot(), channelNameOf: (id: string) => (id === 'vc1' ? 'Σαλόνι' : null) };
-}

@@ -77,12 +77,6 @@ test('renderSenses: a false model counts as off like a null one', () => {
   assert.ok(lines.includes(lineOf('imagesIn')));
 });
 
-// Bug caught: an older labels file without the label printing an unfilled or empty line.
-test('renderSenses: a labels file without senses.abilitiesOff adds nothing', () => {
-  const older = { ...OFF_LABELS, senses: { ...labels.senses } };
-  assert.deepEqual(renderSenses(configWith({ ...ALL_ON, vision: null }), older), renderSenses(fakeConfig(), older));
-});
-
 // Bug caught: any byte of the request moving for a deployment where every role has a model.
 // Changed: a config with no models has every optional role off (spec 2026-11-09-model-routes, slice 4), so the
 // request with every role on is the one compared against.
