@@ -130,7 +130,7 @@ test("a member's profile is written to the meta-person and the avatar to the acc
       value: { names: ['Ilse Now'], avatar: { hash: 'h1' }, messageCount: 3 },
     });
     const people = db
-      .prepare('SELECT id FROM people WHERE owner_key IS NOT NULL AND id != ?')
+      .prepare("SELECT id FROM people WHERE writer = 'profile' AND id != ?")
       .all('person:self')
       .map((row) => row.id);
     assert.deepEqual(people, [person]);

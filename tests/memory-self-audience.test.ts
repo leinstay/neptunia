@@ -65,8 +65,8 @@ function selfRows(file: string): Array<SelfRow> {
   try {
     return db
       .prepare(
-        `SELECT u.subject_id AS place, c.scope_kind, c.audience_id FROM claims c JOIN storage_units u ON u.id = c.owner_key
-         WHERE c.kind = 'self_fact' AND c.retired_at IS NULL ORDER BY place`
+        `SELECT c.holder_id AS place, c.scope_kind, c.audience_id FROM claims c
+         WHERE c.kind = 'self_fact' AND c.writer = 'place' AND c.retired_at IS NULL ORDER BY place`
       )
       .all()
       .map((row) => ({ ...row }) as SelfRow);

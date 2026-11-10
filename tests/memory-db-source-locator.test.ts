@@ -5,13 +5,16 @@ import { nativeLocatorOf } from '../src/memory/db/source-locator.ts';
 import { recordSourceRow } from '../src/memory/db/record-lines.ts';
 import type { Row, Rows } from '../src/memory/db/types.ts';
 
-/** A record row as an older release stored it: its day file's path in `owner_file`, a private layer's partner spelled in it. */
+/**
+ * A record row as an older release stored it, a private layer's partner spelled in its day file's path, and its writer
+ * as version step 46 stamped it.
+ */
 const recordRows = (rel: string, line: Row): Rows => ({
   sources: [
     {
       // The older release's record was Discord's.
       ...recordSourceRow(line, { iface: 'discord', privateAccountId: /private\/([^/]+)\//.exec(rel)?.[1] ?? null }),
-      owner_file: rel,
+      writer: 'record',
       position: null,
     },
   ],
@@ -95,7 +98,7 @@ test('a malformed present marker refuses the otherwise valid historical fallback
 
 test('a nonrecord source never gains a route from record-shaped native metadata', () => {
   const { row, extra } = historical();
-  assert.equal(nativeLocatorOf({ ...row, owner_file: 'guilds/g1/users/partner-42.json' }, extra), undefined);
+  assert.equal(nativeLocatorOf({ ...row, writer: 'profile' }, extra), undefined);
 });
 
 test('a historical record line reads its chat from the stored place when the place id spells nothing', () => {

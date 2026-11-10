@@ -147,7 +147,7 @@ test('the unit writes through the worker make the same database as on the callin
     const a = dumpAll(threaded.dbFile());
     const b = dumpAll(inline.dbFile());
     for (const table of Object.keys(b)) assert.deepEqual(a[table], b[table], table);
-    assert.ok(a.sources.length > 5 && a.vectors.length === 2);
+    assert.ok(a.claims.length + a.sources.length + a.operational.length > 5 && a.vectors.length === 2);
   } finally {
     await threaded.done();
     await inline.done();

@@ -126,6 +126,8 @@ export function scopeInto(
 /**
  * The old scope from the columns and the remainder; removes the scope markers from `rest`. `reads.partnerOfDm` reads
  * the partner's platform id of a DM audience and `reads.channelOfPlace` the channel of a place from their stored rows.
+ * A remainder that kept a `dmChannel` was written for a private layer (`scopeInto`), so it reads back as one when the
+ * caller names no partner.
  */
 export function scopeFrom(
   cols: Row,
@@ -144,12 +146,13 @@ export function scopeFrom(
   if (none) return undefined;
   const scope: OldScope = {};
   const place = asText(cols.place_id ?? '');
-  if (privateUser) {
+  const isPrivate = Boolean(privateUser) || typeof dmChannel === 'string';
+  if (isPrivate) {
     if (typeof dmChannel === 'string') scope.channel = dmChannel;
   } else {
     const channel = place === '' ? null : (reads.channelOfPlace?.(place) ?? null);
     if (channel !== null) scope.channel = channel;
   }
-  if (!privateUser && cols.scope_kind === 'dm') scope.user = dmUserOf(cols, reads.partnerOfDm);
+  if (!isPrivate && cols.scope_kind === 'dm') scope.user = dmUserOf(cols, reads.partnerOfDm);
   return scope;
 }
