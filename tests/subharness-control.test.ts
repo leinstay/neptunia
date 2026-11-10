@@ -9,7 +9,6 @@ import {
   DEFAULT_MODES,
   SUBHARNESS_AGENTS,
   agentPaths,
-  replyCheckOptions,
   setAgentMode,
   setAgentModel,
   statusText,
@@ -287,27 +286,4 @@ test('the status lists the thinker in write with its backend, model and effort',
   const row = text.split('\n').find((line) => line.startsWith('  thinker ')) ?? '';
   for (const word of ['write', 'claude', 'claude-opus-5-5', 'medium'])
     assert.ok(row.includes(word), `${word} on "${row}"`);
-});
-
-test('a reply check through claude runs with native thinking off while llm.subscription.thinking is false', () => {
-  // Catches: the memory probe and the other one-reply checks running claude with its native thinking on.
-  const options = replyCheckOptions({
-    backend: 'claude',
-    model: 'claude-opus-4-6',
-    effort: 'medium',
-    config: { llm: { subscription: { thinking: false } } },
-    cwd: '/tmp',
-  });
-  assert.equal(options.env?.MAX_THINKING_TOKENS, '0');
-  assert.equal(options.effort, 'medium');
-});
-
-test('a reply check through claude keeps native thinking while llm.subscription.thinking is true', () => {
-  // Catches: the check forcing the switch off whatever the owner set.
-  const options = replyCheckOptions({
-    backend: 'claude',
-    config: { llm: { subscription: { thinking: true } } },
-    cwd: '/tmp',
-  });
-  assert.equal(options.env?.MAX_THINKING_TOKENS, undefined);
 });

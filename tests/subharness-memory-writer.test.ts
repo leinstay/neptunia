@@ -157,44 +157,6 @@ test('claude gets --effort only when the path has an effort', async () => {
   assert.equal(without.seen[0].args.includes('--effort'), false);
 });
 
-test('claude runs with its native thinking off while llm.subscription.thinking is false', async () => {
-  // Catches: the writer leaving claude's native thinking on, so hidden thinking fills the output cap before the answer.
-  const { deps, seen } = rig(claudeAnswers(ANSWER));
-  await runMemoryWriter(CLAUDE, INPUT, { ...deps, thinking: () => false });
-  const [{ env }] = seen;
-  assert.equal(env.MAX_THINKING_TOKENS, '0');
-});
-
-test('claude keeps its native thinking while llm.subscription.thinking is true', async () => {
-  // Catches: the switch forced off whatever the owner set, so the setting does nothing for the writer.
-  const { deps, seen } = rig(claudeAnswers(ANSWER));
-  await runMemoryWriter(CLAUDE, INPUT, { ...deps, thinking: () => true });
-  const [{ env }] = seen;
-  assert.equal('MAX_THINKING_TOKENS' in env, false);
-});
-
-test('claude keeps the effort the route names beside the thinking switch', async () => {
-  // Catches: the thinking switch dropping or replacing the route's --effort flag.
-  const { deps, seen } = rig(claudeAnswers(ANSWER));
-  await runMemoryWriter({ ...CLAUDE, effort: 'high' }, INPUT, { ...deps, thinking: () => false });
-  const [{ args, env }] = seen;
-  assert.equal(after(args, '--effort'), 'high');
-  assert.equal(env.MAX_THINKING_TOKENS, '0');
-});
-
-test('codex is asked for no reasoning summary only while llm.subscription.thinking is false', async () => {
-  // Catches: the writer's codex run printing a reasoning summary the core's run turns off, or the switch ignoring true.
-  const off = rig(codexAnswers(JSON.stringify({ answer: ANSWER })));
-  await runMemoryWriter(CODEX, INPUT, { ...off.deps, thinking: () => false });
-  const [{ args: offArgs }] = off.seen;
-  assert.ok(offArgs.includes('model_reasoning_summary="none"'));
-  assert.equal(after(offArgs, '-c'), 'model_reasoning_effort=high');
-  const on = rig(codexAnswers(JSON.stringify({ answer: ANSWER })));
-  await runMemoryWriter(CODEX, INPUT, { ...on.deps, thinking: () => true });
-  const [{ args: onArgs }] = on.seen;
-  assert.equal(onArgs.includes('model_reasoning_summary="none"'), false);
-});
-
 /** One request of the memory role through the client, on the harness route the chain client chose. */
 async function throughChain(deps: MemoryWriterDeps, route: Record<string, unknown>, maxOutputTokens: number) {
   const client = memoryWriterClient({ writer: deps, direct: fakeLlm(ANSWER) });
@@ -213,11 +175,7 @@ test('claude thinks at the effort the route asks for, on a budget at most half t
     ['high', 6000],
   ] as const) {
     const { deps, seen } = rig(claudeAnswers(ANSWER));
-    await throughChain(
-      { ...deps, thinking: () => false },
-      { backend: 'claude', model: 'm', effort, isThinking: true },
-      cap
-    );
+    await throughChain(deps, { backend: 'claude', model: 'm', effort, isThinking: true }, cap);
     const [{ args, env }] = seen;
     const budget = Number(env.MAX_THINKING_TOKENS);
     assert.equal(after(args, '--effort'), effort);
@@ -225,12 +183,20 @@ test('claude thinks at the effort the route asks for, on a budget at most half t
   }
 });
 
-test('claude runs with its thinking off when the route effort asks for none', async () => {
+test('claude runs with no native thinking when the route effort is disabled', async () => {
   // Catches: `disabled`, which reaches the writer as `--effort low`, taken as a request to think at low.
   const { deps, seen } = rig(claudeAnswers(ANSWER));
-  await throughChain({ ...deps, thinking: () => false }, { backend: 'claude', model: 'm', effort: 'low' }, 10_000);
+  await throughChain(deps, { backend: 'claude', model: 'm', effort: 'low', isThinking: false }, 10_000);
   const [{ env }] = seen;
   assert.equal(env.MAX_THINKING_TOKENS, '0');
+});
+
+test('claude keeps its own thinking default when the route names no effort', async () => {
+  // Catches: a blanket switch that turns a helper's thinking off although its route asked for nothing.
+  const { deps, seen } = rig(claudeAnswers(ANSWER));
+  await throughChain(deps, { backend: 'claude', model: 'm', effort: null }, 10_000);
+  const [{ env }] = seen;
+  assert.equal('MAX_THINKING_TOKENS' in env, false);
 });
 
 test('claude runs her own binary with her own home and no key of the core in its environment', async () => {

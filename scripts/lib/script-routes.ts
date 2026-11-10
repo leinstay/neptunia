@@ -36,7 +36,6 @@ import { sourceState } from '../../src/subharness/sources.ts';
 import { createSubscriptionClient, spawnSubscriptionChild } from '../../src/subharness/subscription-client.ts';
 import type { SubscriptionClientDeps } from '../../src/subharness/subscription-client.ts';
 import { createToolBridge, serveBridge } from '../../src/subharness/tool-bridge.ts';
-import { isNativeThinking } from '../../src/subharness/thinking.ts';
 import type { ToolBridge } from '../../src/subharness/tool-bridge.ts';
 import { runChildProcess } from '../../src/agent-runner/backend.ts';
 import { CliError } from './cli-args.ts';
@@ -357,12 +356,7 @@ export async function scriptRouting<C>(tool: string, deps: ScriptRoutingDeps<C>)
     ...(deps.hostEnv === undefined ? {} : { hostEnv: deps.hostEnv }),
   });
   const writer = memoryWriterClient({
-    writer: {
-      privateDir,
-      runChild: deps.runChild ?? runChildProcess,
-      workDir,
-      thinking: () => isNativeThinking(getConfig()),
-    },
+    writer: { privateDir, runChild: deps.runChild ?? runChildProcess, workDir },
     direct,
   });
   const core: Direct = {

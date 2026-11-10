@@ -5,7 +5,7 @@
 // tuple of modes, a frozen result with `ok`, `changed` and a message, no argument inspects, and the one write of each
 // change is in this file. No result, log line or status text carries a key value, only a key's name.
 
-import type { BackendResult, BackendRunOptions } from '../agent-runner/backend.ts';
+import type { BackendResult } from '../agent-runner/backend.ts';
 import { isProviderSlug } from '../agent-runner/protocol.ts';
 import type { TaskRoute } from '../agent-runner/protocol.ts';
 import { BACKEND_NAMES } from '../agent-runner/profiles.ts';
@@ -19,7 +19,6 @@ import { modelOfBackend } from './place.ts';
 import { routeName, routeNamesText } from './route-names.ts';
 import { checkedSelection, listsEffort } from './selection.ts';
 import { sourceState } from './sources.ts';
-import { isNativeThinking, nativeThinkingEnv } from './thinking.ts';
 import type { SourceState } from './sources.ts';
 
 export { SUBHARNESS_AGENTS };
@@ -49,30 +48,6 @@ const DEFAULT_EFFORT = 'default';
 
 /** How long the reply check of codex or claude may run (ms). */
 export const REPLY_CHECK_MS = 120_000;
-
-/**
- * The run options of one reply check through codex or claude: the memory probe, the core's probe, `/subharness` checks
- * and `/model set --via`. Read-only, with the model and effort asked for, and native thinking switched as
- * `llm.subscription.thinking` of `config` says (src/subharness/thinking.ts). The agent runner takes no extra `-c` pair,
- * so codex's check keeps its reasoning summary.
- */
-export function replyCheckOptions(check: {
-  backend: 'codex' | 'claude';
-  model?: string;
-  effort?: EffortLevel;
-  config: unknown;
-  cwd: string;
-}): BackendRunOptions {
-  const env = nativeThinkingEnv(check.backend, isNativeThinking(check.config));
-  return {
-    cwd: check.cwd,
-    timeoutMs: REPLY_CHECK_MS,
-    sandbox: 'read-only',
-    ...(Object.keys(env).length === 0 ? {} : { env }),
-    ...(check.model === undefined ? {} : { model: check.model }),
-    ...(check.effort === undefined ? {} : { effort: check.effort }),
-  };
-}
 
 /** The outcome of one change: `code` is `ok` on success, else why it was refused. */
 export type SubharnessResult = { ok: boolean; code: string; changed: boolean; message: string };

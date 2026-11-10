@@ -326,5 +326,5 @@ test('a harness route whose effort is a level asks its run for native thinking, 
   await disabled.client.complete(MESSAGES, { role: 'memory' });
   const off = optionsOf(disabled.asked, 0).chainRoute as { effort?: unknown; isThinking?: unknown };
   assert.equal(off.effort, 'low');
-  assert.equal(off.isThinking === true, false);
+  assert.equal(off.isThinking, false);
 });

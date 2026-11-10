@@ -7,7 +7,7 @@
 // (`chainRoute`). A run that
 // fails rejects with an Error whose `code` says why, `not-logged-in` when claude asks for a login, which the sweep records
 // as it records a failed request. The child gets the backend's home and the plain variables of `childEnvOf`, never a key
-// of the core. Native thinking follows `llm.subscription.thinking` as in her turns (src/subharness/thinking.ts). Log lines carry the backend, the exit code and the tokens, never the text. `memoryCapabilities` says where a path differs from the direct
+// of the core. Claude's native thinking follows the route's effort (`thinkingTokensOf`). Log lines carry the backend, the exit code and the tokens, never the text. `memoryCapabilities` says where a path differs from the direct
 // one. Claude 2.1.317 enforces `CLAUDE_CODE_MAX_OUTPUT_TOKENS` (measured 2026-11-05: with 20 a run ended `is_error` at 80
 // output tokens, with none 436 at `end_turn`), so the cap goes there. Codex 0.164.0 has no such control, so its gap is
 // reported, and nothing trims the answer instead.
@@ -15,7 +15,7 @@
 import fs from 'node:fs';
 import nodePath from 'node:path';
 import { childEnvOf, outputLimitEnv, tokensOf } from '../agent-runner/backend.ts';
-import { isEffortLevel, isListedEffort } from '../llm/roles.ts';
+import { EFFORT_LEVELS, isEffortLevel, isListedEffort } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import type { Completion, SessionContext } from '../memory/db/session.ts';
 import type { MemoryBackend } from './routing.ts';
@@ -26,8 +26,6 @@ import type { RunOutcome } from './login-state.ts';
 import { memoryPath } from './memory-path.ts';
 import type { MemoryPath, SubharnessMemoryPath } from './memory-path.ts';
 import { isInstalled, subharnessPlace } from './place.ts';
-import { nativeThinkingCodexArgs, nativeThinkingEnv, thinkingBudget } from './thinking.ts';
-import type { ThinkingLevel } from './thinking.ts';
 
 /** The shape of codex's final message (`--output-schema`): the whole answer the request's prompt asks for, thinking and tags included, as one string. */
 export const MEMORY_ANSWER_SCHEMA = {
@@ -56,11 +54,6 @@ export type MemoryWriterDeps = {
   runChild: ChildRunner;
   /** The run's working directory; the codex schema file and final-message file go into a fresh folder inside it, removed after the run. */
   workDir: string;
-  /**
-   * Whether the run keeps the model's native thinking, read at each run: `llm.subscription.thinking`
-   * (src/subharness/thinking.ts). Absent, the run has it off, as the setting's default does.
-   */
-  thinking?: () => boolean;
 };
 
 /** How the writer's run on a backend compares with the direct request, whose limit and system text the request enforces. */
@@ -134,7 +127,7 @@ function claudeArgs(path: SubharnessMemoryPath, system: string): Array<string> {
 }
 
 /** codex: read-only whatever the agents' modes are, the answer schema and the final-message file. */
-function codexArgs(path: SubharnessMemoryPath, schemaFile: string, outFile: string, thinking: boolean): Array<string> {
+function codexArgs(path: SubharnessMemoryPath, schemaFile: string, outFile: string): Array<string> {
   return [
     'exec',
     '--skip-git-repo-check',
@@ -147,7 +140,6 @@ function codexArgs(path: SubharnessMemoryPath, schemaFile: string, outFile: stri
     '-m',
     path.model,
     ...(path.effort === null ? [] : ['-c', `model_reasoning_effort=${path.effort}`]),
-    ...nativeThinkingCodexArgs(thinking),
   ];
 }
 
@@ -229,8 +221,8 @@ export async function runMemoryWriter(
     user: string;
     timeoutMs: number;
     maxOutputTokens?: number;
-    /** The level the route's effort asks claude to think at; absent runs it with its thinking off. */
-    thinkingLevel?: ThinkingLevel;
+    /** claude's `MAX_THINKING_TOKENS`: 0 for no native thinking, a budget above; absent leaves the CLI's own default. */
+    thinkingTokens?: number;
   },
   deps: MemoryWriterDeps
 ): Promise<Completion> {
@@ -243,17 +235,14 @@ export async function runMemoryWriter(
     const schemaFile = nodePath.join(dir, 'schema.json');
     const outFile = nodePath.join(dir, 'final.txt');
     const codex = path.backend === 'codex';
-    const thinking = deps.thinking?.() ?? false;
     if (codex) fs.writeFileSync(schemaFile, JSON.stringify(MEMORY_ANSWER_SCHEMA));
     const outcome = await markedRun(deps.privateDir, path.backend, () =>
       deps.runChild({
         binary: place.binary,
-        args: codex ? codexArgs(path, schemaFile, outFile, thinking) : claudeArgs(path, input.system),
+        args: codex ? codexArgs(path, schemaFile, outFile) : claudeArgs(path, input.system),
         env: childEnvOf({
           ...place.env,
-          ...(path.backend === 'claude' && !thinking && input.thinkingLevel !== undefined
-            ? { MAX_THINKING_TOKENS: String(thinkingBudget(input.thinkingLevel, input.maxOutputTokens)) }
-            : nativeThinkingEnv(path.backend, thinking)),
+          ...(codex || input.thinkingTokens === undefined ? {} : { MAX_THINKING_TOKENS: String(input.thinkingTokens) }),
           ...outputLimitEnv(path.backend, input.maxOutputTokens),
         }),
         stdin: codex ? `${input.system}\n\n${input.user}` : input.user,
@@ -316,11 +305,27 @@ function chainPathOf(value: unknown): MemoryPath | null {
   };
 }
 
-/** The level a harness route of the chain client asks the run to think at (`isThinking`), as the writer's input. */
-function thinkingOf(value: unknown, path: SubharnessMemoryPath): { thinkingLevel?: ThinkingLevel } {
-  return isRecord(value) && value.isThinking === true && isEffortLevel(path.effort)
-    ? { thinkingLevel: path.effort }
-    : {};
+/**
+ * claude's thinking budget per level of a route's effort. Claude 2.1.317 runs `MAX_THINKING_TOKENS` above 0 as thinking
+ * of type `enabled` with that `budgetTokens` and 0 as none, read from its binary on 2026-11-10. The memory session's
+ * answers measured on 2026-11-10 average 1,100 visible tokens under a cap of 10,000, so `medium` leaves the answer 6,000.
+ */
+const THINKING_BUDGET: Readonly<Record<(typeof EFFORT_LEVELS)[number], number>> = {
+  low: 2000,
+  medium: 4000,
+  high: 6000,
+};
+
+/**
+ * The thinking of a harness route of the chain client (`isThinking`, src/llm/chain-client.ts): 0 for a route at
+ * `disabled`, at a level its budget, never above half the run's output cap, which counts the thinking too. Nothing for a
+ * route with no effort.
+ */
+function thinkingTokensOf(value: unknown, path: SubharnessMemoryPath, cap: unknown): { thinkingTokens?: number } {
+  if (!isRecord(value) || typeof value.isThinking !== 'boolean') return {};
+  if (!value.isThinking || !isEffortLevel(path.effort)) return { thinkingTokens: 0 };
+  const budget = THINKING_BUDGET[path.effort];
+  return { thinkingTokens: typeof cap === 'number' && cap > 0 ? Math.min(budget, Math.floor(cap / 2)) : budget };
 }
 
 /**
@@ -363,7 +368,7 @@ export function memoryWriterClient(deps: {
               ...splitMessages(messages),
               timeoutMs: timeout > 0 ? timeout : FALLBACK_TIMEOUT_MS,
               ...(typeof options.maxOutputTokens === 'number' ? { maxOutputTokens: options.maxOutputTokens } : {}),
-              ...thinkingOf(options.chainRoute, path),
+              ...thinkingTokensOf(options.chainRoute, path, options.maxOutputTokens),
             },
             writer
           );
