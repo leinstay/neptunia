@@ -141,3 +141,19 @@ test('a person with one account lists no accounts', () => {
   assert.ok(people.includes('Νίκος'));
   assert.ok(!people.includes('222'));
 });
+
+test('a mention stored as a token in an episode of <recent> renders as the name of the account it names', () => {
+  // Bug (2026-11-10): a stored text kept `<@id>` as written, so <recent> showed a person as a number while a line of the
+  // chat showed the same mention by name, and she told the owner she saw him only as a number.
+  const id = '123456789012345678';
+  const names = (one: string): string | null => (one === id ? 'Ελένη' : nameOf(one));
+  const episode = episodeEntry('episode:1', 'place:club', `ΧΘΕΣ μίλησε η <@${id}> για τη λέσχη`);
+  const recent = section(
+    memoryBlockOf(mindOfEntries({ recent: [episode] }), frameOf(frameInput({ author: null })), shippedLabels, names)
+      .text,
+    'recent'
+  );
+  assert.ok(recent.includes('ΧΘΕΣ'), recent);
+  assert.ok(recent.includes('Ελένη'), recent);
+  assert.ok(!recent.includes(id), recent);
+});

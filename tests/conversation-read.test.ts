@@ -39,6 +39,7 @@ import { chainsOf } from './fixtures/chains.ts';
 import { createRecall } from '../src/behavior/recall-run.ts';
 import { quantize } from '../src/memory/vectors.ts';
 import { countOf } from './fixtures/media-memory.ts';
+import { formatDate } from '../src/format.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -928,6 +929,167 @@ test('returns at most 8 matches of find, all of them outside the window, when mo
     const matches = text.slice(text.indexOf(FOUND_MARK));
     assert.equal(countOf(matches, 'kite note'), 8, text);
     assert.ok(!matches.includes('kite note 11') && !matches.includes('kite note 12'), text);
+  } finally {
+    world.close();
+  }
+});
+
+// ---------- a stored place read keeps to the moment it was asked for ----------
+
+// The owner's question about one day (plan 2026-11-10 tools-and-reads, items 5 to 9): a `since` read of a stored place,
+// the date a window and its matches open with, the bounds of `find`, and the name of the place read. The stored lines
+// are spread over days, each with a vector under the fake embedder of findScene. Synthetic names.
+
+/** One stored line on a day of its own: its row, its text, its moment and its vector. */
+type DatedLine = { row: string; text: string; at: string; vector: ReadonlyArray<number> };
+
+/** A room `fake:channel:<native>` named `name` holding `lines`, each with its vector, as findRoom stores them. */
+function datedRoom(world: World, native: string, name: string, lines: ReadonlyArray<DatedLine>): string {
+  const room = addRoom(world.db, { iface: 'fake', native, root: rootId('fake', 'g1'), name });
+  for (const one of lines) {
+    addLine(world.db, { id: one.row, iface: 'fake', place: room, author: 'fake:u1', text: one.text, at: one.at });
+    const { bytes, scale, norm } = quantize([...one.vector]);
+    world.db
+      .prepare(
+        `INSERT INTO vectors (source_rowid, item_id, chunk_key, model, dims, scale, norm, bytes, context, occurred_at, scope_kind, scope_iface, scope_dm)
+         SELECT rowid, ?, ?, ?, ?, ?, ?, ?, '{}', occurred_at, scope_kind, scope_iface, scope_dm FROM sources WHERE id = ?`
+      )
+      .run(one.row, `record:${one.row}:1`, EMBEDDER, one.vector.length, scale, norm, bytes, one.row);
+  }
+  return room;
+}
+
+/** `count` lines `<prefix> NNN`, one a minute from `start`, every one far from any query unless `close` names its index. */
+const linesFrom = (prefix: string, start: string, count: number, close: ReadonlyArray<number> = []): Array<DatedLine> =>
+  Array.from({ length: count }, (_, i) => ({
+    row: `${prefix}-${i}`,
+    text: `${prefix} ${String(i).padStart(3, '0')}`,
+    at: new Date(Date.parse(start) + i * 60_000).toISOString(),
+    vector: close.includes(i) ? CLOSE : FAR,
+  }));
+
+/** The moment `minute` minutes after 09:00 of the place reads' day, as a stored line holds it. */
+const PLACE_ISO = (minute: number): string => new Date(PLACE_AT(minute)).toISOString();
+
+/** The date a read writes for the moment `at`, as the transcript of a UTC turn in the fixture's locale writes it. */
+const dateOf = (at: string): string => formatDate(Date.parse(at), 'UTC', FIND_LABELS.locale);
+
+test('a since read of a stored place with more lines after the moment than one read holds returns the first lines at that moment', async () => {
+  // Bug (2026-11-10): the read took the newest 60 stored lines and kept those after the moment, so `since` two days
+  // back began at the newest hour and she read the wrong day.
+  const world = openWorld();
+  try {
+    const read = findScene(world);
+    const room = datedRoom(world, 'c7', 'kitchen', linesFrom('dish', '2026-11-01T08:00:00.000Z', 100));
+    const text = await read({ placeId: room, since: '2026-11-01', last: 5 });
+    assert.ok(text.includes('dish 000') && text.includes('dish 004'), text);
+    assert.ok(!text.includes('dish 099'), text);
+  } finally {
+    world.close();
+  }
+});
+
+test('a since read of a day that holds no line shows the date of the later lines it returns before the first of them', async () => {
+  // Bug (2026-11-10): asked for a day with no line, the read returned the next day's lines under clock times alone, and
+  // she took them for the day she was asked about.
+  const world = openWorld();
+  try {
+    const read = findScene(world);
+    const lines = [
+      ...linesFrom('before', '2026-10-30T12:00:00.000Z', 3),
+      ...linesFrom('after', '2026-11-01T12:00:00.000Z', 3),
+    ];
+    const room = datedRoom(world, 'c7', 'kitchen', lines);
+    const text = await read({ placeId: room, since: '2026-10-31', last: 5 });
+    const first = text.indexOf('after 000');
+    // An answer that the day is empty shows no later line at all; one that shows them names their day first.
+    if (first >= 0) {
+      const date = text.indexOf(dateOf('2026-11-01T12:00:00.000Z'));
+      assert.ok(date >= 0 && date < first, text);
+    }
+    assert.ok(!text.includes('before 00'), text);
+  } finally {
+    world.close();
+  }
+});
+
+test('a window of lines of one day opens with the date of its first line', async () => {
+  // Bug (2026-11-10): the transcript writes a date only between two lines of different days, so a window of one day
+  // carried clock times and no day.
+  const world = openWorld();
+  try {
+    const read = findScene(world);
+    const room = findRoom(world, 'c7', roomLines('garden'));
+    const text = await read({ placeId: room, last: 2 });
+    const date = text.indexOf(dateOf(new Date(PLACE_AT(5)).toISOString()));
+    assert.ok(date >= 0 && date < text.indexOf('garden line 5'), text);
+  } finally {
+    world.close();
+  }
+});
+
+test('the matches of find open with the date of their first line', async () => {
+  // Bug (2026-11-10): the first match of a find stood with a clock time and no day, so a line of September read as
+  // a line of the day she was asked about.
+  const world = openWorld();
+  try {
+    const read = findScene(world);
+    const lines = [...linesFrom('old', '2026-09-14T10:00:00.000Z', 1, [0]), ...linesFrom('new', PLACE_ISO(1), 4)];
+    const room = datedRoom(world, 'c7', 'kitchen', lines);
+    const text = await read({ placeId: room, last: 2, find: 'маяк' });
+    const matches = text.slice(text.indexOf(FOUND_MARK));
+    const date = matches.indexOf(dateOf('2026-09-14T10:00:00.000Z'));
+    assert.ok(text.includes(FOUND_MARK) && matches.includes('old 000'), text);
+    assert.ok(date >= 0 && date < matches.indexOf('old 000'), text);
+  } finally {
+    world.close();
+  }
+});
+
+test('find with since returns no match older than the moment', async () => {
+  // Bug (2026-11-10): `find` searched the whole place whatever `since` said, and the matches of a read of 8 November
+  // were lines of September and October.
+  const world = openWorld();
+  try {
+    const read = findScene(world);
+    const lines = [
+      ...linesFrom('old', '2026-10-01T10:00:00.000Z', 2, [0, 1]),
+      ...linesFrom('new', '2026-11-01T10:00:00.000Z', 5, [4]),
+    ];
+    const room = datedRoom(world, 'c7', 'kitchen', lines);
+    const text = await read({ placeId: room, since: '2026-10-15', last: 2, find: 'маяк' });
+    assert.ok(text.includes('new 004'), `a match after the moment comes back: ${text}`);
+    assert.ok(!text.includes('old 00'), text);
+  } finally {
+    world.close();
+  }
+});
+
+test('find with a message-valued before returns no match later than that line', async () => {
+  // Bug (2026-11-10): `find` ignored the window's bounds, so a read before a line brought back matches after it.
+  const world = openWorld();
+  try {
+    const read = findScene(world);
+    const room = findRoom(world, 'c7', roomLines('garden', [1, 6]));
+    const text = await read({ placeId: room, before: 'garden-4', last: 2, find: 'маяк' });
+    assert.ok(text.includes('garden line 3'), `the window before the line stands: ${text}`);
+    assert.ok(text.includes('garden line 1'), `a match before the line comes back: ${text}`);
+    assert.ok(!text.includes('garden line 6'), text);
+  } finally {
+    world.close();
+  }
+});
+
+test('the source line of a read of a stored place names the place', async () => {
+  // Bug (2026-11-10): the source line knew only the chats of the turn's own tree, so a stored place on another
+  // interface read as a source with an empty name and she could not tell which place she had read.
+  const world = openWorld();
+  try {
+    const read = findScene(world);
+    const room = datedRoom(world, 'c7', 'orchard', linesFrom('pear', PLACE_ISO(1), 3));
+    const text = await read({ placeId: room, last: 3 });
+    assert.ok(text.includes('pear 002'), text);
+    assert.match(text.split('\n')[0] ?? '', /orchard/, text);
   } finally {
     world.close();
   }
