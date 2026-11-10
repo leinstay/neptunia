@@ -1,7 +1,8 @@
 // The attitude changes the memory database holds, across people: one row of `affinity_events` per change, newest first.
-// A reader for the persona's `memory.profile.read section:changes` (src/tools/operations/memory.ts). It reads the group
-// audiences and the rows no audience owns, through the audience filter of a group context, so a change made in a
-// private chat never appears. A retired change is left out. Reading writes nothing.
+// `affinityChangesOf` reads them under any context: memory.read's section `changes` reads them under the turn's
+// (src/turn/memory-read.ts). `readAffinityChanges`, the reader of the owner's `memory.profile.read section:changes`
+// (src/tools/operations/memory.ts), reads the group audiences and the rows no audience owns through a group context, so
+// a change made in a private chat never appears there. A retired change is left out. Reading writes nothing.
 
 import { audienceWhere } from './db/scope.ts';
 import { namesIn } from './db/names.ts';
@@ -35,23 +36,12 @@ export type AffinityChangeFilter = {
 };
 
 /**
- * The changes matching `filter`, newest first, at most `limit` (default `AFFINITY_CHANGES_DEFAULT`, never more than
- * `AFFINITY_CHANGES_MAX`). `memoryDb` is the service that hands out the read connection and the group context.
+ * The changes matching `filter` that the context `ctx` may read, newest first, at most `limit` (default
+ * `AFFINITY_CHANGES_DEFAULT`, never more than `AFFINITY_CHANGES_MAX`). A change made in a direct chat reads only under
+ * that chat's context (scope.ts#audienceWhere). Read only.
  */
-export function readAffinityChanges({
-  memoryDb,
-  log,
-  filter = {},
-}: {
-  memoryDb: {
-    readHandle?: () => { db: object } | null;
-    issueContext: (spec: { kind: 'group' }) => Context;
-  };
-  log: Pick<Log, 'warn'>;
-  filter?: AffinityChangeFilter;
-}): Array<AffinityChange> {
-  const seam = createReadSeam({ memoryDb, log, reader: 'affinity-changes' });
-  const audience = audienceWhere(memoryDb.issueContext({ kind: 'group' }), 'e');
+export function affinityChangesOf(db: Db, ctx: Context, filter: AffinityChangeFilter = {}): Array<AffinityChange> {
+  const audience = audienceWhere(ctx, 'e');
   const limit = Math.min(Math.max(1, Math.floor(filter.limit ?? AFFINITY_CHANGES_DEFAULT)), AFFINITY_CHANGES_MAX);
   const where = [`e.retired_at IS NULL`, audience.sql];
   const params: Array<string | number> = [...audience.params];
@@ -67,22 +57,40 @@ export function readAffinityChanges({
     where.push('e.at <= ?');
     params.push(filter.until);
   }
-  return seam.run(() => {
-    const db: Db = seam.db();
-    return db
-      .prepare(
-        `SELECT e.at, e.person_id, e.applied, e.delta, e.score, e.reason, p.real_name
-         FROM affinity_events e LEFT JOIN people p ON p.id = e.person_id
-         WHERE ${where.join(' AND ')} ORDER BY e.at DESC, e.rowid DESC LIMIT ?`
-      )
-      .all(...params, limit)
-      .map((row) => ({
-        at: textOf(row.at),
-        personId: textOf(row.person_id),
-        name: namesIn(row.real_name)[0] ?? null,
-        applied: Number(row.applied ?? row.delta ?? 0),
-        score: Number(row.score ?? 0),
-        reason: typeof row.reason === 'string' ? row.reason : '',
-      }));
-  });
+  return db
+    .prepare(
+      `SELECT e.at, e.person_id, e.applied, e.delta, e.score, e.reason, p.real_name
+       FROM affinity_events e LEFT JOIN people p ON p.id = e.person_id
+       WHERE ${where.join(' AND ')} ORDER BY e.at DESC, e.rowid DESC LIMIT ?`
+    )
+    .all(...params, limit)
+    .map((row) => ({
+      at: textOf(row.at),
+      personId: textOf(row.person_id),
+      name: namesIn(row.real_name)[0] ?? null,
+      applied: Number(row.applied ?? row.delta ?? 0),
+      score: Number(row.score ?? 0),
+      reason: typeof row.reason === 'string' ? row.reason : '',
+    }));
+}
+
+/**
+ * The changes matching `filter` under a group context, as affinityChangesOf reads them. `memoryDb` is the service that
+ * hands out the read connection and the group context.
+ */
+export function readAffinityChanges({
+  memoryDb,
+  log,
+  filter = {},
+}: {
+  memoryDb: {
+    readHandle?: () => { db: object } | null;
+    issueContext: (spec: { kind: 'group' }) => Context;
+  };
+  log: Pick<Log, 'warn'>;
+  filter?: AffinityChangeFilter;
+}): Array<AffinityChange> {
+  const seam = createReadSeam({ memoryDb, log, reader: 'affinity-changes' });
+  const ctx = memoryDb.issueContext({ kind: 'group' });
+  return seam.run(() => affinityChangesOf(seam.db(), ctx, filter));
 }

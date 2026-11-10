@@ -510,7 +510,7 @@
   "memory.search": {
     "title": "Search memory",
     "whenToUse": "Searches the lines of every place you can read, on every interface, by meaning and by words: what someone said, when something happened, a line of yours in another place, and pictures, GIFs and videos by what they show, in any language. Search before you reply whenever a message refers to something that is neither in the chat nor in your memory, and before you say you do not remember. Put what you want to find in question, in your own words, and exact words or a name in terms. Narrow with people, place and when. Returns stretches of quoted lines, each line with its time, author and a #N, then the stored facts and remembered moments that match. The lines of the chat in front of you are left out. A result is a sample, so an empty one means only that nothing matched these words. With only place or when it returns a sample of that place and time, and with entity the stored facts about one thing. With mine it keeps to the lines you wrote yourself, in every place you can read, and with mine and when alone it returns your lines of that time, newest first. When a result opens by saying that nothing close was found, that is your answer: the few lines under it are only the nearest and may be unrelated, so do not search again in other words.",
-    "whenNotToUse": "To read a stretch of one chat in order, or the lines around a #N you already have, conversation.read. For what memory keeps about one person, memory.profile.read. To learn whether one place holds something, conversation.read of that place with find. Do not repeat a search with reworded terms: read around its best line with conversation.read.",
+    "whenNotToUse": "To read a stretch of one chat in order, or the lines around a #N you already have, conversation.read. For what memory keeps about a person or a place, memory.read. To learn whether one place holds something, conversation.read of that place with find. Do not repeat a search with reworded terms: read around its best line with conversation.read.",
     "args": {
       "question": "What you want to find, in your own words. Matched by meaning, in any language.",
       "terms": "Exact words or a name that must appear, comma-separated.",
@@ -531,7 +531,7 @@
   "conversation.read": {
     "title": "Read a place",
     "whenToUse": "Reads the lines of one chat in the order they were written: this chat, another place you can read on any interface, or your newest direct chat with one person. Lines come from the stored record and, where it lacks them, from the interface's own history, with the descriptions of their pictures. Choose it when you know where something is: the lines around a #N from a search or from the chat, what was said in a place since a time, the last lines of a place. Without place or person it reads this chat. One call reads one window: around with before and after, before or after alone, since, or last. Add find to learn in the same call whether the chat holds something: after the window come up to 8 lines of that chat that match it and are not in the window, best first, or a line saying nothing matches. Returns numbered lines with time, author, replies and reactions, the #N to read earlier or later, then what memory holds about authors you were not shown this turn. When a read says it reached the newest line of the chat, there is nothing newer, so do not read the chat again with since or after.",
-    "whenNotToUse": "To find where something was said when you know neither the place nor the time, memory.search. To look closer at a picture of a line, media.look. A place you may not read answers with its reason, so do not retry it under another name.",
+    "whenNotToUse": "To find where something was said when you know neither the place nor the time, memory.search. For what memory keeps about a person or a place, memory.read. To look closer at a picture of a line, media.look. A place you may not read answers with its reason, so do not retry it under another name.",
     "args": {
       "around": "#N or link of the middle line. before and after set the lines on each side, default 10, at most 30.",
       "since": "A delay back (2h), a clock time (12:00), a weekday and time (mon 20:00), or a date or date-time.",
@@ -541,6 +541,16 @@
       "place": "#handle or place id, or the place in the words its people use: its name or what it is for.",
       "person": "@handle or name: reads your newest direct chat with them other than this one, on any interface.",
       "find": "What you look for in that chat, in your own words. Matched by meaning and by words."
+    }
+  },
+  "memory.read": {
+    "title": "Read what memory holds",
+    "whenToUse": "Reads what your memory keeps about one subject, under the same rule of who may know what as the memory shown to you each turn. For a person it returns what they are like, how things stand between you, the facts you keep about them and the episodes you share. For a place it returns what the place is for, its topics, tone, lore and episodes, and community gives the same for the community you are in. A lore entry comes back whole. Choose it when your memory names someone or something briefly, or not at all, and your answer depends on more. The answer is the entry as your memory shows it. Section episodes keeps only the episodes, and section changes lists how your attitude toward a person moved, newest first. A subject your memory holds nothing about says so, and a name that fits several people lists them so you can call again with one.",
+    "whenNotToUse": "For what someone said and when, memory.search. To read the lines of a chat, conversation.read. The people and places of this turn are already in your memory at the detail shown, so read more only when that falls short.",
+    "args": {
+      "subject": "An @handle, a person's name, a #handle, a place's name, community, or the title of a lore entry.",
+      "section": "summary (default), episodes, or changes for a person.",
+      "limit": "Facts, episodes or changes per list, default 25, at most 100."
     }
   },
   "intention.set": {

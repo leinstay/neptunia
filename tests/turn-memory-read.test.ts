@@ -345,3 +345,42 @@ test("renders a person read as a <people> entry and carries none of the owner's 
     world.close();
   }
 });
+
+test('returns her attitude changes toward a person newest first with section changes, the direct chat one left out in a room', async () => {
+  // Bug: the changes are read under the owner's group context or across people, so another person's move or what Eleni
+  // told her alone shows in a room, or the oldest change comes first.
+  const world = openWorld();
+  try {
+    const { dm } = seed(world);
+    const change = (id: string, at: string, applied: number, reason: string, scope: Record<string, string>) => ({
+      id,
+      person_id: ELENI,
+      at,
+      delta: applied,
+      applied,
+      score: 10 + applied,
+      reason,
+      ...scope,
+    });
+    const group = { scope_kind: 'group', scope_iface: 'fake' };
+    insertRows(world.db, {
+      affinity_events: [
+        change('aff:old', '2026-10-01T10:00:00.000Z', 2, 'ΒΟΗΘΗΣΕ-ΣΤΟ-ΠΟΤΙΣΜΑ', group),
+        change('aff:new', '2026-10-20T10:00:00.000Z', -1, 'ΑΡΓΗΣΕ-ΣΤΗ-ΣΥΝΑΝΤΗΣΗ', group),
+        change('aff:dm', '2026-10-25T10:00:00.000Z', 3, 'ΜΥΣΤΙΚΗ-ΚΟΥΒΕΝΤΑ', {
+          scope_kind: 'dm',
+          scope_iface: 'fake',
+          scope_dm: ELENI,
+          audience_id: `aud:dm:${dm}`,
+        }),
+      ],
+    });
+    const text = okText(await groupRead(world)({ subject: ELENI_HANDLE, section: 'changes' }));
+    const newer = text.indexOf('ΑΡΓΗΣΕ-ΣΤΗ-ΣΥΝΑΝΤΗΣΗ');
+    const older = text.indexOf('ΒΟΗΘΗΣΕ-ΣΤΟ-ΠΟΤΙΣΜΑ');
+    assert.ok(newer >= 0 && older > newer, text);
+    assert.equal(text.includes('ΜΥΣΤΙΚΗ-ΚΟΥΒΕΝΤΑ') || text.includes(CHARACTER), false, text);
+  } finally {
+    world.close();
+  }
+});

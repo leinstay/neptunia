@@ -26,6 +26,7 @@ export const IN_TURN_TOOLS: ReadonlyArray<string> = Object.freeze([
   'media.look',
   'memory.search',
   'conversation.read',
+  'memory.read',
   'media.find',
 ]);
 

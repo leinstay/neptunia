@@ -32,7 +32,7 @@ export const CARRIED_OVER: ReadonlyArray<string> = toolsWith('carried');
 
 /**
  * The operations no grant opens for the persona yet (the owner's decision, 2026-10-14): the
- * irreversible and the administrative ones, the trait `ungrantable`. Refused by `/nep access grant` with her as the
+ * irreversible and the administrative ones and the owner's narrow reads of one subject, the trait `ungrantable`. Refused by `/nep access grant` with her as the
  * target (a group or `*` skips them) and again at every call (skillAccess: `not-grantable`), whatever
  * is stored. Everything else -- owner-only operations included -- is grantable to her.
  */

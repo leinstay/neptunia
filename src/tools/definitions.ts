@@ -29,7 +29,8 @@ export type EffectClass = (typeof EFFECT_CLASSES)[number];
  * `self`, one of her own expressive operations or her own state, run on her grant alone whoever asked
  * (src/tools/gateway.ts, src/tools/executors.ts, src/admin.ts);
  * `carried`, behind one of her reply tags, allowed in the current chat without a grant (src/tools/access.ts);
- * `ungrantable`, irreversible or administrative, opened to her by no grant (src/tools/access.ts);
+ * `ungrantable`, irreversible, administrative or one of the owner's narrow reads of one subject, opened to her by no grant
+ * (src/tools/access.ts);
  * `posts`, leaves a line of hers where people read (src/turn/skill-calls.ts, src/behavior/sandbox.ts);
  * `attaches`, posts a file, so it reaches `message.create` inside its operation (src/tools/access.ts);
  * `here`, acts in the turn's own chat when its `place` is left out (src/turn/skill-calls.ts);
@@ -479,12 +480,15 @@ const ENTRIES: Array<Definition> = [
       always: flag(val(a, 'always')) ?? false,
     }),
   }),
+  // The six narrow reads of one subject are the owner's: memory.read is hers (src/turn/memory-read.ts).
   def('lore.list', {
+    traits: ['ungrantable'],
     params: obj({ query: str() }),
     effects: 'read',
     toArgs: (a) => ({ query: opt(a, 'query') }),
   }),
   def('lore.show', {
+    traits: ['ungrantable'],
     params: obj({ id: str() }, ['id']),
     effects: 'read',
     toArgs: (a) => ({ id: val(a, 'id') }),
@@ -495,6 +499,7 @@ const ENTRIES: Array<Definition> = [
     toArgs: (a) => ({ id: val(a, 'id') }),
   }),
   def('memory.profile.read', {
+    traits: ['ungrantable'],
     params: obj(
       {
         user: ref(),
@@ -536,14 +541,14 @@ const ENTRIES: Array<Definition> = [
     },
   }),
   def('memory.channel.read', {
-    traits: ['here'],
+    traits: ['here', 'ungrantable'],
     params: obj({ place: ref() }),
     refs: { place: 'place' },
     effects: 'read',
     toArgs: (a) => ({ placeId: idOf(a, 'place') }),
   }),
-  def('memory.server.read', { params: EMPTY(), effects: 'read', toArgs: none }),
-  def('memory.recent.read', { params: EMPTY(), effects: 'read', toArgs: none }),
+  def('memory.server.read', { traits: ['ungrantable'], params: EMPTY(), effects: 'read', toArgs: none }),
+  def('memory.recent.read', { traits: ['ungrantable'], params: EMPTY(), effects: 'read', toArgs: none }),
   def('memory.journal.read', {
     params: obj({
       day: str(),
@@ -882,6 +887,17 @@ const ENTRIES: Array<Definition> = [
         ...(val(a, 'last') == null ? {} : { last: val(a, 'last') }),
       };
     },
+  }),
+  def('memory.read', {
+    params: obj({ subject: str(200), section: oneOf(['summary', 'episodes', 'changes']), limit: int(1, 100) }, [
+      'subject',
+    ]),
+    effects: 'read',
+    toArgs: (a) => ({
+      subject: val(a, 'subject'),
+      ...(val(a, 'section') === null ? {} : { section: val(a, 'section') }),
+      ...(val(a, 'limit') === null ? {} : { limit: val(a, 'limit') }),
+    }),
   }),
   def('person.link', {
     params: obj({ person: str(200) }, ['person']),
