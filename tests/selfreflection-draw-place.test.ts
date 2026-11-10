@@ -112,6 +112,7 @@ test('a selfreflection draw.create that names another place is staged for the en
     runner.runTurn({ channel, mode: 'selfreflection', selfreflection: { kind: 'selfPicture', forced: false } })
   );
   assert.deepEqual(calledOf(logs), ['draw.create:ok/staged']);
-  assert.equal(store.appended[0]?.post.picture, 'a pier at night', 'the entry keeps the picture');
+  const [entry] = store.appended;
+  assert.equal(entry?.post.picture, 'a pier at night', 'the entry keeps the picture');
   assert.deepEqual(other.sent, [], 'nothing goes to the named place');
 });
