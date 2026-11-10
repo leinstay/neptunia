@@ -15,7 +15,6 @@ import {
   pathClass,
 } from '../src/memory/migration/paths.ts';
 import { legacyStorageKey } from '../src/memory/migration/paths.ts';
-import { MAPPERS } from '../src/memory/db/map/index.ts';
 import { classify } from '../src/memory/migration/classify.ts';
 import { operationalJsonPath } from '../src/memory/store.ts';
 import { GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
@@ -149,7 +148,8 @@ test('allowlist: every path the sync maps is in exactly one list, the one the sp
   assert.deepEqual(
     [...new Set(MAPPED.map(([, kind]) => kind))].sort(),
     [
-      ...Object.keys(MAPPERS),
+      'requests',
+      'verbatim',
       'errands',
       'gifs',
       'intentions',

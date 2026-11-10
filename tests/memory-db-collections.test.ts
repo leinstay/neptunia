@@ -6,7 +6,7 @@
 //   placeCollection(kind, placeId, options?): StorageKey         subject { type: 'place', id }
 //   journalKey(placeId, day): StorageKey
 // `options` is { partition?, selector? }. An empty id throws code `BAD_COLLECTION_ID`.
-// Appendix entries: src/memory/db/storage-keys.ts, src/memory/db/storage-units.ts, src/memory/db/unit-write.ts,
+// Appendix entries: src/memory/db/storage-keys.ts, src/memory/db/storage-units.ts,
 // src/memory/db/upsert.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -23,7 +23,7 @@ import {
 } from '../src/memory/db/storage-keys.ts';
 import { ensureUnit, listUnits, unitById } from '../src/memory/db/storage-units.ts';
 import { dbOf } from '../src/memory/db/types.ts';
-import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
+import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { seedOpaqueWorld } from './fixtures/memory-db/opaque-people.ts';
 
 test('each constructor names its subject with the id as given and no root scope', () => {
@@ -110,13 +110,13 @@ test('the catalog registers, finds and lists a person collection like any other'
 });
 
 test('a place collection and an account collection write and read back through the writer', () => {
-  // Bug: `applyUnitWrite` maps a unit by its root scope, so a key without one is refused as unmapped.
+  // Bug: `applyUnitUpdate` maps a unit by its root scope, so a key without one is refused as unmapped.
   const handle = openMemoryDb(':memory:');
   try {
     const db = dbOf(handle);
     seedOpaqueWorld(db);
     const lore = placeCollection('lore', 'place:room-1');
-    applyUnitWrite(handle, {
+    applyUnitUpdate(handle, {
       op: 'value',
       key: lore,
       iface: 'discord',
@@ -125,7 +125,7 @@ test('a place collection and an account collection write and read back through t
     const read = unitValue(db, lore);
     assert.equal(read.found, true);
     const owner = accountCollection('user', 'account:a21');
-    applyUnitWrite(handle, { op: 'value', key: owner, iface: 'telegram', value: { names: ['Synthetic'] } });
+    applyUnitUpdate(handle, { op: 'value', key: owner, iface: 'telegram', value: { names: ['Synthetic'] } });
     const person = unitValue(db, owner);
     assert.deepEqual(person.found ? Reflect.get(Object(person.value), 'names') : null, ['Synthetic']);
   } finally {

@@ -28,7 +28,6 @@ import { personOfAccount } from './meta-person.ts';
 import { linkAccount } from './person-links.ts';
 import { mergePersonInto } from './person-merge.ts';
 import type { SessionContext } from './session.ts';
-import { ownershipSql } from './storage-units.ts';
 import { dbOf } from './types.ts';
 import type { Config, Db, MemoryHandle, Row } from './types.ts';
 
@@ -234,11 +233,8 @@ function writeJoined(db: Db, joined: ReadonlyArray<Joined>, extra: Row, at: stri
     if (current === undefined || (current.current_version ?? null) !== one.basedOn) throw coded('VERSION_CONFLICT');
     const id = `dv:${one.descriptionId}:${shortHash(at, one.text)}`;
     db.prepare(
-      ownershipSql(
-        db,
-        `INSERT OR REPLACE INTO description_versions (id, description_id, text, author, written_at, chars, reason, origin,
+      `INSERT OR REPLACE INTO description_versions (id, description_id, text, author, written_at, chars, reason, origin,
            extra, owner_key) VALUES (?, ?, ?, 'her', ?, ?, ?, 'merge', ?, NULL)`
-      )
     ).run(
       id,
       one.descriptionId,

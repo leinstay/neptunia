@@ -13,7 +13,7 @@ import { itemOrDerivedId, uniqueIds } from './ids.ts';
 import { groupScope } from './scope.ts';
 import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './map/common.ts';
 import type { Spec } from './map/common.ts';
-import { storageContext } from './map/index.ts';
+import { storageContext } from './storage-context.ts';
 import { channelColumn } from './native-rows.ts';
 import {
   heldPlaceRows,
@@ -27,9 +27,8 @@ import type { PlaceOwner } from './place-owner.ts';
 import { placeCollection, keyText } from './storage-keys.ts';
 import { namedIface } from './legacy-namespace.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit } from './storage-units.ts';
+import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
-import { noteUnit } from './unit-write.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
 
@@ -136,22 +135,17 @@ function recentLinesOf(db: Db, rows: Rows): Row {
 
 /**
  * Stores the whole recent lines the unit `key` holds (a place's `recent` unit) inside the caller's transaction and
- * retires what they no longer hold. `legacyOwner` is an owner path of an older release.
+ * retires what they no longer hold.
  */
 export function writeRecentLines(
   db: Db,
   key: StorageKey,
   value: Row,
-  { at, iface, legacyOwner }: { at: string; iface?: string; legacyOwner?: string }
+  { at, iface }: { at: string; iface?: string }
 ): RecentLinesResult {
   const id = ensureUnit(db, key);
-  if (legacyOwner) {
-    db.prepare('INSERT OR IGNORE INTO legacy_unit_aliases(path,unit_id) VALUES (?,?)').run(legacyOwner, id);
-    db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, 'recent');
-  }
   const holder = placeOwnerOf(key)!; // a `recent` unit always has its owner columns (place-owner.ts)
   const mapping = recentLinesRows(db, key, value, id, holder, iface);
-  if (legacyOwner) for (const list of Object.values(mapping)) for (const row of list) row.owner_file = legacyOwner;
   const upserted = writeMapping(db, mapping, id, { at, holder });
   const retired = retirePlaceAbsent(db, holder, mapping, at);
   noteUnit(db, id, 'recent', { at });

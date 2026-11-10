@@ -2,8 +2,8 @@
 // request usage, the latency metrics, the inner life's state, a place's missed-answer registry, a place's emoji rails,
 // and the lines of a place's recall trace. The subject is a place id, or `persona:local` for what belongs to no place.
 // A value row is owned by `<subject>`; a recall trace line by `<subject>#<position>`, its position counted from 0 in the
-// order the lines were written. The writer (session-write.ts, write kind `operational`) and the unit write of the same
-// kinds (unit-write.ts) store through `writeOperational`; the readers of those modules read through `operationalValue`.
+// order the lines were written. The writer (session-write.ts, write kind `operational`) stores through
+// `writeOperational`; the readers of those modules read through `operationalValue`.
 
 import { dbOf, isWholeNumber } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';

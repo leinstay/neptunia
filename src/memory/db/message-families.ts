@@ -1,7 +1,7 @@
 // The service and writer worker commit normalized messages through chat-qualified families.
 
 import { randomUUID } from 'node:crypto';
-import { storageOwner, ownershipRow } from './storage-units.ts';
+import { storageOwner, nextPosition, noteUnit } from './storage-units.ts';
 
 import { checkEnvelope, observe, observationAudience, resolveObservationPlace, OBSERVE_CODES } from './observe.ts';
 import type { Envelope, MessageChat, ObserveResult } from './observe.ts';
@@ -12,7 +12,6 @@ import type { NativeMessageLocator } from './recall.ts';
 import { dbOf } from './types.ts';
 import { addKey, deriveRow, ensureAuthority } from './rows.ts';
 import { nodeId, canonicalKey } from './ids.ts';
-import { nextPosition, noteUnit } from './unit-write.ts';
 import { lineColumns, lineOwnerOfUnit, nextLinePosition } from './line-owner.ts';
 import { projectRow } from './graph.ts';
 import { markStemsPending } from './stems.ts';
@@ -266,7 +265,7 @@ function writeDeletion(db: Db, input: MessageDeletion, options: MessageWriteOpti
     },
     { log: options.log }
   );
-  const storedRow = ownershipRow(db, row);
+  const storedRow = row;
   const columns = Object.keys(storedRow);
   db.prepare(`INSERT INTO sources (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`).run(
     ...columns.map((column) => storedRow[column])

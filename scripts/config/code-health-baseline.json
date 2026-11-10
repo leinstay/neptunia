@@ -600,10 +600,6 @@
       "deep": 6,
       "repeated": 1
     },
-    "tests/memory-db-map-verbatim.test.ts": {
-      "deep": 9,
-      "repeated": 0
-    },
     "tests/memory-db-observe-event.test.ts": {
       "deep": 3,
       "repeated": 0
@@ -1890,16 +1886,12 @@
       "src/memory/avatar-queue.ts",
       "src/memory/db/graph-manifest.ts",
       "src/memory/db/map/common.ts",
-      "src/memory/db/map/index.ts",
       "src/memory/db/map/lists.ts",
-      "src/memory/db/map/requests.ts",
       "src/memory/db/map/scope-parts.ts",
-      "src/memory/db/map/scope-string.ts",
       "src/memory/db/readers/common.ts",
       "src/memory/db/rows.ts",
       "src/memory/db/schema.ts",
       "src/memory/db/stems.ts",
-      "src/memory/db/unit-write.ts",
       "src/memory/db/upsert.ts",
       "src/memory/db/writer-worker.ts",
       "src/memory/index.ts",

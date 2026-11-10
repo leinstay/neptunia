@@ -14,7 +14,7 @@ const SAMPLES: Readonly<Record<string, ReadonlyArray<string>>> = {
     'src/memory/db/schema.ts',
     'src/memory/db/writer-worker.ts',
     'src/memory/db/writer-switch.ts',
-    'src/memory/db/unit-write.ts',
+    'src/memory/db/owner-names.ts',
     'src/memory/db/session-write.ts',
     'src/memory/db/upsert.ts',
     'src/memory/db/service.ts',

@@ -24,10 +24,12 @@ import { createIntentionStore } from '../src/intentions/store.ts';
 import { createErrandStore } from '../src/errands/store.ts';
 import { touchMemory } from '../src/memory/update.ts';
 import { CHANNEL, GUILD, MEMBER, buildDataDir, fileFixtureErrand } from './fixtures/memory-db/datadir.ts';
+import { legacyStorageKey } from '../src/memory/migration/paths.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 import {} from '../src/memory/db/ids.ts';
 import { keyText, type StorageKey } from '../src/memory/db/storage-keys.ts';
+import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 type Service = ReturnType<typeof createMemoryDb>;
 // The intentions of these tests carry only the fields the store writes, so each is read as the full shape by a cast.
@@ -35,7 +37,8 @@ type Intention = Parameters<ReturnType<typeof createIntentionStore>['add']>[0];
 // The stores' profiles are untyped records; the tests read these fields.
 type Profile = { id: string; affinity: { score: number } };
 /** The value of a stored unit the test knows is there. */
-const valueOf = (db: Db, owner: string) => (unitValue(db, owner) as { found: true; value: unknown }).value;
+const valueOf = (db: Db, owner: string) =>
+  (unitValue(db, legacyStorageKey(owner)) as { found: true; value: unknown }).value;
 const quiet = { info() {}, debug() {}, warn() {}, error() {} };
 const NOW = Date.parse('2026-11-03T12:00:00.000Z');
 const DAY_MS = 86_400_000;
@@ -433,7 +436,7 @@ test('a unit write that still fails at the shutdown is logged lost and leaves no
       writeUnit: async (update: { op: string }) => {
         if (update.op === 'value' || update.op === 'lines')
           throw Object.assign(new Error('down'), { code: 'SQLITE_FULL' });
-        return service.writeUnit(update);
+        return writeUnitUpdate(service, update);
       },
       // The task store has its own write kind (src/memory/db/errand-write.ts), refused the same way.
       writeErrand: () => Promise.reject(Object.assign(new Error('down'), { code: 'SQLITE_FULL' })),
@@ -542,7 +545,7 @@ test('a task transition or an intention whose write committed and whose answer w
     const flaky = {
       ...service,
       writeUnit: async (update: { op: string }) => {
-        const done = await service.writeUnit(update);
+        const done = await writeUnitUpdate(service, update);
         if (lost > 0 && (lostOp === null || lostOp(update))) {
           lost -= 1;
           throw Object.assign(new Error('the answer was lost'), { code: 'WORKER_EXIT' });

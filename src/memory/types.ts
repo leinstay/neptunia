@@ -69,7 +69,7 @@ export type StoredRecord = Record<string, Untyped>;
 export type MemoryDb = {
   namespace?: () => string | null;
   readHandle?: () => MemoryHandle | null;
-  writeUnit?: (update: unknown) => Promise<unknown>;
+  writeOwnerName?: (write: { personId: string; name: string; remove?: boolean }) => Promise<unknown>;
   writeOperational?: (write: OperationalWrite) => Promise<unknown>;
   writeLineVectors?: (write: LineVectorsWrite) => Promise<unknown>;
   writeRecordLines?: (write: RecordLinesWrite) => Promise<unknown>;
@@ -92,11 +92,6 @@ export type MemoryDb = {
   writeGeneration?: () => number;
   onAffinityMoves?: (listener: (moves: Array<Row>) => void) => () => void;
 };
-
-/** Whether the database can take a unit write: a store or a journal writes only then. */
-export function canWriteUnits(db: MemoryDb | null | undefined): db is MemoryDb & Required<Pick<MemoryDb, 'writeUnit'>> {
-  return typeof db?.writeUnit === 'function';
-}
 
 /** The read seam of one memory module over its database (`reader` names the module in the log). */
 export function readSeamOf(

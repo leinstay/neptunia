@@ -42,9 +42,9 @@
 //       A selfreflection entry's pictures and voice file, kept as files and `media` rows (selfreflection-media.ts#applyEntryMedia).
 //   { kind: 'place-address', placeId, address, at }
 //       The chat an interface opened for a place that held no address (observe.ts#applyPlaceAddress). No mode.
-//   { kind: 'unit', op, ... }
-//       The memory units (record and journal lines, the store's cache, the module stores, participation, the selfreflection,
-//       the vectors) and the projection the writers finish, handed to unit-write.ts#applyUnitWrite.
+//   { kind: 'owner-name', personId, name, remove? } | { kind: 'project', sliceUnits?, maxSlices? }
+//       A name the owner gives a person (owner-names.ts#applyOwnerNameWrite) and one tick of the projection job
+//       (projection-job.ts#applyProjectWrite). Every other memory value has its own kind in `WHOLE_WRITES`.
 //
 // Every row with the scope triple is written with its `audience_id` from the one resolver (scope.ts#audienceOf, through
 // rows.ts), and her answer rows with their authority, author kind and `observed_at`. `update.audienceColumn` (stamped
@@ -101,7 +101,8 @@ import { applyPersonBindWrite } from './person-bind.ts';
 import { OWNER_CONSOLE_IFACE } from './identity-links.ts';
 import { applyRequestArchiveWrite, sessionRequestId, setRequestOutcome } from './request-archive.ts';
 import { randomUUID } from 'node:crypto';
-import { ownershipSql } from './storage-units.ts';
+import { applyOwnerNameWrite } from './owner-names.ts';
+import { applyProjectWrite } from './projection-job.ts';
 
 import { CORE_AUTHORITY, SELF_PERSON, linkId, newPersonId, otherSourceId, shortHash, survivorOf } from './ids.ts';
 import {
@@ -148,7 +149,6 @@ import { applyParticipationWrite } from './participation-episodes.ts';
 import { applyRecentLinesWrite } from './recent-lines.ts';
 import { applySelfreflectionWrite } from './selfreflection-entries.ts';
 import { applyOperationalWrite } from './operational.ts';
-import { applyUnitWrite } from './unit-write.ts';
 import { applyPublicationWrite } from './publish.ts';
 import { applyDeliveryWrite, isDeliveryOp } from './publication-delivery.ts';
 import { applyMirrorWrite } from './mirror-config.ts';
@@ -349,11 +349,8 @@ function insertDecision(
 ): void {
   const target = targetOf(group, op);
   db.prepare(
-    ownershipSql(
-      db,
-      `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_key, position, retired_at)
+    `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_key, position, retired_at)
      VALUES (?, ?, 'her', ?, ?, ?, ?, ?, NULL, NULL, NULL)`
-    )
   ).run(id, at, target.kind, target.id, action, reasonOf(op), json({ run: run.id, scope: run.scope ?? null, op }));
   projectRow(db, 'decisions', { id }, { at });
 }
@@ -368,13 +365,10 @@ function insertAnswer(
     .filter(Boolean)
     .join('\n\n');
   db.prepare(
-    ownershipSql(
-      db,
-      `INSERT OR REPLACE INTO sources (id, kind, iface, native_id, revision, place_id, author_account, reply_to, occurred_at, recorded_at, seen_at, text, stems,
+    `INSERT OR REPLACE INTO sources (id, kind, iface, native_id, revision, place_id, author_account, reply_to, occurred_at, recorded_at, seen_at, text, stems,
        mentions, direct, turn_id, op_id, think, extra, scope_kind, scope_iface, scope_dm, origin, owner_key, position,
        audience_id, authority_id, author_kind, observed_at)
      VALUES (?, ?, NULL, ?, 1, NULL, NULL, NULL, ?, ?, NULL, ?, NULL, NULL, 0, NULL, NULL, ?, ?, ?, ?, ?, 'memory', NULL, NULL, ?, ?, 'self', ?)`
-    )
   ).run(
     id,
     kind,
@@ -460,11 +454,8 @@ function version(
   const snapshots = hasTable(db, 'semantic_assertion_versions');
   if (snapshots && db.prepare('SELECT 1 AS ok FROM semantic_assertion_versions WHERE version_id = ?').get(id)) return;
   db.prepare(
-    ownershipSql(
-      db,
-      `INSERT OR REPLACE INTO claim_versions (id, claim_id, revision_id, text, extra, recorded_at, event, by, origin, owner_key, position, retired_at)
+    `INSERT OR REPLACE INTO claim_versions (id, claim_id, revision_id, text, extra, recorded_at, event, by, origin, owner_key, position, retired_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, 'her', 'session', NULL, NULL, NULL)`
-    )
   ).run(id, claimId, `rv:${shortHash(runId, index)}`, text, extra ? json(extra) : null, at, event);
   if (hasTable(db, 'claim_version_sources')) {
     const insert = db.prepare(
@@ -501,11 +492,8 @@ function insertDecisionFor(
   }: { runId: unknown; index: number; at: string; op: unknown; action: unknown; target: unknown }
 ): void {
   db.prepare(
-    ownershipSql(
-      db,
-      `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_key, position, retired_at)
+    `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_key, position, retired_at)
      VALUES (?, ?, 'her', ?, ?, ?, ?, ?, NULL, NULL, NULL)`
-    )
   ).run(
     `dec:${asText(runId)}:${index}`,
     at,
@@ -563,12 +551,9 @@ function deriveClaim(
     extra = {};
   }
   db.prepare(
-    ownershipSql(
-      db,
-      `INSERT OR REPLACE INTO claims (id, subject_kind, subject_id, kind, text, extra, weight, first_seen_at, last_seen_at, valid_to, superseded_by,
+    `INSERT OR REPLACE INTO claims (id, subject_kind, subject_id, kind, text, extra, weight, first_seen_at, last_seen_at, valid_to, superseded_by,
        how, author, from_person, truth, shown, scope_kind, scope_iface, scope_dm, created_at, retired_at, origin_file, owner_key, position, audience_id, writer)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, 'her', NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, 'session')`
-    )
   ).run(
     id,
     claim.subject_kind,
@@ -601,12 +586,9 @@ function applyClaim(db: Db, proposal: Row, state: WriteState): void {
   if (proposal.op === 'add') {
     const id = `clm:${shortHash(runId, index, proposal.subjectId, proposal.text)}`;
     db.prepare(
-      ownershipSql(
-        db,
-        `INSERT OR REPLACE INTO claims (id, subject_kind, subject_id, kind, text, extra, weight, first_seen_at, last_seen_at, valid_to, superseded_by,
+      `INSERT OR REPLACE INTO claims (id, subject_kind, subject_id, kind, text, extra, weight, first_seen_at, last_seen_at, valid_to, superseded_by,
          how, author, from_person, truth, shown, scope_kind, scope_iface, scope_dm, created_at, retired_at, origin_file, owner_key, position, audience_id, writer)
        VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, NULL, ?, 'her', NULL, 'current', 1, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, 'session')`
-      )
     ).run(
       id,
       proposal.subjectKind,
@@ -732,12 +714,9 @@ function applyEpisode(db: Db, op: Row, state: WriteState): void {
   const { scope, audienceId } = narrowed(db, state, evidence);
   const id = `ep:${shortHash(runId, index, op.subjectId, op.what)}`;
   db.prepare(
-    ownershipSql(
-      db,
-      `INSERT OR REPLACE INTO episodes (id, kind, subject_id, place_id, date, what, quote, feeling, feeling_at, reread, weight, world, status, perspective,
+    `INSERT OR REPLACE INTO episodes (id, kind, subject_id, place_id, date, what, quote, feeling, feeling_at, reread, weight, world, status, perspective,
        start_ms, last_ms, extra, scope_kind, scope_iface, scope_dm, created_at, retired_at, owner_key, position, audience_id, writer)
      VALUES (?, 'session', ?, NULL, ?, ?, NULL, ?, ?, NULL, NULL, NULL, 'open', NULL, NULL, NULL, NULL, ?, ?, ?, ?, NULL, NULL, NULL, ?, 'session')`
-    )
   ).run(
     id,
     op.subjectId,
@@ -779,11 +758,8 @@ function applyAffinity(db: Db, op: Row, state: WriteState): void {
   const applied = clamp(op.delta as number, -cap, cap);
   const score = Math.round(clamp(before + applied, -100, 100) * 100) / 100;
   db.prepare(
-    ownershipSql(
-      db,
-      `INSERT INTO affinity_events (id, person_id, at, delta, applied, score, reason, scope_kind, scope_iface, scope_dm, extra, owner_key, position, retired_at, audience_id, writer)
+    `INSERT INTO affinity_events (id, person_id, at, delta, applied, score, reason, scope_kind, scope_iface, scope_dm, extra, owner_key, position, retired_at, audience_id, writer)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 'session')`
-    )
   ).run(
     eventId,
     op.personId,
@@ -848,10 +824,7 @@ function applyPeopleAdd(db: Db, op: Row, state: WriteState): void {
     return reject(db, state, 'people', op, 'has_person');
   const person = newPersonId(state.uuid);
   db.prepare(
-    ownershipSql(
-      db,
-      "INSERT INTO people (id, kind, first_seen_at, last_seen_at, status, owner_key) VALUES (?, 'person', ?, ?, 'active', NULL)"
-    )
+    "INSERT INTO people (id, kind, first_seen_at, last_seen_at, status, owner_key) VALUES (?, 'person', ?, ?, 'active', NULL)"
   ).run(person, at, at);
   projectRow(db, 'people', { id: person }, { at });
   let link: string;
@@ -871,11 +844,8 @@ function applyPeopleAdd(db: Db, op: Row, state: WriteState): void {
     projectRow(db, 'participant_links', { participant_id: op.subjectId }, { at });
   }
   db.prepare(
-    ownershipSql(
-      db,
-      `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_key, position, retired_at)
+    `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_key, position, retired_at)
      VALUES (?, ?, 'her', 'person', ?, 'people_add', ?, ?, NULL, NULL, NULL)`
-    )
   ).run(`dec:${runId}:${index}`, at, person, op.reason, json({ run: runId, op, link }));
   projectRow(db, 'decisions', { id: `dec:${runId}:${index}` }, { at });
   counts.people += 1;
@@ -1011,6 +981,9 @@ const WHOLE_WRITES = new Map<string, (handle: MemoryHandle, update: Row) => unkn
   ['gif-vector', applyGifVectorWrite],
   // An errand on the task board, with the closing journal line of its end (errand-write.ts).
   ['errand', applyErrandWrite],
+  // A name the owner gives a person (owner-names.ts), and one tick of the projection job (projection-job.ts).
+  ['owner-name', applyOwnerNameWrite],
+  ['project', applyProjectWrite],
   // The selfreflection's mirrors: the state of a send, then the owner's configuration.
   [
     'publication',
@@ -1046,7 +1019,6 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
   if (kind === 'wake') return applyWakeWrite(handle, update);
   if (kind === 'skills') return applySkillsWrite(handle, update);
   if (kind === 'index-policy' || kind === 'touch' || kind === 'reembed') return applyIndexWrite(handle, update);
-  if (kind === 'unit') return applyUnitWrite(handle, update);
   if (kind === 'entry-media') return applyEntryMedia(handle, update);
   // Schema v16: the event door's ingestion record (ingest.ts).
   if (kind === 'ingest' || kind === 'ingest-ack' || kind === 'ingest-release') return applyIngestWrite(handle, update);
@@ -1143,11 +1115,8 @@ export function applyMemoryWrite(handleGiven: unknown, updateGiven: unknown): un
     if (update.decision) {
       const { id, action, reason, extra, scope: target } = update.decision as Row;
       db.prepare(
-        ownershipSql(
-          db,
-          `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_key, position, retired_at)
+        `INSERT OR REPLACE INTO decisions (id, at, by, target_kind, target_id, action, reason, extra, owner_key, position, retired_at)
          VALUES (?, ?, 'engine', 'session_scope', ?, ?, ?, ?, NULL, NULL, NULL)`
-        )
       ).run(`dec:${asText(id)}`, at, target ?? run?.scopeKey ?? null, action, reason ?? null, json(extra ?? {}));
       projectRow(db, 'decisions', { id: `dec:${asText(id)}` }, { at });
     }
@@ -1203,12 +1172,9 @@ function writeDescription(handle: MemoryHandle, update: Row): { written: number 
       }));
     }
     db.prepare(
-      ownershipSql(
-        db,
-        `INSERT OR REPLACE INTO description_versions (id, description_id, text, author, written_at, chars, kept, removed, added, reason, origin, extra,
+      `INSERT OR REPLACE INTO description_versions (id, description_id, text, author, written_at, chars, kept, removed, added, reason, origin, extra,
          owner_key, position, retired_at)
        VALUES (?, ?, ?, 'her', ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)`
-      )
     ).run(
       row.id,
       row.descriptionId,
@@ -1224,12 +1190,9 @@ function writeDescription(handle: MemoryHandle, update: Row): { written: number 
     );
     if (applying) {
       db.prepare(
-        ownershipSql(
-          db,
-          `INSERT INTO descriptions (id, subject_kind, subject_id, field, scope_kind, scope_iface, scope_dm, current_version, owner_key, audience_id)
+        `INSERT INTO descriptions (id, subject_kind, subject_id, field, scope_kind, scope_iface, scope_dm, current_version, owner_key, audience_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
          ON CONFLICT(id) DO UPDATE SET current_version = excluded.current_version`
-        )
       ).run(
         row.descriptionId,
         subject.kind,

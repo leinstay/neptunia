@@ -12,7 +12,7 @@ import { applyPersonLinkWrite } from '../src/memory/db/person-links.ts';
 import { mergePersonInto } from '../src/memory/db/person-merge.ts';
 import { peopleOf } from '../src/memory/db/session-people.ts';
 import { accountCollection } from '../src/memory/db/storage-keys.ts';
-import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
+import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle, Row } from '../src/memory/db/types.ts';
 
@@ -123,7 +123,7 @@ test("a member's profile is written to the meta-person and the avatar to the acc
   withDb((db, handle) => {
     const account = accountOfLine(db, see(handle, '1', { kind: 'account', key: '700', display: 'Ilse' }));
     const person = personOfAccount(db, account);
-    applyUnitWrite(handle, {
+    applyUnitUpdate(handle, {
       op: 'value',
       key: accountCollection('user', account),
       iface: 'telegram',
@@ -148,7 +148,7 @@ test('a profile written for an account nobody linked lands on a new meta-person,
     db.prepare(
       "INSERT INTO accounts (id, iface, native_id, kind) VALUES ('telegram:800', 'telegram', '800', 'user')"
     ).run();
-    applyUnitWrite(handle, {
+    applyUnitUpdate(handle, {
       op: 'value',
       key: accountCollection('user', 'telegram:800'),
       iface: 'telegram',

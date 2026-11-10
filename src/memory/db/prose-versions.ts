@@ -3,8 +3,7 @@
 // added, text, itemId? }, ... ]` (src/memory/store.ts#recordVersion). The store writes a history through the write kind
 // `prose-versions` (session-write.ts) and reads it back through `proseVersionsValue` below. A history is owned by the
 // unit `{ kind: 'versions', subject, selector: { versionKind, itemId } }`, its subject the account of a member's
-// profile and the place of the others. The describer's versions of a picture (`versionKind` `media`) have their own
-// path (unit-write.ts#writeMediaDescriptions).
+// profile and the place of the others.
 //
 // Each entry is a `description_versions` row with id `<description id>:v<position>`: `at` is written_at, `by` the
 // author, origin legacy; `before`, `after`, `itemId` and unnamed keys are in `extra`. The description a field belongs
@@ -16,13 +15,12 @@
 
 import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './map/common.ts';
 import type { Spec } from './map/common.ts';
-import { storageContext } from './map/index.ts';
+import { storageContext } from './storage-context.ts';
 import { accountCollection, keyText, placeCollection } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit } from './storage-units.ts';
+import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
 import { heldRows, holdsAny, profileOwnerOf, retireProfileAbsent, stampProfileRows } from './profile-owner.ts';
-import { noteUnit } from './unit-write.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
 
@@ -130,19 +128,9 @@ function proseVersionsOf(rows: Rows): Row {
 
 /**
  * Stores the whole history the unit `key` holds inside the caller's transaction and retires what it no longer holds.
- * `legacyOwner` is an owner path of an older release.
  */
-export function writeProseVersions(
-  db: Db,
-  key: StorageKey,
-  value: Row,
-  { at, legacyOwner }: { at: string; legacyOwner?: string }
-): ProseVersionsResult {
+export function writeProseVersions(db: Db, key: StorageKey, value: Row, { at }: { at: string }): ProseVersionsResult {
   const id = ensureUnit(db, key);
-  if (legacyOwner) {
-    db.prepare('INSERT OR IGNORE INTO legacy_unit_aliases(path,unit_id) VALUES (?,?)').run(legacyOwner, id);
-    db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, 'versions');
-  }
   const holder = profileOwnerOf(key)!; // a `versions` unit always has its owner columns (profile-owner.ts)
   const mapping = stampProfileRows(proseVersionsRows(value, descriptionPrefix(db, key, id), id), holder);
   // The history's operational row keeps the owner it was first stored under (an older release's path).
@@ -153,7 +141,6 @@ export function writeProseVersions(
     )
     .get(holder.writer, holder.holder_id);
   if (stored) operational.owner = stored.owner;
-  if (legacyOwner) for (const list of Object.values(mapping)) for (const row of list) row.owner_file = legacyOwner;
   const upserted = writeMapping(db, mapping, id, { at });
   const retired = retireProfileAbsent(db, holder, mapping, at);
   noteUnit(db, id, 'versions', { at });

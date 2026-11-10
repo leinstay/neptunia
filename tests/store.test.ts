@@ -32,6 +32,7 @@ import {
   writeRaw,
   memoryAt,
 } from './fixtures/store-kit.ts';
+import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 // The casts through `Parameters<typeof f>` hand a function a fake that carries only the fields the test reads.
 
@@ -573,10 +574,6 @@ test('flush: only writes the units that are dirty', async () => {
   // A profile has its own write kind (account-profile.ts): its write is counted under the key of its unit.
   const counted = {
     ...memoryDb,
-    writeUnit: (update: Untyped) => {
-      writes.push(update.key);
-      return memoryDb.writeUnit(update);
-    },
     writeAccountProfile: (write: AccountProfileWrite) => {
       writes.push(accountCollection('user', write.accountId));
       return memoryDb.writeAccountProfile(write);
@@ -1461,7 +1458,11 @@ test('reloadState: re-reads the stored state, discarding the cached in-memory va
   await store.flushSettled({});
 
   // A hand edit of the stored state, made while paused.
-  await memoryDb.writeUnit({ op: 'value', key: personaKey('state'), value: { llmCount: 99, job: { done: false } } });
+  await writeUnitUpdate(memoryDb, {
+    op: 'value',
+    key: personaKey('state'),
+    value: { llmCount: 99, job: { done: false } },
+  });
 
   assert.equal(store.state.data.llmCount, 1, 'still the stale cached value before reloadState');
   store.reloadState();

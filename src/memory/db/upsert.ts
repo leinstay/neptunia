@@ -5,8 +5,7 @@
 // session-held fields are updated within the caller's writer transaction. Historical imports retain their original
 // column contract and frozen path provenance through the explicit compatibility adapter.
 
-import { hasStorageUnits, ensureUnit, unitById } from './storage-units.ts';
-import { legacyStorageKey } from '../migration/paths.ts';
+import { unitById } from './storage-units.ts';
 import {
   deriveRow,
   ensureLinks,
@@ -82,20 +81,7 @@ function prepared(db: Db, sql: string): ReturnType<Db['prepare']> {
   if (!map) statementCache.set(db, (map = new Map()));
   let statement = map.get(sql);
   if (!statement) {
-    const legacy = !hasStorageUnits(db);
-    const raw = db.prepare(legacy ? sql.replaceAll('owner_key', 'owner_file') : sql);
-    const owned = (row: Row | undefined): Row | undefined =>
-      row && legacy && Object.hasOwn(row, 'owner_file') ? { ...row, owner_key: row.owner_file } : row;
-    statement = legacy
-      ? {
-          run: (...args: Array<unknown>) => raw.run(...args),
-          get: (...args: Array<unknown>) => owned(raw.get(...args)),
-          all: (...args: Array<unknown>) => raw.all(...args).map((row) => owned(row)!),
-          *iterate(...args: Array<unknown>) {
-            for (const row of raw.iterate(...args)) yield owned(row)!;
-          },
-        }
-      : raw;
+    statement = db.prepare(sql);
     map.set(sql, statement);
   }
   return statement;
@@ -242,8 +228,8 @@ function writeRow(
 function handOver(db: Db, table: string, key: Row, owner: string): boolean {
   const heir = prepared(
     db,
-    `SELECT c.owner_key${columnsOf(db, 'co_owners').has('holder_id') ? ', c.writer, c.holder_id' : ''} FROM co_owners c JOIN ${hasStorageUnits(db) ? 'storage_units' : 'files'} f ON f.${hasStorageUnits(db) ? 'id' : 'path'} = c.owner_key
-     WHERE c.tbl = ? AND c.key = ? AND c.owner_key != ? AND f.${hasStorageUnits(db) ? 'retired_at' : 'gone_at'} IS NULL ORDER BY c.owner_key LIMIT 1`
+    `SELECT c.owner_key${columnsOf(db, 'co_owners').has('holder_id') ? ', c.writer, c.holder_id' : ''} FROM co_owners c JOIN storage_units f ON f.id = c.owner_key
+     WHERE c.tbl = ? AND c.key = ? AND c.owner_key != ? AND f.retired_at IS NULL ORDER BY c.owner_key LIMIT 1`
   ).get(table, keyOf(table, key), owner);
   if (!heir) return false;
   const cols = OWNED[table];
@@ -380,17 +366,15 @@ function writeChildren(
   return count;
 }
 
-/** Legacy import adapters resolve their provenance once; active writers already provide a catalog identity. */
-function mappingOwner(db: Db, mapping: Rows, owner: string): string {
-  const current = hasStorageUnits(db);
-  const id = current && !owner.startsWith('unit:') ? ensureUnit(db, legacyStorageKey(owner)) : owner;
+/** Every row of a mapping that names an owner names the unit `owner`, the id the writer gives. */
+function mappingOwner(_db: Db, mapping: Rows, owner: string): string {
   for (const rows of Object.values(mapping))
     for (const row of rows) {
       const provenance = row.owner_file;
       if ((row.owner_key !== null && row.owner_key !== undefined) || (provenance !== null && provenance !== undefined))
-        row.owner_key = id;
+        row.owner_key = owner;
     }
-  return id;
+  return owner;
 }
 
 /** Writes a mapping (table -> rows) of the unit `owner`; `holder` names the owner columns of a place's rows. */
@@ -427,35 +411,11 @@ export function writeMapping(
   return count;
 }
 
-/** Makes a unit's mapping use the full unit path: `owner_key` of every row, and the `owner` of an operational row built from the path. */
-export function qualify(mapping: Rows, unit: { rel: string; full: string }): Rows {
-  for (const rows of Object.values(mapping)) {
-    for (const row of rows) {
-      if (row.owner_file === unit.rel) {
-        if (row.owner !== undefined && (row.owner === unit.rel || asText(row.owner).startsWith(`${unit.rel}#`)))
-          row.owner = `${unit.full}${asText(row.owner).slice(unit.rel.length)}`;
-        row.owner_file = unit.full;
-      }
-      if (row.owner_key !== undefined && row.owner_key !== null && row.owner_key === unit.rel) {
-        if (row.owner !== undefined && (row.owner === unit.rel || asText(row.owner).startsWith(`${unit.rel}#`)))
-          row.owner = `${unit.full}${asText(row.owner).slice(unit.rel.length)}`;
-        row.owner_key = unit.full;
-      }
-    }
-  }
-  for (const child of Object.keys(CHILDREN)) for (const row of mapping[child] ?? []) row.owner_key = unit.full;
-  return mapping;
-}
-
 /** The ids of the hot claims and episodes (what an archive entry must not stub over, archive-lines.ts). */
 export function hotClaimIds(db: Db): Set<string> {
   const ids = new Set<string>();
   for (const row of db
-    .prepare(
-      hasStorageUnits(db)
-        ? "SELECT id FROM claims WHERE retired_at IS NULL AND (writer IS NULL OR writer != 'archive')"
-        : "SELECT id FROM claims WHERE retired_at IS NULL AND owner_file NOT GLOB '*archive/*'"
-    )
+    .prepare("SELECT id FROM claims WHERE retired_at IS NULL AND (writer IS NULL OR writer != 'archive')")
     .all())
     ids.add(row.id as string);
   for (const row of db.prepare('SELECT id FROM episodes WHERE retired_at IS NULL').all()) ids.add(row.id as string);

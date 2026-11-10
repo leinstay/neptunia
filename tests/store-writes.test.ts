@@ -13,6 +13,7 @@ import { dbOf } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';
 import { ANNA, seedOpaqueWorld } from './fixtures/memory-db/opaque-people.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 const opened: Array<MemoryDbService> = [];
 after(async () => {
@@ -92,7 +93,7 @@ test('the store reads a lorebook another writer changed after its own read', asy
   const store = createStore({ dataDir: tempDir('nep-store-direct-a-'), memoryDb });
   assert.deepEqual(store.getLore(A), []);
   // The owner's console writes a unit through the writer, as any writer other than the store does.
-  await memoryDb.writeUnit({
+  await writeUnitUpdate(memoryDb, {
     op: 'value',
     key: { kind: 'lore', subject: { type: 'place', id: A } },
     value: [loreEntry('Le phare')],

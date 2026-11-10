@@ -30,6 +30,7 @@ import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { makeStore } from './fixtures/admin-store.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 type Field = { name: string; value: string };
 
@@ -2374,7 +2375,7 @@ test('/nep pause: no timer-driven writer (store.flush) writes memory while pause
       ...mem.memoryDb,
       writeUnit: (update: Untyped) => {
         writes.push(update.owner);
-        return mem.memoryDb.writeUnit(update);
+        return writeUnitUpdate(mem.memoryDb, update);
       },
       // A place's notes have their own write kind (src/memory/db/place-notes.ts), so the store's flush reaches it there.
       writePlaceNotes: (notes: Untyped) => {

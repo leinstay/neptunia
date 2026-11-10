@@ -353,7 +353,7 @@ export function accountOfNative(db: Db, iface: string, native: string): string |
 
 /**
  * The stored line of an interface's message id: its family's native key (`message_families`, the key a line is stored
- * under), else the id itself, newest revision first; null when the memory holds no such line.
+ * under), else the id itself, by the line's native id, newest revision first; null when the memory holds no such line.
  */
 export function sourceOfMessage(db: Db, iface: string, messageId: string): string | null {
   const family = db
@@ -367,12 +367,7 @@ export function sourceOfMessage(db: Db, iface: string, messageId: string): strin
       'SELECT id FROM sources WHERE iface = ? AND native_id = ? AND retired_at IS NULL ORDER BY revision DESC LIMIT 1'
     )
     .get(iface, key);
-  if (text(byKey?.id) !== null) return text(byKey?.id);
-  const prefix = `src:${iface}:${messageId}:`;
-  const byId = db
-    .prepare('SELECT id FROM sources WHERE id >= ? AND id < ? AND retired_at IS NULL ORDER BY revision DESC LIMIT 1')
-    .get(prefix, `${prefix}\uffff`);
-  return text(byId?.id);
+  return text(byKey?.id);
 }
 
 /** The stored line of a message id in a stored place, on the place's own interface (sourceOfMessage); null when none. */

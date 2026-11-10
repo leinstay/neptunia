@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { storageContext } from '../src/memory/db/map/index.ts';
+import { storageContext } from '../src/memory/db/storage-context.ts';
 import { lineOwnerOf } from '../src/memory/db/line-owner.ts';
 import { journalLineOf, journalRows } from '../src/memory/db/journal-lines.ts';
 import { archiveRows } from '../src/memory/db/archive-lines.ts';

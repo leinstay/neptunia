@@ -33,7 +33,6 @@ import type { StorageKey, StorageKind } from './db/storage-keys.ts';
 import { listUnits } from './db/storage-units.ts';
 import type { UnitQuery } from './db/storage-units.ts';
 import type { Db, Row } from './db/types.ts';
-import { canWriteUnits } from './types.ts';
 import type { MemoryDb, Untyped } from './types.ts';
 import { log } from '../log.ts';
 
@@ -41,7 +40,6 @@ import { log } from '../log.ts';
 export type StoreItem = { value: Untyped; dirty: boolean; holdFlush?: number };
 
 type Seam = { db(): Db; run<TResult>(fn: () => TResult): TResult };
-type Writable = MemoryDb & Required<Pick<MemoryDb, 'writeUnit'>>;
 /** One unit's way to the writer: the write under way, and the lines waiting behind it. */
 type Lane = { sending: Promise<void> | null; lines: Array<unknown> };
 
@@ -59,16 +57,20 @@ const DIRECT_WRITES: ReadonlyArray<[keyof MemoryDb, (update: Row) => object | nu
   ['writeSelfreflection', selfreflectionOfUnit],
 ];
 
-/** The write of one unit: the direct write of its kind where the service has one, else the unit write. */
-function writeOf(memoryDb: Writable, update: Row): Promise<unknown> {
+/** The write of one unit: the direct write of its kind; a unit no kind takes is refused with `UNIT_UNMAPPED`. */
+function writeOf(memoryDb: MemoryDb, update: Row): Promise<unknown> {
   for (const [method, directOf] of DIRECT_WRITES) {
     // Each method takes the write its own `directOf` gives; the table pairs them.
     const write = memoryDb[method] as ((this: void, given: object) => Promise<unknown>) | undefined;
     const direct = write ? directOf(update) : null;
     if (write && direct) return write(direct);
   }
-  return memoryDb.writeUnit(update);
+  return Promise.reject(Object.assign(new Error('UNIT_UNMAPPED'), { code: 'UNIT_UNMAPPED' }));
 }
+
+/** Whether a service takes the store's writes: it has the direct write of every kind the store sends. */
+const takesWrites = (memoryDb: MemoryDb): boolean =>
+  DIRECT_WRITES.every(([method]) => typeof memoryDb[method] === 'function');
 
 /** What a store asks of its reads and writes (see the head of this file). */
 export type StoreWrites = {
@@ -94,7 +96,7 @@ export type StoreWrites = {
 /** The reads and writes over `memoryDb`, reading through `seam`. See the head of this file. */
 // health: allow function-length until 2027-04-01 -- one closure over the values in use and their writes
 export function createStoreWrites({ memoryDb, seam }: { memoryDb: MemoryDb; seam: Seam }): StoreWrites {
-  const writer: Writable | null = canWriteUnits(memoryDb) ? memoryDb : null;
+  const writer: MemoryDb | null = takesWrites(memoryDb) ? memoryDb : null;
   const inUse = new Map<string, StoreItem>();
   // The values kept for the whole life of the store (her state, the GIF library, a place's media cache).
   const pinned = new Set<string>();

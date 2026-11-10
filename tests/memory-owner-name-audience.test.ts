@@ -1,4 +1,4 @@
-// A name the owner gives a person (`/memory users names add`, the writer's `owner-name` op) is an `alias` claim like the
+// A name the owner gives a person (`/memory users names add`, the writer's kind `owner-name`) is an `alias` claim like the
 // ones a member's profile holds, so it carries the audience those have: the groups of the person's interface. Synthetic
 // ids and names only.
 import { test } from 'node:test';
@@ -9,7 +9,7 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { ownerNamesOf } from '../src/memory/db/people-read.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle } from '../src/memory/db/types.ts';
-import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const NOW = Date.parse('2026-11-05T10:00:00.000Z');
@@ -36,7 +36,7 @@ function addPerson(db: Db, person: string, iface: string): void {
 }
 
 const named = (handle: MemoryHandle, personId: string, name: string, iface?: string) =>
-  applyUnitWrite(handle, { op: 'owner-name', personId, name, now: NOW, ...(iface ? { iface } : {}) });
+  applyMemoryWrite(handle, { kind: 'owner-name', personId, name, now: NOW, ...(iface ? { iface } : {}) });
 
 const scopeOf = (db: Db, name: string) => {
   const row = db.prepare('SELECT scope_kind, scope_iface, scope_dm, audience_id FROM claims WHERE text = ?').get(name);

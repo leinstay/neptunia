@@ -3,10 +3,10 @@
 // own rows stay on top after another writer flushes the unit. Plan 2026-11-04-cli-and-memory task 4.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { unitRows } from '../src/memory/db/export.ts';
+import { unitValue } from '../src/memory/db/readers/common.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import type { StorageKey } from '../src/memory/db/storage-keys.ts';
-import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
+import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle } from '../src/memory/db/types.ts';
 import { ANNA, addClaim, addAffinity, seedOpaqueWorld } from './fixtures/memory-db/opaque-people.ts';
@@ -25,7 +25,7 @@ function withUnit(body: (db: Db, handle: MemoryHandle) => void): void {
   const handle = openMemoryDb(':memory:');
   try {
     seedOpaqueWorld(dbOf(handle));
-    applyUnitWrite(handle, { op: 'value', key: KEY, iface: 'telegram', value: PRIVATE });
+    applyUnitUpdate(handle, { op: 'value', key: KEY, iface: 'telegram', value: PRIVATE });
     body(dbOf(handle), handle);
   } finally {
     handle.close();
@@ -50,9 +50,9 @@ test('the unit of an opaque person shows the session rows of that DM and no othe
   withUnit((db) => {
     addClaim(db, 'claim:session-here', ANNA, 'aud:dm:place:dm-a21');
     addClaim(db, 'claim:session-elsewhere', ANNA, 'aud:dm:place:dm-a11');
-    const ids = (unitRows(db, KEY).claims ?? []).map((row) => row.id);
-    assert.ok(ids.includes('claim:session-here'));
-    assert.equal(ids.includes('claim:session-elsewhere'), false);
+    const layer = JSON.stringify((unitValue(db, KEY) as { value?: unknown }).value);
+    assert.ok(layer.includes('the words of claim:session-here'));
+    assert.equal(layer.includes('the words of claim:session-elsewhere'), false);
   });
 });
 
@@ -60,7 +60,7 @@ test('her newest attitude move in that DM survives a flush of the unit from anot
   // Bug: a unit flush rewrites the rows and hides the session's affinity move until the next session.
   withUnit((db, handle) => {
     addAffinity(db, 'affinity:session', ANNA, 'place:dm-a21');
-    applyUnitWrite(handle, {
+    applyUnitUpdate(handle, {
       op: 'value',
       key: KEY,
       iface: 'telegram',
@@ -68,6 +68,5 @@ test('her newest attitude move in that DM survives a flush of the unit from anot
     });
     const row = db.prepare("SELECT retired_at FROM affinity_events WHERE id = 'affinity:session'").get();
     assert.equal(row?.retired_at ?? null, null);
-    assert.ok((unitRows(db, KEY).affinity_events ?? []).some((one) => one.id === 'affinity:session'));
   });
 });

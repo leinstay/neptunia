@@ -48,13 +48,13 @@
 //   - `observe(envelope, where)`: one observation of the live message path (observe.ts#observe, the envelope from
 //     observe-event.ts#observationOf) through the writer, like every other write: the observation is the record of the
 //     line (`where` names its layer). Never throws.
-//   - `writeUnit(update)` (unit-write.ts): the database writers of the memory units (the archive, the store's cache,
-//     the module stores, participation, the selfreflection) through the writer; resolves once the
-//     worker committed, rejects with a code (`DB_CLOSED` while the database is not open). Each tick also finishes the
-//     graph projection and the stems a migration left (one slice a tick). A selfreflection write's destination is the
-//     place of the selfreflection's first enabled mirror.
+//   - Each memory value goes through its own write kind below; every write resolves once the worker committed and
+//     rejects with a code (`DB_CLOSED` while the database is not open). Each tick also finishes the graph projection and
+//     the stems a migration left, one slice a tick, through the write kind `project` (projection-job.ts).
+//   - `writeOwnerName(write)` (owner-names.ts): a name the owner gives a person, or its removal.
 //   - `writeGeneration()` counts the settled writes of other writers than the store that reach rows a store unit
-//     reads (UNIT_ROW_WRITES, and a unit write of a kind in STORE_READ_KINDS), so the store reads such a unit again.
+//     reads (UNIT_ROW_WRITES, and a value kind of the store written through `memoryWrite`, STORE_VALUE_KINDS), so the
+//     store reads such a unit again.
 //   - `writeOperational(write)` (operational.ts): the engine's own state, usage, metrics, inner state, missed
 //     registries, emoji rails and recall trace lines, by kind and subject, through the writer.
 //   - `writeIntentions(write)` (intentions-write.ts): her list of intentions and the records moved to its archive.
@@ -110,7 +110,6 @@ import { Worker } from 'node:worker_threads';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { keyText, placeCollection } from './storage-keys.ts';
-import type { StorageKey } from './storage-keys.ts';
 import type { IntentionsWrite } from './intentions-write.ts';
 import type { LineVectorsWrite } from './line-vectors.ts';
 import type { RecordLinesWrite } from './record-lines.ts';
@@ -149,7 +148,6 @@ import { memoryQueryFor, retrievalBounds } from '../retrieval-input.ts';
 import type { RetrievalInput } from '../retrieval-input.ts';
 import type { PrivatePersonView, PrivatePlaceView } from './private-read.ts';
 import { recoverRequestArchive } from './request-archive.ts';
-import { isLegacySelfreflectionFile } from '../migration/paths.ts';
 import { applySelfreflectionUpdate, createSelfreflectionMedia } from './selfreflection-media.ts';
 import { embedMedia } from './media-store.ts';
 import { embedObjects } from './object-vectors.ts';
@@ -199,20 +197,20 @@ const UNIT_ROW_WRITES = new Set([
   'selfreflection-media',
 ]);
 /**
- * The unit kinds the store reads back through its last read (src/memory/store-writes.ts): a unit write of one of them
- * by another writer, such as the owner's console, counts for `writeGeneration`. The store sends these kinds through
- * their direct writes, so a unit write of them is never its own.
+ * The write kinds of the values the store reads back through its last read (src/memory/store-writes.ts): written through
+ * `memoryWrite` by a writer other than the store, such as the owner's console, they count for `writeGeneration`. The
+ * store sends them through its own methods, which never count.
  */
-const STORE_READ_KINDS = new Set([
-  'user',
-  'private',
-  'place',
-  'channel',
-  'lore',
-  'participation',
-  'recent',
-  'selfreflection',
-  'versions',
+const STORE_VALUE_KINDS = new Set([
+  'account-profile',
+  'private-layer',
+  'place-notes',
+  'channel-entry',
+  'place-lore',
+  'participation-episodes',
+  'recent-lines',
+  'selfreflection-entries',
+  'prose-versions',
 ]);
 const DEFAULT_CLOSE_TIMEOUT_MS = 10_000;
 /** The inner turn's time budget when `wakes.loop.timeBudgetMs` is not set (config.json's value). */
@@ -538,7 +536,8 @@ export type MemoryDbService = {
   /** How many writes of other writers than the store reached rows a store unit reads, since the open (UNIT_ROW_WRITES). */
   writeGeneration(): number;
   onAffinityMoves(fn: (moves: Array<Row>) => void): () => void;
-  writeUnit(update: unknown): Promise<unknown>;
+  /** A name the owner gives a person, or its removal (owner-names.ts). */
+  writeOwnerName(write: { personId: string; name: string; remove?: boolean }): Promise<unknown>;
   /** The engine's own state by kind and subject (operational.ts). */
   writeOperational(write: OperationalWrite): Promise<unknown>;
   /** Her intentions and their archive (intentions-write.ts). */
@@ -861,20 +860,11 @@ export function createMemoryDb({
       .catch((error: unknown) => log.warn('selfreflection media: run failed', { code: codeOf(error) }));
   }
 
-  /** The stamped unit write as `writeUnit` sends it (the time, a selfreflection's destination). */
-  function stampUnit(update: Row): Row {
-    const stamped: Row = { ...update, kind: 'unit', now: Number.isFinite(update?.now) ? update.now : now() };
-    // A selfreflection post's destination is the place of the selfreflection's first enabled mirror (mirrors.ts).
-    if (
-      (stamped.op === 'selfreflection' ||
-        (stamped.op === 'value' &&
-          ((stamped.key as StorageKey | undefined)?.kind === 'selfreflection' ||
-            isLegacySelfreflectionFile(asText(stamped.owner ?? ''))))) &&
-      stamped.destination === undefined
-    ) {
-      stamped.destination = readMirrors({ readHandle }, mirrorPlaces, [])[0]?.placeId ?? null;
-    }
-    return withLiveIface(stamped, iface);
+  /** A selfreflection write, its destination the place of the selfreflection's first enabled mirror when it names none. */
+  function withDestination(entries: SelfreflectionWrite): SelfreflectionWrite {
+    if (entries.destination !== undefined) return entries;
+    const destination = readMirrors({ readHandle }, mirrorPlaces, [])[0]?.placeId;
+    return destination ? { ...entries, destination } : entries;
   }
 
   /** One write on the writer connection: a message to the worker, or this thread's own connection. */
@@ -890,14 +880,9 @@ export function createMemoryDb({
   // How many writes of another writer than the store reached rows a store unit reads (`writeGeneration`).
   let generation = 0;
   /** `done`, counted once it settled when its kind reaches such rows. */
-  function counted<T>(update: Row, done: Promise<T>): Promise<T> {
-    const keyKind = (update?.key as Row | undefined)?.kind;
-    const unitKind = typeof keyKind === 'string' ? keyKind : null;
-    const reaches =
-      update?.kind === 'unit'
-        ? (update.op === 'value' || update.op === 'lines') && (unitKind === null || STORE_READ_KINDS.has(unitKind))
-        : UNIT_ROW_WRITES.has(asText(update?.kind));
-    if (!reaches) return done;
+  function counted<T>(update: Row, done: Promise<T>, { other = false }: { other?: boolean } = {}): Promise<T> {
+    const kind = asText(update?.kind);
+    if (!UNIT_ROW_WRITES.has(kind) && !(other && STORE_VALUE_KINDS.has(kind))) return done;
     return done.finally(() => {
       generation += 1;
     });
@@ -1036,20 +1021,8 @@ export function createMemoryDb({
     return observeQueue.length;
   }
 
-  /**
-   * One write of a memory unit (unit-write.ts) through the writer. Resolves the writer's counts once committed (a skipped
-   * errand unit logged with its count); rejects with a code (`DB_CLOSED` while the database is not open).
-   */
-  async function writeUnit(given: unknown): Promise<unknown> {
-    const update = given as Row;
-    if (!handle || closing) throw Object.assign(new Error('memory db is not open'), { code: 'DB_CLOSED' });
-    const stamped = stampUnit(update);
-    if (engine) return counted(stamped, engine.call('memoryWrite', { update: stamped }));
-    return counted(stamped, Promise.resolve(applyMemoryWrite(handle, stamped) as Row));
-  }
-
   // The graph projection a migration left pending and the stems of new lines: the writer finishes them, one slice per
-  // tick (unit-write.ts, op `project`).
+  // tick (projection-job.ts, write kind `project`).
   let projectRun: Promise<void> | null = null;
   function startProject() {
     if (closing || !handle || projectRun || engine?.dead) return;
@@ -1060,9 +1033,9 @@ export function createMemoryDb({
       due = false;
     }
     if (!due) return;
-    projectRun = writeUnit({ op: 'project', maxSlices: 1 })
+    projectRun = write({ kind: 'project', maxSlices: 1, now: now() })
       .then((answer) => {
-        const projected = answer as Row;
+        const projected = answer;
         if (Number(projected?.units) > 0 || Number(projected?.stems) > 0)
           log.debug?.('memory db: projected', { units: projected.units, stems: projected.stems, done: projected.done });
       })
@@ -1597,8 +1570,8 @@ export function createMemoryDb({
       touchSources(update.reads.filter((row: Row) => row?.row_kind === 'sources').map((row: Row) => row.row_id));
     const applies = update?.kind === 'session' && update.mode === 'apply';
     try {
-      if (engine) return await counted(stamped, engine.call('memoryWrite', { update: stamped }));
-      return await counted(stamped, Promise.resolve(applyMemoryWrite(handle, stamped)));
+      if (engine) return await counted(stamped, engine.call('memoryWrite', { update: stamped }), { other: true });
+      return await counted(stamped, Promise.resolve(applyMemoryWrite(handle, stamped)), { other: true });
     } finally {
       if (applies) tellAffinityMoves((update.run as { id?: unknown } | undefined)?.id);
     }
@@ -1741,7 +1714,8 @@ export function createMemoryDb({
     searchRecord,
     recordTurnReads,
     onAffinityMoves,
-    writeUnit,
+    writeOwnerName: (name: { personId: string; name: string; remove?: boolean }) =>
+      write(withLiveIface({ ...name, kind: 'owner-name', now: now() }, iface)),
     writeOperational: (operational: OperationalWrite) => write({ ...operational, kind: 'operational', now: now() }),
     writeIntentions: (intentions: IntentionsWrite) => write({ ...intentions, kind: 'intentions', now: now() }),
     writeLineVectors: (vectors: LineVectorsWrite) => write({ ...vectors, kind: 'line-vectors', now: now() }),
@@ -1767,7 +1741,7 @@ export function createMemoryDb({
     writeRecentLines: (lines: RecentLinesWrite) =>
       write(withLiveIface({ ...lines, kind: 'recent-lines', now: now() }, iface)),
     writeSelfreflection: (entries: SelfreflectionWrite) =>
-      write(withLiveIface({ ...entries, kind: 'selfreflection-entries', now: now() }, iface)),
+      write(withLiveIface({ ...withDestination(entries), kind: 'selfreflection-entries', now: now() }, iface)),
     writeMediaEntry: (entry: MediaEntryWrite) =>
       write(withLiveIface({ ...entry, kind: 'media-entry', now: now() }, iface)),
     writeGifLibrary: (library: GifLibraryWrite) =>

@@ -219,9 +219,9 @@ function personWord(memoryDb: unknown, value: unknown): boolean {
 async function ownerNameCommand(memoryDb: unknown, name: string, args: Record<string, unknown>): Promise<Answer> {
   const given = typeof args.name === 'string' ? args.name.trim() : '';
   if (!given) return { text: 'a name is required', status: 'invalid' };
-  const update = { op: 'owner-name', personId: args.user, name: given, remove: name.endsWith('.remove') };
+  const update = { personId: args.user, name: given, remove: name.endsWith('.remove') };
   try {
-    await (callMethod(memoryDb, 'writeUnit', update) as Promise<unknown>);
+    await (callMethod(memoryDb, 'writeOwnerName', update) as Promise<unknown>);
     return { text: `${String(args.user)}: ${update.remove ? 'removed' : 'added'} ${given}`, status: 'ok' };
   } catch {
     return { text: `/${name.replaceAll('.', ' ')}: the name could not be written`, status: 'failed' };

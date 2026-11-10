@@ -12,8 +12,7 @@ import { createStore } from '../src/memory/store.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { operationalValue } from '../src/memory/db/operational.ts';
-import { PERSONA_ID, personaKey, placeCollection } from '../src/memory/db/storage-keys.ts';
-import type { StorageKey } from '../src/memory/db/storage-keys.ts';
+import { PERSONA_ID } from '../src/memory/db/storage-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle, Row } from '../src/memory/db/types.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
@@ -51,52 +50,11 @@ function rowsOf(db: Db): Array<Row> {
     });
 }
 
-const subjectOf = (key: StorageKey): string => key.subject.id;
-
-/** The seven kinds of the slice with a value of each, keyed as the store and its modules key them. */
-const VALUES: Array<{ key: StorageKey; value: unknown }> = [
-  { key: personaKey('state'), value: { llmCount: 3, paused: false, job: { done: true } } },
-  { key: personaKey('usage'), value: { v: 1, days: { '2026-11-09': { requests: 4 } } } },
-  { key: personaKey('metrics'), value: { v: 1, samples: { turn: [[NOW, 1200]] } } },
-  { key: personaKey('inner'), value: { v: 1, stopped: false, facts: [], turnIds: ['t1'] } },
-  { key: placeCollection('missed', PLACE), value: { candidates: [{ messageId: 'm1', at: NOW }] } },
-  { key: personaKey('missed'), value: { candidates: [] } },
-  { key: placeCollection('emoji_rails', PLACE), value: { replies: 2, last: ['e1'] } },
-];
-
-for (const { key, value } of VALUES) {
-  test(`the operational write stores the ${key.kind} row of ${key.subject.type} as the unit write does`, () => {
-    // Catches: a direct write that stores another value text, keeps a retired mark or misses a column the unit path set.
-    const viaUnit = fresh('unit');
-    const direct = fresh('direct');
-    try {
-      applyMemoryWrite(viaUnit.handle, { kind: 'unit', op: 'value', key, value, now: NOW });
-      applyMemoryWrite(direct.handle, {
-        kind: 'operational',
-        op: 'value',
-        of: key.kind,
-        subject: subjectOf(key),
-        value,
-        now: NOW,
-      });
-      const stored = rowsOf(direct.db);
-      assert.equal(stored.length, 1);
-      assert.deepEqual(stored, rowsOf(viaUnit.db));
-      assert.deepEqual(operationalValue(direct.db, key.kind, subjectOf(key)), { found: true, value });
-    } finally {
-      viaUnit.close();
-      direct.close();
-    }
-  });
-}
-
-test('a second operational value replaces the first, as a second unit write does', () => {
+test('a second operational value replaces the first', () => {
   // Catches: a write that adds a row per value, or keeps the old value beside the new one.
-  const viaUnit = fresh('unit-twice');
   const direct = fresh('direct-twice');
   try {
     for (const value of [{ llmCount: 1 }, { llmCount: 2 }]) {
-      applyMemoryWrite(viaUnit.handle, { kind: 'unit', op: 'value', key: personaKey('state'), value, now: NOW });
       applyMemoryWrite(direct.handle, {
         kind: 'operational',
         op: 'value',
@@ -106,23 +64,19 @@ test('a second operational value replaces the first, as a second unit write does
         now: NOW,
       });
     }
-    assert.deepEqual(rowsOf(direct.db), rowsOf(viaUnit.db));
+    assert.equal(rowsOf(direct.db).length, 1);
     assert.deepEqual(operationalValue(direct.db, 'state', PERSONA_ID), { found: true, value: { llmCount: 2 } });
   } finally {
-    viaUnit.close();
     direct.close();
   }
 });
 
-test('recall trace lines keep their positions and the newest lines under the cap, as the unit write does', () => {
+test('recall trace lines keep their positions and the newest lines under the cap', () => {
   // Catches: lines that lose their order, overwrite each other, or keep more than the cap.
-  const viaUnit = fresh('unit-trace');
   const direct = fresh('direct-trace');
-  const key = placeCollection('recall_trace', PLACE);
   try {
     for (const run of [1, 2, 3]) {
       const lines = [{ record: { run }, maxLines: 2 }];
-      applyMemoryWrite(viaUnit.handle, { kind: 'unit', op: 'lines', key, lines, now: NOW });
       applyMemoryWrite(direct.handle, {
         kind: 'operational',
         op: 'lines',
@@ -140,9 +94,7 @@ test('recall trace lines keep their positions and the newest lines under the cap
         [`${PLACE}#2`, JSON.stringify({ run: 3 })],
       ]
     );
-    assert.deepEqual(stored, rowsOf(viaUnit.db));
   } finally {
-    viaUnit.close();
     direct.close();
   }
 });

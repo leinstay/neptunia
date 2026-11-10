@@ -49,19 +49,6 @@ const STEPS: ReadonlyArray<Step> = [
   { value: { updatedAt: NOW + 1, posts: [post(3, { itemId: undefined }), post(4, { messageIds: ['m4', 'm5'] })] } },
 ];
 
-function writeUnitWay(handle: MemoryHandle, step: Step): unknown {
-  const base = {
-    kind: 'unit',
-    key: KEY,
-    iface: 'discord',
-    now: NOW,
-    ...(step.destination ? { destination: step.destination } : {}),
-  };
-  return 'value' in step
-    ? applyMemoryWrite(handle, { ...base, op: 'value', value: step.value })
-    : applyMemoryWrite(handle, { ...base, op: 'selfreflection', post: step.append, max: step.max, updatedAt: NOW + 2 });
-}
-
 function writeDirectWay(handle: MemoryHandle, step: Step): unknown {
   const base = {
     kind: 'selfreflection-entries',
@@ -75,22 +62,6 @@ function writeDirectWay(handle: MemoryHandle, step: Step): unknown {
 }
 
 const read = (handle: MemoryHandle): unknown => unitValue(dbOf(handle), KEY);
-
-test('entries, an append with a cap and a rewrite store the same rows both ways', () => {
-  const seed = seededPlaces();
-  const viaUnit = copyOf(seed);
-  const direct = copyOf(seed);
-  try {
-    const unitAnswers = STEPS.map((step) => writeUnitWay(viaUnit, step));
-    ownSelfreflectionRows(dbOf(viaUnit));
-    const directAnswers = STEPS.map((step) => writeDirectWay(direct, step));
-    assert.equal(tablesOf(dbOf(direct)), tablesOf(dbOf(viaUnit)));
-    assert.deepEqual(directAnswers, unitAnswers);
-  } finally {
-    viaUnit.close();
-    direct.close();
-  }
-});
 
 test('the writer stamps every entry, mirror and publication with the owner columns version step 50 derives', () => {
   const handle = copyOf(seededPlaces());

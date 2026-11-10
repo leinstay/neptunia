@@ -11,43 +11,7 @@ import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { addChannelPlace } from './fixtures/memory-db/opaque-people.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
-import { CHANNEL, NOW, ROOT, versions, writeBoth } from './fixtures/memory-db/profile-writes.ts';
-
-test('version histories of an account, a channel, a place and a lore entry store the same rows both ways', async () => {
-  const { unit, direct } = await writeBoth([
-    {
-      of: 'versions',
-      versionKind: 'users',
-      subjectId: 'discord:111',
-      itemId: 'discord:111',
-      value: versions('character', ['one', 'two']),
-    },
-    {
-      of: 'versions',
-      versionKind: 'channels',
-      subjectId: CHANNEL,
-      itemId: CHANNEL,
-      value: versions('purpose', ['a room']),
-    },
-    { of: 'versions', versionKind: 'place', subjectId: ROOT, itemId: ROOT, value: versions('patterns', ['p']) },
-    {
-      of: 'versions',
-      versionKind: 'lore',
-      subjectId: ROOT,
-      itemId: 'a-title-0123456789ab',
-      value: versions('text', []),
-    },
-    {
-      of: 'versions',
-      versionKind: 'users',
-      subjectId: 'discord:111',
-      itemId: 'discord:111',
-      value: versions('character', ['two']),
-    },
-  ]);
-  assert.equal(direct[0], unit[0]);
-  assert.deepEqual(direct[1], unit[1]);
-});
+import { NOW, ROOT, versions } from './fixtures/memory-db/profile-writes.ts';
 
 test('a version write of a kind outside the prose kinds is refused with a code', async () => {
   const memory = await openTestMemory({ now: () => NOW, iface: () => 'discord' });

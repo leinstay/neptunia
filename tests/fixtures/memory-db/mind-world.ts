@@ -150,7 +150,8 @@ export function addLine(
         id,
         kind: self ? 'said' : 'seen',
         iface,
-        native_id: id,
+        // The platform's message id, as a stored line keeps it beside its source id.
+        native_id: /^src:[^:]+:([^:]+):/.exec(id)?.[1] ?? id,
         native_kind: 'message',
         place_id: place,
         author_account: self ? null : author,

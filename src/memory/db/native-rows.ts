@@ -69,7 +69,7 @@ function remembered(read: (id: string) => string | null): (id: string) => string
 
 /**
  * The four readers over one connection, in the shape the mappers' context carries them. Each remembers what it read for
- * the life of the context (map/index.ts#storageContext builds one per read or write of a unit).
+ * the life of the context (storage-context.ts#storageContext builds one per read or write of a unit).
  */
 export function nativeRows(db: Db): {
   accountOfMember: (iface: string, native: string) => string | null;

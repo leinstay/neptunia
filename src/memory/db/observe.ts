@@ -60,12 +60,12 @@
 // The observation is the record of a seen line (spec 2026-10-24-memory-authority section 6 item 3), so the service
 // passes the line's record unit (`owner`: its place's record of the day
 // file) and the row is written in it: `owner_key` that unit, `position` the next one of the unit (the unit's `files`
-// row is kept, unit-write.ts#noteUnit), and a stored line of the tuple with no owner yet is stamped the same way.
+// row is kept, storage-units.ts#noteUnit), and a stored line of the tuple with no owner yet is stamped the same way.
 // Without `owner` the row has none. With `owner` the result also carries the line's `revision` (an edit's is the one
 // counted here).
 // Logs carry codes only (`log.debug?.()`).
 
-import { storageOwner, ownershipRow, ownershipSql, hasStorageUnits } from './storage-units.ts';
+import { storageOwner, nextPosition, noteUnit } from './storage-units.ts';
 
 import { messageLocator } from './message-locator.ts';
 import type { NativeMessageLocator } from './recall.ts';
@@ -100,7 +100,6 @@ import { rescopeDmPlace } from './dm-rescope.ts';
 import { ensureAccountPerson } from './person-links.ts';
 import { authorPersonOf } from './meta-person-write.ts';
 import { projectRow } from './graph.ts';
-import { nextPosition, noteUnit } from './unit-write.ts';
 import { lineColumns, lineOwnerOfUnit, nextLinePosition } from './line-owner.ts';
 import type { LineOwner } from './line-owner.ts';
 import { ingestOption, insertIngest } from './ingest.ts';
@@ -501,7 +500,6 @@ function nodeOf(
 }
 
 function insertRow(db: Db, table: string, row: Row): void {
-  row = ownershipRow(db, row);
   const cols = Object.keys(row);
   db.prepare(
     `INSERT INTO "${table}" (${cols.map((col) => `"${col}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
@@ -997,17 +995,12 @@ function replayOf(
 ): ObserveResult {
   const e = envelope;
   if (filled(owner)) {
-    const stored = db
-      .prepare(`SELECT ${hasStorageUnits(db) ? 'owner_key' : 'owner_file'} AS current_owner FROM sources WHERE id = ?`)
-      .get(sourceId);
+    const stored = db.prepare(`SELECT owner_key AS current_owner FROM sources WHERE id = ?`).get(sourceId);
     if (stored && (stored.current_owner === null || stored.current_owner === undefined)) {
       const line = lineOwnerOfUnit(db, owner);
       const position = line ? nextLinePosition(db, line) : nextPosition(db, owner);
       db.prepare(
-        ownershipSql(
-          db,
-          'UPDATE sources SET owner_key = ?, position = ?, writer = ?, holder_id = ?, period = ? WHERE id = ?'
-        )
+        'UPDATE sources SET owner_key = ?, position = ?, writer = ?, holder_id = ?, period = ? WHERE id = ?'
       ).run(owner, position, line?.writer ?? null, line?.holder_id ?? null, line?.period ?? null, sourceId);
       noteUnit(db, owner, 'record', { lines: position + 1, at });
     }

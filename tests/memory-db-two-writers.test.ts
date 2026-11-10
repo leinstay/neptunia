@@ -1,7 +1,7 @@
 // The memory database has two writers of one member's profile (spec 2026-10-31-memory-two-writers): her memory
 // session (src/memory/db/session-write.ts) and the unit sync of the store's cached file (src/memory/db/upsert.ts). Each
 // test runs a session write, then a unit flush of the same file through the store, then reads the profile back the
-// way her turns read it (`store.getUser`, export.js#exportOne). What the session wrote must survive the flush and be
+// way her turns read it (`store.getUser`, readers/common.ts#unitValue). What the session wrote must survive the flush and be
 // in the profile. Two suspects of the same shape close the file: the diary's fetched text and an observation's update
 // of an account. Synthetic data only (Greek or accented Latin for non-ASCII); the ids are made up.
 import { accountOf, placeOfChat } from '../src/memory/addresses.ts';
@@ -12,7 +12,8 @@ import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf as sqlOfHandle } from '../src/memory/db/types.ts';
-import { exportOne } from '../src/memory/migration/export-one.ts';
+import { unitValue } from '../src/memory/db/readers/common.ts';
+import { legacyStorageKey } from '../src/memory/migration/paths.ts';
 import { applySelfreflectionUpdate } from '../src/memory/db/selfreflection-media.ts';
 import { observe } from '../src/memory/db/observe.ts';
 import { createStore } from '../src/memory/store.ts';
@@ -223,11 +224,11 @@ function liveProfile(store: ReturnType<typeof createStore>, accountId: string): 
   return store.getUser(accountOf(store, accountId)) as Profile;
 }
 
-/** One JSON unit rebuilt from the database alone (export.js#exportOne). */
+/** One unit rebuilt from the database alone, by the key its path names. */
 function exported(service: Service, rel: string): Profile {
-  const out = exportOne(service.readHandle(), rel);
+  const out = unitValue((service.readHandle() as { db: unknown }).db, legacyStorageKey(rel));
   assert.ok(out.found, `the unit ${rel} is in the database`);
-  // exportOne's value is the unit's JSON (`any` in its JSDoc); for a users or private file it is a profile.
+  // For a users or private unit the value is a profile.
   return out.value as Profile;
 }
 

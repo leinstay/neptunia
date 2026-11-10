@@ -97,11 +97,11 @@ after(async () => {
   for (const memory of OPENED) await memory.close();
 });
 
-test('the errand store writes through the errand kind of a service that has no unit write', async () => {
+test('the errand store writes through the errand kind of the service', async () => {
   const memory = openTestMemorySync({ dataDir: tempDataDir('nep-errand-kind-'), now: () => NOW });
   OPENED.push(memory);
-  const service = memory.memoryDb as unknown as Row;
-  const memoryDb = { ...service, writeUnit: undefined };
+  // The service has no unit write.
+  const { memoryDb } = memory;
   const journal = createJournal({ dataDir: memory.dataDir, now: () => NOW, memoryDb });
   const store = createErrandStore({
     memoryDb,

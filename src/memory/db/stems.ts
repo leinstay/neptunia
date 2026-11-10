@@ -5,7 +5,7 @@
 //
 // The learned stemmer is kept in `meta` (key `stemmer`: the endings and the productivity of the stems that are seen
 // with two or more endings), so the writer that fills the stems and the reader that stems a query use the same one.
-// `fillStems` runs from the writers' projection job (unit-write.ts, op `project`): it learns the stemmer when there is
+// `fillStems` runs from the writers' projection job (projection-job.ts, write kind `project`): it learns the stemmer when there is
 // none or the text grew by a quarter since it was learned (a new stemmer re-stamps every row and the name index of
 // names.ts), then fills the rows whose stems are still empty. A row whose text changes gets its stems emptied by the
 // upsert (upsert.ts), so it is filled again. A media item's words are stemmed on its own row (media-stems.ts), never on a line that shows it, so `sources.text` and

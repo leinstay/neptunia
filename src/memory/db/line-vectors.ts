@@ -17,7 +17,7 @@
 import { chunkKey } from '../chunks.ts';
 import { extraText, join, parseExtra, split } from './map/common.ts';
 import type { Spec } from './map/common.ts';
-import { storageContext } from './map/index.ts';
+import { storageContext } from './storage-context.ts';
 import { dmPlaceScope } from './map/scope-parts.ts';
 import { deriveRow } from './rows.ts';
 import { SCOPE_INTERNAL, groupScope } from './scope.ts';

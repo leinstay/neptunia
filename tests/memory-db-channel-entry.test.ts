@@ -13,27 +13,7 @@ import type { Row } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';
 import { generated, plain } from './fixtures/memory-db/roundtrip.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
-import {
-  CHANNEL,
-  NOW,
-  THREAD,
-  copyOf,
-  entry,
-  seededPlaces,
-  writeBothWays,
-  writeDirect,
-} from './fixtures/memory-db/place-writes.ts';
-
-test('entries of a channel, a thread and a channel with no row store the same rows both ways', () => {
-  const { unit, direct } = writeBothWays([
-    { kind: 'channel', placeId: CHANNEL, value: entry() },
-    { kind: 'channel', placeId: THREAD, value: entry({ id: '200000000000000002', name: 'a thread', tone: 4 }) },
-    { kind: 'channel', placeId: 'discord:channel:200000000000000009', value: { id: '200000000000000009' } },
-    { kind: 'channel', placeId: CHANNEL, value: entry({ purpose: undefined, topic: 'weekly thread' }) },
-  ]);
-  assert.equal(direct[0], unit[0]);
-  assert.deepEqual(direct[1], unit[1]);
-});
+import { CHANNEL, NOW, THREAD, copyOf, entry, seededPlaces, writeDirect } from './fixtures/memory-db/place-writes.ts';
 
 test('a channel entry write that names no place is refused with a code', () => {
   const handle = copyOf(seededPlaces());

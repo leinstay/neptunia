@@ -6,8 +6,7 @@
 //                                                               `{ dataDir }`, which recovers the request archive)
 //              { id, type: 'turnReads', turnId, step, rows }    the turn_reads rows, resolved by the caller at assembly time
 //              { id, type: 'selfreflectionApply', update }               one selfreflection row's text and picture rows (selfreflection-media.ts)
-//              { id, type: 'memoryWrite', update }              one write of her memory session or a description review, or
-//                                                               of a memory unit (session-write.ts, unit-write.ts)
+//              { id, type: 'memoryWrite', update }              one write of any kind (session-write.ts)
 //              { id, type: 'focus', now, config }               the focus job: recount and recompute (focus.ts#runFocusDay)
 //              { id, type: 'observe', envelope, now, owner }    one observation of the live message path (observe.ts#observe;
 //                                                               `owner`: its record unit)

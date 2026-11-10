@@ -21,6 +21,7 @@ import { GUILD, MINUTE, START, innerRig, newHistory, replyTo, rowsOf } from './f
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
 import { createStore } from '../src/memory/store.ts';
 import { planAnswerText } from './fixtures/plan-answer.ts';
+import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 // The fakes hold only the part of the real object that the code under test reads, so each is cast once, here.
 const fakeOf = <T>(value: object): T => value as T;
@@ -183,10 +184,13 @@ describe('one writer', () => {
 
   test('two callers writing at once both land, in the order they asked', async () => {
     const { memoryDb } = await service();
-    const first = memoryDb.writeUnit({ op: 'lines', owner: OWNER, lines: [line('a1'), line('a2')] });
-    const second = memoryDb.writeUnit({ op: 'lines', owner: OWNER, lines: [line('b1')] });
+    const first = writeUnitUpdate(memoryDb, { op: 'lines', owner: OWNER, lines: [line('a1'), line('a2')] });
+    const second = writeUnitUpdate(memoryDb, { op: 'lines', owner: OWNER, lines: [line('b1')] });
     await Promise.all([first, second]);
-    const rows = rowsOf(memoryDb, 'SELECT id FROM day WHERE owner_file = ? ORDER BY position', OWNER);
+    const rows = rowsOf(
+      memoryDb,
+      "SELECT id FROM day WHERE writer = 'journal' AND period = '2026-10-26' ORDER BY position"
+    );
     assert.deepEqual(
       rows.map((row) => row.id),
       ['a1', 'a2', 'b1']
@@ -203,7 +207,9 @@ describe('one writer', () => {
     OPEN.push({ close: () => rival.close() });
     await rival.tick();
     assert.equal(rival.readHandle(), null, 'the service did not open the database');
-    await assert.rejects(rival.writeUnit({ op: 'lines', owner: OWNER, lines: [line('x1')] }), { code: 'DB_CLOSED' });
+    await assert.rejects(writeUnitUpdate(rival, { op: 'lines', owner: OWNER, lines: [line('x1')] }), {
+      code: 'DB_CLOSED',
+    });
     assert.match(
       fs.readFileSync(lockPathOf(dbPath), 'utf8'),
       new RegExp(`"pid":${process.ppid}\\b`),

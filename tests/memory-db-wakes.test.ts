@@ -19,7 +19,7 @@ import {
   wakeRunOf,
 } from '../src/memory/db/wakes.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
-import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
+import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { createInnerLife, type InnerLifeOptions } from '../src/behavior/inner.ts';
 import { createEventDoor } from '../src/interface/door.ts';
@@ -231,7 +231,7 @@ function innerHarness({
   const writes: Array<{ op?: string }> = [];
   const memoryDb = {
     readHandle: () => handle,
-    writeUnit: (update: Parameters<typeof applyUnitWrite>[1]) => Promise.resolve(applyUnitWrite(handle, update)),
+    writeUnit: (update: Parameters<typeof applyUnitUpdate>[1]) => Promise.resolve(applyUnitUpdate(handle, update)),
     writeOperational: (write: Record<string, unknown>) =>
       Promise.resolve(applyMemoryWrite(handle, { ...write, kind: 'operational' })),
     recordWake: async (update: { op?: string }) => {

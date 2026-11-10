@@ -14,6 +14,7 @@ import { CHANNEL, GUILD, HOT_ITEM, MEMBER, buildDataDir, guildDir } from './fixt
 import { dbOf } from '../src/memory/db/types.ts';
 import { memoryRing } from './fixtures/memory-db/session-rig.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 const tmpRoot = () => fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'memdb-svc-'));
 
@@ -85,7 +86,7 @@ const counts = (env: { dbFile: () => string }): Record<string, number> => {
   const reader = openMemoryDb(env.dbFile(), { readOnly: true });
   try {
     return Object.fromEntries(
-      ['files', 'sources', 'claims', 'turn_reads'].map((t) => [
+      ['accounts', 'sources', 'claims', 'turn_reads'].map((t) => [
         t,
         dbOf(reader).prepare(`SELECT COUNT(*) AS n FROM ${t}`).get()!.n as number,
       ])
@@ -103,7 +104,7 @@ test('the first tick opens the database and takes the writer lock; close frees i
     await env.service.tick();
     assert.equal(env.service.status().open, true);
     assert.ok(fs.existsSync(`${env.dbFile()}.lock`));
-    assert.ok(env.service.status().files! > 5);
+    assert.ok(env.service.status().rows! > 5);
     await env.service.close();
     assert.equal(env.service.status().open, false);
     assert.equal(fs.existsSync(`${env.dbFile()}.lock`), false);
@@ -138,7 +139,7 @@ test('close: a unit write under way lands, then the lock is released', async () 
   try {
     await env.service.tick();
     const before = counts(env);
-    const write = env.service.writeUnit({
+    const write = writeUnitUpdate(env.service, {
       op: 'value',
       owner: `guilds/${GUILD}/users/100000000000000088.json`,
       value: { id: '100000000000000088', names: ['Late'] },
@@ -146,10 +147,10 @@ test('close: a unit write under way lands, then the lock is released', async () 
     await env.service.close();
     await write;
     assert.equal(fs.existsSync(`${env.dbFile()}.lock`), false);
-    assert.equal(counts(env).files, before.files + 1);
+    assert.equal(counts(env).accounts, before.accounts + 1);
     assert.equal(env.service.status().open, false);
     await assert.rejects(
-      () => env.service.writeUnit({ op: 'value', owner: `guilds/${GUILD}/lore.json`, value: [] }),
+      () => writeUnitUpdate(env.service, { op: 'value', owner: `guilds/${GUILD}/lore.json`, value: [] }),
       (error: NodeJS.ErrnoException) => error.code === 'DB_CLOSED'
     );
   } finally {
@@ -408,7 +409,7 @@ test('status: the state of the database for the card, and its line from the labe
     await env.service.tick();
     const status = env.service.status();
     assert.equal(status.open, true);
-    assert.ok(status.rows! > 0 && status.files! > 0);
+    assert.ok(status.rows! > 0 && status.files !== null);
     assert.equal(memoryDbStatusLine(status, labels), `rows ${status.rows} files ${status.files}`);
     // A label the writer has not filled yet leaves the line out.
     assert.equal(memoryDbStatusLine(status, { status: { memoryDb: { ok: '' } } }), null);

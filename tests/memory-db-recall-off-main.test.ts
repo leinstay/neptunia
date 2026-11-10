@@ -25,6 +25,7 @@ import { insertRows } from '../src/memory/db/rows.ts';
 import { labels } from './fixtures/labels.ts';
 import { channel, rig } from './fixtures/reads-rig.ts';
 import { config } from './fixtures/recall-run-kit.ts';
+import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 const MINUTE = 60_000;
@@ -603,15 +604,12 @@ test('a reader that dies leaves the writer writing', async () => {
   try {
     env.mode('crash-once');
     await codeOfRejection(env.service.searchRecord(rabbit()));
-    await env.service.writeUnit({
+    await writeUnitUpdate(env.service, {
       op: 'value',
       owner: 'guilds/g1/users/u-new.json',
       value: { id: 'u-new', names: ['New'] },
     });
-    const row = env.service
-      .database()
-      ?.prepare('SELECT COUNT(*) AS n FROM files WHERE path = ?')
-      .get('guilds/g1/users/u-new.json');
+    const row = env.service.database()?.prepare("SELECT COUNT(*) AS n FROM accounts WHERE native_id = 'u-new'").get();
     assert.equal(row?.n, 1);
   } finally {
     await env.done();

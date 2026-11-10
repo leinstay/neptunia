@@ -12,6 +12,7 @@ import { insertRows } from '../src/memory/db/rows.ts';
 import { dmScope } from '../src/memory/db/scope.ts';
 import { personId } from './fixtures/memory-db/spelled-ids.ts';
 import { placeCollection } from '../src/memory/db/storage-keys.ts';
+import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 const DIMS = 4;
 const MONTH = '2026-11';
@@ -71,8 +72,8 @@ async function monthWith(iface: string, native: string) {
   assert.equal(seen.ok, true, JSON.stringify(seen));
   const key = { ...placeCollection('vectors', seen.placeId), partition: MONTH };
   // The first write makes the month (the whole-month path), the second appends to it.
-  await env.memoryDb.writeUnit({ op: 'vectors', key, delta: delta(['r1', 'r2'], 0) });
-  await env.memoryDb.writeUnit({ op: 'vectors', key, delta: delta(['r3', 'r4'], 2) });
+  await writeUnitUpdate(env.memoryDb, { op: 'vectors', key, delta: delta(['r1', 'r2'], 0) });
+  await writeUnitUpdate(env.memoryDb, { op: 'vectors', key, delta: delta(['r3', 'r4'], 2) });
   const db = dbOf(env.memoryDb.readHandle()!);
   const audiences = db
     .prepare('SELECT item_id, audience_id, scope_kind, scope_iface FROM vectors ORDER BY item_id')
