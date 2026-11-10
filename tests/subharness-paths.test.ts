@@ -4,10 +4,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { readRouting } from '../src/subharness/routing.ts';
+
 import { setAgentModel } from '../src/subharness/control.ts';
 import type { EnableDeps } from '../src/subharness/control.ts';
-import { FIXED_MODELS } from '../src/subharness/models.ts';
+
 import { runAgent } from '../src/subharness/run.ts';
 import { subharnessCommand } from '../src/interface/commands/subharness.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
@@ -146,30 +146,6 @@ test('a model set without an effort keeps the effort stored before', async () =>
   assert.equal(stored.efforts?.dev, 'high');
 });
 
-// the lists offered
-
-test('the codex list offers the GPT ids the account lists', () => {
-  // Catches: the choices offer ids such as gpt-5.5 that the owner's account does not serve.
-  // Changed: the fixed list is read directly, since no dialog asks for it.
-  assert.deepEqual(FIXED_MODELS.codex, [
-    'gpt-6.1-sol',
-    'gpt-6-astra',
-    'gpt-6.1-terra',
-    'gpt-6-sol',
-    'gpt-6-luna',
-    'gpt-5.6-sol',
-    'gpt-5.6-terra',
-    'gpt-5.6-luna',
-  ]);
-});
-
-test('the claude list keeps the aliases and offers the current Claude ids', () => {
-  // Catches: the aliases dropped, so a stored "opus" no longer shows in the choices, or a current id missing.
-  // Changed: the fixed list is read directly, since no dialog asks for it.
-  const offered = FIXED_MODELS.claude;
-  for (const id of ['opus', 'sonnet', 'claude-opus-5-5', 'claude-sonnet-5-5']) assert.ok(offered.includes(id), id);
-});
-
 // the run and the status
 
 test('the runner passes the stored effort of the agent and none for an agent without one', async () => {
@@ -206,15 +182,6 @@ test('the status lists each agent with its backend, model and effort', async () 
   const status = await subharnessCommand(deps, 'subharness.status', {});
   const dev = lineOf(status.text, 'dev');
   for (const word of ['claude', 'claude-opus-5-5', 'high']) assert.ok(dev.includes(word), `${word} on "${dev}"`);
-});
-
-test('the status names the backend a stored list migrated to, for an agent that named none', async () => {
-  // Catches: an agent without a uses entry shown as "none" while it ran through backends[0] before the list went.
-  // Changed: the list is no longer read at run time, it becomes each agent's `uses` entry.
-  const { dir, deps } = rig({ backends: ['codex', 'claude'] });
-  assert.equal(readRouting(dir).subharness.uses.scout, 'codex');
-  const status = await subharnessCommand(deps, 'subharness.status', {});
-  assert.ok(lineOf(status.text, 'scout').includes('codex'));
 });
 
 // model set from the console

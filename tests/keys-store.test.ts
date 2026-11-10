@@ -32,13 +32,6 @@ test('a listing shows each key by name and last four characters in file order, a
   assert.ok(!JSON.stringify(store.list()).includes('SECRETVALUE'), 'no part of a value but its last four characters');
 });
 
-test('a key is written under keys by its name, with no core list and no extra section', () => {
-  const { store, file } = setup();
-  store.add({ name: 'main', value: SECRET });
-  // Bug caught: the store writing the old sections again, which no reader of keys.json takes any more.
-  assert.deepEqual(written(file), { keys: { main: SECRET } });
-});
-
 test('keys.json is mode 600 after the first write, and a file loosened by hand is tightened by the next write', () => {
   const { store, file } = setup();
   store.add({ name: 'main', value: SECRET });

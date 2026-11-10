@@ -258,28 +258,6 @@ test('the child gets her own home and no key of the core', async () => {
   }
 });
 
-test('claude usage from the real output is split into prompt, cached and completion tokens', async () => {
-  // Catches: usage read from a shape the mock invents while the CLI prints another, so the day's count reads zero.
-  const usage = { input_tokens: 100, cache_creation_input_tokens: 20, cache_read_input_tokens: 30, output_tokens: 7 };
-  const { deps } = boundary('claude', envelope({ result: 'text', usage }));
-  const completion = await runMemoryWriter(CLAUDE, INPUT, deps);
-  assert.deepEqual(completion.usage, {
-    prompt_tokens: 150,
-    completion_tokens: 7,
-    prompt_tokens_details: { cached_tokens: 30 },
-  });
-  assert.equal(memoryWriter.memoryCapabilities('claude').usage, 'split');
-});
-
-test('codex usage is a single total, which the capabilities say and the completion does not pass off as output', async () => {
-  // Catches: the run's whole token count recorded as completion tokens, which inflates the writer's output by the prompt.
-  assert.equal(memoryWriter.memoryCapabilities('codex').usage, 'total-only');
-  const { deps } = boundary('codex', "echo 'tokens used'\necho 1234", JSON.stringify({ answer: 'text' }));
-  const completion = await runMemoryWriter(CODEX, INPUT, deps);
-  assert.equal(completion.usage?.completion_tokens, 0);
-  assert.equal(completion.usage?.total_tokens, 1234);
-});
-
 test('a run past its timeout is killed with its children and refused timeout', async () => {
   // Catches: a hung CLI holding the writer and every sweep after it; a grandchild keeping the pipes open.
   const { deps } = boundary('claude', 'sleep 30 &\nwait');

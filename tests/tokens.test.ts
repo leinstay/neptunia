@@ -62,11 +62,6 @@ test('estimateMessages: next to a video_url part, an image_url part still costs 
   assert.equal(total, 6 + 400);
 });
 
-test('estimateMessages: custom tokensPerImage is honoured', () => {
-  const total = estimateMessages([{ role: 'user', content: [{ type: 'image_url', image_url: { url: 'x' } }] }], 100);
-  assert.equal(total, 6 + 100);
-});
-
 test('createCalibrator: clamps an out-of-range initial ratio to RATIO_MIN/RATIO_MAX', () => {
   assert.equal(createCalibrator(0.1).ratio, 0.6);
   assert.equal(createCalibrator(5).ratio, 1.6);

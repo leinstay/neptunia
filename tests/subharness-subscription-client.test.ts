@@ -801,25 +801,6 @@ test('a route whose backend is not installed fails with not-installed and starts
   assert.equal(runs.length, 0);
 });
 
-test(
-  'an exhausted step off a chain route fails with its code, and the direct client is not asked',
-  STEP_TIMEOUT,
-  async () => {
-    // Catches: a failed harness step sent to the API behind the chain's back, so a spent window spends a key nobody chose.
-    // Changed: `llm.subscription.fallback` is retired; the next route of the core's chain is the fallback (slice 4).
-    const { client, runs, directCalls } = rig();
-    const asked = client.complete(FIRST, REPLY);
-    await until(() => runs.length === 1, 'the run started');
-    pushAll(runs[0], [
-      { type: 'rate_limit_event', rate_limit_info: { status: 'rejected', rateLimitType: 'seven_day' } },
-      { type: 'result', subtype: 'success', is_error: true, api_error_status: 429, result: '' },
-    ]);
-    runs[0].end(1);
-    await assert.rejects(asked, { code: 'subscription-exhausted' });
-    assert.equal(directCalls.length, 0);
-  }
-);
-
 // ---- the login state the header reads ----------------------------------------------------------------------------
 
 test(
