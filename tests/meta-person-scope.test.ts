@@ -16,7 +16,7 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { allowedAudience, dmAudienceId, dmUserOf, issueContext, readContextSpec } from '../src/memory/db/scope.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
-import { journalKey, placeCollection, storageId } from '../src/memory/db/storage-keys.ts';
+import { journalKey, placeCollection } from '../src/memory/db/storage-keys.ts';
 import { resolveRow } from '../src/memory/db/rows.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { dbOf } from '../src/memory/db/types.ts';
@@ -76,7 +76,7 @@ const journalMapper = (db: Db) => {
   const owner = lineOwnerOf(key)!;
   return {
     toRows: (_rel: string, line: Row, { position }: { position: number }) =>
-      journalRows(line, ctx, { id: storageId(key), line: owner, position }),
+      journalRows(line, ctx, { line: owner, position }),
     fromRows: (rows: Rows) => journalLineOf(rows, ctx),
   };
 };
@@ -376,7 +376,7 @@ test("an archived item of a member with no stored direct chat names the member's
     const key = placeCollection('archive', 'discord:channel:c1', { partition: '2026-11' });
     const entry: Row = { id: 'ar1', kind: 'archive', event: 'expired', itemId: 'c9', scope: { user: '701' } };
     // An archive month's key always names its owner columns (line-owner.ts#lineOwnerOf).
-    const owner = { id: storageId(key), line: lineOwnerOf(key)!, position: 0 };
+    const owner = { line: lineOwnerOf(key)!, position: 0 };
     const [stub] = archiveRows(entry, storageContext(db, key), owner, new Set<string>()).claims ?? [];
     assert.equal(stub?.subject_id, personOf(db, 'discord:701'));
     assert.equal(stub?.scope_kind, 'internal');

@@ -6,7 +6,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { sweep, validateAnswer } from '../src/memory/db/session.ts';
-import { retireAbsent, writeMapping } from '../src/memory/db/upsert.ts';
+import { retireProfileAbsent } from '../src/memory/db/profile-owner.ts';
+import { writeMapping } from '../src/memory/db/upsert.ts';
 import {
   ADA,
   NOW,
@@ -272,7 +273,7 @@ function sealedVersion() {
   return { world, source, result, read };
 }
 
-const UNIT = 'guilds/g1/archive/2026-11.jsonl';
+const PROFILE = { writer: 'profile', holder_id: 'discord:g1-member' } as const;
 const FLUSHED_AT = new Date(NOW).toISOString();
 
 test('a unit flush that carries a sealed id succeeds and leaves the version byte for byte', () => {
@@ -287,7 +288,6 @@ test('a unit flush that carries a sealed id succeeds and leaves the version byte
         { id: result.versionId, claim_id: result.claimId, text: 'a file wrote this', recorded_at: FLUSHED_AT },
       ],
     },
-    UNIT,
     { at: FLUSHED_AT }
   );
   assert.deepEqual(read(), before);
@@ -295,11 +295,12 @@ test('a unit flush that carries a sealed id succeeds and leaves the version byte
   world.handle.close();
 });
 
-test('a unit flush that leaves the claim out of its file does not retire a session version', () => {
-  // Bug: retireAbsent reaches the sealed row, and an unrelated flush hides what her session learned.
+test('a profile write that leaves the claim out does not retire a session version', () => {
+  // Bug: the retirement of what a profile no longer holds reaches the sealed row, and an unrelated write hides what her
+  // session learned.
   const { world, result, read } = sealedVersion();
   const before = read();
-  retireAbsent(world.db, UNIT, { claims: [] }, FLUSHED_AT);
+  retireProfileAbsent(world.db, PROFILE, { claims: [] }, FLUSHED_AT);
   assert.deepEqual(read(), before);
   assert.equal(world.db.prepare('SELECT retired_at FROM claims WHERE id = ?').get(result.claimId)?.retired_at, null);
   world.handle.close();
