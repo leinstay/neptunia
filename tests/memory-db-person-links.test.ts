@@ -19,18 +19,28 @@ const addDm = (db: ReturnType<typeof dbOf>, iface: string, native: string): void
   ).run(`${iface}:dm:${native}`, iface, `${iface}:${native}`, `person:${iface}:${native}`);
 };
 
+/**
+ * An account with the person the observation links it to. Changed with the ids-by-rows work: an account held no person
+ * here, and the person id that spells it stood for it; every account has its person at creation, and a person reaches
+ * its accounts through `accounts.person_id` alone.
+ */
+const addAccount = (db: ReturnType<typeof dbOf>, iface: string, native: string): void => {
+  const person = `person:${iface}:${native}`;
+  db.prepare("INSERT OR IGNORE INTO people (id, kind, status, meta) VALUES (?, 'human', 'active', 1)").run(person);
+  db.prepare(
+    "INSERT INTO accounts (id, iface, native_id, native_key, kind, person_id, link) VALUES (?, ?, ?, ?, 'user', ?, 'verified')"
+  ).run(`${iface}:${native}`, iface, native, native, person);
+};
+
 function withDb(body: (handle: Handle) => void): void {
   const handle = openMemoryDb(path.join(tempDir('nep-links-'), 'memory.db'));
-  const insert = dbOf(handle).prepare(
-    "INSERT INTO accounts (id, iface, native_id, native_key, kind) VALUES (?, ?, ?, ?, 'user')"
-  );
   for (const [iface, native] of [
     ['discord', '111'],
     ['discord', '222'],
     ['telegram', '111'],
     ['discord', '333'],
   ] as const) {
-    insert.run(`${iface}:${native}`, iface, native, native);
+    addAccount(dbOf(handle), iface, native);
     addDm(dbOf(handle), iface, native);
   }
   try {
@@ -106,7 +116,8 @@ test('an unbound account leaves the person, and the DMs stop being shared', () =
 test('both accounts of a person share one affinity score', () => {
   // Bug: the second account keeps its own score, so the same friend is a stranger on the other account.
   withDb((handle) => {
-    dbOf(handle).prepare("INSERT INTO people (id, affinity) VALUES ('person:discord:111', 40)").run();
+    // Changed with the ids-by-rows work: the fixture stores the person with its account, so the score is set on it.
+    dbOf(handle).prepare("UPDATE people SET affinity = 40 WHERE id = 'person:discord:111'").run();
     dbOf(handle).prepare("UPDATE accounts SET person_id = 'person:discord:111' WHERE id = 'discord:111'").run();
     bind(handle, ['discord', '222'], ['discord', '111']);
     const row = dbOf(handle)
@@ -134,11 +145,8 @@ test('a DM context the service issues carries the DMs of the person, and a bind 
   // Bug: the binding is stored but every turn's context still reads only the one account's DMs.
   const dataDir = tempDir('nep-links-service-');
   const seed = openMemoryDb(path.join(dataDir, 'memory.db'));
-  const insert = dbOf(seed).prepare(
-    "INSERT INTO accounts (id, iface, native_id, native_key, kind) VALUES (?, ?, ?, ?, 'user')"
-  );
-  insert.run('discord:111', 'discord', '111', '111');
-  insert.run('telegram:222', 'telegram', '222', '222');
+  addAccount(dbOf(seed), 'discord', '111');
+  addAccount(dbOf(seed), 'telegram', '222');
   addDm(dbOf(seed), 'discord', '111');
   addDm(dbOf(seed), 'telegram', '222');
   seed.close();

@@ -261,7 +261,7 @@ A direct chat has no channel handle, so `conversation.read` names it by its pers
 | `placeUnnamed` | Live rooms and roots with no name. A direct chat has none by design |
 | `placeUndescribed` | Live places with `memory.describeAfterLines` live lines or more (default `20`) that lack one of `purpose`, `tone` and `topics` |
 | `interfaceUnnamed` | Interfaces with a live place and no name |
-| `cliLineRetired` | Retired lines of `cli:dm:owner` whose `origin` is not `owner`, the mark of the owner's memory command |
+| `cliLineRetired` | Retired lines of the command line's DM place, found by its row's `iface` and `chat`, whose `origin` is not `owner`, the mark of the owner's memory command |
 
 ## Entities and assertions
 

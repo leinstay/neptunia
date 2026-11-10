@@ -62,6 +62,13 @@ function world() {
   addGroupPlace(db, SALON, 'discord', 'discord/global');
   // The DM is stored under its chat's key, so a call that names the chat finds the DM place.
   db.prepare('UPDATE places SET native_key = ? WHERE id = ?').run(`channel:${CHAT[DM]}`, DM);
+  // The group places hold their chats' ids and keys, as the observation stores a channel.
+  for (const place of [CAFE, SALON])
+    db.prepare('UPDATE places SET native_id = ?, native_key = ? WHERE id = ?').run(
+      CHAT[place],
+      `channel:${CHAT[place]}`,
+      place
+    );
   seed.close();
   const memoryDb = createMemoryDb({
     hot: { config: { memoryDb: { session: { mode: 'off' } } } },

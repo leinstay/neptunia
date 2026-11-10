@@ -7,7 +7,7 @@
 // (src/turn/phases/request/build.ts) asks for them through the turn runner's `myDay` reader.
 
 import { fill, formatClock } from '../../format.ts';
-import { mintedChannel, placeOfChannel } from '../../memory/db/native-rows.ts';
+import { firstChannelOf, placeOfChannel } from '../../memory/db/native-rows.ts';
 import { placeVisibleWhere } from '../../memory/db/places-read.ts';
 import { whereFor } from '../../memory/db/scope.ts';
 import type { Context } from '../../memory/db/scope.ts';
@@ -111,8 +111,8 @@ function actionsOf(rows: ReadonlyArray<Record<string, unknown>>): Array<Done> {
 }
 
 /**
- * The place an action names: the stored place of the chat its call acted in when `ctx` may read it (by the chat's key
- * under the interface of the turn's place, else the id the observation gives the chat), else the turn's place.
+ * The place an action names: the stored place of the chat its call acted in when `ctx` may read it (its newest
+ * generation under the interface of the turn's place, else its first), else the turn's place.
  */
 function placeOf(db: Db, ctx: Context, one: Done): string | null {
   if (!one.target) return one.placeId;
@@ -120,7 +120,7 @@ function placeOf(db: Db, ctx: Context, one: Done): string | null {
   const iface = textOf(home?.iface) ?? ctx.iface ?? null;
   if (!iface) return one.placeId;
   const visible = placeVisibleWhere(ctx, 'p');
-  for (const id of [placeOfChannel(db, iface, one.target), mintedChannel(iface, one.target)]) {
+  for (const id of [placeOfChannel(db, iface, one.target), firstChannelOf(db, iface, one.target)]) {
     if (!id) continue;
     const row = db.prepare(`SELECT p.id FROM places p WHERE p.id = ? AND ${visible.sql}`).get(id, ...visible.params);
     if (row) return id;

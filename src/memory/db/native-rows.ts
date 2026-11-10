@@ -50,6 +50,15 @@ export function placeOfChannel(db: Db, iface: string, native: string): string | 
   return textOf(row?.id);
 }
 
+/** The place of channel `native` on `iface` in its first generation, null for none. */
+export function firstChannelOf(db: Db, iface: string, native: string): string | null {
+  const row = prepared(db, 'SELECT id FROM places WHERE authority_id = ? AND native_key = ? AND generation = 1').get(
+    nativeAuthorityOf(iface),
+    `channel:${native}`
+  );
+  return textOf(row?.id);
+}
+
 /** The interface's own id of a stored channel, null for a place that is no stored channel. */
 export function channelOfPlace(db: Db, placeId: string): string | null {
   return textOf(prepared(db, "SELECT native_id FROM places WHERE id = ? AND kind = 'channel'").get(placeId)?.native_id);
