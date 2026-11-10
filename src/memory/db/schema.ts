@@ -5,6 +5,7 @@
 import { ownLineRows } from './line-owner.ts';
 import { ownMediaRows } from './media-owner.ts';
 import { ownGifRows } from './gif-library.ts';
+import { retireOwnLinesSeenTwice } from './own-lines.ts';
 import { ownProfileRows } from './profile-owner.ts';
 import { ownPlaceListRows, ownPlaceRows, ownSelfreflectionRows } from './place-owner.ts';
 import { placeLineVectors } from './line-vectors.ts';
@@ -112,6 +113,11 @@ export const MIGRATIONS: Array<Migration> = [
   // (src/memory/db/gif-library.ts).
   (db: Db): void => {
     ownGifRows(db);
+  },
+  // Version 54: a line of hers the record also stored as a `seen` line of her own account is retired
+  // (src/memory/db/own-lines.ts).
+  (db: Db): void => {
+    retireOwnLinesSeenTwice(db, new Date().toISOString());
   },
 ];
 
