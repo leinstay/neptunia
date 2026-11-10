@@ -30,6 +30,9 @@ const reminderOf = (llm: FakeLlm, i: number): number | null => {
   return found ? Number(found[1]) : null;
 };
 
+/** How many requests the turn of `run` sent. */
+const callsOf = ({ llm }: { llm: FakeLlm }): number => llm.calls.length;
+
 /** The reminder of every request, in order. */
 const reminders = (llm: FakeLlm): Array<number | null> => llm.calls.map((_, i) => reminderOf(llm, i));
 
@@ -54,19 +57,19 @@ const ROOMY = { llm: { maxRequestTokens: 50000 } };
 
 test('sends no reminder before the Nth lookup step', async () => {
   const run = await coreTurn({ answers: reads(2), loop: loopOf(3), config: ROOMY, withHot: withMarker });
-  assert.equal(run.llm.calls.length, 3, 'two reads and the request after the second');
+  assert.equal(callsOf(run), 3, 'two reads and the request after the second');
   assert.deepEqual(reminders(run.llm), [null, null, null]);
 });
 
 test('sends the reminder on the request after the Nth lookup step and not on the one before', async () => {
   const run = await coreTurn({ answers: reads(3), loop: loopOf(2), config: ROOMY, withHot: withMarker });
-  assert.equal(run.llm.calls.length, 4, 'three reads and the request after the third');
+  assert.equal(callsOf(run), 4, 'three reads and the request after the third');
   assert.deepEqual(reminders(run.llm).slice(0, 3), [null, null, 2], 'the third request carries the count 2');
 });
 
 test('keeps sending the reminder on later steps with the count rising', async () => {
   const run = await coreTurn({ answers: reads(4), loop: loopOf(2), config: ROOMY, withHot: withMarker });
-  assert.equal(run.llm.calls.length, 5, 'four reads and the request after the fourth');
+  assert.equal(callsOf(run), 5, 'four reads and the request after the fourth');
   assert.deepEqual(reminders(run.llm), [null, null, 2, 3, 4]);
 });
 
@@ -84,14 +87,15 @@ test('leaves the request with the reminder a normal one and runs the call in its
   });
   const { llm } = run;
   assert.equal(reminderOf(llm, 1), 1, 'the second request carries the reminder');
-  assert.notEqual(llm.options[1].toolChoice, 'none', 'it may still call');
+  const { options } = llm;
+  assert.notEqual(options[1].toolChoice, 'none', 'it may still call');
   assert.equal(ran.length, 3, `the call in the answer to it ran: ${ran.join(', ')}`);
   assert.equal(llm.calls.length, 4);
 });
 
 test('sends no reminder when remindAfterSteps is 0', async () => {
   const run = await coreTurn({ answers: reads(5), loop: loopOf(0), config: ROOMY, withHot: withMarker });
-  assert.equal(run.llm.calls.length, 6, 'five reads and the request after the fifth');
+  assert.equal(callsOf(run), 6, 'five reads and the request after the fifth');
   assert.ok(
     reminders(run.llm).every((count) => count === null),
     `no request is reminded: ${reminders(run.llm).join(', ')}`
@@ -117,7 +121,7 @@ test('sends no reminder in an inner turn', async () => {
     prompts: { inner: 'Do what the wake says.' },
     withHot: withMarker,
   });
-  assert.equal(run.llm.calls.length, 4, 'three reads and the request after the third');
+  assert.equal(callsOf(run), 4, 'three reads and the request after the third');
   assert.deepEqual(reminders(run.llm), [null, null, null, null]);
 });
 
@@ -125,7 +129,8 @@ test('sends no reminder on the final request when maxSteps is reached at the ste
   const run = await coreTurn({ answers: reads(2), loop: loopOf(2, 2), config: ROOMY, withHot: withMarker });
   const { llm } = run;
   assert.equal(llm.calls.length, 3, 'two reads and the final request');
-  assert.equal(llm.options[2].toolChoice, 'none', 'the third request is the final one');
+  const { options } = llm;
+  assert.equal(options[2].toolChoice, 'none', 'the third request is the final one');
   assert.notEqual(noteText(llm, 2), '', 'it carries the last-step note');
   assert.equal(reminderOf(llm, 2), null, 'and no reminder');
 });

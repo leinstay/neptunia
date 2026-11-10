@@ -830,6 +830,11 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         .map((diagnostic) => diagnosticText(diagnostic, labels))
         .filter(Boolean)
         .map((line) => `- ${line}`);
+      // A long lookup: from the answer with calls number remindAfterSteps on, every request that may still call says
+      // how many such answers there were (this one counted). The settings of an inner turn and a selfreflection post hold none.
+      const lookups = step + 1;
+      const remindAfter = settings.remindAfterSteps ?? 0;
+      const longOf = (last: boolean): number => (!last && remindAfter > 0 && lookups >= remindAfter ? lookups : 0);
       const build = (last: boolean, texts: Array<string>, base: Array<object> = messages): Array<object> =>
         appendStep({
           transport,
@@ -847,6 +852,7 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
             terminal: inner,
             open: openLine,
             diagnostics,
+            long: longOf(last),
           }),
         });
       let last: boolean = next === 'final';

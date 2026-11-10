@@ -216,6 +216,7 @@ export type StepLabels =
           rescue?: string;
           cut?: string;
           dropped?: string;
+          long?: string;
         };
         diagnostics?: string;
       };
@@ -228,7 +229,8 @@ export type StepLabels =
  * repeat her text), the lines that came in meanwhile under their lead, the lines whose media
  * was not ready in the first request and is now (`lateText`) under theirs, one line per message that
  * did not go out, the last-step notice, the open-intentions line of an inner turn, and the parser's
- * diagnostics under their header. Every word from `labels.task`; '' when there is nothing to say.
+ * diagnostics under their header, and last the reminder of a long lookup (`step.long` with `{n}` the
+ * count `long`, for a count of at least 1). Every word from `labels.task`; '' when there is nothing to say.
  */
 export function stepNote({
   labels,
@@ -240,6 +242,7 @@ export function stepNote({
   terminal = false,
   open = '',
   diagnostics = [],
+  long = 0,
 }: {
   labels: StepLabels;
   held?: boolean;
@@ -250,6 +253,7 @@ export function stepNote({
   terminal?: boolean;
   open?: string;
   diagnostics?: Array<string>;
+  long?: number;
 }): string {
   const task = labels?.task ?? {};
   const step = task.step ?? {};
@@ -267,6 +271,7 @@ export function stepNote({
   if (open) lines.push(open);
   const found = (Array.isArray(diagnostics) ? diagnostics : []).filter(Boolean);
   if (found.length > 0) lines.push([task.diagnostics, ...found].filter(Boolean).join('\n'));
+  if (long >= 1 && step.long) lines.push(fill(step.long, { n: long }));
   return lines.join('\n\n');
 }
 
