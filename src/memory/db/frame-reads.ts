@@ -13,6 +13,7 @@ import type { FindMeaning, FoundPerson, FoundPlace } from './graph-find.ts';
 import { mindOf, mindSettingsOf } from './mind-read.ts';
 import type { Mind, Seeds } from './mind-read.ts';
 import { lineMedia, lineMediaItems } from './media-store.ts';
+import { interfaceTakes, routeMessageSql } from './message-locator.ts';
 import type { LineMediaItem } from './media-store.ts';
 import { interfaceNouns, placesNamed } from './names.ts';
 import { ownerAccountOfPlace } from './person-links.ts';
@@ -25,11 +26,14 @@ import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
 
 /**
- * A stored chat line as a request reads it: the platform's message id, the id of its source row, its place, epoch ms,
- * the author's platform id and stored name, its text and its media in position order.
+ * A stored chat line as a request reads it: its message id, the id of its source row, its place, epoch ms, the author's
+ * platform id and stored name, its text and its media in position order. The message id is the platform's from the row's
+ * message route, else the row's `native_id`, else its source id. `platformId` says whether its interface takes that id
+ * as an anchor (message-locator.ts#interfaceTakes): the route gave it, or `native_id` holds no uuid the core made.
  */
 export type FrameLine = {
   id: string;
+  platformId: boolean;
   sourceId: string;
   placeId: string;
   at: number;
@@ -76,8 +80,8 @@ export function placePathOf(db: Db, placeId: string): PlacePath {
   return { path: [iface, ...names.reverse()], dm: false, partner: null };
 }
 
-/** The platform's message id of a line row, else its source id. */
-const messageIdOf = (row: Row): string => String(row.native_id ?? row.id);
+/** The message id of a line row: its route's (`route_message`), else its `native_id`, else its source id. */
+const messageIdOf = (row: Row): string => String(text(row.route_message) ?? row.native_id ?? row.id);
 
 /** The first row of each key, in order: a message's newest revision when the rows come newest revision first. */
 function firstOf(rows: ReadonlyArray<Row>, keyOf: (row: Row) => string): Array<Row> {
@@ -87,6 +91,7 @@ function firstOf(rows: ReadonlyArray<Row>, keyOf: (row: Row) => string): Array<R
 
 const lineOf = (row: Row, media: ReadonlyArray<LineMediaItem> = []): FrameLine => ({
   id: messageIdOf(row),
+  platformId: interfaceTakes(row.route_message, row.native_id),
   sourceId: String(row.id),
   placeId: text(row.place_id) ?? '',
   at: Date.parse(text(row.occurred_at) ?? ''),
@@ -115,7 +120,7 @@ const AUTHOR_NAME = `COALESCE(
   json_extract(aa.names, '$[0]')) AS author_name`;
 /** Lines with their author's account row, whose `native_id` is the author's platform id. */
 const LINE_FROM = 'sources s LEFT JOIN accounts aa ON aa.id = s.author_account';
-const LINE_COLUMNS = `s.id, s.native_id, s.place_id, s.occurred_at, s.author_account, s.author_kind, s.text,
+const LINE_COLUMNS = `s.id, s.native_id, ${routeMessageSql('s')} AS route_message, s.place_id, s.occurred_at, s.author_account, s.author_kind, s.text,
   aa.native_id AS author_native, ${AUTHOR_NAME}`;
 /** A line that says something: its text, or a media item linked to it, as a post of a picture alone. */
 const LIVE_LINE = `s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND (length(COALESCE(s.text, '')) > 0
@@ -167,8 +172,8 @@ export function linesAroundOf(db: Db, ctx: Context, placeId: string, at: number,
 }
 
 /**
- * The text forms of the media of the stored lines of `placeId` with these message ids (a message's family key counts as
- * its id), by the item's platform reference: what a read of lines the platform gives renders for a picture the memory
+ * The text forms of the media of the stored lines of `placeId` with these message ids (a message's route id and its
+ * family key count as its id), by the item's platform reference: what a read of lines the platform gives renders for a picture the memory
  * has described. One read; a media item is read only through a line the context reads.
  */
 export function mediaTextsOf(
@@ -188,12 +193,13 @@ export function mediaTextsOf(
          JOIN media m ON m.id = l.media_id
        WHERE s.place_id = ? AND s.kind IN ('seen', 'said') AND s.retired_at IS NULL AND ${where.sql}
          AND (s.native_id IN (SELECT value FROM json_each(?))
+           OR ${routeMessageSql('s')} IN (SELECT value FROM json_each(?))
            OR s.native_id IN (SELECT f.native_key FROM message_families f
              WHERE f.iface = s.iface AND f.message_id IN (SELECT value FROM json_each(?))))
          AND m.retired_at IS NULL AND m.native_ref IS NOT NULL AND m.description IS NOT NULL
        ORDER BY s.revision`
     )
-    .all(placeId, ...where.params, ids, ids);
+    .all(placeId, ...where.params, ids, ids, ids);
   for (const row of rows) {
     const ref = text(row.ref);
     const description = text(row.description);
