@@ -1007,14 +1007,16 @@ export function hasTrait(name: string, trait: Trait): boolean {
   return BY_NAME.get(name)?.traits.includes(trait) ?? false;
 }
 
-/** The tools whose names changed, old to new: a journal written before the rename names them by the old one. The call path never reads it: a tool written under an old name is `unknown-skill`. */
+/**
+ * The tools whose names changed, old to new: a journal written before the rename names them by the old one. The call
+ * path never reads it: a tool written under an old name is `unknown-skill`. An old name a live tool holds again stays
+ * out (`task.status` and `task.cancel` are board tools), so a stored row of that name reads as the board tool.
+ */
 export const RENAMED_TOOLS: Readonly<Record<string, string>> = Object.freeze({
   'skills.describe': 'tools.describe',
   'task.run': 'errand.run',
-  'task.status': 'errand.list',
   'task.read': 'errand.read',
   'task.resolve': 'errand.resolve',
-  'task.cancel': 'errand.cancel',
   'task.list': 'errand.list',
   'errand.status': 'errand.list',
   'memory.affinity.read': 'memory.profile.read',
@@ -1024,9 +1026,13 @@ export const RENAMED_TOOLS: Readonly<Record<string, string>> = Object.freeze({
   'intent.list': 'intention.list',
 });
 
-/** `name` as the tool is called now: a renamed tool's old name gives the new one, anything else comes back as it is. */
+/**
+ * `name` as the tool is called now: a renamed tool's old name gives the new one, and a live tool's name or anything
+ * else comes back as it is.
+ */
 export function currentToolName<T>(name: T): T | string {
-  return typeof name === 'string' && Object.hasOwn(RENAMED_TOOLS, name) ? (RENAMED_TOOLS[name] ?? name) : name;
+  if (typeof name !== 'string' || BY_NAME.has(name) || !Object.hasOwn(RENAMED_TOOLS, name)) return name;
+  return RENAMED_TOOLS[name] ?? name;
 }
 
 /** The skill whose API name is `api`, or null. */

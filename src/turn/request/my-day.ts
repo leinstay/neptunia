@@ -1,11 +1,16 @@
 // What she did today, for `<my_day>` inside `<inner>`: the journal's `post`, `skill`, `gif` and `react` operations that
 // succeeded and the executed actions of her inner turns, from the start of the day `now` falls in by the server zone
 // to `now`, read under the turn's context so that a group turn never lists what she did in a direct chat. One line per
-// action with its clock and the place by name, newest last, the newest `lines` of them. buildTurnRequest
+// action with its clock and the place by name, newest last, the newest `lines` of them. The place is the one the call
+// acted in (its `started` line's `target.channel`) when that chat is a stored place the context may read, else the
+// place of the turn that made the call. buildTurnRequest
 // (src/turn/phases/request/build.ts) asks for them through the turn runner's `myDay` reader.
 
 import { fill, formatClock } from '../../format.ts';
+import { mintedChannel, placeOfChannel } from '../../memory/db/native-rows.ts';
+import { placeVisibleWhere } from '../../memory/db/places-read.ts';
 import { whereFor } from '../../memory/db/scope.ts';
+import type { Context } from '../../memory/db/scope.ts';
 import type { Db } from '../../memory/db/types.ts';
 import { currentToolName } from '../../tools/definitions.ts';
 import { zonedDay, zonedEpoch } from '../../time.ts';
@@ -30,7 +35,14 @@ export type MyDayReader = (ctx: unknown, now: number, timezone: string, options:
 const LISTED_OPS: ReadonlySet<string> = new Set(['post', 'skill', 'gif', 'react']);
 
 /** One action of hers today. */
-type Done = { at: number; op: string; skill: string | null; placeId: string | null; turnId: string | null };
+type Done = {
+  at: number;
+  op: string;
+  skill: string | null;
+  placeId: string | null;
+  target: string | null;
+  turnId: string | null;
+};
 
 /** A row's `extra` as an object, {} when it is not one. */
 function extraOf(text: unknown): Record<string, unknown> {
@@ -45,37 +57,75 @@ function extraOf(text: unknown): Record<string, unknown> {
 
 const textOf = (value: unknown): string | null => (typeof value === 'string' && value ? value : null);
 
+/** The chat a `target` object names (`{ channel }`), else null. */
+function channelOf(target: unknown): string | null {
+  return target && typeof target === 'object' ? textOf((target as Record<string, unknown>).channel) : null;
+}
+
+/** Where and when a journal row was written, as each action read from it carries it. */
+type RowBase = Pick<Done, 'at' | 'placeId' | 'turnId'>;
+
+/** What an operation's lines said before its closing line: the skill it called and the chat the call acted in. */
+type OpSeen = { skill: string | null; target: string | null };
+
+/** The action an `action` line closes, once it succeeded; every line of the operation adds what it says to `seen`. */
+function opDone(base: RowBase, extra: Record<string, unknown>, seen: Map<string, OpSeen>): Done | null {
+  const opId = textOf(extra.opId);
+  const known = (opId ? seen.get(opId) : undefined) ?? { skill: null, target: null };
+  known.skill = textOf((extra.input as Record<string, unknown> | undefined)?.skill) ?? known.skill;
+  known.target = channelOf(extra.target) ?? known.target;
+  if (opId) seen.set(opId, known);
+  const op = textOf(extra.name);
+  if (extra.phase !== 'succeeded' || !op || !LISTED_OPS.has(op)) return null;
+  if (!opId) return { ...base, op, skill: null, target: null };
+  return { ...base, op, skill: op === 'skill' ? known.skill : null, target: known.target };
+}
+
+/** The executed actions an `inner` line lists. */
+function innerDone(base: RowBase, extra: Record<string, unknown>): Array<Done> {
+  const done: Array<Done> = [];
+  for (const entry of Array.isArray(extra.actions) ? (extra.actions as Array<Record<string, unknown>>) : []) {
+    if (entry?.status !== 'executed' || entry.result !== 'ok' || typeof entry.skill !== 'string') continue;
+    done.push({ ...base, op: 'skill', skill: entry.skill, target: channelOf(entry.target) });
+  }
+  return done;
+}
+
 /** The actions of the rows: each operation that succeeded once, at its closing line, and each executed inner action. */
 function actionsOf(rows: ReadonlyArray<Record<string, unknown>>): Array<Done> {
-  const skillByOp = new Map<string, string>();
+  const seen = new Map<string, OpSeen>();
   const ops: Array<Done> = [];
   const inner: Array<Done> = [];
   for (const row of rows) {
     const extra = extraOf(row.extra);
-    const at = Date.parse(String(row.at));
-    if (!Number.isFinite(at)) continue;
-    const turnId = textOf(row.turn_id);
-    if (row.what === 'action') {
-      const opId = textOf(extra.opId);
-      const skill = textOf((extra.input as Record<string, unknown> | undefined)?.skill);
-      if (opId && skill) skillByOp.set(opId, skill);
-      const op = textOf(extra.name);
-      if (extra.phase !== 'succeeded' || !op || !LISTED_OPS.has(op)) continue;
-      const named = op === 'skill' && opId ? (skillByOp.get(opId) ?? null) : null;
-      ops.push({ at, op, skill: named, placeId: textOf(row.place_id), turnId });
-    } else if (row.what === 'inner') {
-      for (const entry of Array.isArray(extra.actions) ? (extra.actions as Array<Record<string, unknown>>) : []) {
-        if (entry?.status !== 'executed' || entry.result !== 'ok' || typeof entry.skill !== 'string') continue;
-        const target = entry.target as Record<string, unknown> | string | null | undefined;
-        const channel = target && typeof target === 'object' ? textOf(target.channel) : null;
-        inner.push({ at, op: 'skill', skill: entry.skill, placeId: channel, turnId });
-      }
-    }
+    const base = { at: Date.parse(String(row.at)), placeId: textOf(row.place_id), turnId: textOf(row.turn_id) };
+    if (!Number.isFinite(base.at)) continue;
+    const closed = row.what === 'action' ? opDone(base, extra, seen) : null;
+    if (closed) ops.push(closed);
+    if (row.what === 'inner') inner.push(...innerDone(base, extra));
   }
   // An inner turn's action that its own operation already lists stays once.
   const key = (one: Done): string => `${one.turnId ?? ''}\u0000${one.skill ?? ''}`;
   const listed = new Set(ops.filter((one) => one.turnId).map(key));
   return [...ops, ...inner.filter((one) => !one.turnId || !listed.has(key(one)))].sort((a, b) => a.at - b.at);
+}
+
+/**
+ * The place an action names: the stored place of the chat its call acted in when `ctx` may read it (by the chat's key
+ * under the interface of the turn's place, else the id the observation gives the chat), else the turn's place.
+ */
+function placeOf(db: Db, ctx: Context, one: Done): string | null {
+  if (!one.target) return one.placeId;
+  const home = one.placeId ? db.prepare('SELECT iface FROM places WHERE id = ?').get(one.placeId) : undefined;
+  const iface = textOf(home?.iface) ?? ctx.iface ?? null;
+  if (!iface) return one.placeId;
+  const visible = placeVisibleWhere(ctx, 'p');
+  for (const id of [placeOfChannel(db, iface, one.target), mintedChannel(iface, one.target)]) {
+    if (!id) continue;
+    const row = db.prepare(`SELECT p.id FROM places p WHERE p.id = ? AND ${visible.sql}`).get(id, ...visible.params);
+    if (row) return id;
+  }
+  return one.placeId;
 }
 
 /** One action as its line: the labels' words when they are set, else the operation's own name. */
@@ -105,6 +155,7 @@ export function myDayOf(
   if (!Number.isFinite(cap) || cap <= 0) return [];
   const start = zonedEpoch(zonedDay(now, timezone), 0, 0, timezone);
   const where = whereFor(ctx);
+  const context = ctx as Context;
   const rows = journal
     .prepare(
       `SELECT at, what, place_id, turn_id, extra FROM day
@@ -114,7 +165,8 @@ export function myDayOf(
     .all(new Date(start).toISOString(), new Date(now).toISOString(), ...where.params) as Array<Record<string, unknown>>;
   return actionsOf(rows)
     .slice(-cap)
-    .map((one) =>
-      lineOf(one, one.placeId ? placeNames(one.placeId) : null, formatClock(one.at, timezone, 'en-GB'), options.labels)
-    );
+    .map((one) => {
+      const placeId = placeOf(journal, context, one);
+      return lineOf(one, placeId ? placeNames(placeId) : null, formatClock(one.at, timezone, 'en-GB'), options.labels);
+    });
 }
