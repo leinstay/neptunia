@@ -116,7 +116,8 @@ test('errand.run: a member may run the scout agent; the answer is at once, the e
     assert.equal(result.status, 'ok');
     const { id, state } = asRecord(result.data).task;
     assert.equal(state, 'queued');
-    assert.match(result.summary, new RegExp(`^task ${id}: queued`));
+    // Changed: her errand tools say errand (config/tools.json), so their answers do too (CLI audit 2026-11-09).
+    assert.match(result.summary, new RegExp(`^errand ${id}: queued`));
     assert.equal(client.runs.length, 0, 'nothing was sent before the answer');
     const task = stores.get()?.get(id);
     assert.deepEqual(task?.requester, { accountId: MEMBER, kind: 'member' });
@@ -423,7 +424,8 @@ test('errand.list without an id lists the open tasks and the finished ones not r
     assert.equal((stores.get()?.get(done)?.readAt ?? 0) > 0, true);
     assert.equal(
       (await runOp('errand.list', {}, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2])).summary,
-      'no open tasks',
+      // Changed: her errand tools say errand (config/tools.json), so their answers do too (CLI audit 2026-11-09).
+      'no open errands',
       'read, so no longer listed'
     );
   });
@@ -532,11 +534,12 @@ test('errand.resolve: closes a finished task of her view so the list drops it; a
     const id = await finishedTask(fixture, 'done one', { text: 'x' });
     const answer = await runOp('errand.resolve', { id }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2]);
     assert.equal(answer.status, 'ok');
-    assert.equal(answer.summary, `task ${id}: resolved`);
+    // Changed: her errand tools say errand (config/tools.json), so their answers do too (CLI audit 2026-11-09).
+    assert.equal(answer.summary, `errand ${id}: resolved`);
     assert.equal((stores.get()?.get(id)?.resolvedAt ?? 0) > 0, true);
     assert.equal(
       (await runOp('errand.list', {}, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2])).summary,
-      'no open tasks'
+      'no open errands'
     );
     assert.equal(
       (await runOp('errand.resolve', { id }, ctx(env, MEMBER) as unknown as Parameters<typeof runOp>[2])).status,
