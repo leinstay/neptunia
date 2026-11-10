@@ -25,7 +25,7 @@ import type { World } from './fixtures/memory-db/mind-world.ts';
 import { channel, message as eventOf, rig } from './fixtures/reads-rig.ts';
 import type { HistoryQuery } from '../src/protocol/adapter.ts';
 import type { Untyped } from '../src/tools/types.ts';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,6 +36,9 @@ import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { ROOT, SELF, channelInfo, lineEvent, settle, until } from './fixtures/core-over-fake.ts';
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { createRecall } from '../src/behavior/recall-run.ts';
+import { quantize } from '../src/memory/vectors.ts';
+import { countOf } from './fixtures/media-memory.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -681,6 +684,229 @@ test('a read after a number of a stored line with no route sends its native id a
     await scene.readAfter(scene.numberOf('the olive harvest'));
     const anchors = scene.historyQueries().flatMap((query) => (query.after === undefined ? [] : [query.after]));
     assert.deepEqual(anchors, ['1182736450918273640']);
+  } finally {
+    world.close();
+  }
+});
+
+// ---------- one read answers whether a place holds a thing ----------
+
+// `conversation.read` of a stored place with `find`, through the in-turn tools over a real memory and a real recall. The
+// fake embedder gives every query the vector CLOSE, and each stored line carries CLOSE or FAR, so the test alone decides
+// what is close. The labelled lines are markers of these tests' own under new `tools.tools.conversation` keys.
+const NEWEST_MARK = 'NEWEST-MARK {time}';
+const NEWEST_FOUND = /NEWEST-MARK (.+)/;
+const FIND_NONE_MARK = 'FIND-NONE-MARK';
+const FOUND_MARK = 'FOUND-MARK';
+const { tools: toolLabels } = L;
+const { tools: toolKinds } = toolLabels;
+const FIND_LABELS = {
+  ...L,
+  tools: {
+    ...toolLabels,
+    tools: {
+      ...toolKinds,
+      conversation: { ...toolKinds.conversation, newest: NEWEST_MARK, findNone: FIND_NONE_MARK, found: FOUND_MARK },
+    },
+  },
+};
+const EMBEDDER = 'test/embedder';
+/** The query's own vector: a line stored under it is as close as a line can be. */
+const CLOSE = [1, 0, 0];
+/** A vector orthogonal to the query: nothing about the line is close. */
+const FAR = [0, 0, 1];
+const SHIPPED = JSON.parse(readFileSync(join(REPO, 'config', 'config.json'), 'utf8')) as Record<string, object>;
+const FIND_CONFIG = {
+  ...SHIPPED,
+  bot: { ...SHIPPED.bot, timezone: 'UTC' },
+  features: { ...SHIPPED.features, coreTools: true, meaningSearch: false, recall: true },
+  models: { ...SHIPPED.models, byPurpose: { 'recall-query': EMBEDDER } },
+};
+
+/** One stored line of a room for a find: its row, its text, its minute after 09:00 and its vector. */
+type FindLine = { row: string; text: string; minute: number; vector: ReadonlyArray<number> };
+
+/** A room `fake:channel:<native>` holding `lines`, each with its vector under the fake embedder's model. */
+function findRoom(world: World, native: string, lines: ReadonlyArray<FindLine>): string {
+  const room = addRoom(world.db, { iface: 'fake', native, root: rootId('fake', 'g1'), name: native });
+  for (const one of lines) {
+    addLine(world.db, {
+      id: one.row,
+      iface: 'fake',
+      place: room,
+      author: 'fake:u1',
+      text: one.text,
+      at: new Date(PLACE_AT(one.minute)).toISOString(),
+    });
+    const { bytes, scale, norm } = quantize([...one.vector]);
+    world.db
+      .prepare(
+        `INSERT INTO vectors (source_rowid, item_id, chunk_key, model, dims, scale, norm, bytes, context, occurred_at, scope_kind, scope_iface, scope_dm)
+         SELECT rowid, ?, ?, ?, ?, ?, ?, ?, '{}', occurred_at, scope_kind, scope_iface, scope_dm FROM sources WHERE id = ?`
+      )
+      .run(one.row, `record:${one.row}:1`, EMBEDDER, one.vector.length, scale, norm, bytes, one.row);
+  }
+  return room;
+}
+
+/** The interface, the person and the in-turn tools over `world`, with a recall whose embedder answers CLOSE. */
+function findScene(world: World) {
+  noteInterface(world, 'fake', [{ id: 'g1', name: 'Agora' }]);
+  addPerson(world.db, {
+    id: 'person:eleni',
+    accounts: [{ id: 'fake:u1', iface: 'fake', native: 'u1', names: ['Eleni'] }],
+  });
+  const io = rig();
+  io.fake.seedChat(channel('c7'));
+  io.fake.seedChat(channel('c8'));
+  const hot = { config: FIND_CONFIG, prompts: { 'recall-summary': 'x', labels: FIND_LABELS } };
+  const data = {};
+  const store = {
+    state: {
+      get data() {
+        return data;
+      },
+      markDirty() {},
+    },
+    listUserProfiles: () => [],
+  };
+  const recall = createRecall({
+    reads: {
+      searchMessages: () => Promise.resolve({ total: 0, hits: [] }),
+      searchMembers: () => Promise.resolve({ members: [] }),
+      history: () => Promise.resolve({ events: [], complete: true }),
+    },
+    hot,
+    store,
+    llm: { capLeft: () => 100, complete: () => Promise.resolve({ text: '' }) },
+    now: () => PLACE_NOW,
+    memoryDb: { database: () => world.db },
+    embed: (texts: Array<string>) => Promise.resolve(texts.map(() => Float32Array.from(CLOSE))),
+  } as unknown as Parameters<typeof createRecall>[0]);
+  const tools = createInTurnTools({
+    hot,
+    store,
+    recall,
+    speech: null,
+    record: null,
+    routes: turnRoutes(hot, null),
+    clock: () => PLACE_NOW,
+    ifaceReads: io.reads,
+    lookup: undefined,
+    describer: undefined,
+    memberOf: () => null,
+    chatOf: (current) => ({ iface: 'tele', chatId: current.id }),
+    turnContextOf: () => internalContext(),
+    placeReads: frameReadsOver(
+      () => world.db,
+      () => hot.config
+    ),
+    linkCalls: (lines) => lines,
+    drawTool: () => Promise.reject(new Error('drawing is outside this fixture')),
+  });
+  const handlers = tools.inTurnTools({
+    channel: channel('here'),
+    placeId: 'tele-root',
+    selfId: 'self',
+    selfName: 'Synthetic persona',
+    history: [],
+    draft: {},
+  });
+  /** The text of a `conversation.read` with `args`, failing the test when the read is not ok. */
+  return async (args: Record<string, unknown>): Promise<string> => {
+    const answer = (await handlers['conversation.read'](args)) as { status: string; data?: { text: string } };
+    assert.equal(answer.status, 'ok', JSON.stringify(answer));
+    return answer.data?.text ?? '';
+  };
+}
+
+/** Six lines of a room, minutes 1 to 6, every one far from any query unless `close` names its minute. */
+const roomLines = (prefix: string, close: ReadonlyArray<number> = []): Array<FindLine> =>
+  [1, 2, 3, 4, 5, 6].map((minute) => ({
+    row: `${prefix}-${minute}`,
+    text: `${prefix} line ${minute}`,
+    minute,
+    vector: close.includes(minute) ? CLOSE : FAR,
+  }));
+
+test('returns the window and after it a line of the same place that matches find and stands outside the window', async () => {
+  const world = openWorld();
+  try {
+    const read = findScene(world);
+    const room = findRoom(world, 'c7', roomLines('garden', [1]));
+    const text = await read({ placeId: room, last: 2, find: 'маяк' });
+    const window = text.indexOf('garden line 6');
+    assert.ok(text.includes('garden line 5') && window >= 0, text);
+    assert.ok(text.indexOf('garden line 1') > window, `the match follows the window: ${text}`);
+    assert.ok(text.indexOf(FOUND_MARK) > window && text.indexOf(FOUND_MARK) < text.indexOf('garden line 1'), text);
+  } finally {
+    world.close();
+  }
+});
+
+test('does not repeat a matching line that stands in the window', async () => {
+  const world = openWorld();
+  try {
+    const read = findScene(world);
+    const room = findRoom(world, 'c7', roomLines('garden', [1, 6]));
+    const text = await read({ placeId: room, last: 2, find: 'маяк' });
+    assert.ok(text.includes('garden line 1'), `the match outside the window comes back: ${text}`);
+    assert.equal(countOf(text, 'garden line 6'), 1, text);
+  } finally {
+    world.close();
+  }
+});
+
+test('says nothing matches when no line of the place is close to find, and still returns the window', async () => {
+  const world = openWorld();
+  try {
+    const read = findScene(world);
+    const room = findRoom(world, 'c7', roomLines('garden'));
+    const text = await read({ placeId: room, last: 2, find: 'маяк' });
+    assert.ok(text.includes(FIND_NONE_MARK), text);
+    assert.ok(text.includes('garden line 5') && text.includes('garden line 6'), `the window stands: ${text}`);
+  } finally {
+    world.close();
+  }
+});
+
+test('searches only the place read when find is given: a matching line of another place does not come back', async () => {
+  const world = openWorld();
+  try {
+    const read = findScene(world);
+    const room = findRoom(world, 'c7', roomLines('garden', [1]));
+    findRoom(world, 'c8', roomLines('cellar', [1, 2, 3, 4, 5, 6]));
+    const text = await read({ placeId: room, last: 2, find: 'маяк' });
+    assert.ok(text.includes('garden line 1'), `the match of the place read comes back: ${text}`);
+    assert.ok(!text.includes('cellar line'), text);
+  } finally {
+    world.close();
+  }
+});
+
+test('says the read reached the newest line when its window ends there, and nothing of the kind when a newer line exists', async () => {
+  const world = openWorld();
+  try {
+    const read = findScene(world);
+    const room = findRoom(world, 'c7', roomLines('garden'));
+    const newest = await read({ placeId: room, last: 2 });
+    assert.match(NEWEST_FOUND.exec(newest)?.[1] ?? '', /09:06/, newest);
+    const older = await read({ placeId: room, since: '2h', last: 2 });
+    assert.ok(older.includes('garden line 1') && !older.includes('garden line 6'), older);
+    assert.equal(NEWEST_FOUND.exec(older), null, older);
+  } finally {
+    world.close();
+  }
+});
+
+test('names the time of the newest line when a read with since returns nothing', async () => {
+  const world = openWorld();
+  try {
+    const read = findScene(world);
+    const room = findRoom(world, 'c7', roomLines('garden'));
+    const text = await read({ placeId: room, since: '30m' });
+    assert.ok(!text.includes('garden line'), text);
+    assert.match(NEWEST_FOUND.exec(text)?.[1] ?? '', /09:06/, text);
   } finally {
     world.close();
   }

@@ -14,7 +14,9 @@ import {
   BOB,
   BOB_DM,
   BOB_PERSON,
+  BOB_SCOPE,
   GENERAL,
+  LABELS,
   KINDS,
   NOW,
   PRESENCES,
@@ -30,7 +32,7 @@ import {
   tell,
 } from './fixtures/media-memory.ts';
 import { MODEL, byMeaning, embedLines, embedWords } from './fixtures/media-memory-embed.ts';
-import type { Env, Kind, Presence } from './fixtures/media-memory.ts';
+import type { Env, Kind, Presence, RigEmbed } from './fixtures/media-memory.ts';
 import type { Row } from '../src/memory/db/types.ts';
 
 const PLAN = { forms: [] as Array<string>, who: [] as Array<string>, from: null, to: null };
@@ -482,4 +484,119 @@ test('terms that share no word with a picture description find nothing when the 
     const { embed } = recordingEmbed(() => embedWords(first.word));
     const text = await recallRig(env, { embed, model: MODEL, minMeaning: 0.5 }).ask({ terms: 'маяк' });
     assert.ok(!text.includes(description), text);
+  }));
+
+// ---------- a search says when nothing is close, and finds her own lines ----------
+
+// The nothing-close line is a marker of these tests' own under `tools.tools.memory.far`, so no tracked wording is asserted.
+const FAR_MARK = 'FAR-MARK';
+const { tools: toolLabels } = LABELS;
+const { tools: toolKinds } = toolLabels;
+const FAR_LABELS = {
+  ...LABELS,
+  tools: { ...toolLabels, tools: { ...toolKinds, memory: { ...toolKinds.memory, far: FAR_MARK } } },
+};
+/** The vector every query gets: a line stored under it is as close to the question as a line can be. */
+const QUERY = [1, 0, 0];
+/**
+ * A weak line: near enough to the question to come back from the meaning stream, too far to count as a hit by meaning. An
+ * orthogonal line never comes back at all (the database drops it), so it could not show the nearest lines that were weak.
+ */
+const WEAK = [0.45, Math.sqrt(1 - 0.45 ** 2), 0];
+const queryEmbed: RigEmbed = (texts) => Promise.resolve(texts.map(() => Float32Array.from(QUERY)));
+const HOUR = 3_600_000;
+
+/** One line in a channel of its own, so no neighbour of another line rides along as its context. */
+function lineAlone(
+  env: Env,
+  {
+    native,
+    text,
+    at,
+    vector,
+    kind = 'seen',
+  }: { native: string; text: string; at: number; vector?: Array<number>; kind?: string }
+): void {
+  const place = channelPlaceId('discord', `room-${native}`);
+  env.channel(place, `room-${native}`);
+  env.say({ native, at, text, place, kind, author: kind === 'said' ? 'u-self' : ALICE });
+  if (vector) env.vector(native, vector);
+}
+
+/** The texts of `texts` that stand in `text`, in the order they stand there. */
+const shownIn = (text: string, texts: ReadonlyArray<string>): Array<string> =>
+  texts.filter((one) => text.includes(one)).sort((a, b) => text.indexOf(a) - text.indexOf(b));
+
+const WEAK_LINES = [
+  'a remark on bread',
+  'a remark on rain',
+  'a remark on shoes',
+  'a remark on clocks',
+  'a remark on glue',
+];
+
+test('opens with the nothing-close line and carries at most 3 lines when every line is far from the terms and no word matches', () =>
+  withEnv(async (env) => {
+    WEAK_LINES.forEach((text, i) => lineAlone(env, { native: `weak-${i}`, text, at: AT + i * HOUR, vector: WEAK }));
+    const text = await recallRig(env, { embed: queryEmbed, model: MODEL, labels: FAR_LABELS }).ask({ terms: 'маяк' });
+    const shown = shownIn(text, WEAK_LINES);
+    assert.ok(text.includes(FAR_MARK), text);
+    assert.ok(shown.length > 0 && shown.length <= 3, `${shown.length} lines: ${text}`);
+    assert.ok(text.indexOf(FAR_MARK) < text.indexOf(shown[0] ?? ''), 'the line opens the result, before any quote');
+  }));
+
+test('leaves the result as it was when one line passes the bar: no nothing-close line, the hit first, no cut to 3', () =>
+  withEnv(async (env) => {
+    // A guard: a search with a hit by meaning keeps its answer, so neither the nothing-close line nor its cut to three
+    // lines may reach it. The hit is the newest line, first as the answer stands today.
+    const close = 'the lamp on the cliff';
+    const weak = WEAK_LINES.slice(0, 4);
+    weak.forEach((text, i) => lineAlone(env, { native: `weak-${i}`, text, at: AT + i * HOUR, vector: WEAK }));
+    lineAlone(env, { native: 'close', text: close, at: AT + 6 * HOUR, vector: QUERY });
+    const text = await recallRig(env, { embed: queryEmbed, model: MODEL, labels: FAR_LABELS }).ask({ terms: 'маяк' });
+    const shown = shownIn(text, [close, ...weak]);
+    assert.ok(!text.includes(FAR_MARK), text);
+    assert.deepEqual([shown[0], shown.length], [close, 5], text);
+  }));
+
+test('returns only her own lines with mine when her line and another person line both match', () =>
+  withEnv(async (env) => {
+    lineAlone(env, { native: 'hers', text: 'I flew a kite at noon', at: AT, kind: 'said' });
+    lineAlone(env, { native: 'alices', text: 'a kite over the hill', at: AT + HOUR });
+    env.stem();
+    const text = await recallRig(env).ask({ terms: 'kite', mine: true });
+    assert.deepEqual(shownIn(text, ['I flew a kite at noon', 'a kite over the hill']), ['I flew a kite at noon'], text);
+  }));
+
+test('returns her lines of a day newest first with mine and when and no words', () =>
+  withEnv(async (env) => {
+    lineAlone(env, { native: 'early', text: 'my morning line', at: AT, kind: 'said' });
+    lineAlone(env, { native: 'late', text: 'my evening line', at: AT + 3 * HOUR, kind: 'said' });
+    lineAlone(env, { native: 'alices', text: 'her line that day', at: AT + HOUR });
+    lineAlone(env, { native: 'later', text: 'my line of the next day', at: AT + 24 * HOUR, kind: 'said' });
+    const text = await recallRig(env).ask({ when: '2026-11-01', mine: true });
+    assert.deepEqual(
+      shownIn(text, ['my morning line', 'my evening line', 'her line that day', 'my line of the next day']),
+      ['my evening line', 'my morning line'],
+      text
+    );
+  }));
+
+test('keeps the audience rule with mine: her line in a chat the context may not read does not come back', () =>
+  withEnv(async (env) => {
+    // A guard: `mine` must narrow the search the context may read, never read her lines past it.
+    env.dmPlace(BOB);
+    lineAlone(env, { native: 'open', text: 'a kite in the open', at: AT, kind: 'said' });
+    env.say({
+      native: 'private',
+      at: AT + HOUR,
+      text: 'a kite in private',
+      place: BOB_DM,
+      kind: 'said',
+      author: 'u-self',
+      scope: BOB_SCOPE,
+    });
+    env.stem();
+    const text = await recallRig(env).ask({ terms: 'kite', mine: true });
+    assert.deepEqual(shownIn(text, ['a kite in the open', 'a kite in private']), ['a kite in the open'], text);
   }));
