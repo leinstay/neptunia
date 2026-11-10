@@ -47,7 +47,7 @@ export type { BackendName };
 const INHERITED_ENV = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE'] as const;
 /** The grace between SIGTERM and SIGKILL when a timeout stops the child (ms). */
 const KILL_GRACE_MS = 5_000;
-/** How much stdout is kept (bytes): the head for `claude`, the tail for `codex`, whose token count comes last. */
+/** How much stdout is kept (bytes): the tail, where codex prints its token count and claude its final answer and result. */
 const STDOUT_KEEP = 256 * 1024;
 
 /** What a run takes besides the brief. */
@@ -228,11 +228,12 @@ const RECIPES: Readonly<Record<BackendName, Recipe>> = {
     binary: 'claude',
     stdin: true,
     outFile: false,
-    tail: false,
+    tail: true,
     args: (options, { systemFile }) => [
       '-p',
       '--output-format',
-      'json',
+      'stream-json',
+      '--verbose',
       ...(systemFile === undefined ? [] : ['--system-prompt-file', systemFile]),
       ...(options.sessionId === undefined ? [] : ['--session-id', options.sessionId]),
       ...claudeToolArgs(options),
@@ -322,7 +323,7 @@ export function tokensOf(output: string): number | undefined {
   return Number.isFinite(tokens) ? tokens : undefined;
 }
 
-/** What `claude -p --output-format json` printed: its answer, whether it says it failed, and its usage. */
+/** What `claude -p --output-format stream-json` printed: its answer, whether it says it failed, and its usage. */
 type ClaudeResult = { text: string; isError: boolean; words: string; usage: BackendUsage };
 
 /** A count of a JSON result, 0 when absent or no number. */
@@ -331,21 +332,60 @@ function countOf(fields: Record<string, unknown>, key: string): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
-/** The JSON result claude printed, or null for any other output, which then stands as the answer. */
+/** The JSON objects of claude's stream, one per line; a line that is no object, such as one the kept tail cut, is skipped. */
+function claudeLinesOf(output: string): Array<Record<string, unknown>> {
+  return output.split('\n').flatMap((line) => {
+    if (!line.trim().startsWith('{')) return [];
+    try {
+      const parsed: unknown = JSON.parse(line);
+      return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? [objOf(parsed)] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+/** Whether a stream line is a user message that carries a tool result. */
+const isToolResult = (line: Record<string, unknown>): boolean => {
+  const content = objOf(line.message).content;
+  return (
+    line.type === 'user' &&
+    Array.isArray(content) &&
+    content.some((part: unknown) => objOf(part).type === 'tool_result')
+  );
+};
+
+/**
+ * The final answer: the text of the assistant messages after the last tool result, joined in order. A message cut at
+ * `CLAUDE_CODE_MAX_OUTPUT_TOKENS` is resumed by claude in a new message that picks up mid-thought, and `result` holds
+ * only that last one. Null when the stream carries no assistant message after the last tool result.
+ */
+function finalAnswerOf(lines: ReadonlyArray<Record<string, unknown>>): string | null {
+  const after = lines.slice(lines.findLastIndex(isToolResult) + 1).filter((line) => line.type === 'assistant');
+  if (after.length === 0) return null;
+  return after
+    .flatMap((line): Array<unknown> => {
+      const content = objOf(line.message).content;
+      return Array.isArray(content) ? (content as Array<unknown>) : [];
+    })
+    .map((part) => {
+      const block = objOf(part);
+      return block.type === 'text' && typeof block.text === 'string' ? block.text : '';
+    })
+    .join('');
+}
+
+/** The result claude's stream ends with, or null for any other output, which then stands as the answer. */
 function claudeResultOf(output: string): ClaudeResult | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(output);
-  } catch {
-    return null;
-  }
-  const fields = objOf(parsed);
-  if (fields.type !== 'result') return null;
+  const lines = claudeLinesOf(output);
+  const fields = lines.findLast((line) => line.type === 'result');
+  if (fields === undefined) return null;
   const usage = objOf(fields.usage);
   const cached = countOf(usage, 'cache_read_input_tokens');
   const isError = fields.is_error === true;
+  const answer = finalAnswerOf(lines) ?? (typeof fields.result === 'string' ? fields.result : '');
   return {
-    text: !isError && typeof fields.result === 'string' ? fields.result.trim() : '',
+    text: isError ? '' : answer.trim(),
     isError,
     words: typeof fields.result === 'string' ? fields.result.trim() : '',
     usage: {
@@ -522,15 +562,17 @@ function errorOf(outcome: Outcome): BackendError | undefined {
 
 /**
  * The `detail` of a failed run: a refused claude's own words, an OpenCode error event's message, else the last line the
- * child printed (stderr only for OpenCode events, whose stdout lines are JSON).
+ * child printed (stderr only when stdout holds JSON lines: OpenCode's events or claude's stream with every message).
  */
 function failureDetailOf(
   ok: boolean,
   outcome: Outcome,
   claude: ClaudeResult | null,
-  events: OpenCodeEvents | null
+  events: OpenCodeEvents | null,
+  streamed: boolean
 ): Pick<BackendResult, 'detail'> {
   if (claude?.isError === true && claude.words !== '') return { detail: claude.words.slice(0, DETAIL_KEEP) };
+  if (streamed) return detailOf(ok, { ...outcome, stdout: '' });
   if (events === null) return detailOf(ok, outcome);
   if (!ok && events.error !== undefined && events.error !== '') return { detail: events.error.slice(0, DETAIL_KEEP) };
   return detailOf(ok, { ...outcome, stdout: '' });
@@ -549,7 +591,7 @@ function resultOf(name: BackendName, outcome: Outcome, written: string | null): 
     text: outcome.exitCode === 0 || written !== null ? text : '',
     exitCode: outcome.exitCode,
     ...(error ? { error } : {}),
-    ...failureDetailOf(ok, outcome, claude, events),
+    ...failureDetailOf(ok, outcome, claude, events, name === 'claude' && printed.startsWith('{')),
     ...(claude === null ? {} : { usage: claude.usage }),
     ...(events !== null && events.searchFailures > 0 ? { searchFailures: events.searchFailures } : {}),
   };
