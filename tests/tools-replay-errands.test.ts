@@ -152,7 +152,7 @@ function scratchData(t: TestContext, tasksJson: unknown) {
   const memory = readOnlyMemory(dataDir);
   t.after(() => memory.close());
   // A first read, so whatever the reader keeps beside the database exists before a test takes its tree.
-  asRecord(memory.memoryDb?.readHandle())?.db.prepare('SELECT COUNT(*) AS n FROM files').get();
+  asRecord(memory.memoryDb?.readHandle())?.db.prepare('SELECT COUNT(*) AS n FROM sources').get();
   MEMORY.set(dataDir, memory.memoryDb);
   return dataDir;
 }

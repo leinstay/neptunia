@@ -1,9 +1,7 @@
 // The operational write kind (src/memory/db/operational.ts): the engine's own state, usage, metrics, inner state, missed
 // registries, recall traces and emoji rails, written by kind and subject instead of through a unit and its mapper. The
-// first tests write one input through the unit write and through the operational write and compare the stored rows
-// column by column. The ownership columns are the one difference the plan makes: the unit path spells `owner` from its
-// unit id and fills `owner_key`, the operational write names the subject in `owner`. The last tests hold the schema step
-// that moves the rows production holds to that owner, and the store's round trip over a reopen.
+// tests write values and lines by kind and subject, the operational write naming the subject in `owner`, and read the
+// store's round trip over a reopen.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -26,28 +24,12 @@ function fresh(name: string): { handle: MemoryHandle; db: Db; close: () => void 
   return { handle, db: dbOf(handle), close: () => handle.close() };
 }
 
-/**
- * The operational rows of a database with the owner a unit spelled moved to its subject: a unit id, or a unit id with a
- * line position, becomes the subject the `storage_units` row names, with the same position. `owner_key` is left out.
- */
+/** The operational rows of a database, in kind and write order. */
 function rowsOf(db: Db): Array<Row> {
   return db
-    .prepare('SELECT kind, owner, value, owner_file, retired_at, owner_key FROM operational ORDER BY kind, rowid')
+    .prepare('SELECT kind, owner, value, retired_at FROM operational ORDER BY kind, rowid')
     .all()
-    .map((row) => {
-      const unit = typeof row.owner_key === 'string' ? row.owner_key : null;
-      const unitRow = unit ? db.prepare('SELECT subject_id FROM storage_units WHERE id = ?').get(unit) : undefined;
-      const subject = unitRow?.subject_id;
-      const owner = String(row.owner);
-      const owned = unit !== null && (owner === unit || owner.startsWith(`${unit}#`));
-      return {
-        kind: row.kind,
-        owner: owned ? `${String(subject)}${owner.slice(unit.length)}` : owner,
-        value: row.value,
-        owner_file: row.owner_file,
-        retired_at: row.retired_at,
-      };
-    });
+    .map((row) => ({ ...row }));
 }
 
 test('a second operational value replaces the first', () => {

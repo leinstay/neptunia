@@ -503,7 +503,6 @@ function messageWriters(
 export type MemoryDbStatus = {
   open: boolean;
   openedAt: number | null;
-  files: number | null;
   rows: number | null;
   observe: { queued: number; writing: number; dropped: number };
   session: {
@@ -1638,15 +1637,13 @@ export function createMemoryDb({
     return ctx;
   }
 
-  /** The state for the status card: whether it is open, its units and rows, the observations, her session. */
+  /** The state for the status card: whether it is open, its rows, the observations, her session. */
   function status(): MemoryDbStatus {
     const current = handle;
     const open = current !== null;
     let rows: number | null = null;
-    let files: number | null = null;
     if (current !== null) {
       try {
-        files = dbOf(current).prepare('SELECT COUNT(*) AS n FROM files WHERE gone_at IS NULL').get()?.n as number;
         rows = 0;
         for (const table of [
           'sources',
@@ -1668,7 +1665,6 @@ export function createMemoryDb({
     return {
       open,
       openedAt,
-      files,
       rows,
       observe: { queued: observeQueue.length, writing: observing.size, dropped: observeDropped },
       session: {

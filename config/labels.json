@@ -289,7 +289,7 @@
       "probe": "Reply with the single word pong.",
       "memoryDb": {
         "unavailable": "db: on, not open",
-        "ok": "db · {rows} rows · {files} files"
+        "ok": "db · {rows} rows"
       }
     },
     "draw": {

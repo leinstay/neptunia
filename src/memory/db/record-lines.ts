@@ -356,8 +356,6 @@ function adoptedRecord(source: Row, found: Row): Row {
     }),
   };
   delete adopted.rowid;
-  delete adopted.owner_key;
-  delete adopted.owner_file;
   return adopted;
 }
 

@@ -329,7 +329,7 @@ test('imageboard: thread tokens stay in their thread, post numbers and display n
     // `parent_id` and `extra` stays empty; this test first pinned the parent kept by key in `extra`.
     const board = db.prepare("SELECT id FROM places WHERE native_key = 'board:b'").get() as { id: string };
     const place = db
-      .prepare('SELECT kind, chat, parent_id, extra, seen_from_at, seen_to_at, owner_file FROM places WHERE id = ?')
+      .prepare('SELECT kind, chat, parent_id, extra, seen_from_at, seen_to_at FROM places WHERE id = ?')
       .get(a1.placeId);
     assert.deepEqual(
       { ...place },
@@ -340,7 +340,6 @@ test('imageboard: thread tokens stay in their thread, post numbers and display n
         extra: null,
         seen_from_at: at(1),
         seen_to_at: at(49),
-        owner_file: null,
       }
     );
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
@@ -691,8 +690,8 @@ test('an envelope that still carries a capture writes its line and no bundle', (
       opts
     );
     assert.equal(result.ok, true, JSON.stringify(result));
-    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM capture_bundles'), 0);
-    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM capture_members'), 0);
+    assert.equal('bundleId' in result, false);
+    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM sources WHERE id = ?', String(result.sourceId)), 1);
   } finally {
     handle.close();
   }

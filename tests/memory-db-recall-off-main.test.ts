@@ -682,7 +682,7 @@ test('the reader opens while another connection holds the writer lock and refuse
   const writer = openMemoryDb(file);
   const reader = readerByHand();
   try {
-    const count = () => dbOf(writer).prepare('SELECT COUNT(*) AS n FROM files').get()?.n;
+    const count = () => dbOf(writer).prepare('SELECT COUNT(*) AS n FROM sources').get()?.n;
     const before = count();
     assert.equal((await reader.ask('open', { path: file })).ok, true);
     const update = { kind: 'unit', op: 'value', owner: 'guilds/g1/users/x.json', value: { id: 'x', names: ['X'] } };

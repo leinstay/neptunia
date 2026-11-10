@@ -1,14 +1,9 @@
 // The owner columns of the record, the journal and the archive (src/memory/db/line-owner.ts): every row they write
-// names its writer, the place that holds it and its day or month, so its readers and positions need no unit. The tests
-// read with the units' ownership taken away, continue the positions of a day, and check that the writers register no
-// unit.
+// names its writer, the place that holds it and its day or month, so its readers and positions need no unit. The test
+// continues the positions of a day.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { observationOf } from '../src/memory/db/observe-event.ts';
-import { recordDays, recordHolders, recordLines, recordMonths, recordStats } from '../src/memory/db/record-lines.ts';
-import { journalLines } from '../src/memory/db/journal-lines.ts';
-import { archiveHolders, archiveLines, archiveMonths } from '../src/memory/db/archive-lines.ts';
-import { placeOrPersona } from '../src/memory/db/unit-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, Row } from '../src/memory/db/types.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
@@ -16,7 +11,6 @@ import { openTestMemory } from './fixtures/memory-db/service.ts';
 const NOW = Date.parse('2026-11-09T10:00:00.000Z');
 const ROOT = 'synthetic:root:1';
 const DAY = '2026-11-09T08:00:00.000Z';
-const LINE_TABLES = ['sources', 'day', 'decisions', 'affinity_events', 'claim_versions'];
 
 type Memory = Awaited<ReturnType<typeof openTestMemory>>;
 
@@ -104,42 +98,10 @@ async function writeAll(memory: Memory): Promise<Db> {
   return dbOf(service.readHandle()!);
 }
 
-/** Everything the readers of the three give for the root and the persona. */
-function readAll(db: Db): unknown {
-  const recordDay = placeOrPersona('record', ROOT, { partition: DAY.slice(0, 10) });
-  return {
-    record: recordLines(db, recordDay),
-    days: recordDays(db, ROOT, '2026-11').map((entry) => entry.day),
-    months: recordMonths(db, ROOT),
-    stats: recordStats(db, ROOT),
-    holders: recordHolders(db),
-    journal: journalLines(db, placeOrPersona('journal', ROOT, { partition: DAY.slice(0, 10) })),
-    personaJournal: journalLines(db, placeOrPersona('journal', null, { partition: DAY.slice(0, 10) })),
-    archive: archiveLines(db, ROOT, '2026-11'),
-    personaArchive: archiveLines(db, null, '2026-11'),
-    archiveMonths: archiveMonths(db, ROOT),
-    archiveHolders: archiveHolders(db),
-  };
-}
-
-test('the readers give the same lines, days, months and holders once no unit owns the rows', async () => {
-  const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
-  try {
-    const db = await writeAll(memory);
-    const before = readAll(db);
-    assert.equal((before as { record: Array<string> }).record.length, 3);
-    for (const table of [...LINE_TABLES, 'claims']) db.exec(`UPDATE "${table}" SET owner_key = NULL`);
-    assert.deepEqual(readAll(db), before);
-  } finally {
-    await memory.close();
-  }
-});
-
 test('a later write of a day continues after the highest position its rows hold in every table', async () => {
   const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
   try {
     const db = await writeAll(memory);
-    for (const table of LINE_TABLES) db.exec(`UPDATE "${table}" SET owner_key = NULL`);
     await memory.memoryDb.writeJournalLines({ placeId: ROOT, lines: [turn('t3')] });
     const positions = ['day', 'decisions']
       .flatMap((table) =>
@@ -150,32 +112,6 @@ test('a later write of a day continues after the highest position its rows hold 
       )
       .sort((a, b) => a - b);
     assert.deepEqual(positions, [0, 1, 2]);
-  } finally {
-    await memory.close();
-  }
-});
-
-/** The storage units and the rows naming a unit or a file the writes left: none once the rows own themselves. */
-function legacyOwners(db: Db): Array<string> {
-  const found: Array<string> = [];
-  if (Number(db.prepare('SELECT COUNT(*) AS n FROM storage_units').get()?.n) > 0) found.push('storage_units');
-  for (const { name } of db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all()) {
-    if (name === 'graph_edges') continue; // its owner_key is the graph's own key, not a unit
-    const columns = db
-      .prepare(`PRAGMA table_info("${String(name)}")`)
-      .all()
-      .map((column) => String(column.name));
-    for (const column of ['owner_key', 'owner_file', 'origin_file'].filter((col) => columns.includes(col)))
-      if (db.prepare(`SELECT 1 FROM "${String(name)}" WHERE "${column}" IS NOT NULL LIMIT 1`).get())
-        found.push(`${String(name)}.${column}`);
-  }
-  return found;
-}
-
-test('the record, the journal, the archive and an observed message register no storage unit and name no unit in a row', async () => {
-  const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
-  try {
-    assert.deepEqual(legacyOwners(await writeAll(memory)), []);
   } finally {
     await memory.close();
   }

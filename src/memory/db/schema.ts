@@ -6,6 +6,7 @@ import { ownLineRows } from './line-owner.ts';
 import { ownMediaRows } from './media-owner.ts';
 import { ownGifRows } from './gif-library.ts';
 import { retireOwnLinesSeenTwice } from './own-lines.ts';
+import { dropUnitLayer } from './drop-units.ts';
 import { ownProfileRows } from './profile-owner.ts';
 import { ownPlaceListRows, ownPlaceRows, ownSelfreflectionRows } from './place-owner.ts';
 import { placeLineVectors } from './line-vectors.ts';
@@ -118,6 +119,11 @@ export const MIGRATIONS: Array<Migration> = [
   // (src/memory/db/own-lines.ts).
   (db: Db): void => {
     retireOwnLinesSeenTwice(db, new Date().toISOString());
+  },
+  // Version 55: the storage unit layer leaves the schema: its catalog, path aliases, file ledger, the capture tables and
+  // the unit columns of every row; `co_owners` keeps the four columns the sharing reads (src/memory/db/drop-units.ts).
+  (db: Db): void => {
+    dropUnitLayer(db);
   },
 ];
 

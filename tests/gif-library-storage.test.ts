@@ -135,8 +135,8 @@ test('a write of the library keeps one row when two of its entries share an item
   writeGifLibrary(db, { put: { k1: entry('g1') }, rest: { nextId: 2 } }, { iface: 'discord', at: AT });
   // A database that already holds two library rows of one reference, the second with the text and a link.
   db.prepare(
-    `INSERT INTO media (id, kind, path, native_ref, scope_kind, scope_iface, extra, owner_key, description)
-     SELECT 'media:gif:k2', kind, path, native_ref, scope_kind, scope_iface, extra, owner_key, 'a cat on a keyboard'
+    `INSERT INTO media (id, kind, path, native_ref, scope_kind, scope_iface, extra, description)
+     SELECT 'media:gif:k2', kind, path, native_ref, scope_kind, scope_iface, extra, 'a cat on a keyboard'
      FROM media WHERE id = 'media:gif:k1'`
   ).run();
   db.prepare(

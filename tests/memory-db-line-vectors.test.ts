@@ -1,8 +1,6 @@
 // The write kind `line-vectors` (src/memory/db/line-vectors.ts): the vectors of the lines she saw and said, written as
-// `vectors` rows of a place directly instead of as month units with a manifest. The first tests write the same lines
-// through the unit write of a month and through the write kind and compare the stored rows column by column. The
-// ownership columns `owner_key`, `owner_file` and `place_id` are the one difference the plan makes, and the unit path's
-// `operational` manifest row is not written. Then the readers, and the vector index over a reopen.
+// `vectors` rows of a place directly instead of as month units with a manifest. The tests read the months and lines,
+// the vector index over a reopen, and the schema step that gave the older rows their place.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -194,20 +192,16 @@ test('the schema step gives each line vector the place of its month and leaves i
     const db = dbOf(handle);
     assert.deepEqual(
       db
-        .prepare('SELECT chunk_key, place_id, owner_key FROM vectors ORDER BY chunk_key')
+        .prepare('SELECT chunk_key, place_id FROM vectors ORDER BY chunk_key')
         .all()
         .map((row) => ({ ...row })),
       [
-        { chunk_key: 'claim:c1:aud:m', place_id: null, owner_key: null },
-        { chunk_key: 'record:m0:1', place_id: GROUP, owner_key: null },
-        { chunk_key: 'record:m1:1', place_id: GROUP, owner_key: null },
+        { chunk_key: 'claim:c1:aud:m', place_id: null },
+        { chunk_key: 'record:m0:1', place_id: GROUP },
+        { chunk_key: 'record:m1:1', place_id: GROUP },
       ]
     );
     assert.equal(db.prepare("SELECT COUNT(*) AS n FROM operational WHERE kind = 'vectors'").get()?.n, 0);
-    assert.equal(
-      db.prepare("SELECT COUNT(*) AS n FROM storage_units WHERE kind = 'vectors' AND retired_at IS NULL").get()?.n,
-      0
-    );
     assert.deepEqual(
       lineVectorMonth(db, GROUP, '2026-11')?.metas.map((meta) => meta.id),
       ['m0', 'm1']
