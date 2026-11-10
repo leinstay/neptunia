@@ -1,4 +1,4 @@
-// The private chat: a direct message checked locally with zero tokens (the switch, other bots, the served place,
+// The private chat: a direct message checked locally with zero tokens (the switch, the served place,
 // membership, a stored profile and the public attitude), dropped silently when refused, observed like a direct call
 // and answered in its own turn; the same gate for a queued direct message and for a recovery turn in a DM. createMessageHandler (src/behavior/pipeline.ts) builds it once with
 // createPrivateGate; the live path, the drain of the pending queue and the replay of a held chat call it.
@@ -145,7 +145,7 @@ export function createPrivateGate({
 
   /**
    * A direct message (private chat). Checked locally with zero tokens: the
-   * switch, other bots, the served place, membership, a stored profile and the
+   * switch, the served place, membership, a stored profile and the
    * public attitude (privateGate). A refused DM is dropped silently. No
    * follow-up window or address classifier here.
    */
@@ -157,7 +157,6 @@ export function createPrivateGate({
     const author = event.message.author;
     if (dmChatsOff(config, event)) return;
     const selfId = selfIdOf();
-    if (author.bot && author.id !== selfId) return;
     // When the partner last wrote here (pace.settleMs); the persona's own messages never count.
     if (author.id !== selfId) activity?.note(event.chat.id, author.id, event.message.at);
 

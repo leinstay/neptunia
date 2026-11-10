@@ -139,3 +139,22 @@ test('an update that brings only an embed appends no revision to the record', as
     await memory.close();
   }
 });
+
+// Owner's rule of 2026-11-10: a bot is written about like a person, so a bot's edit is a revision like anyone's.
+test('an edit of a bot message stores its new text as the next revision', async () => {
+  const memory = await openTestMemory({ now: () => NOW });
+  try {
+    const { observed, edits } = editsOver(memory);
+    const bot = { id: 'helper-bot', name: 'Helper', self: false, bot: true };
+    const first: Message = { ...created('9003'), author: bot, content: 'πρώτη μορφή' };
+    const second: Message = { ...first, content: 'δεύτερη μορφή', editedAt: NOW - 1000 };
+    await observed.observeLine(eventOf('create-3', first), false, { placeId: ROOT });
+    await edits.onMessageUpdate(eventOf('update-3', second, first));
+    assert.deepEqual(
+      stored(memory, '9003').map((line) => line.revision),
+      [1, 2]
+    );
+  } finally {
+    await memory.close();
+  }
+});

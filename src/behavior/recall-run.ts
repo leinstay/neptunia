@@ -8,7 +8,7 @@
 // name forms point at (stored profiles, the interface's member search for a Latin
 // form), the queries one after another (the interface may serialise its search
 // route, so sending them together would only queue them there), the hits filtered
-// (other bots, chats the pull rail refuses for this destination, the
+// (chats the pull rail refuses for this destination, the
 // turn's own chat), clustered, the windows around the clusters read
 // together (one history read each), each followed past its last
 // line while its chat goes on (one more history read, cut by
@@ -545,7 +545,6 @@ export function createRecall({
         continue;
       const searched = await untilAborted(signal, reads.searchMembers({ placeId }, { prefix: form, limit: maxPeople }));
       for (const member of searched?.members ?? []) {
-        if (member.bot && member.id !== selfId) continue;
         const known = found.get(member.id);
         if (known) {
           known.username ||= member.handle ?? '';
@@ -1520,13 +1519,11 @@ export function createRecall({
     took.searchMs += now() - stepAt;
     stats.hits = hits.size;
 
-    // 4. Dropped: other bots, the turn's own chat, channels the pull rail refuses here (sourceOf, judged once each).
+    // 4. Dropped: the turn's own chat, channels the pull rail refuses here (sourceOf, judged once each).
     // The turn's own chat first, before clustering: those lines are in `<chat>` already.
     const unseen = dropChatHits([...hits.values()], ownIds);
     stats.inChatDropped = unseen.dropped;
-    const kept = unseen.hits.filter(
-      (hit) => Number.isFinite(hit.ts) && !(hit.bot && hit.authorId !== selfId) && sourceOf(hit.placeId) !== null
-    );
+    const kept = unseen.hits.filter((hit) => Number.isFinite(hit.ts) && sourceOf(hit.placeId) !== null);
     stats.kept = kept.length;
     for (const person of people) {
       const theirs = kept.filter((hit) => hit.authorId === person.id);
@@ -1538,7 +1535,7 @@ export function createRecall({
     // 5. Clusters (a form whose search totals at most `recall.rareHits` is rare): `recall.selfExtra`
     // more than will be kept, 6. a window around each, followed past its last line while the
     // chat goes on (`recall.followMessages`, `recall.followGapMinutes`; a failed fetch keeps
-    // the window as it was; other bots and the turn's own chat left out; a window that reached into
+    // the window as it was; the turn's own chat left out; a window that reached into
     // the chat is marked `overlapsChat`, one holding the persona's own line `self`), 7. the final
     // `recall.maxClusters` re-ranked with `recall.selfBonus` for `self`.
     const candidates = clusterHits(kept, {
@@ -1562,7 +1559,7 @@ export function createRecall({
         const around = await linesOf(reads, source, { around: cluster.middleId, limit: settings.windowMessages });
         if (!around) return null;
         const messages = [...around, ...(await followOf(source, around))];
-        const shown = messages.filter((m) => !m.bot && !ownIds.has(m.id));
+        const shown = messages.filter((m) => !ownIds.has(m.id));
         const marked = {
           ...cluster,
           self: shown.some((m) => m.self === true),

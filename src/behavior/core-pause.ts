@@ -72,8 +72,8 @@ function placeOf(place: PausedPlace, chat: Record<string, unknown>, iface: unkno
 
 /**
  * How a line that arrives while paused is observed: `direct` and the record it belongs to, or null for a line the live
- * path would not observe now. A line of the served place outside threads is observed, hers or a
- * member's, another bot's not. A direct chat is observed only from the owner's command line: any other waits for its
+ * path would not observe now. A line of the served place outside threads is observed, whoever
+ * wrote it. A direct chat is observed only from the owner's command line: any other waits for its
  * private-chat gate at the resume.
  */
 function pausedObservation(
@@ -91,7 +91,6 @@ function pausedObservation(
     return { direct: true, where: { placeId: placeOf(place, chat, fields.iface) } };
   }
   if (!place.isServed(chat.rootId as string | null | undefined)) return null;
-  if (author.bot === true && author.id !== place.selfId) return null;
   return {
     direct: looseOf(fields.addressing).mentioned === true,
     where: { placeId: placeOf(place, chat, fields.iface) },

@@ -46,14 +46,14 @@ export function createPauseNotice({
   /**
    * How `message` (arriving while paused) called the persona directly, by the
    * flags of the live path without its model request: a mention or a reply to one of its messages in a served place
-   * the bot can send in, from a human; in a private chat
+   * she can send in, from anyone but her; in a private chat
    * (dm.enabled) an author the private gate lets through. `{ channel, trigger, kind }`, or null for anything else
    * (an unflagged line included: it would need the address classifier).
    */
   async function pausedCall(event: MessageEvent, config: PipelineConfig): Promise<PausedCall | null> {
     const author = event.message.author;
     const selfId = selfIdOf();
-    if (author?.bot || author?.id === selfId) return null;
+    if (author?.id === selfId) return null;
     // lineOf gives the normalized line of a message event.
     const normalize = () => lineOf(event) as Line;
 

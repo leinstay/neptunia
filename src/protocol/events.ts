@@ -127,7 +127,7 @@ export type Author = { id: string; name: string | null; self: boolean; bot: bool
  * One message, as the core reads it. `content`: the text as the chat shows it (mentions read as names, links to
  * embedded media cut out). `sourceText` (optional, `content` when absent): the text as written, with mentions in the
  * core's `<@id>` grammar, which edit detection and the journal's reconciliation compare. `system` (optional, false when
- * absent): the platform's own message (a member joined, a webhook post), never a person's. `at`: when it was written. `replyToId`: the message it
+ * absent): the platform's own message (a member joined, a pin, a boost), which no author writes. `at`: when it was written. `replyToId`: the message it
  * replies to (a forward replies to nothing); `replyPingAccountId`: the replied-to author when only
  * the reply notified them; `forwardedFrom`: the name of the chat a forward came from.
  * `attachments`, `links`, `forwarded`, `stickers`, `emojis`, `reactions` keep the shapes the

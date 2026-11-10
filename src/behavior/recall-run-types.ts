@@ -95,7 +95,7 @@ export type CreateRecallResult = {
  * stored profiles one of whose names or alias names equals the whole form
  * (both folded, src/memory/recent.js#foldText), the persona's own profile
  * never; then -- for a Latin form no profile matched -- the interface's member
- * search (prefix match), other bots left out. A member search is not sent
+ * search (prefix match). A member search is not sent
  * once `searchUntil` is past.
  * `via` (an optional Map) gets, per member found, `{ form, how }`: `how`
  * `stored` or `member-search`.

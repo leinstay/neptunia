@@ -185,7 +185,7 @@ type NamedLine = {
 
 /**
  * Every member's names for one request: the directory entries' names and aliases, then the names
- * the lines carry -- an author's name (never the persona's or a bot's) and the names of the members
+ * the lines carry -- an author's name (never the persona's) and the names of the members
  * a line mentions (`mentionedUsers`, `{ id, name }`, src/protocol/events.ts). id -> names,
  * each once, in the order met. Pure.
  * @param entries  directoryEntries'.
@@ -208,7 +208,7 @@ export function memberNameMap(
   for (const entry of entries ?? []) for (const name of [...entry.names, ...entry.aliases]) add(entry.id, name);
   for (const line of lines ?? []) {
     if (!line || typeof line !== 'object') continue;
-    if (!line.self && !line.bot) add(line.authorId, line.authorName);
+    if (!line.self) add(line.authorId, line.authorName);
     for (const user of Array.isArray(line.mentionedUsers) ? line.mentionedUsers : []) add(user?.id, user?.name);
   }
   return map;

@@ -100,8 +100,8 @@ function buildGifBackfill({
    * reset, so a GIF seen again keeps its handle; one no longer in the window
    * stays at count 0, ranked below every counted one, until `storeMax`
    * evicts it (src/memory/gifs.ts#rankGifs). Handles are never reused.
-   * Channels are read one after another (readMemberHistory). Messages of bots and of the
-   * persona are skipped. Resetting, counting and stamping happen together
+   * Channels are read one after another (readMemberHistory). The persona's own messages
+   * are skipped. Resetting, counting and stamping happen together
    * after every channel is read; the describing comes after, and only while
    * not paused. Skips (never throws) when paused, when already stamped (no `force`), while another run is in flight, or
    * when the interface lists no readable chat of the root; an unexpected error is thrown.

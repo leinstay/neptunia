@@ -141,7 +141,7 @@ export function createHandleMessage({
   // health: allow complexity until 2027-04-01 -- moved whole from src/behavior/pipeline.ts in stage 5d, a pure move
   async function handleMessage(event: MessageEvent, catchUp: CatchUp, options?: MessageReadOptions): Promise<Handled> {
     try {
-      // 1. System / webhook messages are not chat.
+      // 1. A system message (a join, a pin, a boost: the platform's own notice, src/protocol/events.ts) is not chat.
       if (event.message.system === true) return 'ignored';
       // 1. Her own line that carries a one-time code is no speech of hers: never observed, never read back.
       const { author: writer, content } = event.message;
@@ -229,9 +229,6 @@ export function createHandleMessage({
         }
         return 'observed';
       }
-
-      // 6. Other bots are never answered, never memorised.
-      if (author.bot) return 'ignored';
 
       // 6b. A line soon after the persona's own one here joins her participation episode.
       noteFollowingLine(placeId, normalized);

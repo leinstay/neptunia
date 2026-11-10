@@ -134,7 +134,7 @@ export function createOwnerPairing({
   async function screen(event: MessageEvent): Promise<'pass' | 'observe'> {
     const author = event.message.author;
     if (event.iface === CONSOLE_IFACE || !isDirect(event) || author === undefined) return 'pass';
-    if (author.bot || author.self === true || author.id === selfId()) return 'pass';
+    if (author.self === true || author.id === selfId()) return 'pass';
     if (!pairing.isOpen(event.iface) || ownerPersonOf(hot.config) === null) return 'pass';
     if (withIface(event.iface, () => isOwnerId(hot.config, author.id))) return 'pass';
     const asked = pairing.request({ iface: event.iface, native: String(author.id) });

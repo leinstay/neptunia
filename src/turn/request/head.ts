@@ -92,11 +92,11 @@ function withEmojiCaptions(
   return known;
 }
 
-/** The members who wrote a line of `history` or reacted to one of hers, she and the bots aside. */
+/** The members who wrote a line of `history` or reacted to one of hers, she aside. */
 function authorsOf(history: ReadonlyArray<Message>): Array<string> {
   const ids = new Set<string>();
   for (const message of history)
-    if (message && !message.self && !message.bot && message.authorId !== undefined && message.authorId !== null)
+    if (message && !message.self && message.authorId !== undefined && message.authorId !== null)
       ids.add(String(message.authorId));
   for (const id of reactorIdsOf(history as Array<Message>)) ids.add(id);
   return [...ids];

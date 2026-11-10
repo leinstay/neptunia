@@ -1616,6 +1616,15 @@ test('toEvent: a message becomes a valid message.received event, field for field
     assert.ok(!(key in event.message), key);
 });
 
+// Owner's rule of 2026-11-10: a webhook's post is a line someone wrote; only the platform's own notices are system.
+test("toEvent: a webhook's message is a line of its author, a join notice a system message", () => {
+  const hook = toEvent(guildMessage({ webhookId: 'w1', author: { id: 'w1', bot: true, username: 'feed' } }), 'self');
+  assert.equal(loose(hook.message).system, false);
+  assert.equal(hook.message.author?.bot, true);
+  const joined = toEvent(guildMessage({ system: true }), 'self');
+  assert.equal(loose(joined.message).system, true);
+});
+
 test('toEvent: a direct chat is a dm chat, a thread a thread', () => {
   // A category is no place, the owner's word of 2026-11-06.
   const dm = toEvent(rawMessage({ guild: null, channel: { id: 'd1' }, channelId: 'd1' }), 'self');

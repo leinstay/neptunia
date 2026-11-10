@@ -529,7 +529,7 @@ export function mergeGifs(
   const { byNative, byLink } = libraryIndex(next.entries);
   let total = 0;
   for (const message of Array.isArray(messages) ? messages : []) {
-    if (!message || message.self || message.bot) continue;
+    if (!message || message.self) continue;
     const ts = isFiniteNumber(message.ts) ? message.ts : 0;
     const seen = new Set();
     for (const item of collectGifItems(message)) {

@@ -9,7 +9,7 @@
 // a stored line is a replay that writes nothing. A line the platform marks edited (`editedAt`) is observed as an edit,
 // so a text memory lacks becomes the next revision of the stored line (src/memory/db/observe.ts). The writes are never
 // awaited by the reader, so no turn and no analyzer waits on them, and no line starts a turn here. The keeper leaves out
-// what the live path leaves out: a system message, another bot's line, her limit notice, her line that carries a
+// what the live path leaves out: a system message, her limit notice, her line that carries a
 // one-time code and a message withheld for a link code. Logs carry counts only.
 
 import { placeOfChat, sharedPlaceOf } from '../memory/addresses.ts';
@@ -66,7 +66,6 @@ export function createKeepLines({
     const { message, chat } = event;
     if (message.system === true) return false;
     const self = message.author.id === selfIdOf();
-    if (!self && message.author.bot) return false;
     if (self && isCodeLine?.(message.content) === true) return false;
     if (self && isLimitNotice((hot.prompts?.labels ?? {}) as Record<string, never>, message.content)) return false;
     if (isWithheld?.(event.iface, chat.id, message.id) === true) return false;
