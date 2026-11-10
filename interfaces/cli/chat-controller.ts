@@ -885,12 +885,7 @@ export class ChatController {
   /** A key for the input. `renderedOwner` is who held the keys when the frame on the screen was drawn. */
   onKey(text: string, key: Key, renderedOwner: ReturnType<typeof focusOwner>): void {
     if (key.ctrl && text === 'c') {
-      const { selection, draftSelection, draft, question, search } = this.model;
-      // The draft's selection counts only while the draft is what the input draws.
-      if (draftSelection !== null && question === null && search === null)
-        this.copyDraftSelection(draft, draftSelection);
-      else if (selection === null || selection.text === '') this.exit();
-      else this.copySelection(selection.text);
+      this.copyOrLeave();
       return;
     }
     if (renderedOwner !== 'input' || focusOwner(this.model) !== 'input' || this.keyTaken) return;
@@ -905,6 +900,15 @@ export class ChatController {
     const action = name === null ? null : this.keymap.resolve(this.contextOf(this.model), name);
     if (action !== null) this.run(action);
     else if (name === null && text !== '' && !key.meta) this.typed(text);
+  }
+
+  /** Ctrl+C: the draft's selection, else the transcript's, goes to the clipboard; with neither the chat ends. */
+  copyOrLeave(): void {
+    const { selection, draftSelection, draft, question, search } = this.model;
+    // The draft's selection counts only while the draft is what the input draws.
+    if (draftSelection !== null && question === null && search === null) this.copyDraftSelection(draft, draftSelection);
+    else if (selection === null || selection.text === '') this.exit();
+    else this.copySelection(selection.text);
   }
 
   /**
