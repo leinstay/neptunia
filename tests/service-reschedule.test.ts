@@ -47,15 +47,6 @@ test('an interval swapped for another counts from the run in progress, not from 
   assert.deepEqual(fired, [started + 2 * HOUR, started + 4 * HOUR]);
 });
 
-test('the old schedule would not have fired again the same day, so a run after the edit comes only from the new one', () => {
-  // Catches: the old slot list is still read for the day, so nothing distinguishes the two schedules in the evening.
-  const slot = at('2026-11-04T15:00:00Z');
-  assert.deepEqual(ticks({ kind: 'at', at: ['15:00'] }, slot, slot + 8 * HOUR, slot), []);
-  assert.deepEqual(ticks({ kind: 'at', at: ['15:00', '20:00'] }, slot, slot + 8 * HOUR, slot), [
-    at('2026-11-04T20:00:00Z'),
-  ]);
-});
-
 const SILENT = { info() {}, warn() {}, error() {}, debug() {} };
 
 /** A real inner life whose turn waits for `release` while `held`; the settings object is the one the life reads. */

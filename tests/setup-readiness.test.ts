@@ -15,6 +15,8 @@ import type { ReadinessHealth, Requirement } from '../src/setup/readiness.ts';
 import { BASE_URL, SECRET, chainRing, everyKeyChains, fakeFetch, fakePause } from './fixtures/keys-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { writeKeysFile } from './fixtures/keys-file.ts';
+import { fakeVendor } from './fixtures/fake-vendor.ts';
 
 const SELECTION = 'openrouter:vendor/core-1';
 
@@ -282,4 +284,43 @@ test('with no terminal a launch that is not ready is setup-required and names th
   const decision = decideLaunch({ terminal: false, readiness: notReady });
   assert.equal(decision.kind, 'setup-required');
   assert.ok(decision.kind === 'setup-required' && decision.text.includes('neptunia services start'));
+});
+
+// A launch asks nothing of a harness that carries her core (docs/setup.md, chat readiness): a harness is checked when it
+// is installed or logged in and when a model is chosen on it, never when a chat opens. The private folder is a temp dir
+// and the vendor CLI a fake that records each call, so no process of a real vendor starts.
+
+const CORE = { backend: 'claude', model: 'claude-opus-4-6', effort: null };
+
+test('a launch reads a harness core as served and starts none of its CLI, logged out as it is', async () => {
+  // Catches: every chat launch running the vendor's status command, a check at use the owner ruled out.
+  const dir = tempDir('nep-readiness-harness-');
+  writeKeysFile(dir, { subharness: { key: null, modes: {}, core: CORE } });
+  const vendor = fakeVendor(dir, 'claude', { loggedIn: false });
+  const health = await gatherHealth({
+    privateDir: dir,
+    dataDir: dir,
+    unitDir: dir,
+    link: () => Promise.resolve({ kind: 'down' }),
+  });
+  assert.deepEqual(vendor.calls(), []);
+  assert.equal(health.model.harness, true);
+  assert.equal(
+    evaluateReadiness(health).failed.some((one) => one.requirement === 'core-model'),
+    false
+  );
+});
+
+test('a launch with her core on the API and no check recorded still names the missing check', async () => {
+  // Catches: the harness rule read for every core, so a direct core with no checked model opens a chat that cannot answer.
+  const dir = tempDir('nep-readiness-direct-');
+  writeKeysFile(dir);
+  const health = await gatherHealth({
+    privateDir: dir,
+    dataDir: dir,
+    unitDir: dir,
+    link: () => Promise.resolve({ kind: 'down' }),
+  });
+  const failure = evaluateReadiness(health).failed.find((one) => one.requirement === 'core-model');
+  assert.equal(failure?.code, 'check-missing');
 });

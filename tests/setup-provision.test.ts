@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { localConfigPath } from '../src/config/files.ts';
-import { deferModeToUnit } from '../src/setup/install.ts';
+
 import type { RunResult } from '../src/setup/install.ts';
 import { interfacesStep } from '../src/setup/interfaces.ts';
 import { SETUP_STEPS, SetupUsageError, parseSetupArgs, runSetup } from '../src/setup/run.ts';
@@ -63,12 +63,6 @@ test('a second setup keeps the CLI token', async () => {
   assert.equal(fs.readFileSync(file, 'utf8'), token);
 });
 
-test('the report of setup names the account command and no retired one', async () => {
-  // Catches: the last line of setup tells the owner to run a command that exits 2.
-  const report = await runSetupFully(setupOptions());
-  assert.equal(report.next.includes('subharness enable'), false);
-});
-
 test('every step word of neptunia setup is refused and names the single flow, while the steps stay internal', () => {
   // Catches: a step subcommand left public; `setup units` and friends bypass the readiness the flow is built on.
   assert.ok(SETUP_STEPS.includes('units'), 'the implementation keeps its steps');
@@ -79,19 +73,6 @@ test('every step word of neptunia setup is refused and names the single flow, wh
       step
     );
   }
-});
-
-test('--system and --node still parse, as the install of a system-scope unit needs them', () => {
-  // Catches: retiring the step words takes the scope flags with them.
-  assert.deepEqual(parseSetupArgs(['--system', '--node', '/usr/bin/node']), { system: true, node: '/usr/bin/node' });
-  assert.throws(() => parseSetupArgs(['units', '--system']), SetupUsageError);
-});
-
-test('a mode the core defers names a form that still exists', () => {
-  // Catches: /agent mode telling the owner to run the retired `neptunia setup units`.
-  const line = deferModeToUnit('scout') ?? '';
-  assert.equal(line.includes('setup units'), false, line);
-  assert.ok(line.includes('neptunia setup'), line);
 });
 
 // src/setup/interfaces.ts

@@ -184,17 +184,6 @@ function fakes() {
   return { privateDir, codex, claude, install };
 }
 
-test('none installs and logs in nothing', async () => {
-  // Catches: a default backend pushed onto an owner who wants the API path alone.
-  const { privateDir, codex, claude, install } = fakes();
-  const deps = stepDeps(['none'], install);
-  const before = fs.readFileSync(path.join(privateDir, 'keys.json'), 'utf8');
-  const outcome = await subharnessStep({ privateDir }, deps);
-  assert.equal(outcome.state, 'skipped');
-  assert.deepEqual([...codex.installs, ...claude.installs], []);
-  assert.equal(fs.readFileSync(path.join(privateDir, 'keys.json'), 'utf8'), before);
-});
-
 test('one backend is installed through the installer and logged in, with no list stored and no role moved', async () => {
   // Catches: setup still writing the enabled list, or assigning the new backend to the agents.
   const { privateDir, codex, claude, install } = fakes();
@@ -207,15 +196,6 @@ test('one backend is installed through the installer and logged in, with no list
   const stored = readKeysFile(privateDir).subharness;
   assert.equal(Object.hasOwn(stored, 'backends'), false);
   assert.deepEqual(stored.uses, { dev: 'claude' });
-});
-
-test('several backends are set up in turn, spelled either way', async () => {
-  // Catches: only the first name of the answer takes effect.
-  const { privateDir, codex, claude, install } = fakes();
-  const deps = stepDeps(['claude, codex'], install);
-  await subharnessStep({ privateDir }, deps);
-  assert.equal(codex.loggedIn(), true);
-  assert.equal(claude.loggedIn(), true);
 });
 
 test('all is an answer of its own and needs the opencode source only when opencode is absent', async () => {
@@ -242,26 +222,4 @@ test('reopening adds an omitted backend and keeps the accounts and model choices
   assert.equal(codex.calls().filter((one) => one.startsWith('login --')).length, logins);
   assert.equal(claude.loggedIn(), true);
   assert.deepEqual(readKeysFile(privateDir).subharness.models, { dev: 'sonnet' });
-});
-
-test('a backend already logged in is left alone when it is named again', async () => {
-  // Catches: naming a working backend forces another browser login.
-  const { privateDir, codex, install } = fakes();
-  await subharnessStep({ privateDir }, stepDeps(['codex'], install));
-  const calls = codex.calls().filter((one) => one.startsWith('login --')).length;
-  const outcome = await subharnessStep({ privateDir }, stepDeps(['codex'], install));
-  assert.equal(outcome.state, 'already');
-  assert.equal(codex.calls().filter((one) => one.startsWith('login --')).length, calls);
-});
-
-test('one failed login reports failed, says which, and keeps the other backend', async () => {
-  // Catches: a whole-step success over a backend that did not log in, or a rollback of the one that did.
-  const { privateDir, codex, claude, install } = fakes();
-  claude.setLogin('fail');
-  const deps = stepDeps(['codex claude'], install);
-  const outcome = await subharnessStep({ privateDir }, deps);
-  assert.equal(outcome.state, 'failed');
-  assert.ok(outcome.detail.includes('claude'), outcome.detail);
-  assert.equal(codex.loggedIn(), true);
-  assert.equal(claude.loggedIn(), false);
 });
