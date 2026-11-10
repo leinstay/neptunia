@@ -606,7 +606,7 @@
     },
     "tests/memory-db-observe.test.ts": {
       "deep": 2,
-      "repeated": 2
+      "repeated": 1
     },
     "tests/memory-db-participation-sources.test.ts": {
       "deep": 1,
@@ -1608,7 +1608,7 @@
     },
     "src/memory/db/index-policy.ts": {
       "classify": {
-        "complexity": 24
+        "complexity": 23
       }
     },
     "src/memory/db/observe-event.ts": {
@@ -1618,7 +1618,7 @@
     },
     "src/memory/db/observe.ts": {
       "checkEnvelope": {
-        "complexity": 98
+        "complexity": 84
       },
       "participantOf": {
         "complexity": 25
@@ -1627,7 +1627,7 @@
         "complexity": 36
       },
       "writeObservation": {
-        "complexity": 34
+        "complexity": 29
       }
     },
     "src/memory/db/rows.ts": {

@@ -1,4 +1,4 @@
-// The observation envelope and foreign capture (schema v8, src/memory/db/observe.ts), and the promotion of an account
+// The observation envelope (schema v8, src/memory/db/observe.ts), and the promotion of an account
 // or participant through her session's `people:add`. Fixtures for three interfaces nobody wires yet: Twitter (her post,
 // replies, a mention of her; a stranger's quote tweet stays out unless the caller passes it), an imageboard (thread
 // tokens, a post-number-only board, display names, a site-wide id, a reset token) and Telegram (a DM and a group).
@@ -8,17 +8,7 @@ import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { MemoryHandle } from '../src/memory/db/types.ts';
-import {
-  OBSERVATION_VERSION,
-  captureSettings,
-  checkEnvelope,
-  dueWatches,
-  expandBundle,
-  finishWatch,
-  observe,
-  openBundle,
-  scheduleWatches,
-} from '../src/memory/db/observe.ts';
+import { OBSERVATION_VERSION, checkEnvelope, observe } from '../src/memory/db/observe.ts';
 import { audienceWhere, dmContext, groupContext, groupScope } from '../src/memory/db/scope.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { batchOf, buildSessionRequest, scopesOf, validateAnswer } from '../src/memory/db/session.ts';
@@ -51,9 +41,6 @@ const TABLES = [
   'people',
   'external_keys',
   'source_relations',
-  'capture_bundles',
-  'capture_members',
-  'capture_events',
   'audiences',
   'authorities',
   'interfaces',
@@ -99,22 +86,12 @@ const tweet = (key: string, over = {}) => ({
   ...over,
 });
 
-test('twitter: her post opens a bundle, replies join it, a mention of her opens its own; a stranger quote tweet is not stored unless passed', () => {
+test('twitter: her post, a reply to it and a mention of her are stored; a stranger quote tweet is not stored unless passed', () => {
   const handle = fresh();
   const db = sqlOf(handle);
   try {
     const people = count(db, 'SELECT COUNT(*) AS n FROM people');
-    const post = observe(
-      handle,
-      tweet('9001', {
-        capture: {
-          role: 'anchor',
-          reason: 'own_line',
-          coverage: { state: 'pending_expansion', before: 0, after: 0, ancestors: 0 },
-        },
-      }),
-      opts
-    );
+    const post = observe(handle, tweet('9001'), opts);
     assert.equal(post.ok, true, JSON.stringify(post));
     assert.equal(post.replayed, false);
     const row = db
@@ -148,11 +125,6 @@ test('twitter: her post opens a bundle, replies join it, a mention of her opens 
         observedAt: at(6),
         text: 'a reply to her',
         relations: [{ predicate: 'replies_to', target: { kind: 'tweet', key: '9001' } }],
-        capture: {
-          bundle: post.bundleId,
-          role: 'reply',
-          coverage: { state: 'complete', before: 0, after: 0, ancestors: 0 },
-        },
       }),
       opts
     );
@@ -172,31 +144,11 @@ test('twitter: her post opens a bundle, replies join it, a mention of her opens 
     const stranger = db.prepare('SELECT kind, names FROM accounts WHERE id = ?').get(reply.author.account);
     assert.deepEqual({ ...stranger }, { kind: 'user', names: '["Zoé"]' });
     assert.match(linkedPerson(handle, reply.author.account), UUID_PERSON, 'an account under a meta-person of its own');
-    assert.deepEqual(
-      db
-        .prepare('SELECT role FROM capture_members WHERE bundle_id = ? ORDER BY role')
-        .all(post.bundleId)
-        .map((r) => r.role),
-      ['anchor', 'reply']
-    );
-    assert.deepEqual(
-      db
-        .prepare(
-          "SELECT kind, json_extract(coverage, '$.state') AS state FROM capture_events WHERE bundle_id = ? ORDER BY id"
-        )
-        .all(post.bundleId)
-        .map((r) => ({ ...r })),
-      [
-        { kind: 'initial', state: 'pending_expansion' },
-        { kind: 'expansion', state: 'complete' },
-      ]
-    );
-
     // A quote tweet by a stranger: the adapter does not pass it, so nothing of it exists.
     assert.equal(count(db, "SELECT COUNT(*) AS n FROM sources WHERE native_id = '9003'"), 0);
 
-    // A mention of her in another chat: captured, with its own bundle; the mention of her handle stays an
-    // unresolved relation (an account is never a source).
+    // A mention of her in another chat: stored, and the mention of her handle stays an unresolved relation (an account
+    // is never a source).
     const mention = observe(
       handle,
       tweet('9100', {
@@ -206,13 +158,10 @@ test('twitter: her post opens a bundle, replies join it, a mention of her opens 
         observedAt: at(31),
         text: 'hey @her-handle',
         relations: [{ predicate: 'mentions', target: { kind: 'user', key: 'her-handle' } }],
-        capture: { role: 'anchor', reason: 'mention', coverage: { state: 'incomplete', gaps: ['ancestors'] } },
       }),
       opts
     );
     assert.equal(mention.ok, true, JSON.stringify(mention));
-    assert.notEqual(mention.bundleId, post.bundleId);
-    assert.equal(db.prepare('SELECT reason FROM capture_bundles WHERE id = ?').get(mention.bundleId).reason, 'mention');
     assert.equal(
       db.prepare('SELECT target_source_id FROM source_relations WHERE source_id = ?').get(mention.sourceId)
         .target_source_id,
@@ -223,11 +172,7 @@ test('twitter: her post opens a bundle, replies join it, a mention of her opens 
 
     // The same post again: nothing is written.
     const before = sizes(db);
-    const replay = observe(
-      handle,
-      tweet('9001', { capture: { role: 'anchor', reason: 'own_line', coverage: { state: 'complete' } } }),
-      opts
-    );
+    const replay = observe(handle, tweet('9001'), opts);
     assert.deepEqual(replay, { ok: true, replayed: true, sourceId: post.sourceId, written: 0 });
     assert.deepEqual(sizes(db), before);
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
@@ -506,8 +451,6 @@ test('observe: a malformed envelope is refused with a code and writes nothing; a
       [{ ...good, occurredAt: 'yesterday' }, 'BAD_TIME'],
       [{ ...good, text: null }, 'BAD_TEXT'],
       [{ ...good, relations: [{ predicate: 'likes', target: { source: 'x' } }] }, 'BAD_RELATION'],
-      [{ ...good, capture: { role: 'reply' } }, 'BAD_CAPTURE'],
-      [{ ...good, capture: { role: 'anchor', reason: 'own_line', coverage: { state: 'enough' } } }, 'BAD_COVERAGE'],
       [{ ...good, extra: [1] }, 'BAD_EXTRA'],
     ];
     const before = sizes(db);
@@ -516,188 +459,19 @@ test('observe: a malformed envelope is refused with a code and writes nothing; a
       assert.deepEqual(observe(handle, envelope, opts), { ok: false, code });
     }
     assert.deepEqual(sizes(db), before);
-    // Valid on its face, refused while writing (the bundle it names does not exist): the source, its account and place
-    // are rolled back with it.
+    // Valid on its face, refused while writing (the thread its participant is scoped to is stored nowhere): the source
+    // and its place are rolled back with it.
     assert.deepEqual(
       observe(
         handle,
-        tweet('2', { author: { kind: 'account', key: 'u-1' }, capture: { bundle: 'bundle:none', role: 'reply' } }),
+        tweet('2', {
+          author: { kind: 'participant', token_kind: 'thread_token', key: 't-1', scope_place: 'thread:none' },
+        }),
         opts
       ),
-      { ok: false, code: 'UNKNOWN_BUNDLE' }
+      { ok: false, code: 'UNKNOWN_SCOPE_PLACE' }
     );
     assert.deepEqual(sizes(db), before);
-  } finally {
-    handle.close();
-  }
-});
-
-// ---------- capture ----------
-
-test('capture: a bundle grows by expansion past pageLines with truthful coverage; history is append-only; a source keeps two roles', () => {
-  const handle = fresh();
-  const db = sqlOf(handle);
-  try {
-    const anchor = observe(handle, tweet('1000'), opts);
-    const lines = [];
-    for (let i = 1; i <= 70; i += 1)
-      lines.push(
-        observe(
-          handle,
-          tweet(String(1000 + i), { author: { kind: 'account', key: `u-${i}` }, occurredAt: at(i), observedAt: at(i) }),
-          opts
-        ).sourceId
-      );
-    // PR 7d: a page holds the constant 60 lines (`capture.pageLines`).
-    const opened: Record<string, Untyped> = openBundle(handle, {
-      anchor: anchor.sourceId,
-      reason: 'own_line',
-      coverage: { state: 'pending_expansion', before: 0, after: 0 },
-      ...opts,
-    });
-    assert.deepEqual([opened.ok, opened.created], [true, true]);
-    assert.deepEqual(
-      openBundle(handle, { anchor: anchor.sourceId, reason: 'own_line', coverage: { state: 'complete' }, ...opts }),
-      { ok: true, bundleId: opened.bundleId, created: false }
-    );
-
-    const first = expandBundle(handle, opened.bundleId, {
-      sources: lines.map((id) => ({ id, role: 'after' })),
-      coverage: { state: 'complete', after: 70 },
-      ...opts,
-    });
-    assert.equal(first.ok, true, JSON.stringify(first));
-    assert.equal(first.added, 60);
-    assert.equal(first.rest.length, 10);
-    assert.equal(first.coverage.state, 'pending_expansion', 'a page boundary is never "complete"');
-    const second: Record<string, Untyped> = expandBundle(handle, opened.bundleId, {
-      sources: first.rest,
-      coverage: { state: 'complete', after: 70 },
-      ...opts,
-    });
-    assert.deepEqual([second.added, second.rest.length, second.coverage.state], [10, 0, 'complete']);
-    assert.equal(
-      count(db, 'SELECT COUNT(*) AS n FROM capture_members WHERE bundle_id = ?', opened.bundleId),
-      71,
-      'the bundle grew past pageLines'
-    );
-    assert.deepEqual(
-      db
-        .prepare(
-          "SELECT kind, json_extract(coverage, '$.state') AS state, added FROM capture_events WHERE bundle_id = ? ORDER BY id"
-        )
-        .all(opened.bundleId)
-        .map((r) => ({ ...r })),
-      [
-        { kind: 'initial', state: 'pending_expansion', added: 1 },
-        { kind: 'expansion', state: 'pending_expansion', added: 60 },
-        { kind: 'expansion', state: 'complete', added: 10 },
-      ]
-    );
-    assert.equal(
-      JSON.parse(String(db.prepare('SELECT coverage FROM capture_bundles WHERE id = ?').get(opened.bundleId).coverage))
-        .state,
-      'complete'
-    );
-
-    // A line that is both a reply to her and a mention of her keeps both roles; adding a role twice adds nothing.
-    const both: Record<string, Untyped> = expandBundle(handle, opened.bundleId, {
-      sources: [
-        { id: lines[0], role: 'reply' },
-        { id: lines[0], role: 'mention' },
-        { id: lines[0], role: 'after' },
-      ],
-      coverage: { state: 'complete' },
-      ...opts,
-    });
-    assert.equal(both.added, 2);
-    assert.deepEqual(
-      db
-        .prepare('SELECT role FROM capture_members WHERE bundle_id = ? AND source_id = ? ORDER BY role')
-        .all(opened.bundleId, lines[0])
-        .map((r) => r.role),
-      ['after', 'mention', 'reply']
-    );
-    // A provider that could not be read says so; an unknown source refuses the whole step.
-    const events = count(db, 'SELECT COUNT(*) AS n FROM capture_events');
-    assert.deepEqual(
-      expandBundle(handle, opened.bundleId, {
-        sources: [
-          { id: lines[1], role: 'reply' },
-          { id: 'source:missing', role: 'reply' },
-        ],
-        coverage: { state: 'complete' },
-        ...opts,
-      }),
-      { ok: false, code: 'UNKNOWN_SOURCE' }
-    );
-    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM capture_events'), events);
-    assert.equal(
-      wrongly<Untyped>(
-        expandBundle(handle, opened.bundleId, {
-          sources: [],
-          coverage: { state: 'provider_unavailable' },
-          kind: 'watch',
-          ...opts,
-        })
-      ).coverage.state,
-      'provider_unavailable'
-    );
-    assert.throws(() => db.prepare('UPDATE capture_events SET added = 0').run(), /append-only/);
-  } finally {
-    handle.close();
-  }
-});
-
-test('capture: watches at 15 min, 2 h and 24 h after the anchor; due ones are listed until they are closed', () => {
-  const handle = fresh();
-  try {
-    assert.deepEqual(captureSettings({}), {
-      ancestors: 2,
-      before: 3,
-      after: 3,
-      pageLines: 60,
-      watch: [15, 120, 1440],
-      watchSameAuthor: 20,
-    });
-    const anchor = observe(
-      handle,
-      tweet('2000', { capture: { role: 'anchor', reason: 'own_line', coverage: { state: 'complete' } } }),
-      opts
-    );
-    const scheduled: Record<string, Untyped> = scheduleWatches(handle, anchor.bundleId, null, { log: quiet });
-    assert.deepEqual([scheduled.ok, scheduled.scheduled], [true, 3]);
-    assert.equal(
-      wrongly<Untyped>(scheduleWatches(handle, anchor.bundleId, null, { log: quiet })).scheduled,
-      0,
-      'scheduled once'
-    );
-    // PR 7d: `capture.watchSameAuthor` is the constant 20.
-    const due = (minutes: number) => dueWatches(handle, Date.parse(at(minutes)), {});
-    assert.deepEqual(due(10), []);
-    const firstDue = due(30);
-    assert.deepEqual(
-      firstDue.map((w) => [w.dueAt, w.anchor, w.sameAuthorMax]),
-      [[at(15), anchor.sourceId, 20]]
-    );
-    assert.deepEqual(finishWatch(handle, wrongly(firstDue[0].id), 'unavailable', opts), { ok: true, written: 1 });
-    assert.deepEqual(
-      finishWatch(handle, wrongly(firstDue[0].id), 'fetched', opts),
-      { ok: true, written: 0 },
-      'a closed watch stays as it was'
-    );
-    assert.equal(
-      sqlOf(handle).prepare('SELECT outcome FROM capture_watches WHERE id = ?').get(firstDue[0].id).outcome,
-      'unavailable'
-    );
-    assert.deepEqual(due(30), []);
-    assert.equal(due(180).length, 1);
-    assert.equal(due(2000).length, 2);
-    assert.deepEqual(finishWatch(handle, wrongly(firstDue[0].id), 'maybe', opts), { ok: false, code: 'BAD_OUTCOME' });
-    assert.deepEqual(scheduleWatches(handle, 'bundle:none', wrongly([15]), { log: quiet }), {
-      ok: false,
-      code: 'UNKNOWN_BUNDLE',
-    });
   } finally {
     handle.close();
   }
@@ -901,6 +675,24 @@ test('people:add in shadow is a proposal only; in apply it mints a tentative per
     );
     assert.equal(count(db, 'SELECT COUNT(*) AS n FROM people'), people + 1);
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+  } finally {
+    handle.close();
+  }
+});
+
+test('an envelope that still carries a capture writes its line and no bundle', () => {
+  // Bug: an adapter of an older release that sends `capture` would grow the bundle tables no code reads.
+  const handle = fresh();
+  const db = sqlOf(handle);
+  try {
+    const result = observe(
+      handle,
+      tweet('9300', { capture: { role: 'anchor', reason: 'own_line', coverage: { state: 'complete' } } }),
+      opts
+    );
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM capture_bundles'), 0);
+    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM capture_members'), 0);
   } finally {
     handle.close();
   }

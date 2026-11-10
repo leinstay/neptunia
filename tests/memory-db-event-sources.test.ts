@@ -76,10 +76,14 @@ test('a refused accepted observation commits neither source nor receipt associat
   try {
     const result = observeMessage(
       handle,
-      { ...accepted('bad', 'Must roll back'), capture: { role: 'reply', bundle: 'absent' } },
+      // Refused while writing: the thread its participant is scoped to is stored nowhere.
+      {
+        ...accepted('bad', 'Must roll back'),
+        author: { kind: 'participant', token_kind: 'thread_token', key: 't-1', scope_place: 'thread:none' },
+      },
       options
     );
-    assert.deepEqual(result, { ok: false, code: 'UNKNOWN_BUNDLE' });
+    assert.deepEqual(result, { ok: false, code: 'UNKNOWN_SCOPE_PLACE' });
     assert.deepEqual(dbOf(handle).prepare('SELECT * FROM ingest').all(), []);
     assert.deepEqual(dbOf(handle).prepare('SELECT * FROM sources').all(), []);
     assert.deepEqual(dbOf(handle).prepare('SELECT * FROM message_families').all(), []);

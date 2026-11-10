@@ -25,7 +25,6 @@ import { indexSettings } from '../src/memory/db/index-policy.ts';
 import { dbSettings } from '../src/memory/db/recall.ts';
 import { graphSettings } from '../src/memory/db/graph.ts';
 import { focusSettings } from '../src/memory/db/focus.ts';
-import { captureSettings } from '../src/memory/db/observe.ts';
 import { sessionSettings } from '../src/memory/db/session.ts';
 import { boardSettings } from '../src/board/board.ts';
 import { pullSettings } from '../src/behavior/pull.ts';
@@ -61,7 +60,6 @@ const READERS: Array<[string, (config: Record<string, Untyped>) => unknown]> = [
   ['participationSettings', () => participationSettings()],
   ['graphSettings', (config) => graphSettings(config)],
   ['focusSettings', (config) => focusSettings(config)],
-  ['captureSettings', (config) => captureSettings(config)],
   ['sessionSettings', (config) => sessionSettings(config)],
   ['innerSettings', (config) => innerSettings(config)],
   ['heartbeatLimits', (config) => heartbeatLimits(config)],

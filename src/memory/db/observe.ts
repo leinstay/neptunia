@@ -1,4 +1,4 @@
-// The observation envelope and foreign capture (spec 2026-10-24-memory-schema-v7, sections 1.3, 1.4 and 4; section 11
+// The observation envelope (spec 2026-10-24-memory-schema-v7, sections 1.3, 1.4 and 4; section 11
 // items 1, 3, 8 override them). An interface adapter says what it saw as one plain object, versioned
 // (`OBSERVATION_VERSION`); the core resolves everything else itself, so a new interface is an adapter, not a schema.
 //
@@ -6,7 +6,7 @@
 //     place: { authority, key, kind, chat: 'dm' | 'group' | undefined, parent?, title?, address?, partner? },
 //     author: { kind: 'account' | 'participant' | 'self', authority?, key?, token_kind?, scope_place?, display?, generation?, account_kind? },
 //     occurredAt, observedAt, text, media?, mentions?, direct?, relations?: [{ predicate, target }],
-//     capture?: { bundle?, role, reason?, coverage? }, extra?, consoleOwner?: { person } }
+//     extra?, consoleOwner?: { person } }
 //   (`native.revision` may be absent only with `edited: true`: observe takes it from the database.)
 //
 // observe(handle, envelope) checks the envelope, then in ONE transaction resolves or creates the authority, the place,
@@ -14,7 +14,7 @@
 // account seen for the first time gets a meta-person of its own, plan 2026-11-08-meta-person; a participant gets none),
 // writes the source with its author's person (`author_person`, rows.ts#deriveRow) and its
 // audience (the place's chat: `group` -> `aud:group:<iface>`, `dm` -> `aud:dm:<place>`, anything else ->
-// `aud:internal`), its relations and its bundle membership. Idempotent on the native tuple: the source id is the hash of
+// `aud:internal`) and its relations. Idempotent on the native tuple: the source id is the hash of
 // (authority, native kind, key, generation, revision, subtype), and a replay writes nothing. A malformed envelope is
 // refused with a code (`{ ok: false, code }`) and writes nothing; a refusal found while writing rolls the whole
 // transaction back. Native keys are aliases in `external_keys` (one resolver, ids.ts#resolveAlias, at the event time).
@@ -24,13 +24,6 @@
 // or no token at all is keyed by the observation: one participant per post, never linked to the next. A site-wide stable
 // id is an account of the site's authority (author kind `account`), with no person. A token the site reset is a new
 // generation (`author.generation`), so the same token string is a new participant.
-//
-// Capture (section 11.1): a bundle is the context stored around an anchor line in a place the connection does not read
-// continuously. The defaults (`capture.ancestors`, `before`, `after`) are the first fetch only, never a ceiling; growth
-// is append-only (`capture_events`, one per step, with the coverage after it), members are never removed, a source may
-// hold several roles. `capture.pageLines` only pages one expansion: what did not fit is handed back and the coverage
-// says `pending_expansion`; no function here declares a bundle sufficient because of a number. Watches (15 min, 2 h,
-// 24 h after the anchor by default) are rows the caller runs and closes.
 //
 // Schema v9: every account, place, participant and source an observation writes is projected into the graph in the same
 // transaction (graph.ts#projectRow).
@@ -86,14 +79,7 @@ import { hasMessageFamilies } from './message-family-catalog.ts';
 import { envelopeItems, fillLineMedia } from './media-store.ts';
 import { addKey, addRelation, deriveRow, ensureAuthority, ensureInterface, resolveRelationsTo } from './rows.ts';
 import { AUD_INTERNAL, SCOPE_INTERNAL, dmAudienceId, groupAudienceId, groupScope } from './scope.ts';
-import {
-  CAPTURE_REASONS,
-  CAPTURE_ROLES,
-  COVERAGE_STATES,
-  PARTICIPANT_TOKEN_KINDS,
-  RELATION_PREDICATES,
-  WATCH_OUTCOMES,
-} from './schema.ts';
+import { PARTICIPANT_TOKEN_KINDS, RELATION_PREDICATES } from './schema.ts';
 import { markStemsPending } from './stems.ts';
 import { OWNER_CONSOLE_IFACE, adoptNativeAuthority, linkOwnerAccount, linkSelfAccount } from './identity-links.ts';
 import { rescopeDmPlace } from './dm-rescope.ts';
@@ -103,14 +89,12 @@ import { projectRow } from './graph.ts';
 import { lineColumns, lineOwnerOfUnit, nextLinePosition } from './line-owner.ts';
 import type { LineOwner } from './line-owner.ts';
 import { ingestOption, insertIngest } from './ingest.ts';
-import { dbOf, asText, isWholeNumber } from './types.ts';
+import { dbOf, isWholeNumber } from './types.ts';
 import type { Connection, Db, Log, MemoryHandle, Row } from './types.ts';
 import type { Scope } from './scope.ts';
 
 /** The version of the envelope this module reads. */
 export const OBSERVATION_VERSION = 1;
-/** The capture policy bundles are opened under (a change of the rules bumps it). */
-export const CAPTURE_POLICY_VERSION = 1;
 /** Place kinds an envelope may name (spec 1.4). */
 export const PLACE_KINDS: ReadonlyArray<string> = Object.freeze([
   'server',
@@ -134,16 +118,6 @@ export const ACCOUNT_KINDS: ReadonlyArray<string> = Object.freeze(['user', 'bot'
 const LINE_KINDS = new Set(['seen', 'said']);
 const TOKENED = new Set(['thread_token', 'site_token', 'post_number']);
 
-/** The capture's measures. Production values, config cut of 2026-10-31. */
-const CAPTURE_DEFAULTS = Object.freeze({
-  ancestors: 2,
-  before: 3,
-  after: 3,
-  pageLines: 60,
-  watch: Object.freeze([15, 120, 1440]),
-  watchSameAuthor: 20,
-});
-
 /** Refusal codes (a refusal writes nothing). */
 export const OBSERVE_CODES = Object.freeze({
   BAD_ENVELOPE: 'BAD_ENVELOPE',
@@ -157,19 +131,11 @@ export const OBSERVE_CODES = Object.freeze({
   BAD_TEXT: 'BAD_TEXT',
   BAD_MEDIA: 'BAD_MEDIA',
   BAD_RELATION: 'BAD_RELATION',
-  BAD_CAPTURE: 'BAD_CAPTURE',
-  BAD_COVERAGE: 'BAD_COVERAGE',
   BAD_EXTRA: 'BAD_EXTRA',
   BAD_CONNECTION: 'BAD_CONNECTION',
-  BAD_ROLE: 'BAD_ROLE',
-  BAD_REASON: 'BAD_REASON',
   BAD_KIND: 'BAD_KIND',
-  BAD_WATCH: 'BAD_WATCH',
-  BAD_OUTCOME: 'BAD_OUTCOME',
-  UNKNOWN_BUNDLE: 'UNKNOWN_BUNDLE',
   UNKNOWN_SOURCE: 'UNKNOWN_SOURCE',
   UNKNOWN_PLACE: 'UNKNOWN_PLACE',
-  UNKNOWN_WATCH: 'UNKNOWN_WATCH',
   UNKNOWN_SCOPE_PLACE: 'UNKNOWN_SCOPE_PLACE',
   AMBIGUOUS_ALIAS: 'AMBIGUOUS_ALIAS',
   CONVERSATION_CONFLICT: 'CONVERSATION_CONFLICT',
@@ -203,14 +169,8 @@ export type ObserveResult = Row & {
   sourceId?: string;
   placeId?: string;
   audienceId?: string;
-  bundleId?: string | null;
   written?: number;
 };
-
-/** A refusal of the capture functions: nothing was written. */
-type Refused = { ok: false; code: string };
-/** The answer of opening a bundle: its id, whether this call created it and the event it wrote. */
-type OpenResult = { ok: true; bundleId: string; created: boolean; event?: number };
 
 /** One place an envelope names: its authority and key, its kind and chat and, for a DM, the partner. */
 type PlaceRef = {
@@ -237,10 +197,6 @@ type AuthorRef = {
   token_kind?: string;
   scope_place?: string | null;
 };
-/** How well a capture bundle covers the lines around its anchor. */
-export type Coverage = { state: string; [key: string]: unknown };
-/** The capture an envelope belongs to: the bundle (none: it opens one), its role and why it was opened. */
-type CaptureRef = { role: string; bundle?: string | null; reason?: string; coverage?: Coverage | null };
 /** The target of a relation: one of our sources, or a native tuple. */
 type RelationTarget = {
   source?: string;
@@ -275,7 +231,6 @@ export type Envelope = {
   mentions?: Array<string> | null;
   direct?: boolean | null;
   relations?: Array<{ predicate: string; target: RelationTarget }> | null;
-  capture?: CaptureRef | null;
   extra?: Row | null;
   messageLocator?: MessageLocator;
   messageChat?: MessageChat;
@@ -307,29 +262,10 @@ function guarded<TResult>(
   }
 }
 
-// ---------- settings ----------
-
-/**
- * The capture settings (CAPTURE_DEFAULTS, production values of the config cut of 2026-10-31): the first fetch
- * (`ancestors`, `before`, `after`), the page size of one expansion (`pageLines`), the watch offsets in minutes after
- * the anchor (`watch`) and how many later lines of a witnessed author a watch may ask for (`watchSameAuthor`).
- */
-export const captureSettings: (config?: unknown) => {
-  ancestors: number;
-  before: number;
-  after: number;
-  pageLines: number;
-  watch: Array<number>;
-  watchSameAuthor: number;
-} = () => ({ ...CAPTURE_DEFAULTS, watch: [...CAPTURE_DEFAULTS.watch] });
-
 // ---------- validation ----------
 
 const authorityOk = (iface: string, authority: unknown): boolean =>
   filled(authority) && authority.startsWith(`${iface}/`) && authority.length > iface.length + 1;
-/** Whether a coverage object is one the database stores: an object whose `state` is one of the four. */
-export const coverageOk = (coverage: unknown): coverage is Coverage =>
-  isObject(coverage) && isOneOf(COVERAGE_STATES, coverage.state);
 
 function targetOk(iface: string, target: unknown): boolean {
   if (!isObject(target)) return false;
@@ -430,17 +366,6 @@ export function checkEnvelope(envelope: unknown): string | null {
         !targetOk(e.iface, relation.target)
       )
         return C.BAD_RELATION;
-    }
-  }
-  if (e.capture !== undefined && e.capture !== null) {
-    const c = e.capture;
-    if (!isObject(c) || !isOneOf(CAPTURE_ROLES, c.role)) return C.BAD_CAPTURE;
-    if (c.bundle !== undefined && c.bundle !== null && !filled(c.bundle)) return C.BAD_CAPTURE;
-    if (c.coverage !== undefined && c.coverage !== null && !coverageOk(c.coverage)) return C.BAD_COVERAGE;
-    if (!filled(c.bundle)) {
-      // No bundle yet: this line opens one, as its anchor, with a reason and the coverage of the first fetch.
-      if (c.role !== 'anchor' || !isOneOf(CAPTURE_REASONS, c.reason)) return C.BAD_CAPTURE;
-      if (!coverageOk(c.coverage)) return C.BAD_COVERAGE;
     }
   }
   return tailCode(e);
@@ -1169,27 +1094,6 @@ function writeObservation(
   const resolved = resolveRelationsTo(db, row, { at });
   projectRow(db, 'sources', { id: sourceId }, { at });
   if (hasMediaItems(e)) fillLineMedia(db, sourceId, envelopeItems(e.media), at);
-  let bundleId: string | null = null;
-  if (isObject(e.capture)) {
-    const c = e.capture;
-    if (filled(c.bundle)) {
-      bundleId = c.bundle;
-      if (!db.prepare('SELECT 1 AS ok FROM capture_bundles WHERE id = ?').get(bundleId))
-        throw refusal(OBSERVE_CODES.UNKNOWN_BUNDLE);
-      const added = addMember(db, bundleId, sourceId, c.role, at);
-      if (coverageOk(c.coverage))
-        appendEvent(db, bundleId, c.role === 'watch' ? 'watch' : 'expansion', c.coverage, added, at);
-    } else {
-      bundleId = openIn(db, {
-        anchor: sourceId,
-        place: place.id,
-        reason: c.reason,
-        coverage: c.coverage,
-        connection,
-        at,
-      }).bundleId;
-    }
-  }
   markStemsPending(db);
   return {
     ok: true,
@@ -1201,14 +1105,13 @@ function writeObservation(
     audienceId: audience,
     relations,
     resolved,
-    bundleId,
     written: 1,
   };
 }
 
 /**
  * Writes one observation (see the head of this file). Returns `{ ok: true, replayed, sourceId, placeId, author,
- * audienceId, relations, resolved, bundleId, written }` (with `owner`, also `revision`) or `{ ok: false, code }`
+ * audienceId, relations, resolved, written }` (with `owner`, also `revision`) or `{ ok: false, code }`
  * (nothing written). An envelope that carries `ingest` (`{ row, keepDays }`, the ingestion row of the event the line
  * came with, ingest.ts) has the row written in the same transaction, so the event and its line commit together.
  * `owner` is the record unit the line is written in (see the head of this file).
@@ -1235,237 +1138,6 @@ export function observe(
       if (ingest) insertIngest(dbOf(handle), ingest.row, { at, keepDays: ingest.keepDays });
       // `checkEnvelope` accepted it above.
       return writeObservation(dbOf(handle), envelope as Envelope, toIso(at), log, owner);
-    },
-    log
-  );
-}
-
-// ---------- capture ----------
-
-/** A bundle's id: one per anchor and reason, so a second opening finds the first. */
-export const bundleIdOf = (anchor: unknown, reason: string): string =>
-  nodeId('bundle', [String(anchor), String(reason)]);
-
-function addMember(db: Db, bundleId: unknown, sourceId: string, role: string, at: unknown) {
-  if (!isOneOf(CAPTURE_ROLES, role)) throw refusal(OBSERVE_CODES.BAD_ROLE);
-  if (!db.prepare('SELECT 1 AS ok FROM sources WHERE id = ?').get(sourceId))
-    throw refusal(OBSERVE_CODES.UNKNOWN_SOURCE);
-  return Number(
-    db
-      .prepare('INSERT OR IGNORE INTO capture_members (bundle_id, source_id, role, added_at) VALUES (?, ?, ?, ?)')
-      .run(bundleId, sourceId, role, at).changes
-  );
-}
-
-function appendEvent(db: Db, bundleId: unknown, kind: string, coverage: unknown, added: unknown, at: unknown) {
-  const done = db
-    .prepare('INSERT INTO capture_events (bundle_id, at, kind, coverage, added) VALUES (?, ?, ?, ?, ?)')
-    .run(bundleId, at, kind, json(coverage), added);
-  db.prepare('UPDATE capture_bundles SET coverage = ? WHERE id = ?').run(json(coverage), bundleId);
-  return Number(done.lastInsertRowid);
-}
-
-function openIn(
-  db: Db,
-  {
-    anchor,
-    place = null,
-    reason,
-    coverage,
-    connection = null,
-    at,
-  }: { anchor: unknown; place?: unknown; reason: unknown; coverage: unknown; connection?: unknown; at: string }
-): OpenResult {
-  if (!isOneOf(CAPTURE_REASONS, reason)) throw refusal(OBSERVE_CODES.BAD_REASON);
-  if (!coverageOk(coverage)) throw refusal(OBSERVE_CODES.BAD_COVERAGE);
-  const source = filled(anchor) ? db.prepare('SELECT id, place_id FROM sources WHERE id = ?').get(anchor) : null;
-  if (!source) throw refusal(OBSERVE_CODES.UNKNOWN_SOURCE);
-  const placeId = filled(place) ? place : source.place_id;
-  if (!filled(placeId) || !db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(placeId))
-    throw refusal(OBSERVE_CODES.UNKNOWN_PLACE);
-  const id = bundleIdOf(anchor, reason as string);
-  if (db.prepare('SELECT 1 AS ok FROM capture_bundles WHERE id = ?').get(id))
-    return { ok: true, bundleId: id, created: false };
-  db.prepare(
-    'INSERT INTO capture_bundles (id, anchor_source_id, place_id, reason, policy_version, coverage, created_at, connection_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, anchor, placeId, reason, CAPTURE_POLICY_VERSION, json(coverage), at, connection);
-  const added = addMember(db, id, anchor as string, 'anchor', at);
-  const event = appendEvent(db, id, 'initial', coverage, added, at);
-  return { ok: true, bundleId: id, created: true, event };
-}
-
-/**
- * Opens the bundle of an anchor line (already a stored source): the bundle row, the anchor as its first member and the
- * `initial` event. A second opening for the same anchor and reason writes nothing and returns the first bundle.
- */
-export function openBundle(
-  handle: MemoryHandle,
-  {
-    anchor,
-    place = null,
-    reason,
-    coverage,
-    connection = null,
-    now = Date.now,
-    log = engineLog,
-  }: {
-    anchor?: unknown;
-    place?: unknown;
-    reason?: unknown;
-    coverage?: unknown;
-    connection?: unknown;
-    now?: () => number;
-    log?: Partial<Log> | null;
-  } = {}
-): OpenResult | Refused {
-  return guarded(
-    handle,
-    () => openIn(dbOf(handle), { anchor, place, reason, coverage, connection, at: toIso(now()) }),
-    log
-  );
-}
-
-/**
- * Grows a bundle by one step: the given sources (stored lines, each `{ id, role }`) become members and one event
- * (`expansion` or `watch`) records the coverage after the step. Nothing is ever removed. At most `capture.pageLines`
- * sources are written per call; the rest are handed back (`rest`) and the recorded coverage then says
- * `pending_expansion`, whatever the caller claimed: a page boundary is never sufficiency.
- */
-export function expandBundle(
-  handle: MemoryHandle,
-  bundleId: unknown,
-  {
-    sources = [],
-    coverage,
-    kind = 'expansion',
-    config = null,
-    now = Date.now,
-    log = engineLog,
-  }: {
-    sources?: unknown;
-    coverage?: unknown;
-    kind?: string;
-    config?: unknown;
-    now?: () => number;
-    log?: Partial<Log> | null;
-  } = {}
-): { ok: true; added: number; event: number; rest: Array<unknown>; coverage: Coverage } | Refused {
-  if (kind !== 'expansion' && kind !== 'watch') return { ok: false, code: OBSERVE_CODES.BAD_KIND };
-  if (!coverageOk(coverage)) return { ok: false, code: OBSERVE_CODES.BAD_COVERAGE };
-  if (!Array.isArray(sources) || !sources.every((entry) => isObject(entry) && filled(entry.id)))
-    return { ok: false, code: OBSERVE_CODES.UNKNOWN_SOURCE };
-  const { pageLines } = captureSettings(config);
-  const page = sources.slice(0, pageLines);
-  const rest = sources.slice(pageLines);
-  const after = rest.length > 0 ? { ...coverage, state: 'pending_expansion' } : coverage;
-  return guarded(
-    handle,
-    () => {
-      const db = dbOf(handle);
-      const at = toIso(now());
-      if (!db.prepare('SELECT 1 AS ok FROM capture_bundles WHERE id = ?').get(bundleId))
-        throw refusal(OBSERVE_CODES.UNKNOWN_BUNDLE);
-      let added = 0;
-      for (const entry of page) added += addMember(db, bundleId, entry.id, entry.role, at);
-      const event = appendEvent(db, bundleId, kind, after, added, at);
-      return { ok: true, added, event, rest, coverage: after };
-    },
-    log
-  );
-}
-
-/**
- * Schedules the watches of a bundle: one per offset in minutes after its anchor line (`capture.watch` by default),
- * `watch:<bundle>:<minutes>`, each scheduled once.
- */
-export function scheduleWatches(
-  handle: MemoryHandle,
-  bundleId: unknown,
-  minutesList = null,
-  { config = null, log = engineLog }: { config?: unknown; log?: Partial<Log> | null } = {}
-): { ok: true; scheduled: number; ids: Array<string> } | Refused {
-  const minutes = minutesList ?? captureSettings(config).watch;
-  if (!Array.isArray(minutes) || minutes.length === 0 || !minutes.every((m) => Number.isInteger(m) && m > 0))
-    return { ok: false, code: OBSERVE_CODES.BAD_WATCH };
-  return guarded(
-    handle,
-    () => {
-      const db = dbOf(handle);
-      const bundle = db
-        .prepare(
-          'SELECT b.created_at AS created_at, s.occurred_at AS occurred_at FROM capture_bundles b JOIN sources s ON s.id = b.anchor_source_id WHERE b.id = ?'
-        )
-        .get(bundleId);
-      if (!bundle) throw refusal(OBSERVE_CODES.UNKNOWN_BUNDLE);
-      const base = Number.isFinite(Date.parse(bundle.occurred_at as string))
-        ? Date.parse(bundle.occurred_at as string)
-        : Date.parse(bundle.created_at as string);
-      const ids = [];
-      let scheduled = 0;
-      for (const m of [...new Set(minutes)]) {
-        const id = `watch:${asText(bundleId)}:${m}`;
-        ids.push(id);
-        scheduled += Number(
-          db
-            .prepare(
-              'INSERT OR IGNORE INTO capture_watches (id, bundle_id, due_at, done_at, outcome, extra) VALUES (?, ?, ?, NULL, NULL, ?)'
-            )
-            .run(id, bundleId, toIso(base + m * 60_000), json({ minutes: m })).changes
-        );
-      }
-      return { ok: true, scheduled, ids };
-    },
-    log
-  );
-}
-
-/**
- * The watches due at `now` (ms) and not done, oldest first: `[{ id, bundleId, dueAt, anchor, place, sameAuthorMax }]`
- * (`sameAuthorMax`: `capture.watchSameAuthor`, how many later lines of a witnessed author the watch may fetch).
- */
-export function dueWatches(
-  handle: MemoryHandle,
-  now: number,
-  { config = null, limit = 100 }: { config?: unknown; limit?: number } = {}
-): Array<{ id: unknown; bundleId: unknown; dueAt: unknown; anchor: unknown; place: unknown; sameAuthorMax: number }> {
-  const db = dbOf(handle);
-  const { watchSameAuthor } = captureSettings(config);
-  return db
-    .prepare(
-      `SELECT w.id AS id, w.bundle_id AS bundle_id, w.due_at AS due_at, b.anchor_source_id AS anchor, b.place_id AS place
-      FROM capture_watches w JOIN capture_bundles b ON b.id = w.bundle_id WHERE w.done_at IS NULL AND w.due_at <= ? ORDER BY w.due_at, w.id LIMIT ?`
-    )
-    .all(toIso(now), Number.isInteger(limit) && limit > 0 ? limit : 100)
-    .map((row: Row) => ({
-      id: row.id,
-      bundleId: row.bundle_id,
-      dueAt: row.due_at,
-      anchor: row.anchor,
-      place: row.place,
-      sameAuthorMax: watchSameAuthor,
-    }));
-}
-
-/**
- * Closes a watch with its outcome (`fetched`, `nothing_new`, `unavailable`: a watch that could not run says so).
- * A watch already closed is left as it is (`written: 0`).
- */
-export function finishWatch(
-  handle: MemoryHandle,
-  id: string,
-  outcome: string,
-  { now = Date.now, log = engineLog }: { now?: () => number; log?: Partial<Log> | null } = {}
-): { ok: true; written: number } | Refused {
-  if (!isOneOf(WATCH_OUTCOMES, outcome)) return { ok: false, code: OBSERVE_CODES.BAD_OUTCOME };
-  return guarded(
-    handle,
-    () => {
-      const db = dbOf(handle);
-      const row = db.prepare('SELECT done_at FROM capture_watches WHERE id = ?').get(id);
-      if (!row) throw refusal(OBSERVE_CODES.UNKNOWN_WATCH);
-      if (row.done_at) return { ok: true, written: 0 };
-      db.prepare('UPDATE capture_watches SET done_at = ?, outcome = ? WHERE id = ?').run(toIso(now()), outcome, id);
-      return { ok: true, written: 1 };
     },
     log
   );
