@@ -37,11 +37,11 @@ test('a new database starts at the baseline with the seed rows a new install nee
     assert.deepEqual(column("SELECT kind FROM people WHERE id = 'person:self'"), ['self']);
     assert.deepEqual(column('SELECT id FROM audiences ORDER BY id'), ['aud:internal', 'aud:none']);
     assert.deepEqual(column('SELECT id FROM interfaces ORDER BY id'), ['cli', 'core', 'discord']);
+    // Changed: the baseline seeds `legacy/local` too, and version step 56 deletes it (src/memory/db/legacy-keys.ts).
     assert.deepEqual(column("SELECT id FROM authorities WHERE iface IN ('cli', 'core', 'discord') ORDER BY id"), [
       'cli/local',
       'core/local',
       'discord/global',
-      'legacy/local',
     ]);
     assert.deepEqual(column("SELECT row_id FROM graph_nodes WHERE kind = 'interface' ORDER BY row_id"), [
       'cli',
