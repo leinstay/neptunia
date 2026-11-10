@@ -8,8 +8,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadPrincipals, principalOfToken } from '../src/interface/principals.ts';
-import type { Principal } from '../src/interface/principals.ts';
+import type { Principal, BootPrincipal } from '../src/interface/principals.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { runSetup } from '../src/setup/run.ts';
 
 const BOOT: Principal = { name: 'boot', kind: 'interface', iface: 'fake', permissions: [] };
 const BOOT_TOKEN = 'b'.repeat(64);
@@ -97,4 +98,67 @@ test('an agent entry of clients.json stands for a principal of kind agent with n
   assert.equal(hand?.name, 'hand');
   assert.equal(hand?.kind, 'agent');
   assert.equal(hand?.iface, null);
+});
+
+// The boot token of an in-process deployment (src/interface/principals.ts): random per boot and held by the core, so it
+// stands for its in-process principal whatever `clients.json` holds, and `neptunia setup units` writing that file stops
+// no running interface. The clients come from the real `runSetup` with a fake service manager; the folders are temp dirs.
+
+const ROOT = path.join(import.meta.dirname, '..');
+const BOOT_BOOT_PRINCIPAL: BootPrincipal = {
+  token: 'boot-token-of-this-process',
+  principal: { name: 'discord', kind: 'interface', iface: null, permissions: [] },
+};
+
+/** A persona folder after `neptunia setup units`, which leaves the client `owner` in `clients.json`. */
+// Changed: setup makes no client `watcher` any more (owner, 2026-11-09), so the client under test is `owner`.
+async function afterSetupUnits(): Promise<string> {
+  const base = tempDir('nep-boot-principal-');
+  const dataDir = path.join(base, 'data');
+  fs.mkdirSync(path.join(dataDir, 'config'), { recursive: true });
+  const report = await runSetup(
+    {
+      system: false,
+      user: 'alice',
+      group: 'alice',
+      home: path.join(base, 'home'),
+      rootDir: ROOT,
+      privateDir: dataDir,
+      dataDir,
+      node: '/usr/bin/node',
+      xdgConfigHome: path.join(base, 'xdg'),
+      only: 'units',
+    },
+    { run: () => Promise.resolve({ code: 0, stdout: '', stderr: '' }), openChat: () => Promise.resolve() }
+  );
+  assert.equal(report.ok, true);
+  assert.equal(fs.existsSync(path.join(dataDir, 'clients.json')), true);
+  return dataDir;
+}
+
+test('a wrong token is no one, with or without clients.json', async () => {
+  // Catches: honouring the boot token opens the door to any token once clients.json exists.
+  const privateDir = await afterSetupUnits();
+  assert.equal(principalOfToken('not-a-token', { privateDir, boot: BOOT_BOOT_PRINCIPAL }), null);
+  assert.equal(
+    principalOfToken('not-a-token', { privateDir: tempDir('nep-boot-empty-'), boot: BOOT_BOOT_PRINCIPAL }),
+    null
+  );
+});
+
+test("a client's token stands for that client and never for the boot principal", async () => {
+  // Catches: a client on the socket gets the in-process interface's name and rights.
+  const privateDir = await afterSetupUnits();
+  const token = fs.readFileSync(path.join(privateDir, 'clients', 'owner.token'), 'utf8').trim();
+  const who = principalOfToken(token, { privateDir, boot: BOOT_BOOT_PRINCIPAL });
+  assert.equal(who?.name, 'owner');
+  assert.equal(who?.kind, 'agent');
+});
+
+test('a boot principal with no token is no one, and an empty token never matches it', async () => {
+  // Catches: an empty boot token, as a core with no in-process interface could hold, lets a blank token through.
+  const privateDir = await afterSetupUnits();
+  const empty: BootPrincipal = { token: '', principal: BOOT_BOOT_PRINCIPAL.principal };
+  assert.equal(principalOfToken('', { privateDir, boot: empty }), null);
+  assert.equal(principalOfToken('anything', { privateDir, boot: empty }), null);
 });

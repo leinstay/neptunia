@@ -553,3 +553,101 @@ test('a CLI level outside the route scale commits its nearest level of the scale
   ]);
   assert.equal(committed(low.effects)[0]?.args.model, 'harness:codex/suggested-1:disabled');
 });
+
+// The source step of the model selector (interfaces/cli/model-picker.ts) offers the four route names, `direct-api`,
+// `claude-harness`, `codex-harness` and `opencode-harness`, and commits the name it showed as `--via`, because the
+// command takes only those. The sources are fixed descriptors; the stored backend word stays the key of a descriptor
+// (`via: 'codex'`) and of the role's current record.
+
+const API_ROUTES: SourceDescriptor = {
+  id: 'api:openrouter',
+  providerType: 'api',
+  via: null,
+  label: 'OpenRouter',
+  account: null,
+  code: 'ok',
+  setup: [],
+  listing: 'observed',
+  models: [{ id: 'vendor/invented-1', evidence: 'observed' }],
+  effort: { evidence: 'unsupported', levels: [] },
+  manualModel: true,
+};
+const CODEX_ROUTES: SourceDescriptor = {
+  ...API_ROUTES,
+  id: 'backend:codex',
+  providerType: 'subharness',
+  via: 'codex',
+  label: 'Codex',
+  listing: 'suggestion',
+  models: [{ id: 'suggested-1', evidence: 'suggestion' }],
+  effort: { evidence: 'unknown', levels: [] },
+};
+const CLAUDE: SourceDescriptor = { ...CODEX_ROUTES, id: 'backend:claude', via: 'claude', label: 'Claude' };
+const OPENCODE: SourceDescriptor = { ...CODEX_ROUTES, id: 'backend:opencode', via: 'opencode', label: 'OpenCode' };
+
+function routesPlay(from: PickerState, events: ReadonlyArray<PickerEvent>) {
+  let state = from;
+  const effects: Array<PickerEffect> = [];
+  for (const event of events) {
+    const step = pickerReduce(state, event);
+    state = step.state;
+    effects.push(...step.effects);
+  }
+  return { state, effects };
+}
+
+/** The picker at `role` of `group` with the sources answered. */
+function routesAtRole(
+  group: string,
+  role: string,
+  sources: ReadonlyArray<SourceDescriptor>,
+  current: RoleSources['current']
+) {
+  const { state } = routesPlay(openPicker(modelRoleRegistry()), choose(group, role));
+  const read: RoleSources = { role, current, sources };
+  return routesPlay(state, [{ kind: 'sources', revision: state.revision, read }]).state;
+}
+
+const labelOf = (state: PickerState, id: string): string => pickerRows(state).find((row) => row.id === id)?.label ?? '';
+
+test('the source step of a harness role offers claude-harness, codex-harness and opencode-harness', () => {
+  // Catches: the owner choosing a row called Claude, then reading `via claude-harness` in the status and not matching them.
+  const at = routesAtRole('errand', 'scout', [CLAUDE, CODEX_ROUTES, OPENCODE], null);
+  const step = routesPlay(at, choose('subharness')).state;
+  // The lead: the state is named `picked` beside its `step` field, for the chain rule.
+  const picked = step;
+  assert.equal(picked.step, 'source');
+  assert.ok(labelOf(step, 'backend:claude').includes('claude-harness'), labelOf(step, 'backend:claude'));
+  assert.ok(labelOf(step, 'backend:codex').includes('codex-harness'), labelOf(step, 'backend:codex'));
+  assert.ok(labelOf(step, 'backend:opencode').includes('opencode-harness'), labelOf(step, 'backend:opencode'));
+});
+
+test('the source step of an API role offers direct-api', () => {
+  // Catches: the API route left as OpenRouter while the status prints direct-api for the same route.
+  const at = routesAtRole('main', 'speech', [API_ROUTES], null);
+  const step = routesPlay(at, choose('api')).state;
+  const picked = step;
+  assert.equal(picked.step, 'source');
+  assert.ok(labelOf(step, 'api:openrouter').includes('direct-api'), labelOf(step, 'api:openrouter'));
+});
+
+test('a harness chosen in the selector commits its route name as --via', () => {
+  // Catches: the stored word committed, which the command now refuses as an unknown backend.
+  const at = routesAtRole('errand', 'scout', [CODEX_ROUTES], null);
+  const steps = routesPlay(at, choose('subharness', 'backend:codex', 'suggested-1', 'keep'));
+  const saved = routesPlay(steps.state, [{ kind: 'confirm' }]);
+  const commits = saved.effects.flatMap((one) => (one.kind === 'commit' ? [one.command] : []));
+  assert.deepEqual(commits, [
+    { name: 'model.set', args: { role: 'scout', model: 'suggested-1', via: 'codex-harness' } },
+  ]);
+});
+
+test('the harness a role is stored on is still marked in force', () => {
+  // Catches: the stored word compared with the route name, so the row of the source in force loses its mark.
+  // The lead: typed as the stored route the picker reads, for the type check.
+  const current = { via: 'codex' as const, model: 'old', effort: null };
+  const step = routesPlay(routesAtRole('errand', 'scout', [CLAUDE, CODEX_ROUTES], current), choose('subharness')).state;
+  const rows = pickerRows(step);
+  assert.equal(rows.find((row) => row.id === 'backend:codex')?.current, 'in force');
+  assert.equal(rows.find((row) => row.id === 'backend:claude')?.current, undefined);
+});

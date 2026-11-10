@@ -480,16 +480,12 @@
       "deep": 1,
       "repeated": 0
     },
-    "tests/interface-socket-link.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/interface-socket.test.ts": {
-      "deep": 14,
+      "deep": 9,
       "repeated": 0
     },
     "tests/interfaces-discord-session.test.ts": {
-      "deep": 5,
+      "deep": 4,
       "repeated": 0
     },
     "tests/journal-archive-places.test.ts": {

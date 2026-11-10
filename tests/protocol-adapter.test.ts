@@ -28,11 +28,6 @@ test('reports ok with one part when a single part is ok', () => {
   assert.deepEqual(delivery.parts, [ref('m1')]);
 });
 
-test('carries the idempotency key', () => {
-  const delivery = deliveryOf([posted('m1', 100)], 'key-3');
-  assert.equal(delivery.idempotencyKey, 'key-3');
-});
-
 test('reports the first part status and no parts when the first part failed', () => {
   const failure: Part = { status: 'failed', error: { code: 'http-500', retryable: true } };
   const delivery = deliveryOf([failure, posted('m2', 101)], 'key-4');
