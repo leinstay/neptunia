@@ -266,3 +266,89 @@ test('Ctrl+C with a selection copies it again and keeps the chat open', async ()
   });
   assert.deepEqual(sent, ['still here']);
 });
+
+const CTRL_A = '\u0001';
+
+test('Ctrl+A then typing replaces the whole draft', async () => {
+  // Bug: Ctrl+A does nothing in the input, so the owner cannot select his draft to retype it.
+  const { env, sent } = chatEnv({ mouse: true });
+  await withChat(env, async (rig) => {
+    await press(rig, 'old draft', shows(rig, '> old draft'));
+    // A selection is only a style, and this screen has no colour: a fixed wait lets the key land.
+    rig.type(CTRL_A);
+    await pause();
+    await press(rig, 'new', () => text(rig).includes('> new') && !text(rig).includes('old'));
+    await press(rig, KEY.enter, () => sent.length === 1);
+  });
+  assert.deepEqual(sent, ['new']);
+});
+
+test('Ctrl+A then Ctrl+C copies the whole draft and leaves the transcript alone', async () => {
+  // Bug: Ctrl+A selects the transcript, or Ctrl+C with the draft selected leaves the chat.
+  const { env, entry, sent } = chatEnv({ mouse: true });
+  await withChat(env, async (rig) => {
+    entry({ who: 'her', text: 'alpha beta gamma' });
+    await press(rig, 'my draft', () => text(rig).includes('> my draft') && text(rig).includes('alpha beta gamma'));
+    // A selection is only a style, and this screen has no colour: a fixed wait lets the key land.
+    rig.type(CTRL_A);
+    await pause();
+    await press(rig, KEY.ctrlC, () => copied(rig).length === 1);
+    assert.deepEqual(copied(rig), ['my draft']);
+    await until(shows(rig, 'copied 8 chars to clipboard'));
+    assert.match(text(rig), /copied 8 chars to clipboard/);
+    await press(rig, KEY.right, () => !text(rig).includes('copied'));
+    await press(rig, '!', shows(rig, '> my draft!'));
+    await press(rig, KEY.enter, () => sent.length === 1);
+  });
+  assert.deepEqual(sent, ['my draft!']);
+});
+
+test('a drag over the draft selects the characters it covers, and Backspace removes them', async () => {
+  // Bug: a drag inside the input only moves the caret, so a part of the draft cannot be selected or removed at once.
+  const { env, sent } = chatEnv({ mouse: true });
+  await withChat(env, async (rig) => {
+    await press(rig, 'alpha beta gamma', shows(rig, '> alpha beta gamma'));
+    const start = cellOf(rig, 'beta');
+    drag(rig, start, { row: start.row, column: start.column + 3 });
+    await pause();
+    await press(rig, KEY.backspace, shows(rig, '> alpha  gamma'));
+    await press(rig, KEY.enter, () => sent.length === 1);
+  });
+  assert.deepEqual(sent, ['alpha  gamma']);
+});
+
+test('Ctrl+C with a draft selection copies the selected characters and keeps the chat open', async () => {
+  // Bug: Ctrl+C over a selection in the input leaves the chat instead of copying.
+  const { env, sent } = chatEnv({ mouse: true });
+  await withChat(env, async (rig) => {
+    await press(rig, 'alpha beta gamma', shows(rig, '> alpha beta gamma'));
+    const start = cellOf(rig, 'gamma');
+    drag(rig, start, { row: start.row, column: start.column + 4 });
+    await pause();
+    assert.deepEqual(copied(rig), []);
+    await press(rig, KEY.ctrlC, () => copied(rig).length === 1);
+    assert.deepEqual(copied(rig), ['gamma']);
+    await until(shows(rig, 'copied 5 chars to clipboard'));
+    await press(rig, 'X', shows(rig, '> alpha beta X'));
+    await press(rig, KEY.enter, () => sent.length === 1);
+  });
+  assert.deepEqual(sent, ['alpha beta X']);
+});
+
+test('a drag that starts in the transcript and ends in the input copies transcript text and leaves the draft whole', async () => {
+  // Bug: the input's own selection takes over a drag that began in the transcript and copies the draft instead.
+  const { env, entry, sent } = chatEnv({ mouse: true });
+  await withChat(env, async (rig) => {
+    entry({ who: 'her', text: 'alpha beta gamma' });
+    await press(rig, 'draft', () => text(rig).includes('> draft') && text(rig).includes('alpha beta gamma'));
+    const start = cellOf(rig, '[#1] alpha');
+    // To the last column of the input's row: the selection keeps to the transcript's rows and takes the whole line.
+    drag(rig, start, { row: cellOf(rig, '> draft').row, column: 79 });
+    await until(() => copied(rig).length === 1);
+    assert.deepEqual(copied(rig), ['[#1] alpha beta gamma']);
+    // An arrow key drops the selection and leaves the draft, so the Ctrl+C that closes the chat leaves.
+    await press(rig, KEY.left, () => !text(rig).includes('copied'));
+    await press(rig, KEY.enter, () => sent.length === 1);
+  });
+  assert.deepEqual(sent, ['draft']);
+});

@@ -26,8 +26,10 @@ test('the caret on an astral character styles the whole character', async () => 
 });
 
 // The owner's colour of 2026-11-08: red for his lines, the header's title and its galaxy, one colour for the three. The
-// test held cyan, the colour of before PR #716, until the owner's word of 2026-11-08 chose red.
-const OWNER_RED = { color: 'red' };
+// test held cyan, the colour of before PR #716, until the owner's word of 2026-11-08 chose red. It held the base red
+// until the owner's word of 2026-11-10: a terminal that draws bold as bright showed the bold title in bright red beside a
+// darker galaxy and darker lines, so the one colour is the bright red the title showed.
+const OWNER_RED = { color: 'redBright' };
 const SENT = Date.UTC(2026, 10, 8, 13, 4);
 const ESC = String.fromCharCode(27);
 
@@ -99,6 +101,15 @@ test("the header's title and its galaxy draw in the owner's colour, and its role
   });
 });
 
+test("the title, the galaxy and the owner's lines share a colour that bold cannot brighten", () => {
+  // Bug: the title's bold turns a base colour into its bright twin in a terminal that draws bold as bright, so the title
+  // reads as another red than the galaxy and the owner's lines beside it.
+  const title = styleOf(THEME.title).fg ?? '';
+  assert.match(title, /^(9[0-7]|38;.*)$/);
+  assert.equal(styleOf(THEME.mark).fg, title);
+  assert.equal(styleOf(THEME.owner).fg, title);
+});
+
 test('the line numbers and the time row draw in the muted style', async () => {
   // Bug: the time row takes the owner's red, or a number lead loses its grey and reads as part of the text.
   const muted = styleOf(THEME.muted);
@@ -111,5 +122,30 @@ test('the line numbers and the time row draw in the muted style', async () => {
     assert.deepEqual(styleAt(rawRow(raw, '[2026-11-08 13:04]'), '[2026-11-08 13:04]'), muted);
     assert.deepEqual(styleAt(rawRow(raw, 'o-line'), '[#1]'), muted);
     assert.deepEqual(styleAt(rawRow(raw, 'h-line'), '[#2]'), muted);
+  });
+});
+
+test('a drag over the draft draws the characters it covers in inverse video, and nothing past them', async () => {
+  // Bug: the draft's selection is invisible, or it marks the whole row, so the owner cannot see what a key will replace.
+  const { env } = chatEnv({ mouse: true });
+  await withChat(env, async (rig) => {
+    await press(rig, 'alpha beta gamma', shows(rig, '> alpha beta gamma'));
+    const screen = rig.screen();
+    const row = screen.findIndex((line) => line.includes('> alpha'));
+    const column = (screen[row] ?? '').indexOf('beta') + 1;
+    rig.type(`${ESC}[<0;${column};${row + 1}M${ESC}[<32;${column + 3};${row + 1}M${ESC}[<0;${column + 3};${row + 1}m`);
+    const inverseBefore = (needle: string): boolean => {
+      const raw = rawRow(rig.rawScreen(), '> alpha');
+      const codes = [...raw.slice(0, raw.indexOf(needle)).matchAll(new RegExp(`${ESC}\\[([\\d;]*)m`, 'g'))].flatMap(
+        (found) => (found[1] ?? '').split(';')
+      );
+      return codes.lastIndexOf('7') > Math.max(codes.lastIndexOf('27'), codes.lastIndexOf('0'), codes.lastIndexOf(''));
+    };
+    await until(() => inverseBefore('beta'));
+    assert.equal(inverseBefore('beta'), true);
+    assert.equal(inverseBefore('alpha'), false);
+    assert.equal(inverseBefore(' gamma'), false);
+    // An arrow key drops the selection, so the Ctrl+C that closes the chat leaves instead of copying.
+    await press(rig, KEY.left, () => !inverseBefore('beta'));
   });
 });
