@@ -129,24 +129,32 @@ export function runMemoryRead(input: MemoryReadInput): MemoryReadAnswer {
   const section = asked as Section;
   if (!reads?.subject || !context) return { status: 'not_configured', code: CODE.UNSUPPORTED };
   try {
-    const subject = reads.subject(context, given, input.here);
-    if (subject.kind === 'none') return noneAnswer(given, word);
-    if (subject.kind === 'several') return severalAnswer(subject, given, word);
-    if (section === 'changes' && subject.kind !== 'person') return sectionAnswer(asked, word);
-    const limit = limitOf(args.limit);
-    const mind =
-      subject.kind === 'lore'
-        ? { ...EMPTY_MIND, lore: loreEntries(subject) }
-        : narrowed(reads.mind(context, seedsOf(subject), input.now), section, limit);
-    if (!holdsAny(mind) && mind.recent.length === 0) return noneAnswer(given, word);
-    const changes = section === 'changes' && subject.kind === 'person' ? changesOf(input, subject, limit) : null;
-    if (changes !== null && changes.length === 0) return { status: 'ok', data: { text: word('noChanges') } };
-    const view = { interface: input.here.iface, timezone: input.timezone, counterpart: null };
-    const text = subjectMemoryOf(mind, view, input.labels as Labels, nameOfIn(mind, subject), changes);
-    return text === '' ? noneAnswer(given, word) : { status: 'ok', data: { text } };
+    return readSubject(input, reads.subject(context, given, input.here), { given, section, word });
   } catch {
     return { status: 'failed', code: CODE.ERROR };
   }
+}
+
+/** The answer for the subject her words named, read and rendered as `section` asks. */
+function readSubject(
+  input: MemoryReadInput,
+  subject: Subject,
+  { given, section, word }: { given: string; section: Section; word: (key: string) => string }
+): MemoryReadAnswer {
+  if (subject.kind === 'none') return noneAnswer(given, word);
+  if (subject.kind === 'several') return severalAnswer(subject, given, word);
+  if (section === 'changes' && subject.kind !== 'person') return sectionAnswer(section, word);
+  const limit = limitOf(input.args.limit);
+  const mind =
+    subject.kind === 'lore' || !input.reads || !input.context
+      ? { ...EMPTY_MIND, lore: subject.kind === 'lore' ? loreEntries(subject) : [] }
+      : narrowed(input.reads.mind(input.context, seedsOf(subject), input.now), section, limit);
+  if (!holdsAny(mind) && mind.recent.length === 0) return noneAnswer(given, word);
+  const changes = section === 'changes' && subject.kind === 'person' ? changesOf(input, subject, limit) : null;
+  if (changes !== null && changes.length === 0) return { status: 'ok', data: { text: word('noChanges') } };
+  const view = { interface: input.here.iface, timezone: input.timezone, counterpart: null };
+  const text = subjectMemoryOf(mind, view, input.labels as Labels, nameOfIn(mind, subject), changes);
+  return text === '' ? noneAnswer(given, word) : { status: 'ok', data: { text } };
 }
 
 /** Her attitude changes toward the person, newest first, under the turn's context. */

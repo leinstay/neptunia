@@ -30,6 +30,20 @@ export const IN_TURN_TOOLS: ReadonlyArray<string> = Object.freeze([
   'media.find',
 ]);
 
+/**
+ * The owner's narrow reads of one subject, left out of the list she is offered: her read of one subject is `memory.read`
+ * (src/turn/memory-read.ts), which reads under the turn's memory context, and a grant of any of these opens it
+ * (src/tools/operations/grants.ts#grantNamesFor). They stay registered, grantable operations that run when called.
+ */
+export const REPLACED_BY_MEMORY_READ: ReadonlyArray<string> = Object.freeze([
+  'memory.profile.read',
+  'memory.channel.read',
+  'memory.server.read',
+  'memory.recent.read',
+  'lore.list',
+  'lore.show',
+]);
+
 /** The most skills one answer may name. */
 export const MAX_PROPOSED = 4;
 
@@ -48,7 +62,8 @@ const WRAPPING = /^[\s"'`“”‘’«»*]+|[\s"'`“”‘’«»*.!?…]+$/gu
  * grants give the same list whatever the order they were stored or registered in). Only her
  * grants and the registry decide it -- never a requester, a channel or the time -- so the cached
  * part of the request it fills stays byte-identical until a grant changes. Left out: a skill no
- * grant opens for her (NOT_GRANTABLE_TO_PERSONA), a skill whose feature switch is off
+ * grant opens for her (NOT_GRANTABLE_TO_PERSONA), an owner's read memory.read replaces for her
+ * (REPLACED_BY_MEMORY_READ), a skill whose feature switch is off
  * (src/tools/access.ts#skillFeatureOn); everything under safe mode or with
  * `features.tools` off. A carried-over skill is listed only when granted. Pure.
  */
@@ -65,7 +80,10 @@ export function grantedSkillNames({
   return [...registry.keys()]
     .filter(
       (name) =>
-        typeof name === 'string' && !NOT_GRANTABLE_TO_PERSONA.includes(name) && grantedToPersona(config, selfId, name)
+        typeof name === 'string' &&
+        !NOT_GRANTABLE_TO_PERSONA.includes(name) &&
+        !REPLACED_BY_MEMORY_READ.includes(name) &&
+        grantedToPersona(config, selfId, name)
     )
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }

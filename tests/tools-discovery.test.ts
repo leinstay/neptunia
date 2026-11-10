@@ -303,15 +303,12 @@ test("listSkills: each row carries the skill's arguments (skillArgs)", () => {
 test('grantedSkillNames: only the skills granted to her user id, sorted by name whatever the grant or registry order', () => {
   const registry = standInRegistry();
   const config = granting(['message.react.remove', 'lore.list', 'message.edit', 'not.in.registry'], {});
-  assert.deepEqual(grantedSkillNames({ config, selfId: 'self-1', registry }), [
-    'lore.list',
-    'message.edit',
-    'message.react.remove',
-  ]);
+  // Changed: lore.list is one of the narrow reads left out of her offered list (lookup loop slice 12), and this stand-in
+  // registry holds no memory.read to stand in for it.
+  assert.deepEqual(grantedSkillNames({ config, selfId: 'self-1', registry }), ['message.edit', 'message.react.remove']);
   // The same grants stored in another order: the same list.
   const reordered = granting(['message.edit', 'not.in.registry', 'lore.list', 'message.react.remove'], {});
   assert.deepEqual(grantedSkillNames({ config: reordered, selfId: 'self-1', registry }), [
-    'lore.list',
     'message.edit',
     'message.react.remove',
   ]);
