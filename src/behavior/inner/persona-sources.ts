@@ -3,7 +3,7 @@
 // place of its own chat.
 
 import { placeOfChat } from '../../memory/addresses.ts';
-import { PERSONA_ID } from '../../memory/db/storage-keys.ts';
+import { PERSONA_ID } from '../../memory/db/ids.ts';
 import type { Journal } from '../../memory/journal.ts';
 import type { InnerJournal, RecordSource } from './types.ts';
 

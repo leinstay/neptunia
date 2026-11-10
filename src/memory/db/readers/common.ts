@@ -1,5 +1,5 @@
 // Shared semantic readers and the ready database seam. Core modules read complete values and ordered lines by
-// StorageKey. A key of an operational kind reads its row by kind and subject (operational.ts), a key of the intentions
+// UnitKey. A key of an operational kind reads its row by kind and subject (operational.ts), a key of the intentions
 // reads their rows (readers/intentions.ts), a day of the record or of the journal and a month of the archive their
 // lines (record-lines.ts, journal-lines.ts, archive-lines.ts), and an account's profile, a private layer, a history of
 // prose, a place's notes, a channel's entry, a lorebook, a participation, recent lines and her selfreflection their
@@ -22,7 +22,7 @@ import { placeLoreValue } from '../place-lore.ts';
 import { participationValue } from '../participation-episodes.ts';
 import { recentLinesValue } from '../recent-lines.ts';
 import { selfreflectionValue } from '../selfreflection-entries.ts';
-import type { StorageKey } from '../storage-keys.ts';
+import type { UnitKey } from '../unit-keys.ts';
 import type { Db } from '../types.ts';
 
 /** The kinds besides the operational ones whose own reader answers a key. */
@@ -43,11 +43,11 @@ const DIRECT_KINDS: ReadonlyArray<string> = [
 ];
 
 /** The key of a unit whose kind its own reader answers (an operational kind or one of `DIRECT_KINDS`), else null. */
-const directKey = (key: StorageKey): StorageKey | null =>
+const directKey = (key: UnitKey): UnitKey | null =>
   isOperationalKind(key.kind) || DIRECT_KINDS.includes(key.kind) ? key : null;
 
 /** The lines of a unit by key, in the order they were written, without newlines; none for a kind with no reader. */
-export function unitLines(dbGiven: unknown, key: StorageKey): Array<string> {
+export function unitLines(dbGiven: unknown, key: UnitKey): Array<string> {
   const db = dbGiven as Db;
   const direct = directKey(key);
   if (direct && isOperationalKind(direct.kind)) return operationalLines(db, direct.kind, direct.subject.id);
@@ -59,7 +59,7 @@ export function unitLines(dbGiven: unknown, key: StorageKey): Array<string> {
 }
 
 /** The value of a unit by key, or not found when the database holds none of it or its kind has no reader. */
-export function unitValue(dbGiven: unknown, key: StorageKey): { found: true; value: unknown } | { found: false } {
+export function unitValue(dbGiven: unknown, key: UnitKey): { found: true; value: unknown } | { found: false } {
   const db = dbGiven as Db;
   const direct = directKey(key);
   if (direct && isOperationalKind(direct.kind)) return operationalValue(db, direct.kind, direct.subject.id);
@@ -80,7 +80,7 @@ export function unitValue(dbGiven: unknown, key: StorageKey): { found: true; val
  * Whether the database holds a value of a unit: an account's profile, a private layer and a channel's entry by their
  * owner columns alone, any other kind by its reader.
  */
-export function unitHeld(dbGiven: unknown, key: StorageKey): boolean {
+export function unitHeld(dbGiven: unknown, key: UnitKey): boolean {
   const db = dbGiven as Db;
   if (key.kind === 'user') return accountProfileHeld(db, key);
   if (key.kind === 'private') return privateLayerHeld(db, key);

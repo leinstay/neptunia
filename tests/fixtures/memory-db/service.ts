@@ -16,8 +16,8 @@ import { classify } from './legacy-classify.ts';
 import { seedUnits } from './seed.ts';
 import { legacyStorageKey } from './legacy-paths.ts';
 import { unitValue, unitLines } from '../../../src/memory/db/readers/common.ts';
-import type { StorageKey } from '../../../src/memory/db/storage-keys.ts';
-import { placeOrPersona } from '../../../src/memory/db/storage-keys.ts';
+import type { UnitKey } from '../../../src/memory/db/unit-keys.ts';
+import { placeOrPersona } from '../../../src/memory/db/unit-keys.ts';
 
 const silent = { info() {}, debug() {}, warn() {}, error() {} };
 
@@ -137,7 +137,7 @@ export function unitFile(memoryDb: Pick<MemoryDbService, 'readHandle'>, rel: str
 }
 
 /** A journal's test label projected from its actual key, with no change to the writer update. */
-export function journalLabel(dataDir: string, key: StorageKey): string {
+export function journalLabel(dataDir: string, key: UnitKey): string {
   return path.join(dataDir, 'places', key.subject.id, 'journal', `${key.partition}.jsonl`);
 }
 

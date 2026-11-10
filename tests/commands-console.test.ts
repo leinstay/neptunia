@@ -14,7 +14,7 @@ import type { ConsoleDeps, Answer } from '../src/interface/commands/console.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 import { NOT_GRANTABLE_TO_PERSONA } from '../src/tools/access.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { personaKey } from '../src/memory/db/storage-keys.ts';
+import { personaKey } from '../src/memory/db/unit-keys.ts';
 import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import {

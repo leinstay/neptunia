@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { unitSubjects, unitValue } from '../src/memory/db/readers/common.ts';
-import type { StorageKey } from '../src/memory/db/storage-keys.ts';
+import type { UnitKey } from '../src/memory/db/unit-keys.ts';
 import { accountId } from '../src/memory/db/ids.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { a, profile } from './fixtures/memory-db/storage-ownership.ts';
@@ -12,7 +12,7 @@ import { a, profile } from './fixtures/memory-db/storage-ownership.ts';
 test('fresh semantic units read and list independently for equal native account IDs in different namespaces', () => {
   const handle = openMemoryDb(':memory:');
   try {
-    const other: StorageKey = {
+    const other: UnitKey = {
       ...a,
       subject: { type: 'account', id: accountId('other', 'u1') },
     };

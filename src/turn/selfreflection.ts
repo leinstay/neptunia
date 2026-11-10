@@ -4,7 +4,7 @@
 // createTurnRunner (src/behavior/turn.ts) builds it once per runner with createSelfreflection; the attempt calls prepareSelfreflection
 // before it builds a selfreflection post's request, and runTurn asks selfreflectionPictureGate before a forced picture kind.
 
-import { PERSONA_ID } from '../memory/db/storage-keys.ts';
+import { PERSONA_ID } from '../memory/db/ids.ts';
 import { selfreflectionRestricted } from '../tools/publication.ts';
 import { fill } from '../format.ts';
 import { personOfMember } from '../memory/addresses.ts';

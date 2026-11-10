@@ -7,7 +7,7 @@
 // and `placeId` null goes through as it is. Nothing here throws. `answer` runs the same read for a caller that acts on why a read
 // came to nothing: it keeps the status, the code and whether the failure is worth another try.
 
-import { PERSONA_ID } from '../memory/db/storage-keys.ts';
+import { PERSONA_ID } from '../memory/db/ids.ts';
 import type { Adapter } from '../protocol/adapter.ts';
 import type { Logger } from '../protocol/serve.ts';
 

@@ -28,7 +28,7 @@ import { legacyStorageKey } from './fixtures/memory-db/legacy-paths.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 import {} from '../src/memory/db/ids.ts';
-import { keyText, type StorageKey } from '../src/memory/db/storage-keys.ts';
+import { keyText, type UnitKey } from '../src/memory/db/unit-keys.ts';
 import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 type Service = ReturnType<typeof createMemoryDb>;
@@ -498,7 +498,7 @@ test('an open applies nothing from a file in memory-pending/ and leaves the file
   const log = logs();
   const hot = { config: configOf() };
   const pendingDir = path.join(data, 'memory-pending');
-  const loreKey: StorageKey = { kind: 'lore', subject: { type: 'place', id: legacyServerPlaceId('discord', GUILD) } };
+  const loreKey: UnitKey = { kind: 'lore', subject: { type: 'place', id: legacyServerPlaceId('discord', GUILD) } };
   const name = `${createHash('sha1').update(keyText(loreKey)).digest('hex')}.json`;
   const kept = JSON.stringify({
     key: loreKey,

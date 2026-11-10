@@ -14,7 +14,7 @@
 
 import { projectRow } from './graph.ts';
 import { adoptSameItem, keepItemFields } from './media-store.ts';
-import { PERSONA_ID } from './storage-keys.ts';
+import { PERSONA_ID } from './ids.ts';
 import { audienceOf, groupScope } from './scope.ts';
 import { ensureAudience } from './rows.ts';
 import { namedIface } from './live-iface.ts';

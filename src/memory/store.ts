@@ -41,8 +41,8 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { accountCollection, personaKey, placeCollection } from './db/storage-keys.ts';
-import type { StorageKind, StorageSelector } from './db/storage-keys.ts';
+import { accountCollection, personaKey, placeCollection } from './db/unit-keys.ts';
+import type { UnitKind, UnitSelector } from './db/unit-keys.ts';
 import { entryPictureDescriptions } from './db/media-store.ts';
 import type { MediaDescriptionEntry } from './db/media-store.ts';
 import { createStoreMedia } from './store-media.ts';
@@ -1603,7 +1603,7 @@ function buildStore({
   const placeFile = (placeId: string) => address(placeCollection('place', placeId));
   const channelsDir = () => collection('channel');
   const channelFile = (placeId: string) => address(placeCollection('channel', placeId));
-  const placeUnitFile = (kind: StorageKind, placeId: string) => address(placeCollection(kind, placeId));
+  const placeUnitFile = (kind: UnitKind, placeId: string) => address(placeCollection(kind, placeId));
   const loreFile = (placeId: string) => placeUnitFile('lore', placeId);
   const emojiRailsFile = (placeId: string) => placeUnitFile('emoji_rails', placeId);
   const privateDir = () => collection('private');
@@ -1612,8 +1612,8 @@ function buildStore({
   const participationFile = (placeId: string) => placeUnitFile('participation', placeId);
   const selfreflectionFile = () => address(personaKey('selfreflection'));
   const versionsFile = (placeId: string | null, kind: string, id: string) => {
-    const selector: StorageSelector = {
-      versionKind: kind as NonNullable<StorageSelector['versionKind']>,
+    const selector: UnitSelector = {
+      versionKind: kind as NonNullable<UnitSelector['versionKind']>,
       itemId: kind === 'lore' ? loreVersionKey(id) : id,
     };
     const base =

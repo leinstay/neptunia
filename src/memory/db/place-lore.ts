@@ -16,9 +16,9 @@ import type { Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
 import { heldPlaceRows, placeOwnerOf, retirePlaceAbsent, stampPlaceRows } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
-import { placeCollection, keyText, storageId } from './storage-keys.ts';
+import { placeCollection, keyText, collectionId } from './unit-keys.ts';
 import { namedIface } from './live-iface.ts';
-import type { StorageKey } from './storage-keys.ts';
+import type { UnitKey } from './unit-keys.ts';
 import { writeMapping } from './upsert.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
@@ -45,7 +45,7 @@ const filled = (value: unknown): value is string => typeof value === 'string' &&
 /** The rows of the lorebook `value` of the unit `key`, owned by `holder`, `owner` the unit's id. */
 function placeLoreRows(
   db: Db,
-  key: StorageKey,
+  key: UnitKey,
   value: PlaceLoreWrite['value'],
   owner: string,
   holder: PlaceOwner,
@@ -103,11 +103,11 @@ function placeLoreOf(rows: Rows): Array<Row> {
  */
 export function writePlaceLore(
   db: Db,
-  key: StorageKey,
+  key: UnitKey,
   value: PlaceLoreWrite['value'],
   { at, iface }: { at: string; iface?: string }
 ): PlaceLoreResult {
-  const id = storageId(key);
+  const id = collectionId(key);
   const holder = placeOwnerOf(key)!; // a `lore` unit always has its owner columns (place-owner.ts)
   const mapping = placeLoreRows(db, key, value, id, holder, iface);
   const upserted = writeMapping(db, mapping, { at });
@@ -123,12 +123,12 @@ export function placeLoreWriteOf(update: Row): PlaceLoreWrite {
 }
 
 /** Whether `key` names a place's lorebook. */
-export const isPlaceLoreKey = (key: StorageKey | undefined): boolean =>
+export const isPlaceLoreKey = (key: UnitKey | undefined): boolean =>
   key?.kind === 'lore' && key.subject?.type === 'place';
 
 /** The write of a unit update of a lorebook (a value write of the place's own `lore` unit), else null. */
 export function placeLoreOfUnit(update: Row): PlaceLoreWrite | null {
-  const key = update.key as StorageKey | undefined;
+  const key = update.key as UnitKey | undefined;
   if (update.op !== 'value' || !key || !isPlaceLoreKey(key)) return null;
   if (keyText(placeCollection('lore', key.subject.id)) !== keyText(key)) return null;
   return placeLoreWriteOf({ placeId: key.subject.id, value: update.value ?? [] });
@@ -145,7 +145,7 @@ export function applyPlaceLoreWrite(handle: MemoryHandle, update: Row): PlaceLor
 }
 
 /** The lorebook the unit `key` holds (a place's `lore` unit), or not found when the database holds no entry of it. */
-export function placeLoreValue(db: Db, key: StorageKey): { found: true; value: unknown } | { found: false } {
+export function placeLoreValue(db: Db, key: UnitKey): { found: true; value: unknown } | { found: false } {
   const holder = placeOwnerOf(key);
   const rows = holder ? heldPlaceRows(db, holder, ['claims']) : {};
   return rows.claims?.length ? { found: true, value: placeLoreOf(rows) } : { found: false };

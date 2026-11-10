@@ -18,7 +18,7 @@
 
 import { messageLocator } from './message-locator.ts';
 import type { MessageLocator } from './message-locator.ts';
-import { messageSourceId } from './ids.ts';
+import { messageSourceId, PERSONA_ID } from './ids.ts';
 import { mintedAccount } from './native-rows.ts';
 import { extraText, ifaceOf, join, parseExtra, split } from './row-columns.ts';
 import type { MapContext, Spec } from './row-columns.ts';
@@ -31,8 +31,8 @@ import { observedSourceId } from './observe.ts';
 import { storeHeld } from './media-stems.ts';
 import { recordFieldsOf, takeRecordMedia, writeRecordMedia } from './media-store.ts';
 import { markStemsPending } from './stems.ts';
-import { PERSONA_ID, placeOrPersona } from './storage-keys.ts';
-import type { StorageKey } from './storage-keys.ts';
+import { placeOrPersona } from './unit-keys.ts';
+import type { UnitKey } from './unit-keys.ts';
 import { lineColumns, lineOwnerOf, linePeriods, lineRows, nextLinePosition } from './line-owner.ts';
 import type { LineOwner } from './line-owner.ts';
 import { writeMapping } from './upsert.ts';
@@ -64,7 +64,7 @@ type Identity = {
 
 /** What every line of one day's write shares: its unit, the unit's subject context and the write's references. */
 type DayWrite = {
-  key: StorageKey;
+  key: UnitKey;
   /** The day's owner columns (line-owner.ts). */
   owner: LineOwner;
   ctx: MapContext;
@@ -402,7 +402,7 @@ function writeLine(db: Db, day: DayWrite, line: Row, position: number, at: strin
  */
 export function writeRecordDay(
   db: Db,
-  key: StorageKey,
+  key: UnitKey,
   lines: ReadonlyArray<Row>,
   { messages, iface, at }: { messages?: ReadonlyArray<Row>; iface: string; at: string }
 ): RecordLinesResult {
@@ -476,14 +476,14 @@ export function recordMonths(db: Db, placeId: string | null): Array<string> {
 }
 
 /** The days of a month of a place's record, each with its unit, in order. */
-export function recordDays(db: Db, placeId: string | null, month: string): Array<{ day: string; owner: StorageKey }> {
+export function recordDays(db: Db, placeId: string | null, month: string): Array<{ day: string; owner: UnitKey }> {
   return daysOf(db, placeId)
     .filter((day) => day.startsWith(`${month}-`))
     .map((day) => ({ day, owner: placeOrPersona('record', placeId, { partition: day }) }));
 }
 
 /** The lines of one day's unit as JSON text, in the order they were written. */
-export function recordLines(db: Db, key: StorageKey): Array<string> {
+export function recordLines(db: Db, key: UnitKey): Array<string> {
   const owner = lineOwnerOf(key);
   if (!owner) return [];
   const ctx = storageContext(db, key);

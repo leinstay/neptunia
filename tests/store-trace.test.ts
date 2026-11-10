@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createStore } from '../src/memory/store.ts';
 import { unitLines } from '../src/memory/db/readers/common.ts';
-import { placeCollection } from '../src/memory/db/storage-keys.ts';
+import { placeCollection } from '../src/memory/db/unit-keys.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 
 test('recall traces keep the newest capped records across database reopen without creating a roots directory', async () => {

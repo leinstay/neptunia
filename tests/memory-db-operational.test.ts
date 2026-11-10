@@ -12,7 +12,7 @@ import { createStore } from '../src/memory/store.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { operationalValue } from '../src/memory/db/operational.ts';
-import { PERSONA_ID } from '../src/memory/db/storage-keys.ts';
+import { PERSONA_ID } from '../src/memory/db/ids.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle, Row } from '../src/memory/db/types.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';

@@ -8,7 +8,7 @@
 // the units of the rows already stored, and from the units' absence for her session's rows (`ownProfileRows`).
 
 import { projectRow } from './graph.ts';
-import type { StorageKey } from './storage-keys.ts';
+import type { UnitKey } from './unit-keys.ts';
 import type { Db, Row, Rows } from './types.ts';
 
 /** The writers whose rows own themselves through these columns. */
@@ -41,26 +41,16 @@ const keyOf = (table: string): ReadonlyArray<string> => KEYS[table] ?? ['id'];
 const POSITIONED = new Set(['claims', 'description_versions', 'episodes', 'affinity_events']);
 
 /** The owner columns of the unit `key` of an account's profile, a private layer or a history, else null. */
-export function profileOwnerOf(key: StorageKey): ProfileOwner | null {
-  // A unit of an older layout names a root or a partition beside its account; the account's own unit names neither.
-  const account = `${key.subject.id}${key.scopePlaceId ? `@${key.scopePlaceId}` : ''}${key.partition ? `#${key.partition}` : ''}`;
-  if (key.kind === 'user') return { writer: 'profile', holder_id: account };
-  if (key.kind === 'private') return { writer: 'private', holder_id: account };
+export function profileOwnerOf(key: UnitKey): ProfileOwner | null {
+  if (key.kind === 'user') return { writer: 'profile', holder_id: key.subject.id };
+  if (key.kind === 'private') return { writer: 'private', holder_id: key.subject.id };
   if (key.kind !== 'versions') return null;
   const selector = key.selector ?? {};
   return { writer: 'versions', holder_id: `${key.subject.id}/${selector.versionKind ?? ''}/${selector.itemId ?? ''}` };
 }
 
-/** The key of the `user` unit a profile holder names: its account, and the root or partition of an older layout. */
-export function profileKeyOf(holder: string): StorageKey {
-  const [, account = holder, scopePlaceId, partition] = /^([^@#]*)(?:@([^#]*))?(?:#(.*))?$/.exec(holder) ?? [];
-  return {
-    kind: 'user',
-    subject: { type: 'account', id: account },
-    ...(scopePlaceId ? { scopePlaceId } : {}),
-    ...(partition ? { partition } : {}),
-  };
-}
+/** The key of the `user` unit a profile holder names: its account. */
+export const profileKeyOf = (holder: string): UnitKey => ({ kind: 'user', subject: { type: 'account', id: holder } });
 
 /** The place a history of prose holds (`<place>/<kind>/<item>` of a place's kind), null for an account's. */
 export function placeOfVersions(holder: string): string | null {

@@ -11,7 +11,7 @@ import { openMemoryDb } from '../src/memory/db/open.ts';
 import { insertRows } from '../src/memory/db/rows.ts';
 import { dmScope } from '../src/memory/db/scope.ts';
 import { personId } from './fixtures/memory-db/spelled-ids.ts';
-import { placeCollection } from '../src/memory/db/storage-keys.ts';
+import { placeCollection } from '../src/memory/db/unit-keys.ts';
 import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 const DIMS = 4;

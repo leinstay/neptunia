@@ -23,8 +23,8 @@ import type { OldScope } from './scope-parts.ts';
 import { errandIdOfLine } from '../../board/archive.ts';
 import { addSourceMedia } from './record-lines.ts';
 import { markStemsPending } from './stems.ts';
-import { placeOrPersona } from './storage-keys.ts';
-import type { StorageKey } from './storage-keys.ts';
+import { placeOrPersona } from './unit-keys.ts';
+import type { UnitKey } from './unit-keys.ts';
 import { writeMapping } from './upsert.ts';
 import { lineColumns, lineOwnerOf, lineRows, nextLinePosition } from './line-owner.ts';
 import type { LineOwner } from './line-owner.ts';
@@ -223,7 +223,7 @@ export function journalLineOf(rows: Rows, ctx: MapContext = {}): Row {
  */
 export function writeJournalDay(
   db: Db,
-  key: StorageKey,
+  key: UnitKey,
   lines: ReadonlyArray<unknown>,
   { iface, at }: { iface: string; at: string }
 ): JournalLinesResult {
@@ -291,7 +291,7 @@ function dayRows(db: Db, owner: LineOwner): Rows {
 }
 
 /** The lines (JSON text) of one journal day's unit, in the order they were written. */
-export function journalLines(db: Db, key: StorageKey): Array<string> {
+export function journalLines(db: Db, key: UnitKey): Array<string> {
   const owner = lineOwnerOf(key);
   if (!owner) return [];
   const rows = dayRows(db, owner);
@@ -330,7 +330,7 @@ export function journalLines(db: Db, key: StorageKey): Array<string> {
  * When the journal was last written: the latest `recordedAt` among the lines of the given day units (epoch ms), or null
  * when none has one.
  */
-export function journalLastWrite(db: Db, keys: ReadonlyArray<StorageKey>): number | null {
+export function journalLastWrite(db: Db, keys: ReadonlyArray<UnitKey>): number | null {
   let last: number | null = null;
   for (const key of keys) {
     for (const line of journalLines(db, key)) {

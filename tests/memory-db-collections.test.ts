@@ -1,24 +1,24 @@
-// src/memory/db/storage-keys.ts: the neutral constructors of a storage collection. A collection belongs to an account, a
+// src/memory/db/unit-keys.ts: the neutral constructors of a storage collection. A collection belongs to an account, a
 // person or a place, and its key holds that id as given: no interface read from the air, no root, no parsing.
 // Contract, plan 2026-11-04-cli-and-memory task 5:
-//   accountCollection(kind, accountId, options?): StorageKey     subject { type: 'account', id }
-//   personCollection(kind, personId, options?): StorageKey       subject { type: 'person', id }
-//   placeCollection(kind, placeId, options?): StorageKey         subject { type: 'place', id }
-//   journalKey(placeId, day): StorageKey
+//   accountCollection(kind, accountId, options?): UnitKey     subject { type: 'account', id }
+//   personCollection(kind, personId, options?): UnitKey       subject { type: 'person', id }
+//   placeCollection(kind, placeId, options?): UnitKey         subject { type: 'place', id }
+//   journalKey(placeId, day): UnitKey
 // `options` is { partition?, selector? }. An empty id throws code `BAD_COLLECTION_ID`.
-// Appendix entries: src/memory/db/storage-keys.ts, src/memory/db/upsert.ts.
+// Appendix entries: src/memory/db/unit-keys.ts, src/memory/db/upsert.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import * as keys from '../src/memory/db/storage-keys.ts';
+import * as keys from '../src/memory/db/unit-keys.ts';
 import {
   accountCollection,
   journalKey,
   personCollection,
   placeCollection,
-  storageId,
-} from '../src/memory/db/storage-keys.ts';
+  collectionId,
+} from '../src/memory/db/unit-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { seedOpaqueWorld } from './fixtures/memory-db/opaque-people.ts';
@@ -44,18 +44,18 @@ test('a partition and a selector identify a collection inside its subject', () =
   const may = placeCollection('vectors', 'place:room-1', { partition: '2026-05' });
   const june = placeCollection('vectors', 'place:room-1', { partition: '2026-06' });
   assert.equal(may.partition, '2026-05');
-  assert.notEqual(storageId(may), storageId(june));
+  assert.notEqual(collectionId(may), collectionId(june));
   const selected = placeCollection('versions', 'place:room-1', { selector: { versionKind: 'lore', itemId: 'x' } });
   assert.deepEqual(selected.selector, { versionKind: 'lore', itemId: 'x' });
 });
 
 test('the same id gives the same storage id, and different kinds of subject never collide', () => {
   // Bug: an account and a place with one id share a row in the catalog.
-  assert.equal(storageId(placeCollection('lore', 'x:1')), storageId(placeCollection('lore', 'x:1')));
+  assert.equal(collectionId(placeCollection('lore', 'x:1')), collectionId(placeCollection('lore', 'x:1')));
   const ids = new Set([
-    storageId(accountCollection('private', 'x:1')),
-    storageId(personCollection('private', 'x:1')),
-    storageId(placeCollection('private', 'x:1')),
+    collectionId(accountCollection('private', 'x:1')),
+    collectionId(personCollection('private', 'x:1')),
+    collectionId(placeCollection('private', 'x:1')),
   ]);
   assert.equal(ids.size, 3);
 });

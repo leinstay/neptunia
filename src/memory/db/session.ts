@@ -49,7 +49,7 @@ import { rulesPromptOf } from '../../rules-list.ts';
 import { memoryPathText } from '../../subharness/memory-path.ts';
 import type { MemoryPath } from '../../subharness/memory-path.ts';
 import { accountProfileValue } from './account-profile.ts';
-import { accountCollection } from './storage-keys.ts';
+import { accountCollection } from './unit-keys.ts';
 import { SELF_PERSON, shortHash } from './ids.ts';
 import { storedMediaTags } from '../../format.ts';
 import { LINE_HOLDS_TOLD_MEDIA, lineMedia, mediaMessageParts } from './media-store.ts';

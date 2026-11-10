@@ -5,7 +5,7 @@
 // rows the database wrote have no such writer and stay as they are. Derived identity, graph projection, publication
 // state and session-held fields are updated within the caller's writer transaction.
 
-import { PERSONA_ID } from './storage-keys.ts';
+import { PERSONA_ID } from './ids.ts';
 import {
   deriveRow,
   ensureLinks,

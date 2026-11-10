@@ -4,7 +4,7 @@
 // Then the store over a reopen and the generated profiles.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { accountCollection } from '../src/memory/db/storage-keys.ts';
+import { accountCollection } from '../src/memory/db/unit-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Row } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';

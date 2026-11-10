@@ -11,7 +11,7 @@ import { personOfAccount } from '../src/memory/db/meta-person.ts';
 import { applyPersonLinkWrite } from '../src/memory/db/person-links.ts';
 import { mergePersonInto } from '../src/memory/db/person-merge.ts';
 import { peopleOf } from '../src/memory/db/session-people.ts';
-import { accountCollection } from '../src/memory/db/storage-keys.ts';
+import { accountCollection } from '../src/memory/db/unit-keys.ts';
 import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle, Row } from '../src/memory/db/types.ts';

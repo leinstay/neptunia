@@ -13,7 +13,7 @@
 
 import { projectRow } from './graph.ts';
 import { deriveMirrorPublication } from './publish.ts';
-import type { StorageKey } from './storage-keys.ts';
+import type { UnitKey } from './unit-keys.ts';
 import { asText } from './types.ts';
 import type { Db, Row, Rows } from './types.ts';
 
@@ -89,7 +89,7 @@ export const isPlaceWriter = (writer: unknown): writer is PlaceWriter =>
  * The owner columns of the unit `key` of a place's notes, a channel's entry, a lorebook, a participation or recent
  * lines, else null.
  */
-export function placeOwnerOf(key: StorageKey): PlaceOwner | null {
+export function placeOwnerOf(key: UnitKey): PlaceOwner | null {
   return isPlaceWriter(key.kind) ? { writer: key.kind, holder_id: key.subject.id } : null;
 }
 

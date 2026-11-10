@@ -34,7 +34,7 @@
 
 import path from 'node:path';
 import * as nodeFs from 'node:fs/promises';
-import { PERSONA_ID } from '../memory/db/storage-keys.ts';
+import { PERSONA_ID } from '../memory/db/ids.ts';
 import { operationalValue } from '../memory/db/operational.ts';
 import { placeOfChat, sharedPlaceOf } from '../memory/addresses.ts';
 

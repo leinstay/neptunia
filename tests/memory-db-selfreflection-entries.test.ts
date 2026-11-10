@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
-import { personaKey } from '../src/memory/db/storage-keys.ts';
+import { personaKey } from '../src/memory/db/unit-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { MemoryHandle, Row } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';

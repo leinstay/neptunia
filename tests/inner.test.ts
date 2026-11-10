@@ -29,7 +29,7 @@ import { createIntentionService } from '../src/intentions/service.ts';
 import { HOUR_MS, MINUTE_MS, DAY_MS } from '../src/time.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
-import { personaKey } from '../src/memory/db/storage-keys.ts';
+import { personaKey } from '../src/memory/db/unit-keys.ts';
 import {
   ROOT,
   NOW,

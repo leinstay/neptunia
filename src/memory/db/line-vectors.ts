@@ -21,7 +21,7 @@ import { storageContext } from './storage-context.ts';
 import { dmPlaceScope } from './scope-parts.ts';
 import { deriveRow } from './rows.ts';
 import { SCOPE_INTERNAL, groupScope } from './scope.ts';
-import { placeCollection } from './storage-keys.ts';
+import { placeCollection } from './unit-keys.ts';
 import { linkVectors } from './upsert.ts';
 import { asText, dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';

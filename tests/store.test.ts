@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createStore, writeJsonAtomic } from '../src/memory/store.ts';
-import { accountCollection, personaKey } from '../src/memory/db/storage-keys.ts';
+import { accountCollection, personaKey } from '../src/memory/db/unit-keys.ts';
 import type { AccountProfileWrite } from '../src/memory/db/account-profile.ts';
 import { legacyStorageKey } from './fixtures/memory-db/legacy-paths.ts';
 

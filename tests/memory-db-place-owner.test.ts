@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { unitValue } from '../src/memory/db/readers/common.ts';
-import { placeCollection } from '../src/memory/db/storage-keys.ts';
+import { placeCollection } from '../src/memory/db/unit-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle } from '../src/memory/db/types.ts';
 import {

@@ -7,7 +7,7 @@ import { tempDir } from './tmp.ts';
 import { createMemoryDb } from '../../src/memory/db/service.ts';
 import { unitValue } from '../../src/memory/db/readers/common.ts';
 import { topPlaceSpelled } from '../../src/memory/db/ids.ts';
-import type { StorageKey } from '../../src/memory/db/storage-keys.ts';
+import type { UnitKey } from '../../src/memory/db/unit-keys.ts';
 import { legacyStorageKey } from './memory-db/legacy-paths.ts';
 import { asRecord } from './records.ts';
 import type { MemoryDbService } from '../../src/memory/db/service.ts';
@@ -110,7 +110,7 @@ export function unitText(memoryDb: MemoryDbService, rel: string): string {
  * The unit a file path of a shipped layout names, under the place a fresh database spells for that server: the store asks
  * for that spelling when no row holds the server yet (src/memory/store-addresses.ts#placeOfRoot).
  */
-export function keyOfRel(rel: string): StorageKey {
+export function keyOfRel(rel: string): UnitKey {
   const key = legacyStorageKey(rel);
   const native = /^discord:guild:(.+)$/.exec(key.subject.id)?.[1];
   return native === undefined ? key : { ...key, subject: { ...key.subject, id: topPlaceSpelled('discord', native) } };

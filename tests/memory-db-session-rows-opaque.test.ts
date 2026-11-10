@@ -5,13 +5,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import type { StorageKey } from '../src/memory/db/storage-keys.ts';
+import type { UnitKey } from '../src/memory/db/unit-keys.ts';
 import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle } from '../src/memory/db/types.ts';
 import { ANNA, addClaim, addAffinity, seedOpaqueWorld } from './fixtures/memory-db/opaque-people.ts';
 
-const KEY: StorageKey = { kind: 'private', subject: { type: 'account', id: 'account:a21' } };
+const KEY: UnitKey = { kind: 'private', subject: { type: 'account', id: 'account:a21' } };
 const PRIVATE = {
   accountId: 'n1',
   relationship: 'told only here',

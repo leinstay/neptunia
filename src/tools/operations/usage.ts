@@ -17,7 +17,7 @@
 import * as nodeFs from 'node:fs';
 import path from 'node:path';
 import { operationalValue } from '../../memory/db/operational.ts';
-import { PERSONA_ID } from '../../memory/db/storage-keys.ts';
+import { PERSONA_ID } from '../../memory/db/ids.ts';
 
 import { createReadSeam } from '../../memory/db/readers/common.ts';
 import type { MemoryDbService } from '../../memory/db/service.ts';
