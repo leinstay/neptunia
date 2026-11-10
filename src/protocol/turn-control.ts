@@ -12,7 +12,7 @@ export type TurnEventType = (typeof EVENT_TYPES)[number];
 
 /**
  * One event of a turn. `seq` rises by one over everything the core's control emits. The optional fields belong to their
- * types: `text` to `accepted` and `text`, `streaming` to `running`, `kind`, `name` and `detail` to `progress`,
+ * types: `text` to `accepted` and `text`, `streaming` to `running`, `kind`, `name` and `detail` to `progress` (`think` is the kind of the think of one answer, its name `think`),
  * `responseId` to `committed` and `code` to `failed`.
  */
 export type TurnEvent = {
@@ -22,7 +22,7 @@ export type TurnEvent = {
   at: number;
   text?: string;
   streaming?: boolean;
-  kind?: 'tool' | 'task';
+  kind?: 'tool' | 'task' | 'think';
   name?: string;
   detail?: string;
   responseId?: string;

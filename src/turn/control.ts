@@ -33,8 +33,8 @@ export type TurnControl = {
   /** Ends a queued turn with `outcome` without running it: its line was answered in another turn. */
   endQueued(turnId: string, outcome: TurnOutcome): { status: 'ok' | 'too-late' | 'unknown' };
   queued(): ReadonlyArray<TurnRun>;
-  /** What the running turn's tools and tasks did; ignored for any other turn. */
-  progress(turnId: string, step: { kind: 'tool' | 'task'; name: string; detail: string }): void;
+  /** What the running turn's tools and tasks did, and the think of each answer; ignored for any other turn. */
+  progress(turnId: string, step: { kind: 'tool' | 'task' | 'think'; name: string; detail: string }): void;
   /** The events after `after`, in order. */
   replay(after: number): ReadonlyArray<TurnEvent>;
 };

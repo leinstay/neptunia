@@ -2,7 +2,7 @@
 // has stopped only when the core says that too. A mark says the owner asked for a cancel, and it changes no state. An event
 // at or below a turn's newest `seq` is a replay and adds nothing. interfaces/cli/chat-controller.ts holds the state and draws from it.
 
-export type TurnProgress = { kind: 'tool' | 'task'; name: string; detail: string };
+export type TurnProgress = { kind: 'tool' | 'task' | 'think'; name: string; detail: string };
 
 /** One event as the core sends it (src/protocol/turn-control.ts). This package imports nothing of the engine. */
 export type ClientTurnEvent = {
@@ -57,10 +57,17 @@ const CALL_STARTED = 'started';
 export function callsInProgress(turn: ClientTurn): Array<string> {
   const open: Array<string> = [];
   for (const step of turn.progress) {
+    if (step.kind === 'think') continue;
     if (step.detail === CALL_STARTED) open.push(step.name);
     else if (open.includes(step.name)) open.splice(open.indexOf(step.name), 1);
   }
   return open;
+}
+
+/** What she thought at the newest answer of `turn`, as the core sent it, or null when none came. */
+export function latestThink(turn: ClientTurn): string | null {
+  const thinks = turn.progress.filter((step) => step.kind === 'think');
+  return thinks.at(-1)?.detail ?? null;
 }
 
 /** The turns that wait, in the order the core took them. */
