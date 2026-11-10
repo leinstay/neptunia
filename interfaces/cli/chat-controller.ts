@@ -87,6 +87,7 @@ import type { TranscriptDims, TranscriptEntry, TranscriptRow, TranscriptView, Tr
 import {
   activeTurn,
   callsInProgress,
+  latestThink,
   emptyTurns,
   queuedTurns,
   reduceTurns,
@@ -768,7 +769,7 @@ export class ChatController {
 
   /**
    * The status row under the input, every short notice of the moment on one row: the notice of the last key, the line the
-   * next message replies to, her running turn and the queue, and the rows below a transcript read further up.
+   * next message replies to, her running turn and the queue, the rows below a transcript read further up and her newest think.
    */
   statusRow(hiddenBelow: number): string {
     const { notice, draft } = this.model;
@@ -778,6 +779,7 @@ export class ChatController {
       reply === null ? null : `replying to #${reply}`,
       this.turnRow(),
       hiddenBelow > 0 ? `↓ ${hiddenBelow} rows below · Page Down` : null,
+      this.thinkRow(),
     ]
       .filter((one) => one !== null)
       .join(' · ');
@@ -794,6 +796,15 @@ export class ChatController {
       ...(queued === 0 ? [] : [`${queued} queued`]),
     ];
     return parts.length === 0 ? null : parts.join(' · ');
+  }
+
+  /**
+   * What she thought at the newest answer of her running turn. It is the last part of the row, so a narrow terminal cuts it
+   * and nothing else, and it is read from the turn's events alone: nothing stores it, and it leaves with the turn.
+   */
+  thinkRow(): string | null {
+    const active = activeTurn(this.model.turns);
+    return active === null ? null : latestThink(active);
   }
 
   /** Esc on an empty input: one request for the running turn, which runs on until the core says it stopped. */
