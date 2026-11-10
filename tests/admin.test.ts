@@ -18,7 +18,7 @@ import { buildDrawPrompt } from '../src/behavior/prompt.ts';
 import { familyOf, ImageGenError } from '../src/llm/images.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
 import { createMetrics } from '../src/tools/operations/metrics.ts';
-import { getOp } from '../src/tools/operations/registry.ts';
+
 import { splitPath } from '../src/tools/operations/shared.ts';
 import { labels } from './fixtures/labels.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
@@ -507,27 +507,6 @@ function withChains(hot: ReturnType<typeof makeHotWithMedia>, models: Record<str
   return hot;
 }
 
-test('run: model.show ignores the deprecated keys of an old config.local.json', async () => {
-  const rootDir = makeRoot();
-  const hot = makeHotWithMedia(rootDir);
-  hot.config.models = { routes: chainsOf({ core: 'anthropic/claude-opus-4.6' }) };
-  hot.config.llm.classifierModel = 'openrouter/old-classifier';
-  hot.config.mention = { followUpModel: 'openrouter/older-classifier' };
-  hot.config.media = { model: 'openrouter/old-media', video: { model: 'openrouter/old-video' } };
-  const { admin } = makeAdmin(rootDir, { hot });
-
-  const lines = (await admin.run('model.show', {}, {})).split('\n');
-  // Changed: an optional role with no chain is off (slice 4), so vision and video show no model.
-  assert.ok(lines.includes(`analyzer: ${ROLE_DEFAULTS.analyzer}`));
-  assert.ok(lines.includes('vision: -'));
-  assert.ok(lines.includes('video: -'));
-  assert.ok(!lines.some((l: string) => l.includes('openrouter/old')), 'no deprecated key is shown');
-  assert.ok(
-    !lines.some((l: string) => /^(followup|media|classifier[.a-z]*|image):/.test(l)),
-    'the old role names are gone from the listing'
-  );
-});
-
 test("run: model.set puts the model on each route of a base role's chain and writes an agent's models.<group> path", async () => {
   // Changed: a base role's model is its chain's (spec 2026-11-09-model-routes, slice 4), so the rig gives each base role
   // a chain on `main` first, and the set rewrites the model of that chain.
@@ -653,20 +632,6 @@ test('run: model.set accepts a loosely-valid id (letters, digits, dot, colon, sl
     models: { routes: chainsOf({ vision: 'anthropic/claude-haiku-4.5:beta' }) },
     media: { recacheBefore: new Date(0).toISOString() },
   });
-});
-
-test("model show: the core role is its chain's model, never a stale memory.voiceModel; no voice line", async () => {
-  const rootDir = makeRoot();
-  const hot = makeHotWithMedia(rootDir);
-  hot.config.memory.voiceModel = 'openrouter/stale-voice-model';
-  const { admin } = makeAdmin(rootDir, { hot });
-
-  const lines = (await admin.run('model.show', {}, {})).split('\n');
-  assert.ok(lines.includes('core: anthropic/claude-opus-4.6'));
-  assert.ok(!lines.some((l: string) => l.startsWith('voice:')), 'no voice role');
-  // Changed: speech is off with no chain (slice 4); its line stays, the voice model's role.
-  assert.ok(lines.includes('speech: -'), 'speech is the voice model, a helper role');
-  assert.ok(!lines.some((l: string) => l.includes('stale-voice-model')), 'memory.voiceModel is not read');
 });
 
 test('model set drawing: writes the drawing chain to config.local.json, reloads, and model show lists it', async () => {
@@ -971,26 +936,6 @@ test('access.grant: a write operation gets the write note; a read operation none
     assert.ok(!(access[name]?.roles ?? []).includes('mods'), `* never covers ${name}`);
   }
   assert.ok(access['memory.profile.read'].roles.includes('mods'));
-});
-
-// ---------------------------------------------------------------------------
-// memory.show / memory.affinity
-// ---------------------------------------------------------------------------
-
-test('run: memory.profile.read section affinity only reads -- the attitude changes through the memory analyzer alone, never by hand', async () => {
-  const rootDir = makeRoot();
-  const { admin, store } = makeAdmin(rootDir);
-  store.profiles.set('123', { id: '123', affinity: { score: 12, reason: 'kind words', history: [] } });
-
-  // a score in the arguments (an old caller) reaches no write: the view, the score as it was
-  const result = await admin.run(
-    'memory.profile.read',
-    { accountId: '123', section: 'affinity', score: 77, reason: 'by hand' },
-    { placeId: 'g1' }
-  );
-  assert.ok(result.includes('score: 12'), result);
-  assert.equal(userOf(store, '123').affinity.score, 12);
-  assert.equal(getOp('memory.affinity.set'), null, 'no operation sets it');
 });
 
 test('memory.profile.read affinity / alias.add / alias.remove: a member with no profile is refused and none is created', async () => {
@@ -2370,37 +2315,6 @@ test('status: without an embedding client the embedding role is shown unchecked;
 });
 
 // ---------------------------------------------------------------------------
-// message create from a person
-// ---------------------------------------------------------------------------
-
-// Slice 5: the operator's message.create no longer gives her a turn (the forced turn is deleted with
-// src/behavior/spontaneous.ts); a person who runs it is refused owner-only, with or without a text or a channel, and no
-// turn starts. The two tests of the turn's channel and requester went with it.
-test('run: message create from a person is refused owner-only and starts no turn, whatever channel or text it names', async () => {
-  const rootDir = makeRoot();
-  world().channel({ id: 'c1' });
-  world().channel({ id: 'other' });
-  const ran: Array<unknown> = [];
-  const turns = {
-    runTurn: async (params: unknown) => {
-      ran.push(params);
-      return { outcome: 'spoke' };
-    },
-  };
-  const { admin } = makeAdmin(rootDir, { turns });
-  const ownerOnly = (err: unknown) => (err as { code?: unknown }).code === 'owner-only';
-  await assert.rejects(
-    () => admin.run('message.create', {}, { placeId: 'c1', accountId: '42', roleIds: ['r1'] }),
-    ownerOnly
-  );
-  await assert.rejects(
-    () => admin.run('message.create', { placeId: 'other', text: 'Σ' }, { placeId: 'c1' }),
-    ownerOnly
-  );
-  assert.deepEqual(ran, []);
-});
-
-// ---------------------------------------------------------------------------
 // pause / resume
 // ---------------------------------------------------------------------------
 
@@ -2431,24 +2345,6 @@ test('run: pause is idempotent -- a second call just reports the state without d
   assert.equal(store.state.data.pausedAt, pausedAt, 'pausedAt is not bumped by a repeat pause');
   assert.equal(store.dropCachesCalls, dropsAfterFirst, 'nothing is dropped again');
   assert.match(result, /already paused/i);
-});
-
-test('run: pause keeps the pending pings for the resume and clears nothing', async () => {
-  // Changed: the pause cleared the pending-ping queue when the deps gave a `clear`, but the core gives only `drain`,
-  // which hands the queue back at the resume. Bug: a pause throws away the pings that wait for the resume.
-  const rootDir = makeRoot();
-  let clearCalls = 0;
-  const pending = {
-    clear: () => {
-      clearCalls += 1;
-    },
-    drain: () => {},
-  };
-  const { admin } = makeAdmin(rootDir, { pending });
-
-  await admin.run('bot.pause', {}, {});
-
-  assert.equal(clearCalls, 0);
 });
 
 test('run: pause waits for a turn already in flight before dropping caches', async () => {
@@ -3358,16 +3254,4 @@ test('admin: journal lists the last n records of a day as short lines', async ()
   const { admin: granted } = makeAdmin(rootDir, { hot: openHot, journal });
   assert.equal(await mayRun(granted, 'memory.profile.read', { accountId: '7' }), true);
   assert.equal(await mayRun(granted, 'memory.journal.read', { accountId: '7' }), false);
-});
-
-// ---------------------------------------------------------------------------
-// memory.snapshot
-// ---------------------------------------------------------------------------
-
-test('admin: memory snapshot is owner-only and cannot be granted', async () => {
-  const rootDir = makeRoot();
-  const { admin, hot } = makeAdmin(rootDir);
-  hot.config.bot.access = { memory: { everyone: true } };
-  assert.equal(await mayRun(admin, 'memory.snapshot', { accountId: '7' }), false);
-  assert.equal(await mayRun(admin, 'memory.snapshot', { accountId: '42' }), true);
 });

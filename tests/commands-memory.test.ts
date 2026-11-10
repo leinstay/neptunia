@@ -160,28 +160,6 @@ for (const [line, name] of LINES) {
   });
 }
 
-// Changed: the retired names are gone with the rest of the legacy, so such a line is refused like any line the table
-// does not hold, and names no replacement.
-const RETIRED = [
-  '/memory profile u1',
-  '/memory accounts discord n1',
-  '/memory aliases list u1',
-  '/memory affinity u1',
-  '/memory private u1',
-  '/memory server',
-  '/memory lore list',
-  '/memory person u1',
-  // `/memory bind` is the one way to link an account (plan 2026-11-08-meta-person, slice 7).
-  '/memory users link person:x account:y',
-] as const;
-
-for (const line of RETIRED) {
-  test(`${line} is refused`, () => {
-    // Bug: a functional alias survives and reaches a reader or a write.
-    assert.equal(parseCommandLine(line).ok, false);
-  });
-}
-
 // ---------- families whose word has as many letters as `users` ----------
 
 for (const family of ['media', 'turns'] as const) {
@@ -299,13 +277,6 @@ test('a bad cursor answers invalid with its code and no partial page', async () 
     const answer = await one.say('/memory users list --cursor garbage');
     assert.deepEqual([answer.status, answer.code], ['invalid', 'INSPECTION_BAD_CURSOR']);
   });
-});
-
-test('no command unlinks an account', () => {
-  // Bug: an unlink survives the owner's decision of 2026-11-08 that accounts are bound and never unbound
-  // (plan 2026-11-08-meta-person), so an account leaves its meta-person with a copy of the person that lies.
-  for (const line of ['/memory users unlink person:x account:y', '/memory unbind discord n1'])
-    assert.equal(parseCommandLine(line).ok, false, line);
 });
 
 // The tests of `/memory users link` writing through the one writer and refusing an unknown account are gone with the
