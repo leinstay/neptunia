@@ -287,6 +287,7 @@ export type RunDbQuotesInput = {
   selfName: string;
   history: Untyped;
   candidate: Untyped;
+  terms?: string;
   server: Untyped;
   decorate: Untyped;
   started: Untyped;
@@ -410,6 +411,8 @@ export type RunInput = {
   context?: Untyped;
   contextDescriptions?: Untyped;
   candidate?: Untyped;
+  /** The persona's `terms` in a `quotes` run: embedded for the meaning search when she gave no question. */
+  terms?: string;
   server?: Untyped;
   op?: Untyped;
   decorate?: Untyped;
