@@ -3,6 +3,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { liveIface, namedIface, withLiveIface } from '../src/memory/db/live-iface.ts';
+import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import { freshMemoryDb } from './fixtures/memory-db-copy.ts';
 
 test('names the interface a source carries and nothing for one that carries none', () => {
   assert.equal(namedIface({ iface: 'fake' }), 'fake');
@@ -42,4 +45,16 @@ test('stamps the live interface on a unit write that names none and keeps one th
     withLiveIface({ op: 'lines' }, () => null),
     { op: 'lines' }
   );
+});
+
+test('a write that names no interface keeps its row from every group', () => {
+  // Bug: such a write was filed under the Discord namespace of the legacy files, so its row was shown to Discord's groups.
+  const handle = freshMemoryDb();
+  try {
+    applyMemoryWrite(handle, { kind: 'gif-vector', itemId: 'item-1', model: null, vector: [0.6, 0.8] });
+    const row = dbOf(handle).prepare("SELECT audience_id FROM vectors WHERE chunk_key = 'gif:item-1'").get();
+    assert.equal(row?.audience_id, 'aud:internal');
+  } finally {
+    handle.close();
+  }
 });
