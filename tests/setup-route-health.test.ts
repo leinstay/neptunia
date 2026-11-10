@@ -182,3 +182,13 @@ test('no harness logged in warns with the command that logs one in', async () =>
   assert.equal(health.status, 'warn', health.detail);
   assert.ok(health.detail.includes('neptunia subharness'), health.detail);
 });
+
+test('a stored effort level on a role whose model takes no reasoning is reported as a warning naming the role', async () => {
+  // Catches: a level config.json holds for embedding, which no request sends, left unseen by the doctor.
+  const { run, privateDir } = rig();
+  const routes = { embedding: [{ via: 'api', key: 'core-1', model: 'x/embedding', effort: 'high' }] };
+  fs.mkdirSync(path.join(privateDir, 'config'), { recursive: true });
+  fs.writeFileSync(path.join(privateDir, 'config', 'config.json'), JSON.stringify({ models: { routes } }));
+  const health = await run();
+  assert.match(health.detail, /^embedding: effort high .*disabled$/m);
+});
