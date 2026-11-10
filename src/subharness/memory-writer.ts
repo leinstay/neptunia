@@ -15,7 +15,8 @@
 import fs from 'node:fs';
 import nodePath from 'node:path';
 import { childEnvOf, outputLimitEnv, tokensOf } from '../agent-runner/backend.ts';
-import { EFFORT_LEVELS, isEffortLevel, isListedEffort } from '../llm/roles.ts';
+import { isEffortLevel, isListedEffort } from '../llm/roles.ts';
+import type { EFFORT_LEVELS } from '../llm/roles.ts';
 import { log } from '../log.ts';
 import type { Completion, SessionContext } from '../memory/db/session.ts';
 import type { MemoryBackend } from './routing.ts';
