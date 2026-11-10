@@ -394,11 +394,16 @@ export type RigEmbed = (texts: Array<string>, opts: Row) => Promise<Array<Float3
  * The recall runner and `memory.search` over the fixture database, in #general (c1). `embed` is the embedding call the
  * runner gets, as the core gives it (none by default: a run with words only). `model` pins the embedder's model for the
  * query, so it is read against the vectors written under that model, and `minMeaning` is the cosine under which a meaning
- * hit is dropped.
+ * hit is dropped. `labels` are the labels the runner and the tool render with, `LABELS` unless a test words a line itself.
  */
 export function recallRig(
   env: Env,
-  { embed = null, model = null, minMeaning = 0.5 }: { embed?: RigEmbed | null; model?: string | null; minMeaning?: number } = {}
+  {
+    embed = null,
+    model = null,
+    minMeaning = 0.5,
+    labels: wording = LABELS,
+  }: { embed?: RigEmbed | null; model?: string | null; minMeaning?: number; labels?: typeof LABELS } = {}
 ): RecallRig {
   fillEnvAudiences(env);
   insertRows(
@@ -439,7 +444,7 @@ export function recallRig(
   const llm = { capLeft: () => 100, complete: () => Promise.resolve({ text: '' }) };
   const created = createRecall({
     reads,
-    hot: { config, prompts: { 'recall-summary': 'x', labels: LABELS } },
+    hot: { config, prompts: { 'recall-summary': 'x', labels: wording } },
     store,
     llm,
     now: () => NOW,
@@ -453,7 +458,7 @@ export function recallRig(
       recall: created,
       store,
       config,
-      labels: LABELS,
+      labels: wording,
       placeId: 'g1',
       snapshot,
       channel,

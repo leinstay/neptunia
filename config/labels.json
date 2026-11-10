@@ -780,6 +780,7 @@
           "handles": "The number before each quoted line is a message number you can use in your calls like any other in the chat.",
           "windowsLeft": "{count} more stretches not shown: {where}. Narrow the search with when, place, people or terms to see them.",
           "none": "No matching messages found.",
+          "far": "Nothing close to what you searched for was found. The lines below are only the nearest ones and may be unrelated.",
           "degraded": "The meaning index was not reachable; only word matches were used.",
           "partial": "{failed} of {total} searches were cut short; some results may be missing.",
           "hidden": "A match was found in a private conversation that cannot be opened here.",
@@ -797,7 +798,10 @@
           "none": "No messages in that span.",
           "cut": "{dropped} lines not shown for room.",
           "earlier": "To read earlier: before=#{n}",
-          "later": "To read later: after=#{n}"
+          "later": "To read later: after=#{n}",
+          "newest": "This read reaches the newest line of this chat, written {time}. There is nothing newer to read.",
+          "found": "Lines of this chat that match what you looked for and are not shown above, best first:",
+          "findNone": "No line of this chat matches what you looked for."
         },
         "place": {
           "several": "\"{given}\" fits {count} places. Call again with one of these:",

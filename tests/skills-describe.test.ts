@@ -63,7 +63,8 @@ test('tools.describe: an exact name comes back in full with its arguments and wh
   // Slice 7 of the turn frame: the tool argument channel is named place.
   assert.equal(
     dataText(result),
-    'memory.search: Search -- find old talk (allowed) Arguments: question, people, place, when, terms, anchor, move, messages, minutes, entity, predicate, as_of, historical.'
+    // The search gained `mine`, so the list of its arguments ends with it.
+    'memory.search: Search -- find old talk (allowed) Arguments: question, people, place, when, terms, anchor, move, messages, minutes, entity, predicate, as_of, historical, mine.'
   );
   const off = await call(env, 'memory.journal.read');
   assert.match(dataText(off), /\(off\)/);
