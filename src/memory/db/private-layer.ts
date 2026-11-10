@@ -1,5 +1,5 @@
 // A member's private layer: what she learned about the member in their direct chat (src/memory/store.ts,
-// `getPrivate`, `applyPrivateOps`, `addPrivateEpisodes`), owned by the unit `accountCollection('private', <account
+// `getPrivate`, `applyPrivateOps`), owned by the unit `accountCollection('private', <account
 // id>)`. The store writes it through the write kind `private-layer` (session-write.ts) and reads it back through
 // `privateLayerValue` below. No `people` or `accounts` row: those belong to the account's profile (account-profile.ts).
 //

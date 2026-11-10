@@ -13,7 +13,7 @@ import type { Untyped } from '../src/tools/types.ts';
 import { createStore } from '../src/memory/store.ts';
 import { MEMORY_LIMITS } from '../src/memory/text-limits.ts';
 import { createAppendStore } from '../src/memory/append-store.ts';
-import { createArchive } from '../src/memory/archive.ts';
+import { archiveEntry, createArchive } from '../src/memory/archive.ts';
 import { buildDrawPrompt } from '../src/behavior/prompt.ts';
 import { familyOf, ImageGenError } from '../src/llm/images.ts';
 import { ROLE_DEFAULTS } from '../src/llm/roles.ts';
@@ -3066,21 +3066,26 @@ test('admin: memory restore re-inserts an episode and writes a restored event, i
   const store = createStore({ dataDir, archive, memoryDb: mem.memoryDb });
   const { admin } = makeAdmin(rootDir, { store, archive });
   try {
-    const opts = { maxEpisodes: 1, maxNew: 3, now: Date.UTC(2026, 9, 12) };
-    store.touchUser(accountOf(store, 'u1'), 'Zoé', opts.now);
-    store.addEpisodes(
-      accountOf(store, 'u1'),
-      [{ date: '2026-10-01', what: 'Έχασε στο σκάκι', quote: 'ξανά', weight: 1 }],
-      opts
-    );
-    const [old] = userOf(store, 'u1').episodes;
-    store.addEpisodes(accountOf(store, 'u1'), [{ date: '2026-10-12', what: 'Κέρδισε στο σκάκι', weight: 3 }], opts);
-    await store.settleArchive();
-    assert.deepEqual(
-      userOf(store, 'u1').episodes.map((ep: Untyped) => ep.what),
-      ['Κέρδισε στο σκάκι'],
-      'evicted and archived'
-    );
+    const now = Date.UTC(2026, 9, 12);
+    store.touchUser(accountOf(store, 'u1'), 'Zoé', now);
+    // The engine has no episode writer, so the evicted episode is filed in the archive the way the store files one:
+    // a member's public item under the persona, scoped to the member.
+    const old = {
+      itemId: 'ep-old-chess',
+      date: '2026-10-01',
+      what: 'Έχασε στο σκάκι',
+      quote: 'ξανά',
+      weight: 1,
+      addedAt: '2026-10-01T10:00:00.000Z',
+    };
+    await archive.append(null, [
+      archiveEntry(old, {
+        itemKind: 'episode',
+        event: 'evicted',
+        scope: { user: accountOf(store, 'u1') },
+        now: () => now,
+      }),
+    ]);
 
     const listed = await admin.run('memory.archive.read', { accountId: 'u1' }, { placeId: 'g1' });
     assert.match(listed, new RegExp(`evicted\\s+episode\\s+${old.itemId}`));
@@ -3100,7 +3105,7 @@ test('admin: memory restore re-inserts an episode and writes a restored event, i
       [back.date, back.what, back.quote, back.weight, back.addedAt],
       [old.date, old.what, old.quote, old.weight, old.addedAt]
     );
-    assert.equal(episodes.length, 2, 'not pinned, and no cap applied by the restore itself');
+    assert.equal(episodes.length, 1, 'the restore adds the one archived episode');
     let lines = await archive.find(old.itemId);
     assert.deepEqual(
       lines.map((entry: Untyped) => [entry.event, entry.by]),
@@ -3113,7 +3118,7 @@ test('admin: memory restore re-inserts an episode and writes a restored event, i
     // Again: the item is hot already, nothing is written.
     const again = await admin.run('memory.restore', { itemId: old.itemId }, { placeId: 'g1' });
     assert.match(again, /already/);
-    assert.equal(userOf(store, 'u1').episodes.length, 2);
+    assert.equal(userOf(store, 'u1').episodes.length, 1);
     lines = await archive.find(old.itemId);
     assert.equal(lines.length, 2);
 

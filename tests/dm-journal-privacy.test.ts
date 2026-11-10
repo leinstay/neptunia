@@ -410,15 +410,28 @@ test("a DM's vector is out of a group's index and carries no group audience", as
 
 // ---- the archive ----------------------------------------------------------------------------------------------------
 
-/** One private episode evicted from the partner's store, through the real store and archive: its entry and its id. */
+/**
+ * One private episode in the archive, filed the way the store files an evicted private item: under the partner's DM
+ * place as `{ place, private }`, or under the persona as `{ user, private }` for a member with no DM place. The engine
+ * has no episode writer, so the entry is appended to the archive directly, beside a private layer for the restore to
+ * write into. Answers its item id.
+ */
 async function evictedPrivate(w: World, account = PARTNER_ACCOUNT) {
-  const opts = { maxEpisodes: 1, maxNew: 3, now: NOW };
-  w.store.addPrivateEpisodes(account, [{ date: '2026-10-01', what: `the ${SECRET} episode`, weight: 1 }], opts);
-  const held = wrongly<{ episodes: Array<{ itemId: string }> }>(w.store.getPrivate(account)).episodes;
-  const itemId = String(held[0]?.itemId);
-  w.store.addPrivateEpisodes(account, [{ date: '2026-11-01', what: 'a later episode', weight: 3 }], opts);
-  await w.store.settleArchive();
-  return itemId;
+  w.store.applyPrivateOps(account, { details: { add: ['a later detail'] } });
+  const home = account === PARTNER_ACCOUNT ? DM : null;
+  const entry = wrongly<{ itemId: string }>(
+    archiveEntry(
+      { itemId: `ep-${account}`, date: '2026-10-01', what: `the ${SECRET} episode`, weight: 1 },
+      {
+        itemKind: 'episode',
+        event: 'evicted',
+        scope: home === null ? { user: account, private: true } : { place: home, private: true },
+        now: () => NOW,
+      }
+    )
+  );
+  await w.archive.append(home, [entry]);
+  return entry.itemId;
 }
 
 function recaller(w: World) {

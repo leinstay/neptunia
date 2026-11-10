@@ -12,8 +12,6 @@ export const MEMORY_LIMITS = Object.freeze({
   fieldChars: 1000,
   maxDetails: 15,
   maxSelfFacts: 20,
-  maxEpisodes: 20,
-  keepNewestEpisodes: 5,
   recentHours: 72,
   maxRecentStored: 150,
   maxNewRecent: 3,

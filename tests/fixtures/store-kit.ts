@@ -257,4 +257,3 @@ export function fakeArchive({ manual = false, fail = false }: { manual?: boolean
   return fake;
 }
 
-export const whats = (episodes: Array<{ what: string }>): Array<string> => episodes.map((ep) => ep.what);

@@ -56,7 +56,6 @@ import { isRecord, propOf, isFiniteNumber, isIntegerNumber, readSeamOf } from '.
 import { log } from '../log.ts';
 import { HOUR_MS, utcDay } from '../time.ts';
 import { emptyAffinity, applyDelta, decayAffinity } from './affinity.ts';
-import { mergeEpisodes } from './episodes.ts';
 import { loreVersionKey, upsertLore } from './lore.ts';
 import { sentenceDiff } from './prose.ts';
 import {
@@ -72,7 +71,6 @@ import { applyDetailOps, normalizeDetails } from './details.ts';
 import { applyAliasOps } from './aliases.ts';
 import { applyAddressUses, normalizeAddressedAs } from './addressed.ts';
 import { clampText, stripUrls } from './clamp.ts';
-import { feltLine } from './record.ts';
 import { sortRanked } from './ranking.ts';
 import { mergeEmojiUsage, normalizeEmojiUsage } from './emoji-usage.ts';
 import { normalizePings, pingStateOf, withPingState } from './pings.ts';
@@ -1058,8 +1056,6 @@ type ArchiveReplacedInput = {
 type StoreDeps = {
   dataDir: string;
   newId?: () => string;
-  record?: { append: Untyped } | null;
-  recordOn?: () => boolean;
   archive?: Untyped;
   archiveOn?: () => boolean;
   memoryDb: MemoryDb;
@@ -1157,8 +1153,6 @@ type HoldVictimsInput = {
 function buildStore({
   dataDir,
   newId = randomUUID,
-  record = null,
-  recordOn = () => Boolean(record),
   archive = null,
   archiveOn = () => Boolean(archive),
   memoryDb,
@@ -1525,41 +1519,6 @@ function buildStore({
     }
   }
 
-  /**
-   * A `felt` line (src/memory/record.ts#feltLine) for each of `episodes` that holds a feeling,
-   * appended to the record of `placeId` (the member's private record for the private layer).
-   * Not awaited: the store's writers stay synchronous; a refused append is logged.
-   */
-  function recordFelt(accountId: string, layer: Untyped, episodes: Untyped) {
-    if (!record || !recordOn()) return;
-    const lines = episodes
-      .filter((ep: Untyped) => isRecord(ep) && typeof ep.feeling === 'string' && ep.feeling)
-      .map((ep: Untyped) =>
-        feltLine(
-          {
-            accountId: String(accountId),
-            itemId: ep.itemId ?? null,
-            text: ep.feeling,
-            date: ep.date ?? null,
-            sourceMessageIds: Array.isArray(ep.sourceMessageIds) ? ep.sourceMessageIds : [],
-          },
-          { uuid: newId }
-        )
-      );
-    if (lines.length === 0) return;
-    const failed = (error: Untyped) =>
-      log.warn('store: record failed', {
-        kind: 'felt',
-        lines: lines.length,
-        code: error?.code ?? null,
-      });
-    try {
-      Promise.resolve(record.append(layer === 'private' ? dmHomeOf(String(accountId)) : null, lines)).catch(failed);
-    } catch (error) {
-      failed(error);
-    }
-  }
-
   /** Whether a unit has a value, in use or stored (store-writes.ts#known). */
   const known = (file: string) => writes.known(file);
   const idsUnder = writes.idsUnder;
@@ -1726,55 +1685,6 @@ function buildStore({
       added: diff.added,
     });
     return { dropped };
-  }
-
-  /**
-   * Merge `incoming` episodes into a member file's list (src/memory/episodes.ts#mergeEpisodes) and
-   * write it when one was added, every stored episode with an `itemId` (`withItemIds`).
-   * @param item  A profile or private layer's cache entry.
-   * @param [owner]  Whose episodes: the
-   *   feelings of the newly stored ones go to the record (recordFelt).
-   * @returns `dropped`: the evicted episodes, each with an itemId.
-   */
-  function mergeEpisodesInto(
-    item: StoreItem,
-    incoming: unknown,
-    opts: Untyped,
-    owner: { accountId: string; layer?: 'private' } | null = null
-  ): { added: number; dropped: Array<Untyped> } {
-    const previous = Array.isArray(item.value.episodes) ? item.value.episodes : [];
-    const before = new Set(previous);
-    const { episodes, added, dropped } = mergeEpisodes(item.value.episodes, incoming, opts);
-    const victims = withItemIds(dropped, ITEM_ID_PREFIX.episode, newId);
-    if (added > 0) {
-      const stamped = withItemIds(episodes, ITEM_ID_PREFIX.episode, newId);
-      item.value.episodes = stamped;
-      item.dirty = true;
-      if (owner)
-        recordFelt(
-          owner.accountId,
-          owner.layer,
-          stamped.filter((_, i) => !before.has(episodes[i]))
-        );
-      if (owner) {
-        const id = String(owner.accountId);
-        const isPrivate = owner.layer === 'private';
-        const scope = memberScope(id, isPrivate);
-        holdVictims({
-          item,
-          file: isPrivate ? privateFile(id) : userFile(id),
-          path: ['episodes'],
-          previous,
-          victims,
-          itemKind: 'episode',
-          eventOf: () => 'evicted',
-          scope,
-          home: isPrivate ? dmHomeOf(id) : null,
-          accountId: id,
-        });
-      }
-    }
-    return { added, dropped: victims };
   }
 
   /**
@@ -1976,9 +1886,8 @@ function buildStore({
     /**
      * Merge LLM-extracted fields into a profile. `affinity` is never taken
      * from here — it only ever changes through `adjustAffinity`, which keeps
-     * its clamping and history bookkeeping in one place. `episodes` likewise
-     * only ever changes through `addEpisodes` (src/memory/episodes.ts), which
-     * appends and evicts instead of overwriting. `interests`/`details`
+     * its clamping and history bookkeeping in one place. `episodes` is never
+     * taken from here either. `interests`/`details`
      * likewise only ever change through `applyProfileOps` below, which merges
      * incrementally instead of overwriting wholesale. A changed `character`/`style`/
      * `relationship` keeps its previous text (`recordVersion`; `opts.by`, `opts.versions`), and
@@ -2187,17 +2096,6 @@ function buildStore({
       return true;
     },
 
-    /**
-     * Append freshly-extracted episodes to a member's profile via
-     * src/memory/episodes.ts#mergeEpisodes: validated, deduplicated against
-     * what is already stored, then evicted back down to `opts.maxEpisodes`
-     * (lowest weight, oldest first) if needed. Returns how many were added.
-     */
-    addEpisodes(accountId: string, incoming: Untyped, opts: Untyped) {
-      const item = entry(userFile(accountId), () => emptyProfile(addressing.nativeOfRow('accounts', accountId)));
-      return mergeEpisodesInto(item, incoming, opts, { accountId }).added;
-    },
-
     /** Fold one delta into a member's stored affinity (see src/memory/affinity.ts); `decayedAt` is
      * kept. Returns the stored affinity, with `applyDelta`'s non-enumerable `droppedMoves`. */
     adjustAffinity(
@@ -2331,16 +2229,6 @@ function buildStore({
       item.dirty = true;
       holdMoves(accountId, item, privateFile(accountId), current, next, true);
       return next;
-    },
-
-    /**
-     * Append episodes to a member's private layer via
-     * src/memory/episodes.ts#mergeEpisodes (same `opts` as `addEpisodes`).
-     * Creates the file. Returns how many were added.
-     */
-    addPrivateEpisodes(accountId: string, incoming: unknown, opts?: Untyped): number {
-      const item = privateEntry(accountId);
-      return mergeEpisodesInto(item, incoming, opts, { accountId, layer: 'private' }).added;
     },
 
     /**
@@ -3438,11 +3326,7 @@ export type Store = Omit<
 /**
  * The store over one data directory.
  * @param options  `newId`: the source of the UUID in every new `itemId`
- *   (`ITEM_ID_PREFIX`); node:crypto's `randomUUID` unless a test injects one. `record`
- *   (src/memory/record.ts#createRecord, optional): while `recordOn()` (read at each write;
- *   src/index.js passes features.record exactly true) every feeling stored on an episode -- with
- *   the episode (`addEpisodes` / `addPrivateEpisodes`) -- is
- *   appended to it as a `felt` line, in the background (a refused append is logged, counts only).
+ *   (`ITEM_ID_PREFIX`); node:crypto's `randomUUID` unless a test injects one.
  *   `archive` (src/memory/archive.ts#createArchive, optional): while `archiveOn()` (read at each
  *   write; src/index.js passes features.archive exactly true) nothing leaves a hot list on disk
  *   before its copy is in the archive -- see "The archive" inside, `settleArchive`,

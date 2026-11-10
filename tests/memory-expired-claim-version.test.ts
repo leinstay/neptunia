@@ -11,7 +11,6 @@ import { createAppendStore } from '../src/memory/append-store.ts';
 import { createArchive } from '../src/memory/archive.ts';
 import { auditMemory } from '../src/memory/db/audit.ts';
 import { placeOfRoot } from '../src/memory/addresses.ts';
-import { createRecord } from '../src/memory/record.ts';
 import { createStore } from '../src/memory/store.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 
@@ -52,9 +51,8 @@ test('an expired participation episode leaves no claim version without its claim
   const appendStore = createAppendStore({ log: quiet, now: () => NOW });
   try {
     const { memoryDb, dataDir } = env;
-    const record = createRecord({ dataDir, log: quiet, now: () => NOW, memoryDb });
     const archive = createArchive({ appendStore, dataDir, log: quiet, now: () => NOW, memoryDb });
-    const store = createStore({ dataDir, record, recordOn: () => true, archive, archiveOn: () => true, memoryDb });
+    const store = createStore({ dataDir, archive, archiveOn: () => true, memoryDb });
     const place = placeOfRoot(store, 'g1');
     const settings = { hours: 24 };
     store.setParticipation(

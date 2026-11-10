@@ -137,28 +137,6 @@ test('updateUser: the prose fields are stored without links; a link alone does n
   assert.equal(asRecord(profile).portraitDueAt, '2026-10-14T00:00:00.000Z');
 });
 
-test('addEpisodes: episodes are stored without links; one that is only a link is not added', () => {
-  const store = tmpStore();
-  const now = Date.UTC(2026, 9, 14);
-  const added = store.addEpisodes(
-    accountOf(store, 'u1'),
-    [
-      {
-        date: '2026-10-14',
-        what: `Έστειλε ένα βίντεο ${URL}`,
-        quote: `κοίτα ${URL}`,
-        feeling: `χαρά ${URL}`,
-        weight: 2,
-      },
-      { date: '2026-10-14', what: URL, weight: 2 },
-    ],
-    { maxEpisodes: 10, now }
-  );
-  assert.equal(added, 1);
-  const [episode] = asRecord(store.getUser(accountOf(store, 'u1'))).episodes;
-  assert.deepEqual([episode.what, episode.quote, episode.feeling], ['Έστειλε ένα βίντεο', 'κοίτα', 'χαρά']);
-});
-
 test('adjustAffinity: a move reason is stored without links', () => {
   const store = tmpStore();
   const affinity = store.adjustAffinity(accountOf(store, 'u1'), 3, `βοήθησε ${URL}`, {
@@ -174,16 +152,12 @@ test('adjustAffinity: a move reason is stored without links', () => {
 
 // ---- the private layer ----
 
-test('private layer: relationship, items, episodes and reasons are stored without links', () => {
+test('private layer: relationship, items and reasons are stored without links', () => {
   const store = tmpStore();
   store.applyPrivateOps(accountOf(store, 'u1'), {
     relationship: `Της μιλά τα βράδια ${URL}`,
     interests: { add: [{ topic: `ποίηση ${URL}`, note: URL }] },
     details: { add: [`δουλεύει σε café ${URL}`] },
-  });
-  store.addPrivateEpisodes(accountOf(store, 'u1'), [{ date: '2026-10-14', what: `Μίλησαν ${URL}`, weight: 2 }], {
-    maxEpisodes: 10,
-    now: Date.UTC(2026, 9, 14),
   });
   store.adjustPrivateAffinity(accountOf(store, 'u1'), 2, `ειλικρίνεια ${URL}`, {
     maxDelta: 5,
@@ -200,7 +174,6 @@ test('private layer: relationship, items, episodes and reasons are stored withou
     asRecord(priv).details.map((d: Untyped) => d.text),
     ['δουλεύει σε café']
   );
-  assert.equal(asRecord(priv).episodes[0].what, 'Μίλησαν');
   assert.equal(asRecord(priv).affinity.reason, 'ειλικρίνεια');
   noUrl(priv);
 });

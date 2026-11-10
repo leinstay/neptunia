@@ -32,9 +32,8 @@ test('the store reads back a private layer after the database is closed and open
   try {
     const store = createStore({ dataDir, memoryDb: first.memoryDb });
     store.touchUser('discord:555', 'Fifth', NOW);
-    store.addPrivateEpisodes('discord:555', [{ date: '2026-11-01', what: 'told a secret', weight: 2 }], {
-      maxEpisodes: 10,
-    });
+    // The engine has no episode writer, so a detail is the private write read back here.
+    store.applyPrivateOps('discord:555', { details: { add: ['told a secret'] } });
     store.flush();
     await store.flushSettled({});
     written = store.getPrivate('discord:555');
@@ -44,9 +43,9 @@ test('the store reads back a private layer after the database is closed and open
   const second = await openTestMemory({ dataDir, now: () => NOW, iface: () => 'discord' });
   try {
     const store = createStore({ dataDir, memoryDb: second.memoryDb });
-    const read = store.getPrivate('discord:555') as { episodes?: Array<{ what?: unknown }> } | null;
-    const [episode] = read?.episodes ?? [];
-    assert.equal(episode?.what, 'told a secret');
+    const read = store.getPrivate('discord:555') as { details?: Array<{ text?: unknown }> } | null;
+    const [detail] = read?.details ?? [];
+    assert.equal(detail?.text, 'told a secret');
     assert.deepEqual(read, written);
   } finally {
     await second.close();
