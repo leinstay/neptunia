@@ -417,15 +417,15 @@ async function buildCore(
     now: clock,
     log,
   });
-  // The record (src/memory/record.js): every observed message, the persona's own lines and her
-  // feelings, written while features.record is exactly true (read at each write).
+  // The record (src/memory/record.js): every observed message and the persona's own lines, written while
+  // features.record is exactly true (read at each write).
   const recordWriter = createRecord({ dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
   // The meaning index (src/memory/vectors.js): its writers wait on the same writer lock.
   const vectors = createVectors({ dataDir, log, writerGate: () => journal.waitUnlocked(), memoryDb });
   // The live embedding queue (src/memory/embedder.js), set once the embedding client exists below.
   let embedQueue: Untyped = null;
   // The one place the meaning index hears of new record lines: every writer (edits and deletions, the persona's own
-  // lines, feelings) appends through this record, and once an append took lines they are queued for embedding (the
+  // lines) appends through this record, and once an append took lines they are queued for embedding (the
   // queue keeps what it wants and is off unless features.meaningSearch and features.embedIndex are both exactly true).
   const record = {
     ...recordWriter,
@@ -466,7 +466,6 @@ async function buildCore(
   });
   const store = createStore({
     dataDir,
-    record,
     archive,
     memoryDb,
     track: loopWatch.track,

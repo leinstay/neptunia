@@ -25,7 +25,6 @@ import {
   readRaw,
   settle,
   tmpDataDir,
-  whats,
   writeLines,
   writeOldChannelFile,
   underTop,
@@ -917,38 +916,17 @@ test('adjustAffinity: persists across store instances', async () => {
   assert.equal(affinity.history.length, 1);
 });
 
-test('addEpisodes: persists across store instances', async () => {
-  const { dir, memoryDb } = memDataDir();
-  const storeA = createStore({ dataDir: dir, memoryDb });
-  storeA.touchUser(accountOf(storeA, 'u1'), 'Alice', 1000);
-  storeA.flush();
-  await storeA.flushSettled({}); // the profile is on disk and clean: only the new episode itself can mark it dirty again
-  storeA.addEpisodes(accountOf(storeA, 'u1'), [{ what: 'shared a secret', quote: 'do not tell anyone' }], {
-    maxEpisodes: 20,
-    maxNew: 3,
-    now: 1000,
-  });
-  storeA.flush();
-  await storeA.flushSettled({});
-
-  const storeB = createStore({ dataDir: dir, memoryDb });
-  const episodes = asRecord(storeB.getUser(accountOf(storeB, 'u1'))).episodes;
-  assert.equal(episodes.length, 1);
-  assert.equal(episodes[0].quote, 'do not tell anyone');
-});
-
 test('updateUser: never overwrites episodes even if the field is present in fields', () => {
   const dir = tmpDataDir();
   const store = createStore(memoryAt(dir));
   store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-  store.addEpisodes(accountOf(store, 'u1'), [{ what: 'a real episode' }], { maxEpisodes: 20, maxNew: 3, now: 1000 });
 
   store.updateUser(accountOf(store, 'u1'), { character: 'nice', episodes: [{ what: 'sneaky overwrite attempt' }] });
 
   const profile = store.getUser(accountOf(store, 'u1'));
   assert.equal(asRecord(profile).character, 'nice');
-  assert.equal(asRecord(profile).episodes.length, 1);
-  assert.equal(asRecord(profile).episodes[0].what, 'a real episode');
+  // The engine has no episode writer, so no episode is stored before the update.
+  assert.deepEqual(asRecord(profile).episodes, []);
 });
 
 // --- interests / details (applyProfileOps) ----------------------------------
@@ -1646,21 +1624,6 @@ test('adjustPrivateAffinity: starts at 0, clamps the delta and the score, never 
   assert.deepEqual(asRecord(store.getPrivate(accountOf(store, 'u1'))).affinity, last);
 
   assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).affinity.score, 4);
-});
-
-test('addPrivateEpisodes: appends via mergeEpisodes to the private file only', () => {
-  const dir = tmpDataDir();
-  const store = createStore(memoryAt(dir));
-  store.touchUser(accountOf(store, 'u1'), 'Alice', 1000);
-  const added = store.addPrivateEpisodes(accountOf(store, 'u1'), [{ what: 'told the persona a secret' }], {
-    maxEpisodes: 20,
-    maxNew: 3,
-    now: 1000,
-  });
-  assert.equal(added, 1);
-  assert.equal(asRecord(store.getPrivate(accountOf(store, 'u1'))).episodes[0].what, 'told the persona a secret');
-  assert.deepEqual(asRecord(store.getUser(accountOf(store, 'u1'))).episodes, []);
-  assert.equal(store.addPrivateEpisodes(accountOf(store, 'u1'), [], { maxEpisodes: 20, now: 2000 }), 0);
 });
 
 test('touchPrivateSeen: stamps lastSeen every time, firstSeen only while empty; never touches the public profile', async () => {
@@ -2564,31 +2527,30 @@ test('store: eviction returns the dropped items with their itemId', () => {
 
 // ---- the archive (src/memory/archive.ts): nothing leaves a hot list without a copy ----
 
-test('store: an evicted episode is archived before the hot file on disk loses it', async () => {
+test('store: an evicted attitude move is archived before the hot file on disk loses it', async () => {
   const { dir, memoryDb } = memDataDir();
   const archive = fakeArchive({ manual: true });
   const store = createStore({ dataDir: dir, memoryDb, newId: counterIds(), archive });
   const file = path.join(dir, 'guilds', 'g1', 'users', 'u1.json');
+  // The engine has no episode writer, so an attitude move past the history size is the eviction here.
+  const reasons = (history: Array<{ reason: string }>): Array<string> => history.map((move) => move.reason);
+  const history = () => asRecord(store.getUser(accountOf(store, 'u1'))).affinity.history;
   // Every write of the member's file, in order with the archive's answer.
   const write = async () => {
     store.flush();
     await settle();
-    const onDisk = whats(JSON.parse(readRaw(file)).episodes);
+    const onDisk = reasons(JSON.parse(readRaw(file)).affinity.history);
     archive.events.push(onDisk.includes('παλιό') ? 'write-with' : 'write-without');
   };
-  const opts = { maxEpisodes: 1, maxNew: 3, now: ID_NOW };
+  const opts = { maxDelta: 5, historySize: 1, now: ID_NOW };
   store.touchUser(accountOf(store, 'u1'), 'Zoé', ID_NOW);
-  store.addEpisodes(accountOf(store, 'u1'), [{ date: '2026-10-01', what: 'παλιό', weight: 1 }], opts);
+  store.adjustAffinity(accountOf(store, 'u1'), 1, 'παλιό', opts);
   await write();
 
   const from = store.archiveMark();
-  store.addEpisodes(accountOf(store, 'u1'), [{ date: '2026-10-04', what: 'νέο', weight: 3 }], opts);
+  store.adjustAffinity(accountOf(store, 'u1'), 1, 'νέο', opts);
   const to = store.archiveMark();
-  assert.deepEqual(
-    whats(asRecord(store.getUser(accountOf(store, 'u1'))).episodes),
-    ['παλιό', 'νέο'],
-    'the victim stays hot, over the cap'
-  );
+  assert.deepEqual(reasons(history()), ['παλιό', 'νέο'], 'the victim stays hot, over the cap');
   await write();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(archive.appended.length, 1, 'the append runs in the background');
@@ -2597,14 +2559,10 @@ test('store: an evicted episode is archived before the hot file on disk loses it
   assert.equal(placeId, null);
   assert.deepEqual(appendOpts, {});
   assert.deepEqual(
-    asRecord(entries).map((entry: Untyped) => [entry.itemKind, entry.event, entry.text.what, entry.scope]),
-    [['episode', 'evicted', 'παλιό', { user: 'discord:u1' }]]
+    asRecord(entries).map((entry: Untyped) => [entry.itemKind, entry.event, entry.text.reason, entry.scope]),
+    [['move', 'evicted', 'παλιό', { user: 'discord:u1' }]]
   );
-  assert.equal(
-    asRecord(entries[0]).itemId,
-    asRecord(store.getUser(accountOf(store, 'u1'))).episodes[0].itemId,
-    'the hot copy carries the archived id'
-  );
+  assert.equal(asRecord(entries[0]).itemId, history()[0].itemId, 'the hot copy carries the archived id');
   await write();
 
   archive.releases.shift()?.();
@@ -2614,13 +2572,13 @@ test('store: an evicted episode is archived before the hot file on disk loses it
       {
         itemId: asRecord(entries[0]).itemId,
         revisionId: asRecord(entries[0]).revisionId,
-        itemKind: 'episode',
+        itemKind: 'move',
         event: 'evicted',
       },
     ],
     deferred: 0,
   });
-  assert.deepEqual(whats(asRecord(store.getUser(accountOf(store, 'u1'))).episodes), ['νέο'], 'trimmed once confirmed');
+  assert.deepEqual(reasons(history()), ['νέο'], 'trimmed once confirmed');
   await write();
 
   const resolved = archive.events.indexOf('append-resolved');
@@ -2639,9 +2597,9 @@ test('store: an evicted episode is archived before the hot file on disk loses it
     archive: offArchive,
     archiveOn: () => false,
   });
-  off.addEpisodes(accountOf(off, 'u1'), [{ date: '2026-10-01', what: 'παλιό', weight: 1 }], opts);
-  off.addEpisodes(accountOf(off, 'u1'), [{ date: '2026-10-04', what: 'νέο', weight: 3 }], opts);
-  assert.deepEqual(whats(asRecord(off.getUser(accountOf(off, 'u1'))).episodes), ['νέο']);
+  off.adjustAffinity(accountOf(off, 'u1'), 1, 'παλιό', opts);
+  off.adjustAffinity(accountOf(off, 'u1'), 1, 'νέο', opts);
+  assert.deepEqual(reasons(asRecord(off.getUser(accountOf(off, 'u1'))).affinity.history), ['νέο']);
   assert.deepEqual(await off.settleArchive(), { archived: [], deferred: 0 });
   assert.equal(offArchive.appended.length, 0);
 });
@@ -2650,23 +2608,16 @@ test('store: a failing archive keeps every victim hot and queues them; drainPend
   const { dir, memoryDb } = memDataDir();
   const archive = fakeArchive({ fail: true });
   const store = createStore({ dataDir: dir, memoryDb, newId: counterIds(), archive });
-  const opts = { maxEpisodes: 3, maxNew: 3, now: ID_NOW };
+  // The engine has no episode writer, so an attitude move past the history size is the eviction here.
+  const opts = { maxDelta: 5, historySize: 3, now: ID_NOW };
+  const reasons = (history: Array<{ reason: string }>): Array<string> => history.map((move) => move.reason);
+  const history = () => asRecord(store.getUser(accountOf(store, 'u1'))).affinity.history;
   store.touchUser(accountOf(store, 'u1'), 'Zoé', ID_NOW);
-  store.addEpisodes(
-    accountOf(store, 'u1'),
-    [1, 2, 3].map((n) => ({ date: `2026-10-0${n}`, what: `στιγμή ${n}`, weight: 1 })),
-    opts
-  );
+  for (const n of [1, 2, 3]) store.adjustAffinity(accountOf(store, 'u1'), 1, `στιγμή ${n}`, opts);
 
   const from = store.archiveMark();
-  store.addEpisodes(
-    accountOf(store, 'u1'),
-    [
-      { date: '2026-10-04', what: 'βαριά', weight: 3 },
-      { date: '2026-10-05', what: 'βαριά δύο', weight: 3 },
-    ],
-    opts
-  );
+  store.adjustAffinity(accountOf(store, 'u1'), 1, 'βαριά', opts);
+  store.adjustAffinity(accountOf(store, 'u1'), 1, 'βαριά δύο', opts);
   const to = store.archiveMark();
 
   const { logs, result: settled } = await withCapturedLogs(() => store.settleArchive({ from, to }));
@@ -2675,31 +2626,27 @@ test('store: a failing archive keeps every victim hot and queues them; drainPend
     logs.some((entry) => entry.msg === 'store: archive failed' && entry.entries === 2),
     'counts only'
   );
-  assert.equal(asRecord(store.getUser(accountOf(store, 'u1'))).episodes.length, 5, 'every victim stays hot');
+  assert.equal(history().length, 5, 'every victim stays hot');
   assert.deepEqual(
     archive.pending.map((item) => `${asRecord(item).entry.itemKind} ${asRecord(item).entry.event}`).sort(),
-    ['episode evicted', 'episode evicted']
+    ['move evicted', 'move evicted']
   );
   store.flush();
   await store.flushSettled({});
   const file = path.join(dir, 'guilds', 'g1', 'users', 'u1.json');
-  assert.equal(JSON.parse(readRaw(file)).episodes.length, 5, 'on disk too');
+  assert.equal(JSON.parse(readRaw(file)).affinity.history.length, 5, 'on disk too');
 
   // A later write drops the same victims again: nothing is queued twice.
-  store.addEpisodes(accountOf(store, 'u1'), [{ date: '2026-10-06', what: 'βαριά τρία', weight: 3 }], opts);
+  store.adjustAffinity(accountOf(store, 'u1'), 1, 'βαριά τρία', opts);
   await store.settleArchive();
   assert.equal(archive.pending.length, 3, 'only the new victim is queued');
 
   const drained = await store.drainArchive();
   assert.deepEqual(drained, { archived: 3, left: 0 });
-  assert.deepEqual(whats(asRecord(store.getUser(accountOf(store, 'u1'))).episodes), [
-    'βαριά',
-    'βαριά δύο',
-    'βαριά τρία',
-  ]);
+  assert.deepEqual(reasons(history()), ['βαριά', 'βαριά δύο', 'βαριά τρία']);
   store.flush();
   await store.flushSettled({});
-  assert.equal(JSON.parse(readRaw(file)).episodes.length, 3);
+  assert.equal(JSON.parse(readRaw(file)).affinity.history.length, 3);
 });
 
 test('store: a replace op archives the previous version with event replaced', async () => {

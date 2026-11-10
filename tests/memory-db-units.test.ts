@@ -192,8 +192,6 @@ async function modules(
   const store = createStore({
     dataDir: data,
     newId: counter('id'),
-    record,
-    recordOn: () => true,
     archive,
     archiveOn: () => true,
     memoryDb: service,

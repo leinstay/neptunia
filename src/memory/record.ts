@@ -8,7 +8,8 @@
 //   - `seen`: a message the app observed (an edit is a new line with revision 2, 3, ...);
 //   - `deleted`: the platform deleted a message (its stored text stays: not a forget request);
 //   - `said`: the persona's own message, once its post succeeded;
-//   - `felt`: the feeling she attached to a stored moment, with its own id.
+//   - `felt`: the feeling she attached to a stored moment, with its own id; the record keeps these lines and no
+//     writer makes new ones.
 //
 // Only a whitelist of a message's fields enters a line (toRecordLine): ids, time, channel,
 // author, reply target, text, media kinds (never a URL of a file), mentions, `direct`, and for a
@@ -209,48 +210,6 @@ export function revisionOf(text: string): string {
     .update(String(text ?? ''), 'utf8')
     .digest('hex')
     .slice(0, 12)}`;
-}
-
-/**
- * A `felt` line: the feeling the persona attached to a stored moment of `accountId`.
- * @param feeling  `date`: the episode's date (a day or an ISO time).
- */
-export function feltLine(
-  {
-    accountId,
-    itemId = null,
-    text,
-    date = null,
-    sourceMessageIds = [],
-  }: {
-    accountId: string;
-    itemId?: string | null;
-    text: string;
-    date?: string | null;
-    sourceMessageIds?: Array<string>;
-  },
-  {
-    now = Date.now,
-    uuid = randomUUID,
-    origin = 'live',
-  }: { now?: () => number; uuid?: () => string; origin?: 'live' | 'backfill' } = {}
-): object {
-  const recordedAt = new Date(now()).toISOString();
-  return {
-    v: RECORD_VERSION,
-    id: uuid(),
-    kind: 'felt',
-    feltId: `f-${uuid()}`,
-    itemId: typeof itemId === 'string' && itemId ? itemId : null,
-    revisionId: revisionOf(text),
-    occurredAt: isoOf(date) ?? recordedAt,
-    recordedAt,
-    scope: { user: String(accountId) },
-    text: String(text ?? ''),
-    participants: idList(String(accountId)),
-    sourceMessageIds: idList(sourceMessageIds),
-    origin: origin === 'backfill' ? 'backfill' : 'live',
-  };
 }
 
 /** How many times appendRevision moves an edit past a revision the record already holds. */

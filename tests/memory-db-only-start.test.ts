@@ -87,7 +87,7 @@ async function engine(data: string, log = quiet) {
     memoryDb,
     log,
   });
-  const store = createStore({ dataDir: data, record, recordOn: () => true, archive, archiveOn: () => true, memoryDb });
+  const store = createStore({ dataDir: data, archive, archiveOn: () => true, memoryDb });
   const embedQueue = createEmbedder({ hot, vectors, embed: async () => [], record, log, now: () => NOW, memoryDb });
   const taskStores = createErrandStores({ config: () => config, journal, log, now: () => NOW, memoryDb });
   const intentionStores = createIntentionStores({ log, now: () => NOW, memoryDb });

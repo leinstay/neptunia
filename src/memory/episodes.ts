@@ -1,11 +1,5 @@
-// Pure merge logic for a member's remembered episodes -- moments the persona
-// recalls about the two of them, appended by the analyzer (never rewritten)
-// and evicted by weight then age once the per-person cap is exceeded, the
-// newest few (`memory.keepNewestEpisodes`) spared so a light moment of a busy
-// member is not thrown out the moment it arrives. See
-// docs/prompt-contract.md ("episodes" in "The analyzer"); src/memory/store.ts#addEpisodes
-// routes a member's new episodes through this module.
-// Plus the display order (`sortEpisodesForDisplay`, also behind the owner's
+// A member's remembered episodes, the moments the persona recalls about the two
+// of them: the display order (`sortEpisodesForDisplay`, also behind the owner's
 // view in src/admin.js) and the top-N choice for a member asked about
 // (`topEpisodes`), both used by src/behavior/prompt.js.
 //
@@ -15,11 +9,10 @@
 // module stays a leaf toward src/behavior/prompt.js: importing it would close
 // an import cycle (prompt.js imports this module).
 
-import { clampText, stripUrls } from './clamp.ts';
 import { normalizeTopic } from './interests.ts';
 import { utcDay } from '../time.ts';
 import { isIntegerNumber } from './types.ts';
-import type { StoredRecord, Untyped } from './types.ts';
+import type { StoredRecord } from './types.ts';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -60,160 +53,6 @@ export function isSameEpisode(a: StoredRecord, b: StoredRecord): boolean {
   if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
   if (a.date === b.date && normalizeTopic(a.what) === normalizeTopic(b.what)) return true;
   return Boolean(a.quote && b.quote && a.quote === b.quote);
-}
-
-function clampWeight(raw: Untyped) {
-  const n = isIntegerNumber(raw) ? raw : 3;
-  return Math.min(5, Math.max(1, n));
-}
-
-/**
- * Validate and clamp one raw episode from the model. Returns null when it has
- * no usable `what` (the one required field). `what`/`feeling` are free prose,
- * clamped tolerantly via src/memory/clamp.ts; `quote` is the person's own
- * words verbatim, so it gets a hard cut (`tolerance: 1`) at a clean boundary
- * instead -- see docs/prompt-contract.md, "Limits are soft for the
- * model, clean in code". Limits: `EPISODE_CHARS`; date: `episodeDate`. All
- * three lose their links first (src/memory/clamp.ts#stripUrls).
- */
-function sanitizeEpisode(raw: Untyped, nowMs: number, clampTolerance: Untyped) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const what =
-    typeof raw.what === 'string'
-      ? clampText(stripUrls(raw.what), EPISODE_CHARS.what, { tolerance: clampTolerance })
-      : '';
-  if (!what) return null;
-  const quote =
-    typeof raw.quote === 'string' ? clampText(stripUrls(raw.quote), EPISODE_CHARS.quote, { tolerance: 1 }) : '';
-  const feeling =
-    typeof raw.feeling === 'string'
-      ? clampText(stripUrls(raw.feeling), EPISODE_CHARS.feeling, { tolerance: clampTolerance })
-      : '';
-  const weight = clampWeight(raw.weight);
-  const date = episodeDate(raw.date, nowMs);
-  return { date, what, quote, feeling, weight };
-}
-
-/** Whether `candidate` is the same moment (`isSameEpisode`) as one of `stored`. */
-function isDuplicate(candidate: Untyped, stored: Untyped) {
-  return stored.some((s: Untyped) => isSameEpisode(s, candidate));
-}
-
-/** Ascending sort key for eviction: lowest weight first, then oldest first among equals. */
-function evictionOrder(a: Untyped, b: Untyped) {
-  return (
-    a.ep.weight - b.ep.weight ||
-    (a.ep.date < b.ep.date ? -1 : a.ep.date > b.ep.date ? 1 : 0) ||
-    String(a.ep.addedAt ?? '').localeCompare(String(b.ep.addedAt ?? '')) ||
-    a.index - b.index
-  );
-}
-
-/**
- * How many of the newest entries eviction spares: `keepNewest` rounded down and clamped to
- * `[0, cap - 1]`, so one entry is always left to evict. Anything that is not a number counts as 0.
- */
-function keptNewestCount(keepNewest: Untyped, cap: Untyped) {
-  const count = typeof keepNewest === 'number' && !Number.isNaN(keepNewest) ? Math.floor(keepNewest) : 0;
-  return Math.max(0, Math.min(count, cap - 1));
-}
-
-/**
- * Indices of the `count` most recently added entries of `list`, whose entries from `storedLength`
- * on are the ones this merge accepted: those first whatever their stamp (a caller's clock may be
- * behind the stored stamps), then the latest `addedAt` (an entry with none counts as the oldest),
- * a later position first among equals (one merge stamps all its entries alike, in the model's
- * order).
- */
-function newestIndices(list: Untyped, count: number, storedLength: Untyped) {
-  if (count <= 0) return new Set();
-  const byRecency = list
-    .map((ep: Untyped, index: number) => ({
-      addedAt: String(ep?.addedAt ?? ''),
-      index,
-      arrived: Number(index >= storedLength),
-    }))
-    .sort((a: Untyped, b: Untyped) => b.arrived - a.arrived || b.addedAt.localeCompare(a.addedAt) || b.index - a.index);
-  return new Set(byRecency.slice(0, count).map((o: Untyped) => o.index));
-}
-
-/**
- * Merge freshly-extracted episodes into a member's stored list. Pure:
- * `existing` is never mutated, surviving entries keep their original fields
- * and relative order (eviction only ever removes entries, never reorders or
- * rewrites the ones that remain). Tolerates a profile written before this
- * feature existed (`existing` undefined/not an array).
- *
- * Over `maxEpisodes`, the `K` most recently added entries are exempt from
- * eviction, `K` = `keepNewest` clamped to `maxEpisodes - 1`: this call's own
- * entries first, then by `addedAt`, then position; the rest go lowest weight
- * first, then oldest. `keepNewest` 0 (the default) = eviction by weight then age
- * alone. With `K` above 0 a moment is never evicted on arrival (unless one call
- * brings more than `K`: then only its last `K` are spared), whatever the
- * caller's `now`. It then stays safe while fewer than `K` entries rank newer
- * (a later call's own, or a later `addedAt`); from then on it ranks by weight
- * then age with the rest. Its `addedAt` is the caller's `now`: a caller that
- * passes the time of the last message it read instead of the clock stores
- * moments that can rank below moments stored after that message and live
- * shorter than the survival below once they have arrived. Expected survival: a light
- * moment of a member at the cap whose stored moments are all heavier lives for
- * exactly `K` later moments and goes in the merge that stores the `K`-th -- at
- * `memory.keepNewestEpisodes` 5 and `memory.maxNewEpisodes` 3, at least two
- * more batches that add moments for that member. The light end of the list
- * turns over at the same rate as before; what changes is that every moment is
- * stored and can be seen before it goes.
- *
- * @param existing  Stored episodes, oldest-appended order.
- * @param incoming             Untrusted, model-extracted episodes.
- *   `keepNewest`: `memory.keepNewestEpisodes` (see episodeOptions);
- *   omitted, negative or not a number = 0.
- * @returns `added` counts every
- *   accepted entry, one evicted again by the same merge included. `dropped`: every entry the
- *   eviction removed, in list order -- a stored one as stored (its `itemId` included), an
- *   accepted one as it was about to be stored; `[]` when none went.
- */
-export function mergeEpisodes(
-  existing: Array<StoredRecord> | undefined,
-  incoming: unknown,
-  {
-    maxEpisodes,
-    maxNew = Infinity,
-    now: nowMs = Date.now(),
-    clampTolerance,
-    keepNewest = 0,
-  }: { maxEpisodes: number; maxNew: number; now?: number; clampTolerance?: number; keepNewest?: number }
-): { episodes: Array<object>; added: number; dropped: Array<object> } {
-  const stored = Array.isArray(existing) ? existing : [];
-  if (!Array.isArray(incoming) || incoming.length === 0) return { episodes: stored, added: 0, dropped: [] };
-
-  const sanitized = incoming
-    .map((raw) => sanitizeEpisode(raw, nowMs, clampTolerance))
-    .filter(Boolean)
-    .slice(0, maxNew);
-
-  const accepted = [];
-  for (const candidate of sanitized) {
-    if (isDuplicate(candidate, stored)) continue;
-    accepted.push({ ...candidate, addedAt: new Date(nowMs).toISOString() });
-  }
-  if (accepted.length === 0) return { episodes: stored, added: 0, dropped: [] };
-
-  let merged = [...stored, ...accepted];
-  let dropped: Array<Untyped> = [];
-  const cap = isIntegerNumber(maxEpisodes) ? maxEpisodes : Infinity;
-  if (merged.length > cap) {
-    const dropCount = merged.length - cap;
-    const exempt = newestIndices(merged, keptNewestCount(keepNewest, cap), stored.length);
-    const order = merged
-      .map((ep, index) => ({ ep, index }))
-      .filter((o) => !exempt.has(o.index))
-      .sort(evictionOrder);
-    const dropIndices = new Set(order.slice(0, dropCount).map((o) => o.index));
-    dropped = merged.filter((_, index) => dropIndices.has(index));
-    merged = merged.filter((_, index) => !dropIndices.has(index));
-  }
-
-  return { episodes: merged, added: accepted.length, dropped };
 }
 
 /**

@@ -317,7 +317,7 @@ export function buildTurnRunner(input: WiringInput): Wired {
   const vectors = createVectors({ dataDir, log: quietLog, writerGate: () => Promise.resolve(), memoryDb });
   const base = createJournal({ dataDir, memoryDb, now, log: quietLog });
   const { journal, kept } = keptJournal(base, turnId, now);
-  const { store, state } = unflushedStore(createStore({ dataDir, record, archive, memoryDb }));
+  const { store, state } = unflushedStore(createStore({ dataDir, archive, memoryDb }));
   const calibrator = createCalibrator(input.calibration ?? ((state.data as Rec).calibration as number | undefined));
   const llm = input.llm;
   const keptFetch = createKeptFetch({ dataDir, next: fetch });
