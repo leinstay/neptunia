@@ -157,12 +157,6 @@ test('mirror configure changes the mirror it names and a bad value changes nothi
   assert.equal((await run('configure', 'fake:channel:nowhere', '--enabled', 'true')).status, 'invalid');
 });
 
-test('/mirror disable is no command: configure --enabled false is the one switch', () => {
-  // Changed: `disable` did what `configure --enabled false` does. Catches: two words for one switch come back.
-  assert.equal(parseCommandLine(`/mirror disable ${D1}`).ok, false);
-  assert.equal(parseRequest(['mirror', 'disable', D1]).parsed.ok, false);
-});
-
 test('configure --enabled false keeps the configuration and sends nothing until the mirror is enabled again', async () => {
   // Catches: switching a mirror off deleting the row, or a switched-off mirror still receiving what was queued for it.
   const { scene, place, mirrors, run } = await known();

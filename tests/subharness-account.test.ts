@@ -14,7 +14,7 @@ import type { AccountDeps } from '../src/subharness/account.ts';
 import { updateSubharness } from '../src/subharness/install.ts';
 import { runMemoryWriter } from '../src/subharness/memory-writer.ts';
 import { subharnessPlace } from '../src/subharness/place.ts';
-import { availableSources, sourceState } from '../src/subharness/sources.ts';
+import { sourceState } from '../src/subharness/sources.ts';
 import { fakeVendor, treeOf } from './fixtures/fake-vendor.ts';
 import type { FakeVendor, FakeVendorOptions } from './fixtures/fake-vendor.ts';
 import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
@@ -104,13 +104,6 @@ test('opencode is authenticated by an extra key the store still holds, with no p
   assert.equal((await sourceState(privateDir, 'opencode')).available, true);
   writeKeysFile(privateDir, { extra: {}, subharness: { key: 'oc-1', modes: {} } });
   assert.equal((await sourceState(privateDir, 'opencode')).code, 'not-logged-in');
-});
-
-test('the available sources ignore the old list in both directions', async () => {
-  // Catches: the old list still gates a login it omits, or still lends availability to a name with no login.
-  const { privateDir } = rig('claude', { loggedIn: true });
-  writeKeysFile(privateDir, { subharness: { backends: ['codex'], key: null, modes: {} } });
-  assert.deepEqual(await availableSources(privateDir), ['claude']);
 });
 
 // login

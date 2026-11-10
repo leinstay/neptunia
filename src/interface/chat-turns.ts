@@ -80,6 +80,10 @@ function attachmentsOf(message: Loose): Array<TurnAttachment> {
   });
 }
 
+/** The kind of a progress step by its name: her think, a task call or any other call. */
+const progressKind = (name: string): 'tool' | 'task' | 'think' =>
+  name === 'think' ? 'think' : name.startsWith('task.') ? 'task' : 'tool';
+
 export type ChatTurns = {
   /** A line of the command line, through the door at once. The answer is the door's. */
   take(line: {
@@ -279,7 +283,7 @@ export function createChatTurns({
     noteProgress(triggerId, step) {
       const turnId = triggerId === null ? null : (lines.get(triggerId)?.turnId ?? null);
       if (turnId === null) return;
-      control.progress(turnId, { kind: step.name.startsWith('task.') ? 'task' : 'tool', ...step });
+      control.progress(turnId, { kind: progressKind(step.name), ...step });
     },
     command(link, name, args) {
       const read = readTurnAction({ ...args, kind: name });

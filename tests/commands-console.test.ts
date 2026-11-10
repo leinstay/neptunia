@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createConsole } from '../src/interface/commands/console.ts';
-import type { ConsoleDeps } from '../src/interface/commands/console.ts';
+import type { ConsoleDeps, Answer } from '../src/interface/commands/console.ts';
 import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 import { NOT_GRANTABLE_TO_PERSONA } from '../src/tools/access.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
@@ -31,6 +31,17 @@ import {
 } from './fixtures/core-units.ts';
 import type { Dirs, Rig, Settings } from './fixtures/core-units.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import path from 'node:path';
+import type { Dialog } from '../src/keys/commands.ts';
+import type { BindConfirm, BindInput, BindResult } from '../src/memory/db/person-bind.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import { addAccount } from './fixtures/memory-db/opaque-people.ts';
+import fs from 'node:fs';
+import { createKeysCommands } from '../src/keys/commands.ts';
+import { createKeyStore } from '../src/keys/store.ts';
+import { BASE_URL, chainRing, everyKeyChains, fakeFetch, fakePause, scriptedDialog } from './fixtures/keys-rig.ts';
+import { statusText } from '../src/interface/neptunia-cli.ts';
+import type { StatusFacts } from '../src/interface/neptunia-cli.ts';
 
 const T0 = Date.parse('2026-10-31T12:00:00Z');
 
@@ -199,17 +210,6 @@ test('every read command of the table answers with exit 0 and asks no model', as
     });
     assert.equal(llm.requests.length, 0, 'no command asks a model');
     assert.deepEqual(asked, [], 'no command calls fetch');
-  });
-});
-
-// The parse error path of `-p`: the line never becomes a command.
-test('/search status says off and unset while the persona chose no engine, as the shipped settings choose none', async () => {
-  // Changed: quick search has no shipped engine, so `engine unset` is the true answer.
-  await withRig({}, async ({ dirs, llm, cores }) => {
-    cores.push(await startUnitsCore(dirs, llm, () => T0));
-    const run = await p(dirs, '/search');
-    assert.equal(run.code, 0, run.stderr.slice(-2000));
-    assert.match(run.stdout, /quick search is off, engine unset/);
   });
 });
 
@@ -663,4 +663,343 @@ test('every operation no grant opens to her runs from a command of the chat', as
     NOT_GRANTABLE_TO_PERSONA.filter((op) => !ran.has(op)),
     []
   );
+});
+
+// `/memory bind <iface> <account> <person>` from the owner's line to the memory service (plan 2026-11-08-meta-person,
+// slice 6): the console names the account by its interface and platform id, names `owner` by `bot.ownerPerson`, and
+// before a merge asks one Y/n through the dialog that names the person it removes. A synthetic database and a recording
+// memory service. The bind itself is tested in tests/memory-db-person-bind.test.ts.
+
+const OWNER = 'person:0a1b-owner';
+const REMOVED = { id: 'person:3c9d-other', name: 'Dima' };
+const INTO = { id: 'person:7a1e-target', name: 'Mira' };
+
+type Bind = { input: BindInput; confirmed: boolean | null };
+type MemoryBindRig = {
+  binds: Array<Bind>;
+  asked: Array<string>;
+  say: (line: string, answer: string | null) => Promise<Answer>;
+};
+
+/** A console over a database holding one account, with a service that asks its confirmation when it is given one. */
+async function withConsole(body: (rig: MemoryBindRig) => Promise<void>): Promise<void> {
+  const dir = tempDir('nep-commands-bind-');
+  const handle = openMemoryDb(path.join(dir, 'memory.db'));
+  addAccount(dbOf(handle), {
+    id: 'account:t1',
+    iface: 'telegram',
+    authority: 'telegram/global',
+    native: 't1',
+    person: null,
+  });
+  const binds: Array<Bind> = [];
+  const asked: Array<string> = [];
+  const memoryDb = {
+    database: () => dbOf(handle),
+    personBind: async (input: BindInput, confirm: BindConfirm | null): Promise<BindResult> => {
+      const confirmed = confirm === null ? null : await confirm({ removed: REMOVED, into: INTO });
+      binds.push({ input, confirmed });
+      if (confirmed === null) return { status: 'unconfirmed', removed: REMOVED.id };
+      return confirmed
+        ? { status: 'merged', person: input.personId, removed: REMOVED.id }
+        : { status: 'declined', removed: REMOVED.id };
+    },
+  };
+  const deps: ConsoleDeps = {
+    runOp: () => Promise.resolve({ status: 'failed', code: 'NOT_HERE', summary: '', data: null }),
+    ownerReads: { lessons: () => '' },
+    places: () => [],
+    selfId: () => null,
+    hot: { config: { bot: { ownerPerson: OWNER } } },
+    privateDir: dir,
+    dataDir: dir,
+    memoryDb,
+    usage: null,
+    metrics: { samples: () => [] },
+    chatLines: () => [],
+    now: () => Date.parse('2026-11-08T12:00:00Z'),
+  };
+  const desk = createConsole(deps);
+  const say = (line: string, answer: string | null): Promise<Answer> => {
+    const parsed = parseCommandLine(line);
+    assert.ok(parsed.ok, parsed.ok ? '' : parsed.reason);
+    const dialog: Dialog | null =
+      answer === null
+        ? null
+        : {
+            ask: (question) => {
+              asked.push(question);
+              return Promise.resolve(answer);
+            },
+          };
+    return desk.run(parsed.name, parsed.args, { id: 'owner' }, dialog);
+  };
+  try {
+    await body({ binds, asked, say });
+  } finally {
+    handle.close();
+  }
+}
+
+test('a merge asks one Y/n that names the id and the name of the person it removes', async () => {
+  // Bug: the question names only the target, or no question is asked and two people merge on the command alone.
+  await withConsole(async ({ binds, asked, say }) => {
+    const answer = await say(`/memory bind telegram t1 ${INTO.id}`, '');
+    assert.equal(asked.length, 1);
+    assert.ok(asked[0]?.includes(REMOVED.id) && asked[0]?.includes(REMOVED.name), asked[0]);
+    assert.ok(asked[0]?.includes('Y/n'), asked[0]);
+    assert.deepEqual(binds, [{ input: { accountId: 'account:t1', personId: INTO.id }, confirmed: true }]);
+    assert.equal(answer.status, 'ok');
+  });
+});
+
+test('an answer n declines the merge', async () => {
+  // Bug: any answer counts as yes, so the owner cannot step back from a merge he did not mean.
+  await withConsole(async ({ binds, say }) => {
+    const answer = await say(`/memory bind telegram t1 ${INTO.id}`, 'n');
+    assert.equal(binds[0]?.confirmed, false);
+    assert.equal(answer.status, 'ok');
+    assert.ok(answer.text.includes(REMOVED.id), answer.text);
+  });
+});
+
+test('owner as the target names the meta-person of bot.ownerPerson', async () => {
+  // Bug: the word `owner` is sent as a person id, or the account's own person is made the owner instead.
+  await withConsole(async ({ binds, say }) => {
+    await say('/memory bind telegram t1 owner', 'y');
+    const [first] = binds;
+    assert.equal(first?.input.personId, OWNER);
+  });
+});
+
+test('a merge with no dialog is refused and says to run it in the chat', async () => {
+  // Bug: `neptunia -p` merges two people with nobody asked.
+  await withConsole(async ({ binds, say }) => {
+    const answer = await say(`/memory bind telegram t1 ${INTO.id}`, null);
+    assert.equal(binds[0]?.confirmed, null);
+    assert.equal(answer.status, 'invalid');
+  });
+});
+
+test('an account she has not met is refused before the service is asked', async () => {
+  // Bug: a typo in the platform id creates a bind for an account nobody stored.
+  await withConsole(async ({ binds, say }) => {
+    const answer = await say(`/memory bind telegram nobody ${INTO.id}`, 'y');
+    assert.equal(answer.status, 'invalid');
+    assert.deepEqual(binds, []);
+  });
+});
+
+// `/mnemonic` (src/interface/commands/table.ts, console.ts): the owner's command that shows the language of the
+// phrase-code word list and switches it through `config.set` of `bot.mnemonic`. A recording `runOp` and a synthetic
+// config only.
+
+type Call = { op: string; args: Record<string, unknown>; context: Record<string, unknown> };
+
+function deskOf(mnemonic: unknown): { run: ReturnType<typeof createConsole>['run']; calls: Array<Call> } {
+  const calls: Array<Call> = [];
+  const dir = tempDir('nep-mnemonic-');
+  const deps: ConsoleDeps = {
+    runOp: (op, args, context) => {
+      calls.push({ op, args, context });
+      return Promise.resolve({ status: 'ok', code: '', summary: 'set', data: null });
+    },
+    ownerReads: { lessons: () => '' },
+    places: () => [],
+    selfId: () => 'self-1',
+    hot: { config: { bot: { mnemonic } } },
+    privateDir: dir,
+    dataDir: dir,
+    memoryDb: null,
+    usage: null,
+    metrics: null,
+    chatLines: () => [],
+    now: () => Date.parse('2026-11-09T12:00:00Z'),
+    serviceManager: () => Promise.resolve({ code: 0, stdout: '', stderr: '' }),
+    startWatcher: () => null,
+  };
+  const desk = createConsole(deps);
+  return { run: (...given) => desk.run(...given), calls };
+}
+
+test('parses /mnemonic with no language, en or ru, and refuses another language', () => {
+  assert.deepEqual(parseCommandLine('/mnemonic'), { ok: true, name: 'mnemonic', args: {} });
+  assert.deepEqual(parseCommandLine('/mnemonic ru'), { ok: true, name: 'mnemonic', args: { language: 'ru' } });
+  assert.equal(parseCommandLine('/mnemonic en').ok, true);
+  assert.equal(parseCommandLine('/mnemonic de').ok, false);
+});
+
+test('shows the language the setting holds and changes nothing', async () => {
+  const { run, calls } = deskOf('ru');
+  const answer = await run('mnemonic', {}, { id: 'owner-1' });
+  assert.equal(answer.status, 'ok');
+  assert.match(answer.text, /ru/);
+  assert.deepEqual(calls, []);
+});
+
+test('shows en while the setting holds no language', async () => {
+  const { run } = deskOf(undefined);
+  const answer = await run('mnemonic', {}, { id: 'owner-1' });
+  assert.match(answer.text, /en/);
+});
+
+test('switches the language through config.set of bot.mnemonic as the owner', async () => {
+  const { run, calls } = deskOf('en');
+  const answer = await run('mnemonic', { language: 'ru' }, { id: 'owner-1' });
+  assert.equal(answer.status, 'ok');
+  assert.equal(calls.length, 1);
+  const call = calls[0];
+  assert.equal(call?.op, 'config.set');
+  assert.deepEqual(call?.args, { path: 'bot.mnemonic', value: 'ru' });
+  assert.equal(call?.context.asOwner, true);
+});
+
+test('reports a switch that config.set refused', async () => {
+  const desk = createConsole({
+    runOp: () => Promise.resolve({ status: 'failed', code: 'x', summary: 'could not write', data: null }),
+    ownerReads: { lessons: () => '' },
+    places: () => [],
+    selfId: () => 'self-1',
+    hot: { config: { bot: { mnemonic: 'en' } } },
+    privateDir: tempDir('nep-mnemonic-'),
+    dataDir: tempDir('nep-mnemonic-'),
+    memoryDb: null,
+    usage: null,
+    metrics: null,
+    chatLines: () => [],
+    now: () => 0,
+    serviceManager: () => Promise.resolve({ code: 0, stdout: '', stderr: '' }),
+    startWatcher: () => null,
+  });
+  const answer = await desk.run('mnemonic', { language: 'ru' }, { id: 'owner-1' });
+  assert.equal(answer.status, 'failed');
+});
+
+// Tests for the route of `keys.service.*` through the console (src/interface/commands/console.ts) with the real key
+// commands (src/keys/commands.ts) behind `deps.keys`, as the engine builds it while keys.json is in use. The service
+// commands are answered by src/keys/services.ts, not by the key commands, so the console must not hand them over.
+
+const EXA_VALUE = 'exa-SECRETVALUE-0001-WXYZ';
+
+function rig() {
+  const dir = tempDir('console-keys-service-');
+  const store = createKeyStore({ privateDir: dir });
+  // Changed: every role runs on its chain (slice 4); here every role's chain names every key of the store.
+  const chainOf = everyKeyChains(store, (role) => `current/${role}`);
+  const ring = chainRing(store, chainOf);
+  const keys = createKeysCommands({
+    store,
+    ring,
+    chainOf,
+    saveRoutes: () => Promise.resolve(),
+    fetch: fakeFetch().fetch,
+    baseUrl: () => BASE_URL,
+    defaults: {},
+    currentModel: () => '',
+    saveModel: () => Promise.resolve(),
+    pause: fakePause(),
+  });
+  const deps: ConsoleDeps = {
+    runOp: () => Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null }),
+    ownerReads: { lessons: () => '' },
+    places: () => ['g1'],
+    selfId: () => 'self-1',
+    hot: { config: {} },
+    privateDir: dir,
+    dataDir: dir,
+    memoryDb: null,
+    usage: null,
+    metrics: null,
+    chatLines: () => [],
+    now: () => 0,
+    keys: { enabled: () => true, run: (name, args, dialog) => keys.run(name, args, dialog) },
+  };
+  return { console_: createConsole(deps), file: path.join(dir, 'keys.json') };
+}
+
+const owner = { id: 'owner' };
+
+test('keys service list answers ok with the service list while the key store is in use', async () => {
+  // Bug: the console hands every `keys.` name to the key commands, which answer "no such command" for the service ones.
+  const { console_ } = rig();
+  const answer = await console_.run('keys.service.list', {}, owner, null);
+  assert.equal(answer.status, 'ok');
+  assert.match(answer.text, /exa: not set/);
+});
+
+test('keys service set writes the secret asked in the dialog under services and never echoes it', async () => {
+  // Bug: the same route swallows `keys.service.set`, so the value is never asked and nothing is written.
+  const { console_, file } = rig();
+  const { dialog, asked } = scriptedDialog([EXA_VALUE]);
+  const answer = await console_.run('keys.service.set', { name: 'exa' }, owner, dialog);
+  assert.equal(answer.status, 'ok');
+  assert.equal(asked[0]?.secret, true);
+  assert.equal(answer.text.includes(EXA_VALUE), false);
+  const stored = JSON.parse(fs.readFileSync(file, 'utf8')) as { services?: Record<string, string> };
+  assert.equal(stored.services?.exa, EXA_VALUE);
+});
+
+// Tests for the console's routing of the key commands (src/interface/commands/console.ts): `keys.*` always goes to the key
+// commands with the dialog the caller gave, and `model.set` goes there only while the core takes its keys from the key
+// store; before that it is the plain `model.set` operation, so a deployment on `.env` keeps its `/model set`.
+
+function consoleKeysRig(enabled: boolean) {
+  const dir = tempDir('console-keys-');
+  const ops: Array<[string, Record<string, unknown>]> = [];
+  const routed: Array<{ name: string; dialog: unknown }> = [];
+  const deps: ConsoleDeps = {
+    runOp: (op, args) => {
+      ops.push([op, args]);
+      return Promise.resolve({ status: 'ok', code: '', summary: 'done', data: null });
+    },
+    ownerReads: { lessons: () => '' },
+    places: () => ['g1'],
+    selfId: () => 'self-1',
+    hot: { config: {} },
+    privateDir: dir,
+    dataDir: dir,
+    memoryDb: null,
+    usage: null,
+    metrics: null,
+    chatLines: () => [],
+    now: () => 0,
+    keys: {
+      enabled: () => enabled,
+      run: (name, _args, dialog) => {
+        routed.push({ name, dialog });
+        return Promise.resolve({ text: 'keys answered', status: 'ok' });
+      },
+    },
+  };
+  return { console_: createConsole(deps), ops, routed };
+}
+const dialog = { ask: () => Promise.resolve('') };
+
+test('a keys command reaches the key commands with the dialog it was given, whether or not the store is in use', async () => {
+  for (const enabled of [false, true]) {
+    const { console_, routed, ops } = consoleKeysRig(enabled);
+    const answer = await console_.run('keys.add', { name: 'core-1' }, owner, dialog);
+    assert.equal(answer.text, 'keys answered');
+    // Bug caught: the dialog dropped on the way, so the key value could never be asked.
+    assert.deepEqual(routed, [{ name: 'keys.add', dialog }]);
+    assert.deepEqual(ops, []);
+  }
+});
+
+test('the summary names the reason of a pause the core set itself', () => {
+  const facts: StatusFacts = {
+    version: '1',
+    instance: 'x',
+    coreModel: 'c',
+    paused: { since: '2026-11-02T09:00:00.000Z', reason: 'no-core-route' },
+    spend: { requests: 0, cost: 0, coreCost: 0 },
+    interfaces: [],
+    failingRoles: [],
+    next: null,
+    intentions: null,
+    errands: { open: 0, latest: [] },
+    slept: 0,
+  };
+  assert.ok(statusText(facts).includes('no-core-route'));
+  assert.ok(!statusText({ ...facts, paused: { since: null } }).includes('no-core-route'));
 });

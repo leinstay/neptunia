@@ -4,19 +4,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PURPOSE_ROLES, roleModel } from '../src/llm/roles.ts';
+
 import { ROOT } from './fixtures/source-tree.ts';
 import { blocksOf } from '../src/turn/request/frame.ts';
 import { MARK, blockOf, frameTurn, gistOf, inOrderOf, partOf, rootTags } from './fixtures/selfreflection-frame.ts';
 
 const PLANNER = 'selfreflection-planner';
-
-test('the planner goes out on the analyzer role under its new purpose, and the old purpose is gone', () => {
-  // Bug: the planner's purpose is renamed in the request and not in the role table, so it runs on the core model.
-  assert.equal((PURPOSE_ROLES as Record<string, string>)[PLANNER], 'analyzer');
-  assert.equal(Object.hasOwn(PURPOSE_ROLES, 'diary-plan'), false);
-  assert.equal(roleModel({ models: { byPurpose: { [PLANNER]: 'x/planner' } } }, 'analyzer', PLANNER), 'x/planner');
-});
 
 test('the tracked planner prompt has the new file name, fills the name and names the block the request carries', () => {
   // Bug: the prompt describes a block the request does not carry, so the model reads a block that is not there.

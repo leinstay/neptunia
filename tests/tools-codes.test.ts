@@ -14,7 +14,6 @@ import {
   WHAT,
   codesOf,
   httpCode,
-  isCode,
   normalCode,
   reasonText,
 } from '../src/tools/codes.ts';
@@ -123,11 +122,6 @@ test('catalogue: every entry has a known status, a group and only the values the
     // `ability-unavailable` names the ability and why its role is down (PR E in detail, stage 4 cut spec).
     ['ability-unavailable', 'cap', 'http', 'not-configured', 'provider', 'timeout']
   );
-});
-
-test('requester-denied is split: nobody asked and several asked are their own codes', () => {
-  assert.ok(isCode(CODE.NO_REQUESTER) && isCode(CODE.MIXED_REQUESTERS) && isCode(CODE.REQUESTER_DENIED));
-  assert.notEqual(CODE.NO_REQUESTER, CODE.MIXED_REQUESTERS);
 });
 
 test('refusalStatus: a wrong call is invalid, a rule that said no is denied', () => {

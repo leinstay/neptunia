@@ -4,7 +4,7 @@
 // GIF, no reply, no links, a message cap), the picture sets and the record in
 // diary.json. Fake discord.js-shaped channel, fake LLM,
 // fake store, fake image client and lookup; no network.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { chunkPictures, createTurnRunner as createRealTurnRunner } from '../src/behavior/turn.ts';
 import { ImageGenError } from '../src/llm/images.ts';
@@ -35,6 +35,11 @@ import {
   gistOf,
   partOf,
 } from './fixtures/selfreflection-frame.ts';
+import { dbOf } from '../src/memory/db/types.ts';
+import { createJournal } from '../src/memory/journal.ts';
+import { NOW as NOW_ID, sceneHot, sceneLlm, sceneMemory, sceneWorld } from './fixtures/selfreflection-scene.ts';
+import type { SceneMemory } from './fixtures/selfreflection-scene.ts';
+import { worldTurnRunner } from './fixtures/world-runner.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -733,19 +738,6 @@ test('diary turn: a voice message is kept in the post: its id among messageIds a
   assert.deepEqual({ text: voice.text, durationSec: voice.durationSec }, { text: voiced, durationSec: 2.5 });
 });
 
-// PR 7d: `selfreflection.gistChars` is the constant DEFAULT_GIST_CHARS of src/behavior/selfreflection.ts, 200.
-test('diary turn: the gist is cut to selfreflection.gistChars', async () => {
-  const long = 'mot '.repeat(100).trim();
-  const llm = fakeLlm({ kind: 'status', brief: 'x', search: '', picture: false }, `<msg>${long}</msg>`);
-  const store = fakeStore();
-  await runner({ llm, store }).runTurn({
-    channel: selfreflectionChannel(),
-    mode: 'selfreflection',
-    selfreflection: {},
-  });
-  assert.ok(store.appended[0].post.gist.length <= 200);
-});
-
 test('diary turn: an audience named beside a call holds when her messages come in a later answer', async () => {
   // Catches: only the last answer's tag being read, so the restriction she named first falls open to unrestricted.
   const llm = fakeLlm({ kind: 'selfPicture', brief: 'a pier', search: '', picture: true }, [
@@ -1338,4 +1330,54 @@ test('an <audience> naming a group room that is no mirror is refused, and the en
   assert.deepEqual(reasons, ['audience-unknown-place', 'audience-unknown-place']);
   assert.deepEqual(scene.transport('fake').attempts, []);
   assert.deepEqual(scene.transport('tele').attempts, []);
+});
+
+// The selfreflection wake keeps the id of its turn on the entry as `extra.turnId`, written through the one writer. The
+// wake runs the real turn runner over tests/fixtures/selfreflection-scene.ts with a real journal. Invented ids and
+// synthetic text only.
+
+/** The scenes a test opened, closed when the file is done. */
+const OPEN: Array<SceneMemory> = [];
+
+/** The `extra` of a stored entry, parsed. */
+function extraOf(db: ReturnType<typeof dbOf>, entryId: string): Record<string, unknown> {
+  const raw = db.prepare('SELECT extra FROM selfreflection WHERE id = ?').get(entryId)?.extra;
+  assert.ok(typeof raw === 'string', `the entry ${entryId} has its extra`);
+  return JSON.parse(raw) as Record<string, unknown>;
+}
+after(async () => {
+  for (const scene of OPEN.splice(0)) await scene.memory.close();
+});
+
+// The lead: kept when the removal command went (owner, 2026-11-06).
+test('an entry written by a selfreflection wake keeps the id of its turn as extra.turnId', async () => {
+  // Bug: the entry is stored with no link to the turn that wrote it.
+  const scene = await sceneMemory();
+  OPEN.push(scene);
+  sceneWorld();
+  const { memoryDb, dataDir } = scene.memory;
+  const runner = worldTurnRunner({
+    hot: sceneHot(),
+    store: scene.store,
+    llm: sceneLlm(),
+    calibrator: { ratio: 1, apply: (n: number) => n, observe: () => {} },
+    images: null,
+    lookup: null,
+    rng: () => 0.5,
+    now: () => NOW_ID,
+    journal: createJournal({ memoryDb, dataDir, now: () => NOW_ID }),
+  });
+  // The world runner answers its result untyped; the wake names its outcome, its turn and its entry.
+  const result = (await runner.runTurn({
+    mode: 'selfreflection',
+    selfreflection: { kind: null, forced: false },
+    placeId: 'g1',
+  })) as { outcome?: unknown; turnId?: unknown; selfreflection?: { entry?: { id?: unknown } } };
+  assert.equal(result.outcome, 'spoke', 'the wake records an entry');
+  const reflection = result.selfreflection;
+  const entryId = reflection?.entry?.id;
+  assert.ok(typeof entryId === 'string' && typeof result.turnId === 'string', 'the wake names its entry and its turn');
+  scene.store.flush();
+  await scene.store.flushSettled({});
+  assert.equal(extraOf(dbOf(memoryDb.readHandle() as { db: unknown }), entryId).turnId, result.turnId);
 });

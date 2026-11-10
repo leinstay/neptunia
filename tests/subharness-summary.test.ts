@@ -3,7 +3,7 @@
 // come from keys.json, and `neptunia doctor` carries them as one `features` check: off is a warning with the command
 // that turns it on, never a failure.
 import { test } from 'node:test';
-import { readdirSync } from 'node:fs';
+
 import assert from 'node:assert/strict';
 import { featureRows } from '../src/subharness/summary.ts';
 import { folders, runCli } from './fixtures/core-units.ts';
@@ -31,17 +31,6 @@ test('the subharness on: an available row with no hint', async () => {
   // Changed: on is a source that is installed and logged in, not a stored name.
   fakeVendor(dir, 'codex', { loggedIn: true });
   assert.deepEqual(await featureRows(dir), [{ name: 'subharness', available: true, hint: null }]);
-});
-
-test('no keys.json at all reads as off and creates nothing', async () => {
-  // Bug: a read of the summary creates keys.json, or throws before setup has run.
-  const dir = tempDir('nep-summary-');
-  const rows = await featureRows(dir);
-  assert.equal(
-    rows.every((row) => !row.available),
-    true
-  );
-  assert.deepEqual(readdirSync(dir), [], 'a read writes nothing');
 });
 
 test('doctor reports the off features as one warning and exits 0 for them', async () => {

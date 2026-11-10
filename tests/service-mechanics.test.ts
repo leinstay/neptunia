@@ -4,7 +4,7 @@
 // Changed: the watcher has no schedule and no timer (owner, 2026-11-09), so its tests left this file.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInnerLife } from '../src/behavior/inner.ts';
@@ -15,8 +15,7 @@ import { localConfigPath } from '../src/config/files.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { createIntentionService } from '../src/intentions/service.ts';
 import { createIntentionStores } from '../src/intentions/store.ts';
-import { renderUnit } from '../src/setup/units.ts';
-import type { UnitVars } from '../src/setup/units.ts';
+
 import { tempDir } from './fixtures/tmp.ts';
 import { useIface, world } from './fixtures/turn-world.ts';
 
@@ -271,37 +270,6 @@ test('diary slots of a schedule missed past the grace are dropped together, not 
     slot: null,
     dropped: [at('2026-11-04T09:00:00Z'), at('2026-11-04T10:00:00Z'), at('2026-11-04T11:00:00Z')],
   });
-});
-
-// ---- the units ----------------------------------------------------------------------------------------------------------
-
-const VARS: UnitVars = {
-  user: 'someone',
-  group: 'someone',
-  home: '/home/someone',
-  rootDir: '/srv/app',
-  privateDir: '/srv/data',
-  dataDir: '/srv/data',
-  node: '/usr/bin/node',
-};
-
-/** The values of the lines of `key` in a unit. */
-const valuesOf = (text: string, key: string): Array<string> =>
-  text
-    .split('\n')
-    .filter((line) => line.startsWith(`${key}=`))
-    .map((line) => line.slice(key.length + 1));
-
-test('no rendered service unit starts a retired command', () => {
-  // Catches: a unit keeps `watcher run`, which now answers exit 2, and the unit fails in silence.
-  const retired = [/\bwatcher run\b/, /\bselfimprovement run\b/];
-  const services = readdirSync(join(REPO, 'deploy')).filter((file) => file.endsWith('.service'));
-  assert.ok(services.includes('neptunia-core.service'));
-  for (const file of services) {
-    const text = renderUnit(readFileSync(join(REPO, 'deploy', file), 'utf8'), 'user', VARS);
-    for (const exec of valuesOf(text, 'ExecStart'))
-      for (const form of retired) assert.equal(form.test(exec), false, `${file}: ${exec}`);
-  }
 });
 
 // ---- the local file ----------------------------------------------------------------------------------------------------

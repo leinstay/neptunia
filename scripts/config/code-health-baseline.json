@@ -29,7 +29,7 @@
       "repeated": 0
     },
     "tests/agent-runner-profiles.test.ts": {
-      "deep": 15,
+      "deep": 14,
       "repeated": 0
     },
     "tests/agent-runner-protocol.test.ts": {
@@ -57,7 +57,7 @@
       "repeated": 0
     },
     "tests/board-cutover.test.ts": {
-      "deep": 2,
+      "deep": 1,
       "repeated": 0
     },
     "tests/board-development-return.test.ts": {
@@ -476,16 +476,12 @@
       "deep": 1,
       "repeated": 0
     },
-    "tests/interface-socket-link.test.ts": {
-      "deep": 1,
-      "repeated": 0
-    },
     "tests/interface-socket.test.ts": {
-      "deep": 14,
+      "deep": 9,
       "repeated": 0
     },
     "tests/interfaces-discord-session.test.ts": {
-      "deep": 5,
+      "deep": 4,
       "repeated": 0
     },
     "tests/journal-archive-places.test.ts": {
@@ -817,7 +813,7 @@
       "repeated": 0
     },
     "tests/prompt-directory.test.ts": {
-      "deep": 2,
+      "deep": 1,
       "repeated": 0
     },
     "tests/prompt-emoji.test.ts": {
@@ -837,7 +833,7 @@
       "repeated": 0
     },
     "tests/prompt.test.ts": {
-      "deep": 46,
+      "deep": 42,
       "repeated": 0
     },
     "tests/prompts-shipped.test.ts": {
@@ -973,7 +969,7 @@
       "repeated": 0
     },
     "tests/selfreflection-turn.test.ts": {
-      "deep": 28,
+      "deep": 27,
       "repeated": 0
     },
     "tests/selfreflection.test.ts": {
@@ -1232,10 +1228,6 @@
       "deep": 7,
       "repeated": 0
     },
-    "tests/watcher-coverage.test.ts": {
-      "deep": 4,
-      "repeated": 0
-    },
     "tests/watcher-lifecycle.test.ts": {
       "deep": 1,
       "repeated": 0
@@ -1251,10 +1243,6 @@
     "tests/watcher-risk.test.ts": {
       "deep": 6,
       "repeated": 0
-    },
-    "tests/watcher-stamp.test.ts": {
-      "deep": 0,
-      "repeated": 4
     },
     "tests/watcher-template.test.ts": {
       "deep": 3,
@@ -1280,7 +1268,7 @@
   "files": {
     "src/behavior/recall.ts": 2357,
     "tests/openrouter.test.ts": 3545,
-    "tests/prompt.test.ts": 2812,
+    "tests/prompt.test.ts": 2366,
     "tests/recall.test.ts": 2366
   },
   "functions": {
@@ -1839,7 +1827,7 @@
     },
     "src/tools/tool-calls.ts": {
       "toolResultText": {
-        "complexity": 26
+        "complexity": 24
       }
     },
     "src/tools/tools.ts": {

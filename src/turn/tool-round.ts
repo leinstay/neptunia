@@ -13,6 +13,7 @@ import {
   appendStep,
   cutToFit,
   deltaLines,
+  giveWay,
   rescueRequest,
   roomLeft,
   stepNote,
@@ -829,10 +830,10 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
         .map((diagnostic) => diagnosticText(diagnostic, labels))
         .filter(Boolean)
         .map((line) => `- ${line}`);
-      const build = (last: boolean, texts: Array<string>): Array<object> =>
+      const build = (last: boolean, texts: Array<string>, base: Array<object> = messages): Array<object> =>
         appendStep({
           transport,
-          messages,
+          messages: base as Array<Obj>,
           rawText: answer.rawText,
           calls: records,
           results: texts.map((text, i) => ({ text, status: results[i]?.status })),
@@ -851,16 +852,30 @@ export function createToolRound(ctx: ToolRoundContext): ToolRound {
       let last: boolean = next === 'final';
       let reason: string | null = last ? (step >= settings.maxSteps - 1 ? LOOP_WHY.steps : LOOP_WHY.time) : null;
       let sent: Array<object> | null = build(last, resultTexts);
-      // The request must fit under the cap with its tools: the results are cut to fit, and the request is the last one.
+      // The request must fit under the cap with its tools. The results of earlier steps give way first, oldest first,
+      // and the request stays what it was. When nothing older is left, this step's results are cut to fit and the
+      // request is the last one.
       const limit = requestTokenLimit(hot.config);
       const cost = (list: Array<object>): number =>
         // The request's messages, as appendStep builds them.
         calibrator.apply(estimateMessages(list)) + (transport === 'native' ? estimateTools(draft.tools) : 0);
+      let base: Array<object> = messages;
+      if (cost(sent) > limit) {
+        const room = giveWay({
+          messages: messages as Array<Obj>,
+          keep: requestMessages.length,
+          line: (labels as StepLabels)?.task?.step?.dropped ?? '',
+          fits: (base) => cost(build(last, resultTexts, base)) <= limit,
+        });
+        base = room.messages;
+        sent = build(last, resultTexts, base);
+        if (room.fits) log.info('skills: results gave way', { channel: channel.id, step });
+      }
       if (cost(sent) > limit) {
         const excessChars = Math.ceil(((cost(sent) - limit) * 3.5) / Math.max(0.1, calibrator.ratio));
         last = true;
         reason = LOOP_WHY.tokens;
-        sent = build(true, cutToFit(resultTexts, excessChars));
+        sent = build(true, cutToFit(resultTexts, excessChars), base);
         if (cost(sent) > limit) {
           log.warn('skills: loop cap', { channel: channel.id, reason, step, dropped: results.length });
           draft.loopCut = { reason, dropped: (draft.loopCut?.dropped ?? 0) + results.length };

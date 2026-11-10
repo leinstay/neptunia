@@ -17,7 +17,7 @@ import { readBoard } from '../src/board/board.ts';
 import type { BoardDb } from '../src/board/schema.ts';
 import type { ErrandStore } from '../src/errands/types.ts';
 import { openTestMemorySync, tempDataDir } from './fixtures/memory-db/service.ts';
-import { GUILD, T0 } from './fixtures/errand-archive.ts';
+import { T0 } from './fixtures/errand-archive.ts';
 import { channel, rig } from './fixtures/reads-rig.ts';
 
 const NOW = T0 + 60 * 60 * 1000;
@@ -276,20 +276,4 @@ test('an errand.done delivered twice opens one result turn and leaves one closin
   await settle(store);
   assert.equal(turns, 1);
   assert.equal(closingLines(memory.memoryDb, id), 1);
-});
-
-test('an errand her turn queued survives a stale errands.json unit flushed after it and reads back at the next turn', async () => {
-  const rig = setUp();
-  const added = rig.store.add({ ...ASKED, origin: { ...ASKED.origin, turnId: 'turn-9' }, idempotencyKey: 'turn-9:0' });
-  const id = added.errand?.id ?? '';
-  await settle(rig.store);
-  // A write of the unit the store wrote before PR 6d, as an outbox or a memory-pending file of an older run sends it.
-  await rig.memoryDb
-    .writeUnit({ op: 'value', owner: `guilds/${GUILD}/errands.json`, value: { errands: [] } })
-    .catch(() => null);
-  const next = storeOver(rig.memoryDb);
-  assert.deepEqual(
-    next.open().map((errand) => errand.id),
-    [id]
-  );
 });

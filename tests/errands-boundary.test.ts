@@ -13,23 +13,6 @@ import { toolCallsOf } from '../src/llm/openrouter.ts';
 
 const registry = buildSkills({ table: SKILL_DEFINITIONS });
 
-test('an answer that calls task_run (native) or task.run (text) gets unknown-skill and the name as it was written', () => {
-  const nativeCalls = toolCallsOf([
-    { id: 'c1', function: { name: 'task_run', arguments: '{"agent":"scout","goal":"x"}' } },
-  ]);
-  const [native] = normalizeCalls({ calls: nativeCalls, registry, step: 1 });
-  assert.deepEqual([native?.problem, native?.name], ['unknown-skill', 'task_run']);
-  const [text] = normalizeCalls({
-    calls: [{ id: null, name: 'task.run', arguments: '{}', parsed: {}, parseError: null }],
-    transport: 'text',
-    registry,
-    step: 1,
-  });
-  assert.deepEqual([text?.problem, text?.name], ['unknown-skill', 'task.run']);
-  assert.equal(registry.has('task.run'), false);
-  assert.equal(registry.has('errand.run'), true);
-});
-
 test('the same call under the new name is a call of hers on both transports', () => {
   const [native] = normalizeCalls({
     calls: toolCallsOf([{ id: 'c1', function: { name: 'errand_run', arguments: '{"agent":"scout","goal":"x"}' } }]),

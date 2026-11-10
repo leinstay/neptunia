@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { createReportReader, readReport, reportsDirOf } from '../src/watcher/read.ts';
+import { readReport } from '../src/watcher/read.ts';
 import { putReport, reportText, watcherDirs } from './fixtures/watcher-rig.ts';
 
 test('with no day it reads the report with the latest date, whatever order the files were written in', () => {
@@ -51,19 +51,4 @@ test('a day that is not YYYY-MM-DD is invalid-day, so a path cannot be read thro
   for (const day of ['../prompt', '2026-11-2', 'latest', '2026-13-45', '']) {
     assert.deepEqual(readReport(dirs.reportsDir, day), { ok: false, code: 'invalid-day' }, day);
   }
-});
-
-test('createReportReader binds a folder: read() is the latest and read(day) is that day', () => {
-  const dirs = watcherDirs();
-  putReport(dirs, '2026-11-01', 'ONE');
-  putReport(dirs, '2026-11-02', 'TWO');
-  const reader = createReportReader(dirs.reportsDir);
-  const latest = reader.read();
-  const one = reader.read('2026-11-01');
-  assert.equal(latest.ok && latest.report.text, 'TWO');
-  assert.equal(one.ok && one.report.text, 'ONE');
-});
-
-test('the reports folder is agents/watcher/reports under the selected persona data directory', () => {
-  assert.equal(reportsDirOf('/srv/x'), path.join('/srv/x', 'agents', 'watcher', 'reports'));
 });

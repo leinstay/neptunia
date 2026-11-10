@@ -22,6 +22,7 @@ import {
   journalUsage,
   noteDiagnostics,
 } from '../journal.ts';
+import { thinkNote } from '../think-note.ts';
 import { TOO_SLOW, TURN_CANCELLED } from '../timers.ts';
 import type { PlannedCall } from '../skill-calls.ts';
 import type { StepAnswer, StepCompletion } from '../tool-round.ts';
@@ -229,6 +230,9 @@ export async function responsePhase<TTurn extends ResponseNeeds>(
     );
     noteDiagnostics(draft, shaped, answered);
     noteThink(draft, shaped);
+    // The owner's status row shows the reason of each step; the note is a copy and her answer is not touched.
+    const note = shaped.thinkLeak === null ? thinkNote(shaped.think) : null;
+    if (note !== null) ctx.noteProgress(params.trigger?.id ?? null, { name: 'think', detail: note });
     // Counted, never refused: the answer is acted on all the same.
     if (thinkMissing(split.rawText)) {
       draft.format.thinkMissing += 1;

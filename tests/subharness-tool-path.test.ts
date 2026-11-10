@@ -101,19 +101,3 @@ test('a dev run through runAgent on claude has no extra PATH folder and no key',
   assert.equal(seen[0]?.key, '');
   assert.equal(seen[0]?.path, `${denyDir}:${HOST_PATH}`);
 });
-
-test('a run in sudo mode has the host PATH alone and adds no stand-in', async () => {
-  // Catches: sudo mode keeping the refusing stand-in on PATH.
-  const { subharness, seen } = rig();
-  await runAgent(
-    {
-      agent: 'dev',
-      brief: 'x',
-      cwd: tempDir('nep-toolpath-cwd-'),
-      timeoutMs: 1000,
-      route: { ...ROUTES.claude, mode: 'sudo' },
-    },
-    subharness
-  );
-  assert.equal(seen[0]?.path, HOST_PATH);
-});

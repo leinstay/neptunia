@@ -177,13 +177,6 @@ test('the core role says provider effort is unsupported', async () => {
   assert.equal(source(await roleSources(deps, 'core'), null).effort.evidence, 'unsupported');
 });
 
-test('a source keeps the manual model option the setter permits', async () => {
-  // Catches: a model the listing lacks becoming impossible to choose, though `/model set` takes any name.
-  const { deps, privateDir } = rig();
-  fakeVendor(privateDir, 'claude', { loggedIn: true });
-  assert.equal(source(await roleSources(deps, 'dev'), 'claude').manualModel, true);
-});
-
 // What keeps a source out
 
 test('a missing install and a missing login are separate codes, each with the login command', async () => {

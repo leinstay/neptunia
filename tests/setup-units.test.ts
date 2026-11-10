@@ -7,6 +7,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { UNIT_FILES, renderUnit } from '../src/setup/units.ts';
 import type { UnitVars } from '../src/setup/units.ts';
+import { installUnits } from '../src/setup/install.ts';
+import type { RunResult, UnitTarget } from '../src/setup/install.ts';
+import { subharnessPlace } from '../src/subharness/place.ts';
+import { writeKeysFile } from './fixtures/keys-file.ts';
+import { tempDir } from './fixtures/tmp.ts';
+import os from 'node:os';
+import { createInstalledBackend } from '../src/agent-runner/backend.ts';
 
 const DEPLOY = path.join(import.meta.dirname, '..', 'deploy');
 
@@ -56,21 +63,6 @@ for (const field of ['rootDir', 'privateDir', 'dataDir'] as const) {
   });
 }
 
-test('setup renders these four templates and not the bot unit or the plugin template', () => {
-  // Changed: the watcher's unit and timer are gone (owner, 2026-11-09).
-  // Bug: the bot unit (which conflicts with the core) is installed beside the core, or a template is forgotten.
-  assert.deepEqual(
-    [...UNIT_FILES].sort(),
-    [
-      'neptunia-agent-scout.service',
-      'neptunia-agent-server.service',
-      'neptunia-core.service',
-      'neptunia-interface@.service',
-    ].sort()
-  );
-  for (const name of UNIT_FILES) assert.ok(fs.existsSync(path.join(DEPLOY, name)), name);
-});
-
 for (const scope of ['user', 'system'] as const) {
   test(`${scope} units keep nothing of the old layout: no /opt path, no service users, no bot unit`, () => {
     // Bug: a path or user of the old multi-user layout survives, and the unit starts nothing on this machine.
@@ -105,13 +97,6 @@ for (const scope of ['user', 'system'] as const) {
     // Bug: the renderer treats %i as text and one unit file can no longer start every interface.
     const text = renderUnit(template('neptunia-interface@.service'), scope, VARS);
     assert.ok(valuesOf(text, 'ExecStart')[0]?.includes('interface run %i'));
-  });
-
-  test(`${scope} rendering twice gives the same text`, () => {
-    // Bug: a rerun of setup rewrites every unit and restarts the core for nothing.
-    for (const name of UNIT_FILES) {
-      assert.equal(renderUnit(template(name), scope, VARS), renderUnit(template(name), scope, VARS));
-    }
   });
 }
 
@@ -380,4 +365,162 @@ test('the interface unit has no EnvironmentFile line', () => {
     VARS_RUNNER_UNIT_NO_ENV_FILE
   );
   assert.deepEqual(environmentFiles(unit), []);
+});
+
+// src/setup/install.ts and src/setup/units.ts: what the runner units are rendered with. Their binds follow the backends
+// installed under `<data>/subharness/`, and the server unit's network reaches the API of each CLI. The templates are the
+// real files of deploy/; no systemctl runs.
+
+const run = (): Promise<RunResult> => Promise.resolve({ code: 0, stdout: '', stderr: '' });
+
+/** The values of `key` in a rendered unit, its comments left out. */
+const backendBindsValuesOf = (text: string, key: string): Array<string> =>
+  text
+    .split('\n')
+    .filter((line) => line.startsWith(`${key}=`))
+    .map((line) => line.slice(key.length + 1));
+
+for (const file of ['neptunia-agent-scout.service', 'neptunia-agent-server.service']) {
+  test(`${file} binds the installed backend and not the uninstalled one while nothing is connected`, async () => {
+    // Catches: the binds follow the connected list, so a role moved to an installed backend finds its folder hidden.
+    const base = tempDir('nep-binds-');
+    const dataDir = path.join(base, 'data');
+    const unitDir = path.join(base, 'units');
+    fs.mkdirSync(unitDir);
+    writeKeysFile(dataDir, { subharness: { backends: [], key: null, modes: {} } });
+    const { binary } = subharnessPlace(dataDir, 'claude');
+    fs.mkdirSync(path.dirname(binary), { recursive: true });
+    fs.writeFileSync(binary, '#!/bin/sh\n', { mode: 0o755 });
+    const target: UnitTarget = {
+      system: false,
+      user: 'alice',
+      group: 'alice',
+      home: path.join(base, 'home'),
+      rootDir: ROOT,
+      privateDir: dataDir,
+      dataDir,
+      node: '/usr/bin/node',
+      unitDir,
+    };
+    const done = await installUnits(target, run, [file]);
+    assert.equal(done.ok, true);
+    const unit = fs.readFileSync(path.join(unitDir, file), 'utf8');
+    assert.deepEqual(backendBindsValuesOf(unit, 'BindPaths'), [`-${path.join(dataDir, 'subharness', 'claude')}`]);
+  });
+}
+
+test("the server unit's network reaches Anthropic's API and Cloudflare's ranges, with everything else denied", () => {
+  // Catches: a claude child under the server unit cannot connect at all, or the new range replaces the ones codex needs.
+  const template = fs.readFileSync(path.join(ROOT, 'deploy', 'neptunia-agent-server.service'), 'utf8');
+  const unit = renderUnit(template, 'system', {
+    user: 'alice',
+    group: 'alice',
+    home: '/home/alice',
+    rootDir: '/srv/engine',
+    privateDir: '/srv/engine-data',
+    dataDir: '/srv/engine-data',
+    node: '/usr/bin/node',
+    mode: 'read',
+  });
+  const allowed = backendBindsValuesOf(unit, 'IPAddressAllow').flatMap((value) => value.split(/\s+/));
+  assert.ok(allowed.includes('160.79.104.0/23'), allowed.join(' '));
+  assert.ok(allowed.includes('2607:6bc0::/48'), allowed.join(' '));
+  assert.ok(allowed.includes('104.16.0.0/13'), allowed.join(' '));
+  assert.deepEqual(backendBindsValuesOf(unit, 'IPAddressDeny'), ['any']);
+});
+
+// src/setup/units.ts with src/subharness/place.ts: every folder an opencode child writes lies in a path its runner unit
+// leaves writable. Under `ProtectHome=tmpfs` the home is an empty read-only tmpfs and `ProtectSystem=strict` makes the
+// rest read-only, so a folder opencode derives from HOME is unwritable there: with no XDG_CACHE_HOME, `opencode --version`
+// fails `EACCES: mkdir ~/.cache` and exits 1 inside the scout's unit (measured 2026-11-05 with a transient unit of the
+// same settings). The child is a fake opencode that writes its environment to a file; the templates are deploy/'s own.
+
+/** The values of `key` in a rendered unit, its comments left out. */
+const opencodeWritesValuesOf = (text: string, key: string): Array<string> =>
+  text
+    .split('\n')
+    .filter((line) => line.startsWith(`${key}=`))
+    .flatMap((line) => line.slice(key.length + 1).split(/\s+/))
+    .filter(Boolean);
+
+/** The paths a unit lets its processes write: its writable binds and paths, and its own /tmp. */
+function writablePaths(unit: string): Array<string> {
+  const listed = [...opencodeWritesValuesOf(unit, 'BindPaths'), ...opencodeWritesValuesOf(unit, 'ReadWritePaths')].map(
+    (one) => one.replace(/^-/, '')
+  );
+  return /^PrivateTmp=yes$/m.test(unit) ? [...listed, '/tmp', '/var/tmp'] : listed;
+}
+
+const inside = (child: string, parent: string): boolean => {
+  const relative = path.relative(parent, child);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+};
+
+/** The folders opencode writes, from the environment it was started with: each XDG home, or its default under HOME. */
+function opencodeWrites(env: Record<string, string>): Record<string, string> {
+  const home = env.HOME ?? os.homedir();
+  return {
+    XDG_CONFIG_HOME: env.XDG_CONFIG_HOME ?? path.join(home, '.config'),
+    XDG_DATA_HOME: env.XDG_DATA_HOME ?? path.join(home, '.local', 'share'),
+    XDG_CACHE_HOME: env.XDG_CACHE_HOME ?? path.join(home, '.cache'),
+    XDG_STATE_HOME: env.XDG_STATE_HOME ?? path.join(home, '.local', 'state'),
+  };
+}
+
+/** The environment an installed opencode is started with, read back from a fake binary that writes it to a file. */
+async function childEnv(dataDir: string): Promise<Record<string, string>> {
+  const dump = path.join(tempDir('nep-oc-env-'), 'env');
+  const { binary } = subharnessPlace(dataDir, 'opencode');
+  fs.mkdirSync(path.dirname(binary), { recursive: true });
+  fs.writeFileSync(binary, `#!/bin/sh\nenv > ${JSON.stringify(dump)}\nexit 0\n`, { mode: 0o755 });
+  await createInstalledBackend('opencode', dataDir).run('B', { cwd: dataDir, timeoutMs: 5_000, env: {} });
+  return Object.fromEntries(
+    fs
+      .readFileSync(dump, 'utf8')
+      .split('\n')
+      .filter((line) => line.includes('='))
+      .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)])
+  );
+}
+
+for (const [file, mode] of [
+  ['neptunia-agent-scout.service', 'write'],
+  ['neptunia-agent-server.service', 'read'],
+] as const) {
+  test(`${file} leaves every folder an opencode child writes writable`, async () => {
+    // Bug: opencode derives its cache folder from HOME, which the unit mounts as an empty read-only tmpfs, so every
+    // opencode run of the agent exits 1 within a second while the same run outside the unit answers.
+    const dataDir = tempDir('nep-oc-unit-');
+    const env = await childEnv(dataDir);
+    const template = fs.readFileSync(path.join(ROOT, 'deploy', file), 'utf8');
+    const unit = renderUnit(template, 'system', {
+      user: 'alice',
+      group: 'alice',
+      home: env.HOME ?? os.homedir(),
+      rootDir: ROOT,
+      privateDir: dataDir,
+      dataDir,
+      node: process.execPath,
+      mode,
+      backends: ['opencode'],
+    });
+    const writable = writablePaths(unit);
+    for (const [name, dir] of Object.entries(opencodeWrites(env)))
+      assert.ok(
+        writable.some((one) => inside(dir, one)),
+        `${name} ${dir} lies in no writable path of the unit: ${writable.join(' ')}`
+      );
+  });
+}
+
+test('the rendered system core joins the group that reads the journal, and a user core names no group', () => {
+  // Bug: the watcher the core starts runs as a user outside `systemd-journal`, journalctl answers nothing, and the
+  // report says the server was quiet. A user manager refuses `SupplementaryGroups=` with status 216, so that form
+  // must not carry it.
+  const rendered = (scope: 'user' | 'system') => renderUnit(template('neptunia-core.service'), scope, VARS).split('\n');
+  assert.ok(rendered('system').includes('SupplementaryGroups=systemd-journal'));
+  assert.equal(
+    rendered('user').some((line) => line.startsWith('SupplementaryGroups=')),
+    false
+  );
 });

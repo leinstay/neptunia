@@ -4,7 +4,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createConsole } from '../src/interface/commands/console.ts';
-import { apiAccounting, readAllUsage, readBackendUsage, reconcileUsage, usageLines } from '../src/subharness/usage.ts';
+import {
+  apiAccounting,
+  readAllUsage,
+  readBackendUsage,
+  reconcileUsage,
+  usageLines,
+  backendUsageReader,
+} from '../src/subharness/usage.ts';
 import type { BackendUsage, UsageDeps, UsageMetric } from '../src/subharness/usage.ts';
 import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
@@ -280,4 +287,35 @@ test('/usage survives a native read that rejects, and says so', async () => {
   assert.equal(answer.status, 'ok');
   assert.ok(answer.text.includes('2026-11-05'), answer.text);
   assert.equal(answer.text.includes('sk-leaky-detail'), false, answer.text);
+});
+
+// The reader the console holds (src/subharness/usage.ts#backendUsageReader): each read is compared with what the last one
+// showed, per source. The provider is a fake.
+
+test('a read that fails after one that worked shows the old numbers as stale, and a later success replaces them', async () => {
+  // Catches: the reconciler never fed its previous observation, so a brief outage blanks the view.
+  const privateDir = tempDir('nep-usage-reader-');
+  writeKeysFile(privateDir);
+  const statuses = [200, 500, 200];
+  const read = backendUsageReader(() => ({
+    privateDir,
+    now: () => 1000,
+    baseUrl: 'https://openrouter.test/api/v1',
+    openRouterKey: { name: 'core one', value: 'value' },
+    fetch: () =>
+      Promise.resolve(new Response(JSON.stringify({ data: { usage: 3 } }), { status: statuses.shift() ?? 500 })),
+    spawn: () => {
+      throw new Error('no child in this test');
+    },
+    exec: () => Promise.reject(new Error('no command in this test')),
+  }));
+  const usageOf = async () => {
+    const found = (await read()).find((one) => one.source === 'openrouter');
+    return found?.metrics.find((one) => one.name === 'usage');
+  };
+  assert.equal((await usageOf())?.state, 'observed');
+  const failed = await usageOf();
+  assert.equal(failed?.state, 'stale');
+  assert.equal(failed?.value, 3);
+  assert.equal((await usageOf())?.state, 'observed');
 });

@@ -81,3 +81,36 @@ test('serves the command line chat up to its trigger and makes the trigger line 
   assert.equal(trigger.content, 'Τι νέα;');
   handle.close();
 });
+
+test('serves a place of another interface from its stored lines written before the turn', async () => {
+  const handle = freshMemoryDb();
+  const db = handle.db as Db;
+  seed(db);
+  db.prepare(
+    `INSERT INTO places (id, iface, kind, native_id, scope_kind, chat) VALUES ('discord:channel:900', 'discord', 'channel', '900', 'group', 'group')`
+  ).run();
+  const line = db.prepare(
+    `INSERT INTO sources (id, kind, iface, native_id, place_id, text, occurred_at, recorded_at, observed_at)
+     VALUES (?, 'said', 'discord', ?, 'discord:channel:900', ?, ?, ?, ?)`
+  );
+  for (const [id, text, at] of [
+    ['9001', 'Πρώτο', '2026-03-04T09:00:00.000Z'],
+    ['9002', 'Δεύτερο', '2026-03-04T10:00:00.000Z'],
+    ['9003', 'Μετά', '2026-03-04T11:00:00.000Z'],
+  ] as const)
+    line.run(`source:d${id}`, id, text, at, at, at);
+  const turn = storedTurn(db, 't-aaaa-1111');
+  const stage = stageOf({
+    db,
+    dataDir: tempDir('nep-stage-'),
+    turn,
+    selfId: 'self',
+    now: () => START,
+    tmpDir: tempDir('nep-stage-tmp-'),
+  });
+  const page = await stage.port.history({ iface: 'discord', chatId: '900' }, { limit: 10 });
+  assert.equal(page.status, 'ok');
+  const texts = page.status === 'ok' ? page.events.map(({ message }) => message.content) : [];
+  assert.deepEqual(texts, ['Πρώτο', 'Δεύτερο']);
+  handle.close();
+});

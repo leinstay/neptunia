@@ -16,7 +16,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, 
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseRequest } from '../bin/neptunia-request.ts';
-import { retiredSetupStep, runUnitVerbs } from '../bin/neptunia-service.ts';
+import { runUnitVerbs } from '../bin/neptunia-service.ts';
 import { readConfig } from '../src/config.ts';
 import { localConfigPath } from '../src/config/files.ts';
 import { parseCommandLine } from '../src/interface/commands/table.ts';
@@ -473,44 +473,6 @@ for (const name of MECHANICS) {
   });
 }
 
-for (const verb of ['start', 'stop', 'restart']) {
-  test(`services watcher ${verb} is refused and touches no unit`, async () => {
-    // Catches: the two orders of the words are read as one family, so a mechanic is started through systemctl.
-    const where = rig();
-    const done = await run(where, `watcher ${verb}`);
-    assert.equal(done.code, 2, done.out.slice(0, 300));
-    assert.ok(done.stderr.includes('enable'), `it names the actions: ${done.stderr.slice(0, 300)}`);
-    assert.deepEqual(where.calls, []);
-  });
-}
-
-// ---- the competing controls -----------------------------------------------------------------------------------------
-
-// Changed: the retired names are gone with the rest of the legacy, so such a line is refused like any line the table
-// does not hold, and names no replacement.
-for (const argv of [['watcher', 'run'], ['watcher'], ['selfimprovement', 'run'], ['selfimprovement'], ['report']]) {
-  test(`neptunia ${argv.join(' ')} is refused before any handler`, () => {
-    // Catches: the old form still parses into a command that runs an inspection or a beat.
-    assert.equal(parseRequest(argv).parsed.ok, false);
-  });
-}
-
-test('neptunia -p /report is refused before any handler', () => {
-  // Catches: the line of the chat still reads a report, so the old command lives on behind -p.
-  assert.equal(parseCommandLine('/report 2026-11-03').ok, false);
-});
-
-for (const [step, names] of [
-  ['watcher', 'neptunia setup'],
-  ['selfimprovement', 'services selfimprovement setup'],
-  ['mechanics', 'neptunia services'],
-] as const) {
-  test(`neptunia setup ${step} is retired and names ${names}`, () => {
-    // Catches: the step runs its old dialog, a second way to set what the family sets.
-    assert.ok((retiredSetupStep([step]) ?? '').includes(names), step);
-  });
-}
-
 // ---- what only a real process proves --------------------------------------------------------------------------------
 
 test('child: -p reaches the same handler with no core and exits 0', async () => {
@@ -532,38 +494,11 @@ test('child: setup with no option and no terminal exits 2 at once, with the inpu
   assert.equal(rawSettings(where), null);
 });
 
-test('child: neptunia watcher run exits 2, names the family and runs nothing', async () => {
-  // Catches: the old form still runs an inspection, or stops at a usage text with no way forward.
-  const where = rig({ watcher: { enabled: true } });
-  const before = treeOf(where.root);
-  const done = await child(where, ['watcher', 'run']);
-  assert.equal(done.code, 2, done.out.slice(0, 300));
-  assert.ok(done.stderr.includes('services watcher'), done.stderr.slice(0, 300));
-  assert.deepEqual(treeOf(where.root), before);
-});
-
 test('child: service restart in a user install goes to the user manager', async () => {
   // Catches: the unit verbs ignore the scope, so a user install's restart asks the system manager for units it lacks.
   const where = rig();
   assert.equal((await child(where, ['services', 'restart', 'neptunia-core.service'])).code, 0);
   assert.deepEqual(childCalls(where), ['systemctl --user restart neptunia-core.service']);
-});
-
-test('child: the usage shows the family and none of the retired forms, and hides the worker the core starts', async () => {
-  // Catches: help keeps teaching the forms that now only explain themselves, or lists the internal entry point.
-  const exec = 'worker watcher';
-  const done = await child(rig(), ['no-such-word-71']);
-  assert.equal(done.code, 2, done.out.slice(0, 300));
-  assert.ok(done.stderr.includes('services <name>'), done.stderr.slice(0, 600));
-  for (const gone of [
-    'neptunia watcher run',
-    'watcher trigger',
-    'selfimprovement run',
-    'mechanics',
-    '/report',
-    exec.split(' ')[0] ?? '',
-  ])
-    assert.equal(done.stderr.includes(gone), false, gone);
 });
 
 test('child: the worker the core starts for /doctor watcher run is a word the command knows', async () => {

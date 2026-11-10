@@ -359,17 +359,20 @@ function nearness(placeId: unknown, context: unknown, ifaceOf: Reader['ifaceOf']
 }
 
 /**
- * The chat an interface names by its native id, from `places`: a group chat first, then a place of unknown chat, never
- * a DM. The empty id when no row holds one, so a read narrowed to a chat nobody stored finds nothing (no place id is
- * empty).
+ * The chat a call names, from `places`: a stored place id of any interface as it is, else the chat the turn's interface
+ * names by that native id (a group chat first, then a place of unknown chat), never a DM. The empty id when no row
+ * holds one, so a read narrowed to a chat nobody stored finds nothing (no place id is empty). The place only narrows:
+ * the context's scope and the caller's allowed places still filter every stream (filters).
  */
-function channelOfNative(db: Db, iface: string, native: string): string {
+function chatNamed(db: Db, iface: string, given: string): string {
+  const stored = db.prepare(`SELECT id FROM places WHERE id = ? AND chat IS NOT 'dm'`).get(given)?.id;
+  if (typeof stored === 'string') return stored;
   const found = db
     .prepare(
       `SELECT id FROM places WHERE iface = ? AND native_id = ? AND chat IS NOT 'dm'
        ORDER BY chat IS 'group' DESC, id LIMIT 1`
     )
-    .get(iface, native)?.id;
+    .get(iface, given)?.id;
   return typeof found === 'string' ? found : '';
 }
 
@@ -1066,6 +1069,12 @@ export type SearchInput = {
   /** Which places a sample may read, on top of `allowPlace`. `sampledPlaces` (a list a reader was given) stands in for it. */
   samplePlace?: unknown;
   sampledPlaces?: ReadonlyArray<string | null>;
+  /**
+   * The bar an item found by meaning alone must clear to stay, as the prefetch keeps one (prefetch.ts#itemLines): a
+   * cosine of at least `minMeaningScore`, and of at least `strongMeaningScore` when the item holds none of the words.
+   * Without it every item at or over `minMeaning` stays.
+   */
+  mediaBar?: { minMeaningScore: number; strongMeaningScore: number } | null;
 };
 
 /** What a search answers: the windows, the hits, whether a DM holds better, whether it is a sample, the counts per stream. */
@@ -1144,6 +1153,7 @@ export function search(
     sampleTime,
     samplePlace,
     sampledPlaces,
+    mediaBar = null,
   }: SearchInput = {},
   marks: NameMarks | null = null
 ): SearchResult {
@@ -1157,8 +1167,7 @@ export function search(
   const scopeArgs: ScopeArgs = {
     from: isFiniteNumber(plan?.from) ? plan.from : null,
     to: isFiniteNumber(plan?.to) ? plan.to : null,
-    placeId:
-      typeof plan?.placeId === 'string' && plan.placeId ? channelOfNative(db, ifaceOf(context), plan.placeId) : null,
+    placeId: typeof plan?.placeId === 'string' && plan.placeId ? chatNamed(db, ifaceOf(context), plan.placeId) : null,
     // The caller's place rule runs inside every stream's query (see placesAllowed).
     places: placesAllowed(db, context, allowPlace, allowedPlaces),
   };
@@ -1226,7 +1235,7 @@ export function search(
     minMeaning,
     filter: filters(context, scopeArgs),
     limit: candidates,
-  });
+  }).filter((hit) => clearsBar(hit, mediaBar));
 
   const skip = excludedSources(db, context, exclusions, exclude);
   const keep = Math.max(1, Number.isInteger(limit) ? limit : RECALL_DEFAULTS.maxClusters);
@@ -1354,6 +1363,13 @@ export function search(
       : false;
   showItemsOnce(windows);
   return { windows, hits, mediaHits: mediaFound, hidden, sampled, stats };
+}
+
+/** Whether an item stays under `bar`: found by its words, or by a meaning close enough (SearchInput.mediaBar). */
+function clearsBar(hit: MediaHit, bar: SearchInput['mediaBar']): boolean {
+  if (!bar || hit.streams.includes('words') || hit.streams.includes('trigram')) return true;
+  const cosine = hit.cosine ?? -1;
+  return cosine >= bar.minMeaningScore && (cosine >= bar.strongMeaningScore || hit.terms > 0);
 }
 
 /** One answer tells an item once: a much-reused item must not fill it. Its later lines keep their markers. */

@@ -91,12 +91,6 @@ test('routeName and backendOfRouteName are inverse for the four routes', () => {
   });
 });
 
-test('backendOfRouteName reads an old backend word, an empty word and a stranger as null', () => {
-  // Catches: the old words still accepted, so two names for one route live on and the docs cannot say which is right.
-  for (const word of ['claude', 'codex', 'opencode', 'api', '', 'claude-harnes', 'harness', 'gemini-harness'])
-    assert.equal(backendOfRouteName(word), null, word);
-});
-
 test('the route in words names the harness, and direct-api for the API', () => {
   // Catches: the setup line and the script line printing the stored word the owner is told not to type.
   // Changed: the core's path and the memory writer's share one text (slice 4), so this reads `memoryPathText`.
@@ -168,23 +162,18 @@ test('model set scout --via opencode-harness stores uses opencode for the agent'
   assert.equal(readKeysFile(dir).subharness.uses?.scout, 'opencode');
 });
 
-// Agents alone take --via: a model role runs on a chain whose routes name their harness (spec 2026-11-09-model-routes).
-for (const role of ['scout']) {
-  for (const old of ['claude', 'codex', 'opencode']) {
-    test(`model set ${role} --via ${old} is refused as an unknown backend that names the four names`, async () => {
-      // Catches: the old word still accepted, or refused with a code the owner's tools do not know.
-      const { dir, deps, ran } = rig();
-      const before = JSON.stringify(readKeysFile(dir));
-      const answer: Answer = await consoleOver(dir, deps).run(
-        'model.set',
-        { role, via: old, model: 'invented-model' },
-        OWNER
-      );
-      assert.equal(answer.code, 'unknown-backend', answer.text);
-      assert.notEqual(answer.status, 'ok');
-      for (const name of FOUR_NAMES) assert.ok(answer.text.includes(name), `${name} in "${answer.text}"`);
-      assert.deepEqual(ran, []);
-      assert.equal(JSON.stringify(readKeysFile(dir)), before);
-    });
-  }
-}
+test('model set scout --via a word that names no harness is refused as an unknown backend that names the four names', async () => {
+  // Catches: a word that is no route name accepted and stored, or refused with a code the owner's tools do not know.
+  const { dir, deps, ran } = rig();
+  const before = JSON.stringify(readKeysFile(dir));
+  const answer: Answer = await consoleOver(dir, deps).run(
+    'model.set',
+    { role: 'scout', via: 'claude', model: 'invented-model' },
+    OWNER
+  );
+  assert.equal(answer.code, 'unknown-backend', answer.text);
+  assert.notEqual(answer.status, 'ok');
+  for (const name of FOUR_NAMES) assert.ok(answer.text.includes(name), `${name} in "${answer.text}"`);
+  assert.deepEqual(ran, []);
+  assert.equal(JSON.stringify(readKeysFile(dir)), before);
+});

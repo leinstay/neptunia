@@ -21,7 +21,7 @@ export const LLM: ReadonlyArray<SchemaEntry> = [
     'key': 'llm.maxRequestTokens',
     'types': ['number'],
     'reader': 'src/behavior/sandbox.ts',
-    'default': 50000,
+    'default': 100000,
     'text': 'Hard token cap per request',
   },
   {

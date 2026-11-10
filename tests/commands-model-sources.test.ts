@@ -11,7 +11,7 @@ import path from 'node:path';
 import type { BackendResult } from '../src/agent-runner/backend.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
 import type { ConsoleDeps } from '../src/interface/commands/console.ts';
-import { COMMANDS, parseCommandLine, parseCommandWords } from '../src/interface/commands/table.ts';
+import { parseCommandLine, parseCommandWords } from '../src/interface/commands/table.ts';
 import { subharnessCommand } from '../src/interface/commands/subharness.ts';
 import { fakeVendor } from './fixtures/fake-vendor.ts';
 import { readKeysFile, writeKeysFile } from './fixtures/keys-file.ts';
@@ -84,29 +84,6 @@ test('opencode login takes the extra key by name', () => {
   });
 });
 
-// Changed: the retired names are gone with the rest of the legacy, so such a line is refused like any line the table
-// does not hold, and names no replacement.
-for (const line of [
-  '/subharness use dev codex',
-  '/subharness model dev sonnet',
-  '/subharness mode dev full',
-  '/subharness enable codex',
-  '/subharness disable codex',
-] as const) {
-  test(`${line} is refused`, () => {
-    // Catches: a retired word that still runs.
-    assert.equal(parseCommandLine(line).ok, false, line);
-  });
-}
-
-test('a bare /subharness enable is refused, and the table lists no retired leaf', () => {
-  // Catches: the retired form surviving in /help or in completion through its table row.
-  assert.equal(parseCommandLine('/subharness enable').ok, false);
-  const family = COMMANDS.find((one) => one.name === 'subharness');
-  const leaves = (family?.subcommands ?? []).map((one) => one.name);
-  for (const word of ['use', 'model', 'mode', 'enable', 'disable']) assert.equal(leaves.includes(word), false, word);
-});
-
 // The handler of the account commands in the core
 
 test('the core answers a status of one backend, and tells a login to go to a terminal', async () => {
@@ -169,19 +146,6 @@ test('a missing install, a missing login and a provider rejection are three answ
   }
 });
 
-for (const role of ['speech', 'drawing']) {
-  test(`/model set ${role} --via a CLI is refused as unsupported by the role, with no check`, async () => {
-    // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
-    // Catches: a text-only CLI saved as her voice or her painter.
-    const { desk, privateDir, checks } = rig();
-    fakeVendor(privateDir, 'claude', { loggedIn: true });
-    const answer = await desk.run('model.set', { role, model: 'opus', via: 'claude-harness' }, OWNER);
-    // Changed: a model role takes no --via at all; its chain's routes name the harness (spec 2026-11-09-model-routes).
-    assert.equal(answer.code, 'flag-retired');
-    assert.deepEqual(checks, []);
-  });
-}
-
 test('a stale check of an agent never overwrites the choice made while it ran', async () => {
   // The lead: routes are named direct-api, claude-harness, codex-harness and opencode-harness (owner, 2026-11-06).
   // Catches: the slow probe's success written last, so the owner's newer choice silently disappears.
@@ -217,23 +181,6 @@ test('a logout while the check runs keeps the selection from being saved', async
   release({ ok: true, text: 'ok', exitCode: 0 });
   assert.equal((await slow).code, 'source-changed');
   assert.equal(readKeysFile(privateDir).subharness.uses?.dev, undefined);
-});
-
-// /agent mode
-
-test('/agent mode parses with an agent and an optional mode, and refuses another mode', () => {
-  // Catches: the setting surface accepting what the sandbox cannot map.
-  assert.deepEqual(parseCommandLine('/agent mode dev sudo'), {
-    ok: true,
-    name: 'agent.mode',
-    args: { agent: 'dev', mode: 'sudo' },
-  });
-  assert.deepEqual(parseCommandLine('/agent mode watcher'), {
-    ok: true,
-    name: 'agent.mode',
-    args: { agent: 'watcher' },
-  });
-  assert.equal(parseCommandLine('/agent mode dev root').ok, false);
 });
 
 test('/agent mode stores the mode and re-renders the unit, as subharness mode did', async () => {

@@ -251,3 +251,16 @@ test('the wire reader refuses an event or action without its turn id, and an unk
   assert.equal(readTurnAction({ kind: 'turn.cancel' }).ok, false);
   assert.equal(readTurnAction({ kind: 'errand.cancel', turnId: 't1' }).ok, false);
 });
+
+test('passes a think progress to the subscriber with its kind and detail', async () => {
+  // Bug: the control drops or rewrites the kind of a step it does not know, and the row never sees the think.
+  const { control, events, runs } = rig();
+  const id = accepted(control.submit({ requestId: 'r1', text: 'hello', attachments: [] }));
+  await tick();
+  control.progress(id, { kind: 'think', name: 'think', detail: 'checking the list first' });
+  runs[0]?.finish({ status: 'committed', responseId: 'resp-1' });
+  await tick();
+  const step = events.find((event) => event.type === 'progress');
+  assert.equal(step?.kind, 'think');
+  assert.equal(step?.detail, 'checking the list first');
+});

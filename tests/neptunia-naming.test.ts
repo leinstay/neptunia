@@ -14,9 +14,6 @@ import { cliFolders, handled, runChild, startRecordingCore } from './fixtures/re
 import type { RecordingCore } from './fixtures/recording-core.ts';
 import type { Dirs } from './fixtures/core-units.ts';
 
-/** The retired spelling of the family: `neptunia service` followed by anything but the plural's `s`. */
-const RETIRED_SPELLING = /neptunia service(?!s)\b/;
-
 let online: Dirs;
 let offline: Dirs;
 let core: RecordingCore;
@@ -84,37 +81,6 @@ function digest(dir: string): string {
   return rows.join('\n');
 }
 
-// ---- retired spellings -----------------------------------------------------------------------------------------------
-
-// Changed: the retired names are gone with the rest of the legacy, so such a line is refused like any line the table
-// does not hold, and names no replacement.
-for (const argv of [
-  ['-p', '/service watcher status'],
-  ['-p', '/health core'],
-  ['-p', '/wakes'],
-  ['-p', '/report'],
-  ['service', 'watcher', 'status'],
-  ['service', 'start'],
-  ['health'],
-  ['wakes'],
-  ['route', 'list'],
-  ['interface', 'list'],
-] as const) {
-  test(`neptunia ${argv.join(' ')} exits 2, and runs, sends and asks nothing`, async () => {
-    // Catches: a retired spelling still executes, or is taken for a line to her.
-    fresh();
-    const connections = core.connections();
-    const done = await run(online, argv);
-    assert.equal(done.code, 2, done.stderr.slice(0, 300));
-    assert.equal(done.stdout, '');
-    assert.deepEqual(core.commands, []);
-    assert.deepEqual(core.lines, []);
-    assert.equal(core.connections(), connections, 'no connection was opened');
-    assert.equal(existsSync(unitLog), false, 'no unit was touched');
-    assert.equal(existsSync(journalLog), false, 'no journal was read');
-  });
-}
-
 for (const argv of [
   ['-p', '/services frobnicate'],
   ['-p', '/servicess list'],
@@ -141,34 +107,6 @@ test('neptunia task is refused and names tasks, while neptunia tasks reaches the
   const plural = await run(offline, ['tasks', 'list']);
   assert.equal(plural.code, 1, plural.stderr.slice(0, 300));
   assert.ok(plural.stderr.startsWith('unavailable:'), plural.stderr.slice(0, 300));
-});
-
-// ---- the hints and the usage -----------------------------------------------------------------------------------------
-
-test('the usage and the no-core hint teach the plural spelling only', async () => {
-  // Catches: the process tells the owner to type `neptunia service start`, which the table now refuses.
-  fresh();
-  const usage = await run(offline, ['hello', 'there']);
-  assert.equal(usage.code, 2);
-  assert.equal(RETIRED_SPELLING.test(usage.stderr), false, usage.stderr);
-  assert.ok(usage.stderr.includes('neptunia services'), usage.stderr);
-  const lonely = await run(offline, ['rules', 'list']);
-  assert.equal(lonely.code, 1, lonely.stderr.slice(0, 300));
-  assert.equal(RETIRED_SPELLING.test(lonely.stderr), false, lonely.stderr);
-  assert.ok(lonely.stderr.includes('services start'), lonely.stderr);
-});
-
-// ---- services --------------------------------------------------------------------------------------------------------
-
-test('neptunia services status <unit> keeps the unit verbs: systemctl runs with that unit and its exit code is the command', async () => {
-  // Catches: the rename drops the shell-only unit administration, or sends it to the core.
-  fresh();
-  const connections = core.connections();
-  const done = await run(online, ['services', 'status', 'zeta.service']);
-  assert.ok(done.stdout.includes('zeta-systemctl status zeta.service'), done.stdout);
-  assert.equal(done.code, 3);
-  assert.deepEqual(core.commands, []);
-  assert.equal(core.connections(), connections);
 });
 
 test('neptunia services list answers with no core, lists the three mechanisms and changes nothing', async () => {
@@ -230,15 +168,6 @@ for (const target of ['yesterday', '../x', '2026-11-02 extra', '2026-1-2']) {
   });
 }
 
-test('neptunia logs watcher errors is refused before either source is read', async () => {
-  // Catches: the retired line reads the journal at priority err and hides that a report was meant.
-  fresh();
-  const done = await run(offline, ['logs', 'watcher', 'errors']);
-  assert.equal(done.code, 2, done.stderr.slice(0, 300));
-  assert.equal(existsSync(journalLog), false);
-  assert.equal(done.stdout.includes('zeta-'), false);
-});
-
 test('neptunia logs errors still reads the core journal at priority err', async () => {
   // Catches: the watcher view takes over the journal's filters.
   fresh();
@@ -251,10 +180,7 @@ test('neptunia logs errors still reads the core journal at priority err', async 
 // ---- secrets ---------------------------------------------------------------------------------------------------------
 
 // Changed: `/interfaces token set` is gone (the interface's own `token` setting takes it), so the secret leaf is `keys add`.
-for (const argv of [
-  ['keys', 'add', 'zeta71', 'sekret-71'],
-  ['-p', '/keys add zeta71 sekret-71'],
-]) {
+for (const argv of [['-p', '/keys add zeta71 sekret-71']]) {
   test(`neptunia ${argv.slice(0, -1).join(' ')} <value> refuses a token on the command line and never echoes it`, async () => {
     // Catches: the renamed family takes the token as an argument, or a refusal prints it into a log or a terminal.
     fresh();

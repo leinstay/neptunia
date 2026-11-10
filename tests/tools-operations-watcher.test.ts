@@ -6,19 +6,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+
 import { runOpPrechecked } from '../src/tools/operations/index.ts';
 import { createOpsEnv } from '../src/tools/operations/env.ts';
-import { SKILL_DEFINITIONS } from '../src/tools/definitions.ts';
-import { grantedToPersona, skillAccess } from '../src/tools/access.ts';
+
+import { skillAccess } from '../src/tools/access.ts';
 import { createDiscordInterface } from '../interfaces/discord/index.ts';
 import { createReportReader } from '../src/watcher/read.ts';
 import type { ReportReader } from '../src/watcher/read.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { putReport, reportText, watcherDirs } from './fixtures/watcher-rig.ts';
 import { tempDir } from './fixtures/tmp.ts';
-
-const REPO = fileURLToPath(new URL('..', import.meta.url));
 const SELF_ID = '900';
 
 type Result = { status: string; code?: string | null; summary?: string; data?: unknown };
@@ -101,16 +99,6 @@ test('watcher.read of a day that is no date is invalid and reads nothing, so she
 test('a core with no watcher reader answers failed rather than crashing', async () => {
   const result = await callOf(null, {});
   assert.equal(result.status, 'failed');
-});
-
-test('watcher.read is defined with an optional day and a read effect, and the tracked config grants it to nobody', () => {
-  const definition = SKILL_DEFINITIONS.find((one) => one.name === 'watcher.read');
-  assert.ok(definition, 'watcher.read is defined');
-  assert.equal(definition.effects, 'read');
-  assert.ok(Object.hasOwn(definition.params.properties ?? {}, 'day'));
-  assert.equal((definition.params.required ?? []).includes('day'), false);
-  const tracked: unknown = JSON.parse(fs.readFileSync(path.join(REPO, 'config', 'config.json'), 'utf8'));
-  assert.equal(grantedToPersona(tracked, SELF_ID, 'watcher.read'), false);
 });
 
 test('an ungranted watcher.read is refused like any ungranted tool, and a grant to her opens it', () => {

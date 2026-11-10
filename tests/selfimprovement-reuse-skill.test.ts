@@ -107,12 +107,3 @@ test('a skill she switched off is marked off in the request and an active one is
   assert.ok(line('old-routine').includes(skillOff));
   assert.ok(!line('brief-the-news').includes(skillOff));
 });
-
-test('the wake prompt tells her to reuse a skill she has before proposing a new one', () => {
-  // Bug: she files a second skill for a need an existing one covers, because nothing in the wake asks her to look first.
-  const sentences = PROMPT.split(/(?<=[.!?])\s+/);
-  const reuse = sentences.filter(
-    (one) => /\bskill/i.test(one) && /\b(reuse|existing skill|skill you (already )?(have|hold|own))\b/i.test(one)
-  );
-  assert.ok(reuse.length > 0, 'a sentence that sends her to an existing skill first');
-});

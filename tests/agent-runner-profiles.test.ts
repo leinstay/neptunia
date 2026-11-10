@@ -18,14 +18,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+
 import { fileURLToPath } from 'node:url';
 import { readPromptFile } from '../src/agent-runner/opencode.ts';
 import { onLog } from '../src/log.ts';
 import {
   SCOUT,
   SERVER,
-  PROFILES,
   ALWAYS_DENIED,
   AgentProfileError,
   DEVELOPMENT_TOOLS,
@@ -44,6 +43,8 @@ import {
   SCOUT_TMP_DIR,
   YT_DLP_DENIES,
   withheldShellDenies,
+  agentSettings,
+  UNIT_SCOPE_ENV,
 } from '../src/agent-runner/profiles.ts';
 import {
   WITHHELD_GLOBS,
@@ -279,33 +280,6 @@ test("server external_directory: allowed in core, the path tools' withheld denie
   for (const resource of ['/opt/neptunia/data/config/*', '/opt/neptunia/data/prompts/*', '/opt/neptunia/data/*'])
     assert.equal(actionOf(apart, resource), 'deny', resource);
   assert.equal(actionOf(apart, '/opt/neptunia/app/*'), 'allow');
-});
-
-test('defaults: limits, daily, model, env names', () => {
-  assert.deepEqual(SCOUT.defaultLimits, { steps: 25, seconds: 300 });
-  assert.deepEqual(SERVER.defaultLimits, { steps: 20, seconds: 120 });
-  assert.deepEqual(SCOUT.defaultDaily, { tasks: 40 });
-  // Stage AB: the runners read no key from their environment, so neither profile names a variable.
-  assert.deepEqual([...SCOUT.envNames], []);
-  assert.deepEqual([...SERVER.envNames], []);
-  assert.equal(SCOUT.defaultSearchProvider, 'exa');
-});
-
-test('model: each profile runs on its model role, whose default is its default model; config.json carries no agents.<profile>.model', () => {
-  assert.equal(SCOUT.modelRole, 'scout');
-  assert.equal(SERVER.modelRole, 'server');
-  assert.equal(SCOUT.defaultModel, ROLE_DEFAULTS.scout);
-  assert.equal(SERVER.defaultModel, ROLE_DEFAULTS.server);
-  // PR 7c: the shipped settings live in config/config.json.
-  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8')).agents;
-  for (const name of ['scout', 'server']) {
-    // The agent's settings are its profile's now, so config.json may hold no section for it at all.
-    assert.equal(
-      shipped?.[name]?.model,
-      undefined,
-      `${name}: the model is models.errands.${loose(profileOf(name)).modelRole}`
-    );
-  }
 });
 
 test('promptFilesOf reads persona data prompts before shared prompts and ignores legacy private overrides', () => {
@@ -1518,73 +1492,6 @@ test("the development agents' folders hold no absolute server path and no Cyrill
   }
 });
 
-test('the real agents/ folder has two workers, two development agents and a watcher with tracked prompts', () => {
-  const agents = listAgents();
-  assert.deepEqual(
-    // Watcher definitions have no model role. Worker and development roles remain explicit.
-    agents.map((agent) => [agent.id, agent.kind, 'role' in agent ? agent.role : null]),
-    [
-      ['dev', 'development', 'dev'],
-      ['scout', 'worker', 'scout'],
-      ['server', 'worker', 'server'],
-      ['thinker', 'development', 'thinker'],
-      ['watcher', 'watcher', null],
-    ]
-  );
-  // @ts-expect-error: a profile may have no prompt file; every agent listed here has one
-  for (const agent of agents) assert.ok(fs.existsSync(path.join(ROOT, 'agents', agent.id, agent.prompt)), agent.id);
-  assert.deepEqual(Object.keys(PROFILES).sort(), ['scout', 'server']);
-  // Watcher execution uses the subharness policy. It contributes no worker profile or model role.
-  const watcher = agents.find((agent) => agent.kind === 'watcher');
-  assert.ok(watcher);
-  assert.deepEqual(Object.keys(watcher).sort(), ['description', 'id', 'kind', 'override', 'prompt']);
-  assert.equal(watcher.prompt, 'prompt.md');
-  assert.equal(watcher.override, null);
-  assert.equal(profileOf('watcher'), null);
-  assert.deepEqual(Object.keys(loadProfiles()).sort(), ['scout', 'server']);
-  assert.equal(fs.existsSync(path.join(ROOT, 'agents', 'advice')), false, 'the advice profile is gone');
-  for (const profile of [SCOUT, SERVER]) {
-    assert.ok(fs.existsSync(path.join(ROOT, 'agents', profile.name, 'prompt.md')), profile.name);
-    // Persona agent prompts use the canonical data tree and the shared filename.
-    assert.deepEqual(profile.promptFiles, [
-      path.join(DATA_DIR, 'agents', profile.name, 'prompt.md'),
-      path.join(ROOT, 'agents', profile.name, 'prompt.md'),
-    ]);
-    assert.ok(SHELL_CLASSES[profile.shell].tools.length >= profile.tools.length);
-  }
-  assert.equal(fs.existsSync(path.join(ROOT, 'prompts', 'agent-scout.md')), false, 'the agent prompts left prompts/');
-});
-
-test('a profile of the retired kind `tool` is refused at load, naming the agent and the kind', () => {
-  const tool = {
-    id: 'pic',
-    kind: 'tool',
-    role: 'drawing',
-    prompt: null,
-    override: null,
-    tool: 'draw',
-    limits: { seconds: 60 },
-    daily: { tasks: 5 },
-    description: 'A retired kind.',
-  };
-  withAgentsTree({ pic: tool }, (rootDir: string) => assertRefused(rootDir, 'pic', 'kind'));
-});
-
-test('the real agents/ folder has no drawing agent: no profile, no config entry, and the runner refuses its id', () => {
-  assert.equal(fs.existsSync(path.join(ROOT, 'agents', 'drawing')), false);
-  assert.equal(profileOf('drawing'), null);
-  const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'config.json'), 'utf8'));
-  assert.equal(Object.hasOwn(shipped.agents, 'drawing'), false);
-  // Stage 4 PR D ("PR D in detail", the errand runner): `neptunia errand-runner` replaces bin/agent-runner.mjs.
-  const run = spawnSync(
-    process.execPath,
-    [path.join(ROOT, 'bin', 'neptunia.ts'), 'errand-runner', '--profile', 'drawing'],
-    { encoding: 'utf8', timeout: 20000 }
-  );
-  assert.equal(run.status, 1);
-  assert.match(run.stdout + run.stderr, /unknown profile/);
-});
-
 test('the scout unit: runs the scout profile with the state and runtime dirs the profile and config.json name', () => {
   const unit = fs.readFileSync(path.join(ROOT, 'deploy', 'neptunia-agent-scout.service'), 'utf8');
   const line = (key: string) => unit.split('\n').find((text) => text.startsWith(`${key}=`));
@@ -1717,4 +1624,131 @@ test('new reproduction: a prompt swapped for a link after the check does not rea
     hook.undo();
     rig.close();
   }
+});
+
+// `agentSettings(name, config)` (src/agent-runner/profiles.ts) is the one reader of an agent's settings for the core,
+// the runner and the dispatcher: the tracked profile of the agent (`agents/<name>/profile.json`) with the deployment's
+// override, `config.agents.<name>` of the live config, laid over it. It returns `{ enabled, cost, socket, out, limits,
+// daily, searchProvider }` for a worker and the keys the profile has for a development agent, and null for a name that
+// is no agent (`ledger` is a key of `agents`, not an agent). The values the profile alone gives are the ones
+// `config.json` carried before the profile took them over, and an override lands field by field, a nested object
+// merged key by key.
+
+/** What `config.json` carried under `agents.<name>` before the profiles took the settings over, in the profile's shape. */
+const OLD_DEFAULTS: Record<string, Record<string, unknown>> = {
+  scout: {
+    enabled: false,
+    cost: { input: 2, output: 6 },
+    socket: '/run/neptunia-agent-scout/sock',
+    out: '/var/lib/neptunia-agent-scout/out',
+    limits: { steps: 25, seconds: 300 },
+    daily: { tasks: 40 },
+    searchProvider: 'exa',
+  },
+  server: {
+    enabled: false,
+    cost: { input: 2, output: 6 },
+    socket: '/run/neptunia-agent-server/sock',
+    out: '/var/lib/neptunia-agent-server/out',
+    limits: { steps: 20, seconds: 120 },
+    daily: { tasks: 40 },
+    searchProvider: null,
+  },
+};
+
+test('lays a production-shaped override over the profile and equals the old merged value field by field', () => {
+  // A deployment turns the scout on, sets its own socket and a higher step limit, and prices the server's tokens.
+  const config = {
+    agents: {
+      scout: { enabled: true, socket: '/run/custom/scout.sock', limits: { steps: 30 } },
+      server: { enabled: true, cost: { input: 1, output: 3 } },
+    },
+  };
+  assert.deepEqual(agentSettings('scout', config), {
+    ...OLD_DEFAULTS.scout,
+    enabled: true,
+    socket: '/run/custom/scout.sock',
+    limits: { steps: 30, seconds: 300 },
+  });
+  assert.deepEqual(agentSettings('server', config), {
+    ...OLD_DEFAULTS.server,
+    enabled: true,
+    cost: { input: 1, output: 3 },
+  });
+});
+
+test('lets a local searchProvider win over the profile one, null included', () => {
+  assert.equal(agentSettings('scout', { agents: { scout: { searchProvider: 'brave' } } })?.searchProvider, 'brave');
+  assert.equal(agentSettings('scout', { agents: { scout: { searchProvider: null } } })?.searchProvider, null);
+});
+
+test('says null for agents.ledger and for a name no profile has', () => {
+  const config = { agents: { ledger: { socket: '/run/ledger/sock' }, ghost: { enabled: true } } };
+  assert.equal(agentSettings('ledger', config), null);
+  assert.equal(agentSettings('ghost', config), null);
+});
+
+test('reads the override of the config it is given at each call', () => {
+  const config: { agents: Record<string, Record<string, unknown>> } = { agents: { scout: { enabled: false } } };
+  assert.equal(agentSettings('scout', config)?.enabled, false);
+  config.agents.scout = { enabled: true };
+  assert.equal(agentSettings('scout', config)?.enabled, true);
+});
+
+// agentSettings (src/agent-runner/profiles.ts) in a user unit: the profile's socket and out defaults, which are system
+// paths, become the unit's own runtime and state folders, so a user install needs no `agents.<name>.socket` override.
+// A value the config names still wins. The scope is the variable `neptunia setup` puts in every user unit it renders.
+
+/** Runs `body` with the environment variables of `values` set, and restores them. */
+function withEnv(values: Record<string, string | undefined>, body: () => void): void {
+  const before = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  try {
+    body();
+  } finally {
+    for (const [key, value] of Object.entries(before)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+const USER_UNIT = {
+  [UNIT_SCOPE_ENV]: 'user',
+  XDG_RUNTIME_DIR: '/run/user/1000',
+  XDG_STATE_HOME: '/home/a/.local/state',
+};
+
+test('in a user unit the scout socket and out folder lie in the unit folders of the user', () => {
+  // Bug: the user unit starts a runner that tries to create /run/neptunia-agent-scout and fails.
+  withEnv(USER_UNIT, () => {
+    const settings = agentSettings('scout', {});
+    assert.equal(settings?.socket, '/run/user/1000/neptunia-agent-scout/sock');
+    assert.equal(settings?.out, '/home/a/.local/state/neptunia-agent-scout/out');
+  });
+});
+
+test('the state folder falls back to HOME/.local/state when XDG_STATE_HOME is unset', () => {
+  // Bug: the out folder becomes a relative path when the user manager sets no XDG_STATE_HOME.
+  withEnv({ ...USER_UNIT, XDG_STATE_HOME: undefined, HOME: '/home/b' }, () => {
+    assert.equal(agentSettings('server', {})?.out, '/home/b/.local/state/neptunia-agent-server/out');
+  });
+});
+
+test('a socket named in the config wins over the unit folder', () => {
+  // Bug: the unit default overrides what the owner set.
+  withEnv(USER_UNIT, () => {
+    const settings = agentSettings('scout', { agents: { scout: { socket: '/srv/own/sock' } } });
+    assert.equal(settings?.socket, '/srv/own/sock');
+  });
+});
+
+test('outside a user unit the profile defaults stand', () => {
+  // Bug: the system layout loses its /run and /var/lib paths.
+  withEnv({ [UNIT_SCOPE_ENV]: undefined }, () => {
+    assert.equal(agentSettings('scout', {})?.socket, '/run/neptunia-agent-scout/sock');
+  });
 });

@@ -117,6 +117,91 @@ export function appendStep({
   return out;
 }
 
+/** One earlier result `giveWay` may replace: where it sits, and the name of the tool that made it. */
+type ResultSlot = { at: number; part: number | null; tool: string };
+
+/** The opening tag of a text-transport result, its tool's name in the second group. */
+const RESULT_OPEN = /^(<tool_result id="[^"]*" name="([^"]*)" status="[^"]*">)\n/;
+
+/** A call of an assistant message and a part of a user message, as far as `giveWay` reads them. */
+type AskedCall = { id?: unknown; function?: { name?: string } };
+type Part = Record<string, unknown> & { text?: unknown };
+
+/** The parts of a message whose content is a list, else none. */
+const partsOf = (message: Record<string, Untyped>): Array<Part> =>
+  Array.isArray(message.content) ? (message.content as Array<Part>) : [];
+
+/**
+ * The earlier results of `messages` after the first `keep`, oldest first. Native: every `role: 'tool'` message, named
+ * by the call of the assistant message that asked for it. Text: every `<tool_result>` part of a user message.
+ */
+function resultSlots(messages: Array<Record<string, Untyped>>, keep: number): Array<ResultSlot> {
+  const names = new Map<string, string>();
+  const slots: Array<ResultSlot> = [];
+  messages.forEach((message, at) => {
+    const calls = (Array.isArray(message.tool_calls) ? message.tool_calls : []) as Array<AskedCall>;
+    for (const call of calls) names.set(String(call.id), call.function?.name ?? '');
+    if (at < keep) return;
+    if (message.role === 'tool') slots.push({ at, part: null, tool: names.get(String(message.tool_call_id)) ?? '' });
+    else if (message.role === 'user')
+      partsOf(message).forEach((part, index) => {
+        const open = RESULT_OPEN.exec(typeof part?.text === 'string' ? part.text : '');
+        if (open) slots.push({ at, part: index, tool: open[2] });
+      });
+  });
+  return slots;
+}
+
+/** `messages` with the result at `slot` replaced by `line`; a fresh array, the input unchanged. */
+function replaceSlot(
+  messages: Array<Record<string, Untyped>>,
+  slot: ResultSlot,
+  line: string
+): Array<Record<string, Untyped>> {
+  const out = [...messages];
+  const message = out[slot.at];
+  if (slot.part === null) out[slot.at] = { ...message, content: line };
+  else {
+    const parts = [...partsOf(message)];
+    const { text } = parts[slot.part];
+    const open = RESULT_OPEN.exec(typeof text === 'string' ? text : '')?.[1] ?? '';
+    parts[slot.part] = { ...parts[slot.part], text: `${open}\n${line}\n</tool_result>` };
+    out[slot.at] = { ...message, content: parts };
+  }
+  return out;
+}
+
+/**
+ * Room for the next request when it would pass the cap: the results of earlier steps in `messages` replaced, oldest
+ * first, by `line` with `{tool}` filled with the tool's name, as few as it takes for `fits` to hold. The first `keep`
+ * messages (the turn's first request) are never touched, and neither is anything the caller appends after `messages`.
+ * Returns the messages and whether they fit; when nothing older is left they come back with every earlier result
+ * replaced and `fits` false. A fresh array; the input is not changed.
+ * @param fits  Whether the request built on the given messages fits under the cap.
+ */
+export function giveWay({
+  messages,
+  keep,
+  line,
+  fits,
+}: {
+  messages: Array<Record<string, Untyped>>;
+  keep: number;
+  line: string;
+  fits: (messages: Array<Record<string, Untyped>>) => boolean;
+}): { messages: Array<Record<string, Untyped>>; fits: boolean } {
+  let out = [...messages];
+  for (const slot of resultSlots(messages, keep)) {
+    const text = fill(line, { tool: slot.tool });
+    const before = out;
+    out = replaceSlot(out, slot, text);
+    // A result replaced in an earlier step is the same line already: replacing it again makes no room.
+    if (JSON.stringify(before[slot.at]) === JSON.stringify(out[slot.at])) continue;
+    if (fits(out)) return { messages: out, fits: true };
+  }
+  return { messages: out, fits: false };
+}
+
 /** The words of `labels.task` a step's trailing note reads. */
 export type StepLabels =
   | {
@@ -129,6 +214,8 @@ export type StepLabels =
           last?: string;
           lastInner?: string;
           rescue?: string;
+          cut?: string;
+          dropped?: string;
         };
         diagnostics?: string;
       };

@@ -769,6 +769,7 @@ export async function runMemorySearch({
         history: [...history],
         historyRef,
         candidate,
+        terms: text(given.terms),
         server: serverPlan(plan),
         decorate,
         quotes: true,

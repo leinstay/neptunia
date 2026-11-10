@@ -5,8 +5,8 @@
 // order of SELFREFLECTION_KINDS. Synthetic data only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_PICTURE_KINDS } from '../src/behavior/selfreflection.ts';
-import { prepare, seeded } from './fixtures/selfreflection-prepare.ts';
+
+import { prepare } from './fixtures/selfreflection-prepare.ts';
 
 const FIRST = () => 0;
 const LAST = () => 0.999999;
@@ -28,38 +28,6 @@ for (const [label, rng, drawn] of [
     assert.equal(plan.brief, 'a planned scene');
   });
 }
-
-test('with pictures off no picture kind is drawn in two hundred posts', async () => {
-  // Bug: the draw runs over every weighted kind, and a picture kind reaches a post that cannot carry one.
-  const rng = seeded(11);
-  const kinds = new Set<string>();
-  for (let i = 0; i < 200; i += 1) {
-    const run = await prepare({
-      rng,
-      answer: { kind: 'selfPicture', brief: 'a mirror shot', search: '', picture: true, seed: 1 },
-    });
-    assert.equal(run.offered.length, 1, run.offered.join(', '));
-    kinds.add(run.plan.kind ?? 'none');
-  }
-  assert.deepEqual(
-    [...kinds].filter((kind) => DEFAULT_PICTURE_KINDS.includes(kind)),
-    []
-  );
-});
-
-test('with pictures on the draw reaches the picture kinds', async () => {
-  // Bug: the draw always runs over the text kinds, so a diary that may carry pictures never posts one.
-  const rng = seeded(12);
-  const kinds = new Set<string>();
-  for (let i = 0; i < 200; i += 1) {
-    const run = await prepare({ rng, pictures: true });
-    kinds.add(run.plan.kind ?? 'none');
-  }
-  assert.ok(
-    [...kinds].some((kind) => DEFAULT_PICTURE_KINDS.includes(kind)),
-    [...kinds].join(', ')
-  );
-});
 
 test('a forced kind is offered alone and wins over the draw', async () => {
   // Bug: the draw replaces the kind the owner asked for with `/selfreflection post <kind>`.

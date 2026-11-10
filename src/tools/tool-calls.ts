@@ -171,9 +171,21 @@ export function coerceArgs(
 }
 
 /**
+ * `data` cut to `maxChars` with an ellipsis, followed on a line of its own by `labels.task.step.cut` when anything was
+ * cut; as it was when it fits or `maxChars` is no positive number.
+ */
+function cutAtLimit(data: string, maxChars: number, labels: unknown): string {
+  if (!Number.isFinite(maxChars) || maxChars <= 0) return data;
+  const kept = clampWithEllipsis(data, maxChars);
+  if (Array.from(data.trim()).length <= maxChars) return kept;
+  const { cut } = objOf(objOf(objOf(labels).task).step);
+  return typeof cut === 'string' && cut !== '' ? `${kept}\n${cut}` : kept;
+}
+
+/**
  * What she reads for one call: the `labels.tools.result` line of its status (the status carried in
  * the words) with `{reason}` filled from `labels.tools.result.reasons[<code>]` (else `.other`, else
- * the code), then the call's data cut to `maxChars`, then the call's `memory` whole; before them, one `labels.tools.result.coerced`
+ * the code), then the call's data cut to `maxChars` (with the `labels.task.step.cut` line when it was cut), then the call's `memory` whole; before them, one `labels.tools.result.coerced`
  * line (`{arg}`, `{value}`) per argument that was read in another type. '' for no result.
  * @param {{ status?: string, code?: string|null, reason?: string|null, values?: object|null, data?: { text?: string, rows?: object[] }|null }|null} result
  * @param {object} labels
@@ -222,7 +234,7 @@ export function toolResultText(
         ? rowsText(body.rows as Array<unknown>, labels)
         : JSON.stringify(body.rows)
       : textOf(body.text);
-    if (Number.isFinite(maxChars) && maxChars > 0) data = clampWithEllipsis(data, maxChars);
+    data = cutAtLimit(data, maxChars, labels);
   }
   const coercedWord = words.coerced;
   const told =

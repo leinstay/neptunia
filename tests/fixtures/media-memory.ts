@@ -386,11 +386,20 @@ export type Found = { quotes?: Array<{ lines: string }>; excerpts?: Array<unknow
 export type RecallRig = {
   recall: { window(args: Row): Promise<Found>; prefetch(args: Row): Promise<Found | null> };
   args: Row;
-  ask: (question: Row) => Promise<string>;
+  ask: (question: Row, resolvedAnchor?: { kind: 'source'; sourceId: string }) => Promise<string>;
 };
 
-/** The recall runner and `memory.search` over the fixture database, in #general (c1). */
-export function recallRig(env: Env): RecallRig {
+export type RigEmbed = (texts: Array<string>, opts: Row) => Promise<Array<Float32Array>>;
+/**
+ * The recall runner and `memory.search` over the fixture database, in #general (c1). `embed` is the embedding call the
+ * runner gets, as the core gives it (none by default: a run with words only). `model` pins the embedder's model for the
+ * query, so it is read against the vectors written under that model, and `minMeaning` is the cosine under which a meaning
+ * hit is dropped.
+ */
+export function recallRig(
+  env: Env,
+  { embed = null, model = null, minMeaning = 0.5 }: { embed?: RigEmbed | null; model?: string | null; minMeaning?: number } = {}
+): RecallRig {
   fillEnvAudiences(env);
   insertRows(
     env.db,
@@ -407,6 +416,10 @@ export function recallRig(env: Env): RecallRig {
     ...shipped,
     bot: { ...shipped.bot, timezone: 'UTC' },
     features: { ...shipped.features, meaningSearch: false, recall: true },
+    ...(model ? { models: { ...shipped.models, byPurpose: { 'recall-query': model } } } : {}),
+    ...(embed
+      ? { recall: { ...shipped.recall, db: { ...((shipped.recall as { db?: object }).db ?? {}), minMeaning } } }
+      : {}),
   };
   const data = {};
   const store = {
@@ -431,10 +444,11 @@ export function recallRig(env: Env): RecallRig {
     llm,
     now: () => NOW,
     memoryDb: { database: () => env.db },
+    ...(embed ? { embed } : {}),
   } as unknown as Parameters<typeof createRecall>[0]);
   const recall = created as unknown as RecallRig['recall'];
   const args = { placeId: 'g1', snapshot, channel, partnerId: null, selfId: 'self', selfName: 'Self', history: [] };
-  const ask = async (question: Row): Promise<string> => {
+  const ask = async (question: Row, resolvedAnchor?: { kind: 'source'; sourceId: string }): Promise<string> => {
     const result = await runMemorySearch({
       recall: created,
       store,
@@ -448,6 +462,7 @@ export function recallRig(env: Env): RecallRig {
       history: [],
       now: NOW,
       args: question,
+      ...(resolvedAnchor ? { resolvedAnchor } : {}),
     });
     return (result as { data?: { text?: string } }).data?.text ?? '';
   };

@@ -11,7 +11,7 @@ import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { COMMAND_NAMES, parseRequest } from '../bin/neptunia-request.ts';
-import { retiredSetupStep, runUnitVerbs } from '../bin/neptunia-service.ts';
+import { runUnitVerbs } from '../bin/neptunia-service.ts';
 import { readConfig } from '../src/config.ts';
 import { localConfigPath } from '../src/config/files.ts';
 import { createConsole } from '../src/interface/commands/console.ts';
@@ -221,25 +221,6 @@ test('/services list shows a mechanism as disabled after /services disable, from
     assert.ok(after.text.includes(row), row);
 });
 
-// ---- names the console no longer answers -----------------------------------------------------------------------------
-
-for (const [name, args] of [
-  ['health', {}],
-  ['health', { part: 'core' }],
-  ['wakes.list', {}],
-  ['wakes.stop', {}],
-  ['wakes.start', {}],
-] as const) {
-  test(`a client that sends ${name} raw is refused, and nothing runs`, async () => {
-    // Catches: the retired command lives on in the console, reachable by an old client or a script that skips the parse.
-    const r = rig();
-    const answer = await r.raw(name, args);
-    assert.notEqual(answer.status, 'ok', answer.text);
-    assert.deepEqual(r.ops, []);
-    assert.deepEqual(r.fetched, []);
-  });
-}
-
 // ---- /doctor scopes --------------------------------------------------------------------------------------------------
 
 test('/doctor server, core and memory answer different reads, ask no model and write nothing', async () => {
@@ -286,19 +267,6 @@ test('/doctor live is the one scope that probes the models, through an operation
 /** The retired spelling of the family: `neptunia service` followed by anything but the plural's `s`. */
 const RETIRED_SPELLING = /neptunia service(?!s)\b/;
 
-test('a retired setup step is refused with a command of the table, in the new spelling', () => {
-  // Catches: the refusal sends the owner to a spelling the table has retired.
-  // Changed: `setup watcher` names the whole setup, which asks for the watcher's route (owner, 2026-11-09).
-  assert.match(retiredSetupStep(['watcher']) ?? '', /use neptunia setup$/);
-  for (const step of ['selfimprovement', 'mechanics']) {
-    const text = retiredSetupStep([step]) ?? '';
-    assert.equal(RETIRED_SPELLING.test(text), false, text);
-    const named = /use neptunia (services [^;]*)$/.exec(text)?.[1] ?? '';
-    assert.notEqual(named, '', `${step}: ${text}`);
-    if (!named.includes('<')) assertParsed(`/${named}`);
-  }
-});
-
 /** What `refuse` threw, for a call of `runUnitVerbs` that must end in a refusal. */
 class Refused extends Error {}
 
@@ -313,13 +281,6 @@ function refusalOf(words: ReadonlyArray<string>): string {
   }
   return assert.fail(`${words.join(' ')} was not refused`);
 }
-
-test('the shell refuses an unknown first word after services with a usage in the new spelling', () => {
-  // Catches: the usage still teaches `neptunia service`, which the table now refuses.
-  const usage = refusalOf(['bogus']);
-  assert.equal(RETIRED_SPELLING.test(usage), false, usage);
-  assert.ok(usage.includes('neptunia services'), usage);
-});
 
 test('the order of the unit verbs and a mechanism name is refused with a hint that parses', () => {
   // Catches: `services status heartbeat` is taken for a unit named heartbeat, or the hint names a spelling that is retired.

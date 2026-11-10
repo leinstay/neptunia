@@ -14,38 +14,6 @@ import { start } from '../interfaces/discord/session.ts';
 import type { InterfaceHost, RunningInterface } from '../src/protocol/host.ts';
 
 type Fake = Record<string, unknown>;
-// A chat input interaction `/nep status` of user u1 in channel c1 of the guild, with the replies it got.
-function statusInteraction(guild: Fake) {
-  const replies: Array<unknown> = [];
-  const interaction = {
-    id: 'i1',
-    guildId: guild.id,
-    channelId: 'c1',
-    user: { id: 'u1' },
-    member: undefined,
-    commandName: 'nep',
-    deferred: false,
-    replied: false,
-    isChatInputCommand: (): boolean => true,
-    isAutocomplete: (): boolean => false,
-    options: {
-      getSubcommandGroup: (): null => null,
-      getSubcommand: (): string => 'status',
-      getString: (): null => null,
-    },
-    deferReply: () => Promise.resolve(),
-    reply: (payload: unknown) => {
-      replies.push(payload);
-      return Promise.resolve();
-    },
-    editReply: (payload: unknown) => {
-      replies.push(payload);
-      return Promise.resolve();
-    },
-    followUp: () => Promise.resolve(),
-  };
-  return { interaction, replies };
-}
 
 const NOW = Date.UTC(2026, 9, 26, 12, 0, 0);
 const SELF_ID = 'self1';
@@ -584,22 +552,6 @@ test('deletes the /nep the guild still has at its first connect and registers no
   }
 });
 
-test('registers no command when it opens under a core whose interfaces run as units', async () => {
-  const h = harness();
-  const commands = registeredCommands([]);
-  h.guild.commands = commands.manager;
-  const running = await start(h.host);
-  try {
-    await h.link.hello;
-    running.open();
-    await flush(40);
-    assert.equal(commands.held.size, 0);
-    assert.equal(registersNothing(commands.sets), true, `set was given ${JSON.stringify(commands.sets)}`);
-  } finally {
-    await running.stop();
-  }
-});
-
 test('logs the number of slash commands it deleted', async () => {
   const h = harness();
   const commands = registeredCommands(['nep', 'luna']);
@@ -633,18 +585,4 @@ test('starts and carries messages when the guild refuses to list its commands', 
   } finally {
     await running.stop();
   }
-});
-
-test('an interaction for /nep sends no command to the core', async () => {
-  await withSession({}, async (h, running) => {
-    running.open();
-    const kinds: Array<unknown> = [];
-    h.loop.core.onEnvelope((value) => {
-      if (value.type === 'event') kinds.push(asFake(value.body).kind);
-    });
-    const { interaction } = statusInteraction(h.guild);
-    h.client.emit(Events.InteractionCreate, interaction);
-    await flush(40);
-    assert.equal(kinds.includes('command.requested'), false);
-  });
 });

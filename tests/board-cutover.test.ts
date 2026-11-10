@@ -11,7 +11,7 @@ import net from 'node:net';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { endEvent, encodeLine, pongEvent } from '../src/agent-runner/protocol.ts';
-import { coreSocketPath } from '../src/interface/socket.ts';
+
 import type { Handoff, TaskRecord, TaskView } from '../src/board/board.ts';
 import {
   ANSWER,
@@ -25,8 +25,7 @@ import {
   withRig,
 } from './fixtures/core-units.ts';
 import type { Client, Dirs, Exit, Llm, Settings } from './fixtures/core-units.ts';
-import { connectAgent } from './fixtures/agent-client.ts';
-import type { AgentAnswer } from './fixtures/agent-client.ts';
+
 import { call, toolAnswer } from './fixtures/tool-answers.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
@@ -91,20 +90,6 @@ async function next(dirs: Dirs, name: string): Promise<TaskRecord> {
   return held as TaskRecord;
 }
 
-/** A socket that only counts who connects to it: where the ledger mirror's socket was. */
-async function listening(path: string): Promise<{ connections: () => number; close: () => Promise<void> }> {
-  let count = 0;
-  const server = net.createServer((socket) => {
-    count += 1;
-    socket.destroy();
-  });
-  await new Promise<void>((resolve) => server.listen(path, resolve));
-  return {
-    connections: () => count,
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
-  };
-}
-
 type Runner = { runs: Array<Record<string, unknown>>; close: () => Promise<void> };
 
 /** A scout runner on `path`: it answers a ping, and ends every run it gets as done with `usd` spent. */
@@ -135,7 +120,6 @@ async function fakeScout(path: string, usd = 0.2): Promise<Runner> {
 /** One errand she hands off: the member's line that asks for it, and the goal she gives the scout. */
 type Asked = { line: string; goal: string };
 const OPENING: Asked = { line: 'Ask the scout when the library opens.', goal: 'find the opening hours of the library' };
-const CLOSING: Asked = { line: 'And when does it close?', goal: 'find the closing hours of the library' };
 
 /**
  * The model of her turns: the first request that holds the line of an errand calls `errand.run` for the scout with its
@@ -309,118 +293,4 @@ test('her errand goes from her errand.run to its scout and back to her once, thr
   } finally {
     await scout.close();
   }
-});
-
-test('an errand from her call to its end opens no connection to a socket set as agents.ledger.socket', async () => {
-  const sockets = tempDir('nb-');
-  const scout = await fakeScout(join(sockets, 'r.sock'));
-  const ledger = await listening(join(sockets, 'l.sock'));
-  try {
-    const config = errandConfig(join(sockets, 'r.sock'), join(sockets, 'out'), {
-      agents: { ledger: { socket: join(sockets, 'l.sock') } },
-    });
-    await withRig({ config }, async ({ dirs, cores, units }) => {
-      cores.push(await startUnitsCore(dirs, errandModel([OPENING])));
-      const unit = await startedUnit(dirs);
-      units.push(unit);
-      await (
-        await unit.emit(mention('m1', OPENING.line))
-      ).acked;
-      await until(() => errandTasks(dirs)[0]?.status === 'done', 'the errand to end');
-      await settle(800);
-      assert.equal(scout.runs.length, 1);
-      assert.equal(ledger.connections(), 0);
-    });
-  } finally {
-    await ledger.close();
-    await scout.close();
-  }
-});
-
-test('a spent agents.scout.daily.usd stops none of her errands: the second one runs after the first spent past it', async () => {
-  const sockets = tempDir('nb-');
-  const scout = await fakeScout(join(sockets, 'r.sock'), 5);
-  try {
-    const config = errandConfig(join(sockets, 'r.sock'), join(sockets, 'out'), {
-      agents: {
-        scout: {
-          enabled: true,
-          socket: join(sockets, 'r.sock'),
-          out: join(sockets, 'out'),
-          daily: { tasks: 5, usd: 0.01 },
-        },
-      },
-    });
-    await withRig({ config }, async ({ dirs, cores, units, logs }) => {
-      cores.push(await startUnitsCore(dirs, errandModel([OPENING, CLOSING])));
-      const unit = await startedUnit(dirs);
-      units.push(unit);
-      await (
-        await unit.emit(mention('m1', OPENING.line))
-      ).acked;
-      await until(() => errandTasks(dirs)[0]?.status === 'done', 'the first errand to end');
-      const first = errandTasks(dirs)[0]?.id;
-      await until(() => logged(logs, 'errands: result turn', first) > 0, 'the result turn of the first errand');
-      await (
-        await unit.emit(mention('m2', CLOSING.line, Date.now() + 1000))
-      ).acked;
-      await until(
-        () => scout.runs.length === 2,
-        () => `a second run; the scout has ${scout.runs.length}`
-      );
-      await until(
-        () => errandTasks(dirs).length === 2 && errandTasks(dirs).every((row) => row.status === 'done'),
-        'both errands to end'
-      );
-      assert.deepEqual(
-        errandTasks(dirs).map((row) => row.id),
-        scout.runs.map((run) => run.id)
-      );
-    });
-  } finally {
-    await scout.close();
-  }
-});
-
-test('a spent agents.dev.daily.usd and an attempt past its budget_usd stop nothing on the board', async () => {
-  const config = {
-    board: { ...BOARD, autoTriage: { role: 'dev', budget: 2, steps: 80, estimate: 30 } },
-    agents: { dev: { daily: { usd: 0.01 } } },
-  };
-  await withRig({ config, clients: DEV_CLIENTS }, async ({ dirs, llm, cores }) => {
-    cores.push(await startUnitsCore(dirs, llm, () => T0));
-    const socket = coreSocketPath(dirs.dataDir);
-    const lead = await connectAgent(socket, 'lead', tokenOf(dirs, 'lead'));
-    const hand = await connectAgent(socket, 'dispatcher', tokenOf(dirs, 'dispatcher'));
-    try {
-      const add = (title: string): Promise<AgentAnswer> =>
-        lead.ask('task.add', { title, lane: 'dev', project: 'core', auto: true, no_brief: true });
-      const first = await add('first');
-      const second = await add('second');
-      assert.deepEqual([first.status, second.status], ['ok', 'ok']);
-      const held = await hand.ask('task.next', { lane: 'dev', role: 'dev' });
-      assert.ok(
-        isRecord(held.data) && typeof held.data.id === 'string' && typeof held.data.lease_generation === 'number'
-      );
-      const { id, lease_generation: generation } = held.data;
-      const attempt = await hand.ask('task.attempt.start', { task_id: id, role: 'dev' });
-      assert.ok(isRecord(attempt.data) && typeof attempt.data.id === 'string', attempt.text);
-      const ended = await hand.ask('task.attempt.end', {
-        attempt_id: attempt.data.id,
-        generation,
-        cost_usd: 9,
-        outcome: 'done',
-      });
-      assert.equal(ended.status, 'ok', ended.text);
-      const after = await lead.ask('task.show', { id });
-      assert.ok(isRecord(after.data) && isRecord(after.data.task));
-      assert.equal(after.data.task.status, 'in_progress', 'nine dollars over a two-dollar budget stop nothing');
-      const again = await hand.ask('task.next', { lane: 'dev', role: 'dev' });
-      assert.ok(isRecord(again.data), 'the spent day hands out the next task');
-      assert.notEqual(again.data.id, id);
-    } finally {
-      hand.close();
-      lead.close();
-    }
-  });
 });

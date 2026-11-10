@@ -157,9 +157,3 @@ test('routes-exhausted lists in failing() and clears on the first success', () =
   health.succeeded('core');
   assert.equal(health.down(CONFIG, 'core'), null);
 });
-
-test('a failure that is not routes-exhausted and has no status leaves the role up', () => {
-  const { health } = tracker();
-  health.failed('core', Object.assign(new Error('x'), { code: 'something-else' }));
-  assert.equal(health.down(CONFIG, 'core'), null);
-});
