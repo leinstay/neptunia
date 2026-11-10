@@ -16,6 +16,7 @@ import { IFACE, SELF_ID, channel, message, rig } from './fixtures/reads-rig.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { Reads } from '../src/interface/reads.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
+import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -278,14 +279,14 @@ test('store emojiBackfill: normalised on read, set only through setEmojiBackfill
     assert.equal(loose(store.getPlace(placeOfRoot(store, 'g1'))).emojiBackfill, null);
 
     // The notes are written under the place the store names the root by: a unit names its place, never a path.
-    await memoryDb.writeUnit({
+    await writeUnitUpdate(memoryDb, {
       op: 'value',
       key: placeCollection('place', placeOfRoot(store, 'g2')),
       value: { emojiBackfill: { at: 5, channels: 'x' } },
     });
     assert.equal(loose(store.getPlace(placeOfRoot(store, 'g2'))).emojiBackfill, null);
 
-    await memoryDb.writeUnit({
+    await writeUnitUpdate(memoryDb, {
       op: 'value',
       key: placeCollection('place', placeOfRoot(store, 'g3')),
       value: { emojiBackfill: { at: '2026-09-30T00:00:00.000Z', channels: 2.7, messages: -1 } },

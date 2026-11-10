@@ -22,6 +22,7 @@ import { HOUR_MS } from '../src/time.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import { openTestMemorySync } from './fixtures/memory-db/service.ts';
+import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 const NOW = Date.UTC(2026, 9, 5, 12, 0, 0);
 const NOW_ISO = new Date(NOW).toISOString();
@@ -65,7 +66,7 @@ function recentFileOf(dir: string, placeId: string) {
 /** `value` as the unit `file` stands for, written into its data directory's database (a hand edit). */
 function writeRaw(file: string, value: unknown) {
   const dir = unitOf(file);
-  return memoryOf(dir).writeUnit({ op: 'value', key: keyOfRel(relOf(dir, file)), value });
+  return writeUnitUpdate(memoryOf(dir), { op: 'value', key: keyOfRel(relOf(dir, file)), value });
 }
 
 /** The unit `file` stands for, as the text of that file, from the database. */

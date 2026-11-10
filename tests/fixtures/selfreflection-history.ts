@@ -17,6 +17,7 @@ import { openTestMemory } from './memory-db/service.ts';
 import { world } from './turn-world.ts';
 import { worldTurnRunner } from './world-runner.ts';
 import type { createFakeAdapter } from '../../src/interface/fake.ts';
+import { writeUnitUpdate } from './memory-db/unit-writes.ts';
 
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
@@ -223,7 +224,7 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
   await store.flushSettled({});
   for (const post of [...ENTRIES.flatMap((entry) => entry.posts).map((one) => ({ post: one, self: true })), { post: ALICE, self: false }]) {
     const day = new Date(post.post.at).toISOString().slice(0, 10);
-    await memory.memoryDb.writeUnit({
+    await writeUnitUpdate(memory.memoryDb, {
       kind: 'unit',
       op: 'lines',
       key: placeCollection('record', placeOfRoot(store, ROOT, 'fake'), { partition: day }),
@@ -233,7 +234,7 @@ export async function historyMemory({ edited = false, deleted = false }: Changes
   // The record keeps what happened later: the edit as her line's second revision, the deletion as a `deleted` line.
   const later = (at: number, line: Record<string, unknown>) => {
     const day = new Date(at).toISOString().slice(0, 10);
-    return memory.memoryDb.writeUnit({
+    return writeUnitUpdate(memory.memoryDb, {
       kind: 'unit',
       op: 'lines',
       key: placeCollection('record', placeOfRoot(store, ROOT, 'fake'), { partition: day }),

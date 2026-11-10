@@ -260,7 +260,6 @@ async function core(
     let life: ReturnType<typeof createInnerLife> | null = null;
     const memoryDb = {
       readHandle: () => memory.memoryDb.readHandle(),
-      writeUnit: (update: Parameters<typeof memory.memoryDb.writeUnit>[0]) => memory.memoryDb.writeUnit(update),
       writeOperational: (write: Parameters<typeof memory.memoryDb.writeOperational>[0]) =>
         memory.memoryDb.writeOperational(write),
       memoryWrite: async (update: WakeQueueUpdate): Promise<unknown> => {

@@ -15,6 +15,7 @@ import { openTestMemory, unitFile } from './fixtures/memory-db/service.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import type { Reads } from '../src/interface/reads.ts';
 import { chainsOf } from './fixtures/chains.ts';
+import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -499,7 +500,7 @@ test('store.setAvatar: writes the current avatar only into an existing profile, 
   const owner = `guilds/${ROOT}/users/u1.json`;
   // @ts-expect-error: unitFile is null only for a file that was never written, and the test wrote this one
   const raw = JSON.parse(unitFile(memoryDb, owner));
-  await memoryDb.writeUnit({ op: 'value', owner, value: { ...raw, avatar: { hash: 'h3' } } });
+  await writeUnitUpdate(memoryDb, { op: 'value', owner, value: { ...raw, avatar: { hash: 'h3' } } });
   const fresh = createStore({ dataDir, memoryDb });
   assert.equal('avatar' in loose(fresh.getUser(accountOf(fresh, 'u1'))), false);
   await mem.close();

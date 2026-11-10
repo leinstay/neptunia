@@ -11,22 +11,7 @@ import { createStore } from '../src/memory/store.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { generated, plain } from './fixtures/memory-db/roundtrip.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
-import { NOW, ROOT, profile, writeBoth } from './fixtures/memory-db/profile-writes.ts';
-
-test('profiles of an owning, a linked, a first-time and an unknown account store the same rows both ways', async () => {
-  const { unit, direct } = await writeBoth([
-    {
-      of: 'profile',
-      accountId: 'discord:111',
-      value: profile({ interests: [], character: 'Her own words.', messageCount: 121 }),
-    },
-    { of: 'profile', accountId: 'discord:222', value: { names: ['Second'], addressedAs: { Two: { score: 1 } } } },
-    { of: 'profile', accountId: 'discord:333', value: profile({ aliases: [], closed: [] }) },
-    { of: 'profile', accountId: 'discord:444', value: { names: ['Nobody'], odd: [1, { two: 2 }], affinity: 'flat' } },
-  ]);
-  assert.equal(direct[0], unit[0]);
-  assert.deepEqual(direct[1], unit[1]);
-});
+import { NOW, ROOT } from './fixtures/memory-db/profile-writes.ts';
 
 test('a profile write that names no account is refused with a code', async () => {
   const memory = await openTestMemory({ now: () => NOW, iface: () => 'discord' });

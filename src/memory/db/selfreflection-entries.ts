@@ -34,9 +34,8 @@ import type { PlaceOwner } from './place-owner.ts';
 import { assignSelfreflectionDestination } from './publish.ts';
 import { personaKey } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit } from './storage-units.ts';
+import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
-import { noteUnit } from './unit-write.ts';
 import { dbOf, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
 
@@ -159,23 +158,17 @@ function heldSelfreflectionRows(db: Db, holder: PlaceOwner): Rows {
 
 /**
  * Stores the whole selfreflection `value` inside the caller's transaction, retires what it no longer holds and gives
- * her publications with no destination `destination` when one is named. `legacyOwner` is an owner path of an older
- * release.
+ * her publications with no destination `destination` when one is named.
  */
 export function writeSelfreflectionValue(
   db: Db,
   value: Row,
-  { at, iface, destination, legacyOwner }: { at: string; iface: string; destination?: unknown; legacyOwner?: string }
+  { at, iface, destination }: { at: string; iface: string; destination?: unknown }
 ): { upserted: number; retired: number; destinations: number } {
   const key: StorageKey = personaKey('selfreflection');
   const id = ensureUnit(db, key);
-  if (legacyOwner) {
-    db.prepare('INSERT OR IGNORE INTO legacy_unit_aliases(path,unit_id) VALUES (?,?)').run(legacyOwner, id);
-    db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, 'selfreflection');
-  }
   const holder = placeOwnerOf(key)!; // her selfreflection unit always has its owner columns (place-owner.ts)
   const mapping = selfreflectionRows(db, value, iface, id, holder);
-  if (legacyOwner) for (const list of Object.values(mapping)) for (const row of list) row.owner_file = legacyOwner;
   const upserted = writeMapping(db, mapping, id, { at, holder });
   const retired = retirePlaceAbsent(db, holder, mapping, at);
   noteUnit(db, id, 'selfreflection', { at });
@@ -187,7 +180,7 @@ export function writeSelfreflectionValue(
 export function appendSelfreflectionPost(
   db: Db,
   { post, max, updatedAt }: { post: unknown; max?: unknown; updatedAt?: unknown },
-  opts: { at: string; iface: string; destination?: unknown; legacyOwner?: string }
+  opts: { at: string; iface: string; destination?: unknown }
 ): { upserted: number; retired: number; posts: number; destinations: number } {
   const held = selfreflectionValue(db, personaKey('selfreflection'));
   const stored = held.found ? (held.value as { posts?: unknown }).posts : [];

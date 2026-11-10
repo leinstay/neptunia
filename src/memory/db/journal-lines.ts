@@ -2,7 +2,7 @@
 // and the analyzer's memory decisions, as rows owned by the unit of their place's day
 // (`placeOrPersona('journal', placeId, { partition: <YYYY-MM-DD> })`, the UTC day of the line's `occurredAt`).
 // src/memory/journal.ts writes them through the write kind `journal-lines` (session-write.ts) and reads them back
-// through the readers below. An errand's closing line comes through the unit write of its board move (unit-write.ts).
+// through the readers below. An errand's closing line comes with its board move (errand-write.ts).
 //
 //   turn                      -> a `sources` row (kind answer: her think and the ids she posted) + a `day` row
 //   memory                    -> a `decisions` row (by the analyzer) + one `affinity_events` row per attitude entry
@@ -17,7 +17,7 @@
 import { answerSourceId } from './ids.ts';
 import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './map/common.ts';
 import type { MapContext, Spec } from './map/common.ts';
-import { storageContext } from './map/index.ts';
+import { storageContext } from './storage-context.ts';
 import { privateUserOf, scopeFrom, scopeInto } from './map/scope-parts.ts';
 import type { OldScope } from './map/scope-parts.ts';
 import { errandIdOfLine } from '../../board/archive.ts';
@@ -25,9 +25,8 @@ import { addSourceMedia } from './record-lines.ts';
 import { markStemsPending } from './stems.ts';
 import { placeOrPersona } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit } from './storage-units.ts';
+import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
-import { noteUnit } from './unit-write.ts';
 import { lineColumns, lineOwnerOf, lineRows, nextLinePosition } from './line-owner.ts';
 import type { LineOwner } from './line-owner.ts';
 import { ifaceOrLegacy } from './legacy-namespace.ts';
@@ -95,12 +94,11 @@ function scopeRows(scope: Row): Row {
  * Where a day's rows belong: the unit's id, the day's owner columns (line-owner.ts), the line's position in it and,
  * from an older release, its owner path.
  */
-type Owner = { id: string; line: LineOwner; position: number | null; legacyOwner?: string };
+type Owner = { id: string; line: LineOwner; position: number | null };
 
 const owned = (owner: Owner): Row => ({
   owner_key: owner.id,
   ...lineColumns(owner.line),
-  ...(owner.legacyOwner ? { owner_file: owner.legacyOwner } : {}),
 });
 
 function memoryRows(line: Row, ctx: MapContext, privateUser: string | null, owner: Owner): Rows {
@@ -227,19 +225,15 @@ export function journalLineOf(rows: Rows, ctx: MapContext = {}): Row {
 
 /**
  * Stores the lines of one day's unit `key` inside the caller's transaction, in order from the unit's next position.
- * `iface` is the interface of the write, for a persona's unit; `legacyOwner` an owner path of an older release.
+ * `iface` is the interface of the write, for a persona's unit.
  */
 export function writeJournalDay(
   db: Db,
   key: StorageKey,
   lines: ReadonlyArray<unknown>,
-  { iface, at, legacyOwner }: { iface: string; at: string; legacyOwner?: string }
+  { iface, at }: { iface: string; at: string }
 ): JournalLinesResult {
   const id = ensureUnit(db, key);
-  if (legacyOwner) {
-    db.prepare('INSERT OR IGNORE INTO legacy_unit_aliases(path,unit_id) VALUES (?,?)').run(legacyOwner, id);
-    db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, key.kind);
-  }
   const base = storageContext(db, key);
   const ctx: MapContext = { ...base, iface: base.iface ?? iface };
   const owner = lineOwnerOf(key);
@@ -248,7 +242,7 @@ export function writeJournalDay(
   let written = 0;
   for (const line of lines) {
     if (!isPlainObject(line)) continue;
-    writeMapping(db, journalRows(line, ctx, { id, line: owner, position, legacyOwner }), id, { at });
+    writeMapping(db, journalRows(line, ctx, { id, line: owner, position }), id, { at });
     written += 1;
     position += 1;
   }

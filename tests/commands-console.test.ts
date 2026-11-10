@@ -15,7 +15,7 @@ import { COMMANDS, parseCommandLine } from '../src/interface/commands/table.ts';
 import { NOT_GRANTABLE_TO_PERSONA } from '../src/tools/access.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { personaKey } from '../src/memory/db/storage-keys.ts';
-import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
+import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { tempDir } from './fixtures/tmp.ts';
 import {
   REPO,
@@ -145,7 +145,7 @@ function seedUsage(dirs: Dirs): void {
     cost,
   });
   const seed = openMemoryDb(join(dirs.dataDir, 'memory.db'));
-  applyUnitWrite(seed, {
+  applyUnitUpdate(seed, {
     op: 'value',
     key: personaKey('usage'),
     value: { v: 1, days: { [today]: { vision: row(3, 0.4321), analyzer: row(2, 0.0123) } } },

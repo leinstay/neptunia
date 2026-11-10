@@ -16,6 +16,7 @@ import { useIface, useSelf, world } from './turn-world.ts';
 import { worldTurnRunner } from './world-runner.ts';
 import '../../src/tools/operations/index.ts';
 import { planAnswerText } from './plan-answer.ts';
+import { writeUnitUpdate } from './memory-db/unit-writes.ts';
 
 useIface('fake');
 useSelf('self-id');
@@ -123,7 +124,7 @@ async function seedRecord(memoryDb: SceneMemory['memory']['memoryDb']): Promise<
   for (const post of EARLIER) {
     const occurredAt = new Date(post.at).toISOString();
     const day = occurredAt.slice(0, 10);
-    await memoryDb.writeUnit({
+    await writeUnitUpdate(memoryDb, {
       kind: 'unit',
       op: 'lines',
       owner: `guilds/${ROOT}/record/${day.slice(0, 7)}/${day}.jsonl`,

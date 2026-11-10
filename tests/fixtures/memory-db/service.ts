@@ -13,7 +13,6 @@ import type { MemoryDbService } from '../../../src/memory/db/service.ts';
 import { createMemoryDb } from '../../../src/memory/db/service.ts';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
 import { classify } from '../../../src/memory/migration/classify.ts';
-import { filesOfUnit } from '../../../src/memory/db/export.ts';
 import { seedUnits } from './seed.ts';
 import { legacyStorageKey } from '../../../src/memory/migration/paths.ts';
 import { listUnits } from '../../../src/memory/db/storage-units.ts';
@@ -138,8 +137,7 @@ export function unitFile(memoryDb: Pick<MemoryDbService, 'readHandle'>, rel: str
     const value = unitValue(db, key);
     return value.found ? `${JSON.stringify(value.value, null, 2)}\n` : null;
   }
-  const [out] = filesOfUnit(db, info.unit, info, full);
-  return out ? out.data.toString('utf8') : null;
+  return null;
 }
 
 /** A journal's test label projected from its actual key, with no change to the writer update. */

@@ -29,7 +29,6 @@
 
 import { accountId, channelPlaceId, dmPlaceId } from '../db/ids.ts';
 import { LEGACY_IFACE } from '../db/legacy-namespace.ts';
-import { operationalKindOf } from '../db/map/verbatim.ts';
 import type { StorageKey, StorageKind, StorageSelector, StorageSubject } from '../db/storage-keys.ts';
 import { asText } from '../db/types.ts';
 import { classify } from './classify.ts';
@@ -157,6 +156,27 @@ export function isCoreStatePath(owner: unknown): boolean {
     (typeof owner === 'string' &&
       /^(?:guilds|places)\/[^/]+\/(?:inner|missed|participation|gifs|media)\.json$/.test(owner))
   );
+}
+
+/** The `kind` of an operational file, from its path (a private layer's path counts like the place's). */
+function operationalKindOf(rel: string): string {
+  const path = String(rel).replace(/^private\/[^/]+\//, '');
+  if (path === 'voice.json') return 'voice';
+  if (path === 'buffer.json') return 'buffer';
+  if (path === 'inner.json') return 'inner';
+  if (path === 'missed.json') return 'missed';
+  if (path === 'recall-trace.jsonl') return 'recall_trace';
+  if (path === 'forgotten.json') return 'forgotten';
+  if (path === 'journal/.running') return 'journal_running';
+  if (path === 'record/backfill.json') return 'record_backfill';
+  if (/^record\/\d{4}-\d{2}\/ids\.json$/.test(path)) return 'record_ids';
+  if (/^archive\/\d{4}-\d{2}\.ids\.json$/.test(path)) return 'archive_ids';
+  if (/^archive\/pending[^/]*\.jsonl$/.test(path)) return 'archive_pending';
+  if (path.startsWith('backfill/')) return 'backfill';
+  if (path.startsWith('forgetting/')) return 'forgetting';
+  if (path.startsWith('journal/requests/tools/')) return 'request_tools';
+  if (path.startsWith('journal/requests/')) return 'request_dump';
+  return 'file';
 }
 
 /** The semantic identity of a historical collection without merging its existing replacement boundary. */

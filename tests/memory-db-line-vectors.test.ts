@@ -46,24 +46,6 @@ function stored(id: string, row: number, occurredAt: string, fill: number, extra
   };
 }
 
-/** The month files of stored lines, as the unit write of a month takes them. */
-function monthFiles(lines: ReadonlyArray<Stored>, rows: number): Row {
-  return {
-    manifest: {
-      v: 1,
-      gen: 1,
-      rows,
-      bytes: rows * DIMS,
-      metaBytes: 0,
-      model: MODEL,
-      dims: DIMS,
-      checksum: 'fnv1a32:00000000:00000000',
-    },
-    meta: lines.map((one) => `${JSON.stringify(one.line)}\n`).join(''),
-    i8: Buffer.concat(lines.map((one) => Buffer.from(one.bytes))),
-  };
-}
-
 /** An observed line of a direct chat, which makes its DM place. */
 const dmLine = (native: string) => ({
   v: OBSERVATION_VERSION,
@@ -94,134 +76,8 @@ async function fresh(): Promise<Fresh> {
   return { env, memoryDb, dm: seen.placeId, db: () => dbOf(memoryDb.readHandle()!) };
 }
 
-/** The vectors rows without their ownership, in chunk key order, a retirement as true or false. */
-function rowsOf(db: Db): Array<Row> {
-  return db
-    .prepare('SELECT * FROM vectors ORDER BY chunk_key')
-    .all()
-    .map((row) => {
-      const out: Row = { ...row };
-      for (const column of ['owner_key', 'owner_file', 'place_id']) delete out[column];
-      // Each service stamps a retirement with its own clock: whether a row is retired is the fact.
-      out.retired_at = out.retired_at !== null;
-      return out;
-    });
-}
-
-type Step = { place: 'group' | 'dm'; month: string; op: 'append' | 'month'; lines: Array<Stored>; before: number };
-
-async function writeBoth(steps: ReadonlyArray<Step>): Promise<[Array<Row>, Array<Row>]> {
-  const viaUnit = await fresh();
-  const direct = await fresh();
-  try {
-    for (const step of steps) {
-      const unitPlace = step.place === 'dm' ? viaUnit.dm : GROUP;
-      const key = { ...placeCollection('vectors', unitPlace), partition: step.month };
-      const files = monthFiles(step.lines, step.before + step.lines.length);
-      await viaUnit.memoryDb.writeUnit({
-        op: 'vectors',
-        key,
-        ...(step.op === 'append' ? { delta: files } : { value: files }),
-      });
-      await direct.memoryDb.writeLineVectors({
-        op: step.op,
-        placeId: step.place === 'dm' ? direct.dm : GROUP,
-        month: step.month,
-        model: MODEL,
-        lines: step.lines,
-      });
-    }
-    return [rowsOf(viaUnit.db()), rowsOf(direct.db())];
-  } finally {
-    await viaUnit.env.close();
-    await direct.env.close();
-  }
-}
-
 const OCT = '2026-10-05T10:00:00.000Z';
 const NOV = '2026-11-03T10:00:00.000Z';
-
-const CASES: Array<{ name: string; steps: Array<Step> }> = [
-  {
-    name: 'two appends to one month of a group place and one to the next month',
-    steps: [
-      {
-        place: 'group',
-        month: '2026-10',
-        op: 'append',
-        before: 0,
-        lines: [stored('m1', 0, OCT, 1), stored('m2', 1, OCT, 2)],
-      },
-      { place: 'group', month: '2026-10', op: 'append', before: 2, lines: [stored('m3', 2, OCT, 3)] },
-      { place: 'group', month: '2026-11', op: 'append', before: 0, lines: [stored('m4', 0, NOV, 4)] },
-    ],
-  },
-  {
-    name: 'appends to a direct chat, with the line its observation stored',
-    steps: [
-      {
-        place: 'dm',
-        month: '2026-11',
-        op: 'append',
-        before: 0,
-        lines: [stored('7:1', 0, NOV, 1), stored('d2', 1, NOV, 2)],
-      },
-      { place: 'dm', month: '2026-11', op: 'append', before: 2, lines: [stored('d3', 2, NOV, 3)] },
-    ],
-  },
-  {
-    name: 'a month that names one line twice',
-    steps: [
-      {
-        place: 'group',
-        month: '2026-11',
-        op: 'append',
-        before: 0,
-        lines: [stored('m1', 0, NOV, 1), stored('m1', 1, NOV, 2)],
-      },
-      { place: 'group', month: '2026-11', op: 'append', before: 2, lines: [stored('m1', 2, NOV, 3)] },
-    ],
-  },
-  {
-    name: 'a whole month written again with one line fewer',
-    steps: [
-      {
-        place: 'group',
-        month: '2026-11',
-        op: 'month',
-        before: 0,
-        lines: [stored('m1', 0, NOV, 1), stored('m2', 1, NOV, 2)],
-      },
-      { place: 'group', month: '2026-11', op: 'month', before: 0, lines: [stored('m2', 0, NOV, 2)] },
-    ],
-  },
-  {
-    name: 'a line whose keys are in an order of its own',
-    steps: [
-      {
-        place: 'group',
-        month: '2026-11',
-        op: 'append',
-        before: 0,
-        lines: [
-          {
-            line: { id: 'k1', row: 0, kind: 'record', revision: 1, occurredAt: NOV, extra: 'x', scale: 0.1, norm: 2 },
-            bytes: Uint8Array.of(1, 2, 3, 4),
-          },
-        ],
-      },
-    ],
-  },
-];
-
-for (const { name, steps } of CASES) {
-  test(`the line vectors write stores ${name} as the unit write does`, async () => {
-    // Catches: a direct write that stores another chunk key, scope, model, context, link or retirement.
-    const [viaUnit, direct] = await writeBoth(steps);
-    assert.ok(direct.length > 0);
-    assert.deepEqual(direct, viaUnit);
-  });
-}
 
 test('the readers give the months, the lines in row order with their bytes, and the chunk keys of a place', async () => {
   // Catches: a reader that mixes places, loses the row order, or answers a retired line.

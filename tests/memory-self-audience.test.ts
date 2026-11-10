@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { OBSERVATION_VERSION } from '../src/memory/db/observe.ts';
 import { placeCollection } from '../src/memory/db/storage-keys.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
+import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 const GROUP = 'discord:channel:room';
 const DM = 'discord:dm:owner';
@@ -42,7 +43,7 @@ async function withSelfFacts(): Promise<string> {
   await env.memoryDb.observe(observed('channel:room', 'channel', 'room-first'), null);
   await env.memoryDb.observe(observed('dm:owner', 'dm', 'dm-first'), null);
   for (const place of [GROUP, DM])
-    await env.memoryDb.writeUnit({
+    await writeUnitUpdate(env.memoryDb, {
       op: 'value',
       key: placeCollection('place', place),
       value: { self: [`${FACT_WORDS} ${place}`] },

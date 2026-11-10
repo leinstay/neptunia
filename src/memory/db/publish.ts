@@ -36,7 +36,6 @@
 // `sent` publications on the selfreflection's own write (selfreflection-entries.ts). Logs: none; a caller logs codes.
 
 import { createHash } from 'node:crypto';
-import { ownershipRow, hasStorageUnits, ownershipSql } from './storage-units.ts';
 
 import { selfreflectionMetadataOf, selfreflectionPublicationRefusal } from '../../tools/publication.ts';
 
@@ -270,11 +269,8 @@ export function preparePublication(
       ensureContext(db, context as Context);
       const id = idOfKey(key);
       db.prepare(
-        ownershipSql(
-          db,
-          `INSERT INTO publications (id, row_kind, row_id, content_hash, rendered, destination_place_id, context_id, grant_id, status, idempotency_key, receipts, created_at, sent_at, owner_key, retired_at)
+        `INSERT INTO publications (id, row_kind, row_id, content_hash, rendered, destination_place_id, context_id, grant_id, status, idempotency_key, receipts, created_at, sent_at, owner_key, retired_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, ?, NULL, NULL, NULL)`
-        )
       ).run(
         id,
         rowKind,
@@ -568,10 +564,7 @@ function storedMirror(db: Db, mirror: Row | undefined): Row | undefined {
   if (direct || !filled(mirror?.selfreflection_id)) return direct;
   return db
     .prepare(
-      ownershipSql(
-        db,
-        "SELECT * FROM selfreflection_mirrors WHERE selfreflection_id = ? AND iface IS ? AND COALESCE(place_id, '') = ? ORDER BY owner_key IS NULL DESC, rowid LIMIT 1"
-      )
+      "SELECT * FROM selfreflection_mirrors WHERE selfreflection_id = ? AND iface IS ? AND COALESCE(place_id, '') = ? ORDER BY owner_key IS NULL DESC, rowid LIMIT 1"
     )
     .get(mirror.selfreflection_id, mirror.iface ?? null, mirror.place_id ?? '');
 }
@@ -583,14 +576,11 @@ function storedMirror(db: Db, mirror: Row | undefined): Row | undefined {
 function followMirror(db: Db, row: Row, id: unknown): void {
   const owned = Object.hasOwn(row, 'holder_id');
   db.prepare(
-    ownershipSql(
-      db,
-      `UPDATE publications SET receipts = ?, owner_key = ?, retired_at = ?,${owned ? ' writer = ?, holder_id = ?,' : ''}
+    `UPDATE publications SET receipts = ?, owner_key = ?, retired_at = ?,${owned ? ' writer = ?, holder_id = ?,' : ''}
       destination_place_id = COALESCE(destination_place_id, ?),
       rendered = CASE WHEN content_hash IS NULL THEN ? ELSE rendered END,
       content_hash = CASE WHEN content_hash IS NULL THEN ? ELSE content_hash END
     WHERE id = ?`
-    )
   ).run(
     row.receipts,
     row.owner_key,
@@ -625,24 +615,22 @@ export function deriveMirrorPublication(
   const placeExists =
     filled(found.place_id) && db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(found.place_id) !== undefined;
   const stamp = filled(at) ? at : new Date().toISOString();
-  const row = mirrorPublicationRow(hasStorageUnits(db) ? found : { ...found, owner_key: found.owner_file }, {
+  const row = mirrorPublicationRow(found, {
     text,
     placeExists,
     at: stamp,
   });
   const owned = Object.hasOwn(row, 'holder_id');
   const existing = db
-    .prepare(
-      ownershipSql(db, `SELECT id, owner_key${owned ? ', writer' : ''} FROM publications WHERE idempotency_key = ?`)
-    )
+    .prepare(`SELECT id, owner_key${owned ? ', writer' : ''} FROM publications WHERE idempotency_key = ?`)
     .get(row.idempotency_key);
   if (!existing) {
-    const stored = ownershipRow(db, row);
+    const stored = row;
     const cols = Object.keys(stored);
     db.prepare(
       `INSERT INTO publications (${cols.map((col) => `"${col}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
     ).run(...cols.map((col) => stored[col]));
-  } else if ((hasStorageUnits(db) ? existing.owner_key : existing.owner_file) != null || existing.writer != null) {
+  } else if (existing.owner_key != null || existing.writer != null) {
     followMirror(db, row, existing.id);
   } else {
     return existing.id;
@@ -672,10 +660,7 @@ export function assignSelfreflectionDestination(
   if (db.prepare('SELECT 1 AS ok FROM places WHERE id = ?').get(placeId) === undefined) return 0;
   const ids = db
     .prepare(
-      ownershipSql(
-        db,
-        `UPDATE publications SET destination_place_id = ? WHERE row_kind = 'selfreflection' AND destination_place_id IS NULL${holder ? ' AND writer = ? AND holder_id = ?' : ''} RETURNING id`
-      )
+      `UPDATE publications SET destination_place_id = ? WHERE row_kind = 'selfreflection' AND destination_place_id IS NULL${holder ? ' AND writer = ? AND holder_id = ?' : ''} RETURNING id`
     )
     .all(...(holder ? [placeId, holder.writer, holder.holder_id] : [placeId]))
     .map((row) => row.id);

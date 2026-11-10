@@ -12,15 +12,12 @@ import { createIntentionStore } from '../src/intentions/store.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { intentionsArchiveLines, intentionsValue } from '../src/memory/db/readers/intentions.ts';
-import { personaKey } from '../src/memory/db/storage-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db, MemoryHandle, Row } from '../src/memory/db/types.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { tempDir } from './fixtures/tmp.ts';
 
 const NOW = Date.parse('2026-11-09T10:00:00.000Z');
-const ACTIVE = { ...personaKey('intentions'), selector: { collection: 'active' as const } };
-const ARCHIVE = { ...personaKey('intentions'), selector: { collection: 'archive' as const } };
 
 function intention(id: string, extra: Row = {}): Row {
   return {
@@ -44,103 +41,9 @@ function intention(id: string, extra: Row = {}): Row {
   };
 }
 
-const DM = { provenance: { kind: 'self', turnId: 't-2', placeId: 'discord:dm:7', scope: 'dm', participants: ['7'] } };
-const DM_TWO = { provenance: { kind: 'self', scope: 'dm', participants: ['7', '8'] } };
-
 function fresh(name: string): { handle: MemoryHandle; db: Db; close: () => void } {
   const handle = openMemoryDb(path.join(tempDir(`intentions-${name}`), 'memory.db'));
   return { handle, db: dbOf(handle), close: () => handle.close() };
-}
-
-/** The stored intentions rows without their ownership, in id order. */
-function rowsOf(db: Db): Array<Row> {
-  return db
-    .prepare('SELECT * FROM intentions ORDER BY id')
-    .all()
-    .map((row) => {
-      const { owner_key: ownerKey, owner_file: ownerFile, ...rest } = row;
-      void ownerKey;
-      void ownerFile;
-      return { ...rest };
-    });
-}
-
-/** The graph nodes of the intentions and the edges that start or end at one, in id order. */
-function nodesOf(db: Db): Array<Row> {
-  const nodes = db
-    .prepare("SELECT * FROM graph_nodes WHERE kind = 'intention' ORDER BY id")
-    .all()
-    .map((row) => ({ ...row }));
-  const edges = db
-    .prepare(
-      `SELECT * FROM graph_edges WHERE src IN (SELECT id FROM graph_nodes WHERE kind = 'intention')
-       OR dst IN (SELECT id FROM graph_nodes WHERE kind = 'intention') ORDER BY id`
-    )
-    .all()
-    .map((row) => ({ ...row }));
-  return [...nodes, ...edges];
-}
-
-type Step = { op: 'value'; intentions: Array<Row> } | { op: 'archive'; records: Array<Row> };
-
-function writeBoth(viaUnit: MemoryHandle, direct: MemoryHandle, steps: ReadonlyArray<Step>): void {
-  for (const step of steps) {
-    if (step.op === 'value')
-      applyMemoryWrite(viaUnit, {
-        kind: 'unit',
-        op: 'value',
-        key: ACTIVE,
-        value: { intentions: step.intentions },
-        now: NOW,
-      });
-    else applyMemoryWrite(viaUnit, { kind: 'unit', op: 'lines', key: ARCHIVE, lines: step.records, now: NOW });
-    applyMemoryWrite(direct, { kind: 'intentions', ...step, now: NOW });
-  }
-}
-
-const CASES: Array<{ name: string; steps: Array<Step> }> = [
-  {
-    name: 'a list of group, DM and shared-DM intentions',
-    steps: [{ op: 'value', intentions: [intention('i1'), intention('i2', DM), intention('i3', DM_TWO)] }],
-  },
-  {
-    name: 'a record moved to the archive, then the list without it',
-    steps: [
-      { op: 'value', intentions: [intention('i1'), intention('i2'), intention('i3')] },
-      { op: 'archive', records: [intention('i1', { status: 'done' })] },
-      { op: 'value', intentions: [intention('i2'), intention('i3')] },
-    ],
-  },
-  {
-    name: 'a list that drops a record nobody archived',
-    steps: [
-      { op: 'value', intentions: [intention('i1'), intention('i2')] },
-      { op: 'value', intentions: [intention('i2', { status: 'done' })] },
-    ],
-  },
-  {
-    name: 'two archive writes',
-    steps: [
-      { op: 'archive', records: [intention('a1', { status: 'done' })] },
-      { op: 'archive', records: [intention('a2', { status: 'expired' }), intention('a3', { status: 'cancelled' })] },
-    ],
-  },
-];
-
-for (const { name, steps } of CASES) {
-  test(`the intentions write stores ${name} as the unit write does`, () => {
-    // Catches: a direct write that stores another column, another position or scope, or retires another row.
-    const viaUnit = fresh('unit');
-    const direct = fresh('direct');
-    try {
-      writeBoth(viaUnit.handle, direct.handle, steps);
-      assert.deepEqual(rowsOf(direct.db), rowsOf(viaUnit.db));
-      assert.deepEqual(nodesOf(direct.db), nodesOf(viaUnit.db));
-    } finally {
-      viaUnit.close();
-      direct.close();
-    }
-  });
 }
 
 test('the readers give the list and the archive lines the intentions write stored', () => {

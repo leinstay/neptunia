@@ -23,7 +23,6 @@
 // session's (writer `session`, `owner_key` null, its `co_owners` rows gone), in the transaction of the op.
 
 import { dmAudienceId } from './scope.ts';
-import { hasStorageUnits } from './storage-units.ts';
 
 type Row = Record<string, unknown>;
 type Statement = { all(...params: Array<unknown>): Array<Row>; get(...params: Array<unknown>): Row | undefined };
@@ -181,7 +180,7 @@ function heldDescriptions(db: Db, mapping: Rows): Set<string> {
  */
 export function sessionHold(connection: unknown, mapping: unknown): (table: string, row: unknown) => Row | null {
   const db = connection as Db; // a node:sqlite connection of the memory database; the queries below read it
-  // A mapping is table -> rows (map/index.ts#toRows), each row a column -> value object.
+  // A mapping is table -> rows, each row a column -> value object.
   const descriptions = heldDescriptions(db, mapping as Rows);
   return (table, value) => {
     const row = value as Row; // one row of the mapping above
@@ -208,8 +207,6 @@ export function sessionHold(connection: unknown, mapping: unknown): (table: stri
 /** Makes claim `id` her session's: no unit owns it or shares it any more (see the head of this file). */
 export function takeOverClaim(connection: unknown, id: unknown): void {
   const db = connection as Db; // the writer's node:sqlite connection, inside the op's transaction
-  db.prepare(
-    `UPDATE claims SET ${hasStorageUnits(db) ? 'owner_key' : 'owner_file'} = NULL, writer = 'session', holder_id = NULL WHERE id = ?`
-  ).run(id);
+  db.prepare(`UPDATE claims SET owner_key = NULL, writer = 'session', holder_id = NULL WHERE id = ?`).run(id);
   db.prepare("DELETE FROM co_owners WHERE tbl = 'claims' AND key = ?").run(id);
 }

@@ -2,8 +2,8 @@
 // owner in the row itself, in `writer` and `holder_id`. An account's profile is `profile` and a private layer
 // `private`, both held by the account. A history of prose is `versions`, held by `<subject>/<versionKind>/<itemId>`,
 // which names one history among the subject's. A row her memory session writes, or takes over from a profile, is
-// `session` with no holder. The profile writers (account-profile.ts, private-layer.ts, prose-versions.ts and the
-// describer's lines in unit-write.ts) stamp these columns beside the row's unit, and their readers, the retirement of
+// `session` with no holder. The profile writers (account-profile.ts, private-layer.ts, prose-versions.ts) stamp these
+// columns beside the row's unit, and their readers, the retirement of
 // what a value no longer holds and her session's rows (session-rows.ts) run on them. Version step 47 derives them from
 // the units of the rows already stored, and from the units' absence for her session's rows (`ownProfileRows`).
 

@@ -7,9 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
-import { ownPlaceListRows, ownPlaceRows } from '../../../src/memory/db/place-owner.ts';
 import { applyMemoryWrite } from '../../../src/memory/db/session-write.ts';
-import { placeCollection } from '../../../src/memory/db/storage-keys.ts';
 import { dbOf } from '../../../src/memory/db/types.ts';
 import type { Db, MemoryHandle, Row } from '../../../src/memory/db/types.ts';
 import { tempDataDir } from './service.ts';
@@ -119,19 +117,6 @@ function review(db: Db): void {
   db.prepare("UPDATE descriptions SET current_version = 'dv:review:1' WHERE id = ?").run(`desc:${ROOT}:patterns`);
 }
 
-/** Runs one step through the unit write. */
-export function writeUnit(handle: MemoryHandle, step: PlaceStep): unknown {
-  if (step.kind === 'review') return review(dbOf(handle));
-  return applyMemoryWrite(handle, {
-    kind: 'unit',
-    op: 'value',
-    key: placeCollection(step.kind, step.placeId),
-    value: step.value,
-    iface: 'discord',
-    now: NOW,
-  });
-}
-
 /** Runs one step through its write kind. */
 export function writeDirect(handle: MemoryHandle, step: PlaceStep): unknown {
   if (step.kind === 'review') return review(dbOf(handle));
@@ -151,32 +136,6 @@ export function copyOf(seed: string): MemoryHandle {
   return openMemoryDb(file);
 }
 
-/**
- * Runs the steps through both ways over copies of one seed; returns every table of each and the answers. The unit way
- * gets its owner columns from version steps 48 and 49 (place-owner.ts#ownPlaceRows, #ownPlaceListRows) after its
- * writes.
- */
-export function writeBothWays(steps: ReadonlyArray<PlaceStep>): {
-  unit: [string, Array<unknown>];
-  direct: [string, Array<unknown>];
-} {
-  const seed = seededPlaces();
-  const viaUnit = copyOf(seed);
-  const direct = copyOf(seed);
-  try {
-    const unitAnswers = steps.map((step) => writeUnit(viaUnit, step));
-    ownPlaceRows(dbOf(viaUnit));
-    ownPlaceListRows(dbOf(viaUnit));
-    const directAnswers = steps.map((step) => writeDirect(direct, step));
-    return {
-      unit: [tablesOf(dbOf(viaUnit)), unitAnswers],
-      direct: [tablesOf(dbOf(direct)), directAnswers],
-    };
-  } finally {
-    viaUnit.close();
-    direct.close();
-  }
-}
 
 export const lore = (extra: Array<Row> = []): Array<Row> => [
   {

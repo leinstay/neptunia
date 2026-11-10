@@ -37,6 +37,7 @@ import { openTestMemory, openTestMemorySync, unitFile } from './fixtures/memory-
 import { seedMirror } from './fixtures/selfreflection-mirror.ts';
 import type { Untyped } from '../src/tools/types.ts';
 import { memoryAt } from './fixtures/store-kit.ts';
+import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -791,7 +792,7 @@ test('store: diary survives flush and reload', async () => {
 
 test('store: a malformed diary value reads as the empty default', async () => {
   const mem = await openTestMemory({ dataDir: tmpDataDir() });
-  await mem.memoryDb.writeUnit({ op: 'value', owner: 'guilds/g1/diary.json', value: [1, 2] });
+  await writeUnitUpdate(mem.memoryDb, { op: 'value', owner: 'guilds/g1/diary.json', value: [1, 2] });
   assert.deepEqual(createStore({ dataDir: mem.dataDir, memoryDb: mem.memoryDb }).getSelfreflection(), {
     posts: [],
     updatedAt: 0,

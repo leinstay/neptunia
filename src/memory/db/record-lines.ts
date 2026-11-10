@@ -22,7 +22,7 @@ import { messageSourceId } from './ids.ts';
 import { mintedAccount } from './native-rows.ts';
 import { extraText, ifaceOf, join, parseExtra, split } from './map/common.ts';
 import type { MapContext, Spec } from './map/common.ts';
-import { storageContext } from './map/index.ts';
+import { storageContext } from './storage-context.ts';
 import type { OldScope } from './map/scope-parts.ts';
 import { privateUserOf, scopeFrom, scopeInto } from './map/scope-parts.ts';
 import { resolveMessageFamily } from './message-families.ts';
@@ -33,11 +33,10 @@ import { recordFieldsOf, takeRecordMedia, writeRecordMedia } from './media-store
 import { markStemsPending } from './stems.ts';
 import { PERSONA_ID, placeOrPersona } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit } from './storage-units.ts';
+import { ensureUnit, noteUnit } from './storage-units.ts';
 import { lineColumns, lineOwnerOf, linePeriods, lineRows, nextLinePosition } from './line-owner.ts';
 import type { LineOwner } from './line-owner.ts';
 import { writeMapping } from './upsert.ts';
-import { noteUnit } from './unit-write.ts';
 import { LEGACY_IFACE, ifaceOrLegacy } from './legacy-namespace.ts';
 import { asText, dbOf, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
@@ -73,8 +72,6 @@ type DayWrite = {
   ctx: MapContext;
   iface: string;
   messages: ReadonlyArray<Row> | undefined;
-  /** An owner path of an older release: its rows keep it in `owner_file`, and a line of hers resolves no family. */
-  legacyOwner?: string;
 };
 
 // Kinds whose source id carries the message revision. A deleted or felt line, and any line without a revision, has no
@@ -271,7 +268,7 @@ function recordLocator(hint: Row, line: Row): MessageLocator {
  */
 function saidReference(db: Db, day: DayWrite, line: Row): { hint: Row; locator: MessageLocator } | undefined {
   // A write by an older owner path keeps the keys of the rows it brings.
-  if (day.legacyOwner || line.kind !== 'said' || line.v !== 1 || !hasMessageFamilies(db)) return undefined;
+  if (line.kind !== 'said' || line.v !== 1 || !hasMessageFamilies(db)) return undefined;
   const iface = day.ctx.iface ?? day.iface;
   const chatId = (line.scope as { channel?: unknown } | undefined)?.channel;
   const locator = messageLocator({ v: 1, origin: 'record-v1', iface, chatId, messageId: line.messageId }, iface);
@@ -379,7 +376,6 @@ function writeLine(db: Db, day: DayWrite, line: Row, position: number, at: strin
     ...recordSourceRow(line, { ...day.ctx, iface }, identity),
     owner_key: day.id,
     ...lineColumns(day.owner),
-    ...(day.legacyOwner ? { owner_file: day.legacyOwner } : {}),
     position,
   };
   if (identity) recordReply(db, source, line, identity);
@@ -405,27 +401,18 @@ function writeLine(db: Db, day: DayWrite, line: Row, position: number, at: strin
 
 /**
  * Stores the lines of one day's unit `key` inside the caller's transaction, in order from the unit's next position.
- * `iface` is the interface of the write, for a persona's unit; `legacyOwner` an owner path of an older release.
+ * `iface` is the interface of the write, for a persona's unit.
  */
 export function writeRecordDay(
   db: Db,
   key: StorageKey,
   lines: ReadonlyArray<Row>,
-  {
-    messages,
-    iface,
-    at,
-    legacyOwner,
-  }: { messages?: ReadonlyArray<Row>; iface: string; at: string; legacyOwner?: string }
+  { messages, iface, at }: { messages?: ReadonlyArray<Row>; iface: string; at: string }
 ): RecordLinesResult {
   const id = ensureUnit(db, key);
-  if (legacyOwner) {
-    db.prepare('INSERT OR IGNORE INTO legacy_unit_aliases(path,unit_id) VALUES (?,?)').run(legacyOwner, id);
-    db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, key.kind);
-  }
   const owner = lineOwnerOf(key);
   if (!owner) throw coded('RECORD_LINES_DAY');
-  const day: DayWrite = { key, id, owner, ctx: storageContext(db, key, iface), iface, messages, legacyOwner };
+  const day: DayWrite = { key, id, owner, ctx: storageContext(db, key, iface), iface, messages };
   const result: RecordLinesResult = { written: 0, duplicates: 0, adopted: 0 };
   let position = nextLinePosition(db, owner);
   for (const line of lines) {

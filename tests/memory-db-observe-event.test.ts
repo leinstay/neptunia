@@ -219,11 +219,6 @@ function imported({ withRecord }: Record<string, Untyped>) {
   };
 }
 
-const ids = (db: UntypedDb, table: string) =>
-  db
-    .prepare(`SELECT id FROM "${table}" ORDER BY id`)
-    .all()
-    .map((row) => row.id);
 const observeAll = (handle: ReturnType<typeof openMemoryDb>, events: Array<Record<string, Untyped>>) =>
   events.map(({ event, direct }) => {
     const envelope = observationOf(event, { selfId: SELF, direct });
@@ -417,60 +412,6 @@ test('checkEnvelope: a revision may be left out only by an edit; mentions, direc
 
 // ---------- the same rows as the record's ----------
 
-test('observe on a database the record wrote from the same lines writes no new place or source', () => {
-  const env = imported({ withRecord: true });
-  try {
-    const db = sqlOf(env.handle);
-    const before = { places: ids(db, 'places'), accounts: ids(db, 'accounts'), sources: ids(db, 'sources') };
-    const done = observeAll(env.handle, env.fixture.events);
-    assert.ok(
-      done.every((one) => one.replayed === true),
-      'every line is the stored one'
-    );
-    assert.deepEqual(
-      done.map((one) => one.sourceId),
-      [
-        'src:discord:400000000000000101:1:seen',
-        'src:discord:400000000000000102:1:seen',
-        'src:discord:400000000000000101:2:seen',
-        'src:discord:400000000000000103:1:said',
-        'src:discord:400000000000000104:1:seen',
-        'src:discord:400000000000000105:1:said',
-      ]
-    );
-    assert.deepEqual(ids(db, 'places'), before.places);
-    assert.deepEqual(ids(db, 'sources'), before.sources);
-    // A stored line is replayed: no account is made for it either.
-    assert.deepEqual(ids(db, 'accounts'), before.accounts);
-    // The DM line's relations and the reply's mention are the database's own rows; the reply's relation was the record's.
-    assert.equal(
-      count(
-        db,
-        "SELECT COUNT(*) AS n FROM source_relations WHERE source_id = 'src:discord:400000000000000102:1:seen' AND predicate = 'replies_to'"
-      ),
-      1
-    );
-    assert.equal(
-      count(
-        db,
-        "SELECT COUNT(*) AS n FROM source_relations WHERE source_id = 'src:discord:400000000000000102:1:seen' AND predicate = 'mentions'"
-      ),
-      1
-    );
-    // A second pass is a replay through and through.
-    const sizes = () =>
-      ['sources', 'places', 'accounts', 'source_relations', 'external_keys'].map((table) =>
-        count(db, `SELECT COUNT(*) AS n FROM "${table}"`)
-      );
-    const once = sizes();
-    observeAll(env.handle, env.fixture.events);
-    assert.deepEqual(sizes(), once);
-    assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
-  } finally {
-    env.done();
-  }
-});
-
 test("the live order: observe first, the record later; the record's writes take the observed rows over and nothing is doubled", () => {
   const env = imported({ withRecord: false });
   try {
@@ -484,21 +425,17 @@ test("the live order: observe first, the record later; the record's writes take 
     const natives = env.fixture.events.map(({ event }) => event.message.id);
     const mine = db
       .prepare(
-        `SELECT id, owner_file, origin FROM sources WHERE native_id IN (${natives.map(() => '?').join(', ')}) ORDER BY id`
+        `SELECT id, writer, origin FROM sources WHERE native_id IN (${natives.map(() => '?').join(', ')}) ORDER BY id`
       )
       .all(...natives)
       .map((row) => ({ ...row }));
     assert.equal(mine.length, env.fixture.record.length + env.fixture.privateRecord.length, 'one row per record line');
     assert.ok(
-      mine.every((row) => row.owner_file !== null && row.origin === 'live'),
+      mine.every((row) => row.writer === 'record' && row.origin === 'live'),
       JSON.stringify(mine)
     );
     assert.equal(
-      count(
-        db,
-        'SELECT COUNT(*) AS n FROM places WHERE id = ? AND owner_file IS NOT NULL',
-        `discord:channel:${CHANNEL}`
-      ),
+      count(db, 'SELECT COUNT(*) AS n FROM places WHERE id = ? AND writer IS NOT NULL', `discord:channel:${CHANNEL}`),
       1
     );
     assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);

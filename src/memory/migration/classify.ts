@@ -1,14 +1,16 @@
 // The paths a shipped data directory spelled and what each one is: the decoder of an old unit name, read by the pending
 // writes of an earlier release, the explicit legacy export and the shipped data steps. A path (relative to a server's data
 // directory, or to the data root with its `guilds/<id>/` prefix) becomes
-//   { kind, mapper, format, unit, guildId? }   a memory file: `format` says how to read and write it
+//   { kind, format, unit, guildId? }           a memory file: `format` says how to read and write it
 //                                              ('json' | 'jsonl' | 'text' | 'vectors'), `unit` is the key the rows
 //                                              are owned by (the path; a month directory for vectors)
 //   { skipped: true, reason }                  not memory (instance state, tools' output, backups)
 //   null                                       unknown: the walker reports it and leaves it alone
 
-import { MAPPERS, mapperKindOf } from '../db/map/index.ts';
-import type { FileFormat, Mapper, MapperKind } from '../db/map/index.ts';
+/** How a file is read: whole JSON, lines, text or a month of vectors. */
+export type FileFormat = 'json' | 'jsonl' | 'text' | 'vectors';
+/** The kinds of path kept whole in one `operational` row, and the request dumps. */
+type MapperKind = 'verbatim' | 'requests';
 
 const PRIVATE = '(?:private\\/[^/]+\\/)?';
 const re = (source: string): RegExp => new RegExp(`^${source}$`);
@@ -91,10 +93,9 @@ export function kindOfPath(rel: string): MapperKind | DirectKind | null {
 /** The month directory of a vectors file path (`vectors/<month>/manifest.json` -> `vectors/<month>`). */
 const vectorsUnit = (path: string): string => path.replace(/\/[^/]+$/, '');
 
-/** A path the mappers know: its kind and mapper, its format and the unit it belongs to. */
+/** A memory path: its kind, its format and the unit it belongs to. */
 export type MappedPath = {
   kind: MapperKind | DirectKind;
-  mapper: Mapper;
   format: FileFormat;
   unit: string;
   guildId?: string;
@@ -116,7 +117,6 @@ export function classify(rel: string): Classified | null {
   const [, kind, format] = found;
   const out: MappedPath = {
     kind,
-    mapper: MAPPERS[mapperKindOf(kind)],
     format,
     unit: format === 'vectors' ? vectorsUnit(path) : path,
   };

@@ -13,6 +13,7 @@ import { asRecord } from './records.ts';
 import type { MemoryDbService } from '../../src/memory/db/service.ts';
 import type { createStore } from '../../src/memory/store.ts';
 import type { Untyped } from '../../src/tools/types.ts';
+import { writeUnitUpdate } from './memory-db/unit-writes.ts';
 
 export function tmpDataDir(): string {
   return tempDir('nep-store-');
@@ -118,8 +119,8 @@ export function putUnit(
   memoryDb: MemoryDbService,
   rel: string,
   value: unknown
-): ReturnType<MemoryDbService['writeUnit']> {
-  return memoryDb.writeUnit({ op: 'value', key: keyOfRel(rel), value });
+): Promise<unknown> {
+  return writeUnitUpdate(memoryDb, { op: 'value', key: keyOfRel(rel), value });
 }
 
 export const WRITERS_DAY_MS = 24 * 60 * 60 * 1000;

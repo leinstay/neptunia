@@ -19,6 +19,7 @@ import { createStore } from '../src/memory/store.ts';
 import { createMemoryUpdater } from '../src/memory/update.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import type { Untyped } from '../src/tools/types.ts';
+import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -152,7 +153,7 @@ test('store.getPlace: emojiUsage is normalised on read, missing -> {}', async ()
   await withStore(async (store: Untyped, memoryDb: Untyped) => {
     assert.deepEqual(store.getPlace(placeOfRoot(store, 'g1')).emojiUsage, {});
     // The notes are written under the place the store names the root by: a unit names its place, never a path.
-    await memoryDb.writeUnit({
+    await writeUnitUpdate(memoryDb as { memoryWrite: (update: unknown) => Promise<unknown> }, {
       op: 'value',
       key: placeCollection('place', placeOfRoot(store, 'g2')),
       value: { patterns: 'p', emojiUsage: { 7: { name: 'ή', count: 4, last: 9 }, 8: 'junk' } },

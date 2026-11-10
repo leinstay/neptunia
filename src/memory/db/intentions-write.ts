@@ -4,13 +4,17 @@
 // list that the value no longer names is retired. Op `archive` appends the records the store moved out of the list,
 // each with `archived` 1 at the next position of the archive. The `record` column holds the record verbatim and is the
 // authority; `status`, `due_ms`, `created_ms`, `updated_ms` and the scope are copies of its fields for queries. The
-// scope is the record's `provenance.scope` with its participants (map/scope-string.ts). Each written row is projected
+// scope is the record's `provenance.scope` with its participants (`stringScope` below). Each written row is projected
 // into the graph in the same transaction. The readers are in readers/intentions.ts.
 
 import { projectRow } from './graph.ts';
-import { stringScope } from './map/scope-string.ts';
 import { dmOfPlatformId } from './meta-person.ts';
 import { deriveRow } from './rows.ts';
+import { LEGACY_IFACE } from './legacy-namespace.ts';
+import { SCOPE_INTERNAL, groupScope, scopeColumns } from './scope.ts';
+import type { DmScope } from './scope.ts';
+import { memberDmOf } from './map/scope-parts.ts';
+import type { MemberReads } from './map/scope-parts.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row } from './types.ts';
 
@@ -37,6 +41,26 @@ export function intentionsWriteOf(update: Row): IntentionsWrite {
   if (update.op === 'value') return { op: 'value', intentions: recordsOf(update.intentions) };
   if (update.op === 'archive') return { op: 'archive', records: recordsOf(update.records) };
   throw coded('INTENTIONS_OP');
+}
+
+/**
+ * The scope of an intention by the scope word of its provenance and the people it concerns: 'dm' with exactly one person
+ * is that member's DM scope, 'dm' otherwise is internal (never shown outward), anything else is group. The member's DM
+ * is the stored one for the platform id, internal when none is stored (map/scope-parts.ts#memberDmOf).
+ */
+function stringScope(
+  word: unknown,
+  people: ReadonlyArray<unknown> | null | undefined,
+  iface = LEGACY_IFACE,
+  members: MemberReads = {}
+): DmScope {
+  if (word === 'dm') {
+    const ids = [...new Set((people ?? []).filter((id): id is string => typeof id === 'string' && id !== ''))];
+    return ids.length === 1
+      ? scopeColumns(undefined, { privateUser: ids[0], iface, dmOf: memberDmOf(iface, members.dmOfMember) })
+      : { ...SCOPE_INTERNAL };
+  }
+  return groupScope(iface);
 }
 
 /** The row of a record at a position. */

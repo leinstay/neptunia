@@ -14,6 +14,7 @@ import { createMemoryDb } from '../src/memory/db/service.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { CHANNEL, GUILD, MEMBER, buildDataDir } from './fixtures/memory-db/datadir.ts';
 import { unitUpdates } from './fixtures/memory-db/seed.ts';
+import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { dbOf, type Db } from '../src/memory/db/types.ts';
 import {} from '../src/memory/db/ids.ts';
 import { listUnits } from '../src/memory/db/storage-units.ts';
@@ -97,7 +98,7 @@ const profile = (id: string, name: string) => ({
   value: { id, names: [name] },
 });
 const profileRows = (db: Db, id: string) =>
-  db.prepare('SELECT COUNT(*) AS n FROM files WHERE path = ?').get(`guilds/${GUILD}/users/${id}.json`)!.n;
+  db.prepare('SELECT COUNT(*) AS n FROM accounts WHERE native_id = ?').get(id)!.n;
 
 const tables = (db: Db) =>
   db
@@ -137,15 +138,16 @@ test('the unit writes through the worker make the same database as on the callin
     await threaded.service.tick();
     await inline.service.tick();
     for (const update of unitUpdates(threaded.data)) {
-      await threaded.service.writeUnit(update);
-      await inline.service.writeUnit(update);
+      // One moment for both, so the rows they stamp compare equal.
+      await writeUnitUpdate(threaded.service, { ...update, now: Date.UTC(2026, 9, 24, 12, 0, 0) });
+      await writeUnitUpdate(inline.service, { ...update, now: Date.UTC(2026, 9, 24, 12, 0, 0) });
     }
     await threaded.service.close();
     await inline.service.close();
     const a = dumpAll(threaded.dbFile());
     const b = dumpAll(inline.dbFile());
     for (const table of Object.keys(b)) assert.deepEqual(a[table], b[table], table);
-    assert.ok(a.files.length > 5 && a.vectors.length === 2);
+    assert.ok(a.storage_units.length > 5 && a.vectors.length === 2);
   } finally {
     await threaded.done();
     await inline.done();
@@ -165,7 +167,7 @@ test('the worker holds the writer lock; the main thread reads through its own re
     );
     assert.equal(env.service.status().open, true);
     // A write through the worker is seen by the main thread's reader.
-    await env.service.writeUnit(profile('100000000000000077', 'Zed'));
+    await writeUnitUpdate(env.service, profile('100000000000000077', 'Zed'));
     assert.equal(profileRows(dbOf(env.service.readHandle()!), '100000000000000077'), 1);
     await env.service.close();
     assert.equal(fs.existsSync(`${env.dbFile()}.lock`), false);
@@ -244,7 +246,7 @@ test('a crashed worker is logged with a code, its write fails, and the next tick
     await env.service.tick();
     env.mode('crash-once');
     await assert.rejects(
-      () => env.service.writeUnit(profile('100000000000000078', 'Yan')),
+      () => writeUnitUpdate(env.service, profile('100000000000000078', 'Yan')),
       (error: NodeJS.ErrnoException) => error.code === 'WORKER_EXIT'
     );
     const exited = env.log.out.find((e) => e.message === 'memory db: worker exited');
@@ -253,7 +255,7 @@ test('a crashed worker is logged with a code, its write fails, and the next tick
     env.advance(1000);
     await env.service.tick();
     assert.equal(env.log.out.filter((e) => e.message === 'memory db: opened').length, 2, 'a second worker was opened');
-    await env.service.writeUnit(profile('100000000000000078', 'Yan'));
+    await writeUnitUpdate(env.service, profile('100000000000000078', 'Yan'));
     assert.equal(profileRows(dbOf(env.service.readHandle()!), '100000000000000078'), 1, 'and its write ran');
   } finally {
     await env.done();
@@ -265,7 +267,7 @@ test('shutdown waits for a write under way, then closes the database and frees t
   try {
     await env.service.tick();
     env.mode('slow');
-    const write = env.service.writeUnit(profile('100000000000000079', 'Wim'));
+    const write = writeUnitUpdate(env.service, profile('100000000000000079', 'Wim'));
     await wait(50);
     const started = Date.now();
     await env.service.close();
@@ -288,7 +290,7 @@ test('shutdown gives a stuck write closeTimeoutMs, then terminates the worker an
   try {
     await env.service.tick();
     env.mode('hang');
-    const write = env.service.writeUnit(profile('100000000000000080', 'Uma')).catch((error) => error);
+    const write = writeUnitUpdate(env.service, profile('100000000000000080', 'Uma')).catch((error) => error);
     await wait(50);
     const started = Date.now();
     await env.service.close();
@@ -385,7 +387,7 @@ test('worker: the unit writers and the observation write through the worker (buf
       sourceMessageIds: ['600000000000000002'],
       origin: 'live',
     };
-    assert.deepEqual(await env.service.writeUnit({ op: 'lines', owner, lines: [line] }), {
+    assert.deepEqual(await writeUnitUpdate(env.service, { op: 'lines', owner, lines: [line] }), {
       written: 1,
       duplicates: 0,
       adopted: 0,
@@ -402,7 +404,7 @@ test('worker: the unit writers and the observation write through the worker (buf
       dims: 4,
       checksum: 'fnv1a32:00000000:00000000',
     };
-    await env.service.writeUnit({
+    await writeUnitUpdate(env.service, {
       op: 'vectors',
       owner: month,
       delta: { manifest, meta, i8: Buffer.from([1, 2, 3, 4]) },

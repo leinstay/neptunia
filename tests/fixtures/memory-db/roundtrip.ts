@@ -4,7 +4,6 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import type { Untyped } from '../../../src/tools/types.ts';
-import type { Mapper } from '../../../src/memory/db/map/index.ts';
 import type { MapContext } from '../../../src/memory/db/map/common.ts';
 import type { Db, MemoryHandle, Rows } from '../../../src/memory/db/types.ts';
 import { openMemoryDb } from '../../../src/memory/db/open.ts';
@@ -13,7 +12,10 @@ import { insertRows, readRows } from '../../../src/memory/db/rows.ts';
 let shared: MemoryHandle | null = null;
 
 /** A mapper as the round trip calls it: `fromRows` may read the context the rows came with. */
-type RoundTripMapper = { toRows: Mapper['toRows']; fromRows(rows: Rows, ctx: MapContext): unknown };
+type RoundTripMapper = {
+  toRows(rel: string, value: unknown, ctx: MapContext): Rows;
+  fromRows(rows: Rows, ctx: MapContext): unknown;
+};
 
 /** One in-memory database for the whole test file; every round trip is rolled back. */
 export function database(): Db {

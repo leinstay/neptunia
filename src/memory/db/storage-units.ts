@@ -1,8 +1,8 @@
 // The catalog supplies storage ownership, collection lifecycle and append positions to live readers and writers.
 
-import { legacyStorageKey } from '../migration/paths.ts';
 import { keyText, storageId } from './storage-keys.ts';
 import type { StorageKey, StorageKind, StorageSelector, StorageSubject } from './storage-keys.ts';
+import { isWholeNumber } from './types.ts';
 import type { Db, Row } from './types.ts';
 
 export type StorageUnit = Readonly<{
@@ -25,10 +25,6 @@ export const subjectOf = (unit: StorageUnit): StorageSubject => unit.key.subject
 
 /** The partition of a unit: the day (`YYYY-MM-DD`) of a record unit, the month of an archive; undefined when it has none. */
 export const partitionOf = (unit: StorageUnit): string | undefined => unit.key.partition;
-
-/** Whether the opened schema has semantic ownership. Historical importers use their original schema. */
-export const hasStorageUnits = (db: { prepare(sql: string): { get(...args: Array<unknown>): unknown } }): boolean =>
-  Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'storage_units'").get());
 
 /** Register a collection within the caller's writer transaction. */
 export function ensureUnit(db: Db, key: StorageKey): string {
@@ -92,23 +88,54 @@ export function listUnits(db: Db, query: UnitQuery = {}): Array<StorageUnit> {
     );
 }
 
-/** Ownership SQL for the explicit historical-schema importer; current queries use owner_key. */
-export function ownershipSql(
-  db: { prepare(sql: string): { get(...args: Array<unknown>): unknown } },
-  sql: string
-): string {
-  return hasStorageUnits(db) ? sql : sql.replaceAll('owner_key', 'owner_file');
-}
-
+/** The unit id an owner names: a unit id as it is, a key's JSON registered as its unit. */
 export function storageOwner(db: Db, owner: string | null): string | null {
-  if (!owner || !hasStorageUnits(db) || owner.startsWith('unit:')) return owner;
-  const key = owner.startsWith('{') ? (JSON.parse(owner) as StorageKey) : legacyStorageKey(owner);
-  return ensureUnit(db, key);
+  if (!owner || !owner.startsWith('{')) return owner;
+  return ensureUnit(db, JSON.parse(owner) as StorageKey);
 }
 
-/** The column contract of a deliberately historical importer remains its original schema. */
-export function ownershipRow(db: Db, row: Row): Row {
-  if (hasStorageUnits(db) || !Object.hasOwn(row, 'owner_key')) return row;
-  const { owner_key, ...rest } = row;
-  return { ...rest, owner_file: owner_key };
+/** Tables of an owned unit whose rows carry a `position`. */
+const POSITIONED = [
+  'sources',
+  'day',
+  'decisions',
+  'claims',
+  'claim_versions',
+  'description_versions',
+  'episodes',
+  'affinity_events',
+  'selfreflection',
+  'intentions',
+  'work',
+  'work_events',
+];
+const hasTable = (db: Db, name: string): boolean =>
+  db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = ?").get(name) !== undefined;
+
+/**
+ * The next position of a unit: its `storage_units` line count when it has one, else one past the highest position its
+ * rows hold (0 for a new unit).
+ */
+export function nextPosition(db: Db, owner: string): number {
+  const unit = db.prepare('SELECT lines FROM storage_units WHERE id = ? AND retired_at IS NULL').get(owner);
+  if (typeof unit?.lines === 'number' && Number.isInteger(unit.lines) && unit.lines >= 0) return unit.lines;
+  let top = -1;
+  for (const table of POSITIONED) {
+    if (!hasTable(db, table)) continue;
+    const found = db.prepare(`SELECT MAX(position) AS p FROM "${table}" WHERE owner_key = ?`).get(owner)?.p;
+    if (isWholeNumber(found) && found > top) top = found;
+  }
+  return top + 1;
+}
+
+/** Moves a unit the writers hold: its line count (`lines`) or a month's generation (`offset`), and when it was written. */
+export function noteUnit(
+  db: Db,
+  owner: string,
+  _kind: string,
+  { lines = null, offset = null, at }: { lines?: number | null; offset?: number | null; at: string }
+): void {
+  db.prepare(
+    'UPDATE storage_units SET lines=COALESCE(?,lines), offset=COALESCE(?,offset), synced_at=?, retired_at=NULL WHERE id=?'
+  ).run(lines, offset, at, owner);
 }

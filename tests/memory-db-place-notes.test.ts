@@ -6,53 +6,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { unitValue } from '../src/memory/db/readers/common.ts';
-import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
 import { placeCollection } from '../src/memory/db/storage-keys.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Row } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';
 import { generated, plain } from './fixtures/memory-db/roundtrip.ts';
 import { openTestMemory, tempDataDir } from './fixtures/memory-db/service.ts';
-import {
-  DM,
-  NOW,
-  OTHER_ROOT,
-  ROOT,
-  copyOf,
-  notes,
-  seededPlaces,
-  writeBothWays,
-  writeDirect,
-} from './fixtures/memory-db/place-writes.ts';
-
-test('notes of two roots sharing a self fact, a direct chat and a place with no row store the same rows both ways', () => {
-  const { unit, direct } = writeBothWays([
-    { kind: 'place', placeId: ROOT, value: notes() },
-    { kind: 'place', placeId: OTHER_ROOT, value: { self: ['likes rain'], injokes: [] } },
-    { kind: 'review' },
-    { kind: 'place', placeId: ROOT, value: notes({ self: ['is a night owl'], injokes: ['Πέμπτη'] }) },
-    {
-      kind: 'place',
-      placeId: DM,
-      value: { purpose: 'Ιδιωτική κουβέντα.', tone: 'τρυφερός', self: ['reads at night'] },
-    },
-    { kind: 'place', placeId: 'discord:guild:300000000000000009', value: { patterns: 'Quiet.', odd: [1, { two: 2 }] } },
-    { kind: 'place', placeId: OTHER_ROOT, value: {} },
-  ]);
-  assert.equal(direct[0], unit[0]);
-  assert.deepEqual(direct[1], unit[1]);
-});
-
-test('a place notes write that names no place is refused with a code', () => {
-  const handle = copyOf(seededPlaces());
-  try {
-    assert.throws(() => applyMemoryWrite(handle, { kind: 'place-notes', placeId: '', value: {}, now: NOW }), {
-      code: 'PLACE_NOTES_PLACE',
-    });
-  } finally {
-    handle.close();
-  }
-});
+import { DM, NOW, ROOT, copyOf, notes, seededPlaces, writeDirect } from './fixtures/memory-db/place-writes.ts';
 
 test('the server row stays live and the root keeps its prose fields after its notes are written twice', () => {
   // Bug: the second write of a server's notes retired the server row the first write adopted.

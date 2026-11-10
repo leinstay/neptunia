@@ -350,7 +350,7 @@ async function buildCore(
   // The names of the members of the served root, fed by `membership.changed` (a nickname change included).
   const members = createMemberDirectory();
   // The memory database (src/memory/db/service.js): the memory. Created before the memory modules, which read and write
-  // it (src/memory/db/readers/, src/memory/db/unit-write.js). Readiness is awaited before durable stores are created.
+  // it (src/memory/db/readers/, src/memory/db/session-write.ts). Readiness is awaited before durable stores are created.
   // selfreflectionMediaDeps is read at each tick: the interface port and the image fetcher exist by then (defined below).
   // `embed` and `selfName` (the re-embed job, recall.db.reembed) are the embedding client and her name, defined below.
   // Her memory session is the memory writer: it runs on the chat client (role `memory`, its own key from `env`), and a

@@ -16,17 +16,16 @@ import { mintedChannel } from './native-rows.ts';
 import { scopeColumns } from './scope.ts';
 import { extraText, ifaceOf, isPlainObject, join, parseExtra, put, split } from './map/common.ts';
 import type { MapContext, Spec } from './map/common.ts';
-import { storageContext } from './map/index.ts';
+import { storageContext } from './storage-context.ts';
 import { dmPlaceScope, memberDmOf, storedDmOf } from './map/scope-parts.ts';
 import { LEGACY_IFACE, ifaceOrLegacy } from './legacy-namespace.ts';
 import { markStemsPending } from './stems.ts';
 import { PERSONA_ID, placeOrPersona } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit } from './storage-units.ts';
+import { ensureUnit, noteUnit } from './storage-units.ts';
 import { lineColumns, lineOwnerOf, linePeriods, lineRows, nextLinePosition } from './line-owner.ts';
 import type { LineOwner } from './line-owner.ts';
 import { hotClaimIds, writeMapping } from './upsert.ts';
-import { noteUnit } from './unit-write.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
 
@@ -54,11 +53,10 @@ const filled = (value: unknown): value is string => typeof value === 'string' &&
  * Where an entry's rows belong: the unit's id, the month's owner columns (line-owner.ts), the entry's position in it
  * and, from an older release, its owner path.
  */
-type Owner = { id: string; line: LineOwner; position: number; legacyOwner?: string };
+type Owner = { id: string; line: LineOwner; position: number };
 
 const owned = (owner: Owner): Row => ({
   owner_key: owner.id,
-  ...(owner.legacyOwner ? { owner_file: owner.legacyOwner } : {}),
 });
 
 /** The retired claim of an archived item hot memory does not hold: historical, its text from the entry. */
@@ -175,19 +173,15 @@ export function archiveEntryOf(row: Row): unknown {
 
 /**
  * Stores the entries of one month's unit `key` inside the caller's transaction, in order from the unit's next position.
- * `iface` is the interface of the write, for a persona's unit; `legacyOwner` an owner path of an older release.
+ * `iface` is the interface of the write, for a persona's unit.
  */
 export function writeArchiveMonth(
   db: Db,
   key: StorageKey,
   lines: ReadonlyArray<unknown>,
-  { iface, at, legacyOwner }: { iface: string; at: string; legacyOwner?: string }
+  { iface, at }: { iface: string; at: string }
 ): ArchiveLinesResult {
   const id = ensureUnit(db, key);
-  if (legacyOwner) {
-    db.prepare('INSERT OR IGNORE INTO legacy_unit_aliases(path,unit_id) VALUES (?,?)').run(legacyOwner, id);
-    db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, key.kind);
-  }
   const base = storageContext(db, key);
   const ctx: MapContext = { ...base, iface: base.iface ?? iface };
   const hot = hotClaimIds(db);
@@ -197,7 +191,7 @@ export function writeArchiveMonth(
   let written = 0;
   for (const line of lines) {
     if (line === null || typeof line !== 'object' || Array.isArray(line)) continue;
-    writeMapping(db, archiveRows(line, ctx, { id, line: month, position, legacyOwner }, hot), id, {
+    writeMapping(db, archiveRows(line, ctx, { id, line: month, position }, hot), id, {
       at,
       ignoreClaims: true,
     });

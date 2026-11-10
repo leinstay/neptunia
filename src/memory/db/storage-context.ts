@@ -1,52 +1,19 @@
-// The mappers by kind. Each mapper module exports `toRows(rel, value, ctx)` and `fromRows(rows, ctx)`; the pair is an exact
-// round trip of the stored value (key order aside).
+// The context a writer of a stored value gives the row builders of its kind (src/memory/db/map/common.ts#MapContext):
+// the subject of the value's unit as the database holds it (its interface, native id, person and, for a place, its row
+// and the partner of a direct chat), and how a builder reaches a member's stored person, direct chat and account from
+// the platform id a value names.
 
-import type { MapContext } from './common.ts';
-import type { Db, Row, Rows } from '../types.ts';
+import type { MapContext } from './map/common.ts';
+import type { Db, Row } from './types.ts';
 import {
   dmOfPlatformId,
   partnerOfDmAudience,
   partnerPersonOfPlace,
   personOfPlatformId,
   storedDmPlace,
-} from '../meta-person.ts';
-import { nativeRows } from '../native-rows.ts';
-import type { StorageKey } from '../storage-keys.ts';
-import * as requests from './requests.ts';
-import * as verbatim from './verbatim.ts';
-
-/**
- * What every mapper module offers the unit sync: the rows of a file and the file back from its rows. The methods are
- * written as methods so a module may take the narrower value its own file holds.
- */
-export type Mapper = {
-  toRows(rel: string, value: unknown, ctx: MapContext): Rows;
-  fromRows(rows: Rows, ctx?: MapContext): unknown;
-};
-
-export const MAPPERS = {
-  requests,
-  verbatim,
-} satisfies Record<string, Mapper>;
-
-/** The kinds of file the mappers know. */
-export type MapperKind = keyof typeof MAPPERS;
-
-/** How a file is read: whole JSON, lines, text or a month of vectors. */
-export type FileFormat = 'json' | 'jsonl' | 'text' | 'vectors';
-
-/** The mapper of a storage kind; a kind with none is kept verbatim. */
-export const mapperKindOf = (kind: string): MapperKind => (kind in MAPPERS ? (kind as MapperKind) : 'verbatim');
-
-export function storageFormat(key: StorageKey): FileFormat {
-  if (key.kind === 'vectors') return 'vectors';
-  if (
-    ['record', 'journal', 'archive', 'recall_trace', 'archive_pending'].includes(key.kind) ||
-    (key.kind === 'intentions' && key.selector?.collection === 'archive')
-  )
-    return 'jsonl';
-  return key.kind === 'journal_running' ? 'text' : 'json';
-}
+} from './meta-person.ts';
+import { nativeRows } from './native-rows.ts';
+import type { StorageKey } from './storage-keys.ts';
 
 /** The stored identity of an account, a person or a place: its row's interface, native id and person; nothing without a row. */
 function identityOf(
@@ -136,59 +103,5 @@ function memberReads(
     dmOfMember: (iface, platformId) => dmOfPlatformId(db, iface, platformId),
     dmPlaceOf: (placeId) => storedDmPlace(db, placeId),
     partnerOfDm: (audienceId) => partnerOfDmAudience(db, audienceId),
-  };
-}
-
-/** Owner conversion preserves legacy provenance only for the explicit importer. */
-function ownedRows(db: Db, rows: Rows, id: string, position: number | undefined, legacyOwner?: string): Rows {
-  for (const list of Object.values(rows))
-    for (const row of list) {
-      if (row.owner_file !== undefined) {
-        delete row.owner_file;
-        row.owner_key = id;
-      }
-      if (row.owner_key !== undefined) row.owner_key = id;
-      if (legacyOwner && row.owner_key !== undefined) row.owner_file = legacyOwner;
-      if (list === rows.operational) {
-        const existing = db
-          .prepare('SELECT owner FROM operational WHERE kind = ? AND owner_key = ? ORDER BY rowid LIMIT 1')
-          .get(row.kind, id);
-        if (existing && position === undefined) row.owner = existing.owner;
-      }
-    }
-  return rows;
-}
-
-/** Existing field conversion with semantic owner and context. */
-export function storageMapper(
-  db: Db,
-  key: StorageKey,
-  id: string,
-  legacyOwner?: string
-): { mapper: Mapper; kind: MapperKind; format: FileFormat } {
-  const kind: MapperKind = mapperKindOf(key.kind);
-  const original = MAPPERS[kind] as Mapper;
-  const base = storageContext(db, key);
-  const toRows = (_rel: string, value: unknown, ctx: MapContext): Rows => {
-    const context = {
-      ...ctx,
-      ...base,
-      position: ctx.position,
-      hotClaimIds: ctx.hotClaimIds,
-    };
-    const rows =
-      kind === 'verbatim'
-        ? { operational: [verbatim.operationalRow(key.kind, id, value as Row, context)] }
-        : original.toRows(id, value, context);
-    return ownedRows(db, rows, id, context.position, legacyOwner);
-  };
-  return {
-    kind,
-    format: storageFormat(key),
-    mapper: {
-      ...original,
-      toRows,
-      fromRows: (rows) => original.fromRows(rows, base),
-    },
   };
 }

@@ -13,15 +13,14 @@ import { uniqueIds } from './ids.ts';
 import { groupScope } from './scope.ts';
 import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, split } from './map/common.ts';
 import type { Spec } from './map/common.ts';
-import { storageContext } from './map/index.ts';
+import { storageContext } from './storage-context.ts';
 import { heldPlaceRows, placeOwnerOf, retirePlaceAbsent, stampPlaceRows } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
 import { placeCollection, keyText } from './storage-keys.ts';
 import { namedIface } from './legacy-namespace.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit } from './storage-units.ts';
+import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
-import { noteUnit } from './unit-write.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
 
@@ -103,22 +102,17 @@ function placeLoreOf(rows: Rows): Array<Row> {
 
 /**
  * Stores the whole lorebook the unit `key` holds (a place's `lore` unit) inside the caller's transaction and retires
- * what it no longer holds. `legacyOwner` is an owner path of an older release.
+ * what it no longer holds.
  */
 export function writePlaceLore(
   db: Db,
   key: StorageKey,
   value: PlaceLoreWrite['value'],
-  { at, iface, legacyOwner }: { at: string; iface?: string; legacyOwner?: string }
+  { at, iface }: { at: string; iface?: string }
 ): PlaceLoreResult {
   const id = ensureUnit(db, key);
-  if (legacyOwner) {
-    db.prepare('INSERT OR IGNORE INTO legacy_unit_aliases(path,unit_id) VALUES (?,?)').run(legacyOwner, id);
-    db.prepare('INSERT OR IGNORE INTO files(path,kind) VALUES (?,?)').run(legacyOwner, 'lore');
-  }
   const holder = placeOwnerOf(key)!; // a `lore` unit always has its owner columns (place-owner.ts)
   const mapping = placeLoreRows(db, key, value, id, holder, iface);
-  if (legacyOwner) for (const list of Object.values(mapping)) for (const row of list) row.owner_file = legacyOwner;
   const upserted = writeMapping(db, mapping, id, { at, holder });
   const retired = retirePlaceAbsent(db, holder, mapping, at);
   noteUnit(db, id, 'lore', { at });

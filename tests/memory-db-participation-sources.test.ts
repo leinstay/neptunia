@@ -18,6 +18,7 @@ import {
 import type { ParticipationState } from '../src/memory/participation.ts';
 import { openTestMemory } from './fixtures/memory-db/service.ts';
 import { baseConfig, memoryBlock, prompts } from './fixtures/memory-db/session-rig.ts';
+import { writeUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 
 const NOW = Date.parse('2026-10-24T12:00:00Z');
 const AT = NOW - 60 * 60_000;
@@ -111,7 +112,7 @@ test('participation links the edited chat source after observation and record ad
         },
       ],
     };
-    await env.memoryDb.writeUnit({ op: 'value', owner: 'guilds/root/participation.json', value: state });
+    await writeUnitUpdate(env.memoryDb, { op: 'value', owner: 'guilds/root/participation.json', value: state });
     const links = env.db
       .prepare('SELECT source_id FROM episode_sources WHERE episode_id = ? ORDER BY position')
       .all('episode-exact-source')
@@ -234,7 +235,8 @@ test('an unchanged participation flush retains its captured source after a later
         .prepare('SELECT source_id FROM episode_sources WHERE episode_id = ? ORDER BY position')
         .all('episode-preserved-source')
         .map((row) => row.source_id);
-    const write = () => env.memoryDb.writeUnit({ op: 'value', owner: 'guilds/root/participation.json', value: state });
+    const write = () =>
+      writeUnitUpdate(env.memoryDb, { op: 'value', owner: 'guilds/root/participation.json', value: state });
     await write();
     const captured = links();
     const edited = await env.edit();

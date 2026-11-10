@@ -1,12 +1,10 @@
 // Shared synthetic account storage and profile values for ownership persistence tests.
-import { legacyServerPlaceId } from '../../../src/memory/migration/paths.ts';
 import type { StorageKey } from '../../../src/memory/db/storage-keys.ts';
 import { accountId, } from '../../../src/memory/db/ids.ts';
 
 export const a: StorageKey = {
   kind: 'user',
   subject: { type: 'account', id: accountId('discord', 'u1') },
-  scopePlaceId: legacyServerPlaceId('discord', 'g1'),
 };
 
 export const profile = {

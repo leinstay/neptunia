@@ -2,9 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.ts';
-import { applyUnitWrite } from '../src/memory/db/unit-write.ts';
+import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
-import { unitRows } from '../src/memory/db/export.ts';
 import { listUnits } from '../src/memory/db/storage-units.ts';
 import type { StorageKey } from '../src/memory/db/storage-keys.ts';
 import { accountId } from '../src/memory/db/ids.ts';
@@ -18,8 +17,8 @@ test('fresh semantic units read and list independently for equal native account 
       ...a,
       subject: { type: 'account', id: accountId('other', 'u1') },
     };
-    applyUnitWrite(handle, { op: 'value', key: a, value: profile });
-    applyUnitWrite(handle, {
+    applyUnitUpdate(handle, { op: 'value', key: a, value: profile });
+    applyUnitUpdate(handle, {
       op: 'value',
       key: other,
       iface: 'other',
@@ -28,8 +27,6 @@ test('fresh semantic units read and list independently for equal native account 
     // Each account no row held gets a meta-person of its own; the two never share one.
     const personOf = (account: string) =>
       dbOf(handle).prepare('SELECT person_id FROM accounts WHERE id = ?').get(account)?.person_id;
-    assert.equal(unitRows(dbOf(handle), a).people[0].id, personOf(a.subject.id));
-    assert.equal(unitRows(dbOf(handle), other).people[0].id, personOf(other.subject.id));
     assert.notEqual(personOf(a.subject.id), personOf(other.subject.id));
     const one = unitValue(dbOf(handle), a);
     const two = unitValue(dbOf(handle), other);
