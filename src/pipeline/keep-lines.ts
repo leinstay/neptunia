@@ -15,7 +15,7 @@
 import { placeOfChat, sharedPlaceOf } from '../memory/addresses.ts';
 import { isLimitNotice } from '../behavior/limits.ts';
 import { log } from '../log.ts';
-import type { MessageReceived } from '../protocol/events.ts';
+import type { MessageEvent as HistoryEvent } from '../protocol/adapter.ts';
 import type { MessageEvent } from './edits.ts';
 import type { ObserveLine } from './observe.ts';
 
@@ -23,7 +23,7 @@ import type { ObserveLine } from './observe.ts';
 const KEPT_IDS = 5000;
 
 /** Hands the history events a reader just used to the writer; returns at once. */
-export type KeepLines = (events: ReadonlyArray<MessageReceived>) => void;
+export type KeepLines = (events: ReadonlyArray<HistoryEvent>) => void;
 
 /** What createKeepLines reads: the dependencies of createMessageHandler. */
 export type KeepLinesContext = {
@@ -40,7 +40,7 @@ export type KeepLinesContext = {
 };
 
 /** Whether the event holds a whole message, as a history read gives it. */
-function isWhole(event: MessageReceived): event is MessageEvent {
+function isWhole(event: HistoryEvent): event is MessageEvent {
   return 'content' in event.message && typeof event.message.content === 'string' && event.message.author != null;
 }
 
