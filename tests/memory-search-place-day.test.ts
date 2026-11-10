@@ -631,9 +631,7 @@ test('memorySearchPlan keeps a channel with nothing else, and still answers null
 });
 
 for (const [name, args] of [
-  ['with a question', { question: 'τι εγινε τοτε στο καναλι', when: '2026-11-01', placeId: 'c1' }],
   ['with no question', { when: '2026-11-01', placeId: 'c1' }],
-  ['with terms that match nothing', { terms: 'ανυπαρκτο', when: '2026-11-01', placeId: 'c1' }],
   ['with a channel alone', { placeId: 'c1' }],
 ] as const) {
   test(`the tool answers a day in a channel ${name} with its lines and the sampled line`, async () => {
@@ -644,6 +642,25 @@ for (const [name, args] of [
       assert.ok(text.includes(SAMPLED_MARK), text);
       assert.ok(text.includes('line d'), text);
       assert.ok(!text.includes(NONE_MARK), text);
+    } finally {
+      env.done();
+    }
+  });
+}
+
+// These two cases expected a sample of the day's lines. A call that gives words (a question or terms) and finds none is
+// answered with none found: a sample of unrelated lines read as a hit (slice 4 of the lookup loop, behaviour 4).
+for (const [name, args] of [
+  ['with a question', { question: 'τι εγινε τοτε στο καναλι', when: '2026-11-01', placeId: 'c1' }],
+  ['with terms that match nothing', { terms: 'ανυπαρκτο', when: '2026-11-01', placeId: 'c1' }],
+] as const) {
+  test(`the tool answers a day in a channel ${name} with none found and no sampled line`, async () => {
+    const env = fixture();
+    try {
+      spread(env, 'd', { from: DAY_START, to: DAY_END, count: 30 });
+      const text = textOf(await toolRig(env).ask(args));
+      assert.ok(text.includes(NONE_MARK), text);
+      assert.ok(!text.includes(SAMPLED_MARK), text);
     } finally {
       env.done();
     }

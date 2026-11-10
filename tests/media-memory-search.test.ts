@@ -478,7 +478,8 @@ test('terms that share no word with a picture description find its line when the
 test('terms that share no word with a picture description find nothing when the embedder puts them far', () =>
   withEnv(async (env) => {
     const { description } = await pictureWithDescription(env);
-    const { embed } = recordingEmbed(() => embedWords(KINDS[4].first.word));
+    const { first } = KINDS[4];
+    const { embed } = recordingEmbed(() => embedWords(first.word));
     const text = await recallRig(env, { embed, model: MODEL, minMeaning: 0.5 }).ask({ terms: 'маяк' });
     assert.ok(!text.includes(description), text);
   }));
