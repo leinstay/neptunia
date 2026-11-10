@@ -179,11 +179,11 @@ export type ScenarioInventoryInput = {
   config: Untyped;
   selfId: string;
   texts?: Untyped;
-  requester: Untyped;
+  /** Who asked, as the caller knows it; the rows are the same for whoever asks (src/tools/gateway.ts#listSkills). */
+  requester?: Untyped;
   chatId: string;
   registry: Map<string, Untyped>;
   discovery?: 'inventory' | 'none' | Array<string>;
-  getOp?: (...args: Array<Untyped>) => Untyped;
 };
 
 /**
@@ -192,7 +192,7 @@ export type ScenarioInventoryInput = {
  * server's side over `view` (src/tools/executors.ts#resolveCall; src/behavior/turn.ts#callViewOf),
  * checked by the gateway (src/tools/gateway.ts#checkSkill: the persona as principal, `requester`,
  * `chatId` as the audience, `config` with her grants, `selfId`, the registry of `view`,
- * no mixed requesters, no earlier destructive run, `now`, the image quota of `images`, the
+ * no earlier destructive run, `now`, the image quota of `images`, the
  * errands' budget of `tasks` -- `{ budget(agent) }`, src/errands/store.ts#budget's answer, as a
  * live turn hands in src/errands/service.ts#budget; without it an `errand.run` is refused
  * `no-budget`), then
@@ -214,7 +214,6 @@ export type SimulateCallInput = {
   now: number;
   images?: Untyped;
   tasks?: { budget(agent: unknown): Untyped } | null;
-  getOp?: (...args: Array<Untyped>) => Untyped;
   resultText?: string;
 };
 

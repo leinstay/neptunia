@@ -52,7 +52,6 @@ export type ToolsLabels = {
   readonly access?: unknown;
   readonly args?: unknown;
   readonly proposedOff?: unknown;
-  readonly proposedDenied?: unknown;
 };
 
 /** `prompts.labels`, as far as the request builders read it (the prompt contract, docs/prompt-contract.md). */

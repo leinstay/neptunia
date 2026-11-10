@@ -385,7 +385,7 @@ export type CallEnvelope = Readonly<{
  * turn, `requester` -- `/nep message create` -- else the author of the request the turn answers,
  * requesterOf; a recovery turn's trigger is the original candidate, so its author; null when
  * nobody asked), whether the turn answers several people at once (`mixed`: a recovery
- * bundle naming more than one author -- no write then), the source message ids (the trigger and
+ * bundle naming more than one author), the source message ids (the trigger and
  * the lines folded into it), the origin channel, and a fresh invocation id the call's journal
  * lines and its operation carry. The follow-up pass inherits it; a tool's output never adds a
  * requester.

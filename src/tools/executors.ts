@@ -6,8 +6,8 @@
 // id, a transcript number `#N` or a message link (a `message` or `reply` option) into that
 // message's id and channel, a whole number or `true` / `false` read strictly -- so nothing the model writes is
 // taken as an id unchecked. `executeCall` then runs the operation by its name
-// (src/admin.ts#runSkillOp: the requester's rights checked again, as for their own command),
-// the persona as the actor; its answer -- an error or a refusal included -- is the text the owner
+// (src/admin.ts#runSkillOp), the persona as the actor, on the grant the gateway checked: who asked
+// adds no rights check. Its answer -- an error or a refusal included -- is the text the owner
 // would see. Every result is `{ status, code?, data? }`, structured and honest (RESULT_STATUSES):
 // `ok` only when the operation answered ok; `denied` (a rule said no), `invalid` (the call was
 // not right), `not_configured` (what it needs is not set up), `unknown` (it may have taken effect:
@@ -868,10 +868,10 @@ async function postReturnedFiles(
  * (`deps.renderText`: the text, or `{ text, accountIds }` -- mentions, custom emoji, message and
  * channel links; src/behavior/turn.ts#renderPost), the members it mentions handed to the
  * operation as `mentionAccountIds`, the only ones it may notify. Then `deps.runOp(op, args, context)`
- * (src/admin.ts#runSkillOp) -- for her own expressive operations (src/tools/definitions.ts, trait `self`)
- * `deps.runOwnOp` (src/admin.ts#runOwnSkillOp: her grant alone, no requester's right), and on
+ * (src/admin.ts#runSkillOp, which runs a call of hers on her grant alone) -- for her own expressive operations
+ * (src/tools/definitions.ts, trait `self`) `deps.runOwnOp` (src/admin.ts#runOwnSkillOp), and on
  * her own initiative (`envelope.ownInitiative` with no requester: an inner turn)
- * `deps.runInitiativeOp` (src/admin.ts#runInitiativeSkillOp, the same for any operation) -- on
+ * `deps.runInitiativeOp` (src/admin.ts#runInitiativeSkillOp) -- on
  * the call's envelope (`deps.envelope`, built by the turn, never by
  * the model: the requester's `accountId` and `roleIds`, null with nobody; the invocation id) in the
  * turn's context (`deps.opContext`: `placeId`, the place the call runs in), the persona as the actor, the replied
@@ -933,8 +933,8 @@ export async function executeCall(resolved: Resolved, deps: ExecuteDeps): Promis
     const call = resolved.dispatch.toOp(args);
     if (!call.args || call.op !== resolved.skill)
       return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'command' };
-    // Her own expressive operations run on her grant alone; any other on the requester's right too,
-    // except on her own initiative (an inner turn, nobody asked): her grant alone, the gateway's.
+    // Every call of hers runs on her grant alone, the gateway's, whoever asked. Her own expressive operations take
+    // their own runner, and a call on her own initiative (an inner turn, nobody asked) the initiative's.
     const envelope: CallEnvelope = deps.envelope ?? {};
     const requester = envelope.requester ?? null;
     const initiative = envelope.ownInitiative === true && !requester;

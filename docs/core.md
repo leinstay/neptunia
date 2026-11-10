@@ -120,7 +120,7 @@ A handle to read a place and a way to write there are two facts. `conversation.r
 
 | Trait | A tool carries it when | Read by |
 |---|---|---|
-| `self` | it is her own message, drawing, voice message, intention or skill, run on her grant alone whoever asked | `src/tools/gateway.ts`, `src/tools/executors.ts`, `src/admin.ts` |
+| `self` | it is her own message, drawing, voice message, intention or skill, run through `runOwnSkillOp` | `src/tools/executors.ts`, `src/admin.ts` |
 | `carried` | it stands behind one of her reply tags and runs in the current chat without a grant | `CARRIED_OVER` in `src/tools/access.ts` |
 | `ungrantable` | it is irreversible or administrative, so no grant opens it for her | `NOT_GRANTABLE_TO_PERSONA` in `src/tools/access.ts` |
 | `posts` | it leaves a line of hers where people read | `src/turn/skill-calls.ts`, `src/behavior/sandbox.ts`, `POSTING_SKILLS`, `DELIVERY_SKILLS` |
@@ -128,6 +128,8 @@ A handle to read a place and a way to write there are two facts. `conversation.r
 | `here` | it acts in the turn's own chat when its `place` is left out | `src/turn/skill-calls.ts` |
 | `written` | its `text` is her writing, rendered as a `<msg>` of hers | `src/tools/executors.ts`, `WRITTEN_SKILLS` |
 | `publishes` | the turn's publication boundary may refuse it | `src/tools/executors.ts` |
+
+A call of hers runs on her grants alone, whoever asked for it: one person, several or nobody. `checkSkill` in `src/tools/gateway.ts` checks her access, the arguments, a destructive tool's cooldown and the budget, and `runSkillOp` in `src/admin.ts` runs a call whose `actor` is `persona` with no rights check of the person who asked. That person's account still goes with the call, so an errand records its requester and an operation applies its own rules to them. A person's own typed command keeps the full check, `checkRights` in `src/tools/operations/index.ts`.
 
 The owner's narrow reads of one subject, `memory.profile.read`, `memory.channel.read`, `memory.server.read`, `memory.recent.read`, `lore.list` and `lore.show`, stay registered, grantable operations that run when called, and `REPLACED_BY_MEMORY_READ` in `src/tools/discovery.ts` leaves them out of the list she is offered. Her read of one subject is `memory.read`, which runs only inside a turn (`src/turn/in-turn-tools.ts`). Its operation in `src/tools/operations/search.ts` answers `unsupported` anywhere else. A stored grant or wake envelope under one of the six names opens `memory.read` through `grantNamesFor` in `src/tools/operations/grants.ts`.
 
