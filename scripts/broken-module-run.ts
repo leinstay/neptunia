@@ -7,7 +7,7 @@
 // tests still passed. A test that passes while every engine module it reaches throws exercises no engine code: it is
 // a candidate for deletion.
 //
-// Without the flag: the unit is a module. For each `src/**/*.js` module that has a test file by the naming rule of
+// Without the flag: the unit is a module. For each `src/**/*.ts` module that has a test file by the naming rule of
 // scripts/code-health.ts (the file name with any tail of its folder path, joined by hyphens) it breaks that module
 // only and runs the files the rule matches. The rule pairs unrelated files of the same base name (`store`,
 // `access`), so this mode over-reports.
@@ -16,12 +16,12 @@
 //
 //   node scripts/broken-module-run.ts [--by-imports] [--out <report.json>] [--max-minutes <n>] [<name> ...]
 //
-// The names are modules, or with `--by-imports` test files. Without names it takes every tracked `src/**/*.js`
-// module, or every `tests/**/*.test.js` file. The report is JSON, one entry per unit and file pair: the test file,
+// The names are modules, or with `--by-imports` test files. Without names it takes every tracked `src/**/*.ts`
+// module, or every `tests/**/*.test.ts` file. The report is JSON, one entry per unit and file pair: the test file,
 // the count of tests, the full names of the tests that stayed green, the run time in milliseconds, a status (`ran`,
 // `skipped: <why>`, `timeout`, `import-failed`) and with `--by-imports` the modules broken and the ones reached but
 // not breakable. After twenty runs the tool projects its total time and stops with exit code 3 when the projection
-// passes `--max-minutes` (default 90). The pure parts are exported for tests/broken-module-run.test.js.
+// passes `--max-minutes` (default 90). The pure parts are exported for tests/broken-module-run.test.ts.
 
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -118,7 +118,7 @@ function editsForStatement(stmt: ts.Statement, listed: Map<string, string>, file
  * @returns Sorted by position.
  */
 export function findBreakEdits(source: string): Array<Edit> {
-  const file = ts.createSourceFile('module.js', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const file = ts.createSourceFile('module.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const listed = exportListNames(file);
   const edits = file.statements.flatMap((stmt) => editsForStatement(stmt, listed, file));
   return edits.sort((a, b) => a.start - b.start);
@@ -176,7 +176,7 @@ type Workspace = { name: string; dir: string; exports?: unknown; main?: string }
 
 /** The bare specifiers of a source, subpaths kept: static imports, `export from` and literal `import('x')` calls. */
 function bareSpecifiers(source: string): Array<string> {
-  const file = ts.createSourceFile('file.js', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const file = ts.createSourceFile('file.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const found: Array<string> = [];
   const visit = (node: ts.Node) => {
     const spec =
@@ -237,10 +237,20 @@ function packageGraph(
   return seen;
 }
 
+/** The repository paths a module re-exports from by a relative `export ... from`. */
+function reExportTargets(filePath: string, source: string): Array<string> {
+  const file = ts.createSourceFile('file.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  return file.statements.flatMap((stmt) => {
+    const spec = ts.isExportDeclaration(stmt) ? stmt.moduleSpecifier : undefined;
+    if (!spec || !ts.isStringLiteralLike(spec) || !spec.text.startsWith('.')) return [];
+    return [path.posix.normalize(path.posix.join(path.posix.dirname(filePath), spec.text))];
+  });
+}
+
 /**
  * The engine modules a test file reaches: the `src/` and `interfaces/` files it imports directly, the ones the
- * files it imports under `tests/` (fixtures) import, one level down, and the files a workspace package import
- * resolves to. Built-ins, other packages and template-string imports are not followed.
+ * files it imports under `tests/` (fixtures) import, one level down, the files a workspace package import
+ * resolves to, and the modules any of them re-exports from, transitively. Built-ins, other packages and template-string imports are not followed.
  * @param testPath Repository path of the test file.
  * @param read The source of a repository path, if it exists.
  * @param packages The workspace packages.
@@ -266,6 +276,16 @@ export function reachedModules(
   for (const fixture of fixtures) collect(fixture, true);
   // A src file that only re-exports a workspace package (the engine's one door to the interface) reaches the package.
   for (const module of [...reached].filter((p) => p.startsWith('src/'))) collect(module, false);
+  // A barrel holds no function of its own: the modules it re-exports from are the ones its importers reach.
+  const queue = [...reached];
+  for (let module = queue.pop(); module !== undefined; module = queue.pop()) {
+    for (const target of reExportTargets(module, read(module) ?? '')) {
+      if (ENGINE.test(target) && !reached.has(target)) {
+        reached.add(target);
+        queue.push(target);
+      }
+    }
+  }
   return [...reached].sort();
 }
 
@@ -470,7 +490,7 @@ async function main(argv: Array<string>): Promise<number> {
       ? args.modules
       : args.byImports
         ? testFiles
-        : trackedList.filter((f) => /^src\/.+\.js$/.test(f));
+        : trackedList.filter((f) => /^src\/.+\.ts$/.test(f));
   const jobs = args.byImports ? importJobs(names, tracked) : moduleJobs(names, testFiles);
   const scratch = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), 'broken-module-'));
   const outPath = args.out ?? path.join(scratch, 'report.json');
