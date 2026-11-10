@@ -6,8 +6,9 @@ import type { NativeMessageLocator } from './recall.ts';
 import type { Row } from './types.ts';
 
 /**
- * Catalog record routes and historic provenance require the mapper's retained version and actual channel. A historical
- * line's channel is the one its place's row holds (`channelOfPlace`), or the private channel the line carried.
+ * Catalog record routes and historic provenance require the mapper's retained version and actual channel, on a line of
+ * the record (writer `record`, read as `storage_kind` by recall). A historical line's channel is the one its place's row
+ * holds (`channelOfPlace`), or the private channel the line carried.
  */
 export function nativeLocatorOf(
   row: Row,
@@ -18,10 +19,7 @@ export function nativeLocatorOf(
   if (marker) return { iface: marker.iface, chatId: marker.chatId, messageId: marker.messageId };
   if (Object.hasOwn(extra, '$messageLocator')) return undefined;
   if (
-    (row.storage_kind !== 'record' &&
-      !/^(?:[^/]+\/[^/]+\/)?(?:private\/[^/]+\/)?record\/\d{4}-\d{2}\/\d{4}-\d{2}-\d{2}\.jsonl$/.test(
-        typeof row.owner_file === 'string' ? row.owner_file : ''
-      )) ||
+    (row.storage_kind ?? row.writer) !== 'record' ||
     extra.v !== 1 ||
     !locatorText(extra.id) ||
     (row.kind !== 'seen' && row.kind !== 'said') ||

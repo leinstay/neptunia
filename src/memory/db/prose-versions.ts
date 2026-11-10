@@ -16,9 +16,8 @@
 import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './row-columns.ts';
 import type { Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
-import { accountCollection, keyText, placeCollection } from './storage-keys.ts';
+import { accountCollection, keyText, placeCollection, storageId } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
 import { heldRows, holdsAny, profileOwnerOf, retireProfileAbsent, stampProfileRows } from './profile-owner.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
@@ -83,7 +82,7 @@ function descriptionPrefix(db: Db, key: StorageKey, id: string): string {
   return `desc:${kind}:${item}`;
 }
 
-/** The rows of a history `value` in the unit `owner`, its description ids under `prefix`. */
+/** The rows of a history `value` whose operational row is `owner`'s, its description ids under `prefix`. */
 function proseVersionsRows(value: Row, prefix: string, owner: string): Rows {
   const rows: Rows = {};
   const rest = { ...value };
@@ -101,13 +100,12 @@ function proseVersionsRows(value: Row, prefix: string, owner: string): Rows {
         ...part.cols,
         origin: 'legacy',
         extra: extraText(part.rest),
-        owner_key: owner,
         position,
       });
     });
   }
   rest.$has = has;
-  put(rows, 'operational', { kind: 'versions', owner, value: JSON.stringify(rest), owner_key: owner });
+  put(rows, 'operational', { kind: 'versions', owner, value: JSON.stringify(rest) });
   return rows;
 }
 
@@ -130,7 +128,7 @@ function proseVersionsOf(rows: Rows): Row {
  * Stores the whole history the unit `key` holds inside the caller's transaction and retires what it no longer holds.
  */
 export function writeProseVersions(db: Db, key: StorageKey, value: Row, { at }: { at: string }): ProseVersionsResult {
-  const id = ensureUnit(db, key);
+  const id = storageId(key); // a new history's operational row and an older layout's prefix name it
   const holder = profileOwnerOf(key)!; // a `versions` unit always has its owner columns (profile-owner.ts)
   const mapping = stampProfileRows(proseVersionsRows(value, descriptionPrefix(db, key, id), id), holder);
   // The history's operational row keeps the owner it was first stored under (an older release's path).
@@ -141,9 +139,8 @@ export function writeProseVersions(db: Db, key: StorageKey, value: Row, { at }: 
     )
     .get(holder.writer, holder.holder_id);
   if (stored) operational.owner = stored.owner;
-  const upserted = writeMapping(db, mapping, id, { at });
+  const upserted = writeMapping(db, mapping, { at });
   const retired = retireProfileAbsent(db, holder, mapping, at);
-  noteUnit(db, id, 'versions', { at });
   return { upserted, retired };
 }
 

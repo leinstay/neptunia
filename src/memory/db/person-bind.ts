@@ -234,7 +234,7 @@ function writeJoined(db: Db, joined: ReadonlyArray<Joined>, extra: Row, at: stri
     const id = `dv:${one.descriptionId}:${shortHash(at, one.text)}`;
     db.prepare(
       `INSERT OR REPLACE INTO description_versions (id, description_id, text, author, written_at, chars, reason, origin,
-           extra, owner_key) VALUES (?, ?, ?, 'her', ?, ?, ?, 'merge', ?, NULL)`
+           extra) VALUES (?, ?, ?, 'her', ?, ?, ?, 'merge', ?)`
     ).run(
       id,
       one.descriptionId,

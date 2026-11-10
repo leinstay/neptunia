@@ -18,14 +18,13 @@ import { answerSourceId } from './ids.ts';
 import { extraText, ifaceOf, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './row-columns.ts';
 import type { MapContext, Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
-import { privateUserOf, scopeFrom, scopeInto } from './scope-parts.ts';
+import { scopeFrom, scopeInto } from './scope-parts.ts';
 import type { OldScope } from './scope-parts.ts';
 import { errandIdOfLine } from '../../board/archive.ts';
 import { addSourceMedia } from './record-lines.ts';
 import { markStemsPending } from './stems.ts';
 import { placeOrPersona } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
 import { lineColumns, lineOwnerOf, lineRows, nextLinePosition } from './line-owner.ts';
 import type { LineOwner } from './line-owner.ts';
@@ -91,16 +90,10 @@ function scopeRows(scope: Row): Row {
   return out;
 }
 
-/**
- * Where a day's rows belong: the unit's id, the day's owner columns (line-owner.ts), the line's position in it and,
- * from an older release, its owner path.
- */
-type Owner = { id: string; line: LineOwner; position: number | null };
+/** Where a day's rows belong: the day's owner columns (line-owner.ts) and the line's position in it. */
+type Owner = { line: LineOwner; position: number | null };
 
-const owned = (owner: Owner): Row => ({
-  owner_key: owner.id,
-  ...lineColumns(owner.line),
-});
+const owned = (owner: Owner): Row => lineColumns(owner.line);
 
 function memoryRows(line: Row, ctx: MapContext, privateUser: string | null, owner: Owner): Rows {
   const iface = ifaceOf(ctx);
@@ -202,7 +195,7 @@ export function journalRows(line: Row, ctx: MapContext, owner: Owner): Rows {
 
 /**
  * The line of one journal entry's rows: a `day` row with its answer, or a `decisions` row with its attitude rows.
- * `ctx` is its unit's subject context; with none, the partner of a private layer is the one its `owner_file` spells.
+ * `ctx` is its day's subject context.
  */
 export function journalLineOf(rows: Rows, ctx: MapContext = {}): Row {
   const decision = rowsOf(rows, 'decisions')[0];
@@ -216,7 +209,7 @@ export function journalLineOf(rows: Rows, ctx: MapContext = {}): Row {
   }
   const day = rows.day[0];
   const rest = parseExtra(day.extra);
-  const scope = scopeFrom(day, rest, ctx.privateAccountId ?? privateUserOf(String(day.owner_file)), ctx);
+  const scope = scopeFrom(day, rest, ctx.privateAccountId, ctx);
   const line = join(day, rest, DAY_SPEC);
   if (scope !== undefined) line.scope = scope;
   const answer = rowsOf(rows, 'sources')[0];
@@ -234,7 +227,6 @@ export function writeJournalDay(
   lines: ReadonlyArray<unknown>,
   { iface, at }: { iface: string; at: string }
 ): JournalLinesResult {
-  const id = ensureUnit(db, key);
   const base = storageContext(db, key);
   const ctx: MapContext = { ...base, iface: base.iface ?? iface };
   const owner = lineOwnerOf(key);
@@ -243,11 +235,10 @@ export function writeJournalDay(
   let written = 0;
   for (const line of lines) {
     if (!isPlainObject(line)) continue;
-    writeMapping(db, journalRows(line, ctx, { id, line: owner, position }), id, { at });
+    writeMapping(db, journalRows(line, ctx, { line: owner, position }), { at });
     written += 1;
     position += 1;
   }
-  noteUnit(db, id, 'journal', { lines: position, at });
   if (written > 0) markStemsPending(db);
   return { written, duplicates: 0, adopted: 0 };
 }

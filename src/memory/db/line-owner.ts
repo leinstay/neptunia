@@ -6,7 +6,6 @@
 // them from the units of the rows already stored (`ownLineRows`). An archive entry's retired claim carries `writer`
 // alone.
 
-import { unitById } from './storage-units.ts';
 import type { StorageKey } from './storage-keys.ts';
 import type { Db, Row } from './types.ts';
 
@@ -52,11 +51,14 @@ export function lineOwnerOf(key: StorageKey): LineOwner | null {
   return { writer: key.kind, holder_id: key.subject.id, period: key.partition };
 }
 
-/** The owner columns of the unit with id `unitId`, else null. */
-export function lineOwnerOfUnit(db: Db, unitId: string | null): LineOwner | null {
-  if (!unitId) return null;
-  const unit = unitById(db, unitId);
-  return unit ? lineOwnerOf(unit.key) : null;
+/** The owner columns of a day or a month named by its key's JSON (storage-keys.ts#keyText), else null. */
+export function lineOwnerOfText(text: string | null | undefined): LineOwner | null {
+  if (typeof text !== 'string' || !text.startsWith('{')) return null;
+  try {
+    return lineOwnerOf(JSON.parse(text) as StorageKey);
+  } catch {
+    return null;
+  }
 }
 
 /** The columns a row of `owner` is written with (none for a row no line owner holds). */

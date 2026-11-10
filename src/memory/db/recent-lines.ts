@@ -24,10 +24,9 @@ import {
   stampPlaceRows,
 } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
-import { placeCollection, keyText } from './storage-keys.ts';
+import { placeCollection, keyText, storageId } from './storage-keys.ts';
 import { namedIface } from './live-iface.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
@@ -49,7 +48,7 @@ const specOf = (db: Db): Array<Spec> => [
 const coded = (code: string): Error & { code: string } => Object.assign(new Error(code), { code });
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
 
-/** The rows of the recent lines `value` of the unit `key`, owned by `owner` (the unit's id) and `holder`. */
+/** The rows of the recent lines `value` of the unit `key`, owned by `holder`, `owner` the unit's id. */
 function recentLinesRows(
   db: Db,
   key: StorageKey,
@@ -90,8 +89,6 @@ function recentLinesRows(
         shown: 1,
         ...groupScope(iface),
         retired_at: null,
-        origin_file: owner,
-        owner_key: owner,
         position,
       });
     });
@@ -108,7 +105,6 @@ function recentLinesRows(
     kind: 'recent',
     owner: stored ? stored.owner : owner,
     value: JSON.stringify(rest),
-    owner_key: owner,
   });
   return stampPlaceRows(rows, holder);
 }
@@ -143,12 +139,11 @@ export function writeRecentLines(
   value: Row,
   { at, iface }: { at: string; iface?: string }
 ): RecentLinesResult {
-  const id = ensureUnit(db, key);
+  const id = storageId(key);
   const holder = placeOwnerOf(key)!; // a `recent` unit always has its owner columns (place-owner.ts)
   const mapping = recentLinesRows(db, key, value, id, holder, iface);
-  const upserted = writeMapping(db, mapping, id, { at, holder });
+  const upserted = writeMapping(db, mapping, { at });
   const retired = retirePlaceAbsent(db, holder, mapping, at);
-  noteUnit(db, id, 'recent', { at });
   return { upserted, retired };
 }
 

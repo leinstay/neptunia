@@ -14,7 +14,7 @@ import type { Envelope } from '../src/memory/db/observe.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import type { MemoryDbService } from '../src/memory/db/service.ts';
-import { listUnits } from '../src/memory/db/storage-units.ts';
+import { unitSubjects } from '../src/memory/db/readers/common.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';
@@ -95,24 +95,19 @@ test('an account resolves to one private collection before and after an unrelate
   // Bug: the first root the person is seen in becomes the scope, so the DM moves when a group appears.
   const { store, memoryDb, read } = rig();
   await note(store, 'account:a11', 'keeps a private note');
-  const before = listUnits(read(), { kind: 'private' }).map((unit) => unit.id);
+  const before = unitSubjects(read(), 'private');
   await memoryDb.observe(groupLine('m1'));
   assert.equal(read().prepare("SELECT 1 AS ok FROM places WHERE native_key = 'channel:unrelated'").get()?.ok, 1);
   assert.deepEqual(detailsOf(store.getPrivate('account:a11')), ['keeps a private note']);
   await note(store, 'account:a11', 'and a second one');
-  assert.deepEqual(
-    listUnits(read(), { kind: 'private' }).map((unit) => unit.id),
-    before
-  );
+  assert.deepEqual(unitSubjects(read(), 'private'), before);
 });
 
 test('a private collection names its account and no root', async () => {
   // Bug: `rootKey` puts `<iface>:root:<id>` into the key, so two roots split one account's memory.
   const { store, read } = rig();
   await note(store, 'account:a21', 'keeps a private note');
-  const [unit] = listUnits(read(), { kind: 'private' });
-  assert.deepEqual(unit?.key.subject, { type: 'account', id: 'account:a21' });
-  assert.equal(unit?.key.scopePlaceId, undefined);
+  assert.deepEqual(unitSubjects(read(), 'private'), ['account:a21']);
 });
 
 test('equal native ids in two authorities read two private collections', async () => {
@@ -154,15 +149,12 @@ test('a write begun inside an event lands in its account after the event context
   withIface('telegram', () => store.applyPrivateOps('account:a21', { details: { add: ['begun in an event'] } }));
   store.flush();
   await store.flushSettled({});
-  assert.deepEqual(
-    listUnits(read(), { kind: 'private' }).map((unit) => unit.key.subject.id),
-    ['account:a21']
-  );
+  assert.deepEqual(unitSubjects(read(), 'private'), ['account:a21']);
 });
 
 test('an account nobody stored has no private memory and gets no collection from being asked', () => {
   // Bug: a read of an unknown id fabricates an empty unit, and the owner browser lists a person who never existed.
   const { store, read } = rig();
   assert.equal(store.getPrivate('account:never-seen'), null);
-  assert.deepEqual(listUnits(read(), { kind: 'private' }), []);
+  assert.deepEqual(unitSubjects(read(), 'private'), []);
 });

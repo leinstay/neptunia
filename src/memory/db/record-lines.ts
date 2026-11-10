@@ -24,7 +24,7 @@ import { extraText, ifaceOf, join, parseExtra, split } from './row-columns.ts';
 import type { MapContext, Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
 import type { OldScope } from './scope-parts.ts';
-import { privateUserOf, scopeFrom, scopeInto } from './scope-parts.ts';
+import { scopeFrom, scopeInto } from './scope-parts.ts';
 import { resolveMessageFamily } from './message-families.ts';
 import { familyError, hasMessageFamilies } from './message-family-catalog.ts';
 import { observedSourceId } from './observe.ts';
@@ -33,7 +33,6 @@ import { recordFieldsOf, takeRecordMedia, writeRecordMedia } from './media-store
 import { markStemsPending } from './stems.ts';
 import { PERSONA_ID, placeOrPersona } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit, noteUnit } from './storage-units.ts';
 import { lineColumns, lineOwnerOf, linePeriods, lineRows, nextLinePosition } from './line-owner.ts';
 import type { LineOwner } from './line-owner.ts';
 import { writeMapping } from './upsert.ts';
@@ -66,7 +65,6 @@ type Identity = {
 /** What every line of one day's write shares: its unit, the unit's subject context and the write's references. */
 type DayWrite = {
   key: StorageKey;
-  id: string;
   /** The day's owner columns (line-owner.ts). */
   owner: LineOwner;
   ctx: MapContext;
@@ -181,10 +179,7 @@ export function recordSourceRow(line: Row, ctx: MapContext = {}, identity?: Iden
   };
 }
 
-/**
- * The line of a stored row, as it was written. `ctx` is its unit's subject context; with none, the partner of a private
- * layer is the one its `owner_file` path spells.
- */
+/** The line of a stored row, as it was written. `ctx` is its day's subject context. */
 export function recordLineOf(row: Row, ctx: MapContext = {}): Row {
   const rest = parseExtra(row.extra);
   const locator = messageLocator(rest.$messageLocator, row.iface);
@@ -194,7 +189,7 @@ export function recordLineOf(row: Row, ctx: MapContext = {}): Row {
       : null;
   delete rest.$messageLocator;
   delete rest.$messageReply;
-  const scope = scopeFrom(row, rest, ctx.privateAccountId ?? privateUserOf(String(row.owner_file)), ctx);
+  const scope = scopeFrom(row, rest, ctx.privateAccountId, ctx);
   const line = join(row, rest, specOf(ctx));
   if (locator) line.messageId = locator.messageId;
   if (reply) line.replyTo = reply.messageId;
@@ -349,9 +344,7 @@ function recordReply(db: Db, source: Row, line: Row, identity: Identity): void {
 function adoptedRecord(source: Row, found: Row): Row {
   const adopted: Row = {
     ...found,
-    owner_key: source.owner_key,
     ...lineColumns({ writer: 'record', holder_id: asText(source.holder_id), period: asText(source.period) }),
-    owner_file: found.owner_file,
     position: source.position,
     origin: source.origin,
     turn_id: source.turn_id ?? found.turn_id,
@@ -363,6 +356,8 @@ function adoptedRecord(source: Row, found: Row): Row {
     }),
   };
   delete adopted.rowid;
+  delete adopted.owner_key;
+  delete adopted.owner_file;
   return adopted;
 }
 
@@ -377,7 +372,6 @@ function writeLine(db: Db, day: DayWrite, line: Row, position: number, at: strin
   const iface = day.ctx.iface ?? identity?.iface ?? day.iface;
   let source: Row = {
     ...recordSourceRow(line, { ...day.ctx, iface }, identity),
-    owner_key: day.id,
     ...lineColumns(day.owner),
     position,
   };
@@ -397,7 +391,7 @@ function writeLine(db: Db, day: DayWrite, line: Row, position: number, at: strin
   if (keep) source.position = found.position;
   // What a line holds of its media goes to `media` and `media_links`, and leaves its `extra`.
   const media = storeHeld(db) ? takeRecordMedia(source) : null;
-  writeMapping(db, { sources: [source] }, day.id, { at });
+  writeMapping(db, { sources: [source] }, { at });
   if (media) writeRecordMedia(db, asText(source.id), media, at);
   return { written: 1, duplicates: 0, adopted: found?.origin === 'observation' ? 1 : 0, advance: keep ? 0 : 1 };
 }
@@ -412,10 +406,9 @@ export function writeRecordDay(
   lines: ReadonlyArray<Row>,
   { messages, iface, at }: { messages?: ReadonlyArray<Row>; iface: string; at: string }
 ): RecordLinesResult {
-  const id = ensureUnit(db, key);
   const owner = lineOwnerOf(key);
   if (!owner) throw coded('RECORD_LINES_DAY');
-  const day: DayWrite = { key, id, owner, ctx: storageContext(db, key, iface), iface, messages };
+  const day: DayWrite = { key, owner, ctx: storageContext(db, key, iface), iface, messages };
   const result: RecordLinesResult = { written: 0, duplicates: 0, adopted: 0 };
   let position = nextLinePosition(db, owner);
   for (const line of lines) {
@@ -426,7 +419,6 @@ export function writeRecordDay(
     result.adopted += done.adopted;
     position += done.advance;
   }
-  noteUnit(db, id, 'record', { lines: position, at });
   if (result.written > 0) markStemsPending(db);
   return result;
 }

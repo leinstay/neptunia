@@ -1,10 +1,9 @@
 // The owner columns of the record, the journal and the archive (src/memory/db/line-owner.ts): every row they write
-// names its writer, the place that holds it and its day or month, so its readers and positions need no unit. The first
-// test writes the same lines once and compares, column by column, what the writers stamp with what version step 46
-// derives from the units. Then the readers with the units' ownership taken away, and the positions of a day.
+// names its writer, the place that holds it and its day or month, so its readers and positions need no unit. The tests
+// read with the units' ownership taken away, continue the positions of a day, and check that the writers register no
+// unit.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ownLineRows } from '../src/memory/db/line-owner.ts';
 import { observationOf } from '../src/memory/db/observe-event.ts';
 import { recordDays, recordHolders, recordLines, recordMonths, recordStats } from '../src/memory/db/record-lines.ts';
 import { journalLines } from '../src/memory/db/journal-lines.ts';
@@ -86,18 +85,6 @@ const entry = (id: string, itemId: string): Row => ({
   text: { text: `the text of ${id}` },
 });
 
-/** Every table but the full-text indexes, each row as stored, in rowid order. */
-function tablesOf(db: Db): string {
-  const out: Record<string, Array<Row>> = {};
-  const names = db
-    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND sql NOT LIKE 'CREATE VIRTUAL%' ORDER BY name")
-    .all()
-    .map((row) => String(row.name))
-    .filter((name) => !/_(fts|tri)(_|$)/.test(name));
-  for (const name of names) out[name] = db.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all();
-  return JSON.stringify(out, null, 1);
-}
-
 /** One of everything the three writers write: an observed message, record lines, journal lines, archive entries. */
 async function writeAll(memory: Memory): Promise<Db> {
   const observed = observationOf({
@@ -135,30 +122,6 @@ function readAll(db: Db): unknown {
   };
 }
 
-test('the writers stamp every line with the owner columns version step 46 derives from its unit', async () => {
-  const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
-  try {
-    const db = await writeAll(memory);
-    const stamped = tablesOf(db);
-    const owned = db
-      .prepare('SELECT writer, COUNT(*) AS n FROM sources WHERE writer IS NOT NULL GROUP BY writer')
-      .all();
-    assert.deepEqual(
-      owned.map((row) => [row.writer, row.n]),
-      [
-        ['journal', 2],
-        ['record', 3],
-      ]
-    );
-    for (const table of LINE_TABLES) db.exec(`UPDATE "${table}" SET writer = NULL, holder_id = NULL, period = NULL`);
-    db.exec('UPDATE claims SET writer = NULL');
-    ownLineRows(db);
-    assert.equal(tablesOf(db), stamped);
-  } finally {
-    await memory.close();
-  }
-});
-
 test('the readers give the same lines, days, months and holders once no unit owns the rows', async () => {
   const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
   try {
@@ -187,6 +150,32 @@ test('a later write of a day continues after the highest position its rows hold 
       )
       .sort((a, b) => a - b);
     assert.deepEqual(positions, [0, 1, 2]);
+  } finally {
+    await memory.close();
+  }
+});
+
+/** The storage units and the rows naming a unit or a file the writes left: none once the rows own themselves. */
+function legacyOwners(db: Db): Array<string> {
+  const found: Array<string> = [];
+  if (Number(db.prepare('SELECT COUNT(*) AS n FROM storage_units').get()?.n) > 0) found.push('storage_units');
+  for (const { name } of db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all()) {
+    if (name === 'graph_edges') continue; // its owner_key is the graph's own key, not a unit
+    const columns = db
+      .prepare(`PRAGMA table_info("${String(name)}")`)
+      .all()
+      .map((column) => String(column.name));
+    for (const column of ['owner_key', 'owner_file', 'origin_file'].filter((col) => columns.includes(col)))
+      if (db.prepare(`SELECT 1 FROM "${String(name)}" WHERE "${column}" IS NOT NULL LIMIT 1`).get())
+        found.push(`${String(name)}.${column}`);
+  }
+  return found;
+}
+
+test('the record, the journal, the archive and an observed message register no storage unit and name no unit in a row', async () => {
+  const memory = await openTestMemory({ now: () => NOW, iface: () => 'synthetic' });
+  try {
+    assert.deepEqual(legacyOwners(await writeAll(memory)), []);
   } finally {
     await memory.close();
   }

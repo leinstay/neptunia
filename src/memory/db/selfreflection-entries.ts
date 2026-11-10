@@ -32,9 +32,8 @@ import {
 } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
 import { assignSelfreflectionDestination } from './publish.ts';
-import { personaKey } from './storage-keys.ts';
+import { personaKey, storageId } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
 import { dbOf, isFiniteNumber, isWholeNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
@@ -56,7 +55,7 @@ const filled = (value: unknown): value is string => typeof value === 'string' &&
 const isIds = (value: unknown): boolean => Array.isArray(value) && value.every((id) => typeof id === 'string');
 
 /** The entry rows and mirrors of `posts` into `rows`. */
-function putPosts(rows: Rows, posts: ReadonlyArray<Row>, iface: string, owner: string): void {
+function putPosts(rows: Rows, posts: ReadonlyArray<Row>, iface: string): void {
   const uniq = uniqueIds();
   posts.forEach((post: Row, position: number) => {
     const body = { ...post };
@@ -82,7 +81,6 @@ function putPosts(rows: Rows, posts: ReadonlyArray<Row>, iface: string, owner: s
       perspective: null,
       ...(selfreflectionRestricted(post) ? SCOPE_INTERNAL : groupScope(iface)),
       extra: extraText(part.rest),
-      owner_key: owner,
       position,
     });
     if (mirrored)
@@ -96,13 +94,13 @@ function putPosts(rows: Rows, posts: ReadonlyArray<Row>, iface: string, owner: s
   });
 }
 
-/** The rows of the selfreflection `value`, owned by `owner` (the unit's id) and `holder`. */
+/** The rows of the selfreflection `value`, owned by `holder`, `owner` the unit's id. */
 function selfreflectionRows(db: Db, value: Row, iface: string, owner: string, holder: PlaceOwner): Rows {
   const rows: Rows = {};
   const rest = { ...value };
   const has = [];
   if (Array.isArray(value.posts) && value.posts.every(isPlainObject)) {
-    putPosts(rows, value.posts, iface, owner);
+    putPosts(rows, value.posts, iface);
     delete rest.posts;
     has.push('posts');
   }
@@ -116,7 +114,6 @@ function selfreflectionRows(db: Db, value: Row, iface: string, owner: string, ho
     kind: 'selfreflection',
     owner: stored ? stored.owner : owner,
     value: JSON.stringify(rest),
-    owner_key: owner,
   });
   return stampPlaceRows(rows, holder);
 }
@@ -166,12 +163,11 @@ export function writeSelfreflectionValue(
   { at, iface, destination }: { at: string; iface: string; destination?: unknown }
 ): { upserted: number; retired: number; destinations: number } {
   const key: StorageKey = personaKey('selfreflection');
-  const id = ensureUnit(db, key);
+  const id = storageId(key);
   const holder = placeOwnerOf(key)!; // her selfreflection unit always has its owner columns (place-owner.ts)
   const mapping = selfreflectionRows(db, value, iface, id, holder);
-  const upserted = writeMapping(db, mapping, id, { at, holder });
+  const upserted = writeMapping(db, mapping, { at });
   const retired = retirePlaceAbsent(db, holder, mapping, at);
-  noteUnit(db, id, 'selfreflection', { at });
   const destinations = filled(destination) ? assignSelfreflectionDestination(db, destination, { holder, at }) : 0;
   return { upserted, retired, destinations };
 }

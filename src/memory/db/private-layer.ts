@@ -8,7 +8,7 @@
 //   operational (kind private)   the rest: the affinity score, reason and decay stamp, first/last seen, detailsSeq,
 //                                relationshipScore, `replies`, `buffer`, ...
 //
-// A write replaces the layer: the rows the value no longer holds are retired (upsert.ts#retireAbsent), and what her
+// A write replaces the layer: the rows the value no longer holds are retired (profile-owner.ts#retireProfileAbsent), and what her
 // session wrote last stays as she wrote it (session-rows.ts#sessionHold). A read adds what her session wrote about the
 // person in the direct chat (session-rows.ts#addSessionRows).
 
@@ -24,7 +24,6 @@ import { addSessionRows } from './session-rows.ts';
 import { accountCollection, keyText } from './storage-keys.ts';
 import { namedIface } from './live-iface.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
 import { heldRows, holdsAny, profileOwnerOf, retireProfileAbsent, stampProfileRows } from './profile-owner.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
@@ -54,15 +53,14 @@ function personOfLayer(db: Db, key: StorageKey, at: string): string {
   return (account !== null && stored ? ensureAccountPerson(db, account, at) : null) ?? mintMetaPerson(db, at);
 }
 
-/** The rows of a private layer `value` of the unit `key`, owned by `owner` (the unit's id), written at `at`. */
-function privateLayerRows(db: Db, key: StorageKey, value: Row, owner: string, at: string, writeIface?: string): Rows {
+/** The rows of a private layer `value` of the unit `key`, written at `at`. */
+function privateLayerRows(db: Db, key: StorageKey, value: Row, at: string, writeIface?: string): Rows {
   const ctx = storageContext(db, key, writeIface);
   const iface = ifaceOf(ctx);
   const person = ctx.subjectPersonId ?? personOfLayer(db, key, at);
   const place = key.subject.type === 'account' ? dmOfAccount(db, key.subject.id) : (ctx.dmPlace ?? null);
   const rows: Rows = {};
   const { rest, affinity } = profileRows(rows, value, {
-    rel: owner,
     person,
     owner: `${person}:dm`,
     tag: ':dm',
@@ -81,15 +79,7 @@ function privateLayerRows(db: Db, key: StorageKey, value: Row, owner: string, at
     kind: 'private',
     owner: stored ? stored.owner : person,
     value: JSON.stringify(rest),
-    owner_key: owner,
   });
-  // The shared profile pieces name their unit as `owner_file` (profile-lists.ts): the unit's id is their owner.
-  for (const list of Object.values(rows))
-    for (const row of list) {
-      if (row.owner_file === undefined) continue;
-      delete row.owner_file;
-      row.owner_key = owner;
-    }
   return stampProfileRows(rows, holder);
 }
 
@@ -121,11 +111,9 @@ export function writePrivateLayer(
   value: Row,
   { at, iface }: { at: string; iface?: string }
 ): PrivateLayerResult {
-  const id = ensureUnit(db, key);
-  const mapping = privateLayerRows(db, key, value, id, at, iface);
-  const upserted = writeMapping(db, mapping, id, { at });
+  const mapping = privateLayerRows(db, key, value, at, iface);
+  const upserted = writeMapping(db, mapping, { at });
   const retired = retireProfileAbsent(db, profileOwnerOf(key)!, mapping, at); // as above
-  noteUnit(db, id, 'private', { at });
   return { upserted, retired };
 }
 
@@ -160,10 +148,16 @@ export function applyPrivateLayerWrite(handle: MemoryHandle, update: Row): Priva
   );
 }
 
+/** Whether the database holds the private layer the unit `key` names. */
+export function privateLayerHeld(db: Db, key: StorageKey): boolean {
+  const holder = profileOwnerOf(key);
+  return holder !== null && holdsAny(db, holder, 'operational');
+}
+
 /** The private layer the unit `key` holds, or not found when the database holds no such unit. */
 export function privateLayerValue(db: Db, key: StorageKey): { found: true; value: unknown } | { found: false } {
   const holder = profileOwnerOf(key);
-  if (!holder || !holdsAny(db, holder, 'operational')) return { found: false };
+  if (!holder || !privateLayerHeld(db, key)) return { found: false };
   const rows = heldRows(db, holder, TABLES);
   addSessionRows(db, 'private', rows, key.subject.type === 'account' ? key.subject.id : null);
   return { found: true, value: privateLayerOf(rows) };

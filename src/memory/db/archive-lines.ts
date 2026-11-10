@@ -22,7 +22,6 @@ import { requiredIface } from './live-iface.ts';
 import { markStemsPending } from './stems.ts';
 import { PERSONA_ID, placeOrPersona } from './storage-keys.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit, noteUnit } from './storage-units.ts';
 import { lineColumns, lineOwnerOf, linePeriods, lineRows, nextLinePosition } from './line-owner.ts';
 import type { LineOwner } from './line-owner.ts';
 import { hotClaimIds, writeMapping } from './upsert.ts';
@@ -49,15 +48,8 @@ const MONTH_RE = /^\d{4}-\d{2}$/;
 const coded = (code: string): Error & { code: string } => Object.assign(new Error(code), { code });
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
 
-/**
- * Where an entry's rows belong: the unit's id, the month's owner columns (line-owner.ts), the entry's position in it
- * and, from an older release, its owner path.
- */
-type Owner = { id: string; line: LineOwner; position: number };
-
-const owned = (owner: Owner): Row => ({
-  owner_key: owner.id,
-});
+/** Where an entry's rows belong: the month's owner columns (line-owner.ts) and the entry's position in it. */
+type Owner = { line: LineOwner; position: number };
 
 /**
  * The subject of an archived item: the person of the member its scope names, else the place of its channel, else none.
@@ -75,7 +67,7 @@ function subjectOfEntry(scope: { user?: unknown; channel?: unknown }, ctx: MapCo
 }
 
 /** The retired claim of an archived item hot memory does not hold: historical, its text from the entry. */
-function claimStub(entry: Row, ctx: MapContext, owner: Owner): Row {
+function claimStub(entry: Row, ctx: MapContext): Row {
   const scope = (entry.scope ?? {}) as { user?: unknown; channel?: unknown };
   const entryText = entry.text as { text?: unknown } | undefined;
   const observedAt = entry.observedAt as { date?: unknown } | undefined;
@@ -105,8 +97,6 @@ function claimStub(entry: Row, ctx: MapContext, owner: Owner): Row {
         })),
     created_at: null,
     retired_at: typeof entry.recordedAt === 'string' ? entry.recordedAt : null,
-    origin_file: owner.id,
-    ...owned(owner),
     writer: 'archive',
     position: null,
   };
@@ -129,7 +119,6 @@ export function archiveRows(entry: unknown, ctx: MapContext, owner: Owner, hot: 
       event: null,
       by: null,
       origin: null,
-      ...owned(owner),
       ...lineColumns(owner.line),
       position: owner.position,
     });
@@ -153,12 +142,11 @@ export function archiveRows(entry: unknown, ctx: MapContext, owner: Owner, hot: 
     ...cols,
     text,
     extra: extraText(rest),
-    ...owned(owner),
     ...lineColumns(owner.line),
     position: owner.position,
   });
   const item = entry.itemId;
-  if (filled(item) && !hot.has(item)) put(rows, 'claims', claimStub(entry, ctx, owner));
+  if (filled(item) && !hot.has(item)) put(rows, 'claims', claimStub(entry, ctx));
   return rows;
 }
 
@@ -185,7 +173,6 @@ export function writeArchiveMonth(
   lines: ReadonlyArray<unknown>,
   { iface, at }: { iface: string; at: string }
 ): ArchiveLinesResult {
-  const id = ensureUnit(db, key);
   const base = storageContext(db, key);
   const ctx: MapContext = { ...base, iface: base.iface ?? iface };
   const hot = hotClaimIds(db);
@@ -195,14 +182,10 @@ export function writeArchiveMonth(
   let written = 0;
   for (const line of lines) {
     if (line === null || typeof line !== 'object' || Array.isArray(line)) continue;
-    writeMapping(db, archiveRows(line, ctx, { id, line: month, position }, hot), id, {
-      at,
-      ignoreClaims: true,
-    });
+    writeMapping(db, archiveRows(line, ctx, { line: month, position }, hot), { at, ignoreClaims: true });
     written += 1;
     position += 1;
   }
-  noteUnit(db, id, 'archive', { lines: position, at });
   if (written > 0) markStemsPending(db);
   return { written, duplicates: 0, adopted: 0 };
 }

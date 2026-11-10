@@ -124,16 +124,21 @@ export function holdsPlace(db: Db, owner: PlaceOwner, table: string): boolean {
   );
 }
 
-/** Lists `owner` (with its unit `unitId`) beside the place that holds the row `key` of `table`. */
-export function sharePlaceRow(db: Db, table: string, key: string, owner: PlaceOwner, unitId: unknown): void {
-  preparedPlace(
-    db,
-    'INSERT OR IGNORE INTO co_owners (tbl, key, owner_key, writer, holder_id) VALUES (?, ?, ?, ?, ?)'
-  ).run(table, key, unitId ?? null, owner.writer, owner.holder_id);
+/** The owner columns of a writer that shares a row: a place's, or a line's or a prose history's of a place. */
+export type SharingOwner = { writer: string; holder_id: string | null };
+
+/** Lists `owner` beside the place that holds the row `key` of `table`. */
+export function sharePlaceRow(db: Db, table: string, key: string, owner: SharingOwner): void {
+  preparedPlace(db, 'INSERT OR IGNORE INTO co_owners (tbl, key, writer, holder_id) VALUES (?, ?, ?, ?)').run(
+    table,
+    key,
+    owner.writer,
+    owner.holder_id
+  );
 }
 
 /** Takes `owner` off the list of places that share the row `key` of `table`. */
-export function unsharePlaceRow(db: Db, table: string, key: string, owner: PlaceOwner): void {
+export function unsharePlaceRow(db: Db, table: string, key: string, owner: SharingOwner): void {
   preparedPlace(db, 'DELETE FROM co_owners WHERE tbl = ? AND key = ? AND writer = ? AND holder_id = ?').run(
     table,
     key,
@@ -150,22 +155,22 @@ function handOver(db: Db, table: string, row: Row, owner: PlaceOwner): boolean {
   const key = keyText(table, row);
   const heir = preparedPlace(
     db,
-    `SELECT rowid, owner_key, writer, holder_id FROM co_owners WHERE tbl = ? AND key = ?
-       AND NOT (writer IS ? AND holder_id IS ?) ORDER BY holder_id, owner_key LIMIT 1`
+    `SELECT rowid, writer, holder_id FROM co_owners WHERE tbl = ? AND key = ?
+       AND NOT (writer IS ? AND holder_id IS ?) ORDER BY holder_id, rowid LIMIT 1`
   ).get(table, key, owner.writer, owner.holder_id);
   if (!heir) return false;
   db.prepare(
-    `UPDATE "${table}" SET owner_key = ?, writer = ?, holder_id = ? WHERE ${keyOf(table)
+    `UPDATE "${table}" SET writer = ?, holder_id = ? WHERE ${keyOf(table)
       .map((col) => `"${col}" = ?`)
       .join(' AND ')}`
-  ).run(heir.owner_key, heir.writer, heir.holder_id, ...keyOf(table).map((col) => row[col]));
+  ).run(heir.writer, heir.holder_id, ...keyOf(table).map((col) => row[col]));
   db.prepare('DELETE FROM co_owners WHERE rowid = ?').run(heir.rowid);
   // An episode's message links follow it.
   if (table === 'episodes')
     preparedPlace(
       db,
-      'UPDATE episode_sources SET owner_key = ?, writer = ?, holder_id = ? WHERE episode_id = ? AND writer = ? AND holder_id = ?'
-    ).run(heir.owner_key, heir.writer, heir.holder_id, row.id, owner.writer, owner.holder_id);
+      'UPDATE episode_sources SET writer = ?, holder_id = ? WHERE episode_id = ? AND writer = ? AND holder_id = ?'
+    ).run(heir.writer, heir.holder_id, row.id, owner.writer, owner.holder_id);
   return true;
 }
 
@@ -182,7 +187,7 @@ function retireLinksAbsent(db: Db, owner: PlaceOwner, links: Links, mapping: Row
     db,
     `SELECT rowid, ${links.key.join(', ')} FROM "${links.table}" c WHERE writer = ? AND holder_id = ? AND retired_at IS NULL
        AND NOT EXISTS (SELECT 1 FROM "${links.parent}" p WHERE p.id = c."${links.link}" AND p.retired_at IS NULL
-         AND (p.owner_key IS NOT NULL OR (p.writer IS NOT NULL AND p.writer != 'session'))
+         AND p.writer IS NOT NULL AND p.writer != 'session'
          AND NOT (p.writer IS ? AND p.holder_id IS ?))`
   ).all(owner.writer, owner.holder_id, owner.writer, owner.holder_id)) {
     if (keep.has(keyOf(row))) continue;

@@ -1,11 +1,10 @@
 // The owner columns of the profile tables (src/memory/db/profile-owner.ts): every row an account's profile, a private
 // layer or a history of prose writes names its writer and its holder, and every row her memory session writes is
 // `session`, so the profile readers, the retirement of what a profile no longer holds and her session's rows need no
-// unit. The first test writes the same rows once and compares, column by column, what the writers stamp with what
-// version step 47 derives from the units. Then the readers with the units' ownership taken away.
+// unit. The tests read with the units' ownership taken away, rewrite a profile, and check that the writers register no
+// unit.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ownProfileRows } from '../src/memory/db/profile-owner.ts';
 import { linkedProfileUnit } from '../src/memory/db/person-links.ts';
 import { unitValue } from '../src/memory/db/readers/common.ts';
 import { applyMemoryWrite } from '../src/memory/db/session-write.ts';
@@ -49,18 +48,6 @@ const profile = (extra: Row = {}): Row => ({
 const history = (texts: ReadonlyArray<string>): Row => ({
   character: texts.map((text, i) => ({ at: `2026-10-0${i + 1}T00:00:00.000Z`, by: 'analyzer', text, itemId: `v${i}` })),
 });
-
-/** Every table but the full-text indexes, each row as stored, in rowid order. */
-function tablesOf(db: Db): string {
-  const out: Record<string, Array<Row>> = {};
-  const names = db
-    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND sql NOT LIKE 'CREATE VIRTUAL%' ORDER BY name")
-    .all()
-    .map((row) => String(row.name))
-    .filter((name) => !/_(fts|tri)(_|$)/.test(name));
-  for (const name of names) out[name] = db.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all();
-  return JSON.stringify(out, null, 1);
-}
 
 /** A session run that adds a claim about the member and moves the attitude toward them, from one line. */
 function sessionRun(handle: MemoryHandle, source: string, group: Row): void {
@@ -118,27 +105,6 @@ function writeAll(env: ReturnType<typeof fixture>): void {
   write({ kind: 'prose-versions', versionKind: 'lore', subjectId: ROOT, itemId: 'title-1', value: history(['c']) });
 }
 
-test('the writers stamp every profile row with the owner columns version step 47 derives from its unit', () => {
-  const env = fixture();
-  try {
-    writeAll(env);
-    const stamped = tablesOf(env.db);
-    const writers = env.db
-      .prepare('SELECT writer, COUNT(*) AS n FROM claims WHERE writer IS NOT NULL GROUP BY writer ORDER BY writer')
-      .all()
-      .map((row) => String(row.writer));
-    assert.deepEqual(writers, ['profile', 'session']);
-    for (const table of PROFILE_TABLES)
-      env.db.exec(
-        `UPDATE "${table}" SET writer = NULL, holder_id = NULL WHERE writer IN ('profile', 'private', 'versions', 'session')`
-      );
-    ownProfileRows(env.db);
-    assert.equal(tablesOf(env.db), stamped);
-  } finally {
-    env.done();
-  }
-});
-
 test('the profile, the private layer, the histories and the linked unit read the same once no unit owns the rows', () => {
   const env = fixture();
   try {
@@ -180,6 +146,33 @@ test('a profile rewrite retires what it no longer holds and leaves her session r
       env.db.prepare("SELECT COUNT(*) AS n FROM claims WHERE writer = 'session' AND retired_at IS NULL").get()?.n,
       1
     );
+  } finally {
+    env.done();
+  }
+});
+
+/** The storage units and the rows naming a unit or a file the writes left: none once the rows own themselves. */
+function legacyOwners(db: Db): Array<string> {
+  const found: Array<string> = [];
+  if (Number(db.prepare('SELECT COUNT(*) AS n FROM storage_units').get()?.n) > 0) found.push('storage_units');
+  for (const { name } of db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all()) {
+    if (name === 'graph_edges') continue; // its owner_key is the graph's own key, not a unit
+    const columns = db
+      .prepare(`PRAGMA table_info("${String(name)}")`)
+      .all()
+      .map((column) => String(column.name));
+    for (const column of ['owner_key', 'owner_file', 'origin_file'].filter((col) => columns.includes(col)))
+      if (db.prepare(`SELECT 1 FROM "${String(name)}" WHERE "${column}" IS NOT NULL LIMIT 1`).get())
+        found.push(`${String(name)}.${column}`);
+  }
+  return found;
+}
+
+test('the profile writers register no storage unit and name no unit in a row', () => {
+  const env = fixture();
+  try {
+    writeAll(env);
+    assert.deepEqual(legacyOwners(env.db), []);
   } finally {
     env.done();
   }

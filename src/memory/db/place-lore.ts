@@ -16,10 +16,9 @@ import type { Spec } from './row-columns.ts';
 import { storageContext } from './storage-context.ts';
 import { heldPlaceRows, placeOwnerOf, retirePlaceAbsent, stampPlaceRows } from './place-owner.ts';
 import type { PlaceOwner } from './place-owner.ts';
-import { placeCollection, keyText } from './storage-keys.ts';
+import { placeCollection, keyText, storageId } from './storage-keys.ts';
 import { namedIface } from './live-iface.ts';
 import type { StorageKey } from './storage-keys.ts';
-import { ensureUnit, noteUnit } from './storage-units.ts';
 import { writeMapping } from './upsert.ts';
 import { dbOf, isFiniteNumber } from './types.ts';
 import type { Db, MemoryHandle, Row, Rows } from './types.ts';
@@ -43,7 +42,7 @@ const PREFIX = 'lore:';
 const coded = (code: string): Error & { code: string } => Object.assign(new Error(code), { code });
 const filled = (value: unknown): value is string => typeof value === 'string' && value !== '';
 
-/** The rows of the lorebook `value` of the unit `key`, owned by `owner` (the unit's id) and `holder`. */
+/** The rows of the lorebook `value` of the unit `key`, owned by `holder`, `owner` the unit's id. */
 function placeLoreRows(
   db: Db,
   key: StorageKey,
@@ -80,8 +79,6 @@ function placeLoreRows(
       ...groupScope(iface),
       created_at: null,
       retired_at: null,
-      origin_file: owner,
-      owner_key: owner,
       position,
     });
   });
@@ -110,12 +107,11 @@ export function writePlaceLore(
   value: PlaceLoreWrite['value'],
   { at, iface }: { at: string; iface?: string }
 ): PlaceLoreResult {
-  const id = ensureUnit(db, key);
+  const id = storageId(key);
   const holder = placeOwnerOf(key)!; // a `lore` unit always has its owner columns (place-owner.ts)
   const mapping = placeLoreRows(db, key, value, id, holder, iface);
-  const upserted = writeMapping(db, mapping, id, { at, holder });
+  const upserted = writeMapping(db, mapping, { at });
   const retired = retirePlaceAbsent(db, holder, mapping, at);
-  noteUnit(db, id, 'lore', { at });
   return { upserted, retired };
 }
 

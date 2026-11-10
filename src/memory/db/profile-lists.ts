@@ -8,10 +8,9 @@
 // stays absent. A claim's id is the item's `itemId` when it had one; an item without one gets a derived id and the
 // claim's remainder says so (`$derived`), which is what keeps the old item without an `itemId` after the round trip.
 //
-// The rows her memory session wrote (no `owner_file`, export.ts#unitRows adds them to a member's unit) come back like
-// the file's own: a claim and an episode with their id as the `itemId`, an attitude move with its event id as the
-// `itemId` (`aff:<run>:<n>`), so the file the store writes back names the same rows and the unit write leaves them
-// alone (upsert.ts). A description is its current version (`current_version`), whichever writer wrote it.
+// The rows her memory session wrote come back like the profile's own: a claim and an episode with their id as the
+// `itemId`, an attitude move with its event id as the `itemId` (`aff:<run>:<n>`), so the value the store writes back
+// names the same rows and the write leaves them alone (upsert.ts). A description is its current version (`current_version`), whichever writer wrote it.
 
 import { SELF_PERSON, itemOrDerivedId, shortHash, uniqueIds } from './ids.ts';
 import { extraText, isPlainObject, join, ordered, parseExtra, put, rowsOf, split } from './row-columns.ts';
@@ -36,9 +35,8 @@ export type ListDef = {
   how?: string;
 };
 
-/** Where a list's claims belong: the file, the subject, the id part of the owner and the scope columns. */
+/** Where a list's claims belong: the subject, the id part of the owner and the scope columns. */
 export type ClaimOwner = {
-  rel: string;
   subject_kind: string;
   subject_id: string;
   owner: string;
@@ -47,9 +45,8 @@ export type ClaimOwner = {
   author?: string;
 };
 
-/** Where a profile's rows belong: the file, the person, the id part of the owner, a tag, the scope and the description fields. */
+/** Where a profile's rows belong: the person, the id part of the owner, a tag, the scope and the description fields. */
 export type ProfileOwner = {
-  rel: string;
   person: string;
   owner: string;
   tag: string;
@@ -128,7 +125,7 @@ const listOfStrings = (value: unknown): value is Array<string> =>
   Array.isArray(value) && value.every((item) => typeof item === 'string');
 
 /**
- * Claims rows for one list of items. `o`: { rel, subject_kind, subject_id, owner (id part), scope, how, author,
+ * Claims rows for one list of items. `o`: { subject_kind, subject_id, owner (id part), scope, how, author,
  * } where `scope` is the three scope columns. Returns false when the list is not mappable.
  */
 export function claimRows(rows: Rows, items: unknown, def: ListDef, o: ClaimOwner): boolean {
@@ -168,8 +165,6 @@ export function claimRows(rows: Rows, items: unknown, def: ListDef, o: ClaimOwne
       ...o.scope,
       created_at: null,
       retired_at: null,
-      origin_file: o.rel,
-      owner_file: o.rel,
       position,
     });
   });
@@ -203,7 +198,6 @@ export function profileRows(rows: Rows, value: Row, o: ProfileOwner): { rest: Ro
   for (const def of MEMBER_LISTS) {
     if (!Object.hasOwn(value, def.key)) continue;
     const ok = claimRows(rows, value[def.key], def, {
-      rel: o.rel,
       subject_kind: 'person',
       subject_id: o.person,
       owner: o.owner,
@@ -232,7 +226,6 @@ export function profileRows(rows: Rows, value: Row, o: ProfileOwner): { rest: Ro
         extra: extraText(part.rest),
         ...o.scope,
         retired_at: null,
-        owner_file: o.rel,
         position,
       });
     });
@@ -255,7 +248,6 @@ export function profileRows(rows: Rows, value: Row, o: ProfileOwner): { rest: Ro
       field,
       ...o.scope,
       current_version: `${id}:legacy`,
-      owner_file: o.rel,
     });
     put(rows, 'description_versions', {
       id: `${id}:legacy`,
@@ -270,7 +262,6 @@ export function profileRows(rows: Rows, value: Row, o: ProfileOwner): { rest: Ro
       reason: null,
       origin: 'legacy',
       extra: null,
-      owner_file: o.rel,
       position: 0,
     });
     delete rest[field];
@@ -294,7 +285,6 @@ export function profileRows(rows: Rows, value: Row, o: ProfileOwner): { rest: Ro
           ...part.cols,
           ...o.scope,
           extra: extraText(part.rest),
-          owner_file: o.rel,
           position,
         });
       });

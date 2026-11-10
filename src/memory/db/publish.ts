@@ -269,8 +269,8 @@ export function preparePublication(
       ensureContext(db, context as Context);
       const id = idOfKey(key);
       db.prepare(
-        `INSERT INTO publications (id, row_kind, row_id, content_hash, rendered, destination_place_id, context_id, grant_id, status, idempotency_key, receipts, created_at, sent_at, owner_key, retired_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, ?, NULL, NULL, NULL)`
+        `INSERT INTO publications (id, row_kind, row_id, content_hash, rendered, destination_place_id, context_id, grant_id, status, idempotency_key, receipts, created_at, sent_at, retired_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, NULL, ?, NULL, NULL)`
       ).run(
         id,
         rowKind,
@@ -546,7 +546,6 @@ export function mirrorPublicationRow(
     receipts: JSON.stringify(mirrorReceipts(String(mirror.iface), mirror.native_ids)),
     created_at: filled(mirror.posted_at) ? mirror.posted_at : at,
     sent_at: filled(mirror.posted_at) ? mirror.posted_at : null,
-    owner_key: mirror.owner_key ?? null,
     ...(Object.hasOwn(mirror, 'holder_id')
       ? { writer: mirror.writer ?? null, holder_id: mirror.holder_id ?? null }
       : {}),
@@ -564,7 +563,7 @@ function storedMirror(db: Db, mirror: Row | undefined): Row | undefined {
   if (direct || !filled(mirror?.selfreflection_id)) return direct;
   return db
     .prepare(
-      "SELECT * FROM selfreflection_mirrors WHERE selfreflection_id = ? AND iface IS ? AND COALESCE(place_id, '') = ? ORDER BY owner_key IS NULL DESC, rowid LIMIT 1"
+      "SELECT * FROM selfreflection_mirrors WHERE selfreflection_id = ? AND iface IS ? AND COALESCE(place_id, '') = ? ORDER BY writer IS NULL DESC, rowid LIMIT 1"
     )
     .get(mirror.selfreflection_id, mirror.iface ?? null, mirror.place_id ?? '');
 }
@@ -576,14 +575,13 @@ function storedMirror(db: Db, mirror: Row | undefined): Row | undefined {
 function followMirror(db: Db, row: Row, id: unknown): void {
   const owned = Object.hasOwn(row, 'holder_id');
   db.prepare(
-    `UPDATE publications SET receipts = ?, owner_key = ?, retired_at = ?,${owned ? ' writer = ?, holder_id = ?,' : ''}
+    `UPDATE publications SET receipts = ?, retired_at = ?,${owned ? ' writer = ?, holder_id = ?,' : ''}
       destination_place_id = COALESCE(destination_place_id, ?),
       rendered = CASE WHEN content_hash IS NULL THEN ? ELSE rendered END,
       content_hash = CASE WHEN content_hash IS NULL THEN ? ELSE content_hash END
     WHERE id = ?`
   ).run(
     row.receipts,
-    row.owner_key,
     row.retired_at,
     ...(owned ? [row.writer, row.holder_id] : []),
     row.destination_place_id,
@@ -597,7 +595,7 @@ function followMirror(db: Db, row: Row, id: unknown): void {
  * Writes the publication of a selfreflection mirror (found by its id, or by its entry, interface and place as the sync keys it):
  * inserted once by its key; on a later write of the mirror the row follows it (receipts, owner, retirement, a
  * destination or a text that was not known before) and keeps its id, its content once known, and its state. A
- * publication the database wrote itself (no owner file) is never touched. `project: false` leaves the graph to the
+ * publication the database wrote itself (no writer) is never touched. `project: false` leaves the graph to the
  * caller (the migration). Returns the publication id, or null when there is no such mirror.
  */
 export function deriveMirrorPublication(
@@ -622,7 +620,7 @@ export function deriveMirrorPublication(
   });
   const owned = Object.hasOwn(row, 'holder_id');
   const existing = db
-    .prepare(`SELECT id, owner_key${owned ? ', writer' : ''} FROM publications WHERE idempotency_key = ?`)
+    .prepare(`SELECT id${owned ? ', writer' : ''} FROM publications WHERE idempotency_key = ?`)
     .get(row.idempotency_key);
   if (!existing) {
     const stored = row;
@@ -630,7 +628,7 @@ export function deriveMirrorPublication(
     db.prepare(
       `INSERT INTO publications (${cols.map((col) => `"${col}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
     ).run(...cols.map((col) => stored[col]));
-  } else if (existing.owner_key != null || existing.writer != null) {
+  } else if (existing.writer != null) {
     followMirror(db, row, existing.id);
   } else {
     return existing.id;

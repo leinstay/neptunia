@@ -12,12 +12,6 @@ import type { MapContext } from './row-columns.ts';
 import { asText } from './types.ts';
 import type { Row } from './types.ts';
 
-/** The member id of a private layer path (`private/<id>.json`, `private/<id>/...`, under any prefix), else null. */
-export function privateUserOf(rel: string): string | null {
-  const match = /^(?:[^/]+\/[^/]+\/)?private\/([^/]+?)(?:\.json$|\/)/.exec(String(rel));
-  return match ? match[1] : null;
-}
-
 /** How a mapper reaches a member's stored DM by platform id, a stored DM place by its id, and a channel's place. */
 export type MemberReads = Pick<MapContext, 'dmOfMember' | 'dmPlaceOf' | 'placeOfChannel' | 'channelOfPlace'>;
 

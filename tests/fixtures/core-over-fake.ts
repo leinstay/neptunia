@@ -3,8 +3,6 @@
 // folders. A test seeds the fake's chats and messages through `seed`, emits whole `message.received` events
 // the way an interface delivers them, and reads what the persona posted, what the model was asked and which reads
 // reached the fake (`fake.calls`). No Discord object exists anywhere in it.
-import { dbOf } from '../../src/memory/db/types.ts';
-import { listUnits } from '../../src/memory/db/storage-units.ts';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -146,12 +144,8 @@ export async function withFakeCore<T>(
       sources: (kind) => {
         const handle = openMemoryDb(dbPath, { readOnly: true });
         try {
-          const units = listUnits(dbOf(handle), { kind: 'record' });
-          const sql = 'SELECT kind, native_id, owner_key, owner_file, text FROM sources WHERE kind = ? ORDER BY rowid';
-          return (handle.db as { prepare(sql: string): { all(kind: string): Array<Row> } })
-            .prepare(sql)
-            .all(kind)
-            .map((row) => ({ ...row, storage_key: units.find((unit) => unit.id === row.owner_key)?.key ?? null }));
+          const sql = 'SELECT kind, native_id, writer, holder_id, period, text FROM sources WHERE kind = ? ORDER BY rowid';
+          return (handle.db as { prepare(sql: string): { all(kind: string): Array<Row> } }).prepare(sql).all(kind);
         } finally {
           handle.close();
         }

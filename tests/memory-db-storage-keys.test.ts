@@ -3,8 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openMemoryDb } from '../src/memory/db/open.ts';
 import { applyUnitUpdate } from './fixtures/memory-db/unit-writes.ts';
-import { unitValue } from '../src/memory/db/readers/common.ts';
-import { listUnits } from '../src/memory/db/storage-units.ts';
+import { unitSubjects, unitValue } from '../src/memory/db/readers/common.ts';
 import type { StorageKey } from '../src/memory/db/storage-keys.ts';
 import { accountId } from '../src/memory/db/ids.ts';
 import { dbOf } from '../src/memory/db/types.ts';
@@ -34,10 +33,8 @@ test('fresh semantic units read and list independently for equal native account 
     assert.deepEqual(Reflect.get(Object(one.value), 'names'), ['Synthetic']);
     assert.deepEqual(Reflect.get(Object(two.value), 'names'), ['Other synthetic']);
     assert.deepEqual(
-      listUnits(dbOf(handle), { kind: 'user' })
-        .map((unit) => unit.key)
-        .sort((x, y) => x.subject.id.localeCompare(y.subject.id)),
-      [a, other]
+      unitSubjects(dbOf(handle), 'user'),
+      [a.subject.id, other.subject.id].sort((x, y) => x.localeCompare(y))
     );
   } finally {
     handle.close();

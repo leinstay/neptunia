@@ -25,13 +25,11 @@ import { placeLoreOfUnit } from './db/place-lore.ts';
 import { placeNotesOfUnit } from './db/place-notes.ts';
 import { privateLayerOfUnit } from './db/private-layer.ts';
 import { proseVersionsOfUnit } from './db/prose-versions.ts';
-import { unitValue } from './db/readers/common.ts';
+import { unitHeld, unitSubjects, unitValue } from './db/readers/common.ts';
 import { recentLinesOfUnit } from './db/recent-lines.ts';
 import { selfreflectionOfUnit } from './db/selfreflection-entries.ts';
-import { keyText, storageId } from './db/storage-keys.ts';
+import { keyText } from './db/storage-keys.ts';
 import type { StorageKey, StorageKind } from './db/storage-keys.ts';
-import { listUnits } from './db/storage-units.ts';
-import type { UnitQuery } from './db/storage-units.ts';
 import type { Db, Row } from './db/types.ts';
 import type { MemoryDb, Untyped } from './types.ts';
 import { log } from '../log.ts';
@@ -102,7 +100,7 @@ export function createStoreWrites({ memoryDb, seam }: { memoryDb: MemoryDb; seam
   const pinned = new Set<string>();
   const lanes = new Map<string, Lane>();
   const unitKeys = new Map<string, StorageKey>();
-  const directoryQueries = new Map<string, UnitQuery>();
+  const directoryKinds = new Map<string, StorageKind>();
   // The last read of each unit with the stamp it was read at (`stampOf`).
   const lastRead = new Map<string, { stamp: string; found: boolean; value: unknown }>();
   // The stamp each value in use was read at.
@@ -122,7 +120,7 @@ export function createStoreWrites({ memoryDb, seam }: { memoryDb: MemoryDb; seam
   /** The name of a directory of units (`idsUnder`). */
   function collection(kind: StorageKind): string {
     const name = JSON.stringify({ kind });
-    directoryQueries.set(name, { kind });
+    directoryKinds.set(name, kind);
     return name;
   }
 
@@ -221,28 +219,21 @@ export function createStoreWrites({ memoryDb, seam }: { memoryDb: MemoryDb; seam
     return entry(file, fallback);
   }
 
-  /** Whether a name has a value, in use or stored (a unit's `storage_units` row). */
+  /** Whether a name has a value, in use or stored (readers/common.ts#unitHeld). */
   function known(file: string): boolean {
     if (inUse.has(file)) return true;
     const key = unitKeys.get(file);
     if (!key) return false;
-    const db = seam.db();
-    return seam.run(
-      () =>
-        db.prepare('SELECT 1 AS ok FROM storage_units WHERE id = ? AND retired_at IS NULL').get(storageId(key)) !==
-        undefined
-    );
+    return seam.run(() => unitHeld(seam.db(), key));
   }
 
   /** Every id of the units under a `collection`, stored or in use. */
   function idsUnder(dir: string): Array<string> {
-    const query = directoryQueries.get(dir);
-    if (!query) return [];
-    const db = seam.db();
-    const usedKeys = [...unitKeys].filter(([name]) => inUse.has(name)).map(([, key]) => key);
-    const ids = new Set<string>();
-    for (const key of [...seam.run(() => listUnits(db, query)).map((unit) => unit.key), ...usedKeys])
-      if (key.kind === query.kind && !key.selector && !key.partition) ids.add(key.subject.id);
+    const kind = directoryKinds.get(dir);
+    if (!kind) return [];
+    const ids = new Set<string>(seam.run(() => unitSubjects(seam.db(), kind)));
+    for (const [name, key] of unitKeys)
+      if (inUse.has(name) && key.kind === kind && !key.selector && !key.partition) ids.add(key.subject.id);
     return [...ids];
   }
 

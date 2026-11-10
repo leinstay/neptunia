@@ -8,9 +8,9 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { withIface } from '../src/memory/db/current-iface.ts';
 import { openMemoryDb } from '../src/memory/db/open.ts';
+import { unitSubjects } from '../src/memory/db/readers/common.ts';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import type { MemoryDbService } from '../src/memory/db/service.ts';
-import { listUnits } from '../src/memory/db/storage-units.ts';
 import { dbOf } from '../src/memory/db/types.ts';
 import type { Db } from '../src/memory/db/types.ts';
 import { createStore } from '../src/memory/store.ts';
@@ -62,9 +62,7 @@ test('a public profile is one collection of its account, whatever root the perso
   store.touchUser('account:a21', 'Anna', 1000);
   await save(store);
   assert.deepEqual(namesOf(store.getUser('account:a21')), ['Anna']);
-  const [unit] = listUnits(read(), { kind: 'user' });
-  assert.deepEqual(unit?.key.subject, { type: 'account', id: 'account:a21' });
-  assert.equal(unit?.key.scopePlaceId, undefined);
+  assert.deepEqual(unitSubjects(read(), 'user'), ['account:a21']);
 });
 
 test('the ambient interface does not redirect a public profile read', async () => {

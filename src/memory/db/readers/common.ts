@@ -13,11 +13,11 @@ import { intentionsArchiveLines, intentionsValue } from './intentions.ts';
 import { recordLines } from '../record-lines.ts';
 import { journalLines } from '../journal-lines.ts';
 import { archiveUnitLines } from '../archive-lines.ts';
-import { accountProfileValue } from '../account-profile.ts';
+import { accountProfileHeld, accountProfileValue } from '../account-profile.ts';
 import { proseVersionsValue } from '../prose-versions.ts';
-import { privateLayerValue } from '../private-layer.ts';
+import { privateLayerHeld, privateLayerValue } from '../private-layer.ts';
 import { placeNotesValue } from '../place-notes.ts';
-import { channelEntryValue } from '../channel-entry.ts';
+import { channelEntryHeld, channelEntryValue } from '../channel-entry.ts';
 import { placeLoreValue } from '../place-lore.ts';
 import { participationValue } from '../participation-episodes.ts';
 import { recentLinesValue } from '../recent-lines.ts';
@@ -74,6 +74,39 @@ export function unitValue(dbGiven: unknown, key: StorageKey): { found: true; val
   if (direct?.kind === 'recent') return recentLinesValue(db, direct);
   if (direct?.kind === 'selfreflection') return selfreflectionValue(db, direct);
   return { found: false };
+}
+
+/**
+ * Whether the database holds a value of a unit: an account's profile, a private layer and a channel's entry by their
+ * owner columns alone, any other kind by its reader.
+ */
+export function unitHeld(dbGiven: unknown, key: StorageKey): boolean {
+  const db = dbGiven as Db;
+  if (key.kind === 'user') return accountProfileHeld(db, key);
+  if (key.kind === 'private') return privateLayerHeld(db, key);
+  if (key.kind === 'channel') return channelEntryHeld(db, key);
+  return unitValue(db, key).found;
+}
+
+/** The row each kind's own value always writes, by its writer: the subjects that hold a value of the kind. */
+const SUBJECT_ROWS: Readonly<Record<string, { table: string; writer: string }>> = {
+  user: { table: 'accounts', writer: 'profile' },
+  private: { table: 'operational', writer: 'private' },
+  channel: { table: 'operational', writer: 'channel' },
+};
+
+/** The subjects that hold a value of an account's profile, a private layer or a channel's entry, in id order. */
+export function unitSubjects(dbGiven: unknown, kind: string): Array<string> {
+  const db = dbGiven as Db;
+  const rows = SUBJECT_ROWS[kind];
+  if (!rows) return [];
+  return db
+    .prepare(
+      `SELECT DISTINCT holder_id FROM "${rows.table}" WHERE writer = ? AND retired_at IS NULL AND holder_id IS NOT NULL
+       ORDER BY holder_id`
+    )
+    .all(rows.writer)
+    .map((row) => String(row.holder_id));
 }
 
 export { createReadSeam } from './seam.ts';
