@@ -79,6 +79,7 @@ test('quotedPhrases: phrases between quote pairs, lowercased, each once, at most
   assert.deepEqual(quotedPhrases('no quotes here'), []);
 });
 
+// Owner's rule of 2026-11-10: a bot is a person to her, so a bot's line before a short trigger joins the recent lane.
 test('prefetchLanes: the trigger verbatim; with its replied-to line speaker by speaker; a short or deictic one with the lines before it', () => {
   const history = [
     msg('a', 'το δάσος και ο σκύλος', { authorName: 'Éloïse', authorId: 'u2' }),
@@ -97,8 +98,8 @@ test('prefetchLanes: the trigger verbatim; with its replied-to line speaker by s
   assert.equal(lanes[1].words, 'το δάσος και ο σκύλος\nwhat did he mean?', 'no speaker names in the lexical words');
   assert.equal(
     lanes[2].text,
-    'Zoë: ναι το θυμάμαι\nNikos: what did he mean?',
-    'not the replied line again, not another bot'
+    'Bot: Birthdays!\nZoë: ναι το θυμάμαι\nNikos: what did he mean?',
+    'not the replied line again; a bot line is a line'
   );
   // A long trigger: no recent lane.
   const long = msg('e', 'tell me again about that long story we had with the forest and the dog');

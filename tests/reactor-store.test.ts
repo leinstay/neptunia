@@ -259,6 +259,7 @@ test('runBackfill: an empty plan asks nothing and waits for nothing', async () =
 
 // --- withReactors / reactorIdsOf ------------------------------------------------
 
+// Owner's rule of 2026-11-10: a bot is a person to her, so a bot that reacted gets a handle like a member.
 test('withReactors: her reactions carry the known reactors resolved to names, unknown ones left out', () => {
   const store = createReactorStore();
   store.markOwn('2');
@@ -286,7 +287,7 @@ test('withReactors: her reactions carry the known reactors resolved to names, un
   ]);
   assert.equal(out[1].reactions[1].users, undefined);
   assert.equal(lines[1].reactions[0].users, undefined, 'the input is not mutated');
-  assert.deepEqual(reactorIdsOf(out), ['5'], 'bots get no handle');
+  assert.deepEqual(reactorIdsOf(out), ['5', '6'], 'a bot gets a handle too');
 });
 
 // --- rendering ---------------------------------------------------------------------
@@ -325,7 +326,7 @@ test('formatTranscript: a reactor reads exactly like an author with the same id,
   const authorForm = items[0].text.match(/\] (.+): text$/)![1];
   assert.equal(authorForm, 'Zoé [@u1abc]');
   assert.ok(items[1].text.endsWith(`[reactions: 😂 by ${authorForm}]`), items[1].text);
-  // A bot reactor, like a bot author, never carries a handle.
+  // Owner's rule of 2026-11-10: a bot is a person to her, so a bot reactor, like a bot author, carries its handle.
   const botItems = formatTranscript(
     [
       { ...line('1', { self: false, authorId: '8', authorName: 'Helper', bot: true }) },
@@ -333,8 +334,8 @@ test('formatTranscript: a reactor reads exactly like an author with the same id,
     ],
     { ...base, handles, reactionNames: true }
   );
-  assert.ok(botItems[0].text.includes('] Helper: text'));
-  assert.ok(botItems[1].text.endsWith('[reactions: 😂 by Helper]'), botItems[1].text);
+  assert.ok(botItems[0].text.includes('] Helper [@u2def]: text'), botItems[0].text);
+  assert.ok(botItems[1].text.endsWith('[reactions: 😂 by Helper [@u2def]]'), botItems[1].text);
 });
 
 test('formatTranscript: past reactionNamesMax the rest is counted, and unknown reactors too', () => {

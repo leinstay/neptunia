@@ -169,7 +169,8 @@ test('events: its own limit notice notes the post but never reaches memory or op
   );
 });
 
-test('events: another bot is ignored entirely', async () => {
+// Owner's rule of 2026-11-10: a bot is a person to her, so another bot's line is observed like a member's.
+test("events: another bot's line is observed like a member's", async () => {
   const turns = fakeTurns();
   const memory = fakeMemory();
   const spontaneous = fakeSpontaneous();
@@ -178,9 +179,8 @@ test('events: another bot is ignored entirely', async () => {
   const message = fakeMessage({ author: { id: 'otherbot', bot: true, globalName: 'Other', username: 'other' } });
   await handler(message);
 
-  assert.equal(memory.observeCalls.length, 0);
-  assert.equal(spontaneous.onMessageCalls.length, 0);
-  assert.equal(turns.notePostCalls.length, 0);
+  assert.equal(memory.observeCalls.length, 1);
+  assert.equal(turns.notePostCalls.length, 0, 'not her post');
 });
 
 test('events: a mention with rng above ignoreChance runs a reply turn', async () => {
@@ -3943,16 +3943,7 @@ test('pause notice: a line that is not a direct call stays silent', async () => 
           reference: { messageId: 'm-other' },
         }),
     },
-    {
-      label: 'another bot',
-      message: (guild: Record<string, Untyped>, channel: Record<string, Untyped>) =>
-        directPingMessage({
-          guild,
-          channel,
-          placeId: 'c1',
-          author: { id: 'b2', bot: true, globalName: 'Bot', username: 'bot' },
-        }),
-    },
+    // Owner's rule of 2026-11-10: another bot's direct call gets the notice like anyone's, so it is no case here.
     {
       label: 'its own message',
       message: (guild: Record<string, Untyped>, channel: Record<string, Untyped>) =>
@@ -4786,7 +4777,7 @@ test("onMessageUpdate: ignores the persona's own messages, other guilds and upda
   const other = fakeGuild('g2');
   const cases = [
     tenorPost({ author: self }),
-    tenorPost({ author: { id: 'b2', bot: true, globalName: 'Other', username: 'other' } }),
+    // Owner's rule of 2026-11-10: another bot's late embed counts like a member's, so it is no case here.
     tenorPost({ guild: other, channel: fakeChannel('c1', other) }),
   ];
   for (const { created, updated } of cases) {
@@ -5244,12 +5235,13 @@ test('events: a deleted message writes a deleted line and an edit writes revisio
   await withCapturedLogs(() => handler.onMessageUpdate(edited, again));
   assert.equal(appended[2].lines[0].revision, 3);
 
-  // Another bot or another guild: nothing.
+  // Owner's rule of 2026-11-10: another bot's deletion is recorded like anyone's; another guild's is not.
   const otherBot = fakeMessage({ ...created, author: { id: 'b2', bot: true, globalName: 'B', username: 'b' } });
   await handler.onMessageDelete(otherBot);
+  assert.equal(appended.length, 4);
   const elsewhere = fakeMessage({ ...created, guild: fakeGuild('g2'), channel: fakeChannel('c9', fakeGuild('g2')) });
   await handler.onMessageDelete(elsewhere);
-  assert.equal(appended.length, 3);
+  assert.equal(appended.length, 4);
 });
 
 // The owner of these configs: `bot.ownerPerson` and the accounts bound to it (tests/fixtures/owner-accounts.ts).

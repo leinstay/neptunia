@@ -60,7 +60,8 @@ async function withStore(fn: Untyped) {
 
 // --- pure ranking ------------------------------------------------------------
 
-test('countEmojiUses: one use per emoji per message, members only', () => {
+// Owner's rule of 2026-11-10: a bot is a person to her, so a bot's emoji count like a member's.
+test('countEmojiUses: one use per emoji per message, her own left out', () => {
   const uses = countEmojiUses([
     msg({
       ts: T0,
@@ -76,7 +77,7 @@ test('countEmojiUses: one use per emoji per message, members only', () => {
     msg({ emojis: undefined }),
   ]);
   assert.deepEqual(uses.get('10'), { name: 'kappa_new', count: 2, last: T0 + 1000 });
-  assert.deepEqual(uses.get('20'), { name: 'omega', count: 1, last: T0 });
+  assert.deepEqual(uses.get('20'), { name: 'omega', count: 2, last: T0 + 3000 });
   assert.equal(uses.size, 2);
 });
 

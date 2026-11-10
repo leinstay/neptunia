@@ -231,7 +231,8 @@ test('isAvatarDue: nothing stored or another hash is due; the same hash or the d
 
 // ---- offer: who is queued ---------------------------------------------------------------
 
-test('offer: only a profiled member of the served root, never a bot or the persona, and only on a hash change', () => {
+// Owner's rule of 2026-11-10: a bot is a person to her, so a bot's avatar is offered like a member's.
+test('offer: only a profiled member of the served root, never the persona, and only on a hash change', () => {
   const { queue, store } = setup({
     profiles: { u1: {}, u2: { avatar: { hash: 'h2', text: 'cat', describedAt: null } }, [SELF]: {}, b1: {} },
   });
@@ -241,10 +242,10 @@ test('offer: only a profiled member of the served root, never a bot or the perso
   assert.equal(queue.offer(ROOT, view('u2', 'h3')), 'queued');
   assert.equal(queue.offer(ROOT, view('nobody', 'h4')), 'no-profile');
   assert.equal(queue.offer(ROOT, view(SELF, 'h5')), 'self');
-  assert.equal(queue.offer(ROOT, view('b1', 'h6', { bot: true })), 'bot');
+  assert.equal(queue.offer(ROOT, view('b1', 'h6', { bot: true })), 'queued');
   assert.equal(queue.offer('other', view('u1', 'h1')), 'other-place');
   assert.equal(queue.offer(ROOT, null), 'invalid');
-  assert.deepEqual(queue.pending(), ['u1', 'u2']);
+  assert.deepEqual(queue.pending(), ['u1', 'u2', 'b1']);
   assert.equal(store.writes.length, 0, 'an offer never writes');
 });
 
@@ -400,7 +401,8 @@ test('tick: paused it does nothing', async () => {
 
 // ---- the scan ---------------------------------------------------------------------------
 
-test('scan: every profiled member whose avatar differs is queued; bots, the persona and members gone are not', async () => {
+// Owner's rule of 2026-11-10: a bot is a person to her, so a bot whose avatar differs is queued like a member.
+test('scan: every profiled member whose avatar differs is queued, a bot too; the persona and members gone are not', async () => {
   const members = {
     u1: view('u1', 'h1'),
     u2: view('u2', 'h2'),
@@ -420,9 +422,9 @@ test('scan: every profiled member whose avatar differs is queued; bots, the pers
     members,
   });
   const counts = await queue.scan(ROOT);
-  assert.deepEqual(queue.pending(), ['u1', 'u3']);
-  assert.deepEqual(counts, { profiles: 6, queued: 2, gone: 1 });
-  assert.ok(log.entries.some((entry) => entry.msg === 'avatars: scanned' && entry.queued === 2));
+  assert.deepEqual(queue.pending(), ['u1', 'u3', 'b1']);
+  assert.deepEqual(counts, { profiles: 6, queued: 3, gone: 1 });
+  assert.ok(log.entries.some((entry) => entry.msg === 'avatars: scanned' && entry.queued === 3));
 });
 
 test('tick: scans on its first run and again a day later, never in between', async () => {

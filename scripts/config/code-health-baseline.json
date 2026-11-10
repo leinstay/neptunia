@@ -385,7 +385,7 @@
       "repeated": 0
     },
     "tests/gifs.test.ts": {
-      "deep": 64,
+      "deep": 62,
       "repeated": 1
     },
     "tests/heartbeat-intents.test.ts": {

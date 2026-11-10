@@ -131,15 +131,16 @@ test('resolveMentions: an unknown name is left untouched', () => {
   assert.deepEqual(result.accountIds, []);
 });
 
-test('resolveMentions: excludes its own lines and bot lines from candidates', () => {
+// Owner's rule of 2026-11-10: a bot is a person to her, so a bot's name resolves like a member's.
+test('resolveMentions: excludes its own lines from candidates, a bot line counts', () => {
   const history = [
     historyMsg('Zoë', 'self-id', { self: true }),
     historyMsg('SomeBot', 'bot-id', { bot: true }),
     historyMsg('Alice', 'u1'),
   ];
   const result = resolveMentions('@Zoë @SomeBot @Alice', history);
-  assert.equal(result.text, '@Zoë @SomeBot <@u1>');
-  assert.deepEqual(result.accountIds, ['u1']);
+  assert.equal(result.text, '@Zoë <@bot-id> <@u1>');
+  assert.deepEqual(result.accountIds, ['bot-id', 'u1']);
 });
 
 test('resolveMentions: longer names are matched before their shorter prefixes', () => {
@@ -275,7 +276,8 @@ test('resolveMentions: the case-insensitive fallback is for the directory only, 
   assert.deepEqual(result.accountIds, []);
 });
 
-test('mentionDirectory: every name of the cached members and of the stored profiles, never a bot or the persona', () => {
+// Owner's rule of 2026-11-10: a bot is a person to her, so a bot's names are in the directory like a member's.
+test('mentionDirectory: every name of the cached members and of the stored profiles, bots too, never the persona', () => {
   const members = [
     cachedMember('u1', { username: 'alice_01', globalName: 'Alice', nickname: 'Αλίκη' }),
     cachedMember('b1', { username: 'HelperBot', bot: true }),
@@ -295,7 +297,7 @@ test('mentionDirectory: every name of the cached members and of the stored profi
       .sort();
   assert.deepEqual(byId('u1'), ['Alice', 'Lis', 'alice_01', 'Αλίκη']);
   assert.deepEqual(byId('u2'), ['Bob', 'Bobby']);
-  assert.deepEqual(byId('b1'), []);
+  assert.deepEqual(byId('b1'), ['HelperBot']);
   assert.deepEqual(byId('self-id'), []);
 });
 

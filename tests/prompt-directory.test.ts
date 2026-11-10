@@ -158,7 +158,8 @@ function input(overrides: Record<string, unknown> = {}) {
   return { ...base, frame: frameOfInput(base) };
 }
 
-test('buildRequest: every author in view carries a handle on their lines; the persona and bots do not', () => {
+// Owner's rule of 2026-11-10: a bot is a person to her, so a bot author carries a handle like a member.
+test('buildRequest: every author in view carries a handle on their lines, a bot too; the persona does not', () => {
   const history = [
     line('1', 4, PROFILES[0]),
     line('2', 3, STRANGER),
@@ -170,13 +171,13 @@ test('buildRequest: every author in view carries a handle on their lines; the pe
   const profiled = assignHandles({ profiled: PROFILES.map((profile) => profile.id) });
   assert.ok(text.includes(`Ἀλκμήνη [@${profiled.get(PROFILES[0].id)}]: line 1`), text);
   assert.ok(text.includes(`Passer-by [@${handleOf(STRANGER.id)}]: line 2`), text);
-  assert.ok(text.includes('HelperBot: line 3'), text);
+  assert.ok(text.includes(`HelperBot [@${handleOf(BOT.id)}]: line 3`), text);
   assert.ok(text.includes('Nept (you): line 4'), text);
   assert.equal(request.handles!.get(handleOf(STRANGER.id)), STRANGER.id, 'a member without a profile is taggable');
   assert.equal(request.handles!.get(profiled.get(PROFILES[0].id)!), PROFILES[0].id);
-  assert.equal([...request.handles!.values()].includes(BOT.id), false, 'a bot gets no handle');
+  assert.equal([...request.handles!.values()].includes(BOT.id), true, 'a bot gets a handle');
   assert.equal([...request.handles!.values()].includes(SELF_ID), false, 'the persona gets no handle');
   // Slice 7: no directory up front (the lead's decision 3), so the handles are those of the people in the request: the
-  // profiled author and the stranger, not every profiled member.
-  assert.equal(request.handles!.size, 2);
+  // profiled author, the stranger and the bot, not every profiled member.
+  assert.equal(request.handles!.size, 3);
 });

@@ -179,20 +179,24 @@ test('collectGifItems: items without a url or an id are skipped; no message -> [
 
 // --- pure merge and ranking --------------------------------------------------
 
-test('mergeGifs: members only, one count per gif per message, handles assigned once', () => {
+// Owner's rule of 2026-11-10: a bot is a person to her, so a bot's GIF counts like a member's.
+test('mergeGifs: everyone but her, one count per gif per message, handles assigned once', () => {
   const { gifs, counted }: Record<string, Untyped> = mergeGifs(undefined, [
     msg({ id: 'm1', ts: T0, attachments: [gifAttachment('a1'), gifAttachment('a1')] }),
     msg({ id: 'm2', ts: T0 + 1, self: true, attachments: [gifAttachment('a9')] }),
     msg({ id: 'm3', ts: T0 + 2, bot: true, links: [gifLink('m3#e0')] }),
     msg({ id: 'm4', ts: T0 + 3, links: [gifLink('m4#e0')] }),
   ]);
-  assert.equal(counted, 2);
+  // The bot's link and the member's share an address, so the member's repost counts on the bot's entry.
+  assert.equal(counted, 3);
   assert.equal(gifs.nextId, 3);
-  assert.deepEqual(Object.keys(gifs.entries), ['a1', 'm4#e0']);
+  assert.deepEqual(Object.keys(gifs.entries), ['a1', 'm3#e0']);
   assert.equal(gifs.entries.a1.id, 'g1');
   assert.equal(gifs.entries.a1.count, 1);
-  assert.equal(gifs.entries['m4#e0'].id, 'g2');
-  assert.equal(gifs.entries['m4#e0'].firstSeen, T0 + 3);
+  const shared = gifs.entries['m3#e0'];
+  assert.equal(shared.id, 'g2');
+  assert.equal(shared.count, 2);
+  assert.equal(shared.firstSeen, T0 + 2);
   assert.equal(gifs.backfill, null);
 });
 

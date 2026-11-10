@@ -233,7 +233,8 @@ test('reads a window around the hits of each chat, follows it, and the summary n
   assert.equal(s.prompts.length, 1);
 });
 
-test("leaves out a chat the audience rail refuses, an automated author and keeps the persona's own line", async () => {
+// Owner's rule of 2026-11-10: a bot is a person to her, so an automated author's line is read like anyone's.
+test("leaves out a chat the audience rail refuses, keeps an automated author's line and the persona's own", async () => {
   const s = await scene();
   s.fake.seedMember(ROOT, member(SELF_ID, 'Zoë'));
   s.fake.seedEvent(
@@ -249,7 +250,7 @@ test("leaves out a chat the audience rail refuses, an automated author and keeps
   );
   const user = s.prompts[0]?.[1]?.content ?? '';
   assert.equal(user.includes('μυστικό'), false);
-  assert.equal(user.includes('birthday'), false);
+  assert.equal(user.includes('birthday'), true);
   assert.equal(user.includes('Zoë (you): κουνέλι, αντίο'), true);
 });
 

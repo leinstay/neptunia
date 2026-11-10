@@ -1,7 +1,8 @@
 // Schema v10, stage 5 (spec 2026-10-24-memory-schema-v7, section 5; section 11's resolutions on focus): the relationship
 // counts recounted from the stored lines, the score, and the close and exploring sets on a fixture of 40 people over 60
 // days with scripted attitudes and lines (entry, the margin held at recomputations a day apart, the weekly move cap,
-// settling, precedence exclude > bot > pin > settling, bots, pins over capacity, a negative attitude never close), the
+// settling, precedence exclude > pin > settling, pins over capacity, a negative attitude never close, a bot scored like
+// anyone), the
 // daily job of the service on both paths, and the reader the heartbeat uses. Every test sets its own settings. Synthetic
 // data only; the ids are made up.
 import { test } from 'node:test';
@@ -235,7 +236,9 @@ function scriptedAffinity(n: number, d: Untyped) {
   if (n < 30) return 10;
   if (LATE.includes(n)) return d < 30 ? null : 90;
   if (n === NEGATIVE) return -50;
-  return 95;
+  // Owner's rule of 2026-11-10: a bot is a person to her, so the two bot accounts hold an attitude below the bar like
+  // people 20-29 and take part as anyone does; `a bot with a high attitude is close like anyone` tests the bot itself.
+  return 10;
 }
 /** One member of a day's focus set, and one recorded move between the sets. */
 type Member = { person_id: string; bucket: string; since: string };
@@ -258,7 +261,7 @@ let big: Big | null = null;
 /**
  * 40 people over 60 days, one recomputation a day at noon. People 0-19 talk with her every day (attitude 60; person 19
  * turns negative on day 45), 20-29 every third day below the entry bar (10), 30-36 arrive on day 30 (90), 37 is negative
- * (-50), 38-39 are bots (95). Day 40: person 5 excluded, person 25 pinned (below the bar), bot 38 pinned. Day 50: people
+ * (-50), 38-39 are bots below the bar (10). Day 40: person 5 excluded, person 25 pinned (below the bar). Day 50: people
  * 0-29 but 5 and 19 pinned (28 pins for 24 slots).
  */
 function bigFixture(): Big {
@@ -283,7 +286,6 @@ function bigFixture(): Big {
     if (d === 40) {
       setOverride(handle, { person: person(5), kind: 'exclude', approvedBy: 'owner' });
       setOverride(handle, { person: person(25), kind: 'pin', approvedBy: 'owner' });
-      setOverride(handle, { person: person(38), kind: 'pin', approvedBy: 'owner' });
     }
     if (d === 50)
       for (let n = 0; n < 30; n += 1)
@@ -321,7 +323,7 @@ const closeOn = (d: number, n: number) => bigFixture().days[d].close.some((m) =>
 const inAnyBucket = (d: number, n: number) =>
   closeOn(d, n) || bigFixture().days[d].exploring.some((m) => m.person_id === person(n));
 
-test('focus fixture: the seed takes only those over the entry bar (fewer than the size), never above the size, bots and a negative attitude never close', () => {
+test('focus fixture: the seed takes only those over the entry bar (fewer than the size), never above the size, a negative attitude never close', () => {
   const { days } = bigFixture();
   assert.deepEqual(
     ids(days[0].close),
@@ -331,8 +333,7 @@ test('focus fixture: the seed takes only those over the entry bar (fewer than th
   for (let d = 0; d < 60; d += 1) {
     assert.ok(days[d].close.length <= 24, `day ${d}: ${days[d].close.length} close`);
     assert.ok(days[d].exploring.length <= 4);
-    for (const bot of BOTS)
-      assert.equal(inAnyBucket(d, bot), false, `day ${d}: bot ${bot} (pinned from day 40) in no bucket`);
+    for (const bot of BOTS) assert.equal(closeOn(d, bot), false, `day ${d}: bot ${bot} is below the bar`);
     assert.equal(inAnyBucket(d, NEGATIVE), false, `day ${d}: the negative person in no bucket`);
     for (const n of [20, 21, 22, 23, 24, 26, 27, 28, 29])
       if (d < 50) assert.equal(closeOn(d, n), false, `day ${d}: ${n} is below the bar`);
@@ -368,7 +369,7 @@ test('focus fixture: every entry was confirmed a day apart, at most two moves in
   );
 });
 
-test('focus fixture: precedence exclude > bot > pin > settling, pins over capacity reported once and the size not widened', () => {
+test('focus fixture: precedence exclude > pin > settling, pins over capacity reported once and the size not widened', () => {
   const { events, days } = bigFixture();
   // Day 40: the excluded member leaves and is never in a bucket again; the pinned person below the bar enters.
   assert.equal(closeOn(39, 5), true);
@@ -527,5 +528,33 @@ test('service: the focus job runs once a UTC day; the reader carries the share; 
     assert.equal(threaded.service.focusPeople(), null, 'closed: no sets');
   } finally {
     await threaded.done();
+  }
+});
+
+// Owner's rule of 2026-11-10: a bot is a person to her, so a person whose only account is a bot enters the close set
+// on the same attitude and exchanges as anyone.
+test('a bot with a high attitude is close like anyone', () => {
+  const handle = peopleDb(3);
+  const db = sqlOf(handle);
+  try {
+    db.prepare("UPDATE accounts SET kind = 'bot' WHERE id = ?").run(account(2));
+    for (let d = 0; d < 3; d += 1) {
+      for (let n = 0; n < 3; n += 1) affinity(db, n, n === 1 ? 10 : 95);
+      const sources = [];
+      for (let n = 0; n < 3; n += 1) {
+        const at = START + d * DAY + 9 * HOUR + n * 60_000;
+        sources.push(line('seen', at, { author_account: account(n), direct: 1 }));
+        sources.push(line('said', at + 30_000, { mentions: JSON.stringify([native(n)]) }));
+      }
+      insertRows(db, { sources }, { log: quiet, at: iso(START + d * DAY) });
+      runFocusDay(handle, { now: START + d * DAY + 12 * HOUR });
+    }
+    const close = db
+      .prepare("SELECT person_id FROM focus_members WHERE bucket = 'close' ORDER BY person_id")
+      .all()
+      .map((row) => String(row.person_id));
+    assert.deepEqual(close, [person(0), person(2)]);
+  } finally {
+    handle.close();
   }
 });

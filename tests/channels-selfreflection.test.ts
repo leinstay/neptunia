@@ -91,7 +91,8 @@ test("touchMemory: the persona's lines count as a writer only in the diary chann
   }
 });
 
-test('touchMemory: other bots never count, even in the diary channel', () => {
+// Owner's rule of 2026-11-10: a bot is a person to her, so its line counts toward the top writers like a member's.
+test('touchMemory: a bot counts as a writer like a member, in the diary channel too', () => {
   withStore((store) => {
     touchMemory(
       store,
@@ -99,6 +100,8 @@ test('touchMemory: other bots never count, even in the diary channel', () => {
       { ...own('selfreflection'), self: false, bot: true, authorId: 'b2' },
       { selfreflectionChannelId: 'selfreflection' }
     );
-    assert.deepEqual(store.getChannel(placeOfChat(store, { id: 'selfreflection' }))?.topWriters, []);
+    assert.deepEqual(store.getChannel(placeOfChat(store, { id: 'selfreflection' }))?.topWriters, [
+      { id: 'b2', count: 1 },
+    ]);
   });
 });

@@ -85,13 +85,14 @@ test('counts every profiled person as gone, with no round trip, when the interfa
   assert.deepEqual(asked('memberInfo'), []);
 });
 
-test('leaves out an automated member', async () => {
+// Owner's rule of 2026-11-10: a bot is a person to her, so its avatar is queued like a member's.
+test('queues the avatar of an automated member like a member', async () => {
   const { queue, fake } = setup();
   fake.seedMember(
     ROOT,
     member('u1', 'Birthdays', { bot: true, avatar: { hash: HASH, url: URL_OF_U1, largeUrl: null } })
   );
-  assert.deepEqual(await queue.scan(ROOT), { profiles: 1, queued: 0, gone: 0 });
+  assert.deepEqual(await queue.scan(ROOT), { profiles: 1, queued: 1, gone: 0 });
 });
 
 test('stores the default avatar of a member who has no picture, without a request', async () => {

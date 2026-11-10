@@ -70,7 +70,8 @@ test('withUserHandles: a mentioned member reads as their handle, the rest stays 
   assert.equal(withUserHandles('hey @Yob', [], members), 'hey @Yob');
 });
 
-test('memberNameMap: directory names and aliases, authors and mentioned members, never self or bots', () => {
+// Owner's rule of 2026-11-10: a bot is a person to her, so a bot's name is read like a member's.
+test('memberNameMap: directory names and aliases, authors and mentioned members, bots too, never self', () => {
   const map = memberNameMap(
     [{ id: '1', names: ['Ana'], aliases: ['Anita'] }],
     [
@@ -86,6 +87,7 @@ test('memberNameMap: directory names and aliases, authors and mentioned members,
       ['1', ['Ana', 'Anita']],
       ['2', ['Bo']],
       ['3', ['Cy']],
+      ['8', ['Bot']],
     ]
   );
 });
