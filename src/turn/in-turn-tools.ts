@@ -25,19 +25,20 @@ import { lineItemParts } from '../memory/db/media-store.ts';
 import { fetchSpan, recordMessages, runConversationRead } from '../tools/conversation-read.ts';
 import type { LiveLines, ReadMessage } from '../tools/conversation-read.ts';
 import { chatOfStoredPlace } from '../interface/place-chat.ts';
-import { notePlaceAddress } from '../memory/addresses.ts';
+import { notePlaceAddress, placeOfChat } from '../memory/addresses.ts';
 import {
   firstLinkIn,
   lookPerTurn,
   mediaFind,
   runMediaLook,
+  runChatFind,
   runMemorySearch,
   runWebRead,
   runWebSearch,
 } from '../tools/tools.ts';
-import type { LookDescriber, RecallClient, WebLookup, runMediaFind } from '../tools/tools.ts';
+import type { ChatFind, LookDescriber, RecallClient, WebLookup, runMediaFind } from '../tools/tools.ts';
 import type { InTurnCall, ResolvedMessageRef } from '../tools/executors.ts';
-import { objOf } from '../tools/types.ts';
+import { idText, objOf } from '../tools/types.ts';
 import type { Obj } from '../tools/types.ts';
 import { fill } from '../format.ts';
 import { searchHandles } from './calls.ts';
@@ -303,8 +304,53 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
           // The registry takes the quoted lines the search hands it, as the read's own handles.
           ...(draft ? { refs: searchHandles(draft) } : {}),
         }),
-      'conversation.read': (args) => readChat({ args, channel, snapshot, placeId, partner, selfName, draft }),
+      'conversation.read': (args) => {
+        const scene = {
+          channel,
+          snapshot,
+          placeId,
+          partner,
+          selfId,
+          selfName,
+          asker: trigger?.authorId ?? null,
+          draft,
+        };
+        return readChat({ args, channel, snapshot, placeId, partner, selfName, draft, scene });
+      },
     };
+  }
+
+  /**
+   * The `find` of a read of the stored place `place` (runChatFind): memory.search's search narrowed to that place, under
+   * the turn's memory context, the read's window left out. `windowOf` turns the window's lines into the history lines the
+   * search leaves out, `windowRef` the chat a line without a stored row stands in.
+   */
+  function finderOf(
+    scene: FindScene,
+    place: string,
+    windowOf: (window: ReadonlyArray<ReadMessage>) => Array<Obj>,
+    windowRef: ChatRef | null
+  ): (window: ReadonlyArray<ReadMessage>, words: string) => Promise<ChatFind> {
+    const { channel, snapshot, placeId, partner, selfId, selfName, asker, draft } = scene;
+    return (window, words) =>
+      runChatFind({
+        recall,
+        store,
+        config: hot.config,
+        placeId,
+        place,
+        words,
+        window: windowOf(window),
+        ...(windowRef ? { windowRef } : {}),
+        channel,
+        snapshot,
+        partnerId: partner?.id ?? null,
+        selfId,
+        selfName,
+        asker,
+        memoryContext: turnContextOf(draft, channel),
+        now: clock(),
+      });
   }
 
   /**
@@ -394,6 +440,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     channel,
     selfName,
     draft,
+    scene,
   }: {
     args: Obj;
     placeId: string;
@@ -401,9 +448,18 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     channel: ChatInfo;
     selfName: string;
     draft: InTurnDraft | null;
+    scene: FindScene;
   }): Promise<ReadAnswer> {
     const context = turnContextOf(draft, channel) as Context | null;
     if (!placeReads?.placeReadable || !context) return { status: 'not_configured', code: CODE.UNSUPPORTED };
+    // The stored lines the reads met, by their message id, and the newest of them: what `find` and the closing line read.
+    const sources = new Map<string, string>();
+    let newest: number | null = null;
+    const storedOf = (window: ReadonlyArray<ReadMessage>): Array<Obj> =>
+      window.map((line) => {
+        const sourceId = sources.get(idText(line.id));
+        return sourceId ? { stored: { sourceId, placeId, iface: ref.iface } } : { id: line.id, placeId: line.placeId };
+      });
     const config = hot.config;
     const labels = hot.prompts?.labels ?? {};
     // The stored name of the author, else the name of a member the core has been told of.
@@ -417,8 +473,10 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       allowed: (id) => isIssuedInternalContext(context) || Boolean(placeReads.placeReadable?.(context, id)),
       readRecord: ({ from }) =>
         Promise.resolve(
-          placeReads.around(context, placeId, clock(), PLACE_READ_LINES).flatMap((line) =>
-            line.at < from
+          placeReads.around(context, placeId, clock(), PLACE_READ_LINES).flatMap((line) => {
+            sources.set(line.id, line.sourceId);
+            if (newest === null || line.at > newest) newest = line.at;
+            return line.at < from
               ? []
               : [
                   {
@@ -434,8 +492,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
                     ...(line.platformId ? {} : { liveAnchor: false }),
                     ...lineItemParts(line.media, line.id),
                   },
-                ]
-          )
+                ];
+          })
         ),
       fetchLive: (request) => fetchStored(placeId, request as Parameters<typeof fetchSpan>[2]),
       // A line the platform gives carries its pictures bare: the memory's descriptions of them, read through their lines.
@@ -453,6 +511,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       refs: draft ? searchHandles(draft) : null,
       now: clock(),
       timezone: config.bot?.timezone ?? 'UTC',
+      newestAt: () => newest,
+      find: finderOf(scene, placeId, storedOf, ref.chatId === null ? null : { iface: ref.iface, chatId: ref.chatId }),
     });
     return withReadMemory(answer, { iface: ref.iface, placeId, channel, draft });
   }
@@ -470,12 +530,14 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     placeId,
     selfName,
     draft,
+    scene,
   }: {
     args: Obj;
     channel: ChatInfo;
     placeId: string;
     selfName: string;
     draft: InTurnDraft | null;
+    scene: FindScene;
   }): Promise<ReadAnswer> {
     const context = turnContextOf(draft, channel) as Context | null;
     if (!placeReads?.directChats || !context) return { status: 'not_configured', code: CODE.UNSUPPORTED };
@@ -503,7 +565,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     const rest = Object.fromEntries(
       Object.entries(args).filter(([key]) => !['person', 'place', 'placeId'].includes(key))
     );
-    return readPlace({ args: rest, placeId: chosen, ref, channel, selfName, draft });
+    return readPlace({ args: rest, placeId: chosen, ref, channel, selfName, draft, scene });
   }
 
   /**
@@ -522,6 +584,7 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     partner,
     selfName,
     draft,
+    scene,
   }: {
     args: Obj;
     channel: ChatInfo;
@@ -530,13 +593,14 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     partner: InTurnArgs['partner'];
     selfName: string;
     draft: InTurnDraft | null;
+    scene: FindScene;
   }): Promise<ReadAnswer> {
     if (typeof args.person === 'string' && args.person.trim() !== '')
-      return readPerson({ args, channel, placeId, selfName, draft });
+      return readPerson({ args, channel, placeId, selfName, draft, scene });
     const named = typeof args.placeId === 'string' ? storedChatOf(args.placeId) : null;
     const inSnapshot = named?.chatId != null && snapshot !== null && Boolean(snapshot.get(named.chatId));
     if (named && (named.iface !== chatOf(channel).iface || !inSnapshot))
-      return readPlace({ args, placeId: String(args.placeId), ref: named, channel, selfName, draft });
+      return readPlace({ args, placeId: String(args.placeId), ref: named, channel, selfName, draft, scene });
     const asked = named?.chatId != null ? { ...args, placeId: named.chatId } : args;
     if (!snapshot || (!inRoot(channel) && !partner)) return { status: 'not_configured', code: CODE.UNSUPPORTED };
     const config = hot.config;
@@ -551,6 +615,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
     };
     const settings = recallSettings(config);
     const timezone = config.bot?.timezone ?? 'UTC';
+    const iface = chatOf(channel).iface;
+    const { chatId, place } = findTargetOf(store, { args, asked, named, channel, iface });
     const answer = await runConversationRead({
       args: asked,
       labels,
@@ -613,8 +679,8 @@ export function createInTurnTools(ctx: InTurnToolsContext): InTurnTools {
       now: clock(),
       timezone,
       maxChars: settings?.quoteMaxChars ?? RECALL_DEFAULTS.quoteMaxChars,
+      find: finderOf(scene, place, windowIn(chatId), { iface, chatId }),
     });
-    const iface = chatOf(channel).iface;
     return withReadMemory(answer, {
       iface,
       placeId: named ? String(args.placeId) : null,
@@ -638,6 +704,43 @@ type ReadAnswer = {
   values?: Record<string, unknown>;
   data?: { text: string };
   memory?: string;
+};
+
+/**
+ * What a `find` of a read of a chat in the snapshot searches: the chat read (the native id she named, else this one)
+ * and its stored place (the place she named, else the place the store keeps for that chat).
+ */
+function findTargetOf(
+  store: unknown,
+  {
+    args,
+    asked,
+    named,
+    channel,
+    iface,
+  }: { args: Obj; asked: Obj; named: StoredChat | null; channel: ChatInfo; iface: string }
+): { chatId: string; place: string } {
+  const chatId = typeof asked.placeId === 'string' && asked.placeId ? asked.placeId : String(channel.id);
+  return { chatId, place: named ? String(args.placeId) : placeOfChat(store, { id: chatId }, iface) };
+}
+
+/** The lines of a read's window as the history a search leaves out, each by its id in the chat `chatId`. */
+const windowIn =
+  (chatId: string) =>
+  (window: ReadonlyArray<ReadMessage>): Array<Obj> =>
+    window.map(({ id }) => ({ id, placeId: chatId }));
+
+/** The turn a `find` of conversation.read searches for: where she stands, who she answers and the attempt's draft. */
+type FindScene = {
+  channel: ChatInfo;
+  snapshot: Snapshot | null;
+  /** The place the turn's searches run for (memory.search's `placeId`). */
+  placeId: string;
+  partner: InTurnArgs['partner'];
+  selfId: string | null;
+  selfName: string;
+  asker: string | null;
+  draft: InTurnDraft | null;
 };
 
 /** A stored place's interface and the address its row holds, null for a direct chat that holds none yet. */

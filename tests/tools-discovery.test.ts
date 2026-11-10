@@ -365,6 +365,7 @@ test('describeRows: an exact name gives the skill in full, a family one line eac
     exact.rows[0].args.map((arg) => arg.name),
     // The contract gained the stored facts' filters: entity, predicate, as_of and historical (docs/prompt-contract.md).
     // Slice 7: the tool argument `channel` is named `place`.
+    // The search gained `mine`, which keeps it to her own lines, so the list of arguments ends with it.
     [
       'question',
       'people',
@@ -379,6 +380,7 @@ test('describeRows: an exact name gives the skill in full, a family one line eac
       'predicate',
       'as_of',
       'historical',
+      'mine',
     ]
   );
   const off = describeRows({ config, selfId: self, registry, texts, name: 'memory.journal.read' });

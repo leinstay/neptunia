@@ -293,6 +293,7 @@ export type RunDbQuotesInput = {
   started: Untyped;
   memoryContext?: Untyped;
   retrieval?: Untyped;
+  lines?: number;
 };
 
 export type WindowInput = {
@@ -420,6 +421,8 @@ export type RunInput = {
   memoryContext?: Untyped;
   /** The persona's filters of the stored facts in a `quotes` run: `entity`, `predicate`, `asOf`, `historical`. */
   retrieval?: Untyped;
+  /** In a `quotes` run: how many of the best close hits come back as `lines`, one message each (`find`). */
+  lines?: number;
 };
 
 /**

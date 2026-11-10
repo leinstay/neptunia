@@ -1826,7 +1826,7 @@
         "complexity": 36
       },
       "runMemorySearch": {
-        "complexity": 32
+        "complexity": 31
       }
     },
     "src/web/fetch-page.ts": {

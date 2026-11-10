@@ -25,6 +25,11 @@
 // builds them from the record: the reply chain, `recordContext` lines each side, then the chat followed on
 // (`followMessages` while no silence longer than `followGapMinutes`), merged where they share a line.
 //
+// A hit is close when the words, the letters or the people found it, when it holds a term, or when its cosine reaches
+// `mediaBar.strongMeaningScore`. A result with hits and none of them close is `far`: its windows hold the three best
+// hits alone. `hitLines` asks for the best close hits as single messages (conversation.read's `find`), and a plan's
+// `mine` keeps every stream to her own lines.
+//
 // A group context that has a better match only in a DM it may not open gets `hidden: true` and nothing else about it:
 // no text, no count (the owner, 2026-10-20).
 //
@@ -81,6 +86,8 @@ const HITS_PER_WINDOW = 4;
 const PEOPLE_WEIGHT_WITH_FORMS = 0.5;
 /** Fallback of the window length of a window read when neither `messages` nor `minutes` is given: `recall.windowMessages`. */
 const WINDOW_FALLBACK = 16;
+/** The nearest lines a search carries when nothing it found is close (see `nearOnly`). */
+const NEAREST_LINES = 3;
 
 const STREAMS = ['words', 'trigram', 'meaning', 'people', 'time'];
 
@@ -89,7 +96,14 @@ export { CURRENT_SOURCE };
 /** A term of the plan as stems: the form, its stem keys, their joined id, the folded form and whether it is a phrase. */
 type Term = { form: string; keys: Array<string>; id: string; folded: string; phrase: boolean };
 /** The filters every stream shares: the range, the place and the places the caller allows. */
-type ScopeArgs = { from: number | null; to: number | null; placeId: string | null; places: string | null };
+type ScopeArgs = {
+  from: number | null;
+  to: number | null;
+  placeId: string | null;
+  places: string | null;
+  /** Only her own lines (`kind = 'said'`). */
+  mine?: boolean;
+};
 
 /** A verified interface route kept separately from a stored source's native observation key. */
 export type NativeMessageLocator = Readonly<{
@@ -164,13 +178,18 @@ type Reader = {
 /** The settings of a db recall: the recall settings with the keys of `recall.db` lifted out. */
 type DbKeys = { gateShare: number; candidates: number; minMeaning: number; wordPool?: number };
 export type DbSettings = NonNullable<ReturnType<typeof recallSettings>> & DbKeys;
-/** What a search is asked for: the forms to find, the members named, the date range and the channel. */
+/**
+ * What a search is asked for: the forms to find, the members named, the date range and the channel. `placeId` names a
+ * chat through `chatNamed`; `place` is a stored place id taken as it is, a DM's included. `mine` keeps to her own lines.
+ */
 export type RecallPlan = {
   forms?: ReadonlyArray<string>;
   who?: ReadonlyArray<string>;
   from?: number | null;
   to?: number | null;
   placeId?: string;
+  place?: string;
+  mine?: boolean;
 };
 /** A hit of a search: where the line is, how it scored and which streams found it. */
 export type RecallHit = {
@@ -454,12 +473,13 @@ function placeRule(allowPlace: unknown, allowedPlaces?: ReadonlyArray<string | n
 /** The shared filters of a stream: scope, range, place, the caller's allowed places. Returns { sql, params } (without a leading AND). */
 function filters(
   ctx: Context,
-  { from, to, placeId, places = null }: ScopeArgs,
+  { from, to, placeId, places = null, mine = false }: ScopeArgs,
   alias = 's'
 ): { sql: string; params: Array<string> } {
   const scope = scopeWhere(ctx, alias);
   const parts = [scope.sql];
   const params = [...scope.params];
+  if (mine) parts.push(`${alias}.kind = 'said'`);
   if (isFiniteNumber(from)) {
     parts.push(`${alias}.occurred_at >= ?`);
     params.push(iso(from));
@@ -1075,6 +1095,8 @@ export type SearchInput = {
    * Without it every item at or over `minMeaning` stays.
    */
   mediaBar?: { minMeaningScore: number; strongMeaningScore: number } | null;
+  /** How many of the best close hits come back as `lines`, one message each (conversation.read's `find`). */
+  hitLines?: number;
 };
 
 /** What a search answers: the windows, the hits, whether a DM holds better, whether it is a sample, the counts per stream. */
@@ -1085,6 +1107,10 @@ export type SearchResult = {
   mediaHits: Array<MediaHit>;
   hidden: boolean;
   sampled: boolean;
+  /** Whether nothing found is close (see `nearOnly`): the windows then hold the nearest lines alone. */
+  far: boolean;
+  /** The best close hits as messages, best first, as many as `hitLines` asks. */
+  lines: Array<RecallMessage>;
   stats: Record<string, number>;
 };
 
@@ -1120,13 +1146,13 @@ export function namedResult(
   const windows = result.windows.map((one) => {
     const key = typeof one.place === 'string' ? places[one.place] : undefined;
     const given = key ? askedName(channelNameOf, key) : '';
-    const messages = one.messages.map(({ nameKey, ...message }) => {
-      const name = nameKey ? askedName(nameOf, nameKey) : '';
-      return name ? { ...message, authorName: shownName(name) } : message;
-    });
-    return { ...one, channelName: given || one.channelName, messages };
+    return { ...one, channelName: given || one.channelName, messages: one.messages.map(named) };
   });
-  return { ...result, windows };
+  return { ...result, windows, lines: result.lines.map(named) };
+  function named({ nameKey, ...message }: RecallMessage): RecallMessage {
+    const name = nameKey ? askedName(nameOf, nameKey) : '';
+    return name ? { ...message, authorName: shownName(name) } : message;
+  }
 }
 
 /**
@@ -1154,6 +1180,7 @@ export function search(
     samplePlace,
     sampledPlaces,
     mediaBar = null,
+    hitLines = 0,
   }: SearchInput = {},
   marks: NameMarks | null = null
 ): SearchResult {
@@ -1164,13 +1191,8 @@ export function search(
   const { gateShare, candidates, minMeaning } = opts;
   const pool = Math.max(candidates, isWholeNumber(opts.wordPool) ? opts.wordPool : candidates);
   const { stem } = loadStemmer(db);
-  const scopeArgs: ScopeArgs = {
-    from: isFiniteNumber(plan?.from) ? plan.from : null,
-    to: isFiniteNumber(plan?.to) ? plan.to : null,
-    placeId: typeof plan?.placeId === 'string' && plan.placeId ? chatNamed(db, ifaceOf(context), plan.placeId) : null,
-    // The caller's place rule runs inside every stream's query (see placesAllowed).
-    places: placesAllowed(db, context, allowPlace, allowedPlaces),
-  };
+  // The caller's place rule runs inside every stream's query (see placesAllowed).
+  const scopeArgs = scopeOfPlan(db, context, plan, placesAllowed(db, context, allowPlace, allowedPlaces));
   const placeShown = placeRule(allowPlace, allowedPlaces);
   const people = accountsOf(db, context, plan?.who);
   const terms = termsOf(stem, [...(plan?.forms ?? []), ...people.unresolved]);
@@ -1286,19 +1308,22 @@ export function search(
     );
 
   const byScore = [...hits].sort((a, b) => b.score - a.score);
+  const far = nearOnly(hits, { bar: mediaBar, sampled, media: mediaFound.length });
   const chosen = new Set(hits.slice(0, keep * HITS_PER_WINDOW).map((hit) => hit.rowid));
   for (const hit of byScore.slice(0, keep)) chosen.add(hit.rowid);
   const hitIds = new Set(hits.map((hit) => hit.id));
-  const built = hits
-    .filter((hit) => chosen.has(hit.rowid))
-    .map((hit) => {
-      const rows = stretchAround(db, context, rowsOf.get(hit.rowid) as Row, {
-        around: opts.recordContext,
-        followMessages: opts.followMessages,
-        followGapMinutes: opts.followGapMinutes,
-      });
-      return windowOf(rows, new Set(rows.map((row) => row.id).filter((id) => hitIds.has(id))), read);
-    });
+  // Nothing close: the nearest lines alone, no stretch around them. With `mine`, a stretch keeps to her own lines.
+  const built = (far ? byScore.slice(0, NEAREST_LINES) : hits.filter((hit) => chosen.has(hit.rowid))).map((hit) => {
+    const row = rowsOf.get(hit.rowid) as Row;
+    const rows = far
+      ? [row]
+      : stretchAround(db, context, row, {
+          around: opts.recordContext,
+          followMessages: opts.followMessages,
+          followGapMinutes: opts.followGapMinutes,
+        }).filter((one) => scopeArgs.mine !== true || one.kind === 'said');
+    return windowOf(rows, new Set(rows.map((one) => one.id).filter((id) => hitIds.has(id))), read);
+  });
   // An item found shows at its latest visible use, without counting among the message hits.
   const mediaLines = mediaFound.slice(0, keep).flatMap((hit, at) => {
     if (skip.has(hit.latest.sourceId)) return [];
@@ -1362,7 +1387,51 @@ export function search(
       ? hiddenBetter(db, context, terms, scopeArgs, (row) => shown(row) && placeShown(row.place_id), askersOf(context))
       : false;
   showItemsOnce(windows);
-  return { windows, hits, mediaHits: mediaFound, hidden, sampled, stats };
+  const lines = far
+    ? []
+    : byScore
+        .filter((hit) => isClose(hit, mediaBar))
+        .slice(0, Math.max(0, hitLines))
+        .map((hit) => messageOf(rowsOf.get(hit.rowid) as Row, read));
+  return { windows, hits, mediaHits: mediaFound, hidden, sampled, far, lines, stats };
+}
+
+/**
+ * The scope a plan asks: its range, its chat (`place` as it is, else `placeId` through chatNamed), her own lines alone
+ * with `mine`, and the places the caller allows (`places`).
+ */
+function scopeOfPlan(db: Db, context: Context, plan: RecallPlan | undefined, places: string | null): ScopeArgs {
+  const { from, to, placeId, place, mine } = plan ?? {};
+  const named = typeof placeId === 'string' && placeId ? chatNamed(db, ifaceOf(context), placeId) : null;
+  return {
+    from: isFiniteNumber(from) ? from : null,
+    to: isFiniteNumber(to) ? to : null,
+    placeId: typeof place === 'string' && place ? place : named,
+    places,
+    mine: mine === true,
+  };
+}
+
+/**
+ * Whether a hit is close: found by its words or its people, holding a term of the plan, or found by a meaning over the
+ * bar a meaning alone must clear (`bar.strongMeaningScore`, the prefetch's). Every hit is close without a bar.
+ */
+function isClose(hit: RecallHit, bar: SearchInput['mediaBar']): boolean {
+  if (!bar) return true;
+  const { streams, terms, cosine } = hit;
+  const byWords = streams.includes('words') || streams.includes('trigram') || streams.includes('people');
+  return byWords || terms > 0 || (cosine ?? -1) >= bar.strongMeaningScore;
+}
+
+/**
+ * Whether a search found lines and none of them is close (isClose), no media item cleared its bar and the lines are no
+ * sample: the caller then says nothing close was found, and the windows hold the `NEAREST_LINES` best hits alone.
+ */
+function nearOnly(
+  hits: ReadonlyArray<RecallHit>,
+  { bar, sampled, media }: { bar: SearchInput['mediaBar']; sampled: boolean; media: number }
+): boolean {
+  return Boolean(bar) && !sampled && media === 0 && hits.length > 0 && !hits.some((hit) => isClose(hit, bar));
 }
 
 /** Whether an item stays under `bar`: found by its words, or by a meaning close enough (SearchInput.mediaBar). */

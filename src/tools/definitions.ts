@@ -830,6 +830,7 @@ const ENTRIES: Array<Definition> = [
       predicate: str(100),
       as_of: str(40),
       historical: bool(),
+      mine: bool(),
     }),
     refs: { place: 'place' },
     body: 'question',
@@ -851,6 +852,7 @@ const ENTRIES: Array<Definition> = [
       ...(val(a, 'predicate') === null ? {} : { predicate: val(a, 'predicate') }),
       ...(val(a, 'as_of') === null ? {} : { asOf: val(a, 'as_of') }),
       ...(val(a, 'historical') === null ? {} : { historical: val(a, 'historical') }),
+      ...(val(a, 'mine') === null ? {} : { mine: val(a, 'mine') }),
     }),
   }),
   def('conversation.read', {
@@ -863,12 +865,13 @@ const ENTRIES: Array<Definition> = [
       since: str(40),
       last: int(1, 60),
       person: str(200),
+      find: str(300),
     }),
     refs: { place: 'place' },
     effects: 'read',
     toArgs: (a) => {
       const out: Obj = {};
-      for (const name of ['around', 'before', 'after', 'since', 'person']) {
+      for (const name of ['around', 'before', 'after', 'since', 'person', 'find']) {
         const value = val(a, name);
         if (value !== null) out[name] = value;
       }

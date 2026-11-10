@@ -10,7 +10,7 @@
 // persona reads comes from `labels.tools.tools.conversation.*`; nothing here is wording. A
 // channel the audience rule or her rights hide is refused `channel-not-visible`.
 
-import { fill, formatTranscript } from '../format.ts';
+import { fill, formatClock, formatDate, formatTranscript } from '../format.ts';
 import { parseWhen } from '../intentions/model.ts';
 import { DAY_MS } from '../time.ts';
 import { oneLine } from '../memory/clamp.ts';
@@ -18,6 +18,7 @@ import { CATALOGUE, CODE, isCode, normalCode } from './codes.ts';
 import { lineOf } from '../behavior/line-of.ts';
 import { idText, isObj, listOf, objOf } from './types.ts';
 import type { SearchRef } from '../turn/calls.ts';
+import type { ChatFind } from './tools.ts';
 import type { Obj } from './types.ts';
 import type { Reads } from '../interface/reads.ts';
 import type { ChatRef, HistoryQuery } from '../protocol/adapter.ts';
@@ -315,6 +316,11 @@ export async function recordMessages(
   return mergeById(out);
 }
 
+/** `labels.tools.tools.conversation` as an object of strings, {} when missing. */
+function conversationLabels(labels: unknown): Record<string, string | undefined> {
+  return objOf(objOf(objOf(objOf(labels).tools).tools).conversation) as Record<string, string | undefined>;
+}
+
 /**
  * The text of a read: `labels.tools.tools.conversation.source` (`{channel}`), the lines as the
  * chat transcript renders them (formatTranscript, `render` its options), `.handles` when the
@@ -349,7 +355,7 @@ export function chatText(
     keep?: 'newest' | 'oldest';
   }
 ): string {
-  const l = objOf(objOf(objOf(objOf(labels).tools).tools).conversation) as Record<string, string | undefined>;
+  const l = conversationLabels(labels);
   const lines: Array<string> = [];
   if (l.source) lines.push(fill(l.source, { channel: channelName }));
   if (!Array.isArray(slice) || slice.length === 0) {
@@ -467,6 +473,93 @@ type ReadResult = {
   data?: { text: string; authors?: Array<string> };
 };
 
+/**
+ * The closing line of a read that reached the newest stored line of its chat (`newestAt()`, else `seen`, epoch ms):
+ * `labels.tools.tools.conversation.newest` with `{time}`, said when the window ends at that line, or when a read with
+ * `since` or `after` returned nothing. Nothing without the label or a stored line. Pure.
+ */
+function newestLine(
+  slice: ReadonlyArray<ReadMessage>,
+  { mode }: ReadSelection,
+  {
+    labels,
+    newestAt,
+    seen,
+    timezone,
+  }: { labels: unknown; newestAt: (() => number | null) | null; seen: number | null; timezone: string }
+): Array<string> {
+  const { newest: label } = conversationLabels(labels);
+  const newest = typeof newestAt === 'function' ? newestAt() : seen;
+  if (!label || newest === null || !Number.isFinite(newest)) return [];
+  const last = slice.at(-1);
+  const reached = last ? last.ts >= newest : mode === 'since' || mode === 'after';
+  return reached ? [fill(label, { time: `${formatDate(newest, timezone)}, ${formatClock(newest, timezone)}` })] : [];
+}
+
+/** The newest finite `ts` of `lines`, or `prior` when none is newer. */
+function newestOf(lines: ReadonlyArray<ReadMessage>, prior: number | null): number | null {
+  const times = lines.map(({ ts }) => ts).filter((ts) => Number.isFinite(ts));
+  return times.length === 0 ? prior : Math.max(prior ?? -Infinity, ...times);
+}
+
+/**
+ * A read's answer from its lines so far (`read`): as it is without `words` or `find`; else with the matches of
+ * `find(window, words)` after it (matchLines, in the room `maxChars` leaves), or `partial` with the find's code when it
+ * could not search.
+ */
+async function withFind(
+  read: Array<string>,
+  window: ReadonlyArray<ReadMessage>,
+  {
+    words,
+    find,
+    maxChars,
+    ...shown
+  }: {
+    words: string;
+    find: ((window: ReadonlyArray<ReadMessage>, words: string) => Promise<ChatFind>) | null;
+    labels: unknown;
+    placeId: string;
+    render: Parameters<typeof chatText>[1]['render'];
+    refs: HandleRefs | null;
+    maxChars: number;
+  }
+): Promise<ReadResult> {
+  if (!words || typeof find !== 'function')
+    return { status: 'ok', data: { text: read.join('\n'), authors: authorsOf(window) } };
+  const found = await find(window, words);
+  if (found.status !== 'ok') {
+    const { code, values } = found;
+    return { status: 'partial', code, ...(values ? { values } : {}), data: { text: read.join('\n') } };
+  }
+  const matches = found.lines as Array<ReadMessage>;
+  const room = Math.max(0, maxChars - read.join('\n').length);
+  const text = [...read, ...matchLines(matches, { ...shown, maxChars: room })].join('\n');
+  return { status: 'ok', data: { text, authors: authorsOf([...window, ...matches]) } };
+}
+
+/**
+ * The matches of a `find` as lines: `labels.tools.tools.conversation.found`, then the lines as the transcript renders
+ * them, each with its `#N` registered in `refs` (chatText with no source line); `.findNone` alone when none matched.
+ */
+function matchLines(
+  matches: ReadonlyArray<ReadMessage>,
+  options: {
+    labels: unknown;
+    placeId: string;
+    render: Parameters<typeof chatText>[1]['render'];
+    refs: HandleRefs | null;
+    maxChars: number;
+  }
+): Array<string> {
+  const { found, findNone, cut } = conversationLabels(options.labels);
+  if (matches.length === 0) return findNone ? [findNone] : [];
+  // The matches carry no source line, no handle note and no way to read on: only the cut of chatText's labels.
+  const bodyLabels = { tools: { tools: { conversation: { cut } } } };
+  const shown = chatText(matches, { ...options, labels: bodyLabels, earlier: false, later: false });
+  return [...(found ? [found] : []), shown];
+}
+
 /** How many lines a selection asks the interface for: both sides of the anchor and the anchor, or the newest `n`. */
 function askedLines(selection: ReadSelection): number {
   return selection.mode === 'around' ? (selection.before ?? 0) + (selection.after ?? 0) + 1 : (selection.n ?? 0);
@@ -506,7 +599,10 @@ function authorsOf(slice: ReadonlyArray<ReadMessage>): Array<string> {
  * `invalid` (`unknown-message`) when the anchor is not in the channel; `denied`
  * (`channel-not-visible`) for a hidden channel; `failed` with the interface's code (`failedRead`) when nothing could
  * be read at all;
- * else `ok` with chatText and `authors`, the platform ids of the other authors of the lines read. Never throws.
+ * else `ok` with chatText and `authors`, the platform ids of the other authors of the lines read. The window closes with
+ * newestLine, the newest stored line's time from `newestAt()` or else the newest line the record reads met. With
+ * `args.find` and `find(window, words)` (src/tools/tools.ts#runChatFind) the matches follow (matchLines); a find that
+ * could not search leaves the window `partial` with its code. Never throws.
  */
 export async function runConversationRead({
   args,
@@ -522,6 +618,8 @@ export async function runConversationRead({
   now = Date.now(),
   timezone = 'UTC',
   maxChars = MAX_CHARS_FALLBACK,
+  find = null,
+  newestAt = null,
 }: {
   args: unknown;
   labels: unknown;
@@ -544,20 +642,26 @@ export async function runConversationRead({
   now?: number;
   timezone?: string;
   maxChars?: number;
+  find?: ((window: ReadonlyArray<ReadMessage>, words: string) => Promise<ChatFind>) | null;
+  newestAt?: (() => number | null) | null;
 }): Promise<ReadResult> {
   try {
     const target = text(objOf(args).placeId) || idText(placeId);
     if (!target) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: 'args.place:required' };
     const zone = objOf(objOf(config).bot).timezone;
-    const selection = readSelection(args, { now, timezone: typeof zone === 'string' ? zone : timezone });
+    const tz = typeof zone === 'string' ? zone : timezone;
+    const selection = readSelection(args, { now, timezone: tz });
     if ('error' in selection) return { status: 'invalid', code: CODE.INVALID_ARGS, reason: selection.error };
     if (typeof allowed === 'function' && !allowed(target)) return { status: 'denied', code: CODE.CHANNEL_NOT_VISIBLE };
     let all: Array<ReadMessage> = [];
     let picked: Span = { slice: [], enough: false };
     const rungs =
       selection.mode === 'since' ? [selection.since ?? 0] : READ_LADDER_DAYS.map((days) => now - days * DAY_MS);
+    // The newest stored line the reads met, when the caller has no read of its own for it.
+    let newestSeen: number | null = null;
     for (const from of rungs) {
       all = typeof readRecord === 'function' ? await readRecord({ placeId: target, from }) : [];
+      newestSeen = newestOf(all, newestSeen);
       picked = pickSpan(all, selection);
       if (picked.enough) break;
     }
@@ -602,7 +706,19 @@ export async function runConversationRead({
       later,
       keep: selection.mode === 'last' || selection.mode === 'before' ? 'newest' : 'oldest',
     });
-    return { status: 'ok', data: { text: textOut, authors: authorsOf(picked.slice) } };
+    const read = [
+      textOut,
+      ...newestLine(picked.slice, selection, { labels, newestAt, seen: newestSeen, timezone: tz }),
+    ];
+    return await withFind(read, picked.slice, {
+      words: text(objOf(args).find),
+      find,
+      labels,
+      placeId: target,
+      render,
+      refs,
+      maxChars,
+    });
   } catch {
     return { status: 'failed', code: CODE.ERROR };
   }
