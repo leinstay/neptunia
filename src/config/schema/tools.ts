@@ -14,7 +14,7 @@ export const TOOLS: ReadonlyArray<SchemaEntry> = [
     'key': 'tools.resultMaxChars',
     'types': ['number'],
     'reader': 'src/behavior/sandbox.ts',
-    'default': 4500,
+    'default': 8000,
     'text': "Characters of a tool's returned data shown in a call's result",
   },
   {
@@ -43,21 +43,21 @@ export const TOOLS: ReadonlyArray<SchemaEntry> = [
     'key': 'tools.loop.maxSteps',
     'types': ['number'],
     'reader': 'src/turn/tool-round.ts',
-    'default': 3,
+    'default': 100,
     'text': 'Most further requests one turn makes after her calls',
   },
   {
     'key': 'tools.loop.timeBudgetMs',
     'types': ['number'],
     'reader': 'src/turn/settings.ts',
-    'default': 20000,
+    'default': 150000,
     'text': 'How long the calls and follow-ups may run',
   },
   {
     'key': 'tools.loop.maxCallsPerStep',
     'types': ['number'],
     'reader': 'src/turn/settings.ts',
-    'default': 4,
+    'default': 8,
     'text': 'Most calls of one answer that run',
   },
   {

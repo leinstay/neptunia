@@ -8,9 +8,12 @@ import { openLinkOver } from '../interfaces/cli/link.ts';
 import { createEventDoor } from '../src/interface/door.ts';
 import { openAdapterLink } from '../src/interface/link.ts';
 import type { AdapterLink } from '../src/interface/link.ts';
-import { createCommandIntake } from '../src/interface/neptunia-cli.ts';
+import { createCommandIntake, statusFactsOf, statusText } from '../src/interface/neptunia-cli.ts';
 import type { Principal } from '../src/interface/principals.ts';
 import { createLoopback } from '../src/protocol/wire.ts';
+import type { FactSources } from '../src/interface/neptunia-cli.ts';
+import { createRoleHealth } from '../src/llm/role-health.ts';
+import { chainsOnDefaults } from './fixtures/chains.ts';
 
 const quiet = { info() {}, warn() {}, error() {} };
 const OWNER: Principal = { name: 'owner', kind: 'cli', iface: 'cli', permissions: [] };
@@ -111,4 +114,41 @@ test("the owner's line reaches the door under his person's name", async () => {
   assert.equal(await cli.say('hello there'), 'ok');
   await until(() => names.length > 0);
   assert.deepEqual(names, [['Robin', 'Robin']]);
+});
+
+// Tests for the failing model roles on `/status` (src/interface/neptunia-cli.ts#statusFactsOf and #statusText): the
+// summary lists each globally failing role with its reason, as src/llm/role-health.ts reports it. No model call.
+
+const NOW = Date.parse('2026-10-31T09:00:00Z');
+const CONFIG = { models: { routes: chainsOnDefaults({ core: 'x/core', drawing: 'x/draw' }) } };
+
+function sources(health: ReturnType<typeof createRoleHealth>): FactSources {
+  return {
+    version: '0.0.0',
+    config: () => CONFIG,
+    state: () => ({}),
+    usageRows: () => [],
+    interfaces: () => [],
+    inner: () => null,
+    errands: () => [],
+    failingRoles: () => health.failing(CONFIG),
+  };
+}
+
+test('/status names a globally failing role with its reason, and no role when none fails', () => {
+  const health = createRoleHealth({ now: () => NOW, hasKey: () => true });
+  const healthy = statusFactsOf(sources(health));
+  assert.deepEqual(healthy.failingRoles, []);
+  assert.ok(!statusText(healthy).includes('drawing'), 'no failing role, no line about it');
+
+  health.failed('drawing', Object.assign(new Error('OpenRouter images HTTP 401'), { statusCode: 401, body: '' }));
+  const facts = statusFactsOf(sources(health));
+  assert.deepEqual(
+    facts.failingRoles.map((row) => [row.role, row.reason]),
+    [['drawing', 'unauthorized']]
+  );
+  const line = statusText(facts)
+    .split('\n')
+    .find((text) => text.includes('drawing'));
+  assert.ok(line?.includes('unauthorized'), 'the role and its reason on one line');
 });

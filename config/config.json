@@ -38,7 +38,7 @@
   "llm": {
     "baseUrl": "https://openrouter.ai/api/v1",
     "maxOutputTokens": 2000,
-    "maxRequestTokens": 50000,
+    "maxRequestTokens": 100000,
     "timeoutMs": 300000,
     "probeTimeoutMs": 30000,
     "analyzerTimeoutMs": 30000,
@@ -343,14 +343,14 @@
   },
   "tools": {
     "safeMode": false,
-    "resultMaxChars": 4500,
+    "resultMaxChars": 8000,
     "destructiveCooldownMinutes": 10,
     "callTimeoutMs": 120000,
     "transport": "native",
     "loop": {
-      "maxSteps": 3,
-      "timeBudgetMs": 20000,
-      "maxCallsPerStep": 4,
+      "maxSteps": 100,
+      "timeBudgetMs": 150000,
+      "maxCallsPerStep": 8,
       "stepReserveTokens": 6000
     }
   },

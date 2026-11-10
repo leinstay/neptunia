@@ -12,10 +12,11 @@ import path from 'node:path';
 import { createErrandStore, fileHandle, parseFileHandle } from '../src/errands/store.ts';
 import { withCapturedLogs } from './fixtures/capture-logs.ts';
 import { tempDir } from './fixtures/tmp.ts';
-import { openTestMemorySync } from './fixtures/memory-db/service.ts';
+import { openTestMemorySync, tempDataDir as deliveryTempDataDir } from './fixtures/memory-db/service.ts';
 import { readBoard } from '../src/board/board.ts';
 import type { Untyped } from '../src/tools/types.ts';
-import type { AddInput } from '../src/errands/types.ts';
+import type { AddInput, ErrandStore } from '../src/errands/types.ts';
+import { T0 as T0_DELIVERY } from './fixtures/errand-archive.ts';
 
 // The records come back typed as `object` or `unknown`; the tests read their fields through `loose`.
 const loose = (value: unknown): Record<string, Untyped> => value as Record<string, Untyped>;
@@ -538,4 +539,93 @@ test('task store: a board write that failed is sent again by the next flush', as
     const view = await boardTask(store, dataDir, idOf(added.ok ? added.errand : null));
     assert.deepEqual(statusesOf(view), ['approved']);
   });
+});
+
+// The delivery mark of an errand's end (src/errands/store.ts#markDelivered) reaches the board while the core runs. The
+// door takes her `errand.done` as soon as the end's own write committed, often before that write's promise settled in
+// the store's outbox, and the mark must still land then, not only at the core's stop: a core that crashes after the
+// delivery and starts again must find the end delivered, or it opens a second result turn. The memory service is the
+// real one on the calling thread (fixtures/memory-db/service.ts); a gate holds the store's writes after they commit, so
+// the end is on the board while its write still counts as under way. No flush runs between the mark and the restart.
+
+const NOW = T0_DELIVERY + 60 * 60 * 1000;
+const SILENT = { info() {}, warn() {}, error() {}, debug() {} };
+const CONFIG = {
+  errands: { maxOpen: 3 },
+  agents: { scout: { daily: { tasks: 5 } } },
+};
+const ASKED = {
+  agent: 'scout',
+  goal: 'find the opening hours of the library',
+  requester: { accountId: 'u1', kind: 'member' },
+  origin: { placeId: 'c1', messageId: 'm7' },
+  scope: 'group' as const,
+};
+const DONE = { status: 'done', result: { text: 'Open until eight.', sources: [], files: [] }, usage: { usd: 0.02 } };
+
+type MemoryDb = ReturnType<typeof openTestMemorySync>['memoryDb'];
+
+const OPENED: Array<{ close: () => unknown }> = [];
+
+let counter = 0;
+const uuid = (): string => `${(counter += 1).toString(16).padStart(8, '0')}-aaaa-bbbb-cccc-dddddddddddd`;
+
+const storeOver = (memoryDb: MemoryDb): ErrandStore =>
+  createErrandStore({ now: () => NOW, config: () => CONFIG, uuid, log: SILENT, memoryDb });
+
+/** A few turns of the event loop, with no flush of any store. */
+async function ticks(n = 20): Promise<void> {
+  for (let i = 0; i < n; i += 1) await new Promise((resolve) => setImmediate(resolve));
+}
+
+/**
+ * `memoryDb` with its unit writes held after they commit: each write lands in the database at once, and its promise
+ * settles only while the gate is open (`hold` closes it, `release` opens it).
+ */
+function gated(memoryDb: MemoryDb): { memoryDb: MemoryDb; hold: () => void; release: () => void } {
+  let gate: Promise<void> = Promise.resolve();
+  let open: () => void = () => {};
+  const writeUnit = async (update: unknown): Promise<unknown> => {
+    const written: unknown = await memoryDb.writeUnit(update);
+    await gate;
+    return written;
+  };
+  // The fixture's service is a plain object of functions; the gated one differs from it in `writeUnit` alone.
+  const wrapped: MemoryDb = { ...memoryDb, writeUnit };
+  return {
+    memoryDb: wrapped,
+    hold: () => {
+      gate = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+    },
+    release: () => open(),
+  };
+}
+after(async () => {
+  for (const memory of OPENED) await memory.close();
+});
+
+test('an end marked delivered while its own write is still under way is delivered on the board without a stop', async () => {
+  const memory = openTestMemorySync({
+    dataDir: deliveryTempDataDir('nep-errands-delivery-'),
+    now: () => NOW,
+    log: SILENT,
+  });
+  OPENED.push(memory);
+  const slow = gated(memory.memoryDb);
+  const store = storeOver(slow.memoryDb);
+  const added = store.add(ASKED);
+  const id = added.errand?.id ?? '';
+  store.start(id);
+  await store.flush();
+  slow.hold();
+  store.finish(id, DONE);
+  // The end commits on the board while the store's write of it is still held.
+  for (let i = 0; i < 50 && storeOver(memory.memoryDb).pendingEnds().length === 0; i += 1) await ticks(1);
+  assert.equal(store.markDelivered(id), true);
+  slow.release();
+  await ticks();
+  // A core started again after a crash: no stop flushed the first store.
+  assert.deepEqual(storeOver(memory.memoryDb).pendingEnds(), []);
 });

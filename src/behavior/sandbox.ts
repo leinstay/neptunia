@@ -1035,7 +1035,7 @@ function callTextOf(call: Untyped) {
 const PERSONA = Object.freeze({ kind: 'persona' });
 
 /** The result a skill's `<result>` block is cut to when `tools.resultMaxChars` is not set (config.json's value). */
-const RESULT_MAX_CHARS = 4500;
+const RESULT_MAX_CHARS = 8000;
 
 /**
  * A copy of `config` whose persona grants are exactly `names`: her user id (`selfId`) taken

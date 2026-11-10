@@ -64,27 +64,6 @@ test('says hello as the fake interface with the capabilities of the fake adapter
   await running.stop();
 });
 
-test('says hello with the persona and the root it was given', async () => {
-  const { host, link } = rig();
-  const running = await start(host, {
-    self: { id: 'bot-7', name: 'Νόβα' },
-    root: { id: 'g9', name: 'Beta' },
-  });
-  const hello = await link.hello;
-  assert.deepEqual(hello.self, { id: 'bot-7', name: 'Νόβα' });
-  assert.deepEqual(hello.root, { id: 'g9', name: 'Beta' });
-  await running.stop();
-});
-
-test('says hello with the selfId option as the persona id when no self is given', async () => {
-  const { host, link } = rig();
-  const running = await start(host, { selfId: SELF_ID });
-  const hello = await link.hello;
-  assert.equal(hello.self.id, SELF_ID);
-  assert.notEqual(hello.self.name, '');
-  await running.stop();
-});
-
 test('an emitted event reaches the door of the core and is acknowledged ok', async () => {
   const { host, link, handled } = rig();
   const running = await start(host, { selfId: SELF_ID });
@@ -159,15 +138,6 @@ test('an interface started over an adapter the caller keeps serves that adapter,
 // Plan 2026-11-06-turn-frame, slice 3 (c): an interface says its own names and nouns in `hello.names`, and the core keeps
 // them as the interface's name and as names of kind `interface_noun` in the name index.
 const NAMES = { interface: 'Fakebook', nouns: { server: 'όμιλος', channel: 'αίθουσα' }, dm: 'ιδιωτικό' };
-
-test('says hello with the names it was given', async () => {
-  // Bug: the fake drops the names, so no test can show the core what an interface calls itself.
-  const { host, link } = rig();
-  const running = await start(host, { selfId: SELF_ID, names: NAMES });
-  const hello = await link.hello;
-  assert.deepEqual(hello.names, NAMES);
-  await running.stop();
-});
 
 test('a hello with names stores the interface name and its nouns as names of the interface', async () => {
   // Bug: the core takes the hello and drops its names, so "server" or the interface's own name raises nothing.

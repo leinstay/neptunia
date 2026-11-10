@@ -63,23 +63,6 @@ test('sends the brief to the child whole and starts it in the given cwd with exe
   }
 });
 
-test('adds web_search="live" only when search is true', async () => {
-  // Bug: the scout agent searches without live search (stale answers), or every agent gets live web access.
-  // The argument is `-c web_search="live"` because codex-cli 0.164.0 refuses `exec --search` (see agent-backend-codex-search.test.ts).
-  const { dir, cleanup } = scratch();
-  try {
-    const env = { FAKE_MODE: 'report' };
-    const on = reportOf((await codex().run('look it up', { cwd: dir, timeoutMs: 20_000, env, search: true })).text);
-    const off = reportOf((await codex().run('look it up', { cwd: dir, timeoutMs: 20_000, env, search: false })).text);
-    const unset = reportOf((await codex().run('look it up', { cwd: dir, timeoutMs: 20_000, env })).text);
-    assert.ok(on.argv.includes('web_search="live"'));
-    assert.ok(!off.argv.includes('web_search="live"'));
-    assert.ok(!unset.argv.includes('web_search="live"'));
-  } finally {
-    cleanup();
-  }
-});
-
 test('passes the sandbox with -s, read-only unless told otherwise, and each image with -i', async () => {
   // Bug: a research agent runs with write access, or an attached picture never reaches the model.
   const { dir, cleanup } = scratch();
@@ -127,6 +110,87 @@ test('reports ok false when the run exits 0 and writes no final message', async 
     assert.equal(result.ok, false);
     assert.equal(result.exitCode, 0);
     assert.equal(result.text, '');
+  } finally {
+    cleanup();
+  }
+});
+
+// The search switch of the `codex` backend in src/agent-runner/backend.ts, against the stub tests/fixtures/fake-cli.ts.
+
+const argvOf = async (search: boolean | undefined): Promise<Array<string>> => {
+  const { dir, cleanup } = scratch();
+  try {
+    const env = { FAKE_MODE: 'report' };
+    const result = await createBackend('codex', { binary: STUB }).run('look it up', {
+      cwd: dir,
+      timeoutMs: 20_000,
+      env,
+      ...(search === undefined ? {} : { search }),
+    });
+    return reportOf(result.text).argv;
+  } finally {
+    cleanup();
+  }
+};
+
+test('turns web search on through -c web_search="live" and never the bare --search flag', async () => {
+  // Bug: codex-cli 0.164.0 rejects `codex exec --search` with a usage error (exit 2), so every errand with search on failed in 40 ms.
+  const argv = await argvOf(true);
+  assert.ok(!argv.includes('--search'), 'the bare --search flag is not a codex exec option');
+  const at = argv.indexOf('web_search="live"');
+  assert.ok(at > 0 && argv[at - 1] === '-c', 'the run passes -c web_search="live"');
+});
+
+test('passes no search setting when search is false or unset', async () => {
+  // Bug: every agent gets live web access, or the flag leaks into runs that did not ask for search.
+  for (const search of [false, undefined]) {
+    const argv = await argvOf(search);
+    assert.ok(!argv.includes('--search'));
+    assert.ok(!argv.some((arg) => arg.startsWith('web_search=')));
+  }
+});
+
+// The codex flags of the sandbox values (src/agent-runner/backend.ts), against the stub binary
+// (tests/fixtures/fake-cli.ts): `none` is the bypass flag the modes full and sudo map to (src/subharness/run.ts).
+
+test('sandbox none runs codex with the bypass flag and no -s', async () => {
+  // Bug: full and sudo still pass "-s workspace-write", so the mode the owner set changes nothing.
+  const { dir, cleanup } = scratch();
+  try {
+    const env = { FAKE_MODE: 'report' };
+    const run = await codex().run('x', { cwd: dir, timeoutMs: 20_000, env, sandbox: 'none' });
+    const { argv } = reportOf(run.text);
+    assert.ok(argv.includes('--dangerously-bypass-approvals-and-sandbox'));
+    assert.ok(!argv.includes('-s'));
+  } finally {
+    cleanup();
+  }
+});
+
+test('read-only and workspace-write keep -s and never the bypass flag', async () => {
+  // Bug: the bypass flag is added to every run, which removes the sandbox for the agents in read and write.
+  const { dir, cleanup } = scratch();
+  try {
+    const env = { FAKE_MODE: 'report' };
+    for (const sandbox of ['read-only', 'workspace-write'] as const) {
+      const { argv } = reportOf((await codex().run('x', { cwd: dir, timeoutMs: 20_000, env, sandbox })).text);
+      assert.equal(argv[argv.indexOf('-s') + 1], sandbox);
+      assert.ok(!argv.includes('--dangerously-bypass-approvals-and-sandbox'));
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('a model reaches each backend as its own flag, and no flag is added without one', async () => {
+  // Bug: the model the owner chose per agent is dropped, or "-m undefined" is passed.
+  const { dir, cleanup } = scratch();
+  try {
+    const env = { FAKE_MODE: 'report' };
+    const withModel = reportOf((await codex().run('x', { cwd: dir, timeoutMs: 20_000, env, model: 'gpt-x' })).text);
+    assert.equal(withModel.argv[withModel.argv.indexOf('-m') + 1], 'gpt-x');
+    const without = reportOf((await codex().run('x', { cwd: dir, timeoutMs: 20_000, env })).text);
+    assert.equal(without.argv.includes('-m'), false);
   } finally {
     cleanup();
   }

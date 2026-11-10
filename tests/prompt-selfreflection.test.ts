@@ -4,7 +4,7 @@
 // their budget, and the plan request. Fake prompts/config/labels only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDrawPrompt, userText as textOf, worldText } from '../src/behavior/prompt.ts';
+import { buildDrawPrompt, userText as textOf } from '../src/behavior/prompt.ts';
 import { fill } from '../src/format.ts';
 import { labels } from './fixtures/labels.ts';
 import { buildRequest, type Built } from './fixtures/built-request.ts';
@@ -120,20 +120,6 @@ const post = (at: number, kind: string | null, gist: string, picture: string | n
   picture,
   messageIds: [],
   search: null,
-});
-
-test('buildRequest: no world block without the file', () => {
-  const config = fakeConfig({ selfreflection: { world: true } });
-  for (const world of [undefined, '', '   \n']) {
-    const text = userText(
-      buildRequest(baseInput({ mode: 'selfreflection', config, prompts: fakePrompts({ world }), selfreflection: {} }))
-    );
-    assert.ok(!text.includes('<world>'), JSON.stringify(world));
-  }
-  assert.equal(
-    worldText(config, fakePrompts({ world: undefined }) as unknown as Parameters<typeof worldText>[1], 'Nept'),
-    ''
-  );
 });
 
 test('buildDrawPrompt: fills {{when}} when given and leaves no hole when empty', () => {

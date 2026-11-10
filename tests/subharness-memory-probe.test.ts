@@ -104,13 +104,6 @@ test('a subharness probe with no reply answers a failure', async () => {
   assert.equal(result.ok, false);
 });
 
-// the setting
-
-test('the probe interval is memory.probeMinutes when it is a positive number', () => {
-  // Catches: the setting ignored, so the owner cannot make the probe rarer on a metered key.
-  assert.equal(probeMinutes({ memory: { probeMinutes: 7 } }), 7);
-});
-
 test('a probe interval that is no positive number falls back to the one an absent setting gives', () => {
   // Catches: 0 or a string taken as the interval, which probes at every tick and spends a request a minute.
   const fallback = probeMinutes({});

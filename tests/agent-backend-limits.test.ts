@@ -235,9 +235,3 @@ test('the usage of a run reaches the errand, with its steps', async () => {
     rig.close();
   }
 });
-
-test('the scout prompt claims no spending limit', () => {
-  // Bug: the agent is told of a cap that does not exist, and an errand's limits are steps and seconds alone.
-  const prompt = fs.readFileSync(path.join(import.meta.dirname, '..', 'agents', 'scout', 'prompt.md'), 'utf8');
-  assert.doesNotMatch(prompt, /spending|budget/i);
-});

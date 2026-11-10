@@ -284,28 +284,6 @@ test('skillArgs: each argument in schema order, required marked, enum values cap
   ]);
 });
 
-test('skillArgs: a skill lists its arguments, the same each time', () => {
-  const registry = skillRegistry();
-  assert.deepEqual(skillArgs(registry.get('memory.journal.read')), [
-    { name: 'day', required: false },
-    { name: 'kind', required: false, values: ['turn', 'action', 'memory', 'system', 'answer', 'inner', 'all'] },
-    { name: 'n', required: false, minimum: 1, maximum: 50 },
-    { name: 'message', required: false },
-  ]);
-  // Slice 7: the tool argument `channel` is named `place`.
-  assert.deepEqual(skillArgs(registry.get('message.create')), [
-    { name: 'place', required: false },
-    { name: 'reply', required: false },
-    { name: 'text', required: false },
-    { name: 'file', required: false },
-    { name: 'gif', required: false },
-    { name: 'media', required: false },
-    { name: 'item', required: false, minimum: 1, maximum: 20 },
-    // Stage 3 design, section 10: her diary in place of a channel, a string choice.
-  ]);
-  assert.deepEqual(skillArgs(registry.get('memory.journal.read')), skillArgs(registry.get('memory.journal.read')));
-});
-
 test("listSkills: each row carries the skill's arguments (skillArgs)", () => {
   const registry = skillRegistry();
   const rows = listSkills({

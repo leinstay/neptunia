@@ -22,7 +22,7 @@ import type { Db } from '../../src/memory/db/types.ts';
 import type { Adapter, ChatRef, MessageEvent } from '../../src/protocol/adapter.ts';
 import { messageRefsOf } from '../../interfaces/discord/collect.ts';
 import { createDiscordAdapter } from '../../interfaces/discord/port.ts';
-import { recordingPort, storedChatPort, storedReactions } from './turn-port.ts';
+import { recordingPort, storedChatPort, storedReactions, withStoredPlaces } from './turn-port.ts';
 import type { RecordedWrite, StoredChat } from './turn-port.ts';
 
 /** The command line's interface and its one chat (src/interface/cli-chat.ts). */
@@ -152,6 +152,16 @@ export type Stage = {
   close: () => void;
 };
 
+/** Her own account's platform id on `iface`, null when the copy holds none. */
+function selfIn(db: Db, iface: string): string | null {
+  const row = db
+    .prepare(
+      "SELECT native_id FROM accounts WHERE person_id = 'person:self' AND iface = ? AND native_id IS NOT NULL LIMIT 1"
+    )
+    .get(iface);
+  return typeof row?.native_id === 'string' ? row.native_id : null;
+}
+
 /** The ports of the stored turn's place (see the head of this file). */
 export function stageOf({
   db,
@@ -169,6 +179,20 @@ export function stageOf({
   tmpDir: string;
 }): Stage {
   if (turn.triggerId === null) throw new Error(`turn-replay: ${turn.turnId} names no trigger message`);
+  // A place of another interface answers its history from the copy, one fake adapter for each interface asked.
+  const places = new Map<string, Adapter>();
+  const placesOf = (iface: string): Adapter | null => {
+    if (iface === CLI_IFACE || iface === turn.iface) return null;
+    const held = places.get(iface);
+    if (held) return held;
+    const made = withStoredPlaces(createFakeAdapter({ iface, selfId: selfIn(db, iface) ?? selfId, now }), {
+      db,
+      iface,
+      until: turn.at,
+    });
+    places.set(iface, made);
+    return made;
+  };
   if (turn.iface === CLI_IFACE) {
     const through = triggerLine(db, turn.placeId, turn.triggerId);
     const sessionsFile = path.join(tmpDir, 'sessions.json');
@@ -190,7 +214,8 @@ export function stageOf({
       (placeId) => partnerOf(db, placeId),
       () => ownerConsoleName(db)
     );
-    const { port, writes } = recordingPort(cli, now);
+    const { port: cliPort, writes } = recordingPort(cli, now);
+    const port = createIfaceRouter(cliPort, placesOf, () => [cliPort]);
     return {
       port,
       writes,
@@ -231,14 +256,17 @@ export function stageOf({
   // What the interface declares, which the request reads (its emoji line, its media pick): the Discord adapter's own
   // declaration, read off an adapter with no client. Another interface keeps the fake's.
   const declared = turn.iface === 'discord' ? createDiscordAdapter({}).capabilities() : null;
-  const { port: storedPort, writes } = recordingPort(served, now);
+  const { port: storedPort, writes } = recordingPort(
+    withStoredPlaces(served, { db, iface: turn.iface, until: turn.at, held: [chat.id] }),
+    now
+  );
   const recorded = declared === null ? storedPort : { ...storedPort, capabilities: () => declared };
   // The command line answers as its own interface, as the core routes it. With no chat open it is the kept chat.
   const cli = recordingPort(createCliChat({ live: () => null, now, newId: randomUUID }), now);
   const empty = createFakeAdapter({ iface: 'none' });
   const port = createIfaceRouter(
     recorded,
-    (name) => (name === CLI_IFACE ? cli.port : null),
+    (name) => (name === CLI_IFACE ? cli.port : placesOf(name)),
     () => [recorded, cli.port, empty]
   );
   return {

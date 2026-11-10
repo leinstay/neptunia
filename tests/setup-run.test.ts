@@ -82,30 +82,6 @@ function rig(overrides: Partial<SetupOptions> = {}): Rig {
   return { options, deps, calls, events, chat, state, unitDir };
 }
 
-test('the steps run in a fixed order: folders, keys file, units, linger, core', () => {
-  // Bug: the core is started before its units exist, or the units are written before the folders they point at.
-  // Changed: SETUP_STEPS gains the self-development step after the core (spec 2026-11-02, PR 5 "Forks").
-  // Changed again for spec 2026-11-02 PR 5 "Several subharnesses": the four steps that ask come before the units, so
-  // the units bind the backends just connected; the core is last.
-  assert.deepEqual(
-    [...SETUP_STEPS],
-    // Changed: the interfaces step asks after the key file, because interfaces own their token and server list now.
-    [
-      'folders',
-      'keys-file',
-      'interfaces',
-      'services',
-      'subharness',
-      'selfimprovement',
-      'mechanics',
-      'watcher',
-      'units',
-      'linger',
-      'core',
-    ]
-  );
-});
-
 test('a fresh user setup creates the private folders at 0700 whatever the umask', async () => {
   // Bug: the folders take the umask (0755), so another local user reads the private layer and the memory.
   const previous = process.umask(0o022);

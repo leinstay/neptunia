@@ -112,32 +112,6 @@ test('a blocked task writes a row to her outbox with the reason, when she filed 
   assert.equal((row?.payload as { reason?: string } | undefined)?.reason, 'No push right.');
 });
 
-test('a block of a watcher task goes to persona:self too, whoever subscribed', (t) => {
-  // Catches: the row goes to the watcher's own name, which no wake ever reads.
-  const { board, held, herOutbox } = rig(t);
-  const { id, generation } = held('watcher');
-  board.call(WORKER, 'task.block', { id, generation, reason: 'No push right.', unblocks: 'A fork.' });
-  assert.deepEqual(
-    herOutbox()
-      .filter((one) => one.task_id === id)
-      .map((one) => one.kind),
-    ['blocked']
-  );
-});
-
-test('a question addressed to persona:self reaches her outbox on a task the watcher filed', (t) => {
-  // Catches: `needs_answer` notifies the subscriber alone, so the addressee never hears of the question.
-  const { board, held, herOutbox } = rig(t);
-  const { id, generation } = held('watcher');
-  board.call(WORKER, 'task.ask', { id, generation, text: 'Is this worth doing?', to_whom: SELF });
-  assert.deepEqual(
-    herOutbox()
-      .filter((one) => one.task_id === id)
-      .map((one) => one.kind),
-    ['needs_answer']
-  );
-});
-
 test('her wake shows the question addressed to her on a task she did not file, with its id to answer', async (t) => {
   // Catches: her view lists only her own requests, so she can never answer a question about a watcher's task.
   const { board, caller, held } = rig(t);

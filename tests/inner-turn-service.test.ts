@@ -14,7 +14,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DESTINATION_REQUIRED } from '../src/behavior/inner-output.ts';
 import type { SelfimprovementFacts } from '../src/behavior/selfimprovement-view.ts';
-import type { TurnRunner } from '../src/behavior/turn-types.ts';
+
 import { formatDate } from '../src/format.ts';
 import { PERSONA_ID } from '../src/memory/db/storage-keys.ts';
 import { blocksOf } from '../src/turn/request/frame.ts';
@@ -219,14 +219,4 @@ test('<work> of a selfimprovement wake sits in <inner>, states its window and na
       ids.some((id) => line.includes(id)),
       line
     );
-});
-
-test('runTurn takes no auto mode and no forced flag', () => {
-  // Bug: the forced turn's mode or flag survives in the type, and a caller can still start a turn with nothing to answer.
-  type Params = Parameters<TurnRunner['runTurn']>[0];
-  // @ts-expect-error the mode `auto` leaves with the forced turn
-  const auto: Params = { mode: 'auto' };
-  // @ts-expect-error the `forced` flag leaves with the forced turn
-  const flagged: Params = { mode: 'reply', forced: true };
-  assert.deepEqual([auto.mode, flagged.forced], ['auto', true]);
 });

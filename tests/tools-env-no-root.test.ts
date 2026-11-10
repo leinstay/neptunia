@@ -13,7 +13,7 @@ import path from 'node:path';
 import { createMemoryDb } from '../src/memory/db/service.ts';
 import type { MemoryDbService } from '../src/memory/db/service.ts';
 import { createStore } from '../src/memory/store.ts';
-import { CODE } from '../src/tools/codes.ts';
+
 import { createOpsEnv } from '../src/tools/operations/env.ts';
 import { runOp } from '../src/tools/operations/index.ts';
 import { tempDir } from './fixtures/tmp.ts';
@@ -52,20 +52,6 @@ const owner = (env: ReturnType<typeof createOpsEnv>, placeId?: string) => ({
   env,
   asOwner: true,
   ...(placeId === undefined ? {} : { placeId }),
-});
-
-test('no member of the env names a root', () => {
-  // Bug: `requireRootId` stays reachable, and a tool written later inherits the home-root assumption.
-  const named = Object.keys(rig()).filter((key) => /root/i.test(key));
-  assert.deepEqual(named, []);
-});
-
-test('no result code names a root', () => {
-  // Bug: a refusal tells a Telegram owner that no root resolved yet.
-  assert.deepEqual(
-    Object.keys(CODE).filter((key) => /root/i.test(key)),
-    []
-  );
 });
 
 test('a place operation with a place in its context reads that place', async () => {

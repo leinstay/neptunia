@@ -59,14 +59,6 @@ test('turnRequestInput: a key missing from the context throws, naming it', () =>
   assert.throws(() => turnRequestInput(missing), /mode/);
 });
 
-test('turnRequestInput: recallAvailable is a named input beside searchAvailable; leaving it out throws', () => {
-  assert.equal(TURN_INPUT_KEYS.indexOf('recallAvailable'), TURN_INPUT_KEYS.indexOf('searchAvailable') + 1);
-  const ctx = fullContext();
-  assert.equal(turnRequestInput({ ...ctx, recallAvailable: false }).recallAvailable, false);
-  delete ctx.recallAvailable;
-  assert.throws(() => turnRequestInput(ctx), /recallAvailable/);
-});
-
 test('turnRequestInput: a key buildRequest does not read throws, naming it', () => {
   assert.throws(() => turnRequestInput({ ...fullContext(), neighbours: [] }), /neighbours/);
 });

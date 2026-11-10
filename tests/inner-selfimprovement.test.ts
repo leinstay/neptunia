@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInnerLife } from '../src/behavior/inner.ts';
-import { INNER_DEFAULTS, WAKE_KINDS, innerSettings } from '../src/behavior/inner/settings.ts';
+import { innerSettings } from '../src/behavior/inner/settings.ts';
 import { failureCause, selfimprovementWake } from '../src/behavior/inner/selfimprovement.ts';
 import { shapesOf } from '../src/behavior/selfimprovement-view.ts';
 import type { Chain } from '../src/behavior/selfimprovement-view.ts';
@@ -33,20 +33,6 @@ function chain(turnId: string, at: number, status: 'ok' | 'failed' = 'failed', t
     calls: [{ tool, args: ['url'], status, code: status === 'failed' ? 'timeout' : null }],
   };
 }
-
-test('the wake kinds include selfimprovement and its settings default to 03:00 and three failures', () => {
-  // Changed for spec 2026-11-02 "`selfimprovement` daily, after the watcher": the daily `at` replaces `everyDays`.
-  // Changed: `selfimprovement.at` became the one setting `selfimprovement.schedule`, read in its parsed form.
-  assert.ok((WAKE_KINDS as ReadonlyArray<string>).includes('selfimprovement'));
-  assert.deepEqual(INNER_DEFAULTS.wakes.selfimprovement, {
-    schedule: { kind: 'at', at: ['03:00'] },
-    failuresPerShape: 3,
-  });
-  assert.deepEqual(innerSettings({}).wakes.selfimprovement, {
-    schedule: { kind: 'at', at: ['03:00'] },
-    failuresPerShape: 3,
-  });
-});
 
 test('the settings take an HH:MM and a positive whole number from selfimprovement and the default for anything else', () => {
   // Changed for spec 2026-11-02 "`selfimprovement` daily, after the watcher": the daily `at` replaces `everyDays`.

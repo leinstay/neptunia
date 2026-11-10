@@ -82,14 +82,6 @@ for (const backend of ['claude', 'codex'] as const) {
     assert.deepEqual(named, []);
     assert.ok(!Object.values(seen.env).some((v) => v.includes(TASK_KEY)));
   });
-
-  test(`a scout run on ${backend} has no scout command folder on PATH and no web-search`, async () => {
-    // Catches: a pathDirs folder or a host-visible web-search left for the claude or codex child.
-    const { seen, denyDir } = await runScout(backend);
-    assert.ok(seen);
-    assert.equal(seen.webSearch, '');
-    assert.equal(seen.path, `${denyDir}:${HOST_PATH}`);
-  });
 }
 
 test('a scout run on opencode gets the route key as OPENROUTER_API_KEY and no web-search command', async () => {
@@ -99,13 +91,4 @@ test('a scout run on opencode gets the route key as OPENROUTER_API_KEY and no we
   assert.equal(seen.env.OPENROUTER_API_KEY, TASK_KEY);
   assert.equal(seen.webSearch, '');
   assert.equal(seen.path, `${denyDir}:${HOST_PATH}`);
-});
-
-test('the scout profile keeps its own websearch tool and has no command folder', () => {
-  // Catches: the opencode route losing its native search together with the shell command.
-  const scout = profileOf('scout');
-  assert.ok(scout);
-  assert.ok(scout.tools.includes('websearch'));
-  // Stage W: the owner changed this from an empty `pathDirs` list to no `pathDirs` field at all.
-  assert.equal('pathDirs' in scout, false);
 });

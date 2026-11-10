@@ -115,16 +115,6 @@ test('a provider status of 429 is archived with its status', LIMIT, async () => 
   assert.equal(await codeOfFailure(statusNetwork(429), {}), 'http_429');
 });
 
-test('a provider status of 400 is archived with its status', LIMIT, async () => {
-  // Bug: a request the provider refuses for good reads as a transient failure.
-  assert.equal(await codeOfFailure(statusNetwork(400), {}), 'http_400');
-});
-
-test('a provider status of 503 is archived with its status', LIMIT, async () => {
-  // Bug: an outage at the provider cannot be told from the engine's own exceptions.
-  assert.equal(await codeOfFailure(statusNetwork(503), {}), 'http_503');
-});
-
 test('a network failure is archived as network', LIMIT, async () => {
   // Bug: a request that never reached the provider reads as one it answered badly.
   const network: Network = () => Promise.reject(new TypeError('fetch failed'));

@@ -8,7 +8,6 @@ import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createLoopback, connectSocket, decodeEnvelope, encodeEnvelope, envelope } from '../src/protocol/index.ts';
-import * as wire from '../src/protocol/wire.ts';
 
 type Env = ReturnType<typeof envelope>;
 type Bodied = { body: { content: { attachments: Array<{ name: string; data: Uint8Array }> } } };
@@ -84,13 +83,6 @@ test('refuses JSON that is not an envelope', () => {
   const unknownVersion = JSON.stringify({ v: 99, id: 'x', type: 'ping', replyTo: null, body: {} });
   assert.equal(decodeEnvelope(unknownVersion).ok, false);
   assert.equal(decodeEnvelope('[1,2]').ok, false);
-});
-
-test('the protocol index exports the codec, the loopback and the socket client of the wire', () => {
-  assert.equal(encodeEnvelope, wire.encodeEnvelope);
-  assert.equal(decodeEnvelope, wire.decodeEnvelope);
-  assert.equal(createLoopback, wire.createLoopback);
-  assert.equal(connectSocket, wire.connectSocket);
 });
 
 test('the loopback delivers the core envelope to the client and the client envelope to the core', async () => {

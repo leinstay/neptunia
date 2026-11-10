@@ -118,6 +118,14 @@ function currentRows(db: Db, placeId: string): Array<Row> {
     .sort((a, b) => String(a.occurred_at).localeCompare(String(b.occurred_at)) || Number(a.r) - Number(b.r));
 }
 
+/** The platform's message id of each message family, by its native key. */
+function familiesOf(db: Db): Map<string, string> {
+  const families = new Map<string, string>();
+  for (const row of db.prepare('SELECT native_key, message_id FROM message_families').all())
+    families.set(String(row.native_key), String(row.message_id));
+  return families;
+}
+
 /**
  * The stored lines of `placeId`, oldest first, through the line whose platform id is `through`, and with `until`
  * (milliseconds) every later line written before it: what a history read gave when the turn started. Throws when the
@@ -128,13 +136,16 @@ export function storedLines(
   { placeId, through, until = null }: { placeId: string; through: string; until?: number | null }
 ): Array<StoredLine> {
   const rows = currentRows(db, placeId);
-  const families = new Map<string, string>();
-  for (const row of db.prepare('SELECT native_key, message_id FROM message_families').all())
-    families.set(String(row.native_key), String(row.message_id));
+  const families = familiesOf(db);
   const end = rows.findIndex((row) => platformIdOf(row, families) === through);
   if (end < 0) throw new Error(`turn-port: ${placeId} holds no stored line ${through}`);
   const later = until === null ? [] : rows.slice(end + 1).filter((row) => Date.parse(String(row.occurred_at)) < until);
   const kept = [...rows.slice(Math.max(0, end + 1 - LINES_KEPT), end + 1), ...later];
+  return linesOf(db, kept, families);
+}
+
+/** The stored lines of `rows` as a history read answers them, each with its media. */
+function linesOf(db: Db, kept: ReadonlyArray<Row>, families: ReadonlyMap<string, string>): Array<StoredLine> {
   const media = lineMedia(
     db,
     kept.map((row) => String(row.id)),
@@ -152,6 +163,15 @@ export function storedLines(
     editedAt: Number(row.revision) > 1 ? Date.parse(String(row.recorded_at)) : null,
     media: media.get(String(row.id)) ?? [],
   }));
+}
+
+/**
+ * The stored lines of `placeId` written before `until` (milliseconds), oldest first and at most the last
+ * `LINES_KEPT`: what an interface's history of a place the turn is not in held when the turn started.
+ */
+export function storedLinesBefore(db: Db, placeId: string, until: number): Array<StoredLine> {
+  const rows = currentRows(db, placeId).filter((row) => Date.parse(String(row.occurred_at)) < until);
+  return linesOf(db, rows.slice(-LINES_KEPT), familiesOf(db));
 }
 
 /** What a platform's message carries beyond its stored line: its reactions and the messages its text links to. */
@@ -307,6 +327,57 @@ export function storedChatPort({
 }
 
 /** A write the replayed turn asked of its interface, stamped with the wall clock (`wall`) for the report's timings. */
+/**
+ * `adapter` (a fake of `iface`) answering the history of every stored place of its interface: a chat it does not hold
+ * is seeded, the first time it is read, with the place's stored lines written before `until`. A read of a place the
+ * turn is not in then answers what the platform held when the turn started, in place of a failed connection.
+ */
+export function withStoredPlaces<TAdapter extends ReturnType<typeof createFakeAdapter>>(
+  adapter: TAdapter,
+  { db, iface, until, held = [] }: { db: Db; iface: string; until: number; held?: ReadonlyArray<string> }
+): TAdapter {
+  const seeded = new Set<string>(held);
+  const ensure = (chatId: unknown): void => {
+    if (typeof chatId !== 'string' || seeded.has(chatId)) return;
+    seeded.add(chatId);
+    const place = db.prepare('SELECT * FROM places WHERE iface = ? AND native_id = ?').get(iface, chatId);
+    if (!place) return;
+    const parent = text(place.parent_id);
+    const root = parent === null ? null : db.prepare('SELECT native_id FROM places WHERE id = ?').get(parent);
+    const record = {
+      id: chatId,
+      kind:
+        place.kind === 'dm' ? ('dm' as const) : place.kind === 'thread' ? ('thread' as const) : ('channel' as const),
+      rootId: text(root?.native_id),
+      name: text(place.name),
+      topic: text(place.topic),
+    };
+    adapter.seedChat({
+      iface,
+      permissions: { read: true, send: true, attach: true, react: true },
+      owner: null,
+      lastMessageAt: null,
+      voice: false,
+      public: true,
+      audience: null,
+      ...record,
+    });
+    for (const line of storedLinesBefore(db, String(place.id), until))
+      adapter.seedEvent(eventOfStored(line, iface, record, {}));
+  };
+  return {
+    ...adapter,
+    history: (...args: Parameters<TAdapter['history']>) => {
+      ensure(args[0]?.chatId);
+      return adapter.history(...(args as Parameters<ReturnType<typeof createFakeAdapter>['history']>));
+    },
+    fetchMessages: (...args: Parameters<TAdapter['fetchMessages']>) => {
+      ensure(args[0]?.chatId);
+      return adapter.fetchMessages(...(args as Parameters<ReturnType<typeof createFakeAdapter>['fetchMessages']>));
+    },
+  };
+}
+
 export type RecordedWrite = { op: 'send' | 'edit' | 'delete' | 'react' | 'unreact'; at: number; args: Array<unknown> };
 
 /**

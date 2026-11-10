@@ -154,6 +154,22 @@ test('the cancel of the running line reaches the signal the runner reads, and on
   assert.equal(turns.cancelOf('m2')?.aborted, false);
 });
 
+test('a step named think reaches the control as progress of kind think, and a call keeps its own kind', async () => {
+  // Bug: her think is sent as a tool call, and the row shows "using think" or a task name for it.
+  const { take, turns, events } = rig();
+  await take('m1', 'one');
+  turns.noteProgress('m1', { name: 'think', detail: 'checking the list first' });
+  turns.noteProgress('m1', { name: 'lore.list', detail: 'started' });
+  const steps = events.filter((event) => event.type === 'progress');
+  assert.deepEqual(
+    steps.map((event) => [event.kind, event.name, event.detail]),
+    [
+      ['think', 'think', 'checking the list first'],
+      ['tool', 'lore.list', 'started'],
+    ]
+  );
+});
+
 test('how the turn ended becomes the event: spoke and skip commit, a failure keeps its reason', async () => {
   // Bug: a failed turn shows as answered, or the journal id of the reply is lost.
   const { take, turns, events } = rig();

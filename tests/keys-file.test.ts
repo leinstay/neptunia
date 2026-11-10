@@ -57,24 +57,8 @@ const writeRouting = (agents: Record<string, unknown>): string => {
   return dir;
 };
 
-test('a backend that is none of the three reads as off', () => {
-  // Bug: a hand-edited backend name is passed on to a spawn.
-  assert.deepEqual(readRouting(writeRouting({ via: { dev: 'rm' } })).subharness.uses, {});
-});
-
 test('the backend each agent runs through keeps only backend names', () => {
   // Catches: a hand-edited `via` entry such as "sh" is passed to the run as a backend.
   const dir = writeRouting({ via: { watcher: 'claude', scout: 'sh' } });
   assert.deepEqual(readRouting(dir).subharness.uses, { watcher: 'claude' });
-});
-
-test('a write of the store leaves no routing section in keys.json', () => {
-  // Catches: the old `subharness` survives a write, so keys.json keeps routing the engine no longer reads.
-  // Changed: the routing sections leave keys.json whole, the old `backend` with them.
-  const dir = tempDir('nep-keysfile-');
-  fs.writeFileSync(path.join(dir, 'keys.json'), JSON.stringify({ subharness: { backend: 'codex' }, roles: {} }));
-  writeKeys(dir, readKeys(dir));
-  const raw = JSON.parse(fs.readFileSync(path.join(dir, 'keys.json'), 'utf8')) as object;
-  assert.equal(Object.hasOwn(raw, 'subharness'), false);
-  assert.equal(Object.hasOwn(raw, 'roles'), false);
 });

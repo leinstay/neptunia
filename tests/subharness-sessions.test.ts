@@ -12,6 +12,7 @@ import { DAY, answerOf, inspectionDeps, inspectionRig, sectionOf } from './fixtu
 import { writeFakeClaude } from './fixtures/claude-transcript.ts';
 import { writeKeysFile } from './fixtures/keys-file.ts';
 import { tempDir } from './fixtures/tmp.ts';
+import { withCapturedLogs } from './fixtures/capture-logs.ts';
 
 function installed() {
   const privateDir = tempDir('nep-session-map-');
@@ -69,4 +70,28 @@ test('a torn line of the map is skipped and the rows around it stay', () => {
     readSessionMap(privateDir).map((row) => row.sessionId),
     ['s1', 's3']
   );
+});
+
+// src/subharness/run.ts when the session map cannot be written: the run goes on and answers, and the log line says why
+// the write failed by the error's code. Inside the scout's unit the map's folder is a read-only tmpfs, and a line that
+// carried only `Error` could not tell that from a full disk or a missing permission. The claude is a fake.
+
+test('a session map that cannot be written is logged with its error code and the run still answers', async () => {
+  // Bug: the warning names the error class (`Error`) instead of its code, or the failed write stops the run.
+  const privateDir = tempDir('nep-map-log-');
+  writeKeysFile(privateDir, { subharness: { key: null, modes: {}, models: {}, uses: { scout: 'claude' } } });
+  writeFakeClaude(subharnessPlace(privateDir, 'claude').binary, path.join(privateDir, 'argv'), '  --session-id <uuid>');
+  // A folder where the map file should be: appending to it fails with EISDIR.
+  fs.mkdirSync(path.join(privateDir, 'subharness', 'sessions.jsonl'), { recursive: true });
+  const { result, logs } = await withCapturedLogs(() =>
+    runAgent(
+      { agent: 'scout', brief: 'B', cwd: privateDir, timeoutMs: 5_000 },
+      { privateDir, denyDir: tempDir('nep-map-log-deny-') }
+    )
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.text, 'THE-ANSWER');
+  const warning = logs.find((entry) => entry.msg === 'subharness: the session map could not be written');
+  assert.equal(warning?.code, 'EISDIR');
+  assert.equal(warning?.agent, 'scout');
 });

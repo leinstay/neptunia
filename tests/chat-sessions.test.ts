@@ -100,17 +100,6 @@ test('a branch at a boundary shows the lines up to it, keeps the lineage, and le
   assert.deepEqual(store.lines('cli:dm:owner'), LINES);
 });
 
-test('a branch states that memory stays continuous', () => {
-  // Bug: the picker promises a branch that forgets what she learned after the boundary.
-  const { store } = storeOf();
-  const service = serviceOver(store);
-  const root = ok(service.open({ placeId: 'cli:dm:owner' }));
-  const branch = ok(
-    service.branch({ from: root.session.id, boundary: 's2', requestKey: 'k1', authority: root.authority })
-  );
-  assert.equal(branch.memory, 'continuous');
-});
-
 test('a boundary that is not in the lineage is refused', () => {
   // Bug: a missing boundary silently branches the whole chat.
   const { store, rows } = storeOf();

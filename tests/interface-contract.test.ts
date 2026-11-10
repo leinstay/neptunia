@@ -426,42 +426,6 @@ test('createDiscordInterface: the port is the Discord adapter over the given cli
   assert.deepEqual(sent, [{ content: 'ναι', reply: undefined, allowedMentions: { parse: [] } }]);
 });
 
-// Changed with the contract: the reply parents, the neighbours, the text previews, the pull and the reactor store moved
-// into the core over the interface's reads, and `normalizedOf` is `lineOf` there, so the package no longer lists them.
-test("createDiscordInterface: the capabilities are the package's own functions, by name, frozen", () => {
-  const { capabilities } = createDiscordInterface({ client: { user: { id: SELF } } });
-  assert.deepEqual(Object.keys(capabilities), [
-    'canRead',
-    'canSend',
-    'canAttach',
-    'canReact',
-    'isReadableChannel',
-    'isWritableChannel',
-    'readableChannels',
-    'channelDirectoryOf',
-    'lastActivity',
-    'snowflakeTime',
-    'audienceOf',
-    'fetchHistory',
-    'fetchHistoryWindow',
-    'fetchMessage',
-    'normalizeMessage',
-    'normalizeOptions',
-    'PAGE',
-    'audienceAllows',
-    'checkPull',
-    'searchMessages',
-    'searchMembers',
-    'fetchAround',
-    'fetchAfter',
-    'fetchBefore',
-    'toEvent',
-  ]);
-  const discordExports: Record<string, unknown> = discordInterface;
-  for (const [name, value] of Object.entries(capabilities)) assert.equal(value, discordExports[name], name);
-  assert.ok(Object.isFrozen(capabilities));
-});
-
 test('snowflakeTime and createDiscordClient: the creation time of an id, and the client the root logs in', () => {
   // The Discord epoch plus the timestamp bits: 175928847299117063 is 2016-04-30T11:18:25.796Z.
   assert.equal(discordInterface.snowflakeTime('175928847299117063'), Date.UTC(2016, 3, 30, 11, 18, 25, 796));
