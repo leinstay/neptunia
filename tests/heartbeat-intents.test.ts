@@ -235,15 +235,20 @@ const actionsOf = (run: Record<string, Untyped>) =>
   run.result.inner.actions.map((a: Record<string, Untyped>) => `${a.skill}:${a.status}:${a.code ?? a.result}`);
 
 test('heartbeat turn: a post is refused and a memory read succeeds, she reads why, then one intention.set ends the turn with no further request', async () => {
+  // Changed: lore.list is no heartbeat read since memory.read took the narrow reads (lookup loop slice 12), so the read
+  // here is conversation.read, a granted read the heartbeat accepts.
   const run = await liveTurn({
     answers: [
-      toolAnswer(THINK, [call('message.create', { text: 'γεια' }), call('lore.list')]),
+      toolAnswer(THINK, [
+        call('message.create', { text: 'γεια' }),
+        call('conversation.read', { place: '#general', last: 1 }),
+      ]),
       SET('check the thread in #general and answer if it is still open'),
     ],
   });
   assert.deepEqual(actionsOf(run), [
     'message.create:refused:heartbeat-only',
-    'lore.list:executed:ok',
+    'conversation.read:executed:ok',
     'intention.set:executed:ok',
   ]);
   assert.deepEqual(run.sends, [], 'nothing was posted');
@@ -251,7 +256,7 @@ test('heartbeat turn: a post is refused and a memory read succeeds, she reads wh
   assert.ok(readOf(run, 1).includes(labels.tools.result.reasons['heartbeat-only']), 'she reads the refusal');
   assert.equal(run.list().length, 1);
   assert.ok(
-    !run.logs.some((log) => log.msg === 'heartbeat: call refused' && log.skill === 'lore.list'),
+    !run.logs.some((log) => log.msg === 'heartbeat: call refused' && log.skill === 'conversation.read'),
     'memory inspection is allowed'
   );
 });
@@ -386,29 +391,34 @@ test('an intention_due turn is not limited to intention changes', async () => {
 for (const transport of ['native', 'text']) {
   test(`heartbeat ${transport}: a read result is inspected before one intention ends the turn`, async () => {
     const answer = transport === 'native' ? toolAnswer : textAnswer;
+    // Changed: lore.list is no heartbeat read since memory.read took the narrow reads (lookup loop slice 12), so the read
+    // here is conversation.read, a granted read the heartbeat accepts.
     const run = await liveTurn({
       transport,
-      lore: [{ id: 'l1', title: 'Weekend tournament', keys: ['tournament'], text: 'A shared game', always: false }],
       answers: [
-        answer(THINK, [call('lore.list')]),
+        answer(THINK, [call('conversation.read', { place: '#general', last: 1 })]),
         answer(THINK, [call('intention.set', { due: '1h', text: 'ask about the remembered chat' })]),
-        answer(THINK, [call('lore.list')]),
+        answer(THINK, [call('conversation.read', { place: '#general', last: 1 })]),
       ],
     });
-    assert.deepEqual(actionsOf(run), ['lore.list:executed:ok', 'intention.set:executed:ok']);
+    assert.deepEqual(actionsOf(run), ['conversation.read:executed:ok', 'intention.set:executed:ok']);
     assert.equal(run.llm.calls.length, 2);
     assert.equal(run.list().length, 1);
     assert.deepEqual(run.sends, []);
     assert.ok(
-      JSON.stringify(run.llm.calls[1].slice(2)).includes('Weekend tournament'),
+      JSON.stringify(run.llm.calls[1].slice(2)).includes('πρώτο'),
       'the continuation receives the memory result'
     );
   });
 }
 
 test('heartbeat: inspecting memory may end in a skip without creating an intention', async () => {
-  const run = await liveTurn({ answers: [toolAnswer(THINK, [call('lore.list')]), '<skip/>'] });
-  assert.deepEqual(actionsOf(run), ['lore.list:executed:ok']);
+  // Changed: lore.list is no heartbeat read since memory.read took the narrow reads (lookup loop slice 12), so the read
+  // here is conversation.read, a granted read the heartbeat accepts.
+  const run = await liveTurn({
+    answers: [toolAnswer(THINK, [call('conversation.read', { place: '#general', last: 1 })]), '<skip/>'],
+  });
+  assert.deepEqual(actionsOf(run), ['conversation.read:executed:ok']);
   assert.equal(run.llm.calls.length, 2);
   assert.deepEqual(run.list(), []);
   assert.deepEqual(run.sends, []);
@@ -424,12 +434,15 @@ test('heartbeat: an external read remains forbidden even though memory reads are
 });
 
 test('heartbeat: a failed memory read is returned to the model and can end in a skip', async () => {
+  // Changed: lore.show is no heartbeat read since memory.read took the narrow reads (lookup loop slice 12), so the failed
+  // read is a conversation.read around a message that does not exist, and she reads its refusal.
   const run: Record<string, Untyped> = await liveTurn({
-    answers: [toolAnswer(THINK, [call('lore.show', { id: 'missing' })]), '<skip/>'],
+    answers: [toolAnswer(THINK, [call('conversation.read', { place: '#general', around: 'missing' })]), '<skip/>'],
   });
-  assert.equal(run.result.inner.actions[0].code, 'not-found');
+  assert.equal(run.result.inner.actions[0].code, 'unknown-message');
   assert.equal(run.llm.calls.length, 2);
-  assert.ok(readOf(run, 1).includes('missing'));
+  const { refused } = labels.tools.result;
+  assert.ok(readOf(run, 1).includes(refused.replace('{reason}', '').trim()));
   assert.deepEqual(run.list(), []);
 });
 

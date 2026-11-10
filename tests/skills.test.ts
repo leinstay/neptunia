@@ -151,15 +151,8 @@ test('skills registry: one skill per operation, of the same name, kind and owner
     assert.equal(skill?.family, op.name.split('.')[0], op.name);
   }
   // the old interface-only skills are gone; their abilities are operations behind commands
-  for (const gone of [
-    'draw',
-    'memory.read',
-    'message.send',
-    'skills.list',
-    'access.request',
-    'talk.interject',
-    'skill.allow',
-  ])
+  // Changed: `memory.read` is a skill again, her read of one subject in a turn (lookup loop slice 12), so it left this list.
+  for (const gone of ['draw', 'message.send', 'skills.list', 'access.request', 'talk.interject', 'skill.allow'])
     assert.equal(registry.has(gone), false, gone);
   for (const name of [
     'message.create',

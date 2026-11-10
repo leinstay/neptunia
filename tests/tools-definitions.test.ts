@@ -77,7 +77,8 @@ test('the table holds every operation, in the operations registry order', () => 
   // 76 since `person.link` (plan 2026-11-08-meta-person slice 8): one operation, one row.
   // 75 since `inner.status` left: it repeated the `inner` field of the owner's status card.
   // 73 since `memory.affinity.read` and `errand.status` merged into `memory.profile.read` and `errand.list`.
-  assert.equal(SKILL_DEFINITIONS.length, 73);
+  // Changed: 74 since `memory.read` (lookup loop slice 12): one operation, one row; the six reads it replaces for her stay.
+  assert.equal(SKILL_DEFINITIONS.length, 74);
   assert.deepEqual(
     SKILL_DEFINITIONS.map((definition) => definition.name),
     listOps().map((op) => op.name)
@@ -209,13 +210,14 @@ test('the result of a skill: job for the two background ones, data for a read, e
   }
 });
 
-test('the API names: 73, well-formed, unique, a round trip, no longer than 64', () => {
+test('the API names: 74, well-formed, unique, a round trip, no longer than 64', () => {
   // Two more since the board tools task.propose and task.status (PR 6c).
   const apis = SKILL_DEFINITIONS.map((definition) => definition.api);
   // Changed: task.unblock is the 77th tool.
   // 75 since `inner.status` left, 73 since the two merged reads.
-  assert.equal(apis.length, 73);
-  assert.equal(new Set(apis).size, 73);
+  // Changed: 74 since `memory.read` (lookup loop slice 12).
+  assert.equal(apis.length, 74);
+  assert.equal(new Set(apis).size, 74);
   for (const definition of SKILL_DEFINITIONS) {
     assert.match(definition.api, /^[a-zA-Z0-9_-]{1,64}$/);
     assert.equal(apiNameOf(definition.name), definition.api);

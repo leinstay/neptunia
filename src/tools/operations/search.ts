@@ -255,6 +255,13 @@ defineOp({
   rights: { kind: 'read', member: true },
   run: (args, ctx) => handlers(ctx.env).cmdConversationRead(args, ctx),
 });
+// Her read of what memory holds about one subject runs only inside a turn, under the turn's memory context
+// (src/turn/memory-read.ts, through src/turn/in-turn-tools.ts); called anywhere else it has no context to read under.
+defineOp({
+  name: 'memory.read',
+  rights: { kind: 'read', member: true },
+  run: () => asOpResult({ status: 'not_configured', code: CODE.UNSUPPORTED }, 'read'),
+});
 // Her link tool runs only inside a turn, over the account she talks with (src/interface/person-link.ts, through
 // src/turn/in-turn-tools.ts); called anywhere else it has no conversation to link.
 defineOp({

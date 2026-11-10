@@ -62,15 +62,29 @@ export function isOwnerCaller(
   return context?.asOwner === true || isOwnerId(config, context?.accountId);
 }
 
-/** The tools merged into another, old name to current name: a stored grant or envelope entry under the old name stands for the current tool. */
+/**
+ * The tools merged into another, old name to current name: a stored grant or envelope entry under the old name stands for
+ * the current tool. The six narrow reads of one subject stay the owner's tools under their own names, and a grant of
+ * any of them opens her memory.read.
+ */
 const MERGED_INTO: Readonly<Record<string, string>> = Object.freeze({
   'memory.affinity.read': 'memory.profile.read',
   'errand.status': 'errand.list',
+  'memory.profile.read': 'memory.read',
+  'memory.channel.read': 'memory.read',
+  'memory.server.read': 'memory.read',
+  'memory.recent.read': 'memory.read',
+  'lore.list': 'memory.read',
+  'lore.show': 'memory.read',
 });
 
-/** The names a stored grant or envelope entry may use for `name`: itself and every tool merged into it. */
+/** The names a stored grant or envelope entry may use for `name`: itself and every tool merged into it, at any depth. */
 export function grantNamesFor(name: string): Array<string> {
-  return [name, ...Object.keys(MERGED_INTO).filter((old) => MERGED_INTO[old] === name)];
+  const names = [name];
+  for (let i = 0; i < names.length; i += 1)
+    for (const old of Object.keys(MERGED_INTO))
+      if (MERGED_INTO[old] === names[i] && !names.includes(old)) names.push(old);
+  return names;
 }
 
 /**

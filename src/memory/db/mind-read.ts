@@ -124,6 +124,11 @@ export type Seeds = {
   place: string | null;
   previous: Array<EntryRef>;
   candidates: Array<NodeRef & { sourceIds: Array<string>; from: 'prefetch' | 'query' }>;
+  /**
+   * True for a read of the seeds alone (memory.read, src/turn/memory-read.ts): no place she wrote in, no walk and no name
+   * in a claim joins them, so what comes back is the seeds' own entries, their lore and their episodes.
+   */
+  alone?: boolean;
 };
 export type MindSettings = {
   windowMessages: number;
@@ -171,7 +176,8 @@ export function mindSettingsOf(config: unknown): MindSettings {
   };
 }
 
-const EVIDENCE_ORDER: ReadonlyArray<Evidence> = [
+/** The kinds of evidence, strongest first. */
+export const EVIDENCE_ORDER: ReadonlyArray<Evidence> = [
   'native',
   'reply',
   'counterpart',
@@ -600,6 +606,7 @@ function seedTies(walker: Walker, seeds: Seeds, window: Array<SeedMessage>, foun
       keep: false,
     });
   seedCandidates(walker, seeds.candidates, found);
+  if (seeds.alone === true) return;
   for (const placeNode of walker.ownPlaces())
     walker.raise({ ...quiet, ...placeNode, evidence: 'edge', anchor: null, anchorAt: '', keep: false, own: true });
 }
@@ -1124,7 +1131,7 @@ export function mindOf(db: Db, ctx: Context, seeds: Seeds, settings: MindSetting
   const found = new Map<string, ExcerptSeed>();
   seedTies(walker, seeds, window, found);
   seedWords(db, ctx, walker, settings, window, seeds.place);
-  walkAll(db, walker, settings);
+  if (seeds.alone !== true) walkAll(db, walker, settings);
   const trigger = new Set(window.filter((message) => message.trigger).flatMap((message) => indexWords(message.text)));
   const lore: Array<Built> = [];
   const recent = new Map<string, Raised>();
@@ -1136,7 +1143,7 @@ export function mindOf(db: Db, ctx: Context, seeds: Seeds, settings: MindSetting
         : interfaceOf(db, raised);
   const first = [...walker.raised.values()].map(build).filter((one): one is Built => one !== null);
   const before = new Set(walker.raised.keys());
-  seedProse(db, ctx, walker, settings, first);
+  if (seeds.alone !== true) seedProse(db, ctx, walker, settings, first);
   const prose = [...walker.raised.values()].filter((one) => !before.has(one.nodeId)).map(build);
   const built = [
     ...first,

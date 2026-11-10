@@ -100,6 +100,8 @@ const AGREED = new Set([
   'places.list',
   'tools.describe',
   'conversation.read',
+  // Changed: memory.read, her read of one subject, runs only inside a turn (lookup loop slice 12).
+  'memory.read',
   'person.link',
 ]);
 

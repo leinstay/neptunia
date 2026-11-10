@@ -21,6 +21,10 @@ import { placeChainInDb } from './place-tree.ts';
 import { allowedAudience, whereFor } from './scope.ts';
 import { placeAudience } from './graph.ts';
 import { readSelfreflection } from './selfreflection-past.ts';
+import { subjectOf } from './subject.ts';
+import type { Subject, SubjectHere } from './subject.ts';
+import { affinityChangesOf } from '../affinity-changes.ts';
+import type { AffinityChange } from '../affinity-changes.ts';
 import type { PastEntry } from './selfreflection-past.ts';
 import type { Context } from './scope.ts';
 import type { Db, Row } from './types.ts';
@@ -436,6 +440,10 @@ export type FrameReads = {
   placeRef?(placeId: string): PlaceRef | null;
   /** The owner's account on the interface of a stored place, by `bot.ownerPerson` (person-links.ts#ownerAccountOf). */
   ownerAccount?(placeId: string): string | null;
+  /** The one thing memory.read's words name under the context, standing in `here` (subject.ts#subjectOf). */
+  subject?(ctx: Context, words: string, here: SubjectHere): Subject;
+  /** Her attitude changes toward one person the context reads, newest first (affinity-changes.ts#affinityChangesOf). */
+  affinityChanges?(ctx: Context, personId: string, limit: number): Array<AffinityChange>;
 };
 
 const NO_MIND: Mind = {
@@ -484,5 +492,7 @@ export function frameReadsOver(dbOf: () => Db | null, configOf: () => unknown): 
     chatPlaces: () => over([], (db) => chatPlacesOf(db)),
     placeRef: (placeId) => over(null, (db) => placeRefOf(db, placeId)),
     ownerAccount: (placeId) => over(null, (db) => ownerAccountOfPlace(db, configOf(), placeId)),
+    subject: (ctx, words, here) => over<Subject>({ kind: 'none' }, (db) => subjectOf(db, ctx, words, here)),
+    affinityChanges: (ctx, personId, limit) => over([], (db) => affinityChangesOf(db, ctx, { personId, limit })),
   };
 }

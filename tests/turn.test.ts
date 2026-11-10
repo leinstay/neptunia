@@ -4853,7 +4853,9 @@ test('skills discovery: every turn carries the skills granted to her as tools, w
   const [sent] = run.llm.turnCalls;
   assert.deepEqual(
     sent.options.tools.map((tool: Untyped) => tool.function.name),
-    ['lore_list', 'message_create', 'message_delete', 'message_edit', 'message_react_add']
+    // Changed: lore.list is one of the narrow reads left out of her offered list (lookup loop slice 12), and this turn's
+    // registry holds no memory.read to stand in for it.
+    ['message_create', 'message_delete', 'message_edit', 'message_react_add']
   );
   assert.ok(!run.text.includes('<tool_catalogue>\n'), 'the detailed rows stay off without a question or a proposal'); // PR 7e: renamed
 });

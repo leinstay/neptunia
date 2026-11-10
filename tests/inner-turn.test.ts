@@ -386,11 +386,19 @@ test("inner turn: her tools are the same list as an addressed turn's -- the gran
   const run = await innerTurn({ answers: ['<skip/>'], allowed });
   const names = run.llm.options[0].tools.map((tool: Record<string, Untyped>) => tool.function.name);
   // PR 7d: voice messages are code, so voice.say is among the posting skills carried over.
-  assert.deepEqual(names, ['draw_create', 'lore_list', 'message_create', 'message_react_add', 'voice_say', 'web_read']);
+  // Changed: the six narrow reads leave her offered list, and the grant of lore.list opens memory.read in its place (lookup loop slice 12).
+  assert.deepEqual(names, [
+    'draw_create',
+    'memory_read',
+    'message_create',
+    'message_react_add',
+    'voice_say',
+    'web_read',
+  ]);
   const bare = await innerTurn({ answers: ['<skip/>'], allowed: ['lore.list', 'web.read'] });
   assert.deepEqual(
     bare.llm.options[0].tools.map((tool: Record<string, Untyped>) => tool.function.name),
-    ['draw_create', 'lore_list', 'message_create', 'message_react_add', 'voice_say', 'web_read'],
+    ['draw_create', 'memory_read', 'message_create', 'message_react_add', 'voice_say', 'web_read'],
     'the posting skills are carried over, granted or not'
   );
 });

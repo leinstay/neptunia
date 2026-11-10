@@ -209,7 +209,9 @@ async function innerTurn({
   return { result: wrongly<Result>(result), sends, lines };
 }
 
-const READ_THEN_SKIP = [toolAnswer('', [call('lore.list')]), '<skip/>'];
+// Changed: lore.list is no selfimprovement read since memory.read took the narrow reads (lookup loop slice 12), so the read
+// is task.status, granted and accepted by the wake.
+const READ_THEN_SKIP = [toolAnswer('', [call('task.status')]), '<skip/>'];
 
 for (const kind of Object.keys(WAKES)) {
   test(`a ${kind} wake that only read and answered skip ends skip`, async () => {
@@ -243,7 +245,7 @@ test('a skip after reads gives the same reason as a skip at once, and keeps her 
   assert.equal(after.result.reason, atOnce.result.reason);
   assert.deepEqual(
     after.result.inner.actions.map((one) => `${one.skill}:${one.status}`),
-    ['lore.list:executed']
+    ['task.status:executed']
   );
 });
 
